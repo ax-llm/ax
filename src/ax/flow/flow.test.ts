@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AxMockAIService } from '../ai/mock/api.js';
 
-import { AxFlow } from './flow.js';
+import { flow, AxFlow } from './flow.js';
 
 describe('AxFlow', () => {
   let mockAI: AxMockAIService;
@@ -23,28 +23,28 @@ describe('AxFlow', () => {
 
   describe('constructor', () => {
     it('should create an AxFlow instance with default options', () => {
-      const flow = new AxFlow();
-      expect(flow).toBeInstanceOf(AxFlow);
+      const myFlow = flow();
+      expect(myFlow).toBeInstanceOf(AxFlow);
     });
 
     it('should create an AxFlow instance with custom options', () => {
-      const flow = new AxFlow({ autoParallel: false });
-      expect(flow).toBeInstanceOf(AxFlow);
+      const myFlow = flow({ autoParallel: false });
+      expect(myFlow).toBeInstanceOf(AxFlow);
     });
   });
 
   describe('node definition', () => {
     it('should define a node with simple signature', () => {
-      const flow = new AxFlow();
+      const myFlow = flow();
       expect(() => {
-        flow.node('testNode', 'userInput:string -> responseText:string');
+        myFlow.node('testNode', 'userInput:string -> responseText:string');
       }).not.toThrow();
     });
 
     it('should define a node with complex field types', () => {
-      const flow = new AxFlow();
+      const myFlow = flow();
       expect(() => {
-        flow.node(
+        myFlow.node(
           'complexNode',
           'documentText:string -> processedResult:string, confidence:number'
         );
@@ -52,20 +52,20 @@ describe('AxFlow', () => {
     });
 
     it('should throw error for invalid signature', () => {
-      const flow = new AxFlow();
+      const myFlow = flow();
       expect(() => {
-        flow.node('badNode', '');
+        myFlow.node('badNode', '');
       }).toThrow('Invalid signature for node');
     });
 
     it('should throw error when executing non-existent node', async () => {
-      const flow = new AxFlow();
+      const myFlow = flow();
       // The type system now prevents this at compile time, but we test runtime behavior
       // by casting to bypass type checking
       expect(() => {
         // Type assertion to test runtime behavior when TypeScript types are bypassed
         (
-          flow as unknown as {
+          myFlow as unknown as {
             execute: (name: string, fn: () => unknown) => unknown;
           }
         ).execute('nonexistent', () => ({}));
@@ -75,22 +75,22 @@ describe('AxFlow', () => {
 
   describe('fluent interface', () => {
     it('should support method chaining', () => {
-      const flow = new AxFlow()
+      const myFlow = flow()
         .node('testNode', 'userInput:string -> responseText:string')
         .map((state) => state)
         .execute('testNode', () => ({ userInput: 'test' }));
 
-      expect(flow).toBeInstanceOf(AxFlow);
+      expect(myFlow).toBeInstanceOf(AxFlow);
     });
   });
 
   describe('map transformation', () => {
     it('should apply synchronous state transformations', async () => {
-      const flow = new AxFlow<{ value: number }, { doubled: number }>().map(
+      const myFlow = flow<{ value: number }, { doubled: number }>().map(
         (state) => ({ ...state, doubled: state.value * 2 })
       );
 
-      const result = await flow.forward(mockAI, { value: 5 });
+      const result = await myFlow.forward(mockAI, { value: 5 });
       expect(result.doubled).toBe(10);
     });
 
@@ -101,11 +101,11 @@ describe('AxFlow', () => {
         return { ...state, asyncResult: state.value * 3 };
       };
 
-      const flow = new AxFlow<{ value: number }, { asyncResult: number }>().map(
+      const myFlow = flow<{ value: number }, { asyncResult: number }>().map(
         asyncTransform
       );
 
-      const result = await flow.forward(mockAI, { value: 5 });
+      const result = await myFlow.forward(mockAI, { value: 5 });
       expect(result.asyncResult).toBe(15);
     });
 
@@ -125,7 +125,7 @@ describe('AxFlow', () => {
         return { ...state, result3: state.value * 4 };
       };
 
-      const flow = new AxFlow<
+      const myFlow = flow<
         { value: number },
         { result1: number; result2: number; result3: number }
       >().map([asyncTransform1, asyncTransform2, asyncTransform3], {
@@ -133,7 +133,7 @@ describe('AxFlow', () => {
       });
 
       const startTime = Date.now();
-      const result = await flow.forward(mockAI, { value: 5 });
+      const result = await myFlow.forward(mockAI, { value: 5 });
       const endTime = Date.now();
 
       // Verify results
@@ -157,12 +157,12 @@ describe('AxFlow', () => {
         return { ...state, asyncResult: state.value * 3 };
       };
 
-      const flow = new AxFlow<
+      const myFlow = flow<
         { value: number },
         { syncResult: number; asyncResult: number }
       >().map([syncTransform, asyncTransform], { parallel: true });
 
-      const result = await flow.forward(mockAI, { value: 5 });
+      const result = await myFlow.forward(mockAI, { value: 5 });
       expect(result.asyncResult).toBe(15); // Last transform (async) should be applied
     });
 
@@ -172,11 +172,11 @@ describe('AxFlow', () => {
         return { ...state, aliasResult: state.value * 5 };
       };
 
-      const flow = new AxFlow<{ value: number }, { aliasResult: number }>().m(
+      const myFlow = flow<{ value: number }, { aliasResult: number }>().m(
         asyncTransform
       );
 
-      const result = await flow.forward(mockAI, { value: 4 });
+      const result = await myFlow.forward(mockAI, { value: 4 });
       expect(result.aliasResult).toBe(20);
     });
   });
@@ -196,7 +196,7 @@ describe('AxFlow', () => {
         },
       });
 
-      const flow = new AxFlow<
+      const myFlow = flow<
         { userInput: string },
         { primaryResult: string; altResult: string }
       >()
@@ -211,7 +211,7 @@ describe('AxFlow', () => {
           altResult: state.secondaryResult.responseText,
         }));
 
-      const result = await flow.forward(mockAI, { userInput: 'test' });
+      const result = await myFlow.forward(mockAI, { userInput: 'test' });
 
       expect(result.primaryResult).toBe('Mock response');
       expect(result.altResult).toBe('Alt response');
@@ -231,7 +231,7 @@ describe('AxFlow', () => {
         },
       });
 
-      const flow = new AxFlow<{ topic: string }, { summary: string }>({
+      const myFlow = flow<{ topic: string }, { summary: string }>({
         autoParallel: false,
       })
         .node('summarizer', 'documentText:string -> summary:string')
@@ -241,7 +241,9 @@ describe('AxFlow', () => {
         }))
         .map((state) => ({ summary: state.summarizerResult.summary }));
 
-      const result = await flow.forward(defaultMockAI, { topic: 'technology' });
+      const result = await myFlow.forward(defaultMockAI, {
+        topic: 'technology',
+      });
 
       expect(result.summary).toBe('Default summary');
     });
@@ -260,7 +262,7 @@ describe('AxFlow', () => {
         },
       });
 
-      const flow = new AxFlow<{ iterations: number }, { finalCount: number }>({
+      const myFlow = flow<{ iterations: number }, { finalCount: number }>({
         autoParallel: false,
       })
         .node('processor', 'iterationCount:number -> processedResult:string')
@@ -270,7 +272,7 @@ describe('AxFlow', () => {
         .endWhile()
         .map((state) => ({ finalCount: state.iterations }));
 
-      const result = await flow.forward(loopMockAI, { iterations: 0 });
+      const result = await myFlow.forward(loopMockAI, { iterations: 0 });
 
       expect(result.finalCount).toBe(3);
     });
@@ -287,7 +289,7 @@ describe('AxFlow', () => {
         },
       });
 
-      const flow = new AxFlow<{ counter: number }, { total: number }>({
+      const myFlow = flow<{ counter: number }, { total: number }>({
         autoParallel: false,
       })
         .node('checker', 'counterValue:number -> statusCheck:string')
@@ -301,16 +303,16 @@ describe('AxFlow', () => {
         .endWhile()
         .map((state) => ({ total: state.total || 0 }));
 
-      const result = await flow.forward(nestedMockAI, { counter: 0 });
+      const result = await myFlow.forward(nestedMockAI, { counter: 0 });
 
       expect(result.total).toBe(3); // 1 + 2 = 3
     });
 
     it('should throw error for unmatched endWhile', () => {
-      const flow = new AxFlow();
+      const myFlow = flow();
 
       expect(() => {
-        flow.endWhile();
+        myFlow.endWhile();
       }).toThrow('endWhile() called without matching while()');
     });
   });
@@ -330,7 +332,7 @@ describe('AxFlow', () => {
         },
       });
 
-      const flow = new AxFlow<
+      const myFlow = flow<
         { userInput: string },
         { originalInput: string; summary: string; analysis: string }
       >({ autoParallel: false })
@@ -344,7 +346,7 @@ describe('AxFlow', () => {
           analysis: state.analyzerResult.analysis,
         }));
 
-      const result = await flow.forward(stateMockAI, {
+      const result = await myFlow.forward(stateMockAI, {
         userInput: 'original input',
       });
 
@@ -367,7 +369,7 @@ describe('AxFlow', () => {
         },
       });
 
-      const flow = new AxFlow<
+      const myFlow = flow<
         { dataItems: string[] },
         { results: string[]; count: number }
       >({
@@ -387,7 +389,7 @@ describe('AxFlow', () => {
         .endWhile()
         .map((state) => ({ results: state.results, count: state.count }));
 
-      const result = await flow.forward(complexMockAI, {
+      const result = await myFlow.forward(complexMockAI, {
         dataItems: ['item1', 'item2'],
       });
 
@@ -398,14 +400,14 @@ describe('AxFlow', () => {
 
   describe('integration with dspy-ts ecosystem', () => {
     it('should be compatible with AxProgram interface', () => {
-      const flow = new AxFlow();
+      const myFlow = flow();
 
       // Should have all required methods from AxProgram
-      expect(typeof flow.forward).toBe('function');
-      expect(typeof flow.getSignature).toBe('function');
-      expect(typeof flow.setExamples).toBe('function');
-      expect(typeof flow.getTraces).toBe('function');
-      expect(typeof flow.getUsage).toBe('function');
+      expect(typeof myFlow.forward).toBe('function');
+      expect(typeof myFlow.getSignature).toBe('function');
+      expect(typeof myFlow.setExamples).toBe('function');
+      expect(typeof myFlow.getTraces).toBe('function');
+      expect(typeof myFlow.getUsage).toBe('function');
     });
 
     it('should support program options', async () => {
@@ -420,7 +422,7 @@ describe('AxFlow', () => {
         },
       });
 
-      const flow = new AxFlow<{ userInput: string }, { outputResult: string }>({
+      const myFlow = flow<{ userInput: string }, { outputResult: string }>({
         autoParallel: false,
       })
         .node('processor', 'inputText:string -> outputResult:string')
@@ -428,7 +430,7 @@ describe('AxFlow', () => {
         .map((state) => ({ outputResult: state.processorResult.outputResult }));
 
       const options = { debug: false, maxRetries: 3 };
-      const result = await flow.forward(
+      const result = await myFlow.forward(
         optionsMockAI,
         { userInput: 'test' },
         options
@@ -440,7 +442,7 @@ describe('AxFlow', () => {
 
   describe('error handling', () => {
     it('should handle execution errors gracefully', async () => {
-      const flow = new AxFlow()
+      const myFlow = flow()
         .node('processor', 'inputText:string -> outputResult:string')
         .execute('processor', (state) => ({ inputText: state.userInput }));
 
@@ -451,17 +453,17 @@ describe('AxFlow', () => {
       );
 
       await expect(
-        flow.forward(errorAI, { userInput: 'test' })
+        myFlow.forward(errorAI, { userInput: 'test' })
       ).rejects.toThrow();
     });
 
     it('should validate node existence before execution', () => {
-      const flow = new AxFlow();
+      const myFlow = flow();
 
       expect(() => {
         // Type assertion to test runtime behavior when TypeScript types are bypassed
         (
-          flow as unknown as {
+          myFlow as unknown as {
             execute: (name: string, fn: (state: unknown) => unknown) => unknown;
           }
         ).execute('nonexistent', (state: unknown) => state);
@@ -484,7 +486,7 @@ describe('AxFlow', () => {
         },
       });
 
-      const flow = new AxFlow<
+      const myFlow = flow<
         { needsComplex: boolean },
         { processedResult: string; strategy: string }
       >({ autoParallel: false })
@@ -505,13 +507,13 @@ describe('AxFlow', () => {
           strategy: state.strategy,
         }));
 
-      const complexResult = await flow.forward(branchMockAI, {
+      const complexResult = await myFlow.forward(branchMockAI, {
         needsComplex: true,
       });
       expect(complexResult.strategy).toBe('complex');
       expect(complexResult.processedResult).toBe('branch result');
 
-      const simpleResult = await flow.forward(branchMockAI, {
+      const simpleResult = await myFlow.forward(branchMockAI, {
         needsComplex: false,
       });
       expect(simpleResult.strategy).toBe('simple');
@@ -519,7 +521,7 @@ describe('AxFlow', () => {
     });
 
     it('should handle unmatched branch values gracefully', async () => {
-      const flow = new AxFlow<{ testValue: string }, { processed: boolean }>({
+      const myFlow = flow<{ testValue: string }, { processed: boolean }>({
         autoParallel: false,
       })
         .branch((state) => state.testValue)
@@ -528,15 +530,15 @@ describe('AxFlow', () => {
         .merge()
         .map((state) => ({ processed: state.processed || false }));
 
-      const result = await flow.forward(mockAI, { testValue: 'unexpected' });
+      const result = await myFlow.forward(mockAI, { testValue: 'unexpected' });
       expect(result.processed).toBe(false);
     });
 
     it('should throw error for nested branches', () => {
-      const flow = new AxFlow();
+      const myFlow = flow();
 
       expect(() => {
-        flow
+        myFlow
           .branch(() => true)
           .when(true)
           .branch(() => false); // Nested branch should throw
@@ -544,18 +546,18 @@ describe('AxFlow', () => {
     });
 
     it('should throw error for when() without branch()', () => {
-      const flow = new AxFlow();
+      const myFlow = flow();
 
       expect(() => {
-        flow.when(true);
+        myFlow.when(true);
       }).toThrow('when() called without matching branch()');
     });
 
     it('should throw error for merge() without branch()', () => {
-      const flow = new AxFlow();
+      const myFlow = flow();
 
       expect(() => {
-        flow.merge();
+        myFlow.merge();
       }).toThrow('merge() called without matching branch()');
     });
   });
@@ -575,7 +577,7 @@ describe('AxFlow', () => {
         },
       });
 
-      const flow = new AxFlow<{ query: string }, { combined: string[] }>({
+      const myFlow = flow<{ query: string }, { combined: string[] }>({
         autoParallel: false,
       })
         .node('analyzer1', 'query:string -> analysis:string')
@@ -602,7 +604,7 @@ describe('AxFlow', () => {
           (result3 as any).analyzer3Result.analysis,
         ]);
 
-      const result = await flow.forward(parallelMockAI, {
+      const result = await myFlow.forward(parallelMockAI, {
         query: 'test query',
       });
       expect(result.combined).toEqual([
@@ -613,7 +615,7 @@ describe('AxFlow', () => {
     });
 
     it('should handle parallel execution with different node results', async () => {
-      const flow = new AxFlow<
+      const myFlow = flow<
         { requestData: string },
         { processedResults: string[] }
       >({ autoParallel: false })
@@ -639,7 +641,9 @@ describe('AxFlow', () => {
           `${(result2 as Record<string, unknown>).type}: ${(result2 as Record<string, { responseText: string }>).processor2Result?.responseText || 'default'}`,
         ]);
 
-      const result = await flow.forward(mockAI, { requestData: 'test input' });
+      const result = await myFlow.forward(mockAI, {
+        requestData: 'test input',
+      });
       expect(result.processedResults).toEqual([
         'type1: Mock response',
         'type2: Mock response',
@@ -663,7 +667,7 @@ describe('AxFlow', () => {
         },
       });
 
-      const flow = new AxFlow<
+      const myFlow = flow<
         { userInput: string },
         { processedResult: string; attempts: number }
       >({ autoParallel: false })
@@ -732,13 +736,15 @@ describe('AxFlow', () => {
         };
       });
 
-      const result = await flow.forward(feedbackMockAI, { userInput: 'test' });
+      const result = await myFlow.forward(feedbackMockAI, {
+        userInput: 'test',
+      });
       expect(result.attempts).toBeGreaterThan(1); // Should have retried
       expect(result.processedResult).toMatch(/attempt \d+ result/);
     });
 
     it('should respect maximum iterations limit', async () => {
-      const flow = new AxFlow<{ userInput: string }, { attempts: number }>({
+      const myFlow = flow<{ userInput: string }, { attempts: number }>({
         autoParallel: false,
       })
         .node('processor', 'userInput:string -> responseText:string')
@@ -754,23 +760,23 @@ describe('AxFlow', () => {
         )
         .map((state) => ({ attempts: state.attempts }));
 
-      const result = await flow.forward(mockAI, { userInput: 'test' });
+      const result = await myFlow.forward(mockAI, { userInput: 'test' });
       expect(result.attempts).toBe(3); // Should stop at max iterations
     });
 
     it('should throw error for invalid label', () => {
-      const flow = new AxFlow();
+      const myFlow = flow();
 
       expect(() => {
-        flow.feedback(() => true, 'nonexistent-label');
+        myFlow.feedback(() => true, 'nonexistent-label');
       }).toThrow("Label 'nonexistent-label' not found");
     });
 
     it('should throw error for labels inside branch blocks', () => {
-      const flow = new AxFlow();
+      const myFlow = flow();
 
       expect(() => {
-        flow
+        myFlow
           .branch(() => true)
           .when(true)
           .label('invalid-label'); // Should throw
@@ -836,7 +842,7 @@ describe('AxFlow', () => {
         };
       });
 
-      const flow = new AxFlow<
+      const myFlow = flow<
         { itemList: string[] },
         { processedResults: string[] }
       >({ autoParallel: false })
@@ -873,7 +879,7 @@ describe('AxFlow', () => {
         .endWhile()
         .map((state) => ({ processedResults: state.processedResults }));
 
-      const result = await flow.forward(complexMockAI, {
+      const result = await myFlow.forward(complexMockAI, {
         itemList: ['item1', 'item2', 'item3'],
       });
       expect(result.processedResults).toHaveLength(3);
@@ -1161,24 +1167,24 @@ describe('AxFlow Signature Inference', () => {
 
 describe('AxFlow > node definition > new overloads', () => {
   it('should define a node with AxSignature instance', () => {
-    const flow = new AxFlow<{ topic: string }, { result: string }>();
+    const myFlow = flow<{ topic: string }, { result: string }>();
     const signature = 'documentText:string -> summaryText:string';
 
-    flow.node('summarizer', signature, { debug: true, logger: () => {} });
+    myFlow.node('summarizer', signature, { debug: true, logger: () => {} });
 
     // Test that the node was registered (we can't easily test execution without proper typing)
     expect(() => {
       // @ts-expect-error - testing runtime behavior
-      flow.execute('summarizer', () => ({ documentText: 'test' }));
+      myFlow.execute('summarizer', () => ({ documentText: 'test' }));
     }).not.toThrow();
   });
 
   it('should throw error for invalid second argument', () => {
-    const flow = new AxFlow<{ topic: string }, { result: string }>();
+    const myFlow = flow<{ topic: string }, { result: string }>();
 
     expect(() => {
       // @ts-expect-error - testing invalid argument
-      flow.node('invalid', 123);
+      myFlow.node('invalid', 123);
     }).toThrow('Invalid second argument for node');
   });
 });
@@ -1200,7 +1206,7 @@ describe('AxFlow > derive method', () => {
   });
 
   it('should derive a new field from array input with parallel processing', async () => {
-    const flow = new AxFlow<{ items: string[] }, { processedItems: string[] }>({
+    const myFlow = flow<{ items: string[] }, { processedItems: string[] }>({
       autoParallel: true,
       batchSize: 2,
     }).derive(
@@ -1209,7 +1215,7 @@ describe('AxFlow > derive method', () => {
       (item: string, index?: number) => `processed-${item}-${index}`
     );
 
-    const result = await flow.forward(mockAI, {
+    const result = await myFlow.forward(mockAI, {
       items: ['item1', 'item2', 'item3', 'item4'],
     });
 
@@ -1222,11 +1228,11 @@ describe('AxFlow > derive method', () => {
   });
 
   it('should derive a new field from array input with custom batch size', async () => {
-    const flow = new AxFlow<{ numbers: number[] }, { doubled: number[] }>({
+    const myFlow = flow<{ numbers: number[] }, { doubled: number[] }>({
       autoParallel: true,
     }).derive('doubled', 'numbers', (num: number) => num * 2, { batchSize: 1 });
 
-    const result = await flow.forward(mockAI, {
+    const result = await myFlow.forward(mockAI, {
       numbers: [1, 2, 3, 4, 5],
     });
 
@@ -1234,18 +1240,19 @@ describe('AxFlow > derive method', () => {
   });
 
   it('should derive a new field from scalar input', async () => {
-    const flow = new AxFlow<
-      { inputText: string },
-      { upperText: string }
-    >().derive('upperText', 'inputText', (text: string) => text.toUpperCase());
+    const myFlow = flow<{ inputText: string }, { upperText: string }>().derive(
+      'upperText',
+      'inputText',
+      (text: string) => text.toUpperCase()
+    );
 
-    const result = await flow.forward(mockAI, { inputText: 'hello world' });
+    const result = await myFlow.forward(mockAI, { inputText: 'hello world' });
 
     expect(result.upperText).toBe('HELLO WORLD');
   });
 
   it('should use sequential processing when autoParallel is disabled', async () => {
-    const flow = new AxFlow<{ items: string[] }, { processedItems: string[] }>({
+    const myFlow = flow<{ items: string[] }, { processedItems: string[] }>({
       autoParallel: false,
     }).derive(
       'processedItems',
@@ -1253,7 +1260,7 @@ describe('AxFlow > derive method', () => {
       (item: string, index?: number) => `seq-${item}-${index}`
     );
 
-    const result = await flow.forward(mockAI, {
+    const result = await myFlow.forward(mockAI, {
       items: ['a', 'b', 'c'],
     });
 
@@ -1261,18 +1268,18 @@ describe('AxFlow > derive method', () => {
   });
 
   it('should throw error when input field does not exist', async () => {
-    const flow = new AxFlow<
+    const myFlow = flow<
       { inputText: string },
       { outputResult: string }
     >().derive('outputResult', 'nonexistent', (value: any) => value);
 
-    await expect(flow.forward(mockAI, { inputText: 'test' })).rejects.toThrow(
+    await expect(myFlow.forward(mockAI, { inputText: 'test' })).rejects.toThrow(
       "Input field 'nonexistent' not found in state"
     );
   });
 
   it('should work with complex transformations', async () => {
-    const flow = new AxFlow<
+    const myFlow = flow<
       { users: Array<{ name: string; age: number }> },
       { adultNames: string[] }
     >()
@@ -1283,7 +1290,7 @@ describe('AxFlow > derive method', () => {
         adultNames: state.adultNames.filter((name) => name !== null),
       }));
 
-    const result = await flow.forward(mockAI, {
+    const result = await myFlow.forward(mockAI, {
       users: [
         { name: 'Alice', age: 25 },
         { name: 'Bob', age: 16 },
@@ -1295,7 +1302,7 @@ describe('AxFlow > derive method', () => {
   });
 
   it('should preserve state and chain with other operations', async () => {
-    const flow = new AxFlow<
+    const myFlow = flow<
       { items: string[]; prefix: string },
       {
         items: string[];
@@ -1316,7 +1323,7 @@ describe('AxFlow > derive method', () => {
         count: state.items.length,
       }));
 
-    const result = await flow.forward(mockAI, {
+    const result = await myFlow.forward(mockAI, {
       items: ['apple', 'banana'],
       prefix: 'fruit',
     });
@@ -1345,14 +1352,14 @@ describe('AxFlow > derive method signature inference', () => {
   });
 
   it('should include derived field in signature output fields', () => {
-    const flow = new AxFlow<
+    const myFlow = flow<
       { inputItems: string[] },
       { outputItems: string[] }
     >().derive('processedData', 'inputItems', (item: string) =>
       item.toUpperCase()
     );
 
-    const signature = flow.getSignature();
+    const signature = myFlow.getSignature();
     const outputFields = signature.getOutputFields();
 
     const outputFieldNames = outputFields.map((field) => field.name);
@@ -1360,12 +1367,13 @@ describe('AxFlow > derive method signature inference', () => {
   });
 
   it('should register derived field dependencies in execution planner', () => {
-    const flow = new AxFlow<
-      { items: string[] },
-      { results: string[] }
-    >().derive('results', 'items', (item: string) => `result-${item}`);
+    const myFlow = flow<{ items: string[] }, { results: string[] }>().derive(
+      'results',
+      'items',
+      (item: string) => `result-${item}`
+    );
 
-    const executionPlan = flow.getExecutionPlan();
+    const executionPlan = myFlow.getExecutionPlan();
 
     // Find the derive step
     const deriveStep = executionPlan.steps?.find(
@@ -1377,14 +1385,14 @@ describe('AxFlow > derive method signature inference', () => {
   });
 
   it('should infer correct signature with multiple derive operations', () => {
-    const flow = new AxFlow<
+    const myFlow = flow<
       { numbers: number[]; texts: string[] },
       { doubled: number[]; uppercased: string[] }
     >()
       .derive('doubled', 'numbers', (num: number) => num * 2)
       .derive('uppercased', 'texts', (text: string) => text.toUpperCase());
 
-    const signature = flow.getSignature();
+    const signature = myFlow.getSignature();
     const inputFields = signature.getInputFields();
     const outputFields = signature.getOutputFields();
 
@@ -1398,14 +1406,11 @@ describe('AxFlow > derive method signature inference', () => {
   });
 
   it('should work with derive as final operation in signature inference', async () => {
-    const flow = new AxFlow<
-      { inputData: string[] },
-      { finalResult: string[] }
-    >()
+    const myFlow = flow<{ inputData: string[] }, { finalResult: string[] }>()
       .map((state) => ({ ...state, intermediate: 'processed' }))
       .derive('finalResult', 'inputData', (item: string) => `final-${item}`);
 
-    const signature = flow.getSignature();
+    const signature = myFlow.getSignature();
     const outputFields = signature.getOutputFields();
     const outputFieldNames = outputFields.map((field) => field.name);
 
@@ -1413,7 +1418,7 @@ describe('AxFlow > derive method signature inference', () => {
     expect(outputFieldNames).toContain('finalResult');
 
     // Test execution works
-    const result = await flow.forward(mockAI, {
+    const result = await myFlow.forward(mockAI, {
       inputData: ['test1', 'test2'],
     });
     expect(result.finalResult).toEqual(['final-test1', 'final-test2']);

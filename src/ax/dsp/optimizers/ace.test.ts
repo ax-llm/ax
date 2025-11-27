@@ -1,4 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+import { ax } from '../template.js';
+import { f } from '../sig.js';
+import type { AxAIService } from '../../ai/types.js';
 
 import { applyCuratorOperations, createEmptyPlaybook } from './acePlaybook.js';
 import { AxACE } from './ace.js';

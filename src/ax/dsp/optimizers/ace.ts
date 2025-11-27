@@ -148,6 +148,8 @@ export class AxACE extends AxBaseOptimizer {
 
   private curatorProgram?: AxGen<any, any>;
 
+  private program?: Readonly<AxGen<any, any>>;
+
   constructor(
     args: Readonly<AxOptimizerArgs>,
     options?: Readonly<AxACEOptions>
@@ -220,6 +222,7 @@ export class AxACE extends AxBaseOptimizer {
 
     const startTime = Date.now();
     this.validateExamples(examples);
+    this.program = program;
 
     const baseInstruction = await this.extractProgramInstruction(program);
     const originalDescription = program.getSignature().getDescription() ?? '';
@@ -287,6 +290,7 @@ export class AxACE extends AxBaseOptimizer {
           });
 
           const rawCurator = await this.runCurator({
+            program,
             example,
             reflection,
             playbook: this.playbook,
@@ -458,6 +462,12 @@ export class AxACE extends AxBaseOptimizer {
       feedback?: string;
     }>
   ): Promise<AxACECuratorOutput | undefined> {
+    if (!this.program) {
+      throw new Error(
+        'AxACE: `compile` must be run before `applyOnlineUpdate`'
+      );
+    }
+
     const generatorOutput = this.createGeneratorOutput(
       args.prediction,
       args.example
@@ -480,6 +490,7 @@ export class AxACE extends AxBaseOptimizer {
     });
 
     const rawCurator = await this.runCurator({
+      program: this.program,
       example: args.example,
       reflection,
       playbook: this.playbook,
@@ -992,11 +1003,13 @@ export class AxACE extends AxBaseOptimizer {
     }
   }
 
-  private async runCurator({
+  private async runCurator<IN, OUT extends AxGenOut>({
+    program,
     example,
     reflection,
     playbook,
   }: Readonly<{
+    program: Readonly<AxGen<IN, OUT>>;
     example: AxExample;
     reflection?: AxACEReflectionOutput;
     playbook: AxACEPlaybook;
@@ -1008,6 +1021,18 @@ export class AxACE extends AxBaseOptimizer {
     const curator = this.getOrCreateCuratorProgram();
     const curatorAI = this.teacherAI ?? this.studentAI;
 
+    const signature = program.getSignature();
+    const inputFields = Object.keys(signature.getInputFields());
+    const questionContext = inputFields.reduce(
+      (acc, field) => {
+        if (field in example) {
+          acc[field] = example[field];
+        }
+        return acc;
+      },
+      {} as Record<string, unknown>
+    );
+
     try {
       const outputRaw = await curator.forward(curatorAI, {
         playbook: JSON.stringify({
@@ -1015,7 +1040,7 @@ export class AxACE extends AxBaseOptimizer {
           structured: playbook,
         }),
         reflection: JSON.stringify(reflection),
-        question_context: JSON.stringify(example),
+        question_context: JSON.stringify(questionContext),
         token_budget: 1024,
       });
 

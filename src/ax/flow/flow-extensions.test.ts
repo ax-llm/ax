@@ -1,12 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { AxFlow } from './flow.js';
+import { flow } from './flow.js';
 import { f } from '../dsp/sig.js';
 
 describe('AxFlow nodeExtended method', () => {
   it('should create chain-of-thought node with internal reasoning field', () => {
-    const flow = new AxFlow();
-    const cotFlow = flow.nodeExtended(
+    const cotFlow = flow().nodeExtended(
       'reasoner',
       'userInput:string -> answer:string',
       {
@@ -32,8 +31,7 @@ describe('AxFlow nodeExtended method', () => {
   });
 
   it('should create confidence-scoring node', () => {
-    const flow = new AxFlow();
-    const confFlow = flow.nodeExtended(
+    const confFlow = flow().nodeExtended(
       'scorer',
       'userInput:string -> analysis:string',
       {
@@ -56,8 +54,7 @@ describe('AxFlow nodeExtended method', () => {
   });
 
   it('should create contextual node with additional input fields', () => {
-    const flow = new AxFlow();
-    const contextFlow = flow.nodeExtended(
+    const contextFlow = flow().nodeExtended(
       'contextual',
       'question:string -> answer:string',
       {
@@ -82,8 +79,7 @@ describe('AxFlow nodeExtended method', () => {
   });
 
   it('should create extended node with all extension types', () => {
-    const flow = new AxFlow();
-    const extendedFlow = flow.nodeExtended(
+    const extendedFlow = flow().nodeExtended(
       'analyzer',
       'userInput:string -> analysis:string',
       {
@@ -130,10 +126,8 @@ describe('AxFlow nodeExtended method', () => {
   });
 
   it('should maintain type safety and prevent duplicate field names', () => {
-    const flow = new AxFlow();
-
     expect(() =>
-      flow.nodeExtended('test', 'userInput:string -> analysis:string', {
+      flow().nodeExtended('test', 'userInput:string -> analysis:string', {
         appendInputs: [
           {
             name: 'userInput',
@@ -145,10 +139,10 @@ describe('AxFlow nodeExtended method', () => {
   });
 
   it('should work with AxSignature instances as base', () => {
-    const flow = new AxFlow();
-    const baseSig = flow.getSignature(); // Get default signature
+    const myFlow = flow();
+    const baseSig = myFlow.getSignature(); // Get default signature
 
-    const extendedFlow = flow.nodeExtended('thinker', baseSig, {
+    const extendedFlow = myFlow.nodeExtended('thinker', baseSig, {
       prependOutputs: [
         {
           name: 'reasoning',
@@ -165,9 +159,7 @@ describe('AxFlow nodeExtended method', () => {
   });
 
   it('should support method chaining', () => {
-    const flow = new AxFlow();
-
-    const chainedFlow = flow
+    const chainedFlow = flow()
       .nodeExtended('reasoner', 'question:string -> analysis:string', {
         prependOutputs: [
           {
@@ -188,11 +180,9 @@ describe('AxFlow nodeExtended method', () => {
   });
 
   it('should validate field types according to input/output rules', () => {
-    const flow = new AxFlow();
-
     // Class types not allowed in input
     expect(() =>
-      flow.nodeExtended('test', 'userInput:string -> analysis:string', {
+      flow().nodeExtended('test', 'userInput:string -> analysis:string', {
         appendInputs: [
           {
             name: 'category',
@@ -204,7 +194,7 @@ describe('AxFlow nodeExtended method', () => {
 
     // Image types not allowed in output
     expect(() =>
-      flow.nodeExtended('test', 'userInput:string -> analysis:string', {
+      flow().nodeExtended('test', 'userInput:string -> analysis:string', {
         appendOutputs: [
           {
             name: 'outputImage',
@@ -216,10 +206,8 @@ describe('AxFlow nodeExtended method', () => {
   });
 
   it('should have nx alias that works identically to nodeExtended', () => {
-    const flow = new AxFlow();
-
     // Test nx alias with same functionality as nodeExtended
-    const nxFlow = flow.nx('reasoner', 'userInput:string -> answer:string', {
+    const nxFlow = flow().nx('reasoner', 'userInput:string -> answer:string', {
       prependOutputs: [
         {
           name: 'reasoning',
