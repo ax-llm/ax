@@ -131,6 +131,9 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
   extends AxProgram<IN, OUT>
   implements AxProgrammable<IN, OUT>
 {
+  public clone = (): AxGen<IN, OUT> => {
+    return new AxGen(this.signature, this.options);
+  };
   private promptTemplate: AxPromptTemplate;
   private asserts: AxAssertion<OUT>[];
   private streamingAsserts: AxStreamingAssertion[];
@@ -171,6 +174,10 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       ? parseFunctions(options.functions)
       : [];
     this.usage = [];
+  }
+
+  public setInstruction(instruction: string): void {
+    this.promptTemplate.setInstruction(instruction);
   }
 
   private getSignatureName(): string {
