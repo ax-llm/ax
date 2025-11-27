@@ -4,20 +4,127 @@ import type { AxAIService } from '../ai/types.js';
 
 import type { AxOptimizer } from './optimizer.js';
 import { AxBootstrapFewShot } from './optimizers/bootstrapFewshot.js';
+import { AxACE } from './optimizers/ace.js';
 import { AxMiPRO } from './optimizers/miproV2.js';
+import { f } from './sig.js';
+import { ax } from './template.js';
 
 // Mock dependencies
 const mockAI = {
   name: 'mock',
-  chat: async () => ({ results: [{ index: 0, content: 'mock response' }] }),
+  chat: async () => ({
+    results: [
+      {
+        index: 0,
+        content: JSON.stringify({
+          answer: 'mock student response',
+        }),
+      },
+    ],
+  }),
+  getOptions: () => ({ tracer: undefined }),
+  getLogger: () => undefined,
 } as unknown as AxAIService;
-
-// Removed unused mockProgram
 
 const mockExamples = [
   { input: 'test input', output: 'test output' },
   { input: 'test input 2', output: 'test output 2' },
 ];
+
+describe('AxACE Optimizer', () => {
+  it('should distinguish between input and output fields in playbook generation', async () => {
+    const mockTeacherAI = {
+      name: 'mockTeacher',
+      chat: async (chatMessages) => {
+        const lastMessage = chatMessages[chatMessages.length - 1];
+        if (typeof lastMessage?.content !== 'string') {
+          throw new Error('Invalid message content');
+        }
+
+        const messageData = JSON.parse(lastMessage.content as string);
+
+        // Curator mock
+        if (messageData.question_context) {
+          const questionContext = JSON.parse(messageData.question_context);
+
+          expect(questionContext).toHaveProperty('question');
+          expect(questionContext).not.toHaveProperty('answer');
+          expect(questionContext.question).toBe('This is a test');
+
+          return {
+            results: [
+              {
+                index: 0,
+                content: JSON.stringify({
+                  reasoning: 'mock curator reasoning',
+                  operations: [
+                    {
+                      type: 'ADD',
+                      section: 'Guidelines',
+                      content: 'mock guideline',
+                    },
+                  ],
+                }),
+              },
+            ],
+          };
+        }
+
+        // Reflector mock
+        if (messageData.question && messageData.generator_answer) {
+          return {
+            results: [
+              {
+                index: 0,
+                content: JSON.stringify({
+                  reasoning: 'mock reflector reasoning',
+                  errorIdentification: 'mock error',
+                  rootCauseAnalysis: 'mock cause',
+                  correctApproach: 'mock approach',
+                  keyInsight: 'mock insight',
+                  bulletTags: [],
+                }),
+              },
+            ],
+          };
+        }
+
+        throw new Error('Unknown mock AI call');
+      },
+      getOptions: () => ({ tracer: undefined }),
+      getLogger: () => undefined,
+    } as unknown as AxAIService;
+
+    const program = ax(
+      f()
+        .input('question', f.string('A question to be answered'))
+        .output('answer', f.string('The answer to the question'))
+        .build()
+    );
+
+    const examples = [
+      { question: 'This is a test', answer: 'This is a test' },
+      { question: 'This is a test', answer: 'This is a test' },
+    ];
+    const metricFn = () => 1;
+
+    const ace = new AxACE({
+      studentAI: mockAI,
+      teacherAI: mockTeacherAI,
+      examples,
+    });
+
+    const result = await ace.compile(program, examples, metricFn, {
+      aceOptions: { maxEpochs: 1, maxReflectorRounds: 1 },
+    });
+
+    expect(result.playbook).toBeDefined();
+    expect(result.playbook.sections['Guidelines']).toBeDefined();
+    expect(result.playbook.sections['Guidelines']![0]!.content).toBe(
+      'mock guideline'
+    );
+  });
+});
 
 describe('Optimizer Interface', () => {
   it('AxBootstrapFewShot implements AxOptimizer interface', () => {
