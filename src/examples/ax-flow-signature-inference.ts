@@ -1,14 +1,11 @@
-import { AxAI, AxFlow } from '@ax-llm/ax';
-
-// Example: Creating an AxFlow that infers its signature from node dependencies
-console.log('=== AxFlow Signature Inference Demo ===');
+import { AxAI, flow } from '@ax-llm/ax';
 
 // Create an AI instance
 const ai = new AxAI({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! });
 
 // Create a flow without explicitly passing a signature
 // The signature will be inferred from the flow structure
-const flow = new AxFlow()
+const myFlow = flow()
   .node(
     'analyzer',
     'userText:string -> sentimentValue:string, confidenceScore:number'
@@ -25,29 +22,13 @@ const flow = new AxFlow()
     score: state.analyzerResult.confidenceScore,
   }));
 
-// Before execution: The flow will infer its signature based on the dependencies
-console.log(
-  'Flow signature before execution (temporary):',
-  flow.getSignature().toString()
-);
-
 // Execute the flow - this will trigger signature inference
-const result = await flow.forward(ai, {
+await myFlow.forward(ai, {
   userInput:
     'I absolutely love this new feature! It makes development so much easier.',
 });
 
-// After execution: The signature has been inferred from the flow structure
-console.log(
-  'Flow signature after execution (inferred):',
-  flow.getSignature().toString()
-);
-console.log('Final result:', result);
-
-// Demonstrate with a more complex flow
-console.log('\n=== Complex Flow with Multiple Dependencies ===');
-
-const complexFlow = new AxFlow()
+const complexFlow = flow()
   .node('preprocessor', 'rawText:string -> cleanedText:string')
   .node('sentimentAnalyzer', 'textData:string -> sentiment:string')
   .node('topicExtractor', 'textData:string -> topics:string[]')
@@ -70,21 +51,12 @@ const complexFlow = new AxFlow()
     originalText: state.userInput,
   }));
 
-const complexResult = await complexFlow.forward(ai, {
+await complexFlow.forward(ai, {
   userInput:
     'The new AI features are revolutionary and will change how we approach automation in healthcare and education sectors.',
 });
 
-console.log(
-  'Complex flow inferred signature:',
-  complexFlow.getSignature().toString()
-);
-console.log('Complex flow result:', complexResult);
-
-// Test with multiple output fields
-console.log('\n=== Flow with Multiple Output Fields ===');
-
-const multiOutputFlow = new AxFlow()
+const multiOutputFlow = flow()
   .node(
     'processor',
     'inputText:string -> summary:string, keywords:string[], confidence:number'
@@ -93,12 +65,6 @@ const multiOutputFlow = new AxFlow()
     inputText: state.userInput,
   }));
 
-const multiOutputResult = await multiOutputFlow.forward(ai, {
+await multiOutputFlow.forward(ai, {
   userInput: 'This is a test document with multiple important concepts.',
 });
-
-console.log(
-  'Multi-output flow inferred signature:',
-  multiOutputFlow.getSignature().toString()
-);
-console.log('Multi-output flow result:', multiOutputResult);

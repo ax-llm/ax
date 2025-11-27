@@ -1,4 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+import { ax } from '../template.js';
+import { f } from '../sig.js';
+import type { AxAIService } from '../../ai/types';
 
 import { applyCuratorOperations, createEmptyPlaybook } from './acePlaybook.js';
 import { AxACE } from './ace.js';
@@ -126,5 +130,58 @@ describe('AxACE helpers', () => {
       (bullet) => bullet.id !== 'response-strategies-0'
     );
     expect(newBullet?.content).toBe('Third tactic');
+  });
+});
+
+describe('AxACE', () => {
+  it('runCurator should only receive input fields in question_context', async () => {
+    const mockCuratorAI = {
+      name: 'mockCurator',
+      chat: vi.fn().mockResolvedValue({
+        results: [
+          {
+            index: 0,
+            content: '{"reasoning": "mock", "operations":[]}',
+          },
+        ],
+      }),
+      getOptions: () => ({ tracer: undefined }),
+      getLogger: () => undefined,
+    } as unknown as AxAIService;
+
+    const program = ax(
+      f().input('question', f.string()).output('answer', f.string()).build()
+    );
+
+    const example = {
+      question: 'This is the input',
+      answer: 'This is the output',
+    };
+
+    const ace = new AxACE({
+      studentAI: {} as any,
+      teacherAI: mockCuratorAI,
+    });
+
+    const curatorProgram = (ace as any).getOrCreateCuratorProgram();
+    const forwardSpy = vi.spyOn(curatorProgram, 'forward');
+
+    // Directly call the internal runCurator method for a focused unit test
+    await (ace as any).runCurator({
+      program,
+      example,
+      reflection: { keyInsight: 'test' }, // Minimal reflection to trigger curator
+      playbook: { sections: {}, stats: { bulletCount: 0 } },
+    });
+
+    expect(forwardSpy).toHaveBeenCalled();
+
+    const forwardArgs = forwardSpy.mock.calls[0][1] as any;
+    const receivedContext = JSON.parse(forwardArgs.question_context);
+
+    expect(receivedContext).toBeDefined();
+    expect(receivedContext).toHaveProperty('question');
+    expect(receivedContext.question).toBe('This is the input');
+    expect(receivedContext).not.toHaveProperty('answer');
   });
 });
