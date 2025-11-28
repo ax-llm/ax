@@ -1,5 +1,23 @@
 # Changelog
 
+## [15.0.4](///compare/15.0.2...15.0.3) (2025-11-28)
+
+### Features
+
+* **mipro:** Expand MIPROv2 optimizer to tune instructions and examples ([#453](undefined/undefined/undefined/issues/453)) 2f3e6ac
+
+### Bug Fixes
+
+* **ace:** Ensure only input fields are passed to curator ([#456](undefined/undefined/undefined/issues/456)) 8c0c13f
+* allow f.object().array() as input field ([#452](undefined/undefined/undefined/issues/452)) d36ddd6
+* **anthropic:** add anthropic-beta header for web-search on Vertex AI ([#457](undefined/undefined/undefined/issues/457)) df13f8c
+* build issue 71b5ae8
+## [15.0.3](///compare/15.0.2...15.0.3) (2025-11-24)
+
+### Features
+
+* Update Anthropic schema cleaning to preserve `default`, `oneOf`, `anyOf`, `allOf` and conditionally remove `additionalProperties`. dbc419c
+
 ## [15.0.3](///compare/15.0.1...15.0.2) (2025-11-24)
 
 ### Features
