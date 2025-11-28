@@ -30,23 +30,26 @@ import {
   AxAIAnthropicVertexModel,
 } from './types.js';
 
-/**
- * Clean function schema for Anthropic API compatibility
- * Anthropic uses input_schema and may not support certain JSON Schema fields
- */
-const cleanSchemaForAnthropic = (
-  schema: any,
-  preserveAdditionalProperties: boolean = false
-): any => {
+const cleanSchemaForAnthropic = (schema: any): any => {
   if (!schema || typeof schema !== 'object') {
     return schema;
   }
 
   const cleaned = { ...schema };
 
-  // Remove fields that might cause issues with Anthropic
-  if (!preserveAdditionalProperties) {
-    delete cleaned.additionalProperties;
+  const isObjectType =
+    cleaned.type === 'object' ||
+    (Array.isArray(cleaned.type) && cleaned.type.includes('object'));
+
+  if (isObjectType) {
+    if (!cleaned.properties || Object.keys(cleaned.properties).length === 0) {
+      throw new Error(
+        'Anthropic models do not support arbitrary JSON objects (e.g. f.json() or f.object() with no properties) in structured outputs. Please use f.string() and instruct the model to return a JSON string, or define the expected structure with f.object({ ... })'
+      );
+    }
+    if (cleaned.additionalProperties === undefined) {
+      cleaned.additionalProperties = false;
+    }
   }
 
   // Anthropic supports default, anyOf, allOf, const, enum.
@@ -62,34 +65,25 @@ const cleanSchemaForAnthropic = (
     cleaned.properties = Object.fromEntries(
       Object.entries(cleaned.properties).map(([key, value]) => [
         key,
-        cleanSchemaForAnthropic(value, preserveAdditionalProperties),
+        cleanSchemaForAnthropic(value),
       ])
     );
   }
 
   // Recursively clean items (for arrays)
   if (cleaned.items) {
-    cleaned.items = cleanSchemaForAnthropic(
-      cleaned.items,
-      preserveAdditionalProperties
-    );
+    cleaned.items = cleanSchemaForAnthropic(cleaned.items);
   }
 
   // Recursively clean anyOf, allOf, oneOf
   if (Array.isArray(cleaned.anyOf)) {
-    cleaned.anyOf = cleaned.anyOf.map((s: any) =>
-      cleanSchemaForAnthropic(s, preserveAdditionalProperties)
-    );
+    cleaned.anyOf = cleaned.anyOf.map((s: any) => cleanSchemaForAnthropic(s));
   }
   if (Array.isArray(cleaned.allOf)) {
-    cleaned.allOf = cleaned.allOf.map((s: any) =>
-      cleanSchemaForAnthropic(s, preserveAdditionalProperties)
-    );
+    cleaned.allOf = cleaned.allOf.map((s: any) => cleanSchemaForAnthropic(s));
   }
   if (Array.isArray(cleaned.oneOf)) {
-    cleaned.oneOf = cleaned.oneOf.map((s: any) =>
-      cleanSchemaForAnthropic(s, preserveAdditionalProperties)
-    );
+    cleaned.oneOf = cleaned.oneOf.map((s: any) => cleanSchemaForAnthropic(s));
   }
 
   return cleaned;
@@ -423,7 +417,7 @@ class AxAIAnthropicImpl
 
         outputFormat = {
           type: 'json_schema',
-          schema: cleanSchemaForAnthropic(schema, true),
+          schema: cleanSchemaForAnthropic(schema),
         };
         this.usedStructuredOutput = true;
       }
