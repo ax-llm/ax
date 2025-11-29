@@ -1,5 +1,24 @@
 # Changelog
 
+## [15.0.5](///compare/15.0.3...15.0.4) (2025-11-29)
+
+### Features
+
+* add documentation for AWS Bedrock, Vercel AI SDK, and Ax Tools packages. 95962ae
+* **anthropic:** add validation for arbitrary json objects in structured outputs ([#459](undefined/undefined/undefined/issues/459)) 7db81c5
+## [15.0.4](///compare/15.0.3...15.0.4) (2025-11-28)
+
+### Features
+
+* **mipro:** Expand MIPROv2 optimizer to tune instructions and examples ([#453](undefined/undefined/undefined/issues/453)) 2f3e6ac
+
+### Bug Fixes
+
+* **ace:** Ensure only input fields are passed to curator ([#456](undefined/undefined/undefined/issues/456)) 8c0c13f
+* allow f.object().array() as input field ([#452](undefined/undefined/undefined/issues/452)) d36ddd6
+* **anthropic:** add anthropic-beta header for web-search on Vertex AI ([#457](undefined/undefined/undefined/issues/457)) df13f8c
+* build issue 71b5ae8
+
 ## [15.0.4](///compare/15.0.2...15.0.3) (2025-11-28)
 
 ### Features
