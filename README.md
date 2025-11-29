@@ -206,6 +206,19 @@ const analyzer = ax(`
 npm install @ax-llm/ax
 ```
 
+#### Additional Packages
+
+```bash
+# AWS Bedrock provider (Claude, GPT, Titan on AWS)
+npm install @ax-llm/ax-ai-aws-bedrock
+
+# Vercel AI SDK v5 integration
+npm install @ax-llm/ax-ai-sdk-provider
+
+# Tools: MCP stdio transport, JS interpreter
+npm install @ax-llm/ax-tools
+```
+
 ### Your First AI Feature (2 minutes)
 
 ```typescript
@@ -275,6 +288,8 @@ console.log(result.responseText, result.confidenceScore);
 
 ### 📚 Deep Dives
 
+- [**AI Providers Guide**](https://github.com/ax-llm/ax/blob/main/docs/AI.md) -
+  All providers, AWS Bedrock, Vercel AI SDK, Tools
 - [**AxFlow Workflows**](https://github.com/ax-llm/ax/blob/main/docs/AXFLOW.md) -
   Build complex AI systems
 - [**Optimization Guide (MiPRO, ACE, GEPA, GEPA-Flow)**](https://github.com/ax-llm/ax/blob/main/docs/OPTIMIZE.md) -
