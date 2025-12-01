@@ -1,5 +1,17 @@
 # Changelog
 
+## [15.0.6](///compare/15.0.4...15.0.5) (2025-12-01)
+
+### Features
+
+* Enhance complex object and JSON extraction, add validation tests, and improve error messages with LLM output. 100ed60
+## [15.0.5](///compare/15.0.4...15.0.5) (2025-11-29)
+
+### Features
+
+* add documentation for AWS Bedrock, Vercel AI SDK, and Ax Tools packages. 95962ae
+* **anthropic:** add validation for arbitrary json objects in structured outputs ([#459](undefined/undefined/undefined/issues/459)) 7db81c5
+
 ## [15.0.5](///compare/15.0.3...15.0.4) (2025-11-29)
 
 ### Features
