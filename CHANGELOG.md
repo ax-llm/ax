@@ -1,5 +1,16 @@
 # Changelog
 
+## [15.0.7](///compare/15.0.5...15.0.6) (2025-12-01)
+
+### Features
+
+* enhance structured output handling with distinct extraction modes and improved prompt rendering for complex fields 7ad07fe
+## [15.0.6](///compare/15.0.5...15.0.6) (2025-12-01)
+
+### Features
+
+* Enhance complex object and JSON extraction, add validation tests, and improve error messages with LLM output. 100ed60
+
 ## [15.0.6](///compare/15.0.4...15.0.5) (2025-12-01)
 
 ### Features
