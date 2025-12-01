@@ -160,6 +160,9 @@ function fieldToSchema(field: Readonly<AxField>, isNested = false): any {
         required: [],
         additionalProperties: false,
       };
+      if (type.description) {
+        schema.items.description = type.description;
+      }
       for (const [key, fieldType] of Object.entries(type.fields)) {
         const nestedField: AxField = {
           name: key,
@@ -194,7 +197,7 @@ function fieldToSchema(field: Readonly<AxField>, isNested = false): any {
       // Array of primitives
       // Enhance description for array items
       const itemDescription = enhanceDescriptionWithValidation(
-        field.description,
+        type.description || field.description,
         type
       );
 

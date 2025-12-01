@@ -18,6 +18,21 @@ This guide will get you from zero to your first AI application in 5 minutes.
 npm install @ax-llm/ax
 ```
 
+### Additional Packages
+
+```bash
+# AWS Bedrock provider (Claude, GPT, Titan on AWS)
+npm install @ax-llm/ax-ai-aws-bedrock
+
+# Vercel AI SDK v5 integration
+npm install @ax-llm/ax-ai-sdk-provider
+
+# Tools: MCP stdio transport, JS interpreter
+npm install @ax-llm/ax-tools
+```
+
+See the [AI Providers Guide](/ai/) for detailed documentation on each package.
+
 ## Step 1: Set Up Your API Key
 
 Create a `.env` file in your project root:
@@ -344,6 +359,89 @@ const result = await streamUI({
 - ✅ **Type Safety**: Full TypeScript support
 
 > **Note**: This allows you to use Ax's powerful AI provider ecosystem with any AI SDK v5 application, giving you access to 15+ LLM providers through a single interface.
+
+---
+
+## 🔗 AWS Bedrock Provider
+
+Use Claude, GPT, and Titan models on AWS with `@ax-llm/ax-ai-aws-bedrock`:
+
+### Installation
+
+```bash
+npm install @ax-llm/ax-ai-aws-bedrock
+```
+
+### Basic Usage
+
+```typescript
+import { AxAIBedrock, AxAIBedrockModel } from "@ax-llm/ax-ai-aws-bedrock";
+import { ax } from "@ax-llm/ax";
+
+const ai = new AxAIBedrock({
+  region: "us-east-2",
+  config: { model: AxAIBedrockModel.ClaudeSonnet4 }
+});
+
+const generator = ax("question:string -> answer:string");
+const result = await generator.forward(ai, {
+  question: "What is AWS Bedrock?"
+});
+
+console.log(result.answer);
+```
+
+### Features
+
+- ✅ **Claude, GPT, Titan**: All major Bedrock models supported
+- ✅ **Regional Failover**: Automatic failover across AWS regions
+- ✅ **Embeddings**: Titan Embed V2 for vector embeddings
+- ✅ **AWS Auth**: Uses standard AWS credential chain
+
+---
+
+## 🔗 Ax Tools Package
+
+Additional tools for MCP and code execution with `@ax-llm/ax-tools`:
+
+### Installation
+
+```bash
+npm install @ax-llm/ax-tools
+```
+
+### MCP Stdio Transport
+
+```typescript
+import { AxMCPClient } from "@ax-llm/ax";
+import { axCreateMCPStdioTransport } from "@ax-llm/ax-tools";
+
+const transport = axCreateMCPStdioTransport({
+  command: "npx",
+  args: ["-y", "@anthropic/mcp-server-filesystem"]
+});
+
+const client = new AxMCPClient(transport);
+await client.init();
+const tools = await client.getTools();
+```
+
+### JavaScript Interpreter
+
+```typescript
+import { ai, ax } from "@ax-llm/ax";
+import { AxJSInterpreter, AxJSInterpreterPermission } from "@ax-llm/ax-tools";
+
+const interpreter = new AxJSInterpreter({
+  permissions: [AxJSInterpreterPermission.CRYPTO]
+});
+
+const llm = ai({ name: "openai", apiKey: process.env.OPENAI_APIKEY! });
+
+const codeRunner = ax("task:string -> result:string", {
+  functions: [interpreter.toFunction()]
+});
+```
 
 ---
 

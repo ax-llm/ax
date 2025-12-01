@@ -223,6 +223,17 @@ const complexField = f.string('complex field')
   .optional()  // Make it optional
   .array()     // Make it an array
   .internal(); // Mark as internal (output only)
+
+// Object descriptions
+const objectField = f.object({
+  field: f.string()
+}, 'Description of the object structure');
+
+// Array of objects with distinct descriptions
+const objectArray = f.object({
+  field: f.string()
+}, 'Description of the individual item')
+.array('Description of the list itself');
 ```
 
 ### ❌ Deprecated Nested Syntax (Removed)
@@ -367,7 +378,7 @@ const userRegistration = f()
     bio: f.string('Biography').max(500).optional(),
     website: f.string('Personal website').url().optional(),
     tags: f.string('Interest tag').min(2).max(30).array()
-  }))
+  }, 'User profile information'))
   .build();
 
 const generator = ax(userRegistration);

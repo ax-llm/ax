@@ -598,7 +598,7 @@ export function* streamValues<OUT extends AxGenOut>(
   }
 }
 
-function validateAndParseFieldValue(
+export function validateAndParseFieldValue(
   field: Readonly<AxField>,
   fieldValue: string | undefined
 ): unknown {
@@ -898,7 +898,7 @@ function validateNestedObjectFields(
 }
 
 export const extractBlock = (input: string): string => {
-  const markdownBlockPattern = /```([A-Za-z]*)\n([\s\S]*?)\n```/g;
+  const markdownBlockPattern = /```([A-Za-z]*)\s*([\s\S]*?)\s*```/g;
   const match = markdownBlockPattern.exec(input);
   if (!match) {
     return input;

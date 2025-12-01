@@ -40,7 +40,7 @@ const toFieldType = (type: Readonly<AxField['type']>) => {
     }
   })();
 
-  return type?.isArray ? `json array of ${baseType} items` : baseType;
+  return type?.isArray ? `array of ${baseType}s` : baseType;
 };
 
 export class ValidationError extends Error {

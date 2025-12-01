@@ -114,15 +114,27 @@ gen.addAssert(({ next10Numbers }) => {
   return true; // Pass validation
 });
 
-// Method 3: Throw custom errors for immediate failure
+// Method 3: Throw AxAssertionError to trigger retry
+import { AxAssertionError } from '@ax-llm/ax';
+
 gen.addAssert(({ next10Numbers }) => {
   if (next10Numbers?.some(n => n <= 0)) {
-    throw new Error(`Invalid numbers found: ${next10Numbers.filter(n => n <= 0)}`);
+    throw new AxAssertionError({
+      message: `Invalid numbers found: ${next10Numbers.filter(n => n <= 0)}`
+    });
   }
   return true;
 });
 
-// Method 4: Conditional validation with undefined return
+// Method 4: Throw standard Error for immediate failure (no retries)
+gen.addAssert(({ next10Numbers }) => {
+  if (!next10Numbers) {
+    throw new Error('Critical: Numbers missing entirely!');
+  }
+  return true;
+});
+
+// Method 5: Conditional validation with undefined return
 gen.addAssert(({ summary }) => {
   if (!summary) return undefined; // Skip if summary not provided
   return summary.length >= 20; // Only validate if present
@@ -136,10 +148,11 @@ const result = await gen.forward(ai({ name: 'openai' }), {
 
 **Assertion Return Values:**
 - `true`: Assertion passes, continue generation
-- `false`: Assertion fails, use provided message parameter
-- `string`: Assertion fails, use the returned string as error message
+- `false`: Assertion fails, triggers retry with provided message
+- `string`: Assertion fails, triggers retry with returned string as error message
 - `undefined`: Skip this assertion (useful for conditional validation)
-- `throw Error()`: Immediate failure with custom error (no retries)
+- `throw new AxAssertionError(...)`: Assertion fails, triggers retry
+- `throw new Error(...)`: Immediate failure (crashes program, no retries)
 
 **Streaming Assertions:**
 
@@ -383,6 +396,54 @@ const result = await assistant.forward(
 // AI will automatically call both functions and combine results
 console.log(result.answer);
 // "The current weather in Tokyo is 72°F and sunny. Recent news about Tokyo includes..."
+```
+
+### 4.5. Parallel Function Calling
+
+Execute multiple tools in parallel for complex queries.
+
+```typescript
+import { ax, ai, type AxFunction } from '@ax-llm/ax';
+
+const functions: AxFunction[] = [
+  {
+    name: 'getCurrentWeather',
+    description: 'get the current weather for a location',
+    func: async ({ location }) => ({ temperature: '22C', condition: 'Sunny' }),
+    parameters: {
+      type: 'object',
+      properties: {
+        location: { type: 'string' }
+      },
+      required: ['location']
+    }
+  },
+  {
+    name: 'getCurrentTime',
+    description: 'get the current time for a location',
+    func: async ({ location }) => ({ time: '14:30' }),
+    parameters: {
+      type: 'object',
+      properties: {
+        location: { type: 'string' }
+      },
+      required: ['location']
+    }
+  }
+];
+
+const agent = ax(
+  'query:string -> report:string "Comprehensive report"',
+  { functions }
+);
+
+const result = await agent.forward(
+  ai({ name: 'google-gemini', config: { model: 'gemini-1.5-pro-latest' } }),
+  { query: "Compare the weather and time in Tokyo, New York, and London." }
+);
+
+// The AI will call weather and time functions for all 3 cities in parallel
+console.log(result.report);
 ```
 
 ### 5. Streaming Responses
@@ -880,6 +941,159 @@ export GOOGLE_APIKEY=your-key
 # Run an example
 npm run tsx ./src/examples/summarize.ts
 ```
+
+## Complete Examples Reference
+
+Below is a comprehensive list of all available examples in [`src/examples/`](https://github.com/ax-llm/ax/tree/main/src/examples), organized by category.
+
+### Basic Concepts
+
+- **[chat.ts](https://github.com/ax-llm/ax/tree/main/src/examples/chat.ts)** - Simple chat interface demonstrating basic conversation flow
+- **[simple-classify.ts](https://github.com/ax-llm/ax/tree/main/src/examples/simple-classify.ts)** - Basic classification example
+- **[extract.ts](https://github.com/ax-llm/ax/tree/main/src/examples/extract.ts)** - Extract structured data from unstructured text
+- **[extract-test.ts](https://github.com/ax-llm/ax/tree/main/src/examples/extract-test.ts)** - Testing extraction capabilities
+- **[summarize.ts](https://github.com/ax-llm/ax/tree/main/src/examples/summarize.ts)** - Document summarization with key insights
+- **[marketing.ts](https://github.com/ax-llm/ax/tree/main/src/examples/marketing.ts)** - Marketing content generation
+- **[embed.ts](https://github.com/ax-llm/ax/tree/main/src/examples/embed.ts)** - Text embeddings and vector operations
+
+### Signatures & Type Safety
+
+- **[fluent-signature-example.ts](https://github.com/ax-llm/ax/tree/main/src/examples/fluent-signature-example.ts)** - Using the fluent API for signature definition
+- **[signature-tool-calling.ts](https://github.com/ax-llm/ax/tree/main/src/examples/signature-tool-calling.ts)** - Combining signatures with tool calling
+- **[structured_output.ts](https://github.com/ax-llm/ax/tree/main/src/examples/structured_output.ts)** - Complex structured output with validation
+- **[debug_schema.ts](https://github.com/ax-llm/ax/tree/main/src/examples/debug_schema.ts)** - Debugging JSON schema generation
+
+### Function Calling & Tools
+
+- **[function.ts](https://github.com/ax-llm/ax/tree/main/src/examples/function.ts)** - Basic function calling (ReAct pattern)
+- **[food-search.ts](https://github.com/ax-llm/ax/tree/main/src/examples/food-search.ts)** - Restaurant search with multi-step reasoning
+- **[smart-home.ts](https://github.com/ax-llm/ax/tree/main/src/examples/smart-home.ts)** - Smart home control with multiple devices
+- **[stop-function.ts](https://github.com/ax-llm/ax/tree/main/src/examples/stop-function.ts)** - Controlling function execution flow
+- **[function-result-formatter.ts](https://github.com/ax-llm/ax/tree/main/src/examples/function-result-formatter.ts)** - Formatting function call results
+- **[function-result-picker.ts](https://github.com/ax-llm/ax/tree/main/src/examples/function-result-picker.ts)** - Selecting best function results
+- **[result-picker.ts](https://github.com/ax-llm/ax/tree/main/src/examples/result-picker.ts)** - Advanced result selection strategies
+
+### Streaming
+
+- **[streaming.ts](https://github.com/ax-llm/ax/tree/main/src/examples/streaming.ts)** - Basic streaming responses
+- **[streaming-asserts.ts](https://github.com/ax-llm/ax/tree/main/src/examples/streaming-asserts.ts)** - Streaming with real-time validation
+
+### Assertions & Validation
+
+- **[asserts.ts](https://github.com/ax-llm/ax/tree/main/src/examples/asserts.ts)** - Using assertions for output validation
+- **[sample-count.ts](https://github.com/ax-llm/ax/tree/main/src/examples/sample-count.ts)** - Controlling sampling and retries
+
+### Agent Systems
+
+- **[agent.ts](https://github.com/ax-llm/ax/tree/main/src/examples/agent.ts)** - Basic agent implementation
+- **[agent-migration-example.ts](https://github.com/ax-llm/ax/tree/main/src/examples/agent-migration-example.ts)** - Migrating to the agent pattern
+- **[customer-support.ts](https://github.com/ax-llm/ax/tree/main/src/examples/customer-support.ts)** - Complete customer support agent
+- **[meetings.ts](https://github.com/ax-llm/ax/tree/main/src/examples/meetings.ts)** - Meeting assistant with scheduling
+
+### Workflow Orchestration (AxFlow)
+
+- **[ax-flow.ts](https://github.com/ax-llm/ax/tree/main/src/examples/ax-flow.ts)** - Comprehensive AxFlow demonstration
+- **[ax-flow-enhanced-demo.ts](https://github.com/ax-llm/ax/tree/main/src/examples/ax-flow-enhanced-demo.ts)** - Advanced flow patterns
+- **[ax-flow-async-map.ts](https://github.com/ax-llm/ax/tree/main/src/examples/ax-flow-async-map.ts)** - Parallel processing with map
+- **[ax-flow-auto-parallel.ts](https://github.com/ax-llm/ax/tree/main/src/examples/ax-flow-auto-parallel.ts)** - Automatic parallelization
+- **[ax-flow-map-merge-test.ts](https://github.com/ax-llm/ax/tree/main/src/examples/ax-flow-map-merge-test.ts)** - Map-reduce patterns
+- **[ax-flow-signature-inference.ts](https://github.com/ax-llm/ax/tree/main/src/examples/ax-flow-signature-inference.ts)** - Type inference in flows
+- **[ax-flow-to-function.ts](https://github.com/ax-llm/ax/tree/main/src/examples/ax-flow-to-function.ts)** - Converting flows to functions
+- **[fluent-flow-example.ts](https://github.com/ax-llm/ax/tree/main/src/examples/fluent-flow-example.ts)** - Fluent API for flows
+- **[flow-type-inference-demo.ts](https://github.com/ax-llm/ax/tree/main/src/examples/flow-type-inference-demo.ts)** - Type safety in flows
+- **[flow-type-safe-output.ts](https://github.com/ax-llm/ax/tree/main/src/examples/flow-type-safe-output.ts)** - Type-safe flow outputs
+- **[flow-logging-simple.ts](https://github.com/ax-llm/ax/tree/main/src/examples/flow-logging-simple.ts)** - Simple flow logging
+- **[flow-verbose-logging.ts](https://github.com/ax-llm/ax/tree/main/src/examples/flow-verbose-logging.ts)** - Detailed flow debugging
+
+### Optimization & Training
+
+- **[teacher-student-optimization.ts](https://github.com/ax-llm/ax/tree/main/src/examples/teacher-student-optimization.ts)** - MiPRO teacher-student optimization
+- **[mipro-python-optimizer.ts](https://github.com/ax-llm/ax/tree/main/src/examples/mipro-python-optimizer.ts)** - MiPRO with Python backend
+- **[gepa.ts](https://github.com/ax-llm/ax/tree/main/src/examples/gepa.ts)** - GEPA optimizer basics
+- **[gepa-flow.ts](https://github.com/ax-llm/ax/tree/main/src/examples/gepa-flow.ts)** - GEPA with workflows
+- **[gepa-train-inference.ts](https://github.com/ax-llm/ax/tree/main/src/examples/gepa-train-inference.ts)** - GEPA training and inference
+- **[gepa-quality-vs-speed-optimization.ts](https://github.com/ax-llm/ax/tree/main/src/examples/gepa-quality-vs-speed-optimization.ts)** - Multi-objective optimization
+- **[ace-train-inference.ts](https://github.com/ax-llm/ax/tree/main/src/examples/ace-train-inference.ts)** - ACE optimizer demonstration
+- **[simple-optimizer-test.ts](https://github.com/ax-llm/ax/tree/main/src/examples/simple-optimizer-test.ts)** - Basic optimizer testing
+- **[optimizer-metrics.ts](https://github.com/ax-llm/ax/tree/main/src/examples/optimizer-metrics.ts)** - Optimization metrics tracking
+- **[use-examples.ts](https://github.com/ax-llm/ax/tree/main/src/examples/use-examples.ts)** - Using examples for few-shot learning
+
+### Multi-Modal & Vision
+
+- **[multi-modal.ts](https://github.com/ax-llm/ax/tree/main/src/examples/multi-modal.ts)** - Basic multi-modal processing
+- **[multi-modal-abstraction.ts](https://github.com/ax-llm/ax/tree/main/src/examples/multi-modal-abstraction.ts)** - Advanced multi-modal patterns
+- **[image-arrays-test.ts](https://github.com/ax-llm/ax/tree/main/src/examples/image-arrays-test.ts)** - Processing multiple images
+- **[image-arrays-multi-provider-test.ts](https://github.com/ax-llm/ax/tree/main/src/examples/image-arrays-multi-provider-test.ts)** - Multi-provider image handling
+- **[audio-arrays-test.ts](https://github.com/ax-llm/ax/tree/main/src/examples/audio-arrays-test.ts)** - Audio processing
+
+### RAG & Document Processing
+
+- **[rag-docs.ts](https://github.com/ax-llm/ax/tree/main/src/examples/rag-docs.ts)** - Basic RAG implementation
+- **[advanced-rag.ts](https://github.com/ax-llm/ax/tree/main/src/examples/advanced-rag.ts)** - Advanced RAG patterns
+- **[vectordb.ts](https://github.com/ax-llm/ax/tree/main/src/examples/vectordb.ts)** - Vector database integration
+- **[codingWithMemory.ts](https://github.com/ax-llm/ax/tree/main/src/examples/codingWithMemory.ts)** - Code generation with memory
+
+### Provider-Specific Examples
+
+#### Anthropic (Claude)
+- **[anthropic-thinking-function.ts](https://github.com/ax-llm/ax/tree/main/src/examples/anthropic-thinking-function.ts)** - Extended thinking with function calls
+- **[anthropic-thinking-separation.ts](https://github.com/ax-llm/ax/tree/main/src/examples/anthropic-thinking-separation.ts)** - Separating thinking from output
+- **[anthropic-web-search.ts](https://github.com/ax-llm/ax/tree/main/src/examples/anthropic-web-search.ts)** - Web search with Claude
+- **[test-anthropic-cache.ts](https://github.com/ax-llm/ax/tree/main/src/examples/test-anthropic-cache.ts)** - Prompt caching with Anthropic
+
+#### Google Gemini
+- **[gemini-file-support.ts](https://github.com/ax-llm/ax/tree/main/src/examples/gemini-file-support.ts)** - File uploads with Gemini
+- **[gemini-google-maps.ts](https://github.com/ax-llm/ax/tree/main/src/examples/gemini-google-maps.ts)** - Google Maps integration
+- **[gemini-empty-params-function.ts](https://github.com/ax-llm/ax/tree/main/src/examples/gemini-empty-params-function.ts)** - Functions without parameters
+- **[vertex-auth-example.ts](https://github.com/ax-llm/ax/tree/main/src/examples/vertex-auth-example.ts)** - Vertex AI authentication
+
+#### OpenAI
+- **[openai-responses.ts](https://github.com/ax-llm/ax/tree/main/src/examples/openai-responses.ts)** - OpenAI response handling
+- **[openai-web-search.ts](https://github.com/ax-llm/ax/tree/main/src/examples/openai-web-search.ts)** - Web search with OpenAI
+- **[reasoning-o3-example.ts](https://github.com/ax-llm/ax/tree/main/src/examples/reasoning-o3-example.ts)** - O3 reasoning model
+
+#### Other Providers
+- **[grok-live-search.ts](https://github.com/ax-llm/ax/tree/main/src/examples/grok-live-search.ts)** - Grok with live search
+- **[openrouter.ts](https://github.com/ax-llm/ax/tree/main/src/examples/openrouter.ts)** - OpenRouter integration
+
+### MCP (Model Context Protocol)
+
+- **[mcp-client-memory.ts](https://github.com/ax-llm/ax/tree/main/src/examples/mcp-client-memory.ts)** - MCP memory server integration
+- **[mcp-client-blender.ts](https://github.com/ax-llm/ax/tree/main/src/examples/mcp-client-blender.ts)** - Blender MCP integration
+- **[mcp-client-pipedream.ts](https://github.com/ax-llm/ax/tree/main/src/examples/mcp-client-pipedream.ts)** - Pipedream MCP integration
+- **[mcp-client-notion-http-oauth.ts](https://github.com/ax-llm/ax/tree/main/src/examples/mcp-client-notion-http-oauth.ts)** - Notion MCP with HTTP OAuth
+- **[mcp-client-notion-sse-oauth.ts](https://github.com/ax-llm/ax/tree/main/src/examples/mcp-client-notion-sse-oauth.ts)** - Notion MCP with SSE OAuth
+
+### Advanced Patterns
+
+- **[react.ts](https://github.com/ax-llm/ax/tree/main/src/examples/react.ts)** - ReAct (Reasoning + Acting) pattern
+- **[prime.ts](https://github.com/ax-llm/ax/tree/main/src/examples/prime.ts)** - Prime number generation with reasoning
+- **[fibonacci.ts](https://github.com/ax-llm/ax/tree/main/src/examples/fibonacci.ts)** - Fibonacci sequence generation
+- **[show-thoughts.ts](https://github.com/ax-llm/ax/tree/main/src/examples/show-thoughts.ts)** - Displaying model reasoning
+- **[checkpoint-recovery.ts](https://github.com/ax-llm/ax/tree/main/src/examples/checkpoint-recovery.ts)** - Checkpointing and recovery
+- **[balancer.ts](https://github.com/ax-llm/ax/tree/main/src/examples/balancer.ts)** - Load balancing across models
+- **[ax-multiservice-router.ts](https://github.com/ax-llm/ax/tree/main/src/examples/ax-multiservice-router.ts)** - Routing between multiple AI services
+
+### Monitoring & Debugging
+
+- **[debug-logging.ts](https://github.com/ax-llm/ax/tree/main/src/examples/debug-logging.ts)** - Debug logging configuration
+- **[telemetry.ts](https://github.com/ax-llm/ax/tree/main/src/examples/telemetry.ts)** - Telemetry and observability
+- **[metrics-export.ts](https://github.com/ax-llm/ax/tree/main/src/examples/metrics-export.ts)** - Exporting metrics
+
+### Abort & Control Flow
+
+- **[abort-simple.ts](https://github.com/ax-llm/ax/tree/main/src/examples/abort-simple.ts)** - Simple abort handling
+- **[abort-patterns.ts](https://github.com/ax-llm/ax/tree/main/src/examples/abort-patterns.ts)** - Advanced abort patterns
+
+### Web & Browser
+
+- **[web-chat.html](https://github.com/ax-llm/ax/tree/main/src/examples/web-chat.html)** - Browser-based chat interface
+- **[webllm-chat.html](https://github.com/ax-llm/ax/tree/main/src/examples/webllm-chat.html)** - WebLLM browser integration
+- **[cors-proxy.js](https://github.com/ax-llm/ax/tree/main/src/examples/cors-proxy.js)** - CORS proxy for browser usage
+
+### Deployment
+
+- **[docker.ts](https://github.com/ax-llm/ax/tree/main/src/examples/docker.ts)** - Docker deployment example
 
 ## Best Practices
 

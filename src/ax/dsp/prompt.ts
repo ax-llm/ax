@@ -401,10 +401,28 @@ export class AxPromptTemplate {
       {} as Record<string, AxIField[]>
     );
 
+    // When hasComplexFields is true, the entire output is JSON, so we should not add
+    // field-specific instructions to return only error-corrected fields
+    const _hasComplexFields = this.sig.hasComplexFields();
+
     const formattedGroupedFields = Object.entries(groupedFields)
       .map(([title, fields]) => {
         if (fields.length === 1) {
           const field = fields[0]!;
+
+          // Add special instructions for complex fields to ensure full object is returned
+          // This is helpful for both plain text and structured output modes
+          if (
+            field.type?.name === 'object' ||
+            (field.type?.isArray && field.type.fields)
+          ) {
+            return {
+              title,
+              name: field.name,
+              description: `${field.description}\nIMPORTANT: Provide the FULL JSON object for this field, matching the schema exactly.`,
+            };
+          }
+
           return {
             title,
             name: field.name,
@@ -438,7 +456,58 @@ export class AxPromptTemplate {
       isExample: true,
     };
 
+    const hasComplexFields = this.sig.hasComplexFields();
+
     for (const [index, item] of data.entries()) {
+      if (hasComplexFields) {
+        // For structured outputs:
+        // - Render input fields as key-value
+        // - Render output fields as JSON
+
+        const renderedInputItem = this.sig
+          .getInputFields()
+          .map((field) =>
+            this.renderInField(field, item, {
+              ...exampleContext,
+              isInputField: true,
+            })
+          )
+          .filter((v) => v !== undefined)
+          .flat();
+
+        // Extract only output values for JSON rendering
+        const outputFields = this.sig.getOutputFields();
+        const outputValues: Record<string, any> = {};
+        for (const field of outputFields) {
+          if (field.name in item) {
+            outputValues[field.name] = (item as any)[field.name];
+          }
+        }
+
+        // Render output as JSON
+        const jsonStr = JSON.stringify(outputValues, null, 2);
+
+        const renderedItem = [
+          ...renderedInputItem,
+          { type: 'text' as const, text: `\`\`\`json\n${jsonStr}\n\`\`\`\n` },
+        ];
+
+        if (
+          index > 0 &&
+          renderedItem.length > 0 &&
+          renderedItem[0]?.type === 'text'
+        ) {
+          list.push({ type: 'text' as const, text: '---\n\n' });
+        }
+
+        renderedItem.forEach((v) => {
+          if (v) {
+            list.push(v);
+          }
+        });
+        continue;
+      }
+
       const renderedInputItem = this.sig
         .getInputFields()
         .map((field) =>
@@ -490,7 +559,49 @@ export class AxPromptTemplate {
       isExample: true,
     };
 
+    const hasComplexFields = this.sig.hasComplexFields();
+
     for (const item of data) {
+      if (hasComplexFields) {
+        // For structured outputs:
+        // - Render input fields as key-value
+        // - Render output fields as JSON
+
+        const inputRenderedItems = inputFields
+          .map((field) =>
+            this.renderInField(field, item, {
+              ...demoContext,
+              isInputField: true,
+            })
+          )
+          .filter((v) => v !== undefined)
+          .flat();
+
+        // Extract only output values for JSON rendering
+        const outputValues: Record<string, any> = {};
+        for (const field of outputFields) {
+          if (field.name in item) {
+            outputValues[field.name] = (item as any)[field.name];
+          }
+        }
+
+        // Render output as JSON
+        const jsonStr = JSON.stringify(outputValues, null, 2);
+
+        const renderedItem = [
+          ...inputRenderedItems,
+          { type: 'text' as const, text: `\`\`\`json\n${jsonStr}\n\`\`\`\n` },
+        ];
+
+        renderedItem.slice(0, -1).forEach((v) => {
+          if ('text' in v) {
+            v.text = `${v.text}\n`;
+          }
+          list.push(v);
+        });
+        continue;
+      }
+
       const inputRenderedItems = inputFields
         .map((field) =>
           this.renderInField(field, item, {

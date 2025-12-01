@@ -80,6 +80,7 @@ export class AxSignatureBuilder<
         pattern: fieldInfo.pattern,
         patternDescription: fieldInfo.patternDescription,
         format: fieldInfo.format,
+        description: fieldInfo.itemDescription,
         fields: fieldInfo.fields
           ? Object.fromEntries(
               Object.entries(fieldInfo.fields).map(([k, v]) => [
@@ -134,6 +135,7 @@ export class AxSignatureBuilder<
         pattern: fieldInfo.pattern,
         patternDescription: fieldInfo.patternDescription,
         format: fieldInfo.format,
+        description: fieldInfo.itemDescription,
         fields: fieldInfo.fields
           ? Object.fromEntries(
               Object.entries(fieldInfo.fields).map(([k, v]) => [
@@ -171,6 +173,18 @@ export class AxSignatureBuilder<
   }
 
   /**
+   * Enforce structured outputs (JSON) for this signature, even if fields are simple.
+   */
+  public useStructured(): AxSignatureBuilder<_TInput, _TOutput> {
+    // We'll store this in a private property.
+    // Since we can't easily add a property to the class without redefining it,
+    // we'll assume there's a way to pass it to config.
+    // Let's add a private property `_useStructuredOutputs` to the class.
+    (this as any)._useStructuredOutputs = true;
+    return this;
+  }
+
+  /**
    * Build the final AxSignature instance
    */
   public build(): AxSignature<_TInput, _TOutput> {
@@ -180,7 +194,11 @@ export class AxSignatureBuilder<
       outputs: this.outputFields,
     };
 
-    return new AxSignature(config) as AxSignature<_TInput, _TOutput>;
+    const sig = new AxSignature(config) as AxSignature<_TInput, _TOutput>;
+    if ((this as any)._useStructuredOutputs) {
+      (sig as any)._forceComplexFields = true;
+    }
+    return sig;
   }
 }
 
@@ -210,12 +228,14 @@ export class AxFluentFieldType<
   readonly pattern?: string;
   readonly patternDescription?: string;
   readonly format?: string;
+  readonly itemDescription?: string;
 
   constructor(fieldType: {
     type: TType;
     isArray: TIsArray;
     options?: TOptions;
     description?: string;
+    itemDescription?: string;
     isOptional: TIsOptional;
     isInternal: TIsInternal;
     fields?: TFields;
@@ -231,6 +251,7 @@ export class AxFluentFieldType<
     this.isArray = fieldType.isArray;
     this.options = fieldType.options;
     this.description = fieldType.description;
+    this.itemDescription = fieldType.itemDescription;
     this.isOptional = fieldType.isOptional;
     this.isInternal = fieldType.isInternal;
     this.fields = fieldType.fields;
@@ -271,6 +292,7 @@ export class AxFluentFieldType<
       ...this,
       isArray: true as const,
       description: desc || this.description,
+      itemDescription: desc ? this.description : undefined,
     });
   }
 
@@ -683,6 +705,7 @@ export interface AxField {
     pattern?: string;
     patternDescription?: string;
     format?: string;
+    description?: string;
   };
   isOptional?: boolean;
   isInternal?: boolean;
@@ -776,6 +799,7 @@ export interface AxFluentFieldInfo<
   readonly options?: TOptions;
   readonly fields?: TFields;
   readonly description?: string;
+  readonly itemDescription?: string;
   readonly isOptional?: TIsOptional;
   readonly isInternal?: boolean;
   readonly minLength?: number;
@@ -1522,7 +1546,12 @@ export class AxSignature<
     }
   }
 
+  private _forceComplexFields = false;
+
   public hasComplexFields = (): boolean => {
+    if (this._forceComplexFields) {
+      return true;
+    }
     const check = (fields: readonly AxField[]) =>
       fields.some(
         (f) =>

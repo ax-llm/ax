@@ -800,6 +800,21 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
               options.sessionId
             );
             mem.addTag('correction', options.sessionId);
+
+            // When using structured outputs (JSON mode), we need to reset the state content
+            // to avoid concatenating JSON objects from previous retry attempts
+            const hasComplexFields = this.signature.hasComplexFields();
+            if (hasComplexFields) {
+              for (const state of states) {
+                state.content = '';
+                state.values = {};
+                state.xstate = {
+                  extractedFields: [],
+                  streamedIndex: {},
+                  s: -1,
+                };
+              }
+            }
           }
         }
       }
