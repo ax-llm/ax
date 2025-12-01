@@ -33,6 +33,8 @@ const toFieldType = (type: Readonly<AxField['type']>) => {
         return 'classification class';
       case 'code':
         return 'code';
+      case 'object':
+        return 'object';
       default:
         return 'string';
     }

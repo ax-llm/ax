@@ -822,7 +822,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
             (err ?? lastError)?.message ??
             (err ?? lastError)?.toString() ??
             'unknown error'
-          }`
+          }\n\nLLM Output:\n${states.map((s) => s.content).join('\n---\n')}`
         ),
         ai,
         this.signature

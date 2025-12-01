@@ -615,7 +615,7 @@ function validateAndParseFieldValue(
 
   let value: unknown | undefined;
 
-  if (field.type?.name === 'json') {
+  if (field.type?.name === 'json' && !field.type?.isArray) {
     try {
       const text = extractBlock(fieldValue);
       value = JSON.parse(text);
@@ -645,7 +645,24 @@ function validateAndParseFieldValue(
     if (Array.isArray(value)) {
       for (const [index, item] of value.entries()) {
         if (item !== undefined) {
-          const v = typeof item === 'string' ? item.trim() : item;
+          let v = typeof item === 'string' ? item.trim() : item;
+
+          // If we have a string item but expect an object/json, try to parse it as JSON
+          // This handles the case where the LLM outputs a markdown list of JSON strings
+          if (
+            typeof v === 'string' &&
+            (field.type?.name === 'object' ||
+              (field.type?.name as string) === 'json')
+          ) {
+            try {
+              // Try to extract a JSON block if present, otherwise parse directly
+              const jsonText = extractBlock(v);
+              v = JSON.parse(jsonText);
+            } catch {
+              // Ignore parsing errors here, let convertValueToType or validation handle it
+            }
+          }
+
           value[index] = convertValueToType(field, v, true);
         }
       }
