@@ -265,7 +265,8 @@ async function* ProcessStreamingResponse<OUT extends AxGenOut>({
         // Validate structured output values against field constraints
         validateStructuredOutputValues(
           signature,
-          delta as Record<string, unknown>
+          delta as Record<string, unknown>,
+          { allowMissingRequired: true }
         );
 
         // Update state values
@@ -441,7 +442,8 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
         // Validate structured output values against field constraints
         validateStructuredOutputValues(
           signature,
-          delta as Record<string, unknown>
+          delta as Record<string, unknown>,
+          { allowMissingRequired: true }
         );
 
         Object.assign(state.values, delta);

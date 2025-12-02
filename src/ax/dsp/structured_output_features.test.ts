@@ -75,4 +75,34 @@ describe('Structured Output Features', () => {
       'IMPORTANT: Provide the FULL JSON object for this field'
     );
   });
+
+  it('should separate input fields with newlines in examples when structured outputs are enabled', () => {
+    const signature = f()
+      .input('field1', f.string())
+      .input('field2', f.string())
+      .output('responseText', f.string())
+      .useStructured()
+      .build();
+
+    const template = new AxPromptTemplate(signature);
+    const examples = [
+      {
+        field1: 'value1',
+        field2: 'value2',
+        responseText: 'result',
+      },
+    ];
+
+    const rendered = template.render(
+      { field1: 'test', field2: 'test' },
+      { examples }
+    );
+    const systemMessage = rendered.find((m) => m.role === 'system');
+
+    // Check that fields are separated by newline
+    // We expect "Field1: value1\nField2: value2"
+    expect(systemMessage?.content).toContain(
+      'Field 1: value1\nField 2: value2'
+    );
+  });
 });

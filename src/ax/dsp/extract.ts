@@ -718,7 +718,8 @@ export function validateAndParseFieldValue(
  */
 export function validateStructuredOutputValues(
   signature: Readonly<AxSignature>,
-  values: Record<string, unknown>
+  values: Record<string, unknown>,
+  options?: { allowMissingRequired?: boolean }
 ): void {
   const outputFields = signature.getOutputFields();
 
@@ -727,7 +728,7 @@ export function validateStructuredOutputValues(
 
     // Check required fields
     if (value === undefined || value === null) {
-      if (!field.isOptional) {
+      if (!field.isOptional && !options?.allowMissingRequired) {
         throw createRequiredFieldMissingError(field);
       }
       continue;
@@ -773,7 +774,11 @@ export function validateStructuredOutputValues(
       typeof value === 'object' &&
       !Array.isArray(value)
     ) {
-      validateNestedObjectFields(field, value as Record<string, unknown>);
+      validateNestedObjectFields(
+        field,
+        value as Record<string, unknown>,
+        options
+      );
     }
 
     // Validate array of objects
@@ -785,7 +790,11 @@ export function validateStructuredOutputValues(
     ) {
       for (const item of value) {
         if (item && typeof item === 'object') {
-          validateNestedObjectFields(field, item as Record<string, unknown>);
+          validateNestedObjectFields(
+            field,
+            item as Record<string, unknown>,
+            options
+          );
         }
       }
     }
@@ -797,7 +806,8 @@ export function validateStructuredOutputValues(
  */
 function validateNestedObjectFields(
   parentField: Readonly<AxField>,
-  obj: Record<string, unknown>
+  obj: Record<string, unknown>,
+  options?: { allowMissingRequired?: boolean }
 ): void {
   const fields = parentField.type?.fields;
   if (!fields || typeof fields !== 'object') return;
@@ -829,7 +839,7 @@ function validateNestedObjectFields(
 
     // Check required fields
     if (value === undefined || value === null) {
-      if (!nestedField.isOptional) {
+      if (!nestedField.isOptional && !options?.allowMissingRequired) {
         throw createRequiredFieldMissingError(nestedField);
       }
       continue;
@@ -875,7 +885,11 @@ function validateNestedObjectFields(
       typeof value === 'object' &&
       !Array.isArray(value)
     ) {
-      validateNestedObjectFields(nestedField, value as Record<string, unknown>);
+      validateNestedObjectFields(
+        nestedField,
+        value as Record<string, unknown>,
+        options
+      );
     }
 
     // Validate array of objects
@@ -889,7 +903,8 @@ function validateNestedObjectFields(
         if (item && typeof item === 'object') {
           validateNestedObjectFields(
             nestedField,
-            item as Record<string, unknown>
+            item as Record<string, unknown>,
+            options
           );
         }
       }

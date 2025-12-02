@@ -502,6 +502,9 @@ export class AxPromptTemplate {
 
         renderedItem.forEach((v) => {
           if (v) {
+            if ('text' in v) {
+              v.text = `${v.text}\n`;
+            }
             list.push(v);
           }
         });
