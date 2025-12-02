@@ -1,5 +1,16 @@
 # Changelog
 
+## [15.0.8](///compare/15.0.6...15.0.7) (2025-12-02)
+
+### Features
+
+* **dsp:** Separate structured output example input fields with newlines and allow missing required fields during structured output validation in response processing. 6150f36
+## [15.0.7](///compare/15.0.6...15.0.7) (2025-12-01)
+
+### Features
+
+* enhance structured output handling with distinct extraction modes and improved prompt rendering for complex fields 7ad07fe
+
 ## [15.0.7](///compare/15.0.5...15.0.6) (2025-12-01)
 
 ### Features
