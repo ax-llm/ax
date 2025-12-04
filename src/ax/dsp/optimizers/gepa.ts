@@ -836,17 +836,10 @@ export class AxGEPA extends AxBaseOptimizer {
   private async getBaseInstruction<IN, OUT extends AxGenOut>(
     program: Readonly<AxGen<IN, OUT>>
   ): Promise<string> {
-    try {
-      // If program exposes instruction via signature, prefer it
-      const sig: any = program.getSignature?.();
-      if (
-        sig &&
-        typeof sig.instruction === 'string' &&
-        sig.instruction.length > 0
-      ) {
-        return sig.instruction as string;
-      }
-    } catch {}
+    const instruction = program.getInstruction();
+    if (instruction && instruction.length > 0) {
+      return instruction;
+    }
     return 'Follow the task precisely. Be concise, correct, and consistent.';
   }
 

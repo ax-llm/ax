@@ -50,6 +50,10 @@ export class AxPromptTemplate {
   public setInstruction(instruction: string): void {
     this.task = { type: 'text', text: instruction };
   }
+
+  public getInstruction(): string {
+    return this.task.text;
+  }
   private readonly thoughtFieldName: string;
   private readonly functions?: Readonly<AxInputFunctionType>;
   private readonly cacheSystemPrompt?: boolean;
