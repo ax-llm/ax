@@ -974,8 +974,20 @@ export class AxACE extends AxBaseOptimizer {
         severity: (example as { severity?: string })?.severity,
         policyHint: (example as { policyHint?: string })?.policyHint,
       };
+      const signature = this.program?.getSignature();
+      const inputFields = signature?.getInputFields() ?? [];
+      const questionContext = inputFields.reduce(
+        (acc, field) => {
+          if (field.name in example) {
+            acc[field.name] = example[field.name as keyof typeof example];
+          }
+          return acc;
+        },
+        {} as Record<string, unknown>
+      );
+
       const reflectionRaw = await reflector.forward(reflectorAI, {
-        question: JSON.stringify(example),
+        question: JSON.stringify(questionContext),
         generator_answer: JSON.stringify(generatorOutput.answer),
         generator_reasoning: generatorOutput.reasoning,
         playbook: JSON.stringify({
