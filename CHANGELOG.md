@@ -1,5 +1,17 @@
 # Changelog
 
+## [15.0.9](///compare/15.0.7...15.0.8) (2025-12-08)
+
+### Bug Fixes
+
+* **anthropic:** remove unsupported structured-outputs beta header for Vertex AI ([#462](undefined/undefined/undefined/issues/462)) 8420adb
+* improved ax generate error bebf924
+## [15.0.8](///compare/15.0.7...15.0.8) (2025-12-02)
+
+### Features
+
+* **dsp:** Separate structured output example input fields with newlines and allow missing required fields during structured output validation in response processing. 6150f36
+
 ## [15.0.8](///compare/15.0.6...15.0.7) (2025-12-02)
 
 ### Features
