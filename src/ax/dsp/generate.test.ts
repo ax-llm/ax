@@ -634,6 +634,31 @@ describe('Error handling in AxGen', () => {
     }
   });
 
+  it('should serialize cause properly in JSON', async () => {
+    const originalError = new Error('AI service failed');
+    const ai = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: () => Promise.reject(originalError),
+    });
+
+    const gen = new AxGen<{ userQuestion: string }, { modelAnswer: string }>(
+      signature
+    );
+    try {
+      await gen.forward(ai, { userQuestion: 'test' });
+      throw new Error('Test should have failed but did not.');
+    } catch (e) {
+      const error = e as Error;
+      const serialized = JSON.parse(JSON.stringify(error));
+      expect(serialized.name).toBe('AxGenerateError');
+      expect(serialized.message).toBe('Generate failed: AI service failed');
+      expect(serialized.cause).toBeDefined();
+      expect(serialized.cause.name).toBe('Error');
+      expect(serialized.cause.message).toBe('AI service failed');
+      expect(serialized.details).toBeDefined();
+    }
+  });
+
   it('should handle streaming errors gracefully', async () => {
     const originalError = new Error('Streaming failed mid-stream');
     // Create a stream that errors after first chunk

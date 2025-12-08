@@ -1492,6 +1492,23 @@ export class AxGenerateError extends Error {
       (this as ErrorOptions).cause = options.cause;
     }
   }
+
+  toJSON(): Record<string, unknown> {
+    const cause = (this as ErrorOptions).cause;
+    return {
+      name: this.name,
+      message: this.message,
+      details: this.details,
+      cause: cause
+        ? {
+            name: cause.name,
+            message: cause.message,
+            stack: cause.stack,
+          }
+        : undefined,
+      stack: this.stack,
+    };
+  }
 }
 
 function enhanceError(
@@ -1537,7 +1554,11 @@ function enhanceError(
   };
 
   // Return custom error with short message and details as object property
-  return new AxGenerateError('Generate failed', details, {
-    cause: originalError,
-  });
+  return new AxGenerateError(
+    `Generate failed: ${originalError.message}`,
+    details,
+    {
+      cause: originalError,
+    }
+  );
 }
