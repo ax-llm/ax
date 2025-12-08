@@ -46,9 +46,15 @@ export class AxPromptTemplate {
   private sig: Readonly<AxSignature>;
   private fieldTemplates?: Record<string, AxFieldTemplateFn>;
   private task: { type: 'text'; text: string };
+  private customInstruction?: string;
 
   public setInstruction(instruction: string): void {
+    this.customInstruction = instruction;
     this.task = { type: 'text', text: instruction };
+  }
+
+  public getInstruction(): string | undefined {
+    return this.customInstruction;
   }
   private readonly thoughtFieldName: string;
   private readonly functions?: Readonly<AxInputFunctionType>;
