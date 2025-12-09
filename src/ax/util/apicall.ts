@@ -924,8 +924,21 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
         });
       }
 
+      // Wrap raw network errors from fetch() in AxAIServiceNetworkError
+      // This ensures errors like TLS connection failures, DNS errors, etc. are retried
+      let wrappedError: Error = error as Error;
+      if (!(error instanceof AxAIServiceError) && error instanceof Error) {
+        wrappedError = new AxAIServiceNetworkError(
+          error,
+          apiUrl.href,
+          json,
+          undefined,
+          { metrics }
+        );
+      }
+
       if (api.span?.isRecording()) {
-        api.span.recordException(error as Error);
+        api.span.recordException(wrappedError);
         api.span.setAttributes({
           'error.time': Date.now() - metrics.startTime,
           'error.retries': metrics.retryCount,
@@ -934,8 +947,8 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
 
       // Handle retryable network errors
       if (
-        error instanceof AxAIServiceNetworkError &&
-        shouldRetry(error, undefined, attempt, retryConfig)
+        wrappedError instanceof AxAIServiceNetworkError &&
+        shouldRetry(wrappedError, undefined, attempt, retryConfig)
       ) {
         const delay = calculateRetryDelay(attempt, retryConfig);
         attempt++;
@@ -944,7 +957,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
         api.span?.addEvent('retry', {
           attempt,
           delay,
-          error: error.message,
+          error: wrappedError.message,
           'metrics.startTime': metrics.startTime,
           'metrics.retryCount': metrics.retryCount,
           'metrics.lastRetryTime': metrics.lastRetryTime,
@@ -954,11 +967,11 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
         continue;
       }
 
-      if (error instanceof AxAIServiceError) {
-        error.context.metrics = metrics;
+      if (wrappedError instanceof AxAIServiceError) {
+        wrappedError.context.metrics = metrics;
       }
 
-      throw error;
+      throw wrappedError;
     } finally {
       if (timeoutId !== undefined) {
         clearTimeout(timeoutId);
