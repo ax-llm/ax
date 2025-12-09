@@ -1,5 +1,12 @@
 # Changelog
 
+## [15.0.11](///compare/15.0.9...15.0.10) (2025-12-09)
+## [15.0.10](///compare/15.0.9...15.0.10) (2025-12-09)
+
+### Features
+
+* add support for structured outputs across various AI models and enhance error handling for complex fields 816484c
+
 ## [15.0.10](///compare/15.0.8...15.0.9) (2025-12-09)
 
 ### Features
