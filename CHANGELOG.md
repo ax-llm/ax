@@ -1,5 +1,17 @@
 # Changelog
 
+## [15.0.10](///compare/15.0.8...15.0.9) (2025-12-09)
+
+### Features
+
+* add support for structured outputs across various AI models and enhance error handling for complex fields 816484c
+## [15.0.9](///compare/15.0.8...15.0.9) (2025-12-08)
+
+### Bug Fixes
+
+* **anthropic:** remove unsupported structured-outputs beta header for Vertex AI ([#462](undefined/undefined/undefined/issues/462)) 8420adb
+* improved ax generate error bebf924
+
 ## [15.0.9](///compare/15.0.7...15.0.8) (2025-12-08)
 
 ### Bug Fixes
