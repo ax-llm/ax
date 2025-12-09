@@ -79,6 +79,7 @@ export class AxPromptTemplate {
    */
   private buildLegacyPrompt(): { type: 'text'; text: string } {
     const task = [];
+    const hasComplexFields = this.sig.hasComplexFields();
 
     const inArgs = renderDescFields(this.sig.getInputFields());
     const outArgs = renderDescFields(this.sig.getOutputFields());
@@ -102,14 +103,16 @@ export class AxPromptTemplate {
     const inputFields = renderInputFields(this.sig.getInputFields());
     task.push(`## Input Fields\n${inputFields}`);
 
-    const outputFields = renderOutputFields(this.sig.getOutputFields());
-    task.push(`## Output Fields\n${outputFields}`);
+    // Output fields section - skip for complex fields since the JSON schema
+    // is already sent via responseFormat and handled by the provider's system
+    if (!hasComplexFields) {
+      const outputFields = renderOutputFields(this.sig.getOutputFields());
+      task.push(`## Output Fields\n${outputFields}`);
+    }
 
     if (funcList && funcList.length > 0) {
       task.push(functionCallInstructions.trim());
     }
-
-    const hasComplexFields = this.sig.hasComplexFields();
 
     if (!hasComplexFields) {
       task.push(formattingRules.trim());
@@ -132,6 +135,7 @@ export class AxPromptTemplate {
    */
   private buildStructuredPrompt(): { type: 'text'; text: string } {
     const sections: string[] = [];
+    const hasComplexFields = this.sig.hasComplexFields();
 
     // Identity section
     sections.push('<identity>');
@@ -154,10 +158,13 @@ export class AxPromptTemplate {
     sections.push(this.buildInputFieldsSection());
     sections.push('</input_fields>');
 
-    // Output fields section
-    sections.push('\n<output_fields>');
-    sections.push(this.buildOutputFieldsSection());
-    sections.push('</output_fields>');
+    // Output fields section - skip for complex fields since the JSON schema
+    // is already sent via responseFormat and handled by the provider's system
+    if (!hasComplexFields) {
+      sections.push('\n<output_fields>');
+      sections.push(this.buildOutputFieldsSection());
+      sections.push('</output_fields>');
+    }
 
     // Formatting rules section (protected)
     sections.push('\n<formatting_rules>');

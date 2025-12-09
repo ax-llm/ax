@@ -35,6 +35,7 @@ export type AxModelInfo = {
   supported?: {
     thinkingBudget?: boolean;
     showThoughts?: boolean;
+    structuredOutputs?: boolean;
   };
   notSupported?: {
     temperature?: boolean;

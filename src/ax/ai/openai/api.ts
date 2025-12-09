@@ -759,6 +759,7 @@ export class AxAIOpenAI<TModelKey = string> extends AxAIOpenAIBase<
         streaming: true,
         hasThinkingBudget: mi?.supported?.thinkingBudget ?? false,
         hasShowThoughts: mi?.supported?.showThoughts ?? false,
+        structuredOutputs: mi?.supported?.structuredOutputs ?? false,
         media: {
           images: {
             supported: true,

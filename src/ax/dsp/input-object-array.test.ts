@@ -48,7 +48,7 @@ const llm: AxAIService = {
   getOptions: vi.fn().mockReturnValue({}),
   setOptions: vi.fn(),
   getName: vi.fn(),
-  getFeatures: vi.fn(),
+  getFeatures: vi.fn().mockReturnValue({ structuredOutputs: true }),
   getModelList: vi.fn(),
   getMetrics: vi.fn(),
   getLogger: vi.fn(),

@@ -26,7 +26,7 @@ describe('Structured Outputs', () => {
 
     const mockAI = new AxMockAIService({
       name: 'mock',
-      features: { functions: true, streaming: true },
+      features: { functions: true, streaming: true, structuredOutputs: true },
     });
 
     // Mock the chat response to verify the request format
@@ -85,7 +85,7 @@ describe('Structured Outputs', () => {
 
     const mockAI = new AxMockAIService({
       name: 'mock',
-      features: { functions: true, streaming: true },
+      features: { functions: true, streaming: true, structuredOutputs: true },
     });
 
     // Simulate streaming chunks
@@ -144,7 +144,7 @@ describe('Structured Outputs', () => {
       const gen = ax(sig);
       const mockAI = new AxMockAIService({
         name: 'mock',
-        features: { functions: true, streaming: true },
+        features: { functions: true, streaming: true, structuredOutputs: true },
       });
 
       mockAI.chat = async () => ({
@@ -175,7 +175,7 @@ describe('Structured Outputs', () => {
       const gen = ax(sig);
       const mockAI = new AxMockAIService({
         name: 'mock',
-        features: { functions: true, streaming: true },
+        features: { functions: true, streaming: true, structuredOutputs: true },
       });
 
       mockAI.chat = async () => ({
@@ -213,7 +213,7 @@ describe('Structured Outputs', () => {
       const gen = ax(sig);
       const mockAI = new AxMockAIService({
         name: 'mock',
-        features: { functions: true, streaming: true },
+        features: { functions: true, streaming: true, structuredOutputs: true },
       });
 
       mockAI.chat = async () => ({
@@ -244,7 +244,7 @@ describe('Structured Outputs', () => {
       const gen = ax(sig);
       const mockAI = new AxMockAIService({
         name: 'mock',
-        features: { functions: true, streaming: true },
+        features: { functions: true, streaming: true, structuredOutputs: true },
       });
 
       mockAI.chat = async () => ({
@@ -275,7 +275,7 @@ describe('Structured Outputs', () => {
       const gen = ax(sig);
       const mockAI = new AxMockAIService({
         name: 'mock',
-        features: { functions: true, streaming: true },
+        features: { functions: true, streaming: true, structuredOutputs: true },
       });
 
       mockAI.chat = async () => ({
@@ -306,7 +306,7 @@ describe('Structured Outputs', () => {
       const gen = ax(sig);
       const mockAI = new AxMockAIService({
         name: 'mock',
-        features: { functions: true, streaming: true },
+        features: { functions: true, streaming: true, structuredOutputs: true },
       });
 
       mockAI.chat = async () => ({
@@ -339,7 +339,7 @@ describe('Structured Outputs', () => {
       const gen = ax(sig);
       const mockAI = new AxMockAIService({
         name: 'mock',
-        features: { functions: true, streaming: true },
+        features: { functions: true, streaming: true, structuredOutputs: true },
       });
 
       mockAI.chat = async () => ({
@@ -372,7 +372,7 @@ describe('Structured Outputs', () => {
       const gen = ax(sig);
       const mockAI = new AxMockAIService({
         name: 'mock',
-        features: { functions: true, streaming: true },
+        features: { functions: true, streaming: true, structuredOutputs: true },
       });
 
       mockAI.chat = async () => ({
@@ -403,7 +403,7 @@ describe('Structured Outputs', () => {
       const gen = ax(sig);
       const mockAI = new AxMockAIService({
         name: 'mock',
-        features: { functions: true, streaming: true },
+        features: { functions: true, streaming: true, structuredOutputs: true },
       });
 
       // Send complete JSON that violates constraints
@@ -448,7 +448,7 @@ describe('Structured Outputs', () => {
       const gen = ax(sig);
       const mockAI = new AxMockAIService({
         name: 'mock',
-        features: { functions: true, streaming: true },
+        features: { functions: true, streaming: true, structuredOutputs: true },
       });
 
       mockAI.chat = async () => ({

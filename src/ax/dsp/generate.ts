@@ -360,6 +360,16 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     // Auto-detect structured output requirement
     // If we have object types in output or array of objects, we use structured outputs
     if (hasComplexFields) {
+      // Check if the provider/model supports structured outputs
+      const features = ai.getFeatures(model);
+      if (!features?.structuredOutputs) {
+        throw new Error(
+          `Complex structured outputs (object/array types) require a provider that supports structured outputs. ` +
+            `Current provider/model does not support this feature. ` +
+            `Supported providers: OpenAI (GPT-4o, GPT-4.1+), Google Gemini, Anthropic (Sonnet/Opus).`
+        );
+      }
+
       // Use the signature-to-schema converter we implemented
       const schema = toJsonSchema(outputFields);
 

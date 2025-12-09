@@ -9,7 +9,7 @@ describe('Error Correction with Structured Outputs', () => {
   it('should not concatenate JSON across retry attempts when validation fails', async () => {
     // Create a mock AI that detects error correction by checking the request
     const ai = new AxMockAIService({
-      features: { functions: false, streaming: false },
+      features: { functions: false, streaming: false, structuredOutputs: true },
       chatResponse: async (req: Readonly<AxChatRequest>) => {
         // Check if this is an error correction retry by looking for error/correction messages
         const messages = req.chatPrompt;
@@ -101,7 +101,7 @@ describe('Error Correction with Structured Outputs', () => {
     let callCount = 0;
 
     const ai = new AxMockAIService({
-      features: { functions: false, streaming: false },
+      features: { functions: false, streaming: false, structuredOutputs: true },
       chatResponse: async () => {
         callCount++;
 
@@ -162,7 +162,7 @@ describe('Error Correction with Structured Outputs', () => {
 
   it('should produce valid JSON after error correction (not concatenated strings)', async () => {
     const ai = new AxMockAIService({
-      features: { functions: false, streaming: false },
+      features: { functions: false, streaming: false, structuredOutputs: true },
       chatResponse: async (req: Readonly<AxChatRequest>) => {
         // Check if this is a retry
         const messages = req.chatPrompt;
@@ -281,7 +281,7 @@ describe('Error Correction with Structured Outputs', () => {
 
   it('should work with plain text mode (hasComplexFields=false) - no state reset', async () => {
     const ai = new AxMockAIService({
-      features: { functions: false, streaming: false },
+      features: { functions: false, streaming: false, structuredOutputs: true },
       chatResponse: async (req: Readonly<AxChatRequest>) => {
         // Check if this is a retry
         const messages = req.chatPrompt;

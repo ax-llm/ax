@@ -11,7 +11,11 @@ export const axModelInfoAnthropic: AxModelInfo[] = [
     promptTokenCostPer1M: 3.0,
     completionTokenCostPer1M: 15.0,
     maxTokens: 200000,
-    supported: { thinkingBudget: true, showThoughts: true },
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: true,
+    },
   },
   {
     name: AxAIAnthropicVertexModel.Claude45Sonnet,
@@ -19,7 +23,11 @@ export const axModelInfoAnthropic: AxModelInfo[] = [
     promptTokenCostPer1M: 3.0,
     completionTokenCostPer1M: 15.0,
     maxTokens: 200000,
-    supported: { thinkingBudget: true, showThoughts: true },
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: true,
+    },
   },
   // 4.5 Haiku (2025-10)
   {
@@ -46,7 +54,11 @@ export const axModelInfoAnthropic: AxModelInfo[] = [
     promptTokenCostPer1M: 15.0,
     completionTokenCostPer1M: 75.0,
     maxTokens: 32000,
-    supported: { thinkingBudget: true, showThoughts: true },
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: true,
+    },
   },
   {
     name: AxAIAnthropicVertexModel.Claude41Opus,
@@ -54,7 +66,11 @@ export const axModelInfoAnthropic: AxModelInfo[] = [
     promptTokenCostPer1M: 15.0,
     completionTokenCostPer1M: 75.0,
     maxTokens: 32000,
-    supported: { thinkingBudget: true, showThoughts: true },
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: true,
+    },
   },
   {
     name: AxAIAnthropicModel.Claude4Opus,
@@ -62,7 +78,11 @@ export const axModelInfoAnthropic: AxModelInfo[] = [
     promptTokenCostPer1M: 15.0,
     completionTokenCostPer1M: 75.0,
     maxTokens: 32000,
-    supported: { thinkingBudget: true, showThoughts: true },
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: true,
+    },
   },
   {
     name: AxAIAnthropicVertexModel.Claude4Opus,
@@ -70,7 +90,11 @@ export const axModelInfoAnthropic: AxModelInfo[] = [
     promptTokenCostPer1M: 15.0,
     completionTokenCostPer1M: 75.0,
     maxTokens: 32000,
-    supported: { thinkingBudget: true, showThoughts: true },
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: true,
+    },
   },
   {
     name: AxAIAnthropicModel.Claude4Sonnet,
@@ -78,7 +102,11 @@ export const axModelInfoAnthropic: AxModelInfo[] = [
     promptTokenCostPer1M: 3.0,
     completionTokenCostPer1M: 15.0,
     maxTokens: 64000,
-    supported: { thinkingBudget: true, showThoughts: true },
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: true,
+    },
   },
   {
     name: AxAIAnthropicVertexModel.Claude4Sonnet,
@@ -86,7 +114,11 @@ export const axModelInfoAnthropic: AxModelInfo[] = [
     promptTokenCostPer1M: 3.0,
     completionTokenCostPer1M: 15.0,
     maxTokens: 64000,
-    supported: { thinkingBudget: true, showThoughts: true },
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: true,
+    },
   },
   // 3.7
   {
@@ -95,7 +127,11 @@ export const axModelInfoAnthropic: AxModelInfo[] = [
     promptTokenCostPer1M: 3.0,
     completionTokenCostPer1M: 15.0,
     maxTokens: 64000,
-    supported: { thinkingBudget: true, showThoughts: true },
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: true,
+    },
   },
   {
     name: AxAIAnthropicVertexModel.Claude37Sonnet,
@@ -103,7 +139,11 @@ export const axModelInfoAnthropic: AxModelInfo[] = [
     promptTokenCostPer1M: 3.0,
     completionTokenCostPer1M: 15.0,
     maxTokens: 64000,
-    supported: { thinkingBudget: true, showThoughts: true },
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: true,
+    },
   },
   // 3.5
   {
@@ -112,6 +152,7 @@ export const axModelInfoAnthropic: AxModelInfo[] = [
     promptTokenCostPer1M: 3.0,
     completionTokenCostPer1M: 15.0,
     maxTokens: 8192,
+    supported: { structuredOutputs: true },
   },
   {
     name: AxAIAnthropicVertexModel.Claude35Sonnet,
@@ -119,6 +160,7 @@ export const axModelInfoAnthropic: AxModelInfo[] = [
     promptTokenCostPer1M: 3.0,
     completionTokenCostPer1M: 15.0,
     maxTokens: 8192,
+    supported: { structuredOutputs: true },
   },
   {
     name: AxAIAnthropicVertexModel.Claude35SonnetV2,
@@ -126,7 +168,11 @@ export const axModelInfoAnthropic: AxModelInfo[] = [
     promptTokenCostPer1M: 3.0,
     completionTokenCostPer1M: 15.0,
     maxTokens: 8192,
-    supported: { thinkingBudget: true, showThoughts: true },
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: true,
+    },
   },
   {
     name: AxAIAnthropicModel.Claude35Haiku,
@@ -149,6 +195,7 @@ export const axModelInfoAnthropic: AxModelInfo[] = [
     promptTokenCostPer1M: 15.0,
     completionTokenCostPer1M: 75.0,
     maxTokens: 4096,
+    supported: { structuredOutputs: true },
   },
   {
     name: AxAIAnthropicVertexModel.Claude3Opus,
@@ -156,6 +203,7 @@ export const axModelInfoAnthropic: AxModelInfo[] = [
     promptTokenCostPer1M: 15.0,
     completionTokenCostPer1M: 75.0,
     maxTokens: 4096,
+    supported: { structuredOutputs: true },
   },
   {
     name: AxAIAnthropicModel.Claude3Sonnet,
@@ -163,6 +211,7 @@ export const axModelInfoAnthropic: AxModelInfo[] = [
     promptTokenCostPer1M: 3.0,
     completionTokenCostPer1M: 15.0,
     maxTokens: 4096,
+    supported: { structuredOutputs: true },
   },
   {
     name: AxAIAnthropicModel.Claude3Haiku,

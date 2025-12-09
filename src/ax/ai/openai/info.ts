@@ -19,42 +19,49 @@ export const axModelInfoOpenAI: AxModelInfo[] = [
     currency: 'usd',
     promptTokenCostPer1M: 2,
     completionTokenCostPer1M: 8,
+    supported: { structuredOutputs: true },
   },
   {
     name: AxAIOpenAIModel.GPT41Mini,
     currency: 'usd',
     promptTokenCostPer1M: 0.4,
     completionTokenCostPer1M: 1.6,
+    supported: { structuredOutputs: true },
   },
   {
     name: AxAIOpenAIModel.GPT41Nano,
     currency: 'usd',
     promptTokenCostPer1M: 0.1,
     completionTokenCostPer1M: 0.4,
+    supported: { structuredOutputs: true },
   },
   {
     name: AxAIOpenAIModel.GPT4O,
     currency: 'usd',
     promptTokenCostPer1M: 5,
     completionTokenCostPer1M: 15,
+    supported: { structuredOutputs: true },
   },
   {
     name: AxAIOpenAIModel.GPT4OMini,
     currency: 'usd',
     promptTokenCostPer1M: 0.15,
     completionTokenCostPer1M: 0.6,
+    supported: { structuredOutputs: true },
   },
   {
     name: AxAIOpenAIModel.GPT4ChatGPT4O,
     currency: 'usd',
     promptTokenCostPer1M: 5,
     completionTokenCostPer1M: 15,
+    supported: { structuredOutputs: true },
   },
   {
     name: AxAIOpenAIModel.GPT4Turbo,
     currency: 'usd',
     promptTokenCostPer1M: 10,
     completionTokenCostPer1M: 30,
+    supported: { structuredOutputs: true },
   },
   {
     name: AxAIOpenAIModel.GPT35Turbo,
@@ -69,6 +76,7 @@ export const axModelInfoOpenAI: AxModelInfo[] = [
     promptTokenCostPer1M: 0.5,
     completionTokenCostPer1M: 1.5,
     notSupported: { temperature: true, topP: true },
+    supported: { structuredOutputs: true },
   },
   {
     name: AxAIOpenAIModel.GPT5Mini,
@@ -76,6 +84,7 @@ export const axModelInfoOpenAI: AxModelInfo[] = [
     promptTokenCostPer1M: 2,
     completionTokenCostPer1M: 6,
     notSupported: { temperature: true, topP: true },
+    supported: { structuredOutputs: true },
   },
   {
     name: AxAIOpenAIModel.GPT5,
@@ -83,6 +92,7 @@ export const axModelInfoOpenAI: AxModelInfo[] = [
     promptTokenCostPer1M: 10,
     completionTokenCostPer1M: 30,
     notSupported: { temperature: true, topP: true },
+    supported: { structuredOutputs: true },
   },
   {
     name: AxAIOpenAIModel.GPT5Chat,
@@ -90,6 +100,7 @@ export const axModelInfoOpenAI: AxModelInfo[] = [
     promptTokenCostPer1M: 12,
     completionTokenCostPer1M: 36,
     notSupported: { temperature: true, topP: true },
+    supported: { structuredOutputs: true },
   },
   {
     name: AxAIOpenAIModel.GPT5,
@@ -97,6 +108,7 @@ export const axModelInfoOpenAI: AxModelInfo[] = [
     promptTokenCostPer1M: 20,
     completionTokenCostPer1M: 60,
     notSupported: { temperature: true, topP: true },
+    supported: { structuredOutputs: true },
   },
   // Reasoning models
   {
@@ -104,24 +116,28 @@ export const axModelInfoOpenAI: AxModelInfo[] = [
     currency: 'usd',
     promptTokenCostPer1M: 15,
     completionTokenCostPer1M: 60,
+    supported: { structuredOutputs: true },
   },
   {
     name: AxAIOpenAIModel.O1Mini,
     currency: 'usd',
     promptTokenCostPer1M: 1.1,
     completionTokenCostPer1M: 14.4,
+    supported: { structuredOutputs: true },
   },
   {
     name: AxAIOpenAIModel.O3,
     currency: 'usd',
     promptTokenCostPer1M: 15,
     completionTokenCostPer1M: 60,
+    supported: { structuredOutputs: true },
   },
   {
     name: AxAIOpenAIModel.O4Mini,
     currency: 'usd',
     promptTokenCostPer1M: 1.1,
     completionTokenCostPer1M: 4.4,
+    supported: { structuredOutputs: true },
   },
   // Embedding models
   {
@@ -160,42 +176,49 @@ export const axModelInfoOpenAIResponses: AxModelInfo[] = [
     currency: 'usd',
     promptTokenCostPer1M: 2,
     completionTokenCostPer1M: 8,
+    supported: { structuredOutputs: true },
   },
   {
     name: AxAIOpenAIResponsesModel.GPT41Mini,
     currency: 'usd',
     promptTokenCostPer1M: 0.4,
     completionTokenCostPer1M: 1.6,
+    supported: { structuredOutputs: true },
   },
   {
     name: AxAIOpenAIResponsesModel.GPT41Nano,
     currency: 'usd',
     promptTokenCostPer1M: 0.1,
     completionTokenCostPer1M: 0.4,
+    supported: { structuredOutputs: true },
   },
   {
     name: AxAIOpenAIResponsesModel.GPT4O,
     currency: 'usd',
     promptTokenCostPer1M: 5,
     completionTokenCostPer1M: 15,
+    supported: { structuredOutputs: true },
   },
   {
     name: AxAIOpenAIResponsesModel.GPT4OMini,
     currency: 'usd',
     promptTokenCostPer1M: 0.15,
     completionTokenCostPer1M: 0.6,
+    supported: { structuredOutputs: true },
   },
   {
     name: AxAIOpenAIResponsesModel.GPT4ChatGPT4O,
     currency: 'usd',
     promptTokenCostPer1M: 5,
     completionTokenCostPer1M: 15,
+    supported: { structuredOutputs: true },
   },
   {
     name: AxAIOpenAIResponsesModel.GPT4Turbo,
     currency: 'usd',
     promptTokenCostPer1M: 10,
     completionTokenCostPer1M: 30,
+    supported: { structuredOutputs: true },
   },
   {
     name: AxAIOpenAIResponsesModel.GPT35Turbo,
@@ -210,7 +233,11 @@ export const axModelInfoOpenAIResponses: AxModelInfo[] = [
     promptTokenCostPer1M: 0.5,
     completionTokenCostPer1M: 1.5,
     notSupported: { temperature: true, topP: true },
-    supported: { thinkingBudget: true, showThoughts: true },
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: true,
+    },
   },
   {
     name: AxAIOpenAIResponsesModel.GPT5Mini,
@@ -218,7 +245,11 @@ export const axModelInfoOpenAIResponses: AxModelInfo[] = [
     promptTokenCostPer1M: 2,
     completionTokenCostPer1M: 6,
     notSupported: { temperature: true, topP: true },
-    supported: { thinkingBudget: true, showThoughts: true },
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: true,
+    },
   },
   {
     name: AxAIOpenAIResponsesModel.GPT5,
@@ -226,7 +257,11 @@ export const axModelInfoOpenAIResponses: AxModelInfo[] = [
     promptTokenCostPer1M: 10,
     completionTokenCostPer1M: 30,
     notSupported: { temperature: true, topP: true },
-    supported: { thinkingBudget: true, showThoughts: true },
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: true,
+    },
   },
   {
     name: AxAIOpenAIResponsesModel.GPT5Chat,
@@ -234,7 +269,11 @@ export const axModelInfoOpenAIResponses: AxModelInfo[] = [
     promptTokenCostPer1M: 12,
     completionTokenCostPer1M: 36,
     notSupported: { temperature: true, topP: true },
-    supported: { thinkingBudget: true, showThoughts: true },
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: true,
+    },
   },
   {
     name: AxAIOpenAIResponsesModel.GPT5,
@@ -242,7 +281,11 @@ export const axModelInfoOpenAIResponses: AxModelInfo[] = [
     promptTokenCostPer1M: 20,
     completionTokenCostPer1M: 60,
     notSupported: { temperature: true, topP: true },
-    supported: { thinkingBudget: true, showThoughts: true },
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: true,
+    },
   },
   // Reasoning models
   {
@@ -250,7 +293,11 @@ export const axModelInfoOpenAIResponses: AxModelInfo[] = [
     currency: 'usd',
     promptTokenCostPer1M: 150,
     completionTokenCostPer1M: 600,
-    supported: { thinkingBudget: true, showThoughts: true },
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: true,
+    },
     isExpensive: true,
   },
   {
@@ -258,14 +305,22 @@ export const axModelInfoOpenAIResponses: AxModelInfo[] = [
     currency: 'usd',
     promptTokenCostPer1M: 15,
     completionTokenCostPer1M: 60,
-    supported: { thinkingBudget: true, showThoughts: true },
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: true,
+    },
   },
   {
     name: AxAIOpenAIResponsesModel.O3Pro,
     currency: 'usd',
     promptTokenCostPer1M: 20,
     completionTokenCostPer1M: 80,
-    supported: { thinkingBudget: true, showThoughts: true },
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: true,
+    },
     isExpensive: true,
   },
   {
@@ -273,20 +328,32 @@ export const axModelInfoOpenAIResponses: AxModelInfo[] = [
     currency: 'usd',
     promptTokenCostPer1M: 15,
     completionTokenCostPer1M: 60,
-    supported: { thinkingBudget: true, showThoughts: true },
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: true,
+    },
   },
   {
     name: AxAIOpenAIModel.O3Mini,
     currency: 'usd',
     promptTokenCostPer1M: 1.1,
     completionTokenCostPer1M: 4.4,
-    supported: { thinkingBudget: true, showThoughts: true },
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: true,
+    },
   },
   {
     name: AxAIOpenAIResponsesModel.O4Mini,
     currency: 'usd',
     promptTokenCostPer1M: 1.1,
     completionTokenCostPer1M: 4.4,
-    supported: { thinkingBudget: true, showThoughts: true },
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: true,
+    },
   },
 ];

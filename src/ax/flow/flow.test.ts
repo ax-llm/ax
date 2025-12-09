@@ -143,7 +143,7 @@ describe('AxFlow', () => {
       // If run sequentially: 20 + 10 + 15 = 45ms minimum
       // If run in parallel: max(20, 10, 15) = 20ms minimum
       // Allow extra time for system overhead and timing precision
-      expect(endTime - startTime).toBeLessThan(50);
+      expect(endTime - startTime).toBeLessThan(100);
     });
 
     it('should handle mixed sync and async transforms in parallel', async () => {

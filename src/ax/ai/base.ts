@@ -58,6 +58,8 @@ export interface AxAIFeatures {
   functionCot?: boolean;
   hasThinkingBudget?: boolean;
   hasShowThoughts?: boolean;
+  /** Whether the provider supports complex structured outputs (JSON schema) */
+  structuredOutputs?: boolean;
   /** Enhanced media capability specifications */
   media: {
     /** Image processing capabilities */

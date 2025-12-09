@@ -22,7 +22,11 @@ export type AxMockAIServiceConfig<TModelKey> = {
   id?: string;
   modelInfo?: Partial<AxModelInfoWithProvider>;
   embedModelInfo?: AxModelInfoWithProvider;
-  features?: { functions?: boolean; streaming?: boolean };
+  features?: {
+    functions?: boolean;
+    streaming?: boolean;
+    structuredOutputs?: boolean;
+  };
   models?: AxAIModelList<TModelKey>;
   options?: AxAIServiceOptions;
   chatResponse?:
@@ -90,6 +94,7 @@ export class AxMockAIService<TModelKey>
     return {
       functions: this.config.features?.functions ?? false,
       streaming: this.config.features?.streaming ?? false,
+      structuredOutputs: this.config.features?.structuredOutputs ?? false,
       media: {
         images: {
           supported: false,
