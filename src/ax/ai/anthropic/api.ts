@@ -11,6 +11,7 @@ import type {
   AxChatResponseResult,
   AxInternalChatRequest,
   AxModelConfig,
+  AxThoughtBlockItem,
   AxTokenUsage,
 } from '../types.js';
 import { axModelInfoAnthropic } from './info.js';
@@ -473,12 +474,12 @@ class AxAIAnthropicImpl
     // Aggregate all content blocks into a single result to avoid mixing
     // thinking text into the normal content while still exposing function calls.
     let aggregatedContent = '';
-    let aggregatedThought = '';
-    let anyRedacted = false;
-    let lastSignature: string | undefined;
     const aggregatedFunctionCalls: NonNullable<
       AxChatResponseResult['functionCalls']
     > = [];
+
+    // Collect all thinking blocks separately to preserve their signatures
+    const thinkingBlocks: AxThoughtBlockItem[] = [];
 
     // Collect citations from text blocks (citations are embedded here)
     const citations: NonNullable<AxChatResponseResult['citations']> = [];
@@ -502,14 +503,27 @@ class AxAIAnthropicImpl
           }
           break;
         case 'thinking':
-        case 'redacted_thinking':
+          // Store each thinking block separately with its signature
           if (showThoughts) {
-            aggregatedThought +=
-              (block as any).thinking ?? (block as any).data ?? '';
+            const thinking = (block as any).thinking ?? '';
+            const signature = (block as any).signature;
+            thinkingBlocks.push({
+              data: thinking,
+              encrypted: false,
+              ...(typeof signature === 'string' ? { signature } : {}),
+            });
           }
-          if (block.type === 'redacted_thinking') anyRedacted = true;
-          if (typeof (block as any).signature === 'string') {
-            lastSignature = (block as any).signature as string;
+          break;
+        case 'redacted_thinking':
+          // Store each redacted thinking block separately with its signature
+          if (showThoughts) {
+            const data = (block as any).data ?? '';
+            const signature = (block as any).signature;
+            thinkingBlocks.push({
+              data,
+              encrypted: true,
+              ...(typeof signature === 'string' ? { signature } : {}),
+            });
           }
           break;
         case 'tool_use':
@@ -531,13 +545,11 @@ class AxAIAnthropicImpl
     if (aggregatedContent) {
       result.content = aggregatedContent;
     }
-    if (aggregatedThought) {
-      result.thought = aggregatedThought;
-      result.thoughtBlock = {
-        data: aggregatedThought,
-        encrypted: anyRedacted,
-        ...(lastSignature ? { signature: lastSignature } : {}),
-      };
+    if (thinkingBlocks.length > 0) {
+      // Store array of all thinking blocks with their signatures
+      result.thoughtBlocks = thinkingBlocks;
+      // Aggregate thought string for display purposes
+      result.thought = thinkingBlocks.map((b) => b.data).join('');
     }
     if (aggregatedFunctionCalls.length > 0) {
       result.functionCalls = aggregatedFunctionCalls;
@@ -652,10 +664,12 @@ class AxAIAnthropicImpl
               {
                 index,
                 thought: contentBlock.thinking,
-                thoughtBlock: {
-                  data: contentBlock.thinking,
-                  encrypted: false,
-                },
+                thoughtBlocks: [
+                  {
+                    data: contentBlock.thinking,
+                    encrypted: false,
+                  },
+                ],
               },
             ],
           };
@@ -757,7 +771,7 @@ class AxAIAnthropicImpl
               {
                 index,
                 thought: delta.thinking,
-                thoughtBlock: { data: delta.thinking, encrypted: false },
+                thoughtBlocks: [{ data: delta.thinking, encrypted: false }],
               },
             ],
           };
@@ -771,11 +785,13 @@ class AxAIAnthropicImpl
           results: [
             {
               index,
-              thoughtBlock: {
-                data: '',
-                encrypted: false,
-                signature: delta.signature,
-              },
+              thoughtBlocks: [
+                {
+                  data: '',
+                  encrypted: false,
+                  signature: delta.signature,
+                },
+              ],
             },
           ],
         };
@@ -1105,28 +1121,33 @@ function createMessages(
           | { type: 'thinking'; thinking: string; signature?: string }
           | { type: 'redacted_thinking'; data: string; signature?: string }
         )[] = [];
-        const tb: any = (msg as any).thoughtBlock;
-        if (tb && typeof tb.data === 'string' && tb.data.length > 0) {
-          if (tb.encrypted) {
-            preservedThinkingBlocks.push(
-              tb.signature
-                ? {
-                    type: 'redacted_thinking',
-                    data: tb.data,
-                    signature: tb.signature,
-                  }
-                : { type: 'redacted_thinking', data: tb.data }
-            );
-          } else {
-            preservedThinkingBlocks.push(
-              tb.signature
-                ? {
-                    type: 'thinking',
-                    thinking: tb.data,
-                    signature: tb.signature,
-                  }
-                : { type: 'thinking', thinking: tb.data }
-            );
+
+        const blocks = (msg as any).thoughtBlocks as
+          | AxThoughtBlockItem[]
+          | undefined;
+        if (Array.isArray(blocks) && blocks.length > 0) {
+          for (const block of blocks) {
+            if (block.encrypted) {
+              preservedThinkingBlocks.push(
+                block.signature
+                  ? {
+                      type: 'redacted_thinking',
+                      data: block.data,
+                      signature: block.signature,
+                    }
+                  : { type: 'redacted_thinking', data: block.data }
+              );
+            } else {
+              preservedThinkingBlocks.push(
+                block.signature
+                  ? {
+                      type: 'thinking',
+                      thinking: block.data,
+                      signature: block.signature,
+                    }
+                  : { type: 'thinking', thinking: block.data }
+              );
+            }
           }
         }
 

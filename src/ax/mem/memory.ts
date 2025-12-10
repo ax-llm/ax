@@ -55,7 +55,7 @@ export class MemoryImpl {
     name,
     functionCalls,
     thought,
-    thoughtBlock,
+    thoughtBlocks,
     index,
   }: Readonly<AxChatResponseResult & { index: number }>): void {
     const lastItem = this.data.at(-1);
@@ -76,7 +76,7 @@ export class MemoryImpl {
               name,
               functionCalls,
               thought,
-              thoughtBlock,
+              thoughtBlocks,
             }),
           },
         ],
@@ -94,7 +94,7 @@ export class MemoryImpl {
           name,
           functionCalls,
           thought,
-          thoughtBlock,
+          thoughtBlocks,
         }),
       });
       return;
@@ -119,20 +119,48 @@ export class MemoryImpl {
         typeof existing === 'string' ? existing + thought : thought;
     }
 
-    if (thoughtBlock && typeof thoughtBlock === 'object') {
-      const cur = ((chat.value as any).thoughtBlock ?? {}) as {
-        data?: string;
-        encrypted?: boolean;
-        signature?: string;
-      };
-      const merged = {
-        data: (cur.data ?? '') + (thoughtBlock.data ?? ''),
-        encrypted: Boolean(cur.encrypted) || Boolean(thoughtBlock.encrypted),
-        ...(thoughtBlock.signature
-          ? { signature: thoughtBlock.signature }
-          : {}),
-      } as { data: string; encrypted: boolean; signature?: string };
-      (chat.value as any).thoughtBlock = merged;
+    // Handle thoughtBlocks array - append new blocks or merge last block's data
+    if (Array.isArray(thoughtBlocks) && thoughtBlocks.length > 0) {
+      const existing = ((chat.value as any).thoughtBlocks ??
+        []) as typeof thoughtBlocks;
+
+      // For streaming, we may receive partial data for the same block
+      // New blocks are appended, existing blocks have their data concatenated
+      for (const newBlock of thoughtBlocks) {
+        const lastExisting =
+          existing.length > 0 ? existing[existing.length - 1] : undefined;
+
+        // If the new block has no signature yet (streaming partial), merge with last block
+        if (lastExisting && !newBlock.signature && newBlock.data) {
+          lastExisting.data = (lastExisting.data ?? '') + newBlock.data;
+          if (newBlock.encrypted) {
+            lastExisting.encrypted = true;
+          }
+        } else if (newBlock.signature) {
+          // Block has a signature, so it's complete - check if we need to update or append
+          if (lastExisting && !lastExisting.signature) {
+            // Update existing block with final signature
+            lastExisting.data = (lastExisting.data ?? '') + newBlock.data;
+            lastExisting.signature = newBlock.signature;
+            if (newBlock.encrypted) {
+              lastExisting.encrypted = true;
+            }
+          } else {
+            // Append as new complete block
+            existing.push(structuredClone(newBlock));
+          }
+        } else if (existing.length === 0) {
+          // First block, no signature yet (streaming)
+          existing.push(structuredClone(newBlock));
+        }
+      }
+
+      (chat.value as any).thoughtBlocks = existing;
+
+      // Update thought string for display
+      if (existing.length > 0) {
+        (chat.value as any).thought = existing.map((b) => b.data).join('');
+      }
     }
   }
 

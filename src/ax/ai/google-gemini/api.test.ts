@@ -221,16 +221,16 @@ describe('AxAIGoogleGemini model key preset merging', () => {
     );
 
     expect(res.results[0]?.functionCalls?.[0].function.name).toBe('foo');
-    expect(res.results[0]?.thoughtBlock?.signature).toBe('sig123');
+    expect(res.results[0]?.thoughtBlocks?.[0]?.signature).toBe('sig123');
 
     // 2. Second turn: User sends function result, Model should receive signature back
-    // We need to manually construct the history with the thought block from the previous result
+    // We need to manually construct the history with the thought blocks from the previous result
     const history: any[] = [
       { role: 'user', content: 'call foo' },
       {
         role: 'assistant',
         functionCalls: res.results[0].functionCalls,
-        thoughtBlock: res.results[0].thoughtBlock,
+        thoughtBlocks: res.results[0].thoughtBlocks,
       },
       {
         role: 'function',
@@ -327,7 +327,9 @@ describe('AxAIGoogleGemini model key preset merging', () => {
       { role: 'user', content: 'call with thought' },
       {
         role: 'assistant',
-        thoughtBlock: { data: 'Thinking...', signature: 'sig1' },
+        thoughtBlocks: [
+          { data: 'Thinking...', encrypted: false, signature: 'sig1' },
+        ],
         functionCalls: [
           {
             function: { name: 'f1', params: '{}' },

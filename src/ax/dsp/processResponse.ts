@@ -99,7 +99,7 @@ export async function* processStreamingResponse<OUT extends AxGenOut>({
         if (
           (!result.content || result.content === '') &&
           (!result.thought || result.thought === '') &&
-          !result.thoughtBlock &&
+          (!result.thoughtBlocks || result.thoughtBlocks.length === 0) &&
           (!result.functionCalls || result.functionCalls.length === 0)
         ) {
           continue;
@@ -209,7 +209,7 @@ async function* ProcessStreamingResponse<OUT extends AxGenOut>({
         name: result.name,
         content: result.content,
         functionCalls: state.functionCalls,
-        thoughtBlock: result.thoughtBlock,
+        thoughtBlocks: result.thoughtBlocks,
         delta: result.functionCalls?.[0]?.function?.params as string,
         index: result.index,
       },
@@ -228,7 +228,7 @@ async function* ProcessStreamingResponse<OUT extends AxGenOut>({
       {
         name: result.name,
         content: state.content,
-        thoughtBlock: result.thoughtBlock,
+        thoughtBlocks: result.thoughtBlocks,
         delta: result.content,
         index: result.index,
       },
@@ -333,7 +333,7 @@ async function* ProcessStreamingResponse<OUT extends AxGenOut>({
       delta: { [thoughtFieldName]: result.thought } as Partial<OUT>,
     };
 
-    // Update memory with thought and thoughtBlock
+    // Update memory with thought and thoughtBlocks
     mem.updateResult(
       {
         name: result.name,
@@ -341,19 +341,19 @@ async function* ProcessStreamingResponse<OUT extends AxGenOut>({
         delta: '',
         index: result.index,
         thought: result.thought,
-        thoughtBlock: result.thoughtBlock,
+        thoughtBlocks: result.thoughtBlocks,
       },
       sessionId
     );
-  } else if (result.thoughtBlock) {
-    // Handle case where we only have thoughtBlock (e.g. signature delta)
+  } else if (result.thoughtBlocks && result.thoughtBlocks.length > 0) {
+    // Handle case where we only have thoughtBlocks (e.g. signature delta)
     mem.updateResult(
       {
         name: result.name,
         content: state.content,
         delta: '',
         index: result.index,
-        thoughtBlock: result.thoughtBlock,
+        thoughtBlocks: result.thoughtBlocks,
       },
       sessionId
     );

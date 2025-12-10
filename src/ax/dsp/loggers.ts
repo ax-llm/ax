@@ -125,11 +125,11 @@ export const axCreateDefaultColorLogger = (
         formattedMessage = `\n${cl.cyanBright('[ CHAT RESPONSE ]')}\n`;
         typedData.value.forEach((result, i) => {
           const lines: string[] = [];
-          if (result.thoughtBlock?.data || result.thought) {
+          const hasEncrypted = result.thoughtBlocks?.some((b) => b.encrypted);
+          if (result.thought) {
             lines.push(
               cl.gray(
-                `[THOUGHT${result.thoughtBlock?.encrypted ? ' (redacted)' : ''}]\n` +
-                  (result.thoughtBlock?.data ?? result.thought ?? '')
+                `[THOUGHT${hasEncrypted ? ' (redacted)' : ''}]\n${result.thought}`
               )
             );
           }
@@ -158,13 +158,14 @@ export const axCreateDefaultColorLogger = (
         if (typedData.value.content) {
           formattedMessage += cl.cyanBright(typedData.value.content);
         }
-        if (typedData.value.thoughtBlock?.data || typedData.value.thought) {
+        const hasEncryptedDone = typedData.value.thoughtBlocks?.some(
+          (b) => b.encrypted
+        );
+        if (typedData.value.thought) {
           formattedMessage += `\n`;
           formattedMessage += cl.gray(
-            `[THOUGHT${typedData.value.thoughtBlock?.encrypted ? ' (redacted)' : ''}]\n` +
-              (typedData.value.thoughtBlock?.data ??
-                typedData.value.thought ??
-                '')
+            `[THOUGHT${hasEncryptedDone ? ' (redacted)' : ''}]\n` +
+              typedData.value.thought
           );
         }
         if (typedData.value.functionCalls) {
@@ -289,10 +290,12 @@ export const axCreateDefaultTextLogger = (
         formattedMessage = '\n[ CHAT RESPONSE ]\n';
         typedData.value.forEach((result, i) => {
           const lines: string[] = [];
-          if (result.thoughtBlock?.data || result.thought) {
+          const hasEncryptedText = result.thoughtBlocks?.some(
+            (b) => b.encrypted
+          );
+          if (result.thought) {
             lines.push(
-              `[thought${result.thoughtBlock?.encrypted ? ' (redacted)' : ''}] ` +
-                (result.thoughtBlock?.data ?? result.thought ?? '')
+              `[thought${hasEncryptedText ? ' (redacted)' : ''}] ${result.thought}`
             );
           }
           if (result.content) {
@@ -318,13 +321,14 @@ export const axCreateDefaultTextLogger = (
         if (typedData.value.content) {
           formattedMessage += typedData.value.content;
         }
-        if (typedData.value.thoughtBlock?.data || typedData.value.thought) {
+        const hasEncryptedTextDone = typedData.value.thoughtBlocks?.some(
+          (b) => b.encrypted
+        );
+        if (typedData.value.thought) {
           formattedMessage += `\n`;
           formattedMessage +=
-            `[thought${typedData.value.thoughtBlock?.encrypted ? ' (redacted)' : ''}] ` +
-            (typedData.value.thoughtBlock?.data ??
-              typedData.value.thought ??
-              '');
+            `[thought${hasEncryptedTextDone ? ' (redacted)' : ''}] ` +
+            typedData.value.thought;
         }
         if (typedData.value.functionCalls) {
           formattedMessage += JSON.stringify(

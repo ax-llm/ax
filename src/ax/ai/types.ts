@@ -108,12 +108,19 @@ export type AxFunctionResult = Extract<
   { role: 'function' }
 > & { index: number };
 
+/** Single thinking block item with its signature */
+export type AxThoughtBlockItem = {
+  data: string;
+  encrypted: boolean;
+  signature?: string;
+};
+
 export type AxChatResponseResult = {
   index: number;
   content?: string;
   thought?: string;
-  /** Provider-agnostic thinking block with encryption flag */
-  thoughtBlock?: { data: string; encrypted: boolean; signature?: string };
+  /** Array of thinking blocks, each with its own signature */
+  thoughtBlocks?: AxThoughtBlockItem[];
   name?: string;
   id?: string;
   functionCalls?: {
@@ -255,11 +262,8 @@ export type AxChatRequest<TModel = string> = {
           type: 'function';
           function: { name: string; params?: string | object };
         }[];
-        thoughtBlock?: {
-          data: string;
-          signature?: string;
-          encrypted?: boolean;
-        };
+        /** Array of thinking blocks, each with its own signature */
+        thoughtBlocks?: AxThoughtBlockItem[];
         cache?: boolean;
       }
     | {

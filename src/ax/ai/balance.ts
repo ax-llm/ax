@@ -246,7 +246,9 @@ export class AxBalancer<
     while (true) {
       if (!this.canRetryService()) {
         if (!this.getNextService()) {
-          throw new Error('All services exhausted');
+          throw new Error(
+            `All services exhausted (tried ${this.services.length} service(s))`
+          );
         }
         continue;
       }
@@ -265,9 +267,17 @@ export class AxBalancer<
             // Handle authentication failure, e.g., refresh token, prompt user to re-login
             throw e;
 
-          case AxAIServiceStatusError:
-            // Handle specific HTTP error codes, e.g., display a user-friendly message for a 404 Not Found
+          case AxAIServiceStatusError: {
+            // Only retry specific status codes that are retryable
+            // 408 = Request Timeout, 429 = Too Many Requests, 5xx = Server errors
+            const retryableStatuses = [408, 429, 500, 502, 503, 504];
+            if (
+              !retryableStatuses.includes((e as AxAIServiceStatusError).status)
+            ) {
+              throw e;
+            }
             break;
+          }
 
           case AxAIServiceNetworkError:
             // Handle network issues, e.g., display a message about checking network connectivity
@@ -306,7 +316,9 @@ export class AxBalancer<
     while (true) {
       if (!this.canRetryService()) {
         if (!this.getNextService()) {
-          throw new Error('All services exhausted');
+          throw new Error(
+            `All services exhausted (tried ${this.services.length} service(s))`
+          );
         }
         continue;
       }
@@ -316,7 +328,24 @@ export class AxBalancer<
         this.handleSuccess();
         return response;
       } catch (e) {
-        if (!(e instanceof AxAIServiceError) || !this.handleFailure(e)) {
+        if (!(e instanceof AxAIServiceError)) {
+          throw e;
+        }
+
+        // Don't retry non-retryable status codes (4xx except 408 and 429)
+        if (e instanceof AxAIServiceStatusError) {
+          const retryableStatuses = [408, 429, 500, 502, 503, 504];
+          if (!retryableStatuses.includes(e.status)) {
+            throw e;
+          }
+        }
+
+        // Don't retry authentication errors
+        if (e instanceof AxAIServiceAuthenticationError) {
+          throw e;
+        }
+
+        if (!this.handleFailure(e)) {
           throw e;
         }
       }

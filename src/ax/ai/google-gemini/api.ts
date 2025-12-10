@@ -18,6 +18,7 @@ import type {
   AxInternalEmbedRequest,
   AxModelConfig,
   AxModelInfo,
+  AxThoughtBlockItem,
   AxTokenUsage,
 } from '../types.js';
 import { axModelInfoGoogleGemini } from './info.js';
@@ -307,21 +308,29 @@ class AxAIGoogleGeminiImpl
         case 'assistant': {
           const parts: AxAIGoogleGeminiContentPart[] = [];
 
-          // Handle thought blocks
-          const thoughtBlock = (msg as any).thoughtBlock;
+          // Handle thought blocks - now stored as array
+          const thoughtBlocks = (msg as any).thoughtBlocks as
+            | AxThoughtBlockItem[]
+            | undefined;
           const hasFunctionCalls =
             msg.functionCalls && msg.functionCalls.length > 0;
 
-          if (thoughtBlock?.data) {
+          // Get first thought block's data and signature (for Google's API format)
+          const firstThoughtBlock = thoughtBlocks?.[0];
+          const combinedThoughtData =
+            thoughtBlocks?.map((b) => b.data).join('') ?? '';
+          const firstSignature = firstThoughtBlock?.signature;
+
+          if (combinedThoughtData) {
             parts.push({
               // Only mark as thought if there are no function calls
               // Otherwise it's just text context for the function call
               ...(hasFunctionCalls ? {} : { thought: true }),
-              text: thoughtBlock.data,
+              text: combinedThoughtData,
               // Only attach signature to text if there are no function calls
               // Gemini requires signature on the first function call if present
-              ...(thoughtBlock.signature && !hasFunctionCalls
-                ? { thought_signature: thoughtBlock.signature }
+              ...(firstSignature && !hasFunctionCalls
+                ? { thought_signature: firstSignature }
                 : {}),
             });
           }
@@ -354,8 +363,8 @@ class AxAIGoogleGeminiImpl
               };
 
               // Attach signature ONLY to the first function call
-              if (thoughtBlock?.signature && index === 0) {
-                part.thought_signature = thoughtBlock.signature;
+              if (firstSignature && index === 0) {
+                part.thought_signature = firstSignature;
               }
 
               return part;
@@ -840,11 +849,15 @@ class AxAIGoogleGeminiImpl
               // Google returns thoughtSignature in camelCase
               const thoughtSignature =
                 (part as any).thoughtSignature || part.thought_signature;
-              result.thoughtBlock = {
+              // Initialize thoughtBlocks array if needed
+              if (!result.thoughtBlocks) {
+                result.thoughtBlocks = [];
+              }
+              result.thoughtBlocks.push({
                 data: part.text,
                 encrypted: false,
                 ...(thoughtSignature ? { signature: thoughtSignature } : {}),
-              };
+              });
             } else {
               result.content = part.text;
             }
@@ -857,17 +870,21 @@ class AxAIGoogleGeminiImpl
             const thoughtSignature =
               (part as any).thoughtSignature || part.thought_signature;
             if (thoughtSignature) {
-              if (!result.thoughtBlock) {
-                result.thoughtBlock = {
-                  data: '', // No text data for signature-only thought
-                  encrypted: false,
-                  signature: thoughtSignature,
-                };
+              if (!result.thoughtBlocks || result.thoughtBlocks.length === 0) {
+                result.thoughtBlocks = [
+                  {
+                    data: '', // No text data for signature-only thought
+                    encrypted: false,
+                    signature: thoughtSignature,
+                  },
+                ];
               } else {
-                // If thought block exists, just update signature if missing?
-                // Or assume the text part handled it.
-                // For now, ensure signature is captured.
-                result.thoughtBlock.signature = thoughtSignature;
+                // Update the last block's signature if missing
+                const lastBlock =
+                  result.thoughtBlocks[result.thoughtBlocks.length - 1];
+                if (lastBlock && !lastBlock.signature) {
+                  lastBlock.signature = thoughtSignature;
+                }
               }
             }
 

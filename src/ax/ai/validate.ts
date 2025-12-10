@@ -257,26 +257,24 @@ export function axValidateChatRequestMessage(item: AxChatRequestMessage): void {
           ? (item as any).functionCalls
           : undefined;
 
-      const thoughtBlock =
-        typeof item === 'object' && item !== null && 'thoughtBlock' in item
-          ? (item as any).thoughtBlock
+      const thoughtBlocks =
+        typeof item === 'object' && item !== null && 'thoughtBlocks' in item
+          ? (item as any).thoughtBlocks
           : undefined;
 
       const hasNonEmptyContent =
         typeof content === 'string' && content.trim() !== '';
       const hasFunctionCalls =
         Array.isArray(functionCalls) && functionCalls.length > 0;
-      const hasThoughtBlock =
-        thoughtBlock &&
-        typeof thoughtBlock === 'object' &&
-        Object.keys(thoughtBlock).length > 0;
+      const hasThoughtBlocks =
+        Array.isArray(thoughtBlocks) && thoughtBlocks.length > 0;
 
-      if (!hasNonEmptyContent && !hasFunctionCalls && !hasThoughtBlock) {
+      if (!hasNonEmptyContent && !hasFunctionCalls && !hasThoughtBlocks) {
         raiseValidationError(
-          'Assistant message must include non-empty content, at least one function call, or a thought block',
+          'Assistant message must include non-empty content, at least one function call, or thought blocks',
           {
-            fieldPath: 'content | functionCalls | thoughtBlock',
-            value: { content, functionCalls, thoughtBlock },
+            fieldPath: 'content | functionCalls | thoughtBlocks',
+            value: { content, functionCalls, thoughtBlocks },
             item,
           }
         );
@@ -485,12 +483,12 @@ export function axValidateChatResponseResult(
     if (
       !result.content &&
       !result.thought &&
-      !result.thoughtBlock &&
+      (!result.thoughtBlocks || result.thoughtBlocks.length === 0) &&
       !result.functionCalls &&
       !result.finishReason
     ) {
       throw new Error(
-        `Chat response result at index ${arrayIndex} must have at least one of: content, thought, functionCalls, or finishReason, received: ${value({ content: result.content, thought: result.thought, functionCalls: result.functionCalls, finishReason: result.finishReason })}`
+        `Chat response result at index ${arrayIndex} must have at least one of: content, thought, thoughtBlocks, functionCalls, or finishReason, received: ${value({ content: result.content, thought: result.thought, thoughtBlocks: result.thoughtBlocks, functionCalls: result.functionCalls, finishReason: result.finishReason })}`
       );
     }
 
@@ -508,31 +506,39 @@ export function axValidateChatResponseResult(
       );
     }
 
-    // Validate thoughtBlock if present
-    if (result.thoughtBlock !== undefined) {
-      if (
-        typeof result.thoughtBlock !== 'object' ||
-        result.thoughtBlock === null
+    // Validate thoughtBlocks if present
+    if (result.thoughtBlocks !== undefined) {
+      if (!Array.isArray(result.thoughtBlocks)) {
+        throw new Error(
+          `Chat response result thoughtBlocks at index ${arrayIndex} must be an array, received: ${value(result.thoughtBlocks)}`
+        );
+      }
+      for (
+        let blockIndex = 0;
+        blockIndex < result.thoughtBlocks.length;
+        blockIndex++
       ) {
-        throw new Error(
-          `Chat response result thoughtBlock at index ${arrayIndex} must be an object, received: ${value(result.thoughtBlock)}`
-        );
-      }
-      const tb: any = result.thoughtBlock;
-      if (typeof tb.data !== 'string') {
-        throw new Error(
-          `Chat response result thoughtBlock.data at index ${arrayIndex} must be a string, received: ${value(tb.data)}`
-        );
-      }
-      if (typeof tb.encrypted !== 'boolean') {
-        throw new Error(
-          `Chat response result thoughtBlock.encrypted at index ${arrayIndex} must be a boolean, received: ${value(tb.encrypted)}`
-        );
-      }
-      if (tb.signature !== undefined && typeof tb.signature !== 'string') {
-        throw new Error(
-          `Chat response result thoughtBlock.signature at index ${arrayIndex} must be a string when provided, received: ${value(tb.signature)}`
-        );
+        const tb = result.thoughtBlocks[blockIndex];
+        if (typeof tb !== 'object' || tb === null) {
+          throw new Error(
+            `Chat response result thoughtBlocks[${blockIndex}] at index ${arrayIndex} must be an object, received: ${value(tb)}`
+          );
+        }
+        if (typeof tb.data !== 'string') {
+          throw new Error(
+            `Chat response result thoughtBlocks[${blockIndex}].data at index ${arrayIndex} must be a string, received: ${value(tb.data)}`
+          );
+        }
+        if (typeof tb.encrypted !== 'boolean') {
+          throw new Error(
+            `Chat response result thoughtBlocks[${blockIndex}].encrypted at index ${arrayIndex} must be a boolean, received: ${value(tb.encrypted)}`
+          );
+        }
+        if (tb.signature !== undefined && typeof tb.signature !== 'string') {
+          throw new Error(
+            `Chat response result thoughtBlocks[${blockIndex}].signature at index ${arrayIndex} must be a string when provided, received: ${value(tb.signature)}`
+          );
+        }
       }
     }
 

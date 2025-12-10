@@ -340,6 +340,7 @@ import type {
   AxModelInfoWithProvider,
   AxModelUsage,
   AxRateLimiterFunction,
+  AxThoughtBlockItem,
   AxTokenUsage,
 } from './ai/types.js';
 import {
@@ -1260,6 +1261,7 @@ export type { AxSimpleClassifierForwardOptions };
 export type { AxStreamingAssertion };
 export type { AxStreamingEvent };
 export type { AxStreamingFieldProcessorProcess };
+export type { AxThoughtBlockItem };
 export type { AxTokenUsage };
 export type { AxTunable };
 export type { AxTypedExample };

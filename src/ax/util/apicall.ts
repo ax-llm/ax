@@ -124,9 +124,11 @@ export class AxAIServiceStatusError extends AxAIServiceError {
     url: string,
     requestBody: unknown,
     responseBody: unknown,
-    context?: Record<string, unknown>
+    context?: Record<string, unknown>,
+    retryCount?: number
   ) {
-    super(`HTTP ${status} - ${statusText}`, url, requestBody, {
+    const retryInfo = retryCount ? ` (after ${retryCount} retries)` : '';
+    super(`HTTP ${status} - ${statusText}${retryInfo}`, url, requestBody, {
       httpStatus: status,
       httpStatusText: statusText,
       responseBody,
@@ -632,7 +634,8 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
           apiUrl.href,
           json,
           responseBody,
-          { metrics }
+          { metrics },
+          attempt > 0 ? attempt : undefined
         );
       }
 
