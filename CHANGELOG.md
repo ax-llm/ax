@@ -1,5 +1,20 @@
 # Changelog
 
+## [15.0.14](///compare/15.0.12...15.0.13) (2025-12-10)
+
+### Bug Fixes
+
+* ensure streaming partial memory blocks only merge with other partial blocks, otherwise append as new. 5679412
+## [15.0.13](///compare/15.0.12...15.0.13) (2025-12-10)
+
+### Features
+
+* add support for Claude 4.5 Opus model ([#467](undefined/undefined/undefined/issues/467)) 88c573b
+
+### Bug Fixes
+
+* **dsp:** correctly extract instruction from signature in GEPA optimizer ([#466](undefined/undefined/undefined/issues/466)) 76e7a6c, closes #463
+
 ## [15.0.13](///compare/15.0.11...15.0.12) (2025-12-10)
 
 ### Features
