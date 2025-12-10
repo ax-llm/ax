@@ -3,6 +3,31 @@ import type { AxModelInfo } from '../types.js';
 import { AxAIAnthropicModel, AxAIAnthropicVertexModel } from './types.js';
 
 export const axModelInfoAnthropic: AxModelInfo[] = [
+  // 4.5 Opus (2025-11)
+  {
+    name: AxAIAnthropicModel.Claude45Opus,
+    currency: 'usd',
+    promptTokenCostPer1M: 5.0,
+    completionTokenCostPer1M: 25.0,
+    maxTokens: 64000,
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: true,
+    },
+  },
+  {
+    name: AxAIAnthropicVertexModel.Claude45Opus,
+    currency: 'usd',
+    promptTokenCostPer1M: 5.0,
+    completionTokenCostPer1M: 25.0,
+    maxTokens: 64000,
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: true,
+    },
+  },
   // 4.5 Sonnet (2025-09)
   {
     name: AxAIAnthropicModel.Claude45Sonnet,
