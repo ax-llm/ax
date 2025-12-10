@@ -1,5 +1,20 @@
 # Changelog
 
+## [15.0.13](///compare/15.0.11...15.0.12) (2025-12-10)
+
+### Features
+
+* add support for Claude 4.5 Opus model ([#467](undefined/undefined/undefined/issues/467)) 88c573b
+
+### Bug Fixes
+
+* **dsp:** correctly extract instruction from signature in GEPA optimizer ([#466](undefined/undefined/undefined/issues/466)) 76e7a6c, closes #463
+## [15.0.12](///compare/15.0.11...15.0.12) (2025-12-10)
+
+### Features
+
+* introduce AxThoughtBlockItem type and refactor thought block handling across AI models ad92200
+
 ## [15.0.12](///compare/15.0.10...15.0.11) (2025-12-10)
 
 ### Features
