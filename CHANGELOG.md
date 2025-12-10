@@ -1,5 +1,12 @@
 # Changelog
 
+## [15.0.12](///compare/15.0.10...15.0.11) (2025-12-10)
+
+### Features
+
+* introduce AxThoughtBlockItem type and refactor thought block handling across AI models ad92200
+## [15.0.11](///compare/15.0.10...15.0.11) (2025-12-09)
+
 ## [15.0.11](///compare/15.0.9...15.0.10) (2025-12-09)
 ## [15.0.10](///compare/15.0.9...15.0.10) (2025-12-09)
 
