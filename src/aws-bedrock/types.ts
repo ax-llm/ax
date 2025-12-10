@@ -8,6 +8,7 @@ import type { AxModelConfig } from '@ax-llm/ax';
 // All Bedrock models
 export enum AxAIBedrockModel {
   // Claude models
+  ClaudeOpus45 = 'us.anthropic.claude-opus-4-5-20251101-v1:0',
   ClaudeSonnet4 = 'us.anthropic.claude-sonnet-4-20250514-v1:0',
   Claude37Sonnet = 'anthropic.claude-3-7-sonnet-20250219-v1:0',
   Claude35Sonnet = 'anthropic.claude-3-5-sonnet-20240620-v1:0',

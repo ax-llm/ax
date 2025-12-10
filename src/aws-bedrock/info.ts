@@ -10,6 +10,15 @@ export const axModelInfoBedrock: AxModelInfo[] = [
   // Claude Models
   // ========================================================================
   {
+    name: AxAIBedrockModel.ClaudeOpus45,
+    currency: 'usd',
+    promptTokenCostPer1M: 5.0,
+    completionTokenCostPer1M: 25.0,
+    maxTokens: 64000,
+    contextWindow: 200000,
+    supported: { thinkingBudget: true, showThoughts: true },
+  },
+  {
     name: AxAIBedrockModel.ClaudeSonnet4,
     currency: 'usd',
     promptTokenCostPer1M: 3.0,
