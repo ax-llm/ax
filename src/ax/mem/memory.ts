@@ -130,16 +130,22 @@ export class MemoryImpl {
         const lastExisting =
           existing.length > 0 ? existing[existing.length - 1] : undefined;
 
-        // If the new block has no signature yet (streaming partial), merge with last block
-        if (lastExisting && !newBlock.signature && newBlock.data) {
-          lastExisting.data = (lastExisting.data ?? '') + newBlock.data;
-          if (newBlock.encrypted) {
-            lastExisting.encrypted = true;
+        // If the new block has no signature yet (streaming partial)
+        if (!newBlock.signature && newBlock.data) {
+          // Merge with last block ONLY if it doesn't have a signature yet
+          if (lastExisting && !lastExisting.signature) {
+            lastExisting.data = (lastExisting.data ?? '') + newBlock.data;
+            if (newBlock.encrypted) {
+              lastExisting.encrypted = true;
+            }
+          } else {
+            // Otherwise start a new block (e.g. previous block was complete/signed)
+            existing.push(structuredClone(newBlock));
           }
         } else if (newBlock.signature) {
           // Block has a signature, so it's complete - check if we need to update or append
           if (lastExisting && !lastExisting.signature) {
-            // Update existing block with final signature
+            // Update existing open block with final signature
             lastExisting.data = (lastExisting.data ?? '') + newBlock.data;
             lastExisting.signature = newBlock.signature;
             if (newBlock.encrypted) {
