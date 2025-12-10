@@ -830,15 +830,19 @@ export class AxGEPAFlow extends AxBaseOptimizer {
 
   // === Helpers ===
   private async getBaseInstruction(program: any): Promise<string> {
-    try {
-      const sig = program?.getSignature?.();
-      if (
-        sig &&
-        typeof sig.instruction === 'string' &&
-        sig.instruction.length > 0
-      )
-        return sig.instruction as string;
-    } catch {}
+    // First check for custom instruction set via setInstruction()
+    const customInstruction = program?.getInstruction?.();
+    if (customInstruction && customInstruction.length > 0) {
+      return customInstruction;
+    }
+
+    // Fall back to signature description
+    const sig = program?.getSignature?.();
+    const description = sig?.getDescription?.();
+    if (description && description.length > 0) {
+      return description;
+    }
+
     return 'Follow the task precisely. Be concise, correct, and consistent.';
   }
 

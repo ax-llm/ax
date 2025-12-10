@@ -180,6 +180,10 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     this.promptTemplate.setInstruction(instruction);
   }
 
+  public getInstruction(): string | undefined {
+    return this.promptTemplate.getInstruction();
+  }
+
   private getSignatureName(): string {
     return this.signature.getDescription() || 'unknown_signature';
   }
