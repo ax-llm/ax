@@ -1,5 +1,20 @@
 # Changelog
 
+## [15.0.15](///compare/15.0.13...15.0.14) (2025-12-11)
+
+### Features
+
+* Enhance AI balancer with capability-based service selection and aggregated features/metrics across services. d4acef2
+
+### Bug Fixes
+
+* **ace:** Refine reflector to use only input fields ([#464](undefined/undefined/undefined/issues/464)) 695dbf0
+## [15.0.14](///compare/15.0.13...15.0.14) (2025-12-10)
+
+### Bug Fixes
+
+* ensure streaming partial memory blocks only merge with other partial blocks, otherwise append as new. 5679412
+
 ## [15.0.14](///compare/15.0.12...15.0.13) (2025-12-10)
 
 ### Bug Fixes
