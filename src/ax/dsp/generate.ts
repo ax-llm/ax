@@ -659,6 +659,12 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       );
     }
 
+    // Track committed values across retries to prevent duplication
+    const committedValues = new Map<number, Record<string, any>>();
+    states.forEach((s) => {
+      committedValues.set(s.index, {});
+    });
+
     multiStepLoop: for (let n = 0; n < maxSteps; n++) {
       for (let errCount = 0; errCount < maxRetries; errCount++) {
         // Reset states for new attempt
@@ -668,6 +674,12 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
           s.functionCalls = [];
           s.functionsExecuted = new Set<string>();
           s.xstate = { extractedFields: [], streamedIndex: {}, s: -1 };
+        });
+
+        // Track values for the current attempt to calculate deltas relative to committed values
+        const currentAttemptValues = new Map<number, Record<string, any>>();
+        states.forEach((s) => {
+          currentAttemptValues.set(s.index, {});
         });
 
         try {
@@ -686,11 +698,94 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
           try {
             for await (const result of generator) {
               if (result !== undefined) {
-                yield {
-                  version: errCount,
-                  index: result.index,
-                  delta: result.delta,
-                };
+                const index = result.index;
+                const delta = result.delta;
+
+                // Update current attempt values and calculate effective delta against committed values
+                const currentValues = currentAttemptValues.get(index) ?? {};
+                const committed = committedValues.get(index) ?? {};
+                const effectiveDelta: Partial<OUT> = {};
+                let hasEffectiveDelta = false;
+
+                for (const key of Object.keys(delta)) {
+                  const dVal = (delta as any)[key];
+                  const curVal = currentValues[key];
+
+                  // Merge into currentValues
+                  let newVal: any;
+                  if (
+                    typeof dVal === 'string' &&
+                    (typeof curVal === 'string' || curVal === undefined)
+                  ) {
+                    newVal = (curVal ?? '') + dVal;
+                  } else if (
+                    Array.isArray(dVal) &&
+                    (Array.isArray(curVal) || curVal === undefined)
+                  ) {
+                    newVal = [...(curVal ?? []), ...dVal];
+                  } else {
+                    newVal = dVal;
+                  }
+                  currentValues[key] = newVal;
+
+                  // Now compare with committed
+                  const val = newVal;
+                  const committedVal = committed[key];
+
+                  if (
+                    typeof val === 'string' &&
+                    typeof committedVal === 'string'
+                  ) {
+                    if (val.startsWith(committedVal)) {
+                      const diff = val.slice(committedVal.length);
+                      if (diff) {
+                        (effectiveDelta as any)[key] = diff;
+                        hasEffectiveDelta = true;
+                        committed[key] = val; // Update committed value
+                      }
+                    } else if (committedVal.startsWith(val)) {
+                      // Replay of previously yielded value - suppress
+                    } else {
+                      // Divergence or new value, assume overwrite/append
+                      if (val !== committedVal) {
+                        (effectiveDelta as any)[key] = val;
+                        hasEffectiveDelta = true;
+                        committed[key] = val;
+                      }
+                    }
+                  } else if (
+                    Array.isArray(val) &&
+                    Array.isArray(committedVal)
+                  ) {
+                    // For arrays, if val is superset of committed
+                    if (val.length > committedVal.length) {
+                      // Check if it's a pure extension
+                      // Simple check: compare JSON of prefix
+                      // Or just slice and trust?
+                      // For streaming arrays, we usually just append items.
+                      const diff = val.slice(committedVal.length);
+                      (effectiveDelta as any)[key] = diff;
+                      hasEffectiveDelta = true;
+                      committed[key] = val;
+                    }
+                    // If val is subset of committed (replay), do nothing.
+                  } else {
+                    // Other types (boolean, number, object), yield if changed
+                    if (JSON.stringify(val) !== JSON.stringify(committedVal)) {
+                      (effectiveDelta as any)[key] = val;
+                      hasEffectiveDelta = true;
+                      committed[key] = val;
+                    }
+                  }
+                }
+
+                if (hasEffectiveDelta) {
+                  yield {
+                    version: errCount,
+                    index: result.index,
+                    delta: effectiveDelta,
+                  };
+                }
               }
             }
           } catch (e) {
