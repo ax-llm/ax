@@ -1,5 +1,16 @@
 # Changelog
 
+## [15.0.17](///compare/15.0.15...15.0.16) (2025-12-11)
+
+### Features
+
+* Prevent stream duplication on retry by tracking committed values and yielding only effective deltas. 98a8480
+## [15.0.16](///compare/15.0.15...15.0.16) (2025-12-11)
+
+### Bug Fixes
+
+* Prevent streaming structured output duplication by refining delta calculation and resetting retry states. 946349f
+
 ## [15.0.16](///compare/15.0.14...15.0.15) (2025-12-11)
 
 ### Bug Fixes
