@@ -53,7 +53,7 @@ export class ValidationError extends Error {
     return [
       {
         name: 'outputError',
-        title: 'Invalid Field **Only return the invalid, remaining fields**',
+        title: 'Invalid Field',
         description: this.message,
       },
     ];

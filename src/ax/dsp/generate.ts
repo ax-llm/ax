@@ -661,6 +661,15 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
     multiStepLoop: for (let n = 0; n < maxSteps; n++) {
       for (let errCount = 0; errCount < maxRetries; errCount++) {
+        // Reset states for new attempt
+        states.forEach((s) => {
+          s.content = '';
+          s.values = {};
+          s.functionCalls = [];
+          s.functionsExecuted = new Set<string>();
+          s.xstate = { extractedFields: [], streamedIndex: {}, s: -1 };
+        });
+
         try {
           const generator = this.forwardCore({
             options,

@@ -1041,6 +1041,7 @@ export class AxSignature<
       if (signature.validatedAtHash === this.sigHash) {
         this.validatedAtHash = this.sigHash;
       }
+      this._forceComplexFields = (signature as any)._forceComplexFields;
     } else if (typeof signature === 'object' && signature !== null) {
       // Handle AxSignatureConfig object
       if (!('inputs' in signature) || !('outputs' in signature)) {

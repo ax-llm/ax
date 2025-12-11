@@ -255,27 +255,57 @@ async function* ProcessStreamingResponse<OUT extends AxGenOut>({
         // So 'partial' corresponds to Record<string, any> where keys are field names.
 
         const delta: Partial<OUT> = {};
+        const fullValues: Record<string, unknown> = {};
+
         for (const key of Object.keys(partial)) {
           // Only include fields that are part of the signature
           if (outputFields.some((f) => f.name === key)) {
-            (delta as any)[key] = (partial as any)[key];
+            const newVal = (partial as any)[key];
+            const oldVal = state.values[key];
+
+            fullValues[key] = newVal;
+
+            // Calculate actual delta
+            if (
+              typeof newVal === 'string' &&
+              typeof oldVal === 'string' &&
+              newVal.startsWith(oldVal)
+            ) {
+              const diff = newVal.slice(oldVal.length);
+              if (diff) {
+                (delta as any)[key] = diff;
+              }
+            } else if (Array.isArray(newVal) && Array.isArray(oldVal)) {
+              if (newVal.length > oldVal.length) {
+                (delta as any)[key] = newVal.slice(oldVal.length);
+              }
+            } else if (JSON.stringify(newVal) !== JSON.stringify(oldVal)) {
+              // For other types or if value completely changed/is new
+              (delta as any)[key] = newVal;
+            }
           }
         }
 
-        // Validate structured output values against field constraints
-        validateStructuredOutputValues(
-          signature,
-          delta as Record<string, unknown>,
-          { allowMissingRequired: true }
-        );
+        try {
+          validateStructuredOutputValues(
+            signature,
+            fullValues as Record<string, unknown>,
+            { allowMissingRequired: true }
+          );
+        } catch {
+          // Ignore validation errors during streaming
+        }
 
-        // Update state values
-        Object.assign(state.values, delta);
+        // Update state values with full values
+        Object.assign(state.values, fullValues);
 
-        yield {
-          index: result.index,
-          delta: delta as Partial<OUT>,
-        };
+        // Only yield if there is a delta
+        if (Object.keys(delta).length > 0) {
+          yield {
+            index: result.index,
+            delta: delta as Partial<OUT>,
+          };
+        }
         return;
       }
     }
@@ -435,16 +465,53 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
         const delta: Partial<OUT> = {};
         for (const key of Object.keys(finalJson)) {
           if (outputFields.some((f) => f.name === key)) {
-            (delta as any)[key] = finalJson[key];
+            const newVal = finalJson[key];
+            const oldVal = state.values[key];
+
+            // Calculate actual delta
+            if (
+              typeof newVal === 'string' &&
+              typeof oldVal === 'string' &&
+              newVal.startsWith(oldVal)
+            ) {
+              const diff = newVal.slice(oldVal.length);
+              if (diff) {
+                (delta as any)[key] = diff;
+              }
+            } else if (Array.isArray(newVal) && Array.isArray(oldVal)) {
+              if (newVal.length > oldVal.length) {
+                (delta as any)[key] = newVal.slice(oldVal.length);
+              }
+            } else if (JSON.stringify(newVal) !== JSON.stringify(oldVal)) {
+              (delta as any)[key] = newVal;
+            }
           }
         }
 
         // Validate structured output values against field constraints
-        validateStructuredOutputValues(
-          signature,
-          delta as Record<string, unknown>,
-          { allowMissingRequired: true }
-        );
+        try {
+          validateStructuredOutputValues(
+            signature,
+            delta as Record<string, unknown>,
+            { allowMissingRequired: true }
+          );
+        } catch (e) {
+          // Re-throw validation errors
+          const errorMsg = ((e as Error).message || '').toLowerCase();
+          if (
+            errorMsg.includes('at least') ||
+            errorMsg.includes('at most') ||
+            errorMsg.includes('must match pattern') ||
+            errorMsg.includes('invalid url') ||
+            errorMsg.includes('required') ||
+            errorMsg.includes('missing') ||
+            errorMsg.includes('valid email') ||
+            errorMsg.includes('number must be')
+          ) {
+            throw e;
+          }
+          // If JSON parse fails, we rely on partial parsing done during streaming
+        }
 
         Object.assign(state.values, delta);
         yield {
