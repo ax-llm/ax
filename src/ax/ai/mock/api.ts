@@ -1,6 +1,6 @@
 // ReadableStream is available globally in modern browsers and Node.js 16+
 import { randomUUID } from '../../util/crypto.js';
-
+import type { AxAIFeatures } from '../base.js';
 import type {
   AxAIModelList,
   AxAIService,
@@ -15,7 +15,6 @@ import type {
   AxModelConfig,
   AxModelInfoWithProvider,
 } from '../types.js';
-import type { AxAIFeatures } from '../base.js';
 
 export type AxMockAIServiceConfig<TModelKey> = {
   name?: string;
@@ -26,6 +25,7 @@ export type AxMockAIServiceConfig<TModelKey> = {
     functions?: boolean;
     streaming?: boolean;
     structuredOutputs?: boolean;
+    media?: Partial<AxAIFeatures['media']>;
   };
   models?: AxAIModelList<TModelKey>;
   options?: AxAIServiceOptions;
@@ -91,28 +91,29 @@ export class AxMockAIService<TModelKey>
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   getFeatures(_model?: string): AxAIFeatures {
+    const media = this.config.features?.media;
     return {
       functions: this.config.features?.functions ?? false,
       streaming: this.config.features?.streaming ?? false,
       structuredOutputs: this.config.features?.structuredOutputs ?? false,
       media: {
         images: {
-          supported: false,
-          formats: [],
+          supported: media?.images?.supported ?? false,
+          formats: media?.images?.formats ?? [],
         },
         audio: {
-          supported: false,
-          formats: [],
+          supported: media?.audio?.supported ?? false,
+          formats: media?.audio?.formats ?? [],
         },
         files: {
-          supported: false,
-          formats: [],
-          uploadMethod: 'none' as const,
+          supported: media?.files?.supported ?? false,
+          formats: media?.files?.formats ?? [],
+          uploadMethod: media?.files?.uploadMethod ?? 'none',
         },
         urls: {
-          supported: false,
-          webSearch: false,
-          contextFetching: false,
+          supported: media?.urls?.supported ?? false,
+          webSearch: media?.urls?.webSearch ?? false,
+          contextFetching: media?.urls?.contextFetching ?? false,
         },
       },
       caching: {

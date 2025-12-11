@@ -10,6 +10,7 @@ import {
   AxAIServiceTimeoutError,
 } from '../util/apicall.js';
 
+import type { AxAIFeatures } from './base.js';
 import type {
   AxAIModelList,
   AxAIService,
@@ -152,19 +153,32 @@ export class AxBalancer<
   };
 
   getModelList(): AxAIModelList<TModelKey> | undefined {
-    return this.currentService.getModelList();
+    // Return model list from the first service that has one
+    // Ideally we would merge them, but they are expected to be the same
+    for (const service of this.services) {
+      const list = service.getModelList();
+      if (list) return list;
+    }
+    return undefined;
   }
 
-  private getNextService(): boolean {
-    const cs = this.services[++this.currentServiceIndex];
+  private getNextService(
+    services: AxAIService<unknown, unknown, TModelKey>[],
+    currentIndex: number
+  ): {
+    service: AxAIService<unknown, unknown, TModelKey> | undefined;
+    index: number;
+  } {
+    const nextIndex = currentIndex + 1;
+    const cs = services[nextIndex];
     if (cs === undefined) {
-      return false;
+      return { service: undefined, index: nextIndex };
     }
-    this.currentService = cs;
-    return true;
+    return { service: cs, index: nextIndex };
   }
 
   private reset(): void {
+    // This resets the main pointer, but for per-request routing we might start elsewhere
     this.currentServiceIndex = 0;
     const cs = this.services[this.currentServiceIndex];
     if (cs === undefined) {
@@ -182,15 +196,153 @@ export class AxBalancer<
   }
 
   getFeatures(model?: string) {
-    return this.currentService.getFeatures(model);
+    // Aggregate features from all services
+    const features: AxAIFeatures = {
+      functions: false,
+      streaming: false,
+      thinking: false,
+      multiTurn: false,
+      structuredOutputs: false,
+      media: {
+        images: { supported: false, formats: [] },
+        audio: { supported: false, formats: [] },
+        files: { supported: false, formats: [], uploadMethod: 'none' },
+        urls: { supported: false, webSearch: false, contextFetching: false },
+      },
+      caching: { supported: false, types: [] },
+    };
+
+    for (const service of this.services) {
+      const f = service.getFeatures(model);
+      if (f.functions) features.functions = true;
+      if (f.streaming) features.streaming = true;
+      if (f.thinking) features.thinking = true;
+      if (f.multiTurn) features.multiTurn = true;
+      if (f.structuredOutputs) features.structuredOutputs = true;
+      if (f.functionCot) features.functionCot = true;
+      if (f.hasThinkingBudget) features.hasThinkingBudget = true;
+      if (f.hasShowThoughts) features.hasShowThoughts = true;
+
+      // Merge media capabilities
+      if (f.media.images.supported) features.media.images.supported = true;
+      features.media.images.formats = Array.from(
+        new Set([...features.media.images.formats, ...f.media.images.formats])
+      );
+      if (f.media.audio.supported) features.media.audio.supported = true;
+      features.media.audio.formats = Array.from(
+        new Set([...features.media.audio.formats, ...f.media.audio.formats])
+      );
+      if (f.media.files.supported) features.media.files.supported = true;
+      features.media.files.formats = Array.from(
+        new Set([...features.media.files.formats, ...f.media.files.formats])
+      );
+      if (f.media.files.uploadMethod !== 'none') {
+        features.media.files.uploadMethod = f.media.files.uploadMethod;
+      }
+      if (f.media.urls.supported) features.media.urls.supported = true;
+      if (f.media.urls.webSearch) features.media.urls.webSearch = true;
+      if (f.media.urls.contextFetching)
+        features.media.urls.contextFetching = true;
+
+      if (f.caching.supported) features.caching.supported = true;
+      features.caching.types = Array.from(
+        new Set([...features.caching.types, ...f.caching.types])
+      );
+    }
+    return features;
   }
 
   getMetrics(): AxAIServiceMetrics {
-    return this.currentService.getMetrics();
+    // Aggregate metrics from all services
+    const metrics: AxAIServiceMetrics = {
+      latency: {
+        chat: { mean: 0, p95: 0, p99: 0, samples: [] },
+        embed: { mean: 0, p95: 0, p99: 0, samples: [] },
+      },
+      errors: {
+        chat: { count: 0, rate: 0, total: 0 },
+        embed: { count: 0, rate: 0, total: 0 },
+      },
+    };
+
+    let chatLatencySum = 0;
+    let chatLatencyCount = 0;
+    let embedLatencySum = 0;
+    let embedLatencyCount = 0;
+
+    for (const service of this.services) {
+      const m = service.getMetrics();
+
+      // Aggregate Chat Errors
+      metrics.errors.chat.count += m.errors.chat.count;
+      metrics.errors.chat.total += m.errors.chat.total;
+
+      // Aggregate Embed Errors
+      metrics.errors.embed.count += m.errors.embed.count;
+      metrics.errors.embed.total += m.errors.embed.total;
+
+      // Weighted average for chat mean latency
+      const chatSamples = m.latency.chat.samples.length;
+      if (chatSamples > 0) {
+        chatLatencySum += m.latency.chat.mean * chatSamples;
+        chatLatencyCount += chatSamples;
+      }
+
+      // Weighted average for embed mean latency
+      const embedSamples = m.latency.embed.samples.length;
+      if (embedSamples > 0) {
+        embedLatencySum += m.latency.embed.mean * embedSamples;
+        embedLatencyCount += embedSamples;
+      }
+    }
+
+    if (metrics.errors.chat.total > 0) {
+      metrics.errors.chat.rate =
+        metrics.errors.chat.count / metrics.errors.chat.total;
+    }
+
+    if (metrics.errors.embed.total > 0) {
+      metrics.errors.embed.rate =
+        metrics.errors.embed.count / metrics.errors.embed.total;
+    }
+
+    if (chatLatencyCount > 0) {
+      metrics.latency.chat.mean = chatLatencySum / chatLatencyCount;
+    }
+
+    if (embedLatencyCount > 0) {
+      metrics.latency.embed.mean = embedLatencySum / embedLatencyCount;
+    }
+
+    // Note: p95/p99 aggregation is inexact without raw samples,
+    // so we take the max of the individual services to show the worst case performance
+    for (const service of this.services) {
+      const m = service.getMetrics();
+      metrics.latency.chat.p95 = Math.max(
+        metrics.latency.chat.p95,
+        m.latency.chat.p95
+      );
+      metrics.latency.chat.p99 = Math.max(
+        metrics.latency.chat.p99,
+        m.latency.chat.p99
+      );
+      metrics.latency.embed.p95 = Math.max(
+        metrics.latency.embed.p95,
+        m.latency.embed.p95
+      );
+      metrics.latency.embed.p99 = Math.max(
+        metrics.latency.embed.p99,
+        m.latency.embed.p99
+      );
+    }
+
+    return metrics;
   }
 
-  private canRetryService(): boolean {
-    const failure = this.serviceFailures.get(this.currentService.getId());
+  private canRetryService(
+    service: AxAIService<unknown, unknown, TModelKey>
+  ): boolean {
+    const failure = this.serviceFailures.get(service.getId());
     if (!failure) return true;
 
     const { retries, lastFailureTime } = failure;
@@ -203,59 +355,101 @@ export class AxBalancer<
     return timeSinceLastFailure >= backoffMs;
   }
 
-  private handleFailure(e: AxAIServiceError): boolean {
-    const failure = this.serviceFailures.get(this.currentService.getId());
+  private handleFailure(
+    service: AxAIService<unknown, unknown, TModelKey>,
+    e: AxAIServiceError
+  ): void {
+    const failure = this.serviceFailures.get(service.getId());
     const retries = (failure?.retries ?? 0) + 1;
 
-    this.serviceFailures.set(this.currentService.getId(), {
+    this.serviceFailures.set(service.getId(), {
       retries,
       lastFailureTime: Date.now(),
     });
 
     if (this.debug) {
       console.warn(
-        `AxBalancer: Service ${this.currentService.getName()} failed (retry ${retries}/${this.maxRetries})`,
+        `AxBalancer: Service ${service.getName()} failed (retry ${retries}/${this.maxRetries})`,
         e
       );
     }
-
-    if (retries >= this.maxRetries) {
-      const gotNextService = this.getNextService();
-      if (this.debug) {
-        console.warn(
-          `AxBalancer: Switching to service ${this.currentService.getName()}`,
-          e
-        );
-      }
-      return gotNextService;
-    }
-
-    return true;
   }
 
-  private handleSuccess(): void {
-    this.serviceFailures.delete(this.currentService.getId());
+  private handleSuccess(
+    service: AxAIService<unknown, unknown, TModelKey>
+  ): void {
+    this.serviceFailures.delete(service.getId());
   }
 
   async chat(
     req: Readonly<AxChatRequest<TModelKey>>,
     options?: Readonly<AxAIServiceOptions>
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
-    this.reset();
+    // Determine required features
+    const requiresStructuredOutputs =
+      req.responseFormat?.type === 'json_schema';
+
+    // Check for other capabilities
+    const caps = req.capabilities;
+    const requiresImages = caps?.requiresImages;
+    const requiresAudio = caps?.requiresAudio;
+    // We can add check for other capability flags here if needed
+
+    // Filter services based on capabilities
+    let candidateServices = this.services;
+    const model = req.model as unknown as string; // best effort casting
+
+    if (requiresStructuredOutputs || requiresImages || requiresAudio) {
+      candidateServices = this.services.filter((s) => {
+        const f = s.getFeatures(model);
+        if (requiresStructuredOutputs && !f.structuredOutputs) return false;
+        if (requiresImages && !f.media.images.supported) return false;
+        if (requiresAudio && !f.media.audio.supported) return false;
+        return true;
+      });
+
+      if (candidateServices.length === 0) {
+        const requirements = [];
+        if (requiresStructuredOutputs) requirements.push('structured outputs');
+        if (requiresImages) requirements.push('images');
+        if (requiresAudio) requirements.push('audio');
+
+        throw new Error(
+          `No services available that support required capabilities: ${requirements.join(', ')}.`
+        );
+      }
+    }
+
+    // Use a local index for this request flow
+    let currentIndex = 0;
+    let currentService = candidateServices[currentIndex];
+
+    // Check if we stumbled into a case where the array is empty (unlikely given check above)
+    if (!currentService) {
+      throw new Error('No matching AI services available for request.');
+    }
+
+    // Update the main currentService pointer so other methods (metrics etc) reflect the active one
+    this.currentService = currentService;
 
     while (true) {
-      if (!this.canRetryService()) {
-        if (!this.getNextService()) {
+      if (!this.canRetryService(currentService)) {
+        // Try next service
+        const next = this.getNextService(candidateServices, currentIndex);
+        if (!next.service) {
           throw new Error(
-            `All services exhausted (tried ${this.services.length} service(s))`
+            `All candidate services exhausted (tried ${candidateServices.length} service(s))`
           );
         }
+        currentService = next.service;
+        currentIndex = next.index;
+        this.currentService = currentService;
         continue;
       }
 
       try {
-        const response = await this.currentService.chat(req, options);
-        this.handleSuccess();
+        const response = await currentService.chat(req, options);
+        this.handleSuccess(currentService);
         return response;
       } catch (e) {
         if (!(e instanceof AxAIServiceError)) {
@@ -280,28 +474,47 @@ export class AxBalancer<
           }
 
           case AxAIServiceNetworkError:
-            // Handle network issues, e.g., display a message about checking network connectivity
+            // Handle network issues
             break;
 
           case AxAIServiceResponseError:
-            // Handle errors related to processing the response, e.g., log the error and retry the request
+            // Handle errors related to processing the response
             break;
 
           case AxAIServiceStreamTerminatedError:
-            // Handle unexpected stream termination, e.g., retry the request or display an error message
+            // Handle unexpected stream termination
             break;
 
           case AxAIServiceTimeoutError:
-            // Handle request timeouts, e.g., increase timeout, retry, or display an error message
+            // Handle request timeouts
             break;
 
           default:
             throw e;
-          // Handle unexpected AxAIServiceErrors
         }
 
-        if (!this.handleFailure(e)) {
-          throw e;
+        this.handleFailure(currentService, e);
+
+        // Check if we should switch services
+        const failure = this.serviceFailures.get(currentService.getId());
+        if ((failure?.retries ?? 0) >= this.maxRetries) {
+          const next = this.getNextService(candidateServices, currentIndex);
+
+          if (this.debug) {
+            console.warn(
+              `AxBalancer: Switching to service ${next.service?.getName() ?? 'none'}`,
+              e
+            );
+          }
+
+          if (!next.service) {
+            // No more services to try
+            throw e; // Or throw exhausted error? The original code threw e if handleFailure returned false (meaning no next service)
+          }
+
+          currentService = next.service;
+          currentIndex = next.index;
+          this.currentService = currentService;
         }
       }
     }
@@ -312,20 +525,25 @@ export class AxBalancer<
     options?: Readonly<AxAIServiceOptions>
   ): Promise<AxEmbedResponse> {
     this.reset();
+    let currentIndex = this.currentServiceIndex;
 
     while (true) {
-      if (!this.canRetryService()) {
-        if (!this.getNextService()) {
+      if (!this.canRetryService(this.currentService)) {
+        const next = this.getNextService(this.services, currentIndex);
+        if (!next.service) {
           throw new Error(
             `All services exhausted (tried ${this.services.length} service(s))`
           );
         }
+        this.currentService = next.service;
+        currentIndex = next.index;
+        this.currentServiceIndex = currentIndex;
         continue;
       }
 
       try {
         const response = await this.currentService.embed(req, options);
-        this.handleSuccess();
+        this.handleSuccess(this.currentService);
         return response;
       } catch (e) {
         if (!(e instanceof AxAIServiceError)) {
@@ -345,15 +563,30 @@ export class AxBalancer<
           throw e;
         }
 
-        if (!this.handleFailure(e)) {
-          throw e;
+        this.handleFailure(this.currentService, e);
+
+        const failure = this.serviceFailures.get(this.currentService.getId());
+        if ((failure?.retries ?? 0) >= this.maxRetries) {
+          const next = this.getNextService(this.services, currentIndex);
+          if (!next.service) {
+            throw e;
+          }
+          this.currentService = next.service;
+          currentIndex = next.index;
+          this.currentServiceIndex = currentIndex;
         }
       }
     }
   }
 
   setOptions(options: Readonly<AxAIServiceOptions>): void {
+    // Broadcast options to all services
+    for (const service of this.services) {
+      service.setOptions(options);
+    }
+    // Also update current options
     this.currentService.setOptions(options);
+    this.debug = options.debug ?? this.debug;
   }
 
   getOptions(): Readonly<AxAIServiceOptions> {

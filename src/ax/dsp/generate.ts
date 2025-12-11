@@ -369,7 +369,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       if (!features?.structuredOutputs) {
         throw new Error(
           `Complex structured outputs (object/array types) require a provider that supports structured outputs. ` +
-            `Current provider/model does not support this feature. ` +
+            `Current provider/model (${model}) does not support this feature. ` +
             `Supported providers: OpenAI (GPT-4o, GPT-4.1+), Google Gemini, Anthropic (Sonnet/Opus).`
         );
       }

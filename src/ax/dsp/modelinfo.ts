@@ -28,9 +28,13 @@ export function getModelInfo<
       ? (modelEntry.model as string)
       : (model as string);
 
-  // Try exact match first
+  // Try exact match first for the input model name
   const exactMatch = modelInfo.find((v) => v.name === model);
   if (exactMatch) return exactMatch;
+
+  // Try exact match for the mapped model name (e.g. "gemini-flash-latest")
+  const mappedMatch = modelInfo.find((v) => v.name === mappedModel);
+  if (mappedMatch) return mappedMatch;
 
   // Handle normalization if no exact match
   const normalizedName = mappedModel
