@@ -1,5 +1,20 @@
 # Changelog
 
+## [15.0.16](///compare/15.0.14...15.0.15) (2025-12-11)
+
+### Bug Fixes
+
+* Prevent streaming structured output duplication by refining delta calculation and resetting retry states. 946349f
+## [15.0.15](///compare/15.0.14...15.0.15) (2025-12-11)
+
+### Features
+
+* Enhance AI balancer with capability-based service selection and aggregated features/metrics across services. d4acef2
+
+### Bug Fixes
+
+* **ace:** Refine reflector to use only input fields ([#464](undefined/undefined/undefined/issues/464)) 695dbf0
+
 ## [15.0.15](///compare/15.0.13...15.0.14) (2025-12-11)
 
 ### Features
