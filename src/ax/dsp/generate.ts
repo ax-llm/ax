@@ -676,6 +676,13 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
           s.xstate = { extractedFields: [], streamedIndex: {}, s: -1 };
         });
 
+        // Reset committed values on retry so all values are re-emitted in new version
+        if (errCount > 0) {
+          committedValues.forEach((_, index) => {
+            committedValues.set(index, {});
+          });
+        }
+
         // Track values for the current attempt to calculate deltas relative to committed values
         const currentAttemptValues = new Map<number, Record<string, any>>();
         states.forEach((s) => {

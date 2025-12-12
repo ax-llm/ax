@@ -80,8 +80,16 @@ describe('Streaming Duplication Reproduction', () => {
 
     // Simulate mergeDeltas behavior for strings
     const finalResult: any = { action: '', userMessage: '' };
+    let currentVersion = -1;
 
     for await (const chunk of stream) {
+      // Reset state on version change (retry)
+      if (chunk.version !== undefined && chunk.version > currentVersion) {
+        currentVersion = chunk.version;
+        finalResult.action = '';
+        finalResult.userMessage = '';
+      }
+
       if (chunk.delta.action) {
         finalResult.action += chunk.delta.action;
       }

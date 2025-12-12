@@ -706,20 +706,20 @@ describe('AxSignature hasComplexFields', () => {
     expect(sig.hasComplexFields()).toBe(true);
   });
 
-  it('should return true for complex input', () => {
+  it('should return false for complex input (only output fields are checked)', () => {
     const sig = f()
       .input('in', f.object({ field: f.string() }))
       .output('out', f.string())
       .build();
-    expect(sig.hasComplexFields()).toBe(true);
+    expect(sig.hasComplexFields()).toBe(false);
   });
 
-  it('should return true for array of objects in input', () => {
+  it('should return false for array of objects in input (only output fields are checked)', () => {
     const sig = f()
       .input('in', f.object({ field: f.string() }).array())
       .output('out', f.string())
       .build();
-    expect(sig.hasComplexFields()).toBe(true);
+    expect(sig.hasComplexFields()).toBe(false);
   });
 
   it('should return true for array of objects in output', () => {

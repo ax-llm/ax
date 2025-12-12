@@ -197,6 +197,8 @@ export class AxSignatureBuilder<
     const sig = new AxSignature(config) as AxSignature<_TInput, _TOutput>;
     if ((this as any)._useStructuredOutputs) {
       (sig as any)._forceComplexFields = true;
+      // Invalidate the cached _hasComplexFields so it will be recomputed
+      (sig as any)._hasComplexFields = undefined;
     }
     return sig;
   }
