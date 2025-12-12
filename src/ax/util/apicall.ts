@@ -587,6 +587,28 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
         signal: combinedAbortController.signal,
       });
 
+      if (api.debug) {
+        console.log(
+          '\n--- [AxAI API Request] ---\n',
+          `URL: ${apiUrl.href}\n`,
+          `Method: ${api.put ? 'PUT' : 'POST'}\n`,
+          `Headers:`,
+          JSON.stringify(
+            {
+              'Content-Type': 'application/json',
+              'X-Request-ID': requestId,
+              'X-Retry-Count': attempt.toString(),
+              ...api.headers,
+            },
+            null,
+            2
+          ),
+          '\nBody:',
+          JSON.stringify(json, null, 2),
+          '\n------------------------\n'
+        );
+      }
+
       if (timeoutId) {
         clearTimeout(timeoutId);
       }
@@ -643,6 +665,16 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
       if (!api.stream) {
         const resJson = await res.json();
 
+        if (api.debug) {
+          console.log(
+            '\n--- [AxAI API Response] ---\n',
+            `Status: ${res.status} ${res.statusText}\n`,
+            `Body:`,
+            JSON.stringify(resJson, null, 2),
+            '\n-------------------------\n'
+          );
+        }
+
         // Validate response if validator is provided
         if (api.validateResponse) {
           const isValid = await api.validateResponse(resJson);
@@ -662,6 +694,14 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
         });
 
         return resJson as TResponse;
+      }
+
+      if (api.debug) {
+        console.log(
+          '\n--- [AxAI API Streaming Response Started] ---\n',
+          `Status: ${res.status} ${res.statusText}\n`,
+          '\n-------------------------------------------\n'
+        );
       }
 
       // Handle streaming response

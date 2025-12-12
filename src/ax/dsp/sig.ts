@@ -1041,7 +1041,9 @@ export class AxSignature<
       if (signature.validatedAtHash === this.sigHash) {
         this.validatedAtHash = this.sigHash;
       }
+      // Copy complex fields state
       this._forceComplexFields = (signature as any)._forceComplexFields;
+      this._hasComplexFields = (signature as any)._hasComplexFields;
     } else if (typeof signature === 'object' && signature !== null) {
       // Handle AxSignatureConfig object
       if (!('inputs' in signature) || !('outputs' in signature)) {
@@ -1421,6 +1423,7 @@ export class AxSignature<
 
   private invalidateValidationCache = (): void => {
     this.validatedAtHash = undefined;
+    this._hasComplexFields = undefined;
   };
 
   private toTitle = (name: string) => {
@@ -1449,6 +1452,9 @@ export class AxSignature<
         this.inputFields,
         this.outputFields
       );
+
+      // Compute and cache hasComplexFields
+      this._hasComplexFields = this.computeHasComplexFields();
 
       return [this.sigHash, this.sigString];
     } catch (error) {
@@ -1483,6 +1489,9 @@ export class AxSignature<
         this.inputFields,
         this.outputFields
       );
+
+      // Compute and cache hasComplexFields
+      this._hasComplexFields = this.computeHasComplexFields();
 
       return [this.sigHash, this.sigString];
     } catch (error) {
@@ -1548,18 +1557,28 @@ export class AxSignature<
   }
 
   private _forceComplexFields = false;
+  private _hasComplexFields?: boolean;
 
   public hasComplexFields = (): boolean => {
+    // Return cached value if available
+    if (this._hasComplexFields !== undefined) {
+      return this._hasComplexFields;
+    }
+    // Compute and cache if not yet computed
+    this._hasComplexFields = this.computeHasComplexFields();
+    return this._hasComplexFields;
+  };
+
+  private computeHasComplexFields = (): boolean => {
     if (this._forceComplexFields) {
       return true;
     }
-    const check = (fields: readonly AxField[]) =>
-      fields.some(
-        (f) =>
-          f.type?.name === 'object' ||
-          (f.type?.isArray && f.type.fields !== undefined)
-      );
-    return check(this.inputFields) || check(this.outputFields);
+    // Only check output fields, not input fields
+    return this.outputFields.some(
+      (f) =>
+        f.type?.name === 'object' ||
+        (f.type?.isArray && f.type.fields !== undefined)
+    );
   };
 
   public validate = (): boolean => {

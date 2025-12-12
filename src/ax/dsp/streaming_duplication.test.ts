@@ -106,4 +106,144 @@ describe('Streaming Duplication Reproduction', () => {
     expect(finalResult.action).toBe('askUser');
     expect(finalResult.userMessage).toBe('Hello');
   });
+  it('should not duplicate when retrying due to validation error', async () => {
+    const sig = f()
+      .input('question', f.string())
+      .output('action', f.string())
+      .output('val', f.string())
+      .useStructured()
+      .build();
+
+    const gen = ax(sig);
+
+    gen.addAssert((args) => {
+      if (args.val && !/^[A-Z]+$/.test(args.val)) {
+        return 'Must be uppercase';
+      }
+      return true;
+    });
+
+    const mockAI = new AxMockAIService<string>({
+      name: 'mock-validation',
+      features: { functions: true, streaming: true, structuredOutputs: true },
+    });
+
+    let attempt = 0;
+    const fullJsonValid = '{"action": "go", "val": "ABC"}';
+    const fullJsonInvalid = '{"action": "go", "val": "abc"}'; // Lowercase fails regex
+
+    const rawChunksValid = fullJsonValid.match(/.{1,3}/g) || [];
+    const rawChunksInvalid = fullJsonInvalid.match(/.{1,3}/g) || [];
+
+    mockAI.chat = async (_req, options) => {
+      attempt++;
+      const chunksToUse = attempt === 1 ? rawChunksInvalid : rawChunksValid;
+
+      if (options?.stream) {
+        const stream = new ReadableStream({
+          async start(controller) {
+            for (const chunk of chunksToUse) {
+              controller.enqueue({
+                results: [{ index: 0, content: chunk }],
+              });
+              await new Promise((resolve) => setTimeout(resolve, 5));
+            }
+            controller.close();
+          },
+        });
+        return stream as any;
+      }
+      return { results: [] };
+    };
+
+    // streamingForward with explicit retries enabled
+    const stream = gen.streamingForward(
+      mockAI,
+      { question: 'test' },
+      { maxRetries: 2 }
+    );
+
+    const finalResult: any = { action: '', val: '' };
+
+    let currentVersion = -1;
+    // Resetting consumer simulation
+    for await (const chunk of stream) {
+      if (chunk.version !== undefined && chunk.version > currentVersion) {
+        currentVersion = chunk.version;
+        // Reset state on new version
+        finalResult.action = '';
+        finalResult.val = '';
+      }
+      if (chunk.delta.action) finalResult.action += chunk.delta.action;
+      if (chunk.delta.val) finalResult.val += chunk.delta.val;
+    }
+
+    // Expect successful retry value (Replacement due to version reset)
+    expect(finalResult.val).toBe('ABC');
+    expect(finalResult.action).toBe('go'); // 'go' was re-emitted in new version snapshot
+  });
+  it('should handle versioning correctly during extension', async () => {
+    const sig = f().input('in', f.string()).output('val', f.string()).build();
+    const gen = ax(sig);
+    const mockAI = new AxMockAIService<string>({
+      name: 'mock-ext',
+      features: { functions: true, streaming: true, structuredOutputs: true },
+    });
+
+    // Attempt 1: "Hel"
+    // Attempt 2: "Hello"
+    const rawChunks1 = ['Hel'];
+    const rawChunks2 = ['Hel', 'lo']; // Simulated as Full "Hello" stream (split)
+
+    let attempt = 0;
+    mockAI.chat = async (_req, options) => {
+      attempt++;
+      const chunks = attempt === 1 ? rawChunks1 : rawChunks2;
+
+      if (options?.stream) {
+        return new ReadableStream({
+          async start(controller) {
+            for (const c of chunks) {
+              controller.enqueue({ results: [{ index: 0, content: c }] });
+              await new Promise((r) => setTimeout(r, 5));
+            }
+            if (attempt === 1) {
+              controller.error(new AxAIServiceStreamTerminatedError('fail'));
+            } else {
+              controller.close();
+            }
+          },
+        }) as any;
+      }
+      return { results: [] };
+    };
+
+    const stream = gen.streamingForward(
+      mockAI,
+      { in: 'test' },
+      { maxRetries: 2 }
+    );
+
+    let finalVal = '';
+    let currentVersion = -1;
+
+    for await (const chunk of stream) {
+      if (chunk.version !== undefined && chunk.version > currentVersion) {
+        currentVersion = chunk.version;
+        // Reset on new version (Expert Consumer)
+        finalVal = '';
+      }
+      if (chunk.delta.val) finalVal += chunk.delta.val;
+    }
+
+    // Attempt 1: "Hel" -> stream fails, version 0.
+    // Attempt 2: "Hello" -> stream succeeds, version 1.
+    // Consumer receives chunks for version 0, then stream fails.
+    // Consumer sees v0 (constant) or v0 then v0 (if extension patch is v0).
+    // My implementation keeps publicVersion at 0 if no divergence.
+    // So consumer accumulates.
+
+    expect(rawChunks2).toContain('lo'); // just ensuring setup is right
+    expect(finalVal).toBe('Hello');
+  });
 });

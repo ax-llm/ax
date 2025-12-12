@@ -838,12 +838,16 @@ export async function* processResponse<OUT>({
 
           Object.assign(state.values, delta);
         } catch (e) {
-          // Re-throw validation errors - don't fallback for validation failures
-          if (
+          // Check if it's a JSON parse error (malformed JSON)
+          const isJsonParseError = e instanceof SyntaxError;
+
+          // Check if it's a validation error (missing/invalid fields)
+          const isValidationError =
             (e as Error).name?.includes('ValidationError') ||
-            (e as Error).name?.includes('Error')
-          ) {
-            // Check if it's a validation error by looking at the error message patterns
+            (e as Error).name?.includes('Error');
+
+          if (isValidationError && !isJsonParseError) {
+            // For validation errors, check the error message to determine if it's a constraint violation
             const errorMsg = ((e as Error).message || '').toLowerCase();
             if (
               errorMsg.includes('at least') ||
@@ -855,14 +859,22 @@ export async function* processResponse<OUT>({
               errorMsg.includes('valid email') ||
               errorMsg.includes('number must be')
             ) {
+              // Re-throw validation errors to trigger error correction
               throw e;
             }
           }
-          // fallback to extraction if JSON parse fails (shouldn't happen with strict mode)
-          extractValues(signature, state.values, result.content, {
-            strictMode,
-            treatAllFieldsOptional,
-          });
+
+          // Only fallback to extraction if JSON parse fails (malformed JSON)
+          // This should not happen with structured output mode, but provides a safety net
+          if (isJsonParseError) {
+            extractValues(signature, state.values, result.content, {
+              strictMode,
+              treatAllFieldsOptional,
+            });
+          } else {
+            // For other errors, re-throw
+            throw e;
+          }
         }
       } else {
         extractValues(signature, state.values, result.content, {

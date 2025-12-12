@@ -1496,12 +1496,10 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
   }
 
   private isDebug(
-    ai: Readonly<AxAIService>,
+    _ai: Readonly<AxAIService>,
     options?: Readonly<AxProgramForwardOptions<any>>
   ) {
-    return (
-      options?.debug ?? this.options?.debug ?? ai.getOptions().debug ?? false
-    );
+    return options?.debug ?? this.options?.debug ?? false;
   }
 
   private getLogger(
