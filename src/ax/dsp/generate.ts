@@ -26,6 +26,7 @@ import {
   AxAIServiceStatusError,
   AxAIServiceStreamTerminatedError,
   AxAIServiceTimeoutError,
+  AxTokenLimitError,
 } from '../util/apicall.js';
 import { createHash } from '../util/crypto.js';
 import {
@@ -670,7 +671,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
     multiStepLoop: for (let n = 0; n < maxSteps; n++) {
       // Infrastructure error retry configuration
-      const infraMaxRetries = options.retryOnError?.maxRetries ?? 3;
+      // Use the same maxRetries for infrastructure errors (default 3)
+      const infraMaxRetries = maxRetries;
 
       // Infrastructure retry loop (outer loop for 5xx, network, timeout errors)
       for (
@@ -933,10 +935,22 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
                   error instanceof AxAIServiceStatusError &&
                   (error as AxAIServiceStatusError).status >= 500 &&
                   (error as AxAIServiceStatusError).status < 600;
+
+                // Check for max tokens error (typically 400 or specifically flagged)
+                const isMaxTokensError =
+                  error instanceof AxAIServiceStatusError &&
+                  (error as AxAIServiceStatusError).status === 400 &&
+                  options.retryOnError?.maxTokens === true;
+
                 const isNetworkError = error instanceof AxAIServiceNetworkError;
                 const isTimeoutError = error instanceof AxAIServiceTimeoutError;
 
-                if (isInfraError || isNetworkError || isTimeoutError) {
+                if (
+                  isInfraError ||
+                  isNetworkError ||
+                  isTimeoutError ||
+                  isMaxTokensError
+                ) {
                   // Let infrastructure errors bubble up to outer catch
                   throw e;
                 }
@@ -1007,6 +1021,12 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
             error instanceof AxAIServiceStatusError &&
             (error as AxAIServiceStatusError).status >= 500 &&
             (error as AxAIServiceStatusError).status < 600;
+
+          // Check for max tokens error (AxTokenLimitError)
+          const isMaxTokensError =
+            error instanceof AxTokenLimitError &&
+            options.retryOnError?.maxTokens === true;
+
           const isNetworkError = error instanceof AxAIServiceNetworkError;
           const isTimeoutError = error instanceof AxAIServiceTimeoutError;
           const isStreamTerminated =
@@ -1016,7 +1036,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
             (isInfraError ||
               isNetworkError ||
               isTimeoutError ||
-              isStreamTerminated) &&
+              isStreamTerminated ||
+              isMaxTokensError) &&
             infraRetryCount < infraMaxRetries;
 
           if (shouldRetryInfra) {

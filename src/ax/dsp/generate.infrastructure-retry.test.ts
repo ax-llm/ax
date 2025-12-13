@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { AxMockAIService } from '../ai/mock/api.js';
 import type { AxChatRequest, AxChatResponse } from '../ai/types.js';
@@ -6,11 +6,26 @@ import {
   AxAIServiceNetworkError,
   AxAIServiceStatusError,
   AxAIServiceTimeoutError,
+  AxTokenLimitError,
 } from '../util/apicall.js';
 import { AxGen } from './generate.js';
 import { f } from './sig.js';
 
 describe('Infrastructure Error Retry', () => {
+  beforeAll(() => {
+    // Mock setTimeout to run callbacks immediately, skipping exponential backoff
+    vi.spyOn(global, 'setTimeout').mockImplementation((cb: any) => {
+      if (typeof cb === 'function') {
+        cb();
+      }
+      return 0 as any;
+    });
+  });
+
+  afterAll(() => {
+    vi.restoreAllMocks();
+  });
+
   it('should retry on 5xx errors and eventually succeed', async () => {
     let callCount = 0;
 
@@ -58,13 +73,8 @@ describe('Infrastructure Error Retry', () => {
 
     const gen = new AxGen(signature);
 
-    const result = await gen.forward(
-      ai,
-      { query: 'test' },
-      {
-        retryOnError: { maxRetries: 3 },
-      }
-    );
+    // Default retry behavior (retries up to 10 times)
+    const result = await gen.forward(ai, { query: 'test' });
 
     expect(result.answer).toBe('Success after retry');
     expect(callCount).toBe(3); // 2 failures + 1 success
@@ -115,13 +125,7 @@ describe('Infrastructure Error Retry', () => {
 
     const gen = new AxGen(signature);
 
-    const result = await gen.forward(
-      ai,
-      { query: 'test' },
-      {
-        retryOnError: { maxRetries: 2 },
-      }
-    );
+    const result = await gen.forward(ai, { query: 'test' });
 
     expect(result.answer).toBe('Success after network retry');
     expect(callCount).toBe(2);
@@ -171,13 +175,7 @@ describe('Infrastructure Error Retry', () => {
 
     const gen = new AxGen(signature);
 
-    const result = await gen.forward(
-      ai,
-      { query: 'test' },
-      {
-        retryOnError: { maxRetries: 2 },
-      }
-    );
+    const result = await gen.forward(ai, { query: 'test' });
 
     expect(result.answer).toBe('Success after timeout retry');
     expect(callCount).toBe(2);
@@ -211,20 +209,50 @@ describe('Infrastructure Error Retry', () => {
 
     const gen = new AxGen(signature);
 
-    await expect(
-      gen.forward(
-        ai,
-        { query: 'test' },
-        {
-          retryOnError: { maxRetries: 2 },
-        }
-      )
-    ).rejects.toThrow('Service Unavailable');
+    // Default infrastructure retry limit matches maxRetries (default 3)
+    await expect(gen.forward(ai, { query: 'test' })).rejects.toThrow(
+      'Service Unavailable'
+    );
 
-    expect(callCount).toBe(3); // Initial + 2 retries
+    expect(callCount).toBe(4); // Initial + 3 retries
   });
 
-  it('should NOT retry on 4xx errors (client errors)', async () => {
+  it('should use custom maxRetries for infrastructure errors', async () => {
+    let callCount = 0;
+
+    const ai = new AxMockAIService({
+      features: {
+        functions: false,
+        streaming: false,
+        structuredOutputs: false,
+      },
+      chatResponse: async () => {
+        callCount++;
+        throw new AxAIServiceStatusError(
+          500,
+          'Internal Server Error',
+          'https://api.example.com/chat',
+          { test: 'request' },
+          { error: 'server_error' }
+        );
+      },
+    });
+
+    const signature = f()
+      .input('query', f.string())
+      .output('answer', f.string())
+      .build();
+
+    const gen = new AxGen(signature);
+
+    await expect(
+      gen.forward(ai, { query: 'test' }, { maxRetries: 5 })
+    ).rejects.toThrow('Internal Server Error');
+
+    expect(callCount).toBe(6); // Initial + 5 retries
+  });
+
+  it('should NOT retry on 4xx errors (client errors) by default', async () => {
     let callCount = 0;
 
     const ai = new AxMockAIService({
@@ -252,107 +280,106 @@ describe('Infrastructure Error Retry', () => {
 
     const gen = new AxGen(signature);
 
-    await expect(
-      gen.forward(
-        ai,
-        { query: 'test' },
-        {
-          retryOnError: { maxRetries: 3 },
-        }
-      )
-    ).rejects.toThrow('Unauthorized');
+    await expect(gen.forward(ai, { query: 'test' })).rejects.toThrow(
+      'Unauthorized'
+    );
 
     expect(callCount).toBe(1); // No retries for 4xx errors
   });
 
-  it(
-    'should use custom maxRetries configuration',
-    async () => {
-      let callCount = 0;
+  it('should retry on "max tokens" (400) error when retryOnError.maxTokens is true', async () => {
+    let callCount = 0;
 
-      const ai = new AxMockAIService({
-        features: {
-          functions: false,
-          streaming: false,
-          structuredOutputs: false,
-        },
-        chatResponse: async () => {
-          callCount++;
-          throw new AxAIServiceStatusError(
-            500,
-            'Internal Server Error',
+    const ai = new AxMockAIService({
+      features: {
+        functions: false,
+        streaming: false,
+        structuredOutputs: false,
+      },
+      chatResponse: async () => {
+        callCount++;
+
+        if (callCount === 1) {
+          // Simulate max tokens error (AxTokenLimitError)
+          throw new AxTokenLimitError(
+            400,
+            'Context Length Exceeded',
             'https://api.example.com/chat',
             { test: 'request' },
-            { error: 'server_error' }
+            { error: { code: 'context_length_exceeded' } }
           );
-        },
-      });
+        }
 
-      const signature = f()
-        .input('query', f.string())
-        .output('answer', f.string())
-        .build();
+        return {
+          results: [
+            {
+              index: 0,
+              content: 'Answer: Success after max tokens retry',
+              finishReason: 'stop',
+            },
+          ],
+          modelUsage: {
+            ai: 'test-ai',
+            model: 'test-model',
+            tokens: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
+          },
+        } as AxChatResponse;
+      },
+    });
 
-      const gen = new AxGen(signature);
+    const signature = f()
+      .input('query', f.string())
+      .output('answer', f.string())
+      .build();
 
-      await expect(
-        gen.forward(
-          ai,
-          { query: 'test' },
-          {
-            retryOnError: { maxRetries: 5 },
-          }
-        )
-      ).rejects.toThrow('Internal Server Error');
+    const gen = new AxGen(signature);
 
-      expect(callCount).toBe(6); // Initial + 5 retries
-    },
-    { timeout: 70000 } // 1s + 2s + 4s + 8s + 16s + 32s = 63s + buffer
-  );
+    const result = await gen.forward(
+      ai,
+      { query: 'test' },
+      {
+        retryOnError: { maxTokens: true },
+      }
+    );
 
-  it(
-    'should use default maxRetries (3) when not specified',
-    async () => {
-      let callCount = 0;
+    expect(result.answer).toBe('Success after max tokens retry');
+    expect(callCount).toBe(2);
+  });
 
-      const ai = new AxMockAIService({
-        features: {
-          functions: false,
-          streaming: false,
-          structuredOutputs: false,
-        },
-        chatResponse: async () => {
-          callCount++;
-          throw new AxAIServiceNetworkError(
-            new Error('Network error'),
-            'https://api.example.com/chat',
-            { test: 'request' },
-            undefined
-          );
-        },
-      });
+  it('should NOT retry on "max tokens" (400) error when retryOnError.maxTokens is false (default)', async () => {
+    let callCount = 0;
 
-      const signature = f()
-        .input('query', f.string())
-        .output('answer', f.string())
-        .build();
+    const ai = new AxMockAIService({
+      features: {
+        functions: false,
+        streaming: false,
+        structuredOutputs: false,
+      },
+      chatResponse: async () => {
+        callCount++;
+        throw new AxAIServiceStatusError(
+          400,
+          'Context length exceeded',
+          'https://api.example.com/chat',
+          { test: 'request' },
+          { error: 'context_length_exceeded' }
+        );
+      },
+    });
 
-      const gen = new AxGen(signature);
+    const signature = f()
+      .input('query', f.string())
+      .output('answer', f.string())
+      .build();
 
-      await expect(
-        gen.forward(
-          ai,
-          { query: 'test' },
-          {
-            retryOnError: {}, // Empty config, should use default maxRetries: 3
-          }
-        )
-      ).rejects.toThrow('Network error');
+    const gen = new AxGen(signature);
 
-      expect(callCount).toBe(4); // Initial + 3 default retries
-    },
-    { timeout: 20000 } // 1s + 2s + 4s + 8s = 15s + buffer
-  );
+    await expect(gen.forward(ai, { query: 'test' })).rejects.toThrow(
+      'Context length exceeded'
+    );
+
+    expect(callCount).toBe(1);
+  });
 
   it('should handle infrastructure retry followed by validation error retry', async () => {
     let infraCallCount = 0;
@@ -453,13 +480,7 @@ describe('Infrastructure Error Retry', () => {
       }
     });
 
-    const result = await gen.forward(
-      ai,
-      { query: 'test' },
-      {
-        retryOnError: { maxRetries: 2 },
-      }
-    );
+    const result = await gen.forward(ai, { query: 'test' });
 
     expect(result.items).toHaveLength(3);
     expect(infraCallCount).toBe(3); // 1 failed (500) + 2 successful (1 invalid, 1 valid)

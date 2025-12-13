@@ -86,7 +86,7 @@ export type AxProgramForwardOptions<MODEL> = AxAIServiceOptions & {
   maxRetries?: number;
   maxSteps?: number;
   retryOnError?: {
-    maxRetries?: number;
+    maxTokens?: boolean;
   };
   mem?: AxAIMemory;
 

@@ -214,6 +214,20 @@ export class AxAIServiceTimeoutError extends AxAIServiceError {
   }
 }
 
+export class AxTokenLimitError extends AxAIServiceStatusError {
+  constructor(
+    status: number,
+    statusText: string,
+    url: string,
+    requestBody: unknown,
+    responseBody: unknown,
+    context?: Record<string, unknown>
+  ) {
+    super(status, statusText, url, requestBody, responseBody, context);
+    this.name = 'AxTokenLimitError';
+  }
+}
+
 export class AxAIServiceAbortedError extends AxAIServiceError {
   constructor(
     url: string,
@@ -627,6 +641,60 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
             metrics,
           }
         );
+      }
+
+      // Handle token limit errors (400 Bad Request)
+      if (res.status === 400) {
+        const responseBody = await safeReadResponseBody(res);
+        const error = responseBody as any;
+        let isTokenLimit = false;
+
+        // OpenAI / Azure OpenAI / Groq
+        if (error?.error?.code === 'context_length_exceeded') {
+          isTokenLimit = true;
+        }
+        // Anthropic
+        else if (
+          error?.type === 'invalid_request_error' &&
+          (error?.error?.message?.includes('prompt is too long') ||
+            error?.error?.message?.includes('max_tokens') ||
+            error?.error?.message?.includes('token limit'))
+        ) {
+          isTokenLimit = true;
+        }
+        // Google Gemini (typically 400 with INVALID_ARGUMENT)
+        else if (
+          error?.error?.code === 400 &&
+          error?.error?.status === 'INVALID_ARGUMENT' &&
+          (error?.error?.message?.includes('token') ||
+            error?.error?.message?.includes('limit'))
+        ) {
+          isTokenLimit = true;
+        }
+        // Generic check for "token" and "limit" or "context length" in message/body
+        else {
+          const bodyString = JSON.stringify(responseBody).toLowerCase();
+          if (
+            (bodyString.includes('token') && bodyString.includes('limit')) ||
+            bodyString.includes('context length') ||
+            bodyString.includes('prompt is too long')
+          ) {
+            isTokenLimit = true;
+          }
+        }
+
+        if (isTokenLimit) {
+          throw new AxTokenLimitError(
+            res.status,
+            res.statusText,
+            apiUrl.href,
+            json,
+            responseBody,
+            {
+              metrics,
+            }
+          );
+        }
       }
 
       // Handle retryable status codes
