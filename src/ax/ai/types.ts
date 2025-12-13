@@ -453,6 +453,7 @@ export type AxLoggerFunction = (message: AxLoggerData) => void;
 
 export type AxAIServiceOptions = {
   debug?: boolean;
+  verbose?: boolean; // Low-level HTTP request/response logging
   rateLimiter?: AxRateLimiterFunction;
   fetch?: typeof fetch;
   tracer?: Tracer;

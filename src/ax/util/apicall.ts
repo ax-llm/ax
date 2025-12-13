@@ -51,7 +51,8 @@ export interface AxAPIConfig
     ResponseValidation {
   url?: string | URL; // Make URL optional when localCall is provided
   stream?: boolean;
-  debug?: boolean;
+  debug?: boolean; // Deprecated: use verbose instead
+  verbose?: boolean; // Low-level HTTP request/response logging
   fetch?: typeof fetch;
   span?: Span;
   timeout?: number;
@@ -492,6 +493,8 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
   const retryConfig: RetryConfig = { ...defaultRetryConfig, ...api.retry };
   const timeoutMs = api.timeout;
   const metrics = createRequestMetrics();
+  // Backward compatibility: debug flag is deprecated, use verbose instead
+  const verbose = api.verbose ?? api.debug ?? false;
   let timeoutId: NodeJS.Timeout | undefined;
 
   const baseUrl = new URL(api.url);
@@ -587,7 +590,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
         signal: combinedAbortController.signal,
       });
 
-      if (api.debug) {
+      if (verbose) {
         console.log(
           '\n--- [AxAI API Request] ---\n',
           `URL: ${apiUrl.href}\n`,
@@ -665,7 +668,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
       if (!api.stream) {
         const resJson = await res.json();
 
-        if (api.debug) {
+        if (verbose) {
           console.log(
             '\n--- [AxAI API Response] ---\n',
             `Status: ${res.status} ${res.statusText}\n`,
@@ -696,7 +699,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
         return resJson as TResponse;
       }
 
-      if (api.debug) {
+      if (verbose) {
         console.log(
           '\n--- [AxAI API Streaming Response Started] ---\n',
           `Status: ${res.status} ${res.statusText}\n`,
@@ -790,7 +793,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
                         });
                       } catch (parseError) {
                         // Skip invalid JSON chunks - this is normal for SSE
-                        if (api.debug) {
+                        if (verbose) {
                           console.warn(
                             'Skipping non-JSON SSE data:',
                             data,

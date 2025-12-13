@@ -150,6 +150,7 @@ export class AxBaseAI<
 > implements AxAIService<TModel, TEmbedModel, TModelKey>
 {
   #debug = false;
+  #verbose = false;
 
   private rt?: AxAIServiceOptions['rateLimiter'];
   private fetch?: AxAIServiceOptions['fetch'];
@@ -286,6 +287,8 @@ export class AxBaseAI<
 
   setOptions(options: Readonly<AxAIServiceOptions>): void {
     this.#debug = options.debug ?? axGlobals.debug ?? false;
+    // For backward compatibility: debug: true also enables verbose logging
+    this.#verbose = options.verbose ?? this.#debug;
     this.rt = options.rateLimiter;
     this.fetch = options.fetch;
     this.timeout = options.timeout;
@@ -300,6 +303,7 @@ export class AxBaseAI<
   getOptions(): Readonly<AxAIServiceOptions> {
     return {
       debug: this.#debug,
+      verbose: this.#verbose,
       rateLimiter: this.rt,
       fetch: this.fetch,
       tracer: this.tracer,
@@ -1114,6 +1118,7 @@ export class AxBaseAI<
     }
 
     const debug = options?.debug ?? this.#debug;
+    const verbose = options?.verbose ?? this.#verbose;
 
     let functions: NonNullable<AxChatRequest['functions']> | undefined;
 
@@ -1192,7 +1197,7 @@ export class AxBaseAI<
           headers: await this.buildHeaders(apiConfig.headers),
           stream: modelConfig.stream,
           timeout: this.timeout,
-          debug,
+          verbose,
           fetch: this.fetch,
           span,
           abortSignal: options?.abortSignal ?? this.abortSignal,
@@ -1504,6 +1509,7 @@ export class AxBaseAI<
     // Bind provider implementation method to preserve `this` and satisfy TS
     const createEmbedReq = this.aiImpl.createEmbedReq!.bind(this.aiImpl);
     const debug = options?.debug ?? this.#debug;
+    const verbose = options?.verbose ?? this.#verbose;
 
     const req = {
       ...embedReq,
@@ -1530,7 +1536,7 @@ export class AxBaseAI<
           url: this.apiURL,
           localCall: apiConfig.localCall,
           headers: await this.buildHeaders(apiConfig.headers),
-          debug,
+          verbose,
           fetch: this.fetch,
           timeout: this.timeout,
           span,

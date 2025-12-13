@@ -22,7 +22,10 @@ import { AxMemory } from '../mem/memory.js';
 import type { AxAIMemory } from '../mem/types.js';
 import {
   AxAIRefusalError,
+  AxAIServiceNetworkError,
+  AxAIServiceStatusError,
   AxAIServiceStreamTerminatedError,
+  AxAIServiceTimeoutError,
 } from '../util/apicall.js';
 import { createHash } from '../util/crypto.js';
 import {
@@ -543,8 +546,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         ? [rawStop.toLowerCase()]
         : undefined;
 
-    const maxRetries = options.maxRetries ?? this.options?.maxRetries ?? 10;
-    const maxSteps = options.maxSteps ?? this.options?.maxSteps ?? 10;
+    const maxRetries = options.maxRetries ?? this.options?.maxRetries ?? 3;
+    const maxSteps = options.maxSteps ?? this.options?.maxSteps ?? 25;
 
     const mem = options.mem ?? this.options?.mem ?? new AxMemory();
 
@@ -666,307 +669,400 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     });
 
     multiStepLoop: for (let n = 0; n < maxSteps; n++) {
-      for (let errCount = 0; errCount < maxRetries; errCount++) {
-        // Reset states for new attempt
-        states.forEach((s) => {
-          s.content = '';
-          s.values = {};
-          s.functionCalls = [];
-          s.functionsExecuted = new Set<string>();
-          s.xstate = { extractedFields: [], streamedIndex: {}, s: -1 };
-        });
+      // Infrastructure error retry configuration
+      const infraMaxRetries = options.retryOnError?.maxRetries ?? 3;
 
-        // Reset committed values on retry so all values are re-emitted in new version
-        if (errCount > 0) {
-          committedValues.forEach((_, index) => {
-            committedValues.set(index, {});
-          });
-        }
-
-        // Track values for the current attempt to calculate deltas relative to committed values
-        const currentAttemptValues = new Map<number, Record<string, any>>();
-        states.forEach((s) => {
-          currentAttemptValues.set(s.index, {});
-        });
-
+      // Infrastructure retry loop (outer loop for 5xx, network, timeout errors)
+      for (
+        let infraRetryCount = 0;
+        infraRetryCount <= infraMaxRetries;
+        infraRetryCount++
+      ) {
         try {
-          const generator = this.forwardCore({
-            options,
-            ai,
-            mem,
-            stepIndex: n,
-            span,
-            traceContext,
-            states,
-            stopFunctionNames,
-          });
-
-          let stopFunctionTriggered = false;
-          try {
-            for await (const result of generator) {
-              if (result !== undefined) {
-                const index = result.index;
-                const delta = result.delta;
-
-                // Update current attempt values and calculate effective delta against committed values
-                const currentValues = currentAttemptValues.get(index) ?? {};
-                const committed = committedValues.get(index) ?? {};
-                const effectiveDelta: Partial<OUT> = {};
-                let hasEffectiveDelta = false;
-
-                for (const key of Object.keys(delta)) {
-                  const dVal = (delta as any)[key];
-                  const curVal = currentValues[key];
-
-                  // Merge into currentValues
-                  let newVal: any;
-                  if (
-                    typeof dVal === 'string' &&
-                    (typeof curVal === 'string' || curVal === undefined)
-                  ) {
-                    newVal = (curVal ?? '') + dVal;
-                  } else if (
-                    Array.isArray(dVal) &&
-                    (Array.isArray(curVal) || curVal === undefined)
-                  ) {
-                    newVal = [...(curVal ?? []), ...dVal];
-                  } else {
-                    newVal = dVal;
-                  }
-                  currentValues[key] = newVal;
-
-                  // Now compare with committed
-                  const val = newVal;
-                  const committedVal = committed[key];
-
-                  if (
-                    typeof val === 'string' &&
-                    typeof committedVal === 'string'
-                  ) {
-                    if (val.startsWith(committedVal)) {
-                      const diff = val.slice(committedVal.length);
-                      if (diff) {
-                        (effectiveDelta as any)[key] = diff;
-                        hasEffectiveDelta = true;
-                        committed[key] = val; // Update committed value
-                      }
-                    } else if (committedVal.startsWith(val)) {
-                      // Replay of previously yielded value - suppress
-                    } else {
-                      // Divergence or new value, assume overwrite/append
-                      if (val !== committedVal) {
-                        (effectiveDelta as any)[key] = val;
-                        hasEffectiveDelta = true;
-                        committed[key] = val;
-                      }
-                    }
-                  } else if (
-                    Array.isArray(val) &&
-                    Array.isArray(committedVal)
-                  ) {
-                    // For arrays, if val is superset of committed
-                    if (val.length > committedVal.length) {
-                      // Check if it's a pure extension
-                      // Simple check: compare JSON of prefix
-                      // Or just slice and trust?
-                      // For streaming arrays, we usually just append items.
-                      const diff = val.slice(committedVal.length);
-                      (effectiveDelta as any)[key] = diff;
-                      hasEffectiveDelta = true;
-                      committed[key] = val;
-                    }
-                    // If val is subset of committed (replay), do nothing.
-                  } else {
-                    // Other types (boolean, number, object), yield if changed
-                    if (JSON.stringify(val) !== JSON.stringify(committedVal)) {
-                      (effectiveDelta as any)[key] = val;
-                      hasEffectiveDelta = true;
-                      committed[key] = val;
-                    }
-                  }
-                }
-
-                if (hasEffectiveDelta) {
-                  yield {
-                    version: errCount,
-                    index: result.index,
-                    delta: effectiveDelta,
-                  };
-                }
-              }
-            }
-          } catch (e) {
-            if (e instanceof AxStopFunctionCallException) {
-              stopFunctionTriggered = true;
-            } else {
-              throw e;
-            }
-          }
-
-          const shouldContinue = stopFunctionTriggered
-            ? false
-            : shouldContinueSteps(
-                mem,
-                stopFunctionNames,
-                states,
-                options?.sessionId
-              );
-
-          if (shouldContinue) {
-            // Record multi-step generation metric
-            const metricsInstruments = this.getMetricsInstruments();
-            if (metricsInstruments) {
-              recordMultiStepMetric(
-                metricsInstruments,
-                n + 1,
-                maxSteps,
-                this.getSignatureName()
-              );
-            }
-            continue multiStepLoop;
-          }
-
-          // On success, clean up any error-related tags from memory to keep context clean
-          if (!options?.disableMemoryCleanup) {
-            mem.removeByTag('invalid-assistant', options.sessionId);
-            mem.removeByTag('correction', options.sessionId);
-            mem.removeByTag('error', options.sessionId);
-          }
-
-          // Record successful completion metrics
-          const metricsInstruments = this.getMetricsInstruments();
-          if (metricsInstruments) {
-            recordMultiStepMetric(
-              metricsInstruments,
-              n + 1,
-              maxSteps,
-              this.getSignatureName()
-            );
-
-            // Count unique functions executed across all states
-            const allFunctionsExecuted = new Set<string>();
-            states.forEach((state) => {
-              state.functionsExecuted.forEach((func) =>
-                allFunctionsExecuted.add(func)
-              );
+          // Validation/assertion error retry loop (inner loop)
+          for (let errCount = 0; errCount < maxRetries; errCount++) {
+            // Reset states for new attempt
+            states.forEach((s) => {
+              s.content = '';
+              s.values = {};
+              s.functionCalls = [];
+              s.functionsExecuted = new Set<string>();
+              s.xstate = { extractedFields: [], streamedIndex: {}, s: -1 };
             });
 
-            // Record function metrics if functions were used
-            if (allFunctionsExecuted.size > 0) {
-              recordFunctionCallingMetric(
-                metricsInstruments,
-                true,
-                allFunctionsExecuted.size,
-                true,
-                false,
-                this.getSignatureName()
-              );
+            // Reset committed values on retry so all values are re-emitted in new version
+            if (errCount > 0) {
+              committedValues.forEach((_, index) => {
+                committedValues.set(index, {});
+              });
             }
 
-            // Record field processing metrics
-            recordFieldProcessingMetric(
+            // Track values for the current attempt to calculate deltas relative to committed values
+            const currentAttemptValues = new Map<number, Record<string, any>>();
+            states.forEach((s) => {
+              currentAttemptValues.set(s.index, {});
+            });
+
+            try {
+              const generator = this.forwardCore({
+                options,
+                ai,
+                mem,
+                stepIndex: n,
+                span,
+                traceContext,
+                states,
+                stopFunctionNames,
+              });
+
+              let stopFunctionTriggered = false;
+              try {
+                for await (const result of generator) {
+                  if (result !== undefined) {
+                    const index = result.index;
+                    const delta = result.delta;
+
+                    // Update current attempt values and calculate effective delta against committed values
+                    const currentValues = currentAttemptValues.get(index) ?? {};
+                    const committed = committedValues.get(index) ?? {};
+                    const effectiveDelta: Partial<OUT> = {};
+                    let hasEffectiveDelta = false;
+
+                    for (const key of Object.keys(delta)) {
+                      const dVal = (delta as any)[key];
+                      const curVal = currentValues[key];
+
+                      // Merge into currentValues
+                      let newVal: any;
+                      if (
+                        typeof dVal === 'string' &&
+                        (typeof curVal === 'string' || curVal === undefined)
+                      ) {
+                        newVal = (curVal ?? '') + dVal;
+                      } else if (
+                        Array.isArray(dVal) &&
+                        (Array.isArray(curVal) || curVal === undefined)
+                      ) {
+                        newVal = [...(curVal ?? []), ...dVal];
+                      } else {
+                        newVal = dVal;
+                      }
+                      currentValues[key] = newVal;
+
+                      // Now compare with committed
+                      const val = newVal;
+                      const committedVal = committed[key];
+
+                      if (
+                        typeof val === 'string' &&
+                        typeof committedVal === 'string'
+                      ) {
+                        if (val.startsWith(committedVal)) {
+                          const diff = val.slice(committedVal.length);
+                          if (diff) {
+                            (effectiveDelta as any)[key] = diff;
+                            hasEffectiveDelta = true;
+                            committed[key] = val; // Update committed value
+                          }
+                        } else if (committedVal.startsWith(val)) {
+                          // Replay of previously yielded value - suppress
+                        } else {
+                          // Divergence or new value, assume overwrite/append
+                          if (val !== committedVal) {
+                            (effectiveDelta as any)[key] = val;
+                            hasEffectiveDelta = true;
+                            committed[key] = val;
+                          }
+                        }
+                      } else if (
+                        Array.isArray(val) &&
+                        Array.isArray(committedVal)
+                      ) {
+                        // For arrays, if val is superset of committed
+                        if (val.length > committedVal.length) {
+                          // Check if it's a pure extension
+                          // Simple check: compare JSON of prefix
+                          // Or just slice and trust?
+                          // For streaming arrays, we usually just append items.
+                          const diff = val.slice(committedVal.length);
+                          (effectiveDelta as any)[key] = diff;
+                          hasEffectiveDelta = true;
+                          committed[key] = val;
+                        }
+                        // If val is subset of committed (replay), do nothing.
+                      } else {
+                        // Other types (boolean, number, object), yield if changed
+                        if (
+                          JSON.stringify(val) !== JSON.stringify(committedVal)
+                        ) {
+                          (effectiveDelta as any)[key] = val;
+                          hasEffectiveDelta = true;
+                          committed[key] = val;
+                        }
+                      }
+                    }
+
+                    if (hasEffectiveDelta) {
+                      yield {
+                        version: errCount,
+                        index: result.index,
+                        delta: effectiveDelta,
+                      };
+                    }
+                  }
+                }
+              } catch (e) {
+                if (e instanceof AxStopFunctionCallException) {
+                  stopFunctionTriggered = true;
+                } else {
+                  throw e;
+                }
+              }
+
+              const shouldContinue = stopFunctionTriggered
+                ? false
+                : shouldContinueSteps(
+                    mem,
+                    stopFunctionNames,
+                    states,
+                    options?.sessionId
+                  );
+
+              if (shouldContinue) {
+                // Record multi-step generation metric
+                const metricsInstruments = this.getMetricsInstruments();
+                if (metricsInstruments) {
+                  recordMultiStepMetric(
+                    metricsInstruments,
+                    n + 1,
+                    maxSteps,
+                    this.getSignatureName()
+                  );
+                }
+                continue multiStepLoop;
+              }
+
+              // On success, clean up any error-related tags from memory to keep context clean
+              if (!options?.disableMemoryCleanup) {
+                mem.removeByTag('invalid-assistant', options.sessionId);
+                mem.removeByTag('correction', options.sessionId);
+                mem.removeByTag('error', options.sessionId);
+              }
+
+              // Record successful completion metrics
+              const metricsInstruments = this.getMetricsInstruments();
+              if (metricsInstruments) {
+                recordMultiStepMetric(
+                  metricsInstruments,
+                  n + 1,
+                  maxSteps,
+                  this.getSignatureName()
+                );
+
+                // Count unique functions executed across all states
+                const allFunctionsExecuted = new Set<string>();
+                states.forEach((state) => {
+                  state.functionsExecuted.forEach((func) =>
+                    allFunctionsExecuted.add(func)
+                  );
+                });
+
+                // Record function metrics if functions were used
+                if (allFunctionsExecuted.size > 0) {
+                  recordFunctionCallingMetric(
+                    metricsInstruments,
+                    true,
+                    allFunctionsExecuted.size,
+                    true,
+                    false,
+                    this.getSignatureName()
+                  );
+                }
+
+                // Record field processing metrics
+                recordFieldProcessingMetric(
+                  metricsInstruments,
+                  this.fieldProcessors.length,
+                  this.streamingFieldProcessors.length,
+                  this.getSignatureName()
+                );
+              }
+
+              return;
+            } catch (e) {
+              lastError = e as Error;
+              let errorFields: AxIField[] | undefined;
+              const debug = this.isDebug(ai, options);
+              const logger = this.getLogger(ai, options);
+              const metricsInstruments = this.getMetricsInstruments();
+              const signatureName = this.getSignatureName();
+
+              const args: HandleErrorForGenerateArgs<Error> = {
+                error: e as Error,
+                errCount,
+                logger,
+                metricsInstruments,
+                signatureName,
+                span,
+                debug,
+              };
+
+              span?.recordException(e as Error);
+
+              if (e instanceof ValidationError) {
+                errorFields = handleValidationErrorForGenerate(
+                  args as HandleErrorForGenerateArgs<ValidationError>
+                );
+                err = e;
+              } else if (e instanceof AxAssertionError) {
+                errorFields = handleAssertionErrorForGenerate(
+                  args as HandleErrorForGenerateArgs<AxAssertionError>
+                );
+                err = e;
+              } else if (e instanceof AxAIRefusalError) {
+                handleRefusalErrorForGenerate(
+                  args as HandleErrorForGenerateArgs<AxAIRefusalError>
+                );
+              } else if (e instanceof AxAIServiceStreamTerminatedError) {
+                // Do nothing allow error correction to happen
+              } else {
+                // Check if this is a retryable infrastructure error
+                // If so, let it bubble up to the infrastructure retry loop
+                const error = e as Error;
+                const isInfraError =
+                  error instanceof AxAIServiceStatusError &&
+                  (error as AxAIServiceStatusError).status >= 500 &&
+                  (error as AxAIServiceStatusError).status < 600;
+                const isNetworkError = error instanceof AxAIServiceNetworkError;
+                const isTimeoutError = error instanceof AxAIServiceTimeoutError;
+
+                if (isInfraError || isNetworkError || isTimeoutError) {
+                  // Let infrastructure errors bubble up to outer catch
+                  throw e;
+                }
+
+                // Not an infrastructure error, enhance and throw
+                throw enhanceError(e, ai, this.signature);
+              }
+
+              if (errorFields) {
+                mem.addTag('error', options.sessionId);
+                mem.addRequest(
+                  [
+                    {
+                      role: 'user' as const,
+                      content:
+                        this.promptTemplate.renderExtraFields(errorFields),
+                    },
+                  ],
+                  options.sessionId
+                );
+                mem.addTag('correction', options.sessionId);
+
+                // When using structured outputs (JSON mode), we need to reset the state content
+                // to avoid concatenating JSON objects from previous retry attempts
+                const hasComplexFields = this.signature.hasComplexFields();
+                if (hasComplexFields) {
+                  for (const state of states) {
+                    state.content = '';
+                    state.values = {};
+                    state.xstate = {
+                      extractedFields: [],
+                      streamedIndex: {},
+                      s: -1,
+                    };
+                  }
+                }
+              }
+            }
+          }
+
+          // Record max retries reached for validation errors
+          const metricsInstruments = this.getMetricsInstruments();
+          if (metricsInstruments) {
+            recordErrorCorrectionMetric(
               metricsInstruments,
-              this.fieldProcessors.length,
-              this.streamingFieldProcessors.length,
+              maxRetries,
+              false, // failed
+              maxRetries,
               this.getSignatureName()
             );
           }
 
-          return;
+          throw enhanceError(
+            new Error(
+              `Unable to fix validation error: ${
+                (err ?? lastError)?.message ??
+                (err ?? lastError)?.toString() ??
+                'unknown error'
+              }\n\nLLM Output:\n${states.map((s) => s.content).join('\n---\n')}`
+            ),
+            ai,
+            this.signature
+          );
         } catch (e) {
-          lastError = e as Error;
-          let errorFields: AxIField[] | undefined;
-          const debug = this.isDebug(ai, options);
-          const logger = this.getLogger(ai, options);
-          const metricsInstruments = this.getMetricsInstruments();
-          const signatureName = this.getSignatureName();
+          // Infrastructure error handling
+          const error = e as Error;
+          const isInfraError =
+            error instanceof AxAIServiceStatusError &&
+            (error as AxAIServiceStatusError).status >= 500 &&
+            (error as AxAIServiceStatusError).status < 600;
+          const isNetworkError = error instanceof AxAIServiceNetworkError;
+          const isTimeoutError = error instanceof AxAIServiceTimeoutError;
+          const isStreamTerminated =
+            error instanceof AxAIServiceStreamTerminatedError;
 
-          const args: HandleErrorForGenerateArgs<Error> = {
-            error: e as Error,
-            errCount,
-            logger,
-            metricsInstruments,
-            signatureName,
-            span,
-            debug,
-          };
+          const shouldRetryInfra =
+            (isInfraError ||
+              isNetworkError ||
+              isTimeoutError ||
+              isStreamTerminated) &&
+            infraRetryCount < infraMaxRetries;
 
-          span?.recordException(e as Error);
+          if (shouldRetryInfra) {
+            const debug = this.isDebug(ai, options);
+            const logger = this.getLogger(ai, options);
 
-          if (e instanceof ValidationError) {
-            errorFields = handleValidationErrorForGenerate(
-              args as HandleErrorForGenerateArgs<ValidationError>
+            // Calculate exponential backoff delay
+            const baseDelay = 1000; // 1 second
+            const maxDelay = 60000; // 60 seconds
+            const delay = Math.min(
+              maxDelay,
+              baseDelay * Math.pow(2, infraRetryCount)
             );
-            err = e;
-          } else if (e instanceof AxAssertionError) {
-            errorFields = handleAssertionErrorForGenerate(
-              args as HandleErrorForGenerateArgs<AxAssertionError>
-            );
-            err = e;
-          } else if (e instanceof AxAIRefusalError) {
-            handleRefusalErrorForGenerate(
-              args as HandleErrorForGenerateArgs<AxAIRefusalError>
-            );
-          } else if (e instanceof AxAIServiceStreamTerminatedError) {
-            // Do nothing allow error correction to happen
-          } else {
-            throw enhanceError(e, ai, this.signature);
-          }
 
-          if (errorFields) {
-            mem.addTag('error', options.sessionId);
-            mem.addRequest(
-              [
-                {
-                  role: 'user' as const,
-                  content: this.promptTemplate.renderExtraFields(errorFields),
-                },
-              ],
-              options.sessionId
-            );
-            mem.addTag('correction', options.sessionId);
-
-            // When using structured outputs (JSON mode), we need to reset the state content
-            // to avoid concatenating JSON objects from previous retry attempts
-            const hasComplexFields = this.signature.hasComplexFields();
-            if (hasComplexFields) {
-              for (const state of states) {
-                state.content = '';
-                state.values = {};
-                state.xstate = {
-                  extractedFields: [],
-                  streamedIndex: {},
-                  s: -1,
-                };
-              }
+            if (debug && logger) {
+              logger({
+                name: 'Notification',
+                id: 'infrastructure-retry',
+                value: `Infrastructure error (attempt ${infraRetryCount + 1}/${infraMaxRetries + 1}): ${error.message}. Retrying in ${delay}ms...`,
+              });
             }
+
+            span?.addEvent('infrastructure.retry', {
+              attempt: infraRetryCount + 1,
+              maxRetries: infraMaxRetries,
+              delay,
+              errorType:
+                error instanceof AxAIServiceStatusError
+                  ? 'status_error'
+                  : error instanceof AxAIServiceNetworkError
+                    ? 'network_error'
+                    : error instanceof AxAIServiceTimeoutError
+                      ? 'timeout_error'
+                      : 'stream_terminated',
+              errorMessage: error.message,
+            });
+
+            // Wait before retrying
+            await new Promise((resolve) => setTimeout(resolve, delay));
+            continue; // Retry infrastructure call
           }
+
+          // Not a retryable infrastructure error, or max retries exhausted
+          throw e;
         }
       }
-
-      // Record max retries reached
-      const metricsInstruments = this.getMetricsInstruments();
-      if (metricsInstruments) {
-        recordErrorCorrectionMetric(
-          metricsInstruments,
-          maxRetries,
-          false, // failed
-          maxRetries,
-          this.getSignatureName()
-        );
-      }
-
-      throw enhanceError(
-        new Error(
-          `Unable to fix validation error: ${
-            (err ?? lastError)?.message ??
-            (err ?? lastError)?.toString() ??
-            'unknown error'
-          }\n\nLLM Output:\n${states.map((s) => s.content).join('\n---\n')}`
-        ),
-        ai,
-        this.signature
-      );
     }
 
     // Record max steps reached
