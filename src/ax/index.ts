@@ -685,6 +685,7 @@ import {
   type AxAPIConfig,
   AxContentProcessingError,
   AxMediaNotSupportedError,
+  AxTokenLimitError,
 } from './util/apicall.js';
 import {
   AxRateLimiterTokenUsage,
@@ -800,6 +801,7 @@ export { AxSpanKindValues };
 export { AxStopFunctionCallException };
 export { AxStringUtil };
 export { AxTestPrompt };
+export { AxTokenLimitError };
 export { agent };
 export { ai };
 export { ax };

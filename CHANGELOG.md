@@ -1,5 +1,12 @@
 # Changelog
 
+## [15.0.21](///compare/15.0.19...15.0.20) (2025-12-13)
+
+### Features
+
+* Introduce `AxTokenLimitError` for specific token limit detection in AI API calls and add configuration for retrying on such errors. 69539df
+## [15.0.20](///compare/15.0.19...15.0.20) (2025-12-13)
+
 ## [15.0.20](///compare/15.0.18...15.0.19) (2025-12-13)
 
 ### Features
