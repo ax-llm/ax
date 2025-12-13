@@ -1,5 +1,17 @@
 # Changelog
 
+## [15.0.19](///compare/15.0.17...15.0.18) (2025-12-13)
+
+### Features
+
+* Implement infrastructure-level retry for service network, status, and timeout errors, adjusting default retry and step limits. 807ad4f
+## [15.0.18](///compare/15.0.17...15.0.18) (2025-12-12)
+
+### Features
+
+* Improve streaming error handling by distinguishing validation from parsing errors, optimize signature complex field detection, and add API request debug logging. 117e7d2
+* Improve streaming retry logic by resetting state and committed values, and clarify complex field detection for output signatures. 0bf9d87
+
 ## [15.0.18](///compare/15.0.16...15.0.17) (2025-12-12)
 
 ### Features
