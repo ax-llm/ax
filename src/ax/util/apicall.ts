@@ -592,18 +592,6 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
     try {
       // Set up timeout with proper cleanup
 
-      const res = await (api.fetch ?? fetch)(apiUrl, {
-        method: api.put ? 'PUT' : 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Request-ID': requestId,
-          'X-Retry-Count': attempt.toString(),
-          ...api.headers,
-        },
-        body: JSON.stringify(json),
-        signal: combinedAbortController.signal,
-      });
-
       if (verbose) {
         console.log(
           '\n--- [AxAI API Request] ---\n',
@@ -625,6 +613,18 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
           '\n------------------------\n'
         );
       }
+
+      const res = await (api.fetch ?? fetch)(apiUrl, {
+        method: api.put ? 'PUT' : 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Request-ID': requestId,
+          'X-Retry-Count': attempt.toString(),
+          ...api.headers,
+        },
+        body: JSON.stringify(json),
+        signal: combinedAbortController.signal,
+      });
 
       if (timeoutId) {
         clearTimeout(timeoutId);

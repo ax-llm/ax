@@ -85,9 +85,6 @@ export type AxProgramForwardOptions<MODEL> = AxAIServiceOptions & {
   // Execution control
   maxRetries?: number;
   maxSteps?: number;
-  retryOnError?: {
-    maxTokens?: boolean;
-  };
   mem?: AxAIMemory;
 
   // AI service and model configuration

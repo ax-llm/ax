@@ -287,7 +287,7 @@ describe('Infrastructure Error Retry', () => {
     expect(callCount).toBe(1); // No retries for 4xx errors
   });
 
-  it('should retry on "max tokens" (400) error when retryOnError.maxTokens is true', async () => {
+  it('should NOT retry on "max tokens" (400) error (default behavior)', async () => {
     let callCount = 0;
 
     const ai = new AxMockAIService({
@@ -298,71 +298,13 @@ describe('Infrastructure Error Retry', () => {
       },
       chatResponse: async () => {
         callCount++;
-
-        if (callCount === 1) {
-          // Simulate max tokens error (AxTokenLimitError)
-          throw new AxTokenLimitError(
-            400,
-            'Context Length Exceeded',
-            'https://api.example.com/chat',
-            { test: 'request' },
-            { error: { code: 'context_length_exceeded' } }
-          );
-        }
-
-        return {
-          results: [
-            {
-              index: 0,
-              content: 'Answer: Success after max tokens retry',
-              finishReason: 'stop',
-            },
-          ],
-          modelUsage: {
-            ai: 'test-ai',
-            model: 'test-model',
-            tokens: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
-          },
-        } as AxChatResponse;
-      },
-    });
-
-    const signature = f()
-      .input('query', f.string())
-      .output('answer', f.string())
-      .build();
-
-    const gen = new AxGen(signature);
-
-    const result = await gen.forward(
-      ai,
-      { query: 'test' },
-      {
-        retryOnError: { maxTokens: true },
-      }
-    );
-
-    expect(result.answer).toBe('Success after max tokens retry');
-    expect(callCount).toBe(2);
-  });
-
-  it('should NOT retry on "max tokens" (400) error when retryOnError.maxTokens is false (default)', async () => {
-    let callCount = 0;
-
-    const ai = new AxMockAIService({
-      features: {
-        functions: false,
-        streaming: false,
-        structuredOutputs: false,
-      },
-      chatResponse: async () => {
-        callCount++;
-        throw new AxAIServiceStatusError(
+        // Simulate max tokens error (AxTokenLimitError)
+        throw new AxTokenLimitError(
           400,
-          'Context length exceeded',
-          'https://api.example.com/chat',
-          { test: 'request' },
-          { error: 'context_length_exceeded' }
+          'Context Length Exceeded',
+          'http://test',
+          {},
+          { error: { code: 'context_length_exceeded' } }
         );
       },
     });
@@ -372,13 +314,12 @@ describe('Infrastructure Error Retry', () => {
       .output('answer', f.string())
       .build();
 
-    const gen = new AxGen(signature);
+    const gen = new AxGen(signature, { ai });
 
-    await expect(gen.forward(ai, { query: 'test' })).rejects.toThrow(
-      'Context length exceeded'
-    );
+    // Should fail immediately
+    await expect(gen.forward(ai, { query: 'test' })).rejects.toThrow();
 
-    expect(callCount).toBe(1);
+    expect(callCount).toBe(1); // No retries
   });
 
   it('should handle infrastructure retry followed by validation error retry', async () => {
