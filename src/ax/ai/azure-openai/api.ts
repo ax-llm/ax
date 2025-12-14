@@ -14,6 +14,32 @@ import type {
 } from '../openai/chat_types.js';
 import { axModelInfoOpenAI } from '../openai/info.js';
 
+const normalizeAzureApiVersion = (version: string): string => {
+  const v = version.trim();
+  if (!v) return v;
+
+  // Accept both "2024-10-21" and "api-version=2024-10-21" (and similar)
+  if (v.includes('api-version=')) {
+    const start = v.indexOf('api-version=');
+    const paramStr = v.slice(start);
+    const params = new URLSearchParams(paramStr);
+    const apiVersion = params.get('api-version');
+
+    return apiVersion ?? v;
+  }
+
+  return v;
+};
+
+const azureSupportsStructuredOutputs = (apiVersion: string): boolean => {
+  // Azure structured outputs support was added in 2024-08-01-preview and later.
+  const m = apiVersion.match(/^(\d{4}-\d{2}-\d{2})/);
+
+  if (!m) return false;
+
+  return m[1] >= '2024-08-01';
+};
+
 export const axAIAzureOpenAIDefaultConfig = axAIOpenAIDefaultConfig;
 
 export const axAIAzureOpenAICreativeConfig = axAIOpenAICreativeConfig;
@@ -67,6 +93,9 @@ export class AxAIAzureOpenAI<TModelKey> extends AxAIOpenAIBase<
       ...config,
     };
 
+    const apiVersion = normalizeAzureApiVersion(version);
+    const supportsStructured = azureSupportsStructuredOutputs(apiVersion);
+
     modelInfo = [...axModelInfoOpenAI, ...(modelInfo ?? [])];
 
     const supportFor = (model: AxAIOpenAIModel) => {
@@ -82,6 +111,8 @@ export class AxAIAzureOpenAI<TModelKey> extends AxAIOpenAIBase<
         streaming: true,
         hasThinkingBudget: mi?.supported?.thinkingBudget ?? false,
         hasShowThoughts: mi?.supported?.showThoughts ?? false,
+        structuredOutputs:
+          supportsStructured && (mi?.supported?.structuredOutputs ?? false),
         functionCot: false,
         media: {
           images: {
@@ -137,7 +168,7 @@ export class AxAIAzureOpenAI<TModelKey> extends AxAIOpenAIBase<
 
     super.setAPIURL(
       new URL(
-        `/openai/deployments/${deploymentName}?api-version=${version}`,
+        `/openai/deployments/${deploymentName}?api-version=${apiVersion}`,
         host
       ).href
     );
