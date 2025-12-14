@@ -935,21 +935,10 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
                   (error as AxAIServiceStatusError).status >= 500 &&
                   (error as AxAIServiceStatusError).status < 600;
 
-                // Check for max tokens error (typically 400 or specifically flagged)
-                const isMaxTokensError =
-                  error instanceof AxAIServiceStatusError &&
-                  (error as AxAIServiceStatusError).status === 400 &&
-                  options.retryOnError?.maxTokens === true;
-
                 const isNetworkError = error instanceof AxAIServiceNetworkError;
                 const isTimeoutError = error instanceof AxAIServiceTimeoutError;
 
-                if (
-                  isInfraError ||
-                  isNetworkError ||
-                  isTimeoutError ||
-                  isMaxTokensError
-                ) {
+                if (isInfraError || isNetworkError || isTimeoutError) {
                   // Let infrastructure errors bubble up to outer catch
                   throw e;
                 }
