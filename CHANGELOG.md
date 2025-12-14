@@ -1,5 +1,16 @@
 # Changelog
 
+## [15.0.22](///compare/15.0.20...15.0.21) (2025-12-14)
+
+### Features
+
+* **azure-openai:** add structured outputs support ([#473](undefined/undefined/undefined/issues/473)) a246518
+## [15.0.21](///compare/15.0.20...15.0.21) (2025-12-13)
+
+### Features
+
+* Introduce `AxTokenLimitError` for specific token limit detection in AI API calls and add configuration for retrying on such errors. 69539df
+
 ## [15.0.21](///compare/15.0.19...15.0.20) (2025-12-13)
 
 ### Features
