@@ -287,8 +287,8 @@ export class AxBaseAI<
 
   setOptions(options: Readonly<AxAIServiceOptions>): void {
     this.#debug = options.debug ?? axGlobals.debug ?? false;
-    // For backward compatibility: debug: true also enables verbose logging
-    this.#verbose = options.verbose ?? this.#debug;
+    // verbose controls low-level HTTP logging (separate from debug)
+    this.#verbose = options.verbose ?? false;
     this.rt = options.rateLimiter;
     this.fetch = options.fetch;
     this.timeout = options.timeout;

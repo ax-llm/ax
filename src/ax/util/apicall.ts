@@ -507,8 +507,8 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
   const retryConfig: RetryConfig = { ...defaultRetryConfig, ...api.retry };
   const timeoutMs = api.timeout;
   const metrics = createRequestMetrics();
-  // Backward compatibility: debug flag is deprecated, use verbose instead
-  const verbose = api.verbose ?? api.debug ?? false;
+  // Only verbose flag controls HTTP request/response logging
+  const verbose = api.verbose ?? false;
   let timeoutId: NodeJS.Timeout | undefined;
 
   const baseUrl = new URL(api.url);
