@@ -1,5 +1,16 @@
 # Changelog
 
+## [15.0.26](///compare/15.0.24...15.0.25) (2025-12-16)
+
+### Features
+
+* replace `AxLearnAgent` and `AxTuner` with `AxLearn` and update GEPA optimizer to include instruction in Pareto results. dc2742b
+## [15.0.25](///compare/15.0.24...15.0.25) (2025-12-16)
+
+### Features
+
+* use strongly typed model enums in documentation examples 5201e9c
+
 ## [15.0.25](///compare/15.0.23...15.0.24) (2025-12-16)
 
 ### Features
