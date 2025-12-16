@@ -66,7 +66,7 @@ Both return a Pareto frontier of solutions and use the same unified `optimizedPr
 > **📖 Full Example**: For a comprehensive multi-objective optimization demonstration, see `src/examples/gepa-quality-vs-speed-optimization.ts` which shows GEPA optimizing code review quality vs speed trade-offs with detailed Pareto frontier analysis.
 
 ```typescript
-import { ai, ax, AxGEPA, AxOptimizedProgramImpl } from "@ax-llm/ax";
+import { ai, ax, AxGEPA, AxOptimizedProgramImpl, AxAIOpenAIModel } from "@ax-llm/ax";
 
 // Two-objective demo: accuracy (classification) + brevity (short rationale)
 const moderator = ax(`
@@ -96,7 +96,7 @@ const multiMetric = ({ prediction, example }: any) => {
   return { accuracy, brevity } as Record<string, number>;
 };
 
-const student = ai({ name: 'openai', apiKey: process.env.OPENAI_APIKEY!, config: { model: 'gpt-4o-mini' } });
+const student = ai({ name: 'openai', apiKey: process.env.OPENAI_APIKEY!, config: { model: AxAIOpenAIModel.GPT4OMini } });
 const optimizer = new AxGEPA({ studentAI: student, numTrials: 16, minibatch: true, minibatchSize: 6, seed: 42, verbose: true });
 
 console.log("🔄 Finding Pareto trade-offs...");
@@ -191,7 +191,7 @@ const pipeline = flow<{ emailText: string }>()
   .e('rationale', (s) => ({ emailText: s.emailText, priority: s.classifierResult.priority }))
   .m((s) => ({ priority: s.classifierResult.priority, rationale: s.rationaleResult.rationale }));
 
-const optimizer = new AxGEPAFlow({ studentAI: ai({ name: 'openai', apiKey: process.env.OPENAI_APIKEY!, config: { model: 'gpt-4o-mini' } }), numTrials: 16 });
+const optimizer = new AxGEPAFlow({ studentAI: ai({ name: 'openai', apiKey: process.env.OPENAI_APIKEY!, config: { model: AxAIOpenAIModel.GPT4OMini } }), numTrials: 16 });
 const result = await optimizer.compile(pipeline as any, train, multiMetric as any, { validationExamples: val, maxMetricCalls: 240 });
 console.log(`Front size: ${result.paretoFrontSize}, Hypervolume: ${result.hypervolume}`);
 ```

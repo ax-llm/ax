@@ -21,13 +21,13 @@ Set your API keys as environment variables:
 Use the `ai()` factory with a provider name and your API key.
 
 ```ts
-import { ai } from "@ax-llm/ax";
+import { ai, AxAIGoogleGeminiModel } from "@ax-llm/ax";
 
 const llm = ai({
   name: "google-gemini",
   apiKey: process.env.GOOGLE_APIKEY!,
   config: {
-    model: "gemini-2.0-flash",
+    model: AxAIGoogleGeminiModel.Gemini20Flash,
   },
 });
 ```
@@ -43,7 +43,7 @@ can include provider-specific settings. When you use a key in `model`, Ax maps
 it to the right backend model and merges the preset config.
 
 ```ts
-import { ai } from "@ax-llm/ax";
+import { ai, AxAIGoogleGeminiModel } from "@ax-llm/ax";
 
 const gemini = ai({
   name: "google-gemini",
@@ -52,14 +52,14 @@ const gemini = ai({
   models: [
     {
       key: "tiny",
-      model: "gemini-2.0-flash-lite",
+      model: AxAIGoogleGeminiModel.Gemini20FlashLite,
       description: "Fast + cheap",
       // Provider config merged automatically
       config: { maxTokens: 1024, temperature: 0.3 },
     },
     {
       key: "simple",
-      model: "gemini-2.0-flash",
+      model: AxAIGoogleGeminiModel.Gemini20Flash,
       description: "Balanced general-purpose",
       config: { temperature: 0.6 },
     },

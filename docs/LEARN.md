@@ -5,14 +5,14 @@ AxLearn provides a zero-configuration optimization loop that enables your Ax age
 ## Quick Start
 
 ```typescript
-import { ax, ai, AxTuner, AxMemoryStorage } from '@ax-llm/ax';
+import { ax, ai, AxTuner, AxMemoryStorage, AxAIOpenAIModel } from '@ax-llm/ax';
 
 // 1. Create your generator
 const gen = ax(`customer_query -> polite_response`);
 
 // 2. Create a tuner with a teacher model
 const tuner = new AxTuner({
-  teacher: ai('openai', { model: 'gpt-4o' }),
+  teacher: ai('openai', { model: AxAIOpenAIModel.GPT4O }),
 });
 
 // 3. Tune your generator
@@ -91,7 +91,7 @@ import { AxSynth, ax, ai } from '@ax-llm/ax';
 const signature = ax(`customer_query -> polite_response`).getSignature();
 
 const synth = new AxSynth(signature, {
-  teacher: ai('openai', { model: 'gpt-4o' }),
+  teacher: ai('openai', { model: AxAIOpenAIModel.GPT4O }),
   domain: 'customer support',
   edgeCases: ['angry customers', 'vague requests'],
 });

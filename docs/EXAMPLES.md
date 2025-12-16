@@ -398,7 +398,7 @@ console.log(result.answer);
 Execute multiple tools in parallel for complex queries.
 
 ```typescript
-import { ax, ai, type AxFunction } from '@ax-llm/ax';
+import { ax, ai, type AxFunction, AxAIGoogleGeminiModel } from '@ax-llm/ax';
 
 const functions: AxFunction[] = [
   {
@@ -433,7 +433,7 @@ const agent = ax(
 );
 
 const result = await agent.forward(
-  ai({ name: 'google-gemini', config: { model: 'gemini-1.5-pro-latest' } }),
+  ai({ name: 'google-gemini', config: { model: AxAIGoogleGeminiModel.Gemini15Pro } }),
   { query: "Compare the weather and time in Tokyo, New York, and London." }
 );
 
@@ -505,7 +505,7 @@ const result = await analyzer.forward(
 Process images and text together seamlessly.
 
 ```typescript
-import { ax, ai, image } from '@ax-llm/ax';
+import { ax, ai, image, AxAIOpenAIModel } from '@ax-llm/ax';
 
 const analyzer = ax(`
   image:image "Product photo",
@@ -517,7 +517,7 @@ const analyzer = ax(`
 `);
 
 const result = await analyzer.forward(
-  ai({ name: 'openai', config: { model: 'gpt-4o' } }),
+  ai({ name: 'openai', config: { model: AxAIOpenAIModel.GPT4O } }),
   {
     image: image('./product.jpg'),
     question: 'What product is this and what can you tell me about it?'
@@ -530,7 +530,7 @@ const result = await analyzer.forward(
 Process complex documents with automatic reasoning steps.
 
 ```typescript
-import { ax, ai } from '@ax-llm/ax';
+import { ax, ai, AxAIAnthropicModel } from '@ax-llm/ax';
 
 const processor = ax(`
   document:string "Full document text",
@@ -545,7 +545,7 @@ const processor = ax(`
 `);
 
 const result = await processor.forward(
-  ai({ name: 'anthropic', config: { model: 'claude-3-5-sonnet' } }),
+  ai({ name: 'anthropic', config: { model: AxAIAnthropicModel.Claude35Sonnet } }),
   {
     document: businessPlan,
     instructions: "Analyze this business plan for investment potential"

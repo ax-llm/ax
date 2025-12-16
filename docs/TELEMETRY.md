@@ -42,7 +42,7 @@ guessing what's happening, you get:
 ### Step 1: Basic Setup with Console Export
 
 ```typescript
-import { ax, AxAI, f } from "@ax-llm/ax";
+import { ax, AxAI, f, AxAIOpenAIModel } from "@ax-llm/ax";
 import { metrics, trace } from "@opentelemetry/api";
 import {
   BasicTracerProvider,
@@ -85,7 +85,7 @@ const meter = metrics.getMeter("my-ai-app");
 const ai = new AxAI({
   name: "openai",
   apiKey: process.env.OPENAI_APIKEY!,
-  config: { model: "gpt-4o-mini" },
+  config: { model: AxAIOpenAIModel.GPT4OMini },
   options: {
     tracer,
     meter,

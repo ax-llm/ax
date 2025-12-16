@@ -196,7 +196,7 @@ Validation runs automatically:
 const llm = ai({ 
   name: "openai", 
   apiKey: process.env.OPENAI_APIKEY!,
-  config: { model: "gpt-4o" }  // Optional: specify model
+  config: { model: AxAIOpenAIModel.GPT4O }  // Optional: specify model
 });
 ```
 
@@ -205,7 +205,7 @@ const llm = ai({
 const llm = ai({ 
   name: "anthropic", 
   apiKey: process.env.ANTHROPIC_APIKEY!,
-  config: { model: "claude-3-5-sonnet-20241022" }
+  config: { model: AxAIAnthropicModel.Claude35Sonnet }
 });
 ```
 
@@ -214,7 +214,7 @@ const llm = ai({
 const llm = ai({ 
   name: "google-gemini", 
   apiKey: process.env.GOOGLE_APIKEY!,
-  config: { model: "gemini-1.5-pro" }
+  config: { model: AxAIGoogleGeminiModel.Gemini15Pro }
 });
 ```
 

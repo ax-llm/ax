@@ -52,18 +52,18 @@ The playbook is represented as structured bullets organized into sections, allow
 ### Step 1: Define Your Program
 
 ```typescript
-import { ax, AxAI, AxACE, type AxMetricFn, f } from "@ax-llm/ax";
+import { ax, AxAI, AxACE, type AxMetricFn, f, AxAIOpenAIModel } from "@ax-llm/ax";
 
 const student = new AxAI({
   name: "openai",
   apiKey: process.env.OPENAI_APIKEY!,
-  config: { model: "gpt-4o-mini" },
+  config: { model: AxAIOpenAIModel.GPT4OMini },
 });
 
 const teacher = new AxAI({
   name: "openai",
   apiKey: process.env.OPENAI_APIKEY!,
-  config: { model: "gpt-4o" },
+  config: { model: AxAIOpenAIModel.GPT4O },
 });
 
 const classifier = ax(
@@ -251,20 +251,20 @@ Until helper setters land, reaching the underlying programs through the internal
 > **📖 Full Example**: `src/examples/ace-train-inference.ts` demonstrates offline training plus an online adaptation pass.
 
 ```typescript
-import { ax, AxAI, AxACE, type AxMetricFn, f } from "@ax-llm/ax";
+import { ax, AxAI, AxACE, type AxMetricFn, f, AxAIOpenAIModel } from "@ax-llm/ax";
 import fs from "node:fs/promises";
 
 async function run() {
   const student = new AxAI({
     name: "openai",
     apiKey: process.env.OPENAI_APIKEY!,
-    config: { model: "gpt-4o-mini" },
+    config: { model: AxAIOpenAIModel.GPT4OMini },
   });
 
   const teacher = new AxAI({
     name: "openai",
     apiKey: process.env.OPENAI_APIKEY!,
-    config: { model: "gpt-4o" },
+    config: { model: AxAIOpenAIModel.GPT4O },
   });
 
   const signatureSource = f()

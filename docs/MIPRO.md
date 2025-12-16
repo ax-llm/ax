@@ -49,7 +49,7 @@ Think of MiPRO like having a writing tutor for your AI. Instead of manually twea
 ### Step 1: Create Your Program
 
 ```typescript
-import { ai, ax, AxMiPRO } from "@ax-llm/ax";
+import { ai, ax, AxMiPRO, AxAIOpenAIModel } from "@ax-llm/ax";
 
 // Define what you want the AI to do
 const sentimentAnalyzer = ax(
@@ -60,7 +60,7 @@ const sentimentAnalyzer = ax(
 const llm = ai({
   name: "openai",
   apiKey: process.env.OPENAI_APIKEY!,
-  config: { model: "gpt-4o-mini" },
+  config: { model: AxAIOpenAIModel.GPT4OMini },
 });
 ```
 
@@ -152,11 +152,11 @@ uv run ax-optimizer server start --debug
 ### Using MiPRO with Python Service
 
 ```typescript
-import { ai, ax, type AxMetricFn, AxMiPRO } from "@ax-llm/ax";
+import { ai, ax, type AxMetricFn, AxMiPRO, AxAIOpenAIModel } from "@ax-llm/ax";
 
 const optimizer = new AxMiPRO({
-  studentAI: ai({ name: "openai", config: { model: "gpt-4o-mini" } }),
-  teacherAI: ai({ name: "openai", config: { model: "gpt-4" } }),
+  studentAI: ai({ name: "openai", config: { model: AxAIOpenAIModel.GPT4OMini } }),
+  teacherAI: ai({ name: "openai", config: { model: AxAIOpenAIModel.GPT4 } }),
   examples,
 
   // Python service configuration
@@ -242,13 +242,13 @@ Use an expensive model as a "teacher" to make a cheap model perform better.
 // Teacher: Smart but expensive (only used during optimization)
 const teacherAI = ai({
   name: "openai",
-  config: { model: "gpt-4o" },
+  config: { model: AxAIOpenAIModel.GPT4O },
 });
 
 // Student: Fast and cheap (used for actual work)
 const studentAI = ai({
   name: "openai",
-  config: { model: "gpt-4o-mini" },
+  config: { model: AxAIOpenAIModel.GPT4OMini },
 });
 
 const optimizer = new AxMiPRO({
