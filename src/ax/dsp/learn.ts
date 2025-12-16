@@ -104,7 +104,7 @@ export interface AxLearnProgress {
 /**
  * Result from an optimize operation.
  */
-export interface AxLearnResult<_IN extends AxGenIn, _OUTT extends AxGenOut> {
+export interface AxLearnResult<_IN extends AxGenIn, _OUT extends AxGenOut> {
   /** Final score achieved */
   score: number;
 
