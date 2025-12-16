@@ -10,9 +10,7 @@ describe('AxMemoryStorage', () => {
   });
 
   describe('Trace Operations', () => {
-    const createTrace = (
-      overrides: Partial<AxTrace> = {}
-    ): AxTrace => ({
+    const createTrace = (overrides: Partial<AxTrace> = {}): AxTrace => ({
       id: `trace-${Date.now()}-${Math.random()}`,
       agentId: 'test-agent',
       input: { query: 'test input' },

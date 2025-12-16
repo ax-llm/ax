@@ -312,14 +312,12 @@ describe('AxBaseAI', () => {
 
   it('should propagate retry options to apiCall', async () => {
     const ai = createTestAI();
-    const mockFetch = vi
-      .fn()
-      .mockResolvedValue(
-        new Response('Error', {
-          status: 500,
-          statusText: 'Internal Server Error',
-        })
-      );
+    const mockFetch = vi.fn().mockResolvedValue(
+      new Response('Error', {
+        status: 500,
+        statusText: 'Internal Server Error',
+      })
+    );
 
     ai.setOptions({
       fetch: mockFetch,

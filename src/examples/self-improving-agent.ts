@@ -21,8 +21,8 @@ import {
 } from '@ax-llm/ax';
 
 // Create the AI service
-const llm = ai('openai', { model: 'gpt-4o-mini' });
-const teacherLlm = ai('openai', { model: 'gpt-4o' });
+const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! });
+const teacherLlm = ai({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! });
 
 // ============================================
 // Example 1: Using AxTraceLogger for production logging
