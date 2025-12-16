@@ -97,6 +97,20 @@ const filesToCopy = [
     title: 'ACE Guide',
     description: 'Advanced ACE framework capabilities',
   },
+  {
+    source: 'AXGEN.md',
+    sourceDir: docsDir,
+    dest: 'axgen.md',
+    title: 'AxGen Guide',
+    description: 'The programmable unit of Ax for building AI workflows',
+  },
+  {
+    source: 'LEARN.md',
+    sourceDir: docsDir,
+    dest: 'learn.md',
+    title: 'AxLearn: Self-Improving Agents',
+    description: 'Zero-configuration optimization loop for Ax agents',
+  },
 ];
 
 // Ensure directories exist

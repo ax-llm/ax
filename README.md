@@ -1,67 +1,54 @@
 # Ax: Build Reliable AI Apps in TypeScript
 
-**Stop wrestling with prompts. Start shipping AI features.**
+Stop wrestling with prompts. Start shipping AI features.
 
-Ax brings DSPy's revolutionary approach to TypeScript – just describe what you
-want, and let the framework handle the rest. Production-ready, type-safe, and
-works with all major LLMs.
+Ax brings DSPy's approach to TypeScript – describe what you want, and let the framework handle the rest. Production-ready, type-safe, works with all major LLMs.
 
 [![NPM Package](https://img.shields.io/npm/v/@ax-llm/ax?style=for-the-badge&color=green)](https://www.npmjs.com/package/@ax-llm/ax)
 [![Twitter](https://img.shields.io/twitter/follow/dosco?style=for-the-badge&color=red)](https://twitter.com/dosco)
 [![Discord Chat](https://img.shields.io/discord/1078454354849304667?style=for-the-badge&color=green)](https://discord.gg/DSHg3dU7dW)
 
-## Transform Your AI Development in 30 Seconds
+## The Problem
+
+Building with LLMs is painful. You write prompts, test them, they break. You switch providers, everything needs rewriting. You add validation, error handling, retries – suddenly you're maintaining infrastructure instead of shipping features.
+
+## The Solution
+
+Define what goes in and what comes out. Ax handles the rest.
 
 ```typescript
 import { ai, ax } from "@ax-llm/ax";
 
-// 1. Pick any LLM
-const llm = ai({ name: "openai", apiKey: process.env.OPENAI_APIKEY! });
+const llm = ai({ name: "openai", apiKey: process.env.OPENAI_APIKEY });
 
-// 2. Say what you want
 const classifier = ax(
   'review:string -> sentiment:class "positive, negative, neutral"',
 );
 
-// 3. Get type-safe results
 const result = await classifier.forward(llm, {
   review: "This product is amazing!",
 });
-console.log(result.sentiment); // "positive" ✨
+
+console.log(result.sentiment); // "positive"
 ```
 
-**That's it.** No prompt engineering. No trial and error. It works with GPT-4,
-Claude, Gemini, or any LLM.
+No prompt engineering. No trial and error. Works with GPT-4, Claude, Gemini, or any LLM.
 
-## Why Thousands of Developers Choose Ax
+## Why Ax
 
-### 🎯 **Define Once, Run Anywhere**
+**Write once, run anywhere.** Switch between OpenAI, Anthropic, Google, or 15+ providers with one line. No rewrites.
 
-Write your logic once. Switch between OpenAI, Anthropic, Google, or 15+
-providers with one line. No rewrites needed.
+**Ship faster.** Stop tweaking prompts. Define inputs and outputs. The framework generates optimal prompts automatically.
 
-### ⚡ **Ship 10x Faster**
+**Production-ready.** Built-in streaming, validation, error handling, observability. Used in production handling millions of requests.
 
-Stop tweaking prompts. Define inputs → outputs. The framework generates optimal
-prompts automatically.
+**Gets smarter.** Train your programs with examples. Watch accuracy improve automatically. No ML expertise needed.
 
-### 🛡️ **Production-Ready from Day One**
+## Examples
 
-Built-in streaming, validation, error handling, observability. Used by startups
-in production handling millions of requests.
-
-### 🚀 **Gets Smarter Over Time**
-
-Train your programs with examples. Watch accuracy improve automatically. No ML
-expertise needed.
-
-## Real Apps, Real Simple
-
-### Extract Structured Data from Customer Emails
+### Extract structured data
 
 ```typescript
-const llm = ai({ name: "openai", apiKey: process.env.OPENAI_APIKEY! });
-
 const extractor = ax(`
   customerEmail:string, currentDate:datetime -> 
   priority:class "high, normal, low",
@@ -75,12 +62,9 @@ const result = await extractor.forward(llm, {
   customerEmail: "Order #12345 hasn't arrived. Need this resolved immediately!",
   currentDate: new Date(),
 });
-// Automatically extracts all fields with proper types and validation
 ```
 
-### Complex Structured Outputs (New!)
-
-Define deeply nested objects with full type safety using the fluent API:
+### Complex nested objects
 
 ```typescript
 import { f, ax } from "@ax-llm/ax";
@@ -107,68 +91,34 @@ const productExtractor = f()
 const generator = ax(productExtractor);
 const result = await generator.forward(llm, { productPage: "..." });
 
-// Full TypeScript inference for nested fields
-console.log(result.product.specs.dimensions.width); // number
-console.log(result.product.reviews[0].comment);     // string
+// Full TypeScript inference
+console.log(result.product.specs.dimensions.width);
+console.log(result.product.reviews[0].comment);
 ```
 
-### Validation & Constraints (New!)
-
-Add Zod-like validation constraints to ensure data quality and format:
+### Validation and constraints
 
 ```typescript
-import { f, ax } from "@ax-llm/ax";
-
 const userRegistration = f()
   .input("userData", f.string())
   .output("user", f.object({
     username: f.string().min(3).max(20),
     email: f.string().email(),
     age: f.number().min(18).max(120),
-    password: f.string().min(8).regex("^(?=.*[A-Za-z])(?=.*\\d)", "Must contain at least one letter and one digit"),
+    password: f.string().min(8).regex("^(?=.*[A-Za-z])(?=.*\\d)", "Must contain letter and digit"),
     bio: f.string().max(500).optional(),
     website: f.string().url().optional(),
-    tags: f.string().min(2).max(30).array()
   }))
   .build();
-
-const generator = ax(userRegistration);
-const result = await generator.forward(llm, {
-  userData: "Name: John, Email: john@example.com, Age: 25..."
-});
-
-// All fields are automatically validated:
-// - username: 3-20 characters
-// - email: valid email format
-// - age: between 18-120
-// - password: min 8 chars with letter and number
-// - website: valid URL format if provided
-// - tags: each 2-30 characters
 ```
 
-**Available Constraints:**
-- `.min(n)` / `.max(n)` - String length or number range
-- `.email()` - Email format validation (or use `f.email()`)
-- `.url()` - URL format validation (or use `f.url()`)
-- `.date()` - Date format validation (or use `f.date()`)
-- `.datetime()` - Datetime format validation (or use `f.datetime()`)
-- `.regex(pattern, description)` - Custom regex pattern with human-readable description
-- `.optional()` - Make field optional
+Available constraints: `.min(n)`, `.max(n)`, `.email()`, `.url()`, `.date()`, `.datetime()`, `.regex(pattern, description)`, `.optional()`
 
-**Note:** For email, url, date, and datetime, you can use either the validator syntax (`f.string().email()`) or the dedicated type syntax (`f.email()`). Both work consistently in all contexts!
+Validation runs on both input and output. Automatic retry with corrections on validation errors.
 
-**Automatic Features:**
-- ✅ Input validation before sending to LLM
-- ✅ Output validation after LLM response
-- ✅ JSON Schema constraints in structured outputs
-- ✅ Automatic retry with corrections on validation errors
-- ✅ TypeScript compile-time protection
-
-### Build Agents That Use Tools (ReAct Pattern)
+### Agents with tools (ReAct pattern)
 
 ```typescript
-const llm = ai({ name: "openai", apiKey: process.env.OPENAI_APIKEY! });
-
 const assistant = ax(
   "question:string -> answer:string",
   {
@@ -182,10 +132,9 @@ const assistant = ax(
 const result = await assistant.forward(llm, {
   question: "What's the weather in Tokyo and any news about it?",
 });
-// AI automatically calls both functions and combines results
 ```
 
-### Multi-Modal Analysis with Images
+### Multi-modal (images, audio)
 
 ```typescript
 const analyzer = ax(`
@@ -195,21 +144,18 @@ const analyzer = ax(`
   category:class "electronics, clothing, food, other",
   estimatedPrice:string
 `);
-// Process images and text together seamlessly
 ```
 
-## Quick Start
-
-### Install
+## Install
 
 ```bash
 npm install @ax-llm/ax
 ```
 
-#### Additional Packages
+Additional packages:
 
 ```bash
-# AWS Bedrock provider (Claude, GPT, Titan on AWS)
+# AWS Bedrock provider
 npm install @ax-llm/ax-ai-aws-bedrock
 
 # Vercel AI SDK v5 integration
@@ -219,154 +165,71 @@ npm install @ax-llm/ax-ai-sdk-provider
 npm install @ax-llm/ax-tools
 ```
 
-### Your First AI Feature (2 minutes)
+## Features
 
-```typescript
-import { ai, ax } from "@ax-llm/ax";
+- **15+ LLM Providers** – OpenAI, Anthropic, Google, Mistral, Ollama, and more
+- **Type-safe** – Full TypeScript support with auto-completion
+- **Streaming** – Real-time responses with validation
+- **Multi-modal** – Images, audio, text in the same signature
+- **Optimization** – Automatic prompt tuning with MiPRO, ACE, GEPA
+- **Observability** – OpenTelemetry tracing built-in
+- **Workflows** – Compose complex pipelines with AxFlow
+- **RAG** – Multi-hop retrieval with quality loops
+- **Agents** – Tools and multi-agent collaboration
+- **Zero dependencies** – Lightweight, fast, reliable
 
-const llm = ai({ name: "openai", apiKey: process.env.OPENAI_APIKEY! });
+## Documentation
 
-const translator = ax(`
-  text:string, 
-  language:string -> 
-  translation:string
-`);
+**Get Started**
+- [Quick Start Guide](https://github.com/ax-llm/ax/blob/main/docs/QUICKSTART.md) – Set up in 5 minutes
+- [Examples Guide](https://github.com/ax-llm/ax/blob/main/docs/EXAMPLES.md) – Comprehensive examples
+- [DSPy Concepts](https://github.com/ax-llm/ax/blob/main/docs/DSPY.md) – Understanding the approach
+- [Signatures Guide](https://github.com/ax-llm/ax/blob/main/docs/SIGNATURES.md) – Type-safe signature design
 
-const result = await translator.forward(llm, {
-  text: "Hello world",
-  language: "Spanish",
-});
-console.log(result.translation); // "Hola mundo"
-```
+**Deep Dives**
+- [AI Providers](https://github.com/ax-llm/ax/blob/main/docs/AI.md) – All providers, AWS Bedrock, Vercel AI SDK
+- [AxFlow Workflows](https://github.com/ax-llm/ax/blob/main/docs/AXFLOW.md) – Build complex AI systems
+- [Optimization (MiPRO, ACE, GEPA)](https://github.com/ax-llm/ax/blob/main/docs/OPTIMIZE.md) – Make programs smarter
+- [Advanced RAG](https://github.com/ax-llm/ax/blob/main/docs/AXRAG.md) – Production search and retrieval
 
-### Fluent Signature API
-
-```typescript
-import { ai, ax, f } from "@ax-llm/ax";
-
-const llm = ai({ name: "openai", apiKey: process.env.OPENAI_APIKEY! });
-
-const signature = f()
-  .input("userQuestion", f.string("User question"))
-  .output("responseText", f.string("AI response"))
-  .output("confidenceScore", f.number("Confidence 0-1"))
-  .build();
-
-const generator = ax(signature.toString());
-const result = await generator.forward(llm, { userQuestion: "What is Ax?" });
-console.log(result.responseText, result.confidenceScore);
-```
-
-## Powerful Features, Zero Complexity
-
-- ✅ **15+ LLM Providers** - OpenAI, Anthropic, Google, Mistral, Ollama, and
-  more
-- ✅ **Type-Safe Everything** - Full TypeScript support with auto-completion
-- ✅ **Streaming First** - Real-time responses with validation
-- ✅ **Multi-Modal** - Images, audio, text in the same signature
-- ✅ **Smart Optimization** - Automatic prompt tuning with MiPRO
-- ✅ **Agentic Context Engineering** - ACE generator → reflector → curator loops
-- ✅ **Multi-Objective Optimization** - GEPA and GEPA-Flow (Pareto frontier)
-- ✅ **Production Observability** - OpenTelemetry tracing built-in
-- ✅ **Advanced Workflows** - Compose complex pipelines with AxFlow
-- ✅ **Enterprise RAG** - Multi-hop retrieval with quality loops
-- ✅ **Agent Framework** - Agents that can use tools and call other agents
-- ✅ **Zero Dependencies** - Lightweight, fast, reliable
-
-## Learn More
-
-### 🚀 Quick Wins
-
-- [**Getting Started Guide**](https://github.com/ax-llm/ax/blob/main/docs/QUICKSTART.md) -
-  Set up in 5 minutes
-- [**Examples Guide**](https://github.com/ax-llm/ax/blob/main/docs/EXAMPLES.md) -
-  Comprehensive examples with explanations
-- [**DSPy Concepts**](https://github.com/ax-llm/ax/blob/main/docs/DSPY.md) -
-  Understand the revolutionary approach
-- [**Signatures Guide**](https://github.com/ax-llm/ax/blob/main/docs/SIGNATURES.md) -
-  Design expressive, type-safe signatures
-
-### 📚 Deep Dives
-
-- [**AI Providers Guide**](https://github.com/ax-llm/ax/blob/main/docs/AI.md) -
-  All providers, AWS Bedrock, Vercel AI SDK, Tools
-- [**AxFlow Workflows**](https://github.com/ax-llm/ax/blob/main/docs/AXFLOW.md) -
-  Build complex AI systems
-- [**Optimization Guide (MiPRO, ACE, GEPA, GEPA-Flow)**](https://github.com/ax-llm/ax/blob/main/docs/OPTIMIZE.md) -
-  Make your programs smarter
-- [**Advanced RAG**](https://github.com/ax-llm/ax/blob/main/docs/AXRAG.md) -
-  Production search & retrieval
-- [**API Reference**](https://github.com/ax-llm/ax/blob/main/docs/API.md) -
-  Complete documentation
-
-## Examples
-
-Run any example:
+## Run Examples
 
 ```bash
 OPENAI_APIKEY=your-key npm run tsx ./src/examples/[example-name].ts
 ```
 
-### Core Examples
+Core examples: `extract.ts`, `react.ts`, `agent.ts`, `streaming1.ts`, `multi-modal.ts`
 
-- [extract.ts](src/examples/extract.ts) - Extract structured data from text
-- [react.ts](src/examples/react.ts) - ReAct pattern with function calling
-- [agent.ts](src/examples/agent.ts) - Multi-agent collaboration
-- [streaming1.ts](src/examples/streaming1.ts) - Real-time streaming responses
-- [multi-modal.ts](src/examples/multi-modal.ts) - Image + text processing
+Production patterns: `customer-support.ts`, `food-search.ts`, `ace-train-inference.ts`, `ax-flow-enhanced-demo.ts`
 
-### Production Patterns
+[View all 70+ examples](src/examples/)
 
-- [customer-support.ts](src/examples/customer-support.ts) - Complete support
-  system
-- [food-search.ts](src/examples/food-search.ts) - Restaurant recommendations
-  with tools
-- [simple-optimizer-test.ts](src/examples/simple-optimizer-test.ts) - Automatic
-  optimization
-- [mipro-python-optimizer.ts](src/examples/mipro-python-optimizer.ts) - Advanced
-  MIPRO optimization
-- [gepa-quality-vs-speed-optimization.ts](src/examples/gepa-quality-vs-speed-optimization.ts) -
-  Multi-objective GEPA optimization (quality vs speed trade-offs)
-- [ace-train-inference.ts](src/examples/ace-train-inference.ts) - ACE playbook
-  growth with offline + online updates
-- [ax-flow-enhanced-demo.ts](src/examples/ax-flow-enhanced-demo.ts) - Complex
-  workflows
+## Community
 
-[📚 **View Full Examples Guide** →](docs/EXAMPLES.md)\
-[View All 70+ Examples →](src/examples/)
-
-## Join the Community
-
-- 🐦 [Follow on Twitter](https://twitter.com/dosco) - Latest updates
-- 💬 [Discord Community](https://discord.gg/DSHg3dU7dW) - Get help, share ideas
-- ⭐ [Star on GitHub](https://github.com/ax-llm/ax) - Support the project
-- 📖 [Ask DeepWiki](https://deepwiki.com/ax-llm/ax) - AI-powered docs
+- [Twitter](https://twitter.com/dosco) – Updates
+- [Discord](https://discord.gg/DSHg3dU7dW) – Help and discussion
+- [GitHub](https://github.com/ax-llm/ax) – Star the project
+- [DeepWiki](https://deepwiki.com/ax-llm/ax) – AI-powered docs
 
 ## Production Ready
 
-- ✅ **Battle-tested** - Used by startups in production
-- ✅ **No breaking changes** - Stable minor versions
-- ✅ **Comprehensive tests** - Large test coverage
-- ✅ **OpenTelemetry** - Built-in observability
-- ✅ **TypeScript first** - Type-safe by design
+- Battle-tested in production
+- Stable minor versions
+- Comprehensive test coverage
+- OpenTelemetry built-in
+- TypeScript first
 
 ## Contributors
 
 - Author: [@dosco](https://github.com/dosco)
-- GEPA and ACE optimizer implementations:
-  [@monotykamary](https://github.com/monotykamary)
+- GEPA and ACE optimizers: [@monotykamary](https://github.com/monotykamary)
 
 ## License
 
-Apache 2 - Use it anywhere, build anything.
+Apache 2.0
 
 ---
-
-**Ready to build the future?** Stop fighting with prompts. Start shipping with
-signatures.
 
 ```bash
 npm install @ax-llm/ax
 ```
-
-_Built with ❤️ by developers, for developers._

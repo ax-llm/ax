@@ -162,6 +162,7 @@ export class AxBaseAI<
   private abortSignal?: AbortSignal;
   private logger: AxLoggerFunction = axGlobals.logger ?? defaultLogger;
   private corsProxy?: AxAIServiceOptions['corsProxy'];
+  private retry?: AxAIServiceOptions['retry'];
 
   private modelInfo: readonly AxModelInfo[];
   private modelUsage?: AxModelUsage;
@@ -298,6 +299,7 @@ export class AxBaseAI<
     this.abortSignal = options.abortSignal;
     this.logger = options.logger ?? axGlobals.logger ?? this.logger;
     this.corsProxy = options.corsProxy;
+    this.retry = options.retry;
   }
 
   getOptions(): Readonly<AxAIServiceOptions> {
@@ -313,6 +315,7 @@ export class AxBaseAI<
       abortSignal: this.abortSignal,
       logger: this.logger,
       corsProxy: this.corsProxy,
+      retry: this.retry,
     };
   }
 
@@ -1202,6 +1205,7 @@ export class AxBaseAI<
           span,
           abortSignal: options?.abortSignal ?? this.abortSignal,
           corsProxy: this.corsProxy,
+          retry: options?.retry ?? this.retry,
         },
         reqValue
       );
@@ -1542,6 +1546,7 @@ export class AxBaseAI<
           span,
           abortSignal: options?.abortSignal ?? this.abortSignal,
           corsProxy: this.corsProxy,
+          retry: options?.retry ?? this.retry,
         },
         reqValue
       );

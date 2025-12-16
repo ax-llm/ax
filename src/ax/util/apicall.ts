@@ -461,6 +461,25 @@ function calculateRetryDelay(
   return delay * (0.75 + Math.random() * 0.5);
 }
 
+function parseRetryAfter(header: string | null): number | undefined {
+  if (!header) return undefined;
+
+  // Try parsing as integer (seconds)
+  const seconds = Number(header);
+  if (!Number.isNaN(seconds)) {
+    return seconds * 1000;
+  }
+
+  // Try parsing as HTTP Date
+  const date = Date.parse(header);
+  if (!Number.isNaN(date)) {
+    const diff = date - Date.now();
+    return Math.max(0, diff);
+  }
+
+  return undefined;
+}
+
 function createRequestMetrics(): RequestMetrics {
   return {
     startTime: Date.now(),
@@ -702,7 +721,18 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
         res.status >= 400 &&
         shouldRetry(new Error(), res.status, attempt, retryConfig)
       ) {
-        const delay = calculateRetryDelay(attempt, retryConfig);
+        let delay = calculateRetryDelay(attempt, retryConfig);
+
+        const retryAfterMs = parseRetryAfter(res.headers.get('Retry-After'));
+        if (
+          retryAfterMs !== undefined &&
+          retryAfterMs <= retryConfig.maxDelayMs
+        ) {
+          delay = retryAfterMs;
+          if (verbose) {
+            console.log(`[AxAI] Respecting Retry-After header: ${delay}ms`);
+          }
+        }
         attempt++;
         updateRetryMetrics(metrics);
 

@@ -434,6 +434,11 @@ import {
   type AxApacheTikaConvertOptions,
 } from './docs/tika.js';
 import {
+  AxLearnAgent,
+  type AxLearnAgentOptions,
+  axLearnAgent,
+} from './dsp/agent.js';
+import {
   type AxAssertion,
   AxAssertionError,
   type AxStreamingAssertion,
@@ -482,6 +487,13 @@ import {
   type AxStreamingEvent,
 } from './dsp/generate.js';
 import { type AxFunctionResultFormatter, axGlobals } from './dsp/globals.js';
+import {
+  AxJudge,
+  type AxJudgeMode,
+  type AxJudgeOptions,
+  type AxJudgeResult,
+  type AxJudgeRubric,
+} from './dsp/judge.js';
 import { type AxDataRow, AxHFDataLoader } from './dsp/loader.js';
 import {
   axCreateDefaultColorLogger,
@@ -566,7 +578,20 @@ import {
   f,
 } from './dsp/sig.js';
 import { AxStringUtil } from './dsp/strutil.js';
+import {
+  AxSynth,
+  type AxSynthExample,
+  type AxSynthOptions,
+  type AxSynthResult,
+} from './dsp/synth.js';
 import { ax, s } from './dsp/template.js';
+import {
+  type AxTuneMethod,
+  type AxTuneOptions,
+  type AxTuneProgress,
+  type AxTuneResult,
+  AxTuner,
+} from './dsp/tuner.js';
 import type {
   AxAIServiceActionOptions,
   AxAIServiceModelType,
@@ -655,6 +680,13 @@ import type {
   AxMCPToolsListResult,
 } from './mcp/types.js';
 import { AxMemory } from './mem/memory.js';
+import {
+  type AxCheckpoint,
+  AxMemoryStorage,
+  type AxStorage,
+  type AxTrace,
+  type AxTraceQueryOptions,
+} from './mem/storage.js';
 import type { AxAIMemory, AxMemoryData } from './mem/types.js';
 import {
   AxAgent,
@@ -665,6 +697,7 @@ import {
   agent,
 } from './prompts/agent.js';
 import { axRAG } from './prompts/rag.js';
+import { AxTraceLogger, type AxTraceLoggerOptions } from './trace/logger.js';
 import {
   AxLLMRequestTypeValues,
   AxSpanKindValues,
@@ -779,12 +812,15 @@ export { AxGen };
 export { AxGenerateError };
 export { AxHFDataLoader };
 export { AxInstanceRegistry };
+export { AxJudge };
 export { AxLLMRequestTypeValues };
+export { AxLearnAgent };
 export { AxMCPClient };
 export { AxMCPHTTPSSETransport };
 export { AxMCPStreambleHTTPTransport };
 export { AxMediaNotSupportedError };
 export { AxMemory };
+export { AxMemoryStorage };
 export { AxMiPRO };
 export { AxMockAIService };
 export { AxMultiServiceRouter };
@@ -800,8 +836,11 @@ export { AxSimpleClassifierClass };
 export { AxSpanKindValues };
 export { AxStopFunctionCallException };
 export { AxStringUtil };
+export { AxSynth };
 export { AxTestPrompt };
 export { AxTokenLimitError };
+export { AxTraceLogger };
+export { AxTuner };
 export { agent };
 export { ai };
 export { ax };
@@ -861,6 +900,7 @@ export { axGetMetricsConfig };
 export { axGetOptimizerMetricsConfig };
 export { axGetProvidersWithMediaSupport };
 export { axGlobals };
+export { axLearnAgent };
 export { axModelInfoAnthropic };
 export { axModelInfoCohere };
 export { axModelInfoDeepSeek };
@@ -1106,6 +1146,7 @@ export type { AxChatRequest };
 export type { AxChatResponse };
 export type { AxChatResponseFunctionCall };
 export type { AxChatResponseResult };
+export type { AxCheckpoint };
 export type { AxCheckpointLoadFn };
 export type { AxCheckpointSaveFn };
 export type { AxCitation };
@@ -1194,6 +1235,11 @@ export type { AxIField };
 export type { AxInputFunctionType };
 export type { AxInternalChatRequest };
 export type { AxInternalEmbedRequest };
+export type { AxJudgeMode };
+export type { AxJudgeOptions };
+export type { AxJudgeResult };
+export type { AxJudgeRubric };
+export type { AxLearnAgentOptions };
 export type { AxLoggerData };
 export type { AxLoggerFunction };
 export type { AxMCPFunctionDescription };
@@ -1260,11 +1306,22 @@ export type { AxSamplePickerOptions };
 export type { AxSetExamplesOptions };
 export type { AxSignatureConfig };
 export type { AxSimpleClassifierForwardOptions };
+export type { AxStorage };
 export type { AxStreamingAssertion };
 export type { AxStreamingEvent };
 export type { AxStreamingFieldProcessorProcess };
+export type { AxSynthExample };
+export type { AxSynthOptions };
+export type { AxSynthResult };
 export type { AxThoughtBlockItem };
 export type { AxTokenUsage };
+export type { AxTrace };
+export type { AxTraceLoggerOptions };
+export type { AxTraceQueryOptions };
 export type { AxTunable };
+export type { AxTuneMethod };
+export type { AxTuneOptions };
+export type { AxTuneProgress };
+export type { AxTuneResult };
 export type { AxTypedExample };
 export type { AxUsable };

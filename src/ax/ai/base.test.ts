@@ -310,6 +310,38 @@ describe('AxBaseAI', () => {
     expect(ai.getName()).toBe('test-ai');
   });
 
+  it('should propagate retry options to apiCall', async () => {
+    const ai = createTestAI();
+    const mockFetch = vi
+      .fn()
+      .mockResolvedValue(
+        new Response('Error', {
+          status: 500,
+          statusText: 'Internal Server Error',
+        })
+      );
+
+    ai.setOptions({
+      fetch: mockFetch,
+      // @ts-expect-error - testing retry propagation
+      retry: {
+        maxRetries: 2,
+        initialDelayMs: 1,
+        maxDelayMs: 10,
+        backoffFactor: 1,
+      },
+    });
+
+    try {
+      await ai.chat({ chatPrompt: [{ role: 'user', content: 'test' }] });
+    } catch {
+      // Expected to fail
+    }
+
+    // Initial call + 2 retries = 3 calls
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+  });
+
   describe('function schema cleanup', () => {
     let ai: AxBaseAI<
       string,
