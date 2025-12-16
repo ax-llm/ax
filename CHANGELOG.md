@@ -1,5 +1,12 @@
 # Changelog
 
+## [15.0.24](///compare/15.0.22...15.0.23) (2025-12-16)
+
+### Features
+
+* Introduce new DSP modules (agent, tuner, synth, judge), enhance API call retry logic with `Retry-After` header support, and update documentation and examples. 8c58902
+## [15.0.23](///compare/15.0.22...15.0.23) (2025-12-15)
+
 ## [15.0.23](///compare/15.0.21...15.0.22) (2025-12-15)
 ## [15.0.22](///compare/15.0.21...15.0.22) (2025-12-14)
 
