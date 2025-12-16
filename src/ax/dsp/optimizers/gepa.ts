@@ -13,17 +13,17 @@ import {
   type AxParetoResult,
   AxOptimizedProgramImpl,
 } from '../optimizer.js';
-import type { AxGenOut } from '../types.js';
 import { ax } from '../template.js';
+import type { AxGenOut } from '../types.js';
+import type { AxGEPAAdapter } from './gepaAdapter.js';
 import {
-  buildParetoFront,
-  hypervolume2D,
   average,
   avgVec,
-  selectProgramCandidateFromInstanceFronts,
+  buildParetoFront,
+  hypervolume2D,
   removeDominatedProgramsByInstanceFronts,
+  selectProgramCandidateFromInstanceFronts,
 } from './paretoUtils.js';
-import type { AxGEPAAdapter } from './gepaAdapter.js';
 
 /** Single-module GEPA (reflective prompt evolution with Pareto sampling) */
 export class AxGEPA extends AxBaseOptimizer {
@@ -796,7 +796,10 @@ export class AxGEPA extends AxBaseOptimizer {
       paretoFront: pareto.map((p) => ({
         demos: [],
         scores: p.scores,
-        configuration: { candidate: p.idx },
+        configuration: {
+          candidate: p.idx,
+          instruction: candidates[p.idx]!.instruction,
+        },
         dominatedSolutions: p.dominated,
       })),
       paretoFrontSize: pareto.length,

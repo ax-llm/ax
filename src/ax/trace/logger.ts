@@ -10,6 +10,8 @@ import type { AxGen } from '../dsp/generate.js';
 import type {
   AxGenIn,
   AxGenOut,
+  AxGenStreamingOut,
+  AxMessage,
   AxProgramForwardOptions,
 } from '../dsp/types.js';
 import type { AxStorage, AxTrace } from '../mem/storage.js';
@@ -19,7 +21,7 @@ import type { AxStorage, AxTrace } from '../mem/storage.js';
  */
 export interface AxTraceLoggerOptions {
   /** Unique identifier for this agent/generator */
-  agentId: string;
+  name: string;
   /** Storage backend for persisting traces */
   storage: AxStorage;
   /** Whether to include input values in traces (default: true) */
@@ -68,7 +70,7 @@ export class AxTraceLogger<IN extends AxGenIn, OUT extends AxGenOut> {
   private options: Required<
     Pick<
       AxTraceLoggerOptions,
-      'agentId' | 'storage' | 'logInputs' | 'logOutputs' | 'throwOnError'
+      'name' | 'storage' | 'logInputs' | 'logOutputs' | 'throwOnError'
     >
   > &
     Pick<AxTraceLoggerOptions, 'metadata' | 'onTrace'>;
@@ -76,7 +78,7 @@ export class AxTraceLogger<IN extends AxGenIn, OUT extends AxGenOut> {
   constructor(gen: AxGen<IN, OUT>, options: AxTraceLoggerOptions) {
     this.gen = gen;
     this.options = {
-      agentId: options.agentId,
+      name: options.name,
       storage: options.storage,
       logInputs: options.logInputs ?? true,
       logOutputs: options.logOutputs ?? true,
@@ -87,11 +89,68 @@ export class AxTraceLogger<IN extends AxGenIn, OUT extends AxGenOut> {
   }
 
   /**
+   * Streaming forward call to the underlying AxGen with trace logging.
+   */
+  async *streamingForward(
+    ai: AxAIService,
+    values: IN | AxMessage<IN>[],
+    options?: Readonly<AxProgramForwardOptions<string>>
+  ): AxGenStreamingOut<OUT> {
+    const traceId = generateTraceId();
+    const startTime = new Date();
+
+    let output: OUT | undefined;
+    let error: string | undefined;
+
+    try {
+      const generator = this.gen.streamingForward(ai, values, options);
+      for await (const chunk of generator) {
+        if (chunk.partial) {
+          output = chunk.partial as OUT;
+        } else if (chunk.delta) {
+          // Best effort merge if partial not provided (AxGen usually provides partial)
+          // But doing robust deep merge here is expensive, rely on partial presence
+        }
+        yield chunk;
+      }
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+      throw err;
+    } finally {
+      const endTime = new Date();
+      const durationMs = endTime.getTime() - startTime.getTime();
+
+      // Build the trace
+      const trace: AxTrace = {
+        type: 'trace',
+        id: traceId,
+        name: this.options.name,
+        input: this.options.logInputs
+          ? (values as Record<string, unknown>)
+          : {},
+        output:
+          this.options.logOutputs && output
+            ? (output as Record<string, unknown>)
+            : {},
+        startTime,
+        endTime,
+        durationMs,
+        model: options?.model ?? undefined,
+        metadata: this.options.metadata,
+        error,
+      };
+
+      // Save trace asynchronously (fire-and-forget by default)
+      this.saveTrace(trace);
+    }
+  }
+
+  /**
    * Forward call to the underlying AxGen with trace logging.
    */
   async forward(
     ai: AxAIService,
-    values: IN,
+    values: IN | AxMessage<IN>[],
     options?: Readonly<AxProgramForwardOptions<string>>
   ): Promise<OUT> {
     const traceId = generateTraceId();
@@ -112,8 +171,9 @@ export class AxTraceLogger<IN extends AxGenIn, OUT extends AxGenOut> {
 
       // Build the trace
       const trace: AxTrace = {
+        type: 'trace',
         id: traceId,
-        agentId: this.options.agentId,
+        name: this.options.name,
         input: this.options.logInputs
           ? (values as Record<string, unknown>)
           : {},
@@ -139,7 +199,7 @@ export class AxTraceLogger<IN extends AxGenIn, OUT extends AxGenOut> {
    */
   private async saveTrace(trace: AxTrace): Promise<void> {
     try {
-      await this.options.storage.saveTrace(trace);
+      await this.options.storage.save(this.options.name, trace);
 
       if (this.options.onTrace) {
         this.options.onTrace(trace);
@@ -162,8 +222,8 @@ export class AxTraceLogger<IN extends AxGenIn, OUT extends AxGenOut> {
   /**
    * Get the agent ID.
    */
-  getAgentId(): string {
-    return this.options.agentId;
+  getName(): string {
+    return this.options.name;
   }
 
   /**
@@ -185,7 +245,7 @@ export class AxTraceLogger<IN extends AxGenIn, OUT extends AxGenOut> {
    */
   clone(newGen?: AxGen<IN, OUT>): AxTraceLogger<IN, OUT> {
     return new AxTraceLogger(newGen ?? this.gen.clone(), {
-      agentId: this.options.agentId,
+      name: this.options.name,
       storage: this.options.storage,
       logInputs: this.options.logInputs,
       logOutputs: this.options.logOutputs,
