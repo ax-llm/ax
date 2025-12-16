@@ -55,13 +55,13 @@ To run an `AxGen` instance, you use the `forward` method. This method sends the 
 You must pass an `AxAI` service instance to `forward`.
 
 ```typescript
-import { AxAI } from '@ax-llm/ax';
-
-const ai = new AxAI({
-  name: 'openai',
-  apiKey: process.env.OPENAI_API_KEY,
-  config: { model: 'gpt-4o' }
-});
+import { AxAI, AxAIOpenAIModel } from '@ax-llm/ax';
+  
+  const ai = new AxAI({
+    name: 'openai',
+    apiKey: process.env.OPENAI_API_KEY,
+    config: { model: AxAIOpenAIModel.GPT4O }
+  });
 
 const result = await gen.forward(ai, { input: 'Hello world' });
 console.log(result.output);
@@ -78,7 +78,7 @@ const result = await gen.forward(ai, { input: '...' }, {
   stopFunction: 'stop', // Custom stop function name
 
   // AI Configuration
-  model: 'gpt-4-turbo', // Override model for this call
+  model: AxAIOpenAIModel.GPT4Turbo, // Override model for this call
   modelConfig: {
     temperature: 0.9,
     maxTokens: 1000

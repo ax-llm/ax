@@ -20,6 +20,12 @@ export enum AxAIOpenAIModel {
   GPT5Nano = 'gpt-5-nano',
   GPT5Mini = 'gpt-5-mini',
   GPT5Chat = 'gpt-5-chat',
+  GPT5Pro = 'gpt-5-pro',
+  GPT51 = 'gpt-5.1',
+  GPT51ChatLatest = 'gpt-5.1-chat-latest',
+  GPT52 = 'gpt-5.2',
+  GPT52ChatLatest = 'gpt-5.2-chat-latest',
+  GPT52Pro = 'gpt-5.2-pro',
   // Reasoning models
   O1 = 'o1',
   O1Mini = 'o1-mini',

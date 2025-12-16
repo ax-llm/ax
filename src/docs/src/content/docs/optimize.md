@@ -58,7 +58,7 @@ npm install @ax-llm/ax
 // Create a .env file with your OpenAI API key
 // OPENAI_APIKEY=your_key_here
 
-import { ai, ax, AxMiPRO } from "@ax-llm/ax";
+import { ai, ax, AxMiPRO, AxAIOpenAIModel } from "@ax-llm/ax";
 ```
 
 **Important**: Ax optimizers depend on a Python optimization service (Optuna).
@@ -84,7 +84,7 @@ const sentimentAnalyzer = ax(
 const llm = ai({
   name: "openai",
   apiKey: process.env.OPENAI_APIKEY!,
-  config: { model: "gpt-4o-mini" }, // Start with the cheaper model
+  config: { model: AxAIOpenAIModel.GPT4OMini }, // Start with the cheaper model
 });
 ```
 
@@ -334,7 +334,7 @@ const optimizationData = {
   converged: result.optimizedProgram.converged,
   stats: result.optimizedProgram.stats,
   environment: process.env.NODE_ENV || "development",
-  modelUsed: "gpt-4o-mini",
+  modelUsed: AxAIOpenAIModel.GPT4OMini,
   trainingDataSize: examples.length,
 };
 
@@ -537,14 +537,14 @@ but at 1/10th the cost!
 const teacherAI = ai({
   name: "openai",
   apiKey: process.env.OPENAI_APIKEY!,
-  config: { model: "gpt-4o" }, // The expensive one
+  config: { model: AxAIOpenAIModel.GPT4O }, // The expensive one
 });
 
 // Student: Fast and cheap (used for actual work)
 const studentAI = ai({
   name: "openai",
   apiKey: process.env.OPENAI_APIKEY!,
-  config: { model: "gpt-4o-mini" }, // The cheap one
+  config: { model: AxAIOpenAIModel.GPT4OMini }, // The cheap one
 });
 
 const optimizer = new AxMiPRO({
@@ -731,7 +731,7 @@ const optimizer = new AxMiPRO({
     name: "openai",
     apiKey: process.env.OPENAI_APIKEY!,
     config: {
-      model: "gpt-4o-mini",
+      model: AxAIOpenAIModel.GPT4OMini,
       temperature: 0.1, // Lower = more consistent
     },
   }),
@@ -779,13 +779,13 @@ import { ax, AxAI, AxACE } from "@ax-llm/ax";
 const student = new AxAI({
   name: "openai",
   apiKey: process.env.OPENAI_APIKEY!,
-  config: { model: "gpt-4o-mini" },
+  config: { model: AxAIOpenAIModel.GPT4OMini },
 });
 
 const teacher = new AxAI({
   name: "openai",
   apiKey: process.env.OPENAI_APIKEY!,
-  config: { model: "gpt-4o" },
+  config: { model: AxAIOpenAIModel.GPT4O },
 });
 
 const classifier = ax(
