@@ -1,5 +1,20 @@
 # Changelog
 
+## [15.0.27](///compare/15.0.25...15.0.26) (2025-12-16)
+
+### Features
+
+* Add GPT-5 model definitions and update documentation to use strongly typed AI model enums. 3ff2546
+
+### Bug Fixes
+
+* correct Claude 4.5 Haiku model name in Vertex enum ([#474](undefined/undefined/undefined/issues/474)) 24f8e40
+## [15.0.26](///compare/15.0.25...15.0.26) (2025-12-16)
+
+### Features
+
+* replace `AxLearnAgent` and `AxTuner` with `AxLearn` and update GEPA optimizer to include instruction in Pareto results. dc2742b
+
 ## [15.0.26](///compare/15.0.24...15.0.25) (2025-12-16)
 
 ### Features
