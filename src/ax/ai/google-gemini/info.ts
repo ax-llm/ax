@@ -7,7 +7,7 @@ import { AxAIGoogleGeminiModel } from './types.js';
  */
 export const axModelInfoGoogleGemini: AxModelInfo[] = [
   {
-    name: AxAIGoogleGeminiModel.Gemini3FlashPreview,
+    name: AxAIGoogleGeminiModel.Gemini3Flash,
     currency: 'usd',
     characterIsToken: false,
     promptTokenCostPer1M: 0.5,
@@ -19,7 +19,7 @@ export const axModelInfoGoogleGemini: AxModelInfo[] = [
     },
   },
   {
-    name: AxAIGoogleGeminiModel.Gemini3ProPreview,
+    name: AxAIGoogleGeminiModel.Gemini3Pro,
     currency: 'usd',
     characterIsToken: false,
     promptTokenCostPer1M: 2.0,
@@ -31,7 +31,7 @@ export const axModelInfoGoogleGemini: AxModelInfo[] = [
     },
   },
   {
-    name: AxAIGoogleGeminiModel.Gemini3ProImagePreview,
+    name: AxAIGoogleGeminiModel.Gemini3ProImage,
     currency: 'usd',
     characterIsToken: false,
     promptTokenCostPer1M: 2.0,

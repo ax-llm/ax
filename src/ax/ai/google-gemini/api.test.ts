@@ -144,7 +144,7 @@ describe('AxAIGoogleGemini model key preset merging', () => {
   it('maps numeric thinkingTokenBudget to thinkingLevel for Gemini 3', async () => {
     const ai = new AxAIGoogleGemini({
       apiKey: 'key',
-      config: { model: AxAIGoogleGeminiModel.Gemini3ProPreview },
+      config: { model: AxAIGoogleGeminiModel.Gemini3Pro },
       models: [],
     });
 
@@ -186,7 +186,7 @@ describe('AxAIGoogleGemini model key preset merging', () => {
   it('handles function calls with thought signatures (Gemini 3)', async () => {
     const ai = new AxAIGoogleGemini({
       apiKey: 'key',
-      config: { model: AxAIGoogleGeminiModel.Gemini3ProPreview },
+      config: { model: AxAIGoogleGeminiModel.Gemini3Pro },
       models: [],
     });
 
@@ -257,7 +257,7 @@ describe('AxAIGoogleGemini model key preset merging', () => {
   it('groups parallel function responses into a single user turn', async () => {
     const ai = new AxAIGoogleGemini({
       apiKey: 'key',
-      config: { model: AxAIGoogleGeminiModel.Gemini3ProPreview },
+      config: { model: AxAIGoogleGeminiModel.Gemini3Pro },
       models: [],
     });
 
@@ -308,7 +308,7 @@ describe('AxAIGoogleGemini model key preset merging', () => {
   it('does not set thought: true on text part when function calls are present', async () => {
     const ai = new AxAIGoogleGemini({
       apiKey: 'key',
-      config: { model: AxAIGoogleGeminiModel.Gemini3ProPreview },
+      config: { model: AxAIGoogleGeminiModel.Gemini3Pro },
       models: [],
     });
 

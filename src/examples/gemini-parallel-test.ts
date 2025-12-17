@@ -76,7 +76,7 @@ const llm = ai({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY as string,
   config: {
-    model: AxAIGoogleGeminiModel.Gemini3ProPreview,
+    model: AxAIGoogleGeminiModel.Gemini3Pro,
     thinking: { thinkingLevel: 'high', thinkingTokenBudget: 200 },
   },
 });

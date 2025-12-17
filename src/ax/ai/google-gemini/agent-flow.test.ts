@@ -109,7 +109,7 @@ describe('Gemini 3 Agent Flow Verification', () => {
     // 2. Setup AI and Agent
     const llm = new AxAIGoogleGemini({
       apiKey: 'fake-key',
-      config: { model: AxAIGoogleGeminiModel.Gemini3ProPreview },
+      config: { model: AxAIGoogleGeminiModel.Gemini3Pro },
     });
     llm.setOptions({ fetch });
 
