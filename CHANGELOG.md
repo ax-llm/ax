@@ -1,5 +1,12 @@
 # Changelog
 
+## [15.1.0](///compare/15.0.27...15.0.28) (2025-12-17)
+## [15.0.28](///compare/15.0.27...15.0.28) (2025-12-17)
+
+### Features
+
+* Add Gemini 3 Flash Preview model and update food search example to use it. f08335f
+
 ## [15.0.28](///compare/15.0.26...15.0.27) (2025-12-17)
 
 ### Features
