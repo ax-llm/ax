@@ -774,6 +774,9 @@ export interface AxOptimizerResult<OUT> {
   // Optimization history for analysis
   scoreHistory?: number[];
   configurationHistory?: Record<string, unknown>[];
+
+  // Unified optimization result (v14.0.24+)
+  optimizedProgram?: AxOptimizedProgram<OUT>;
 }
 
 // Unified optimization result that consolidates all optimization outputs

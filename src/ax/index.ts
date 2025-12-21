@@ -548,7 +548,10 @@ import type {
   AxACEReflectionOutput,
 } from './dsp/optimizers/aceTypes.js';
 import { AxBootstrapFewShot } from './dsp/optimizers/bootstrapFewshot.js';
-import { AxGEPA } from './dsp/optimizers/gepa.js';
+import {
+  AxGEPA,
+  type AxGEPAOptimizationReport,
+} from './dsp/optimizers/gepa.js';
 import type {
   AxGEPAAdapter,
   AxGEPAEvaluationBatch,
@@ -1212,6 +1215,7 @@ export type { AxFunctionResult };
 export type { AxFunctionResultFormatter };
 export type { AxGEPAAdapter };
 export type { AxGEPAEvaluationBatch };
+export type { AxGEPAOptimizationReport };
 export type { AxGenDeltaOut };
 export type { AxGenIn };
 export type { AxGenInput };

@@ -10,8 +10,8 @@ import type {
 import type { AxGen } from '../generate.js';
 import {
   AxBaseOptimizer,
-  type AxParetoResult,
   AxOptimizedProgramImpl,
+  type AxParetoResult,
 } from '../optimizer.js';
 import { ax } from '../template.js';
 import type { AxGenOut } from '../types.js';
@@ -24,6 +24,93 @@ import {
   removeDominatedProgramsByInstanceFronts,
   selectProgramCandidateFromInstanceFronts,
 } from './paretoUtils.js';
+
+/** Structured optimization report */
+export interface AxGEPAOptimizationReport {
+  summary: string;
+  bestSolution: {
+    overallScore: number;
+    objectives: Record<string, { value: number; percentage: number }>;
+  };
+  paretoFrontier: {
+    solutionCount: number;
+    objectiveSpaceCoverage: number;
+    hypervolume: number;
+    tradeoffs?: Array<Record<string, number>>;
+  };
+  statistics: {
+    totalEvaluations: number;
+    candidatesExplored: number;
+    converged: boolean;
+  };
+  recommendations: {
+    status: 'good' | 'limited' | 'single';
+    suggestions: string[];
+  };
+}
+
+/** Helper to display optimization report in a nice format */
+export function displayGEPAReport(report: AxGEPAOptimizationReport): void {
+  console.log(`\n${'═'.repeat(60)}`);
+  console.log(`🎉 ${report.summary}`);
+  console.log(`${'═'.repeat(60)}\n`);
+
+  console.log('📊 Best Solution Found:');
+  console.log(
+    `   Overall Score: ${report.bestSolution.overallScore.toFixed(3)}`
+  );
+  console.log('   Individual Objectives:');
+  for (const [key, obj] of Object.entries(report.bestSolution.objectives)) {
+    const bar = '█'.repeat(Math.round(obj.value * 20));
+    console.log(
+      `   • ${key}: ${obj.value.toFixed(3)} (${obj.percentage.toFixed(1)}%) ${bar}`
+    );
+  }
+  console.log();
+
+  console.log('🎯 Pareto Frontier:');
+  console.log(
+    `   • Found ${report.paretoFrontier.solutionCount} optimal trade-off${report.paretoFrontier.solutionCount === 1 ? '' : 's'}`
+  );
+  console.log(
+    `   • Objective space coverage: ${report.paretoFrontier.objectiveSpaceCoverage.toFixed(1)}%`
+  );
+  console.log(
+    `     (Hypervolume: ${report.paretoFrontier.hypervolume.toFixed(3)})`
+  );
+
+  if (
+    report.paretoFrontier.tradeoffs &&
+    report.paretoFrontier.tradeoffs.length > 0
+  ) {
+    console.log('\n   Trade-off points discovered:');
+    for (let i = 0; i < report.paretoFrontier.tradeoffs.length; i++) {
+      const tradeoff = report.paretoFrontier.tradeoffs[i]!;
+      const objectives = Object.entries(tradeoff)
+        .map(([k, v]) => `${k}=${v.toFixed(2)}`)
+        .join(', ');
+      console.log(`   ${i + 1}. ${objectives}`);
+    }
+  }
+  console.log();
+
+  console.log('📈 Optimization Statistics:');
+  console.log(`   • Total evaluations: ${report.statistics.totalEvaluations}`);
+  console.log(
+    `   • Candidates explored: ${report.statistics.candidatesExplored}`
+  );
+  console.log(`   • Converged: ${report.statistics.converged ? '✅' : '❌'}`);
+  console.log();
+
+  console.log('💡 Recommendations:');
+  const statusEmoji = report.recommendations.status === 'good' ? '✅' : '⚠️';
+  console.log(`   ${statusEmoji} Status: ${report.recommendations.status}`);
+  for (const suggestion of report.recommendations.suggestions) {
+    console.log(`   • ${suggestion}`);
+  }
+
+  console.log(`\n${'═'.repeat(60)}\n`);
+}
 
 /** Single-module GEPA (reflective prompt evolution with Pareto sampling) */
 export class AxGEPA extends AxBaseOptimizer {
@@ -48,6 +135,20 @@ export class AxGEPA extends AxBaseOptimizer {
   private lastIterFoundNewProgram = false;
   private mergeAttemptKeys = new Set<string>();
   private mergeCompositionKeys = new Set<string>();
+
+  // GEPA reflection prompt template (aligned with reference implementation)
+  private static readonly REFLECTION_PROMPT_TEMPLATE =
+    `I provided an assistant with the following instructions to perform a task for me:
+\`\`\`
+<curr_instructions>
+\`\`\`
+
+The following are examples of different task inputs provided to the assistant along with the assistant's response for each of them, and some feedback on how the assistant's response could be better:
+\`\`\`
+<inputs_outputs_feedback>
+\`\`\`
+
+Your task is to write a new instruction for the assistant. Read the inputs carefully and identify the input format and infer detailed task description about the task I wish to solve with the assistant. Read all the assistant responses and the corresponding feedback. Identify all niche and domain specific factual information about the task and include it in the instruction, as a lot of it may not be available to the assistant in the future. The assistant may have utilized a generalizable strategy to solve the task, if so, include that in the instruction as well. Provide the new instructions within \`\`\` blocks.`;
 
   private rngState: number = 123456789;
   private samplerState: {
@@ -98,8 +199,9 @@ export class AxGEPA extends AxBaseOptimizer {
     this.tieEpsilon = Number.isFinite(argTieEps!) ? (argTieEps as number) : 0;
     const argFbMem = (args as any)?.feedbackMemorySize as number | undefined;
     this.feedbackMemorySize = Math.max(0, Math.floor(argFbMem ?? 4));
+    // Default mergeMax to 5 (aligned with reference DSPy GEPA: use_merge=True, max_merge_invocations=5)
     const argMergeMax = (args as any)?.mergeMax as number | undefined;
-    this.mergeMax = Math.max(0, Math.floor(argMergeMax ?? 0));
+    this.mergeMax = Math.max(0, Math.floor(argMergeMax ?? 5));
     this.mergesUsed = 0;
 
     // Hook convergence threshold to base stats
@@ -259,26 +361,7 @@ export class AxGEPA extends AxBaseOptimizer {
       );
     };
 
-    const optLogger = this.getOptimizerLogger(options);
-    optLogger?.({
-      name: 'OptimizationStart',
-      value: {
-        optimizerType: 'GEPA',
-        exampleCount: examples.length,
-        validationCount: paretoSet.length,
-        config: { numTrials: this.numTrials, minibatch: this.minibatch },
-      },
-    });
-
-    let stagnation = 0;
-
-    // Initialize Pareto archive (indices into candidates)
-    let archive = buildParetoFront(
-      candidates.map((c, idx) => ({ idx, scores: c.scores })),
-      this.tieEpsilon
-    ).map((p) => p.idx);
-
-    let _prevHypervolume: number | undefined;
+    // Parse budget early for logging and validation
     const rolloutBudgetParetoRaw = (options as any)?.maxMetricCalls as number;
     if (
       !Number.isFinite(rolloutBudgetParetoRaw) ||
@@ -289,6 +372,40 @@ export class AxGEPA extends AxBaseOptimizer {
       );
     }
     const rolloutBudgetPareto = Math.floor(rolloutBudgetParetoRaw);
+
+    const optLogger = this.getOptimizerLogger(options);
+    const verboseLog =
+      ((options as any)?.verbose ?? this.verbose)
+        ? (msg: string) => console.log(`[GEPA] ${msg}`)
+        : (_msg: string) => {};
+
+    optLogger?.({
+      name: 'OptimizationStart',
+      value: {
+        optimizerType: 'GEPA',
+        exampleCount: examples.length,
+        validationCount: paretoSet.length,
+        config: {
+          numTrials: this.numTrials,
+          minibatch: this.minibatch,
+          mergeMax: this.mergeMax,
+        },
+      },
+    });
+
+    verboseLog(
+      `Starting GEPA optimization: ${examples.length} train, ${paretoSet.length} validation, maxCalls=${rolloutBudgetPareto}`
+    );
+
+    let stagnation = 0;
+
+    // Initialize Pareto archive (indices into candidates)
+    let archive = buildParetoFront(
+      candidates.map((c, idx) => ({ idx, scores: c.scores })),
+      this.tieEpsilon
+    ).map((p) => p.idx);
+
+    let _prevHypervolume: number | undefined;
 
     for (let t = 0; t < this.numTrials; t++) {
       if (
@@ -472,6 +589,9 @@ export class AxGEPA extends AxBaseOptimizer {
                 const id2Sum = idxs.reduce((a, z) => a + (s2[z] ?? 0), 0);
 
                 if (newSum >= Math.max(id1Sum, id2Sum) + this.tieEpsilon) {
+                  verboseLog(
+                    `Iteration ${t + 1}: Merge accepted (programs ${i} + ${j} via ancestor ${a})`
+                  );
                   const childVec = await evalOnSet(childInstrMerged, paretoSet);
                   candidates.push({
                     instruction: childInstrMerged,
@@ -693,10 +813,23 @@ export class AxGEPA extends AxBaseOptimizer {
         (adapterParentSum === undefined ||
           adapterChildSum === undefined ||
           adapterChildSum > adapterParentSum + this.tieEpsilon);
+
       if (!accepted) {
-        if (++stagnation >= this.earlyStoppingTrials) break;
+        verboseLog(
+          `Iteration ${t + 1}: Rejected (child=${childMiniSum.toFixed(3)} <= parent=${parentMiniSum.toFixed(3)})`
+        );
+        if (++stagnation >= this.earlyStoppingTrials) {
+          verboseLog(
+            `Early stopping: ${stagnation} iterations without improvement`
+          );
+          break;
+        }
         continue;
       }
+
+      verboseLog(
+        `Iteration ${t + 1}: Accepted (child=${childMiniSum.toFixed(3)} > parent=${parentMiniSum.toFixed(3)})`
+      );
 
       // Full evaluation on validation set (vector) and archive update
       const childVec = await evalOnSet(childInstr, paretoSet);
@@ -721,11 +854,22 @@ export class AxGEPA extends AxBaseOptimizer {
       // Reset stagnation if archive improved (hypervolume or size)
       if (archive.length > beforeSize || hvAfter > hvBefore + 1e-6) {
         stagnation = 0;
+        verboseLog(
+          `Iteration ${t + 1}: Archive improved (size=${archive.length}, hv=${hvAfter.toFixed(4)})`
+        );
       } else {
         stagnation++;
-        if (stagnation >= this.earlyStoppingTrials) break;
+        verboseLog(
+          `Iteration ${t + 1}: Archive unchanged (stagnation=${stagnation}/${this.earlyStoppingTrials})`
+        );
+        if (stagnation >= this.earlyStoppingTrials) {
+          verboseLog(
+            `Early stopping: ${stagnation} iterations without archive improvement`
+          );
+          break;
+        }
       }
-      // Schedule merge attempt for next iteration (parity)
+      // Schedule merge attempt for next iteration (aligned with reference behavior)
       this.lastIterFoundNewProgram = true;
       if (this.mergeMax > 0 && this.totalMergesTested < this.mergeMax) {
         this.mergesDue += 1;
@@ -787,7 +931,7 @@ export class AxGEPA extends AxBaseOptimizer {
         : undefined;
 
     // Generate optimization insights report
-    this.generateOptimizationReport(pareto, hv, bestScore);
+    const report = this.generateOptimizationReport(pareto, hv, bestScore);
 
     return {
       demos: [],
@@ -810,7 +954,9 @@ export class AxGEPA extends AxBaseOptimizer {
       },
       // Extra field (not part of AxParetoResult): unified optimized program for easy save/apply
       optimizedProgram,
-    } as AxParetoResult<OUT>;
+      // Structured optimization report
+      report,
+    } as AxParetoResult<OUT> & { report: AxGEPAOptimizationReport };
   }
 
   /** Lightweight auto presets */
@@ -923,85 +1069,138 @@ export class AxGEPA extends AxBaseOptimizer {
     program: Readonly<AxGen<IN, OUT>>,
     minibatch: readonly AxTypedExample<IN>[],
     metricFn: AxMetricFn,
-    options?: AxCompileOptions
+    options?: AxCompileOptions,
+    // Optional: pre-evaluated tuples to avoid duplicate evaluation
+    preEvaluatedTuples?: Array<{
+      input: AxExample;
+      prediction: unknown;
+      score: number;
+    }>
   ): Promise<string> {
-    // Collect quick feedback tuples from minibatch
+    // Collect quick feedback tuples from minibatch (or use pre-evaluated)
     const tuples: Array<{
       input: AxExample;
       prediction: unknown;
       score: number;
-    }> = [];
-    for (const ex of minibatch) {
-      try {
-        (program as any).setInstruction?.(currentInstruction);
-        const pred = await program.forward(
-          this.studentAI,
-          ex as IN,
-          {
-            sampleCount: this.sampleCount,
-          } as any
-        );
-        this.stats.totalCalls += 1;
-        const score = await metricFn({
-          prediction: pred,
-          example: ex as AxExample,
-        });
-        tuples.push({
-          input: ex as AxExample,
-          prediction: pred,
-          score: typeof score === 'number' ? score : 0,
-        });
-      } catch {
-        tuples.push({ input: ex as AxExample, prediction: {}, score: 0 });
+    }> = preEvaluatedTuples ?? [];
+
+    if (tuples.length === 0) {
+      for (const ex of minibatch) {
+        try {
+          (program as any).setInstruction?.(currentInstruction);
+          const pred = await program.forward(
+            this.studentAI,
+            ex as IN,
+            {
+              sampleCount: this.sampleCount,
+            } as any
+          );
+          this.stats.totalCalls += 1;
+          const score = await metricFn({
+            prediction: pred,
+            example: ex as AxExample,
+          });
+          tuples.push({
+            input: ex as AxExample,
+            prediction: pred,
+            score: typeof score === 'number' ? score : 0,
+          });
+        } catch {
+          tuples.push({ input: ex as AxExample, prediction: {}, score: 0 });
+        }
       }
     }
 
     const aiToUse: AxAIService =
       (options as any)?.overrideTeacherAI ?? this.teacherAI ?? this.studentAI;
 
-    // Summarize feedback and maintain short memory
-    const critic = ax(
-      `minibatch:json "Array of {input,prediction,score}", evalFeedback?:string[] "Evaluator feedback per case if available" -> feedbackSummary:string "Concise feedback: common errors, missing constraints, desired changes"`
-    );
-
-    // Optional: external feedback μf
-    const externalFeedback: string[] = [];
+    // Optional: external feedback function
     const feedbackFn:
       | ((
           arg: Readonly<{ prediction: any; example: AxExample }>
         ) => string | string[] | undefined)
       | undefined = (options as any)?.feedbackFn;
-    if (typeof feedbackFn === 'function') {
-      for (let i = 0; i < tuples.length; i++) {
-        try {
-          const fb = feedbackFn({
-            prediction: tuples[i]!.prediction,
-            example: tuples[i]!.input,
-          });
-          if (fb) {
-            if (Array.isArray(fb)) externalFeedback.push(...fb);
-            else externalFeedback.push(fb);
-          }
-        } catch {}
-      }
-    }
 
-    let feedbackSummary = '';
+    // Build reflective dataset in GEPA format (aligned with reference)
+    const formatReflectiveDataset = (): string => {
+      const examples: string[] = [];
+      for (let i = 0; i < tuples.length; i++) {
+        const t = tuples[i]!;
+        let exampleStr = `# Example ${i + 1}\n`;
+        exampleStr += `## Inputs\n`;
+        if (typeof t.input === 'object' && t.input !== null) {
+          for (const [k, v] of Object.entries(t.input)) {
+            exampleStr += `### ${k}\n${String(v).trim()}\n\n`;
+          }
+        } else {
+          exampleStr += `${String(t.input).trim()}\n\n`;
+        }
+        exampleStr += `## Generated Outputs\n`;
+        if (typeof t.prediction === 'object' && t.prediction !== null) {
+          for (const [k, v] of Object.entries(t.prediction)) {
+            exampleStr += `### ${k}\n${String(v).trim()}\n\n`;
+          }
+        } else {
+          exampleStr += `${String(t.prediction).trim()}\n\n`;
+        }
+        exampleStr += `## Feedback\n`;
+        // Get feedback from feedbackFn if available
+        let fb = `This trajectory got a score of ${t.score.toFixed(3)}.`;
+        if (typeof feedbackFn === 'function') {
+          try {
+            const customFb = feedbackFn({
+              prediction: t.prediction,
+              example: t.input,
+            });
+            if (customFb) {
+              fb = Array.isArray(customFb) ? customFb.join('\n') : customFb;
+            }
+          } catch {}
+        }
+        exampleStr += `${fb}\n`;
+        examples.push(exampleStr);
+      }
+      return examples.join('\n\n');
+    };
+
+    // Use the GEPA-style reflection prompt (aligned with reference)
+    const prompt = AxGEPA.REFLECTION_PROMPT_TEMPLATE.replace(
+      '<curr_instructions>',
+      currentInstruction
+    ).replace('<inputs_outputs_feedback>', formatReflectiveDataset());
+
     try {
-      const out = (await critic.forward(aiToUse, {
-        minibatch: tuples,
-        evalFeedback: externalFeedback,
-      } as any)) as any;
-      feedbackSummary =
-        (out?.feedbackSummary as string | undefined)?.trim() || '';
-      if (feedbackSummary) {
-        this.feedbackMemory.unshift(feedbackSummary);
-        if (this.feedbackMemory.length > this.feedbackMemorySize)
-          this.feedbackMemory.pop();
+      // Direct LLM call for reflection (more aligned with reference approach)
+      const response = await aiToUse.chat(
+        {
+          chatPrompt: [{ role: 'user', content: prompt }],
+          model: (options as any)?.reflectionModel,
+        },
+        { stream: false }
+      );
+      // Handle both streaming and non-streaming responses
+      if (typeof (response as any).getReader === 'function') {
+        throw new Error('Streaming response not expected for reflection');
+      }
+      const typedResponse =
+        response as import('../../ai/types.js').AxChatResponse;
+      const content = typedResponse.results?.[0]?.content;
+      if (typeof content === 'string') {
+        // Extract instruction from backticks (aligned with reference extractor)
+        const extracted = this.extractInstructionFromBackticks(content);
+        if (extracted && extracted.length > 16) {
+          // Maintain feedback memory for cross-iteration learning
+          const feedbackSummary = `Iteration feedback: ${tuples.map((t) => `score=${t.score.toFixed(2)}`).join(', ')}`;
+          this.feedbackMemory.unshift(feedbackSummary);
+          if (this.feedbackMemory.length > this.feedbackMemorySize) {
+            this.feedbackMemory.pop();
+          }
+          return extracted;
+        }
       }
     } catch {}
 
-    // Use a small reflective update program to produce an improved instruction
+    // Fallback to signature-based approach
     const refl = ax(
       `currentInstruction:string "Current instruction", feedbackSummary?:string "Summarized feedback", recentFeedback?:string[] "Past feedback memory", minibatch:json "Array of {input,prediction,score}" -> newInstruction:string "Improved instruction within 1-6 sentences."`
     );
@@ -1009,7 +1208,7 @@ export class AxGEPA extends AxBaseOptimizer {
     try {
       const out = (await refl.forward(aiToUse, {
         currentInstruction,
-        feedbackSummary,
+        feedbackSummary: this.feedbackMemory[0] || '',
         recentFeedback: this.feedbackMemory,
         minibatch: tuples,
       } as any)) as any;
@@ -1017,11 +1216,44 @@ export class AxGEPA extends AxBaseOptimizer {
       if (instr && instr.length > 16) return instr;
     } catch {}
 
-    // Fallback: tweak the instruction minimally
+    // Final fallback: tweak the instruction minimally
     return `${currentInstruction.trim()} Focus on step-by-step evidence-based reasoning. Avoid hallucinations.`.slice(
       0,
       2000
     );
+  }
+
+  /**
+   * Extract instruction text from LLM output enclosed in backticks (aligned with reference)
+   */
+  private extractInstructionFromBackticks(lmOut: string): string {
+    const start = lmOut.indexOf('```') + 3;
+    const end = lmOut.lastIndexOf('```');
+
+    // Handle if the first and last backticks are the same or overlap
+    if (start >= end) {
+      const stripped = lmOut.trim();
+      if (stripped.startsWith('```')) {
+        // Remove opening ``` and optional language specifier
+        const match = stripped.match(/^```\S*\n?/);
+        if (match) {
+          return stripped.slice(match[0].length).trim();
+        }
+      } else if (stripped.endsWith('```')) {
+        // Remove closing ```
+        return stripped.slice(0, -3).trim();
+      }
+      return stripped;
+    }
+
+    // Extract content between backticks
+    let content = lmOut.slice(start, end);
+    // Skip optional language specifier (e.g., ```markdown\n)
+    const langMatch = content.match(/^\S*\n/);
+    if (langMatch) {
+      content = content.slice(langMatch[0].length);
+    }
+    return content.trim();
   }
 
   private updateSamplerShuffled(trainSize: number): void {
@@ -1078,54 +1310,97 @@ export class AxGEPA extends AxBaseOptimizer {
     paretoFront: Array<{ scores: Record<string, number>; dominated: number }>,
     hypervolume: number | undefined,
     bestScore: number | undefined
-  ): void {
-    console.log('\n🎉 GEPA Multi-Objective Optimization Complete!\n');
+  ): AxGEPAOptimizationReport {
+    // Build best solution data
+    const best =
+      paretoFront.length > 0
+        ? paretoFront.reduce((prev, curr) => {
+            const prevSum = Object.values(prev.scores).reduce(
+              (a, b) => a + b,
+              0
+            );
+            const currSum = Object.values(curr.scores).reduce(
+              (a, b) => a + b,
+              0
+            );
+            return currSum > prevSum ? curr : prev;
+          })
+        : undefined;
 
-    console.log('✅ Improvements:');
+    const objectives: Record<string, { value: number; percentage: number }> =
+      {};
+    if (best) {
+      for (const [key, value] of Object.entries(best.scores)) {
+        objectives[key] = {
+          value,
+          percentage: value * 100,
+        };
+      }
+    }
+
+    // Build tradeoffs list
+    const tradeoffs: Array<Record<string, number>> = [];
     if (paretoFront.length > 1) {
-      console.log('• Successfully found multiple Pareto-optimal solutions');
-    } else {
-      console.log('• Found at least one optimal solution');
+      const sorted = [...paretoFront]
+        .sort((a, b) => b.dominated - a.dominated)
+        .slice(0, 3);
+      for (const p of sorted) {
+        tradeoffs.push({ ...p.scores });
+      }
     }
-    if (hypervolume !== undefined && hypervolume > 0) {
-      console.log(
-        `• Hypervolume improvement: ${(hypervolume * 100).toFixed(1)}%`
-      );
-    }
-    if (bestScore !== undefined) {
-      console.log(`• Best score achieved: ${bestScore.toFixed(3)}`);
-    }
-    console.log('• Multi-objective approach balances competing goals\n');
 
-    console.log('⚠️ Limitations:');
+    // Build recommendations
+    let status: 'good' | 'limited' | 'single' = 'good';
+    const suggestions: string[] = [];
+
     if (paretoFront.length === 1) {
-      console.log('• Limited diversity in Pareto frontier');
+      status = 'single';
+      suggestions.push('Increase numTrials (current seems low)');
+      suggestions.push('Add more training examples');
+      suggestions.push('Adjust earlyStoppingTrials');
+    } else if (paretoFront.length < 3) {
+      status = 'limited';
+      suggestions.push('More optimization trials');
+      suggestions.push('Larger validation set');
+    } else {
+      status = 'good';
+      const objs = Object.keys(paretoFront[0]?.scores || {});
+      for (const obj of objs) {
+        suggestions.push(`High ${obj}: Choose solution with best ${obj} score`);
+      }
+      suggestions.push('Balanced: Use provided bestScore (average)');
     }
-    if (this.stats.totalCalls < 100) {
-      console.log('• Relatively few optimization trials performed');
-    }
-    console.log('• Results depend on training data quality and size');
-    console.log('• Optimization time scales with problem complexity\n');
 
-    console.log('🔍 Key Issues:');
-    if (paretoFront.length < 3) {
-      console.log('• Few distinct trade-off points found');
+    if (this.stats.totalCalls < 50) {
+      suggestions.push(
+        'Quick run detected - use numTrials: 30+ for production'
+      );
+      suggestions.push('Provide 50+ training examples');
+      suggestions.push('Use 20+ validation examples');
     }
-    if (this.stats.convergenceInfo?.converged === false) {
-      console.log('• Optimization may not have fully converged');
-    }
-    console.log('• Evaluation metrics may need domain-specific tuning');
-    console.log('• Model selection impacts optimization effectiveness\n');
 
-    console.log('💡 What This Means:');
-    console.log(
-      '• GEPA framework successfully demonstrates multi-objective optimization'
-    );
-    console.log('• Pareto frontier reveals real trade-offs between objectives');
-    console.log(
-      '• Users can select solutions based on their specific priorities'
-    );
-    console.log('• More training data and trials would likely improve results');
+    return {
+      summary: 'GEPA Multi-Objective Optimization Complete',
+      bestSolution: {
+        overallScore: bestScore ?? 0,
+        objectives,
+      },
+      paretoFrontier: {
+        solutionCount: paretoFront.length,
+        objectiveSpaceCoverage: (hypervolume ?? 0) * 100,
+        hypervolume: hypervolume ?? 0,
+        tradeoffs: tradeoffs.length > 0 ? tradeoffs : undefined,
+      },
+      statistics: {
+        totalEvaluations: this.stats.totalCalls,
+        candidatesExplored: paretoFront.length,
+        converged: this.stats.convergenceInfo?.converged ?? false,
+      },
+      recommendations: {
+        status,
+        suggestions,
+      },
+    };
   }
 
   private async mergeInstructions(

@@ -13,7 +13,7 @@ import type { AxAssertion, AxStreamingAssertion } from './asserts.js';
 import type { AxMetricFn, AxTypedExample } from './common_types.js';
 import type { AxGen } from './generate.js';
 import { AxJudge, type AxJudgeOptions } from './judge.js';
-import type { AxOptimizerResult, AxParetoResult } from './optimizer.js';
+import type { AxParetoResult } from './optimizer.js';
 import { AxGEPA } from './optimizers/gepa.js';
 import type { AxSignature } from './sig.js';
 import { AxSynth, type AxSynthOptions } from './synth.js';
@@ -343,46 +343,29 @@ export class AxLearn<IN extends AxGenIn, OUT extends AxGenOut>
       minibatchSize: 10,
     });
 
-    // Provide validation set explicitly to GEPA if supported via options
-    // GEPA uses 'validationExamples' option
+    // Provide validation set explicitly to GEPA
     // maxMetricCalls: budget * training examples provides reasonable exploration
     const maxMetricCalls = budget * Math.max(trainingExamples.length, 10);
     const result = (await optimizer.compile(
       this.gen,
       trainingExamples as AxTypedExample<IN>[],
       metric,
-      // @ts-ignore - GEPA supports validationExamples but types might be strict
-      { validationExamples, maxMetricCalls }
-    )) as AxParetoResult<OUT> | AxOptimizerResult<OUT>; // Cast to handle both potential result types
+      { validationExamples, maxMetricCalls } as any
+    )) as AxParetoResult<OUT>;
 
-    // Check if result is AxParetoResult (has paretoFront)
-    if ('paretoFront' in result) {
-      const paretoResult = result as AxParetoResult<OUT>;
-      // Use the best instruction from the result.
-      // paretoFront items have { scores: Record<string,number>, configuration: ... }
-      // We assume a single metric 'score' or similar, or just sum of scores.
-      const bestCandidate = paretoResult.paretoFront.reduce((prev, curr) => {
-        const prevScore = Object.values(prev.scores).reduce((a, b) => a + b, 0);
-        const currScore = Object.values(curr.scores).reduce((a, b) => a + b, 0);
-        return currScore > prevScore ? curr : prev;
-      }, paretoResult.paretoFront[0]);
-
-      if (bestCandidate) {
-        const config = bestCandidate.configuration as { instruction?: string };
-        if (config.instruction) {
-          this.gen.setInstruction(config.instruction);
-          // Update internal score
-          this.currentScore = Object.values(bestCandidate.scores).reduce(
-            (a, b) => a + b,
-            0
-          );
-          // Refresh tracer
-          this.tracer = this.tracer.clone(this.gen);
-        }
-      }
+    // Apply optimized program (unified interface)
+    if (!result.optimizedProgram) {
+      throw new Error('GEPA optimization failed: no optimizedProgram returned');
     }
 
-    const finalScore = this.currentScore ?? 0;
+    if (result.optimizedProgram.instruction) {
+      this.gen.setInstruction(result.optimizedProgram.instruction);
+    }
+    this.currentScore = result.optimizedProgram.bestScore;
+    // Refresh tracer to reflect new instruction
+    this.tracer = this.tracer.clone(this.gen);
+
+    const finalScore = this.currentScore;
     const improvement = finalScore; // vs initial
 
     // Step 5: Save Checkpoint

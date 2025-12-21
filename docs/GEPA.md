@@ -267,12 +267,37 @@ result.paretoFront.forEach((solution) => {
 });
 ```
 
+## Configuration Options
+
+GEPA supports several configuration options to control the optimization process:
+
+```typescript
+const optimizer = new AxGEPA({
+  studentAI: ai,
+  numTrials: 20,           // Number of optimization iterations (default: 30)
+  minibatch: true,         // Use minibatching (default: true)
+  minibatchSize: 10,       // Examples per minibatch (default: 20)
+  mergeMax: 5,             // Max merge operations (default: 5, set 0 to disable)
+  seed: 42,                // Random seed for reproducibility (default: 123456789)
+  verbose: true,           // Enable detailed logging (default: false)
+  earlyStoppingTrials: 5,  // Stop after N trials without improvement (default: 5)
+  tieEpsilon: 0.001,       // Epsilon for tie-breaking (default: 0)
+});
+```
+
+**Key Options:**
+
+- **`mergeMax`**: Enables the merge strategy (default: 5). GEPA can combine two Pareto-optimal candidates by selecting instructions from their common ancestor lineage. Set to 0 to disable merging.
+- **`verbose`**: When enabled, prints detailed logs about parent selection, acceptance/rejection, and archive improvements.
+- **`feedbackFn`**: Optional function in `compile()` options that provides textual feedback for each evaluation, which GEPA uses to guide reflection.
+
 ## Performance Considerations
 
 - **Runtime**: GEPA/GEPA-Flow perform reflective evolution with Pareto sampling; time scales with `numTrials`, validation size, and `maxMetricCalls`.
 - **Cost**: Bound evaluations with `maxMetricCalls`; consider minibatching.
 - **Scalability**: Works best with 2–4 objectives; hypervolume reporting is 2D.
 - **Determinism**: Provide `seed` for reproducibility; `tieEpsilon` resolves near-ties.
+- **Merge Strategy**: The default `mergeMax: 5` enables evolutionary crossover. This combines successful candidates to potentially discover better solutions faster.
 
 ## Tips for Success
 
