@@ -43,14 +43,114 @@ import type {
   AxAIServiceOptions,
   AxChatRequest,
   AxChatResponse,
+  AxContextCacheInfo,
+  AxContextCacheOperation,
+  AxContextCacheOptions,
   AxEmbedRequest,
   AxEmbedResponse,
+  AxInternalChatRequest,
   AxLoggerFunction,
   AxModelConfig,
   AxModelInfo,
   AxModelUsage,
 } from './types.js';
 import { axValidateChatRequestMessage } from './validate.js';
+import { createHash } from '../util/crypto.js';
+
+/**
+ * Entry in the context cache registry.
+ * Stores information about cached context for reuse across requests.
+ */
+type ContextCacheEntry = {
+  /** Provider-specific cache resource name */
+  cacheName: string;
+  /** When the cache expires (timestamp in ms) */
+  expiresAt: number;
+  /** Hash of the cached content for validation */
+  contentHash: string;
+  /** Last time the cache was used (timestamp in ms) */
+  lastTouchedAt: number;
+  /** Number of tokens in the cached content */
+  tokenCount?: number;
+};
+
+/**
+ * Key for the context cache registry.
+ */
+type ContextCacheKey = {
+  providerId: string;
+  model: string;
+  contentHash: string;
+};
+
+/**
+ * Global context cache registry.
+ * Keyed by a composite string of providerId:model:contentHash.
+ * Sessions with identical cacheable content share the same cache.
+ */
+const contextCacheRegistry = new Map<string, ContextCacheEntry>();
+
+/**
+ * Build a composite key string for the cache registry.
+ */
+function buildCacheKey(key: ContextCacheKey): string {
+  return `${key.providerId}:${key.model}:${key.contentHash}`;
+}
+
+/**
+ * Compute a hash of the cacheable content from a chat request.
+ * Includes: system prompts (always) + messages/parts marked with cache: true.
+ */
+function computeCacheableContentHash(
+  chatPrompt: AxChatRequest['chatPrompt']
+): string {
+  const hasher = createHash('sha256');
+
+  for (const msg of chatPrompt) {
+    // Always include system prompts in the cache hash
+    if (msg.role === 'system') {
+      hasher.update(`system:${msg.content}`);
+      continue;
+    }
+
+    // Include other messages/parts only if marked with cache: true
+    if ('cache' in msg && msg.cache) {
+      if (msg.role === 'user') {
+        if (typeof msg.content === 'string') {
+          hasher.update(`user:${msg.content}`);
+        } else if (Array.isArray(msg.content)) {
+          for (const part of msg.content) {
+            if ('cache' in part && part.cache) {
+              if (part.type === 'text') {
+                hasher.update(`text:${part.text}`);
+              } else if (part.type === 'image') {
+                hasher.update(
+                  `image:${part.mimeType}:${part.image.slice(0, 100)}`
+                );
+              } else if (part.type === 'audio') {
+                hasher.update(
+                  `audio:${part.format}:${part.data.slice(0, 100)}`
+                );
+              } else if (part.type === 'file') {
+                if ('fileUri' in part) {
+                  hasher.update(`file:${part.mimeType}:${part.fileUri}`);
+                } else {
+                  hasher.update(
+                    `file:${part.mimeType}:${part.data.slice(0, 100)}`
+                  );
+                }
+              }
+            }
+          }
+        }
+      } else if (msg.role === 'assistant' && msg.content) {
+        hasher.update(`assistant:${msg.content}`);
+      }
+    }
+  }
+
+  return hasher.digest('hex');
+}
 
 export interface AxAIFeatures {
   functions: boolean;
@@ -1182,7 +1282,44 @@ export class AxBaseAI<
         }
       : req;
 
+    // Handle context caching if enabled and supported
+    const cacheResult = await this.handleContextCaching(
+      model,
+      effectiveReq,
+      options,
+      span
+    );
+
     const fn = async () => {
+      // If we have a prepared cached request from the provider, use it
+      if (cacheResult?.preparedRequest) {
+        const { apiConfig, request: reqValue } = cacheResult.preparedRequest;
+
+        if (span?.isRecording()) {
+          setChatRequestEvents(chatReq, span, this.excludeContentFromTrace);
+        }
+
+        const res = await apiCall(
+          {
+            name: apiConfig.name,
+            url: this.apiURL,
+            localCall: apiConfig.localCall,
+            headers: await this.buildHeaders(apiConfig.headers),
+            stream: modelConfig.stream,
+            timeout: this.timeout,
+            verbose,
+            fetch: this.fetch,
+            span,
+            abortSignal: options?.abortSignal ?? this.abortSignal,
+            corsProxy: this.corsProxy,
+            retry: options?.retry ?? this.retry,
+          },
+          reqValue
+        );
+        return res;
+      }
+
+      // Standard path without context caching
       const [apiConfig, reqValue] = await this.aiImpl.createChatReq(
         effectiveReq,
         options
@@ -1620,6 +1757,300 @@ export class AxBaseAI<
   ): TEmbedModel | undefined {
     const item = this.getModelByKey(modelName);
     return item && 'embedModel' in item ? item.embedModel : undefined;
+  }
+
+  /**
+   * Handle context caching for providers that support it.
+   * This method manages cache lookup, creation, TTL refresh, and cache operations.
+   *
+   * Behavior: If contextCache is present, caching is enabled.
+   * - If `name` is provided, use that cache directly
+   * - Otherwise, auto-create/reuse cache based on content hash
+   */
+  private async handleContextCaching(
+    model: TModel,
+    req: Readonly<AxInternalChatRequest<TModel>>,
+    options?: Readonly<AxAIServiceOptions>,
+    span?: Span
+  ): Promise<{
+    preparedRequest?: {
+      apiConfig: import('../util/apicall.js').AxAPI;
+      request: TChatRequest;
+    };
+    cacheInfo?: AxContextCacheInfo;
+  } | null> {
+    const cacheOptions = options?.contextCache;
+
+    // If caching is not configured, skip
+    if (!cacheOptions) {
+      return null;
+    }
+
+    const supportsExplicit = this.aiImpl.supportsContextCache?.(model) ?? false;
+    const supportsImplicit =
+      this.aiImpl.supportsImplicitCaching?.(model) ?? false;
+
+    // If provider supports neither explicit nor implicit caching, throw error
+    if (!supportsExplicit && !supportsImplicit) {
+      throw new Error(
+        `Context caching is not supported by this provider/model (${this.getName()}/${model}). ` +
+          `Remove the contextCache option or use a provider that supports caching.`
+      );
+    }
+
+    // If provider only supports implicit caching (e.g., Anthropic), return null
+    // Implicit caching is handled at the request level (cache_control injection)
+    if (!supportsExplicit) {
+      return null;
+    }
+    const ttlSeconds = cacheOptions.ttlSeconds ?? 3600; // Default 1 hour
+    const refreshWindowSeconds = cacheOptions.refreshWindowSeconds ?? 300; // 5 minutes
+    const minTokens = cacheOptions.minTokens ?? 2048;
+
+    // If an explicit cache name is provided, use it directly
+    if (cacheOptions.name) {
+      return this.useCacheByName(model, req, cacheOptions.name, options, span);
+    }
+
+    // Compute content hash for cache lookup/validation
+    const contentHash = computeCacheableContentHash(req.chatPrompt);
+
+    // Check if there's no cacheable content
+    if (!contentHash || contentHash === createHash('sha256').digest('hex')) {
+      return null;
+    }
+
+    const cacheKey: ContextCacheKey = {
+      providerId: this.id,
+      model: model as string,
+      contentHash,
+    };
+
+    const cacheKeyStr = buildCacheKey(cacheKey);
+    const now = Date.now();
+
+    // Use external registry if provided, otherwise use in-memory registry
+    const externalRegistry = cacheOptions.registry;
+
+    // Look up existing cache entry
+    const existingEntry = externalRegistry
+      ? await externalRegistry.get(cacheKeyStr)
+      : contextCacheRegistry.get(cacheKeyStr);
+
+    if (existingEntry && existingEntry.expiresAt > now) {
+      // Cache hit - check if we need to refresh TTL
+      const shouldRefresh =
+        existingEntry.expiresAt - now < refreshWindowSeconds * 1000;
+
+      if (shouldRefresh && this.aiImpl.buildCacheUpdateTTLOp) {
+        // Refresh TTL
+        await this.executeCacheOperation(
+          this.aiImpl.buildCacheUpdateTTLOp(
+            existingEntry.cacheName,
+            ttlSeconds
+          ),
+          options,
+          span
+        );
+
+        // Update entry with new expiration
+        const updatedEntry = {
+          cacheName: existingEntry.cacheName,
+          expiresAt: now + ttlSeconds * 1000,
+          tokenCount: existingEntry.tokenCount,
+        };
+
+        if (externalRegistry) {
+          await externalRegistry.set(cacheKeyStr, updatedEntry);
+        } else {
+          contextCacheRegistry.set(cacheKeyStr, {
+            ...updatedEntry,
+            contentHash,
+            lastTouchedAt: now,
+          });
+        }
+      }
+
+      // Use the existing cache
+      return this.useCacheByName(
+        model,
+        req,
+        existingEntry.cacheName,
+        options,
+        span
+      );
+    }
+
+    // Cache miss or expired - create a new cache
+    // Check minimum token threshold (heuristic: ~4 chars per token)
+    const estimatedTokens = this.estimateCacheableTokens(req.chatPrompt);
+    if (estimatedTokens < minTokens) {
+      // Below threshold, don't create explicit cache
+      return null;
+    }
+
+    // Build and execute cache creation operation
+    const createOp = this.aiImpl.buildCacheCreateOp?.(req, options);
+    if (createOp) {
+      const cacheInfo = await this.executeCacheOperation(
+        createOp,
+        options,
+        span
+      );
+
+      if (cacheInfo) {
+        // Store in registry
+        const newEntry = {
+          cacheName: cacheInfo.name,
+          expiresAt: new Date(cacheInfo.expiresAt).getTime(),
+          tokenCount: cacheInfo.tokenCount,
+        };
+
+        if (externalRegistry) {
+          await externalRegistry.set(cacheKeyStr, newEntry);
+        } else {
+          contextCacheRegistry.set(cacheKeyStr, {
+            ...newEntry,
+            contentHash,
+            lastTouchedAt: now,
+          });
+        }
+
+        // Use the newly created cache
+        return this.useCacheByName(model, req, cacheInfo.name, options, span);
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Use an existing cache by name to prepare the chat request.
+   */
+  private async useCacheByName(
+    model: TModel,
+    req: Readonly<AxInternalChatRequest<TModel>>,
+    cacheName: string,
+    options?: Readonly<AxAIServiceOptions>,
+    _span?: Span
+  ): Promise<{
+    preparedRequest?: {
+      apiConfig: import('../util/apicall.js').AxAPI;
+      request: TChatRequest;
+    };
+    cacheInfo?: AxContextCacheInfo;
+  } | null> {
+    // Use the provider's prepareCachedChatReq if available
+    if (this.aiImpl.prepareCachedChatReq) {
+      const prepared = await this.aiImpl.prepareCachedChatReq(
+        req,
+        options ?? {},
+        cacheName
+      );
+      return {
+        preparedRequest: {
+          apiConfig: prepared.apiConfig,
+          request: prepared.request,
+        },
+      };
+    }
+
+    // Fallback: provider doesn't support cached request preparation
+    return null;
+  }
+
+  /**
+   * Execute a context cache operation (create/update/delete).
+   */
+  private async executeCacheOperation(
+    op: AxContextCacheOperation,
+    options?: Readonly<AxAIServiceOptions>,
+    span?: Span
+  ): Promise<AxContextCacheInfo | undefined> {
+    const verbose = options?.verbose ?? this.#verbose;
+
+    try {
+      span?.addEvent('context_cache.operation', {
+        type: op.type,
+        endpoint: op.apiConfig.name,
+      });
+
+      const response = await apiCall(
+        {
+          name: op.apiConfig.name,
+          url: this.apiURL,
+          localCall: op.apiConfig.localCall,
+          headers: await this.buildHeaders(op.apiConfig.headers),
+          stream: false,
+          timeout: this.timeout,
+          verbose,
+          fetch: this.fetch,
+          span,
+          abortSignal: options?.abortSignal ?? this.abortSignal,
+          corsProxy: this.corsProxy,
+          retry: options?.retry ?? this.retry,
+        },
+        op.request
+      );
+
+      return op.parseResponse(response);
+    } catch (error) {
+      // Log but don't fail the main request if cache operation fails
+      span?.addEvent('context_cache.error', {
+        type: op.type,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return undefined;
+    }
+  }
+
+  /**
+   * Estimate the number of tokens in cacheable content.
+   * Uses a simple heuristic of ~4 characters per token.
+   * Includes: system prompts (always) + messages/parts marked with cache: true.
+   */
+  private estimateCacheableTokens(
+    chatPrompt: AxChatRequest['chatPrompt']
+  ): number {
+    let charCount = 0;
+
+    for (const msg of chatPrompt) {
+      // Always include system prompts
+      if (msg.role === 'system') {
+        charCount += msg.content.length;
+        continue;
+      }
+
+      // Include other messages/parts only if marked with cache: true
+      if ('cache' in msg && msg.cache) {
+        if (msg.role === 'user') {
+          if (typeof msg.content === 'string') {
+            charCount += msg.content.length;
+          } else if (Array.isArray(msg.content)) {
+            for (const part of msg.content) {
+              if ('cache' in part && part.cache) {
+                if (part.type === 'text') {
+                  charCount += part.text.length;
+                }
+                // Images, audio, files are harder to estimate; use a fixed amount
+                else if (part.type === 'image') {
+                  charCount += 1000; // Images typically use ~1000 tokens
+                } else if (part.type === 'audio') {
+                  charCount += 2000; // Audio uses more tokens
+                } else if (part.type === 'file') {
+                  charCount += 500; // Files vary widely
+                }
+              }
+            }
+          }
+        } else if (msg.role === 'assistant' && msg.content) {
+          charCount += msg.content.length;
+        }
+      }
+    }
+
+    // Heuristic: ~4 characters per token
+    return Math.ceil(charCount / 4);
   }
 }
 

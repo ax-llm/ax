@@ -252,6 +252,7 @@ export type AxChatRequest<TModel = string> = {
                   description?: string;
                 }
             )[];
+        cache?: boolean;
       }
     | {
         role: 'assistant';
@@ -262,6 +263,8 @@ export type AxChatRequest<TModel = string> = {
           type: 'function';
           function: { name: string; params?: string | object };
         }[];
+        /** Concatenated thinking content */
+        thought?: string;
         /** Array of thinking blocks, each with its own signature */
         thoughtBlocks?: AxThoughtBlockItem[];
         cache?: boolean;
@@ -305,6 +308,8 @@ export type AxChatRequest<TModel = string> = {
     name: string;
     description: string;
     parameters?: AxFunctionJSONSchema;
+    /** Mark this function for caching (creates breakpoint after tools) */
+    cache?: boolean;
   }>[];
   functionCall?:
     | 'none'
@@ -451,6 +456,109 @@ export type AxLoggerData =
 
 export type AxLoggerFunction = (message: AxLoggerData) => void;
 
+/**
+ * Entry stored in the context cache registry.
+ * Used for persisting cache metadata across process restarts.
+ */
+export type AxContextCacheRegistryEntry = {
+  /** Provider-specific cache resource name (e.g., "cachedContents/abc123") */
+  cacheName: string;
+  /** When the cache expires (timestamp in milliseconds) */
+  expiresAt: number;
+  /** Number of tokens in the cached content */
+  tokenCount?: number;
+};
+
+/**
+ * External registry for persisting context cache metadata.
+ * Useful for serverless/short-lived processes where in-memory storage is lost.
+ *
+ * @example
+ * // Redis-backed registry
+ * const registry: AxContextCacheRegistry = {
+ *   get: async (key) => {
+ *     const data = await redis.get(`cache:${key}`);
+ *     return data ? JSON.parse(data) : undefined;
+ *   },
+ *   set: async (key, entry) => {
+ *     await redis.set(`cache:${key}`, JSON.stringify(entry), 'EX', 3600);
+ *   },
+ * };
+ */
+export type AxContextCacheRegistry = {
+  /** Look up a cache entry by key */
+  get: (
+    key: string
+  ) =>
+    | Promise<AxContextCacheRegistryEntry | undefined>
+    | AxContextCacheRegistryEntry
+    | undefined;
+  /** Store a cache entry */
+  set: (
+    key: string,
+    entry: Readonly<AxContextCacheRegistryEntry>
+  ) => Promise<void> | void;
+};
+
+/**
+ * Options for explicit context caching (e.g., Gemini/Vertex context caching).
+ * Allows caching large prompt prefixes for cost savings and lower latency.
+ *
+ * When this option is present, caching is enabled. The system will:
+ * - Automatically cache the system prompt and any content marked with `cache: true`
+ * - Reuse existing caches when content hash matches
+ * - Create new caches when content changes
+ * - Auto-refresh TTL when cache is near expiration
+ */
+export type AxContextCacheOptions = {
+  /**
+   * Explicit cache resource name/ID.
+   * If provided, this cache will be used directly (bypasses auto-creation).
+   * If omitted, a cache will be created/looked up automatically.
+   */
+  name?: string;
+
+  /**
+   * TTL (Time To Live) in seconds for the cache.
+   * Default: 3600 (1 hour). Maximum varies by provider.
+   */
+  ttlSeconds?: number;
+
+  /**
+   * Minimum token threshold for creating explicit caches.
+   * Content below this threshold won't create explicit caches (implicit caching still applies).
+   * Default: 2048 (Gemini minimum requirement)
+   */
+  minTokens?: number;
+
+  /**
+   * Window in seconds before expiration to trigger automatic TTL refresh.
+   * Default: 300 (5 minutes)
+   */
+  refreshWindowSeconds?: number;
+
+  /**
+   * External registry for persisting cache metadata.
+   * If provided, cache lookups and storage will use this registry instead of in-memory storage.
+   * Useful for serverless/short-lived processes.
+   */
+  registry?: AxContextCacheRegistry;
+};
+
+/**
+ * Information about a context cache entry (returned after creation or lookup).
+ */
+export type AxContextCacheInfo = {
+  /** Provider-specific cache resource name */
+  name: string;
+  /** When the cache expires (ISO 8601 timestamp) */
+  expiresAt: string;
+  /** Number of tokens in the cached content */
+  tokenCount?: number;
+  /** Hash of the cached content for validation */
+  contentHash?: string;
+};
+
 export type AxAIServiceOptions = {
   debug?: boolean;
   verbose?: boolean; // Low-level HTTP request/response logging
@@ -479,6 +587,13 @@ export type AxAIServiceOptions = {
   stepIndex?: number;
   corsProxy?: string; // CORS proxy URL for browser environments
   retry?: Partial<RetryConfig>;
+
+  /**
+   * Explicit context caching options.
+   * When enabled, large prompt prefixes can be cached for cost savings and lower latency.
+   * Currently supported by: Google Gemini/Vertex AI
+   */
+  contextCache?: AxContextCacheOptions;
 };
 
 export interface AxAIService<
@@ -510,6 +625,35 @@ export interface AxAIService<
   getOptions(): Readonly<AxAIServiceOptions>;
 }
 
+/**
+ * Context cache operation to be executed by the base AI service.
+ * Providers define these operations; AxBaseAI executes them via apiCall().
+ */
+export type AxContextCacheOperation = {
+  /** Type of cache operation */
+  type: 'create' | 'update' | 'delete' | 'get';
+  /** API endpoint configuration */
+  apiConfig: AxAPI;
+  /** Request payload */
+  request: unknown;
+  /** Parse the response and return cache info */
+  parseResponse: (response: unknown) => AxContextCacheInfo | undefined;
+};
+
+/**
+ * Result of preparing a chat request with context cache support.
+ */
+export type AxPreparedChatRequest<TChatRequest> = {
+  /** API endpoint configuration */
+  apiConfig: AxAPI;
+  /** The prepared chat request */
+  request: TChatRequest;
+  /** Optional cache operations to execute before the main request */
+  cacheOperations?: AxContextCacheOperation[];
+  /** Cache name to use in the request (if using existing cache) */
+  cachedContentName?: string;
+};
+
 export interface AxAIServiceImpl<
   TModel,
   TEmbedModel,
@@ -540,4 +684,49 @@ export interface AxAIServiceImpl<
   getModelConfig(): AxModelConfig;
 
   getTokenUsage(): AxTokenUsage | undefined;
+
+  /**
+   * Optional: Prepare a chat request with context cache support.
+   * Providers implement this to support explicit context caching.
+   * Returns cache operations to execute and the modified request.
+   */
+  prepareCachedChatReq?(
+    req: Readonly<AxInternalChatRequest<TModel>>,
+    options: Readonly<AxAIServiceOptions>,
+    existingCacheName?: string
+  ): Promise<AxPreparedChatRequest<TChatRequest>>;
+
+  /**
+   * Optional: Build a context cache creation operation.
+   * Called when a new cache needs to be created from the request.
+   */
+  buildCacheCreateOp?(
+    req: Readonly<AxInternalChatRequest<TModel>>,
+    options: Readonly<AxAIServiceOptions>
+  ): AxContextCacheOperation | undefined;
+
+  /**
+   * Optional: Build a context cache TTL update operation.
+   */
+  buildCacheUpdateTTLOp?(
+    cacheName: string,
+    ttlSeconds: number
+  ): AxContextCacheOperation;
+
+  /**
+   * Optional: Build a context cache deletion operation.
+   */
+  buildCacheDeleteOp?(cacheName: string): AxContextCacheOperation;
+
+  /**
+   * Optional: Check if explicit context caching is supported (e.g., Gemini).
+   * Explicit caching creates a separate cache resource with an ID.
+   */
+  supportsContextCache?(model: TModel): boolean;
+
+  /**
+   * Optional: Check if implicit context caching is supported (e.g., Anthropic).
+   * Implicit caching marks content in the request; provider handles caching automatically.
+   */
+  supportsImplicitCaching?(model: TModel): boolean;
 }

@@ -1,4 +1,4 @@
-import type { AxChatRequest } from '../ai/types.js';
+import type { AxChatRequest, AxContextCacheOptions } from '../ai/types.js';
 
 import { formatDateWithTimezone } from './datetime.js';
 import type { AxInputFunctionType } from './functions.js';
@@ -13,7 +13,9 @@ type Writeable<T> = { -readonly [P in keyof T]: T[P] };
 export interface AxPromptTemplateOptions {
   functions?: Readonly<AxInputFunctionType>;
   thoughtFieldName?: string;
-  cacheSystemPrompt?: boolean;
+  contextCache?: AxContextCacheOptions;
+  /** When true, examples/demos are embedded in system prompt (legacy). When false (default), they are rendered as alternating user/assistant message pairs. */
+  examplesInSystem?: boolean;
 }
 type AxChatRequestChatPrompt = Writeable<AxChatRequest['chatPrompt'][0]>;
 
@@ -21,6 +23,17 @@ type ChatRequestUserMessage = Exclude<
   Extract<AxChatRequestChatPrompt, { role: 'user' }>['content'],
   string
 >;
+
+type DemoMessagePair = {
+  userMessage: {
+    role: 'user';
+    content: string | ChatRequestUserMessage;
+  };
+  assistantMessage: {
+    role: 'assistant';
+    content: string;
+  };
+};
 
 const functionCallInstructions = `
 ## Function Call Instructions
@@ -58,7 +71,8 @@ export class AxPromptTemplate {
   }
   private readonly thoughtFieldName: string;
   private readonly functions?: Readonly<AxInputFunctionType>;
-  private readonly cacheSystemPrompt?: boolean;
+  private readonly contextCache?: AxContextCacheOptions;
+  private readonly examplesInSystem: boolean;
 
   constructor(
     sig: Readonly<AxSignature>,
@@ -69,7 +83,8 @@ export class AxPromptTemplate {
     this.fieldTemplates = fieldTemplates;
     this.thoughtFieldName = options?.thoughtFieldName ?? 'thought';
     this.functions = options?.functions;
-    this.cacheSystemPrompt = options?.cacheSystemPrompt;
+    this.contextCache = options?.contextCache;
+    this.examplesInSystem = options?.examplesInSystem ?? false;
 
     // Use structured prompt format based on global setting
     if (axGlobals.useStructuredPrompt) {
@@ -274,9 +289,28 @@ export class AxPromptTemplate {
     examplesInSystemPrompt: boolean
   ): string | ChatRequestUserMessage => {
     const completion = this.renderInputFields(values);
-    const promptList: ChatRequestUserMessage = examplesInSystemPrompt
-      ? completion
-      : [...renderedExamples, ...renderedDemos, ...completion];
+
+    let promptList: ChatRequestUserMessage;
+
+    if (examplesInSystemPrompt) {
+      promptList = completion;
+    } else {
+      // Combine examples and demos
+      const examplesAndDemos = [...renderedExamples, ...renderedDemos];
+
+      // When caching is enabled and examples are in user message,
+      // mark the last item before completion with cache: true
+      // This creates a cache breakpoint after static examples
+      if (this.contextCache && examplesAndDemos.length > 0) {
+        const lastIdx = examplesAndDemos.length - 1;
+        const lastItem = examplesAndDemos[lastIdx];
+        if (lastItem) {
+          examplesAndDemos[lastIdx] = { ...lastItem, cache: true };
+        }
+      }
+
+      promptList = [...examplesAndDemos, ...completion];
+    }
 
     const prompt = promptList.filter((v) => v !== undefined);
 
@@ -299,6 +333,12 @@ export class AxPromptTemplate {
     AxChatRequest['chatPrompt'][number],
     { role: 'user' | 'system' | 'assistant' }
   >[] => {
+    // New behavior: render examples/demos as alternating user/assistant message pairs
+    if (!this.examplesInSystem) {
+      return this.renderWithMessagePairs(values, { examples, demos });
+    }
+
+    // Legacy behavior: examples/demos in system prompt or user message
     const renderedExamples = examples
       ? [
           { type: 'text' as const, text: '\n\n## Examples\n' },
@@ -331,7 +371,7 @@ export class AxPromptTemplate {
     const systemPrompt = {
       role: 'system' as const,
       content: systemContent,
-      cache: this.cacheSystemPrompt,
+      cache: !!this.contextCache, // Auto-enable cache flag if contextCache is present
     };
 
     if (Array.isArray(values)) {
@@ -393,6 +433,108 @@ export class AxPromptTemplate {
     );
 
     return [systemPrompt, { role: 'user' as const, content: userContent }];
+  };
+
+  /**
+   * Render prompt with examples/demos as alternating user/assistant message pairs.
+   * This follows the best practices for few-shot prompting in modern LLMs.
+   */
+  private renderWithMessagePairs = <T = any>(
+    values: T | ReadonlyArray<AxMessage<T>>,
+    {
+      examples,
+      demos,
+    }: Readonly<{
+      examples?: Record<string, AxFieldValue>[];
+      demos?: Record<string, AxFieldValue>[];
+    }>
+  ): Extract<
+    AxChatRequest['chatPrompt'][number],
+    { role: 'user' | 'system' | 'assistant' }
+  >[] => {
+    // System prompt contains only instructions (no examples)
+    const systemPrompt = {
+      role: 'system' as const,
+      content: this.task.text,
+      cache: !!this.contextCache,
+    };
+
+    // Render examples and demos as message pairs
+    const examplePairs = examples
+      ? this.renderExamplesAsMessages(examples)
+      : [];
+    const demoPairs = demos ? this.renderDemosAsMessages(demos) : [];
+
+    // Flatten pairs into message array
+    const fewShotMessages: Extract<
+      AxChatRequest['chatPrompt'][number],
+      { role: 'user' | 'assistant' }
+    >[] = [];
+
+    for (const pair of [...examplePairs, ...demoPairs]) {
+      fewShotMessages.push(pair.userMessage);
+      fewShotMessages.push(pair.assistantMessage);
+    }
+
+    // Apply cache to last assistant message (creates breakpoint after demos)
+    if (this.contextCache && fewShotMessages.length > 0) {
+      const lastIdx = fewShotMessages.length - 1;
+      const lastMsg = fewShotMessages[lastIdx];
+      if (lastMsg?.role === 'assistant') {
+        fewShotMessages[lastIdx] = { ...lastMsg, cache: true };
+      }
+    }
+
+    // Handle multi-turn history
+    if (Array.isArray(values)) {
+      const historyMessages: Extract<
+        AxChatRequest['chatPrompt'][number],
+        { role: 'user' | 'assistant' }
+      >[] = [];
+
+      const history = values as ReadonlyArray<AxMessage<T>>;
+
+      for (const message of history) {
+        const renderedContent = this.renderInputFields(message.values);
+        const content: string | ChatRequestUserMessage = renderedContent.every(
+          (v) => v.type === 'text'
+        )
+          ? renderedContent.map((v) => v.text).join('\n')
+          : renderedContent.reduce(combineConsecutiveStrings('\n'), []);
+
+        if (message.role === 'user') {
+          historyMessages.push({ role: 'user', content });
+          continue;
+        }
+
+        if (message.role !== 'assistant') {
+          throw new Error('Invalid message role');
+        }
+
+        if (typeof content !== 'string') {
+          throw new Error(
+            'Assistant message cannot contain non-text content like images, files, etc'
+          );
+        }
+
+        historyMessages.push({ role: 'assistant', content });
+      }
+
+      return [systemPrompt, ...fewShotMessages, ...historyMessages];
+    }
+
+    // Single-turn: render user input
+    const userContent = this.renderInputFields(values as T);
+    const formattedUserContent: string | ChatRequestUserMessage =
+      userContent.every((v) => v.type === 'text')
+        ? userContent.map((v) => v.text).join('\n')
+        : userContent.reduce(combineConsecutiveStrings('\n'), []);
+
+    return [
+      systemPrompt,
+      ...fewShotMessages,
+      { role: 'user' as const, content: formattedUserContent },
+    ];
   };
 
   public renderExtraFields = (extraFields: readonly AxIField[]) => {
@@ -649,6 +791,87 @@ export class AxPromptTemplate {
     }
 
     return list;
+  };
+
+  /**
+   * Render examples as alternating user/assistant message pairs.
+   * This follows the best practices for few-shot prompting in modern LLMs.
+   */
+  private renderExamplesAsMessages = (
+    data: Readonly<Record<string, AxFieldValue>[]>
+  ): DemoMessagePair[] => {
+    const pairs: DemoMessagePair[] = [];
+    const exampleContext = { isExample: true };
+    const hasComplexFields = this.sig.hasComplexFields();
+
+    for (const item of data) {
+      // Render INPUT fields as user message content
+      const inputContent = this.sig
+        .getInputFields()
+        .map((field) =>
+          this.renderInField(field, item, {
+            ...exampleContext,
+            isInputField: true,
+          })
+        )
+        .filter((v) => v !== undefined)
+        .flat();
+
+      // Render OUTPUT fields as assistant message content
+      let outputContent: string;
+      if (hasComplexFields) {
+        // For structured outputs, render as JSON
+        const outputValues: Record<string, any> = {};
+        for (const field of this.sig.getOutputFields()) {
+          if (field.name in item) {
+            outputValues[field.name] = (item as any)[field.name];
+          }
+        }
+        outputContent = JSON.stringify(outputValues, null, 2);
+      } else {
+        // For plain text outputs, render as field: value pairs
+        const outputItems = this.sig
+          .getOutputFields()
+          .map((field) =>
+            this.renderInField(field, item, {
+              ...exampleContext,
+              isInputField: false,
+            })
+          )
+          .filter((v) => v !== undefined)
+          .flat();
+
+        outputContent = outputItems
+          .filter((v): v is { type: 'text'; text: string } => v.type === 'text')
+          .map((v) => v.text)
+          .join('\n');
+      }
+
+      // Format user content - string if all text, array if multimodal
+      const userContent: string | ChatRequestUserMessage = inputContent.every(
+        (v) => v.type === 'text'
+      )
+        ? inputContent.map((v) => v.text).join('\n')
+        : inputContent.reduce(combineConsecutiveStrings('\n'), []);
+
+      pairs.push({
+        userMessage: { role: 'user', content: userContent },
+        assistantMessage: { role: 'assistant', content: outputContent },
+      });
+    }
+
+    return pairs;
+  };
+
+  /**
+   * Render demos as alternating user/assistant message pairs.
+   * This follows the best practices for few-shot prompting in modern LLMs.
+   */
+  private renderDemosAsMessages = (
+    data: Readonly<Record<string, AxFieldValue>[]>
+  ): DemoMessagePair[] => {
+    // Demos use the same rendering logic as examples
+    return this.renderExamplesAsMessages(data);
   };
 
   private renderInputFields = <T = any>(values: T) => {

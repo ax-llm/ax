@@ -13,11 +13,14 @@ import type {
   AxAIServiceOptions,
   AxChatResponse,
   AxChatResponseResult,
+  AxContextCacheInfo,
+  AxContextCacheOperation,
   AxEmbedResponse,
   AxInternalChatRequest,
   AxInternalEmbedRequest,
   AxModelConfig,
   AxModelInfo,
+  AxPreparedChatRequest,
   AxThoughtBlockItem,
   AxTokenUsage,
 } from '../types.js';
@@ -25,6 +28,9 @@ import { axModelInfoGoogleGemini } from './info.js';
 import {
   type AxAIGoogleGeminiBatchEmbedRequest,
   type AxAIGoogleGeminiBatchEmbedResponse,
+  type AxAIGoogleGeminiCacheCreateRequest,
+  type AxAIGoogleGeminiCacheResponse,
+  type AxAIGoogleGeminiCacheUpdateRequest,
   type AxAIGoogleGeminiChatRequest,
   type AxAIGoogleGeminiChatResponse,
   type AxAIGoogleGeminiChatResponseDelta,
@@ -41,6 +47,7 @@ import {
   type AxAIGoogleGeminiToolGoogleMaps,
   type AxAIGoogleVertexBatchEmbedRequest,
   type AxAIGoogleVertexBatchEmbedResponse,
+  GEMINI_CONTEXT_CACHE_SUPPORTED_MODELS,
 } from './types.js';
 
 /**
@@ -485,8 +492,11 @@ class AxAIGoogleGeminiImpl
           } as any;
         }
 
+        // Only include supported fields for Gemini function declarations
+        // Exclude 'cache' and other unsupported fields
         return {
-          ...fn,
+          name: fn.name,
+          description: fn.description,
           parameters,
         };
       });
@@ -949,6 +959,10 @@ class AxAIGoogleGeminiImpl
         promptTokens: resp.usageMetadata.promptTokenCount,
         completionTokens: resp.usageMetadata.candidatesTokenCount,
         thoughtsTokens: resp.usageMetadata.thoughtsTokenCount,
+        // Map cached content token count to cacheReadTokens for cost tracking
+        ...(resp.usageMetadata.cachedContentTokenCount !== undefined
+          ? { cacheReadTokens: resp.usageMetadata.cachedContentTokenCount }
+          : {}),
       };
     }
     const response: AxChatResponse = { results };
@@ -990,6 +1004,412 @@ class AxAIGoogleGeminiImpl
       embeddings,
     };
   };
+
+  // ============================================================================
+  // Context Caching Methods
+  // ============================================================================
+
+  /**
+   * Check if context caching is supported for a given model.
+   */
+  supportsContextCache = (model: AxAIGoogleGeminiModel): boolean => {
+    const modelStr = model as string;
+    return GEMINI_CONTEXT_CACHE_SUPPORTED_MODELS.some(
+      (m) => modelStr.includes(m) || m.includes(modelStr)
+    );
+  };
+
+  /**
+   * Build a context cache creation operation.
+   */
+  buildCacheCreateOp = (
+    req: Readonly<AxInternalChatRequest<AxAIGoogleGeminiModel>>,
+    options: Readonly<AxAIServiceOptions>
+  ): AxContextCacheOperation | undefined => {
+    const model = req.model;
+    const ttlSeconds = options.contextCache?.ttlSeconds ?? 3600;
+
+    // Extract cacheable content from the request (system prompt + marked content)
+    const { systemInstruction, contents } = this.extractCacheableContent(
+      req.chatPrompt
+    );
+
+    // If no cacheable content, return undefined
+    if (!systemInstruction && (!contents || contents.length === 0)) {
+      return undefined;
+    }
+
+    // Build the cache creation request
+    const cacheRequest: AxAIGoogleGeminiCacheCreateRequest = {
+      model: this.isVertex ? model : `models/${model}`,
+      ttl: `${ttlSeconds}s`,
+      displayName: `ax-cache-${Date.now()}`,
+    };
+
+    if (systemInstruction) {
+      cacheRequest.systemInstruction = systemInstruction;
+    }
+
+    if (contents && contents.length > 0) {
+      cacheRequest.contents = contents;
+    }
+
+    // Build API endpoint
+    let apiPath: string;
+    if (this.isVertex) {
+      apiPath = '/cachedContents';
+    } else {
+      apiPath = '/cachedContents';
+      // Add API key for non-Vertex
+      const keyValue =
+        typeof this.apiKey === 'function' ? 'ASYNC_KEY' : this.apiKey;
+      apiPath += `?key=${keyValue}`;
+    }
+
+    return {
+      type: 'create',
+      apiConfig: { name: apiPath },
+      request: cacheRequest,
+      parseResponse: (response: unknown): AxContextCacheInfo | undefined => {
+        const resp = response as AxAIGoogleGeminiCacheResponse;
+        if (!resp?.name) return undefined;
+        return {
+          name: resp.name,
+          expiresAt: resp.expireTime,
+          tokenCount: resp.usageMetadata?.totalTokenCount,
+        };
+      },
+    };
+  };
+
+  /**
+   * Build a cache TTL update operation.
+   */
+  buildCacheUpdateTTLOp = (
+    cacheName: string,
+    ttlSeconds: number
+  ): AxContextCacheOperation => {
+    const updateRequest: AxAIGoogleGeminiCacheUpdateRequest = {
+      ttl: `${ttlSeconds}s`,
+    };
+
+    // API path uses the cache name directly
+    let apiPath = `/${cacheName}`;
+    if (!this.isVertex && this.apiKey) {
+      const keyValue =
+        typeof this.apiKey === 'function' ? 'ASYNC_KEY' : this.apiKey;
+      apiPath += `?key=${keyValue}`;
+    }
+
+    return {
+      type: 'update',
+      apiConfig: {
+        name: apiPath,
+        headers: { 'Content-Type': 'application/json' },
+      },
+      request: updateRequest,
+      parseResponse: (response: unknown): AxContextCacheInfo | undefined => {
+        const resp = response as AxAIGoogleGeminiCacheResponse;
+        if (!resp?.name) return undefined;
+        return {
+          name: resp.name,
+          expiresAt: resp.expireTime,
+          tokenCount: resp.usageMetadata?.totalTokenCount,
+        };
+      },
+    };
+  };
+
+  /**
+   * Build a cache deletion operation.
+   */
+  buildCacheDeleteOp = (cacheName: string): AxContextCacheOperation => {
+    let apiPath = `/${cacheName}`;
+    if (!this.isVertex && this.apiKey) {
+      const keyValue =
+        typeof this.apiKey === 'function' ? 'ASYNC_KEY' : this.apiKey;
+      apiPath += `?key=${keyValue}`;
+    }
+
+    return {
+      type: 'delete',
+      apiConfig: {
+        name: apiPath,
+        headers: { 'Content-Type': 'application/json' },
+      },
+      request: {},
+      parseResponse: (): undefined => undefined,
+    };
+  };
+
+  /**
+   * Prepare a chat request that uses an existing cache.
+   */
+  prepareCachedChatReq = async (
+    req: Readonly<AxInternalChatRequest<AxAIGoogleGeminiModel>>,
+    _options: Readonly<AxAIServiceOptions>,
+    existingCacheName: string
+  ): Promise<AxPreparedChatRequest<AxAIGoogleGeminiChatRequest>> => {
+    const model = req.model;
+    const stream = req.modelConfig?.stream ?? this.config.stream;
+
+    // Build the base request but only with non-cached content
+    const { dynamicContents, dynamicSystemInstruction } =
+      this.extractDynamicContent(req.chatPrompt);
+
+    // Build API config (same as regular chat)
+    let apiConfig: AxAPI;
+    if (this.endpointId) {
+      apiConfig = {
+        name: stream
+          ? `/${this.endpointId}:streamGenerateContent?alt=sse`
+          : `/${this.endpointId}:generateContent`,
+      };
+    } else {
+      apiConfig = {
+        name: stream
+          ? `/models/${model}:streamGenerateContent?alt=sse`
+          : `/models/${model}:generateContent`,
+      };
+    }
+
+    if (!this.isVertex) {
+      const pf = stream ? '&' : '?';
+      const keyValue =
+        typeof this.apiKey === 'function' ? await this.apiKey() : this.apiKey;
+      apiConfig.name += `${pf}key=${keyValue}`;
+    }
+
+    // Build the generation config using existing logic
+    const generationConfig: AxAIGoogleGeminiGenerationConfig = {
+      maxOutputTokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
+      ...(req.modelConfig?.temperature !== undefined
+        ? { temperature: req.modelConfig.temperature }
+        : {}),
+      ...(req.modelConfig?.topP !== undefined
+        ? { topP: req.modelConfig.topP }
+        : {}),
+      topK: req.modelConfig?.topK ?? this.config.topK,
+      frequencyPenalty:
+        req.modelConfig?.frequencyPenalty ?? this.config.frequencyPenalty,
+      candidateCount: 1,
+      stopSequences:
+        req.modelConfig?.stopSequences ?? this.config.stopSequences,
+      responseMimeType: 'text/plain',
+    };
+
+    const safetySettings = this.config.safetySettings;
+
+    // Build the request with cachedContent reference
+    const chatRequest: AxAIGoogleGeminiChatRequest = {
+      contents: dynamicContents,
+      cachedContent: existingCacheName,
+      generationConfig,
+      safetySettings,
+    };
+
+    // Only include systemInstruction if there's dynamic system content
+    if (dynamicSystemInstruction) {
+      chatRequest.systemInstruction = dynamicSystemInstruction;
+    }
+
+    return {
+      apiConfig,
+      request: chatRequest,
+    };
+  };
+
+  /**
+   * Extract cacheable content from chat prompt.
+   * Includes: system prompts (always) + messages/parts marked with cache: true.
+   */
+  private extractCacheableContent(
+    chatPrompt: AxInternalChatRequest<AxAIGoogleGeminiModel>['chatPrompt']
+  ): {
+    systemInstruction?: AxAIGoogleGeminiContent;
+    contents?: AxAIGoogleGeminiContent[];
+  } {
+    let systemInstruction: AxAIGoogleGeminiContent | undefined;
+    const contents: AxAIGoogleGeminiContent[] = [];
+
+    for (const msg of chatPrompt) {
+      // Always cache system prompts
+      if (msg.role === 'system') {
+        systemInstruction = {
+          role: 'user' as const,
+          parts: [{ text: msg.content }],
+        };
+        continue;
+      }
+
+      // For other roles, only cache if marked with cache: true
+      if (!('cache' in msg && msg.cache)) {
+        continue;
+      }
+
+      if (msg.role === 'user') {
+        const parts: AxAIGoogleGeminiContentPart[] = [];
+        if (typeof msg.content === 'string') {
+          parts.push({ text: msg.content });
+        } else if (Array.isArray(msg.content)) {
+          for (const c of msg.content) {
+            if ('cache' in c && c.cache) {
+              switch (c.type) {
+                case 'text':
+                  parts.push({ text: c.text });
+                  break;
+                case 'image':
+                  parts.push({
+                    inlineData: { mimeType: c.mimeType, data: c.image },
+                  });
+                  break;
+                case 'audio':
+                  parts.push({
+                    inlineData: {
+                      mimeType: `audio/${c.format ?? 'mp3'}`,
+                      data: c.data,
+                    },
+                  });
+                  break;
+                case 'file':
+                  if ('fileUri' in c) {
+                    parts.push({
+                      fileData: { mimeType: c.mimeType, fileUri: c.fileUri },
+                    });
+                  } else {
+                    parts.push({
+                      inlineData: { mimeType: c.mimeType, data: c.data },
+                    });
+                  }
+                  break;
+              }
+            }
+          }
+        }
+        if (parts.length > 0) {
+          contents.push({ role: 'user' as const, parts });
+        }
+      } else if (msg.role === 'assistant' && msg.content) {
+        contents.push({
+          role: 'model' as const,
+          parts: [{ text: msg.content }],
+        });
+      }
+    }
+
+    return { systemInstruction, contents };
+  }
+
+  /**
+   * Extract dynamic (non-cached) content from chat prompt.
+   * Excludes: system prompts (always cached) + messages/parts marked with cache: true.
+   */
+  private extractDynamicContent(
+    chatPrompt: AxInternalChatRequest<AxAIGoogleGeminiModel>['chatPrompt']
+  ): {
+    dynamicContents: AxAIGoogleGeminiContent[];
+    dynamicSystemInstruction?: AxAIGoogleGeminiContent;
+  } {
+    const dynamicSystemInstruction: AxAIGoogleGeminiContent | undefined =
+      undefined;
+    const dynamicContents: AxAIGoogleGeminiContent[] = [];
+
+    for (const msg of chatPrompt) {
+      // System prompts are always cached, so skip them
+      if (msg.role === 'system') {
+        continue;
+      }
+
+      // Skip messages marked with cache: true (they're in the cache)
+      if ('cache' in msg && msg.cache) {
+        continue;
+      }
+
+      // Otherwise include as dynamic content
+      if (msg.role === 'user') {
+        const parts: AxAIGoogleGeminiContentPart[] = [];
+        if (typeof msg.content === 'string') {
+          parts.push({ text: msg.content });
+        } else if (Array.isArray(msg.content)) {
+          for (const c of msg.content) {
+            // Skip cached parts
+            if ('cache' in c && c.cache) {
+              continue;
+            }
+            switch (c.type) {
+              case 'text':
+                parts.push({ text: c.text });
+                break;
+              case 'image':
+                parts.push({
+                  inlineData: { mimeType: c.mimeType, data: c.image },
+                });
+                break;
+              case 'audio':
+                parts.push({
+                  inlineData: {
+                    mimeType: `audio/${c.format ?? 'mp3'}`,
+                    data: c.data,
+                  },
+                });
+                break;
+              case 'file':
+                if ('fileUri' in c) {
+                  parts.push({
+                    fileData: { mimeType: c.mimeType, fileUri: c.fileUri },
+                  });
+                } else {
+                  parts.push({
+                    inlineData: { mimeType: c.mimeType, data: c.data },
+                  });
+                }
+                break;
+            }
+          }
+        }
+        if (parts.length > 0) {
+          dynamicContents.push({ role: 'user' as const, parts });
+        }
+      } else if (msg.role === 'assistant') {
+        const parts: AxAIGoogleGeminiContentPart[] = [];
+        if (msg.content) {
+          parts.push({ text: msg.content });
+        }
+        if (msg.functionCalls) {
+          for (const f of msg.functionCalls) {
+            let args: object;
+            if (typeof f.function.params === 'string') {
+              try {
+                args = JSON.parse(f.function.params);
+              } catch {
+                args = {};
+              }
+            } else {
+              args = f.function.params ?? {};
+            }
+            parts.push({ functionCall: { name: f.function.name, args } });
+          }
+        }
+        if (parts.length > 0) {
+          dynamicContents.push({ role: 'model' as const, parts });
+        }
+      } else if (msg.role === 'function') {
+        dynamicContents.push({
+          role: 'user' as const,
+          parts: [
+            {
+              functionResponse: {
+                name: msg.functionId,
+                response: { result: msg.result },
+              },
+            },
+          ],
+        });
+      }
+    }
+
+    return { dynamicContents, dynamicSystemInstruction };
+  }
 }
 
 // Helper type to extract model keys from the models array
@@ -1125,8 +1545,8 @@ export class AxAIGoogleGemini<TModelKey = string> extends AxBaseAI<
           },
         },
         caching: {
-          supported: false,
-          types: [],
+          supported: aiImpl.supportsContextCache(model),
+          types: ['persistent'] as ('ephemeral' | 'persistent')[],
         },
         thinking: mi?.supported?.thinkingBudget ?? false,
         multiTurn: true,

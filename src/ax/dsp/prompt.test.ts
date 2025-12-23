@@ -39,11 +39,13 @@ describe('AxPromptTemplate.render', () => {
       expect(userMessage?.content).toContain('User Query: test');
     });
 
-    it('should render with examples', () => {
+    it('should render with examples (legacy: examplesInSystem)', () => {
       const signature = new AxSignature(
         'userQuery:string -> aiResponse:string "the result"'
       );
-      const template = new AxPromptTemplate(signature);
+      const template = new AxPromptTemplate(signature, {
+        examplesInSystem: true,
+      });
 
       const examples = [{ userQuery: 'hello', aiResponse: 'world' }];
       const result = template.render({ userQuery: 'test' }, { examples });
@@ -55,6 +57,45 @@ describe('AxPromptTemplate.render', () => {
         | undefined;
       expect(systemMessage?.content).toContain('User Query: hello');
       expect(systemMessage?.content).toContain('Ai Response: world');
+    });
+
+    it('should render with examples as message pairs by default', () => {
+      const signature = new AxSignature(
+        'userQuery:string -> aiResponse:string "the result"'
+      );
+      const template = new AxPromptTemplate(signature);
+
+      const examples = [{ userQuery: 'hello', aiResponse: 'world' }];
+      const result = template.render({ userQuery: 'test' }, { examples });
+
+      // Should have: system, user (example), assistant (example), user (query)
+      expect(result).toHaveLength(4);
+      expect(result[0]?.role).toBe('system');
+      expect(result[1]?.role).toBe('user');
+      expect(result[2]?.role).toBe('assistant');
+      expect(result[3]?.role).toBe('user');
+
+      // System prompt should NOT contain example content
+      const systemMessage = result[0] as
+        | { role: 'system'; content: string }
+        | undefined;
+      expect(systemMessage?.content).not.toContain('hello');
+      expect(systemMessage?.content).not.toContain('world');
+
+      // Example user message should contain input
+      const exampleUser = result[1] as { role: 'user'; content: string };
+      expect(exampleUser.content).toContain('User Query: hello');
+
+      // Example assistant message should contain output
+      const exampleAssistant = result[2] as {
+        role: 'assistant';
+        content: string;
+      };
+      expect(exampleAssistant.content).toContain('Ai Response: world');
+
+      // Final user message should contain actual query
+      const actualUser = result[3] as { role: 'user'; content: string };
+      expect(actualUser.content).toContain('User Query: test');
     });
   });
 
@@ -73,11 +114,13 @@ describe('AxPromptTemplate.render', () => {
       expect(userMessage?.content).toContain('Priority: 0');
     });
 
-    it('should handle zero in examples correctly', () => {
+    it('should handle zero in examples correctly (legacy: examplesInSystem)', () => {
       const signature = new AxSignature(
         'query:string -> score:number, confidence:number'
       );
-      const template = new AxPromptTemplate(signature);
+      const template = new AxPromptTemplate(signature, {
+        examplesInSystem: true,
+      });
 
       const examples = [{ query: 'test', score: 0, confidence: 0.5 }];
 
@@ -90,6 +133,27 @@ describe('AxPromptTemplate.render', () => {
         | undefined;
       expect(systemMessage?.content).toContain('Score: 0');
       expect(systemMessage?.content).toContain('Confidence: 0.5');
+    });
+
+    it('should handle zero in examples correctly (message pairs)', () => {
+      const signature = new AxSignature(
+        'query:string -> score:number, confidence:number'
+      );
+      const template = new AxPromptTemplate(signature);
+
+      const examples = [{ query: 'test', score: 0, confidence: 0.5 }];
+
+      const result = template.render({ query: 'hello' }, { examples });
+
+      // Should have: system, user (example), assistant (example), user (query)
+      expect(result).toHaveLength(4);
+      expect(result[2]?.role).toBe('assistant');
+      const assistantMessage = result[2] as {
+        role: 'assistant';
+        content: string;
+      };
+      expect(assistantMessage.content).toContain('Score: 0');
+      expect(assistantMessage.content).toContain('Confidence: 0.5');
     });
 
     it('should handle negative numbers and special numeric values', () => {
@@ -123,11 +187,13 @@ describe('AxPromptTemplate.render', () => {
       }).not.toThrow();
     });
 
-    it('should handle false boolean values correctly in examples', () => {
+    it('should handle false boolean values correctly in examples (legacy: examplesInSystem)', () => {
       const signature = new AxSignature(
         'userQuery:string, isUserMessage:boolean -> aiResponse:string'
       );
-      const template = new AxPromptTemplate(signature);
+      const template = new AxPromptTemplate(signature, {
+        examplesInSystem: true,
+      });
 
       const examples = [
         { userQuery: 'hello', isUserMessage: false, aiResponse: 'world' },
@@ -144,6 +210,27 @@ describe('AxPromptTemplate.render', () => {
         | { role: 'system'; content: string }
         | undefined;
       expect(systemMessage?.content).toContain('Is User Message: false');
+    });
+
+    it('should handle false boolean values correctly in examples (message pairs)', () => {
+      const signature = new AxSignature(
+        'userQuery:string, isUserMessage:boolean -> aiResponse:string'
+      );
+      const template = new AxPromptTemplate(signature);
+
+      const examples = [
+        { userQuery: 'hello', isUserMessage: false, aiResponse: 'world' },
+      ];
+
+      const result = template.render(
+        { userQuery: 'test', isUserMessage: true },
+        { examples }
+      );
+
+      // Should have: system, user (example), assistant (example), user (query)
+      expect(result).toHaveLength(4);
+      const exampleUser = result[1] as { role: 'user'; content: string };
+      expect(exampleUser.content).toContain('Is User Message: false');
     });
 
     it('should allow missing output fields in examples', () => {
@@ -480,6 +567,204 @@ describe('AxPromptTemplate.render', () => {
           {}
         )
       ).toThrow(/mimeType.*data.*fileUri/);
+    });
+  });
+
+  describe('Examples as alternating message pairs (new default behavior)', () => {
+    it('should render multiple examples as alternating user/assistant pairs', () => {
+      const signature = new AxSignature(
+        'userQuery:string -> aiResponse:string'
+      );
+      const template = new AxPromptTemplate(signature);
+
+      const examples = [
+        { userQuery: 'hello', aiResponse: 'world' },
+        { userQuery: 'foo', aiResponse: 'bar' },
+      ];
+      const result = template.render({ userQuery: 'test' }, { examples });
+
+      // Should have: system, user (ex1), assistant (ex1), user (ex2), assistant (ex2), user (query)
+      expect(result).toHaveLength(6);
+      expect(result[0]?.role).toBe('system');
+      expect(result[1]?.role).toBe('user');
+      expect(result[2]?.role).toBe('assistant');
+      expect(result[3]?.role).toBe('user');
+      expect(result[4]?.role).toBe('assistant');
+      expect(result[5]?.role).toBe('user');
+
+      // Check example content
+      const ex1User = result[1] as { role: 'user'; content: string };
+      const ex1Asst = result[2] as { role: 'assistant'; content: string };
+      const ex2User = result[3] as { role: 'user'; content: string };
+      const ex2Asst = result[4] as { role: 'assistant'; content: string };
+
+      expect(ex1User.content).toContain('User Query: hello');
+      expect(ex1Asst.content).toContain('Ai Response: world');
+      expect(ex2User.content).toContain('User Query: foo');
+      expect(ex2Asst.content).toContain('Ai Response: bar');
+    });
+
+    it('should render demos as alternating user/assistant pairs', () => {
+      const signature = new AxSignature(
+        'userQuery:string -> aiResponse:string'
+      );
+      const template = new AxPromptTemplate(signature);
+
+      const demos = [{ userQuery: 'demo input', aiResponse: 'demo output' }];
+      const result = template.render({ userQuery: 'test' }, { demos });
+
+      // Should have: system, user (demo), assistant (demo), user (query)
+      expect(result).toHaveLength(4);
+      expect(result[0]?.role).toBe('system');
+      expect(result[1]?.role).toBe('user');
+      expect(result[2]?.role).toBe('assistant');
+      expect(result[3]?.role).toBe('user');
+
+      // Check demo content
+      const demoUser = result[1] as { role: 'user'; content: string };
+      const demoAsst = result[2] as { role: 'assistant'; content: string };
+
+      expect(demoUser.content).toContain('User Query: demo input');
+      expect(demoAsst.content).toContain('Ai Response: demo output');
+    });
+
+    it('should render examples and demos in correct order', () => {
+      const signature = new AxSignature(
+        'userQuery:string -> aiResponse:string'
+      );
+      const template = new AxPromptTemplate(signature);
+
+      const examples = [{ userQuery: 'example', aiResponse: 'example out' }];
+      const demos = [{ userQuery: 'demo', aiResponse: 'demo out' }];
+      const result = template.render(
+        { userQuery: 'test' },
+        { examples, demos }
+      );
+
+      // Should have: system, user (ex), assistant (ex), user (demo), assistant (demo), user (query)
+      expect(result).toHaveLength(6);
+
+      // Examples come first
+      const exUser = result[1] as { role: 'user'; content: string };
+      const exAsst = result[2] as { role: 'assistant'; content: string };
+      expect(exUser.content).toContain('User Query: example');
+      expect(exAsst.content).toContain('Ai Response: example out');
+
+      // Then demos
+      const demoUser = result[3] as { role: 'user'; content: string };
+      const demoAsst = result[4] as { role: 'assistant'; content: string };
+      expect(demoUser.content).toContain('User Query: demo');
+      expect(demoAsst.content).toContain('Ai Response: demo out');
+    });
+
+    it('should handle multimodal examples as message pairs', () => {
+      const signature = new AxSignature(
+        'imageInput:image -> description:string'
+      );
+      const template = new AxPromptTemplate(signature);
+
+      const examples = [
+        {
+          imageInput: { mimeType: 'image/png', data: 'base64ImageData' },
+          description: 'A beautiful sunset',
+        },
+      ];
+      const result = template.render(
+        { imageInput: { mimeType: 'image/png', data: 'testImage' } },
+        { examples }
+      );
+
+      // Should have: system, user (example with image), assistant (example), user (query with image)
+      expect(result).toHaveLength(4);
+      expect(result[0]?.role).toBe('system');
+      expect(result[1]?.role).toBe('user');
+      expect(result[2]?.role).toBe('assistant');
+      expect(result[3]?.role).toBe('user');
+
+      // Example user message should have multimodal content
+      const exUser = result[1] as {
+        role: 'user';
+        content: unknown[];
+      };
+      expect(Array.isArray(exUser.content)).toBe(true);
+      expect(exUser.content.some((c: any) => c.type === 'image')).toBe(true);
+
+      // Example assistant message should be text
+      const exAsst = result[2] as { role: 'assistant'; content: string };
+      expect(exAsst.content).toContain('Description: A beautiful sunset');
+    });
+
+    it('should apply cache to last assistant demo message when contextCache is enabled', () => {
+      const signature = new AxSignature(
+        'userQuery:string -> aiResponse:string'
+      );
+      const template = new AxPromptTemplate(signature, {
+        contextCache: { ttlSeconds: 3600 },
+      });
+
+      const examples = [{ userQuery: 'hello', aiResponse: 'world' }];
+      const result = template.render({ userQuery: 'test' }, { examples });
+
+      // System should have cache flag
+      const systemMsg = result[0] as { role: 'system'; cache?: boolean };
+      expect(systemMsg.cache).toBe(true);
+
+      // Last assistant demo should have cache flag
+      const lastDemo = result[2] as { role: 'assistant'; cache?: boolean };
+      expect(lastDemo.cache).toBe(true);
+
+      // User query should NOT have cache flag
+      const userQuery = result[3] as { role: 'user'; cache?: boolean };
+      expect(userQuery.cache).toBeUndefined();
+    });
+
+    it('should work with multi-turn history and examples', () => {
+      const signature = new AxSignature(
+        'userQuery:string -> aiResponse:string'
+      );
+      const template = new AxPromptTemplate(signature);
+
+      const examples = [{ userQuery: 'example', aiResponse: 'example out' }];
+      const history: ReadonlyArray<AxMessage<{ userQuery: string }>> = [
+        { role: 'user', values: { userQuery: 'first message' } },
+        { role: 'assistant', values: { userQuery: 'first response' } },
+        { role: 'user', values: { userQuery: 'second message' } },
+      ];
+
+      const result = template.render(history, { examples });
+
+      // Should have: system, user (ex), assistant (ex), user (hist1), assistant (hist1), user (hist2)
+      expect(result).toHaveLength(6);
+      expect(result[0]?.role).toBe('system');
+
+      // Example messages
+      expect(result[1]?.role).toBe('user');
+      expect(result[2]?.role).toBe('assistant');
+      const exUser = result[1] as { role: 'user'; content: string };
+      expect(exUser.content).toContain('User Query: example');
+
+      // History messages
+      expect(result[3]?.role).toBe('user');
+      expect(result[4]?.role).toBe('assistant');
+      expect(result[5]?.role).toBe('user');
+      const histUser1 = result[3] as { role: 'user'; content: string };
+      const histUser2 = result[5] as { role: 'user'; content: string };
+      expect(histUser1.content).toContain('User Query: first message');
+      expect(histUser2.content).toContain('User Query: second message');
+    });
+
+    it('should render without examples when none provided', () => {
+      const signature = new AxSignature(
+        'userQuery:string -> aiResponse:string'
+      );
+      const template = new AxPromptTemplate(signature);
+
+      const result = template.render({ userQuery: 'test' }, {});
+
+      // Should have: system, user (query)
+      expect(result).toHaveLength(2);
+      expect(result[0]?.role).toBe('system');
+      expect(result[1]?.role).toBe('user');
     });
   });
 });

@@ -163,6 +163,8 @@ export type AxAIGoogleGeminiChatRequest = {
   systemInstruction?: AxAIGoogleGeminiContent;
   generationConfig: AxAIGoogleGeminiGenerationConfig;
   safetySettings?: AxAIGoogleGeminiSafetySettings;
+  /** Reference to a cached content resource (for explicit context caching) */
+  cachedContent?: string;
 };
 
 export type AxAIGoogleGeminiChatResponse = {
@@ -210,6 +212,8 @@ export type AxAIGoogleGeminiChatResponse = {
     candidatesTokenCount: number;
     totalTokenCount: number;
     thoughtsTokenCount: number;
+    /** Number of tokens in the cached content (from explicit caching) */
+    cachedContentTokenCount?: number;
   };
 };
 
@@ -290,3 +294,76 @@ export type AxAIGoogleVertexBatchEmbedResponse = {
     };
   }[];
 };
+
+// ============================================================================
+// Context Cache Types (for explicit caching support)
+// ============================================================================
+
+/**
+ * Request to create a context cache in Vertex AI / Gemini API.
+ */
+export type AxAIGoogleGeminiCacheCreateRequest = {
+  /** The model to associate with the cache */
+  model: string;
+  /** Display name for the cache (optional) */
+  displayName?: string;
+  /** System instruction to cache */
+  systemInstruction?: AxAIGoogleGeminiContent;
+  /** Content parts to cache */
+  contents?: AxAIGoogleGeminiContent[];
+  /** Tools to cache */
+  tools?: AxAIGoogleGeminiTool[];
+  /** Tool configuration to cache */
+  toolConfig?: AxAIGoogleGeminiToolConfig;
+  /** TTL duration string (e.g., "3600s" for 1 hour) */
+  ttl?: string;
+  /** Absolute expiration time (ISO 8601) */
+  expireTime?: string;
+};
+
+/**
+ * Response from creating/getting a context cache.
+ */
+export type AxAIGoogleGeminiCacheResponse = {
+  /** Resource name of the cached content (e.g., "projects/.../locations/.../cachedContents/...") */
+  name: string;
+  /** Display name */
+  displayName?: string;
+  /** Model associated with the cache */
+  model: string;
+  /** When the cache was created (ISO 8601) */
+  createTime: string;
+  /** When the cache was last updated (ISO 8601) */
+  updateTime: string;
+  /** When the cache expires (ISO 8601) */
+  expireTime: string;
+  /** Token count of cached content */
+  usageMetadata?: {
+    totalTokenCount: number;
+  };
+};
+
+/**
+ * Request to update a context cache (e.g., extend TTL).
+ */
+export type AxAIGoogleGeminiCacheUpdateRequest = {
+  /** TTL duration string (e.g., "3600s" for 1 hour) */
+  ttl?: string;
+  /** Absolute expiration time (ISO 8601) */
+  expireTime?: string;
+};
+
+/**
+ * Models that support explicit context caching.
+ */
+export const GEMINI_CONTEXT_CACHE_SUPPORTED_MODELS = [
+  'gemini-3-flash-preview',
+  'gemini-3-pro-preview',
+  'gemini-2.5-pro',
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite',
+  'gemini-2.0-flash',
+  'gemini-2.0-flash-lite',
+  'gemini-flash-latest',
+  'gemini-flash-lite-latest',
+] as const;

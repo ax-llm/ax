@@ -4,13 +4,18 @@ import type {
   AxFunctionResult,
 } from '../ai/types.js';
 
+// Memory can store either request message content or response result content
+export type AxMemoryMessageValue =
+  | Omit<AxChatRequest['chatPrompt'][number], 'role'>
+  | Omit<AxChatResponseResult, 'index'>;
+
 export type AxMemoryData = {
   tags?: string[];
   role: AxChatRequest['chatPrompt'][number]['role'];
   updatable?: boolean;
   chat: {
     index: number;
-    value: Omit<AxChatRequest['chatPrompt'][number], 'role'>;
+    value: AxMemoryMessageValue;
   }[];
 }[];
 

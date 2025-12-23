@@ -130,7 +130,148 @@ const { embeddings } = await gemini.embed({
 })
 ``;
 
-### 7. Tips
+### 7. Context Caching
+
+Context caching reduces costs and latency by caching large prompt prefixes
+(system prompts, function definitions, examples) for reuse across multiple
+requests. This is especially valuable for multi-turn agentic flows.
+
+#### Enabling Context Caching
+
+Pass the `contextCache` option to `forward()` to enable caching:
+
+```ts
+import { ai, ax, AxMemory } from "@ax-llm/ax";
+
+const llm = ai({
+  name: "google-gemini",
+  apiKey: process.env.GOOGLE_APIKEY!,
+});
+
+const codeReviewer = ax(
+  `code:string, language:string -> review:string, suggestions:string[]`,
+  { description: "You are an expert code reviewer..." } // Large system prompt
+);
+
+const mem = new AxMemory();
+
+// Enable context caching
+const result = await codeReviewer.forward(llm, { code, language }, {
+  mem,
+  sessionId: "code-review-session",
+  contextCache: {
+    ttlSeconds: 3600, // Cache TTL (1 hour)
+  },
+});
+```
+
+#### How It Works
+
+**Google Gemini (Explicit Caching)**:
+
+- Creates a separate cache resource with an ID
+- Cache persists across requests using the same `sessionId` + content hash
+- Automatic TTL refresh when cache is near expiration
+- Provides up to 90% cost reduction on cached tokens
+- Minimum 2048 tokens required for caching
+
+**Anthropic (Implicit Caching)**:
+
+- Uses `cache_control` markers in the request
+- System prompts are automatically cached
+- Function definitions and results are marked for caching
+- No explicit cache management needed
+- Provides up to 90% cost reduction on cached tokens
+
+#### Configuration Options
+
+```ts
+type AxContextCacheOptions = {
+  // Explicit cache name (bypasses auto-creation)
+  name?: string;
+
+  // TTL in seconds (default: 3600)
+  ttlSeconds?: number;
+
+  // Minimum tokens to create cache (default: 2048)
+  minTokens?: number;
+
+  // Window before expiration to trigger refresh (default: 300)
+  refreshWindowSeconds?: number;
+
+  // External registry for serverless environments
+  registry?: AxContextCacheRegistry;
+};
+```
+
+#### Multi-Turn Function Calling with Caching
+
+When using functions/tools, caching is automatically applied:
+
+```ts
+import { ai, ax, type AxFunction } from "@ax-llm/ax";
+
+const tools: AxFunction[] = [
+  {
+    name: "calculate",
+    description: "Evaluate a math expression",
+    parameters: { type: "object", properties: { expression: { type: "string" } } },
+    func: ({ expression }) => eval(expression),
+  },
+];
+
+const agent = ax("question:string -> answer:string", {
+  description: "You are a helpful assistant...",
+  functions: tools,
+});
+
+const llm = ai({ name: "google-gemini", apiKey: process.env.GOOGLE_APIKEY! });
+
+// Tools and function results are automatically cached
+const result = await agent.forward(llm, { question: "What is 2^10?" }, {
+  contextCache: { ttlSeconds: 3600 },
+});
+```
+
+#### External Cache Registry (Serverless)
+
+For serverless environments where in-memory state is lost, use an external
+registry:
+
+```ts
+// Redis-backed registry example
+const registry: AxContextCacheRegistry = {
+  get: async (key) => {
+    const data = await redis.get(`cache:${key}`);
+    return data ? JSON.parse(data) : undefined;
+  },
+  set: async (key, entry) => {
+    await redis.set(`cache:${key}`, JSON.stringify(entry), "EX", 3600);
+  },
+};
+
+const result = await gen.forward(llm, input, {
+  sessionId: "my-session",
+  contextCache: {
+    ttlSeconds: 3600,
+    registry,
+  },
+});
+```
+
+#### Supported Models
+
+**Gemini (Explicit Caching)**:
+
+- Gemini 3 Flash/Pro
+- Gemini 2.5 Pro/Flash/Flash-Lite
+- Gemini 2.0 Flash/Flash-Lite
+
+**Anthropic (Implicit Caching)**:
+
+- All Claude models support implicit caching
+
+### 8. Tips
 
 - Prefer presets: gives friendly names and consistent tuning across your app
 - Start with fast/cheap models for iteration; switch keys later without code changes

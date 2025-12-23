@@ -14,6 +14,8 @@ export type {
   AxChatRequest,
   AxAIService,
   AxAIServiceOptions,
+  AxContextCacheOptions,
+  AxContextCacheInfo,
 } from './types.js';
 
 export type { AxAIFeatures } from './base.js';

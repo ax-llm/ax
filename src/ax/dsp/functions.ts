@@ -539,6 +539,11 @@ export const processFunctions = async ({
     r.result === undefined || r.result === '' ? { ...r, result: 'done' } : r
   );
 
+  // Mark last function result for caching (creates breakpoint before next AI turn)
+  if (functionResults.length > 0) {
+    functionResults[functionResults.length - 1].cache = true;
+  }
+
   mem.addFunctionResults(functionResults, sessionId);
 
   // Log successful function results if debug is enabled

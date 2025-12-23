@@ -95,6 +95,9 @@ import { axModelInfoGoogleGemini } from './ai/google-gemini/info.js';
 import {
   type AxAIGoogleGeminiBatchEmbedRequest,
   type AxAIGoogleGeminiBatchEmbedResponse,
+  type AxAIGoogleGeminiCacheCreateRequest,
+  type AxAIGoogleGeminiCacheResponse,
+  type AxAIGoogleGeminiCacheUpdateRequest,
   type AxAIGoogleGeminiChatRequest,
   type AxAIGoogleGeminiChatResponse,
   type AxAIGoogleGeminiChatResponseDelta,
@@ -325,6 +328,11 @@ import type {
   AxChatResponse,
   AxChatResponseResult,
   AxCitation,
+  AxContextCacheInfo,
+  AxContextCacheOperation,
+  AxContextCacheOptions,
+  AxContextCacheRegistry,
+  AxContextCacheRegistryEntry,
   AxEmbedRequest,
   AxEmbedResponse,
   AxFunction,
@@ -339,6 +347,7 @@ import type {
   AxModelInfo,
   AxModelInfoWithProvider,
   AxModelUsage,
+  AxPreparedChatRequest,
   AxRateLimiterFunction,
   AxThoughtBlockItem,
   AxTokenUsage,
@@ -683,7 +692,11 @@ import type {
   AxStorageQuery,
   AxTrace,
 } from './mem/storage.js';
-import type { AxAIMemory, AxMemoryData } from './mem/types.js';
+import type {
+  AxAIMemory,
+  AxMemoryData,
+  AxMemoryMessageValue,
+} from './mem/types.js';
 import {
   AxAgent,
   type AxAgentConfig,
@@ -972,6 +985,9 @@ export type { AxAIFeatures };
 export type { AxAIGoogleGeminiArgs };
 export type { AxAIGoogleGeminiBatchEmbedRequest };
 export type { AxAIGoogleGeminiBatchEmbedResponse };
+export type { AxAIGoogleGeminiCacheCreateRequest };
+export type { AxAIGoogleGeminiCacheResponse };
+export type { AxAIGoogleGeminiCacheUpdateRequest };
 export type { AxAIGoogleGeminiChatRequest };
 export type { AxAIGoogleGeminiChatResponse };
 export type { AxAIGoogleGeminiChatResponseDelta };
@@ -1145,6 +1161,11 @@ export type { AxCheckpointSaveFn };
 export type { AxCitation };
 export type { AxCompileOptions };
 export type { AxContentProcessingServices };
+export type { AxContextCacheInfo };
+export type { AxContextCacheOperation };
+export type { AxContextCacheOptions };
+export type { AxContextCacheRegistry };
+export type { AxContextCacheRegistryEntry };
 export type { AxCostTracker };
 export type { AxCostTrackerOptions };
 export type { AxDBArgs };
@@ -1251,6 +1272,7 @@ export type { AxMCPStreamableHTTPTransportOptions };
 export type { AxMCPToolsListResult };
 export type { AxMCPTransport };
 export type { AxMemoryData };
+export type { AxMemoryMessageValue };
 export type { AxMessage };
 export type { AxMetricFn };
 export type { AxMetricFnArgs };
@@ -1276,6 +1298,7 @@ export type { AxOptimizerMetricsConfig };
 export type { AxOptimizerMetricsInstruments };
 export type { AxOptimizerResult };
 export type { AxParetoResult };
+export type { AxPreparedChatRequest };
 export type { AxProgramDemos };
 export type { AxProgramExamples };
 export type { AxProgramForwardOptions };

@@ -229,12 +229,14 @@ class AxAIAnthropicImpl
       }
     }
 
+    // Always cache system prompts - Anthropic's ephemeral caching has no downside
+    // (only charged for cache writes if content is reused, reads are 90% cheaper)
     const system = req.chatPrompt
       .filter((msg) => msg.role === 'system')
       .map((msg) => ({
         type: 'text' as const,
         text: msg.content,
-        ...(msg.cache ? { cache_control: { type: 'ephemeral' as const } } : {}),
+        cache_control: { type: 'ephemeral' as const },
       }));
 
     const otherMessages = req.chatPrompt.filter((msg) => msg.role !== 'system');
@@ -288,6 +290,8 @@ class AxAIAnthropicImpl
           name: v.name,
           description: v.description,
           input_schema,
+          // Translate cache: true → cache_control for caching breakpoint
+          ...(v.cache ? { cache_control: { type: 'ephemeral' as const } } : {}),
         };
       });
 
@@ -847,6 +851,9 @@ class AxAIAnthropicImpl
       results: [{ index, content: '' }],
     };
   };
+
+  // Anthropic supports implicit caching via cache_control
+  supportsImplicitCaching = (): boolean => true;
 }
 
 export class AxAIAnthropic<TModelKey = string> extends AxBaseAI<
