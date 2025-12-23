@@ -1,5 +1,16 @@
 # Changelog
 
+## [16.0.0](///compare/15.1.0...15.1.1) (2025-12-23)
+
+### Features
+
+* Add explicit context caching for AI models and refactor structured output example rendering in prompts. afe40c2
+## [15.1.1](///compare/15.1.0...15.1.1) (2025-12-21)
+
+### Features
+
+* Enhance GEPA optimizer with new configuration options and structured optimization report f0ef34a
+
 ## [15.1.1](///compare/15.0.28...15.1.0) (2025-12-21)
 
 ### Features
