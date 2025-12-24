@@ -1,5 +1,16 @@
 # Changelog
 
+## [16.0.3](///compare/16.0.1...16.0.2) (2025-12-24)
+
+### Features
+
+* Add disclaimer to system prompt and separator to user query to clarify few-shot examples and demonstrations. b2a4ee1
+## [16.0.2](///compare/16.0.1...16.0.2) (2025-12-24)
+
+### Features
+
+* skip examples in prompt template rendering if missing input or output content 39c6abe
+
 ## [16.0.2](///compare/16.0.0...16.0.1) (2025-12-24)
 
 ### Features
