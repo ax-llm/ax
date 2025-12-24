@@ -13,6 +13,15 @@ This is a **multi-repository monorepo** with the following structure:
 - `src/examples/` - Example implementations (`@ax-llm/ax-examples`)
 - `src/docs/` - Documentation site (`@ax-llm/ax-docs`)
 
+## Documentation Files
+
+**IMPORTANT**: The canonical documentation files are in `docs/`, not in `src/docs/`:
+
+- `docs/AI.md` is the **real** file - edit this one
+- `src/docs/src/content/docs/ai.md` is a **copy** made at build time and will be overwritten
+
+Always edit files in `docs/` (e.g., `docs/AI.md`), not their copies in `src/docs/`.
+
 ## Package Management
 
 **IMPORTANT**: Use workspace-specific package installation commands:

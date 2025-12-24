@@ -78,14 +78,13 @@ type ContextCacheEntry = {
  * Key for the context cache registry.
  */
 type ContextCacheKey = {
-  providerId: string;
-  model: string;
+  providerName: string;
   contentHash: string;
 };
 
 /**
  * Global context cache registry.
- * Keyed by a composite string of providerId:model:contentHash.
+ * Keyed by a composite string of providerName:contentHash.
  * Sessions with identical cacheable content share the same cache.
  */
 const contextCacheRegistry = new Map<string, ContextCacheEntry>();
@@ -94,53 +93,76 @@ const contextCacheRegistry = new Map<string, ContextCacheEntry>();
  * Build a composite key string for the cache registry.
  */
 function buildCacheKey(key: ContextCacheKey): string {
-  return `${key.providerId}:${key.model}:${key.contentHash}`;
+  return `${key.providerName}:${key.contentHash}`;
+}
+
+/**
+ * Hash a content part into the hasher.
+ */
+function hashContentPart(
+  hasher: ReturnType<typeof createHash>,
+  part: Extract<
+    AxChatRequest['chatPrompt'][number],
+    { role: 'user' }
+  >['content'] extends infer T
+    ? T extends Array<infer P>
+      ? P
+      : never
+    : never
+): void {
+  if (part.type === 'text') {
+    hasher.update(`text:${part.text}`);
+  } else if (part.type === 'image') {
+    hasher.update(`image:${part.mimeType}:${part.image.slice(0, 100)}`);
+  } else if (part.type === 'audio') {
+    hasher.update(`audio:${part.format}:${part.data.slice(0, 100)}`);
+  } else if (part.type === 'file') {
+    if ('fileUri' in part) {
+      hasher.update(`file:${part.mimeType}:${part.fileUri}`);
+    } else {
+      hasher.update(`file:${part.mimeType}:${part.data.slice(0, 100)}`);
+    }
+  }
 }
 
 /**
  * Compute a hash of the cacheable content from a chat request.
- * Includes: system prompts (always) + messages/parts marked with cache: true.
+ * Uses breakpoint semantics: includes all content from the start up to and
+ * including the last message with cache: true. System prompts are always included.
  */
 function computeCacheableContentHash(
   chatPrompt: AxChatRequest['chatPrompt']
 ): string {
   const hasher = createHash('sha256');
 
-  for (const msg of chatPrompt) {
+  // Find the last message with cache: true (the breakpoint)
+  let breakpointIndex = -1;
+  for (let i = chatPrompt.length - 1; i >= 0; i--) {
+    const msg = chatPrompt[i];
+    if ('cache' in msg && msg.cache) {
+      breakpointIndex = i;
+      break;
+    }
+  }
+
+  // Hash all messages from start up to and including the breakpoint
+  for (let i = 0; i < chatPrompt.length; i++) {
+    const msg = chatPrompt[i];
+
     // Always include system prompts in the cache hash
     if (msg.role === 'system') {
       hasher.update(`system:${msg.content}`);
       continue;
     }
 
-    // Include other messages/parts only if marked with cache: true
-    if ('cache' in msg && msg.cache) {
+    // For other messages, include only if before or at breakpoint
+    if (breakpointIndex >= 0 && i <= breakpointIndex) {
       if (msg.role === 'user') {
         if (typeof msg.content === 'string') {
           hasher.update(`user:${msg.content}`);
         } else if (Array.isArray(msg.content)) {
           for (const part of msg.content) {
-            if ('cache' in part && part.cache) {
-              if (part.type === 'text') {
-                hasher.update(`text:${part.text}`);
-              } else if (part.type === 'image') {
-                hasher.update(
-                  `image:${part.mimeType}:${part.image.slice(0, 100)}`
-                );
-              } else if (part.type === 'audio') {
-                hasher.update(
-                  `audio:${part.format}:${part.data.slice(0, 100)}`
-                );
-              } else if (part.type === 'file') {
-                if ('fileUri' in part) {
-                  hasher.update(`file:${part.mimeType}:${part.fileUri}`);
-                } else {
-                  hasher.update(
-                    `file:${part.mimeType}:${part.data.slice(0, 100)}`
-                  );
-                }
-              }
-            }
+            hashContentPart(hasher, part);
           }
         }
       } else if (msg.role === 'assistant' && msg.content) {
@@ -1821,8 +1843,7 @@ export class AxBaseAI<
     }
 
     const cacheKey: ContextCacheKey = {
-      providerId: this.id,
-      model: model as string,
+      providerName: this.getName(),
       contentHash,
     };
 

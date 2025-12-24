@@ -1221,7 +1221,8 @@ class AxAIGoogleGeminiImpl
 
   /**
    * Extract cacheable content from chat prompt.
-   * Includes: system prompts (always) + messages/parts marked with cache: true.
+   * Uses breakpoint semantics: includes all content from the start up to and
+   * including the last message with cache: true. System prompts are always included.
    */
   private extractCacheableContent(
     chatPrompt: AxInternalChatRequest<AxAIGoogleGeminiModel>['chatPrompt']
@@ -1232,7 +1233,20 @@ class AxAIGoogleGeminiImpl
     let systemInstruction: AxAIGoogleGeminiContent | undefined;
     const contents: AxAIGoogleGeminiContent[] = [];
 
-    for (const msg of chatPrompt) {
+    // Find the last message with cache: true (the breakpoint)
+    let breakpointIndex = -1;
+    for (let i = chatPrompt.length - 1; i >= 0; i--) {
+      const msg = chatPrompt[i];
+      if ('cache' in msg && msg.cache) {
+        breakpointIndex = i;
+        break;
+      }
+    }
+
+    // Extract all messages from start up to and including the breakpoint
+    for (let i = 0; i < chatPrompt.length; i++) {
+      const msg = chatPrompt[i];
+
       // Always cache system prompts
       if (msg.role === 'system') {
         systemInstruction = {
@@ -1242,18 +1256,14 @@ class AxAIGoogleGeminiImpl
         continue;
       }
 
-      // For other roles, only cache if marked with cache: true
-      if (!('cache' in msg && msg.cache)) {
-        continue;
-      }
-
-      if (msg.role === 'user') {
-        const parts: AxAIGoogleGeminiContentPart[] = [];
-        if (typeof msg.content === 'string') {
-          parts.push({ text: msg.content });
-        } else if (Array.isArray(msg.content)) {
-          for (const c of msg.content) {
-            if ('cache' in c && c.cache) {
+      // For other messages, include only if before or at breakpoint
+      if (breakpointIndex >= 0 && i <= breakpointIndex) {
+        if (msg.role === 'user') {
+          const parts: AxAIGoogleGeminiContentPart[] = [];
+          if (typeof msg.content === 'string') {
+            parts.push({ text: msg.content });
+          } else if (Array.isArray(msg.content)) {
+            for (const c of msg.content) {
               switch (c.type) {
                 case 'text':
                   parts.push({ text: c.text });
@@ -1285,15 +1295,15 @@ class AxAIGoogleGeminiImpl
               }
             }
           }
+          if (parts.length > 0) {
+            contents.push({ role: 'user' as const, parts });
+          }
+        } else if (msg.role === 'assistant' && msg.content) {
+          contents.push({
+            role: 'model' as const,
+            parts: [{ text: msg.content }],
+          });
         }
-        if (parts.length > 0) {
-          contents.push({ role: 'user' as const, parts });
-        }
-      } else if (msg.role === 'assistant' && msg.content) {
-        contents.push({
-          role: 'model' as const,
-          parts: [{ text: msg.content }],
-        });
       }
     }
 
