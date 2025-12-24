@@ -1,5 +1,16 @@
 # Changelog
 
+## [16.0.2](///compare/16.0.0...16.0.1) (2025-12-24)
+
+### Features
+
+* skip examples in prompt template rendering if missing input or output content 39c6abe
+## [16.0.1](///compare/16.0.0...16.0.1) (2025-12-24)
+
+### Features
+
+* introduce AI context caching with breakpoint semantics for prompt hashing and update documentation. a9f38d3
+
 ## [16.0.1](///compare/15.1.1...16.0.0) (2025-12-24)
 
 ### Features
