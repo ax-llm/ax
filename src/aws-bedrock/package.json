@@ -37,7 +37,7 @@
     "postbuild": "node ../../scripts/postbuild.js"
   },
   "dependencies": {
-    "@aws-sdk/client-bedrock-runtime": "^3.709.0",
+    "@aws-sdk/client-bedrock-runtime": "^3.958.0",
     "@ax-llm/ax": "16.0.3"
   },
   "peerDependencies": {
