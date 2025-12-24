@@ -833,4 +833,144 @@ describe('AxPromptTemplate.render', () => {
       expect(result[1]?.role).toBe('user');
     });
   });
+
+  describe('Example disclaimer and separator', () => {
+    it('should add disclaimer to system prompt when examples exist', () => {
+      const signature = new AxSignature(
+        'userQuery:string -> aiResponse:string'
+      );
+      const template = new AxPromptTemplate(signature);
+
+      const examples = [{ userQuery: 'hello', aiResponse: 'world' }];
+      const result = template.render({ userQuery: 'test' }, { examples });
+
+      const systemMessage = result[0] as { role: 'system'; content: string };
+      expect(systemMessage.content).toContain('## Example Demonstrations');
+      expect(systemMessage.content).toContain('few-shot examples');
+      expect(systemMessage.content).toContain(
+        'The actual task begins with the final User message.'
+      );
+    });
+
+    it('should add separator before final user message when examples exist', () => {
+      const signature = new AxSignature(
+        'userQuery:string -> aiResponse:string'
+      );
+      const template = new AxPromptTemplate(signature);
+
+      const examples = [{ userQuery: 'hello', aiResponse: 'world' }];
+      const result = template.render({ userQuery: 'test' }, { examples });
+
+      // Final user message should have separator prepended
+      const finalUserMessage = result[result.length - 1] as {
+        role: 'user';
+        content: string;
+      };
+      expect(finalUserMessage.content).toContain('--- END OF EXAMPLES ---');
+      expect(finalUserMessage.content).toContain('REAL USER QUERY:');
+      expect(finalUserMessage.content).toContain('User Query: test');
+    });
+
+    it('should NOT add disclaimer/separator when no examples exist', () => {
+      const signature = new AxSignature(
+        'userQuery:string -> aiResponse:string'
+      );
+      const template = new AxPromptTemplate(signature);
+
+      const result = template.render({ userQuery: 'test' }, {});
+
+      const systemMessage = result[0] as { role: 'system'; content: string };
+      expect(systemMessage.content).not.toContain('## Example Demonstrations');
+
+      const userMessage = result[1] as { role: 'user'; content: string };
+      expect(userMessage.content).not.toContain('--- END OF EXAMPLES ---');
+      expect(userMessage.content).toBe('User Query: test\n');
+    });
+
+    it('should add disclaimer/separator when demos exist (not just examples)', () => {
+      const signature = new AxSignature(
+        'userQuery:string -> aiResponse:string'
+      );
+      const template = new AxPromptTemplate(signature);
+
+      const demos = [{ userQuery: 'demo', aiResponse: 'demo out' }];
+      const result = template.render({ userQuery: 'test' }, { demos });
+
+      const systemMessage = result[0] as { role: 'system'; content: string };
+      expect(systemMessage.content).toContain('## Example Demonstrations');
+
+      const finalUserMessage = result[result.length - 1] as {
+        role: 'user';
+        content: string;
+      };
+      expect(finalUserMessage.content).toContain('--- END OF EXAMPLES ---');
+    });
+
+    it('should add separator only to first user message in multi-turn history', () => {
+      const signature = new AxSignature(
+        'userQuery:string -> aiResponse:string'
+      );
+      const template = new AxPromptTemplate(signature);
+
+      const examples = [{ userQuery: 'example', aiResponse: 'example out' }];
+      const history: ReadonlyArray<AxMessage<{ userQuery: string }>> = [
+        { role: 'user', values: { userQuery: 'first message' } },
+        { role: 'assistant', values: { userQuery: 'first response' } },
+        { role: 'user', values: { userQuery: 'second message' } },
+      ];
+
+      const result = template.render(history, { examples });
+
+      // First history user message should have separator
+      const histUser1 = result[3] as { role: 'user'; content: string };
+      expect(histUser1.content).toContain('--- END OF EXAMPLES ---');
+      expect(histUser1.content).toContain('first message');
+
+      // Second history user message should NOT have separator
+      const histUser2 = result[5] as { role: 'user'; content: string };
+      expect(histUser2.content).not.toContain('--- END OF EXAMPLES ---');
+      expect(histUser2.content).toContain('second message');
+    });
+
+    it('should NOT add disclaimer/separator when examples array is empty', () => {
+      const signature = new AxSignature(
+        'userQuery:string -> aiResponse:string'
+      );
+      const template = new AxPromptTemplate(signature);
+
+      const result = template.render({ userQuery: 'test' }, { examples: [] });
+
+      const systemMessage = result[0] as { role: 'system'; content: string };
+      expect(systemMessage.content).not.toContain('## Example Demonstrations');
+
+      const userMessage = result[1] as { role: 'user'; content: string };
+      expect(userMessage.content).not.toContain('--- END OF EXAMPLES ---');
+    });
+
+    it('should NOT add disclaimer/separator when examplesInSystem is true (legacy mode)', () => {
+      const signature = new AxSignature(
+        'userQuery:string -> aiResponse:string'
+      );
+      const template = new AxPromptTemplate(signature, {
+        examplesInSystem: true,
+      });
+
+      const examples = [{ userQuery: 'hello', aiResponse: 'world' }];
+      const result = template.render({ userQuery: 'test' }, { examples });
+
+      // In legacy mode, examples are in system prompt but WITHOUT the disclaimer
+      const systemMessage = result[0] as { role: 'system'; content: string };
+      expect(systemMessage.content).not.toContain('## Example Demonstrations');
+      expect(systemMessage.content).not.toContain('few-shot examples');
+      // But should still contain the example content
+      expect(systemMessage.content).toContain('User Query: hello');
+      expect(systemMessage.content).toContain('Ai Response: world');
+
+      // User message should NOT have separator
+      const userMessage = result[1] as { role: 'user'; content: string };
+      expect(userMessage.content).not.toContain('--- END OF EXAMPLES ---');
+      expect(userMessage.content).not.toContain('REAL USER QUERY:');
+      expect(userMessage.content).toContain('User Query: test');
+    });
+  });
 });

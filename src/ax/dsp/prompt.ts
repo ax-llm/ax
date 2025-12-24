@@ -50,6 +50,19 @@ const formattingRules = `
 - Do not add any text before or after the output fields, just the field name and value.
 - Do not use code blocks.`;
 
+const exampleDisclaimer = `
+## Example Demonstrations
+The conversation history preceding the final user query consists of **few-shot examples** (demonstrations).
+- These alternating User/Assistant messages are provided **solely** to illustrate the correct reasoning steps, function usage, and output format.
+- **Do not** treat the specific data, entities, or facts in these examples as valid context for the current task.
+- The actual task begins with the final User message.`;
+
+const exampleSeparator = `--- END OF EXAMPLES ---
+The examples above were for training purposes only. Please ignore any specific entities or facts mentioned in them.
+
+REAL USER QUERY:
+`;
+
 export type AxFieldTemplateFn = (
   field: Readonly<AxField>,
   value: Readonly<AxFieldValue>
@@ -452,10 +465,19 @@ export class AxPromptTemplate {
     AxChatRequest['chatPrompt'][number],
     { role: 'user' | 'system' | 'assistant' }
   >[] => {
+    // Check if we have examples or demos
+    const hasExamplesOrDemos =
+      (examples && examples.length > 0) || (demos && demos.length > 0);
+
     // System prompt contains only instructions (no examples)
+    // Add disclaimer if examples/demos will follow
+    const systemContent = hasExamplesOrDemos
+      ? this.task.text + exampleDisclaimer
+      : this.task.text;
+
     const systemPrompt = {
       role: 'system' as const,
-      content: this.task.text,
+      content: systemContent,
       cache: !!this.contextCache,
     };
 
@@ -493,16 +515,29 @@ export class AxPromptTemplate {
       >[] = [];
 
       const history = values as ReadonlyArray<AxMessage<T>>;
+      let isFirstUserMessage = true;
 
       for (const message of history) {
         const renderedContent = this.renderInputFields(message.values);
-        const content: string | ChatRequestUserMessage = renderedContent.every(
+        let content: string | ChatRequestUserMessage = renderedContent.every(
           (v) => v.type === 'text'
         )
           ? renderedContent.map((v) => v.text).join('\n')
           : renderedContent.reduce(combineConsecutiveStrings('\n'), []);
 
         if (message.role === 'user') {
+          // Add separator before first user message if we had examples/demos
+          if (isFirstUserMessage && hasExamplesOrDemos) {
+            if (typeof content === 'string') {
+              content = exampleSeparator + content;
+            } else {
+              content = [
+                { type: 'text' as const, text: exampleSeparator },
+                ...content,
+              ];
+            }
+            isFirstUserMessage = false;
+          }
           historyMessages.push({ role: 'user', content });
           continue;
         }
@@ -525,10 +560,22 @@ export class AxPromptTemplate {
 
     // Single-turn: render user input
     const userContent = this.renderInputFields(values as T);
-    const formattedUserContent: string | ChatRequestUserMessage =
+    let formattedUserContent: string | ChatRequestUserMessage =
       userContent.every((v) => v.type === 'text')
         ? userContent.map((v) => v.text).join('\n')
         : userContent.reduce(combineConsecutiveStrings('\n'), []);
+
+    // Prepend separator if we had examples/demos
+    if (hasExamplesOrDemos) {
+      if (typeof formattedUserContent === 'string') {
+        formattedUserContent = exampleSeparator + formattedUserContent;
+      } else {
+        formattedUserContent = [
+          { type: 'text' as const, text: exampleSeparator },
+          ...formattedUserContent,
+        ];
+      }
+    }
 
     return [
       systemPrompt,
