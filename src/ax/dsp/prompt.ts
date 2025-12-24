@@ -854,6 +854,16 @@ export class AxPromptTemplate {
         ? inputContent.map((v) => v.text).join('\n')
         : inputContent.reduce(combineConsecutiveStrings('\n'), []);
 
+      // Skip examples with empty user or assistant content
+      const isUserContentEmpty =
+        (typeof userContent === 'string' && userContent.trim() === '') ||
+        (Array.isArray(userContent) && userContent.length === 0);
+      const isOutputContentEmpty = outputContent.trim() === '';
+
+      if (isUserContentEmpty || isOutputContentEmpty) {
+        continue;
+      }
+
       pairs.push({
         userMessage: { role: 'user', content: userContent },
         assistantMessage: { role: 'assistant', content: outputContent },

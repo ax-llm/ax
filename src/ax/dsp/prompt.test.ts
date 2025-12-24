@@ -245,6 +245,72 @@ describe('AxPromptTemplate.render', () => {
         template.render({ userQuery: 'test' }, { examples });
       }).not.toThrow();
     });
+
+    it('should skip examples with all input fields missing (message pairs)', () => {
+      const signature = new AxSignature(
+        'userQuery:string -> aiResponse:string'
+      );
+      const template = new AxPromptTemplate(signature);
+
+      // Example with only output field, no input - should be skipped
+      const examples = [{ aiResponse: 'world' }];
+
+      const result = template.render({ userQuery: 'test' }, { examples });
+
+      // Should only have: system, user (query) - no example messages
+      expect(result).toHaveLength(2);
+      expect(result[0]?.role).toBe('system');
+      expect(result[1]?.role).toBe('user');
+    });
+
+    it('should skip examples with all output fields missing (message pairs)', () => {
+      const signature = new AxSignature(
+        'userQuery:string -> aiResponse:string'
+      );
+      const template = new AxPromptTemplate(signature);
+
+      // Example with only input field, no output - should be skipped
+      const examples = [{ userQuery: 'hello' }];
+
+      const result = template.render({ userQuery: 'test' }, { examples });
+
+      // Should only have: system, user (query) - no example messages
+      expect(result).toHaveLength(2);
+      expect(result[0]?.role).toBe('system');
+      expect(result[1]?.role).toBe('user');
+    });
+
+    it('should include valid examples and skip invalid ones (message pairs)', () => {
+      const signature = new AxSignature(
+        'userQuery:string -> aiResponse:string'
+      );
+      const template = new AxPromptTemplate(signature);
+
+      // Mix of valid and invalid examples
+      const examples = [
+        { userQuery: 'hello', aiResponse: 'world' }, // valid
+        { aiResponse: 'orphan' }, // invalid - no input
+        { userQuery: 'goodbye', aiResponse: 'farewell' }, // valid
+      ];
+
+      const result = template.render({ userQuery: 'test' }, { examples });
+
+      // Should have: system, 2x(user + assistant for valid examples), user (query)
+      expect(result).toHaveLength(6);
+      expect(result[0]?.role).toBe('system');
+      expect(result[1]?.role).toBe('user');
+      expect(result[2]?.role).toBe('assistant');
+      expect(result[3]?.role).toBe('user');
+      expect(result[4]?.role).toBe('assistant');
+      expect(result[5]?.role).toBe('user');
+
+      // Verify the valid examples are present
+      const firstExampleUser = result[1] as { role: 'user'; content: string };
+      expect(firstExampleUser.content).toContain('hello');
+
+      const secondExampleUser = result[3] as { role: 'user'; content: string };
+      expect(secondExampleUser.content).toContain('goodbye');
+    });
   });
 
   describe('ReadonlyArray<AxMessage> input (new behavior)', () => {
