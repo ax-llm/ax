@@ -1,5 +1,16 @@
 # Changelog
 
+## [16.0.1](///compare/15.1.1...16.0.0) (2025-12-24)
+
+### Features
+
+* introduce AI context caching with breakpoint semantics for prompt hashing and update documentation. a9f38d3
+## [16.0.0](///compare/15.1.1...16.0.0) (2025-12-23)
+
+### Features
+
+* Add explicit context caching for AI models and refactor structured output example rendering in prompts. afe40c2
+
 ## [16.0.0](///compare/15.1.0...15.1.1) (2025-12-23)
 
 ### Features
