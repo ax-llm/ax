@@ -229,14 +229,13 @@ class AxAIAnthropicImpl
       }
     }
 
-    // Always cache system prompts - Anthropic's ephemeral caching has no downside
-    // (only charged for cache writes if content is reused, reads are 90% cheaper)
+    // Cache system prompts when cache flag is set
     const system = req.chatPrompt
       .filter((msg) => msg.role === 'system')
       .map((msg) => ({
         type: 'text' as const,
         text: msg.content,
-        cache_control: { type: 'ephemeral' as const },
+        ...(msg.cache ? { cache_control: { type: 'ephemeral' as const } } : {}),
       }));
 
     const otherMessages = req.chatPrompt.filter((msg) => msg.role !== 'system');

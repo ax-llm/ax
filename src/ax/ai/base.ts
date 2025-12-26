@@ -4,7 +4,7 @@ import { defaultLogger } from '../dsp/loggers.js';
 import type { AxMessage } from '../dsp/types.js';
 import { axSpanAttributes, axSpanEvents } from '../trace/trace.js';
 import { apiCall } from '../util/apicall.js';
-import { randomUUID } from '../util/crypto.js';
+import { createHash, randomUUID } from '../util/crypto.js';
 import { RespTransformStream } from '../util/transform.js';
 import {
   logChatRequest,
@@ -45,7 +45,6 @@ import type {
   AxChatResponse,
   AxContextCacheInfo,
   AxContextCacheOperation,
-  AxContextCacheOptions,
   AxEmbedRequest,
   AxEmbedResponse,
   AxInternalChatRequest,
@@ -55,7 +54,6 @@ import type {
   AxModelUsage,
 } from './types.js';
 import { axValidateChatRequestMessage } from './validate.js';
-import { createHash } from '../util/crypto.js';
 
 /**
  * Entry in the context cache registry.
@@ -1949,7 +1947,7 @@ export class AxBaseAI<
    * Use an existing cache by name to prepare the chat request.
    */
   private async useCacheByName(
-    model: TModel,
+    _model: TModel,
     req: Readonly<AxInternalChatRequest<TModel>>,
     cacheName: string,
     options?: Readonly<AxAIServiceOptions>,

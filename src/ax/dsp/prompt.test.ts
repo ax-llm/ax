@@ -973,4 +973,98 @@ describe('AxPromptTemplate.render', () => {
       expect(userMessage.content).toContain('User Query: test');
     });
   });
+
+  describe('Context caching breakpoint options', () => {
+    it('should set cache:true on last example by default (after-examples)', () => {
+      const signature = new AxSignature(
+        'userQuery:string -> aiResponse:string'
+      );
+      const template = new AxPromptTemplate(signature, {
+        contextCache: { ttlSeconds: 3600 },
+      });
+
+      const examples = [
+        { userQuery: 'hello', aiResponse: 'world' },
+        { userQuery: 'foo', aiResponse: 'bar' },
+      ];
+      const result = template.render({ userQuery: 'test' }, { examples });
+
+      // System should have cache: true
+      expect(result[0]).toHaveProperty('cache', true);
+
+      // Last assistant (example 2) should have cache: true
+      const assistantMessages = result.filter(
+        (m) => m.role === 'assistant'
+      ) as Array<{ role: 'assistant'; cache?: boolean }>;
+      expect(assistantMessages.length).toBe(2);
+      expect(assistantMessages[1]).toHaveProperty('cache', true);
+      expect(assistantMessages[0]).not.toHaveProperty('cache');
+    });
+
+    it('should NOT set cache:true on examples when cacheBreakpoint is after-functions', () => {
+      const signature = new AxSignature(
+        'userQuery:string -> aiResponse:string'
+      );
+      const template = new AxPromptTemplate(signature, {
+        contextCache: { ttlSeconds: 3600, cacheBreakpoint: 'after-functions' },
+      });
+
+      const examples = [
+        { userQuery: 'hello', aiResponse: 'world' },
+        { userQuery: 'foo', aiResponse: 'bar' },
+      ];
+      const result = template.render({ userQuery: 'test' }, { examples });
+
+      // System should still have cache: true
+      expect(result[0]).toHaveProperty('cache', true);
+
+      // Assistant messages should NOT have cache: true
+      const assistantMessages = result.filter(
+        (m) => m.role === 'assistant'
+      ) as Array<{ role: 'assistant'; cache?: boolean }>;
+      expect(assistantMessages.length).toBe(2);
+      for (const msg of assistantMessages) {
+        expect(msg.cache).toBeUndefined();
+      }
+    });
+
+    it('should NOT set cache:true on examples when cacheBreakpoint is system', () => {
+      const signature = new AxSignature(
+        'userQuery:string -> aiResponse:string'
+      );
+      const template = new AxPromptTemplate(signature, {
+        contextCache: { ttlSeconds: 3600, cacheBreakpoint: 'system' },
+      });
+
+      const examples = [{ userQuery: 'hello', aiResponse: 'world' }];
+      const result = template.render({ userQuery: 'test' }, { examples });
+
+      // System should still have cache: true
+      expect(result[0]).toHaveProperty('cache', true);
+
+      // Assistant messages should NOT have cache: true
+      const assistantMessages = result.filter(
+        (m) => m.role === 'assistant'
+      ) as Array<{ role: 'assistant'; cache?: boolean }>;
+      expect(assistantMessages.length).toBe(1);
+      expect(assistantMessages[0]?.cache).toBeUndefined();
+    });
+
+    it('should NOT set cache flags when no contextCache is configured', () => {
+      const signature = new AxSignature(
+        'userQuery:string -> aiResponse:string'
+      );
+      const template = new AxPromptTemplate(signature);
+
+      const examples = [{ userQuery: 'hello', aiResponse: 'world' }];
+      const result = template.render({ userQuery: 'test' }, { examples });
+
+      // Without contextCache, no cache flags should be set
+      const assistantMessages = result.filter(
+        (m) => m.role === 'assistant'
+      ) as Array<{ role: 'assistant'; cache?: boolean }>;
+      expect(assistantMessages.length).toBe(1);
+      expect(assistantMessages[0]?.cache).toBeUndefined();
+    });
+  });
 });

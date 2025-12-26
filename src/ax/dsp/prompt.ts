@@ -499,7 +499,15 @@ export class AxPromptTemplate {
     }
 
     // Apply cache to last assistant message (creates breakpoint after demos)
-    if (this.contextCache && fewShotMessages.length > 0) {
+    // Only if cacheBreakpoint is 'after-examples' (default) or not set
+    const cacheBreakpoint =
+      this.contextCache?.cacheBreakpoint ?? 'after-examples';
+    const shouldCacheExamples = cacheBreakpoint === 'after-examples';
+    if (
+      this.contextCache &&
+      fewShotMessages.length > 0 &&
+      shouldCacheExamples
+    ) {
       const lastIdx = fewShotMessages.length - 1;
       const lastMsg = fewShotMessages[lastIdx];
       if (lastMsg?.role === 'assistant') {

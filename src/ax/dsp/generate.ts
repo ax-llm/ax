@@ -390,12 +390,19 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     }
 
     // Mark last function for caching (creates breakpoint after tools)
-    const functionsWithCache = functions?.length
-      ? functions.map((fn, i) => ({
-          ...fn,
-          cache: i === functions.length - 1,
-        }))
-      : functions;
+    // Only if cacheBreakpoint is 'after-functions' or 'after-examples'
+    const cacheBreakpoint =
+      options?.contextCache?.cacheBreakpoint ?? 'after-examples';
+    const shouldCacheFunctions =
+      cacheBreakpoint === 'after-functions' ||
+      cacheBreakpoint === 'after-examples';
+    const functionsWithCache =
+      functions?.length && shouldCacheFunctions
+        ? functions.map((fn, i) => ({
+            ...fn,
+            cache: i === functions.length - 1,
+          }))
+        : functions;
 
     const res = await ai.chat(
       {

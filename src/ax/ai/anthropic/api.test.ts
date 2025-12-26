@@ -103,6 +103,112 @@ describe('AxAIAnthropic schema validation', () => {
   });
 });
 
+describe('AxAIAnthropic system prompt caching', () => {
+  it('should add cache_control when system message has cache: true', async () => {
+    const ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: { model: AxAIAnthropicModel.Claude35Sonnet },
+    });
+
+    const capture: { lastBody?: any } = {};
+    const fetch = vi
+      .fn()
+      .mockImplementation(
+        async (_url: RequestInfo | URL, init?: RequestInit) => {
+          if (init?.body && typeof init.body === 'string') {
+            capture.lastBody = JSON.parse(init.body);
+          }
+          return new Response(
+            JSON.stringify({
+              id: 'id',
+              type: 'message',
+              role: 'assistant',
+              content: [{ type: 'text', text: 'ok' }],
+              model: 'claude-3-5-sonnet-latest',
+              stop_reason: 'end_turn',
+              usage: { input_tokens: 1, output_tokens: 1 },
+            }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            }
+          );
+        }
+      );
+
+    ai.setOptions({ fetch });
+
+    await ai.chat(
+      {
+        chatPrompt: [
+          {
+            role: 'system',
+            content: 'You are a helpful assistant.',
+            cache: true,
+          },
+          { role: 'user', content: 'hi' },
+        ],
+      },
+      { stream: false }
+    );
+
+    expect(fetch).toHaveBeenCalled();
+    const body = capture.lastBody;
+    expect(body.system).toBeDefined();
+    expect(body.system[0].cache_control).toEqual({ type: 'ephemeral' });
+  });
+
+  it('should NOT add cache_control when system message has no cache flag', async () => {
+    const ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: { model: AxAIAnthropicModel.Claude35Sonnet },
+    });
+
+    const capture: { lastBody?: any } = {};
+    const fetch = vi
+      .fn()
+      .mockImplementation(
+        async (_url: RequestInfo | URL, init?: RequestInit) => {
+          if (init?.body && typeof init.body === 'string') {
+            capture.lastBody = JSON.parse(init.body);
+          }
+          return new Response(
+            JSON.stringify({
+              id: 'id',
+              type: 'message',
+              role: 'assistant',
+              content: [{ type: 'text', text: 'ok' }],
+              model: 'claude-3-5-sonnet-latest',
+              stop_reason: 'end_turn',
+              usage: { input_tokens: 1, output_tokens: 1 },
+            }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            }
+          );
+        }
+      );
+
+    ai.setOptions({ fetch });
+
+    await ai.chat(
+      {
+        chatPrompt: [
+          { role: 'system', content: 'You are a helpful assistant.' },
+          { role: 'user', content: 'hi' },
+        ],
+      },
+      { stream: false }
+    );
+
+    expect(fetch).toHaveBeenCalled();
+    const body = capture.lastBody;
+    expect(body.system).toBeDefined();
+    expect(body.system[0].cache_control).toBeUndefined();
+  });
+});
+
 describe('AxAIAnthropic trims trailing whitespace in assistant content', () => {
   it('removes trailing whitespace from assistant string content in request body', async () => {
     const ai = new AxAIAnthropic({

@@ -543,6 +543,16 @@ export type AxContextCacheOptions = {
    * Useful for serverless/short-lived processes.
    */
   registry?: AxContextCacheRegistry;
+
+  /**
+   * Controls where the cache breakpoint is set in the prompt prefix.
+   * Prefix order: System → Functions → Examples → User Input
+   *
+   * - 'after-examples' (default): Cache includes system + functions + examples
+   * - 'after-functions': Cache includes system + functions only (use when examples are dynamic)
+   * - 'system': Cache includes only system prompt (use when functions are dynamic)
+   */
+  cacheBreakpoint?: 'system' | 'after-functions' | 'after-examples';
 };
 
 /**
