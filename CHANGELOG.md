@@ -1,5 +1,16 @@
 # Changelog
 
+## [16.0.4](///compare/16.0.2...16.0.3) (2025-12-26)
+
+### Features
+
+* introduce `cacheBreakpoint` option for granular control over context caching in prompts and Anthropic API. 5100807
+## [16.0.3](///compare/16.0.2...16.0.3) (2025-12-24)
+
+### Features
+
+* Add disclaimer to system prompt and separator to user query to clarify few-shot examples and demonstrations. b2a4ee1
+
 ## [16.0.3](///compare/16.0.1...16.0.2) (2025-12-24)
 
 ### Features
