@@ -214,4 +214,64 @@ describe('apiCall', () => {
       }
     });
   });
+  describe('error handling', () => {
+    it('should not include request body in error if includeRequestBodyInError is false', async () => {
+      const mockFetch = vi.fn().mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: 'invalid request' }), {
+          status: 400,
+          headers: { 'content-type': 'application/json' },
+        })
+      );
+
+      const config: AxAPIConfig = {
+        url: 'https://api.example.com/test',
+        fetch: mockFetch,
+        retry: { maxRetries: 0 },
+        includeRequestBodyInError: false,
+      };
+
+      const requestBody = { sensitive: 'data' };
+
+      try {
+        await apiCall(config, requestBody);
+        expect.fail('Should have thrown');
+      } catch (error) {
+        const errorMessage = (error as Error).toString();
+        expect(errorMessage).not.toContain('Request Body');
+        expect(errorMessage).not.toContain('sensitive');
+        expect(errorMessage).not.toContain('data');
+      }
+    });
+    it.each([
+      { body: null, expected: 'null' },
+      { body: 0, expected: '0' },
+      { body: false, expected: 'false' },
+      { body: '', expected: '""' },
+    ])(
+      'should include falsy request body %s in error by default',
+      async ({ body, expected }) => {
+        const mockFetch = vi.fn().mockResolvedValueOnce(
+          new Response(JSON.stringify({ error: 'invalid request' }), {
+            status: 400,
+            headers: { 'content-type': 'application/json' },
+          })
+        );
+
+        const config: AxAPIConfig = {
+          url: 'https://api.example.com/test',
+          fetch: mockFetch,
+          retry: { maxRetries: 0 },
+        };
+
+        try {
+          await apiCall(config, body);
+          expect.fail('Should have thrown');
+        } catch (error) {
+          const errorMessage = (error as Error).toString();
+          expect(errorMessage).toContain('Request Body');
+          expect(errorMessage).toContain(expected);
+        }
+      }
+    );
+  });
 });

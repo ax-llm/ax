@@ -53,6 +53,7 @@ export interface AxAPIConfig
   stream?: boolean;
   debug?: boolean; // Deprecated: use verbose instead
   verbose?: boolean; // Low-level HTTP request/response logging
+  includeRequestBodyInError?: boolean;
   fetch?: typeof fetch;
   span?: Span;
   timeout?: number;
@@ -96,15 +97,20 @@ export class AxAIServiceError extends Error {
   }
 
   override toString(): string {
-    return [
-      `${this.name}: ${this.message}`,
-      `URL: ${this.url}`,
-      `Request Body: ${JSON.stringify(this.requestBody, null, 2)}`,
+    const parts = [`${this.name}: ${this.message}`, `URL: ${this.url}`];
+
+    if (this.requestBody !== undefined) {
+      parts.push(`Request Body: ${JSON.stringify(this.requestBody, null, 2)}`);
+    }
+
+    parts.push(
       `Response Body: ${JSON.stringify(this.responseBody, null, 2)}`,
       `Context: ${JSON.stringify(this.context, null, 2)}`,
       `Timestamp: ${this.timestamp}`,
-      `Error ID: ${this.errorId}`,
-    ].join('\n');
+      `Error ID: ${this.errorId}`
+    );
+
+    return parts.join('\n');
   }
 
   // For Node.js, override the custom inspect method so console.log shows our custom string.
@@ -526,6 +532,9 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
   const retryConfig: RetryConfig = { ...defaultRetryConfig, ...api.retry };
   const timeoutMs = api.timeout;
   const metrics = createRequestMetrics();
+  const includeRequestBodyInError = api.includeRequestBodyInError ?? true;
+  const errorRequestBody = includeRequestBodyInError ? json : undefined;
+
   // Only verbose flag controls HTTP request/response logging
   const verbose = api.verbose ?? false;
   let timeoutId: NodeJS.Timeout | undefined;
@@ -552,7 +561,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
       throw new AxAIServiceResponseError(
         'Invalid request data',
         apiUrl.href,
-        json,
+        errorRequestBody,
         { validation: 'request' }
       );
     }
@@ -578,7 +587,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
         throw new AxAIServiceAbortedError(
           apiUrl.href,
           api.abortSignal.reason,
-          json,
+          errorRequestBody,
           { metrics }
         );
       }
@@ -654,7 +663,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
         const responseBody = await safeReadResponseBody(res);
         throw new AxAIServiceAuthenticationError(
           apiUrl.href,
-          json,
+          errorRequestBody,
           responseBody,
           {
             metrics,
@@ -707,7 +716,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
             res.status,
             res.statusText,
             apiUrl.href,
-            json,
+            errorRequestBody,
             responseBody,
             {
               metrics,
@@ -755,7 +764,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
           res.status,
           res.statusText,
           apiUrl.href,
-          json,
+          errorRequestBody,
           responseBody,
           { metrics },
           attempt > 0 ? attempt : undefined
@@ -783,7 +792,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
             throw new AxAIServiceResponseError(
               'Invalid response data',
               apiUrl.href,
-              json,
+              errorRequestBody,
               { validation: 'response' }
             );
           }
@@ -810,7 +819,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
         throw new AxAIServiceResponseError(
           'Response body is null',
           apiUrl.href,
-          json,
+          errorRequestBody,
           { metrics }
         );
       }
@@ -916,7 +925,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
                   controller.error(
                     new AxAIServiceStreamTerminatedError(
                       apiUrl.href,
-                      json,
+                      errorRequestBody,
                       lastChunk,
                       { streamMetrics }
                     )
@@ -926,7 +935,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
                     new AxAIServiceNetworkError(
                       error,
                       apiUrl.href,
-                      json,
+                      errorRequestBody,
                       '[ReadableStream - consumed during streaming]',
                       {
                         streamMetrics,
@@ -1003,7 +1012,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
                 controller.error(
                   new AxAIServiceStreamTerminatedError(
                     apiUrl.href,
-                    json,
+                    errorRequestBody,
                     lastChunk,
                     { streamMetrics }
                   )
@@ -1015,7 +1024,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
                 controller.error(
                   new AxAIServiceStreamTerminatedError(
                     apiUrl.href,
-                    json,
+                    errorRequestBody,
                     lastChunk,
                     {
                       streamMetrics,
@@ -1028,7 +1037,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
                   new AxAIServiceNetworkError(
                     error,
                     apiUrl.href,
-                    json,
+                    errorRequestBody,
                     '[ReadableStream - consumed during streaming]',
                     {
                       streamMetrics,
@@ -1059,13 +1068,18 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
           throw new AxAIServiceAbortedError(
             apiUrl.href,
             api.abortSignal.reason,
-            json,
+            errorRequestBody,
             { metrics }
           );
         }
-        throw new AxAIServiceTimeoutError(apiUrl.href, timeoutMs || 0, json, {
-          metrics,
-        });
+        throw new AxAIServiceTimeoutError(
+          apiUrl.href,
+          timeoutMs || 0,
+          errorRequestBody,
+          {
+            metrics,
+          }
+        );
       }
 
       // Wrap raw network errors from fetch() in AxAIServiceNetworkError
@@ -1075,7 +1089,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
         wrappedError = new AxAIServiceNetworkError(
           error,
           apiUrl.href,
-          json,
+          errorRequestBody,
           undefined,
           { metrics }
         );
