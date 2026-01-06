@@ -1,5 +1,15 @@
 # Changelog
 
+## [16.0.5](///compare/16.0.4...16.0.5) (2026-01-06)
+
+### Bug Fixes
+
+* include cache_control for string-typed user messages 84aa908
+
+### Features
+
+* write metrics for cache write / read 54ce595
+
 ## [16.0.4](///compare/16.0.2...16.0.3) (2025-12-26)
 
 ### Features
