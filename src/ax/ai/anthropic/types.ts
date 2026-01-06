@@ -137,8 +137,10 @@ export type AxAIAnthropicChatRequest = {
         content:
           | string
           | (
-              | { type: 'text'; text: string }
-              | { type: 'tool_use'; id: string; name: string; input: object }
+              | ({
+                  type: 'text';
+                  text: string;
+                } & AxAIAnthropicChatRequestCacheParam)
               | { type: 'thinking'; thinking: string; signature?: string }
               | {
                   type: 'redacted_thinking';
@@ -146,6 +148,12 @@ export type AxAIAnthropicChatRequest = {
                   data: string;
                   signature?: string;
                 }
+              | ({
+                  type: 'tool_use';
+                  id: string;
+                  name: string;
+                  input: object;
+                } & AxAIAnthropicChatRequestCacheParam)
             )[];
       }
   )[];

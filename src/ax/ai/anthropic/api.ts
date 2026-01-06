@@ -1210,6 +1210,32 @@ function createMessages(
             ];
           }
         }
+
+        // Add cache_control to the last content block (not the message itself). The
+        // Anthropic API does not support cache_control on the message itself.
+        if (msg.cache) {
+          if (typeof content === 'string') {
+            // Convert string to array with text block containing cache_control
+            content = [
+              {
+                type: 'text' as const,
+                text: content,
+                cache_control: { type: 'ephemeral' as const },
+              },
+            ];
+          } else if (Array.isArray(content) && content.length > 0) {
+            // Add cache_control to the last text or tool_use block
+            const lastIdx = content.length - 1;
+            const lastBlock = content[lastIdx];
+            if (lastBlock && lastBlock.type === 'text') {
+              content[lastIdx] = {
+                ...lastBlock,
+                cache_control: { type: 'ephemeral' as const },
+              };
+            }
+          }
+        }
+
         return {
           role: 'assistant' as const,
           content,
