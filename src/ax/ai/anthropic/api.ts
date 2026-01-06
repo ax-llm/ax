@@ -1083,6 +1083,9 @@ function createMessages(
           return {
             role: 'user' as const,
             content: msg.content,
+            ...(msg.cache
+              ? { cache_control: { type: 'ephemeral' as const } }
+              : {}),
           };
         }
         const content = msg.content.map((v) => {
