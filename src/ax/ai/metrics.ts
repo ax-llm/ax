@@ -49,6 +49,9 @@ export interface AxAIMetricsInstruments {
 
   thinkingBudgetUsageCounter?: Counter;
   multimodalRequestsCounter?: Counter;
+
+  cacheReadTokensCounter?: Counter;
+  cacheWriteTokensCounter?: Counter;
 }
 
 // Singleton instance for AI metrics instruments
@@ -196,6 +199,20 @@ export const createMetricsInstruments = (
       'ax_llm_multimodal_requests_total',
       {
         description: 'Total number of multimodal requests (with images/audio)',
+      }
+    ),
+
+    cacheReadTokensCounter: meter.createCounter(
+      'ax_llm_cache_read_tokens_total',
+      {
+        description: 'Total number of tokens read from cache (prompt caching)',
+      }
+    ),
+
+    cacheWriteTokensCounter: meter.createCounter(
+      'ax_llm_cache_write_tokens_total',
+      {
+        description: 'Total number of tokens written to cache (prompt caching)',
       }
     ),
   };
@@ -529,5 +546,32 @@ export const recordMultimodalRequestMetric = (
       has_audio: hasAudio.toString(),
       ...(model ? { model } : {}),
     });
+  }
+};
+
+export const recordCacheTokenMetric = (
+  instruments: Readonly<AxAIMetricsInstruments>,
+  type: 'read' | 'write',
+  tokens: number,
+  aiService: string,
+  model?: string
+): void => {
+  try {
+    if (tokens <= 0) return;
+
+    const labels = sanitizeLabels({
+      ai_service: aiService,
+      ...(model ? { model } : {}),
+    });
+
+    if (type === 'read' && instruments.cacheReadTokensCounter) {
+      instruments.cacheReadTokensCounter.add(tokens, labels);
+    }
+
+    if (type === 'write' && instruments.cacheWriteTokensCounter) {
+      instruments.cacheWriteTokensCounter.add(tokens, labels);
+    }
+  } catch (error) {
+    console.warn('Failed to record cache token metric:', error);
   }
 };

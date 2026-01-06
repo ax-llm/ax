@@ -17,6 +17,7 @@ import {
   type AxAIMetricsInstruments,
   getOrCreateAIMetricsInstruments,
   recordAbortMetric,
+  recordCacheTokenMetric,
   recordContextWindowUsageMetric,
   recordErrorMetric,
   recordErrorRateMetric,
@@ -583,8 +584,14 @@ export class AxBaseAI<
   private recordTokenUsage(modelUsage?: AxModelUsage): void {
     const metricsInstruments = this.getMetricsInstruments();
     if (metricsInstruments && modelUsage?.tokens) {
-      const { promptTokens, completionTokens, totalTokens, thoughtsTokens } =
-        modelUsage.tokens;
+      const {
+        promptTokens,
+        completionTokens,
+        totalTokens,
+        thoughtsTokens,
+        cacheReadTokens,
+        cacheCreationTokens,
+      } = modelUsage.tokens;
 
       if (promptTokens) {
         recordTokenMetric(
@@ -621,6 +628,26 @@ export class AxBaseAI<
           metricsInstruments,
           'thoughts',
           thoughtsTokens,
+          this.name,
+          modelUsage.model
+        );
+      }
+
+      if (cacheReadTokens) {
+        recordCacheTokenMetric(
+          metricsInstruments,
+          'read',
+          cacheReadTokens,
+          this.name,
+          modelUsage.model
+        );
+      }
+
+      if (cacheCreationTokens) {
+        recordCacheTokenMetric(
+          metricsInstruments,
+          'write',
+          cacheCreationTokens,
           this.name,
           modelUsage.model
         );
