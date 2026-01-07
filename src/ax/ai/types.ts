@@ -604,6 +604,12 @@ export type AxAIServiceOptions = {
    * Currently supported by: Google Gemini/Vertex AI
    */
   contextCache?: AxContextCacheOptions;
+
+  /**
+   * When true, examples/demos are embedded in system prompt (legacy).
+   * When false (default), they are rendered as alternating user/assistant message pairs.
+   */
+  examplesInSystem?: boolean;
 };
 
 export interface AxAIService<

@@ -612,6 +612,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       functions: this.signatureToolCallingManager ? [] : functions,
       thoughtFieldName: this.thoughtFieldName,
       contextCache: options.contextCache, // Pass through for system prompt caching
+      examplesInSystem: options.examplesInSystem,
     };
 
     this.promptTemplate = new promptTemplateClass(
@@ -1614,10 +1615,16 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
   }
 
   private isDebug(
-    _ai: Readonly<AxAIService>,
+    ai: Readonly<AxAIService>,
     options?: Readonly<AxProgramForwardOptions<any>>
   ) {
-    return options?.debug ?? this.options?.debug ?? false;
+    return (
+      options?.debug ??
+      this.options?.debug ??
+      axGlobals.debug ??
+      ai.getOptions().debug ??
+      false
+    );
   }
 
   private getLogger(
