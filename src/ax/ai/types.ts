@@ -610,6 +610,12 @@ export type AxAIServiceOptions = {
    * When false (default), they are rendered as alternating user/assistant message pairs.
    */
   examplesInSystem?: boolean;
+
+  /**
+   * Custom labels to include in OpenTelemetry metrics.
+   * These labels are merged with axGlobals.customLabels (service-level overrides global).
+   */
+  customLabels?: Record<string, string>;
 };
 
 export interface AxAIService<

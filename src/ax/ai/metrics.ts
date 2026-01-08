@@ -16,6 +16,22 @@ const sanitizeLabels = (
   return sanitized;
 };
 
+/**
+ * Merge custom labels from multiple sources.
+ * Later sources override earlier ones.
+ */
+export const mergeCustomLabels = (
+  ...labelSources: (Record<string, string> | undefined)[]
+): Record<string, string> => {
+  const result: Record<string, string> = {};
+  for (const source of labelSources) {
+    if (source) {
+      Object.assign(result, source);
+    }
+  }
+  return result;
+};
+
 export interface AxAIMetricsInstruments {
   latencyHistogram?: Histogram;
   errorCounter?: Counter;
@@ -223,7 +239,8 @@ export const recordLatencyMetric = (
   type: 'chat' | 'embed',
   duration: number,
   aiService: string,
-  model?: string
+  model?: string,
+  customLabels?: Record<string, string>
 ): void => {
   try {
     if (instruments.latencyHistogram) {
@@ -231,6 +248,7 @@ export const recordLatencyMetric = (
         operation: type,
         ai_service: aiService,
         ...(model ? { model } : {}),
+        ...customLabels,
       });
       instruments.latencyHistogram.record(duration, labels);
     }
@@ -246,12 +264,14 @@ export const recordLatencyStatsMetrics = (
   p95Latency: number,
   p99Latency: number,
   aiService: string,
-  model?: string
+  model?: string,
+  customLabels?: Record<string, string>
 ): void => {
   const labels = {
     operation: type,
     ai_service: aiService,
     ...(model ? { model } : {}),
+    ...customLabels,
   };
 
   if (instruments.meanLatencyGauge) {
@@ -271,7 +291,8 @@ export const recordErrorMetric = (
   instruments: Readonly<AxAIMetricsInstruments>,
   type: 'chat' | 'embed',
   aiService: string,
-  model?: string
+  model?: string,
+  customLabels?: Record<string, string>
 ): void => {
   try {
     if (instruments.errorCounter) {
@@ -279,6 +300,7 @@ export const recordErrorMetric = (
         operation: type,
         ai_service: aiService,
         ...(model ? { model } : {}),
+        ...customLabels,
       });
       instruments.errorCounter.add(1, labels);
     }
@@ -292,7 +314,8 @@ export const recordErrorRateMetric = (
   type: 'chat' | 'embed',
   errorRate: number,
   aiService: string,
-  model?: string
+  model?: string,
+  customLabels?: Record<string, string>
 ): void => {
   if (instruments.errorRateGauge) {
     instruments.errorRateGauge.record(errorRate * 100, {
@@ -300,6 +323,7 @@ export const recordErrorRateMetric = (
       operation: type,
       ai_service: aiService,
       ...(model ? { model } : {}),
+      ...customLabels,
     });
   }
 };
@@ -308,13 +332,15 @@ export const recordRequestMetric = (
   instruments: Readonly<AxAIMetricsInstruments>,
   type: 'chat' | 'embed',
   aiService: string,
-  model?: string
+  model?: string,
+  customLabels?: Record<string, string>
 ): void => {
   if (instruments.requestCounter) {
     instruments.requestCounter.add(1, {
       operation: type,
       ai_service: aiService,
       ...(model ? { model } : {}),
+      ...customLabels,
     });
   }
 };
@@ -324,12 +350,14 @@ export const recordTokenMetric = (
   type: 'input' | 'output' | 'total' | 'thoughts',
   tokens: number,
   aiService: string,
-  model?: string
+  model?: string,
+  customLabels?: Record<string, string>
 ): void => {
   try {
     const labels = sanitizeLabels({
       ai_service: aiService,
       ...(model ? { model } : {}),
+      ...customLabels,
     });
 
     // Record in the general token counter with type label
@@ -358,13 +386,15 @@ export const recordStreamingRequestMetric = (
   type: 'chat' | 'embed',
   isStreaming: boolean,
   aiService: string,
-  model?: string
+  model?: string,
+  customLabels?: Record<string, string>
 ): void => {
   if (isStreaming && instruments.streamingRequestsCounter) {
     instruments.streamingRequestsCounter.add(1, {
       operation: type,
       ai_service: aiService,
       ...(model ? { model } : {}),
+      ...customLabels,
     });
   }
 };
@@ -374,12 +404,14 @@ export const recordFunctionCallMetric = (
   functionName: string,
   latency?: number,
   aiService?: string,
-  model?: string
+  model?: string,
+  customLabels?: Record<string, string>
 ): void => {
   const labels = {
     function_name: functionName,
     ...(aiService ? { ai_service: aiService } : {}),
     ...(model ? { model } : {}),
+    ...customLabels,
   };
 
   if (instruments.functionCallsCounter) {
@@ -396,13 +428,15 @@ export const recordRequestSizeMetric = (
   type: 'chat' | 'embed',
   sizeBytes: number,
   aiService: string,
-  model?: string
+  model?: string,
+  customLabels?: Record<string, string>
 ): void => {
   if (instruments.requestSizeHistogram) {
     instruments.requestSizeHistogram.record(sizeBytes, {
       operation: type,
       ai_service: aiService,
       ...(model ? { model } : {}),
+      ...customLabels,
     });
   }
 };
@@ -412,13 +446,15 @@ export const recordResponseSizeMetric = (
   type: 'chat' | 'embed',
   sizeBytes: number,
   aiService: string,
-  model?: string
+  model?: string,
+  customLabels?: Record<string, string>
 ): void => {
   if (instruments.responseSizeHistogram) {
     instruments.responseSizeHistogram.record(sizeBytes, {
       operation: type,
       ai_service: aiService,
       ...(model ? { model } : {}),
+      ...customLabels,
     });
   }
 };
@@ -428,11 +464,13 @@ export const recordModelConfigMetrics = (
   temperature?: number,
   maxTokens?: number,
   aiService?: string,
-  model?: string
+  model?: string,
+  customLabels?: Record<string, string>
 ): void => {
   const labels = {
     ...(aiService ? { ai_service: aiService } : {}),
     ...(model ? { model } : {}),
+    ...customLabels,
   };
 
   if (temperature !== undefined && instruments.temperatureGauge) {
@@ -449,13 +487,15 @@ export const recordEstimatedCostMetric = (
   type: 'chat' | 'embed',
   costUSD: number,
   aiService: string,
-  model?: string
+  model?: string,
+  customLabels?: Record<string, string>
 ): void => {
   if (instruments.estimatedCostCounter) {
     instruments.estimatedCostCounter.add(costUSD, {
       operation: type,
       ai_service: aiService,
       ...(model ? { model } : {}),
+      ...customLabels,
     });
   }
 };
@@ -464,12 +504,14 @@ export const recordPromptLengthMetric = (
   instruments: Readonly<AxAIMetricsInstruments>,
   lengthChars: number,
   aiService: string,
-  model?: string
+  model?: string,
+  customLabels?: Record<string, string>
 ): void => {
   if (instruments.promptLengthHistogram) {
     instruments.promptLengthHistogram.record(lengthChars, {
       ai_service: aiService,
       ...(model ? { model } : {}),
+      ...customLabels,
     });
   }
 };
@@ -478,12 +520,14 @@ export const recordContextWindowUsageMetric = (
   instruments: Readonly<AxAIMetricsInstruments>,
   usageRatio: number,
   aiService: string,
-  model?: string
+  model?: string,
+  customLabels?: Record<string, string>
 ): void => {
   if (instruments.contextWindowUsageGauge) {
     instruments.contextWindowUsageGauge.record(usageRatio, {
       ai_service: aiService,
       ...(model ? { model } : {}),
+      ...customLabels,
     });
   }
 };
@@ -492,13 +536,15 @@ export const recordTimeoutMetric = (
   instruments: Readonly<AxAIMetricsInstruments>,
   type: 'chat' | 'embed',
   aiService: string,
-  model?: string
+  model?: string,
+  customLabels?: Record<string, string>
 ): void => {
   if (instruments.timeoutsCounter) {
     instruments.timeoutsCounter.add(1, {
       operation: type,
       ai_service: aiService,
       ...(model ? { model } : {}),
+      ...customLabels,
     });
   }
 };
@@ -507,13 +553,15 @@ export const recordAbortMetric = (
   instruments: Readonly<AxAIMetricsInstruments>,
   type: 'chat' | 'embed',
   aiService: string,
-  model?: string
+  model?: string,
+  customLabels?: Record<string, string>
 ): void => {
   if (instruments.abortsCounter) {
     instruments.abortsCounter.add(1, {
       operation: type,
       ai_service: aiService,
       ...(model ? { model } : {}),
+      ...customLabels,
     });
   }
 };
@@ -522,12 +570,14 @@ export const recordThinkingBudgetUsageMetric = (
   instruments: Readonly<AxAIMetricsInstruments>,
   tokensUsed: number,
   aiService: string,
-  model?: string
+  model?: string,
+  customLabels?: Record<string, string>
 ): void => {
   if (instruments.thinkingBudgetUsageCounter) {
     instruments.thinkingBudgetUsageCounter.add(tokensUsed, {
       ai_service: aiService,
       ...(model ? { model } : {}),
+      ...customLabels,
     });
   }
 };
@@ -537,7 +587,8 @@ export const recordMultimodalRequestMetric = (
   hasImages: boolean,
   hasAudio: boolean,
   aiService: string,
-  model?: string
+  model?: string,
+  customLabels?: Record<string, string>
 ): void => {
   if ((hasImages || hasAudio) && instruments.multimodalRequestsCounter) {
     instruments.multimodalRequestsCounter.add(1, {
@@ -545,6 +596,7 @@ export const recordMultimodalRequestMetric = (
       has_images: hasImages.toString(),
       has_audio: hasAudio.toString(),
       ...(model ? { model } : {}),
+      ...customLabels,
     });
   }
 };
@@ -554,7 +606,8 @@ export const recordCacheTokenMetric = (
   type: 'read' | 'write',
   tokens: number,
   aiService: string,
-  model?: string
+  model?: string,
+  customLabels?: Record<string, string>
 ): void => {
   try {
     if (tokens <= 0) return;
@@ -562,6 +615,7 @@ export const recordCacheTokenMetric = (
     const labels = sanitizeLabels({
       ai_service: aiService,
       ...(model ? { model } : {}),
+      ...customLabels,
     });
 
     if (type === 'read' && instruments.cacheReadTokensCounter) {

@@ -16,6 +16,7 @@ import {
 import {
   type AxAIMetricsInstruments,
   getOrCreateAIMetricsInstruments,
+  mergeCustomLabels,
   recordAbortMetric,
   recordCacheTokenMetric,
   recordContextWindowUsageMetric,
@@ -284,6 +285,7 @@ export class AxBaseAI<
   private logger: AxLoggerFunction = axGlobals.logger ?? defaultLogger;
   private corsProxy?: AxAIServiceOptions['corsProxy'];
   private retry?: AxAIServiceOptions['retry'];
+  private customLabels?: Record<string, string>;
 
   private modelInfo: readonly AxModelInfo[];
   private modelUsage?: AxModelUsage;
@@ -421,6 +423,7 @@ export class AxBaseAI<
     this.logger = options.logger ?? axGlobals.logger ?? this.logger;
     this.corsProxy = options.corsProxy;
     this.retry = options.retry;
+    this.customLabels = options.customLabels;
   }
 
   getOptions(): Readonly<AxAIServiceOptions> {
@@ -437,11 +440,17 @@ export class AxBaseAI<
       logger: this.logger,
       corsProxy: this.corsProxy,
       retry: this.retry,
+      customLabels: this.customLabels,
     };
   }
 
   getLogger(): AxLoggerFunction {
     return this.logger;
+  }
+
+  // Helper to get merged custom labels from globals and service options
+  private getMergedCustomLabels(): Record<string, string> {
+    return mergeCustomLabels(axGlobals.customLabels, this.customLabels);
   }
 
   getModelList() {
@@ -527,9 +536,17 @@ export class AxBaseAI<
         type === 'chat'
           ? (this.lastUsedChatModel as string)
           : (this.lastUsedEmbedModel as string);
+      const customLabels = this.getMergedCustomLabels();
 
       // Record individual latency measurement
-      recordLatencyMetric(metricsInstruments, type, duration, this.name, model);
+      recordLatencyMetric(
+        metricsInstruments,
+        type,
+        duration,
+        this.name,
+        model,
+        customLabels
+      );
 
       // Record latency statistics as gauges
       recordLatencyStatsMetrics(
@@ -539,7 +556,8 @@ export class AxBaseAI<
         metrics.p95,
         metrics.p99,
         this.name,
-        model
+        model,
+        customLabels
       );
     }
   }
@@ -560,13 +578,26 @@ export class AxBaseAI<
         type === 'chat'
           ? (this.lastUsedChatModel as string)
           : (this.lastUsedEmbedModel as string);
+      const customLabels = this.getMergedCustomLabels();
 
       // Always record request count
-      recordRequestMetric(metricsInstruments, type, this.name, model);
+      recordRequestMetric(
+        metricsInstruments,
+        type,
+        this.name,
+        model,
+        customLabels
+      );
 
       // Record error count if there was an error
       if (isError) {
-        recordErrorMetric(metricsInstruments, type, this.name, model);
+        recordErrorMetric(
+          metricsInstruments,
+          type,
+          this.name,
+          model,
+          customLabels
+        );
       }
 
       // Record current error rate as a gauge
@@ -575,7 +606,8 @@ export class AxBaseAI<
         type,
         metrics.rate,
         this.name,
-        model
+        model,
+        customLabels
       );
     }
   }
@@ -592,6 +624,7 @@ export class AxBaseAI<
         cacheReadTokens,
         cacheCreationTokens,
       } = modelUsage.tokens;
+      const customLabels = this.getMergedCustomLabels();
 
       if (promptTokens) {
         recordTokenMetric(
@@ -599,7 +632,8 @@ export class AxBaseAI<
           'input',
           promptTokens,
           this.name,
-          modelUsage.model
+          modelUsage.model,
+          customLabels
         );
       }
 
@@ -609,7 +643,8 @@ export class AxBaseAI<
           'output',
           completionTokens,
           this.name,
-          modelUsage.model
+          modelUsage.model,
+          customLabels
         );
       }
 
@@ -619,7 +654,8 @@ export class AxBaseAI<
           'total',
           totalTokens,
           this.name,
-          modelUsage.model
+          modelUsage.model,
+          customLabels
         );
       }
 
@@ -629,7 +665,8 @@ export class AxBaseAI<
           'thoughts',
           thoughtsTokens,
           this.name,
-          modelUsage.model
+          modelUsage.model,
+          customLabels
         );
       }
 
@@ -639,7 +676,8 @@ export class AxBaseAI<
           'read',
           cacheReadTokens,
           this.name,
-          modelUsage.model
+          modelUsage.model,
+          customLabels
         );
       }
 
@@ -649,7 +687,8 @@ export class AxBaseAI<
           'write',
           cacheCreationTokens,
           this.name,
-          modelUsage.model
+          modelUsage.model,
+          customLabels
         );
       }
     }
@@ -820,7 +859,8 @@ export class AxBaseAI<
           (call.function as { name: string }).name,
           undefined, // latency would need to be tracked separately
           this.name,
-          model as string
+          model as string,
+          this.getMergedCustomLabels()
         );
       }
     }
@@ -834,7 +874,13 @@ export class AxBaseAI<
         type === 'chat'
           ? (this.lastUsedChatModel as string)
           : (this.lastUsedEmbedModel as string);
-      recordTimeoutMetric(metricsInstruments, type, this.name, model);
+      recordTimeoutMetric(
+        metricsInstruments,
+        type,
+        this.name,
+        model,
+        this.getMergedCustomLabels()
+      );
     }
   }
 
@@ -846,7 +892,13 @@ export class AxBaseAI<
         type === 'chat'
           ? (this.lastUsedChatModel as string)
           : (this.lastUsedEmbedModel as string);
-      recordAbortMetric(metricsInstruments, type, this.name, model);
+      recordAbortMetric(
+        metricsInstruments,
+        type,
+        this.name,
+        model,
+        this.getMergedCustomLabels()
+      );
     }
   }
 
@@ -861,6 +913,7 @@ export class AxBaseAI<
 
     const model = this.lastUsedChatModel as string;
     const modelConfig = this.lastUsedModelConfig;
+    const customLabels = this.getMergedCustomLabels();
 
     // Record streaming request metric
     const isStreaming = modelConfig?.stream ?? false;
@@ -869,7 +922,8 @@ export class AxBaseAI<
       'chat',
       isStreaming,
       this.name,
-      model
+      model,
+      customLabels
     );
 
     // Record multimodal request metric
@@ -879,7 +933,8 @@ export class AxBaseAI<
       hasImages,
       hasAudio,
       this.name,
-      model
+      model,
+      customLabels
     );
 
     // Record prompt length metric
@@ -888,7 +943,8 @@ export class AxBaseAI<
       metricsInstruments,
       promptLength,
       this.name,
-      model
+      model,
+      customLabels
     );
 
     // Record model configuration metrics
@@ -897,7 +953,8 @@ export class AxBaseAI<
       modelConfig?.temperature,
       modelConfig?.maxTokens,
       this.name,
-      model
+      model,
+      customLabels
     );
 
     // Record thinking budget usage if applicable
@@ -909,7 +966,8 @@ export class AxBaseAI<
         metricsInstruments,
         this.modelUsage.tokens.thoughtsTokens,
         this.name,
-        model
+        model,
+        customLabels
       );
     }
 
@@ -920,7 +978,8 @@ export class AxBaseAI<
       'chat',
       requestSize,
       this.name,
-      model
+      model,
+      customLabels
     );
 
     // Record response size and function calls for non-streaming responses
@@ -932,7 +991,8 @@ export class AxBaseAI<
         'chat',
         responseSize,
         this.name,
-        model
+        model,
+        customLabels
       );
 
       // Record function call metrics
@@ -957,7 +1017,8 @@ export class AxBaseAI<
           metricsInstruments,
           contextUsage,
           this.name,
-          model
+          model,
+          customLabels
         );
       }
 
@@ -972,7 +1033,8 @@ export class AxBaseAI<
           'chat',
           estimatedCost,
           this.name,
-          model
+          model,
+          customLabels
         );
       }
     }
@@ -987,6 +1049,7 @@ export class AxBaseAI<
     if (!metricsInstruments) return;
 
     const model = this.lastUsedEmbedModel as string;
+    const customLabels = this.getMergedCustomLabels();
 
     // Record request size
     const requestSize = this.calculateRequestSize(req);
@@ -995,7 +1058,8 @@ export class AxBaseAI<
       'embed',
       requestSize,
       this.name,
-      model
+      model,
+      customLabels
     );
 
     // Record response size
@@ -1005,7 +1069,8 @@ export class AxBaseAI<
       'embed',
       responseSize,
       this.name,
-      model
+      model,
+      customLabels
     );
 
     // Record estimated cost
@@ -1016,7 +1081,8 @@ export class AxBaseAI<
         'embed',
         estimatedCost,
         this.name,
-        model
+        model,
+        customLabels
       );
     }
   }

@@ -53,6 +53,7 @@ import { toJsonSchema } from './jsonSchema.js';
 import {
   type AxGenMetricsInstruments,
   getOrCreateGenMetricsInstruments,
+  mergeCustomLabels,
   recordErrorCorrectionMetric,
   recordFieldProcessingMetric,
   recordFunctionCallingMetric,
@@ -192,6 +193,18 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
   private getMetricsInstruments(): AxGenMetricsInstruments | undefined {
     return getOrCreateGenMetricsInstruments();
+  }
+
+  // Helper to get merged custom labels from globals, AI service, and options
+  private getMergedCustomLabels(
+    ai?: Readonly<AxAIService>,
+    options?: Readonly<{ customLabels?: Record<string, string> }>
+  ): Record<string, string> {
+    return mergeCustomLabels(
+      axGlobals.customLabels,
+      ai?.getOptions?.()?.customLabels,
+      options?.customLabels
+    );
   }
 
   public updateMeter(meter?: Meter): void {
@@ -1387,6 +1400,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     try {
       // Record signature complexity metrics
       const metricsInstruments = this.getMetricsInstruments();
+      const customLabels = this.getMergedCustomLabels(ai, options);
       if (metricsInstruments) {
         recordSignatureComplexityMetrics(
           metricsInstruments,
@@ -1394,7 +1408,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
           this.signature.getOutputFields().length,
           this.examples?.length ?? 0,
           this.demos?.length ?? 0,
-          signatureName
+          signatureName,
+          customLabels
         );
       }
 
@@ -1462,7 +1477,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
           buffer.length,
           resultPickerUsed,
           resultPickerUsed ? resultPickerLatency : undefined,
-          signatureName
+          signatureName,
+          customLabels
         );
 
         // Record streaming metrics
@@ -1471,7 +1487,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
           isStreaming,
           deltasEmitted,
           undefined, // finalization latency not applicable here
-          signatureName
+          signatureName,
+          customLabels
         );
       }
 
@@ -1491,6 +1508,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
       // Record generation metrics
       const finalMetricsInstruments = this.getMetricsInstruments();
+      const finalCustomLabels = this.getMergedCustomLabels(ai, options);
       if (finalMetricsInstruments) {
         recordGenerationMetric(
           finalMetricsInstruments,
@@ -1498,7 +1516,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
           success,
           signatureName,
           ai.getName(),
-          options?.model ? String(options.model) : undefined
+          options?.model ? String(options.model) : undefined,
+          finalCustomLabels
         );
 
         // Skip per-call function execution metric here; detailed metrics are recorded during processing
@@ -1510,7 +1529,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
             errorCorrectionAttempts,
             success,
             options?.maxRetries ?? 10,
-            signatureName
+            signatureName,
+            finalCustomLabels
           );
         }
       }

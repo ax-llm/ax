@@ -206,8 +206,32 @@ type AxContextCacheOptions = {
 
   // External registry for serverless environments
   registry?: AxContextCacheRegistry;
+
+  // Controls where the cache breakpoint is set in the prompt prefix
+  // Prefix order: System → Functions → Examples → User Input
+  // - 'after-examples' (default): Cache includes system + functions + examples
+  // - 'after-functions': Cache system + functions only (use when examples are dynamic)
+  // - 'system': Cache only system prompt (use when functions are dynamic)
+  cacheBreakpoint?: 'system' | 'after-functions' | 'after-examples';
 };
 ```
+
+#### Dynamic Examples (Excluding from Cache)
+
+When examples are dynamic (e.g., retrieved per-request from a vector database),
+use `cacheBreakpoint: 'after-functions'` to exclude them from caching:
+
+```ts
+const result = await gen.forward(llm, input, {
+  contextCache: {
+    ttlSeconds: 3600,
+    cacheBreakpoint: 'after-functions', // Cache system + functions, but not examples
+  },
+});
+```
+
+Similarly, if both examples and functions are dynamic, use `cacheBreakpoint: 'system'`
+to cache only the system prompt.
 
 #### Multi-Turn Function Calling with Caching
 

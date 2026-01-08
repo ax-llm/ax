@@ -1,5 +1,6 @@
 import type { Counter, Gauge, Histogram, Meter } from '@opentelemetry/api';
 
+import { mergeCustomLabels } from '../ai/metrics.js';
 import { axGlobals } from './globals.js';
 
 // Metrics configuration interface
@@ -425,6 +426,9 @@ const sanitizeLabels = (
   return sanitized;
 };
 
+// Re-export for convenience
+export { mergeCustomLabels };
+
 // Recording functions for generation flow metrics
 export const recordGenerationMetric = (
   instruments: Readonly<AxGenMetricsInstruments>,
@@ -432,7 +436,8 @@ export const recordGenerationMetric = (
   success: boolean,
   signatureName?: string,
   aiService?: string,
-  model?: string
+  model?: string,
+  customLabels?: Record<string, string>
 ): void => {
   try {
     const labels = sanitizeLabels({
@@ -440,6 +445,7 @@ export const recordGenerationMetric = (
       ...(signatureName ? { signature: signatureName } : {}),
       ...(aiService ? { ai_service: aiService } : {}),
       ...(model ? { model } : {}),
+      ...customLabels,
     });
 
     if (instruments.generationLatencyHistogram) {
@@ -464,11 +470,13 @@ export const recordMultiStepMetric = (
   instruments: Readonly<AxGenMetricsInstruments>,
   stepsUsed: number,
   maxSteps: number,
-  signatureName?: string
+  signatureName?: string,
+  customLabels?: Record<string, string>
 ): void => {
   try {
     const labels = sanitizeLabels({
       ...(signatureName ? { signature: signatureName } : {}),
+      ...customLabels,
     });
 
     if (stepsUsed > 1 && instruments.multiStepGenerationsCounter) {
@@ -491,12 +499,14 @@ export const recordMultiStepMetric = (
 export const recordValidationErrorMetric = (
   instruments: Readonly<AxGenMetricsInstruments>,
   errorType: 'validation' | 'assertion',
-  signatureName?: string
+  signatureName?: string,
+  customLabels?: Record<string, string>
 ): void => {
   try {
     const labels = sanitizeLabels({
       error_type: errorType,
       ...(signatureName ? { signature: signatureName } : {}),
+      ...customLabels,
     });
 
     if (errorType === 'validation' && instruments.validationErrorsCounter) {
@@ -513,12 +523,14 @@ export const recordValidationErrorMetric = (
 
 export const recordRefusalErrorMetric = (
   instruments: Readonly<AxGenMetricsInstruments>,
-  signatureName?: string
+  signatureName?: string,
+  customLabels?: Record<string, string>
 ): void => {
   try {
     const labels = sanitizeLabels({
       error_type: 'refusal',
       ...(signatureName ? { signature: signatureName } : {}),
+      ...customLabels,
     });
 
     // For now, we'll count refusal errors as validation errors since they trigger retry loops
@@ -535,12 +547,14 @@ export const recordErrorCorrectionMetric = (
   attempts: number,
   success: boolean,
   maxRetries: number,
-  signatureName?: string
+  signatureName?: string,
+  customLabels?: Record<string, string>
 ): void => {
   try {
     const labels = sanitizeLabels({
       success: success.toString(),
       ...(signatureName ? { signature: signatureName } : {}),
+      ...customLabels,
     });
 
     if (instruments.errorCorrectionAttemptsHistogram) {
@@ -571,13 +585,15 @@ export const recordFunctionCallingMetric = (
   functionsExecuted: number,
   hadFunctionCalls: boolean,
   functionErrorCorrection = false,
-  signatureName?: string
+  signatureName?: string,
+  customLabels?: Record<string, string>
 ): void => {
   try {
     const labels = sanitizeLabels({
       functions_enabled: functionsEnabled.toString(),
       had_function_calls: hadFunctionCalls.toString(),
       ...(signatureName ? { signature: signatureName } : {}),
+      ...customLabels,
     });
 
     if (functionsEnabled && instruments.functionsEnabledGenerationsCounter) {
@@ -611,11 +627,13 @@ export const recordFieldProcessingMetric = (
   instruments: Readonly<AxGenMetricsInstruments>,
   fieldProcessorsExecuted: number,
   streamingFieldProcessorsExecuted: number,
-  signatureName?: string
+  signatureName?: string,
+  customLabels?: Record<string, string>
 ): void => {
   try {
     const labels = sanitizeLabels({
       ...(signatureName ? { signature: signatureName } : {}),
+      ...customLabels,
     });
 
     if (
@@ -648,12 +666,14 @@ export const recordStreamingMetric = (
   isStreaming: boolean,
   deltasEmitted: number,
   finalizationDuration?: number,
-  signatureName?: string
+  signatureName?: string,
+  customLabels?: Record<string, string>
 ): void => {
   try {
     const labels = sanitizeLabels({
       is_streaming: isStreaming.toString(),
       ...(signatureName ? { signature: signatureName } : {}),
+      ...customLabels,
     });
 
     if (isStreaming && instruments.streamingGenerationsCounter) {
@@ -684,12 +704,14 @@ export const recordSamplesMetric = (
   samplesCount: number,
   resultPickerUsed: boolean,
   resultPickerLatency?: number,
-  signatureName?: string
+  signatureName?: string,
+  customLabels?: Record<string, string>
 ): void => {
   try {
     const labels = sanitizeLabels({
       result_picker_used: resultPickerUsed.toString(),
       ...(signatureName ? { signature: signatureName } : {}),
+      ...customLabels,
     });
 
     if (instruments.samplesGeneratedHistogram) {
@@ -718,11 +740,13 @@ export const recordSignatureComplexityMetrics = (
   outputFields: number,
   examplesCount: number,
   demosCount: number,
-  signatureName?: string
+  signatureName?: string,
+  customLabels?: Record<string, string>
 ): void => {
   try {
     const labels = sanitizeLabels({
       ...(signatureName ? { signature: signatureName } : {}),
+      ...customLabels,
     });
 
     if (instruments.inputFieldsGauge) {
@@ -755,12 +779,14 @@ export const recordPerformanceMetric = (
     | 'state_creation'
     | 'memory_update',
   duration: number,
-  signatureName?: string
+  signatureName?: string,
+  customLabels?: Record<string, string>
 ): void => {
   try {
     const labels = sanitizeLabels({
       metric_type: metricType,
       ...(signatureName ? { signature: signatureName } : {}),
+      ...customLabels,
     });
 
     switch (metricType) {

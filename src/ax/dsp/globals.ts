@@ -15,6 +15,7 @@ export const axGlobals = {
   optimizerLogger: undefined as AxOptimizerLoggerFunction | undefined, // Global optimizer logger for all optimizer operations
   debug: undefined as boolean | undefined, // Global debug setting for all AI operations
   abortSignal: undefined as AbortSignal | undefined, // Global abort signal for requests
+  customLabels: undefined as Record<string, string> | undefined, // Custom labels for OpenTelemetry metrics
   cachingFunction: undefined as
     | ((
         key: string,
