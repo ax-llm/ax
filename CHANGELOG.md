@@ -1,5 +1,12 @@
 # Changelog
 
+## [16.0.7](///compare/16.0.5...16.0.6) (2026-01-08)
+## [16.0.6](///compare/16.0.5...16.0.6) (2026-01-06)
+
+### Bug Fixes
+
+* use cache_control on a content block, not the content itself ([#479](undefined/undefined/undefined/issues/479)) 1542957
+
 ## [16.0.6](///compare/16.0.5...16.0.6) (2026-01-06)
 
 ### Bug Fixes
