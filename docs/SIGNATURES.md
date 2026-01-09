@@ -167,7 +167,7 @@ const gen = ax(sig.toString());
 ```typescript
 import { f } from '@ax-llm/ax';
 
-// Using the pure fluent builder - only supports .optional(), .array(), .internal()
+// Using the pure fluent builder - supports .optional(), .array(), .internal(), .cache()
 const signature = f()
   .input('userMessage', f.string('User input'))
   .input('contextData', f.string('Additional context').optional())
@@ -192,7 +192,7 @@ const sig = s('base:string -> result:string')
 
 ## Pure Fluent API Reference
 
-The fluent API has been redesigned to be purely fluent, meaning you can only use method chaining with `.optional()`, `.array()`, and `.internal()` methods. Nested function calls are no longer supported.
+The fluent API has been redesigned to be purely fluent, meaning you can only use method chaining with `.optional()`, `.array()`, `.internal()`, and `.cache()` methods. Nested function calls are no longer supported.
 
 ### ✅ Pure Fluent Syntax (Current)
 
@@ -217,6 +217,12 @@ const arrayOptional = f.string('array optional').array().optional(); // Same as 
 // Internal fields (output only) - use .internal() method chaining
 const internalField = f.string('internal description').internal();
 const internalArray = f.string('internal array').array().internal();
+
+// Cached fields (input only) - use .cache() method chaining
+// Marks input fields for LLM provider caching when contextCache is enabled
+const cachedField = f.string('static context').cache();
+const cachedOptional = f.string('optional cached').cache().optional();
+const cachedArray = f.string('cached items').cache().array();
 
 // Complex combinations
 const complexField = f.string('complex field')
@@ -298,6 +304,50 @@ type InputType = {
   responseText: string;
 };
 ```
+
+## Cached Input Fields
+
+The `.cache()` method marks input fields for LLM provider caching when using `contextCache` in `AxPromptTemplate`. Cached fields are rendered in a separate message with `cache: true`, enabling prompt caching features (e.g., Anthropic's prompt caching, Google Gemini's context caching).
+
+### Basic Usage
+
+```typescript
+import { f, ax, AxPromptTemplate } from '@ax-llm/ax';
+
+// Mark static content for caching
+const sig = f()
+  .input('staticContext', f.string('Context that rarely changes').cache())
+  .input('userQuery', f.string('Dynamic user query'))
+  .output('answer', f.string('Response'))
+  .build();
+
+// Enable context caching in template
+const template = new AxPromptTemplate(sig, {
+  contextCache: { ttlSeconds: 3600 }
+});
+
+// When rendered, staticContext appears in a cached message,
+// userQuery appears in a regular message
+```
+
+### Chaining with Other Modifiers
+
+The `.cache()` method can be chained with `.optional()` and `.array()` in any order:
+
+```typescript
+// All of these are equivalent
+f.string('context').cache().optional().array()
+f.string('context').optional().cache().array()
+f.string('context').array().optional().cache()
+```
+
+### Key Points
+
+- `.cache()` is only meaningful for **input fields**
+- Requires `contextCache` option in `AxPromptTemplate` or `forward()` options to take effect
+- Works with `cacheBreakpoint` configuration (`'system'`, `'after-functions'`, `'after-examples'`)
+- Cached fields are sorted to appear first in the rendered prompt
+- See [AI.md - Context Caching](./AI.md#7-context-caching) for full context caching documentation
 
 ## Field Naming Best Practices
 
