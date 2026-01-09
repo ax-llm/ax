@@ -807,7 +807,14 @@ export class AxGEPAFlow extends AxBaseOptimizer {
     const hv = hypervolume2D(pareto.map((p) => p.scores));
 
     this.stats.convergenceInfo.converged = true;
-    this.recordParetoMetrics(pareto.length, candidates.length, 'GEPA-Flow', hv);
+    const customLabels = this.getMergedCustomLabels(options);
+    this.recordParetoMetrics(
+      pareto.length,
+      candidates.length,
+      'GEPA-Flow',
+      hv,
+      customLabels
+    );
 
     return {
       demos: [],

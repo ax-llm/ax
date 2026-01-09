@@ -184,4 +184,9 @@ export interface AxCompileOptions {
   skipPerfectScore?: boolean;
   perfectScore?: number;
   maxMetricCalls?: number;
+  /**
+   * Custom labels to include in OpenTelemetry metrics.
+   * These labels are merged with axGlobals.customLabels and AI service customLabels.
+   */
+  customLabels?: Record<string, string>;
 }

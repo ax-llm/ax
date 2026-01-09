@@ -910,7 +910,14 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
     this.stats.convergenceInfo.converged = true;
 
     // Record metrics for monitoring
-    this.recordParetoMetrics(pareto.length, candidates.length, 'GEPA', hv);
+    const customLabels = this.getMergedCustomLabels(options);
+    this.recordParetoMetrics(
+      pareto.length,
+      candidates.length,
+      'GEPA',
+      hv,
+      customLabels
+    );
 
     // Build a unified optimized program (mirrors MiPRO) for the selected best candidate
     const optimizationTime = Date.now() - _startTime;

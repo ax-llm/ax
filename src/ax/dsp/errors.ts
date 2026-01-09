@@ -212,6 +212,7 @@ export type HandleErrorForGenerateArgs<TError extends Error> = {
   signatureName: string;
   span: Span | undefined;
   debug: boolean;
+  customLabels?: Record<string, string>;
 };
 
 /**
@@ -225,6 +226,7 @@ export const handleValidationErrorForGenerate = ({
   metricsInstruments,
   signatureName,
   span,
+  customLabels,
 }: HandleErrorForGenerateArgs<ValidationError>) => {
   const errorFields = error.getFixingInstructions();
 
@@ -240,7 +242,8 @@ export const handleValidationErrorForGenerate = ({
     recordValidationErrorMetric(
       metricsInstruments,
       'validation',
-      signatureName
+      signatureName,
+      customLabels
     );
   }
 
@@ -266,6 +269,7 @@ export const handleAssertionErrorForGenerate = ({
   metricsInstruments,
   signatureName,
   span,
+  customLabels,
 }: HandleErrorForGenerateArgs<AxAssertionError>) => {
   const errorFields = error.getFixingInstructions();
 
@@ -278,7 +282,12 @@ export const handleAssertionErrorForGenerate = ({
 
   // Record assertion error metric
   if (metricsInstruments) {
-    recordValidationErrorMetric(metricsInstruments, 'assertion', signatureName);
+    recordValidationErrorMetric(
+      metricsInstruments,
+      'assertion',
+      signatureName,
+      customLabels
+    );
   }
 
   // Add telemetry event for assertion error
@@ -303,6 +312,7 @@ export const handleRefusalErrorForGenerate = ({
   metricsInstruments,
   signatureName,
   span,
+  customLabels,
 }: HandleErrorForGenerateArgs<AxAIRefusalError>) => {
   // Log refusal error with proper structured logging
   if (debug && logger) {
@@ -311,7 +321,7 @@ export const handleRefusalErrorForGenerate = ({
 
   // Record refusal error metric
   if (metricsInstruments) {
-    recordRefusalErrorMetric(metricsInstruments, signatureName);
+    recordRefusalErrorMetric(metricsInstruments, signatureName, customLabels);
   }
 
   // Add telemetry event for refusal error

@@ -1,6 +1,7 @@
 import type { Counter, Gauge, Histogram, Meter } from '@opentelemetry/api';
 
 import type { AxAIService, AxLoggerFunction } from '../ai/types.js';
+import { mergeCustomLabels } from '../ai/metrics.js';
 
 // FIXME: Circular dependency - import { ax } from '../index.js';
 
@@ -436,13 +437,15 @@ export const recordOptimizationMetric = (
   duration: number,
   success: boolean,
   optimizerType: string,
-  programSignature?: string
+  programSignature?: string,
+  customLabels?: Record<string, string>
 ): void => {
   try {
     const labels = sanitizeOptimizerLabels({
       success: success.toString(),
       optimizer_type: optimizerType,
       ...(programSignature ? { program_signature: programSignature } : {}),
+      ...customLabels,
     });
 
     if (instruments.optimizationLatencyHistogram) {
@@ -468,11 +471,13 @@ export const recordConvergenceMetric = (
   currentScore: number,
   improvement: number,
   stagnationRounds: number,
-  optimizerType: string
+  optimizerType: string,
+  customLabels?: Record<string, string>
 ): void => {
   try {
     const labels = sanitizeOptimizerLabels({
       optimizer_type: optimizerType,
+      ...customLabels,
     });
 
     if (instruments.convergenceRoundsHistogram) {
@@ -498,12 +503,14 @@ export const recordConvergenceMetric = (
 export const recordEarlyStoppingMetric = (
   instruments: Readonly<AxOptimizerMetricsInstruments>,
   reason: string,
-  optimizerType: string
+  optimizerType: string,
+  customLabels?: Record<string, string>
 ): void => {
   try {
     const labels = sanitizeOptimizerLabels({
       reason,
       optimizer_type: optimizerType,
+      ...customLabels,
     });
 
     if (instruments.earlyStoppingCounter) {
@@ -520,11 +527,13 @@ export const recordResourceUsageMetric = (
   tokensUsed: number,
   costIncurred: number,
   optimizerType: string,
-  memoryUsage?: number
+  memoryUsage?: number,
+  customLabels?: Record<string, string>
 ): void => {
   try {
     const labels = sanitizeOptimizerLabels({
       optimizer_type: optimizerType,
+      ...customLabels,
     });
 
     if (instruments.tokenUsageCounter) {
@@ -546,11 +555,13 @@ export const recordResourceUsageMetric = (
 export const recordOptimizationDurationMetric = (
   instruments: Readonly<AxOptimizerMetricsInstruments>,
   duration: number,
-  optimizerType: string
+  optimizerType: string,
+  customLabels?: Record<string, string>
 ): void => {
   try {
     const labels = sanitizeOptimizerLabels({
       optimizer_type: optimizerType,
+      ...customLabels,
     });
 
     if (instruments.optimizationDurationHistogram) {
@@ -566,11 +577,13 @@ export const recordTeacherStudentMetric = (
   instruments: Readonly<AxOptimizerMetricsInstruments>,
   latency: number,
   scoreImprovement: number,
-  optimizerType: string
+  optimizerType: string,
+  customLabels?: Record<string, string>
 ): void => {
   try {
     const labels = sanitizeOptimizerLabels({
       optimizer_type: optimizerType,
+      ...customLabels,
     });
 
     if (instruments.teacherStudentUsageCounter) {
@@ -598,13 +611,15 @@ export const recordCheckpointMetric = (
   operation: 'save' | 'load',
   latency: number,
   success: boolean,
-  optimizerType: string
+  optimizerType: string,
+  customLabels?: Record<string, string>
 ): void => {
   try {
     const labels = sanitizeOptimizerLabels({
       operation,
       success: success.toString(),
       optimizer_type: optimizerType,
+      ...customLabels,
     });
 
     if (operation === 'save') {
@@ -633,11 +648,13 @@ export const recordParetoMetric = (
   frontSize: number,
   solutionsGenerated: number,
   optimizerType: string,
-  hypervolume?: number
+  hypervolume?: number,
+  customLabels?: Record<string, string>
 ): void => {
   try {
     const labels = sanitizeOptimizerLabels({
       optimizer_type: optimizerType,
+      ...customLabels,
     });
 
     if (instruments.paretoOptimizationsCounter) {
@@ -670,11 +687,13 @@ export const recordProgramComplexityMetric = (
   outputFields: number,
   examplesCount: number,
   validationSetSize: number,
-  optimizerType: string
+  optimizerType: string,
+  customLabels?: Record<string, string>
 ): void => {
   try {
     const labels = sanitizeOptimizerLabels({
       optimizer_type: optimizerType,
+      ...customLabels,
     });
 
     if (instruments.programInputFieldsGauge) {
@@ -702,12 +721,14 @@ export const recordOptimizerPerformanceMetric = (
   instruments: Readonly<AxOptimizerMetricsInstruments>,
   metricType: 'evaluation' | 'demo_generation' | 'metric_computation',
   duration: number,
-  optimizerType: string
+  optimizerType: string,
+  customLabels?: Record<string, string>
 ): void => {
   try {
     const labels = sanitizeOptimizerLabels({
       metric_type: metricType,
       optimizer_type: optimizerType,
+      ...customLabels,
     });
 
     switch (metricType) {
@@ -740,11 +761,13 @@ export const recordOptimizerConfigurationMetric = (
   instruments: Readonly<AxOptimizerMetricsInstruments>,
   optimizerType: string,
   targetScore?: number,
-  maxRounds?: number
+  maxRounds?: number,
+  customLabels?: Record<string, string>
 ): void => {
   try {
     const labels = sanitizeOptimizerLabels({
       optimizer_type: optimizerType,
+      ...customLabels,
     });
 
     if (instruments.optimizerTypeGauge) {
@@ -1208,6 +1231,21 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
   }
 
   /**
+   * Get merged custom labels from globals, AI services, and compile options.
+   * Labels are merged with later sources overriding earlier ones.
+   */
+  protected getMergedCustomLabels(
+    options?: AxCompileOptions
+  ): Record<string, string> {
+    return mergeCustomLabels(
+      axGlobals.customLabels,
+      this.studentAI?.getOptions?.()?.customLabels,
+      this.teacherAI?.getOptions?.()?.customLabels,
+      options?.customLabels
+    );
+  }
+
+  /**
    * Initialize the result explanation generator
    * FIXME: Disabled due to circular dependency with ax() function
    */
@@ -1312,7 +1350,11 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
   /**
    * Trigger early stopping with appropriate callbacks
    */
-  protected triggerEarlyStopping(reason: string, bestScoreRound: number): void {
+  protected triggerEarlyStopping(
+    reason: string,
+    bestScoreRound: number,
+    options?: AxCompileOptions
+  ): void {
     this.stats.earlyStopped = true;
     this.stats.earlyStopping = {
       bestScoreRound,
@@ -1321,7 +1363,7 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
     };
 
     // Record early stopping metrics (use a default optimizer type)
-    this.recordEarlyStoppingMetrics(reason, 'unknown');
+    this.recordEarlyStoppingMetrics(reason, 'unknown', options);
 
     if (this.onEarlyStop) {
       this.onEarlyStop(reason, this.stats);
@@ -1458,7 +1500,7 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
     const optimizerType = this.constructor.name;
     const programSignature = program.getSignature().toString();
 
-    this.recordOptimizationStart(optimizerType, programSignature);
+    this.recordOptimizationStart(optimizerType, programSignature, options);
 
     let earlyStopReason: string | undefined;
 
@@ -1502,7 +1544,7 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
       _stats: Readonly<AxOptimizationStats>
     ) => {
       earlyStopReason = reason;
-      this.triggerEarlyStopping(reason, this.currentRound);
+      this.triggerEarlyStopping(reason, this.currentRound, options);
     };
 
     const onProgress = (progress: Readonly<AxOptimizationProgress>) => {
@@ -1531,7 +1573,8 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
       duration,
       true,
       optimizerType,
-      programSignature
+      programSignature,
+      options
     );
 
     if (earlyStopReason) {
@@ -1622,7 +1665,8 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
       paretoFront.length,
       allSolutions.length,
       'base_optimizer',
-      hypervolume
+      hypervolume,
+      options
     );
 
     // Calculate best score as the maximum across all objectives and solutions
@@ -2137,7 +2181,13 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
       throw error;
     } finally {
       const latency = Date.now() - startTime;
-      this.recordCheckpointMetrics('save', latency, success, optimizerType);
+      this.recordCheckpointMetrics(
+        'save',
+        latency,
+        success,
+        optimizerType,
+        options
+      );
     }
 
     return checkpointId;
@@ -2166,7 +2216,13 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
     } finally {
       const latency = Date.now() - startTime;
       // Use a default optimizer type since we don't know it at load time
-      this.recordCheckpointMetrics('load', latency, success, 'unknown');
+      this.recordCheckpointMetrics(
+        'load',
+        latency,
+        success,
+        'unknown',
+        options
+      );
     }
 
     return checkpoint;
@@ -2303,9 +2359,12 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
    */
   protected recordOptimizationStart(
     optimizerType: string,
-    programSignature?: string
+    programSignature?: string,
+    options?: AxCompileOptions
   ): void {
     if (!this.metricsInstruments) return;
+
+    const customLabels = this.getMergedCustomLabels(options);
 
     // Record program complexity metrics
     if (programSignature) {
@@ -2319,7 +2378,8 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
         outputFields,
         0, // this.examples.length - now in options
         0, // this.getValidationSet().length - now in options
-        optimizerType
+        optimizerType,
+        customLabels
       );
     }
 
@@ -2328,7 +2388,8 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
       this.metricsInstruments,
       optimizerType,
       this.targetScore,
-      undefined // maxRounds would be set by concrete optimizers
+      undefined, // maxRounds would be set by concrete optimizers
+      customLabels
     );
   }
 
@@ -2339,22 +2400,27 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
     duration: number,
     success: boolean,
     optimizerType: string,
-    programSignature?: string
+    programSignature?: string,
+    options?: AxCompileOptions
   ): void {
     if (!this.metricsInstruments) return;
+
+    const customLabels = this.getMergedCustomLabels(options);
 
     recordOptimizationMetric(
       this.metricsInstruments,
       duration,
       success,
       optimizerType,
-      programSignature
+      programSignature,
+      customLabels
     );
 
     recordOptimizationDurationMetric(
       this.metricsInstruments,
       duration,
-      optimizerType
+      optimizerType,
+      customLabels
     );
 
     // Record resource usage
@@ -2364,7 +2430,9 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
       this.metricsInstruments,
       totalTokens,
       currentCost,
-      optimizerType
+      optimizerType,
+      undefined,
+      customLabels
     );
   }
 
@@ -2376,9 +2444,12 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
     currentScore: number,
     improvement: number,
     stagnationRounds: number,
-    optimizerType: string
+    optimizerType: string,
+    options?: AxCompileOptions
   ): void {
     if (!this.metricsInstruments) return;
+
+    const customLabels = this.getMergedCustomLabels(options);
 
     recordConvergenceMetric(
       this.metricsInstruments,
@@ -2386,7 +2457,8 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
       currentScore,
       improvement,
       stagnationRounds,
-      optimizerType
+      optimizerType,
+      customLabels
     );
   }
 
@@ -2395,11 +2467,19 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
    */
   protected recordEarlyStoppingMetrics(
     reason: string,
-    optimizerType: string
+    optimizerType: string,
+    options?: AxCompileOptions
   ): void {
     if (!this.metricsInstruments) return;
 
-    recordEarlyStoppingMetric(this.metricsInstruments, reason, optimizerType);
+    const customLabels = this.getMergedCustomLabels(options);
+
+    recordEarlyStoppingMetric(
+      this.metricsInstruments,
+      reason,
+      optimizerType,
+      customLabels
+    );
   }
 
   /**
@@ -2408,15 +2488,19 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
   protected recordTeacherStudentMetrics(
     latency: number,
     scoreImprovement: number,
-    optimizerType: string
+    optimizerType: string,
+    options?: AxCompileOptions
   ): void {
     if (!this.metricsInstruments) return;
+
+    const customLabels = this.getMergedCustomLabels(options);
 
     recordTeacherStudentMetric(
       this.metricsInstruments,
       latency,
       scoreImprovement,
-      optimizerType
+      optimizerType,
+      customLabels
     );
   }
 
@@ -2427,16 +2511,20 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
     operation: 'save' | 'load',
     latency: number,
     success: boolean,
-    optimizerType: string
+    optimizerType: string,
+    options?: AxCompileOptions
   ): void {
     if (!this.metricsInstruments) return;
+
+    const customLabels = this.getMergedCustomLabels(options);
 
     recordCheckpointMetric(
       this.metricsInstruments,
       operation,
       latency,
       success,
-      optimizerType
+      optimizerType,
+      customLabels
     );
   }
 
@@ -2447,16 +2535,20 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
     frontSize: number,
     solutionsGenerated: number,
     optimizerType: string,
-    hypervolume?: number
+    hypervolume?: number,
+    options?: AxCompileOptions
   ): void {
     if (!this.metricsInstruments) return;
+
+    const customLabels = this.getMergedCustomLabels(options);
 
     recordParetoMetric(
       this.metricsInstruments,
       frontSize,
       solutionsGenerated,
       optimizerType,
-      hypervolume
+      hypervolume,
+      customLabels
     );
   }
 
@@ -2466,15 +2558,19 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
   protected recordPerformanceMetrics(
     metricType: 'evaluation' | 'demo_generation' | 'metric_computation',
     duration: number,
-    optimizerType: string
+    optimizerType: string,
+    options?: AxCompileOptions
   ): void {
     if (!this.metricsInstruments) return;
+
+    const customLabels = this.getMergedCustomLabels(options);
 
     recordOptimizerPerformanceMetric(
       this.metricsInstruments,
       metricType,
       duration,
-      optimizerType
+      optimizerType,
+      customLabels
     );
   }
 

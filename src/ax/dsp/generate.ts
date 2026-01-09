@@ -664,12 +664,14 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
     // Record prompt render performance metric
     const metricsInstruments = this.getMetricsInstruments();
+    const customLabels = this.getMergedCustomLabels(ai, options);
     if (metricsInstruments) {
       recordPerformanceMetric(
         metricsInstruments,
         'prompt_render',
         promptRenderDuration,
-        this.getSignatureName()
+        this.getSignatureName(),
+        customLabels
       );
     }
 
@@ -684,7 +686,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         metricsInstruments,
         'memory_update',
         memoryUpdateDuration,
-        this.getSignatureName()
+        this.getSignatureName(),
+        customLabels
       );
     }
 
@@ -863,7 +866,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
                     metricsInstruments,
                     n + 1,
                     maxSteps,
-                    this.getSignatureName()
+                    this.getSignatureName(),
+                    customLabels
                   );
                 }
                 continue multiStepLoop;
@@ -883,7 +887,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
                   metricsInstruments,
                   n + 1,
                   maxSteps,
-                  this.getSignatureName()
+                  this.getSignatureName(),
+                  customLabels
                 );
 
                 // Count unique functions executed across all states
@@ -902,7 +907,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
                     allFunctionsExecuted.size,
                     true,
                     false,
-                    this.getSignatureName()
+                    this.getSignatureName(),
+                    customLabels
                   );
                 }
 
@@ -911,7 +917,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
                   metricsInstruments,
                   this.fieldProcessors.length,
                   this.streamingFieldProcessors.length,
-                  this.getSignatureName()
+                  this.getSignatureName(),
+                  customLabels
                 );
               }
 
@@ -932,6 +939,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
                 signatureName,
                 span,
                 debug,
+                customLabels,
               };
 
               span?.recordException(e as Error);
@@ -1013,7 +1021,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
               maxRetries,
               false, // failed
               maxRetries,
-              this.getSignatureName()
+              this.getSignatureName(),
+              customLabels
             );
           }
 
@@ -1100,7 +1109,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         metricsInstruments,
         maxSteps,
         maxSteps,
-        this.getSignatureName()
+        this.getSignatureName(),
+        customLabels
       );
     }
 
@@ -1282,12 +1292,14 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
     // Record state creation performance metric
     const metricsInstruments = this.getMetricsInstruments();
+    const customLabels = this.getMergedCustomLabels(ai, options);
     if (metricsInstruments) {
       recordPerformanceMetric(
         metricsInstruments,
         'state_creation',
         stateCreationDuration,
-        this.getSignatureName()
+        this.getSignatureName(),
+        customLabels
       );
     }
 
