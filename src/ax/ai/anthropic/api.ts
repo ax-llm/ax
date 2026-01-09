@@ -229,20 +229,31 @@ class AxAIAnthropicImpl
       }
     }
 
-    // Cache system prompts when cache flag is set
-    const system = req.chatPrompt
-      .filter((msg) => msg.role === 'system')
-      .map((msg) => ({
-        type: 'text' as const,
-        text: msg.content,
-        ...(msg.cache ? { cache_control: { type: 'ephemeral' as const } } : {}),
-      }));
+    // Detect if caching is enabled (any message or function has cache: true)
+    // When caching is detected, Anthropic's automatic backward lookback means we should
+    // always set cache_control on system and last tool for maximum cache reuse
+    const cachingEnabled =
+      req.chatPrompt.some((msg) => 'cache' in msg && msg.cache) ||
+      req.functions?.some((fn) => fn.cache);
+
+    // Cache system prompts - always cache last system message when caching is enabled
+    const systemMessages = req.chatPrompt.filter(
+      (msg) => msg.role === 'system'
+    );
+    const system = systemMessages.map((msg, idx) => ({
+      type: 'text' as const,
+      text: msg.content,
+      // Always cache last system message when caching is enabled (Anthropic auto-lookback)
+      ...(msg.cache || (cachingEnabled && idx === systemMessages.length - 1)
+        ? { cache_control: { type: 'ephemeral' as const } }
+        : {}),
+    }));
 
     const otherMessages = req.chatPrompt.filter((msg) => msg.role !== 'system');
 
     // Compose tools from request function definitions and static config tools
     const functionToolsFromReq: AxAIAnthropicChatRequest['tools'] | undefined =
-      req.functions?.map((v) => {
+      req.functions?.map((v, idx, arr) => {
         const dummyParameters = {
           type: 'object',
           properties: {
@@ -289,8 +300,10 @@ class AxAIAnthropicImpl
           name: v.name,
           description: v.description,
           input_schema,
-          // Translate cache: true → cache_control for caching breakpoint
-          ...(v.cache ? { cache_control: { type: 'ephemeral' as const } } : {}),
+          // Always cache last tool when caching is enabled (Anthropic auto-lookback)
+          ...(v.cache || (cachingEnabled && idx === arr.length - 1)
+            ? { cache_control: { type: 'ephemeral' as const } }
+            : {}),
         };
       });
 
@@ -972,6 +985,7 @@ export class AxAIAnthropic<TModelKey = string> extends AxBaseAI<
         caching: {
           supported: true,
           types: ['ephemeral'] as ('ephemeral' | 'persistent')[],
+          cacheBreakpoints: false, // Anthropic has automatic backward lookback
         },
         thinking: mi?.supported?.thinkingBudget ?? false,
         multiTurn: true,

@@ -403,12 +403,16 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     }
 
     // Mark last function for caching (creates breakpoint after tools)
-    // Only if cacheBreakpoint is 'after-functions' or 'after-examples'
+    // Cache if cacheBreakpoint is 'after-functions' or 'after-examples', or ignoreBreakpoints is true
     const cacheBreakpoint =
       options?.contextCache?.cacheBreakpoint ?? 'after-examples';
+    const ignoreBreakpoints =
+      ai.getFeatures?.(model)?.caching?.cacheBreakpoints === false;
     const shouldCacheFunctions =
-      cacheBreakpoint === 'after-functions' ||
-      cacheBreakpoint === 'after-examples';
+      options?.contextCache &&
+      (ignoreBreakpoints ||
+        cacheBreakpoint === 'after-functions' ||
+        cacheBreakpoint === 'after-examples');
     const functionsWithCache =
       functions?.length && shouldCacheFunctions
         ? functions.map((fn, i) => ({
@@ -620,12 +624,17 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       this.setSignature(this.signature);
     }
 
+    // Check if provider has automatic cache lookback (e.g., Anthropic)
+    const providerIgnoreBreakpoints =
+      ai.getFeatures?.(options.model)?.caching?.cacheBreakpoints === false;
+
     const currentPromptTemplateOptions = {
       // Prefer per-call functions; fall back to parsed functions from constructor
       functions: this.signatureToolCallingManager ? [] : functions,
       thoughtFieldName: this.thoughtFieldName,
       contextCache: options.contextCache, // Pass through for system prompt caching
       examplesInSystem: options.examplesInSystem,
+      ignoreBreakpoints: providerIgnoreBreakpoints,
     };
 
     this.promptTemplate = new promptTemplateClass(

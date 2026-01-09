@@ -60,8 +60,8 @@ export class AxSignatureBuilder<
   public input<
     K extends string,
     T extends
-      | AxFluentFieldInfo<any, any, any, any, any, any>
-      | AxFluentFieldType<any, any, any, any, any, any>,
+      | AxFluentFieldInfo<any, any, any, any, any, any, any>
+      | AxFluentFieldType<any, any, any, any, any, any, any>,
   >(
     name: K,
     fieldInfo: T,
@@ -95,6 +95,7 @@ export class AxSignatureBuilder<
       description: fieldInfo.description,
       isOptional: fieldInfo.isOptional || undefined,
       isInternal: fieldInfo.isInternal || undefined,
+      isCached: fieldInfo.isCached || undefined,
     };
 
     if (prepend) {
@@ -115,8 +116,8 @@ export class AxSignatureBuilder<
   public output<
     K extends string,
     T extends
-      | AxFluentFieldInfo<any, any, any, any, any, any>
-      | AxFluentFieldType<any, any, any, any, any, any>,
+      | AxFluentFieldInfo<any, any, any, any, any, any, any>
+      | AxFluentFieldType<any, any, any, any, any, any, any>,
   >(
     name: K,
     fieldInfo: T,
@@ -214,6 +215,7 @@ export class AxFluentFieldType<
   TFields extends
     | Record<string, AxFluentFieldInfo | AxFluentFieldType>
     | undefined = undefined,
+  TIsCached extends boolean = false,
 > implements AxFieldType
 {
   readonly type: TType;
@@ -222,6 +224,7 @@ export class AxFluentFieldType<
   readonly description?: string;
   readonly isOptional: TIsOptional;
   readonly isInternal: TIsInternal;
+  readonly isCached: TIsCached;
   readonly fields?: any;
   readonly minLength?: number;
   readonly maxLength?: number;
@@ -240,6 +243,7 @@ export class AxFluentFieldType<
     itemDescription?: string;
     isOptional: TIsOptional;
     isInternal: TIsInternal;
+    isCached: TIsCached;
     fields?: TFields;
     minLength?: number;
     maxLength?: number;
@@ -256,6 +260,7 @@ export class AxFluentFieldType<
     this.itemDescription = fieldType.itemDescription;
     this.isOptional = fieldType.isOptional;
     this.isInternal = fieldType.isInternal;
+    this.isCached = fieldType.isCached;
     this.fields = fieldType.fields;
     this.minLength = fieldType.minLength;
     this.maxLength = fieldType.maxLength;
@@ -272,7 +277,8 @@ export class AxFluentFieldType<
     TOptions,
     true,
     TIsInternal,
-    TFields
+    TFields,
+    TIsCached
   > {
     return new AxFluentFieldType({
       ...this,
@@ -288,7 +294,8 @@ export class AxFluentFieldType<
     TOptions,
     TIsOptional,
     TIsInternal,
-    TFields
+    TFields,
+    TIsCached
   > {
     return new AxFluentFieldType({
       ...this,
@@ -304,11 +311,32 @@ export class AxFluentFieldType<
     TOptions,
     TIsOptional,
     true,
-    TFields
+    TFields,
+    TIsCached
   > {
     return new AxFluentFieldType({
       ...this,
       isInternal: true as const,
+    });
+  }
+
+  /**
+   * Mark this input field for caching. When contextCache is enabled,
+   * cached fields are rendered in a separate user message with cache: true,
+   * allowing them to be cached by the LLM provider.
+   */
+  cache(): AxFluentFieldType<
+    TType,
+    TIsArray,
+    TOptions,
+    TIsOptional,
+    TIsInternal,
+    TFields,
+    true
+  > {
+    return new AxFluentFieldType({
+      ...this,
+      isCached: true as const,
     });
   }
 
@@ -323,7 +351,8 @@ export class AxFluentFieldType<
     TOptions,
     TIsOptional,
     TIsInternal,
-    TFields
+    TFields,
+    TIsCached
   > {
     if (this.type === 'string') {
       return new AxFluentFieldType({
@@ -350,7 +379,8 @@ export class AxFluentFieldType<
     TOptions,
     TIsOptional,
     TIsInternal,
-    TFields
+    TFields,
+    TIsCached
   > {
     if (this.type === 'string') {
       return new AxFluentFieldType({
@@ -375,7 +405,8 @@ export class AxFluentFieldType<
     TOptions,
     TIsOptional,
     TIsInternal,
-    TFields
+    TFields,
+    TIsCached
   > {
     if (this.type === 'string') {
       return new AxFluentFieldType({
@@ -395,7 +426,8 @@ export class AxFluentFieldType<
     TOptions,
     TIsOptional,
     TIsInternal,
-    TFields
+    TFields,
+    TIsCached
   > {
     if (this.type === 'string') {
       return new AxFluentFieldType({
@@ -420,7 +452,8 @@ export class AxFluentFieldType<
     TOptions,
     TIsOptional,
     TIsInternal,
-    TFields
+    TFields,
+    TIsCached
   > {
     if (this.type === 'string') {
       return new AxFluentFieldType({
@@ -441,7 +474,8 @@ export class AxFluentFieldType<
     TOptions,
     TIsOptional,
     TIsInternal,
-    TFields
+    TFields,
+    TIsCached
   > {
     if (this.type === 'string') {
       return new AxFluentFieldType({
@@ -461,7 +495,8 @@ export class AxFluentFieldType<
     TOptions,
     TIsOptional,
     TIsInternal,
-    TFields
+    TFields,
+    TIsCached
   > {
     if (this.type === 'string') {
       return new AxFluentFieldType({
@@ -495,24 +530,42 @@ export const f = Object.assign(
   {
     string: (
       desc?: string
-    ): AxFluentFieldType<'string', false, undefined, false, false, undefined> =>
+    ): AxFluentFieldType<
+      'string',
+      false,
+      undefined,
+      false,
+      false,
+      undefined,
+      false
+    > =>
       new AxFluentFieldType({
         type: 'string' as const,
         isArray: false as const,
         description: desc,
         isOptional: false as const,
         isInternal: false as const,
+        isCached: false as const,
       }),
 
     number: (
       desc?: string
-    ): AxFluentFieldType<'number', false, undefined, false, false, undefined> =>
+    ): AxFluentFieldType<
+      'number',
+      false,
+      undefined,
+      false,
+      false,
+      undefined,
+      false
+    > =>
       new AxFluentFieldType({
         type: 'number' as const,
         isArray: false as const,
         description: desc,
         isOptional: false as const,
         isInternal: false as const,
+        isCached: false as const,
       }),
 
     boolean: (
@@ -523,7 +576,8 @@ export const f = Object.assign(
       undefined,
       false,
       false,
-      undefined
+      undefined,
+      false
     > =>
       new AxFluentFieldType({
         type: 'boolean' as const,
@@ -531,17 +585,27 @@ export const f = Object.assign(
         description: desc,
         isOptional: false as const,
         isInternal: false as const,
+        isCached: false as const,
       }),
 
     json: (
       desc?: string
-    ): AxFluentFieldType<'json', false, undefined, false, false, undefined> =>
+    ): AxFluentFieldType<
+      'json',
+      false,
+      undefined,
+      false,
+      false,
+      undefined,
+      false
+    > =>
       new AxFluentFieldType({
         type: 'json' as const,
         isArray: false as const,
         description: desc,
         isOptional: false as const,
         isInternal: false as const,
+        isCached: false as const,
       }),
 
     datetime: (
@@ -552,7 +616,8 @@ export const f = Object.assign(
       undefined,
       false,
       false,
-      undefined
+      undefined,
+      false
     > =>
       new AxFluentFieldType({
         type: 'datetime' as const,
@@ -560,23 +625,41 @@ export const f = Object.assign(
         description: desc,
         isOptional: false as const,
         isInternal: false as const,
+        isCached: false as const,
       }),
 
     date: (
       desc?: string
-    ): AxFluentFieldType<'date', false, undefined, false, false, undefined> =>
+    ): AxFluentFieldType<
+      'date',
+      false,
+      undefined,
+      false,
+      false,
+      undefined,
+      false
+    > =>
       new AxFluentFieldType({
         type: 'date' as const,
         isArray: false as const,
         description: desc,
         isOptional: false as const,
         isInternal: false as const,
+        isCached: false as const,
       }),
 
     class: <const TOptions extends readonly string[]>(
       options: TOptions,
       desc?: string
-    ): AxFluentFieldType<'class', false, TOptions, false, false, undefined> =>
+    ): AxFluentFieldType<
+      'class',
+      false,
+      TOptions,
+      false,
+      false,
+      undefined,
+      false
+    > =>
       new AxFluentFieldType({
         type: 'class' as const,
         isArray: false as const,
@@ -584,86 +667,149 @@ export const f = Object.assign(
         description: desc,
         isOptional: false as const,
         isInternal: false as const,
+        isCached: false as const,
       }),
 
     image: (
       desc?: string
-    ): AxFluentFieldType<'image', false, undefined, false, false, undefined> =>
+    ): AxFluentFieldType<
+      'image',
+      false,
+      undefined,
+      false,
+      false,
+      undefined,
+      false
+    > =>
       new AxFluentFieldType({
         type: 'image' as const,
         isArray: false as const,
         description: desc,
         isOptional: false as const,
         isInternal: false as const,
+        isCached: false as const,
       }),
 
     audio: (
       desc?: string
-    ): AxFluentFieldType<'audio', false, undefined, false, false, undefined> =>
+    ): AxFluentFieldType<
+      'audio',
+      false,
+      undefined,
+      false,
+      false,
+      undefined,
+      false
+    > =>
       new AxFluentFieldType({
         type: 'audio' as const,
         isArray: false as const,
         description: desc,
         isOptional: false as const,
         isInternal: false as const,
+        isCached: false as const,
       }),
 
     file: (
       desc?: string
-    ): AxFluentFieldType<'file', false, undefined, false, false, undefined> =>
+    ): AxFluentFieldType<
+      'file',
+      false,
+      undefined,
+      false,
+      false,
+      undefined,
+      false
+    > =>
       new AxFluentFieldType({
         type: 'file' as const,
         isArray: false as const,
         description: desc,
         isOptional: false as const,
         isInternal: false as const,
+        isCached: false as const,
       }),
 
     url: (
       desc?: string
-    ): AxFluentFieldType<'url', false, undefined, false, false, undefined> =>
+    ): AxFluentFieldType<
+      'url',
+      false,
+      undefined,
+      false,
+      false,
+      undefined,
+      false
+    > =>
       new AxFluentFieldType({
         type: 'url' as const,
         isArray: false as const,
         description: desc,
         isOptional: false as const,
         isInternal: false as const,
+        isCached: false as const,
       }),
 
     email: (
       desc?: string
-    ): AxFluentFieldType<'string', false, undefined, false, false, undefined> =>
+    ): AxFluentFieldType<
+      'string',
+      false,
+      undefined,
+      false,
+      false,
+      undefined,
+      false
+    > =>
       new AxFluentFieldType({
         type: 'string' as const,
         isArray: false as const,
         description: desc,
         isOptional: false as const,
         isInternal: false as const,
+        isCached: false as const,
         format: 'email',
       }),
 
     code: (
       language?: string,
       desc?: string
-    ): AxFluentFieldType<'code', false, undefined, false, false, undefined> =>
+    ): AxFluentFieldType<
+      'code',
+      false,
+      undefined,
+      false,
+      false,
+      undefined,
+      false
+    > =>
       new AxFluentFieldType({
         type: 'code' as const,
         isArray: false as const,
         description: desc || language,
         isOptional: false as const,
         isInternal: false as const,
+        isCached: false as const,
       }),
 
     object: <
       TFields extends Record<
         string,
-        | AxFluentFieldInfo<any, any, any, any, any, any>
-        | AxFluentFieldType<any, any, any, any, any, any>
+        | AxFluentFieldInfo<any, any, any, any, any, any, any>
+        | AxFluentFieldType<any, any, any, any, any, any, any>
       >,
     >(
       fields: TFields & ValidateNoMediaTypes<TFields>,
       desc?: string
-    ): AxFluentFieldType<'object', false, undefined, false, false, TFields> =>
+    ): AxFluentFieldType<
+      'object',
+      false,
+      undefined,
+      false,
+      false,
+      TFields,
+      false
+    > =>
       new AxFluentFieldType({
         type: 'object' as const,
         isArray: false as const,
@@ -671,6 +817,7 @@ export const f = Object.assign(
         description: desc,
         isOptional: false as const,
         isInternal: false as const,
+        isCached: false as const,
       }),
   }
 );
@@ -711,6 +858,7 @@ export interface AxField {
   };
   isOptional?: boolean;
   isInternal?: boolean;
+  isCached?: boolean;
 }
 
 export type AxIField = Omit<AxField, 'title'> & { title: string };
@@ -795,6 +943,7 @@ export interface AxFluentFieldInfo<
   TFields extends
     | Record<string, AxFluentFieldInfo | AxFluentFieldType>
     | undefined = undefined,
+  _TIsCached extends boolean = false,
 > {
   readonly type: TType;
   readonly isArray?: TIsArray;
@@ -804,6 +953,7 @@ export interface AxFluentFieldInfo<
   readonly itemDescription?: string;
   readonly isOptional?: TIsOptional;
   readonly isInternal?: boolean;
+  readonly isCached?: boolean;
   readonly minLength?: number;
   readonly maxLength?: number;
   readonly minimum?: number;

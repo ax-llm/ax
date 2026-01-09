@@ -231,6 +231,8 @@ export interface AxAIFeatures {
     supported: boolean;
     /** Types of caching available */
     types: ('ephemeral' | 'persistent')[];
+    /** Whether explicit cache breakpoints are needed. If false, provider has automatic lookback and cache_control is always applied to system and last tool when caching is detected. Defaults to true. */
+    cacheBreakpoints?: boolean;
   };
   /** Whether the provider supports thinking/reasoning modes */
   thinking: boolean;

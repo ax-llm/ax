@@ -16,6 +16,8 @@ export interface AxPromptTemplateOptions {
   contextCache?: AxContextCacheOptions;
   /** When true, examples/demos are embedded in system prompt (legacy). When false (default), they are rendered as alternating user/assistant message pairs. */
   examplesInSystem?: boolean;
+  /** When true, cacheBreakpoint is ignored and cache is applied to all positions (for providers with auto-lookback like Anthropic) */
+  ignoreBreakpoints?: boolean;
 }
 type AxChatRequestChatPrompt = Writeable<AxChatRequest['chatPrompt'][0]>;
 
@@ -86,6 +88,7 @@ export class AxPromptTemplate {
   private readonly functions?: Readonly<AxInputFunctionType>;
   private readonly contextCache?: AxContextCacheOptions;
   private readonly examplesInSystem: boolean;
+  private readonly ignoreBreakpoints: boolean;
 
   constructor(
     sig: Readonly<AxSignature>,
@@ -98,6 +101,7 @@ export class AxPromptTemplate {
     this.functions = options?.functions;
     this.contextCache = options?.contextCache;
     this.examplesInSystem = options?.examplesInSystem ?? false;
+    this.ignoreBreakpoints = options?.ignoreBreakpoints ?? false;
 
     // Use structured prompt format based on global setting
     if (axGlobals.useStructuredPrompt) {
@@ -107,6 +111,20 @@ export class AxPromptTemplate {
       this.task = this.buildLegacyPrompt();
     }
   }
+
+  /**
+   * Sort fields so that cached fields come first.
+   * Uses stable sort to preserve relative order among cached and non-cached fields.
+   */
+  private sortFieldsCachedFirst = (
+    fields: readonly AxIField[]
+  ): readonly AxIField[] => {
+    return [...fields].sort((a, b) => {
+      if (a.isCached && !b.isCached) return -1;
+      if (!a.isCached && b.isCached) return 1;
+      return 0;
+    });
+  };
 
   /**
    * Build legacy prompt format (backward compatible)
@@ -499,10 +517,11 @@ export class AxPromptTemplate {
     }
 
     // Apply cache to last assistant message (creates breakpoint after demos)
-    // Only if cacheBreakpoint is 'after-examples' (default) or not set
+    // Cache if cacheBreakpoint is 'after-examples' (default) or ignoreBreakpoints is true
     const cacheBreakpoint =
       this.contextCache?.cacheBreakpoint ?? 'after-examples';
-    const shouldCacheExamples = cacheBreakpoint === 'after-examples';
+    const shouldCacheExamples =
+      this.ignoreBreakpoints || cacheBreakpoint === 'after-examples';
     if (
       this.contextCache &&
       fewShotMessages.length > 0 &&
@@ -566,8 +585,91 @@ export class AxPromptTemplate {
       return [systemPrompt, ...fewShotMessages, ...historyMessages];
     }
 
-    // Single-turn: render user input
-    const userContent = this.renderInputFields(values as T);
+    // Single-turn: separate cached and non-cached fields
+    const inputFields = this.sig.getInputFields();
+    const cachedFields = inputFields.filter((f) => f.isCached);
+    const nonCachedFields = inputFields.filter((f) => !f.isCached);
+
+    // Check if we should split into separate messages for cached fields
+    const hasCachedFields = cachedFields.length > 0;
+    const shouldSplitCachedFields =
+      this.contextCache &&
+      hasCachedFields &&
+      (this.ignoreBreakpoints ||
+        (cacheBreakpoint !== 'system' &&
+          cacheBreakpoint !== 'after-functions'));
+
+    // If we have both cached and non-cached fields, render them in separate messages
+    if (shouldSplitCachedFields && nonCachedFields.length > 0) {
+      // Render cached fields
+      const cachedContent = cachedFields
+        .map((field) => this.renderInField(field, values as any, undefined))
+        .filter((v) => v !== undefined)
+        .flat();
+      cachedContent
+        .filter((v) => v.type === 'text')
+        .forEach((v) => {
+          v.text = `${v.text}\n`;
+        });
+
+      let formattedCachedContent: string | ChatRequestUserMessage =
+        cachedContent.every((v) => v.type === 'text')
+          ? cachedContent.map((v) => v.text).join('\n')
+          : cachedContent.reduce(combineConsecutiveStrings('\n'), []);
+
+      // Prepend separator if we had examples/demos
+      if (hasExamplesOrDemos) {
+        if (typeof formattedCachedContent === 'string') {
+          formattedCachedContent = exampleSeparator + formattedCachedContent;
+        } else {
+          formattedCachedContent = [
+            { type: 'text' as const, text: exampleSeparator },
+            ...formattedCachedContent,
+          ];
+        }
+      }
+
+      // Render non-cached fields
+      const nonCachedContent = nonCachedFields
+        .map((field) => this.renderInField(field, values as any, undefined))
+        .filter((v) => v !== undefined)
+        .flat();
+      nonCachedContent
+        .filter((v) => v.type === 'text')
+        .forEach((v) => {
+          v.text = `${v.text}\n`;
+        });
+
+      const formattedNonCachedContent: string | ChatRequestUserMessage =
+        nonCachedContent.every((v) => v.type === 'text')
+          ? nonCachedContent.map((v) => v.text).join('\n')
+          : nonCachedContent.reduce(combineConsecutiveStrings('\n'), []);
+
+      return [
+        systemPrompt,
+        ...fewShotMessages,
+        {
+          role: 'user' as const,
+          content: formattedCachedContent,
+          cache: true,
+        },
+        { role: 'user' as const, content: formattedNonCachedContent },
+      ];
+    }
+
+    // Handle case: all fields cached, only cached fields, or no caching - render together
+    // Sort cached fields first if any exist
+    const sortedFields = this.sortFieldsCachedFirst(inputFields);
+    const userContent = sortedFields
+      .map((field) => this.renderInField(field, values as any, undefined))
+      .filter((v) => v !== undefined)
+      .flat();
+    userContent
+      .filter((v) => v.type === 'text')
+      .forEach((v) => {
+        v.text = `${v.text}\n`;
+      });
+
     let formattedUserContent: string | ChatRequestUserMessage =
       userContent.every((v) => v.type === 'text')
         ? userContent.map((v) => v.text).join('\n')
@@ -585,10 +687,18 @@ export class AxPromptTemplate {
       }
     }
 
+    // Set cache: true if all fields are cached and caching is enabled
+    const allFieldsCached =
+      hasCachedFields && nonCachedFields.length === 0 && this.contextCache;
+
     return [
       systemPrompt,
       ...fewShotMessages,
-      { role: 'user' as const, content: formattedUserContent },
+      {
+        role: 'user' as const,
+        content: formattedUserContent,
+        ...(allFieldsCached ? { cache: true } : {}),
+      },
     ];
   };
 
@@ -860,9 +970,11 @@ export class AxPromptTemplate {
     const hasComplexFields = this.sig.hasComplexFields();
 
     for (const item of data) {
-      // Render INPUT fields as user message content
-      const inputContent = this.sig
-        .getInputFields()
+      // Render INPUT fields as user message content (cached fields first for cache efficiency)
+      const sortedInputFields = this.sortFieldsCachedFirst(
+        this.sig.getInputFields()
+      );
+      const inputContent = sortedInputFields
         .map((field) =>
           this.renderInField(field, item, {
             ...exampleContext,
@@ -940,8 +1052,9 @@ export class AxPromptTemplate {
   };
 
   private renderInputFields = <T = any>(values: T) => {
-    const renderedItems = this.sig
-      .getInputFields()
+    // Sort cached fields first for cache efficiency
+    const sortedFields = this.sortFieldsCachedFirst(this.sig.getInputFields());
+    const renderedItems = sortedFields
       .map((field) => this.renderInField(field, values as any, undefined))
       .filter((v) => v !== undefined)
       .flat();

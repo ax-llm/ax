@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { AxPromptTemplate } from './prompt.js';
-import { AxSignature } from './sig.js';
+import { AxSignature, f } from './sig.js';
 import type { AxMessage } from './types.js';
 
 // Helper to create a basic signature
@@ -1065,6 +1065,178 @@ describe('AxPromptTemplate.render', () => {
       ) as Array<{ role: 'assistant'; cache?: boolean }>;
       expect(assistantMessages.length).toBe(1);
       expect(assistantMessages[0]?.cache).toBeUndefined();
+    });
+  });
+
+  describe('Cached input fields', () => {
+    it('should render cached fields in separate user message with cache:true', () => {
+      const sig = f()
+        .input('staticContext', f.string('Static').cache())
+        .input('userQuery', f.string('Dynamic'))
+        .output('answer', f.string())
+        .build();
+
+      const template = new AxPromptTemplate(sig, {
+        contextCache: { ttlSeconds: 3600 },
+      });
+
+      const result = template.render(
+        { staticContext: 'cached content', userQuery: 'question' },
+        {}
+      );
+
+      // Should have: system, user (cached), user (non-cached)
+      expect(result.length).toBe(3);
+
+      // First user message should have cached field and cache: true
+      const firstUser = result[1] as {
+        role: 'user';
+        content: string;
+        cache?: boolean;
+      };
+      expect(firstUser.role).toBe('user');
+      expect(firstUser.cache).toBe(true);
+      expect(firstUser.content).toContain('Static Context');
+
+      // Second user message should have non-cached field and no cache
+      const secondUser = result[2] as {
+        role: 'user';
+        content: string;
+        cache?: boolean;
+      };
+      expect(secondUser.role).toBe('user');
+      expect(secondUser.cache).toBeUndefined();
+      expect(secondUser.content).toContain('User Query');
+    });
+
+    it('should not separate fields when contextCache is not configured', () => {
+      const sig = f()
+        .input('staticContext', f.string('Static').cache())
+        .input('userQuery', f.string('Dynamic'))
+        .output('answer', f.string())
+        .build();
+
+      const template = new AxPromptTemplate(sig);
+
+      const result = template.render(
+        { staticContext: 'cached content', userQuery: 'question' },
+        {}
+      );
+
+      // Should have: system, user (all fields together)
+      expect(result.length).toBe(2);
+      const userMsg = result[1] as { role: 'user'; cache?: boolean };
+      expect(userMsg.cache).toBeUndefined();
+    });
+
+    it('should set cache:true on last user message when all fields are cached', () => {
+      const sig = f()
+        .input('field1', f.string().cache())
+        .input('field2', f.string().cache())
+        .output('answer', f.string())
+        .build();
+
+      const template = new AxPromptTemplate(sig, {
+        contextCache: { ttlSeconds: 3600 },
+      });
+
+      const result = template.render({ field1: 'a', field2: 'b' }, {});
+
+      // Should have: system, user (all cached)
+      expect(result.length).toBe(2);
+      const userMsg = result[1] as { role: 'user'; cache?: boolean };
+      expect(userMsg.cache).toBe(true);
+    });
+
+    it('should not set cache when no fields are cached', () => {
+      const sig = f()
+        .input('field1', f.string())
+        .input('field2', f.string())
+        .output('answer', f.string())
+        .build();
+
+      const template = new AxPromptTemplate(sig, {
+        contextCache: { ttlSeconds: 3600 },
+      });
+
+      const result = template.render({ field1: 'a', field2: 'b' }, {});
+
+      // Should have: system, user (no cache)
+      expect(result.length).toBe(2);
+      const userMsg = result[1] as { role: 'user'; cache?: boolean };
+      expect(userMsg.cache).toBeUndefined();
+    });
+
+    it('should render cached fields first in examples', () => {
+      const sig = f()
+        .input('userQuery', f.string('Dynamic'))
+        .input('staticContext', f.string('Static').cache())
+        .output('answer', f.string())
+        .build();
+
+      const template = new AxPromptTemplate(sig, {
+        contextCache: { ttlSeconds: 3600 },
+      });
+
+      const examples = [
+        { userQuery: 'q1', staticContext: 'ctx1', answer: 'a1' },
+      ];
+      const result = template.render(
+        { staticContext: 'cached', userQuery: 'question' },
+        { examples }
+      );
+
+      // Example user message should have cached field first
+      const exampleUser = result[1] as { role: 'user'; content: string };
+      expect(exampleUser.role).toBe('user');
+      // staticContext should appear before userQuery in the content
+      const staticIdx = exampleUser.content.indexOf('Static Context');
+      const queryIdx = exampleUser.content.indexOf('User Query');
+      expect(staticIdx).toBeLessThan(queryIdx);
+    });
+
+    it('should not split cached fields when cacheBreakpoint is system', () => {
+      const sig = f()
+        .input('staticContext', f.string('Static').cache())
+        .input('userQuery', f.string('Dynamic'))
+        .output('answer', f.string())
+        .build();
+
+      const template = new AxPromptTemplate(sig, {
+        contextCache: { ttlSeconds: 3600, cacheBreakpoint: 'system' },
+      });
+
+      const result = template.render(
+        { staticContext: 'cached', userQuery: 'question' },
+        {}
+      );
+
+      // Should have: system, user (all fields together, no cache on user)
+      expect(result.length).toBe(2);
+      const userMsg = result[1] as { role: 'user'; cache?: boolean };
+      expect(userMsg.cache).toBeUndefined();
+    });
+
+    it('should not split cached fields when cacheBreakpoint is after-functions', () => {
+      const sig = f()
+        .input('staticContext', f.string('Static').cache())
+        .input('userQuery', f.string('Dynamic'))
+        .output('answer', f.string())
+        .build();
+
+      const template = new AxPromptTemplate(sig, {
+        contextCache: { ttlSeconds: 3600, cacheBreakpoint: 'after-functions' },
+      });
+
+      const result = template.render(
+        { staticContext: 'cached', userQuery: 'question' },
+        {}
+      );
+
+      // Should have: system, user (all fields together, no cache on user)
+      expect(result.length).toBe(2);
+      const userMsg = result[1] as { role: 'user'; cache?: boolean };
+      expect(userMsg.cache).toBeUndefined();
     });
   });
 });

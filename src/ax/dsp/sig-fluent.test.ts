@@ -178,4 +178,68 @@ describe('AxSignatureBuilder fluent API', () => {
       rendered.indexOf('thirdInput:boolean')
     );
   });
+
+  describe('cache() modifier', () => {
+    it('should mark a field as cached', () => {
+      const sig = f()
+        .input('staticContext', f.string('Context that rarely changes').cache())
+        .input('userQuery', f.string('Dynamic user query'))
+        .output('answer', f.string('Response'))
+        .build();
+
+      const inputs = sig.getInputFields();
+      expect(inputs[0].isCached).toBe(true);
+      expect(inputs[1].isCached).toBeUndefined();
+    });
+
+    it('should support cache() chained with other modifiers', () => {
+      const sig = f()
+        .input('context', f.string('Context').cache().optional().array())
+        .output('answer', f.string('Response'))
+        .build();
+
+      const input = sig.getInputFields()[0];
+      expect(input.isCached).toBe(true);
+      expect(input.isOptional).toBe(true);
+      expect(input.type?.isArray).toBe(true);
+    });
+
+    it('should support cache() before other modifiers', () => {
+      const sig = f()
+        .input('context', f.string('Context').optional().cache())
+        .output('answer', f.string('Response'))
+        .build();
+
+      const input = sig.getInputFields()[0];
+      expect(input.isCached).toBe(true);
+      expect(input.isOptional).toBe(true);
+    });
+
+    it('should preserve isCached through signature build', () => {
+      const sig = f()
+        .input('cachedField', f.string('Cached').cache())
+        .input('normalField', f.string('Normal'))
+        .output('out', f.string('Output'))
+        .build();
+
+      const inputs = sig.getInputFields();
+      expect(inputs.find((f) => f.name === 'cachedField')?.isCached).toBe(true);
+      expect(inputs.find((f) => f.name === 'normalField')?.isCached).toBe(
+        undefined
+      );
+    });
+
+    it('should work with all field types', () => {
+      const sig = f()
+        .input('stringField', f.string('String').cache())
+        .input('numberField', f.number('Number').cache())
+        .input('booleanField', f.boolean('Boolean').cache())
+        .input('imageField', f.image('Image').cache())
+        .output('out', f.string('Output'))
+        .build();
+
+      const inputs = sig.getInputFields();
+      expect(inputs.every((field) => field.isCached === true)).toBe(true);
+    });
+  });
 });
