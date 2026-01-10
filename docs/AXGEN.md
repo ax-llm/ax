@@ -146,3 +146,352 @@ gen.addStreamingAssert(
   "Output contains forbidden text"
 );
 ```
+
+## Field Processors
+
+Field processors allow you to transform or process output field values during or after generation. They are useful for post-processing, logging, or real-time feedback.
+
+### Post-Generation Field Processors
+
+Use `addFieldProcessor` to transform a field value after generation completes:
+
+```typescript
+const gen = new AxGen('document:string -> summary:string, keywords:string[]');
+
+// Transform the summary to uppercase
+gen.addFieldProcessor('summary', (value, context) => {
+  return value.toUpperCase();
+});
+
+// Process keywords array
+gen.addFieldProcessor('keywords', (value, context) => {
+  // Filter out short keywords
+  return value.filter((kw: string) => kw.length > 3);
+});
+```
+
+The context object provides:
+- `values`: All output field values
+- `sessionId`: Current session ID (if provided)
+- `done`: Whether generation is complete
+
+### Streaming Field Processors
+
+For real-time processing during streaming, use `addStreamingFieldProcessor`:
+
+```typescript
+const gen = new AxGen('topic:string -> content:string');
+
+// Process content as it streams in
+gen.addStreamingFieldProcessor('content', (partialValue, context) => {
+  // Log streaming progress
+  console.log(`Received ${partialValue.length} characters`);
+
+  // You can return a transformed value
+  return partialValue;
+});
+```
+
+Streaming field processors only work with string fields (`string` or `code` types).
+
+## Error Handling and Retry Strategies
+
+`AxGen` implements sophisticated error handling with automatic retries for different error categories.
+
+### Validation and Assertion Retries
+
+When output validation or assertions fail, `AxGen` automatically retries with corrective feedback:
+
+```typescript
+const gen = new AxGen('question:string -> answer:string', {
+  maxRetries: 5  // Retry up to 5 times on validation/assertion errors
+});
+
+gen.addAssert(
+  (result) => result.answer.length > 100,
+  "Answer must be detailed (at least 100 characters)"
+);
+
+// If the assertion fails, AxGen will:
+// 1. Add error feedback to the conversation
+// 2. Request a new response from the LLM
+// 3. Repeat until success or maxRetries exhausted
+```
+
+### Infrastructure Error Retries
+
+Network errors, timeouts, and server errors (5xx) are handled separately with exponential backoff:
+
+```typescript
+const result = await gen.forward(ai, { question: '...' }, {
+  maxRetries: 3,  // Also applies to infrastructure errors
+  retry: {
+    maxRetries: 3,
+    backoffFactor: 2,    // Exponential backoff multiplier
+    maxDelayMs: 60000    // Maximum delay between retries (60s)
+  }
+});
+```
+
+The retry sequence for infrastructure errors: 1s → 2s → 4s → 8s → ... (up to `maxDelayMs`).
+
+### Error Types
+
+`AxGen` provides detailed error information via `AxGenerateError`:
+
+```typescript
+import { AxGenerateError } from '@ax-llm/ax';
+
+try {
+  const result = await gen.forward(ai, { input: '...' });
+} catch (error) {
+  if (error instanceof AxGenerateError) {
+    console.log('Model:', error.details.model);
+    console.log('Max Tokens:', error.details.maxTokens);
+    console.log('Streaming:', error.details.streaming);
+    console.log('Signature:', error.details.signature);
+    console.log('Original Error:', error.cause);
+  }
+}
+```
+
+## Function Calling
+
+`AxGen` supports function calling (tool use) with three modes to accommodate different LLM providers.
+
+### Function Calling Modes
+
+```typescript
+const tools = [{
+  name: 'search',
+  description: 'Search for information',
+  parameters: {
+    type: 'object',
+    properties: {
+      query: { type: 'string' }
+    },
+    required: ['query']
+  },
+  func: async ({ query }) => {
+    // Perform search
+    return `Results for: ${query}`;
+  }
+}];
+
+const result = await gen.forward(ai, { question: '...' }, {
+  functions: tools,
+  functionCallMode: 'auto'  // 'auto' | 'native' | 'prompt'
+});
+```
+
+**Available modes:**
+
+| Mode | Description |
+|------|-------------|
+| `"auto"` | (Default) Uses native function calling if the provider supports it, otherwise falls back to prompt-based emulation |
+| `"native"` | Forces native function calling. Throws error if provider doesn't support it |
+| `"prompt"` | Emulates function calling via prompt injection. Works with any LLM |
+
+### Stop Functions
+
+You can specify functions that should terminate the generation loop when called:
+
+```typescript
+const result = await gen.forward(ai, { question: '...' }, {
+  functions: tools,
+  stopFunction: 'finalAnswer'  // Stop when this function is called
+});
+
+// Multiple stop functions
+const result = await gen.forward(ai, { question: '...' }, {
+  functions: tools,
+  stopFunction: ['finalAnswer', 'done', 'complete']
+});
+```
+
+## Caching
+
+`AxGen` supports two types of caching: response caching and context (prompt) caching.
+
+### Response Caching
+
+Cache complete generation results to avoid redundant LLM calls:
+
+```typescript
+// Simple in-memory cache example
+const cache = new Map<string, unknown>();
+
+const gen = new AxGen('question:string -> answer:string', {
+  cachingFunction: async (key, value?) => {
+    if (value !== undefined) {
+      // Store value
+      cache.set(key, value);
+      return undefined;
+    }
+    // Retrieve value
+    return cache.get(key);
+  }
+});
+
+// First call - hits LLM
+const result1 = await gen.forward(ai, { question: 'What is 2+2?' });
+
+// Second call with same input - returns cached result
+const result2 = await gen.forward(ai, { question: 'What is 2+2?' });
+```
+
+The cache key is computed from:
+- Signature hash
+- All input field values (including nested objects and arrays)
+
+### Context Caching (Prompt Caching)
+
+For providers that support prompt caching (Anthropic, OpenAI), you can configure cache breakpoints:
+
+```typescript
+const result = await gen.forward(ai, { question: '...' }, {
+  contextCache: {
+    cacheBreakpoint: 'after-examples'  // or 'after-functions'
+  }
+});
+```
+
+**Breakpoint options:**
+- `"after-examples"`: Cache after examples/few-shot demonstrations (default)
+- `"after-functions"`: Cache after function definitions
+
+## Input Validation
+
+`AxGen` validates input values against field constraints defined in your signature.
+
+### String Constraints
+
+```typescript
+// Using the Pure Fluent API (see SIGNATURES.md)
+import { s, f } from '@ax-llm/ax';
+
+const signature = s('', '')
+  .appendInputField('email', f.string('User email').email())
+  .appendInputField('username', f.string('Username').min(3).max(20))
+  .appendInputField('bio', f.string('Bio').max(500).optional())
+  .appendOutputField('result', f.string('Result'));
+
+const gen = new AxGen(signature);
+```
+
+### Number Constraints
+
+```typescript
+const signature = s('', '')
+  .appendInputField('age', f.number('User age').min(0).max(150))
+  .appendInputField('score', f.number('Score').min(0).max(100))
+  .appendOutputField('result', f.string('Result'));
+```
+
+### URL and Date Validation
+
+```typescript
+const signature = s('', '')
+  .appendInputField('website', f.url('Website URL'))
+  .appendInputField('birthDate', f.date('Birth date'))
+  .appendInputField('createdAt', f.datetime('Creation timestamp'))
+  .appendOutputField('result', f.string('Result'));
+```
+
+Validation errors trigger the retry loop with corrective feedback.
+
+## Sampling and Result Selection
+
+Generate multiple samples in parallel and select the best result.
+
+### Multiple Samples
+
+```typescript
+const result = await gen.forward(ai, { question: '...' }, {
+  sampleCount: 3  // Generate 3 samples in parallel
+});
+```
+
+### Custom Result Picker
+
+Use a `resultPicker` function to select the best sample:
+
+```typescript
+const result = await gen.forward(ai, { question: '...' }, {
+  sampleCount: 5,
+  resultPicker: async (samples) => {
+    // samples is an array of { delta: OUT, index: number }
+
+    // Example: Select the longest answer
+    let bestIndex = 0;
+    let maxLength = 0;
+
+    for (let i = 0; i < samples.length; i++) {
+      const len = samples[i].delta.answer?.length ?? 0;
+      if (len > maxLength) {
+        maxLength = len;
+        bestIndex = i;
+      }
+    }
+
+    return bestIndex;
+  }
+});
+```
+
+## Multi-Step Processing
+
+`AxGen` supports multi-step generation loops, useful for function calling workflows.
+
+### Configuration
+
+```typescript
+const gen = new AxGen('question:string -> answer:string', {
+  maxSteps: 25  // Maximum number of steps (default: 25)
+});
+```
+
+### How It Works
+
+In multi-step mode, `AxGen` continues generating until:
+1. All output fields are filled without pending function calls
+2. A stop function is called
+3. `maxSteps` is reached
+
+```typescript
+const result = await gen.forward(ai, { question: 'Search and summarize...' }, {
+  functions: [searchTool, summarizeTool],
+  maxSteps: 10,
+  stopFunction: 'finalAnswer'
+});
+```
+
+Each step is traced separately for debugging and can trigger function executions.
+
+## Extended Thinking
+
+For models that support extended thinking (Claude, etc.), you can configure thinking behavior:
+
+```typescript
+const result = await gen.forward(ai, { question: '...' }, {
+  thinkingTokenBudget: 2000,  // Token budget for thinking
+  showThoughts: true           // Include thinking in response
+});
+
+// Access the thought process
+console.log(result.thought);  // Contains the model's reasoning
+```
+
+### Custom Thought Field Name
+
+```typescript
+const gen = new AxGen('question:string -> answer:string', {
+  thoughtFieldName: 'reasoning'  // Default is 'thought'
+});
+
+const result = await gen.forward(ai, { question: '...' }, {
+  showThoughts: true
+});
+
+console.log(result.reasoning);  // Thinking is in 'reasoning' field
+```

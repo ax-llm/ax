@@ -676,12 +676,12 @@ const storyteller = ax(`
 `);
 
 // Stream the response
-for await (const chunk of storyteller.stream(llm, { 
+for await (const chunk of storyteller.streamingForward(llm, {
   prompt: "A detective discovers their partner is a time traveler",
   genre: "mystery"
 })) {
-  if (chunk.story) {
-    process.stdout.write(chunk.story); // Real-time streaming
+  if (chunk.delta.story) {
+    process.stdout.write(chunk.delta.story); // Real-time streaming
   }
 }
 ```
