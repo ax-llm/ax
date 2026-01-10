@@ -450,9 +450,15 @@ export class AxBaseAI<
     return this.logger;
   }
 
-  // Helper to get merged custom labels from globals and service options
-  private getMergedCustomLabels(): Record<string, string> {
-    return mergeCustomLabels(axGlobals.customLabels, this.customLabels);
+  // Helper to get merged custom labels from globals, service options, and per-call options
+  private getMergedCustomLabels(
+    optionsCustomLabels?: Record<string, string>
+  ): Record<string, string> {
+    return mergeCustomLabels(
+      axGlobals.customLabels,
+      this.customLabels,
+      optionsCustomLabels
+    );
   }
 
   getModelList() {
@@ -516,7 +522,11 @@ export class AxBaseAI<
   }
 
   // Method to update latency metrics
-  private updateLatencyMetrics(type: 'chat' | 'embed', duration: number): void {
+  private updateLatencyMetrics(
+    type: 'chat' | 'embed',
+    duration: number,
+    optionsCustomLabels?: Record<string, string>
+  ): void {
     const metrics = this.metrics.latency[type];
     metrics.samples.push(duration);
 
@@ -538,7 +548,7 @@ export class AxBaseAI<
         type === 'chat'
           ? (this.lastUsedChatModel as string)
           : (this.lastUsedEmbedModel as string);
-      const customLabels = this.getMergedCustomLabels();
+      const customLabels = this.getMergedCustomLabels(optionsCustomLabels);
 
       // Record individual latency measurement
       recordLatencyMetric(
@@ -565,7 +575,11 @@ export class AxBaseAI<
   }
 
   // Method to update error metrics
-  private updateErrorMetrics(type: 'chat' | 'embed', isError: boolean): void {
+  private updateErrorMetrics(
+    type: 'chat' | 'embed',
+    isError: boolean,
+    optionsCustomLabels?: Record<string, string>
+  ): void {
     const metrics = this.metrics.errors[type];
     metrics.total++;
     if (isError) {
@@ -580,7 +594,7 @@ export class AxBaseAI<
         type === 'chat'
           ? (this.lastUsedChatModel as string)
           : (this.lastUsedEmbedModel as string);
-      const customLabels = this.getMergedCustomLabels();
+      const customLabels = this.getMergedCustomLabels(optionsCustomLabels);
 
       // Always record request count
       recordRequestMetric(
@@ -615,7 +629,10 @@ export class AxBaseAI<
   }
 
   // Method to record token usage metrics
-  private recordTokenUsage(modelUsage?: AxModelUsage): void {
+  private recordTokenUsage(
+    modelUsage?: AxModelUsage,
+    optionsCustomLabels?: Record<string, string>
+  ): void {
     const metricsInstruments = this.getMetricsInstruments();
     if (metricsInstruments && modelUsage?.tokens) {
       const {
@@ -626,7 +643,7 @@ export class AxBaseAI<
         cacheReadTokens,
         cacheCreationTokens,
       } = modelUsage.tokens;
-      const customLabels = this.getMergedCustomLabels();
+      const customLabels = this.getMergedCustomLabels(optionsCustomLabels);
 
       if (promptTokens) {
         recordTokenMetric(
@@ -842,7 +859,8 @@ export class AxBaseAI<
   // Helper method to record function call metrics
   private recordFunctionCallMetrics(
     functionCalls?: readonly unknown[],
-    model?: TModel
+    model?: TModel,
+    optionsCustomLabels?: Record<string, string>
   ): void {
     const metricsInstruments = this.getMetricsInstruments();
     if (!metricsInstruments || !functionCalls) return;
@@ -862,14 +880,17 @@ export class AxBaseAI<
           undefined, // latency would need to be tracked separately
           this.name,
           model as string,
-          this.getMergedCustomLabels()
+          this.getMergedCustomLabels(optionsCustomLabels)
         );
       }
     }
   }
 
   // Helper method to record timeout metrics
-  private recordTimeoutMetric(type: 'chat' | 'embed'): void {
+  private recordTimeoutMetric(
+    type: 'chat' | 'embed',
+    optionsCustomLabels?: Record<string, string>
+  ): void {
     const metricsInstruments = this.getMetricsInstruments();
     if (metricsInstruments) {
       const model =
@@ -881,13 +902,16 @@ export class AxBaseAI<
         type,
         this.name,
         model,
-        this.getMergedCustomLabels()
+        this.getMergedCustomLabels(optionsCustomLabels)
       );
     }
   }
 
   // Helper method to record abort metrics
-  private recordAbortMetric(type: 'chat' | 'embed'): void {
+  private recordAbortMetric(
+    type: 'chat' | 'embed',
+    optionsCustomLabels?: Record<string, string>
+  ): void {
     const metricsInstruments = this.getMetricsInstruments();
     if (metricsInstruments) {
       const model =
@@ -899,7 +923,7 @@ export class AxBaseAI<
         type,
         this.name,
         model,
-        this.getMergedCustomLabels()
+        this.getMergedCustomLabels(optionsCustomLabels)
       );
     }
   }
@@ -915,7 +939,7 @@ export class AxBaseAI<
 
     const model = this.lastUsedChatModel as string;
     const modelConfig = this.lastUsedModelConfig;
-    const customLabels = this.getMergedCustomLabels();
+    const customLabels = this.getMergedCustomLabels(options?.customLabels);
 
     // Record streaming request metric
     const isStreaming = modelConfig?.stream ?? false;
@@ -1003,7 +1027,8 @@ export class AxBaseAI<
           if (chatResult.functionCalls) {
             this.recordFunctionCallMetrics(
               chatResult.functionCalls,
-              this.lastUsedChatModel
+              this.lastUsedChatModel,
+              customLabels
             );
           }
         }
@@ -1045,13 +1070,14 @@ export class AxBaseAI<
   // Comprehensive method to record all embed-related metrics
   private recordEmbedMetrics(
     req: Readonly<AxEmbedRequest<TEmbedModel>>,
-    result: Readonly<AxEmbedResponse>
+    result: Readonly<AxEmbedResponse>,
+    options?: Readonly<AxAIServiceOptions>
   ): void {
     const metricsInstruments = this.getMetricsInstruments();
     if (!metricsInstruments) return;
 
     const model = this.lastUsedEmbedModel as string;
-    const customLabels = this.getMergedCustomLabels();
+    const customLabels = this.getMergedCustomLabels(options?.customLabels);
 
     // Record request size
     const requestSize = this.calculateRequestSize(req);
@@ -1156,19 +1182,19 @@ export class AxBaseAI<
           error.message.includes('timeout') ||
           error.name === 'TimeoutError'
         ) {
-          this.recordTimeoutMetric('chat');
+          this.recordTimeoutMetric('chat', mergedOptions?.customLabels);
         } else if (
           error.message.includes('abort') ||
           error.name === 'AbortError'
         ) {
-          this.recordAbortMetric('chat');
+          this.recordAbortMetric('chat', mergedOptions?.customLabels);
         }
       }
       throw error;
     } finally {
       const duration = performance.now() - startTime;
-      this.updateLatencyMetrics('chat', duration);
-      this.updateErrorMetrics('chat', isError);
+      this.updateLatencyMetrics('chat', duration, mergedOptions?.customLabels);
+      this.updateErrorMetrics('chat', isError, mergedOptions?.customLabels);
 
       // Record additional metrics if successful
       if (!isError) {
@@ -1490,7 +1516,7 @@ export class AxBaseAI<
             }
           }
           this.modelUsage = res.modelUsage;
-          this.recordTokenUsage(res.modelUsage);
+          this.recordTokenUsage(res.modelUsage, options?.customLabels);
 
           if (span?.isRecording()) {
             setChatResponseEvents(res, span, this.excludeContentFromTrace);
@@ -1530,7 +1556,7 @@ export class AxBaseAI<
                 reader.cancel().catch(() => {});
               } catch {}
               try {
-                this.recordAbortMetric('chat');
+                this.recordAbortMetric('chat', options?.customLabels);
               } catch {}
               try {
                 if (span?.isRecording()) span.end();
@@ -1624,7 +1650,7 @@ export class AxBaseAI<
 
     if (res.modelUsage) {
       this.modelUsage = res.modelUsage;
-      this.recordTokenUsage(res.modelUsage);
+      this.recordTokenUsage(res.modelUsage, options?.customLabels);
     }
 
     if (span?.isRecording()) {
@@ -1695,23 +1721,23 @@ export class AxBaseAI<
           error.message.includes('timeout') ||
           error.name === 'TimeoutError'
         ) {
-          this.recordTimeoutMetric('embed');
+          this.recordTimeoutMetric('embed', mergedOptions?.customLabels);
         } else if (
           error.message.includes('abort') ||
           error.name === 'AbortError'
         ) {
-          this.recordAbortMetric('embed');
+          this.recordAbortMetric('embed', mergedOptions?.customLabels);
         }
       }
       throw error;
     } finally {
       const duration = performance.now() - startTime;
-      this.updateLatencyMetrics('embed', duration);
-      this.updateErrorMetrics('embed', isError);
+      this.updateLatencyMetrics('embed', duration, mergedOptions?.customLabels);
+      this.updateErrorMetrics('embed', isError, mergedOptions?.customLabels);
 
       // Record additional metrics if successful
       if (!isError && result) {
-        this.recordEmbedMetrics(req, result);
+        this.recordEmbedMetrics(req, result, mergedOptions);
       }
     }
   }
@@ -1825,7 +1851,7 @@ export class AxBaseAI<
       }
     }
     this.embedModelUsage = res.modelUsage;
-    this.recordTokenUsage(res.modelUsage);
+    this.recordTokenUsage(res.modelUsage, options?.customLabels);
 
     if (span?.isRecording() && res.modelUsage?.tokens) {
       span.addEvent(axSpanEvents.GEN_AI_USAGE, {

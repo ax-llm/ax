@@ -447,6 +447,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         functionCallMode:
           options?.functionCallMode ?? this.options?.functionCallMode ?? 'auto',
         retry: options?.retry ?? this.options?.retry,
+        customLabels: options?.customLabels,
       }
     );
 
