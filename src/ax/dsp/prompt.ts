@@ -113,6 +113,21 @@ export class AxPromptTemplate {
   }
 
   /**
+   * Build a map from field names to their formatted titles.
+   * Used for formatting field name references within descriptions.
+   */
+  private getFieldNameToTitleMap = (): Map<string, string> => {
+    const map = new Map<string, string>();
+    for (const field of this.sig.getInputFields()) {
+      map.set(field.name, field.title);
+    }
+    for (const field of this.sig.getOutputFields()) {
+      map.set(field.name, field.title);
+    }
+    return map;
+  };
+
+  /**
    * Sort fields so that cached fields come first.
    * Uses stable sort to preserve relative order among cached and non-cached fields.
    */
@@ -152,13 +167,17 @@ export class AxPromptTemplate {
       task.push(`## Available Functions\n${funcList}`);
     }
 
-    const inputFields = renderInputFields(this.sig.getInputFields());
+    const fieldMap = this.getFieldNameToTitleMap();
+    const inputFields = renderInputFields(this.sig.getInputFields(), fieldMap);
     task.push(`## Input Fields\n${inputFields}`);
 
     // Output fields section - skip for complex fields since the JSON schema
     // is already sent via responseFormat and handled by the provider's system
     if (!hasComplexFields) {
-      const outputFields = renderOutputFields(this.sig.getOutputFields());
+      const outputFields = renderOutputFields(
+        this.sig.getOutputFields(),
+        fieldMap
+      );
       task.push(`## Output Fields\n${outputFields}`);
     }
 
@@ -172,7 +191,8 @@ export class AxPromptTemplate {
 
     const desc = this.sig.getDescription();
     if (desc) {
-      const text = formatDescription(desc);
+      let text = formatDescription(desc);
+      text = formatFieldReferences(text, fieldMap);
       task.push(text);
     }
 
@@ -244,7 +264,10 @@ export class AxPromptTemplate {
 
     const desc = this.sig.getDescription();
     if (desc) {
-      parts.push(`\n${formatDescription(desc)}`);
+      const fieldMap = this.getFieldNameToTitleMap();
+      let text = formatDescription(desc);
+      text = formatFieldReferences(text, fieldMap);
+      parts.push(`\n${text}`);
     }
 
     return parts.join('\n');
@@ -278,7 +301,8 @@ export class AxPromptTemplate {
    * Build input fields section
    */
   private buildInputFieldsSection(): string {
-    const inputFields = renderInputFields(this.sig.getInputFields());
+    const fieldMap = this.getFieldNameToTitleMap();
+    const inputFields = renderInputFields(this.sig.getInputFields(), fieldMap);
     return `**Input Fields**: The following fields will be provided to you:\n\n${inputFields}`;
   }
 
@@ -286,7 +310,11 @@ export class AxPromptTemplate {
    * Build output fields section
    */
   private buildOutputFieldsSection(): string {
-    const outputFields = renderOutputFields(this.sig.getOutputFields());
+    const fieldMap = this.getFieldNameToTitleMap();
+    const outputFields = renderOutputFields(
+      this.sig.getOutputFields(),
+      fieldMap
+    );
     return `**Output Fields**: You must generate the following fields:\n\n${outputFields}`;
   }
 
@@ -1337,7 +1365,10 @@ export class AxPromptTemplate {
 const renderDescFields = (list: readonly AxField[]) =>
   list.map((v) => `\`${v.title}\``).join(', ');
 
-const renderInputFields = (fields: readonly AxField[]) => {
+const renderInputFields = (
+  fields: readonly AxField[],
+  fieldNameToTitle?: Map<string, string>
+) => {
   const rows = fields.map((field) => {
     const name = field.title;
     const type = field.type?.name ? toFieldType(field.type) : 'string';
@@ -1346,9 +1377,14 @@ const renderInputFields = (fields: readonly AxField[]) => {
       ? `This optional ${type} field may be omitted`
       : `A ${type} field`;
 
-    const description = field.description
-      ? ` ${formatDescription(field.description)}`
-      : '';
+    let description = '';
+    if (field.description) {
+      let formatted = formatDescription(field.description);
+      if (fieldNameToTitle) {
+        formatted = formatFieldReferences(formatted, fieldNameToTitle);
+      }
+      description = ` ${formatted}`;
+    }
 
     return `${name}: (${requiredMsg})${description}`.trim();
   });
@@ -1356,7 +1392,10 @@ const renderInputFields = (fields: readonly AxField[]) => {
   return rows.join('\n');
 };
 
-const renderOutputFields = (fields: readonly AxField[]) => {
+const renderOutputFields = (
+  fields: readonly AxField[],
+  fieldNameToTitle?: Map<string, string>
+) => {
   const rows = fields.map((field) => {
     const name = field.title;
     const type = field.type?.name ? toFieldType(field.type) : 'string';
@@ -1368,10 +1407,13 @@ const renderOutputFields = (fields: readonly AxField[]) => {
     let description = '';
 
     if (field.description && field.description.length > 0) {
-      const value =
+      let value =
         field.type?.name === 'class'
           ? field.description
           : formatDescription(field.description);
+      if (fieldNameToTitle) {
+        value = formatFieldReferences(value, fieldNameToTitle);
+      }
       description = ` ${value}`;
     }
 
@@ -1512,4 +1554,60 @@ function formatDescription(str: string) {
   return value.length > 0
     ? `${value.charAt(0).toUpperCase()}${value.slice(1)}${value.endsWith('.') ? '' : '.'}`
     : '';
+}
+
+/**
+ * Format field name references within a description string.
+ * - Plain field names get backticks added: fieldName → `Field Name`
+ * - Wrapped field names get content formatted only (no added backticks):
+ *   - `fieldName` → `Field Name`
+ *   - "fieldName" → "Field Name"
+ *   - 'fieldName' → 'Field Name'
+ *   - [fieldName] → [Field Name]
+ *   - (fieldName) → (Field Name)
+ */
+function formatFieldReferences(
+  description: string,
+  fieldNameToTitle: Map<string, string>
+): string {
+  if (fieldNameToTitle.size === 0) {
+    return description;
+  }
+
+  let result = description;
+
+  // Sort by length descending to handle longer names first (avoid partial replacements)
+  const sortedNames = Array.from(fieldNameToTitle.keys()).sort(
+    (a, b) => b.length - a.length
+  );
+
+  for (const fieldName of sortedNames) {
+    const title = fieldNameToTitle.get(fieldName)!;
+
+    // Pattern 1: Field name wrapped in backticks - replace content only
+    // `fieldName` → `Field Name`
+    const backtickPattern = new RegExp(`\`${fieldName}\``, 'g');
+    result = result.replace(backtickPattern, `\`${title}\``);
+
+    // Pattern 2: Field name wrapped in quotes - replace content only
+    // "fieldName" → "Field Name", 'fieldName' → 'Field Name'
+    const doubleQuotePattern = new RegExp(`"${fieldName}"`, 'g');
+    result = result.replace(doubleQuotePattern, `"${title}"`);
+    const singleQuotePattern = new RegExp(`'${fieldName}'`, 'g');
+    result = result.replace(singleQuotePattern, `'${title}'`);
+
+    // Pattern 3: Field name wrapped in brackets/parens - replace content only
+    // [fieldName] → [Field Name], (fieldName) → (Field Name)
+    const bracketPattern = new RegExp(`\\[${fieldName}\\]`, 'g');
+    result = result.replace(bracketPattern, `[${title}]`);
+    const parenPattern = new RegExp(`\\(${fieldName}\\)`, 'g');
+    result = result.replace(parenPattern, `(${title})`);
+
+    // Pattern 4: Dollar-prefixed field name - convert to backtick-wrapped title
+    // $fieldName → `Field Name`
+    const dollarPattern = new RegExp(`\\$${fieldName}\\b`, 'g');
+    result = result.replace(dollarPattern, `\`${title}\``);
+  }
+
+  return result;
 }

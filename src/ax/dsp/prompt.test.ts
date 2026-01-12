@@ -1239,4 +1239,111 @@ describe('AxPromptTemplate.render', () => {
       expect(userMsg.cache).toBeUndefined();
     });
   });
+
+  describe('Field name references in descriptions', () => {
+    it('should format field names in input field descriptions', () => {
+      const signature = new AxSignature(
+        'taskAnalysis:string "analyze the task", resultData:string "based on taskAnalysis" -> outputText:string'
+      );
+      const template = new AxPromptTemplate(signature);
+      const rendered = template.render(
+        { taskAnalysis: 'test', resultData: 'r' },
+        {}
+      );
+
+      const systemMessage = rendered[0] as { role: 'system'; content: string };
+      // Description should contain formatted field reference
+      expect(systemMessage.content).toContain('`Task Analysis`');
+    });
+
+    it('should format field names in output field descriptions', () => {
+      const signature = new AxSignature(
+        'inputText:string -> summaryText:string "summarizes inputText", analysisText:string "based on summaryText"'
+      );
+      const template = new AxPromptTemplate(signature);
+      const rendered = template.render({ inputText: 'test' }, {});
+
+      const systemMessage = rendered[0] as { role: 'system'; content: string };
+      expect(systemMessage.content).toContain('`Summary Text`');
+    });
+
+    it('should format field names in signature description', () => {
+      const signature = new AxSignature(
+        'taskAnalysis:string -> resultText:string "Generate resultText from taskAnalysis"'
+      );
+      signature.setDescription(
+        'This uses taskAnalysis to produce a resultText'
+      );
+      const template = new AxPromptTemplate(signature);
+      const rendered = template.render({ taskAnalysis: 'test' }, {});
+
+      const systemMessage = rendered[0] as { role: 'system'; content: string };
+      expect(systemMessage.content).toContain('`Task Analysis`');
+    });
+
+    it('should format field names in backticks without double-wrapping', () => {
+      const signature = new AxSignature(
+        'taskAnalysis:string "the `taskAnalysis` field" -> resultText:string'
+      );
+      const template = new AxPromptTemplate(signature);
+      const rendered = template.render({ taskAnalysis: 'test' }, {});
+
+      const systemMessage = rendered[0] as { role: 'system'; content: string };
+      // Should not have double backticks
+      expect(systemMessage.content).not.toContain('``');
+      // Should have formatted title
+      expect(systemMessage.content).toContain('`Task Analysis`');
+      // Should not have raw field name in backticks
+      expect(systemMessage.content).not.toContain('`taskAnalysis`');
+    });
+
+    it('should format field names in square brackets without adding backticks', () => {
+      const signature = new AxSignature(
+        'taskAnalysis:string "see [taskAnalysis] for details" -> resultText:string'
+      );
+      const template = new AxPromptTemplate(signature);
+      const rendered = template.render({ taskAnalysis: 'test' }, {});
+
+      const systemMessage = rendered[0] as { role: 'system'; content: string };
+      expect(systemMessage.content).toContain('[Task Analysis]');
+      expect(systemMessage.content).not.toContain('[`Task Analysis`]');
+    });
+
+    it('should format field names in parentheses without adding backticks', () => {
+      const signature = new AxSignature(
+        'taskAnalysis:string "uses (taskAnalysis) internally" -> resultText:string'
+      );
+      const template = new AxPromptTemplate(signature);
+      const rendered = template.render({ taskAnalysis: 'test' }, {});
+
+      const systemMessage = rendered[0] as { role: 'system'; content: string };
+      expect(systemMessage.content).toContain('(Task Analysis)');
+      expect(systemMessage.content).not.toContain('(`Task Analysis`)');
+    });
+
+    it('should handle multiple field references in one description', () => {
+      const signature = new AxSignature(
+        'fieldAlpha:string, fieldBeta:string -> resultText:string "combines fieldAlpha and fieldBeta"'
+      );
+      const template = new AxPromptTemplate(signature);
+      const rendered = template.render({ fieldAlpha: 'a', fieldBeta: 'b' }, {});
+
+      const systemMessage = rendered[0] as { role: 'system'; content: string };
+      expect(systemMessage.content).toContain('`Field Alpha`');
+      expect(systemMessage.content).toContain('`Field Beta`');
+    });
+
+    it('should not replace partial word matches', () => {
+      const signature = new AxSignature(
+        'userId:string "the identifier" -> resultText:string "provides identity"'
+      );
+      const template = new AxPromptTemplate(signature);
+      const rendered = template.render({ userId: 'test' }, {});
+
+      const systemMessage = rendered[0] as { role: 'system'; content: string };
+      // "identity" should not become "`User Id`entity"
+      expect(systemMessage.content).toContain('identity');
+      expect(systemMessage.content).not.toContain('`User Id`entity');
+    });
+  });
 });
