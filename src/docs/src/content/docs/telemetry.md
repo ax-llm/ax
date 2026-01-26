@@ -855,6 +855,65 @@ const ai = new AxAI({
 });
 ```
 
+### 7. Custom Labels for Metrics
+
+Add custom labels to metrics for better filtering and grouping in your observability platform. Labels are merged from three sources (in order of precedence):
+
+1. **Global labels** - Apply to all operations
+2. **AI service labels** - Apply to all operations using that service
+3. **Per-call labels** - Apply to a specific generation call
+
+```typescript
+import { axGlobals, AxAI, ax } from "@ax-llm/ax";
+
+// 1. Global custom labels (lowest precedence)
+axGlobals.customLabels = {
+  environment: "production",
+  service: "recommendation-engine",
+};
+
+// 2. AI service level labels
+const ai = new AxAI({
+  name: "openai",
+  apiKey: process.env.OPENAI_APIKEY!,
+  options: {
+    customLabels: {
+      team: "ml-ops",
+      cost_center: "ai-platform",
+    },
+  },
+});
+
+// 3. Per-call labels (highest precedence)
+const gen = ax("question:string -> answer:string");
+
+const result = await gen.forward(ai, { question: "..." }, {
+  customLabels: {
+    feature: "sentiment-analysis",
+    experiment_id: "exp-123",
+  },
+});
+```
+
+**Resulting labels on metrics:**
+```json
+{
+  "environment": "production",
+  "service": "recommendation-engine",
+  "team": "ml-ops",
+  "cost_center": "ai-platform",
+  "feature": "sentiment-analysis",
+  "experiment_id": "exp-123"
+}
+```
+
+**Use cases for custom labels:**
+- **Cost allocation**: Track costs by team, project, or feature
+- **A/B testing**: Tag generations with experiment IDs
+- **Debugging**: Add request IDs or user context
+- **Multi-tenancy**: Track usage by tenant or customer
+- **Feature flags**: Monitor rollout of new capabilities
+
 ---
 
 ## 🛠️ Troubleshooting Guide

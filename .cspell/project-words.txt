@@ -169,3 +169,5 @@ monotykamary
 askask
 RARO
 lookback
+tpage
+tmpl

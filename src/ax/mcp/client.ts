@@ -1,5 +1,6 @@
 import type {
   AxFunction,
+  AxFunctionJSONSchema,
   AxLoggerData,
   AxLoggerFunction,
 } from '../ai/types.js';
@@ -7,10 +8,24 @@ import { randomUUID } from '../util/crypto.js';
 
 import type { AxMCPTransport } from './transport.js';
 import type {
+  AxMCPBlobResourceContents,
+  AxMCPEmbeddedResource,
+  AxMCPImageContent,
   AxMCPInitializeParams,
   AxMCPInitializeResult,
   AxMCPJSONRPCNotification,
   AxMCPJSONRPCRequest,
+  AxMCPPrompt,
+  AxMCPPromptGetResult,
+  AxMCPPromptMessage,
+  AxMCPPromptsListResult,
+  AxMCPResource,
+  AxMCPResourceReadResult,
+  AxMCPResourcesListResult,
+  AxMCPResourceTemplate,
+  AxMCPResourceTemplatesListResult,
+  AxMCPTextContent,
+  AxMCPTextResourceContents,
   AxMCPToolsListResult,
 } from './types.js';
 
@@ -60,6 +75,8 @@ interface AxMCPClientOptions {
 
 export class AxMCPClient {
   private functions: AxFunction[] = [];
+  private promptFunctions: AxFunction[] = [];
+  private resourceFunctions: AxFunction[] = [];
   private activeRequests: Map<string, { reject: (reason: unknown) => void }> =
     new Map();
   private capabilities: {
@@ -125,14 +142,20 @@ export class AxMCPClient {
 
     await this.sendNotification('notifications/initialized');
 
-    await this.discoverFunctions();
+    if (this.capabilities.tools) {
+      await this.discoverFunctions();
+    }
+
+    if (this.capabilities.prompts) {
+      await this.discoverPromptFunctions();
+    }
+
+    if (this.capabilities.resources) {
+      await this.discoverResourceFunctions();
+    }
   }
 
   private async discoverFunctions(): Promise<void> {
-    if (!this.capabilities.tools) {
-      throw new Error('Tools are not supported');
-    }
-
     const { result: res } = await this.sendRequest<
       undefined,
       AxMCPToolsListResult
@@ -169,6 +192,179 @@ export class AxMCPClient {
     });
   }
 
+  private async discoverPromptFunctions(): Promise<void> {
+    let cursor: string | undefined;
+    do {
+      const result = await this.listPrompts(cursor);
+      for (const prompt of result.prompts ?? []) {
+        this.promptFunctions.push(this.promptToFunction(prompt));
+      }
+      cursor = result.nextCursor;
+    } while (cursor);
+  }
+
+  private async discoverResourceFunctions(): Promise<void> {
+    // Fetch all resources (handle pagination)
+    let cursor: string | undefined;
+    do {
+      const result = await this.listResources(cursor);
+      for (const resource of result.resources ?? []) {
+        this.resourceFunctions.push(this.resourceToFunction(resource));
+      }
+      cursor = result.nextCursor;
+    } while (cursor);
+
+    // Also fetch resource templates
+    cursor = undefined;
+    do {
+      const result = await this.listResourceTemplates(cursor);
+      for (const template of result.resourceTemplates ?? []) {
+        this.resourceFunctions.push(this.resourceTemplateToFunction(template));
+      }
+      cursor = result.nextCursor;
+    } while (cursor);
+  }
+
+  private promptToFunction(prompt: Readonly<AxMCPPrompt>): AxFunction {
+    const functionName = `prompt_${prompt.name}`;
+    const override = this.options.functionOverrides?.find(
+      (o) => o.name === functionName
+    );
+
+    const parameters: AxFunctionJSONSchema | undefined = prompt.arguments
+      ?.length
+      ? {
+          type: 'object',
+          properties: Object.fromEntries(
+            prompt.arguments.map((arg) => [
+              arg.name,
+              { type: 'string', description: arg.description ?? '' },
+            ])
+          ),
+          required: prompt.arguments
+            .filter((a) => a.required)
+            .map((a) => a.name),
+        }
+      : undefined;
+
+    return {
+      name: override?.updates.name ?? functionName,
+      description:
+        override?.updates.description ??
+        prompt.description ??
+        `Get the ${prompt.name} prompt`,
+      parameters,
+      func: async (args?: Record<string, string>) => {
+        const result = await this.getPrompt(prompt.name, args);
+        return this.formatPromptMessages(result.messages);
+      },
+    };
+  }
+
+  private resourceToFunction(resource: Readonly<AxMCPResource>): AxFunction {
+    const functionName = `resource_${this.sanitizeName(resource.name)}`;
+    const override = this.options.functionOverrides?.find(
+      (o) => o.name === functionName
+    );
+
+    return {
+      name: override?.updates.name ?? functionName,
+      description:
+        override?.updates.description ??
+        resource.description ??
+        `Read ${resource.name}`,
+      parameters: undefined,
+      func: async () => {
+        const result = await this.readResource(resource.uri);
+        return this.formatResourceContents(result.contents);
+      },
+    };
+  }
+
+  private resourceTemplateToFunction(
+    template: Readonly<AxMCPResourceTemplate>
+  ): AxFunction {
+    const functionName = `resource_${this.sanitizeName(template.name)}`;
+    const override = this.options.functionOverrides?.find(
+      (o) => o.name === functionName
+    );
+
+    const params = this.parseUriTemplate(template.uriTemplate);
+
+    return {
+      name: override?.updates.name ?? functionName,
+      description:
+        override?.updates.description ??
+        template.description ??
+        `Read ${template.name}`,
+      parameters: params.length
+        ? {
+            type: 'object',
+            properties: Object.fromEntries(
+              params.map((p) => [
+                p,
+                { type: 'string', description: `Value for ${p}` },
+              ])
+            ),
+            required: params,
+          }
+        : undefined,
+      func: async (args?: Record<string, string>) => {
+        const uri = this.expandUriTemplate(template.uriTemplate, args ?? {});
+        const result = await this.readResource(uri);
+        return this.formatResourceContents(result.contents);
+      },
+    };
+  }
+
+  private formatPromptMessages(
+    messages: readonly AxMCPPromptMessage[]
+  ): string {
+    return messages
+      .map((msg) => {
+        const role = msg.role === 'user' ? 'User' : 'Assistant';
+        const content = this.extractContent(msg.content);
+        return `${role}: ${content}`;
+      })
+      .join('\n\n');
+  }
+
+  private extractContent(
+    content: AxMCPTextContent | AxMCPImageContent | AxMCPEmbeddedResource
+  ): string {
+    if (content.type === 'text') return content.text;
+    if (content.type === 'image') return `[Image: ${content.mimeType}]`;
+    if (content.type === 'resource') {
+      const res = content.resource;
+      return 'text' in res ? res.text : `[Binary: ${res.uri}]`;
+    }
+    return '';
+  }
+
+  private formatResourceContents(
+    contents: readonly (AxMCPTextResourceContents | AxMCPBlobResourceContents)[]
+  ): string {
+    return contents
+      .map((c) => ('text' in c ? c.text : `[Binary: ${c.uri}]`))
+      .join('\n');
+  }
+
+  private sanitizeName(name: string): string {
+    return name.replace(/[^a-zA-Z0-9_]/g, '_');
+  }
+
+  private parseUriTemplate(template: string): string[] {
+    const matches = template.match(/\{([^}]+)\}/g) ?? [];
+    return matches.map((m) => m.slice(1, -1));
+  }
+
+  private expandUriTemplate(
+    template: string,
+    args: Record<string, string>
+  ): string {
+    return template.replace(/\{([^}]+)\}/g, (_, key) => args[key] ?? '');
+  }
+
   async ping(timeout = 3000): Promise<void> {
     const pingPromise = this.sendRequest('ping');
     const timeoutPromise = new Promise((_, reject) =>
@@ -191,7 +387,120 @@ export class AxMCPClient {
   }
 
   toFunction(): AxFunction[] {
-    return this.functions;
+    return [
+      ...this.functions,
+      ...this.promptFunctions,
+      ...this.resourceFunctions,
+    ];
+  }
+
+  getCapabilities(): { tools: boolean; resources: boolean; prompts: boolean } {
+    return {
+      tools: this.capabilities.tools ?? false,
+      resources: this.capabilities.resources ?? false,
+      prompts: this.capabilities.prompts ?? false,
+    };
+  }
+
+  hasToolsCapability(): boolean {
+    return this.capabilities.tools ?? false;
+  }
+
+  hasPromptsCapability(): boolean {
+    return this.capabilities.prompts ?? false;
+  }
+
+  hasResourcesCapability(): boolean {
+    return this.capabilities.resources ?? false;
+  }
+
+  async listPrompts(cursor?: string): Promise<AxMCPPromptsListResult> {
+    if (!this.capabilities.prompts) {
+      throw new Error('Prompts are not supported');
+    }
+
+    const params = cursor ? { cursor } : undefined;
+    const { result } = await this.sendRequest<
+      { cursor?: string } | undefined,
+      AxMCPPromptsListResult
+    >('prompts/list', params);
+
+    return result;
+  }
+
+  async getPrompt(
+    name: string,
+    args?: Record<string, string>
+  ): Promise<AxMCPPromptGetResult> {
+    if (!this.capabilities.prompts) {
+      throw new Error('Prompts are not supported');
+    }
+
+    const { result } = await this.sendRequest<
+      { name: string; arguments?: Record<string, string> },
+      AxMCPPromptGetResult
+    >('prompts/get', { name, arguments: args });
+
+    return result;
+  }
+
+  async listResources(cursor?: string): Promise<AxMCPResourcesListResult> {
+    if (!this.capabilities.resources) {
+      throw new Error('Resources are not supported');
+    }
+
+    const params = cursor ? { cursor } : undefined;
+    const { result } = await this.sendRequest<
+      { cursor?: string } | undefined,
+      AxMCPResourcesListResult
+    >('resources/list', params);
+
+    return result;
+  }
+
+  async listResourceTemplates(
+    cursor?: string
+  ): Promise<AxMCPResourceTemplatesListResult> {
+    if (!this.capabilities.resources) {
+      throw new Error('Resources are not supported');
+    }
+
+    const params = cursor ? { cursor } : undefined;
+    const { result } = await this.sendRequest<
+      { cursor?: string } | undefined,
+      AxMCPResourceTemplatesListResult
+    >('resources/templates/list', params);
+
+    return result;
+  }
+
+  async readResource(uri: string): Promise<AxMCPResourceReadResult> {
+    if (!this.capabilities.resources) {
+      throw new Error('Resources are not supported');
+    }
+
+    const { result } = await this.sendRequest<
+      { uri: string },
+      AxMCPResourceReadResult
+    >('resources/read', { uri });
+
+    return result;
+  }
+
+  async subscribeResource(uri: string): Promise<void> {
+    if (!this.capabilities.resources) {
+      throw new Error('Resources are not supported');
+    }
+
+    await this.sendRequest<{ uri: string }>('resources/subscribe', { uri });
+  }
+
+  async unsubscribeResource(uri: string): Promise<void> {
+    if (!this.capabilities.resources) {
+      throw new Error('Resources are not supported');
+    }
+
+    await this.sendRequest<{ uri: string }>('resources/unsubscribe', { uri });
   }
 
   cancelRequest(id: string): void {

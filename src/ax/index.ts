@@ -675,7 +675,10 @@ import { AxMCPStreambleHTTPTransport } from './mcp/transports/httpStreamTranspor
 import type { AxMCPStreamableHTTPTransportOptions } from './mcp/transports/options.js';
 import { AxMCPHTTPSSETransport } from './mcp/transports/sseTransport.js';
 import type {
+  AxMCPBlobResourceContents,
+  AxMCPEmbeddedResource,
   AxMCPFunctionDescription,
+  AxMCPImageContent,
   AxMCPInitializeParams,
   AxMCPInitializeResult,
   AxMCPJSONRPCErrorResponse,
@@ -683,6 +686,18 @@ import type {
   AxMCPJSONRPCRequest,
   AxMCPJSONRPCResponse,
   AxMCPJSONRPCSuccessResponse,
+  AxMCPPrompt,
+  AxMCPPromptArgument,
+  AxMCPPromptGetResult,
+  AxMCPPromptMessage,
+  AxMCPPromptsListResult,
+  AxMCPResource,
+  AxMCPResourceReadResult,
+  AxMCPResourcesListResult,
+  AxMCPResourceTemplate,
+  AxMCPResourceTemplatesListResult,
+  AxMCPTextContent,
+  AxMCPTextResourceContents,
   AxMCPToolsListResult,
 } from './mcp/types.js';
 import { AxMemory } from './mem/memory.js';
@@ -1259,7 +1274,10 @@ export type { AxLearnProgress };
 export type { AxLearnResult };
 export type { AxLoggerData };
 export type { AxLoggerFunction };
+export type { AxMCPBlobResourceContents };
+export type { AxMCPEmbeddedResource };
 export type { AxMCPFunctionDescription };
+export type { AxMCPImageContent };
 export type { AxMCPInitializeParams };
 export type { AxMCPInitializeResult };
 export type { AxMCPJSONRPCErrorResponse };
@@ -1268,7 +1286,19 @@ export type { AxMCPJSONRPCRequest };
 export type { AxMCPJSONRPCResponse };
 export type { AxMCPJSONRPCSuccessResponse };
 export type { AxMCPOAuthOptions };
+export type { AxMCPPrompt };
+export type { AxMCPPromptArgument };
+export type { AxMCPPromptGetResult };
+export type { AxMCPPromptMessage };
+export type { AxMCPPromptsListResult };
+export type { AxMCPResource };
+export type { AxMCPResourceReadResult };
+export type { AxMCPResourceTemplate };
+export type { AxMCPResourceTemplatesListResult };
+export type { AxMCPResourcesListResult };
 export type { AxMCPStreamableHTTPTransportOptions };
+export type { AxMCPTextContent };
+export type { AxMCPTextResourceContents };
 export type { AxMCPToolsListResult };
 export type { AxMCPTransport };
 export type { AxMemoryData };
