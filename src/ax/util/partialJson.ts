@@ -1,22 +1,111 @@
-export function parsePartialJson(json: string): unknown {
-  if (!json.trim()) return null;
+/**
+ * Marker indicating where JSON was truncated during partial parsing.
+ * Used to detect incomplete structures in streaming scenarios.
+ */
+export interface JsonRepairMarker {
+  /** Nesting level at the point of truncation (0 = complete, >0 = inside open structures) */
+  nestingLevel: number;
+  /** Whether we're currently inside an open string */
+  inString: boolean;
+  /** Whether we're currently inside an open array */
+  inArray: boolean;
+  /** Whether we're currently inside an open object */
+  inObject: boolean;
+}
+
+/**
+ * Result of parsing partial JSON, including the parsed value and repair marker.
+ */
+export interface ParsedPartialJson {
+  /** The parsed value, or null if parsing failed */
+  parsed: unknown;
+  /** Marker indicating where truncation occurred, or null if JSON was complete */
+  partialMarker: JsonRepairMarker | null;
+}
+
+/**
+ * Analyzes JSON context to determine nesting level and state at the end of parsing.
+ * This helps detect incomplete structures in streaming scenarios.
+ */
+function analyzeJsonContext(json: string): JsonRepairMarker {
+  let nestingLevel = 0;
+  let inString = false;
+  let isEscaped = false;
+  let inArray = false;
+  let inObject = false;
+  const stack: Array<'{' | '['> = [];
+
+  for (let i = 0; i < json.length; i++) {
+    const char = json[i];
+
+    if (isEscaped) {
+      isEscaped = false;
+      continue;
+    }
+
+    if (char === '\\') {
+      isEscaped = true;
+      continue;
+    }
+
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+
+    if (!inString) {
+      if (char === '{') {
+        stack.push('{');
+        nestingLevel++;
+      } else if (char === '[') {
+        stack.push('[');
+        nestingLevel++;
+      } else if (char === '}') {
+        if (stack.length > 0 && stack[stack.length - 1] === '{') {
+          stack.pop();
+          nestingLevel--;
+        }
+      } else if (char === ']') {
+        if (stack.length > 0 && stack[stack.length - 1] === '[') {
+          stack.pop();
+          nestingLevel--;
+        }
+      }
+    }
+  }
+
+  // Determine if we're inside an array or object at the end
+  if (stack.length > 0) {
+    const lastBracket = stack[stack.length - 1];
+    inArray = lastBracket === '[';
+    inObject = lastBracket === '{';
+  }
+
+  return { nestingLevel, inString, inArray, inObject };
+}
+
+export function parsePartialJson(json: string): ParsedPartialJson {
+  if (!json.trim()) return { parsed: null, partialMarker: null };
 
   // Fast path: try standard parse first
   try {
-    return JSON.parse(json);
+    return { parsed: JSON.parse(json), partialMarker: null };
   } catch {
     // ignore and try repair
   }
+
+  // Analyze the context before repair to get accurate marker
+  const marker = analyzeJsonContext(json);
 
   // If standard parse fails, try to "repair" the JSON string
   // This is a best-effort heuristic approach for streaming JSON
   const repaired = repairJson(json);
 
   try {
-    return JSON.parse(repaired);
+    return { parsed: JSON.parse(repaired), partialMarker: marker };
   } catch {
     // If repair fails, return null (wait for more chunks)
-    return null;
+    return { parsed: null, partialMarker: marker };
   }
 }
 
@@ -28,11 +117,22 @@ function repairJson(json: string): string {
     result = result.slice(0, -1);
   }
 
+  // Handle trailing colon (incomplete property value)
+  // e.g. {"name": "John", "age": -> {"name": "John"}
+  // We need to remove the key and colon
+  if (result.match(/,\s*"[^"]*"\s*:\s*$/)) {
+    result = result.replace(/,\s*"[^"]*"\s*:\s*$/, '');
+  } else if (result.match(/\{\s*"[^"]*"\s*:\s*$/)) {
+    // Handle case where it's the first/only property: {"age": -> {}
+    result = result.replace(/"[^"]*"\s*:\s*$/, '');
+  }
+
   // Fix truncated numbers
   // If it ends with e, E, ., +, - we strip them
-  // e.g. 12. -> 12, 12e -> 12
+  // e.g. 12. -> 12, 12e -> 12, 12e+ -> 12
   // We loop because we might have 12.e (invalid but possible in stream?) or 12e+
-  while (result.match(/[0-9][eE.+-]$/)) {
+  // Also handle patterns like 12e+ or 12e- where exponent sign is present but no digits
+  while (result.match(/[0-9][eE.+-]$/) || result.match(/[eE][+-]$/)) {
     result = result.slice(0, -1);
   }
   // If it ends with just a sign or empty exponent part that leaves no number, we might need to be careful

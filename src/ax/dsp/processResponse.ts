@@ -3,7 +3,10 @@
 import type { AxChatResponse, AxModelUsage } from '../ai/types.js';
 import { mergeFunctionCalls } from '../ai/util.js';
 import type { AxAIMemory } from '../mem/types.js';
-import { parsePartialJson } from '../util/partialJson.js';
+import {
+  parsePartialJson,
+  type JsonRepairMarker,
+} from '../util/partialJson.js';
 
 import {
   type AxAssertion,
@@ -241,7 +244,9 @@ async function* ProcessStreamingResponse<OUT extends AxGenOut>({
 
     if (hasComplexFields) {
       // Try to parse partial JSON
-      const partial = parsePartialJson(state.content);
+      const { parsed: partial, partialMarker } = parsePartialJson(
+        state.content
+      );
 
       if (partial && typeof partial === 'object') {
         // If we have a valid object, yield it
@@ -260,8 +265,19 @@ async function* ProcessStreamingResponse<OUT extends AxGenOut>({
         for (const key of Object.keys(partial)) {
           // Only include fields that are part of the signature
           if (outputFields.some((f) => f.name === key)) {
-            const newVal = (partial as any)[key];
+            let newVal = (partial as any)[key];
             const oldVal = state.values[key];
+
+            // If we're streaming and the last item in an array might be incomplete,
+            // exclude it from the delta to avoid yielding partial objects
+            if (
+              Array.isArray(newVal) &&
+              newVal.length > 0 &&
+              isLastArrayItemIncomplete(newVal, partialMarker)
+            ) {
+              // Exclude the last (incomplete) item
+              newVal = newVal.slice(0, -1);
+            }
 
             fullValues[key] = newVal;
 
@@ -937,6 +953,29 @@ export async function* processResponse<OUT>({
   for (const delta of deltas) {
     yield delta;
   }
+}
+
+/**
+ * Determines if the last item in an array is likely incomplete during streaming.
+ * Uses the partial marker to detect if we're still inside an open structure.
+ */
+function isLastArrayItemIncomplete(
+  _arr: unknown[],
+  partialMarker: JsonRepairMarker | null
+): boolean {
+  if (!partialMarker) {
+    // No marker means JSON was complete, so last item is complete
+    return false;
+  }
+
+  // If nesting level > 0, we're inside an open structure
+  // This means the parser had to close brackets to make valid JSON,
+  // so the last array item is likely incomplete
+  if (partialMarker.nestingLevel > 0) {
+    return true;
+  }
+
+  return false;
 }
 
 export function shouldContinueSteps(

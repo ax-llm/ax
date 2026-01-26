@@ -191,6 +191,172 @@ describe('Structured Outputs', () => {
     // Let's see the chunks first.
   });
 
+  describe('Streaming array of objects', () => {
+    it('should not yield incomplete array items during streaming', async () => {
+      // This test reproduces GitHub Issue #480:
+      // When streaming structured responses with arrays of objects,
+      // incomplete items in the array should NOT be yielded
+
+      const sig = f()
+        .input('question', f.string())
+        .output(
+          'appointments',
+          f
+            .object({
+              name: f.string(),
+              date: f.string(),
+              duration: f.string(),
+            })
+            .array()
+        )
+        .build();
+
+      const gen = ax(sig);
+
+      const mockAI = new AxMockAIService({
+        name: 'mock',
+        features: { functions: true, streaming: true, structuredOutputs: true },
+      });
+
+      // Simulate streaming chunks that produce incomplete array items
+      // Chunk 1: First object is incomplete (missing duration)
+      // Chunk 2: First object complete, second object incomplete
+      // Chunk 3: Complete JSON
+      const chunks = [
+        '{"appointments": [{"name": "Monday", "date": "2026-01-01"',
+        ', "duration": "30 min"}, {"name": "Birthday"',
+        ', "date": "2026-02-14", "duration": "1 hour"}]}',
+      ];
+
+      mockAI.chat = async (_req, options) => {
+        if (options?.stream) {
+          const stream = new ReadableStream({
+            async start(controller) {
+              for (const chunk of chunks) {
+                controller.enqueue({
+                  results: [{ index: 0, content: chunk }],
+                });
+                await new Promise((resolve) => setTimeout(resolve, 10));
+              }
+              controller.close();
+            },
+          });
+          return stream as ReturnType<typeof mockAI.chat>;
+        }
+        return { results: [] };
+      };
+
+      const stream = gen.streamingForward(mockAI, {
+        question: 'List appointments',
+      });
+
+      const allDeltas: Array<{
+        name?: string;
+        date?: string;
+        duration?: string;
+      }> = [];
+
+      for await (const chunk of stream) {
+        if (chunk.delta.appointments) {
+          // Collect all array items from deltas
+          for (const item of chunk.delta.appointments) {
+            allDeltas.push(item);
+          }
+        }
+      }
+
+      // Verify that incomplete items were NOT yielded
+      // Each yielded item should have all required fields
+      for (const item of allDeltas) {
+        // Items should either be complete OR the final yield should complete them
+        // The key assertion: we should not have items missing fields
+        if (item.name && item.date) {
+          // If we have name and date, we should also have duration
+          // (this is the bug - previously incomplete items were yielded)
+          expect(item.duration).toBeDefined();
+        }
+      }
+
+      // Final accumulated result should have 2 complete appointments
+      expect(allDeltas.length).toBe(2);
+      expect(allDeltas[0]).toEqual({
+        name: 'Monday',
+        date: '2026-01-01',
+        duration: '30 min',
+      });
+      expect(allDeltas[1]).toEqual({
+        name: 'Birthday',
+        date: '2026-02-14',
+        duration: '1 hour',
+      });
+    });
+
+    it('should correctly stream complete array items', async () => {
+      // Test that complete array items are still yielded correctly
+
+      const sig = f()
+        .input('question', f.string())
+        .output(
+          'items',
+          f
+            .object({
+              id: f.number(),
+              name: f.string(),
+            })
+            .array()
+        )
+        .build();
+
+      const gen = ax(sig);
+
+      const mockAI = new AxMockAIService({
+        name: 'mock',
+        features: { functions: true, streaming: true, structuredOutputs: true },
+      });
+
+      // Chunks where each array item is complete before the next starts
+      const chunks = [
+        '{"items": [{"id": 1, "name": "First"}',
+        ', {"id": 2, "name": "Second"}',
+        ']}',
+      ];
+
+      mockAI.chat = async (_req, options) => {
+        if (options?.stream) {
+          const stream = new ReadableStream({
+            async start(controller) {
+              for (const chunk of chunks) {
+                controller.enqueue({
+                  results: [{ index: 0, content: chunk }],
+                });
+                await new Promise((resolve) => setTimeout(resolve, 10));
+              }
+              controller.close();
+            },
+          });
+          return stream as ReturnType<typeof mockAI.chat>;
+        }
+        return { results: [] };
+      };
+
+      const stream = gen.streamingForward(mockAI, { question: 'List items' });
+
+      const allItems: Array<{ id?: number; name?: string }> = [];
+
+      for await (const chunk of stream) {
+        if (chunk.delta.items) {
+          for (const item of chunk.delta.items) {
+            allItems.push(item);
+          }
+        }
+      }
+
+      expect(allItems.length).toBe(2);
+      expect(allItems[0]).toEqual({ id: 1, name: 'First' });
+      expect(allItems[1]).toEqual({ id: 2, name: 'Second' });
+    });
+  });
+
   describe('Validation Errors', () => {
     it('should throw validation error for string minLength constraint violation', async () => {
       const sig = f()
