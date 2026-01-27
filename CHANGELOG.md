@@ -1,5 +1,17 @@
 # Changelog
 
+## [16.0.12](///compare/16.0.10...16.0.11) (2026-01-27)
+
+### Features
+
+* enhance README and CLI functionality [#482](undefined/undefined/undefined/issues/482) [#475](undefined/undefined/undefined/issues/475) 67bf283
+## [16.0.11](///compare/16.0.10...16.0.11) (2026-01-27)
+
+### Features
+
+* enhance JSON parsing and streaming response handling [#480](undefined/undefined/undefined/issues/480) b9e7933
+* introduce AxMCPClient enhancements and new documentation fc2e2ec
+
 ## [16.0.11](///compare/16.0.9...16.0.10) (2026-01-27)
 
 ### Features
