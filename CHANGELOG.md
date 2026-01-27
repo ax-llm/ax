@@ -1,5 +1,13 @@
 # Changelog
 
+## [16.0.11](///compare/16.0.9...16.0.10) (2026-01-27)
+
+### Features
+
+* enhance JSON parsing and streaming response handling [#480](undefined/undefined/undefined/issues/480) b9e7933
+* introduce AxMCPClient enhancements and new documentation fc2e2ec
+## [16.0.10](///compare/16.0.9...16.0.10) (2026-01-12)
+
 ## [16.0.10](///compare/16.0.8...16.0.9) (2026-01-12)
 ## [16.0.9](///compare/16.0.8...16.0.9) (2026-01-10)
 
