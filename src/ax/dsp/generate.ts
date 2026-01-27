@@ -1390,6 +1390,97 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     }
   }
 
+  /**
+   * Executes the generator with the given AI service and input values.
+   *
+   * This is the main entry point for running an AI generation. The execution pipeline:
+   * 1. **Validate** - Check input values match the signature
+   * 2. **Render** - Build the prompt from signature, examples, and inputs
+   * 3. **Call** - Send the request to the AI service
+   * 4. **Parse** - Extract structured outputs from the response
+   * 5. **Assert** - Validate outputs and retry with error correction if needed
+   *
+   * @param ai - The AI service instance to use (created via `ai()` factory)
+   * @param values - Input values matching the signature's input fields, or an array of
+   *   `AxMessage` objects for multi-turn conversations
+   * @param options - Optional execution configuration
+   *
+   * @param options.model - Override the default model for this request
+   * @param options.maxTokens - Maximum tokens in the response. Rule of thumb: ~750 tokens ≈ 1 page
+   *   of English text. Set higher for long-form content, lower for concise responses.
+   * @param options.temperature - Controls randomness in generation (0-2):
+   *   - `0` - Deterministic, always picks most likely token (best for factual tasks)
+   *   - `0.3-0.7` - Balanced creativity (good for most tasks)
+   *   - `1.0+` - High creativity (good for brainstorming, creative writing)
+   *   - `2.0` - Maximum randomness (often incoherent)
+   * @param options.thinkingTokenBudget - Enable extended thinking for complex reasoning:
+   *   - `'none'` - Disabled (default)
+   *   - `'minimal'` - ~1K tokens of thinking
+   *   - `'low'` - ~4K tokens
+   *   - `'medium'` - ~10K tokens
+   *   - `'high'` - ~20K tokens
+   *   - `'highest'` - ~32K+ tokens (provider maximum)
+   * @param options.stream - Enable streaming responses for real-time output
+   * @param options.functions - Array of function tools the AI can call
+   * @param options.functionCallMode - How to handle function calling:
+   *   - `'auto'` - Let the provider decide (default)
+   *   - `'native'` - Force native function calling (if supported)
+   *   - `'prompt'` - Simulate via prompt engineering (for models without native support)
+   * @param options.mem - Memory instance for conversation history
+   * @param options.sessionId - Session identifier for memory isolation
+   * @param options.maxRetries - Maximum error correction attempts (default: 3)
+   * @param options.maxSteps - Maximum function call iterations (default: 10)
+   * @param options.debug - Enable debug logging
+   *
+   * @returns Promise resolving to the output values matching the signature's output fields
+   *
+   * @throws {AxValidationError} When input values don't match the signature
+   * @throws {AxAssertionError} When output parsing/validation fails after all retries
+   * @throws {AxAIServiceError} When the AI service request fails
+   *
+   * @example Basic usage
+   * ```typescript
+   * const gen = ax('question: string -> answer: string');
+   * const result = await gen.forward(ai, { question: 'What is 2+2?' });
+   * console.log(result.answer); // "4"
+   * ```
+   *
+   * @example With configuration
+   * ```typescript
+   * const result = await gen.forward(ai, { question: 'Explain quantum computing' }, {
+   *   maxTokens: 2000,
+   *   temperature: 0.3,
+   *   stream: true
+   * });
+   * ```
+   *
+   * @example Multi-turn conversation
+   * ```typescript
+   * const mem = new AxMemory();
+   * const chat = ax('message: string -> reply: string');
+   *
+   * await chat.forward(ai, { message: 'Hi, my name is Alice' }, { mem });
+   * const result = await chat.forward(ai, { message: 'What is my name?' }, { mem });
+   * // result.reply will reference "Alice" from conversation history
+   * ```
+   *
+   * @example With function calling
+   * ```typescript
+   * const result = await gen.forward(ai, values, {
+   *   functions: [{
+   *     name: 'getWeather',
+   *     description: 'Get current weather for a city',
+   *     parameters: {
+   *       type: 'object',
+   *       properties: { city: { type: 'string', description: 'City name' } },
+   *       required: ['city']
+   *     },
+   *     func: async ({ city }) => fetchWeather(city)
+   *   }],
+   *   maxSteps: 5
+   * });
+   * ```
+   */
   public async forward<T extends Readonly<AxAIService>>(
     ai: T,
     values: IN | AxMessage<IN>[],

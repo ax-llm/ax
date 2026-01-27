@@ -934,15 +934,104 @@ export interface AxParetoResult<OUT = any> extends AxOptimizerResult<OUT> {
 
 // AxCompileOptions moved to ./common_types.ts
 
-// Enhanced base optimizer interface
+/**
+ * Interface for optimizing AI programs through automated prompt tuning.
+ *
+ * Optimizers improve program performance by finding optimal demonstrations (few-shot examples)
+ * that guide the AI toward better outputs. The optimization process:
+ *
+ * 1. Runs the program on training examples
+ * 2. Evaluates outputs using the metric function
+ * 3. Selects high-scoring input/output pairs as demonstrations
+ * 4. Iterates to find the best demonstration set
+ *
+ * @example Basic optimization
+ * ```typescript
+ * const optimizer = new AxBootstrapFewShot({ maxBootstrappedDemos: 4 });
+ *
+ * const result = await optimizer.compile(
+ *   program,
+ *   trainingExamples,
+ *   ({ prediction, example }) => prediction.answer === example.expectedAnswer ? 1 : 0
+ * );
+ *
+ * // Apply optimized demos to program
+ * program.setDemos(result.demos);
+ * ```
+ */
 export interface AxOptimizer {
   /**
-   * Optimize a program using the provided metric function
-   * @param program The program to optimize
-   * @param examples Training examples (typed based on the program) - will be auto-split into train/validation
-   * @param metricFn Evaluation metric function to assess program performance
-   * @param options Optional configuration options
-   * @returns Optimization result containing demos, stats, and configuration
+   * Optimize a program using the provided training examples and metric function.
+   *
+   * The optimizer runs the program on examples, scores the outputs, and builds
+   * a set of demonstrations that improve program performance. The process is
+   * automatic - you provide the data and metric, the optimizer does the rest.
+   *
+   * **Metric Function:**
+   * The metric function evaluates how well the program's output matches expectations.
+   * It receives the prediction and original example, and should return a score
+   * between 0 (worst) and 1 (best).
+   *
+   * @param program - The AxGen program to optimize. The optimizer will call
+   *   `.forward()` on this program during training.
+   *
+   * @param examples - Training examples with input values. Examples are automatically
+   *   split into training and validation sets. Each example should have the input
+   *   fields required by the program's signature.
+   *
+   * @param metricFn - Function that scores program outputs. Called with:
+   *   - `prediction`: The program's output for this example
+   *   - `example`: The original input example (useful if it contains expected outputs)
+   *   - Returns: Number between 0 (bad) and 1 (perfect)
+   *
+   * @param options - Optional configuration:
+   *   - `ai`: AI service to use (required if not set on program)
+   *   - `valSet`: Custom validation set (otherwise auto-split from examples)
+   *   - `trainSplit`: Fraction of examples for training (default: 0.8)
+   *
+   * @returns Promise resolving to optimization results including:
+   *   - `demos`: Optimized demonstrations to use with the program
+   *   - `stats`: Training/validation scores and iteration counts
+   *
+   * @example Exact match metric
+   * ```typescript
+   * const result = await optimizer.compile(
+   *   qa,
+   *   examples,
+   *   ({ prediction, example }) => {
+   *     return prediction.answer.toLowerCase() === example.expectedAnswer.toLowerCase() ? 1 : 0;
+   *   }
+   * );
+   * ```
+   *
+   * @example Semantic similarity metric
+   * ```typescript
+   * const result = await optimizer.compile(
+   *   summarizer,
+   *   examples,
+   *   async ({ prediction, example }) => {
+   *     const similarity = await computeCosineSimilarity(
+   *       await embed(prediction.summary),
+   *       await embed(example.referenceSummary)
+   *     );
+   *     return similarity; // 0-1 based on embedding similarity
+   *   }
+   * );
+   * ```
+   *
+   * @example Partial credit metric
+   * ```typescript
+   * const result = await optimizer.compile(
+   *   extractor,
+   *   examples,
+   *   ({ prediction, example }) => {
+   *     const expectedKeywords = example.keywords;
+   *     const foundKeywords = prediction.keywords;
+   *     const matches = expectedKeywords.filter(k => foundKeywords.includes(k));
+   *     return matches.length / expectedKeywords.length; // Fraction found
+   *   }
+   * );
+   * ```
    */
   compile<IN, OUT extends AxGenOut>(
     program: Readonly<AxGen<IN, OUT>>,

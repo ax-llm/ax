@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   apiCall,
+  type AxAIServiceError,
   AxAIServiceNetworkError,
+  AxAIServiceStatusError,
   type AxAPIConfig,
 } from './apicall.js';
 
@@ -211,6 +213,118 @@ describe('apiCall', () => {
           retryCount: number;
         };
         expect(metrics.retryCount).toBe(2);
+      }
+    });
+  });
+
+  describe('includeRequestBodyInErrors', () => {
+    it('should include request body in error toString by default', async () => {
+      const mockFetch = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ error: 'bad request' }), {
+          status: 500,
+          statusText: 'Internal Server Error',
+          headers: { 'content-type': 'application/json' },
+        })
+      );
+
+      const config: AxAPIConfig = {
+        url: 'https://api.example.com/test',
+        fetch: mockFetch,
+        retry: { maxRetries: 0 },
+      };
+
+      try {
+        await apiCall(config, { sensitiveData: 'secret123' });
+        expect.fail('Should have thrown');
+      } catch (error) {
+        expect(error).toBeInstanceOf(AxAIServiceStatusError);
+        const errorString = (error as AxAIServiceError).toString();
+        expect(errorString).toContain('Request Body:');
+        expect(errorString).toContain('sensitiveData');
+        expect(errorString).toContain('secret123');
+      }
+    });
+
+    it('should exclude request body from error toString when includeRequestBodyInErrors is false', async () => {
+      const mockFetch = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ error: 'bad request' }), {
+          status: 500,
+          statusText: 'Internal Server Error',
+          headers: { 'content-type': 'application/json' },
+        })
+      );
+
+      const config: AxAPIConfig = {
+        url: 'https://api.example.com/test',
+        fetch: mockFetch,
+        retry: { maxRetries: 0 },
+        includeRequestBodyInErrors: false,
+      };
+
+      try {
+        await apiCall(config, { sensitiveData: 'secret123' });
+        expect.fail('Should have thrown');
+      } catch (error) {
+        expect(error).toBeInstanceOf(AxAIServiceStatusError);
+        const errorString = (error as AxAIServiceError).toString();
+        expect(errorString).not.toContain('Request Body:');
+        expect(errorString).not.toContain('sensitiveData');
+        expect(errorString).not.toContain('secret123');
+      }
+    });
+
+    it('should still store requestBody on error object even when not included in toString', async () => {
+      const mockFetch = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ error: 'bad request' }), {
+          status: 500,
+          statusText: 'Internal Server Error',
+          headers: { 'content-type': 'application/json' },
+        })
+      );
+
+      const config: AxAPIConfig = {
+        url: 'https://api.example.com/test',
+        fetch: mockFetch,
+        retry: { maxRetries: 0 },
+        includeRequestBodyInErrors: false,
+      };
+
+      try {
+        await apiCall(config, { sensitiveData: 'secret123' });
+        expect.fail('Should have thrown');
+      } catch (error) {
+        expect(error).toBeInstanceOf(AxAIServiceStatusError);
+        const serviceError = error as AxAIServiceError;
+        // The requestBody is still accessible programmatically
+        expect(serviceError.requestBody).toEqual({
+          sensitiveData: 'secret123',
+        });
+        // But not in the string representation
+        expect(serviceError.toString()).not.toContain('secret123');
+      }
+    });
+
+    it('should exclude request body from network errors when includeRequestBodyInErrors is false', async () => {
+      const networkError = new TypeError('network failure');
+      const mockFetch = vi.fn().mockRejectedValue(networkError);
+
+      const config: AxAPIConfig = {
+        url: 'https://api.example.com/test',
+        fetch: mockFetch,
+        retry: { maxRetries: 0 },
+        includeRequestBodyInErrors: false,
+      };
+
+      try {
+        await apiCall(config, {
+          largeBase64: 'data:image/png;base64,AAAAA...',
+        });
+        expect.fail('Should have thrown');
+      } catch (error) {
+        expect(error).toBeInstanceOf(AxAIServiceNetworkError);
+        const errorString = (error as AxAIServiceError).toString();
+        expect(errorString).not.toContain('Request Body:');
+        expect(errorString).not.toContain('largeBase64');
       }
     });
   });

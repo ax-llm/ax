@@ -59,6 +59,8 @@ export interface AxAPIConfig
   retry?: Partial<RetryConfig>;
   abortSignal?: AbortSignal;
   corsProxy?: string;
+  /** Whether to include request body in error messages. Defaults to true. Set to false when request may contain sensitive data or large base64 content. */
+  includeRequestBodyInErrors?: boolean;
 }
 
 // Default Configurations
@@ -78,33 +80,41 @@ export class AxAIServiceError extends Error {
   public readonly timestamp: string;
   public readonly errorId: string;
   public readonly context: Record<string, unknown>;
+  public readonly includeRequestBodyInErrors: boolean;
 
   constructor(
     message: string,
     public readonly url: string,
     public readonly requestBody: unknown,
     public readonly responseBody: unknown,
-    context: Record<string, unknown> = {}
+    context: Record<string, unknown> = {},
+    includeRequestBodyInErrors: boolean = true
   ) {
     super(message);
     this.name = 'AxAIServiceError';
     this.timestamp = new Date().toISOString();
     this.errorId = randomUUID();
     this.context = context;
+    this.includeRequestBodyInErrors = includeRequestBodyInErrors;
 
     this.stack = this.toString();
   }
 
   override toString(): string {
-    return [
-      `${this.name}: ${this.message}`,
-      `URL: ${this.url}`,
-      `Request Body: ${JSON.stringify(this.requestBody, null, 2)}`,
+    const lines = [`${this.name}: ${this.message}`, `URL: ${this.url}`];
+
+    if (this.includeRequestBodyInErrors) {
+      lines.push(`Request Body: ${JSON.stringify(this.requestBody, null, 2)}`);
+    }
+
+    lines.push(
       `Response Body: ${JSON.stringify(this.responseBody, null, 2)}`,
       `Context: ${JSON.stringify(this.context, null, 2)}`,
       `Timestamp: ${this.timestamp}`,
-      `Error ID: ${this.errorId}`,
-    ].join('\n');
+      `Error ID: ${this.errorId}`
+    );
+
+    return lines.join('\n');
   }
 
   // For Node.js, override the custom inspect method so console.log shows our custom string.
@@ -126,15 +136,23 @@ export class AxAIServiceStatusError extends AxAIServiceError {
     requestBody: unknown,
     responseBody: unknown,
     context?: Record<string, unknown>,
-    retryCount?: number
+    retryCount?: number,
+    includeRequestBodyInErrors: boolean = true
   ) {
     const retryInfo = retryCount ? ` (after ${retryCount} retries)` : '';
-    super(`HTTP ${status} - ${statusText}${retryInfo}`, url, requestBody, {
-      httpStatus: status,
-      httpStatusText: statusText,
-      responseBody,
-      ...context,
-    });
+    super(
+      `HTTP ${status} - ${statusText}${retryInfo}`,
+      url,
+      requestBody,
+      {
+        httpStatus: status,
+        httpStatusText: statusText,
+        responseBody,
+        ...context,
+      },
+      {},
+      includeRequestBodyInErrors
+    );
     this.name = 'AxAIServiceStatusError';
   }
 }
@@ -145,7 +163,8 @@ export class AxAIServiceNetworkError extends AxAIServiceError {
     url: string,
     requestBody: unknown,
     responseBody: unknown,
-    context?: Record<string, unknown>
+    context?: Record<string, unknown>,
+    includeRequestBodyInErrors: boolean = true
   ) {
     super(
       `Network Error: ${originalError.message}`,
@@ -156,7 +175,8 @@ export class AxAIServiceNetworkError extends AxAIServiceError {
         originalErrorName: originalError.name,
         originalErrorStack: originalError.stack,
         ...context,
-      }
+      },
+      includeRequestBodyInErrors
     );
     this.name = 'AxAIServiceNetworkError';
     this.stack = originalError.stack;
@@ -168,9 +188,17 @@ export class AxAIServiceResponseError extends AxAIServiceError {
     message: string,
     url: string,
     requestBody?: unknown,
-    context?: Record<string, unknown>
+    context?: Record<string, unknown>,
+    includeRequestBodyInErrors: boolean = true
   ) {
-    super(message, url, requestBody, undefined, context);
+    super(
+      message,
+      url,
+      requestBody,
+      undefined,
+      context,
+      includeRequestBodyInErrors
+    );
     this.name = 'AxAIServiceResponseError';
   }
 }
@@ -180,7 +208,8 @@ export class AxAIServiceStreamTerminatedError extends AxAIServiceError {
     url: string,
     requestBody?: unknown,
     public readonly lastChunk?: unknown,
-    context?: Record<string, unknown>
+    context?: Record<string, unknown>,
+    includeRequestBodyInErrors: boolean = true
   ) {
     super(
       'Stream terminated unexpectedly by remote host',
@@ -190,7 +219,8 @@ export class AxAIServiceStreamTerminatedError extends AxAIServiceError {
       {
         lastChunk,
         ...context,
-      }
+      },
+      includeRequestBodyInErrors
     );
     this.name = 'AxAIServiceStreamTerminatedError';
   }
@@ -201,14 +231,16 @@ export class AxAIServiceTimeoutError extends AxAIServiceError {
     url: string,
     timeoutMs: number,
     requestBody?: unknown,
-    context?: Record<string, unknown>
+    context?: Record<string, unknown>,
+    includeRequestBodyInErrors: boolean = true
   ) {
     super(
       `Request timed out after ${timeoutMs}ms`,
       url,
       requestBody,
       undefined,
-      { timeoutMs, ...context }
+      { timeoutMs, ...context },
+      includeRequestBodyInErrors
     );
     this.name = 'AxAIServiceTimeoutError';
   }
@@ -221,9 +253,19 @@ export class AxTokenLimitError extends AxAIServiceStatusError {
     url: string,
     requestBody: unknown,
     responseBody: unknown,
-    context?: Record<string, unknown>
+    context?: Record<string, unknown>,
+    includeRequestBodyInErrors: boolean = true
   ) {
-    super(status, statusText, url, requestBody, responseBody, context);
+    super(
+      status,
+      statusText,
+      url,
+      requestBody,
+      responseBody,
+      context,
+      undefined,
+      includeRequestBodyInErrors
+    );
     this.name = 'AxTokenLimitError';
   }
 }
@@ -233,14 +275,16 @@ export class AxAIServiceAbortedError extends AxAIServiceError {
     url: string,
     reason?: string,
     requestBody?: unknown,
-    context?: Record<string, unknown>
+    context?: Record<string, unknown>,
+    includeRequestBodyInErrors: boolean = true
   ) {
     super(
       `Request aborted${reason ? `: ${reason}` : ''}`,
       url,
       requestBody,
       undefined,
-      { abortReason: reason, ...context }
+      { abortReason: reason, ...context },
+      includeRequestBodyInErrors
     );
     this.name = 'AxAIServiceAbortedError';
   }
@@ -251,9 +295,17 @@ export class AxAIServiceAuthenticationError extends AxAIServiceError {
     url: string,
     requestBody: unknown,
     responseBody: unknown,
-    context?: Record<string, unknown>
+    context?: Record<string, unknown>,
+    includeRequestBodyInErrors: boolean = true
   ) {
-    super('Authentication failed', url, requestBody, responseBody, context);
+    super(
+      'Authentication failed',
+      url,
+      requestBody,
+      responseBody,
+      context,
+      includeRequestBodyInErrors
+    );
     this.name = 'AxAIServiceAuthenticationError';
   }
 }
@@ -528,6 +580,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
   const metrics = createRequestMetrics();
   // Only verbose flag controls HTTP request/response logging
   const verbose = api.verbose ?? false;
+  const includeBodyInErrors = api.includeRequestBodyInErrors ?? true;
   let timeoutId: NodeJS.Timeout | undefined;
 
   const baseUrl = new URL(api.url);
@@ -553,7 +606,8 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
         'Invalid request data',
         apiUrl.href,
         json,
-        { validation: 'request' }
+        { validation: 'request' },
+        includeBodyInErrors
       );
     }
   }
@@ -579,7 +633,8 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
           apiUrl.href,
           api.abortSignal.reason,
           json,
-          { metrics }
+          { metrics },
+          includeBodyInErrors
         );
       }
 
@@ -658,7 +713,8 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
           responseBody,
           {
             metrics,
-          }
+          },
+          includeBodyInErrors
         );
       }
 
@@ -711,7 +767,8 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
             responseBody,
             {
               metrics,
-            }
+            },
+            includeBodyInErrors
           );
         }
       }
@@ -758,7 +815,8 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
           json,
           responseBody,
           { metrics },
-          attempt > 0 ? attempt : undefined
+          attempt > 0 ? attempt : undefined,
+          includeBodyInErrors
         );
       }
 
@@ -784,7 +842,8 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
               'Invalid response data',
               apiUrl.href,
               json,
-              { validation: 'response' }
+              { validation: 'response' },
+              includeBodyInErrors
             );
           }
         }
@@ -811,7 +870,8 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
           'Response body is null',
           apiUrl.href,
           json,
-          { metrics }
+          { metrics },
+          includeBodyInErrors
         );
       }
 
@@ -918,7 +978,8 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
                       apiUrl.href,
                       json,
                       lastChunk,
-                      { streamMetrics }
+                      { streamMetrics },
+                      includeBodyInErrors
                     )
                   );
                 } else {
@@ -930,7 +991,8 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
                       '[ReadableStream - consumed during streaming]',
                       {
                         streamMetrics,
-                      }
+                      },
+                      includeBodyInErrors
                     )
                   );
                 }
@@ -1005,7 +1067,8 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
                     apiUrl.href,
                     json,
                     lastChunk,
-                    { streamMetrics }
+                    { streamMetrics },
+                    includeBodyInErrors
                   )
                 );
               } else if (
@@ -1020,7 +1083,8 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
                     {
                       streamMetrics,
                       cancelReason: 'Stream cancelled by client',
-                    }
+                    },
+                    includeBodyInErrors
                   )
                 );
               } else {
@@ -1032,7 +1096,8 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
                     '[ReadableStream - consumed during streaming]',
                     {
                       streamMetrics,
-                    }
+                    },
+                    includeBodyInErrors
                   )
                 );
               }
@@ -1060,12 +1125,17 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
             apiUrl.href,
             api.abortSignal.reason,
             json,
-            { metrics }
+            { metrics },
+            includeBodyInErrors
           );
         }
-        throw new AxAIServiceTimeoutError(apiUrl.href, timeoutMs || 0, json, {
-          metrics,
-        });
+        throw new AxAIServiceTimeoutError(
+          apiUrl.href,
+          timeoutMs || 0,
+          json,
+          { metrics },
+          includeBodyInErrors
+        );
       }
 
       // Wrap raw network errors from fetch() in AxAIServiceNetworkError
@@ -1077,7 +1147,8 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
           apiUrl.href,
           json,
           undefined,
-          { metrics }
+          { metrics },
+          includeBodyInErrors
         );
       }
 

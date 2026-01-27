@@ -1,4 +1,5 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 
 const packagePath = process.cwd();
@@ -45,6 +46,16 @@ packageJson.exports = {
 delete packageJson.devDependencies;
 delete packageJson.scripts;
 
+// Add bin entry for CLI
+packageJson.bin = {
+  ax: './cli/index.mjs',
+};
+
+// Add postinstall script
+packageJson.scripts = {
+  postinstall: 'node ./scripts/postinstall.mjs',
+};
+
 // Write the modified package.json to the build folder
 await writeFile(
   path.resolve(buildPath, './package.json'),
@@ -52,3 +63,50 @@ await writeFile(
 );
 
 console.log('package.json has been modified and copied to the build folder.');
+
+// Copy skills directory with version injection
+const skillsSourcePath = path.join(packagePath, 'skills');
+const skillsDestPath = path.join(buildPath, 'skills');
+
+if (existsSync(skillsSourcePath)) {
+  await mkdir(skillsDestPath, { recursive: true });
+
+  // Read skill file and inject version
+  const skillFilePath = path.join(skillsSourcePath, 'ax-llm.md');
+  if (existsSync(skillFilePath)) {
+    const skillContent = await readFile(skillFilePath, 'utf8');
+    // Replace version placeholder with actual package version
+    const updatedSkillContent = skillContent.replace(
+      /^version:\s*["']?__VERSION__["']?/m,
+      `version: "${packageJson.version}"`
+    );
+    await writeFile(path.join(skillsDestPath, 'ax-llm.md'), updatedSkillContent);
+    console.log(`Skill file copied with version ${packageJson.version}`);
+  }
+}
+
+// Copy CLI directory
+const cliSourcePath = path.join(packagePath, 'cli');
+const cliDestPath = path.join(buildPath, 'cli');
+
+if (existsSync(cliSourcePath)) {
+  await mkdir(cliDestPath, { recursive: true });
+  const cliFilePath = path.join(cliSourcePath, 'index.mjs');
+  if (existsSync(cliFilePath)) {
+    await copyFile(cliFilePath, path.join(cliDestPath, 'index.mjs'));
+    console.log('CLI copied to dist/cli/');
+  }
+}
+
+// Copy scripts directory
+const scriptsSourcePath = path.join(packagePath, 'scripts');
+const scriptsDestPath = path.join(buildPath, 'scripts');
+
+if (existsSync(scriptsSourcePath)) {
+  await mkdir(scriptsDestPath, { recursive: true });
+  const postinstallPath = path.join(scriptsSourcePath, 'postinstall.mjs');
+  if (existsSync(postinstallPath)) {
+    await copyFile(postinstallPath, path.join(scriptsDestPath, 'postinstall.mjs'));
+    console.log('Postinstall script copied to dist/scripts/');
+  }
+}

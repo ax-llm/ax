@@ -1,6 +1,4 @@
-# Ax: Build Reliable AI Apps in TypeScript
-
-Stop wrestling with prompts. Start shipping AI features.
+# Ax - Build Reliable AI Apps in TypeScript with DSPy
 
 Ax brings DSPy's approach to TypeScript – describe what you want, and let the framework handle the rest. Production-ready, type-safe, works with all major LLMs.
 

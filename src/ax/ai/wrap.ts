@@ -112,17 +112,80 @@ type InferTModelKey<T> = T extends { models: infer M }
   : string;
 
 /**
- * Factory function for creating AxAI instances with type safety.
- * This is the recommended way to create AxAI instances instead of using the constructor.
+ * Factory function for creating AI service instances with full type safety.
  *
- * @param options - Configuration options for the AI service
- * @returns A properly typed AxAI instance
+ * This is the recommended way to create AI instances. It automatically selects
+ * the appropriate provider implementation based on the `name` field and provides
+ * type-safe access to provider-specific models.
  *
- * @example
+ * **Supported Providers:**
+ * - `'openai'` - OpenAI (GPT-4, GPT-4o, o1, o3, etc.)
+ * - `'openai-responses'` - OpenAI Responses API (for web search, file search)
+ * - `'anthropic'` - Anthropic (Claude 3.5 Sonnet, Claude 3 Opus, etc.)
+ * - `'google-gemini'` - Google (Gemini 1.5 Pro, Gemini 2.0 Flash, etc.)
+ * - `'azure-openai'` - Azure OpenAI Service
+ * - `'groq'` - Groq (Llama, Mixtral with fast inference)
+ * - `'cohere'` - Cohere (Command R+, embeddings)
+ * - `'mistral'` - Mistral AI (Mistral Large, Codestral)
+ * - `'deepseek'` - DeepSeek (DeepSeek-V3, DeepSeek-R1)
+ * - `'together'` - Together AI (various open models)
+ * - `'openrouter'` - OpenRouter (unified API for many providers)
+ * - `'ollama'` - Ollama (local models)
+ * - `'huggingface'` - Hugging Face Inference API
+ * - `'reka'` - Reka AI
+ * - `'grok'` - xAI Grok
+ * - `'webllm'` - WebLLM (browser-based inference)
+ *
+ * @param options - Provider-specific configuration. Must include `name` to identify the provider.
+ * @param options.name - The provider identifier (see list above)
+ * @param options.apiKey - API key for the provider (not needed for Ollama/WebLLM)
+ * @param options.config - Optional default model configuration (maxTokens, temperature, etc.)
+ * @param options.models - Optional custom model aliases for type-safe model selection
+ *
+ * @returns A configured AI service instance ready for chat completions and embeddings
+ *
+ * @see {@link AxModelConfig} for model configuration options
+ * @see {@link AxAIServiceOptions} for runtime options like streaming and function calling
+ *
+ * @example Basic OpenAI setup
  * ```typescript
  * const ai = ai({
  *   name: 'openai',
- *   apiKey: process.env.OPENAI_APIKEY!
+ *   apiKey: process.env.OPENAI_API_KEY
+ * });
+ * ```
+ *
+ * @example Anthropic with custom defaults
+ * ```typescript
+ * const ai = ai({
+ *   name: 'anthropic',
+ *   apiKey: process.env.ANTHROPIC_API_KEY,
+ *   config: {
+ *     model: 'claude-sonnet-4-20250514',
+ *     maxTokens: 4096,
+ *     temperature: 0.7
+ *   }
+ * });
+ * ```
+ *
+ * @example Google Gemini with model aliases
+ * ```typescript
+ * const ai = ai({
+ *   name: 'google-gemini',
+ *   apiKey: process.env.GOOGLE_API_KEY,
+ *   models: [
+ *     { key: 'fast', model: 'gemini-2.0-flash' },
+ *     { key: 'smart', model: 'gemini-1.5-pro' }
+ *   ]
+ * });
+ * // Now use ai with model: 'fast' or model: 'smart'
+ * ```
+ *
+ * @example Local models with Ollama
+ * ```typescript
+ * const ai = ai({
+ *   name: 'ollama',
+ *   config: { model: 'llama3.2' }
  * });
  * ```
  */

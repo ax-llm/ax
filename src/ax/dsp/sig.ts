@@ -524,10 +524,116 @@ type ValidateNoMediaTypes<TFields> = {
     : TFields[K];
 };
 
-// Improved helper functions for creating strongly-typed field info
+/**
+ * Fluent field builder for creating type-safe signature fields.
+ *
+ * The `f` object provides factory methods for all supported field types, each returning
+ * a chainable builder that allows adding constraints and modifiers.
+ *
+ * **Basic Usage:**
+ * When called as a function, `f()` returns a new `AxSignatureBuilder` for programmatic
+ * signature construction. More commonly, use its type methods directly.
+ *
+ * **Type Methods:**
+ * - `f.string(desc?)` - Text content
+ * - `f.number(desc?)` - Numeric values
+ * - `f.boolean(desc?)` - True/false values
+ * - `f.json(desc?)` - Arbitrary JSON objects
+ * - `f.datetime(desc?)` - ISO 8601 datetime strings
+ * - `f.date(desc?)` - Date in YYYY-MM-DD format
+ * - `f.class(options, desc?)` - Classification with predefined choices
+ * - `f.image(desc?)` - Image input (multimodal)
+ * - `f.audio(desc?)` - Audio input
+ * - `f.file(desc?)` - File input
+ * - `f.url(desc?)` - URL strings
+ * - `f.email(desc?)` - Email addresses
+ * - `f.code(language?, desc?)` - Code blocks
+ * - `f.object(fields, desc?)` - Nested object with typed fields
+ *
+ * **Modifier Methods (chainable):**
+ * - `.optional()` - Mark field as optional
+ * - `.array(desc?)` - Convert to array of this type
+ * - `.internal()` - Hide from final output (for intermediate reasoning)
+ * - `.cache()` - Mark for context caching
+ * - `.min(value)` - Minimum length (strings) or value (numbers)
+ * - `.max(value)` - Maximum length (strings) or value (numbers)
+ * - `.regex(pattern, desc)` - Regex validation for strings
+ * - `.email()` - Email format validation for strings
+ * - `.url()` - URL format validation for strings
+ *
+ * @example Basic field types
+ * ```typescript
+ * const sig = f()
+ *   .input('name', f.string('User name'))
+ *   .input('age', f.number('Age in years'))
+ *   .output('greeting', f.string('Personalized greeting'))
+ *   .build();
+ * ```
+ *
+ * @example With constraints
+ * ```typescript
+ * const sig = f()
+ *   .input('email', f.string().email())
+ *   .input('score', f.number('Score between 0-100').min(0).max(100))
+ *   .input('tags', f.string('Tag').array('List of tags'))
+ *   .output('isValid', f.boolean())
+ *   .build();
+ * ```
+ *
+ * @example Classification
+ * ```typescript
+ * const sig = f()
+ *   .input('text', f.string('Text to classify'))
+ *   .output('sentiment', f.class(['positive', 'negative', 'neutral'] as const))
+ *   .output('confidence', f.number().min(0).max(1))
+ *   .build();
+ * ```
+ *
+ * @example Nested objects
+ * ```typescript
+ * const sig = f()
+ *   .input('query', f.string())
+ *   .output('result', f.object({
+ *     title: f.string('Article title'),
+ *     score: f.number('Relevance score'),
+ *     metadata: f.object({
+ *       author: f.string().optional(),
+ *       date: f.date()
+ *     })
+ *   }))
+ *   .build();
+ * ```
+ *
+ * @example Optional and internal fields
+ * ```typescript
+ * const sig = f()
+ *   .input('context', f.string().optional())
+ *   .input('question', f.string())
+ *   .output('reasoning', f.string('Step-by-step thinking').internal())
+ *   .output('answer', f.string())
+ *   .build();
+ * ```
+ */
 export const f = Object.assign(
   (): AxSignatureBuilder => new AxSignatureBuilder(),
   {
+    /**
+     * Creates a string field type.
+     *
+     * Strings are the default and most common field type. Use modifiers to add
+     * validation constraints.
+     *
+     * @param desc - Optional description explaining the field's purpose
+     * @returns A chainable field builder
+     *
+     * @example
+     * ```typescript
+     * f.string('User question')
+     * f.string().min(10).max(1000)  // Length constraints
+     * f.string().email()             // Email format
+     * f.string().regex('^[A-Z]', 'Must start with uppercase')
+     * ```
+     */
     string: (
       desc?: string
     ): AxFluentFieldType<
@@ -548,6 +654,21 @@ export const f = Object.assign(
         isCached: false as const,
       }),
 
+    /**
+     * Creates a number field type.
+     *
+     * Numbers can be integers or floats. Use `.min()` and `.max()` to constrain the range.
+     *
+     * @param desc - Optional description explaining the field's purpose
+     * @returns A chainable field builder
+     *
+     * @example
+     * ```typescript
+     * f.number('Age in years')
+     * f.number().min(0).max(100)     // Constrained range
+     * f.number('Rating').min(1).max(5)
+     * ```
+     */
     number: (
       desc?: string
     ): AxFluentFieldType<
@@ -568,6 +689,21 @@ export const f = Object.assign(
         isCached: false as const,
       }),
 
+    /**
+     * Creates a boolean field type.
+     *
+     * Booleans represent true/false values. Useful for yes/no questions,
+     * flags, and binary decisions.
+     *
+     * @param desc - Optional description explaining what true/false means
+     * @returns A chainable field builder
+     *
+     * @example
+     * ```typescript
+     * f.boolean('Whether the text contains personally identifiable information')
+     * f.boolean('Is the sentiment positive')
+     * ```
+     */
     boolean: (
       desc?: string
     ): AxFluentFieldType<
@@ -588,6 +724,21 @@ export const f = Object.assign(
         isCached: false as const,
       }),
 
+    /**
+     * Creates a JSON field type for arbitrary structured data.
+     *
+     * Use this when you need flexible object output without a predefined schema.
+     * For structured data with known fields, prefer `f.object()` for type safety.
+     *
+     * @param desc - Optional description of the expected JSON structure
+     * @returns A chainable field builder
+     *
+     * @example
+     * ```typescript
+     * f.json('Extracted entities as key-value pairs')
+     * f.json('Configuration object')
+     * ```
+     */
     json: (
       desc?: string
     ): AxFluentFieldType<
@@ -608,6 +759,21 @@ export const f = Object.assign(
         isCached: false as const,
       }),
 
+    /**
+     * Creates a datetime field type for ISO 8601 timestamps.
+     *
+     * Values are formatted as full ISO 8601 datetime strings (e.g., "2024-01-15T14:30:00Z").
+     * For date-only values, use `f.date()` instead.
+     *
+     * @param desc - Optional description explaining the datetime's purpose
+     * @returns A chainable field builder
+     *
+     * @example
+     * ```typescript
+     * f.datetime('When the event occurred')
+     * f.datetime('Appointment start time')
+     * ```
+     */
     datetime: (
       desc?: string
     ): AxFluentFieldType<
@@ -628,6 +794,21 @@ export const f = Object.assign(
         isCached: false as const,
       }),
 
+    /**
+     * Creates a date field type for YYYY-MM-DD formatted dates.
+     *
+     * Values are formatted as date strings without time components (e.g., "2024-01-15").
+     * For datetime values with time, use `f.datetime()` instead.
+     *
+     * @param desc - Optional description explaining the date's purpose
+     * @returns A chainable field builder
+     *
+     * @example
+     * ```typescript
+     * f.date('Date of birth')
+     * f.date('Publication date')
+     * ```
+     */
     date: (
       desc?: string
     ): AxFluentFieldType<
@@ -648,6 +829,23 @@ export const f = Object.assign(
         isCached: false as const,
       }),
 
+    /**
+     * Creates a classification field type with predefined options.
+     *
+     * The AI will always return exactly one of the provided options.
+     * Use `as const` for the options array to get literal type inference.
+     *
+     * @param options - Array of allowed values (use `as const` for type safety)
+     * @param desc - Optional description of the classification task
+     * @returns A chainable field builder
+     *
+     * @example
+     * ```typescript
+     * f.class(['positive', 'negative', 'neutral'] as const, 'Sentiment')
+     * f.class(['bug', 'feature', 'question', 'docs'] as const, 'Issue type')
+     * f.class(['low', 'medium', 'high', 'critical'] as const).optional()
+     * ```
+     */
     class: <const TOptions extends readonly string[]>(
       options: TOptions,
       desc?: string
@@ -670,6 +868,24 @@ export const f = Object.assign(
         isCached: false as const,
       }),
 
+    /**
+     * Creates an image field type for multimodal inputs.
+     *
+     * Pass images as base64-encoded data URLs or URLs to external images.
+     * Only supported as input fields with multimodal models (GPT-4V, Claude 3, Gemini, etc.).
+     *
+     * **Note:** Cannot be used in nested `f.object()` fields - only as top-level inputs.
+     *
+     * @param desc - Optional description of what the image contains or its purpose
+     * @returns A chainable field builder
+     *
+     * @example
+     * ```typescript
+     * f.image('Product photo to analyze')
+     * f.image('Screenshot of the UI bug')
+     * f.image().array('Multiple images to compare')
+     * ```
+     */
     image: (
       desc?: string
     ): AxFluentFieldType<
@@ -690,6 +906,23 @@ export const f = Object.assign(
         isCached: false as const,
       }),
 
+    /**
+     * Creates an audio field type for audio inputs.
+     *
+     * Pass audio as base64-encoded data or URLs. Only supported as input fields
+     * with models that support audio processing.
+     *
+     * **Note:** Cannot be used in nested `f.object()` fields - only as top-level inputs.
+     *
+     * @param desc - Optional description of the audio content
+     * @returns A chainable field builder
+     *
+     * @example
+     * ```typescript
+     * f.audio('Voice recording to transcribe')
+     * f.audio('Audio clip for analysis')
+     * ```
+     */
     audio: (
       desc?: string
     ): AxFluentFieldType<
@@ -710,6 +943,23 @@ export const f = Object.assign(
         isCached: false as const,
       }),
 
+    /**
+     * Creates a file field type for document inputs.
+     *
+     * Pass files as base64-encoded data or file references. Only supported as input
+     * fields with models that support file processing (PDFs, documents, etc.).
+     *
+     * **Note:** Cannot be used in nested `f.object()` fields - only as top-level inputs.
+     *
+     * @param desc - Optional description of the expected file content
+     * @returns A chainable field builder
+     *
+     * @example
+     * ```typescript
+     * f.file('PDF document to summarize')
+     * f.file('Resume to parse')
+     * ```
+     */
     file: (
       desc?: string
     ): AxFluentFieldType<
@@ -730,6 +980,22 @@ export const f = Object.assign(
         isCached: false as const,
       }),
 
+    /**
+     * Creates a URL field type with URI format validation.
+     *
+     * The AI will be instructed to return a valid URL. Use for outputs that
+     * should be clickable links or API endpoints.
+     *
+     * @param desc - Optional description of what the URL should point to
+     * @returns A chainable field builder
+     *
+     * @example
+     * ```typescript
+     * f.url('Link to the source')
+     * f.url('API endpoint URL')
+     * f.url().optional()
+     * ```
+     */
     url: (
       desc?: string
     ): AxFluentFieldType<
@@ -750,6 +1016,21 @@ export const f = Object.assign(
         isCached: false as const,
       }),
 
+    /**
+     * Creates an email field type with email format validation.
+     *
+     * Shorthand for `f.string().email()`. The AI will be instructed to return
+     * a valid email address format.
+     *
+     * @param desc - Optional description of whose email or for what purpose
+     * @returns A chainable field builder
+     *
+     * @example
+     * ```typescript
+     * f.email('Contact email address')
+     * f.email().optional()
+     * ```
+     */
     email: (
       desc?: string
     ): AxFluentFieldType<
@@ -771,6 +1052,23 @@ export const f = Object.assign(
         format: 'email',
       }),
 
+    /**
+     * Creates a code field type for source code blocks.
+     *
+     * Code fields preserve formatting and are rendered in code blocks.
+     * Optionally specify a language for syntax highlighting context.
+     *
+     * @param language - Optional programming language (e.g., 'typescript', 'python')
+     * @param desc - Optional description of what the code should do
+     * @returns A chainable field builder
+     *
+     * @example
+     * ```typescript
+     * f.code('typescript', 'Generated TypeScript function')
+     * f.code('python', 'Python script to solve the problem')
+     * f.code()  // Language-agnostic code
+     * ```
+     */
     code: (
       language?: string,
       desc?: string
@@ -792,6 +1090,51 @@ export const f = Object.assign(
         isCached: false as const,
       }),
 
+    /**
+     * Creates a nested object field type with typed properties.
+     *
+     * Use this when you need structured output with known fields. Each property
+     * in the fields object should be created using `f.string()`, `f.number()`, etc.
+     *
+     * Objects can be nested to create complex hierarchical structures.
+     *
+     * **Restrictions:**
+     * - Media types (`image`, `audio`, `file`) cannot be used in nested objects
+     * - Deep nesting may reduce AI output quality
+     *
+     * @param fields - Object mapping field names to field types created with `f.*` methods
+     * @param desc - Optional description of what the object represents
+     * @returns A chainable field builder
+     *
+     * @example Simple object
+     * ```typescript
+     * f.object({
+     *   name: f.string('Person name'),
+     *   age: f.number('Age in years'),
+     *   isActive: f.boolean()
+     * }, 'User profile')
+     * ```
+     *
+     * @example Nested objects
+     * ```typescript
+     * f.object({
+     *   title: f.string(),
+     *   author: f.object({
+     *     name: f.string(),
+     *     email: f.email().optional()
+     *   }),
+     *   tags: f.string().array()
+     * })
+     * ```
+     *
+     * @example Array of objects
+     * ```typescript
+     * f.object({
+     *   item: f.string(),
+     *   quantity: f.number().min(1)
+     * }).array('List of order items')
+     * ```
+     */
     object: <
       TFields extends Record<
         string,

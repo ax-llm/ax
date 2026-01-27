@@ -57,16 +57,135 @@ export type AxTokenUsage = {
   serviceTier?: 'standard' | 'priority' | 'batch'; // Service level used
 };
 
+/**
+ * Configuration options for AI model behavior.
+ *
+ * These settings control how the model generates responses. They can be set
+ * as defaults when creating an AI instance, or overridden per-request.
+ *
+ * @example
+ * ```typescript
+ * const config: AxModelConfig = {
+ *   maxTokens: 2000,
+ *   temperature: 0.7,
+ *   topP: 0.9
+ * };
+ * ```
+ */
 export type AxModelConfig = {
+  /**
+   * Maximum number of tokens to generate in the response.
+   *
+   * **Token estimation guide:**
+   * - ~750 tokens ≈ 1 page of English text
+   * - ~100 tokens ≈ 75 words
+   * - ~4 characters ≈ 1 token (English)
+   *
+   * Set higher for long-form content (articles, code), lower for concise
+   * responses (classifications, short answers).
+   *
+   * @example 500 for short responses, 2000 for detailed explanations, 4000+ for long-form content
+   */
   maxTokens?: number;
+
+  /**
+   * Controls randomness in generation. Range: 0 to 2.
+   *
+   * **Use case guide:**
+   * - `0` - Deterministic, always picks most likely token. Best for factual Q&A,
+   *   classification, code generation where consistency matters.
+   * - `0.3-0.5` - Low creativity. Good for structured outputs, summaries.
+   * - `0.7` - Balanced (default for most models). Good for general conversation.
+   * - `1.0` - High creativity. Good for brainstorming, creative writing.
+   * - `1.5-2.0` - Very high randomness. Often produces incoherent output.
+   *
+   * @default Varies by provider, typically 0.7-1.0
+   */
   temperature?: number;
+
+  /**
+   * Nucleus sampling: only consider tokens with cumulative probability >= topP.
+   * Range: 0 to 1.
+   *
+   * Lower values make output more focused and deterministic. Alternative to
+   * temperature for controlling randomness.
+   *
+   * **Recommendation:** Adjust either temperature OR topP, not both.
+   *
+   * @example 0.1 for focused output, 0.9 for diverse output
+   */
   topP?: number;
+
+  /**
+   * Only consider the top K most likely tokens at each step.
+   *
+   * Lower values (e.g., 10-40) make output more focused. Not supported by all
+   * providers (OpenAI doesn't support this; Anthropic, Google do).
+   *
+   * @example 40 for focused output, 100 for more variety
+   */
   topK?: number;
+
+  /**
+   * Penalizes tokens that have already appeared in the output.
+   * Range: -2.0 to 2.0.
+   *
+   * Positive values reduce repetition by penalizing tokens that have appeared
+   * at all, regardless of frequency. Useful for encouraging diverse vocabulary.
+   *
+   * - `0` - No penalty (default)
+   * - `0.5-1.0` - Mild penalty, reduces obvious repetition
+   * - `1.5-2.0` - Strong penalty, may hurt coherence
+   *
+   * @example 0.6 to reduce repetitive phrasing
+   */
   presencePenalty?: number;
+
+  /**
+   * Penalizes tokens based on how frequently they've appeared.
+   * Range: -2.0 to 2.0.
+   *
+   * Unlike presencePenalty, this scales with frequency: tokens that appear many
+   * times get penalized more. Useful for preventing the model from repeating
+   * the same phrases verbatim.
+   *
+   * @example 0.5 to discourage word/phrase repetition
+   */
   frequencyPenalty?: number;
+
+  /**
+   * Sequences that will stop generation when encountered.
+   *
+   * The model stops generating as soon as any stop sequence is produced.
+   * The stop sequence itself is NOT included in the output.
+   *
+   * @example ['\\n\\n', 'END', '---'] to stop at double newlines or markers
+   */
   stopSequences?: string[];
+
+  /**
+   * Similar to stopSequences, but the sequence IS included in the output.
+   *
+   * @example ['</answer>'] to include closing tag in output
+   */
   endSequences?: string[];
+
+  /**
+   * Enable streaming responses for real-time output.
+   *
+   * When true, the response is returned as a stream of chunks, allowing
+   * you to display partial results as they're generated.
+   */
   stream?: boolean;
+
+  /**
+   * Number of completions to generate for each prompt.
+   *
+   * Generates multiple independent responses. Useful with result pickers
+   * to select the best response. Increases cost proportionally.
+   *
+   * @example 3 to generate three alternatives and pick the best
+   */
   n?: number;
 };
 
@@ -569,22 +688,123 @@ export type AxContextCacheInfo = {
   contentHash?: string;
 };
 
+/**
+ * Runtime options for AI service requests.
+ *
+ * These options control how requests are made to the AI service, including
+ * debugging, rate limiting, streaming, function calling, and extended thinking.
+ *
+ * @example
+ * ```typescript
+ * const options: AxAIServiceOptions = {
+ *   stream: true,
+ *   thinkingTokenBudget: 'medium',
+ *   debug: true
+ * };
+ * await gen.forward(ai, values, options);
+ * ```
+ */
 export type AxAIServiceOptions = {
+  /**
+   * Enable debug logging for troubleshooting.
+   *
+   * When true, logs detailed information about prompts, responses, and
+   * the generation pipeline. Useful for understanding AI behavior.
+   */
   debug?: boolean;
-  verbose?: boolean; // Low-level HTTP request/response logging
+
+  /**
+   * Enable low-level HTTP request/response logging.
+   *
+   * More verbose than `debug`. Shows raw HTTP traffic including headers.
+   * Useful for debugging API issues.
+   */
+  verbose?: boolean;
+
+  /** Custom rate limiter function to control request throughput. */
   rateLimiter?: AxRateLimiterFunction;
+
+  /** Custom fetch implementation (useful for proxies or custom HTTP handling). */
   fetch?: typeof fetch;
+
+  /** OpenTelemetry tracer for distributed tracing. */
   tracer?: Tracer;
+
+  /** OpenTelemetry meter for metrics collection. */
   meter?: Meter;
+
+  /**
+   * Request timeout in milliseconds.
+   *
+   * @default 300000 (5 minutes)
+   */
   timeout?: number;
+
+  /** Exclude message content from OpenTelemetry traces (for privacy). */
   excludeContentFromTrace?: boolean;
+
+  /** AbortSignal for cancelling in-flight requests. */
   abortSignal?: AbortSignal;
+
+  /** Custom logger function for debug output. */
   logger?: AxLoggerFunction;
+
+  /** Session identifier for conversation tracking and memory isolation. */
   sessionId?: string;
+
+  /** Hide system prompt in debug output (for cleaner logs). */
   debugHideSystemPrompt?: boolean;
+
+  /** OpenTelemetry trace context for distributed tracing. */
   traceContext?: Context;
+
+  /**
+   * Enable streaming responses.
+   *
+   * When true, the AI returns responses as a stream of chunks, enabling
+   * real-time display of generated text.
+   */
   stream?: boolean;
+
+  /**
+   * How to handle function/tool calling.
+   *
+   * - `'auto'` - Let the provider decide the best approach (default)
+   * - `'native'` - Use the provider's native function calling API. Fails if
+   *   the model doesn't support it.
+   * - `'prompt'` - Simulate function calling via prompt engineering. Works with
+   *   any model but may be less reliable.
+   *
+   * @default 'auto'
+   */
   functionCallMode?: 'auto' | 'native' | 'prompt';
+
+  /**
+   * Token budget for extended thinking (chain-of-thought reasoning).
+   *
+   * Extended thinking allows models to "think through" complex problems before
+   * responding. Higher budgets allow deeper reasoning but cost more.
+   *
+   * **Approximate token allocations:**
+   * - `'none'` - Disabled (default)
+   * - `'minimal'` - ~1,000 tokens (~750 words of thinking)
+   * - `'low'` - ~4,000 tokens
+   * - `'medium'` - ~10,000 tokens
+   * - `'high'` - ~20,000 tokens
+   * - `'highest'` - ~32,000+ tokens (provider maximum)
+   *
+   * **Provider support:**
+   * - Anthropic Claude: Full support with `claude-sonnet-4` and above
+   * - OpenAI: Supported with o1/o3 models (uses `reasoning_effort`)
+   * - Google: Supported with Gemini 2.0 Flash Thinking
+   * - DeepSeek: Supported with DeepSeek-R1
+   *
+   * @example
+   * ```typescript
+   * // Enable medium thinking for complex reasoning
+   * await gen.forward(ai, values, { thinkingTokenBudget: 'medium' });
+   * ```
+   */
   thinkingTokenBudget?:
     | 'minimal'
     | 'low'
@@ -592,28 +812,73 @@ export type AxAIServiceOptions = {
     | 'high'
     | 'highest'
     | 'none';
+
+  /**
+   * Include the model's thinking/reasoning in the output.
+   *
+   * When true and `thinkingTokenBudget` is set, the model's internal reasoning
+   * is included in the response. Useful for debugging and understanding AI behavior.
+   *
+   * @default false
+   */
   showThoughts?: boolean;
+
+  /**
+   * Hint to use a more capable (and expensive) model for complex tasks.
+   *
+   * Some providers offer tiered models. Setting this to 'yes' requests the
+   * higher-capability tier when available.
+   */
   useExpensiveModel?: 'yes';
+
+  /** Internal: Current step index for multi-step operations. */
   stepIndex?: number;
-  corsProxy?: string; // CORS proxy URL for browser environments
+
+  /**
+   * CORS proxy URL for browser environments.
+   *
+   * When running in a browser, API calls may be blocked by CORS. Specify a
+   * proxy URL to route requests through.
+   *
+   * @example 'https://cors-anywhere.herokuapp.com/'
+   */
+  corsProxy?: string;
+
+  /**
+   * Retry configuration for failed requests.
+   *
+   * Controls automatic retry behavior for transient errors (rate limits,
+   * timeouts, server errors).
+   */
   retry?: Partial<RetryConfig>;
 
   /**
-   * Explicit context caching options.
-   * When enabled, large prompt prefixes can be cached for cost savings and lower latency.
-   * Currently supported by: Google Gemini/Vertex AI
+   * Context caching options for large prompt prefixes.
+   *
+   * When enabled, large prompt prefixes can be cached for cost savings and
+   * lower latency on subsequent requests.
+   *
+   * **Currently supported by:** Google Gemini/Vertex AI
    */
   contextCache?: AxContextCacheOptions;
 
   /**
-   * When true, examples/demos are embedded in system prompt (legacy).
-   * When false (default), they are rendered as alternating user/assistant message pairs.
+   * Render examples/demos in the system prompt instead of as message pairs.
+   *
+   * - `false` (default) - Examples rendered as alternating user/assistant messages
+   * - `true` - Examples embedded in system prompt (legacy behavior)
+   *
+   * Message pair rendering generally produces better results.
    */
   examplesInSystem?: boolean;
 
   /**
-   * Custom labels to include in OpenTelemetry metrics.
-   * These labels are merged with axGlobals.customLabels (service-level overrides global).
+   * Custom labels for OpenTelemetry metrics.
+   *
+   * These labels are merged with `axGlobals.customLabels` (service-level
+   * options override global settings).
+   *
+   * @example { environment: 'production', feature: 'search' }
    */
   customLabels?: Record<string, string>;
 };
