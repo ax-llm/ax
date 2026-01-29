@@ -4,7 +4,7 @@
  * CLI for @ax-llm/ax
  *
  * Commands:
- *   setup-claude [--force]   Install/upgrade Claude Code skill to ~/.claude/skills/ax/
+ *   setup-claude [--force]   Install/upgrade Claude Code skill to .claude/skills/ax/ (project-local)
  *   remove-claude            Remove the Claude Code skill
  *
  * Usage:
@@ -22,7 +22,6 @@ import {
 } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { homedir } from 'node:os';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -30,8 +29,8 @@ const __dirname = dirname(__filename);
 // Skill file location in the package
 const SKILL_SOURCE = join(__dirname, '..', 'skills', 'ax-llm.md');
 
-// Target location in user's home directory
-const SKILL_TARGET_DIR = join(homedir(), '.claude', 'skills', 'ax');
+// Target location in current working directory (project-local)
+const SKILL_TARGET_DIR = join(process.cwd(), '.claude', 'skills', 'ax');
 const SKILL_TARGET = join(SKILL_TARGET_DIR, 'ax-llm.md');
 
 /**

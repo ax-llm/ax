@@ -17,7 +17,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { homedir } from 'node:os';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -142,7 +141,10 @@ function install() {
   try {
     // Paths
     const skillSource = join(__dirname, '..', 'skills', 'ax-llm.md');
-    const skillTargetDir = join(homedir(), '.claude', 'skills', 'ax');
+    // When installed via npm, script runs from: node_modules/@ax-llm/ax/scripts/postinstall.mjs
+    // Project root is 4 directories up: ../../../../
+    const projectRoot = join(__dirname, '..', '..', '..', '..');
+    const skillTargetDir = join(projectRoot, '.claude', 'skills', 'ax');
     const skillTarget = join(skillTargetDir, 'ax-llm.md');
 
     // Check if source exists
