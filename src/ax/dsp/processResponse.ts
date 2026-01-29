@@ -295,9 +295,14 @@ async function* ProcessStreamingResponse<OUT extends AxGenOut>({
               if (newVal.length > oldVal.length) {
                 (delta as any)[key] = newVal.slice(oldVal.length);
               }
+              // If lengths are equal but contents differ, don't re-emit the entire array
+              // The items were already yielded during streaming (possibly incomplete)
+              // Re-emitting would cause duplication in generate.ts array concatenation
             } else if (JSON.stringify(newVal) !== JSON.stringify(oldVal)) {
-              // For other types or if value completely changed/is new
-              (delta as any)[key] = newVal;
+              // Only re-emit non-array values when they change
+              if (!Array.isArray(newVal)) {
+                (delta as any)[key] = newVal;
+              }
             }
           }
         }
@@ -498,8 +503,14 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
               if (newVal.length > oldVal.length) {
                 (delta as any)[key] = newVal.slice(oldVal.length);
               }
+              // If lengths are equal but contents differ, don't re-emit the entire array
+              // The items were already yielded during streaming (possibly incomplete)
+              // Re-emitting would cause duplication in generate.ts array concatenation
             } else if (JSON.stringify(newVal) !== JSON.stringify(oldVal)) {
-              (delta as any)[key] = newVal;
+              // Only re-emit non-array values when they change
+              if (!Array.isArray(newVal)) {
+                (delta as any)[key] = newVal;
+              }
             }
           }
         }
@@ -529,7 +540,13 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
           // If JSON parse fails, we rely on partial parsing done during streaming
         }
 
-        Object.assign(state.values, delta);
+        // Use finalJson values directly to preserve complete data
+        // (delta may only contain partial updates for strings/arrays)
+        for (const key of Object.keys(finalJson)) {
+          if (outputFields.some((f) => f.name === key)) {
+            state.values[key] = finalJson[key];
+          }
+        }
         yield {
           index: state.index,
           delta: delta as Partial<OUT>,
@@ -972,6 +989,13 @@ function isLastArrayItemIncomplete(
   // This means the parser had to close brackets to make valid JSON,
   // so the last array item is likely incomplete
   if (partialMarker.nestingLevel > 0) {
+    return true;
+  }
+
+  // Additional check: if we're marked as inside an array or object,
+  // the last item might still be incomplete even if nesting is balanced
+  // (this can happen with certain edge cases in partial parsing)
+  if (partialMarker.inArray || partialMarker.inObject) {
     return true;
   }
 

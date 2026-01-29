@@ -355,6 +355,76 @@ describe('Structured Outputs', () => {
       expect(allItems[0]).toEqual({ id: 1, name: 'First' });
       expect(allItems[1]).toEqual({ id: 2, name: 'Second' });
     });
+
+    it('should not duplicate items when streaming yields partial then finalization completes', async () => {
+      // Scenario: First chunk yields complete JSON structure but incomplete object fields
+      // Finalization should NOT re-emit the item causing duplication
+      // This tests the fix for the bug where items were duplicated because:
+      // 1. Streaming yielded partial object (valid JSON but incomplete fields)
+      // 2. Finalization yielded complete object with same length but different content
+      // 3. The entire array was re-emitted causing concatenation duplication
+
+      const sig = f()
+        .input('question', f.string())
+        .output(
+          'items',
+          f
+            .object({
+              name: f.string(),
+              value: f.number(),
+            })
+            .array()
+        )
+        .build();
+
+      const gen = ax(sig);
+
+      const mockAI = new AxMockAIService({
+        name: 'mock',
+        features: { functions: true, streaming: true, structuredOutputs: true },
+      });
+
+      // Simulate a scenario where:
+      // Chunk 1: Valid JSON structure but incomplete object (missing 'value' field)
+      // The JSON is structurally complete but the object is semantically incomplete
+      // After finalization, the complete object should be used without duplication
+      const chunks = ['{"items": [{"name": "Test"', ', "value": 42}]}'];
+
+      mockAI.chat = async (_req, options) => {
+        if (options?.stream) {
+          const stream = new ReadableStream({
+            async start(controller) {
+              for (const chunk of chunks) {
+                controller.enqueue({
+                  results: [{ index: 0, content: chunk }],
+                });
+                await new Promise((resolve) => setTimeout(resolve, 10));
+              }
+              controller.close();
+            },
+          });
+          return stream as ReturnType<typeof mockAI.chat>;
+        }
+        return { results: [] };
+      };
+
+      const stream = gen.streamingForward(mockAI, { question: 'List items' });
+
+      const allItems: Array<{ name?: string; value?: number }> = [];
+
+      for await (const chunk of stream) {
+        if (chunk.delta.items) {
+          for (const item of chunk.delta.items) {
+            allItems.push(item);
+          }
+        }
+      }
+
+      // The key assertion: there should be exactly 1 item, NOT 2
+      // If there are 2 items, it means the bug is present (duplication occurred)
+      expect(allItems.length).toBe(1);
+      expect(allItems[0]).toEqual({ name: 'Test', value: 42 });
+    });
   });
 
   describe('Validation Errors', () => {
