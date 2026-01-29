@@ -1,5 +1,16 @@
 # Changelog
 
+## [16.0.13](///compare/16.0.11...16.0.12) (2026-01-29)
+
+### Bug Fixes
+
+* prevent item duplication during streaming finalization [#484](undefined/undefined/undefined/issues/484) [#484](undefined/undefined/undefined/issues/484) 262fd32
+## [16.0.12](///compare/16.0.11...16.0.12) (2026-01-27)
+
+### Features
+
+* enhance README and CLI functionality [#482](undefined/undefined/undefined/issues/482) [#475](undefined/undefined/undefined/issues/475) 67bf283
+
 ## [16.0.12](///compare/16.0.10...16.0.11) (2026-01-27)
 
 ### Features
