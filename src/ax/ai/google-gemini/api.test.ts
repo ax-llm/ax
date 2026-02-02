@@ -141,7 +141,7 @@ describe('AxAIGoogleGemini model key preset merging', () => {
     expect(reqBody.generationConfig.thinkingConfig.includeThoughts).toBe(false);
   });
 
-  it('maps numeric thinkingTokenBudget to thinkingLevel for Gemini 3', async () => {
+  it('maps thinkingTokenBudget to thinkingLevel for Gemini 3 Pro (low/high only)', async () => {
     const ai = new AxAIGoogleGemini({
       apiKey: 'key',
       config: { model: AxAIGoogleGeminiModel.Gemini3Pro },
@@ -163,6 +163,8 @@ describe('AxAIGoogleGemini model key preset merging', () => {
 
     ai.setOptions({ fetch });
 
+    // 'medium' maps to 'high' for Gemini 3 Pro (which only supports low/high)
+    // Note: maxTokens cannot be set with thinkingLevel, so we don't set it
     await ai.chat(
       {
         chatPrompt: [{ role: 'user', content: 'hi' }],
@@ -172,15 +174,140 @@ describe('AxAIGoogleGemini model key preset merging', () => {
 
     const reqBody = capture.lastBody;
     expect(reqBody?.generationConfig?.thinkingConfig).toBeDefined();
-    // medium level defaults to high thinking level in Gemini 3
+    // medium level maps to 'high' for Gemini 3 Pro
     expect(reqBody.generationConfig.thinkingConfig.thinkingLevel).toBe('high');
     expect(
       reqBody.generationConfig.thinkingConfig.thinkingBudget
     ).toBeUndefined();
-    expect(reqBody.generationConfig.thinkingConfig.thinkingLevel).toBe('high');
+  });
+
+  it('maps thinkingTokenBudget to thinkingLevel for Gemini 3 Flash (all levels)', async () => {
+    const ai = new AxAIGoogleGemini({
+      apiKey: 'key',
+      config: { model: AxAIGoogleGeminiModel.Gemini3Flash },
+      models: [],
+    });
+
+    const capture: { lastBody?: any } = {};
+    const fetch = createMockFetch(
+      {
+        candidates: [
+          {
+            content: { parts: [{ text: 'ok' }] },
+            finishReason: 'STOP',
+          },
+        ],
+      },
+      capture
+    );
+
+    ai.setOptions({ fetch });
+
+    // 'medium' should stay as 'medium' for Gemini 3 Flash
+    await ai.chat(
+      {
+        chatPrompt: [{ role: 'user', content: 'hi' }],
+      },
+      { thinkingTokenBudget: 'medium', showThoughts: false, stream: false }
+    );
+
+    const reqBody = capture.lastBody;
+    expect(reqBody?.generationConfig?.thinkingConfig).toBeDefined();
+    // Flash supports 'medium' directly
+    expect(reqBody.generationConfig.thinkingConfig.thinkingLevel).toBe(
+      'medium'
+    );
     expect(
       reqBody.generationConfig.thinkingConfig.thinkingBudget
     ).toBeUndefined();
+  });
+
+  it('throws error when maxTokens is set with thinkingLevel', async () => {
+    const ai = new AxAIGoogleGemini({
+      apiKey: 'key',
+      config: { model: AxAIGoogleGeminiModel.Gemini3Flash },
+      models: [],
+    });
+
+    const fetch = createMockFetch(
+      {
+        candidates: [
+          {
+            content: { parts: [{ text: 'ok' }] },
+            finishReason: 'STOP',
+          },
+        ],
+      },
+      {}
+    );
+
+    ai.setOptions({ fetch });
+
+    // Setting both thinkingTokenBudget and maxTokens should throw
+    await expect(
+      ai.chat(
+        {
+          chatPrompt: [{ role: 'user', content: 'hi' }],
+          modelConfig: { maxTokens: 2000 },
+        },
+        { thinkingTokenBudget: 'medium', stream: false }
+      )
+    ).rejects.toThrow(/Cannot set maxTokens when using thinkingLevel/);
+  });
+
+  it('throws error when numeric thinkingTokenBudget is set in config for Gemini 3', () => {
+    // Creating AI with numeric thinkingTokenBudget on Gemini 3 should throw
+    expect(
+      () =>
+        new AxAIGoogleGemini({
+          apiKey: 'key',
+          config: {
+            model: AxAIGoogleGeminiModel.Gemini3Pro,
+            thinking: { thinkingTokenBudget: 5000 },
+          },
+        })
+    ).toThrow(/do not support numeric thinkingTokenBudget/);
+  });
+
+  it('allows thinkingTokenBudget none to disable thinking', async () => {
+    const ai = new AxAIGoogleGemini({
+      apiKey: 'key',
+      config: { model: AxAIGoogleGeminiModel.Gemini3Flash },
+      models: [],
+    });
+
+    const capture: { lastBody?: any } = {};
+    const fetch = createMockFetch(
+      {
+        candidates: [
+          {
+            content: { parts: [{ text: 'ok' }] },
+            finishReason: 'STOP',
+          },
+        ],
+      },
+      capture
+    );
+
+    ai.setOptions({ fetch });
+
+    // 'none' should disable thinking
+    await ai.chat(
+      {
+        chatPrompt: [{ role: 'user', content: 'hi' }],
+        modelConfig: { maxTokens: 2000 }, // Can set maxTokens when thinking is disabled
+      },
+      { thinkingTokenBudget: 'none', stream: false }
+    );
+
+    const reqBody = capture.lastBody;
+    // thinkingConfig should have includeThoughts: false and no thinkingLevel
+    expect(
+      reqBody?.generationConfig?.thinkingConfig?.thinkingLevel
+    ).toBeUndefined();
+    expect(reqBody?.generationConfig?.thinkingConfig?.includeThoughts).toBe(
+      false
+    );
   });
 
   it('handles function calls with thought signatures (Gemini 3)', async () => {

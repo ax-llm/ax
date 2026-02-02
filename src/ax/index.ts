@@ -113,6 +113,7 @@ import {
   type AxAIGoogleGeminiSafetySettings,
   AxAIGoogleGeminiSafetyThreshold,
   type AxAIGoogleGeminiThinkingConfig,
+  type AxAIGoogleGeminiThinkingLevel,
   type AxAIGoogleGeminiThinkingTokenBudgetLevels,
   type AxAIGoogleGeminiTool,
   type AxAIGoogleGeminiToolConfig,
@@ -1014,6 +1015,7 @@ export type { AxAIGoogleGeminiOptionsTools };
 export type { AxAIGoogleGeminiRetrievalConfig };
 export type { AxAIGoogleGeminiSafetySettings };
 export type { AxAIGoogleGeminiThinkingConfig };
+export type { AxAIGoogleGeminiThinkingLevel };
 export type { AxAIGoogleGeminiThinkingTokenBudgetLevels };
 export type { AxAIGoogleGeminiTool };
 export type { AxAIGoogleGeminiToolConfig };

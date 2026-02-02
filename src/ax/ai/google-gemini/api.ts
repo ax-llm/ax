@@ -7,6 +7,24 @@ import {
   axBaseAIDefaultConfig,
   axBaseAIDefaultCreativeConfig,
 } from '../base.js';
+
+/**
+ * Check if a model is a Gemini 3 model
+ */
+const isGemini3Model = (model: string): boolean => model.includes('gemini-3');
+
+/**
+ * Check if a model is Gemini 3 Flash
+ */
+const isGemini3Flash = (model: string): boolean =>
+  model.includes('gemini-3') && model.includes('flash');
+
+/**
+ * Check if a model is Gemini 3 Pro
+ */
+const isGemini3Pro = (model: string): boolean =>
+  model.includes('gemini-3') && model.includes('pro');
+
 import type {
   AxAIInputModelList,
   AxAIServiceImpl,
@@ -191,6 +209,32 @@ class AxAIGoogleGeminiImpl
   ) {
     if (!this.isVertex && this.config.autoTruncate) {
       throw new Error('Auto truncate is not supported for GoogleGemini');
+    }
+
+    // Validate Gemini 3 thinking configuration
+    const model = this.config.model;
+    if (isGemini3Model(model)) {
+      // Gemini 3 models don't support numeric thinkingBudget, only thinkingLevel
+      if (
+        this.config.thinking?.thinkingTokenBudget !== undefined &&
+        typeof this.config.thinking.thinkingTokenBudget === 'number'
+      ) {
+        throw new Error(
+          `Gemini 3 models (${model}) do not support numeric thinkingTokenBudget. ` +
+            `Use thinkingLevel ('low', 'medium', 'high') instead, or pass thinkingTokenBudget as a string level via options.`
+        );
+      }
+
+      // Gemini 3 Pro only supports 'low' and 'high' thinkingLevel
+      if (isGemini3Pro(model) && this.config.thinking?.thinkingLevel) {
+        const level = this.config.thinking.thinkingLevel;
+        if (level !== 'low' && level !== 'high') {
+          throw new Error(
+            `Gemini 3 Pro (${model}) only supports thinkingLevel 'low' or 'high', got '${level}'. ` +
+              `Use 'low' for less thinking or 'high' for more thinking.`
+          );
+        }
+      }
     }
   }
 
@@ -614,40 +658,90 @@ class AxAIGoogleGeminiImpl
     if (config?.thinkingTokenBudget) {
       //The thinkingBudget must be an integer in the range 0 to 24576
       const levels = this.config.thinkingTokenBudgetLevels;
-      const isGemini3 = model.includes('gemini-3');
+      const isGemini3 = isGemini3Model(model);
 
-      switch (config.thinkingTokenBudget) {
-        case 'none':
-          thinkingConfig.thinkingBudget = 0; // Explicitly set to 0
-          thinkingConfig.includeThoughts = false; // When thinkingTokenBudget is 'none', disable showThoughts
-          delete thinkingConfig.thinkingLevel;
-          break;
-        case 'minimal':
-          thinkingConfig.thinkingBudget = levels?.minimal ?? 200;
-          if (isGemini3) thinkingConfig.thinkingLevel = 'low';
-          break;
-        case 'low':
-          thinkingConfig.thinkingBudget = levels?.low ?? 800;
-          if (isGemini3) thinkingConfig.thinkingLevel = 'low';
-          break;
-        case 'medium':
-          thinkingConfig.thinkingBudget = levels?.medium ?? 5000;
-          if (isGemini3) thinkingConfig.thinkingLevel = 'high';
-          break;
-        case 'high':
-          thinkingConfig.thinkingBudget = levels?.high ?? 10000;
-          if (isGemini3) thinkingConfig.thinkingLevel = 'high';
-          break;
-        case 'highest':
-          thinkingConfig.thinkingBudget = levels?.highest ?? 24500;
-          if (isGemini3) thinkingConfig.thinkingLevel = 'high';
-          break;
+      if (isGemini3) {
+        // Gemini 3 uses thinkingLevel instead of numeric thinkingBudget
+        // Gemini 3 Flash: supports minimal, low, medium, high
+        // Gemini 3 Pro: supports only low, high
+        const isFlash = isGemini3Flash(model);
+        const isPro = isGemini3Pro(model);
+
+        switch (config.thinkingTokenBudget) {
+          case 'none':
+            // Disable thinking entirely
+            delete thinkingConfig.thinkingLevel;
+            delete thinkingConfig.thinkingBudget;
+            thinkingConfig.includeThoughts = false;
+            break;
+          case 'minimal':
+            // Flash supports 'minimal', Pro maps to 'low'
+            thinkingConfig.thinkingLevel = isFlash ? 'minimal' : 'low';
+            break;
+          case 'low':
+            thinkingConfig.thinkingLevel = 'low';
+            break;
+          case 'medium':
+            // Flash supports 'medium', Pro maps to 'high'
+            thinkingConfig.thinkingLevel = isFlash ? 'medium' : 'high';
+            break;
+          case 'high':
+          case 'highest':
+            thinkingConfig.thinkingLevel = 'high';
+            break;
+        }
+
+        // Validate Pro model thinkingLevel
+        if (isPro && thinkingConfig.thinkingLevel) {
+          const level = thinkingConfig.thinkingLevel;
+          if (level !== 'low' && level !== 'high') {
+            throw new Error(
+              `Gemini 3 Pro (${model}) only supports thinkingLevel 'low' or 'high'. ` +
+                `The '${config.thinkingTokenBudget}' level maps to '${level}' which is not supported.`
+            );
+          }
+        }
+      } else {
+        // Non-Gemini 3 models use numeric thinkingBudget
+        switch (config.thinkingTokenBudget) {
+          case 'none':
+            thinkingConfig.thinkingBudget = 0;
+            thinkingConfig.includeThoughts = false;
+            delete thinkingConfig.thinkingLevel;
+            break;
+          case 'minimal':
+            thinkingConfig.thinkingBudget = levels?.minimal ?? 200;
+            break;
+          case 'low':
+            thinkingConfig.thinkingBudget = levels?.low ?? 800;
+            break;
+          case 'medium':
+            thinkingConfig.thinkingBudget = levels?.medium ?? 5000;
+            break;
+          case 'high':
+            thinkingConfig.thinkingBudget = levels?.high ?? 10000;
+            break;
+          case 'highest':
+            thinkingConfig.thinkingBudget = levels?.highest ?? 24500;
+            break;
+        }
       }
     }
 
-    // If thinkingLevel is set, remove thinkingBudget as they cannot be used together in Gemini 3
+    // If thinkingLevel is set, remove thinkingBudget as they cannot be used together
     if (thinkingConfig.thinkingLevel) {
       delete thinkingConfig.thinkingBudget;
+    }
+
+    // Validate: maxTokens cannot be set when thinkingLevel is used (Gemini limitation)
+    const effectiveMaxTokens =
+      req.modelConfig?.maxTokens ?? this.config.maxTokens;
+    if (thinkingConfig.thinkingLevel && effectiveMaxTokens !== undefined) {
+      throw new Error(
+        `Cannot set maxTokens when using thinkingLevel with Gemini models. ` +
+          `When thinking is enabled, the model manages output tokens automatically. ` +
+          `Remove the maxTokens setting or disable thinking.`
+      );
     }
 
     if (config?.showThoughts !== undefined) {

@@ -130,6 +130,12 @@ export type AxAIGoogleGeminiToolConfig = {
   retrievalConfig?: AxAIGoogleGeminiRetrievalConfig;
 };
 
+export type AxAIGoogleGeminiThinkingLevel =
+  | 'minimal'
+  | 'low'
+  | 'medium'
+  | 'high';
+
 export type AxAIGoogleGeminiGenerationConfig = {
   temperature?: number;
   topP?: number;
@@ -142,7 +148,7 @@ export type AxAIGoogleGeminiGenerationConfig = {
   responseSchema?: object;
   thinkingConfig?: {
     thinkingBudget?: number;
-    thinkingLevel?: 'low' | 'high';
+    thinkingLevel?: AxAIGoogleGeminiThinkingLevel;
     includeThoughts?: boolean;
   };
 };
@@ -221,7 +227,7 @@ export type AxAIGoogleGeminiChatResponseDelta = AxAIGoogleGeminiChatResponse;
 
 export type AxAIGoogleGeminiThinkingConfig = {
   thinkingTokenBudget?: number;
-  thinkingLevel?: 'low' | 'high';
+  thinkingLevel?: AxAIGoogleGeminiThinkingLevel;
   includeThoughts?: boolean;
 };
 
