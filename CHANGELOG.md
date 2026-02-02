@@ -1,5 +1,16 @@
 # Changelog
 
+## [16.1.0](///compare/16.0.12...16.0.13) (2026-02-02)
+
+### Bug Fixes
+
+* update dependencies and enhance Gemini model handling 1b03d62
+## [16.0.13](///compare/16.0.12...16.0.13) (2026-01-29)
+
+### Bug Fixes
+
+* prevent item duplication during streaming finalization [#484](undefined/undefined/undefined/issues/484) [#484](undefined/undefined/undefined/issues/484) 262fd32
+
 ## [16.0.13](///compare/16.0.11...16.0.12) (2026-01-29)
 
 ### Bug Fixes
