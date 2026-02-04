@@ -1,5 +1,12 @@
 # Changelog
 
+## [16.1.1](///compare/16.0.13...16.1.0) (2026-02-04)
+## [16.1.0](///compare/16.0.13...16.1.0) (2026-02-02)
+
+### Bug Fixes
+
+* update dependencies and enhance Gemini model handling 1b03d62
+
 ## [16.1.0](///compare/16.0.12...16.0.13) (2026-02-02)
 
 ### Bug Fixes
