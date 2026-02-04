@@ -240,6 +240,18 @@ export type AxAIGoogleGeminiThinkingTokenBudgetLevels = {
 };
 
 /**
+ * Maps thinkingTokenBudget string levels to Gemini 3+ thinkingLevel values.
+ * 'none' is handled separately (disables thinking or maps to 'minimal' for Gemini 3+).
+ */
+export type AxAIGoogleGeminiThinkingLevelMapping = {
+  minimal?: AxAIGoogleGeminiThinkingLevel;
+  low?: AxAIGoogleGeminiThinkingLevel;
+  medium?: AxAIGoogleGeminiThinkingLevel;
+  high?: AxAIGoogleGeminiThinkingLevel;
+  highest?: AxAIGoogleGeminiThinkingLevel;
+};
+
+/**
  * AxAIGoogleGeminiConfig: Configuration options for Google Gemini API
  */
 export type AxAIGoogleGeminiConfig = AxModelConfig & {
@@ -251,6 +263,8 @@ export type AxAIGoogleGeminiConfig = AxModelConfig & {
   autoTruncate?: boolean;
   thinking?: AxAIGoogleGeminiThinkingConfig;
   thinkingTokenBudgetLevels?: AxAIGoogleGeminiThinkingTokenBudgetLevels;
+  /** Maps thinkingTokenBudget levels to Gemini 3+ thinkingLevel values */
+  thinkingLevelMapping?: AxAIGoogleGeminiThinkingLevelMapping;
   urlContext?: string;
   responseFormat?: 'json_object';
 };

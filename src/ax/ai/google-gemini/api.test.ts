@@ -269,7 +269,9 @@ describe('AxAIGoogleGemini model key preset merging', () => {
     ).toThrow(/do not support numeric thinkingTokenBudget/);
   });
 
-  it('allows thinkingTokenBudget none to disable thinking', async () => {
+  it('maps thinkingTokenBudget none to minimal for Gemini 3+ (includeThoughts controlled by showThoughts)', async () => {
+    // Gemini 3+ models cannot fully disable thinking - 'minimal' is the lowest level
+    // When 'none' is specified, we map to 'minimal'. includeThoughts is controlled separately by showThoughts option.
     const ai = new AxAIGoogleGemini({
       apiKey: 'key',
       config: { model: AxAIGoogleGeminiModel.Gemini3Flash },
@@ -291,7 +293,49 @@ describe('AxAIGoogleGemini model key preset merging', () => {
 
     ai.setOptions({ fetch });
 
-    // 'none' should disable thinking
+    // 'none' maps to 'minimal' for Gemini 3+
+    // Note: maxTokens cannot be set because thinkingLevel is still used
+    await ai.chat(
+      {
+        chatPrompt: [{ role: 'user', content: 'hi' }],
+      },
+      { thinkingTokenBudget: 'none', stream: false }
+    );
+
+    const reqBody = capture.lastBody;
+    // thinkingConfig should have thinkingLevel='minimal'
+    // includeThoughts should NOT be automatically set - it's controlled by showThoughts option
+    expect(reqBody?.generationConfig?.thinkingConfig?.thinkingLevel).toBe(
+      'minimal'
+    );
+    expect(
+      reqBody?.generationConfig?.thinkingConfig?.includeThoughts
+    ).toBeUndefined();
+  });
+
+  it('allows thinkingTokenBudget none to disable thinking for Gemini 2.5', async () => {
+    const ai = new AxAIGoogleGemini({
+      apiKey: 'key',
+      config: { model: AxAIGoogleGeminiModel.Gemini25Flash },
+      models: [],
+    });
+
+    const capture: { lastBody?: any } = {};
+    const fetch = createMockFetch(
+      {
+        candidates: [
+          {
+            content: { parts: [{ text: 'ok' }] },
+            finishReason: 'STOP',
+          },
+        ],
+      },
+      capture
+    );
+
+    ai.setOptions({ fetch });
+
+    // 'none' should disable thinking for Gemini 2.5 (thinkingBudget=0)
     await ai.chat(
       {
         chatPrompt: [{ role: 'user', content: 'hi' }],
@@ -301,10 +345,11 @@ describe('AxAIGoogleGemini model key preset merging', () => {
     );
 
     const reqBody = capture.lastBody;
-    // thinkingConfig should have includeThoughts: false and no thinkingLevel
+    // thinkingConfig should have thinkingBudget=0 and includeThoughts=false
     expect(
       reqBody?.generationConfig?.thinkingConfig?.thinkingLevel
     ).toBeUndefined();
+    expect(reqBody?.generationConfig?.thinkingConfig?.thinkingBudget).toBe(0);
     expect(reqBody?.generationConfig?.thinkingConfig?.includeThoughts).toBe(
       false
     );
@@ -430,6 +475,254 @@ describe('AxAIGoogleGemini model key preset merging', () => {
     expect(lastUserMsg.parts).toHaveLength(2);
     expect(lastUserMsg.parts[0].functionResponse.name).toBe('f1');
     expect(lastUserMsg.parts[1].functionResponse.name).toBe('f2');
+  });
+
+  it('ignores thinkingLevel from config for Gemini 2.5 models', async () => {
+    const ai = new AxAIGoogleGemini({
+      apiKey: 'key',
+      config: {
+        model: AxAIGoogleGeminiModel.Gemini25Flash,
+        thinking: {
+          thinkingLevel: 'low', // Should be ignored for Gemini 2.5
+        },
+      },
+      models: [],
+    });
+
+    const capture: { lastBody?: any } = {};
+    const fetch = createMockFetch(
+      {
+        candidates: [
+          {
+            content: { parts: [{ text: 'ok' }] },
+            finishReason: 'STOP',
+          },
+        ],
+      },
+      capture
+    );
+
+    ai.setOptions({ fetch });
+
+    await ai.chat(
+      {
+        chatPrompt: [{ role: 'user', content: 'hi' }],
+      },
+      { stream: false }
+    );
+
+    const reqBody = capture.lastBody;
+    // thinkingLevel should NOT be set for Gemini 2.5 models
+    expect(
+      reqBody.generationConfig?.thinkingConfig?.thinkingLevel
+    ).toBeUndefined();
+  });
+
+  it('uses custom thinkingLevelMapping at config level', async () => {
+    const ai = new AxAIGoogleGemini({
+      apiKey: 'key',
+      config: {
+        model: AxAIGoogleGeminiModel.Gemini3Flash,
+        thinkingLevelMapping: {
+          minimal: 'low', // Override: minimal → low
+          medium: 'high', // Override: medium → high
+        },
+      },
+      models: [],
+    });
+
+    const capture: { lastBody?: any } = {};
+    const fetch = createMockFetch(
+      {
+        candidates: [
+          {
+            content: { parts: [{ text: 'ok' }] },
+            finishReason: 'STOP',
+          },
+        ],
+      },
+      capture
+    );
+
+    ai.setOptions({ fetch });
+
+    // 'minimal' should now map to 'low' due to custom mapping
+    await ai.chat(
+      {
+        chatPrompt: [{ role: 'user', content: 'hi' }],
+      },
+      { thinkingTokenBudget: 'minimal', stream: false }
+    );
+
+    expect(
+      capture.lastBody?.generationConfig?.thinkingConfig?.thinkingLevel
+    ).toBe('low');
+
+    // 'medium' should now map to 'high' due to custom mapping
+    await ai.chat(
+      {
+        chatPrompt: [{ role: 'user', content: 'hi' }],
+      },
+      { thinkingTokenBudget: 'medium', stream: false }
+    );
+
+    expect(
+      capture.lastBody?.generationConfig?.thinkingConfig?.thinkingLevel
+    ).toBe('high');
+  });
+
+  it('uses custom thinkingLevelMapping at model key level', async () => {
+    const ai = new AxAIGoogleGemini({
+      apiKey: 'key',
+      config: {
+        model: AxAIGoogleGeminiModel.Gemini3Flash,
+        thinkingLevelMapping: {
+          minimal: 'minimal',
+          low: 'low',
+          medium: 'medium',
+          high: 'high',
+          highest: 'high',
+        },
+      },
+      models: [
+        {
+          key: 'fast-thinker',
+          model: AxAIGoogleGeminiModel.Gemini3Flash,
+          description: 'Fast with minimal thinking',
+          config: {
+            thinkingLevelMapping: {
+              minimal: 'minimal',
+              low: 'minimal', // Override: low → minimal
+              medium: 'low', // Override: medium → low
+            },
+          },
+        },
+      ],
+    });
+
+    const capture: { lastBody?: any } = {};
+    const fetch = createMockFetch(
+      {
+        candidates: [
+          {
+            content: { parts: [{ text: 'ok' }] },
+            finishReason: 'STOP',
+          },
+        ],
+      },
+      capture
+    );
+
+    ai.setOptions({ fetch });
+
+    // 'medium' should map to 'low' for the 'fast-thinker' model key
+    await ai.chat(
+      {
+        model: 'fast-thinker',
+        chatPrompt: [{ role: 'user', content: 'hi' }],
+      },
+      { thinkingTokenBudget: 'medium', stream: false }
+    );
+
+    expect(
+      capture.lastBody?.generationConfig?.thinkingConfig?.thinkingLevel
+    ).toBe('low');
+
+    // 'low' should map to 'minimal' for the 'fast-thinker' model key
+    await ai.chat(
+      {
+        model: 'fast-thinker',
+        chatPrompt: [{ role: 'user', content: 'hi' }],
+      },
+      { thinkingTokenBudget: 'low', stream: false }
+    );
+
+    expect(
+      capture.lastBody?.generationConfig?.thinkingConfig?.thinkingLevel
+    ).toBe('minimal');
+  });
+
+  it('uses custom thinkingTokenBudgetLevels at model key level for Gemini 2.5', async () => {
+    const ai = new AxAIGoogleGemini({
+      apiKey: 'key',
+      config: {
+        model: AxAIGoogleGeminiModel.Gemini25Flash,
+        thinkingTokenBudgetLevels: {
+          minimal: 200,
+          low: 800,
+          medium: 5000,
+          high: 10000,
+          highest: 24500,
+        },
+      },
+      models: [
+        {
+          key: 'custom-budget',
+          model: AxAIGoogleGeminiModel.Gemini25Flash,
+          description: 'Custom token budgets',
+          config: {
+            thinkingTokenBudgetLevels: {
+              minimal: 100, // Override: 100 instead of 200
+              low: 500, // Override: 500 instead of 800
+            },
+          },
+        },
+      ],
+    });
+
+    const capture: { lastBody?: any } = {};
+    const fetch = createMockFetch(
+      {
+        candidates: [
+          {
+            content: { parts: [{ text: 'ok' }] },
+            finishReason: 'STOP',
+          },
+        ],
+      },
+      capture
+    );
+
+    ai.setOptions({ fetch });
+
+    // 'minimal' should use 100 tokens for 'custom-budget' model key
+    await ai.chat(
+      {
+        model: 'custom-budget',
+        chatPrompt: [{ role: 'user', content: 'hi' }],
+      },
+      { thinkingTokenBudget: 'minimal', stream: false }
+    );
+
+    expect(
+      capture.lastBody?.generationConfig?.thinkingConfig?.thinkingBudget
+    ).toBe(100);
+
+    // 'low' should use 500 tokens for 'custom-budget' model key
+    await ai.chat(
+      {
+        model: 'custom-budget',
+        chatPrompt: [{ role: 'user', content: 'hi' }],
+      },
+      { thinkingTokenBudget: 'low', stream: false }
+    );
+
+    expect(
+      capture.lastBody?.generationConfig?.thinkingConfig?.thinkingBudget
+    ).toBe(500);
+
+    // 'medium' should use the default 5000 (not overridden)
+    await ai.chat(
+      {
+        model: 'custom-budget',
+        chatPrompt: [{ role: 'user', content: 'hi' }],
+      },
+      { thinkingTokenBudget: 'medium', stream: false }
+    );
+
+    expect(
+      capture.lastBody?.generationConfig?.thinkingConfig?.thinkingBudget
+    ).toBe(5000);
   });
 
   it('does not set thought: true on text part when function calls are present', async () => {
