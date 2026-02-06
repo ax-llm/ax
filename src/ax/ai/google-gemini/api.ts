@@ -827,11 +827,7 @@ class AxAIGoogleGeminiImpl
 
     const generationConfig: AxAIGoogleGeminiGenerationConfig = {
       maxOutputTokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
-      ...(req.modelConfig?.temperature !== undefined
-        ? { temperature: req.modelConfig.temperature }
-        : isGemini3Model(model as string)
-          ? { temperature: 1 }
-          : {}),
+      temperature: req.modelConfig?.temperature ?? this.config.temperature,
       ...(req.modelConfig?.topP !== undefined
         ? { topP: req.modelConfig.topP }
         : {}),
@@ -845,6 +841,15 @@ class AxAIGoogleGeminiImpl
 
       ...(Object.keys(thinkingConfig).length > 0 ? { thinkingConfig } : {}),
     };
+
+    // Gemini 3+ models require a minimum temperature of 1.0
+    if (
+      isGemini3Model(model as string) &&
+      (generationConfig.temperature === undefined ||
+        generationConfig.temperature < 1)
+    ) {
+      generationConfig.temperature = 1;
+    }
 
     // Handle structured output
     if (req.responseFormat) {
@@ -1353,11 +1358,7 @@ class AxAIGoogleGeminiImpl
     // Build the generation config using existing logic
     const generationConfig: AxAIGoogleGeminiGenerationConfig = {
       maxOutputTokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
-      ...(req.modelConfig?.temperature !== undefined
-        ? { temperature: req.modelConfig.temperature }
-        : isGemini3Model(model as string)
-          ? { temperature: 1 }
-          : {}),
+      temperature: req.modelConfig?.temperature ?? this.config.temperature,
       ...(req.modelConfig?.topP !== undefined
         ? { topP: req.modelConfig.topP }
         : {}),
@@ -1369,6 +1370,15 @@ class AxAIGoogleGeminiImpl
         req.modelConfig?.stopSequences ?? this.config.stopSequences,
       responseMimeType: 'text/plain',
     };
+
+    // Gemini 3+ models require a minimum temperature of 1.0
+    if (
+      isGemini3Model(model as string) &&
+      (generationConfig.temperature === undefined ||
+        generationConfig.temperature < 1)
+    ) {
+      generationConfig.temperature = 1;
+    }
 
     const safetySettings = this.config.safetySettings;
 
