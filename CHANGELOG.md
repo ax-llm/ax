@@ -1,5 +1,12 @@
 # Changelog
 
+## [16.1.2](///compare/16.1.0...16.1.1) (2026-02-06)
+
+### Bug Fixes
+
+* enforce model-specific thinking params and default temp for Gemini 3+ 00b181d
+## [16.1.1](///compare/16.1.0...16.1.1) (2026-02-04)
+
 ## [16.1.1](///compare/16.0.13...16.1.0) (2026-02-04)
 ## [16.1.0](///compare/16.0.13...16.1.0) (2026-02-02)
 
