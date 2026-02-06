@@ -717,7 +717,7 @@ class AxAIGoogleGeminiImpl
     }
     // thinkingLevel is only supported by Gemini 3+ models
     // Gemini 2.5 and older models use numeric thinkingBudget instead
-    if (this.config.thinking?.thinkingLevel && !isGemini25Model(model)) {
+    if (this.config.thinking?.thinkingLevel && isGemini3Model(model)) {
       thinkingConfig.thinkingLevel = this.config.thinking.thinkingLevel;
     }
 
@@ -797,6 +797,16 @@ class AxAIGoogleGeminiImpl
       delete thinkingConfig.thinkingBudget;
     }
 
+    // Clean up thinking parameters for incompatible models
+    // thinkingLevel is only supported by Gemini 3+ models
+    if (!isGemini3Model(model)) {
+      delete thinkingConfig.thinkingLevel;
+    }
+    // thinkingBudget is only supported by Gemini 2.5 models
+    if (!isGemini25Model(model)) {
+      delete thinkingConfig.thinkingBudget;
+    }
+
     // Validate: maxTokens cannot be set when thinkingLevel is used (Gemini limitation)
     const effectiveMaxTokens =
       req.modelConfig?.maxTokens ?? this.config.maxTokens;
@@ -819,7 +829,9 @@ class AxAIGoogleGeminiImpl
       maxOutputTokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
       ...(req.modelConfig?.temperature !== undefined
         ? { temperature: req.modelConfig.temperature }
-        : {}),
+        : isGemini3Model(model as string)
+          ? { temperature: 1 }
+          : {}),
       ...(req.modelConfig?.topP !== undefined
         ? { topP: req.modelConfig.topP }
         : {}),
@@ -1343,7 +1355,9 @@ class AxAIGoogleGeminiImpl
       maxOutputTokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
       ...(req.modelConfig?.temperature !== undefined
         ? { temperature: req.modelConfig.temperature }
-        : {}),
+        : isGemini3Model(model as string)
+          ? { temperature: 1 }
+          : {}),
       ...(req.modelConfig?.topP !== undefined
         ? { topP: req.modelConfig.topP }
         : {}),
