@@ -475,12 +475,14 @@ Each step is traced separately for debugging and can trigger function executions
 
 ## Extended Thinking
 
-For models that support extended thinking (Claude, etc.), you can configure thinking behavior:
+For models that support extended thinking (Claude, Gemini), you can configure
+thinking behavior using string budget levels. See [AI.md](/ai/) for full
+details on budget levels, provider differences, and customization.
 
 ```typescript
 const result = await gen.forward(ai, { question: '...' }, {
-  thinkingTokenBudget: 2000,  // Token budget for thinking
-  showThoughts: true           // Include thinking in response
+  thinkingTokenBudget: 'medium',  // Budget level: 'minimal' | 'low' | 'medium' | 'high' | 'highest' | 'none'
+  showThoughts: true               // Include thinking in response
 });
 
 // Access the thought process
@@ -495,6 +497,7 @@ const gen = new AxGen('question:string -> answer:string', {
 });
 
 const result = await gen.forward(ai, { question: '...' }, {
+  thinkingTokenBudget: 'high',
   showThoughts: true
 });
 

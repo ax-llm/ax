@@ -106,6 +106,7 @@ export type AxProgramForwardOptions<MODEL> = AxAIServiceOptions & {
   fastFail?: boolean;
   showThoughts?: boolean;
   functionCallMode?: 'auto' | 'native' | 'prompt';
+  structuredOutputMode?: 'auto' | 'native' | 'function';
 
   // Caching hook
   cachingFunction?: (

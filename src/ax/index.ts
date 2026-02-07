@@ -18,16 +18,20 @@ import {
   type AxAIAnthropicContentBlockDeltaEvent,
   type AxAIAnthropicContentBlockStartEvent,
   type AxAIAnthropicContentBlockStopEvent,
+  type AxAIAnthropicEffortLevel,
+  type AxAIAnthropicEffortLevelMapping,
   type AxAIAnthropicErrorEvent,
   type AxAIAnthropicFunctionTool,
   type AxAIAnthropicMessageDeltaEvent,
   type AxAIAnthropicMessageStartEvent,
   type AxAIAnthropicMessageStopEvent,
   AxAIAnthropicModel,
+  type AxAIAnthropicOutputConfig,
   type AxAIAnthropicPingEvent,
   type AxAIAnthropicRequestTool,
   type AxAIAnthropicThinkingConfig,
   type AxAIAnthropicThinkingTokenBudgetLevels,
+  type AxAIAnthropicThinkingWire,
   AxAIAnthropicVertexModel,
   type AxAIAnthropicWebSearchTool,
 } from './ai/anthropic/types.js';
@@ -974,15 +978,19 @@ export type { AxAIAnthropicConfig };
 export type { AxAIAnthropicContentBlockDeltaEvent };
 export type { AxAIAnthropicContentBlockStartEvent };
 export type { AxAIAnthropicContentBlockStopEvent };
+export type { AxAIAnthropicEffortLevel };
+export type { AxAIAnthropicEffortLevelMapping };
 export type { AxAIAnthropicErrorEvent };
 export type { AxAIAnthropicFunctionTool };
 export type { AxAIAnthropicMessageDeltaEvent };
 export type { AxAIAnthropicMessageStartEvent };
 export type { AxAIAnthropicMessageStopEvent };
+export type { AxAIAnthropicOutputConfig };
 export type { AxAIAnthropicPingEvent };
 export type { AxAIAnthropicRequestTool };
 export type { AxAIAnthropicThinkingConfig };
 export type { AxAIAnthropicThinkingTokenBudgetLevels };
+export type { AxAIAnthropicThinkingWire };
 export type { AxAIAnthropicWebSearchTool };
 export type { AxAIArgs };
 export type { AxAIAzureOpenAIArgs };

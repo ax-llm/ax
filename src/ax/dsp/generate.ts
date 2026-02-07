@@ -32,6 +32,7 @@ import {
   type AxAssertion,
   AxAssertionError,
   type AxStreamingAssertion,
+  assertAssertions,
 } from './asserts.js';
 import {
   type HandleErrorForGenerateArgs,
@@ -40,8 +41,12 @@ import {
   handleValidationErrorForGenerate,
   ValidationError,
 } from './errors.js';
+import { validateStructuredOutputValues } from './extract.js';
 import type { extractionState } from './extract.js';
-import type { AxFieldProcessor } from './fieldProcessor.js';
+import {
+  type AxFieldProcessor,
+  processFieldProcessors,
+} from './fieldProcessor.js';
 import {
   type AxChatResponseFunctionCall,
   AxStopFunctionCallException,
@@ -94,6 +99,8 @@ import {
   validateStringConstraints,
   validateURL,
 } from './validators.js';
+
+const STRUCTURED_OUTPUT_FUNCTION_NAME = '__finalResult';
 
 export type AxGenerateResult<OUT> = OUT & {
   thought?: string;
@@ -148,6 +155,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
   private excludeContentFromTrace = false;
   private thoughtFieldName: string;
   private signatureToolCallingManager?: SignatureToolCallingManager;
+  private structuredOutputFunctionFallback = false;
 
   constructor(
     signature:
@@ -378,7 +386,9 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
     // Auto-detect structured output requirement
     // If we have object types in output or array of objects, we use structured outputs
-    if (hasComplexFields) {
+    // When structuredOutputFunctionFallback is true, responseFormat stays undefined
+    // — the synthetic function handles structured output instead
+    if (hasComplexFields && !this.structuredOutputFunctionFallback) {
       // Check if the provider/model supports structured outputs
       const features = ai.getFeatures(model);
       if (!features?.structuredOutputs) {
@@ -492,12 +502,27 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     const logger = this.getLogger(ai, options);
 
     // Pass the function call mode directly to createFunctionConfig
-    const { functions, functionCall } = createFunctionConfig(
+    let { functions, functionCall } = createFunctionConfig(
       functionList,
       definedFunctionCall,
       firstStep,
       options
     );
+
+    // When using function-call fallback for structured output,
+    // force the AI to call the structured output function
+    // only when there are no user-defined functions.
+    if (this.structuredOutputFunctionFallback) {
+      const userFunctionCount = functions.filter(
+        (f) => f.name !== STRUCTURED_OUTPUT_FUNCTION_NAME
+      ).length;
+      if (userFunctionCount === 0) {
+        functionCall = {
+          type: 'function',
+          function: { name: STRUCTURED_OUTPUT_FUNCTION_NAME },
+        };
+      }
+    }
 
     const res = await this.forwardSendRequest({
       ai,
@@ -573,7 +598,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     traceContext?: Context
   ): AxGenStreamingOut<OUT> {
     const rawStop = options?.stopFunction ?? this.options?.stopFunction;
-    const stopFunctionNames = Array.isArray(rawStop)
+    let stopFunctionNames = Array.isArray(rawStop)
       ? rawStop.map((s) => s.toLowerCase())
       : rawStop
         ? [rawStop.toLowerCase()]
@@ -625,6 +650,36 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       this.setSignature(this.signature);
     }
 
+    // Detect structured output function-call fallback condition
+    const hasComplexFields = this.signature.hasComplexFields();
+    const features = ai.getFeatures?.(options.model);
+    const structuredOutputMode =
+      options.structuredOutputMode ??
+      this.options?.structuredOutputMode ??
+      'auto';
+
+    this.structuredOutputFunctionFallback =
+      hasComplexFields &&
+      (structuredOutputMode === 'function' ||
+        (structuredOutputMode === 'auto' && !features?.structuredOutputs));
+
+    // When fallback is active, create synthetic function and add to stop functions
+    if (this.structuredOutputFunctionFallback) {
+      const syntheticFunction: AxFunction = {
+        name: STRUCTURED_OUTPUT_FUNCTION_NAME,
+        description:
+          'Return the final result. Call this function with the complete output data.',
+        parameters: toJsonSchema(this.signature.getOutputFields()),
+        func: async () => 'done',
+      };
+      functions.push(syntheticFunction);
+
+      stopFunctionNames = [
+        ...(stopFunctionNames ?? []),
+        STRUCTURED_OUTPUT_FUNCTION_NAME.toLowerCase(),
+      ];
+    }
+
     // Check if provider has automatic cache lookback (e.g., Anthropic)
     const providerIgnoreBreakpoints =
       ai.getFeatures?.(options.model)?.caching?.cacheBreakpoints === false;
@@ -636,6 +691,9 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       contextCache: options.contextCache, // Pass through for system prompt caching
       examplesInSystem: options.examplesInSystem,
       ignoreBreakpoints: providerIgnoreBreakpoints,
+      structuredOutputFunctionName: this.structuredOutputFunctionFallback
+        ? STRUCTURED_OUTPUT_FUNCTION_NAME
+        : undefined,
     };
 
     this.promptTemplate = new promptTemplateClass(
@@ -745,7 +803,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
             try {
               const generator = this.forwardCore({
-                options,
+                options: { ...options, functions },
                 ai,
                 mem,
                 stepIndex: n,
@@ -854,6 +912,58 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
               } catch (e) {
                 if (e instanceof AxStopFunctionCallException) {
                   stopFunctionTriggered = true;
+
+                  // Extract structured output values from the synthetic function call
+                  if (this.structuredOutputFunctionFallback) {
+                    const structuredCall = e.calls.find(
+                      (c) => c.func.name === STRUCTURED_OUTPUT_FUNCTION_NAME
+                    );
+                    if (structuredCall?.args) {
+                      const args = structuredCall.args as Record<
+                        string,
+                        unknown
+                      >;
+
+                      // Validate against field constraints (same as native structured output path)
+                      validateStructuredOutputValues(this.signature, args);
+
+                      const outputFields = this.signature.getOutputFields();
+                      for (const state of states) {
+                        const delta: Record<string, unknown> = {};
+                        for (const field of outputFields) {
+                          if (field.name in args && !field.isInternal) {
+                            delta[field.name] = args[field.name];
+                            state.values[field.name] = args[field.name];
+                          }
+                        }
+                        yield {
+                          version: errCount,
+                          index: state.index,
+                          delta: delta as Partial<OUT>,
+                        };
+                      }
+
+                      // Run assertions (same as native structured output path)
+                      for (const state of states) {
+                        await assertAssertions(
+                          this.asserts,
+                          state.values as OUT
+                        );
+                      }
+
+                      // Run field processors (same as native structured output path)
+                      if (this.fieldProcessors.length > 0) {
+                        for (const state of states) {
+                          await processFieldProcessors(
+                            this.fieldProcessors,
+                            state.values as OUT,
+                            mem,
+                            options.sessionId
+                          );
+                        }
+                      }
+                    }
+                  }
                 } else {
                   throw e;
                 }
