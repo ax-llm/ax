@@ -23,11 +23,13 @@ import {
   type AxAIAnthropicConfig,
   type AxAIAnthropicContentBlockDeltaEvent,
   type AxAIAnthropicContentBlockStartEvent,
+  type AxAIAnthropicEffortLevel,
   type AxAIAnthropicErrorEvent,
   type AxAIAnthropicMessageDeltaEvent,
   type AxAIAnthropicMessageStartEvent,
   AxAIAnthropicModel,
-  type AxAIAnthropicThinkingConfig,
+  type AxAIAnthropicOutputConfig,
+  type AxAIAnthropicThinkingWire,
   AxAIAnthropicVertexModel,
 } from './types.js';
 
@@ -101,6 +103,13 @@ export const axAIAnthropicDefaultConfig = (): AxAIAnthropicConfig =>
       high: 20000,
       highest: 32000,
     },
+    effortLevelMapping: {
+      minimal: 'low',
+      low: 'low',
+      medium: 'medium',
+      high: 'high',
+      highest: 'max',
+    },
     ...axBaseAIDefaultConfig(),
   });
 
@@ -114,6 +123,13 @@ export const axAIAnthropicVertexDefaultConfig = (): AxAIAnthropicConfig =>
       medium: 10000,
       high: 20000,
       highest: 32000,
+    },
+    effortLevelMapping: {
+      minimal: 'low',
+      low: 'low',
+      medium: 'medium',
+      high: 'high',
+      highest: 'max',
     },
     ...axBaseAIDefaultConfig(),
   });
@@ -346,63 +362,61 @@ class AxAIAnthropicImpl
       throw new Error('Anthropic does not support sampling (n > 1)');
     }
 
-    // Handle thinking configuration
-    let thinkingConfig: AxAIAnthropicThinkingConfig | undefined;
+    // Model detection helpers
+    const isOpus46 = (m: string) => m.includes('claude-opus-4-6');
+    const isOpus45 = (m: string) => m.includes('claude-opus-4-5');
 
-    if (this.config.thinking?.budget_tokens) {
-      thinkingConfig = this.config.thinking;
-    }
+    // Handle thinking configuration
+    let thinkingWire: AxAIAnthropicThinkingWire | undefined;
+    let outputConfig: AxAIAnthropicOutputConfig | undefined;
+
+    const modelStr = model as string;
 
     // Override based on prompt-specific config
     if (config?.thinkingTokenBudget) {
       const levels = this.config.thinkingTokenBudgetLevels;
+      const effortMap = this.config.effortLevelMapping;
 
-      switch (config.thinkingTokenBudget) {
-        case 'none':
-          // When thinkingTokenBudget is 'none', disable thinking entirely
-          thinkingConfig = undefined;
-          break;
-        case 'minimal':
-          thinkingConfig = {
-            type: 'enabled',
-            budget_tokens: levels?.minimal ?? 1024,
-          };
-          break;
-        case 'low':
-          thinkingConfig = {
-            type: 'enabled',
-            budget_tokens: levels?.low ?? 5000,
-          };
-          break;
-        case 'medium':
-          thinkingConfig = {
-            type: 'enabled',
-            budget_tokens: levels?.medium ?? 10000,
-          };
-          break;
-        case 'high':
-          thinkingConfig = {
-            type: 'enabled',
-            budget_tokens: levels?.high ?? 20000,
-          };
-          break;
-        case 'highest':
-          thinkingConfig = {
-            type: 'enabled',
-            budget_tokens: levels?.highest ?? 32000,
-          };
-          break;
+      if (config.thinkingTokenBudget === 'none') {
+        // Disable thinking and effort entirely
+        thinkingWire = undefined;
+        outputConfig = undefined;
+      } else {
+        const budgetLevel = config.thinkingTokenBudget as
+          | 'minimal'
+          | 'low'
+          | 'medium'
+          | 'high'
+          | 'highest';
+
+        if (isOpus46(modelStr)) {
+          // Opus 4.6: use adaptive thinking + effort
+          thinkingWire = { type: 'adaptive' };
+          const effort = effortMap?.[budgetLevel] ?? 'medium';
+          outputConfig = { effort };
+        } else if (isOpus45(modelStr)) {
+          // Opus 4.5: use budget_tokens + effort (cap effort at 'high')
+          const budgetTokens = levels?.[budgetLevel] ?? 10000;
+          thinkingWire = { type: 'enabled', budget_tokens: budgetTokens };
+          let effort: AxAIAnthropicEffortLevel =
+            effortMap?.[budgetLevel] ?? 'medium';
+          // Opus 4.5 doesn't support 'max' effort, cap to 'high'
+          if (effort === 'max') {
+            effort = 'high';
+          }
+          outputConfig = { effort };
+        } else {
+          // Other thinking models: use budget_tokens only, no effort
+          const budgetTokens = levels?.[budgetLevel] ?? 10000;
+          thinkingWire = { type: 'enabled', budget_tokens: budgetTokens };
+        }
       }
     }
 
-    // If per-call options selected a model via key that mapped numeric budget to a level,
-    // map that level into concrete budget here when not provided via thinkingTokenBudget.
-    if (!thinkingConfig && (config as any)?.thinkingTokenBudget === undefined) {
-      const _levels = this.config.thinkingTokenBudgetLevels;
-      // No-op: rely on defaults
-    }
+    // Alias for use in downstream logic (messages, request building)
+    const thinkingEnabled = !!thinkingWire;
 
-    const messages = createMessages(otherMessages, !!thinkingConfig);
+    const messages = createMessages(otherMessages, thinkingEnabled);
 
     // If the outgoing messages include an assistant message that starts with a tool_use
     // block (i.e., we are pre-supplying a function call), Anthropic requires the final
@@ -417,7 +431,8 @@ class AxAIAnthropicImpl
         (m.content[0] as any)?.type === 'tool_use'
     );
     if (hasAssistantStartingWithToolUse) {
-      thinkingConfig = undefined;
+      thinkingWire = undefined;
+      outputConfig = undefined;
     }
 
     // Handle structured output using native output_format parameter
@@ -449,18 +464,19 @@ class AxAIAnthropicImpl
         ? { stop_sequences: stopSequences }
         : {}),
       // Only include temperature when thinking is not enabled
-      ...(temperature !== undefined && !thinkingConfig ? { temperature } : {}),
+      ...(temperature !== undefined && !thinkingWire ? { temperature } : {}),
       // Only include top_p when thinking is not enabled, or when it's >= 0.95
-      ...(topP !== undefined && (!thinkingConfig || topP >= 0.95)
+      ...(topP !== undefined && (!thinkingWire || topP >= 0.95)
         ? { top_p: topP }
         : {}),
       // Only include top_k when thinking is not enabled
-      ...(topK && !thinkingConfig ? { top_k: topK } : {}),
+      ...(topK && !thinkingWire ? { top_k: topK } : {}),
       ...toolsChoice,
       ...(tools ? { tools } : {}),
       ...(stream ? { stream: true } : {}),
       ...(system ? { system } : {}),
-      ...(thinkingConfig ? { thinking: thinkingConfig } : {}),
+      ...(thinkingWire ? { thinking: thinkingWire } : {}),
+      ...(outputConfig ? { output_config: outputConfig } : {}),
       ...(outputFormat ? { output_format: outputFormat } : {}),
       messages,
     };
@@ -1025,11 +1041,11 @@ export class AxAIAnthropic<TModelKey = string> extends AxBaseAI<
       if (typeof numericBudget === 'number') {
         const levels = Config.thinkingTokenBudgetLevels;
         const candidates = [
-          ['minimal', levels?.minimal ?? 200],
-          ['low', levels?.low ?? 800],
-          ['medium', levels?.medium ?? 5000],
-          ['high', levels?.high ?? 10000],
-          ['highest', levels?.highest ?? 24500],
+          ['minimal', levels?.minimal ?? 1024],
+          ['low', levels?.low ?? 5000],
+          ['medium', levels?.medium ?? 10000],
+          ['high', levels?.high ?? 20000],
+          ['highest', levels?.highest ?? 32000],
         ] as const;
         let bestName: 'minimal' | 'low' | 'medium' | 'high' | 'highest' =
           'minimal';

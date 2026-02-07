@@ -270,3 +270,153 @@ describe('AxAIAnthropic trims trailing whitespace in assistant content', () => {
     }
   });
 });
+
+function createCaptureFetch(modelResponse: string) {
+  const capture: { lastBody?: any } = {};
+  const fetch = vi
+    .fn()
+    .mockImplementation(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.body && typeof init.body === 'string') {
+        capture.lastBody = JSON.parse(init.body);
+      }
+      return new Response(
+        JSON.stringify({
+          id: 'id',
+          type: 'message',
+          role: 'assistant',
+          content: [{ type: 'text', text: 'ok' }],
+          model: modelResponse,
+          stop_reason: 'end_turn',
+          usage: { input_tokens: 1, output_tokens: 1 },
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      );
+    });
+  return { capture, fetch };
+}
+
+describe('AxAIAnthropic thinking configuration', () => {
+  it('Opus 4.6 with high produces adaptive thinking + effort high', async () => {
+    const ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: { model: AxAIAnthropicModel.Claude46Opus },
+    });
+
+    const { capture, fetch } = createCaptureFetch('claude-opus-4-6');
+    ai.setOptions({ fetch });
+
+    await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'hi' }] },
+      { stream: false, thinkingTokenBudget: 'high' }
+    );
+
+    expect(fetch).toHaveBeenCalled();
+    const body = capture.lastBody;
+    expect(body.thinking).toEqual({ type: 'adaptive' });
+    expect(body.output_config).toEqual({ effort: 'high' });
+  });
+
+  it('Opus 4.5 with medium produces budget_tokens 10000 + effort medium', async () => {
+    const ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: { model: AxAIAnthropicModel.Claude45Opus },
+    });
+
+    const { capture, fetch } = createCaptureFetch('claude-opus-4-5-20251101');
+    ai.setOptions({ fetch });
+
+    await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'hi' }] },
+      { stream: false, thinkingTokenBudget: 'medium' }
+    );
+
+    expect(fetch).toHaveBeenCalled();
+    const body = capture.lastBody;
+    expect(body.thinking).toEqual({ type: 'enabled', budget_tokens: 10000 });
+    expect(body.output_config).toEqual({ effort: 'medium' });
+  });
+
+  it('older thinking model with high produces budget_tokens 20000, no output_config', async () => {
+    const ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: { model: AxAIAnthropicModel.Claude37Sonnet },
+    });
+
+    const { capture, fetch } = createCaptureFetch('claude-3-7-sonnet-latest');
+    ai.setOptions({ fetch });
+
+    await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'hi' }] },
+      { stream: false, thinkingTokenBudget: 'high' }
+    );
+
+    expect(fetch).toHaveBeenCalled();
+    const body = capture.lastBody;
+    expect(body.thinking).toEqual({ type: 'enabled', budget_tokens: 20000 });
+    expect(body.output_config).toBeUndefined();
+  });
+
+  it('none disables thinking and effort for all models', async () => {
+    const ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: { model: AxAIAnthropicModel.Claude46Opus },
+    });
+
+    const { capture, fetch } = createCaptureFetch('claude-opus-4-6');
+    ai.setOptions({ fetch });
+
+    await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'hi' }] },
+      { stream: false, thinkingTokenBudget: 'none' }
+    );
+
+    expect(fetch).toHaveBeenCalled();
+    const body = capture.lastBody;
+    expect(body.thinking).toBeUndefined();
+    expect(body.output_config).toBeUndefined();
+  });
+
+  it('highest caps effort to high on Opus 4.5', async () => {
+    const ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: { model: AxAIAnthropicModel.Claude45Opus },
+    });
+
+    const { capture, fetch } = createCaptureFetch('claude-opus-4-5-20251101');
+    ai.setOptions({ fetch });
+
+    await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'hi' }] },
+      { stream: false, thinkingTokenBudget: 'highest' }
+    );
+
+    expect(fetch).toHaveBeenCalled();
+    const body = capture.lastBody;
+    expect(body.thinking).toEqual({ type: 'enabled', budget_tokens: 32000 });
+    // 'max' effort is capped to 'high' on Opus 4.5
+    expect(body.output_config).toEqual({ effort: 'high' });
+  });
+
+  it('Opus 4.6 with highest produces adaptive + effort max', async () => {
+    const ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: { model: AxAIAnthropicModel.Claude46Opus },
+    });
+
+    const { capture, fetch } = createCaptureFetch('claude-opus-4-6');
+    ai.setOptions({ fetch });
+
+    await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'hi' }] },
+      { stream: false, thinkingTokenBudget: 'highest' }
+    );
+
+    expect(fetch).toHaveBeenCalled();
+    const body = capture.lastBody;
+    expect(body.thinking).toEqual({ type: 'adaptive' });
+    expect(body.output_config).toEqual({ effort: 'max' });
+  });
+});

@@ -126,7 +126,133 @@ await gemini.chat(
 );
 ```
 
-### 6. Embeddings (if supported)
+### 6. Extended Thinking
+
+Extended thinking allows models to reason internally before responding, improving
+quality on complex tasks. Ax provides a unified `thinkingTokenBudget` interface
+that works across providers (Anthropic, Google Gemini) while handling
+provider-specific details automatically.
+
+#### Usage
+
+Pass `thinkingTokenBudget` and optionally `showThoughts` when making requests:
+
+```ts
+import { ai, AxAIAnthropicModel } from "@ax-llm/ax";
+
+// Anthropic
+const claude = ai({
+  name: "anthropic",
+  apiKey: process.env.ANTHROPIC_APIKEY!,
+  config: { model: AxAIAnthropicModel.Claude46Opus },
+});
+
+const res = await claude.chat(
+  { chatPrompt: [{ role: "user", content: "Solve this step by step..." }] },
+  { thinkingTokenBudget: "medium", showThoughts: true },
+);
+
+console.log(res.results[0]?.thought); // The model's internal reasoning
+console.log(res.results[0]?.content); // The final answer
+```
+
+```ts
+import { ai, AxAIGoogleGeminiModel } from "@ax-llm/ax";
+
+// Google Gemini
+const gemini = ai({
+  name: "google-gemini",
+  apiKey: process.env.GOOGLE_APIKEY!,
+  config: { model: AxAIGoogleGeminiModel.Gemini25Pro },
+});
+
+const res = await gemini.chat(
+  { chatPrompt: [{ role: "user", content: "Analyze this complex problem..." }] },
+  { thinkingTokenBudget: "high", showThoughts: true },
+);
+```
+
+#### Budget levels
+
+The string levels map to provider-specific token budgets:
+
+| Level | Anthropic (tokens) | Gemini (tokens) |
+| --- | --- | --- |
+| `'none'` | disabled | minimal (Gemini 3+ can't fully disable) |
+| `'minimal'` | 1,024 | 200 |
+| `'low'` | 5,000 | 800 |
+| `'medium'` | 10,000 | 5,000 |
+| `'high'` | 20,000 | 10,000 |
+| `'highest'` | 32,000 | 24,500 |
+
+#### Anthropic model-specific behavior
+
+Ax automatically selects the right wire format based on the Anthropic model:
+
+- **Opus 4.6**: Uses adaptive thinking (`type: 'adaptive'`) + effort levels. No
+  explicit token budget is sent — the model decides how much to think. The
+  `thinkingTokenBudget` level controls the effort parameter instead.
+- **Opus 4.5**: Uses explicit budget (`budget_tokens`) + effort levels. Effort
+  is capped at `'high'` (the `'max'` effort level is not supported).
+- **Other thinking models** (Claude 3.7 Sonnet, Claude 4 Sonnet, etc.): Uses
+  budget tokens only, no effort parameter.
+
+#### Effort levels
+
+For Opus 4.5+ models, Ax automatically maps your `thinkingTokenBudget` level to
+an Anthropic effort level (`low` / `medium` / `high` / `max`). You don't need
+to set effort manually. The default mapping is:
+
+| Budget level | Effort |
+| --- | --- |
+| `'minimal'` | `low` |
+| `'low'` | `low` |
+| `'medium'` | `medium` |
+| `'high'` | `high` |
+| `'highest'` | `max` |
+
+You can customize this via the `effortLevelMapping` config (see below).
+
+#### Customization
+
+Override the default token budgets or effort mapping in your provider config:
+
+```ts
+const claude = ai({
+  name: "anthropic",
+  apiKey: process.env.ANTHROPIC_APIKEY!,
+  config: {
+    model: AxAIAnthropicModel.Claude46Opus,
+    thinkingTokenBudgetLevels: {
+      minimal: 2048,
+      low: 8000,
+      medium: 16000,
+      high: 25000,
+      highest: 40000,
+    },
+    effortLevelMapping: {
+      minimal: "low",
+      low: "medium",
+      medium: "high",
+      high: "high",
+      highest: "max",
+    },
+  },
+});
+```
+
+#### Constraints
+
+When thinking is enabled on Anthropic, the API restricts certain parameters:
+
+- `temperature` is ignored (cannot be set)
+- `topK` is ignored (cannot be set)
+- `topP` is only sent if its value is >= 0.95
+
+These restrictions are handled automatically — Ax omits the restricted
+parameters from the request when thinking is active.
+
+### 7. Embeddings (if supported)
 
 ```ts
 const { embeddings } = await gemini.embed({
@@ -135,7 +261,7 @@ const { embeddings } = await gemini.embed({
 })
 ``;
 
-### 7. Context Caching
+### 8. Context Caching
 
 Context caching reduces costs and latency by caching large prompt prefixes
 (system prompts, function definitions, examples) for reuse across multiple
@@ -300,7 +426,7 @@ const result = await gen.forward(llm, input, {
 
 - All Claude models support implicit caching
 
-### 8. Tips
+### 9. Tips
 
 - Prefer presets: gives friendly names and consistent tuning across your app
 - Start with fast/cheap models for iteration; switch keys later without code changes

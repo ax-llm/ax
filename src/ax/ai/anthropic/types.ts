@@ -1,6 +1,7 @@
 import type { AxModelConfig } from '../types.js';
 
 export enum AxAIAnthropicModel {
+  Claude46Opus = 'claude-opus-4-6',
   Claude45Opus = 'claude-opus-4-5-20251101',
   Claude41Opus = 'claude-opus-4-1-20250805',
   Claude4Opus = 'claude-opus-4-20250514',
@@ -21,6 +22,7 @@ export enum AxAIAnthropicModel {
 }
 
 export enum AxAIAnthropicVertexModel {
+  Claude46Opus = 'claude-opus-4-6@20260205',
   Claude45Opus = 'claude-opus-4-5@20251101',
   Claude41Opus = 'claude-opus-4-1@20250805',
   Claude4Opus = 'claude-opus-4@20250514',
@@ -36,12 +38,29 @@ export enum AxAIAnthropicVertexModel {
 }
 
 export type AxAIAnthropicThinkingConfig = {
-  type: 'enabled';
-  budget_tokens: number;
   /** Optional: numeric budget hint used in config normalization */
   thinkingTokenBudget?: number;
   /** Optional: include provider thinking content in outputs */
   includeThoughts?: boolean;
+};
+
+// Internal wire types for the Anthropic API (not user-facing)
+export type AxAIAnthropicThinkingWire =
+  | { type: 'enabled'; budget_tokens: number }
+  | { type: 'adaptive' };
+
+export type AxAIAnthropicEffortLevel = 'low' | 'medium' | 'high' | 'max';
+
+export type AxAIAnthropicOutputConfig = {
+  effort?: AxAIAnthropicEffortLevel;
+};
+
+export type AxAIAnthropicEffortLevelMapping = {
+  minimal?: AxAIAnthropicEffortLevel;
+  low?: AxAIAnthropicEffortLevel;
+  medium?: AxAIAnthropicEffortLevel;
+  high?: AxAIAnthropicEffortLevel;
+  highest?: AxAIAnthropicEffortLevel;
 };
 
 export type AxAIAnthropicThinkingTokenBudgetLevels = {
@@ -84,6 +103,7 @@ export type AxAIAnthropicConfig = AxModelConfig & {
   model: AxAIAnthropicModel | AxAIAnthropicVertexModel;
   thinking?: AxAIAnthropicThinkingConfig;
   thinkingTokenBudgetLevels?: AxAIAnthropicThinkingTokenBudgetLevels;
+  effortLevelMapping?: AxAIAnthropicEffortLevelMapping;
   tools?: ReadonlyArray<AxAIAnthropicRequestTool>;
 };
 
@@ -172,7 +192,8 @@ export type AxAIAnthropicChatRequest = {
   temperature?: number; // Randomness of the response
   top_p?: number; // Nucleus sampling probability
   top_k?: number; // Sample from the top K options
-  thinking?: AxAIAnthropicThinkingConfig; // Extended thinking configuration
+  thinking?: AxAIAnthropicThinkingWire; // Extended thinking configuration
+  output_config?: AxAIAnthropicOutputConfig; // Effort level configuration
   output_format?: {
     type: 'json_schema';
     schema: object;
