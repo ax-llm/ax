@@ -27,14 +27,12 @@ export class AxPromptTemplate {
   private adapter: AxPromptAdapter;
 
   constructor(
-    signature: Readonly<AxSignature | string>,
+    sig: Readonly<AxSignature>,
     options: Readonly<
       AxPromptTemplateOptions & { adapter?: AxPromptAdapter }
     > = {},
     fieldTemplates?: Record<string, AxFieldTemplateFn>
   ) {
-    const sig =
-      typeof signature === 'string' ? new AxSignature(signature) : signature;
     this.adapter =
       options.adapter ?? new AxDefaultAdapter(sig, options, fieldTemplates);
   }
