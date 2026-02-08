@@ -64,7 +64,5 @@
   },
   "homepage": "https://github.com/ax-llm/ax#readme",
   "author": "Vikram <https://twitter.com/dosco>",
-  "devDependencies": {
-    "@types/uuid": "^10.0.0"
-  }
+  "devDependencies": {}
 }
