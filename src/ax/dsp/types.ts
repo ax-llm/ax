@@ -14,6 +14,86 @@ import type { AxPromptTemplate } from './prompt.js';
 import type { AxSignature, AxSignatureBuilder } from './sig.js';
 import type { ParseSignature } from './sigtypes.js';
 
+// === Step Context Types ===
+
+/**
+ * Record of a single function call executed during a step.
+ */
+export type AxFunctionCallRecord = {
+  readonly name: string;
+  readonly args: unknown;
+  readonly result: unknown;
+};
+
+/**
+ * Accumulated token usage across steps.
+ */
+export type AxStepUsage = {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+};
+
+/**
+ * Mutable context object that flows through the generation loop.
+ * Accessible to functions and step hooks, enabling per-step control
+ * over model, options, functions, and loop flow.
+ *
+ * Uses a pending mutations pattern: changes are collected during a step
+ * and applied at the top of the next iteration.
+ */
+export interface AxStepContext {
+  // Read-only state
+  readonly stepIndex: number;
+  readonly maxSteps: number;
+  readonly isFirstStep: boolean;
+  readonly functionsExecuted: ReadonlySet<string>;
+  readonly lastFunctionCalls: readonly AxFunctionCallRecord[];
+  readonly usage: Readonly<AxStepUsage>;
+
+  // Custom state map (persists across steps)
+  readonly state: Map<string, unknown>;
+
+  // Mutators (changes are applied at next step boundary)
+  setModel(model: string): void;
+  setThinkingBudget(budget: AxAIServiceOptions['thinkingTokenBudget']): void;
+  setTemperature(temperature: number): void;
+  setMaxTokens(maxTokens: number): void;
+  setOptions(
+    options: Partial<
+      AxAIServiceOptions & { modelConfig?: Partial<AxModelConfig> }
+    >
+  ): void;
+  addFunctions(functions: AxInputFunctionType): void;
+  removeFunctions(...names: string[]): void;
+  stop(resultValues?: Record<string, unknown>): void;
+}
+
+/**
+ * Hooks called at various points during the multi-step generation loop.
+ */
+export type AxStepHooks = {
+  beforeStep?: (ctx: AxStepContext) => void | Promise<void>;
+  afterStep?: (ctx: AxStepContext) => void | Promise<void>;
+  afterFunctionExecution?: (ctx: AxStepContext) => void | Promise<void>;
+};
+
+/**
+ * Configuration for LLM self-tuning capabilities.
+ * When enabled, an `adjustGeneration` function is auto-injected
+ * that lets the LLM adjust its own generation parameters.
+ */
+export type AxSelfTuningConfig = {
+  /** Let the LLM pick from available models. */
+  model?: boolean;
+  /** Let the LLM adjust reasoning depth. */
+  thinkingBudget?: boolean;
+  /** Let the LLM adjust sampling temperature (opt-in). */
+  temperature?: boolean;
+  /** Pool of functions the LLM can activate/deactivate per step. */
+  functions?: AxInputFunctionType;
+};
+
 export type AxFieldValue =
   | string
   | string[]
@@ -119,6 +199,10 @@ export type AxProgramForwardOptions<MODEL> = AxAIServiceOptions & {
 
   // Tracing and logging
   traceLabel?: string;
+
+  // Step context and hooks
+  stepHooks?: AxStepHooks;
+  selfTuning?: boolean | AxSelfTuningConfig;
 
   // AxGen-specific options (previously in AxGenOptions)
   description?: string;

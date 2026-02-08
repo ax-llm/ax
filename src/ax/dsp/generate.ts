@@ -74,10 +74,12 @@ import {
   processStreamingResponse,
   shouldContinueSteps,
 } from './processResponse.js';
+import { createSelfTuningFunction } from './selfTuning.js';
 import { AxProgram } from './program.js';
 import { AxPromptTemplate } from './prompt.js';
 import { selectFromSamples, selectFromSamplesInMemory } from './samples.js';
 import type { AxIField, AxSignature } from './sig.js';
+import { AxStepContextImpl } from './stepContext.js';
 import { SignatureToolCallingManager } from './signatureToolCalling.js';
 import type {
   AsyncGenDeltaOut,
@@ -473,6 +475,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     traceContext,
     states,
     stopFunctionNames,
+    stepContext,
   }: Readonly<{
     ai: Readonly<AxAIService>;
     mem: AxAIMemory;
@@ -482,6 +485,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     traceContext?: Context;
     states: InternalAxGenState[];
     stopFunctionNames?: readonly string[];
+    stepContext?: AxStepContextImpl;
   }>): AsyncGenDeltaOut<OUT> {
     const { sessionId, functions: functionList } = options ?? {};
 
@@ -560,6 +564,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         signatureToolCallingManager,
         stopFunctionNames,
         disableMemoryCleanup: options.disableMemoryCleanup,
+        stepContext,
       });
     } else {
       yield* processResponse<OUT>({
@@ -585,6 +590,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         signatureToolCallingManager,
         stopFunctionNames,
         disableMemoryCleanup: options.disableMemoryCleanup,
+        stepContext,
       });
     }
   }
@@ -609,12 +615,30 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
     const mem = options.mem ?? this.options?.mem ?? new AxMemory();
 
-    const functions = [
+    const mutableFunctions = [
       ...this.functions,
       ...(options.functions ? parseFunctions(options.functions) : []),
     ];
 
-    const hasFunctions = functions && functions.length > 0;
+    // Create step context for programmatic loop control
+    const stepContext = new AxStepContextImpl(maxSteps);
+
+    // Inject self-tuning function if enabled
+    if (options.selfTuning) {
+      const selfTuningConfig =
+        options.selfTuning === true
+          ? { model: true, thinkingBudget: true }
+          : options.selfTuning;
+      const tuningFn = createSelfTuningFunction(ai, selfTuningConfig);
+      mutableFunctions.push(tuningFn);
+    }
+
+    // Mutable options that can be changed by step context mutations
+    let mutableOptions = { ...options };
+
+    const stepHooks = options.stepHooks;
+
+    const hasFunctions = mutableFunctions && mutableFunctions.length > 0;
 
     const functionCallMode =
       options.functionCallMode ?? this.options?.functionCallMode ?? 'auto';
@@ -622,7 +646,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     // Handle prompt mode
     if (hasFunctions && functionCallMode === 'prompt') {
       this.signatureToolCallingManager = new SignatureToolCallingManager(
-        functions
+        mutableFunctions
       );
     }
 
@@ -633,7 +657,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       !ai.getFeatures(options.model).functions
     )
       this.signatureToolCallingManager = new SignatureToolCallingManager(
-        functions
+        mutableFunctions
       );
 
     let err: ValidationError | AxAssertionError | undefined;
@@ -672,7 +696,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         parameters: toJsonSchema(this.signature.getOutputFields()),
         func: async () => 'done',
       };
-      functions.push(syntheticFunction);
+      mutableFunctions.push(syntheticFunction);
 
       stopFunctionNames = [
         ...(stopFunctionNames ?? []),
@@ -686,7 +710,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
     const currentPromptTemplateOptions = {
       // Prefer per-call functions; fall back to parsed functions from constructor
-      functions: this.signatureToolCallingManager ? [] : functions,
+      functions: this.signatureToolCallingManager ? [] : mutableFunctions,
       thoughtFieldName: this.thoughtFieldName,
       contextCache: options.contextCache, // Pass through for system prompt caching
       examplesInSystem: options.examplesInSystem,
@@ -765,7 +789,62 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       committedValues.set(s.index, {});
     });
 
+    // Helper to apply pending step context mutations to mutableOptions/mutableFunctions
+    const applyStepContextMutations = () => {
+      const pendingOpts = stepContext._consumePendingOptions();
+      if (pendingOpts) {
+        const { modelConfig: pendingModelConfig, ...restOpts } = pendingOpts;
+        mutableOptions = { ...mutableOptions, ...restOpts };
+        if (pendingModelConfig) {
+          mutableOptions.modelConfig = {
+            ...mutableOptions.modelConfig,
+            ...pendingModelConfig,
+          };
+        }
+      }
+
+      const toAdd = stepContext._consumeFunctionsToAdd();
+      if (toAdd) {
+        const parsed = parseFunctions(toAdd);
+        for (const fn of parsed) {
+          if (!mutableFunctions.some((f) => f.name === fn.name)) {
+            mutableFunctions.push(fn);
+          }
+        }
+      }
+
+      const toRemove = stepContext._consumeFunctionsToRemove();
+      if (toRemove) {
+        const removeSet = new Set(toRemove.map((n) => n.toLowerCase()));
+        for (let i = mutableFunctions.length - 1; i >= 0; i--) {
+          if (removeSet.has(mutableFunctions[i]!.name.toLowerCase())) {
+            mutableFunctions.splice(i, 1);
+          }
+        }
+      }
+    };
+
     multiStepLoop: for (let n = 0; n < maxSteps; n++) {
+      // Begin new step on the context
+      stepContext._beginStep(n);
+
+      // Apply pending mutations from previous step (or from selfTuning/hooks)
+      applyStepContextMutations();
+
+      // Check if stop was requested by a previous step's function/hook
+      if (stepContext._isStopRequested) {
+        break;
+      }
+
+      // Call beforeStep hook
+      if (stepHooks?.beforeStep) {
+        await stepHooks.beforeStep(stepContext);
+        applyStepContextMutations();
+        if (stepContext._isStopRequested) {
+          break;
+        }
+      }
+
       // Infrastructure error retry configuration
       // Use the same maxRetries for infrastructure errors (default 3)
       const infraMaxRetries = maxRetries;
@@ -803,7 +882,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
             try {
               const generator = this.forwardCore({
-                options: { ...options, functions },
+                options: { ...mutableOptions, functions: mutableFunctions },
                 ai,
                 mem,
                 stepIndex: n,
@@ -811,6 +890,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
                 traceContext,
                 states,
                 stopFunctionNames,
+                stepContext,
               });
 
               let stopFunctionTriggered = false;
@@ -969,16 +1049,46 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
                 }
               }
 
-              const shouldContinue = stopFunctionTriggered
-                ? false
-                : shouldContinueSteps(
-                    mem,
-                    stopFunctionNames,
-                    states,
-                    options?.sessionId
+              // Accumulate usage on step context from this step's usage data
+              if (this.usage.length > 0) {
+                const lastUsage = this.usage[this.usage.length - 1];
+                if (lastUsage?.tokens) {
+                  stepContext._addUsage(
+                    lastUsage.tokens.promptTokens ?? 0,
+                    lastUsage.tokens.completionTokens ?? 0,
+                    lastUsage.tokens.totalTokens ?? 0
                   );
+                }
+              }
 
-              if (shouldContinue) {
+              // Check if any functions were executed (for afterFunctionExecution hook)
+              const functionsRan = states.some(
+                (s) => s.functionsExecuted.size > 0
+              );
+
+              // Call afterFunctionExecution hook if functions ran
+              if (functionsRan && stepHooks?.afterFunctionExecution) {
+                await stepHooks.afterFunctionExecution(stepContext);
+                applyStepContextMutations();
+              }
+
+              const shouldContinue =
+                stopFunctionTriggered || stepContext._isStopRequested
+                  ? false
+                  : shouldContinueSteps(
+                      mem,
+                      stopFunctionNames,
+                      states,
+                      mutableOptions?.sessionId
+                    );
+
+              // Call afterStep hook
+              if (stepHooks?.afterStep) {
+                await stepHooks.afterStep(stepContext);
+                applyStepContextMutations();
+              }
+
+              if (shouldContinue && !stepContext._isStopRequested) {
                 // Record multi-step generation metric
                 const metricsInstruments = this.getMetricsInstruments();
                 if (metricsInstruments) {

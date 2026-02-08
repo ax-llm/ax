@@ -197,6 +197,7 @@ export type AxFunctionHandler = (
     traceId?: string;
     debug?: boolean;
     ai?: AxAIService;
+    step?: import('../dsp/types.js').AxStepContext;
   }>
 ) => unknown;
 
@@ -211,6 +212,7 @@ export type AxFunctionJSONSchema = {
   >;
   required?: string[];
   items?: AxFunctionJSONSchema;
+  enum?: string[];
   title?: string;
   additionalProperties?: boolean;
 };

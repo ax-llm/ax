@@ -498,3 +498,142 @@ const result = await gen.forward(ai, { question: '...' }, {
 
 console.log(result.reasoning);  // Thinking is in 'reasoning' field
 ```
+
+## Step Hooks
+
+Step hooks let you observe and control the multi-step generation loop from the outside. They fire at well-defined points during each iteration and receive an `AxStepContext` that exposes read-only state and mutation methods.
+
+### Three Hook Points
+
+| Hook | When it fires |
+|------|--------------|
+| `beforeStep` | Before the AI request is sent for this step |
+| `afterStep` | After the step completes (response processed) |
+| `afterFunctionExecution` | After function calls are executed (only when functions ran) |
+
+### Basic Example
+
+```typescript
+const result = await gen.forward(ai, values, {
+  stepHooks: {
+    beforeStep: (ctx) => {
+      console.log(`Step ${ctx.stepIndex}, first: ${ctx.isFirstStep}`);
+      // Upgrade model after a specific function ran
+      if (ctx.functionsExecuted.has('complexanalysis')) {
+        ctx.setModel('smart');
+        ctx.setThinkingBudget('high');
+      }
+    },
+    afterStep: (ctx) => {
+      console.log(`Usage so far: ${ctx.usage.totalTokens} tokens`);
+    },
+    afterFunctionExecution: (ctx) => {
+      console.log(`Functions ran: ${[...ctx.functionsExecuted].join(', ')}`);
+    },
+  },
+});
+```
+
+### AxStepContext Reference
+
+**Read-only properties:**
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `stepIndex` | `number` | Current step number (0-based) |
+| `maxSteps` | `number` | Maximum steps allowed |
+| `isFirstStep` | `boolean` | True when `stepIndex === 0` |
+| `functionsExecuted` | `ReadonlySet<string>` | Lowercased names of functions called this step |
+| `lastFunctionCalls` | `AxFunctionCallRecord[]` | Detailed records (name, args, result) from this step |
+| `usage` | `AxStepUsage` | Accumulated token usage across all steps |
+| `state` | `Map<string, unknown>` | Custom state that persists across steps |
+
+**Mutators (applied at the next step boundary):**
+
+| Method | Description |
+|--------|-------------|
+| `setModel(model)` | Switch to a different model key |
+| `setThinkingBudget(budget)` | Adjust reasoning depth (`'none'` to `'highest'`) |
+| `setTemperature(temp)` | Change sampling temperature |
+| `setMaxTokens(tokens)` | Change max output tokens |
+| `setOptions(opts)` | Merge arbitrary AI service options |
+| `addFunctions(fns)` | Add functions to the active set |
+| `removeFunctions(...names)` | Remove functions by name |
+| `stop(resultValues?)` | Terminate the loop, optionally providing result values |
+
+Mutations use a **pending pattern**: changes are collected during a step and applied at the top of the next iteration. This prevents mid-step inconsistencies.
+
+### Functions Also Receive Step Context
+
+User-defined functions receive the step context via `extra.step`, enabling programmatic loop control from within function handlers:
+
+```typescript
+const gen = new AxGen('question:string -> answer:string', {
+  functions: [{
+    name: 'analyzeData',
+    description: 'Analyze data',
+    parameters: { type: 'object', properties: { query: { type: 'string', description: 'Query' } } },
+    func: (args, extra) => {
+      // Read step state
+      const step = extra?.step;
+      console.log(`Running at step ${step?.stepIndex}`);
+
+      // Mutate for next step
+      step?.setThinkingBudget('high');
+
+      return analyzeData(args.query);
+    },
+  }],
+});
+```
+
+## Self-Tuning
+
+Self-tuning lets the LLM adjust its own generation parameters between steps. When enabled, an `adjustGeneration` function is auto-injected that the model can call alongside regular tool calls.
+
+### Simple Usage
+
+```typescript
+// Boolean shorthand: enables model + thinkingBudget adjustment
+const result = await gen.forward(ai, values, {
+  selfTuning: true,
+});
+```
+
+### Granular Configuration
+
+```typescript
+const result = await gen.forward(ai, values, {
+  selfTuning: {
+    model: true,          // Let LLM pick from available models
+    thinkingBudget: true,  // Let LLM adjust reasoning depth
+    temperature: true,     // Opt-in: let LLM adjust sampling temperature
+  },
+});
+```
+
+### Function Pool
+
+Use `selfTuning.functions` to provide a pool of tools the LLM can activate or deactivate on demand — useful for large toolboxes where you only want a subset active at any time:
+
+```typescript
+const result = await gen.forward(ai, values, {
+  selfTuning: {
+    model: true,
+    thinkingBudget: true,
+    functions: [searchWeb, calculate, fetchDatabase, generateChart],
+  },
+});
+```
+
+The LLM calls `adjustGeneration({ addFunctions: ['searchWeb'] })` to activate tools, or `adjustGeneration({ removeFunctions: ['calculate'] })` to deactivate them.
+
+### How It Works
+
+1. An `adjustGeneration` function is injected into the function list
+2. The LLM can call it alongside other functions within the same step
+3. Model selection uses the `models` list configured on the AI service (via `AxAI` model keys)
+4. Thinking budget uses a 6-level enum: `none`, `minimal`, `low`, `medium`, `high`, `highest`
+5. Mutations are applied at the next step boundary (same pending pattern as step hooks)
+
+Temperature is excluded by default because LLMs have limited intuition about sampling parameters. Enable it explicitly with `temperature: true` if your use case benefits from it.

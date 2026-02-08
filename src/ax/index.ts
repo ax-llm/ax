@@ -596,6 +596,7 @@ import {
   type AxSignatureConfig,
   f,
 } from './dsp/sig.js';
+import { AxStepContextImpl } from './dsp/stepContext.js';
 import { AxStringUtil } from './dsp/strutil.js';
 import {
   AxSynth,
@@ -610,6 +611,7 @@ import type {
   AxExamples,
   AxFieldValue,
   AxForwardable,
+  AxFunctionCallRecord,
   AxGenDeltaOut,
   AxGenIn,
   AxGenInput,
@@ -630,7 +632,11 @@ import type {
   AxResultPickerFunction,
   AxResultPickerFunctionFieldResults,
   AxResultPickerFunctionFunctionResults,
+  AxSelfTuningConfig,
   AxSetExamplesOptions,
+  AxStepContext,
+  AxStepHooks,
+  AxStepUsage,
   AxTunable,
   AxUsable,
 } from './dsp/types.js';
@@ -863,6 +869,7 @@ export { AxSignatureBuilder };
 export { AxSimpleClassifier };
 export { AxSimpleClassifierClass };
 export { AxSpanKindValues };
+export { AxStepContextImpl };
 export { AxStopFunctionCallException };
 export { AxStringUtil };
 export { AxSynth };
@@ -1257,6 +1264,7 @@ export type { AxFlowable };
 export type { AxFluentFieldInfo };
 export type { AxForwardable };
 export type { AxFunction };
+export type { AxFunctionCallRecord };
 export type { AxFunctionHandler };
 export type { AxFunctionJSONSchema };
 export type { AxFunctionResult };
@@ -1364,9 +1372,13 @@ export type { AxRewriteIn };
 export type { AxRewriteOut };
 export type { AxRoutingResult };
 export type { AxSamplePickerOptions };
+export type { AxSelfTuningConfig };
 export type { AxSetExamplesOptions };
 export type { AxSignatureConfig };
 export type { AxSimpleClassifierForwardOptions };
+export type { AxStepContext };
+export type { AxStepHooks };
+export type { AxStepUsage };
 export type { AxStorage };
 export type { AxStorageQuery };
 export type { AxStreamingAssertion };

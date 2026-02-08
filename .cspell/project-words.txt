@@ -171,3 +171,7 @@ RARO
 lookback
 tpage
 tmpl
+Descs
+searchweb
+funca
+funcb

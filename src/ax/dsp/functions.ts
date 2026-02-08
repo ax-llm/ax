@@ -12,6 +12,7 @@ import type {
 import type { AxMemory } from '../mem/memory.js';
 import { axGlobals } from './globals.js';
 import { validateJSONSchema } from './jsonSchema.js';
+import type { AxStepContextImpl } from './stepContext.js';
 import type { AxProgramForwardOptions } from './types.js';
 
 export class AxStopFunctionCallException extends Error {
@@ -145,6 +146,7 @@ export class AxFunctionProcessor {
       AxProgramForwardOptions<MODEL> & {
         traceId?: string;
         stopFunctionNames?: readonly string[];
+        step?: AxStepContextImpl;
       }
     >
   ) => {
@@ -167,6 +169,7 @@ export class AxFunctionProcessor {
           sessionId: options.sessionId,
           traceId: options.traceId,
           ai: options.ai,
+          step: options.step,
         }
       : undefined;
 
@@ -197,6 +200,7 @@ export class AxFunctionProcessor {
       AxProgramForwardOptions<MODEL> & {
         traceId?: string;
         stopFunctionNames?: readonly string[];
+        step?: AxStepContextImpl;
       }
     >
   ): Promise<{
@@ -235,6 +239,7 @@ export class AxFunctionProcessor {
       AxProgramForwardOptions<MODEL> & {
         traceId?: string;
         stopFunctionNames?: readonly string[];
+        step?: AxStepContextImpl;
       }
     >
   ): Promise<string> => {
@@ -303,6 +308,7 @@ type ProcessFunctionsArgs = {
   logger: AxLoggerFunction;
   debug: boolean;
   stopFunctionNames?: readonly string[];
+  step?: AxStepContextImpl;
 };
 
 export const processFunctions = async ({
@@ -319,6 +325,7 @@ export const processFunctions = async ({
   logger,
   debug,
   stopFunctionNames,
+  step,
 }: Readonly<ProcessFunctionsArgs>) => {
   const funcProc = new AxFunctionProcessor(functionList);
   const functionsExecuted = new Set<string>();
@@ -353,6 +360,7 @@ export const processFunctions = async ({
           functionResultFormatter,
           traceId,
           stopFunctionNames,
+          step,
         })
         .then(
           ({
@@ -365,6 +373,7 @@ export const processFunctions = async ({
             parsedArgs: unknown;
           }) => {
             functionsExecuted.add(func.name.toLowerCase());
+            step?._recordFunctionCall(func.name, parsedArgs, rawResult);
             if (stopFunctionNames?.includes(func.name.toLowerCase())) {
               const spec = findFunctionSpec(func.name);
               if (spec) {
@@ -452,9 +461,11 @@ export const processFunctions = async ({
               functionResultFormatter,
               traceId: toolSpan?.spanContext?.().traceId ?? traceId,
               stopFunctionNames,
+              step,
             });
 
           functionsExecuted.add(func.name.toLowerCase());
+          step?._recordFunctionCall(func.name, parsedArgs, rawResult);
           if (stopFunctionNames?.includes(func.name.toLowerCase())) {
             const spec = findFunctionSpec(func.name);
             if (spec) {
