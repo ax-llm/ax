@@ -96,7 +96,7 @@ const cleanSchemaForGemini = (schema: any): any => {
   if (Array.isArray(cleaned.type)) {
     cleaned.type = cleaned.type.includes('object')
       ? 'object'
-      : cleaned.type[0] ?? 'string';
+      : (cleaned.type[0] ?? 'string');
   }
 
   // Recursively clean properties
