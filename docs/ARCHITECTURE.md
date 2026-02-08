@@ -71,17 +71,20 @@ The signature system is the foundation of Ax's type safety:
 
 ```typescript
 // String-based signature
-const sig = AxSignature.create('question:string -> answer:string, confidence:number');
+const sig = AxSignature.create(
+  'question:string -> answer:string, confidence:number'
+)
 
 // Fluent API signature
 const sig = f()
   .input('question', f.string('User question'))
   .output('answer', f.string('Generated answer'))
   .output('confidence', f.number('Confidence score'))
-  .build();
+  .build()
 ```
 
 **Supported Field Types:**
+
 - `string`, `number`, `boolean` - Basic types
 - `json` - Arbitrary JSON data
 - `class` - Classification with predefined options
@@ -90,6 +93,7 @@ const sig = f()
 - `code` - Code snippets with language hints
 
 **Field Modifiers:**
+
 - `.optional()` - Makes field optional
 - `.array()` - Makes field an array
 - `.internal()` - Hides field from prompts (output only)
@@ -153,24 +157,25 @@ AxFlow provides DAG-based workflow orchestration with:
 flow<{ topic: string }>()
   .node('summarizer', 'text:string -> summary:string')
   .node('critic', 'summary:string -> critique:string')
-  .execute('summarizer', state => ({ text: state.topic }))
-  .execute('critic', state => ({ summary: state.summarizerResult.summary }))
+  .execute('summarizer', (state) => ({ text: state.topic }))
+  .execute('critic', (state) => ({ summary: state.summarizerResult.summary }))
 
 // Parallel execution
 flow<{ queries: string[] }>()
   .parallel([
-    sub => sub.execute('retrieve1', state => ({ query: state.queries[0] })),
-    sub => sub.execute('retrieve2', state => ({ query: state.queries[1] })),
-    sub => sub.execute('retrieve3', state => ({ query: state.queries[2] }))
-  ]).merge('allDocs', (docs1, docs2, docs3) => [...docs1, ...docs2, ...docs3])
+    (sub) => sub.execute('retrieve1', (state) => ({ query: state.queries[0] })),
+    (sub) => sub.execute('retrieve2', (state) => ({ query: state.queries[1] })),
+    (sub) => sub.execute('retrieve3', (state) => ({ query: state.queries[2] })),
+  ])
+  .merge('allDocs', (docs1, docs2, docs3) => [...docs1, ...docs2, ...docs3])
 
 // Conditional branching
 flow<{ complexity: number }>()
-  .branch(state => state.complexity > 0.5)
+  .branch((state) => state.complexity > 0.5)
   .when(true)
-    .execute('complexProcessor', state => ({ input: state.text }))
+  .execute('complexProcessor', (state) => ({ input: state.text }))
   .when(false)
-    .execute('simpleProcessor', state => ({ input: state.text }))
+  .execute('simpleProcessor', (state) => ({ input: state.text }))
   .merge()
 ```
 
@@ -195,7 +200,8 @@ src/ax/
 │   │   └── gepa.ts
 │   ├── functions.ts   # Function calling support
 │   ├── asserts.ts     # Assertion system
-│   └── prompt.ts      # Prompt generation
+│   ├── adapter.ts     # Prompt adapter pattern
+│   └── prompt.ts      # Prompt generation facade
 ├── flow/              # AxFlow workflow system
 │   ├── flow.ts        # Main AxFlow class
 │   ├── executionPlanner.ts
@@ -217,6 +223,7 @@ src/ax/
 ### Why TypeScript?
 
 TypeScript provides:
+
 - **Type Safety** - Catch errors at compile time
 - **Better DX** - IntelliSense and autocomplete
 - **Runtime Validation** - Combine with runtime checks
@@ -225,12 +232,14 @@ TypeScript provides:
 ### Signature-First Design
 
 Inspired by DSPy, signatures are:
+
 - **Declarative** - Describe what, not how
 - **Type-safe** - Generate TypeScript types
 - **Optimizable** - Can be improved automatically
 - **Composable** - Combine in workflows
 
 This approach separates concerns:
+
 - Signature defines the interface
 - Implementation handles execution
 - Optimization improves performance
@@ -241,13 +250,20 @@ Ax uses a unified interface approach:
 
 ```typescript
 interface AxAIService {
-  chat(req: AxChatRequest, options?: AxAIServiceOptions): Promise<AxChatResponse | ReadableStream>;
-  embed(req: AxEmbedRequest, options?: AxAIServiceOptions): Promise<AxEmbedResponse>;
-  getFeatures(model?: string): AxAIFeatures;
+  chat(
+    req: AxChatRequest,
+    options?: AxAIServiceOptions
+  ): Promise<AxChatResponse | ReadableStream>
+  embed(
+    req: AxEmbedRequest,
+    options?: AxAIServiceOptions
+  ): Promise<AxEmbedResponse>
+  getFeatures(model?: string): AxAIFeatures
 }
 ```
 
 **Benefits:**
+
 - Consistent API across providers
 - Easy to add new providers
 - Automatic capability detection
@@ -256,6 +272,7 @@ interface AxAIService {
 ### Streaming Architecture
 
 Streaming is first-class in Ax:
+
 - All providers support streaming
 - Validation during streaming
 - Assertions can fail fast
@@ -265,10 +282,10 @@ Streaming is first-class in Ax:
 
 ```typescript
 // Streaming with validation
-const stream = await gen.streamingForward(ai, values);
+const stream = await gen.streamingForward(ai, values)
 for await (const delta of stream) {
   // Process incremental updates
-  console.log(delta.delta);
+  console.log(delta.delta)
 }
 ```
 
@@ -289,7 +306,7 @@ interface AxOptimizer {
     program: AxProgramWithSignature,
     examples: AxExample[],
     metric: AxMetricFn
-  ): Promise<AxOptimizedProgram>;
+  ): Promise<AxOptimizedProgram>
 }
 ```
 
@@ -368,13 +385,13 @@ export class MyOptimizer implements AxOptimizer {
     metric: AxMetricFn
   ): Promise<AxOptimizedProgram> {
     // Your optimization logic
-    const optimizedExamples = await this.optimizeExamples(examples);
-    
+    const optimizedExamples = await this.optimizeExamples(examples)
+
     return {
       program,
       examples: optimizedExamples,
-      metrics: { score: 0.95 }
-    };
+      metrics: { score: 0.95 },
+    }
   }
 }
 ```
@@ -397,7 +414,7 @@ class CustomFlow<IN, OUT> extends AxFlow<IN, OUT> {
   // Add custom methods
   public customPattern(...args: any[]) {
     // Implementation
-    return this;
+    return this
   }
 }
 ```
@@ -420,8 +437,8 @@ const flow = flow<{ queries: string[] }>({ autoParallel: true })
   .node('retrieve', 'query:string -> docs:string[]')
   .derive('results', 'queries', async (query) => {
     // These execute in parallel automatically
-    return await retrieve(query);
-  });
+    return await retrieve(query)
+  })
 ```
 
 ### Memory Management
@@ -435,12 +452,14 @@ const flow = flow<{ queries: string[] }>({ autoParallel: true })
 ### OpenTelemetry Integration
 
 Ax automatically creates spans for:
+
 - AI provider calls
 - Program execution
 - Workflow steps
 - Function calls
 
 **Custom Attributes:**
+
 - Token usage (input/output)
 - Model configuration
 - Latency metrics

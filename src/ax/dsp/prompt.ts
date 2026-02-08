@@ -11,6 +11,7 @@ import type { AxFieldValue, AxMessage } from './types.js';
 export interface AxPromptTemplateOptions {
   functions?: Readonly<AxInputFunctionType>;
   thoughtFieldName?: string;
+  showThoughts?: boolean;
   contextCache?: AxContextCacheOptions;
   examplesInSystem?: boolean;
   ignoreBreakpoints?: boolean;
@@ -53,10 +54,7 @@ export class AxPromptTemplate {
       examples?: Record<string, AxFieldValue>[];
       demos?: Record<string, AxFieldValue>[];
     }> = {}
-  ): Extract<
-    AxChatRequest['chatPrompt'][number],
-    { role: 'user' | 'system' | 'assistant' }
-  >[] => {
+  ): AxChatRequest['chatPrompt'] => {
     return this.adapter.render(values, options);
   };
 

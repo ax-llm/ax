@@ -121,8 +121,16 @@ export type AxGenOut = { [key: string]: AxFieldValue };
  * - v15.0.0: Complete replacement with new design
  */
 export type AxMessage<IN> =
+  | { role: 'system'; content: string }
   | { role: 'user'; values: IN }
-  | { role: 'assistant'; values: IN };
+  | { role: 'assistant'; values: IN; functionCalls?: any[] }
+  | { role: 'assistant'; content: string; functionCalls?: any[] }
+  | {
+      role: 'function';
+      result: string;
+      functionId: string;
+      isError?: boolean;
+    };
 
 export type AxProgramTrace<IN, OUT> = {
   trace: OUT & Partial<IN>;

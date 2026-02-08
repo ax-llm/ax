@@ -43,8 +43,8 @@ import {
   handleValidationErrorForGenerate,
   ValidationError,
 } from './errors.js';
-import { validateStructuredOutputValues } from './extract.js';
 import type { extractionState } from './extract.js';
+import { validateStructuredOutputValues } from './extract.js';
 import {
   type AxFieldProcessor,
   processFieldProcessors,
@@ -76,14 +76,13 @@ import {
   processStreamingResponse,
   shouldContinueSteps,
 } from './processResponse.js';
-import { createSelfTuningFunction } from './selfTuning.js';
-import type { AxSelfTuningConfig } from './types.js';
 import { AxProgram } from './program.js';
 import { AxPromptTemplate } from './prompt.js';
 import { selectFromSamples, selectFromSamplesInMemory } from './samples.js';
+import { createSelfTuningFunction } from './selfTuning.js';
 import type { AxIField, AxSignature } from './sig.js';
-import { AxStepContextImpl } from './stepContext.js';
 import { SignatureToolCallingManager } from './signatureToolCalling.js';
+import { AxStepContextImpl } from './stepContext.js';
 import type {
   AsyncGenDeltaOut,
   AxGenDeltaOut,
@@ -180,6 +179,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     const promptTemplateOptions = {
       functions: options?.functions,
       thoughtFieldName: this.thoughtFieldName,
+      showThoughts: options?.showThoughts,
     };
     this.promptTemplate = new (options?.promptTemplate ?? AxPromptTemplate)(
       this.signature,
@@ -397,7 +397,22 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
     let responseFormat: AxChatRequest['responseFormat'];
 
-    const outputFields = this.signature.getOutputFields();
+    const outputFields = [...this.signature.getOutputFields()];
+
+    if (
+      showThoughts &&
+      !outputFields.some((f) => f.name === this.thoughtFieldName)
+    ) {
+      outputFields.push({
+        name: this.thoughtFieldName,
+        title:
+          this.thoughtFieldName.charAt(0).toUpperCase() +
+          this.thoughtFieldName.slice(1),
+        description: 'Provide your thinking process.',
+        type: { name: 'string' },
+      });
+    }
+
     const hasComplexFields = this.signature.hasComplexFields();
 
     // Auto-detect structured output requirement
