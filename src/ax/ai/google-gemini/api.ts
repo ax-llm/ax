@@ -89,6 +89,16 @@ const cleanSchemaForGemini = (schema: any): any => {
   delete cleaned.oneOf;
   delete cleaned.anyOf;
 
+  // Gemini does not support type unions (type as an array).
+  // Convert to a single concrete type, preferring 'object' for flexible
+  // json/object types (e.g. json[] signature produces items with
+  // type: ["object","array","string","number","boolean","null"]).
+  if (Array.isArray(cleaned.type)) {
+    cleaned.type = cleaned.type.includes('object')
+      ? 'object'
+      : cleaned.type[0] ?? 'string';
+  }
+
   // Recursively clean properties
   if (cleaned.properties && typeof cleaned.properties === 'object') {
     cleaned.properties = Object.fromEntries(
