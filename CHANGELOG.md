@@ -1,5 +1,17 @@
 # Changelog
 
+## [16.1.4](///compare/16.1.2...16.1.2) (2026-02-08)
+
+### Features
+
+* add function-call fallback for structured output on unsupported providers f3e787c
+* add step context, step hooks, and self-tuning with enriched descriptions 76bddaa
+
+### Bug Fixes
+
+* ensure Gemini 3+ minimum temperature of 1.0 is actually applied 57c8edd
+* normalize type unions in cleanSchemaForGemini for json[] compatibility ([#488](undefined/undefined/undefined/issues/488)) fdba299
+
 ## [16.1.3](///compare/16.1.1...16.1.2) (2026-02-08)
 
 ### Features
