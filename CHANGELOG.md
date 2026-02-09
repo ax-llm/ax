@@ -1,5 +1,20 @@
 # Changelog
 
+## [16.1.6](///compare/16.1.4...16.1.5) (2026-02-09)
+
+### Features
+
+* add AxAgent RLM support, self-tuning improvements, and docs updates 508ba77
+
+### Bug Fixes
+
+* correct temperature property in self-tuning schema generation 59efdb3
+## [16.1.5](///compare/16.1.4...16.1.5) (2026-02-08)
+
+### Bug Fixes
+
+* remove unused @types/uuid dev dependency breaking type-checks 876e45c
+
 ## [16.1.5](///compare/16.1.2...16.1.4) (2026-02-08)
 
 ### Bug Fixes
