@@ -58,12 +58,12 @@ export function createSelfTuningFunction(
     };
   }
 
-  // Build temperature property (opt-in only)
-  if (config.temperature === true) {
+  // Build temperature property
+  if (config.temperature) {
     properties.temperature = {
       type: 'number',
       description:
-        'Sampling temperature (0-2). Lower is more deterministic, higher is more creative.',
+        'Sampling temperature for the next step. Lower values (0–0.3) for deterministic tasks like math or code; higher values (0.7–1.0) for creative or exploratory tasks.',
     };
   }
 

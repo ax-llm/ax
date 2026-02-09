@@ -88,7 +88,7 @@ export type AxSelfTuningConfig = {
   model?: boolean;
   /** Let the LLM adjust reasoning depth. */
   thinkingBudget?: boolean;
-  /** Let the LLM adjust sampling temperature (opt-in). */
+  /** Let the LLM adjust sampling temperature. */
   temperature?: boolean;
   /** Pool of functions the LLM can activate/deactivate per step. */
   functions?: AxInputFunctionType;
