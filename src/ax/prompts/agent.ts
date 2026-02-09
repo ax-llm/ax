@@ -1,12 +1,18 @@
 import type {
   AxAIModelList,
   AxAIService,
+  AxChatResponse,
   AxFunction,
   AxFunctionHandler,
   AxFunctionJSONSchema,
 } from '../ai/types.js';
 import type { AxInputFunctionType } from '../dsp/functions.js';
 import { AxGen } from '../dsp/generate.js';
+import {
+  AxAIServiceNetworkError,
+  AxAIServiceStatusError,
+  AxAIServiceTimeoutError,
+} from '../util/apicall.js';
 import { AxSignature } from '../dsp/sig.js';
 import type { ParseSignature } from '../dsp/sigtypes.js';
 import type {
@@ -24,6 +30,8 @@ import type {
   AxTunable,
   AxUsable,
 } from '../dsp/types.js';
+import type { AxRLMConfig } from './rlm.js';
+import { axBuildRLMDefinition } from './rlm.js';
 
 /**
  * Interface for agents that can be used as child agents.
@@ -43,6 +51,8 @@ export type AxAgentOptions = Omit<
   /** List of field names that should not be automatically passed from parent to child agents */
   excludeFieldsFromPassthrough?: string[];
   debug?: boolean;
+  /** RLM (Recursive Language Model) configuration for handling long contexts */
+  rlm?: AxRLMConfig;
 };
 
 export interface AxAgentFeatures {
@@ -186,6 +196,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private excludeFieldsFromPassthrough: string[];
   private debug?: boolean;
   private options?: Readonly<AxAgentOptions>;
+  private rlmConfig?: AxRLMConfig;
+  private rlmProgram?: AxGen<any, OUT>;
 
   private name: string;
   //   private subAgentList?: string
@@ -261,6 +273,42 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     // Only add model parameter if smart routing is enabled and model list exists
     if (mm && !this.disableSmartModelRouting) {
       this.func.parameters = addModelParameter(this.func.parameters, mm);
+    }
+
+    // RLM setup
+    if (options?.rlm) {
+      this.rlmConfig = options.rlm;
+
+      // Validate contextFields exist in signature
+      const inputFields = this.program.getSignature().getInputFields();
+      for (const cf of options.rlm.contextFields) {
+        if (!inputFields.some((f) => f.name === cf)) {
+          throw new Error(`RLM contextField "${cf}" not found in signature`);
+        }
+      }
+
+      if (!options.rlm.interpreter) {
+        throw new Error(
+          'RLM interpreter is required. Use AxRLMJSInterpreter from @ax-llm/ax-tools or provide a custom AxCodeInterpreter.'
+        );
+      }
+
+      // Build inner signature: same outputs, inputs minus context fields
+      const rlmSig = new AxSignature({
+        description: this.program.getSignature().getDescription(),
+        inputs: inputFields.filter(
+          (f) => !options.rlm!.contextFields.includes(f.name)
+        ),
+        outputs: this.program.getSignature().getOutputFields(),
+      });
+
+      const rlmDef = axBuildRLMDefinition(
+        definition ?? description,
+        options.rlm.interpreter.language,
+        options.rlm.contextFields
+      );
+
+      this.rlmProgram = new AxGen(rlmSig, { ...options, description: rlmDef });
     }
   }
 
@@ -438,15 +486,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     values: IN | AxMessage<IN>[],
     options?: Readonly<AxProgramForwardOptionsWithModels<T>>
   ): Promise<OUT> {
-    const { ai, functions, debug } = this.init<T>(parentAi, values, options);
-    // Merge stored options with runtime options, with runtime taking precedence
-    const mergedOptions = {
-      ...this.options, // Agent-level options (like functionCallMode)
-      ...options, // Runtime options
-      debug,
-      functions,
-    };
-    return await this.program.forward(ai, values, mergedOptions);
+    if (this.rlmConfig && this.rlmProgram) {
+      return this._rlmForward(parentAi, values, options);
+    }
+    return this._defaultForward(parentAi, values, options);
   }
 
   public async *streamingForward<T extends Readonly<AxAIService>>(
@@ -454,15 +497,223 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     values: IN | AxMessage<IN>[],
     options?: Readonly<AxProgramStreamingForwardOptionsWithModels<T>>
   ): AxGenStreamingOut<OUT> {
+    if (this.rlmConfig && this.rlmProgram) {
+      // RLM mode: run non-streaming path and yield final result as a single delta
+      const result = await this._rlmForward(parentAi, values, options);
+      yield { version: 1, index: 0, delta: result as Partial<OUT> };
+      return;
+    }
+    return yield* this._defaultStreamingForward(parentAi, values, options);
+  }
+
+  private async _defaultForward<T extends Readonly<AxAIService>>(
+    parentAi: T,
+    values: IN | AxMessage<IN>[],
+    options?: Readonly<AxProgramForwardOptionsWithModels<T>>
+  ): Promise<OUT> {
     const { ai, functions, debug } = this.init<T>(parentAi, values, options);
-    // Merge stored options with runtime options, with runtime taking precedence
     const mergedOptions = {
-      ...this.options, // Agent-level options (like functionCallMode)
-      ...options, // Runtime options
+      ...this.options,
+      ...options,
+      debug,
+      functions,
+    };
+    return await this.program.forward(ai, values, mergedOptions);
+  }
+
+  private async *_defaultStreamingForward<T extends Readonly<AxAIService>>(
+    parentAi: T,
+    values: IN | AxMessage<IN>[],
+    options?: Readonly<AxProgramStreamingForwardOptionsWithModels<T>>
+  ): AxGenStreamingOut<OUT> {
+    const { ai, functions, debug } = this.init<T>(parentAi, values, options);
+    const mergedOptions = {
+      ...this.options,
+      ...options,
       debug,
       functions,
     };
     return yield* this.program.streamingForward(ai, values, mergedOptions);
+  }
+
+  /**
+   * RLM forward: extracts context fields, creates an interpreter session with
+   * context + llmQuery globals, and runs the rlmProgram with codeInterpreter.
+   */
+  private async _rlmForward<T extends Readonly<AxAIService>>(
+    parentAi: T,
+    values: IN | AxMessage<IN>[],
+    options?:
+      | Readonly<AxProgramForwardOptionsWithModels<T>>
+      | Readonly<AxProgramStreamingForwardOptionsWithModels<T>>
+  ): Promise<OUT> {
+    const {
+      ai,
+      functions: baseFunctions,
+      debug,
+    } = this.init<T>(
+      parentAi,
+      values,
+      options as Readonly<AxProgramForwardOptionsWithModels<T>>
+    );
+    const rlm = this.rlmConfig!;
+    const interpreter = rlm.interpreter;
+
+    // 1. Separate context from non-context values
+    const contextValues: Record<string, unknown> = {};
+    const nonContextValues: Record<string, unknown> = {};
+    let rawValues: Record<string, unknown>;
+
+    if (Array.isArray(values)) {
+      const lastUserMsg = values.filter((msg) => msg.role === 'user').pop();
+      rawValues = (lastUserMsg?.values ?? {}) as Record<string, unknown>;
+    } else {
+      rawValues = values as Record<string, unknown>;
+    }
+
+    for (const [k, v] of Object.entries(rawValues)) {
+      if (rlm.contextFields.includes(k)) {
+        contextValues[k] = v;
+      } else {
+        nonContextValues[k] = v;
+      }
+    }
+
+    for (const field of rlm.contextFields) {
+      if (!(field in contextValues)) {
+        throw new Error(
+          `RLM contextField "${field}" is missing from input values`
+        );
+      }
+    }
+
+    // 2. Create interpreter session with context as globals
+    let llmCallCount = 0;
+    const maxLlmCalls = rlm.maxLlmCalls ?? 50;
+
+    const llmQuery = async (query: string, ctx?: string): Promise<string> => {
+      if (llmCallCount++ >= maxLlmCalls) {
+        throw new Error(`Max LLM sub-calls (${maxLlmCalls}) exceeded`);
+      }
+
+      const maxAttempts = 3;
+      let lastError: unknown;
+
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        try {
+          const res = await ai.chat(
+            {
+              chatPrompt: [
+                {
+                  role: 'system' as const,
+                  content: 'Answer the query based on the provided context.',
+                },
+                {
+                  role: 'user' as const,
+                  content: ctx ? `Context:\n${ctx}\n\nQuery: ${query}` : query,
+                },
+              ],
+              ...(rlm.subModel ? { model: rlm.subModel } : {}),
+            },
+            { stream: false }
+          );
+          const chatRes = res as AxChatResponse;
+          return chatRes.results?.[0]?.content ?? '';
+        } catch (err) {
+          lastError = err;
+          if (!isTransientError(err) || attempt >= maxAttempts - 1) {
+            throw err;
+          }
+          const delay = Math.min(60_000, 1000 * Math.pow(2, attempt));
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+      }
+      throw lastError;
+    };
+
+    const llmQueryBatched = async (
+      queries: readonly { query: string; context?: string }[]
+    ) => Promise.all(queries.map((q) => llmQuery(q.query, q.context)));
+
+    const printOutput: string[] = [];
+    let printOutputSize = 0;
+    const maxPrintOutputSize = 1_048_576; // 1MB cap
+    const session = interpreter.createSession({
+      ...contextValues,
+      llmQuery,
+      llmQueryBatched,
+      print: (...args: unknown[]) => {
+        if (printOutputSize >= maxPrintOutputSize) return;
+        const line = args.map(String).join(' ');
+        printOutputSize += line.length;
+        printOutput.push(line);
+      },
+    });
+
+    // 3. Create codeInterpreter function
+    const codeInterpreterFn: AxFunction = {
+      name: 'codeInterpreter',
+      description:
+        `Execute ${interpreter.language} code in a persistent REPL. ` +
+        `Context available as: ${rlm.contextFields.join(', ')}. ` +
+        `Use \`await llmQuery(query, context?)\` for semantic analysis. ` +
+        `Use var (not const/let) to persist variables. Return a value to see it.`,
+      parameters: {
+        type: 'object',
+        properties: {
+          code: {
+            type: 'string',
+            description: `${interpreter.language} code to execute`,
+          },
+        },
+        required: ['code'],
+      },
+      func: async ({ code }: Readonly<{ code: string }>) => {
+        try {
+          const result = await session.execute(code);
+          const output = printOutput.splice(0).join('\n');
+          let str = '';
+          if (result !== undefined) {
+            if (typeof result === 'string') {
+              str = result;
+            } else {
+              try {
+                str = JSON.stringify(result, null, 2);
+              } catch {
+                str = String(result);
+              }
+            }
+          }
+          return [output, str].filter(Boolean).join('\n') || '(no output)';
+        } catch (err) {
+          const output = printOutput.splice(0).join('\n');
+          const errorMsg = `Error: ${(err as Error).message}`;
+          return output ? `${output}\n${errorMsg}` : errorMsg;
+        }
+      },
+    };
+
+    // 4. Run rlmProgram
+    try {
+      const mergedOptions = {
+        ...this.options,
+        ...options,
+        debug,
+        functions: [...baseFunctions, codeInterpreterFn],
+        maxSteps: options?.maxSteps ?? this.options?.maxSteps ?? 20,
+      };
+      return await this.rlmProgram!.forward(
+        ai,
+        nonContextValues as any,
+        mergedOptions as any
+      );
+    } finally {
+      try {
+        session.close();
+      } catch {
+        // Ignore close errors to avoid masking the original error
+      }
+    }
   }
 
   /**
@@ -510,6 +761,20 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   ): boolean {
     return options?.debug ?? this.debug ?? ai?.getOptions()?.debug ?? false;
   }
+}
+
+function isTransientError(error: unknown): boolean {
+  if (
+    error instanceof AxAIServiceStatusError &&
+    error.status >= 500 &&
+    error.status < 600
+  ) {
+    return true;
+  }
+  return (
+    error instanceof AxAIServiceNetworkError ||
+    error instanceof AxAIServiceTimeoutError
+  );
 }
 
 function toCamelCase(inputString: string): string {

@@ -105,6 +105,14 @@ const filesToCopy = [
     description: 'The programmable unit of Ax for building AI workflows',
   },
   {
+    source: 'AXAGENT.md',
+    sourceDir: docsDir,
+    dest: 'axagent.md',
+    title: 'AxAgent Guide',
+    description:
+      'Agent framework with child agents, tools, and RLM for long contexts',
+  },
+  {
     source: 'LEARN.md',
     sourceDir: docsDir,
     dest: 'learn.md',

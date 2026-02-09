@@ -186,7 +186,6 @@ describe('createSelfTuningFunction', () => {
       const func = createSelfTuningFunction(ai, {
         model: true,
         thinkingBudget: true,
-        temperature: true,
       });
 
       const mockStep: AxStepContext = {

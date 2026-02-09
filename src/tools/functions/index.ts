@@ -4,3 +4,8 @@ export {
   AxJSInterpreterPermission,
   axCreateJSInterpreter,
 } from './jsInterpreter.js';
+
+export {
+  AxRLMJSInterpreter,
+  axCreateRLMJSInterpreter,
+} from './rlmInterpreter.js';

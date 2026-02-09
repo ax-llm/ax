@@ -193,6 +193,7 @@ npm install @ax-llm/ax-tools
 - [AI Providers](/ai/) – All providers, AWS Bedrock, Vercel AI SDK
 - [AxFlow Workflows](/axflow/) – Build complex AI systems
 - [Optimization (MiPRO, ACE, GEPA)](/optimize/) – Make programs smarter
+- [AxAgent & RLM](/axagent/) – Agents, child agents, tools, and RLM for long contexts
 - [Advanced RAG](/axrag/) – Production search and retrieval
 
 ## Run Examples
@@ -203,7 +204,7 @@ OPENAI_APIKEY=your-key npm run tsx ./src/examples/[example-name].ts
 
 Core examples: `extract.ts`, `react.ts`, `agent.ts`, `streaming1.ts`, `multi-modal.ts`
 
-Production patterns: `customer-support.ts`, `food-search.ts`, `ace-train-inference.ts`, `ax-flow-enhanced-demo.ts`
+Production patterns: `customer-support.ts`, `food-search.ts`, `rlm.ts`, `ace-train-inference.ts`, `ax-flow-enhanced-demo.ts`
 
 [View all 70+ examples](https://github.com/ax-llm/ax/blob/main/src/examples/)
 

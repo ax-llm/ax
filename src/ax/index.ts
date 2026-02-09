@@ -733,6 +733,12 @@ import {
   agent,
 } from './prompts/agent.js';
 import { axRAG } from './prompts/rag.js';
+import {
+  type AxCodeInterpreter,
+  type AxCodeSession,
+  type AxRLMConfig,
+  axBuildRLMDefinition,
+} from './prompts/rlm.js';
 import { AxTraceLogger, type AxTraceLoggerOptions } from './trace/logger.js';
 import {
   AxLLMRequestTypeValues,
@@ -918,6 +924,7 @@ export { axAnalyzeChatPromptRequirements };
 export { axAnalyzeRequestRequirements };
 export { axBaseAIDefaultConfig };
 export { axBaseAIDefaultCreativeConfig };
+export { axBuildRLMDefinition };
 export { axCheckMetricsHealth };
 export { axCreateDefaultColorLogger };
 export { axCreateDefaultOptimizerColorLogger };
@@ -1193,6 +1200,8 @@ export type { AxCheckpoint };
 export type { AxCheckpointLoadFn };
 export type { AxCheckpointSaveFn };
 export type { AxCitation };
+export type { AxCodeInterpreter };
+export type { AxCodeSession };
 export type { AxCompileOptions };
 export type { AxContentProcessingServices };
 export type { AxContextCacheInfo };
@@ -1360,6 +1369,7 @@ export type { AxProgramTrace };
 export type { AxProgramUsage };
 export type { AxProgrammable };
 export type { AxPromptTemplateOptions };
+export type { AxRLMConfig };
 export type { AxRateLimiterFunction };
 export type { AxRateLimiterTokenUsageOptions };
 export type { AxRerankerIn };
