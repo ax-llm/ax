@@ -1,5 +1,16 @@
 # Changelog
 
+## [16.1.7](///compare/16.1.5...16.1.6) (2026-02-10)
+
+### Features
+
+* add AxAgent RLM support, self-tuning improvements, and docs updates 508ba77
+* enhance AxAIGoogleGemini tests for thinkingBudget preservation dbe1245
+
+### Bug Fixes
+
+* correct temperature property in self-tuning schema generation 59efdb3
+
 ## [16.1.6](///compare/16.1.4...16.1.5) (2026-02-09)
 
 ### Features
