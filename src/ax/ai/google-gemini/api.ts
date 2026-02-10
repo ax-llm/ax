@@ -9,12 +9,6 @@ import {
 } from '../base.js';
 
 /**
- * Check if a model is a Gemini 2.5 model
- */
-const isGemini25Model = (model: string): boolean =>
-  model.includes('gemini-2.5');
-
-/**
  * Check if a model is a Gemini 3 model
  */
 const isGemini3Model = (model: string): boolean => model.includes('gemini-3');
@@ -812,8 +806,8 @@ class AxAIGoogleGeminiImpl
     if (!isGemini3Model(model)) {
       delete thinkingConfig.thinkingLevel;
     }
-    // thinkingBudget is only supported by Gemini 2.5 models
-    if (!isGemini25Model(model)) {
+    // thinkingBudget is not supported by Gemini 3+ models (which use thinkingLevel instead)
+    if (isGemini3Model(model)) {
       delete thinkingConfig.thinkingBudget;
     }
 

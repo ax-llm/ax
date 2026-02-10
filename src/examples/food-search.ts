@@ -142,8 +142,7 @@ const llm = ai({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY as string,
   config: {
-    model: AxAIGoogleGeminiModel.Gemini3Flash,
-    thinking: { thinkingLevel: 'low', thinkingTokenBudget: 200 },
+    model: AxAIGoogleGeminiModel.GeminiFlashLiteLatest,
   },
 });
 
@@ -191,6 +190,7 @@ const res = await gen.forward(
   llm,
   { customerQuery },
   {
+    thinkingTokenBudget: 'high',
     // logger: axCreateDefaultTextLogger(),
     debug: true,
     stream: true,

@@ -725,6 +725,114 @@ describe('AxAIGoogleGemini model key preset merging', () => {
     ).toBe(5000);
   });
 
+  it('preserves thinkingBudget for gemini-flash-lite-latest alias', async () => {
+    const ai = new AxAIGoogleGemini({
+      apiKey: 'key',
+      config: { model: 'gemini-flash-lite-latest' as any },
+      models: [],
+    });
+
+    const capture: { lastBody?: any } = {};
+    const fetch = createMockFetch(
+      {
+        candidates: [
+          {
+            content: { parts: [{ text: 'ok' }] },
+            finishReason: 'STOP',
+          },
+        ],
+      },
+      capture
+    );
+
+    ai.setOptions({ fetch });
+
+    await ai.chat(
+      {
+        chatPrompt: [{ role: 'user', content: 'hi' }],
+      },
+      { thinkingTokenBudget: 'low', stream: false }
+    );
+
+    const reqBody = capture.lastBody;
+    expect(reqBody.generationConfig.thinkingConfig.thinkingBudget).toBe(800);
+    expect(
+      reqBody.generationConfig.thinkingConfig.thinkingLevel
+    ).toBeUndefined();
+  });
+
+  it('preserves thinkingBudget for gemini-flash-latest alias', async () => {
+    const ai = new AxAIGoogleGemini({
+      apiKey: 'key',
+      config: { model: 'gemini-flash-latest' as any },
+      models: [],
+    });
+
+    const capture: { lastBody?: any } = {};
+    const fetch = createMockFetch(
+      {
+        candidates: [
+          {
+            content: { parts: [{ text: 'ok' }] },
+            finishReason: 'STOP',
+          },
+        ],
+      },
+      capture
+    );
+
+    ai.setOptions({ fetch });
+
+    await ai.chat(
+      {
+        chatPrompt: [{ role: 'user', content: 'hi' }],
+      },
+      { thinkingTokenBudget: 'medium', stream: false }
+    );
+
+    const reqBody = capture.lastBody;
+    expect(reqBody.generationConfig.thinkingConfig.thinkingBudget).toBe(5000);
+    expect(
+      reqBody.generationConfig.thinkingConfig.thinkingLevel
+    ).toBeUndefined();
+  });
+
+  it('preserves thinkingBudget for gemini-pro-latest alias', async () => {
+    const ai = new AxAIGoogleGemini({
+      apiKey: 'key',
+      config: { model: 'gemini-pro-latest' as any },
+      models: [],
+    });
+
+    const capture: { lastBody?: any } = {};
+    const fetch = createMockFetch(
+      {
+        candidates: [
+          {
+            content: { parts: [{ text: 'ok' }] },
+            finishReason: 'STOP',
+          },
+        ],
+      },
+      capture
+    );
+
+    ai.setOptions({ fetch });
+
+    await ai.chat(
+      {
+        chatPrompt: [{ role: 'user', content: 'hi' }],
+      },
+      { thinkingTokenBudget: 'high', stream: false }
+    );
+
+    const reqBody = capture.lastBody;
+    expect(reqBody.generationConfig.thinkingConfig.thinkingBudget).toBe(10000);
+    expect(
+      reqBody.generationConfig.thinkingConfig.thinkingLevel
+    ).toBeUndefined();
+  });
+
   it('does not set thought: true on text part when function calls are present', async () => {
     const ai = new AxAIGoogleGemini({
       apiKey: 'key',
