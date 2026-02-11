@@ -1,5 +1,16 @@
 # Changelog
 
+## [16.1.8](///compare/16.1.6...16.1.7) (2026-02-11)
+
+### Features
+
+* enhance AxAgent with structured context fields and improve documentation b149463
+## [16.1.7](///compare/16.1.6...16.1.7) (2026-02-10)
+
+### Features
+
+* enhance AxAIGoogleGemini tests for thinkingBudget preservation dbe1245
+
 ## [16.1.7](///compare/16.1.5...16.1.6) (2026-02-10)
 
 ### Features
