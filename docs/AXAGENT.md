@@ -247,6 +247,51 @@ const analyzer = agent(
 );
 ```
 
+### Structured Context Fields
+
+Context fields aren't limited to plain strings. You can pass structured data — objects and arrays with typed sub-fields — and the LLM will see their full schema in the code interpreter prompt.
+
+```typescript
+import { agent, f, s } from '@ax-llm/ax';
+import { AxRLMJSInterpreter } from '@ax-llm/ax-tools';
+
+const sig = s('query:string -> answer:string, evidence:string[]')
+  .appendInputField('documents', f.object({
+    id: f.number('Document ID'),
+    title: f.string('Document title'),
+    content: f.string('Document body'),
+  }).array('Source documents'));
+
+const analyzer = agent(sig, {
+  name: 'structuredAnalyzer',
+  description: 'Analyzes structured document collections using RLM',
+  rlm: {
+    contextFields: ['documents'],
+    interpreter: new AxRLMJSInterpreter(),
+  },
+});
+```
+
+When the LLM enters the code interpreter, it sees the schema:
+
+```
+- `documents` (json array of object { id: number, title: string, content: string } items)
+```
+
+The LLM can then work with the data using property access and array methods:
+
+```javascript
+// Filter documents by title
+const relevant = documents.filter(d => d.title.includes('climate'));
+
+// Pass content to sub-LM — strings go directly, objects via JSON.stringify()
+const summaries = await llmQueryBatched(
+  relevant.map(d => ({ query: 'Summarize this document', context: d.content }))
+);
+```
+
+Structured fields are loaded as native JavaScript objects in the interpreter, preserving their full structure for programmatic access.
+
 ### The REPL Loop
 
 In RLM mode, the agent gets a special function:
@@ -269,8 +314,8 @@ Inside the code interpreter, these functions are available as globals:
 
 | API | Description |
 |-----|-------------|
-| `await llmQuery(query, context?)` | Ask a sub-LM a question, optionally with a context string |
-| `await llmQueryBatched([{ query, context? }, ...])` | Run multiple sub-LM queries in parallel |
+| `await llmQuery(query, context?)` | Ask a sub-LM a question, optionally with a context string. Returns a string |
+| `await llmQueryBatched([{ query, context? }, ...])` | Run multiple sub-LM queries in parallel. Returns string[]. Each query counts individually toward the call limit |
 | `print(...args)` | Print output (appears in the function result) |
 | Context variables | All fields listed in `contextFields` are available by name |
 

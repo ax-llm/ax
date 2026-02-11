@@ -13,7 +13,9 @@ import {
   AxAIServiceStatusError,
   AxAIServiceTimeoutError,
 } from '../util/apicall.js';
+import { toFieldType } from '../dsp/prompt.js';
 import { AxSignature } from '../dsp/sig.js';
+import type { AxIField } from '../dsp/sig.js';
 import type { ParseSignature } from '../dsp/sigtypes.js';
 import type {
   AxGenIn,
@@ -197,6 +199,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private debug?: boolean;
   private options?: Readonly<AxAgentOptions>;
   private rlmConfig?: AxRLMConfig;
+  private rlmContextFields?: readonly AxIField[];
   private rlmProgram?: AxGen<any, OUT>;
 
   private name: string;
@@ -302,10 +305,15 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         outputs: this.program.getSignature().getOutputFields(),
       });
 
+      const contextFieldMeta = inputFields.filter((f) =>
+        options.rlm!.contextFields.includes(f.name)
+      );
+      this.rlmContextFields = contextFieldMeta;
+
       const rlmDef = axBuildRLMDefinition(
         definition ?? description,
         options.rlm.interpreter.language,
-        options.rlm.contextFields
+        contextFieldMeta
       );
 
       this.rlmProgram = new AxGen(rlmSig, { ...options, description: rlmDef });
@@ -651,13 +659,17 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     });
 
     // 3. Create codeInterpreter function
+    const contextDesc = (this.rlmContextFields ?? [])
+      .map((f) => `${f.name}: ${toFieldType(f.type)}`)
+      .join(', ');
+
     const codeInterpreterFn: AxFunction = {
       name: 'codeInterpreter',
       description:
         `Execute ${interpreter.language} code in a persistent REPL. ` +
-        `Context available as: ${rlm.contextFields.join(', ')}. ` +
-        `Use \`await llmQuery(query, context?)\` for semantic analysis. ` +
-        `Use var (not const/let) to persist variables. Return a value to see it.`,
+        `Context available as: ${contextDesc || rlm.contextFields.join(', ')}. ` +
+        `Use \`await llmQuery(query, context?)\` or \`llmQueryBatched([...])\` for semantic analysis. ` +
+        `Persist with var (sync) or bare assignment (async). Return a value to see it.`,
       parameters: {
         type: 'object',
         properties: {

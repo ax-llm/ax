@@ -2,10 +2,13 @@ import { describe, expect, it } from 'vitest';
 
 import { AxMockAIService } from '../ai/mock/api.js';
 import type { AxChatResponse } from '../ai/types.js';
+import { toFieldType } from '../dsp/prompt.js';
+import type { AxIField } from '../dsp/sig.js';
 import { s } from '../dsp/template.js';
 import type { AxMessage } from '../dsp/types.js';
 
 import { AxAgent, agent } from './agent.js';
+import { axBuildRLMDefinition } from './rlm.js';
 
 // Helper function to create streaming responses
 function createStreamingResponse(
@@ -635,5 +638,306 @@ describe('Enhanced agent() function with AxSignature Support', () => {
     expect(factoryAgent.getFunction().description).toBe(
       staticAgent.getFunction().description
     );
+  });
+});
+
+describe('toFieldType with object structure', () => {
+  it('should render object with fields', () => {
+    const result = toFieldType({
+      name: 'object',
+      fields: {
+        id: { type: 'number' },
+        title: { type: 'string' },
+      },
+    });
+    expect(result).toBe('object { id: number, title: string }');
+  });
+
+  it('should render plain object without fields', () => {
+    const result = toFieldType({ name: 'object' });
+    expect(result).toBe('object');
+  });
+
+  it('should render nested object fields', () => {
+    const result = toFieldType({
+      name: 'object',
+      fields: {
+        name: { type: 'string' },
+        address: {
+          type: 'object',
+          fields: {
+            city: { type: 'string' },
+            zip: { type: 'string' },
+          },
+        },
+      },
+    });
+    expect(result).toBe(
+      'object { name: string, address: object { city: string, zip: string } }'
+    );
+  });
+
+  it('should render optional nested fields with ?', () => {
+    const result = toFieldType({
+      name: 'object',
+      fields: {
+        timeout: { type: 'number', isOptional: true },
+        retries: { type: 'number', isOptional: true },
+      },
+    });
+    expect(result).toBe('object { timeout?: number, retries?: number }');
+  });
+
+  it('should render array of objects with fields', () => {
+    const result = toFieldType({
+      name: 'object',
+      isArray: true,
+      fields: {
+        id: { type: 'number' },
+        name: { type: 'string' },
+      },
+    });
+    expect(result).toBe(
+      'json array of object { id: number, name: string } items'
+    );
+  });
+});
+
+describe('axBuildRLMDefinition with typed context fields', () => {
+  it('should render string field type', () => {
+    const fields: AxIField[] = [
+      { name: 'query', title: 'Query', type: { name: 'string' } },
+    ];
+    const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
+    expect(result).toContain('- `query` (string)');
+  });
+
+  it('should render number field type', () => {
+    const fields: AxIField[] = [
+      { name: 'count', title: 'Count', type: { name: 'number' } },
+    ];
+    const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
+    expect(result).toContain('- `count` (number)');
+  });
+
+  it('should render object with nested fields', () => {
+    const fields: AxIField[] = [
+      {
+        name: 'doc',
+        title: 'Doc',
+        type: {
+          name: 'object',
+          fields: {
+            id: { type: 'number' },
+            title: { type: 'string' },
+          },
+        },
+      },
+    ];
+    const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
+    expect(result).toContain('- `doc` (object { id: number, title: string })');
+  });
+
+  it('should render array of objects', () => {
+    const fields: AxIField[] = [
+      {
+        name: 'items',
+        title: 'Items',
+        type: {
+          name: 'object',
+          isArray: true,
+          fields: {
+            id: { type: 'number' },
+          },
+        },
+      },
+    ];
+    const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
+    expect(result).toContain(
+      '- `items` (json array of object { id: number } items)'
+    );
+  });
+
+  it('should include field descriptions as suffix', () => {
+    const fields: AxIField[] = [
+      {
+        name: 'query',
+        title: 'Query',
+        type: { name: 'string' },
+        description: "The user's search query",
+      },
+    ];
+    const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
+    expect(result).toContain("- `query` (string): The user's search query");
+  });
+
+  it('should render optional nested fields with ?', () => {
+    const fields: AxIField[] = [
+      {
+        name: 'config',
+        title: 'Config',
+        type: {
+          name: 'object',
+          fields: {
+            timeout: { type: 'number', isOptional: true },
+            retries: { type: 'number', isOptional: true },
+          },
+        },
+      },
+    ];
+    const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
+    expect(result).toContain(
+      '- `config` (object { timeout?: number, retries?: number })'
+    );
+  });
+
+  it('should maintain backward compat with string[]', () => {
+    const result = axBuildRLMDefinition(undefined, 'JavaScript', [
+      'documents',
+      'query',
+    ]);
+    expect(result).toContain('- `documents` (string)');
+    expect(result).toContain('- `query` (string)');
+  });
+
+  it('should update workflow text to reference schemas instead of peeking', () => {
+    const fields: AxIField[] = [
+      { name: 'docs', title: 'Docs', type: { name: 'string' } },
+    ];
+    const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
+    expect(result).toContain('schemas are described above');
+    expect(result).not.toContain('peek at the context to understand');
+  });
+
+  it('should use generic workflow step 2 covering both structured and string data', () => {
+    const fields: AxIField[] = [
+      {
+        name: 'items',
+        title: 'Items',
+        type: {
+          name: 'object',
+          isArray: true,
+          fields: { id: { type: 'number' }, title: { type: 'string' } },
+        },
+      },
+    ];
+    const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
+    expect(result).toContain('property access, array methods (.map, .filter)');
+    expect(result).not.toContain(
+      'string operations, regex, chunking, and iteration'
+    );
+  });
+});
+
+describe('axBuildRLMDefinition dual structured/string guidance', () => {
+  const fields: AxIField[] = [
+    {
+      name: 'items',
+      title: 'Items',
+      type: {
+        name: 'object',
+        isArray: true,
+        fields: { id: { type: 'number' }, title: { type: 'string' } },
+      },
+    },
+  ];
+
+  it('should include JSON.stringify() guidance in output', () => {
+    const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
+    expect(result).toContain('JSON.stringify()');
+  });
+
+  it('should not include [0] probe or .slice(0, 500)', () => {
+    const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
+    expect(result).not.toContain('[0]');
+    expect(result).not.toContain('.slice(0, 500)');
+  });
+
+  it('should not contain "chunk it first"', () => {
+    const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
+    expect(result).not.toContain('chunk it first');
+  });
+
+  it('should include .map, .filter, property access in tips', () => {
+    const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
+    expect(result).toContain('.map, .filter, property access');
+  });
+
+  it('should include conditional stringify guidance in Step 3', () => {
+    const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
+    expect(result).toContain(
+      'strings directly, objects/arrays via JSON.stringify()'
+    );
+  });
+
+  it('should include same context rules note for llmQueryBatched', () => {
+    const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
+    expect(result).toContain('same context rules');
+  });
+
+  it('should reference schemas for property name guidance', () => {
+    const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
+    expect(result).toContain('schemas are described above');
+  });
+
+  it('should document llmQuery return type', () => {
+    const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
+    expect(result).toContain('Returns a string.');
+  });
+
+  it('should document llmQueryBatched return type', () => {
+    const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
+    expect(result).toContain('Returns string[]');
+  });
+
+  it('should note batch queries count individually', () => {
+    const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
+    expect(result).toContain('Each query counts toward the call limit');
+  });
+});
+
+describe('codeInterpreter description with typed context', () => {
+  it('should include field types in context description', () => {
+    const fields: AxIField[] = [
+      {
+        name: 'documents',
+        title: 'Documents',
+        type: {
+          name: 'object',
+          isArray: true,
+          fields: {
+            id: { type: 'number' },
+            title: { type: 'string' },
+          },
+        },
+      },
+      { name: 'query', title: 'Query', type: { name: 'string' } },
+    ];
+    const contextDesc = fields
+      .map((f) => `${f.name}: ${toFieldType(f.type)}`)
+      .join(', ');
+    expect(contextDesc).toBe(
+      'documents: json array of object { id: number, title: string } items, query: string'
+    );
+  });
+});
+
+describe('A/An article grammar in renderInputFields', () => {
+  it('should use "An" before vowel-starting types like object', () => {
+    const type = 'object { id: number }';
+    const article = /^[aeiou]/i.test(type) ? 'An' : 'A';
+    expect(article).toBe('An');
+  });
+
+  it('should use "A" before consonant-starting types like string', () => {
+    const type = 'string';
+    const article = /^[aeiou]/i.test(type) ? 'An' : 'A';
+    expect(article).toBe('A');
+  });
+
+  it('should use "A" before number type', () => {
+    const type = 'number';
+    const article = /^[aeiou]/i.test(type) ? 'An' : 'A';
+    expect(article).toBe('A');
   });
 });

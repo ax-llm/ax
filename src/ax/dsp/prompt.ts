@@ -3,7 +3,7 @@ import type { AxChatRequest, AxContextCacheOptions } from '../ai/types.js';
 import { formatDateWithTimezone } from './datetime.js';
 import type { AxInputFunctionType } from './functions.js';
 import { axGlobals } from './globals.js';
-import type { AxField, AxIField, AxSignature } from './sig.js';
+import type { AxField, AxFieldType, AxIField, AxSignature } from './sig.js';
 import type { AxFieldValue, AxMessage } from './types.js';
 import { validateValue } from './util.js';
 
@@ -1453,7 +1453,7 @@ const renderInputFields = (
 
     const requiredMsg = field.isOptional
       ? `This optional ${type} field may be omitted`
-      : `A ${type} field`;
+      : `${/^[aeiou]/i.test(type) ? 'An' : 'A'} ${type} field`;
 
     let description = '';
     if (field.description) {
@@ -1540,6 +1540,22 @@ const processValue = (
   return JSON.stringify(value, null, 2);
 };
 
+function formatObjectStructure(
+  fields: Readonly<Record<string, AxFieldType>>
+): string {
+  const entries = Object.entries(fields).map(([key, ft]) => {
+    const opt = ft.isOptional ? '?' : '';
+    const typeStr = toFieldType({
+      name: ft.type,
+      isArray: ft.isArray,
+      fields: ft.fields,
+      options: ft.options as string[] | undefined,
+    });
+    return `${key}${opt}: ${typeStr}`;
+  });
+  return `{ ${entries.join(', ')} }`;
+}
+
 export const toFieldType = (type: Readonly<AxField['type']>) => {
   const baseType = (() => {
     switch (type?.name) {
@@ -1564,7 +1580,9 @@ export const toFieldType = (type: Readonly<AxField['type']>) => {
       case 'url':
         return 'URL (string or object with url, title, description)';
       case 'object':
-        return 'object';
+        return type?.fields
+          ? `object ${formatObjectStructure(type.fields)}`
+          : 'object';
       default:
         return 'string';
     }
