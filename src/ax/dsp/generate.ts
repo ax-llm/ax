@@ -615,10 +615,9 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
     const mem = options.mem ?? this.options?.mem ?? new AxMemory();
 
-    const mutableFunctions = [
-      ...this.functions,
-      ...(options.functions ? parseFunctions(options.functions) : []),
-    ];
+    const mutableFunctions = options.functions
+      ? parseFunctions(options.functions)
+      : [...this.functions];
 
     // Create step context for programmatic loop control
     const stepContext = new AxStepContextImpl(maxSteps);
