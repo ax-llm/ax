@@ -1,5 +1,20 @@
 # Changelog
 
+## [16.1.9](///compare/16.1.7...16.1.8) (2026-02-12)
+
+### Features
+
+* implement abort functionality in AxAgent, AxGen, and AxFlow d450bbd
+
+### Bug Fixes
+
+* unify llmQuery functionality and update documentation af64cf9
+## [16.1.8](///compare/16.1.7...16.1.8) (2026-02-11)
+
+### Features
+
+* enhance AxAgent with structured context fields and improve documentation b149463
+
 ## [16.1.8](///compare/16.1.6...16.1.7) (2026-02-11)
 
 ### Features
