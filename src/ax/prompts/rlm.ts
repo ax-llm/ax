@@ -76,26 +76,48 @@ Variables and state persist across calls.
 The following variables are available in the interpreter session:
 ${contextVarList}
 
-### Available APIs
-- \`await llmQuery(query, context?)\` — Ask a sub-LM a natural-language question. Optionally pass a context string (for objects/arrays, use JSON.stringify()). Returns a string.
-- \`await llmQueryBatched([{ query, context? }, ...])\` — Run multiple sub-LM queries in parallel (same context rules as llmQuery). Returns string[]. Each query counts toward the call limit.
-- \`print(...args)\` — Print output (appears in the function result).
+### APIs
+- \`await llmQuery(query, context?)\` — Ask a sub-LM a natural-language question. Pass context as a string (use JSON.stringify() for objects/arrays). Returns a string.
+- \`await llmQuery([{ query, context? }, ...])\` — Parallel sub-queries. Returns string[].
 
-### Workflow
-1. The variable schemas are described above — use property names directly in code. Probe only for runtime size (e.g. \`${firstFieldName}.length\`).
-2. Use code to process the context — property access, array methods (.map, .filter), string operations, regex, or iteration as appropriate for the data type.
-3. For semantic analysis, pass relevant subsets to llmQuery — strings directly, objects/arrays via JSON.stringify().
-4. For parallel analysis, use \`await llmQueryBatched([...])\`.
-5. Aggregate results as needed.
-6. When done, provide your final answer with the required output fields.
+Sub-queries have a call limit — use parallel queries and keep each context small.
 
-### Tips
-- Keep llmQuery context small — for strings, chunk the text; for structured data, filter or slice to relevant items.
-- Use code for structural operations (.map, .filter, property access for objects; split, regex for strings) and llmQuery for semantic understanding.
-- Use \`var\` (not \`const\`/\`let\`) to persist variables across calls for synchronous code.
-- When using \`await\`, use bare assignments (e.g. \`results = await llmQuery(...)\`) to persist values.
-- The last expression value is auto-returned for synchronous code. When using \`await\`, code runs inside a wrapper function, so use \`return <value>\` to produce output.
-- If \`llmQuery\` fails with an error, use try/catch and retry with a smaller chunk or different query.`;
+### Execution rules
+- Sync code: use \`var\` (not \`const\`/\`let\`) to persist variables across calls. The last expression is auto-returned.
+- Async code (with \`await\`): use bare assignments (e.g. \`results = await ...\`) to persist. Use \`return\` to produce output.
+
+### Example
+Analyzing \`${firstFieldName}\`:
+
+**Call 1** — probe:
+\`\`\`
+var n = ${firstFieldName}.length
+n
+\`\`\`
+→ 42
+
+**Call 2** — chunk and query in parallel:
+\`\`\`
+var chunks = []
+for (var i = 0; i < n; i += 5) chunks.push(JSON.stringify(${firstFieldName}.slice(i, i + 5)))
+results = await llmQuery(chunks.map(c => ({ query: "Summarize key points", context: c })))
+return results
+\`\`\`
+→ ["Summary of chunk 1...", "Summary of chunk 2...", ...]
+
+**Call 3** — aggregate:
+\`\`\`
+answer = await llmQuery("Synthesize these summaries into a final answer", results.join("\\n"))
+return answer
+\`\`\`
+→ "Final synthesized answer..."
+
+Then provide the final answer with the required output fields.
+
+### Guidelines
+- Use code for structural work (filter, map, slice, regex, property access); use \`llmQuery\` for semantic understanding.
+- Keep \`llmQuery\` context small — chunk text or filter/slice data before passing.
+- If \`llmQuery\` fails, use try/catch and retry with a smaller chunk or different query.`;
 
   return rlmPrompt;
 }

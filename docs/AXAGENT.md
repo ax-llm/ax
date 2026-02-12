@@ -220,7 +220,7 @@ When you pass a long document to an LLM, you face:
 
 1. **Context extraction** — Fields listed in `contextFields` are removed from the LLM prompt and loaded into a code interpreter session as variables.
 2. **Code interpreter** — The LLM gets a `codeInterpreter` tool to execute code in a persistent REPL. Variables and state persist across calls.
-3. **Sub-LM queries** — Inside the code interpreter, `llmQuery(query, context?)` calls a sub-LM for semantic analysis of chunks. `llmQueryBatched([...])` runs multiple queries in parallel.
+3. **Sub-LM queries** — Inside the code interpreter, `llmQuery(query, context?)` calls a sub-LM for semantic analysis of chunks. `llmQuery([...])` runs multiple queries in parallel.
 4. **Final answer** — When done, the LLM provides its final answer with the required output fields.
 
 The LLM writes code to chunk, filter, and iterate over the document, using `llmQuery` only for semantic understanding of small pieces. This keeps the LLM prompt small while allowing analysis of unlimited context.
@@ -285,7 +285,7 @@ The LLM can then work with the data using property access and array methods:
 const relevant = documents.filter(d => d.title.includes('climate'));
 
 // Pass content to sub-LM — strings go directly, objects via JSON.stringify()
-const summaries = await llmQueryBatched(
+const summaries = await llmQuery(
   relevant.map(d => ({ query: 'Summarize this document', context: d.content }))
 );
 ```
@@ -315,7 +315,7 @@ Inside the code interpreter, these functions are available as globals:
 | API | Description |
 |-----|-------------|
 | `await llmQuery(query, context?)` | Ask a sub-LM a question, optionally with a context string. Returns a string |
-| `await llmQueryBatched([{ query, context? }, ...])` | Run multiple sub-LM queries in parallel. Returns string[]. Each query counts individually toward the call limit |
+| `await llmQuery([{ query, context? }, ...])` | Run multiple sub-LM queries in parallel. Returns string[]. Each query counts individually toward the call limit |
 | `print(...args)` | Print output (appears in the function result) |
 | Context variables | All fields listed in `contextFields` are available by name |
 
@@ -345,8 +345,7 @@ class MyBrowserInterpreter implements AxCodeInterpreter {
 
 The `globals` object passed to `createSession` includes:
 - All context field values (by field name)
-- `llmQuery` function
-- `llmQueryBatched` function
+- `llmQuery` function (supports both single and batched queries)
 - `print` function
 
 ### RLM with Streaming

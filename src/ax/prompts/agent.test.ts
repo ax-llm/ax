@@ -800,16 +800,17 @@ describe('axBuildRLMDefinition with typed context fields', () => {
     expect(result).toContain('- `query` (string)');
   });
 
-  it('should update workflow text to reference schemas instead of peeking', () => {
+  it('should include concrete example section instead of abstract workflow', () => {
     const fields: AxIField[] = [
       { name: 'docs', title: 'Docs', type: { name: 'string' } },
     ];
     const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
-    expect(result).toContain('schemas are described above');
-    expect(result).not.toContain('peek at the context to understand');
+    expect(result).toContain('### Example');
+    expect(result).toContain('Analyzing `docs`');
+    expect(result).not.toContain('### Workflow');
   });
 
-  it('should use generic workflow step 2 covering both structured and string data', () => {
+  it('should include guidelines for structural and semantic work', () => {
     const fields: AxIField[] = [
       {
         name: 'items',
@@ -822,10 +823,8 @@ describe('axBuildRLMDefinition with typed context fields', () => {
       },
     ];
     const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
-    expect(result).toContain('property access, array methods (.map, .filter)');
-    expect(result).not.toContain(
-      'string operations, regex, chunking, and iteration'
-    );
+    expect(result).toContain('filter, map, slice, regex, property access');
+    expect(result).not.toContain('### Tips');
   });
 });
 
@@ -858,26 +857,25 @@ describe('axBuildRLMDefinition dual structured/string guidance', () => {
     expect(result).not.toContain('chunk it first');
   });
 
-  it('should include .map, .filter, property access in tips', () => {
+  it('should include structural work guidance in guidelines', () => {
     const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
-    expect(result).toContain('.map, .filter, property access');
+    expect(result).toContain('filter, map, slice, regex, property access');
   });
 
-  it('should include conditional stringify guidance in Step 3', () => {
+  it('should include JSON.stringify guidance in APIs section', () => {
     const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
-    expect(result).toContain(
-      'strings directly, objects/arrays via JSON.stringify()'
-    );
+    expect(result).toContain('use JSON.stringify() for objects/arrays');
   });
 
-  it('should include same context rules note for llmQueryBatched', () => {
+  it('should document batched llmQuery overload', () => {
     const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
-    expect(result).toContain('same context rules');
+    expect(result).toContain('await llmQuery([{ query, context? }, ...])');
   });
 
-  it('should reference schemas for property name guidance', () => {
+  it('should include execution rules section', () => {
     const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
-    expect(result).toContain('schemas are described above');
+    expect(result).toContain('### Execution rules');
+    expect(result).toContain('use `var` (not `const`/`let`)');
   });
 
   it('should document llmQuery return type', () => {
@@ -885,14 +883,14 @@ describe('axBuildRLMDefinition dual structured/string guidance', () => {
     expect(result).toContain('Returns a string.');
   });
 
-  it('should document llmQueryBatched return type', () => {
+  it('should document batched llmQuery return type', () => {
     const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
     expect(result).toContain('Returns string[]');
   });
 
-  it('should note batch queries count individually', () => {
+  it('should note sub-queries have a call limit', () => {
     const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
-    expect(result).toContain('Each query counts toward the call limit');
+    expect(result).toContain('Sub-queries have a call limit');
   });
 });
 

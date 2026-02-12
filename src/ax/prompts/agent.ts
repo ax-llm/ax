@@ -599,7 +599,20 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     let llmCallCount = 0;
     const maxLlmCalls = rlm.maxLlmCalls ?? 50;
 
-    const llmQuery = async (query: string, ctx?: string): Promise<string> => {
+    const llmQuery = async (
+      queryOrQueries: string | readonly { query: string; context?: string }[],
+      ctx?: string
+    ): Promise<string | string[]> => {
+      if (Array.isArray(queryOrQueries)) {
+        return Promise.all(
+          queryOrQueries.map(
+            (q) => llmQuery(q.query, q.context) as Promise<string>
+          )
+        );
+      }
+
+      const query = queryOrQueries as string;
+
       if (llmCallCount++ >= maxLlmCalls) {
         throw new Error(`Max LLM sub-calls (${maxLlmCalls}) exceeded`);
       }
@@ -639,23 +652,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       throw lastError;
     };
 
-    const llmQueryBatched = async (
-      queries: readonly { query: string; context?: string }[]
-    ) => Promise.all(queries.map((q) => llmQuery(q.query, q.context)));
-
-    const printOutput: string[] = [];
-    let printOutputSize = 0;
-    const maxPrintOutputSize = 1_048_576; // 1MB cap
     const session = interpreter.createSession({
       ...contextValues,
       llmQuery,
-      llmQueryBatched,
-      print: (...args: unknown[]) => {
-        if (printOutputSize >= maxPrintOutputSize) return;
-        const line = args.map(String).join(' ');
-        printOutputSize += line.length;
-        printOutput.push(line);
-      },
     });
 
     // 3. Create codeInterpreter function
@@ -668,7 +667,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       description:
         `Execute ${interpreter.language} code in a persistent REPL. ` +
         `Context available as: ${contextDesc || rlm.contextFields.join(', ')}. ` +
-        `Use \`await llmQuery(query, context?)\` or \`llmQueryBatched([...])\` for semantic analysis. ` +
+        `Use \`await llmQuery(query, context?)\` for semantic analysis or \`await llmQuery([...])\` for batched queries. ` +
         `Persist with var (sync) or bare assignment (async). Return a value to see it.`,
       parameters: {
         type: 'object',
@@ -683,24 +682,15 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       func: async ({ code }: Readonly<{ code: string }>) => {
         try {
           const result = await session.execute(code);
-          const output = printOutput.splice(0).join('\n');
-          let str = '';
-          if (result !== undefined) {
-            if (typeof result === 'string') {
-              str = result;
-            } else {
-              try {
-                str = JSON.stringify(result, null, 2);
-              } catch {
-                str = String(result);
-              }
-            }
+          if (result === undefined) return '(no output)';
+          if (typeof result === 'string') return result || '(no output)';
+          try {
+            return JSON.stringify(result, null, 2);
+          } catch {
+            return String(result);
           }
-          return [output, str].filter(Boolean).join('\n') || '(no output)';
         } catch (err) {
-          const output = printOutput.splice(0).join('\n');
-          const errorMsg = `Error: ${(err as Error).message}`;
-          return output ? `${output}\n${errorMsg}` : errorMsg;
+          return `Error: ${(err as Error).message}`;
         }
       },
     };
