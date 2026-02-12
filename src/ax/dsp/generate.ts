@@ -77,6 +77,7 @@ import {
   shouldContinueSteps,
 } from './processResponse.js';
 import { createSelfTuningFunction } from './selfTuning.js';
+import type { AxSelfTuningConfig } from './types.js';
 import { AxProgram } from './program.js';
 import { AxPromptTemplate } from './prompt.js';
 import { selectFromSamples, selectFromSamplesInMemory } from './samples.js';
@@ -638,8 +639,10 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     const stepContext = new AxStepContextImpl(maxSteps);
 
     // Inject self-tuning function if enabled
+    let selfTuningConfig: AxSelfTuningConfig | undefined;
+
     if (options.selfTuning) {
-      const selfTuningConfig =
+      selfTuningConfig =
         options.selfTuning === true
           ? { model: true, thinkingBudget: true }
           : options.selfTuning;
@@ -656,7 +659,11 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         }
       }
 
-      const tuningFn = createSelfTuningFunction(ai, selfTuningConfig);
+      const tuningFn = createSelfTuningFunction(
+        ai,
+        selfTuningConfig,
+        options.model ? String(options.model) : undefined
+      );
       mutableFunctions.push(tuningFn);
     }
 
@@ -860,6 +867,23 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
       // Apply pending mutations from previous step (or from selfTuning/hooks)
       applyStepContextMutations();
+
+      // Update self-tuning function schema if model changed
+      if (selfTuningConfig && selfTuningConfig.model !== false) {
+        const idx = mutableFunctions.findIndex(
+          (f) => f.name === 'adjustGeneration'
+        );
+        if (idx !== -1) {
+          const currentModel = mutableOptions.model
+            ? String(mutableOptions.model)
+            : undefined;
+          mutableFunctions[idx] = createSelfTuningFunction(
+            ai,
+            selfTuningConfig,
+            currentModel
+          );
+        }
+      }
 
       // Check if stop was requested by a previous step's function/hook
       if (stepContext._isStopRequested) {

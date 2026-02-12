@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 
@@ -71,17 +71,18 @@ const skillsDestPath = path.join(buildPath, 'skills');
 if (existsSync(skillsSourcePath)) {
   await mkdir(skillsDestPath, { recursive: true });
 
-  // Read skill file and inject version
-  const skillFilePath = path.join(skillsSourcePath, 'ax-llm.md');
-  if (existsSync(skillFilePath)) {
-    const skillContent = await readFile(skillFilePath, 'utf8');
-    // Replace version placeholder with actual package version
+  // Read all *.md skill files and inject version
+  const files = await readdir(skillsSourcePath);
+  const skillFiles = files.filter((f) => f.endsWith('.md'));
+
+  for (const file of skillFiles) {
+    const skillContent = await readFile(path.join(skillsSourcePath, file), 'utf8');
     const updatedSkillContent = skillContent.replace(
       /^version:\s*["']?__VERSION__["']?/m,
       `version: "${packageJson.version}"`
     );
-    await writeFile(path.join(skillsDestPath, 'ax-llm.md'), updatedSkillContent);
-    console.log(`Skill file copied with version ${packageJson.version}`);
+    await writeFile(path.join(skillsDestPath, file), updatedSkillContent);
+    console.log(`Skill file ${file} copied with version ${packageJson.version}`);
   }
 }
 

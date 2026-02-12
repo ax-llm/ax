@@ -10,6 +10,7 @@ import type { AxInputFunctionType } from '../dsp/functions.js';
 import { AxGen } from '../dsp/generate.js';
 import { mergeAbortSignals } from '../util/abort.js';
 import {
+  AxAIServiceAbortedError,
   AxAIServiceNetworkError,
   AxAIServiceStatusError,
   AxAIServiceTimeoutError,
@@ -755,6 +756,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
               return String(result);
             }
           } catch (err) {
+            if (effectiveAbortSignal?.aborted) {
+              throw new AxAIServiceAbortedError(
+                'rlm-session',
+                effectiveAbortSignal.reason ?? 'Aborted'
+              );
+            }
             return `Error: ${(err as Error).message}`;
           }
         },

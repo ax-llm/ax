@@ -74,7 +74,13 @@ export class AxRLMJSInterpreter implements AxCodeInterpreter {
         }
         // Direct execution: var declarations persist on the context,
         // and the last expression value is auto-returned.
-        return runInContext(code, context, { timeout });
+        const result = runInContext(code, context, { timeout });
+        if (options?.signal?.aborted) {
+          throw new Error(
+            `Aborted: ${options.signal.reason ?? 'VM execution aborted'}`
+          );
+        }
+        return result;
       },
       close() {
         // No cleanup needed for vm contexts

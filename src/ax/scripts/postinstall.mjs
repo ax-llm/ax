@@ -14,7 +14,13 @@
  * - Version-aware upgrades: only upgrades if newer version available
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+} from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -140,66 +146,73 @@ function install() {
 
   try {
     // Paths
-    const skillSource = join(__dirname, '..', 'skills', 'ax-llm.md');
+    const skillsSourceDir = join(__dirname, '..', 'skills');
     // When installed via npm, script runs from: node_modules/@ax-llm/ax/scripts/postinstall.mjs
     // Project root is 4 directories up: ../../../../
     const projectRoot = join(__dirname, '..', '..', '..', '..');
     const skillTargetDir = join(projectRoot, '.claude', 'skills', 'ax');
-    const skillTarget = join(skillTargetDir, 'ax-llm.md');
 
-    // Check if source exists
-    if (!existsSync(skillSource)) {
-      // Skill file not found - this can happen during development
-      // Silently exit
+    // Discover all *.md skill files
+    if (!existsSync(skillsSourceDir)) {
       return;
     }
 
-    const packageVersion = getPackageVersion(skillSource);
-    const installedVersion = getInstalledVersion(skillTarget);
+    const skillFiles = readdirSync(skillsSourceDir).filter((f) =>
+      f.endsWith('.md')
+    );
 
-    // Determine if we should install
-    let shouldInstall = false;
-    let action = 'Installed';
-    let versionInfo = '';
+    if (skillFiles.length === 0) {
+      return;
+    }
 
-    if (!existsSync(skillTarget)) {
-      // Fresh install
-      shouldInstall = true;
-      versionInfo = packageVersion ? ` (v${packageVersion})` : '';
-    } else if (installedVersion && packageVersion) {
-      // Compare versions
-      const comparison = compareSemver(packageVersion, installedVersion);
-      if (comparison > 0) {
-        // New version is higher - upgrade
-        shouldInstall = true;
+    const results = [];
+
+    for (const file of skillFiles) {
+      const skillSource = join(skillsSourceDir, file);
+      const skillTarget = join(skillTargetDir, file);
+
+      const packageVersion = getPackageVersion(skillSource);
+      const installedVersion = getInstalledVersion(skillTarget);
+
+      let shouldInstallFile = false;
+      let action = 'Installed';
+      let versionInfo = '';
+
+      if (!existsSync(skillTarget)) {
+        shouldInstallFile = true;
+        versionInfo = packageVersion ? ` (v${packageVersion})` : '';
+      } else if (installedVersion && packageVersion) {
+        const comparison = compareSemver(packageVersion, installedVersion);
+        if (comparison > 0) {
+          shouldInstallFile = true;
+          action = 'Upgraded';
+          versionInfo = ` (v${installedVersion} \u2192 v${packageVersion})`;
+        }
+      } else if (!installedVersion && existsSync(skillTarget)) {
+        shouldInstallFile = true;
         action = 'Upgraded';
-        versionInfo = ` (v${installedVersion} \u2192 v${packageVersion})`;
+        versionInfo = packageVersion ? ` (v${packageVersion})` : '';
       }
-      // If same or lower version, don't install
-    } else if (!installedVersion && existsSync(skillTarget)) {
-      // File exists but no version - upgrade it
-      shouldInstall = true;
-      action = 'Upgraded';
-      versionInfo = packageVersion ? ` (v${packageVersion})` : '';
+
+      if (shouldInstallFile) {
+        if (!existsSync(skillTargetDir)) {
+          mkdirSync(skillTargetDir, { recursive: true });
+        }
+
+        const content = readFileSync(skillSource, 'utf8');
+        writeFileSync(skillTarget, content, 'utf8');
+        results.push({ file, action, versionInfo });
+      }
     }
 
-    if (!shouldInstall) {
-      // Already up to date, silently exit
-      return;
-    }
-
-    // Create target directory
-    if (!existsSync(skillTargetDir)) {
-      mkdirSync(skillTargetDir, { recursive: true });
-    }
-
-    // Copy skill file
-    const content = readFileSync(skillSource, 'utf8');
-    writeFileSync(skillTarget, content, 'utf8');
-
-    // Only log in interactive terminals
-    if (isInteractive()) {
-      console.log(`\u2713 ${action} Ax Claude Code skill${versionInfo}`);
+    if (results.length > 0 && isInteractive()) {
+      const noun = results.length === 1 ? 'skill' : 'skills';
+      const details = results
+        .map((r) => `${r.action} ${r.file}${r.versionInfo}`)
+        .join(', ');
+      console.log(
+        `\u2713 ${results.length} Ax Claude Code ${noun}: ${details}`
+      );
     }
   } catch {
     // Silent failure - never break npm install

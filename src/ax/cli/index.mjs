@@ -4,18 +4,19 @@
  * CLI for @ax-llm/ax
  *
  * Commands:
- *   setup-claude [--force]   Install/upgrade Claude Code skill to .claude/skills/ax/ (project-local)
- *   remove-claude            Remove the Claude Code skill
+ *   setup-claude [--force]   Install/upgrade Claude Code skills to .claude/skills/ax/ (project-local)
+ *   remove-claude            Remove all Claude Code skills
  *
  * Usage:
  *   npx @ax-llm/ax setup-claude           # Install or upgrade if newer version
  *   npx @ax-llm/ax setup-claude --force   # Force overwrite regardless of version
- *   npx @ax-llm/ax remove-claude          # Remove the skill
+ *   npx @ax-llm/ax remove-claude          # Remove all skills
  */
 
 import {
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -26,12 +27,21 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Skill file location in the package
-const SKILL_SOURCE = join(__dirname, '..', 'skills', 'ax-llm.md');
+// Skill files directory in the package
+const SKILLS_SOURCE_DIR = join(__dirname, '..', 'skills');
 
 // Target location in current working directory (project-local)
 const SKILL_TARGET_DIR = join(process.cwd(), '.claude', 'skills', 'ax');
-const SKILL_TARGET = join(SKILL_TARGET_DIR, 'ax-llm.md');
+
+/**
+ * Get all *.md skill files from the source directory
+ */
+function getSkillFiles() {
+  if (!existsSync(SKILLS_SOURCE_DIR)) {
+    return [];
+  }
+  return readdirSync(SKILLS_SOURCE_DIR).filter((f) => f.endsWith('.md'));
+}
 
 /**
  * Compare semver versions
@@ -58,15 +68,15 @@ function compareSemver(a, b) {
 }
 
 /**
- * Get the installed skill version from the file
+ * Get the installed skill version from a file
  */
-function getInstalledVersion() {
-  if (!existsSync(SKILL_TARGET)) {
+function getInstalledVersion(targetPath) {
+  if (!existsSync(targetPath)) {
     return null;
   }
 
   try {
-    const content = readFileSync(SKILL_TARGET, 'utf8');
+    const content = readFileSync(targetPath, 'utf8');
     const match = content.match(/^version:\s*["']?([^"'\n\r]+)/m);
     return match ? match[1].trim() : null;
   } catch {
@@ -75,10 +85,10 @@ function getInstalledVersion() {
 }
 
 /**
- * Get the package version from the skill source file
+ * Get the package version from a skill source file
  */
-function getPackageVersion() {
-  if (!existsSync(SKILL_SOURCE)) {
+function getPackageVersion(sourcePath) {
+  if (!existsSync(sourcePath)) {
     // Fallback: try to read from package.json
     const packageJsonPath = join(__dirname, '..', 'package.json');
     if (existsSync(packageJsonPath)) {
@@ -93,7 +103,7 @@ function getPackageVersion() {
   }
 
   try {
-    const content = readFileSync(SKILL_SOURCE, 'utf8');
+    const content = readFileSync(sourcePath, 'utf8');
     const match = content.match(/^version:\s*["']?([^"'\n\r]+)/m);
     return match ? match[1].trim() : null;
   } catch {
@@ -102,115 +112,131 @@ function getPackageVersion() {
 }
 
 /**
- * Install or upgrade the Claude Code skill
+ * Install or upgrade Claude Code skills
  */
 function setupClaude(force = false) {
-  // Check if skill source exists
-  if (!existsSync(SKILL_SOURCE)) {
-    console.error('Error: Skill file not found. The package may be corrupted.');
+  const skillFiles = getSkillFiles();
+
+  if (skillFiles.length === 0) {
+    console.error('Error: No skill files found. The package may be corrupted.');
     process.exit(1);
   }
 
-  const packageVersion = getPackageVersion();
-  const installedVersion = getInstalledVersion();
+  let allUpToDate = true;
 
-  // Determine if we should install
-  let shouldInstall = false;
-  let action = 'Installed';
+  for (const file of skillFiles) {
+    const skillSource = join(SKILLS_SOURCE_DIR, file);
+    const skillTarget = join(SKILL_TARGET_DIR, file);
 
-  if (!existsSync(SKILL_TARGET)) {
-    // Fresh install
-    shouldInstall = true;
-  } else if (force) {
-    // Force overwrite
-    shouldInstall = true;
-    action = installedVersion ? 'Reinstalled' : 'Installed';
-  } else if (installedVersion && packageVersion) {
-    // Compare versions
-    const comparison = compareSemver(packageVersion, installedVersion);
-    if (comparison > 0) {
+    const packageVersion = getPackageVersion(skillSource);
+    const installedVersion = getInstalledVersion(skillTarget);
+
+    // Determine if we should install
+    let shouldInstall = false;
+    let action = 'Installed';
+
+    if (!existsSync(skillTarget)) {
       shouldInstall = true;
-      action = `Upgraded`;
-    } else if (comparison === 0) {
-      console.log(`Ax Claude Code skill is up to date (v${installedVersion})`);
-      return;
-    } else {
-      // Installed version is newer (shouldn't happen normally)
-      console.log(
-        `Ax Claude Code skill is already at v${installedVersion} (package has v${packageVersion})`
-      );
-      return;
+    } else if (force) {
+      shouldInstall = true;
+      action = installedVersion ? 'Reinstalled' : 'Installed';
+    } else if (installedVersion && packageVersion) {
+      const comparison = compareSemver(packageVersion, installedVersion);
+      if (comparison > 0) {
+        shouldInstall = true;
+        action = 'Upgraded';
+      } else if (comparison === 0) {
+        console.log(`${file} is up to date (v${installedVersion})`);
+        continue;
+      } else {
+        console.log(
+          `${file} is already at v${installedVersion} (package has v${packageVersion})`
+        );
+        continue;
+      }
+    } else if (!installedVersion && existsSync(skillTarget)) {
+      shouldInstall = true;
+      action = 'Upgraded';
     }
-  } else if (!installedVersion && existsSync(SKILL_TARGET)) {
-    // File exists but no version - upgrade
-    shouldInstall = true;
-    action = 'Upgraded';
-  }
 
-  if (!shouldInstall) {
-    console.log(
-      `Ax Claude Code skill is up to date (v${installedVersion || 'unknown'})`
-    );
-    return;
-  }
-
-  // Create target directory if it doesn't exist
-  if (!existsSync(SKILL_TARGET_DIR)) {
-    mkdirSync(SKILL_TARGET_DIR, { recursive: true });
-  }
-
-  // Copy the skill file
-  try {
-    const content = readFileSync(SKILL_SOURCE, 'utf8');
-    writeFileSync(SKILL_TARGET, content, 'utf8');
-
-    if (action === 'Upgraded' && installedVersion && packageVersion) {
-      console.log(
-        `\u2713 ${action} Ax Claude Code skill (v${installedVersion} \u2192 v${packageVersion})`
-      );
-    } else {
-      console.log(
-        `\u2713 ${action} Ax Claude Code skill (v${packageVersion || 'unknown'})`
-      );
+    if (!shouldInstall) {
+      console.log(`${file} is up to date (v${installedVersion || 'unknown'})`);
+      continue;
     }
-  } catch (err) {
-    console.error(`Error installing skill: ${err.message}`);
-    process.exit(1);
+
+    allUpToDate = false;
+
+    // Create target directory if it doesn't exist
+    if (!existsSync(SKILL_TARGET_DIR)) {
+      mkdirSync(SKILL_TARGET_DIR, { recursive: true });
+    }
+
+    try {
+      const content = readFileSync(skillSource, 'utf8');
+      writeFileSync(skillTarget, content, 'utf8');
+
+      if (action === 'Upgraded' && installedVersion && packageVersion) {
+        console.log(
+          `\u2713 ${action} ${file} (v${installedVersion} \u2192 v${packageVersion})`
+        );
+      } else {
+        console.log(
+          `\u2713 ${action} ${file} (v${packageVersion || 'unknown'})`
+        );
+      }
+    } catch (err) {
+      console.error(`Error installing ${file}: ${err.message}`);
+      process.exit(1);
+    }
+  }
+
+  if (allUpToDate) {
+    console.log('All Ax Claude Code skills are up to date.');
   }
 }
 
 /**
- * Remove the Claude Code skill
+ * Remove all Claude Code skills
  */
 function removeClaude() {
-  if (!existsSync(SKILL_TARGET)) {
-    console.log('Ax Claude Code skill is not installed.');
+  if (!existsSync(SKILL_TARGET_DIR)) {
+    console.log('Ax Claude Code skills are not installed.');
     return;
   }
 
   try {
-    rmSync(SKILL_TARGET, { force: true });
+    const installedFiles = readdirSync(SKILL_TARGET_DIR).filter((f) =>
+      f.endsWith('.md')
+    );
+
+    if (installedFiles.length === 0) {
+      console.log('Ax Claude Code skills are not installed.');
+      return;
+    }
+
+    for (const file of installedFiles) {
+      rmSync(join(SKILL_TARGET_DIR, file), { force: true });
+    }
 
     // Try to remove the directory if empty
     try {
-      const dir = dirname(SKILL_TARGET);
-      const files = readdirSync(dir);
-      if (files.length === 0) {
-        rmSync(dir, { recursive: true, force: true });
+      const remaining = readdirSync(SKILL_TARGET_DIR);
+      if (remaining.length === 0) {
+        rmSync(SKILL_TARGET_DIR, { recursive: true, force: true });
       }
     } catch {
       // Ignore errors when trying to clean up directory
     }
 
-    console.log('\u2713 Removed Ax Claude Code skill');
+    const noun = installedFiles.length === 1 ? 'skill' : 'skills';
+    console.log(
+      `\u2713 Removed ${installedFiles.length} Ax Claude Code ${noun}`
+    );
   } catch (err) {
-    console.error(`Error removing skill: ${err.message}`);
+    console.error(`Error removing skills: ${err.message}`);
     process.exit(1);
   }
 }
-
-// Import readdirSync for cleanup
-import { readdirSync } from 'node:fs';
 
 /**
  * Show help
@@ -223,8 +249,8 @@ Usage:
   npx @ax-llm/ax <command> [options]
 
 Commands:
-  setup-claude [--force]   Install/upgrade Claude Code skill
-  remove-claude            Remove the Claude Code skill
+  setup-claude [--force]   Install/upgrade Claude Code skills
+  remove-claude            Remove all Claude Code skills
   help                     Show this help message
 
 Options:
@@ -233,7 +259,7 @@ Options:
 Examples:
   npx @ax-llm/ax setup-claude           # Install or upgrade
   npx @ax-llm/ax setup-claude --force   # Force reinstall
-  npx @ax-llm/ax remove-claude          # Remove skill
+  npx @ax-llm/ax remove-claude          # Remove skills
 `);
 }
 

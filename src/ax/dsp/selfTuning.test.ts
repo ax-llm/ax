@@ -41,6 +41,74 @@ describe('createSelfTuningFunction', () => {
     });
   });
 
+  describe('schema generation — defaultModel', () => {
+    it('prepends "Currently using model" when defaultModel matches an available key', () => {
+      const ai = new AxMockAIService({
+        features: { functions: true },
+        models: [
+          { key: 'fast', model: 'gpt-4o-mini', description: 'Quick' },
+          { key: 'smart', model: 'claude-sonnet', description: 'Balanced' },
+        ],
+      });
+
+      const func = createSelfTuningFunction(
+        ai,
+        { model: true, thinkingBudget: false },
+        'smart'
+      );
+
+      const modelProp = func.parameters!.properties!.model as {
+        description: string;
+      };
+      expect(modelProp.description).toMatch(
+        /^Currently using model: smart\. Switch/
+      );
+    });
+
+    it('has no "Currently using model" prefix when defaultModel is undefined', () => {
+      const ai = new AxMockAIService({
+        features: { functions: true },
+        models: [
+          { key: 'fast', model: 'gpt-4o-mini', description: 'Quick' },
+          { key: 'smart', model: 'claude-sonnet', description: 'Balanced' },
+        ],
+      });
+
+      const func = createSelfTuningFunction(ai, {
+        model: true,
+        thinkingBudget: false,
+      });
+
+      const modelProp = func.parameters!.properties!.model as {
+        description: string;
+      };
+      expect(modelProp.description).not.toContain('Currently using model');
+      expect(modelProp.description).toMatch(/^Switch model/);
+    });
+
+    it('has no "Currently using model" prefix when defaultModel does not match any key', () => {
+      const ai = new AxMockAIService({
+        features: { functions: true },
+        models: [
+          { key: 'fast', model: 'gpt-4o-mini', description: 'Quick' },
+          { key: 'smart', model: 'claude-sonnet', description: 'Balanced' },
+        ],
+      });
+
+      const func = createSelfTuningFunction(
+        ai,
+        { model: true, thinkingBudget: false },
+        'nonexistent'
+      );
+
+      const modelProp = func.parameters!.properties!.model as {
+        description: string;
+      };
+      expect(modelProp.description).not.toContain('Currently using model');
+      expect(modelProp.description).toMatch(/^Switch model/);
+    });
+  });
+
   describe('schema generation — thinkingBudget property', () => {
     it('includes thinkingBudget enum when enabled', () => {
       const ai = new AxMockAIService({

@@ -1,19 +1,35 @@
 ---
-title: "AxAgent Guide"
-description: "Agent framework with child agents, tools, and RLM for long contexts"
+name: ax-agent
+description: This skill helps with building AxAgent-based agents using @ax-llm/ax. Use when the user asks about agent(), AxAgent, child agents, tool functions, smart model routing, RLM mode, stopping agents, or composing multi-agent hierarchies.
+version: "__VERSION__"
 ---
 
-# AxAgent Guide
+# AxAgent Guide (@ax-llm/ax)
 
-`AxAgent` is the agent framework in Ax. It wraps `AxGen` with support for child agents, tool use, smart model routing, and **RLM (Recursive Language Model)** mode for processing long contexts through a code interpreter.
+AxAgent is the agent framework in Ax. It wraps AxGen with support for child agents, tool use, smart model routing, and RLM (Recursive Language Model) mode for processing long contexts through a code interpreter.
 
-Use `AxAgent` when you need:
-- Multi-step reasoning with tools (ReAct pattern)
-- Composing multiple agents into a hierarchy
-- Smart model routing across child agents
-- Processing long documents without context window limits (RLM mode)
+## Quick Reference
 
-For single-step generation without tools or agents, use [`AxGen`](/axgen/) directly.
+```typescript
+import { agent, ai } from '@ax-llm/ax';
+
+const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! });
+
+// Create and run an agent
+const myAgent = agent('userQuestion:string -> responseText:string', {
+  name: 'helpfulAgent',
+  description: 'An agent that provides helpful responses to user questions',
+});
+
+const result = await myAgent.forward(llm, { userQuestion: 'What is TypeScript?' });
+console.log(result.responseText);
+
+// Streaming
+const stream = myAgent.streamingForward(llm, { userQuestion: 'Write a story' });
+for await (const chunk of stream) {
+  if (chunk.delta.responseText) process.stdout.write(chunk.delta.responseText);
+}
+```
 
 ## Creating Agents
 
@@ -109,7 +125,7 @@ If the agent was created with `ai` bound, the parent AI is used as fallback:
 const myAgent = agent('input:string -> output:string', {
   name: 'myAgent',
   description: 'An agent that processes inputs reliably',
-  ai: llm,  // Bound AI service
+  ai: llm,
 });
 
 // Can also pass a different AI to override
@@ -151,7 +167,7 @@ const result = await myAgent.forward(llm, values, {
 
 ### `stop()` method
 
-Call `stop()` from any context — a timer, event handler, or another async task — to halt the multi-step loop. The loop throws `AxAIServiceAbortedError` at the next between-step check.
+Call `stop()` from any context — a timer, event handler, or another async task — to halt the multi-step loop:
 
 ```typescript
 const myAgent = agent('question:string -> answer:string', {
@@ -159,7 +175,6 @@ const myAgent = agent('question:string -> answer:string', {
   description: 'An agent that answers questions thoroughly',
 });
 
-// Stop after 5 seconds
 const timer = setTimeout(() => myAgent.stop(), 5_000);
 
 try {
@@ -193,13 +208,13 @@ try {
 
 ### Using `AbortSignal`
 
-Pass an `abortSignal` in the forward options to cancel via the standard `AbortController` / `AbortSignal` API. The signal is checked between each step of the multi-step loop, not only during the HTTP call, so cancellation is detected promptly even when the agent is between LLM calls.
+Pass an `abortSignal` in the forward options to cancel via the standard `AbortController` / `AbortSignal` API:
 
 ```typescript
 // Time-based deadline
 try {
   const result = await myAgent.forward(llm, values, {
-    abortSignal: AbortSignal.timeout(10_000),  // 10-second deadline
+    abortSignal: AbortSignal.timeout(10_000),
   });
 } catch (err) {
   if (err instanceof AxAIServiceAbortedError) {
@@ -220,6 +235,39 @@ try {
     console.log('Cancelled by user');
   }
 }
+```
+
+## Tool Functions
+
+Define tool functions with a name, description, JSON Schema parameters, and implementation:
+
+```typescript
+import { ai, agent } from '@ax-llm/ax';
+
+const getCurrentWeather = {
+  name: 'getCurrentWeather',
+  description: 'Get the current weather for a location',
+  parameters: {
+    type: 'object',
+    properties: {
+      location: { type: 'string', description: 'City name' },
+      unit: { type: 'string', enum: ['celsius', 'fahrenheit'] }
+    },
+    required: ['location']
+  },
+  func: async ({ location, unit = 'celsius' }) => {
+    return JSON.stringify({ temp: 22, unit, location });
+  }
+};
+
+const weatherAgent = agent('query:string -> response:string', {
+  name: 'weatherAssistant',
+  description: 'An assistant that helps with weather queries',
+  functions: [getCurrentWeather]
+});
+
+const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_API_KEY! });
+const result = await weatherAgent.forward(llm, { query: 'Weather in Tokyo?' });
 ```
 
 ## Child Agents
@@ -257,20 +305,18 @@ const result = await scientist.forward(llm, {
 
 ### Value Passthrough
 
-When a parent and child agent share input field names, the parent automatically passes those values to the child. For example, if the parent has `question:string` and a child also expects `question:string`, the parent's value is injected automatically — the LLM doesn't need to re-type it.
-
-Control which fields are excluded from passthrough:
+When a parent and child agent share input field names, the parent automatically passes those values to the child. Control which fields are excluded from passthrough:
 
 ```typescript
 const myAgent = agent('context:string, query:string -> answer:string', {
   name: 'myAgent',
   description: 'An agent that processes queries with context provided',
   agents: [childAgent],
-  excludeFieldsFromPassthrough: ['context'],  // Don't pass context to children
+  excludeFieldsFromPassthrough: ['context'],
 });
 ```
 
-### Smart Model Routing
+## Smart Model Routing
 
 When an AI service is configured with multiple models, agents automatically expose a `model` parameter to parent agents. The parent LLM can choose which model to use for each child call based on task complexity.
 
@@ -290,7 +336,7 @@ Disable smart routing per-agent with `disableSmartModelRouting: true`.
 
 ## RLM Mode
 
-**RLM (Recursive Language Model)** mode lets agents process arbitrarily long documents without hitting context window limits. Instead of stuffing the entire document into the LLM prompt, RLM loads it into a code interpreter session and gives the LLM tools to analyze it programmatically.
+RLM (Recursive Language Model) mode lets agents process arbitrarily long documents without hitting context window limits. Instead of stuffing the entire document into the LLM prompt, RLM loads it into a code interpreter session and gives the LLM tools to analyze it programmatically.
 
 ### The Problem
 
@@ -332,7 +378,7 @@ const analyzer = agent(
 
 ### Structured Context Fields
 
-Context fields aren't limited to plain strings. You can pass structured data — objects and arrays with typed sub-fields — and the LLM will see their full schema in the code interpreter prompt.
+Context fields aren't limited to plain strings. You can pass structured data — objects and arrays with typed sub-fields:
 
 ```typescript
 import { agent, f, s } from '@ax-llm/ax';
@@ -377,28 +423,20 @@ Structured fields are loaded as native JavaScript objects in the interpreter, pr
 
 ### The REPL Loop
 
-In RLM mode, the agent gets a special function:
+In RLM mode, the agent gets a `codeInterpreter` tool. The LLM's typical workflow:
 
-- **`codeInterpreter`** — Execute code in a persistent session. Context fields are available as global variables.
-
-The LLM's typical workflow:
-
-```
 1. Peek at context structure (typeof, length, slice)
 2. Chunk the context into manageable pieces
 3. Use llmQuery for semantic analysis of each chunk
 4. Aggregate results
 5. Provide the final answer with the required output fields
-```
 
 ### Available APIs in the Sandbox
-
-Inside the code interpreter, these functions are available as globals:
 
 | API | Description |
 |-----|-------------|
 | `await llmQuery(query, context?)` | Ask a sub-LM a question, optionally with a context string. Returns a string |
-| `await llmQuery([{ query, context? }, ...])` | Run multiple sub-LM queries in parallel. Returns string[]. Each query counts individually toward the call limit |
+| `await llmQuery([{ query, context? }, ...])` | Run multiple sub-LM queries in parallel. Returns string[] |
 | `print(...args)` | Print output (appears in the function result) |
 | Context variables | All fields listed in `contextFields` are available by name |
 
@@ -413,7 +451,6 @@ class MyBrowserInterpreter implements AxCodeInterpreter {
   readonly language = 'JavaScript';
 
   createSession(globals?: Record<string, unknown>): AxCodeSession {
-    // Set up your execution environment with globals
     return {
       async execute(code: string): Promise<unknown> {
         // Execute code and return result
@@ -452,7 +489,7 @@ interface AxRLMConfig {
 
 ```typescript
 interface AxCodeInterpreter {
-  readonly language: string;  // e.g. 'JavaScript', 'Python'
+  readonly language: string;
   createSession(globals?: Record<string, unknown>): AxCodeSession;
 }
 ```
@@ -498,4 +535,4 @@ Extends `AxProgramForwardOptions` (without `functions`) with:
 public stop(): void
 ```
 
-Available on `AxAgent`, `AxGen`, and `AxFlow`. Stops an in-flight `forward()` or `streamingForward()` call, causing it to throw `AxAIServiceAbortedError`. See [Stopping Agents](#stopping-agents).
+Available on `AxAgent`, `AxGen`, and `AxFlow`. Stops an in-flight `forward()` or `streamingForward()` call, causing it to throw `AxAIServiceAbortedError`.

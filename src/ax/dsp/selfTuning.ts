@@ -21,7 +21,8 @@ const THINKING_BUDGET_LEVELS = [
  */
 export function createSelfTuningFunction(
   ai: Readonly<AxAIService>,
-  config: AxSelfTuningConfig
+  config: AxSelfTuningConfig,
+  defaultModel?: string
 ): AxFunction {
   const properties: Record<
     string,
@@ -42,7 +43,11 @@ export function createSelfTuningFunction(
         properties.model = {
           type: 'string',
           enum: enumValues,
-          description: `Switch model for the next step. Prefer faster/cheaper models for simple tasks; use more capable models for complex reasoning, math, or multi-step analysis. Available: ${descParts.join(', ')}`,
+          description: `${
+            defaultModel && enumValues.includes(defaultModel)
+              ? `Currently using model: ${defaultModel}. `
+              : ''
+          }Switch model for the next step. Prefer faster/cheaper models for simple tasks; use more capable models for complex reasoning, math, or multi-step analysis. Available: ${descParts.join(', ')}`,
         };
       }
     }
