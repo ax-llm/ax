@@ -20,8 +20,10 @@ import type {
 } from '../ai/types.js';
 import { AxMemory } from '../mem/memory.js';
 import type { AxAIMemory } from '../mem/types.js';
+import { mergeAbortSignals } from '../util/abort.js';
 import {
   AxAIRefusalError,
+  AxAIServiceAbortedError,
   AxAIServiceNetworkError,
   AxAIServiceStatusError,
   AxAIServiceStreamTerminatedError,
@@ -158,6 +160,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
   private thoughtFieldName: string;
   private signatureToolCallingManager?: SignatureToolCallingManager;
   private structuredOutputFunctionFallback = false;
+  private abortController?: AbortController;
+  private _stopRequested = false;
 
   constructor(
     signature:
@@ -187,6 +191,15 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       ? parseFunctions(options.functions)
       : [];
     this.usage = [];
+  }
+
+  /**
+   * Stops an in-flight generation. Causes `forward()` / `streamingForward()`
+   * to throw `AxAIServiceAbortedError`.
+   */
+  public stop(): void {
+    this._stopRequested = true;
+    this.abortController?.abort('Stopped by user');
   }
 
   public setInstruction(instruction: string): void {
@@ -565,6 +578,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         stopFunctionNames,
         disableMemoryCleanup: options.disableMemoryCleanup,
         stepContext,
+        abortSignal: options.abortSignal,
       });
     } else {
       yield* processResponse<OUT>({
@@ -591,6 +605,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         stopFunctionNames,
         disableMemoryCleanup: options.disableMemoryCleanup,
         stepContext,
+        abortSignal: options.abortSignal,
       });
     }
   }
@@ -628,6 +643,19 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         options.selfTuning === true
           ? { model: true, thinkingBudget: true }
           : options.selfTuning;
+
+      // Validate: model selection requires a models list with 2+ chat models
+      if (selfTuningConfig.model !== false) {
+        const modelList = ai.getModelList();
+        const chatModels = modelList?.filter((entry) => 'model' in entry);
+        if (!chatModels || chatModels.length < 2) {
+          throw new Error(
+            'Self-tuning with model selection requires the AI service to have a `models` list with at least 2 chat models. ' +
+              'Either configure models on your AI service or disable model selection with `selfTuning: { model: false }`.'
+          );
+        }
+      }
+
       const tuningFn = createSelfTuningFunction(ai, selfTuningConfig);
       mutableFunctions.push(tuningFn);
     }
@@ -823,6 +851,9 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       }
     };
 
+    // Resolve the effective abort signal once at method start
+    const effectiveAbortSignal = options?.abortSignal ?? axGlobals.abortSignal;
+
     multiStepLoop: for (let n = 0; n < maxSteps; n++) {
       // Begin new step on the context
       stepContext._beginStep(n);
@@ -833,6 +864,14 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       // Check if stop was requested by a previous step's function/hook
       if (stepContext._isStopRequested) {
         break;
+      }
+
+      // Check if abort was signalled between steps
+      if (effectiveAbortSignal?.aborted) {
+        throw new AxAIServiceAbortedError(
+          'between-steps',
+          effectiveAbortSignal.reason ?? 'Aborted between steps'
+        );
       }
 
       // Call beforeStep hook
@@ -1087,7 +1126,11 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
                 applyStepContextMutations();
               }
 
-              if (shouldContinue && !stepContext._isStopRequested) {
+              if (
+                shouldContinue &&
+                !stepContext._isStopRequested &&
+                !effectiveAbortSignal?.aborted
+              ) {
                 // Record multi-step generation metric
                 const metricsInstruments = this.getMetricsInstruments();
                 if (metricsInstruments) {
@@ -1100,6 +1143,14 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
                   );
                 }
                 continue multiStepLoop;
+              }
+
+              // If we stopped because of an abort signal, throw
+              if (effectiveAbortSignal?.aborted) {
+                throw new AxAIServiceAbortedError(
+                  'mid-step',
+                  effectiveAbortSignal.reason ?? 'Aborted'
+                );
               }
 
               // On success, clean up any error-related tags from memory to keep context clean
@@ -1153,6 +1204,11 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
               return;
             } catch (e) {
+              // Re-throw abort errors immediately — never retry or wrap them
+              if (e instanceof AxAIServiceAbortedError) {
+                throw e;
+              }
+
               lastError = e as Error;
               let errorFields: AxIField[] | undefined;
               const debug = this.isDebug(ai, options);
@@ -1514,98 +1570,118 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       this.validateInputs(values as IN);
     }
 
-    // Track state creation performance
-    const stateCreationStart = performance.now();
-    const states = this.createStates(options.sampleCount ?? 1);
-    const stateCreationDuration = performance.now() - stateCreationStart;
-
-    // Record state creation performance metric
-    const metricsInstruments = this.getMetricsInstruments();
-    const customLabels = this.getMergedCustomLabels(ai, options);
-    if (metricsInstruments) {
-      recordPerformanceMetric(
-        metricsInstruments,
-        'state_creation',
-        stateCreationDuration,
-        this.getSignatureName(),
-        customLabels
-      );
+    // Create internal abort controller and merge with any user-provided signal
+    this.abortController = new AbortController();
+    if (this._stopRequested) {
+      this.abortController.abort('Stopped by user (pre-forward)');
     }
-
-    const tracer =
-      options?.tracer ?? this.options?.tracer ?? ai.getOptions().tracer;
-
-    let functions: AxFunction[] | undefined = this.functions;
-
-    if (options?.functions) {
-      functions = parseFunctions(options.functions, this.functions);
-    }
-
-    if (!tracer) {
-      yield* this._forward2(ai, values, states, {
-        ...options,
-        functions,
-      });
-      return;
-    }
-
-    const funcNames = functions?.map((f) => f.name).join(',');
-
-    const attributes = {
-      signature: JSON.stringify(this.signature.toJSON(), null, 2),
-      ...(this.examples
-        ? { examples: JSON.stringify(this.examples, null, 2) }
-        : {}),
-      ...(funcNames ? { provided_functions: funcNames } : {}),
-      ...(options?.model ? { model: options.model } : {}),
-      ...(options?.thinkingTokenBudget
-        ? { thinking_token_budget: options.thinkingTokenBudget }
-        : {}),
-      ...(options?.showThoughts ? { show_thoughts: options.showThoughts } : {}),
-      ...(options?.maxSteps ? { max_steps: options.maxSteps } : {}),
-      ...(options?.maxRetries ? { max_retries: options.maxRetries } : {}),
-    };
-
-    const traceLabel =
-      this.traceLabel && options.traceLabel
-        ? `${this.traceLabel} > ${options.traceLabel}`
-        : (options.traceLabel ?? this.traceLabel);
-    const spanName = traceLabel ? `AxGen > ${traceLabel}` : 'AxGen';
-
-    const span = tracer.startSpan(spanName, {
-      kind: SpanKind.SERVER,
-      attributes,
-    });
-
-    const currentContext = context.active();
-    const traceContext = trace.setSpan(currentContext, span);
+    const effectiveAbortSignal = mergeAbortSignals(
+      this.abortController.signal,
+      options?.abortSignal ?? axGlobals.abortSignal
+    );
+    const effectiveOptions = effectiveAbortSignal
+      ? { ...options, abortSignal: effectiveAbortSignal }
+      : options;
 
     try {
-      if (!this.excludeContentFromTrace) {
-        span.addEvent('input', { content: JSON.stringify(values, null, 2) });
+      // Track state creation performance
+      const stateCreationStart = performance.now();
+      const states = this.createStates(options.sampleCount ?? 1);
+      const stateCreationDuration = performance.now() - stateCreationStart;
+
+      // Record state creation performance metric
+      const metricsInstruments = this.getMetricsInstruments();
+      const customLabels = this.getMergedCustomLabels(ai, options);
+      if (metricsInstruments) {
+        recordPerformanceMetric(
+          metricsInstruments,
+          'state_creation',
+          stateCreationDuration,
+          this.getSignatureName(),
+          customLabels
+        );
       }
 
-      yield* this._forward2(
-        ai,
-        values,
-        states,
-        {
-          ...options,
-          functions,
-        },
-        span,
-        traceContext
-      );
+      const tracer =
+        options?.tracer ?? this.options?.tracer ?? ai.getOptions().tracer;
 
-      if (!this.excludeContentFromTrace) {
-        const valuesList = states.map((s) => s.values);
-        const values = valuesList.length === 1 ? valuesList[0] : valuesList;
-        span.addEvent('output', {
-          content: JSON.stringify(values, null, 2),
+      let functions: AxFunction[] | undefined = this.functions;
+
+      if (options?.functions) {
+        functions = parseFunctions(options.functions, this.functions);
+      }
+
+      if (!tracer) {
+        yield* this._forward2(ai, values, states, {
+          ...effectiveOptions,
+          functions,
         });
+        return;
+      }
+
+      const funcNames = functions?.map((f) => f.name).join(',');
+
+      const attributes = {
+        signature: JSON.stringify(this.signature.toJSON(), null, 2),
+        ...(this.examples
+          ? { examples: JSON.stringify(this.examples, null, 2) }
+          : {}),
+        ...(funcNames ? { provided_functions: funcNames } : {}),
+        ...(options?.model ? { model: options.model } : {}),
+        ...(options?.thinkingTokenBudget
+          ? { thinking_token_budget: options.thinkingTokenBudget }
+          : {}),
+        ...(options?.showThoughts
+          ? { show_thoughts: options.showThoughts }
+          : {}),
+        ...(options?.maxSteps ? { max_steps: options.maxSteps } : {}),
+        ...(options?.maxRetries ? { max_retries: options.maxRetries } : {}),
+      };
+
+      const traceLabel =
+        this.traceLabel && options.traceLabel
+          ? `${this.traceLabel} > ${options.traceLabel}`
+          : (options.traceLabel ?? this.traceLabel);
+      const spanName = traceLabel ? `AxGen > ${traceLabel}` : 'AxGen';
+
+      const span = tracer.startSpan(spanName, {
+        kind: SpanKind.SERVER,
+        attributes,
+      });
+
+      const currentContext = context.active();
+      const traceContext = trace.setSpan(currentContext, span);
+
+      try {
+        if (!this.excludeContentFromTrace) {
+          span.addEvent('input', { content: JSON.stringify(values, null, 2) });
+        }
+
+        yield* this._forward2(
+          ai,
+          values,
+          states,
+          {
+            ...effectiveOptions,
+            functions,
+          },
+          span,
+          traceContext
+        );
+
+        if (!this.excludeContentFromTrace) {
+          const valuesList = states.map((s) => s.values);
+          const values = valuesList.length === 1 ? valuesList[0] : valuesList;
+          span.addEvent('output', {
+            content: JSON.stringify(values, null, 2),
+          });
+        }
+      } finally {
+        span.end();
       }
     } finally {
-      span.end();
+      this.abortController = undefined;
+      this._stopRequested = false;
     }
   }
 
@@ -2110,6 +2186,11 @@ function enhanceError(
   signature: Readonly<AxSignature>
 ): Error {
   const originalError = e instanceof Error ? e : new Error(String(e));
+
+  // Never wrap abort errors — preserve the specific error type
+  if (originalError instanceof AxAIServiceAbortedError) {
+    return originalError;
+  }
 
   // Don't wrap validation errors or assertion errors - let them propagate directly
   const errorMsg = (originalError.message || '').toLowerCase();

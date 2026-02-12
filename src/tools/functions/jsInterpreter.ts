@@ -36,16 +36,31 @@ type Context = {
 
 export class AxJSInterpreter {
   private permissions: readonly AxJSInterpreterPermission[];
+  private timeout: number;
 
   constructor({
     permissions = [],
+    timeout = 30_000,
   }:
-    | Readonly<{ permissions?: readonly AxJSInterpreterPermission[] }>
+    | Readonly<{
+        permissions?: readonly AxJSInterpreterPermission[];
+        timeout?: number;
+      }>
     | undefined = {}) {
     this.permissions = permissions ?? [];
+    this.timeout = timeout;
   }
 
-  private codeInterpreterJavascript(code: string): unknown {
+  private codeInterpreterJavascript(
+    code: string,
+    abortSignal?: AbortSignal
+  ): unknown {
+    if (abortSignal?.aborted) {
+      throw new Error(
+        `Aborted: ${abortSignal.reason ?? 'Interpreter execution aborted'}`
+      );
+    }
+
     const context: Partial<Context> = { console };
 
     if (this.permissions.includes(AxJSInterpreterPermission.FS)) {
@@ -69,7 +84,9 @@ export class AxJSInterpreter {
       context.process = _process;
     }
 
-    return runInNewContext(`(function() { ${code} })()`, context);
+    return runInNewContext(`(function() { ${code} })()`, context, {
+      timeout: this.timeout,
+    });
   }
 
   public toFunction(): AxFunction {
@@ -88,15 +105,20 @@ export class AxJSInterpreter {
         required: ['code'],
       },
 
-      func: ({ code }: Readonly<{ code: string }>) =>
-        this.codeInterpreterJavascript(code),
+      func: (
+        { code }: Readonly<{ code: string }>,
+        extra?: Parameters<AxFunction['func']>[1]
+      ) => this.codeInterpreterJavascript(code, extra?.abortSignal),
     };
   }
 }
 
 // Factory function following the same pattern as MCP
 export function axCreateJSInterpreter(
-  options?: Readonly<{ permissions?: readonly AxJSInterpreterPermission[] }>
+  options?: Readonly<{
+    permissions?: readonly AxJSInterpreterPermission[];
+    timeout?: number;
+  }>
 ): AxJSInterpreter {
   return new AxJSInterpreter(options);
 }

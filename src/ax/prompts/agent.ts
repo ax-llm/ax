@@ -8,6 +8,7 @@ import type {
 } from '../ai/types.js';
 import type { AxInputFunctionType } from '../dsp/functions.js';
 import { AxGen } from '../dsp/generate.js';
+import { mergeAbortSignals } from '../util/abort.js';
 import {
   AxAIServiceNetworkError,
   AxAIServiceStatusError,
@@ -202,6 +203,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private rlmContextFields?: readonly AxIField[];
   private rlmProgram?: AxGen<any, OUT>;
 
+  private abortController?: AbortController;
+  private _stopRequested = false;
+
   private name: string;
   //   private subAgentList?: string
   private func: AxFunction;
@@ -318,6 +322,17 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
       this.rlmProgram = new AxGen(rlmSig, { ...options, description: rlmDef });
     }
+  }
+
+  /**
+   * Stops an in-flight forward/streamingForward call. Causes the call
+   * to throw `AxAIServiceAbortedError`.
+   */
+  public stop(): void {
+    this._stopRequested = true;
+    this.abortController?.abort('Stopped by user');
+    // Also propagate to the underlying program in case it has its own controller
+    this.program.stop();
   }
 
   /**
@@ -519,14 +534,28 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     values: IN | AxMessage<IN>[],
     options?: Readonly<AxProgramForwardOptionsWithModels<T>>
   ): Promise<OUT> {
-    const { ai, functions, debug } = this.init<T>(parentAi, values, options);
-    const mergedOptions = {
-      ...this.options,
-      ...options,
-      debug,
-      functions,
-    };
-    return await this.program.forward(ai, values, mergedOptions);
+    this.abortController = new AbortController();
+    if (this._stopRequested) {
+      this.abortController.abort('Stopped by user (pre-forward)');
+    }
+    const effectiveAbortSignal = mergeAbortSignals(
+      this.abortController.signal,
+      options?.abortSignal
+    );
+    try {
+      const { ai, functions, debug } = this.init<T>(parentAi, values, options);
+      const mergedOptions = {
+        ...this.options,
+        ...options,
+        debug,
+        functions,
+        abortSignal: effectiveAbortSignal,
+      };
+      return await this.program.forward(ai, values, mergedOptions);
+    } finally {
+      this.abortController = undefined;
+      this._stopRequested = false;
+    }
   }
 
   private async *_defaultStreamingForward<T extends Readonly<AxAIService>>(
@@ -534,14 +563,28 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     values: IN | AxMessage<IN>[],
     options?: Readonly<AxProgramStreamingForwardOptionsWithModels<T>>
   ): AxGenStreamingOut<OUT> {
-    const { ai, functions, debug } = this.init<T>(parentAi, values, options);
-    const mergedOptions = {
-      ...this.options,
-      ...options,
-      debug,
-      functions,
-    };
-    return yield* this.program.streamingForward(ai, values, mergedOptions);
+    this.abortController = new AbortController();
+    if (this._stopRequested) {
+      this.abortController.abort('Stopped by user (pre-forward)');
+    }
+    const effectiveAbortSignal = mergeAbortSignals(
+      this.abortController.signal,
+      options?.abortSignal
+    );
+    try {
+      const { ai, functions, debug } = this.init<T>(parentAi, values, options);
+      const mergedOptions = {
+        ...this.options,
+        ...options,
+        debug,
+        functions,
+        abortSignal: effectiveAbortSignal,
+      };
+      return yield* this.program.streamingForward(ai, values, mergedOptions);
+    } finally {
+      this.abortController = undefined;
+      this._stopRequested = false;
+    }
   }
 
   /**
@@ -555,166 +598,193 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       | Readonly<AxProgramForwardOptionsWithModels<T>>
       | Readonly<AxProgramStreamingForwardOptionsWithModels<T>>
   ): Promise<OUT> {
-    const {
-      ai,
-      functions: baseFunctions,
-      debug,
-    } = this.init<T>(
-      parentAi,
-      values,
-      options as Readonly<AxProgramForwardOptionsWithModels<T>>
+    this.abortController = new AbortController();
+    if (this._stopRequested) {
+      this.abortController.abort('Stopped by user (pre-forward)');
+    }
+    const effectiveAbortSignal = mergeAbortSignals(
+      this.abortController.signal,
+      options?.abortSignal
     );
-    const rlm = this.rlmConfig!;
-    const interpreter = rlm.interpreter;
 
-    // 1. Separate context from non-context values
-    const contextValues: Record<string, unknown> = {};
-    const nonContextValues: Record<string, unknown> = {};
-    let rawValues: Record<string, unknown>;
-
-    if (Array.isArray(values)) {
-      const lastUserMsg = values.filter((msg) => msg.role === 'user').pop();
-      rawValues = (lastUserMsg?.values ?? {}) as Record<string, unknown>;
-    } else {
-      rawValues = values as Record<string, unknown>;
-    }
-
-    for (const [k, v] of Object.entries(rawValues)) {
-      if (rlm.contextFields.includes(k)) {
-        contextValues[k] = v;
-      } else {
-        nonContextValues[k] = v;
-      }
-    }
-
-    for (const field of rlm.contextFields) {
-      if (!(field in contextValues)) {
-        throw new Error(
-          `RLM contextField "${field}" is missing from input values`
-        );
-      }
-    }
-
-    // 2. Create interpreter session with context as globals
-    let llmCallCount = 0;
-    const maxLlmCalls = rlm.maxLlmCalls ?? 50;
-
-    const llmQuery = async (
-      queryOrQueries: string | readonly { query: string; context?: string }[],
-      ctx?: string
-    ): Promise<string | string[]> => {
-      if (Array.isArray(queryOrQueries)) {
-        return Promise.all(
-          queryOrQueries.map(
-            (q) => llmQuery(q.query, q.context) as Promise<string>
-          )
-        );
-      }
-
-      const query = queryOrQueries as string;
-
-      if (llmCallCount++ >= maxLlmCalls) {
-        throw new Error(`Max LLM sub-calls (${maxLlmCalls}) exceeded`);
-      }
-
-      const maxAttempts = 3;
-      let lastError: unknown;
-
-      for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        try {
-          const res = await ai.chat(
-            {
-              chatPrompt: [
-                {
-                  role: 'system' as const,
-                  content: 'Answer the query based on the provided context.',
-                },
-                {
-                  role: 'user' as const,
-                  content: ctx ? `Context:\n${ctx}\n\nQuery: ${query}` : query,
-                },
-              ],
-              ...(rlm.subModel ? { model: rlm.subModel } : {}),
-            },
-            { stream: false }
-          );
-          const chatRes = res as AxChatResponse;
-          return chatRes.results?.[0]?.content ?? '';
-        } catch (err) {
-          lastError = err;
-          if (!isTransientError(err) || attempt >= maxAttempts - 1) {
-            throw err;
-          }
-          const delay = Math.min(60_000, 1000 * Math.pow(2, attempt));
-          await new Promise((resolve) => setTimeout(resolve, delay));
-        }
-      }
-      throw lastError;
-    };
-
-    const session = interpreter.createSession({
-      ...contextValues,
-      llmQuery,
-    });
-
-    // 3. Create codeInterpreter function
-    const contextDesc = (this.rlmContextFields ?? [])
-      .map((f) => `${f.name}: ${toFieldType(f.type)}`)
-      .join(', ');
-
-    const codeInterpreterFn: AxFunction = {
-      name: 'codeInterpreter',
-      description:
-        `Execute ${interpreter.language} code in a persistent REPL. ` +
-        `Context available as: ${contextDesc || rlm.contextFields.join(', ')}. ` +
-        `Use \`await llmQuery(query, context?)\` for semantic analysis or \`await llmQuery([...])\` for batched queries. ` +
-        `Persist with var (sync) or bare assignment (async). Return a value to see it.`,
-      parameters: {
-        type: 'object',
-        properties: {
-          code: {
-            type: 'string',
-            description: `${interpreter.language} code to execute`,
-          },
-        },
-        required: ['code'],
-      },
-      func: async ({ code }: Readonly<{ code: string }>) => {
-        try {
-          const result = await session.execute(code);
-          if (result === undefined) return '(no output)';
-          if (typeof result === 'string') return result || '(no output)';
-          try {
-            return JSON.stringify(result, null, 2);
-          } catch {
-            return String(result);
-          }
-        } catch (err) {
-          return `Error: ${(err as Error).message}`;
-        }
-      },
-    };
-
-    // 4. Run rlmProgram
     try {
-      const mergedOptions = {
-        ...this.options,
-        ...options,
-        debug,
-        functions: [...baseFunctions, codeInterpreterFn],
-        maxSteps: options?.maxSteps ?? this.options?.maxSteps ?? 20,
-      };
-      return await this.rlmProgram!.forward(
+      const {
         ai,
-        nonContextValues as any,
-        mergedOptions as any
+        functions: baseFunctions,
+        debug,
+      } = this.init<T>(
+        parentAi,
+        values,
+        options as Readonly<AxProgramForwardOptionsWithModels<T>>
       );
-    } finally {
-      try {
-        session.close();
-      } catch {
-        // Ignore close errors to avoid masking the original error
+      const rlm = this.rlmConfig!;
+      const interpreter = rlm.interpreter;
+
+      // 1. Separate context from non-context values
+      const contextValues: Record<string, unknown> = {};
+      const nonContextValues: Record<string, unknown> = {};
+      let rawValues: Record<string, unknown>;
+
+      if (Array.isArray(values)) {
+        const lastUserMsg = values.filter((msg) => msg.role === 'user').pop();
+        rawValues = (lastUserMsg?.values ?? {}) as Record<string, unknown>;
+      } else {
+        rawValues = values as Record<string, unknown>;
       }
+
+      for (const [k, v] of Object.entries(rawValues)) {
+        if (rlm.contextFields.includes(k)) {
+          contextValues[k] = v;
+        } else {
+          nonContextValues[k] = v;
+        }
+      }
+
+      for (const field of rlm.contextFields) {
+        if (!(field in contextValues)) {
+          throw new Error(
+            `RLM contextField "${field}" is missing from input values`
+          );
+        }
+      }
+
+      // 2. Create interpreter session with context as globals
+      let llmCallCount = 0;
+      const maxLlmCalls = rlm.maxLlmCalls ?? 50;
+
+      const llmQuery = async (
+        queryOrQueries: string | readonly { query: string; context?: string }[],
+        ctx?: string
+      ): Promise<string | string[]> => {
+        // Pre-check: if already aborted, throw immediately
+        if (effectiveAbortSignal?.aborted) {
+          throw new Error('Aborted');
+        }
+
+        if (Array.isArray(queryOrQueries)) {
+          return Promise.all(
+            queryOrQueries.map(
+              (q) => llmQuery(q.query, q.context) as Promise<string>
+            )
+          );
+        }
+
+        const query = queryOrQueries as string;
+
+        if (llmCallCount++ >= maxLlmCalls) {
+          throw new Error(`Max LLM sub-calls (${maxLlmCalls}) exceeded`);
+        }
+
+        const maxAttempts = 3;
+        let lastError: unknown;
+
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+          try {
+            const res = await ai.chat(
+              {
+                chatPrompt: [
+                  {
+                    role: 'system' as const,
+                    content: 'Answer the query based on the provided context.',
+                  },
+                  {
+                    role: 'user' as const,
+                    content: ctx
+                      ? `Context:\n${ctx}\n\nQuery: ${query}`
+                      : query,
+                  },
+                ],
+                ...(rlm.subModel ? { model: rlm.subModel } : {}),
+              },
+              {
+                stream: false,
+                abortSignal: effectiveAbortSignal,
+              }
+            );
+            const chatRes = res as AxChatResponse;
+            return chatRes.results?.[0]?.content ?? '';
+          } catch (err) {
+            lastError = err;
+            if (!isTransientError(err) || attempt >= maxAttempts - 1) {
+              throw err;
+            }
+            const delay = Math.min(60_000, 1000 * Math.pow(2, attempt));
+            await new Promise((resolve) => setTimeout(resolve, delay));
+          }
+        }
+        throw lastError;
+      };
+
+      const session = interpreter.createSession({
+        ...contextValues,
+        llmQuery,
+      });
+
+      // 3. Create codeInterpreter function
+      const contextDesc = (this.rlmContextFields ?? [])
+        .map((f) => `${f.name}: ${toFieldType(f.type)}`)
+        .join(', ');
+
+      const codeInterpreterFn: AxFunction = {
+        name: 'codeInterpreter',
+        description:
+          `Execute ${interpreter.language} code in a persistent REPL. ` +
+          `Context available as: ${contextDesc || rlm.contextFields.join(', ')}. ` +
+          `Use \`await llmQuery(query, context?)\` for semantic analysis or \`await llmQuery([...])\` for batched queries. ` +
+          `Persist with var (sync) or bare assignment (async). Return a value to see it.`,
+        parameters: {
+          type: 'object',
+          properties: {
+            code: {
+              type: 'string',
+              description: `${interpreter.language} code to execute`,
+            },
+          },
+          required: ['code'],
+        },
+        func: async ({ code }: Readonly<{ code: string }>) => {
+          try {
+            const result = await session.execute(code, {
+              signal: effectiveAbortSignal,
+            });
+            if (result === undefined) return '(no output)';
+            if (typeof result === 'string') return result || '(no output)';
+            try {
+              return JSON.stringify(result, null, 2);
+            } catch {
+              return String(result);
+            }
+          } catch (err) {
+            return `Error: ${(err as Error).message}`;
+          }
+        },
+      };
+
+      // 4. Run rlmProgram
+      try {
+        const mergedOptions = {
+          ...this.options,
+          ...options,
+          debug,
+          functions: [...baseFunctions, codeInterpreterFn],
+          maxSteps: options?.maxSteps ?? this.options?.maxSteps ?? 20,
+          abortSignal: effectiveAbortSignal,
+        };
+        return await this.rlmProgram!.forward(
+          ai,
+          nonContextValues as any,
+          mergedOptions as any
+        );
+      } finally {
+        try {
+          session.close();
+        } catch {
+          // Ignore close errors to avoid masking the original error
+        }
+      }
+    } finally {
+      this.abortController = undefined;
+      this._stopRequested = false;
     }
   }
 

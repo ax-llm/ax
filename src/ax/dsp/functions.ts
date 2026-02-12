@@ -170,6 +170,7 @@ export class AxFunctionProcessor {
           traceId: options.traceId,
           ai: options.ai,
           step: options.step,
+          abortSignal: options.abortSignal,
         }
       : undefined;
 
@@ -309,6 +310,7 @@ type ProcessFunctionsArgs = {
   debug: boolean;
   stopFunctionNames?: readonly string[];
   step?: AxStepContextImpl;
+  abortSignal?: AbortSignal;
 };
 
 export const processFunctions = async ({
@@ -326,6 +328,7 @@ export const processFunctions = async ({
   debug,
   stopFunctionNames,
   step,
+  abortSignal,
 }: Readonly<ProcessFunctionsArgs>) => {
   const funcProc = new AxFunctionProcessor(functionList);
   const functionsExecuted = new Set<string>();
@@ -361,6 +364,7 @@ export const processFunctions = async ({
           traceId,
           stopFunctionNames,
           step,
+          abortSignal,
         })
         .then(
           ({
@@ -462,6 +466,7 @@ export const processFunctions = async ({
               traceId: toolSpan?.spanContext?.().traceId ?? traceId,
               stopFunctionNames,
               step,
+              abortSignal,
             });
 
           functionsExecuted.add(func.name.toLowerCase());

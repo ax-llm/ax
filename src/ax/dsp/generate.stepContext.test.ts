@@ -278,7 +278,10 @@ describe('AxGen step context integration', () => {
 
       const ai = new AxMockAIService({
         features: { functions: true },
-        models: [{ key: 'fast', model: 'gpt-4o-mini', description: 'Quick' }],
+        models: [
+          { key: 'fast', model: 'gpt-4o-mini', description: 'Quick' },
+          { key: 'smart', model: 'claude-sonnet', description: 'Balanced' },
+        ],
       });
 
       ai.chat = async (req: Readonly<AxChatRequest<unknown>>) => {

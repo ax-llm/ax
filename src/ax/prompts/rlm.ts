@@ -21,7 +21,7 @@ export interface AxCodeInterpreter {
  * A persistent code execution session. Variables persist across `execute()` calls.
  */
 export interface AxCodeSession {
-  execute(code: string): Promise<unknown>;
+  execute(code: string, options?: { signal?: AbortSignal }): Promise<unknown>;
   close(): void;
 }
 

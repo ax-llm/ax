@@ -52,6 +52,7 @@ type ProcessStreamingResponseArgs = Readonly<
   stopFunctionNames?: readonly string[];
   disableMemoryCleanup?: boolean;
   stepContext?: AxStepContextImpl;
+  abortSignal?: AbortSignal;
 };
 
 export async function* processStreamingResponse<OUT extends AxGenOut>({
@@ -450,6 +451,7 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
   debug,
   stopFunctionNames,
   stepContext,
+  abortSignal,
 }: FinalizeStreamingResponseArgs) {
   // Prefer native function calls when provided
   const funcs = !signatureToolCallingManager
@@ -475,6 +477,7 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
       debug: debug,
       stopFunctionNames,
       step: stepContext,
+      abortSignal,
     });
     state.functionsExecuted = new Set([...state.functionsExecuted, ...fx]);
     // Clear accumulated function calls after processing to avoid re-execution
@@ -621,6 +624,7 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
           debug,
           stopFunctionNames,
           step: stepContext,
+          abortSignal,
         });
         state.functionsExecuted = new Set([...state.functionsExecuted, ...fx]);
 
@@ -705,6 +709,7 @@ export async function* processResponse<OUT>({
   stopFunctionNames,
   disableMemoryCleanup,
   stepContext,
+  abortSignal,
 }: Readonly<AxResponseHandlerArgs<AxChatResponse>> & {
   states: InternalAxGenState[];
   usage: AxModelUsage[];
@@ -719,6 +724,7 @@ export async function* processResponse<OUT>({
   stopFunctionNames?: readonly string[];
   disableMemoryCleanup?: boolean;
   stepContext?: AxStepContextImpl;
+  abortSignal?: AbortSignal;
 }): AsyncGenDeltaOut<OUT> {
   const results = res.results ?? [];
   const treatAllFieldsOptional = signatureToolCallingManager !== undefined;
@@ -840,6 +846,7 @@ export async function* processResponse<OUT>({
             debug,
             stopFunctionNames,
             step: stepContext,
+            abortSignal,
           });
         } catch (e) {
           // On function error, tag and append correction prompt for next step

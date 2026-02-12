@@ -35,6 +35,8 @@ import type {
   AxSetExamplesOptions,
 } from '../dsp/types.js';
 import { mergeProgramUsage } from '../dsp/util.js';
+import { mergeAbortSignals } from '../util/abort.js';
+import { AxAIServiceAbortedError } from '../util/apicall.js';
 import { createHash } from '../util/crypto.js';
 import { processBatches } from './batchUtil.js';
 import { AxFlowExecutionPlanner } from './executionPlanner.js';
@@ -130,11 +132,24 @@ export class AxFlow<
     meter?: Meter;
   }>;
 
+  // Abort controller for stop() support
+  private abortController?: AbortController;
+  private _stopRequested = false;
+
   /**
    * Converts a string to camelCase for valid field names
    */
   private toCamelCase(str: string): string {
     return str.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+  }
+
+  /**
+   * Stops an in-flight `forward()` call. Causes it to throw
+   * `AxAIServiceAbortedError`.
+   */
+  public stop(): void {
+    this._stopRequested = true;
+    this.abortController?.abort('Stopped by user');
   }
 
   /**
@@ -155,6 +170,15 @@ export class AxFlow<
     for (let i = 0; i < steps.length; i++) {
       const step = steps[i];
       if (!step) continue;
+
+      // Check abort before each step
+      const abortSignal = context.mainOptions?.abortSignal;
+      if (abortSignal?.aborted) {
+        throw new AxAIServiceAbortedError(
+          'flow-between-steps',
+          abortSignal.reason ?? 'Flow aborted between steps'
+        );
+      }
 
       // Determine step type and metadata for logging
       const stepType = this.getStepType(step, i);
@@ -1149,6 +1173,16 @@ export class AxFlow<
         parentCtx = trace.setSpan(baseCtx, parentSpan);
       }
 
+      // Create internal abort controller and merge with user-provided signal
+      this.abortController = new AbortController();
+      if (this._stopRequested) {
+        this.abortController.abort('Stopped by user (pre-forward)');
+      }
+      const effectiveAbortSignal = mergeAbortSignals(
+        this.abortController.signal,
+        (options as any)?.abortSignal
+      );
+
       // Create execution context object
       // This provides consistent access to AI service and options for all steps
       const execContext = {
@@ -1162,6 +1196,7 @@ export class AxFlow<
             merged.model = String((options as any).model);
           if (tracer) merged.tracer = tracer;
           if (parentCtx) (merged as any).traceContext = parentCtx;
+          if (effectiveAbortSignal) merged.abortSignal = effectiveAbortSignal;
           // If nothing to merge and no defaults, return undefined
           return Object.keys(merged).length > 0 ? merged : undefined;
         })(),
@@ -1253,6 +1288,9 @@ export class AxFlow<
       // @ts-expect-error runtime-scoped variable defined above
       if (typeof parentSpan !== 'undefined' && parentSpan) parentSpan.end();
       throw error;
+    } finally {
+      this.abortController = undefined;
+      this._stopRequested = false;
     }
   }
 

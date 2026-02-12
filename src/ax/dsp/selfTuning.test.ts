@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { AxMockAIService } from '../ai/mock/api.js';
-import type { AxFunction } from '../ai/types.js';
+import type { AxChatResponse, AxFunction } from '../ai/types.js';
+import { AxGen } from './generate.js';
 import { createSelfTuningFunction } from './selfTuning.js';
 import type { AxStepContext } from './types.js';
 
@@ -354,5 +355,88 @@ describe('createSelfTuningFunction', () => {
       expect(func.parameters!.properties!.addFunctions).toBeUndefined();
       expect(func.parameters!.properties!.removeFunctions).toBeUndefined();
     });
+  });
+});
+
+describe('selfTuning model validation in forward()', () => {
+  function textResponse(content: string): AxChatResponse {
+    return {
+      results: [{ index: 0, content, finishReason: 'stop' as const }],
+      modelUsage: {
+        ai: 'mock',
+        model: 'mock-model',
+        tokens: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+      },
+    };
+  }
+
+  it('throws when selfTuning: true and AI has no models list', async () => {
+    const ai = new AxMockAIService({
+      features: { functions: true },
+      chatResponse: async () => textResponse('answer: hello'),
+    });
+
+    const gen = new AxGen('question -> answer');
+
+    await expect(
+      gen.forward(ai, { question: 'hi' }, { selfTuning: true })
+    ).rejects.toThrow(
+      /Self-tuning with model selection requires the AI service to have a `models` list with at least 2 chat models/
+    );
+  });
+
+  it('throws when selfTuning: true and AI has only 1 chat model', async () => {
+    const ai = new AxMockAIService({
+      features: { functions: true },
+      models: [{ key: 'only', model: 'gpt-4o', description: 'Only model' }],
+      chatResponse: async () => textResponse('answer: hello'),
+    });
+
+    const gen = new AxGen('question -> answer');
+
+    await expect(
+      gen.forward(ai, { question: 'hi' }, { selfTuning: true })
+    ).rejects.toThrow(
+      /Self-tuning with model selection requires the AI service to have a `models` list with at least 2 chat models/
+    );
+  });
+
+  it('does not throw when model selection is disabled', async () => {
+    const ai = new AxMockAIService({
+      features: { functions: true },
+      chatResponse: async () => textResponse('answer: hello'),
+    });
+
+    const gen = new AxGen('question -> answer');
+
+    // model: false means model selection is disabled, so no validation needed
+    const result = await gen.forward(
+      ai,
+      { question: 'hi' },
+      { selfTuning: { model: false, thinkingBudget: true } }
+    );
+
+    expect(result).toBeDefined();
+  });
+
+  it('does not throw when AI has 2+ chat models', async () => {
+    const ai = new AxMockAIService({
+      features: { functions: true },
+      models: [
+        { key: 'fast', model: 'gpt-4o-mini', description: 'Quick' },
+        { key: 'smart', model: 'gpt-4o', description: 'Powerful' },
+      ],
+      chatResponse: async () => textResponse('answer: hello'),
+    });
+
+    const gen = new AxGen('question -> answer');
+
+    const result = await gen.forward(
+      ai,
+      { question: 'hi' },
+      { selfTuning: true }
+    );
+
+    expect(result).toBeDefined();
   });
 });

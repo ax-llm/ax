@@ -136,7 +136,85 @@ const result = await myAgent.forward(llm, values, {
   debug: true,                // Enable debug logging
   functions: [extraTool],     // Additional tools (merged with agent's tools)
   thinkingTokenBudget: 'medium',
+  abortSignal: controller.signal,  // Cancel via AbortSignal
 });
+```
+
+## Stopping Agents
+
+`AxAgent`, `AxGen`, and `AxFlow` support two ways to stop an in-flight `forward()` or `streamingForward()` call. Both cause the call to throw `AxAIServiceAbortedError`, which you handle with try/catch.
+
+### `stop()` method
+
+Call `stop()` from any context — a timer, event handler, or another async task — to halt the multi-step loop. The loop throws `AxAIServiceAbortedError` at the next between-step check.
+
+```typescript
+const myAgent = agent('question:string -> answer:string', {
+  name: 'myAgent',
+  description: 'An agent that answers questions thoroughly',
+});
+
+// Stop after 5 seconds
+const timer = setTimeout(() => myAgent.stop(), 5_000);
+
+try {
+  const result = await myAgent.forward(llm, { question: 'Explain quantum gravity' });
+  console.log(result.answer);
+} catch (err) {
+  if (err instanceof AxAIServiceAbortedError) {
+    console.log('Agent was stopped');
+  } else {
+    throw err;
+  }
+} finally {
+  clearTimeout(timer);
+}
+```
+
+`stop()` is also available on `AxGen` and `AxFlow` instances:
+
+```typescript
+const gen = ax('topic:string -> summary:string');
+setTimeout(() => gen.stop(), 3_000);
+
+try {
+  const result = await gen.forward(llm, { topic: 'Climate change' });
+} catch (err) {
+  if (err instanceof AxAIServiceAbortedError) {
+    console.log('Generation was stopped');
+  }
+}
+```
+
+### Using `AbortSignal`
+
+Pass an `abortSignal` in the forward options to cancel via the standard `AbortController` / `AbortSignal` API. The signal is checked between each step of the multi-step loop, not only during the HTTP call, so cancellation is detected promptly even when the agent is between LLM calls.
+
+```typescript
+// Time-based deadline
+try {
+  const result = await myAgent.forward(llm, values, {
+    abortSignal: AbortSignal.timeout(10_000),  // 10-second deadline
+  });
+} catch (err) {
+  if (err instanceof AxAIServiceAbortedError) {
+    console.log('Timed out');
+  }
+}
+
+// Manual controller
+const controller = new AbortController();
+onUserCancel(() => controller.abort());
+
+try {
+  const result = await myAgent.forward(llm, values, {
+    abortSignal: controller.signal,
+  });
+} catch (err) {
+  if (err instanceof AxAIServiceAbortedError) {
+    console.log('Cancelled by user');
+  }
+}
 ```
 
 ## Child Agents
@@ -378,7 +456,7 @@ interface AxCodeInterpreter {
 
 ```typescript
 interface AxCodeSession {
-  execute(code: string): Promise<unknown>;
+  execute(code: string, options?: { signal?: AbortSignal }): Promise<unknown>;
   close(): void;
 }
 ```
@@ -408,3 +486,11 @@ Extends `AxProgramForwardOptions` (without `functions`) with:
   rlm?: AxRLMConfig;
 }
 ```
+
+### `stop()`
+
+```typescript
+public stop(): void
+```
+
+Available on `AxAgent`, `AxGen`, and `AxFlow`. Stops an in-flight `forward()` or `streamingForward()` call, causing it to throw `AxAIServiceAbortedError`. See [Stopping Agents](#stopping-agents).

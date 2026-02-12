@@ -198,6 +198,7 @@ export type AxFunctionHandler = (
     debug?: boolean;
     ai?: AxAIService;
     step?: import('../dsp/types.js').AxStepContext;
+    abortSignal?: AbortSignal;
   }>
 ) => unknown;
 
