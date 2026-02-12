@@ -1,6 +1,6 @@
 {
   "name": "@ax-llm/ax-ai-sdk-provider",
-  "version": "16.1.9",
+  "version": "16.1.10",
   "type": "module",
   "description": "Ax AI SDK Provider for the Vercel AI SDK",
   "repository": {
@@ -32,7 +32,7 @@
   },
   "dependencies": {
     "@ai-sdk/provider-utils": "^3.0.10",
-    "@ax-llm/ax": "16.1.9",
+    "@ax-llm/ax": "16.1.10",
     "ai": "^5.0.100",
     "zod": "^3.23.8"
   },

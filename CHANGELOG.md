@@ -1,5 +1,20 @@
 # Changelog
 
+## [16.1.10](///compare/16.1.8...16.1.9) (2026-02-12)
+
+### Features
+
+* enhance postbuild and postinstall scripts for skill file handling 28d260b
+## [16.1.9](///compare/16.1.8...16.1.9) (2026-02-12)
+
+### Features
+
+* implement abort functionality in AxAgent, AxGen, and AxFlow d450bbd
+
+### Bug Fixes
+
+* unify llmQuery functionality and update documentation af64cf9
+
 ## [16.1.9](///compare/16.1.7...16.1.8) (2026-02-12)
 
 ### Features

@@ -1,6 +1,6 @@
 {
   "name": "@ax-llm/ax-tools",
-  "version": "16.1.9",
+  "version": "16.1.10",
   "type": "module",
   "description": "Ax tools package",
   "repository": {
@@ -32,7 +32,7 @@
     "postbuild": "node ../../scripts/postbuild.js"
   },
   "dependencies": {
-    "@ax-llm/ax": "16.1.9"
+    "@ax-llm/ax": "16.1.10"
   },
   "files": [
     "**/*"
