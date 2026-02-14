@@ -6,6 +6,7 @@ import type {
   AxFunctionHandler,
   AxFunctionJSONSchema,
 } from '../ai/types.js';
+import { toFieldType } from '../dsp/adapter.js';
 import type { AxInputFunctionType } from '../dsp/functions.js';
 import { AxGen } from '../dsp/generate.js';
 import { mergeAbortSignals } from '../util/abort.js';
@@ -15,7 +16,6 @@ import {
   AxAIServiceStatusError,
   AxAIServiceTimeoutError,
 } from '../util/apicall.js';
-import { toFieldType } from '../dsp/prompt.js';
 import { AxSignature } from '../dsp/sig.js';
 import type { AxIField } from '../dsp/sig.js';
 import type { ParseSignature } from '../dsp/sigtypes.js';

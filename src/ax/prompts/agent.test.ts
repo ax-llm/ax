@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
+import { toFieldType } from '../dsp/adapter.js';
 import { AxMockAIService } from '../ai/mock/api.js';
 import type { AxChatResponse } from '../ai/types.js';
-import { toFieldType } from '../dsp/prompt.js';
 import type { AxIField } from '../dsp/sig.js';
 import { s } from '../dsp/template.js';
 import type { AxMessage } from '../dsp/types.js';
