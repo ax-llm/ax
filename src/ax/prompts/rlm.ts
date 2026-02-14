@@ -5,7 +5,7 @@
  * No Node.js-specific imports; browser-safe.
  */
 
-import { toFieldType } from '../dsp/prompt.js';
+import { toFieldType } from '../dsp/adapter.js';
 import type { AxIField } from '../dsp/sig.js';
 
 /**

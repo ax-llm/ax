@@ -2,7 +2,7 @@ import type { AxChatRequest } from '../ai/types.js';
 import { formatDateWithTimezone } from './datetime.js';
 import { axGlobals } from './globals.js';
 import type { AxFieldTemplateFn, AxPromptTemplateOptions } from './prompt.js';
-import type { AxField, AxIField, AxSignature } from './sig.js';
+import type { AxField, AxFieldType, AxIField, AxSignature } from './sig.js';
 import type { AxFieldValue, AxMessage } from './types.js';
 import { validateValue } from './util.js';
 
@@ -1484,7 +1484,9 @@ export const toFieldType = (type: Readonly<AxField['type']>) => {
       case 'url':
         return 'URL (string or object with url, title, description)';
       case 'object':
-        return 'object';
+        return type?.fields
+          ? `object ${formatObjectStructure(type.fields)}`
+          : 'object';
       default:
         return 'string';
     }
@@ -1492,6 +1494,22 @@ export const toFieldType = (type: Readonly<AxField['type']>) => {
 
   return type?.isArray ? `json array of ${baseType} items` : baseType;
 };
+
+function formatObjectStructure(
+  fields: Readonly<Record<string, AxFieldType>>
+): string {
+  const entries = Object.entries(fields).map(([key, ft]) => {
+    const opt = ft.isOptional ? '?' : '';
+    const typeStr = toFieldType({
+      name: ft.type,
+      isArray: ft.isArray,
+      fields: ft.fields,
+      options: ft.options as string[] | undefined,
+    });
+    return `${key}${opt}: ${typeStr}`;
+  });
+  return `{ ${entries.join(', ')} }`;
+}
 
 function combineConsecutiveStrings(separator: string) {
   return (acc: ChatRequestUserMessage, current: ChatRequestUserMessage[0]) => {

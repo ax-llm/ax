@@ -95,6 +95,7 @@ import type {
   AxProgrammable,
   AxProgramStreamingForwardOptionsWithModels,
   AxResultPickerFunction,
+  AxSelfTuningConfig,
   AxSetExamplesOptions,
 } from './types.js';
 import { mergeDeltas } from './util.js';
