@@ -1,5 +1,16 @@
 # Changelog
 
+## [16.1.12](///compare/16.1.10...16.1.11) (2026-02-14)
+
+### Features
+
+* add RLM support in AxAgent for long context analysis 41e3254
+## [16.1.11](///compare/16.1.10...16.1.11) (2026-02-14)
+
+### Features
+
+* introduce AxRLMJSInterpreter with sandbox permissions and update documentation 2f0e990
+
 ## [16.1.11](///compare/16.1.9...16.1.10) (2026-02-14)
 
 ### Features
