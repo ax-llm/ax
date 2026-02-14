@@ -1,5 +1,9 @@
-import { AxAIGoogleGeminiModel, agent, ai } from '@ax-llm/ax';
-import { AxRLMJSInterpreter } from '@ax-llm/ax-tools';
+import {
+  AxAIGoogleGeminiModel,
+  AxRLMJSInterpreter,
+  agent,
+  ai,
+} from '@ax-llm/ax';
 
 const llm = ai({
   name: 'google-gemini',
@@ -16,6 +20,8 @@ const analyzer = agent(
     maxSteps: 15,
     rlm: {
       contextFields: ['context'],
+      // Pass permissions to grant access to specific APIs, e.g.:
+      //   new AxRLMJSInterpreter({ permissions: [AxRLMJSInterpreterPermission.NETWORK] })
       interpreter: new AxRLMJSInterpreter(),
       maxLlmCalls: 30,
     },

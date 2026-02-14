@@ -297,7 +297,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
       if (!options.rlm.interpreter) {
         throw new Error(
-          'RLM interpreter is required. Use AxRLMJSInterpreter from @ax-llm/ax-tools or provide a custom AxCodeInterpreter.'
+          'RLM interpreter is required. Use AxRLMJSInterpreter from @ax-llm/ax or provide a custom AxCodeInterpreter.'
         );
       }
 

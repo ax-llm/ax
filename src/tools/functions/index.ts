@@ -5,7 +5,9 @@ export {
   axCreateJSInterpreter,
 } from './jsInterpreter.js';
 
+// AxRLMJSInterpreter moved to @ax-llm/ax (browser-compatible Web Worker implementation)
 export {
   AxRLMJSInterpreter,
+  AxRLMJSInterpreterPermission,
   axCreateRLMJSInterpreter,
-} from './rlmInterpreter.js';
+} from '@ax-llm/ax';

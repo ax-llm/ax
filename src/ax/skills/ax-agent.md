@@ -358,7 +358,7 @@ The LLM writes code to chunk, filter, and iterate over the document, using `llmQ
 
 ```typescript
 import { agent, ai } from '@ax-llm/ax';
-import { AxRLMJSInterpreter } from '@ax-llm/ax-tools';
+import { AxRLMJSInterpreter } from '@ax-llm/ax';
 
 const analyzer = agent(
   'context:string, query:string -> answer:string, evidence:string[]',
@@ -376,13 +376,41 @@ const analyzer = agent(
 );
 ```
 
+### Sandbox Permissions
+
+By default, the `AxRLMJSInterpreter` sandbox blocks all dangerous Web APIs (network, storage, etc.). You can selectively grant access using the `AxRLMJSInterpreterPermission` enum:
+
+```typescript
+import { AxRLMJSInterpreter, AxRLMJSInterpreterPermission } from '@ax-llm/ax';
+
+const interpreter = new AxRLMJSInterpreter({
+  permissions: [
+    AxRLMJSInterpreterPermission.NETWORK,
+    AxRLMJSInterpreterPermission.STORAGE,
+  ],
+});
+```
+
+Available permissions:
+
+| Permission | Unlocked Globals | Description |
+|---|---|---|
+| `NETWORK` | `fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource` | HTTP requests and real-time connections |
+| `STORAGE` | `indexedDB`, `caches` | Client-side persistent storage |
+| `CODE_LOADING` | `importScripts` | Dynamic script loading |
+| `COMMUNICATION` | `BroadcastChannel` | Cross-tab/worker messaging |
+| `TIMING` | `performance` | High-resolution timing |
+| `WORKERS` | `Worker`, `SharedWorker` | Sub-worker spawning (see warning below) |
+
+> **Warning**: Granting `WORKERS` allows code to spawn sub-workers that get fresh, unlocked globals. A child worker has full access to `fetch`, `indexedDB`, etc. regardless of the parent's permissions. Only grant `WORKERS` when you trust the executed code.
+
 ### Structured Context Fields
 
 Context fields aren't limited to plain strings. You can pass structured data — objects and arrays with typed sub-fields:
 
 ```typescript
 import { agent, f, s } from '@ax-llm/ax';
-import { AxRLMJSInterpreter } from '@ax-llm/ax-tools';
+import { AxRLMJSInterpreter } from '@ax-llm/ax';
 
 const sig = s('query:string -> answer:string, evidence:string[]')
   .appendInputField('documents', f.object({
@@ -442,7 +470,7 @@ In RLM mode, the agent gets a `codeInterpreter` tool. The LLM's typical workflow
 
 ### Custom Interpreters
 
-The built-in `AxRLMJSInterpreter` uses Node.js `vm` module. For other environments, implement the `AxCodeInterpreter` interface:
+The built-in `AxRLMJSInterpreter` uses Web Workers for sandboxed code execution. For other environments, implement the `AxCodeInterpreter` interface:
 
 ```typescript
 import type { AxCodeInterpreter, AxCodeSession } from '@ax-llm/ax';

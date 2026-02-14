@@ -680,6 +680,11 @@ import type {
 } from './flow/types.js';
 import { type AxDockerContainer, AxDockerSession } from './funcs/docker.js';
 import { AxEmbeddingAdapter } from './funcs/embed.js';
+import {
+  AxRLMJSInterpreter,
+  AxRLMJSInterpreterPermission,
+  axCreateRLMJSInterpreter,
+} from './funcs/rlmInterpreter.js';
 import { AxMCPClient } from './mcp/client.js';
 import type { AxMCPOAuthOptions } from './mcp/oauth/types.js';
 import type { AxMCPTransport } from './mcp/transport.js';
@@ -869,6 +874,8 @@ export { AxOptimizedProgramImpl };
 export { AxProgram };
 export { AxPromptTemplate };
 export { AxProviderRouter };
+export { AxRLMJSInterpreter };
+export { AxRLMJSInterpreterPermission };
 export { AxRateLimiterTokenUsage };
 export { AxSignature };
 export { AxSignatureBuilder };
@@ -932,6 +939,7 @@ export { axCreateDefaultOptimizerTextLogger };
 export { axCreateDefaultTextLogger };
 export { axCreateFlowColorLogger };
 export { axCreateFlowTextLogger };
+export { axCreateRLMJSInterpreter };
 export { axDefaultFlowLogger };
 export { axDefaultMetricsConfig };
 export { axDefaultOptimizerLogger };
