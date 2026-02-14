@@ -319,6 +319,9 @@ const analyzer = agent(
       contextFields: ['context'],              // Fields to load into interpreter
       interpreter: new AxRLMJSInterpreter(),   // Code interpreter implementation
       maxLlmCalls: 30,                         // Cap on sub-LM calls (default: 50)
+      maxSubQueryContextChars: 20_000,         // Hard cap per llmQuery context (default: 20_000)
+      maxBatchedLlmQueryConcurrency: 6,        // Max parallel batched llmQuery calls (default: 8)
+      maxInterpreterOutputChars: 8_000,        // Max chars returned per codeInterpreter call (default: 10_000)
       subModel: 'gpt-4o-mini',                // Model for llmQuery (default: same as parent)
     },
   }
@@ -337,6 +340,17 @@ const interpreter = new AxRLMJSInterpreter({
     AxRLMJSInterpreterPermission.NETWORK,
     AxRLMJSInterpreterPermission.STORAGE,
   ],
+});
+```
+
+Node safety note:
+
+- In Node runtime, `AxRLMJSInterpreter` uses safer defaults and hides host globals like `process` and `require`.
+- You can opt into unsafe host access only when you trust generated code:
+
+```typescript
+const interpreter = new AxRLMJSInterpreter({
+  allowUnsafeNodeHostAccess: true, // WARNING: model code can access host capabilities
 });
 ```
 
@@ -458,6 +472,14 @@ The `globals` object passed to `createSession` includes:
 
 RLM mode does not support true streaming. When using `streamingForward`, RLM runs the full analysis and yields the final result as a single chunk.
 
+### Recommended Chunk Sizing
+
+Treat `maxSubQueryContextChars` as a hard ceiling, not your normal chunk size.
+
+- **Target chunk size:** `2_000` to `10_000` chars
+- **Hard cap:** `20_000` chars by default
+- **Why:** smaller chunks usually improve latency, cost, and semantic precision for sub-calls
+
 ## API Reference
 
 ### `AxRLMConfig`
@@ -467,6 +489,9 @@ interface AxRLMConfig {
   contextFields: string[];        // Input fields holding long context
   interpreter: AxCodeInterpreter; // Code interpreter implementation
   maxLlmCalls?: number;           // Cap on sub-LM calls (default: 50)
+  maxSubQueryContextChars?: number;       // Hard cap per llmQuery context (default: 20_000)
+  maxBatchedLlmQueryConcurrency?: number; // Max parallel batched llmQuery calls (default: 8)
+  maxInterpreterOutputChars?: number;     // Max chars returned per codeInterpreter call (default: 10_000)
   subModel?: string;              // Model for llmQuery sub-calls
 }
 ```

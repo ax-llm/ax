@@ -35,6 +35,12 @@ export interface AxRLMConfig {
   interpreter: AxCodeInterpreter;
   /** Cap on recursive sub-LM calls (default: 50). */
   maxLlmCalls?: number;
+  /** Maximum characters passed into a single llmQuery context (default: 20000). */
+  maxSubQueryContextChars?: number;
+  /** Maximum parallel llmQuery calls in batched mode (default: 8). */
+  maxBatchedLlmQueryConcurrency?: number;
+  /** Maximum characters returned from one codeInterpreter call (default: 10000). */
+  maxInterpreterOutputChars?: number;
   /** Model for llmQuery sub-calls (default: same as parent). */
   subModel?: string;
 }
@@ -81,6 +87,15 @@ ${contextVarList}
 - \`await llmQuery([{ query, context? }, ...])\` — Parallel sub-queries. Returns string[].
 
 Sub-queries have a call limit — use parallel queries and keep each context small.
+Target chunks should usually be <= 10,000 chars for semantic sub-calls.
+There is also a hard runtime cap on context size per \`llmQuery\` call. If you hit a size error, chunk/filter the context into smaller pieces and retry.
+
+### Iteration strategy
+- Explore first: inspect type/size/sample before heavy processing.
+- Iterate in small steps: run short code, inspect output, then decide next step.
+- Verify before final answer: if outputs look empty/odd, reassess and rerun.
+- Keep long values in variables; avoid retyping large snippets.
+- Use \`llmQuery\` for semantic understanding, not for basic filtering/slicing.
 
 ### Execution rules
 - Sync code: use \`var\` (not \`const\`/\`let\`) to persist variables across calls. The last expression is auto-returned.
@@ -116,7 +131,8 @@ Then provide the final answer with the required output fields.
 
 ### Guidelines
 - Use code for structural work (filter, map, slice, regex, property access); use \`llmQuery\` for semantic understanding.
-- Keep \`llmQuery\` context small — chunk text or filter/slice data before passing.
+- Keep \`llmQuery\` context small — target <= 10,000 chars, and chunk/filter/slice before passing.
+- Keep codeInterpreter output concise; print summaries/counts instead of massive dumps.
 - If \`llmQuery\` fails, use try/catch and retry with a smaller chunk or different query.`;
 
   return rlmPrompt;

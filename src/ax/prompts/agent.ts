@@ -162,6 +162,17 @@ const definitionError = new Error(
   'Agent definition is the prompt you give to the LLM for the agent. It must be detailed and at least 100 characters'
 );
 
+const DEFAULT_RLM_MAX_LLM_CALLS = 50;
+const DEFAULT_RLM_MAX_SUBQUERY_CONTEXT_CHARS = 20_000;
+const DEFAULT_RLM_BATCH_CONCURRENCY = 8;
+const DEFAULT_RLM_MAX_INTERPRETER_OUTPUT_CHARS = 10_000;
+const DEFAULT_RLM_MAX_STEPS = 20;
+
+type AxRLMExecutionEntry = {
+  code: string;
+  output: string;
+};
+
 /**
  * An AI agent that can process inputs using an AI service and coordinate with child agents.
  * Supports features like smart model routing and automatic input field passing to child agents.
@@ -321,7 +332,13 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         contextFieldMeta
       );
 
-      this.rlmProgram = new AxGen(rlmSig, { ...options, description: rlmDef });
+      // Explicitly set maxSteps on the inner RLM AxGen so it does not
+      // silently fall back to AxGen defaults.
+      this.rlmProgram = new AxGen(rlmSig, {
+        ...options,
+        description: rlmDef,
+        maxSteps: options?.maxSteps ?? DEFAULT_RLM_MAX_STEPS,
+      });
     }
   }
 
@@ -627,8 +644,15 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       let rawValues: Record<string, unknown>;
 
       if (Array.isArray(values)) {
-        const lastUserMsg = values.filter((msg) => msg.role === 'user').pop();
-        rawValues = (lastUserMsg?.values ?? {}) as Record<string, unknown>;
+        rawValues = values
+          .filter((msg) => msg.role === 'user')
+          .reduce<Record<string, unknown>>(
+            (acc, msg) => ({
+              ...acc,
+              ...(msg.values as Record<string, unknown>),
+            }),
+            {}
+          );
       } else {
         rawValues = values as Record<string, unknown>;
       }
@@ -650,8 +674,18 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       }
 
       // 2. Create interpreter session with context as globals
+      const executionHistory: AxRLMExecutionEntry[] = [];
       let llmCallCount = 0;
-      const maxLlmCalls = rlm.maxLlmCalls ?? 50;
+      const maxLlmCalls = rlm.maxLlmCalls ?? DEFAULT_RLM_MAX_LLM_CALLS;
+      const maxSubQueryContextChars =
+        rlm.maxSubQueryContextChars ?? DEFAULT_RLM_MAX_SUBQUERY_CONTEXT_CHARS;
+      const maxBatchedLlmQueryConcurrency = Math.max(
+        1,
+        rlm.maxBatchedLlmQueryConcurrency ?? DEFAULT_RLM_BATCH_CONCURRENCY
+      );
+      const maxInterpreterOutputChars =
+        rlm.maxInterpreterOutputChars ??
+        DEFAULT_RLM_MAX_INTERPRETER_OUTPUT_CHARS;
 
       const llmQuery = async (
         queryOrQueries: string | readonly { query: string; context?: string }[],
@@ -663,14 +697,20 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         }
 
         if (Array.isArray(queryOrQueries)) {
-          return Promise.all(
-            queryOrQueries.map(
-              (q) => llmQuery(q.query, q.context) as Promise<string>
-            )
+          return runWithConcurrency(
+            queryOrQueries,
+            maxBatchedLlmQueryConcurrency,
+            async (q) => llmQuery(q.query, q.context) as Promise<string>
           );
         }
 
         const query = queryOrQueries as string;
+
+        if (ctx && ctx.length > maxSubQueryContextChars) {
+          throw new Error(
+            `llmQuery context too large (${ctx.length} chars > ${maxSubQueryContextChars}). Chunk or summarize before querying.`
+          );
+        }
 
         if (llmCallCount++ >= maxLlmCalls) {
           throw new Error(`Max LLM sub-calls (${maxLlmCalls}) exceeded`);
@@ -748,12 +788,33 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
             const result = await session.execute(code, {
               signal: effectiveAbortSignal,
             });
-            if (result === undefined) return '(no output)';
-            if (typeof result === 'string') return result || '(no output)';
+            if (result === undefined) {
+              const output = '(no output)';
+              executionHistory.push({ code, output });
+              return output;
+            }
+            if (typeof result === 'string') {
+              const output = truncateText(
+                result || '(no output)',
+                maxInterpreterOutputChars
+              );
+              executionHistory.push({ code, output });
+              return output;
+            }
             try {
-              return JSON.stringify(result, null, 2);
+              const output = truncateText(
+                JSON.stringify(result, null, 2),
+                maxInterpreterOutputChars
+              );
+              executionHistory.push({ code, output });
+              return output;
             } catch {
-              return String(result);
+              const output = truncateText(
+                String(result),
+                maxInterpreterOutputChars
+              );
+              executionHistory.push({ code, output });
+              return output;
             }
           } catch (err) {
             if (effectiveAbortSignal?.aborted) {
@@ -762,7 +823,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
                 effectiveAbortSignal.reason ?? 'Aborted'
               );
             }
-            return `Error: ${(err as Error).message}`;
+            const output = truncateText(
+              `Error: ${(err as Error).message}`,
+              maxInterpreterOutputChars
+            );
+            executionHistory.push({ code, output });
+            return output;
           }
         },
       };
@@ -777,11 +843,34 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           maxSteps: options?.maxSteps ?? this.options?.maxSteps ?? 20,
           abortSignal: effectiveAbortSignal,
         };
-        return await this.rlmProgram!.forward(
-          ai,
-          nonContextValues as any,
-          mergedOptions as any
-        );
+        try {
+          return await this.rlmProgram!.forward(
+            ai,
+            nonContextValues as any,
+            mergedOptions as any
+          );
+        } catch (error) {
+          if (!isMaxStepsError(error)) {
+            throw error;
+          }
+
+          // Fallback extraction path, similar to DSPy RLM's extract step.
+          const fallbackExtractor = this.buildRLMFallbackExtractor();
+          const trajectory = formatRLMExecutionHistory(executionHistory);
+          return await fallbackExtractor.forward(
+            ai,
+            {
+              ...nonContextValues,
+              _rlmVariablesInfo: buildRLMVariablesInfo(contextValues),
+              _rlmTrajectory: trajectory,
+            } as any,
+            {
+              ...mergedOptions,
+              functions: baseFunctions,
+              maxSteps: 1,
+            } as any
+          );
+        }
       } finally {
         try {
           session.close();
@@ -834,6 +923,50 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     (this.program as any).applyOptimization?.(optimizedProgram);
   }
 
+  private buildRLMFallbackExtractor(): AxGen<any, OUT> {
+    const outputFields = this.program.getSignature().getOutputFields();
+    const rlmInputs = this.rlmProgram!.getSignature().getInputFields();
+    const fallbackInputs = [
+      ...rlmInputs,
+      {
+        name: '_rlmVariablesInfo',
+        title: 'RLM Variables Info',
+        type: { name: 'string' as const },
+        description: 'Metadata about context variables available to REPL',
+        isInternal: true,
+      },
+      {
+        name: '_rlmTrajectory',
+        title: 'RLM Trajectory',
+        type: { name: 'string' as const },
+        description: 'Chronological code execution/output trace',
+        isInternal: true,
+      },
+    ];
+
+    const fallbackDefinition = `${this.program.getSignature().getDescription()}
+
+You are completing a fallback extraction because the RLM loop reached its max steps.
+Use the RLM trajectory and variable metadata below to extract the best final outputs.
+
+Rules:
+- Prefer evidence from the latest successful code outputs.
+- If information is partial, provide the best possible answer grounded in trajectory.
+- Do not mention fallback mode in final outputs.
+- Use the input fields \`_rlmVariablesInfo\` and \`_rlmTrajectory\` as your primary evidence.`;
+
+    const fallbackSignature = new AxSignature({
+      description: fallbackDefinition,
+      inputs: fallbackInputs,
+      outputs: outputFields,
+    });
+
+    return new AxGen<any, OUT>(fallbackSignature, {
+      ...(this.options ?? {}),
+      maxSteps: 1,
+    });
+  }
+
   private getDebug<T extends Readonly<AxAIService>>(
     ai: AxAIService,
     options?: Readonly<AxProgramForwardOptionsWithModels<T>>
@@ -854,6 +987,84 @@ function isTransientError(error: unknown): boolean {
     error instanceof AxAIServiceNetworkError ||
     error instanceof AxAIServiceTimeoutError
   );
+}
+
+function isMaxStepsError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    typeof error.message === 'string' &&
+    error.message.startsWith('Max steps reached:')
+  );
+}
+
+function truncateText(text: string, maxChars: number): string {
+  if (text.length <= maxChars) {
+    return text;
+  }
+  return `${text.slice(0, maxChars)}\n...[truncated ${text.length - maxChars} chars]`;
+}
+
+function buildRLMVariablesInfo(contextValues: Record<string, unknown>): string {
+  const lines: string[] = [];
+  for (const [key, value] of Object.entries(contextValues)) {
+    const valueType = Array.isArray(value) ? 'array' : typeof value;
+    const size =
+      typeof value === 'string'
+        ? `${value.length} chars`
+        : Array.isArray(value)
+          ? `${value.length} items`
+          : value && typeof value === 'object'
+            ? `${Object.keys(value as Record<string, unknown>).length} keys`
+            : 'n/a';
+    lines.push(`- ${key}: type=${valueType}, size=${size}`);
+  }
+  return lines.join('\n');
+}
+
+function formatRLMExecutionHistory(
+  history: readonly AxRLMExecutionEntry[]
+): string {
+  if (history.length === 0) {
+    return '(no interpreter steps captured)';
+  }
+
+  return history
+    .map(
+      (entry, index) =>
+        `Step ${index + 1}\nCode:\n${entry.code}\nOutput:\n${entry.output}`
+    )
+    .join('\n\n');
+}
+
+async function runWithConcurrency<TIn, TOut>(
+  items: readonly TIn[],
+  concurrency: number,
+  worker: (item: TIn, index: number) => Promise<TOut>
+): Promise<TOut[]> {
+  if (items.length === 0) {
+    return [];
+  }
+
+  const results: TOut[] = new Array(items.length);
+  let cursor = 0;
+  const limit = Math.max(1, Math.min(concurrency, items.length));
+
+  const workers = Array.from({ length: limit }, async () => {
+    for (;;) {
+      const current = cursor++;
+      if (current >= items.length) {
+        return;
+      }
+      const item = items[current];
+      if (item === undefined) {
+        return;
+      }
+      results[current] = await worker(item, current);
+    }
+  });
+
+  await Promise.all(workers);
+  return results;
 }
 
 function toCamelCase(inputString: string): string {

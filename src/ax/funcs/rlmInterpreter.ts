@@ -30,6 +30,11 @@ const canUseWebWorker = () =>
 const isNodeRuntime = () =>
   typeof process !== 'undefined' && !!process.versions?.node;
 
+/** True when running under Deno.js. */
+const isDenoRuntime = () =>
+  !!(globalThis as { Deno?: { version?: { deno?: string } } }).Deno?.version
+    ?.deno;
+
 /** Number of prewarmed Node workers kept per worker-source key. */
 const NODE_WORKER_POOL_SIZE = 4;
 
@@ -39,7 +44,10 @@ const createBrowserWorker = (source: string): RLMWorker => {
     type: 'application/javascript',
   });
   const url = URL.createObjectURL(blob);
-  const worker = new Worker(url);
+  // Deno supports module workers only; browsers support both.
+  const worker = isDenoRuntime()
+    ? new Worker(url, { type: 'module' })
+    : new Worker(url);
   URL.revokeObjectURL(url);
 
   const wrapped: RLMWorker = {
@@ -288,6 +296,22 @@ _setOnMessage(async (e) => {
       }
     }
 
+    // Node runtime lockdown (safer default): hide process/require from generated code.
+    // This is best-effort and can be opted out via allowUnsafeNodeHostAccess.
+    if (_isNodeWorker && !msg.allowUnsafeNodeHostAccess) {
+      for (const name of ['process', 'require']) {
+        try {
+          Object.defineProperty(_scope, name, {
+            value: undefined,
+            writable: false,
+            configurable: false,
+          });
+        } catch (_e) {
+          // Best-effort lockdown
+        }
+      }
+    }
+
     return;
   }
 
@@ -340,15 +364,25 @@ export class AxRLMJSInterpreter implements AxCodeInterpreter {
   readonly language = 'JavaScript';
   private readonly timeout: number;
   private readonly permissions: readonly AxRLMJSInterpreterPermission[];
+  private readonly allowUnsafeNodeHostAccess: boolean;
 
   constructor(
     options?: Readonly<{
       timeout?: number;
       permissions?: readonly AxRLMJSInterpreterPermission[];
+      /**
+       * Warning: enables direct access to Node host globals (e.g. process/require)
+       * from model-generated code in Node worker runtime.
+       *
+       * Defaults to false for safer behavior.
+       */
+      allowUnsafeNodeHostAccess?: boolean;
     }>
   ) {
     this.timeout = options?.timeout ?? 30_000;
     this.permissions = options?.permissions ?? [];
+    this.allowUnsafeNodeHostAccess =
+      options?.allowUnsafeNodeHostAccess ?? false;
   }
 
   /**
@@ -515,6 +549,7 @@ export class AxRLMJSInterpreter implements AxCodeInterpreter {
         globals: serializableGlobals,
         fnNames: [...fnMap.keys()],
         permissions: [...this.permissions],
+        allowUnsafeNodeHostAccess: this.allowUnsafeNodeHostAccess,
       });
     }
 
@@ -553,6 +588,7 @@ export class AxRLMJSInterpreter implements AxCodeInterpreter {
             globals: serializableGlobals,
             fnNames: [...fnMap.keys()],
             permissions: [...this.permissions],
+            allowUnsafeNodeHostAccess: this.allowUnsafeNodeHostAccess,
           });
         });
       }
@@ -653,6 +689,7 @@ export function axCreateRLMJSInterpreter(
   options?: Readonly<{
     timeout?: number;
     permissions?: readonly AxRLMJSInterpreterPermission[];
+    allowUnsafeNodeHostAccess?: boolean;
   }>
 ): AxRLMJSInterpreter {
   return new AxRLMJSInterpreter(options);

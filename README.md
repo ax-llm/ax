@@ -132,6 +132,37 @@ const result = await assistant.forward(llm, {
 });
 ```
 
+### AxAgent + RLM for long context
+
+```typescript
+import { agent, AxRLMJSInterpreter } from "@ax-llm/ax";
+
+const analyzer = agent(
+  "context:string, query:string -> answer:string, evidence:string[]",
+  {
+    name: "documentAnalyzer",
+    description: "Analyze very long documents with recursive code + sub-queries",
+    maxSteps: 20,
+    rlm: {
+      contextFields: ["context"],
+      interpreter: new AxRLMJSInterpreter(),
+      maxLlmCalls: 40,
+      maxSubQueryContextChars: 20_000,
+      maxBatchedLlmQueryConcurrency: 6,
+      maxInterpreterOutputChars: 8_000,
+      subModel: "gpt-4o-mini",
+    },
+  },
+);
+
+const result = await analyzer.forward(llm, {
+  context: veryLongDocument,
+  query: "What are the main arguments and supporting evidence?",
+});
+```
+
+RLM mode keeps long context out of the root prompt, runs iterative analysis in a persistent interpreter, and uses bounded sub-queries for semantic extraction (typically targeting <=10k chars per sub-call).
+
 ### Multi-modal (images, audio)
 
 ```typescript
@@ -174,6 +205,7 @@ npm install @ax-llm/ax-tools
 - **Workflows** – Compose complex pipelines with AxFlow
 - **RAG** – Multi-hop retrieval with quality loops
 - **Agents** – Tools and multi-agent collaboration
+- **RLM in AxAgent** – Long-context analysis with recursive interpreter loops
 - **Zero dependencies** – Lightweight, fast, reliable
 
 ## Documentation
