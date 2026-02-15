@@ -1,6 +1,6 @@
 {
   "name": "@ax-llm/ax",
-  "version": "17.0.1",
+  "version": "17.0.2",
   "type": "module",
   "description": "The best library to work with LLMs",
   "repository": {
