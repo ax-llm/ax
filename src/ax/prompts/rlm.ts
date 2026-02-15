@@ -9,13 +9,18 @@ import { toFieldType } from '../dsp/prompt.js';
 import type { AxIField } from '../dsp/sig.js';
 
 /**
- * A code interpreter that can create persistent sessions.
+ * A code runtime that can create persistent sessions.
  * Implement this interface for your target runtime (Node.js, browser, WASM, etc.).
  */
-export interface AxCodeInterpreter {
+export interface AxCodeRuntime {
   readonly language: string; // e.g. 'JavaScript', 'Python'
   createSession(globals?: Record<string, unknown>): AxCodeSession;
 }
+
+/**
+ * @deprecated Use `AxCodeRuntime` instead.
+ */
+export type AxCodeInterpreter = AxCodeRuntime;
 
 /**
  * A persistent code execution session. Variables persist across `execute()` calls.
@@ -35,12 +40,12 @@ export interface AxRLMConfig {
    * Code runtime for the REPL loop.
    * Preferred key.
    */
-  runtime?: AxCodeInterpreter;
+  runtime?: AxCodeRuntime;
   /**
    * @deprecated Use `runtime` instead.
    * Backward-compatible alias.
    */
-  interpreter?: AxCodeInterpreter;
+  interpreter?: AxCodeRuntime;
   /** Cap on recursive sub-LM calls (default: 50). */
   maxLlmCalls?: number;
   /** Maximum characters passed into a single llmQuery context (default: 20000). */

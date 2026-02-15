@@ -339,7 +339,7 @@ for executing model-generated code. It is cross-runtime and works in:
 
 It can be used both as:
 
-- an `AxCodeInterpreter` for RLM sessions (`createSession`)
+- an `AxCodeRuntime` for RLM sessions (`createSession`)
 - a function tool (`toFunction`) for non-RLM workflows
 
 ### Sandbox Permissions
@@ -455,12 +455,12 @@ Inside the code interpreter, these functions are available as globals:
 
 ### Custom Interpreters
 
-The built-in `AxJSRuntime` uses Web Workers for sandboxed code execution. For other environments, implement the `AxCodeInterpreter` interface:
+The built-in `AxJSRuntime` uses Web Workers for sandboxed code execution. For other environments, implement the `AxCodeRuntime` interface:
 
 ```typescript
-import type { AxCodeInterpreter, AxCodeSession } from '@ax-llm/ax';
+import type { AxCodeRuntime, AxCodeSession } from '@ax-llm/ax';
 
-class MyBrowserInterpreter implements AxCodeInterpreter {
+class MyBrowserInterpreter implements AxCodeRuntime {
   readonly language = 'JavaScript';
 
   createSession(globals?: Record<string, unknown>): AxCodeSession {
@@ -501,8 +501,8 @@ Treat `maxSubQueryContextChars` as a hard ceiling, not your normal chunk size.
 ```typescript
 interface AxRLMConfig {
   contextFields: string[];        // Input fields holding long context
-  runtime?: AxCodeInterpreter;    // Preferred runtime key
-  interpreter?: AxCodeInterpreter; // Legacy alias (deprecated)
+  runtime?: AxCodeRuntime;    // Preferred runtime key
+  interpreter?: AxCodeRuntime; // Legacy alias (deprecated)
   maxLlmCalls?: number;           // Cap on sub-LM calls (default: 50)
   maxSubQueryContextChars?: number;       // Hard cap per llmQuery context (default: 20_000)
   maxBatchedLlmQueryConcurrency?: number; // Max parallel batched llmQuery calls (default: 8)
@@ -511,10 +511,10 @@ interface AxRLMConfig {
 }
 ```
 
-### `AxCodeInterpreter`
+### `AxCodeRuntime`
 
 ```typescript
-interface AxCodeInterpreter {
+interface AxCodeRuntime {
   readonly language: string;  // e.g. 'JavaScript', 'Python'
   createSession(globals?: Record<string, unknown>): AxCodeSession;
 }

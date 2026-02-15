@@ -9,7 +9,6 @@ import {
   AxAIBedrockModel,
 } from './src/aws-bedrock/api.js';
 import { axModelInfoBedrock } from './src/aws-bedrock/info.js';
-import type { AxAIBedrockConfig } from './src/aws-bedrock/types.js';
 import {
   AxAIAnthropic,
   type AxAIAnthropicArgs,
@@ -764,6 +763,7 @@ import {
 import { axRAG } from './src/ax/prompts/rag.js';
 import {
   type AxCodeInterpreter,
+  type AxCodeRuntime,
   type AxCodeSession,
   type AxRLMConfig,
   axBuildRLMDefinition,
@@ -1250,6 +1250,7 @@ export type { AxCheckpointLoadFn };
 export type { AxCheckpointSaveFn };
 export type { AxCitation };
 export type { AxCodeInterpreter };
+export type { AxCodeRuntime };
 export type { AxCodeSession };
 export type { AxCompileOptions };
 export type { AxContentProcessingServices };

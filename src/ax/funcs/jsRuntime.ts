@@ -1,5 +1,5 @@
 import type { AxFunction } from '../ai/types.js';
-import type { AxCodeInterpreter, AxCodeSession } from '../prompts/rlm.js';
+import type { AxCodeRuntime, AxCodeSession } from '../prompts/rlm.js';
 
 /**
  * Cross-runtime RLM JavaScript interpreter architecture:
@@ -661,7 +661,7 @@ _setOnMessage(async (e) => {
  * Browser-compatible JavaScript interpreter for RLM using Web Workers.
  * Creates persistent sessions where variables survive across `execute()` calls.
  */
-export class AxJSRuntime implements AxCodeInterpreter {
+export class AxJSRuntime implements AxCodeRuntime {
   readonly language = 'JavaScript';
   private readonly timeout: number;
   private readonly permissions: readonly AxJSRuntimePermission[];

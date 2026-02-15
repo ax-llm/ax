@@ -470,12 +470,12 @@ In RLM mode, the agent gets a `codeInterpreter` tool. The LLM's typical workflow
 
 ### Custom Interpreters
 
-The built-in `AxJSRuntime` uses Web Workers for sandboxed code execution. For other environments, implement the `AxCodeInterpreter` interface:
+The built-in `AxJSRuntime` uses Web Workers for sandboxed code execution. For other environments, implement the `AxCodeRuntime` interface:
 
 ```typescript
-import type { AxCodeInterpreter, AxCodeSession } from '@ax-llm/ax';
+import type { AxCodeRuntime, AxCodeSession } from '@ax-llm/ax';
 
-class MyBrowserInterpreter implements AxCodeInterpreter {
+class MyBrowserInterpreter implements AxCodeRuntime {
   readonly language = 'JavaScript';
 
   createSession(globals?: Record<string, unknown>): AxCodeSession {
@@ -507,17 +507,17 @@ RLM mode does not support true streaming. When using `streamingForward`, RLM run
 ```typescript
 interface AxRLMConfig {
   contextFields: string[];        // Input fields holding long context
-  runtime?: AxCodeInterpreter;    // Preferred runtime key
-  interpreter?: AxCodeInterpreter; // Legacy alias (deprecated)
+  runtime?: AxCodeRuntime;    // Preferred runtime key
+  interpreter?: AxCodeRuntime; // Legacy alias (deprecated)
   maxLlmCalls?: number;           // Cap on sub-LM calls (default: 50)
   subModel?: string;              // Model for llmQuery sub-calls
 }
 ```
 
-### `AxCodeInterpreter`
+### `AxCodeRuntime`
 
 ```typescript
-interface AxCodeInterpreter {
+interface AxCodeRuntime {
   readonly language: string;
   createSession(globals?: Record<string, unknown>): AxCodeSession;
 }
