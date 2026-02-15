@@ -94,6 +94,33 @@ describe('AxJSRuntime', () => {
     }
   });
 
+  it('worker source includes async trailing-expression auto-return helper', () => {
+    const interp = new AxJSRuntime();
+    interp.createSession();
+
+    const BlobMock = vi.mocked(globalThis.Blob);
+    const blobArgs = BlobMock.mock.calls[0]![0] as string[];
+    const source = blobArgs[0]!;
+
+    expect(source).toContain('const _injectAsyncAutoReturn = (code) =>');
+    expect(source).toContain('return (');
+    expect(source).toContain('lastLine');
+  });
+
+  it('worker source rewrites top-level sync return snippets', () => {
+    const interp = new AxJSRuntime();
+    interp.createSession();
+
+    const BlobMock = vi.mocked(globalThis.Blob);
+    const blobArgs = BlobMock.mock.calls[0]![0] as string[];
+    const source = blobArgs[0]!;
+
+    expect(source).toContain(
+      'const _rewriteTopLevelReturnForSyncEval = (code) =>'
+    );
+    expect(source).toContain('_TOP_LEVEL_RETURN_ONLY');
+  });
+
   it('close() calls worker.terminate()', () => {
     const interp = new AxJSRuntime();
     const session = interp.createSession();

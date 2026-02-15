@@ -107,7 +107,8 @@ There is also a hard runtime cap on context size per \`llmQuery\` call. If you h
 
 ### Execution rules
 - Sync code: use \`var\` (not \`const\`/\`let\`) to persist variables across calls. The last expression is auto-returned.
-- Async code (with \`await\`): use bare assignments (e.g. \`results = await ...\`) to persist. Use \`return\` to produce output.
+- Async code (with \`await\`): use bare assignments (e.g. \`results = await ...\`) to persist. A simple trailing expression is also auto-returned, but explicit \`return\` is still the safest option.
+- Convenience: \`return <expr>\` also works as a single-line sync snippet.
 
 ### Example
 Analyzing \`${firstFieldName}\`:

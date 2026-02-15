@@ -445,6 +445,54 @@ if (_isNodeWorker) {
 const _scope = typeof self !== 'undefined' ? self : globalThis;
 const _AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 const _FUNCTION_REF_KEY = '${FUNCTION_REF_KEY}';
+const _LAST_LINE_NON_EXPRESSION_START =
+  /^(if|for|while|switch|try|catch|finally|function|class|import|export|throw|return|var|let|const|break|continue|debugger)\\b/;
+const _TOP_LEVEL_RETURN_ONLY = /^\\s*return\\s+([^\\n;]+?)\\s*;?\\s*$/;
+const _injectAsyncAutoReturn = (code) => {
+  const lines = code.split('\\n');
+  let tail = lines.length - 1;
+  while (tail >= 0 && !lines[tail].trim()) {
+    tail -= 1;
+  }
+  if (tail < 0) {
+    return code;
+  }
+
+  let head = lines.slice(0, tail).join('\\n');
+  const rawLastLine = lines[tail].trim();
+  let lastLine = rawLastLine.replace(/;\\s*$/, '');
+  const lastSemi = lastLine.lastIndexOf(';');
+  if (lastSemi !== -1) {
+    const maybeExpression = lastLine.slice(lastSemi + 1).trim();
+    const prefixStatement = lastLine.slice(0, lastSemi).trim();
+    if (maybeExpression) {
+      if (prefixStatement) {
+        head = head ? \`\${head}\\n\${prefixStatement};\` : \`\${prefixStatement};\`;
+      }
+      lastLine = maybeExpression;
+    }
+  }
+
+  if (!lastLine) {
+    return code;
+  }
+  if (_LAST_LINE_NON_EXPRESSION_START.test(lastLine)) {
+    return code;
+  }
+  if (lastLine === '}' || lastLine === '};') {
+    return code;
+  }
+
+  return head ? \`\${head}\\nreturn (\${lastLine});\` : \`return (\${lastLine});\`;
+};
+const _rewriteTopLevelReturnForSyncEval = (code) => {
+  const match = _TOP_LEVEL_RETURN_ONLY.exec(code);
+  if (!match) {
+    return code;
+  }
+  const expression = (match[1] || '').trim();
+  return expression || code;
+};
 const _send = (msg) => {
   if (_nodeParentPort) {
     _nodeParentPort.postMessage(msg);
@@ -580,12 +628,20 @@ _setOnMessage(async (e) => {
       if (/\\bawait\\b/.test(code)) {
         // Async path: compile as async function so top-level await/return work.
         // Bare assignments persist via global object in non-strict function code.
-        const fn = new _AsyncFunction(code);
+        // Also auto-return a simple trailing expression when no explicit return.
+        let asyncCode = code;
+        try {
+          asyncCode = _injectAsyncAutoReturn(code);
+        } catch (_e) {
+          asyncCode = code;
+        }
+        const fn = new _AsyncFunction(asyncCode);
         result = await fn();
       } else {
         // Sync path: indirect eval runs in worker global scope.
         // var declarations persist on self.
-        result = (0, eval)(code);
+        const syncCode = _rewriteTopLevelReturnForSyncEval(code);
+        result = (0, eval)(syncCode);
       }
       try {
         _send({ type: 'result', id, value: result });
