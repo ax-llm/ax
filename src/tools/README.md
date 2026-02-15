@@ -21,11 +21,7 @@ processes.
 
 ### Function Tools
 
-#### AxJSInterpreter
-
-A sandboxed JavaScript code execution environment that allows LLMs to run
-JavaScript code safely. Features configurable permissions for filesystem,
-network, crypto, and process access.
+`AxJSInterpreter` has moved to `@ax-llm/ax`.
 
 ## Installation
 
@@ -70,36 +66,10 @@ const transport = axCreateMCPStdioTransport({
 
 ### JavaScript Code Execution
 
+Use `AxJSInterpreter` from `@ax-llm/ax`:
+
 ```typescript
-import { ax, AxAI, f } from "@ax-llm/ax";
-import { AxJSInterpreter, AxJSInterpreterPermission } from "@ax-llm/ax-tools";
-
-const ai = new AxAI({ name: "openai", apiKey: process.env.OPENAI_APIKEY! });
-
-// Create interpreter with specific permissions
-const interpreter = new AxJSInterpreter({
-  permissions: [
-    AxJSInterpreterPermission.CRYPTO,
-    // AxJSInterpreterPermission.FS,     // Filesystem access
-    // AxJSInterpreterPermission.NET,    // Network access
-    // AxJSInterpreterPermission.OS,     // OS information
-    // AxJSInterpreterPermission.PROCESS // Process control
-  ],
-});
-
-// Create a generator that uses the interpreter
-const mathSolver = ax`
-  problem:${f.string("Mathematical problem to solve")} ->
-  solution:${f.string("The calculated result")}
-`;
-
-const result = await mathSolver.forward(ai, {
-  problem: "Calculate the factorial of 10",
-}, {
-  functions: [interpreter.toFunction()],
-});
-
-console.log(result.solution);
+import { AxJSInterpreter, AxJSInterpreterPermission } from "@ax-llm/ax";
 ```
 
 ### Configuration Options
@@ -116,15 +86,7 @@ interface StdioTransportConfig {
 
 #### JS Interpreter Permissions
 
-```typescript
-enum AxJSInterpreterPermission {
-  FS = "node:fs", // Filesystem access
-  NET = "net", // Network access (http/https)
-  OS = "os", // Operating system info
-  CRYPTO = "crypto", // Cryptographic functions
-  PROCESS = "process", // Process control
-}
-```
+See `@ax-llm/ax` docs for `AxJSInterpreterPermission`.
 
 ## Examples
 

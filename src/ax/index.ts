@@ -681,9 +681,9 @@ import type {
 import { type AxDockerContainer, AxDockerSession } from './funcs/docker.js';
 import { AxEmbeddingAdapter } from './funcs/embed.js';
 import {
-  AxRLMJSInterpreter,
-  AxRLMJSInterpreterPermission,
-  axCreateRLMJSInterpreter,
+  AxJSInterpreter,
+  AxJSInterpreterPermission,
+  axCreateJSInterpreter,
 } from './funcs/rlmInterpreter.js';
 import { AxMCPClient } from './mcp/client.js';
 import type { AxMCPOAuthOptions } from './mcp/oauth/types.js';
@@ -859,6 +859,8 @@ export { AxGen };
 export { AxGenerateError };
 export { AxHFDataLoader };
 export { AxInstanceRegistry };
+export { AxJSInterpreter };
+export { AxJSInterpreterPermission };
 export { AxJudge };
 export { AxLLMRequestTypeValues };
 export { AxLearn };
@@ -874,8 +876,6 @@ export { AxOptimizedProgramImpl };
 export { AxProgram };
 export { AxPromptTemplate };
 export { AxProviderRouter };
-export { AxRLMJSInterpreter };
-export { AxRLMJSInterpreterPermission };
 export { AxRateLimiterTokenUsage };
 export { AxSignature };
 export { AxSignatureBuilder };
@@ -939,7 +939,7 @@ export { axCreateDefaultOptimizerTextLogger };
 export { axCreateDefaultTextLogger };
 export { axCreateFlowColorLogger };
 export { axCreateFlowTextLogger };
-export { axCreateRLMJSInterpreter };
+export { axCreateJSInterpreter };
 export { axDefaultFlowLogger };
 export { axDefaultMetricsConfig };
 export { axDefaultOptimizerLogger };

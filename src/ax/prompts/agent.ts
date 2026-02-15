@@ -297,6 +297,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     // RLM setup
     if (options?.rlm) {
       this.rlmConfig = options.rlm;
+      const rlmRuntime = options.rlm.runtime ?? options.rlm.interpreter;
 
       // Validate contextFields exist in signature
       const inputFields = this.program.getSignature().getInputFields();
@@ -306,9 +307,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         }
       }
 
-      if (!options.rlm.interpreter) {
+      if (!rlmRuntime) {
         throw new Error(
-          'RLM interpreter is required. Use AxRLMJSInterpreter from @ax-llm/ax or provide a custom AxCodeInterpreter.'
+          'RLM runtime is required. Set `rlm.runtime` (preferred) or `rlm.interpreter` (legacy alias).'
         );
       }
 
@@ -328,7 +329,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
       const rlmDef = axBuildRLMDefinition(
         definition ?? description,
-        options.rlm.interpreter.language,
+        rlmRuntime.language,
         contextFieldMeta
       );
 
@@ -636,7 +637,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         options as Readonly<AxProgramForwardOptionsWithModels<T>>
       );
       const rlm = this.rlmConfig!;
-      const interpreter = rlm.interpreter;
+      const interpreter = rlm.runtime ?? rlm.interpreter;
+      if (!interpreter) {
+        throw new Error(
+          'RLM runtime is required. Set `rlm.runtime` (preferred) or `rlm.interpreter` (legacy alias).'
+        );
+      }
 
       // 1. Separate context from non-context values
       const contextValues: Record<string, unknown> = {};

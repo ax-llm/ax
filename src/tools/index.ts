@@ -7,5 +7,4 @@ export {
   type StdioTransportConfig,
 } from './mcp/index.js';
 
-// Function Tools
-export * from './functions/index.js';
+// Function tools were moved to @ax-llm/ax.

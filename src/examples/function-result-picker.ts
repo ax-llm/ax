@@ -1,5 +1,4 @@
-import { AxAI, ax } from '@ax-llm/ax';
-import { AxJSInterpreter } from '@ax-llm/ax-tools';
+import { AxAI, AxJSInterpreter, ax } from '@ax-llm/ax';
 
 // Example showing how to use result picker with function results from JS interpreter
 

@@ -135,7 +135,7 @@ const result = await assistant.forward(llm, {
 ### AxAgent + RLM for long context
 
 ```typescript
-import { agent, AxRLMJSInterpreter } from "@ax-llm/ax";
+import { agent, AxJSInterpreter } from "@ax-llm/ax";
 
 const analyzer = agent(
   "context:string, query:string -> answer:string, evidence:string[]",
@@ -145,7 +145,7 @@ const analyzer = agent(
     maxSteps: 20,
     rlm: {
       contextFields: ["context"],
-      interpreter: new AxRLMJSInterpreter(),
+      runtime: new AxJSInterpreter(),
       maxLlmCalls: 40,
       maxSubQueryContextChars: 20_000,
       maxBatchedLlmQueryConcurrency: 6,
@@ -162,6 +162,21 @@ const result = await analyzer.forward(llm, {
 ```
 
 RLM mode keeps long context out of the root prompt, runs iterative analysis in a persistent interpreter, and uses bounded sub-queries for semantic extraction (typically targeting <=10k chars per sub-call).
+
+### AxJSRuntime (AxJSInterpreter)
+
+`AxJSInterpreter` is the built-in JavaScript runtime used by RLM and tool-style execution.
+Think of it as the Ax JS runtime layer ("AxJSRuntime") that works across:
+
+- Node.js/Bun-style backends (worker_threads runtime path)
+- Deno backends (module worker path)
+- Browser environments (Web Worker path)
+
+It supports:
+
+- Persistent sessions via `createSession()`
+- Function tool usage via `toFunction()`
+- Sandbox permissions via `AxJSInterpreterPermission`
 
 ### Multi-modal (images, audio)
 

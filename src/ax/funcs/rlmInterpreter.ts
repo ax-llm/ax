@@ -1,3 +1,4 @@
+import type { AxFunction } from '../ai/types.js';
 import type { AxCodeInterpreter, AxCodeSession } from '../prompts/rlm.js';
 
 /**
@@ -35,25 +36,164 @@ const isDenoRuntime = () =>
   !!(globalThis as { Deno?: { version?: { deno?: string } } }).Deno?.version
     ?.deno;
 
-/** Number of prewarmed Node workers kept per worker-source key. */
-const NODE_WORKER_POOL_SIZE = 4;
+const getDenoVersion = (): string | null =>
+  (globalThis as { Deno?: { version?: { deno?: string } } }).Deno?.version
+    ?.deno ?? null;
 
-/** Creates a browser Web Worker and wraps it with the unified worker facade. */
-const createBrowserWorker = (source: string): RLMWorker => {
+const parseSemver = (
+  version: string
+): { major: number; minor: number; patch: number } | null => {
+  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version.trim());
+  if (!match) {
+    return null;
+  }
+  return {
+    major: Number(match[1]),
+    minor: Number(match[2]),
+    patch: Number(match[3]),
+  };
+};
+
+/** Default number of prewarmed Node workers kept per worker-source key. */
+const DEFAULT_NODE_WORKER_POOL_SIZE = 4;
+const MAX_NODE_WORKER_POOL_SIZE = 16;
+const FUNCTION_REF_KEY = '__ax_rlm_fn_ref__';
+
+const clampNodeWorkerPoolSize = (value: number): number =>
+  Number.isFinite(value)
+    ? Math.max(1, Math.min(MAX_NODE_WORKER_POOL_SIZE, Math.floor(value)))
+    : DEFAULT_NODE_WORKER_POOL_SIZE;
+
+const getNodeAvailableParallelism = (): number | null => {
+  if (!isNodeRuntime()) {
+    return null;
+  }
+
+  const processWithBuiltinModule = (
+    globalThis as {
+      process?: { getBuiltinModule?: (specifier: string) => unknown };
+    }
+  ).process;
+
+  const getBuiltinModule = processWithBuiltinModule?.getBuiltinModule;
+  if (typeof getBuiltinModule !== 'function') {
+    return null;
+  }
+
+  const osMod = getBuiltinModule('node:os') as {
+    availableParallelism?: () => number;
+  } | null;
+
+  const availableParallelism = osMod?.availableParallelism;
+  if (typeof availableParallelism !== 'function') {
+    return null;
+  }
+
+  const value = availableParallelism();
+  return Number.isFinite(value) && value > 0 ? value : null;
+};
+
+const resolveNodeWorkerPoolSize = (override?: number): number => {
+  if (override !== undefined) {
+    return clampNodeWorkerPoolSize(override);
+  }
+
+  const parallelism = getNodeAvailableParallelism();
+  if (parallelism) {
+    // Keep pool conservative: prewarm about half the parallelism budget.
+    return clampNodeWorkerPoolSize(Math.ceil(parallelism / 2));
+  }
+
+  return DEFAULT_NODE_WORKER_POOL_SIZE;
+};
+
+const isNodePoolDebugEnabled = (
+  options?: Readonly<{ debugNodeWorkerPool?: boolean }>
+): boolean => {
+  if (options?.debugNodeWorkerPool) {
+    return true;
+  }
+  const env =
+    (globalThis as { process?: { env?: Record<string, string | undefined> } })
+      .process?.env ?? {};
+  return env.AX_RLM_DEBUG_NODE_POOL === '1';
+};
+
+/**
+ * Maps RLM sandbox permissions to Deno worker permissions.
+ *
+ * Conservative mapping:
+ * - NETWORK => net: true
+ * - Others currently have no direct Deno permission equivalent
+ *
+ * Default is "none" for a tighter sandbox when running in Deno.
+ */
+const mapRlmPermissionsToDenoPermissions = (
+  permissions: readonly AxJSInterpreterPermission[]
+): unknown => {
+  const granted = new Set(permissions);
+  const denoPermissions: Record<string, unknown> = {};
+
+  if (granted.has(AxJSInterpreterPermission.NETWORK)) {
+    denoPermissions.net = true;
+  }
+
+  return Object.keys(denoPermissions).length > 0 ? denoPermissions : 'none';
+};
+
+const createDenoWorker = (
+  url: string,
+  permissions: readonly AxJSInterpreterPermission[]
+): Worker => {
+  // WorkerOptions.deno is documented as unstable. Prefer capability probing
+  // via try/catch over strict version gating.
+  const denoVersion = getDenoVersion();
+  const parsed = denoVersion ? parseSemver(denoVersion) : null;
+  const canAttemptDenoOptions = parsed ? parsed.major >= 1 : true;
+
+  if (canAttemptDenoOptions) {
+    try {
+      return new Worker(url, {
+        type: 'module',
+        deno: {
+          permissions: mapRlmPermissionsToDenoPermissions(permissions),
+        },
+      } as WorkerOptions);
+    } catch {
+      // Fallback for runtimes that do not accept `deno` WorkerOptions yet.
+    }
+  }
+
+  return new Worker(url, { type: 'module' });
+};
+
+/** Creates a browser/Deno Web Worker and wraps it with the unified worker facade. */
+const createBrowserWorker = (
+  source: string,
+  permissions: readonly AxJSInterpreterPermission[]
+): RLMWorker => {
   const blob = new Blob([source], {
     type: 'application/javascript',
   });
   const url = URL.createObjectURL(blob);
   // Deno supports module workers only; browsers support both.
   const worker = isDenoRuntime()
-    ? new Worker(url, { type: 'module' })
+    ? createDenoWorker(url, permissions)
     : new Worker(url);
-  URL.revokeObjectURL(url);
+  let isRevoked = false;
+  const revoke = () => {
+    if (!isRevoked) {
+      URL.revokeObjectURL(url);
+      isRevoked = true;
+    }
+  };
 
   const wrapped: RLMWorker = {
     postMessage: (message) => worker.postMessage(message),
     terminate: () => {
       worker.terminate();
+      // Module workers (Deno) can fail if URL is revoked immediately after spawn.
+      revoke();
     },
     onmessage: null,
     onerror: null,
@@ -167,23 +307,99 @@ class AxNodeFreshWorkerPool {
 
 const nodeWorkerPools = new Map<string, AxNodeFreshWorkerPool>();
 
+const getNodeWorkerPoolKey = (source: string, maxSize: number): string =>
+  `${maxSize}:${source}`;
+
 /** Returns (or creates) a per-source Node worker pool. */
-const getNodeWorkerPool = (source: string): AxNodeFreshWorkerPool => {
-  const existingPool = nodeWorkerPools.get(source);
+const getNodeWorkerPool = (
+  source: string,
+  maxSize: number
+): AxNodeFreshWorkerPool => {
+  const key = getNodeWorkerPoolKey(source, maxSize);
+  const existingPool = nodeWorkerPools.get(key);
   if (existingPool) {
     return existingPool;
   }
 
-  const pool = new AxNodeFreshWorkerPool(source, NODE_WORKER_POOL_SIZE);
-  nodeWorkerPools.set(source, pool);
+  const pool = new AxNodeFreshWorkerPool(source, maxSize);
+  nodeWorkerPools.set(key, pool);
   return pool;
+};
+
+const splitGlobalsForWorker = (globals?: Record<string, unknown>) => {
+  const serializableGlobals: Record<string, unknown> = {};
+  const fnMap = new Map<string, (...args: unknown[]) => unknown>();
+  let nextFnId = 0;
+  const seen = new WeakMap<object, unknown>();
+
+  const toSerializable = (value: unknown, path: string): unknown => {
+    if (typeof value === 'function') {
+      const ref = `fn_${++nextFnId}_${path || 'root'}`;
+      fnMap.set(ref, value as (...args: unknown[]) => unknown);
+      return { [FUNCTION_REF_KEY]: ref };
+    }
+
+    if (!value || typeof value !== 'object') {
+      return value;
+    }
+
+    if (seen.has(value as object)) {
+      return seen.get(value as object);
+    }
+
+    if (Array.isArray(value)) {
+      const arr: unknown[] = [];
+      seen.set(value, arr);
+      for (let i = 0; i < value.length; i += 1) {
+        arr[i] = toSerializable(value[i], `${path}[${i}]`);
+      }
+      return arr;
+    }
+
+    const proto = Object.getPrototypeOf(value);
+    const isPlainObject = proto === Object.prototype || proto === null;
+    if (!isPlainObject) {
+      return value;
+    }
+
+    const obj = value as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    seen.set(value, out);
+    for (const [k, v] of Object.entries(obj)) {
+      out[k] = toSerializable(v, path ? `${path}.${k}` : k);
+    }
+    return out;
+  };
+
+  if (globals) {
+    for (const [key, value] of Object.entries(globals)) {
+      serializableGlobals[key] = toSerializable(value, key);
+    }
+  }
+
+  return { serializableGlobals, fnMap };
+};
+
+const validateSerializableGlobals = (
+  globals: Record<string, unknown>
+): void => {
+  if (typeof structuredClone !== 'function') {
+    return;
+  }
+
+  try {
+    structuredClone(globals);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`RLM globals must be structured-cloneable: ${message}`);
+  }
 };
 
 /**
  * Permissions that can be granted to the RLM JS interpreter sandbox.
  * By default all dangerous globals are blocked; users opt in via this enum.
  */
-export enum AxRLMJSInterpreterPermission {
+export enum AxJSInterpreterPermission {
   /** fetch, XMLHttpRequest, WebSocket, EventSource */
   NETWORK = 'network',
   /** indexedDB, caches */
@@ -228,6 +444,7 @@ if (_isNodeWorker) {
 
 const _scope = typeof self !== 'undefined' ? self : globalThis;
 const _AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+const _FUNCTION_REF_KEY = '${FUNCTION_REF_KEY}';
 const _send = (msg) => {
   if (_nodeParentPort) {
     _nodeParentPort.postMessage(msg);
@@ -251,22 +468,50 @@ _setOnMessage(async (e) => {
   const msg = e.data;
 
   if (msg.type === 'init') {
+    const _createFnProxy = (name) => (...args) => {
+      const id = ++_fnCallId;
+      return new Promise((resolve, reject) => {
+        _fnPending.set(id, { resolve, reject });
+        _send({ type: 'fn-call', id, name, args });
+      });
+    };
+
+    const _rehydrateFnRefs = (value) => {
+      if (!value || typeof value !== 'object') {
+        return value;
+      }
+
+      if (Array.isArray(value)) {
+        for (let i = 0; i < value.length; i += 1) {
+          value[i] = _rehydrateFnRefs(value[i]);
+        }
+        return value;
+      }
+
+      if (_FUNCTION_REF_KEY in value) {
+        const ref = value[_FUNCTION_REF_KEY];
+        if (typeof ref === 'string') {
+          return _createFnProxy(ref);
+        }
+        return undefined;
+      }
+
+      for (const [k, v] of Object.entries(value)) {
+        value[k] = _rehydrateFnRefs(v);
+      }
+      return value;
+    };
+
     // Set serializable globals on self
     if (msg.globals) {
       for (const [k, v] of Object.entries(msg.globals)) {
-        _scope[k] = v;
+        _scope[k] = _rehydrateFnRefs(v);
       }
     }
-    // Create proxy functions for each function name
+    // Backward compatibility: allow explicit top-level function proxies.
     if (msg.fnNames) {
       for (const name of msg.fnNames) {
-        _scope[name] = (...args) => {
-          const id = ++_fnCallId;
-          return new Promise((resolve, reject) => {
-            _fnPending.set(id, { resolve, reject });
-            _send({ type: 'fn-call', id, name, args });
-          });
-        };
+        _scope[name] = _createFnProxy(name);
       }
     }
 
@@ -360,16 +605,18 @@ _setOnMessage(async (e) => {
  * Browser-compatible JavaScript interpreter for RLM using Web Workers.
  * Creates persistent sessions where variables survive across `execute()` calls.
  */
-export class AxRLMJSInterpreter implements AxCodeInterpreter {
+export class AxJSInterpreter implements AxCodeInterpreter {
   readonly language = 'JavaScript';
   private readonly timeout: number;
-  private readonly permissions: readonly AxRLMJSInterpreterPermission[];
+  private readonly permissions: readonly AxJSInterpreterPermission[];
   private readonly allowUnsafeNodeHostAccess: boolean;
+  private readonly nodeWorkerPoolSize: number;
+  private readonly debugNodeWorkerPool: boolean;
 
   constructor(
     options?: Readonly<{
       timeout?: number;
-      permissions?: readonly AxRLMJSInterpreterPermission[];
+      permissions?: readonly AxJSInterpreterPermission[];
       /**
        * Warning: enables direct access to Node host globals (e.g. process/require)
        * from model-generated code in Node worker runtime.
@@ -377,12 +624,26 @@ export class AxRLMJSInterpreter implements AxCodeInterpreter {
        * Defaults to false for safer behavior.
        */
       allowUnsafeNodeHostAccess?: boolean;
+      /**
+       * Node-only: prewarm pool size for worker_threads.
+       * Defaults to an adaptive value based on availableParallelism() when available.
+       */
+      nodeWorkerPoolSize?: number;
+      /**
+       * Node-only: prints resolved worker pool size to console.debug.
+       * Can also be enabled via AX_RLM_DEBUG_NODE_POOL=1.
+       */
+      debugNodeWorkerPool?: boolean;
     }>
   ) {
     this.timeout = options?.timeout ?? 30_000;
     this.permissions = options?.permissions ?? [];
     this.allowUnsafeNodeHostAccess =
       options?.allowUnsafeNodeHostAccess ?? false;
+    this.nodeWorkerPoolSize = resolveNodeWorkerPoolSize(
+      options?.nodeWorkerPoolSize
+    );
+    this.debugNodeWorkerPool = isNodePoolDebugEnabled(options);
   }
 
   /**
@@ -402,7 +663,14 @@ export class AxRLMJSInterpreter implements AxCodeInterpreter {
    */
   createSession(globals?: Record<string, unknown>): AxCodeSession {
     const source = getWorkerSource();
-    const nodeWorkerPool = isNodeRuntime() ? getNodeWorkerPool(source) : null;
+    const nodeWorkerPool = isNodeRuntime()
+      ? getNodeWorkerPool(source, this.nodeWorkerPoolSize)
+      : null;
+    if (nodeWorkerPool && this.debugNodeWorkerPool) {
+      console.debug(
+        `[AxJSInterpreter] Node worker pool size: ${this.nodeWorkerPoolSize}`
+      );
+    }
     nodeWorkerPool?.warm();
 
     let worker: RLMWorker | null = null;
@@ -412,19 +680,9 @@ export class AxRLMJSInterpreter implements AxCodeInterpreter {
 
     const timeout = this.timeout;
 
-    // Separate globals into serializable values vs functions to proxy
-    const serializableGlobals: Record<string, unknown> = {};
-    const fnMap = new Map<string, (...args: unknown[]) => unknown>();
-
-    if (globals) {
-      for (const [key, value] of Object.entries(globals)) {
-        if (typeof value === 'function') {
-          fnMap.set(key, value as (...args: unknown[]) => unknown);
-        } else {
-          serializableGlobals[key] = value;
-        }
-      }
-    }
+    // Convert nested function values into worker-callable references.
+    const { serializableGlobals, fnMap } = splitGlobalsForWorker(globals);
+    validateSerializableGlobals(serializableGlobals);
 
     // Pending execute promises keyed by correlation ID
     const pendingExecutions = new Map<
@@ -540,17 +798,22 @@ export class AxRLMJSInterpreter implements AxCodeInterpreter {
     };
 
     if (canUseWebWorker()) {
-      worker = createBrowserWorker(source);
+      worker = createBrowserWorker(source, this.permissions);
       workerRuntime = 'browser';
       worker.onmessage = handleWorkerMessage;
       worker.onerror = handleWorkerError;
-      worker.postMessage({
-        type: 'init',
-        globals: serializableGlobals,
-        fnNames: [...fnMap.keys()],
-        permissions: [...this.permissions],
-        allowUnsafeNodeHostAccess: this.allowUnsafeNodeHostAccess,
-      });
+      try {
+        worker.postMessage({
+          type: 'init',
+          globals: serializableGlobals,
+          fnNames: [...fnMap.keys()],
+          permissions: [...this.permissions],
+          allowUnsafeNodeHostAccess: this.allowUnsafeNodeHostAccess,
+        });
+      } catch (error) {
+        cleanup();
+        throw error;
+      }
     }
 
     /** Lazily creates/initializes worker in the current runtime. */
@@ -583,13 +846,24 @@ export class AxRLMJSInterpreter implements AxCodeInterpreter {
           workerRuntime = 'node';
           worker.onmessage = handleWorkerMessage;
           worker.onerror = handleWorkerError;
-          worker.postMessage({
-            type: 'init',
-            globals: serializableGlobals,
-            fnNames: [...fnMap.keys()],
-            permissions: [...this.permissions],
-            allowUnsafeNodeHostAccess: this.allowUnsafeNodeHostAccess,
-          });
+          try {
+            worker.postMessage({
+              type: 'init',
+              globals: serializableGlobals,
+              fnNames: [...fnMap.keys()],
+              permissions: [...this.permissions],
+              allowUnsafeNodeHostAccess: this.allowUnsafeNodeHostAccess,
+            });
+          } catch (error) {
+            if (nodeWorkerPool) {
+              nodeWorkerPool.release(created);
+            } else {
+              created.terminate();
+            }
+            worker = null;
+            workerRuntime = null;
+            throw error;
+          }
         });
       }
       await workerReady;
@@ -680,17 +954,45 @@ export class AxRLMJSInterpreter implements AxCodeInterpreter {
       },
     };
   }
+
+  public toFunction(): AxFunction {
+    return {
+      name: 'javascriptInterpreter',
+      description:
+        'Execute JavaScript code in a persistent session and return output.',
+      parameters: {
+        type: 'object',
+        properties: {
+          code: {
+            type: 'string',
+            description: 'JavaScript code to execute.',
+          },
+        },
+        required: ['code'],
+      },
+      func: async ({ code }: Readonly<{ code: string }>, options) => {
+        const session = this.createSession();
+        try {
+          return await session.execute(code, { signal: options?.abortSignal });
+        } finally {
+          session.close();
+        }
+      },
+    };
+  }
 }
 
 /**
- * Factory function for creating an AxRLMJSInterpreter.
+ * Factory function for creating an AxJSInterpreter.
  */
-export function axCreateRLMJSInterpreter(
+export function axCreateJSInterpreter(
   options?: Readonly<{
     timeout?: number;
-    permissions?: readonly AxRLMJSInterpreterPermission[];
+    permissions?: readonly AxJSInterpreterPermission[];
     allowUnsafeNodeHostAccess?: boolean;
+    nodeWorkerPoolSize?: number;
+    debugNodeWorkerPool?: boolean;
   }>
-): AxRLMJSInterpreter {
-  return new AxRLMJSInterpreter(options);
+): AxJSInterpreter {
+  return new AxJSInterpreter(options);
 }

@@ -31,8 +31,16 @@ export interface AxCodeSession {
 export interface AxRLMConfig {
   /** Input fields holding long context (will be removed from the LLM prompt). */
   contextFields: string[];
-  /** Code interpreter for the REPL loop. Required. */
-  interpreter: AxCodeInterpreter;
+  /**
+   * Code runtime for the REPL loop.
+   * Preferred key.
+   */
+  runtime?: AxCodeInterpreter;
+  /**
+   * @deprecated Use `runtime` instead.
+   * Backward-compatible alias.
+   */
+  interpreter?: AxCodeInterpreter;
   /** Cap on recursive sub-LM calls (default: 50). */
   maxLlmCalls?: number;
   /** Maximum characters passed into a single llmQuery context (default: 20000). */

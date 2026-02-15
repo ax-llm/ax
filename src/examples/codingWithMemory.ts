@@ -1,9 +1,11 @@
-import { AxAI, AxAgent, AxMCPClient } from '@ax-llm/ax';
 import {
+  AxAI,
+  AxAgent,
   AxJSInterpreterPermission,
-  axCreateMCPStdioTransport,
+  AxMCPClient,
   axCreateJSInterpreter,
-} from '@ax-llm/ax-tools';
+} from '@ax-llm/ax';
+import { axCreateMCPStdioTransport } from '@ax-llm/ax-tools';
 
 // Setup MCP client for memory
 const mcpTransport = axCreateMCPStdioTransport({
@@ -15,7 +17,7 @@ await mcpClient.init();
 
 // Setup JS interpreter for code execution
 const jsInterpreter = axCreateJSInterpreter({
-  permissions: [AxJSInterpreterPermission.CRYPTO, AxJSInterpreterPermission.FS],
+  permissions: [AxJSInterpreterPermission.NETWORK],
 });
 
 // Create a coding assistant with memory

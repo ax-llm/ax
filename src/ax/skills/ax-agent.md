@@ -358,7 +358,7 @@ The LLM writes code to chunk, filter, and iterate over the document, using `llmQ
 
 ```typescript
 import { agent, ai } from '@ax-llm/ax';
-import { AxRLMJSInterpreter } from '@ax-llm/ax';
+import { AxJSInterpreter } from '@ax-llm/ax';
 
 const analyzer = agent(
   'context:string, query:string -> answer:string, evidence:string[]',
@@ -368,7 +368,7 @@ const analyzer = agent(
     maxSteps: 15,
     rlm: {
       contextFields: ['context'],              // Fields to load into interpreter
-      interpreter: new AxRLMJSInterpreter(),   // Code interpreter implementation
+      runtime: new AxJSInterpreter(),          // Code runtime implementation
       maxLlmCalls: 30,                         // Cap on sub-LM calls (default: 50)
       subModel: 'gpt-4o-mini',                // Model for llmQuery (default: same as parent)
     },
@@ -378,15 +378,15 @@ const analyzer = agent(
 
 ### Sandbox Permissions
 
-By default, the `AxRLMJSInterpreter` sandbox blocks all dangerous Web APIs (network, storage, etc.). You can selectively grant access using the `AxRLMJSInterpreterPermission` enum:
+By default, the `AxJSInterpreter` sandbox blocks all dangerous Web APIs (network, storage, etc.). You can selectively grant access using the `AxJSInterpreterPermission` enum:
 
 ```typescript
-import { AxRLMJSInterpreter, AxRLMJSInterpreterPermission } from '@ax-llm/ax';
+import { AxJSInterpreter, AxJSInterpreterPermission } from '@ax-llm/ax';
 
-const interpreter = new AxRLMJSInterpreter({
+const interpreter = new AxJSInterpreter({
   permissions: [
-    AxRLMJSInterpreterPermission.NETWORK,
-    AxRLMJSInterpreterPermission.STORAGE,
+    AxJSInterpreterPermission.NETWORK,
+    AxJSInterpreterPermission.STORAGE,
   ],
 });
 ```
@@ -410,7 +410,7 @@ Context fields aren't limited to plain strings. You can pass structured data —
 
 ```typescript
 import { agent, f, s } from '@ax-llm/ax';
-import { AxRLMJSInterpreter } from '@ax-llm/ax';
+import { AxJSInterpreter } from '@ax-llm/ax';
 
 const sig = s('query:string -> answer:string, evidence:string[]')
   .appendInputField('documents', f.object({
@@ -424,7 +424,7 @@ const analyzer = agent(sig, {
   description: 'Analyzes structured document collections using RLM',
   rlm: {
     contextFields: ['documents'],
-    interpreter: new AxRLMJSInterpreter(),
+    runtime: new AxJSInterpreter(),
   },
 });
 ```
@@ -470,7 +470,7 @@ In RLM mode, the agent gets a `codeInterpreter` tool. The LLM's typical workflow
 
 ### Custom Interpreters
 
-The built-in `AxRLMJSInterpreter` uses Web Workers for sandboxed code execution. For other environments, implement the `AxCodeInterpreter` interface:
+The built-in `AxJSInterpreter` uses Web Workers for sandboxed code execution. For other environments, implement the `AxCodeInterpreter` interface:
 
 ```typescript
 import type { AxCodeInterpreter, AxCodeSession } from '@ax-llm/ax';
@@ -507,7 +507,8 @@ RLM mode does not support true streaming. When using `streamingForward`, RLM run
 ```typescript
 interface AxRLMConfig {
   contextFields: string[];        // Input fields holding long context
-  interpreter: AxCodeInterpreter; // Code interpreter implementation
+  runtime?: AxCodeInterpreter;    // Preferred runtime key
+  interpreter?: AxCodeInterpreter; // Legacy alias (deprecated)
   maxLlmCalls?: number;           // Cap on sub-LM calls (default: 50)
   subModel?: string;              // Model for llmQuery sub-calls
 }

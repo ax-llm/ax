@@ -1,5 +1,4 @@
-import { AxAIOpenAIModel, ai, ax } from '@ax-llm/ax';
-import { AxJSInterpreter } from '@ax-llm/ax-tools';
+import { AxAIOpenAIModel, AxJSInterpreter, ai, ax } from '@ax-llm/ax';
 
 const gen = ax(
   'numberSeriesTask:string "Task to calculate number series" -> fibonacciSeries:number[] "Fibonacci series as an array of numbers"'
