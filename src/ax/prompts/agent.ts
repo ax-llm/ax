@@ -215,7 +215,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private rlmContextFields?: readonly AxIField[];
   private rlmProgram?: AxGen<any, OUT>;
 
-  private abortController?: AbortController;
+  private activeAbortControllers = new Set<AbortController>();
   private _stopRequested = false;
 
   private name: string;
@@ -349,7 +349,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
    */
   public stop(): void {
     this._stopRequested = true;
-    this.abortController?.abort('Stopped by user');
+    for (const controller of this.activeAbortControllers) {
+      controller.abort('Stopped by user');
+    }
     // Also propagate to the underlying program in case it has its own controller
     this.program.stop();
   }
@@ -553,12 +555,13 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     values: IN | AxMessage<IN>[],
     options?: Readonly<AxProgramForwardOptionsWithModels<T>>
   ): Promise<OUT> {
-    this.abortController = new AbortController();
+    const abortController = new AbortController();
+    this.activeAbortControllers.add(abortController);
     if (this._stopRequested) {
-      this.abortController.abort('Stopped by user (pre-forward)');
+      abortController.abort('Stopped by user (pre-forward)');
     }
     const effectiveAbortSignal = mergeAbortSignals(
-      this.abortController.signal,
+      abortController.signal,
       options?.abortSignal
     );
     try {
@@ -572,7 +575,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       };
       return await this.program.forward(ai, values, mergedOptions);
     } finally {
-      this.abortController = undefined;
+      this.activeAbortControllers.delete(abortController);
       this._stopRequested = false;
     }
   }
@@ -582,12 +585,13 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     values: IN | AxMessage<IN>[],
     options?: Readonly<AxProgramStreamingForwardOptionsWithModels<T>>
   ): AxGenStreamingOut<OUT> {
-    this.abortController = new AbortController();
+    const abortController = new AbortController();
+    this.activeAbortControllers.add(abortController);
     if (this._stopRequested) {
-      this.abortController.abort('Stopped by user (pre-forward)');
+      abortController.abort('Stopped by user (pre-forward)');
     }
     const effectiveAbortSignal = mergeAbortSignals(
-      this.abortController.signal,
+      abortController.signal,
       options?.abortSignal
     );
     try {
@@ -601,7 +605,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       };
       return yield* this.program.streamingForward(ai, values, mergedOptions);
     } finally {
-      this.abortController = undefined;
+      this.activeAbortControllers.delete(abortController);
       this._stopRequested = false;
     }
   }
@@ -617,12 +621,13 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       | Readonly<AxProgramForwardOptionsWithModels<T>>
       | Readonly<AxProgramStreamingForwardOptionsWithModels<T>>
   ): Promise<OUT> {
-    this.abortController = new AbortController();
+    const abortController = new AbortController();
+    this.activeAbortControllers.add(abortController);
     if (this._stopRequested) {
-      this.abortController.abort('Stopped by user (pre-forward)');
+      abortController.abort('Stopped by user (pre-forward)');
     }
     const effectiveAbortSignal = mergeAbortSignals(
-      this.abortController.signal,
+      abortController.signal,
       options?.abortSignal
     );
 
@@ -756,7 +761,52 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
               throw err;
             }
             const delay = Math.min(60_000, 1000 * Math.pow(2, attempt));
-            await new Promise((resolve) => setTimeout(resolve, delay));
+            await new Promise<void>((resolve, reject) => {
+              let settled = false;
+              let onAbort: (() => void) | undefined;
+
+              const cleanup = () => {
+                if (effectiveAbortSignal && onAbort) {
+                  effectiveAbortSignal.removeEventListener('abort', onAbort);
+                }
+              };
+
+              const onResolve = () => {
+                if (settled) return;
+                settled = true;
+                cleanup();
+                resolve();
+              };
+
+              const timer = setTimeout(onResolve, delay);
+              if (!effectiveAbortSignal) {
+                return;
+              }
+
+              onAbort = () => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                cleanup();
+                reject(
+                  new AxAIServiceAbortedError(
+                    'rlm-llm-query-retry-backoff',
+                    effectiveAbortSignal.reason
+                      ? String(effectiveAbortSignal.reason)
+                      : 'Aborted during retry backoff'
+                  )
+                );
+              };
+
+              if (effectiveAbortSignal.aborted) {
+                onAbort();
+                return;
+              }
+
+              effectiveAbortSignal.addEventListener('abort', onAbort, {
+                once: true,
+              });
+            });
           }
         }
         throw lastError;
@@ -885,7 +935,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         }
       }
     } finally {
-      this.abortController = undefined;
+      this.activeAbortControllers.delete(abortController);
       this._stopRequested = false;
     }
   }

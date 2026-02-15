@@ -1,6 +1,6 @@
 # AxAgent Guide
 
-`AxAgent` is the agent framework in Ax. It wraps `AxGen` with support for child agents, tool use, smart model routing, and **RLM (Recursive Language Model)** mode for processing long contexts through a code interpreter.
+`AxAgent` is the agent framework in Ax. It wraps `AxGen` with support for child agents, tool use, smart model routing, and **RLM (Recursive Language Model)** mode for processing long contexts through runtime-backed code execution.
 
 Use `AxAgent` when you need:
 - Multi-step reasoning with tools (ReAct pattern)
@@ -146,7 +146,7 @@ const result = await myAgent.forward(llm, values, {
 
 ### `stop()` method
 
-Call `stop()` from any context — a timer, event handler, or another async task — to halt the multi-step loop. The loop throws `AxAIServiceAbortedError` at the next between-step check.
+Call `stop()` from any context — a timer, event handler, or another async task — to halt the multi-step loop. `stop()` aborts all in-flight calls started by the same `AxAgent` instance (including retry backoff waits), and the loop throws `AxAIServiceAbortedError`.
 
 ```typescript
 const myAgent = agent('question:string -> answer:string', {
@@ -316,7 +316,7 @@ const analyzer = agent(
     description: 'Analyzes long documents using code interpreter and sub-LM queries',
     maxSteps: 15,
     rlm: {
-      contextFields: ['context'],              // Fields to load into interpreter
+      contextFields: ['context'],              // Fields to load into runtime session
       runtime: new AxJSRuntime(),          // Code runtime implementation
       maxLlmCalls: 30,                         // Cap on sub-LM calls (default: 50)
       maxSubQueryContextChars: 20_000,         // Hard cap per llmQuery context (default: 20_000)

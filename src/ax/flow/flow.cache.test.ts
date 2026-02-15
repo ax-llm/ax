@@ -75,4 +75,39 @@ describe('AxFlow caching via axGlobals', () => {
     expect(first.done).toBe(false);
     expect(first.value.delta.final).toBe('cached-stream');
   });
+
+  it('throws a clear error when message input has no user message', async () => {
+    const f = flow<{ userQuery: string }>()
+      .node('echo', 'userQuery:string -> resultText:string')
+      .execute('echo', (state) => ({ userQuery: (state as any).userQuery }))
+      .mapOutput((state) => ({
+        final: (state as any).echoResult?.resultText ?? '',
+      }));
+
+    axGlobals.cachingFunction = vi.fn().mockResolvedValue(undefined);
+
+    await expect(
+      f.forward(ai as any, [{ role: 'assistant', values: {} as any }])
+    ).rejects.toThrow('No user message found in values array');
+
+    const iter = f.streamingForward(ai as any, [
+      { role: 'assistant', values: {} as any },
+    ]);
+    await expect(iter.next()).rejects.toThrow(
+      'No user message found in values array'
+    );
+  });
+
+  it('does not fail forward when cache read throws', async () => {
+    const f = flow<{ inputText: string }>()
+      .map((state) => ({ outputText: state.inputText.toUpperCase() }))
+      .returns((state) => ({ outputText: (state as any).outputText }));
+
+    axGlobals.cachingFunction = vi.fn().mockImplementation(async () => {
+      throw new Error('cache read failed');
+    });
+
+    const res = await f.forward(ai as any, { inputText: 'abc' });
+    expect((res as any).outputText).toBe('ABC');
+  });
 });

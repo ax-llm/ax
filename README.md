@@ -161,7 +161,7 @@ const result = await analyzer.forward(llm, {
 });
 ```
 
-RLM mode keeps long context out of the root prompt, runs iterative analysis in a persistent interpreter, and uses bounded sub-queries for semantic extraction (typically targeting <=10k chars per sub-call).
+RLM mode keeps long context out of the root prompt, runs iterative analysis in a persistent runtime session, and uses bounded sub-queries for semantic extraction (typically targeting <=10k chars per sub-call).
 
 ### AxJSRuntime
 
@@ -205,7 +205,7 @@ npm install @ax-llm/ax-ai-aws-bedrock
 # Vercel AI SDK v5 integration
 npm install @ax-llm/ax-ai-sdk-provider
 
-# Tools: MCP stdio transport, JS interpreter
+# Tools: MCP stdio transport, JS runtime
 npm install @ax-llm/ax-tools
 ```
 
@@ -220,7 +220,7 @@ npm install @ax-llm/ax-tools
 - **Workflows** – Compose complex pipelines with AxFlow
 - **RAG** – Multi-hop retrieval with quality loops
 - **Agents** – Tools and multi-agent collaboration
-- **RLM in AxAgent** – Long-context analysis with recursive interpreter loops
+- **RLM in AxAgent** – Long-context analysis with recursive runtime loops
 - **Zero dependencies** – Lightweight, fast, reliable
 
 ## Documentation

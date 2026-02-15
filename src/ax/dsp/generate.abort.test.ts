@@ -1,8 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { AxMockAIService } from '../ai/mock/api.js';
 import type { AxChatResponse } from '../ai/types.js';
-import { AxAIServiceAbortedError } from '../util/apicall.js';
+import {
+  AxAIServiceAbortedError,
+  AxAIServiceStatusError,
+} from '../util/apicall.js';
 
 import { AxGen, AxGenerateError } from './generate.js';
 
@@ -286,5 +289,40 @@ describe('AxGen abort error is not wrapped', () => {
       expect(e).toBeInstanceOf(AxAIServiceAbortedError);
       expect(e).not.toBeInstanceOf(AxGenerateError);
     }
+  });
+});
+
+describe('AxGen.stop() with internal abort controller', () => {
+  it('aborts during infrastructure retry backoff without external abort signal', async () => {
+    vi.spyOn(global, 'setTimeout');
+    const ai = new AxMockAIService({
+      features: {
+        functions: false,
+        streaming: false,
+        structuredOutputs: false,
+      },
+      chatResponse: async (): Promise<AxChatResponse> => {
+        throw new AxAIServiceStatusError(
+          503,
+          'Service Unavailable',
+          'https://api.example.com/chat',
+          { test: 'request' },
+          { error: 'service_unavailable' }
+        );
+      },
+    });
+
+    const gen = new AxGen('userQuery:string -> answer:string', {
+      maxRetries: 5,
+    });
+
+    const p = gen.forward(ai, { userQuery: 'test' });
+
+    // Let generation enter retry path, then stop via internal controller.
+    await Promise.resolve();
+    await Promise.resolve();
+    gen.stop();
+
+    await expect(p).rejects.toBeInstanceOf(AxAIServiceAbortedError);
   });
 });

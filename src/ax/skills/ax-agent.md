@@ -6,7 +6,7 @@ version: "__VERSION__"
 
 # AxAgent Guide (@ax-llm/ax)
 
-AxAgent is the agent framework in Ax. It wraps AxGen with support for child agents, tool use, smart model routing, and RLM (Recursive Language Model) mode for processing long contexts through a code interpreter.
+AxAgent is the agent framework in Ax. It wraps AxGen with support for child agents, tool use, smart model routing, and RLM (Recursive Language Model) mode for processing long contexts through runtime-backed code execution.
 
 ## Quick Reference
 
@@ -167,7 +167,7 @@ const result = await myAgent.forward(llm, values, {
 
 ### `stop()` method
 
-Call `stop()` from any context — a timer, event handler, or another async task — to halt the multi-step loop:
+Call `stop()` from any context — a timer, event handler, or another async task — to halt the multi-step loop. `stop()` aborts all in-flight calls started by the same `AxAgent` instance (including retry backoff waits):
 
 ```typescript
 const myAgent = agent('question:string -> answer:string', {
@@ -266,7 +266,7 @@ const weatherAgent = agent('query:string -> response:string', {
   functions: [getCurrentWeather]
 });
 
-const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_API_KEY! });
+const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! });
 const result = await weatherAgent.forward(llm, { query: 'Weather in Tokyo?' });
 ```
 
@@ -367,7 +367,7 @@ const analyzer = agent(
     description: 'Analyzes long documents using code interpreter and sub-LM queries',
     maxSteps: 15,
     rlm: {
-      contextFields: ['context'],              // Fields to load into interpreter
+      contextFields: ['context'],              // Fields to load into runtime session
       runtime: new AxJSRuntime(),          // Code runtime implementation
       maxLlmCalls: 30,                         // Cap on sub-LM calls (default: 50)
       subModel: 'gpt-4o-mini',                // Model for llmQuery (default: same as parent)

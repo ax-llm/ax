@@ -71,6 +71,14 @@ describe('AxFlow', () => {
         ).execute('nonexistent', () => ({}));
       }).toThrow("Node 'nonexistent' not found");
     });
+
+    it('should throw when a node name is defined twice', () => {
+      const myFlow = flow();
+      myFlow.node('dup', 'userInput:string -> responseText:string');
+      expect(() => {
+        myFlow.node('dup', 'userInput:string -> responseText:string');
+      }).toThrow("Node 'dup' is already defined");
+    });
   });
 
   describe('fluent interface', () => {
