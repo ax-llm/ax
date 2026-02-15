@@ -129,12 +129,12 @@ const isNodePoolDebugEnabled = (
  * Default is "none" for a tighter sandbox when running in Deno.
  */
 const mapRlmPermissionsToDenoPermissions = (
-  permissions: readonly AxJSInterpreterPermission[]
+  permissions: readonly AxJSRuntimePermission[]
 ): unknown => {
   const granted = new Set(permissions);
   const denoPermissions: Record<string, unknown> = {};
 
-  if (granted.has(AxJSInterpreterPermission.NETWORK)) {
+  if (granted.has(AxJSRuntimePermission.NETWORK)) {
     denoPermissions.net = true;
   }
 
@@ -143,7 +143,7 @@ const mapRlmPermissionsToDenoPermissions = (
 
 const createDenoWorker = (
   url: string,
-  permissions: readonly AxJSInterpreterPermission[]
+  permissions: readonly AxJSRuntimePermission[]
 ): Worker => {
   // WorkerOptions.deno is documented as unstable. Prefer capability probing
   // via try/catch over strict version gating.
@@ -170,7 +170,7 @@ const createDenoWorker = (
 /** Creates a browser/Deno Web Worker and wraps it with the unified worker facade. */
 const createBrowserWorker = (
   source: string,
-  permissions: readonly AxJSInterpreterPermission[]
+  permissions: readonly AxJSRuntimePermission[]
 ): RLMWorker => {
   const blob = new Blob([source], {
     type: 'application/javascript',
@@ -399,7 +399,7 @@ const validateSerializableGlobals = (
  * Permissions that can be granted to the RLM JS interpreter sandbox.
  * By default all dangerous globals are blocked; users opt in via this enum.
  */
-export enum AxJSInterpreterPermission {
+export enum AxJSRuntimePermission {
   /** fetch, XMLHttpRequest, WebSocket, EventSource */
   NETWORK = 'network',
   /** indexedDB, caches */
@@ -605,10 +605,10 @@ _setOnMessage(async (e) => {
  * Browser-compatible JavaScript interpreter for RLM using Web Workers.
  * Creates persistent sessions where variables survive across `execute()` calls.
  */
-export class AxJSInterpreter implements AxCodeInterpreter {
+export class AxJSRuntime implements AxCodeInterpreter {
   readonly language = 'JavaScript';
   private readonly timeout: number;
-  private readonly permissions: readonly AxJSInterpreterPermission[];
+  private readonly permissions: readonly AxJSRuntimePermission[];
   private readonly allowUnsafeNodeHostAccess: boolean;
   private readonly nodeWorkerPoolSize: number;
   private readonly debugNodeWorkerPool: boolean;
@@ -616,7 +616,7 @@ export class AxJSInterpreter implements AxCodeInterpreter {
   constructor(
     options?: Readonly<{
       timeout?: number;
-      permissions?: readonly AxJSInterpreterPermission[];
+      permissions?: readonly AxJSRuntimePermission[];
       /**
        * Warning: enables direct access to Node host globals (e.g. process/require)
        * from model-generated code in Node worker runtime.
@@ -668,7 +668,7 @@ export class AxJSInterpreter implements AxCodeInterpreter {
       : null;
     if (nodeWorkerPool && this.debugNodeWorkerPool) {
       console.debug(
-        `[AxJSInterpreter] Node worker pool size: ${this.nodeWorkerPoolSize}`
+        `[AxJSRuntime] Node worker pool size: ${this.nodeWorkerPoolSize}`
       );
     }
     nodeWorkerPool?.warm();
@@ -983,16 +983,16 @@ export class AxJSInterpreter implements AxCodeInterpreter {
 }
 
 /**
- * Factory function for creating an AxJSInterpreter.
+ * Factory function for creating an AxJSRuntime.
  */
-export function axCreateJSInterpreter(
+export function axCreateJSRuntime(
   options?: Readonly<{
     timeout?: number;
-    permissions?: readonly AxJSInterpreterPermission[];
+    permissions?: readonly AxJSRuntimePermission[];
     allowUnsafeNodeHostAccess?: boolean;
     nodeWorkerPoolSize?: number;
     debugNodeWorkerPool?: boolean;
   }>
-): AxJSInterpreter {
-  return new AxJSInterpreter(options);
+): AxJSRuntime {
+  return new AxJSRuntime(options);
 }

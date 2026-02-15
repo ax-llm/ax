@@ -1,4 +1,4 @@
-import { AxAI, AxJSInterpreter, ax } from '@ax-llm/ax';
+import { AxAI, AxJSRuntime, ax } from '@ax-llm/ax';
 
 // Example showing how to use result picker with function results from JS interpreter
 
@@ -10,7 +10,7 @@ const mathSolverGen = ax(
 );
 
 // Create multiple JS interpreter instances for different approaches
-const jsInterpreter1 = new AxJSInterpreter();
+const jsRuntime1 = new AxJSRuntime();
 
 // Result picker that evaluates function execution results
 const functionResultPicker = async (
@@ -97,7 +97,7 @@ const result1 = await mathSolverGen.forward(
   },
   {
     sampleCount: 2,
-    functions: [jsInterpreter1],
+    functions: [jsRuntime1],
     resultPicker: functionResultPicker,
   }
 );
@@ -117,7 +117,7 @@ const result2 = await mathSolverGen.forward(
   },
   {
     sampleCount: 2,
-    functions: [jsInterpreter1],
+    functions: [jsRuntime1],
     resultPicker: functionResultPicker,
   }
 );
@@ -137,7 +137,7 @@ const result3 = await mathSolverGen.forward(
   },
   {
     sampleCount: 3,
-    functions: [jsInterpreter1],
+    functions: [jsRuntime1],
     resultPicker: functionResultPicker,
   }
 );
@@ -157,7 +157,7 @@ const result4 = await mathSolverGen.forward(
   },
   {
     sampleCount: 2,
-    functions: [jsInterpreter1],
+    functions: [jsRuntime1],
     resultPicker: functionResultPicker,
   }
 );

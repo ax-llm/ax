@@ -1,7 +1,7 @@
 import {
   AxAIGoogleGeminiModel,
-  AxJSInterpreter,
-  AxJSInterpreterPermission,
+  AxJSRuntime,
+  AxJSRuntimePermission,
   agent,
   ai,
 } from '@ax-llm/ax';
@@ -21,9 +21,9 @@ const analyzer = agent(
     maxSteps: 15,
     rlm: {
       contextFields: ['context'],
-      runtime: new AxJSInterpreter({
+      runtime: new AxJSRuntime({
         // Optional, least-privilege sandbox permissions.
-        permissions: [AxJSInterpreterPermission.TIMING],
+        permissions: [AxJSRuntimePermission.TIMING],
       }),
       maxLlmCalls: 30,
       // Additional RLM guardrails are also supported:

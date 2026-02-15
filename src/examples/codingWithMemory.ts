@@ -1,9 +1,9 @@
 import {
   AxAI,
   AxAgent,
-  AxJSInterpreterPermission,
+  AxJSRuntimePermission,
   AxMCPClient,
-  axCreateJSInterpreter,
+  axCreateJSRuntime,
 } from '@ax-llm/ax';
 import { axCreateMCPStdioTransport } from '@ax-llm/ax-tools';
 
@@ -16,8 +16,8 @@ const mcpClient = new AxMCPClient(mcpTransport, { debug: false });
 await mcpClient.init();
 
 // Setup JS interpreter for code execution
-const jsInterpreter = axCreateJSInterpreter({
-  permissions: [AxJSInterpreterPermission.NETWORK],
+const jsRuntime = axCreateJSRuntime({
+  permissions: [AxJSRuntimePermission.NETWORK],
 });
 
 // Create a coding assistant with memory
@@ -29,7 +29,7 @@ const codingAssistant = new AxAgent<
   description:
     'You are a coding assistant that can remember past conversations and execute JavaScript code.',
   signature: 'userQuery -> reply, codeResult?',
-  functions: [mcpClient, jsInterpreter.toFunction()],
+  functions: [mcpClient, jsRuntime.toFunction()],
 });
 
 // Initialize AI

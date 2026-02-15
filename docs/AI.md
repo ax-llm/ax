@@ -635,24 +635,24 @@ const tools = await client.getTools();
 console.log("Available tools:", tools.map((t) => t.name));
 ```
 
-### AxJSRuntime (AxJSInterpreter)
+### AxJSRuntime
 
 A sandboxed JavaScript runtime that can be used as a function tool.
-`AxJSInterpreter` is the runtime implementation ("AxJSRuntime") and is designed
+`AxJSRuntime` is the runtime implementation and is designed
 to work across Node.js/Bun-style backends, Deno, and browsers.
 
 ```typescript
 import { ai, ax } from "@ax-llm/ax";
 import {
-  AxJSInterpreter,
-  AxJSInterpreterPermission,
+  AxJSRuntime,
+  AxJSRuntimePermission,
 } from "@ax-llm/ax";
 
 // Create interpreter with specific permissions
-const interpreter = new AxJSInterpreter({
+const runtime = new AxJSRuntime({
   permissions: [
-    AxJSInterpreterPermission.NETWORK,
-    AxJSInterpreterPermission.TIMING,
+    AxJSRuntimePermission.NETWORK,
+    AxJSRuntimePermission.TIMING,
   ],
 });
 
@@ -682,12 +682,12 @@ Control what the interpreter can access:
 | `WORKERS` | Sub-worker spawning (`Worker`, `SharedWorker`) |
 
 ```typescript
-import { AxJSInterpreterPermission } from "@ax-llm/ax";
+import { AxJSRuntimePermission } from "@ax-llm/ax";
 
-const interpreter = new AxJSInterpreter({
+const runtime = new AxJSRuntime({
   permissions: [
-    AxJSInterpreterPermission.NETWORK,
-    AxJSInterpreterPermission.STORAGE,
+    AxJSRuntimePermission.NETWORK,
+    AxJSRuntimePermission.STORAGE,
   ],
 });
 ```

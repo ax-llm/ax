@@ -1,9 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import {
-  AxJSInterpreter,
-  AxJSInterpreterPermission,
-} from './rlmInterpreter.js';
+import { AxJSRuntime, AxJSRuntimePermission } from './jsRuntime.js';
 
 // --- Mock browser globals ---
 const mockPostMessage = vi.fn();
@@ -32,20 +29,20 @@ beforeEach(() => {
 
 // --- Tests ---
 
-describe('AxJSInterpreterPermission', () => {
+describe('AxJSRuntimePermission', () => {
   it('has expected string values', () => {
-    expect(AxJSInterpreterPermission.NETWORK).toBe('network');
-    expect(AxJSInterpreterPermission.STORAGE).toBe('storage');
-    expect(AxJSInterpreterPermission.CODE_LOADING).toBe('code-loading');
-    expect(AxJSInterpreterPermission.COMMUNICATION).toBe('communication');
-    expect(AxJSInterpreterPermission.TIMING).toBe('timing');
-    expect(AxJSInterpreterPermission.WORKERS).toBe('workers');
+    expect(AxJSRuntimePermission.NETWORK).toBe('network');
+    expect(AxJSRuntimePermission.STORAGE).toBe('storage');
+    expect(AxJSRuntimePermission.CODE_LOADING).toBe('code-loading');
+    expect(AxJSRuntimePermission.COMMUNICATION).toBe('communication');
+    expect(AxJSRuntimePermission.TIMING).toBe('timing');
+    expect(AxJSRuntimePermission.WORKERS).toBe('workers');
   });
 });
 
-describe('AxJSInterpreter', () => {
+describe('AxJSRuntime', () => {
   it('sends empty permissions by default', () => {
-    const interp = new AxJSInterpreter();
+    const interp = new AxJSRuntime();
     interp.createSession();
 
     expect(mockPostMessage).toHaveBeenCalledOnce();
@@ -55,10 +52,10 @@ describe('AxJSInterpreter', () => {
   });
 
   it('sends custom permissions in init message', () => {
-    const interp = new AxJSInterpreter({
+    const interp = new AxJSRuntime({
       permissions: [
-        AxJSInterpreterPermission.NETWORK,
-        AxJSInterpreterPermission.STORAGE,
+        AxJSRuntimePermission.NETWORK,
+        AxJSRuntimePermission.STORAGE,
       ],
     });
     interp.createSession();
@@ -68,7 +65,7 @@ describe('AxJSInterpreter', () => {
   });
 
   it('worker source contains _PERM_GLOBALS with expected globals', () => {
-    const interp = new AxJSInterpreter();
+    const interp = new AxJSRuntime();
     interp.createSession();
 
     // The Blob constructor receives the worker source as first argument
@@ -98,7 +95,7 @@ describe('AxJSInterpreter', () => {
   });
 
   it('close() calls worker.terminate()', () => {
-    const interp = new AxJSInterpreter();
+    const interp = new AxJSRuntime();
     const session = interp.createSession();
 
     expect(mockTerminate).not.toHaveBeenCalled();
@@ -107,7 +104,7 @@ describe('AxJSInterpreter', () => {
   });
 
   it('close() rejects pending executions', async () => {
-    const interp = new AxJSInterpreter();
+    const interp = new AxJSRuntime();
     const session = interp.createSession();
 
     const promise = session.execute('1+1');
@@ -117,7 +114,7 @@ describe('AxJSInterpreter', () => {
   });
 
   it('toFunction() executes code and closes session', async () => {
-    const interp = new AxJSInterpreter();
+    const interp = new AxJSRuntime();
     const fn = interp.toFunction();
 
     const promise = fn.func({ code: '1+1' });
@@ -145,8 +142,8 @@ describe('AxJSInterpreter', () => {
   it('uses Deno module worker options when available', () => {
     (globalThis as { Deno?: unknown }).Deno = { version: { deno: '2.6.3' } };
 
-    const interp = new AxJSInterpreter({
-      permissions: [AxJSInterpreterPermission.NETWORK],
+    const interp = new AxJSRuntime({
+      permissions: [AxJSRuntimePermission.NETWORK],
     });
     interp.createSession();
 

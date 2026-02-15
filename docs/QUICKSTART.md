@@ -425,10 +425,10 @@ const tools = await client.getTools();
 
 ```typescript
 import { ai, ax } from "@ax-llm/ax";
-import { AxJSInterpreter, AxJSInterpreterPermission } from "@ax-llm/ax";
+import { AxJSRuntime, AxJSRuntimePermission } from "@ax-llm/ax";
 
-const interpreter = new AxJSInterpreter({
-  permissions: [AxJSInterpreterPermission.NETWORK]
+const runtime = new AxJSRuntime({
+  permissions: [AxJSRuntimePermission.NETWORK]
 });
 
 const llm = ai({ name: "openai", apiKey: process.env.OPENAI_APIKEY! });
@@ -438,7 +438,7 @@ const codeRunner = ax("task:string -> result:string", {
 });
 ```
 
-`AxJSInterpreter` is the Ax JS runtime ("AxJSRuntime") used for sandboxed code
+`AxJSRuntime` is the Ax JS runtime used for sandboxed code
 execution across Node.js/Bun-style backends, Deno, and browser environments.
 
 ---

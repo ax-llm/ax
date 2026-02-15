@@ -21,7 +21,7 @@ processes.
 
 ### Function Tools
 
-`AxJSInterpreter` has moved to `@ax-llm/ax`.
+`AxJSRuntime` has moved to `@ax-llm/ax`.
 
 ## Installation
 
@@ -66,10 +66,10 @@ const transport = axCreateMCPStdioTransport({
 
 ### JavaScript Code Execution
 
-Use `AxJSInterpreter` from `@ax-llm/ax`:
+Use `AxJSRuntime` from `@ax-llm/ax`:
 
 ```typescript
-import { AxJSInterpreter, AxJSInterpreterPermission } from "@ax-llm/ax";
+import { AxJSRuntime, AxJSRuntimePermission } from "@ax-llm/ax";
 ```
 
 ### Configuration Options
@@ -86,7 +86,7 @@ interface StdioTransportConfig {
 
 #### JS Interpreter Permissions
 
-See `@ax-llm/ax` docs for `AxJSInterpreterPermission`.
+See `@ax-llm/ax` docs for `AxJSRuntimePermission`.
 
 ## Examples
 

@@ -681,10 +681,10 @@ import type {
 import { type AxDockerContainer, AxDockerSession } from './funcs/docker.js';
 import { AxEmbeddingAdapter } from './funcs/embed.js';
 import {
-  AxJSInterpreter,
-  AxJSInterpreterPermission,
-  axCreateJSInterpreter,
-} from './funcs/rlmInterpreter.js';
+  AxJSRuntime,
+  AxJSRuntimePermission,
+  axCreateJSRuntime,
+} from './funcs/jsRuntime.js';
 import { AxMCPClient } from './mcp/client.js';
 import type { AxMCPOAuthOptions } from './mcp/oauth/types.js';
 import type { AxMCPTransport } from './mcp/transport.js';
@@ -859,8 +859,8 @@ export { AxGen };
 export { AxGenerateError };
 export { AxHFDataLoader };
 export { AxInstanceRegistry };
-export { AxJSInterpreter };
-export { AxJSInterpreterPermission };
+export { AxJSRuntime };
+export { AxJSRuntimePermission };
 export { AxJudge };
 export { AxLLMRequestTypeValues };
 export { AxLearn };
@@ -939,7 +939,7 @@ export { axCreateDefaultOptimizerTextLogger };
 export { axCreateDefaultTextLogger };
 export { axCreateFlowColorLogger };
 export { axCreateFlowTextLogger };
-export { axCreateJSInterpreter };
+export { axCreateJSRuntime };
 export { axDefaultFlowLogger };
 export { axDefaultMetricsConfig };
 export { axDefaultOptimizerLogger };
