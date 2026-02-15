@@ -1,5 +1,22 @@
 # Changelog
 
+## [17.0.1](///compare/16.1.12...17.0.0) (2026-02-15)
+
+### Bug Fixes
+
+* make RLM interpreter returns less brittle 6d0b314
+## [17.0.0](///compare/16.1.12...17.0.0) (2026-02-15)
+
+### ⚠ BREAKING CHANGES
+
+* rename AxJSInterpreter API to AxJSRuntime
+
+### Features
+
+* harden stop/abort behavior across AxGen, AxAgent, and AxFlow a5c7f9b
+* rename AxJSInterpreter API to AxJSRuntime c0a6f13
+* unify JavaScript runtime interpreter across packages 9b0c0f7
+
 ## [17.0.0](///compare/16.1.11...16.1.12) (2026-02-15)
 
 ### ⚠ BREAKING CHANGES
