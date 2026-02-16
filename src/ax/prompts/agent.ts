@@ -839,8 +839,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       };
 
       const defaultRuntimeTimeoutMs = 30_000;
-      const restartNotice = `[RLM session restarted; previous REPL variables were lost. AxJSRuntime default timeout is ${defaultRuntimeTimeoutMs}ms.]`;
+      const timeoutRestartNotice = `[RLM session restarted after timeout; previous REPL variables were lost. AxJSRuntime default timeout is ${defaultRuntimeTimeoutMs}ms.]`;
       let session = createRlmSession();
+      let shouldRestartClosedSession = false;
 
       const formatInterpreterOutput = (result: unknown) => {
         if (result === undefined) {
@@ -858,6 +859,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
       const isSessionClosedError = (err: unknown): boolean => {
         return err instanceof Error && err.message === 'Session is closed';
+      };
+
+      const isExecutionTimedOutError = (err: unknown): boolean => {
+        return err instanceof Error && err.message === 'Execution timed out';
       };
 
       // 3. Create codeInterpreter function
@@ -897,21 +902,36 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
                 effectiveAbortSignal.reason ?? 'Aborted'
               );
             }
+            if (isExecutionTimedOutError(err)) {
+              shouldRestartClosedSession = true;
+            }
             if (isSessionClosedError(err)) {
+              if (!shouldRestartClosedSession) {
+                const output = truncateText(
+                  `Error: ${(err as Error).message}`,
+                  maxRuntimeChars
+                );
+                executionHistory.push({ code, output });
+                return output;
+              }
               try {
+                shouldRestartClosedSession = false;
                 session = createRlmSession();
                 const retryResult = await session.execute(code, {
                   signal: effectiveAbortSignal,
                 });
                 const output = truncateText(
-                  `${restartNotice}\n${formatInterpreterOutput(retryResult)}`,
+                  `${timeoutRestartNotice}\n${formatInterpreterOutput(retryResult)}`,
                   maxRuntimeChars
                 );
                 executionHistory.push({ code, output });
                 return output;
               } catch (retryErr) {
+                if (isExecutionTimedOutError(retryErr)) {
+                  shouldRestartClosedSession = true;
+                }
                 const output = truncateText(
-                  `${restartNotice}\nError: ${(retryErr as Error).message}`,
+                  `${timeoutRestartNotice}\nError: ${(retryErr as Error).message}`,
                   maxRuntimeChars
                 );
                 executionHistory.push({ code, output });

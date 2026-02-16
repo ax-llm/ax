@@ -1198,7 +1198,7 @@ describe('RLM llmQuery runtime behavior', () => {
     expect(observedLlmQueryResultHasTruncationMarker).toBe(false);
   });
 
-  it('should recreate closed RLM session and retry once with globals restored', async () => {
+  it('should restart closed session after timeout and restore globals', async () => {
     let createSessionCount = 0;
     let executeCount = 0;
     const runtime: AxCodeRuntime = {
@@ -1210,6 +1210,9 @@ describe('RLM llmQuery runtime behavior', () => {
           execute: async (_code: string) => {
             executeCount++;
             if (executeCount === 1) {
+              throw new Error('Execution timed out');
+            }
+            if (executeCount === 2) {
               throw new Error('Session is closed');
             }
             return `ctx:${String(safeGlobals.context)};hasLlmQuery:${String(typeof safeGlobals.llmQuery === 'function')}`;
@@ -1246,8 +1249,13 @@ describe('RLM llmQuery runtime behavior', () => {
         const codeInterpreter = forwardOptions.functions.find((f: any) => {
           return f.name === 'codeInterpreter';
         });
-        const output = await codeInterpreter.func({ code: 'RESTART_TEST' });
-        return { answer: output };
+        const first = await codeInterpreter.func({
+          code: 'TIMEOUT_THEN_CLOSED',
+        });
+        const second = await codeInterpreter.func({
+          code: 'RESTART_AFTER_CLOSED',
+        });
+        return { answer: `${first}\n---\n${second}` };
       },
     };
 
@@ -1256,9 +1264,67 @@ describe('RLM llmQuery runtime behavior', () => {
       query: 'unused',
     });
 
-    expect(createSessionCount).toBe(2);
-    expect(result.answer).toContain('[RLM session restarted');
+    expect(createSessionCount).toBe(2); // initial + timeout-triggered restart
+    expect(result.answer).toContain('Error: Execution timed out');
+    expect(result.answer).toContain('[RLM session restarted after timeout');
     expect(result.answer).toContain('AxJSRuntime default timeout is 30000ms');
     expect(result.answer).toContain('ctx:global-context;hasLlmQuery:true');
+  });
+
+  it('should not restart closed session if no timeout happened first', async () => {
+    let createSessionCount = 0;
+    const runtime: AxCodeRuntime = {
+      language: 'JavaScript',
+      createSession() {
+        createSessionCount++;
+        return {
+          execute: async () => {
+            throw new Error('Session is closed');
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: true, streaming: false },
+      chatResponse: {
+        results: [{ index: 0, content: 'ok', finishReason: 'stop' }],
+        modelUsage: makeModelUsage(),
+      },
+    });
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      name: 'rlmNoRestartWithoutTimeoutAgent',
+      description:
+        'Agent used to verify closed sessions do not restart without timeout.',
+      ai: testMockAI,
+      rlm: {
+        contextFields: ['context'],
+        runtime,
+      },
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (testAgent as any).rlmProgram = {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      forward: async (_ai: any, _values: any, forwardOptions: any) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const codeInterpreter = forwardOptions.functions.find((f: any) => {
+          return f.name === 'codeInterpreter';
+        });
+        const output = await codeInterpreter.func({ code: 'CLOSED_ONLY' });
+        return { answer: output };
+      },
+    };
+
+    const result = await testAgent.forward(testMockAI, {
+      context: 'unused',
+      query: 'unused',
+    });
+
+    expect(createSessionCount).toBe(1);
+    expect(result.answer).toBe('Error: Session is closed');
+    expect(result.answer).not.toContain('[RLM session restarted');
   });
 });
