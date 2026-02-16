@@ -1,5 +1,16 @@
 # Changelog
 
+## [17.0.6](///compare/17.0.4...17.0.5) (2026-02-16)
+
+### Features
+
+* enhance error handling in AxJSRuntime ed939cf
+## [17.0.5](///compare/17.0.4...17.0.5) (2026-02-16)
+
+### Features
+
+* enhance RLM session management and error handling 77493d5
+
 ## [17.0.5](///compare/17.0.3...17.0.4) (2026-02-16)
 
 ### Features
