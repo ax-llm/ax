@@ -48,11 +48,16 @@ export interface AxRLMConfig {
   interpreter?: AxCodeRuntime;
   /** Cap on recursive sub-LM calls (default: 50). */
   maxLlmCalls?: number;
-  /** Maximum characters passed into a single llmQuery context (default: 20000). */
+  /**
+   * Maximum characters for RLM runtime payloads (default: 5000).
+   * Applies to llmQuery context and codeInterpreter output.
+   */
+  maxRuntimeChars?: number;
+  /** @deprecated Use `maxRuntimeChars` instead. */
   maxSubQueryContextChars?: number;
   /** Maximum parallel llmQuery calls in batched mode (default: 8). */
   maxBatchedLlmQueryConcurrency?: number;
-  /** Maximum characters returned from one codeInterpreter call (default: 10000). */
+  /** @deprecated Use `maxRuntimeChars` instead. */
   maxInterpreterOutputChars?: number;
   /** Model for llmQuery sub-calls (default: same as parent). */
   subModel?: string;
@@ -97,16 +102,17 @@ ${contextVarList}
 
 ### APIs
 - \`await llmQuery(query, context?)\` — Ask a sub-LM a natural-language question. Pass context as a string (use JSON.stringify() for objects/arrays). Returns a string.
-- \`await llmQuery([{ query, context? }, ...])\` — Parallel sub-queries. Returns string[].
+- \`await llmQuery([{ query, context? }, ...])\` — Parallel sub-queries. Returns string[]; failed items return \`[ERROR] ...\`.
 
 Sub-queries have a call limit — use parallel queries and keep each context small.
-Target chunks should usually be <= 10,000 chars for semantic sub-calls.
-There is also a hard runtime cap on context size per \`llmQuery\` call. If you hit a size error, chunk/filter the context into smaller pieces and retry.
+There is also a runtime character cap for \`llmQuery\` context and \`codeInterpreter\` output. Oversized values are truncated automatically.
 
 ### Iteration strategy
+- This is iterative: do not try to solve everything in one step.
 - Explore first: inspect type/size/sample before heavy processing.
 - Iterate in small steps: run short code, inspect output, then decide next step.
 - Verify before final answer: if outputs look empty/odd, reassess and rerun.
+- Always print key intermediate checks so you can validate assumptions.
 - Keep long values in variables; avoid retyping large snippets.
 - Use \`llmQuery\` for semantic understanding, not for basic filtering/slicing.
 
@@ -125,18 +131,36 @@ n
 \`\`\`
 → 42
 
-**Call 2** — chunk and query in parallel:
+**Call 2** — filter/select relevant items first:
 \`\`\`
-var chunks = []
-for (var i = 0; i < n; i += 5) chunks.push(JSON.stringify(${firstFieldName}.slice(i, i + 5)))
-results = await llmQuery(chunks.map(c => ({ query: "Summarize key points", context: c })))
+var subset = ${firstFieldName}.slice(0, 5)
+subset.length
+\`\`\`
+→ 5
+
+**Call 3** — run semantic queries on selected context:
+\`\`\`
+results = await llmQuery(
+  subset.map(item => ({
+    query: "Summarize key points",
+    context: JSON.stringify(item)
+  }))
+)
 return results
 \`\`\`
-→ ["Summary of chunk 1...", "Summary of chunk 2...", ...]
+→ ["Summary 1...", "Summary 2...", ...]
 
-**Call 3** — aggregate:
+**Call 4** — handle failed batch items if any:
 \`\`\`
-answer = await llmQuery("Synthesize these summaries into a final answer", results.join("\\n"))
+var ok = results.filter(r => !String(r).startsWith("[ERROR]"))
+var failed = results.filter(r => String(r).startsWith("[ERROR]"))
+return { okCount: ok.length, failedCount: failed.length }
+\`\`\`
+→ { okCount: 4, failedCount: 1 }
+
+**Call 5** — aggregate:
+\`\`\`
+answer = await llmQuery("Synthesize these summaries into a final answer", ok.join("\\n"))
 return answer
 \`\`\`
 → "Final synthesized answer..."
@@ -145,8 +169,10 @@ Then provide the final answer with the required output fields.
 
 ### Guidelines
 - Use code for structural work (filter, map, slice, regex, property access); use \`llmQuery\` for semantic understanding.
-- Keep \`llmQuery\` context small — target <= 10,000 chars, and chunk/filter/slice before passing.
+- Keep \`llmQuery\` context small and within the configured runtime cap (\`maxRuntimeChars\`).
 - Keep codeInterpreter output concise; print summaries/counts instead of massive dumps.
+- If output includes \`...[truncated N chars]\`, treat it as incomplete and retry with narrower context.
+- For batched \`llmQuery\`, keep successes and retry only failed \`[ERROR] ...\` items.
 - If \`llmQuery\` fails, use try/catch and retry with a smaller chunk or different query.`;
 
   return rlmPrompt;

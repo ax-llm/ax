@@ -232,10 +232,18 @@ export class AxPromptTemplate {
     const sections: string[] = [];
     const hasComplexFields = this.sig.hasComplexFields();
 
-    // Identity section
+    // Identity section (stable role: input/output summary only)
     sections.push('<identity>');
     sections.push(this.buildIdentitySection());
     sections.push('</identity>');
+
+    // Task definition section (signature description / user-added prompt)
+    const taskDefinition = this.buildTaskDefinitionSection();
+    if (taskDefinition) {
+      sections.push('\n<task_definition>');
+      sections.push(taskDefinition);
+      sections.push('</task_definition>');
+    }
 
     // Functions section (if present)
     const funcs = this.functions?.flatMap((f) =>
@@ -274,27 +282,25 @@ export class AxPromptTemplate {
   }
 
   /**
-   * Build identity section describing the task
+   * Build identity section: stable agent role (input/output field summary only).
    */
   private buildIdentitySection(): string {
-    const parts: string[] = [];
-
     const inArgs = renderDescFields(this.sig.getInputFields());
     const outArgs = renderDescFields(this.sig.getOutputFields());
+    return `You will be provided with the following fields: ${inArgs}. Your task is to generate new fields: ${outArgs}.`;
+  }
 
-    parts.push(
-      `You will be provided with the following fields: ${inArgs}. Your task is to generate new fields: ${outArgs}.`
-    );
-
+  /**
+   * Build task definition section: signature description / user-added prompt.
+   * Returns empty string if no description is set.
+   */
+  private buildTaskDefinitionSection(): string {
     const desc = this.sig.getDescription();
-    if (desc) {
-      const fieldMap = this.getFieldNameToTitleMap();
-      let text = formatDescription(desc);
-      text = formatFieldReferences(text, fieldMap);
-      parts.push(`\n${text}`);
-    }
-
-    return parts.join('\n');
+    if (!desc) return '';
+    const fieldMap = this.getFieldNameToTitleMap();
+    let text = formatDescription(desc);
+    text = formatFieldReferences(text, fieldMap);
+    return text;
   }
 
   /**

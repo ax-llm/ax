@@ -147,9 +147,8 @@ const analyzer = agent(
       contextFields: ["context"],
       runtime: new AxJSRuntime(),
       maxLlmCalls: 40,
-      maxSubQueryContextChars: 20_000,
+      maxRuntimeChars: 2_000, // Shared cap for llmQuery context + interpreter output
       maxBatchedLlmQueryConcurrency: 6,
-      maxInterpreterOutputChars: 8_000,
       subModel: "gpt-4o-mini",
     },
   },

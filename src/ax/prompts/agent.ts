@@ -8,16 +8,9 @@ import type {
 } from '../ai/types.js';
 import type { AxInputFunctionType } from '../dsp/functions.js';
 import { AxGen } from '../dsp/generate.js';
-import { mergeAbortSignals } from '../util/abort.js';
-import {
-  AxAIServiceAbortedError,
-  AxAIServiceNetworkError,
-  AxAIServiceStatusError,
-  AxAIServiceTimeoutError,
-} from '../util/apicall.js';
 import { toFieldType } from '../dsp/prompt.js';
-import { AxSignature } from '../dsp/sig.js';
 import type { AxIField } from '../dsp/sig.js';
+import { AxSignature } from '../dsp/sig.js';
 import type { ParseSignature } from '../dsp/sigtypes.js';
 import type {
   AxGenIn,
@@ -34,6 +27,13 @@ import type {
   AxTunable,
   AxUsable,
 } from '../dsp/types.js';
+import { mergeAbortSignals } from '../util/abort.js';
+import {
+  AxAIServiceAbortedError,
+  AxAIServiceNetworkError,
+  AxAIServiceStatusError,
+  AxAIServiceTimeoutError,
+} from '../util/apicall.js';
 import type { AxRLMConfig } from './rlm.js';
 import { axBuildRLMDefinition } from './rlm.js';
 
@@ -163,9 +163,8 @@ const definitionError = new Error(
 );
 
 const DEFAULT_RLM_MAX_LLM_CALLS = 50;
-const DEFAULT_RLM_MAX_SUBQUERY_CONTEXT_CHARS = 20_000;
+const DEFAULT_RLM_MAX_RUNTIME_CHARS = 5_000;
 const DEFAULT_RLM_BATCH_CONCURRENCY = 8;
-const DEFAULT_RLM_MAX_INTERPRETER_OUTPUT_CHARS = 10_000;
 const DEFAULT_RLM_MAX_STEPS = 20;
 
 type AxRLMExecutionEntry = {
@@ -688,15 +687,15 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       const executionHistory: AxRLMExecutionEntry[] = [];
       let llmCallCount = 0;
       const maxLlmCalls = rlm.maxLlmCalls ?? DEFAULT_RLM_MAX_LLM_CALLS;
-      const maxSubQueryContextChars =
-        rlm.maxSubQueryContextChars ?? DEFAULT_RLM_MAX_SUBQUERY_CONTEXT_CHARS;
+      const maxRuntimeChars =
+        rlm.maxRuntimeChars ??
+        rlm.maxSubQueryContextChars ??
+        rlm.maxInterpreterOutputChars ??
+        DEFAULT_RLM_MAX_RUNTIME_CHARS;
       const maxBatchedLlmQueryConcurrency = Math.max(
         1,
         rlm.maxBatchedLlmQueryConcurrency ?? DEFAULT_RLM_BATCH_CONCURRENCY
       );
-      const maxInterpreterOutputChars =
-        rlm.maxInterpreterOutputChars ??
-        DEFAULT_RLM_MAX_INTERPRETER_OUTPUT_CHARS;
 
       const llmQuery = async (
         queryOrQueries: string | readonly { query: string; context?: string }[],
@@ -704,112 +703,132 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       ): Promise<string | string[]> => {
         // Pre-check: if already aborted, throw immediately
         if (effectiveAbortSignal?.aborted) {
-          throw new Error('Aborted');
+          throw new AxAIServiceAbortedError(
+            'rlm-llm-query',
+            effectiveAbortSignal.reason
+              ? String(effectiveAbortSignal.reason)
+              : 'Aborted'
+          );
         }
 
         if (Array.isArray(queryOrQueries)) {
           return runWithConcurrency(
             queryOrQueries,
             maxBatchedLlmQueryConcurrency,
-            async (q) => llmQuery(q.query, q.context) as Promise<string>
+            async (q) => {
+              try {
+                return (await llmQuery(q.query, q.context)) as string;
+              } catch (err) {
+                if (err instanceof AxAIServiceAbortedError) {
+                  throw err;
+                }
+                return `[ERROR] ${err instanceof Error ? err.message : String(err)}`;
+              }
+            }
           );
         }
 
         const query = queryOrQueries as string;
 
-        if (ctx && ctx.length > maxSubQueryContextChars) {
-          throw new Error(
-            `llmQuery context too large (${ctx.length} chars > ${maxSubQueryContextChars}). Chunk or summarize before querying.`
-          );
-        }
+        const runSingleLlmQuery = async (
+          singleQuery: string,
+          singleCtx?: string
+        ): Promise<string> => {
+          const normalizedCtx = singleCtx
+            ? truncateText(singleCtx, maxRuntimeChars)
+            : undefined;
 
-        if (llmCallCount++ >= maxLlmCalls) {
-          throw new Error(`Max LLM sub-calls (${maxLlmCalls}) exceeded`);
-        }
-
-        const maxAttempts = 3;
-        let lastError: unknown;
-
-        for (let attempt = 0; attempt < maxAttempts; attempt++) {
-          try {
-            const res = await ai.chat(
-              {
-                chatPrompt: [
-                  {
-                    role: 'system' as const,
-                    content: 'Answer the query based on the provided context.',
-                  },
-                  {
-                    role: 'user' as const,
-                    content: ctx
-                      ? `Context:\n${ctx}\n\nQuery: ${query}`
-                      : query,
-                  },
-                ],
-                ...(rlm.subModel ? { model: rlm.subModel } : {}),
-              },
-              {
-                stream: false,
-                abortSignal: effectiveAbortSignal,
-              }
-            );
-            const chatRes = res as AxChatResponse;
-            return chatRes.results?.[0]?.content ?? '';
-          } catch (err) {
-            lastError = err;
-            if (!isTransientError(err) || attempt >= maxAttempts - 1) {
-              throw err;
-            }
-            const delay = Math.min(60_000, 1000 * Math.pow(2, attempt));
-            await new Promise<void>((resolve, reject) => {
-              let settled = false;
-              let onAbort: (() => void) | undefined;
-
-              const cleanup = () => {
-                if (effectiveAbortSignal && onAbort) {
-                  effectiveAbortSignal.removeEventListener('abort', onAbort);
-                }
-              };
-
-              const onResolve = () => {
-                if (settled) return;
-                settled = true;
-                cleanup();
-                resolve();
-              };
-
-              const timer = setTimeout(onResolve, delay);
-              if (!effectiveAbortSignal) {
-                return;
-              }
-
-              onAbort = () => {
-                if (settled) return;
-                settled = true;
-                clearTimeout(timer);
-                cleanup();
-                reject(
-                  new AxAIServiceAbortedError(
-                    'rlm-llm-query-retry-backoff',
-                    effectiveAbortSignal.reason
-                      ? String(effectiveAbortSignal.reason)
-                      : 'Aborted during retry backoff'
-                  )
-                );
-              };
-
-              if (effectiveAbortSignal.aborted) {
-                onAbort();
-                return;
-              }
-
-              effectiveAbortSignal.addEventListener('abort', onAbort, {
-                once: true,
-              });
-            });
+          if (llmCallCount++ >= maxLlmCalls) {
+            throw new Error(`Max LLM sub-calls (${maxLlmCalls}) exceeded`);
           }
-        }
-        throw lastError;
+
+          const maxAttempts = 3;
+          let lastError: unknown;
+
+          for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            try {
+              const res = await ai.chat(
+                {
+                  chatPrompt: [
+                    {
+                      role: 'system' as const,
+                      content:
+                        'Answer the query based on the provided context.',
+                    },
+                    {
+                      role: 'user' as const,
+                      content: normalizedCtx
+                        ? `Context:\n${normalizedCtx}\n\nQuery: ${singleQuery}`
+                        : singleQuery,
+                    },
+                  ],
+                  ...(rlm.subModel ? { model: rlm.subModel } : {}),
+                },
+                {
+                  stream: false,
+                  abortSignal: effectiveAbortSignal,
+                }
+              );
+              const chatRes = res as AxChatResponse;
+              return chatRes.results?.[0]?.content ?? '';
+            } catch (err) {
+              lastError = err;
+              if (!isTransientError(err) || attempt >= maxAttempts - 1) {
+                throw err;
+              }
+              const delay = Math.min(60_000, 1000 * Math.pow(2, attempt));
+              await new Promise<void>((resolve, reject) => {
+                let settled = false;
+                let onAbort: (() => void) | undefined;
+
+                const cleanup = () => {
+                  if (effectiveAbortSignal && onAbort) {
+                    effectiveAbortSignal.removeEventListener('abort', onAbort);
+                  }
+                };
+
+                const onResolve = () => {
+                  if (settled) return;
+                  settled = true;
+                  cleanup();
+                  resolve();
+                };
+
+                const timer = setTimeout(onResolve, delay);
+                if (!effectiveAbortSignal) {
+                  return;
+                }
+
+                onAbort = () => {
+                  if (settled) return;
+                  settled = true;
+                  clearTimeout(timer);
+                  cleanup();
+                  reject(
+                    new AxAIServiceAbortedError(
+                      'rlm-llm-query-retry-backoff',
+                      effectiveAbortSignal.reason
+                        ? String(effectiveAbortSignal.reason)
+                        : 'Aborted during retry backoff'
+                    )
+                  );
+                };
+
+                if (effectiveAbortSignal.aborted) {
+                  onAbort();
+                  return;
+                }
+
+                effectiveAbortSignal.addEventListener('abort', onAbort, {
+                  once: true,
+                });
+              });
+            }
+          }
+          throw lastError;
+        };
+
+        return runSingleLlmQuery(query, ctx);
       };
 
       const session = interpreter.createSession({
@@ -852,7 +871,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
             if (typeof result === 'string') {
               const output = truncateText(
                 result || '(no output)',
-                maxInterpreterOutputChars
+                maxRuntimeChars
               );
               executionHistory.push({ code, output });
               return output;
@@ -860,15 +879,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
             try {
               const output = truncateText(
                 JSON.stringify(result, null, 2),
-                maxInterpreterOutputChars
+                maxRuntimeChars
               );
               executionHistory.push({ code, output });
               return output;
             } catch {
-              const output = truncateText(
-                String(result),
-                maxInterpreterOutputChars
-              );
+              const output = truncateText(String(result), maxRuntimeChars);
               executionHistory.push({ code, output });
               return output;
             }
@@ -881,7 +897,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
             }
             const output = truncateText(
               `Error: ${(err as Error).message}`,
-              maxInterpreterOutputChars
+              maxRuntimeChars
             );
             executionHistory.push({ code, output });
             return output;

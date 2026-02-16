@@ -6,8 +6,10 @@ import { toFieldType } from '../dsp/prompt.js';
 import type { AxIField } from '../dsp/sig.js';
 import { s } from '../dsp/template.js';
 import type { AxMessage } from '../dsp/types.js';
+import { AxAIServiceAbortedError } from '../util/apicall.js';
 
 import { AxAgent, agent } from './agent.js';
+import type { AxCodeRuntime } from './rlm.js';
 import { axBuildRLMDefinition } from './rlm.js';
 
 // Helper function to create streaming responses
@@ -937,5 +939,262 @@ describe('A/An article grammar in renderInputFields', () => {
     const type = 'number';
     const article = /^[aeiou]/i.test(type) ? 'An' : 'A';
     expect(article).toBe('A');
+  });
+});
+
+describe('RLM llmQuery runtime behavior', () => {
+  const makeModelUsage = () => ({
+    ai: 'mock-ai',
+    model: 'mock-model',
+    tokens: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+  });
+
+  const makeTestRuntime = (
+    executeHandler: (
+      code: string,
+      globals: Record<string, unknown>
+    ) => Promise<unknown> | unknown
+  ): AxCodeRuntime => ({
+    language: 'JavaScript',
+    createSession(globals?: Record<string, unknown>) {
+      const safeGlobals = globals ?? {};
+      return {
+        execute: async (code: string) => executeHandler(code, safeGlobals),
+        close: () => {},
+      };
+    },
+  });
+
+  it('should return per-item errors for batched llmQuery calls', async () => {
+    const testMockAI = new AxMockAIService({
+      features: { functions: true, streaming: false },
+      chatResponse: async (req) => {
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+        if (userPrompt.includes('Query: fail')) {
+          throw new Error('boom');
+        }
+        return {
+          results: [{ index: 0, content: 'ok', finishReason: 'stop' }],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const runtime = makeTestRuntime(async (code, globals) => {
+      if (code !== 'BATCH_TEST') return 'unexpected code';
+      return await (
+        globals.llmQuery as (
+          q: readonly { query: string; context?: string }[]
+        ) => Promise<string[]>
+      )([
+        { query: 'ok', context: 'ctx1' },
+        { query: 'fail', context: 'ctx2' },
+      ]);
+    });
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      name: 'rlmBatchToleranceAgent',
+      description: 'Agent used to verify batched llmQuery error tolerance.',
+      ai: testMockAI,
+      rlm: {
+        contextFields: ['context'],
+        runtime,
+      },
+    });
+
+    // Replace inner rlmProgram to directly invoke codeInterpreter.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (testAgent as any).rlmProgram = {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      forward: async (_ai: any, _values: any, forwardOptions: any) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const codeInterpreter = forwardOptions.functions.find((f: any) => {
+          return f.name === 'codeInterpreter';
+        });
+        const output = await codeInterpreter.func({ code: 'BATCH_TEST' });
+        return { answer: output };
+      },
+    };
+
+    const result = await testAgent.forward(testMockAI, {
+      context: 'unused',
+      query: 'unused',
+    });
+    expect(result.answer).toContain('ok');
+    expect(result.answer).toContain('[ERROR] boom');
+  });
+
+  it('should prioritize maxRuntimeChars over deprecated aliases', async () => {
+    let lastUserPrompt = '';
+    const testMockAI = new AxMockAIService({
+      features: { functions: true, streaming: false },
+      chatResponse: async (req) => {
+        lastUserPrompt = String(req.chatPrompt[1]?.content ?? '');
+        return {
+          results: [{ index: 0, content: 'ok', finishReason: 'stop' }],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const runtime = makeTestRuntime(async (code, globals) => {
+      if (code !== 'ALIAS_PRECEDENCE_TEST') return 'unexpected code';
+      return await (
+        globals.llmQuery as (q: string, context?: string) => Promise<string>
+      )('q', '1234567890');
+    });
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      name: 'rlmAliasPrecedenceAgent',
+      description: 'Agent used to verify maxRuntimeChars alias precedence.',
+      ai: testMockAI,
+      rlm: {
+        contextFields: ['context'],
+        runtime,
+        maxRuntimeChars: 8,
+        maxSubQueryContextChars: 5,
+        maxInterpreterOutputChars: 5,
+      },
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (testAgent as any).rlmProgram = {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      forward: async (_ai: any, _values: any, forwardOptions: any) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const codeInterpreter = forwardOptions.functions.find((f: any) => {
+          return f.name === 'codeInterpreter';
+        });
+        const output = await codeInterpreter.func({
+          code: 'ALIAS_PRECEDENCE_TEST',
+        });
+        return { answer: output };
+      },
+    };
+
+    await testAgent.forward(testMockAI, {
+      context: 'unused',
+      query: 'unused',
+    });
+    expect(lastUserPrompt).toContain('[truncated 2 chars]');
+    expect(lastUserPrompt).not.toContain('[truncated 5 chars]');
+  });
+
+  it('should throw typed aborted error from llmQuery pre-check', async () => {
+    const testMockAI = new AxMockAIService({
+      features: { functions: true, streaming: false },
+      chatResponse: {
+        results: [{ index: 0, content: 'ok', finishReason: 'stop' }],
+        modelUsage: makeModelUsage(),
+      },
+    });
+
+    const runtime = makeTestRuntime(async (code, globals) => {
+      if (code !== 'ABORT_TYPE_TEST') return 'unexpected code';
+      try {
+        await (
+          globals.llmQuery as (q: string, context?: string) => Promise<string>
+        )('q', 'ctx');
+        return 'unexpected success';
+      } catch (err) {
+        return err instanceof AxAIServiceAbortedError
+          ? 'aborted-ok'
+          : `wrong-type:${String(err)}`;
+      }
+    });
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      name: 'rlmAbortTypeAgent',
+      description: 'Agent used to verify typed abort errors in llmQuery.',
+      ai: testMockAI,
+      rlm: {
+        contextFields: ['context'],
+        runtime,
+      },
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (testAgent as any).rlmProgram = {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      forward: async (_ai: any, _values: any, forwardOptions: any) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const codeInterpreter = forwardOptions.functions.find((f: any) => {
+          return f.name === 'codeInterpreter';
+        });
+        const output = await codeInterpreter.func({ code: 'ABORT_TYPE_TEST' });
+        return { answer: output };
+      },
+    };
+
+    const result = await testAgent.forward(
+      testMockAI,
+      {
+        context: 'unused',
+        query: 'unused',
+      },
+      { abortSignal: AbortSignal.abort('stop now') }
+    );
+    expect(result.answer).toContain('aborted-ok');
+  });
+
+  it('should truncate llmQuery context but not llmQuery response', async () => {
+    let observedLlmQueryResultLength = 0;
+    let observedLlmQueryResultHasTruncationMarker = false;
+    const longSubModelAnswer = 'R'.repeat(64);
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: true, streaming: false },
+      chatResponse: {
+        results: [
+          { index: 0, content: longSubModelAnswer, finishReason: 'stop' },
+        ],
+        modelUsage: makeModelUsage(),
+      },
+    });
+
+    const runtime = makeTestRuntime(async (code, globals) => {
+      if (code !== 'NO_OUTPUT_TRUNCATION_TEST') return 'unexpected code';
+      const llmQueryResult = await (
+        globals.llmQuery as (q: string, context?: string) => Promise<string>
+      )('q', '1234567890');
+      observedLlmQueryResultLength = llmQueryResult.length;
+      observedLlmQueryResultHasTruncationMarker =
+        llmQueryResult.includes('[truncated');
+      return 'ok';
+    });
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      name: 'rlmNoOutputTruncationAgent',
+      description: 'Agent used to verify llmQuery response is not truncated.',
+      ai: testMockAI,
+      rlm: {
+        contextFields: ['context'],
+        runtime,
+        maxRuntimeChars: 8,
+      },
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (testAgent as any).rlmProgram = {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      forward: async (_ai: any, _values: any, forwardOptions: any) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const codeInterpreter = forwardOptions.functions.find((f: any) => {
+          return f.name === 'codeInterpreter';
+        });
+        const output = await codeInterpreter.func({
+          code: 'NO_OUTPUT_TRUNCATION_TEST',
+        });
+        return { answer: output };
+      },
+    };
+
+    await testAgent.forward(testMockAI, {
+      context: 'unused',
+      query: 'unused',
+    });
+
+    expect(observedLlmQueryResultLength).toBe(longSubModelAnswer.length);
+    expect(observedLlmQueryResultHasTruncationMarker).toBe(false);
   });
 });

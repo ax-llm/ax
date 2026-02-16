@@ -27,9 +27,8 @@ const analyzer = agent(
       }),
       maxLlmCalls: 30,
       // Additional RLM guardrails are also supported:
-      // - maxSubQueryContextChars (hard cap; typical chunks should be <= 10k chars)
+      // - maxRuntimeChars (shared cap for llmQuery context + interpreter output)
       // - maxBatchedLlmQueryConcurrency
-      // - maxInterpreterOutputChars
     },
     debug: true,
   }

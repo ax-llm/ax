@@ -216,7 +216,7 @@ describe('AxPromptTemplate - Structured Prompts', () => {
   });
 
   describe('Description handling', () => {
-    it('should include signature description in identity section', () => {
+    it('should include signature description in task_definition section', () => {
       axGlobals.useStructuredPrompt = true;
 
       const sig = AxSignature.create(
@@ -228,6 +228,20 @@ describe('AxPromptTemplate - Structured Prompts', () => {
       const systemPrompt = messages.find((m) => m.role === 'system');
 
       expect(systemPrompt?.content).toContain('Analyze sentiment');
+      expect(systemPrompt?.content).toContain('<task_definition>');
+      expect(systemPrompt?.content).toContain('</task_definition>');
+    });
+
+    it('should omit task_definition section when signature has no description', () => {
+      axGlobals.useStructuredPrompt = true;
+
+      const sig = AxSignature.create('userInput:string -> aiResponse:string');
+      const template = new AxPromptTemplate(sig);
+
+      const messages = template.render({ userInput: 'test' }, {});
+      const systemPrompt = messages.find((m) => m.role === 'system');
+
+      expect(systemPrompt?.content).not.toContain('<task_definition>');
       expect(systemPrompt?.content).toContain('<identity>');
     });
   });

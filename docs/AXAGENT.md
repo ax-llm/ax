@@ -298,10 +298,10 @@ When you pass a long document to an LLM, you face:
 
 1. **Context extraction** — Fields listed in `contextFields` are removed from the LLM prompt and loaded into a code interpreter session as variables.
 2. **Code interpreter** — The LLM gets a `codeInterpreter` tool to execute code in a persistent REPL. Variables and state persist across calls.
-3. **Sub-LM queries** — Inside the code interpreter, `llmQuery(query, context?)` calls a sub-LM for semantic analysis of chunks. `llmQuery([...])` runs multiple queries in parallel.
+3. **Sub-LM queries** — Inside the code interpreter, `llmQuery(query, context?)` calls a sub-LM for semantic analysis. `llmQuery([...])` runs multiple queries in parallel.
 4. **Final answer** — When done, the LLM provides its final answer with the required output fields.
 
-The LLM writes code to chunk, filter, and iterate over the document, using `llmQuery` only for semantic understanding of small pieces. This keeps the LLM prompt small while allowing analysis of unlimited context.
+The LLM writes code to inspect, filter, and iterate over the document. If useful, it can chunk data manually in code before calling `llmQuery`.
 
 ### Configuration
 
@@ -319,9 +319,8 @@ const analyzer = agent(
       contextFields: ['context'],              // Fields to load into runtime session
       runtime: new AxJSRuntime(),          // Code runtime implementation
       maxLlmCalls: 30,                         // Cap on sub-LM calls (default: 50)
-      maxSubQueryContextChars: 20_000,         // Hard cap per llmQuery context (default: 20_000)
+      maxRuntimeChars: 2_000,                  // Shared cap for llmQuery context + interpreter output (default: 2_000)
       maxBatchedLlmQueryConcurrency: 6,        // Max parallel batched llmQuery calls (default: 8)
-      maxInterpreterOutputChars: 8_000,        // Max chars returned per codeInterpreter call (default: 10_000)
       subModel: 'gpt-4o-mini',                // Model for llmQuery (default: same as parent)
     },
   }
@@ -436,8 +435,8 @@ The LLM's typical workflow:
 
 ```
 1. Peek at context structure (typeof, length, slice)
-2. Chunk the context into manageable pieces
-3. Use llmQuery for semantic analysis of each chunk
+2. Filter/select relevant slices (chunk manually only when needed)
+3. Use llmQuery for semantic analysis of selected context
 4. Aggregate results
 5. Provide the final answer with the required output fields
 ```
@@ -448,8 +447,8 @@ Inside the code interpreter, these functions are available as globals:
 
 | API | Description |
 |-----|-------------|
-| `await llmQuery(query, context?)` | Ask a sub-LM a question, optionally with a context string. Returns a string |
-| `await llmQuery([{ query, context? }, ...])` | Run multiple sub-LM queries in parallel. Returns string[]. Each query counts individually toward the call limit |
+| `await llmQuery(query, context?)` | Ask a sub-LM a question, optionally with a context string. Returns a string. Oversized context is truncated to `maxRuntimeChars` |
+| `await llmQuery([{ query, context? }, ...])` | Run multiple sub-LM queries in parallel. Returns string[]. Failed items return `[ERROR] ...`; each query still counts toward the call limit |
 | `print(...args)` | Print output (appears in the function result) |
 | Context variables | All fields listed in `contextFields` are available by name |
 
@@ -486,13 +485,14 @@ The `globals` object passed to `createSession` includes:
 
 RLM mode does not support true streaming. When using `streamingForward`, RLM runs the full analysis and yields the final result as a single chunk.
 
-### Recommended Chunk Sizing
+### Runtime Character Cap
 
-Treat `maxSubQueryContextChars` as a hard ceiling, not your normal chunk size.
+`maxRuntimeChars` is a hard ceiling for runtime payloads.
 
-- **Target chunk size:** `2_000` to `10_000` chars
-- **Hard cap:** `20_000` chars by default
-- **Why:** smaller chunks usually improve latency, cost, and semantic precision for sub-calls
+- **Hard cap:** `2_000` chars by default
+- **Applies to:** `llmQuery` context and `codeInterpreter` output
+- **Truncation behavior:** if data exceeds the cap, it is truncated with a `...[truncated N chars]` suffix
+- **Manual chunking:** optional strategy you can implement in interpreter code; not done automatically by the runtime
 
 ## API Reference
 
@@ -504,9 +504,10 @@ interface AxRLMConfig {
   runtime?: AxCodeRuntime;    // Preferred runtime key
   interpreter?: AxCodeRuntime; // Legacy alias (deprecated)
   maxLlmCalls?: number;           // Cap on sub-LM calls (default: 50)
-  maxSubQueryContextChars?: number;       // Hard cap per llmQuery context (default: 20_000)
+  maxRuntimeChars?: number;              // Shared cap for llmQuery context + interpreter output (default: 2_000)
+  maxSubQueryContextChars?: number;       // Deprecated alias for maxRuntimeChars
   maxBatchedLlmQueryConcurrency?: number; // Max parallel batched llmQuery calls (default: 8)
-  maxInterpreterOutputChars?: number;     // Max chars returned per codeInterpreter call (default: 10_000)
+  maxInterpreterOutputChars?: number;     // Deprecated alias for maxRuntimeChars
   subModel?: string;              // Model for llmQuery sub-calls
 }
 ```
