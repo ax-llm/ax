@@ -843,6 +843,14 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       let session = createRlmSession();
       let shouldRestartClosedSession = false;
 
+      const isSessionClosedError = (err: unknown): boolean => {
+        return err instanceof Error && err.message === 'Session is closed';
+      };
+
+      const isExecutionTimedOutError = (err: unknown): boolean => {
+        return err instanceof Error && err.message === 'Execution timed out';
+      };
+
       const formatInterpreterOutput = (result: unknown) => {
         if (result === undefined) {
           return '(no output)';
@@ -855,14 +863,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         } catch {
           return truncateText(String(result), maxRuntimeChars);
         }
-      };
-
-      const isSessionClosedError = (err: unknown): boolean => {
-        return err instanceof Error && err.message === 'Session is closed';
-      };
-
-      const isExecutionTimedOutError = (err: unknown): boolean => {
-        return err instanceof Error && err.message === 'Execution timed out';
       };
 
       // 3. Create codeInterpreter function
@@ -902,6 +902,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
                 effectiveAbortSignal.reason ?? 'Aborted'
               );
             }
+            if (
+              err instanceof Error &&
+              (err.name === 'AbortError' || err.message.startsWith('Aborted'))
+            ) {
+              throw err;
+            }
             if (isExecutionTimedOutError(err)) {
               shouldRestartClosedSession = true;
             }
@@ -938,12 +944,15 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
                 return output;
               }
             }
-            const output = truncateText(
-              `Error: ${(err as Error).message}`,
-              maxRuntimeChars
-            );
-            executionHistory.push({ code, output });
-            return output;
+            if (isExecutionTimedOutError(err)) {
+              const output = truncateText(
+                `Error: ${(err as Error).message}`,
+                maxRuntimeChars
+              );
+              executionHistory.push({ code, output });
+              return output;
+            }
+            throw err;
           }
         },
       };

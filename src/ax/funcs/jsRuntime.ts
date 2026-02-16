@@ -810,7 +810,21 @@ _setOnMessage(async (e) => {
         _send({ type: 'result', id, value: String(result) });
       }
     } catch (err) {
-      _send({ type: 'result', id, error: _serializeError(err) });
+      const isCodeError =
+        err instanceof SyntaxError ||
+        err instanceof TypeError ||
+        err instanceof RangeError ||
+        err instanceof ReferenceError ||
+        err instanceof AggregateError ||
+        err instanceof EvalError ||
+        err instanceof URIError;
+      if (isCodeError) {
+        const name = (err && err.name != null) ? String(err.name) : 'Error';
+        const msg = (err && err.message != null) ? String(err.message) : String(err);
+        _send({ type: 'result', id, value: name + ': ' + msg });
+      } else {
+        _send({ type: 'result', id, error: _serializeError(err) });
+      }
     }
   }
 });

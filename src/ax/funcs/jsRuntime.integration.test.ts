@@ -39,9 +39,10 @@ describe('AxJSRuntime integration', () => {
     const runtime = new AxJSRuntime();
     const session = runtime.createSession();
     try {
-      await expect(
-        session.execute('return summaries; summaries')
-      ).rejects.toThrow('Illegal return statement');
+      const result = await session.execute('return summaries; summaries');
+      expect(typeof result).toBe('string');
+      expect(result).toMatch(/^SyntaxError: /);
+      expect(result).toContain('Illegal return statement');
     } finally {
       session.close();
     }
@@ -71,19 +72,67 @@ describe('AxJSRuntime integration', () => {
     }
   });
 
-  it('thrown Error in worker preserves name and message when caught', async () => {
+  it('SyntaxError in executed code resolves with fix message (not reject)', async () => {
     const runtime = new AxJSRuntime();
     const session = runtime.createSession();
     try {
-      await expect(
-        session.execute('throw new TypeError("bad type")')
-      ).rejects.toThrow('bad type');
+      const result = await session.execute('const x = ;');
+      expect(typeof result).toBe('string');
+      expect(result).toMatch(/^SyntaxError: /);
+      expect(result.length).toBeGreaterThan(10);
+    } finally {
+      session.close();
+    }
+  });
+
+  it('TypeError in executed code resolves with fix message (not reject)', async () => {
+    const runtime = new AxJSRuntime();
+    const session = runtime.createSession();
+    try {
+      const result = await session.execute('null.foo');
+      expect(result).toMatch(/^TypeError: /);
+      expect(result).toContain('null');
+    } finally {
+      session.close();
+    }
+  });
+
+  it('ReferenceError in executed code resolves with fix message (not reject)', async () => {
+    const runtime = new AxJSRuntime();
+    const session = runtime.createSession();
+    try {
+      const result = await session.execute('x');
+      expect(typeof result).toBe('string');
+      expect(result).toMatch(/^ReferenceError: /);
+    } finally {
+      session.close();
+    }
+  });
+
+  it('RangeError in executed code resolves with fix message (not reject)', async () => {
+    const runtime = new AxJSRuntime();
+    const session = runtime.createSession();
+    try {
+      const result = await session.execute('new Array(-1)');
+      expect(typeof result).toBe('string');
+      expect(result).toMatch(/^RangeError: /);
+    } finally {
+      session.close();
+    }
+  });
+
+  it('thrown Error (non-code-error) in worker preserves name and message when caught', async () => {
+    const runtime = new AxJSRuntime();
+    const session = runtime.createSession();
+    try {
       const err = await session
-        .execute('throw new TypeError("bad type")')
+        .execute(
+          'const e = new Error("custom"); e.name = "CustomError"; throw e'
+        )
         .catch((e) => e);
       expect(err).toBeInstanceOf(Error);
-      expect(err.name).toBe('TypeError');
-      expect(err.message).toBe('bad type');
+      expect(err.name).toBe('CustomError');
+      expect(err.message).toBe('custom');
     } finally {
       session.close();
     }
