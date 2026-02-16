@@ -469,6 +469,27 @@ In RLM mode, the agent gets a `codeInterpreter` tool. The LLM's typical workflow
 | `print(...args)` | Print output (appears in the function result) |
 | Context variables | All fields listed in `contextFields` are available by name |
 
+### Error handling in the code interpreter
+
+Errors thrown by code running inside `session.execute(code)` cross the worker boundary and can be caught on the host. Always `await` `session.execute()` inside a try/catch:
+
+```typescript
+try {
+  const result = await session.execute(code);
+  // use result
+} catch (e) {
+  // e is an Error with name and message preserved from the worker
+  if (e instanceof Error && e.name === 'WaitForUserActionError') {
+    // handle domain-specific error
+  }
+  console.error(e.message);
+}
+```
+
+- **`e.name`** and **`e.message`** are preserved, so you can branch on `e.name === 'WaitForUserActionError'` (or other custom error names) and use `e.message` for user-facing context.
+- **`e.cause`** is preserved when structured-cloneable, including recursive cause chains (with a depth limit).
+- **`instanceof`** works for built-in errors (e.g. `TypeError`, `RangeError`) and for `Error`; for custom classes defined only in the worker, use **`e.name`** checks instead, since prototype identity is not preserved across the boundary.
+
 ### Custom Interpreters
 
 The built-in `AxJSRuntime` uses Web Workers for sandboxed code execution. For other environments, implement the `AxCodeRuntime` interface:

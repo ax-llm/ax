@@ -395,6 +395,100 @@ const validateSerializableGlobals = (
   }
 };
 
+/** Maximum depth for recursive error cause chains. */
+const MAX_ERROR_CAUSE_DEPTH = 16;
+
+/** Structured error payload sent across worker boundary (supports recursive cause). */
+export type SerializedError = {
+  name: string;
+  message: string;
+  stack?: string;
+  cause?: string | SerializedError;
+};
+
+function serializeError(
+  err: unknown,
+  maxDepth: number = MAX_ERROR_CAUSE_DEPTH,
+  depth: number = 0,
+  seen: Set<object> = new Set()
+): SerializedError | string {
+  if (depth > maxDepth) {
+    return { name: 'Error', message: '[cause chain truncated]' };
+  }
+  if (err !== null && typeof err === 'object') {
+    if (seen.has(err as object)) {
+      return { name: 'Error', message: '[circular]' };
+    }
+    seen.add(err as object);
+  }
+  const name =
+    err !== null &&
+    typeof err === 'object' &&
+    (err as { name?: unknown }).name != null
+      ? String((err as { name: unknown }).name)
+      : 'Error';
+  const message =
+    err !== null &&
+    typeof err === 'object' &&
+    (err as { message?: unknown }).message != null
+      ? String((err as { message: unknown }).message)
+      : String(err);
+  const stack =
+    err !== null &&
+    typeof err === 'object' &&
+    typeof (err as { stack?: unknown }).stack === 'string'
+      ? (err as { stack: string }).stack
+      : undefined;
+  let cause: string | SerializedError | undefined;
+  const errObj = err as { cause?: unknown } | null;
+  if (
+    errObj &&
+    typeof errObj === 'object' &&
+    errObj.cause !== undefined &&
+    depth < maxDepth
+  ) {
+    try {
+      const c = errObj.cause;
+      if (
+        c instanceof Error ||
+        (c !== null && typeof c === 'object' && ('message' in c || 'name' in c))
+      ) {
+        cause = serializeError(c, maxDepth, depth + 1, seen) as SerializedError;
+      } else {
+        cause = { name: 'Error', message: String(c) };
+      }
+    } catch {
+      cause = { name: 'Error', message: String(errObj.cause) };
+    }
+  }
+  const out: SerializedError = { name, message };
+  if (stack !== undefined) out.stack = stack;
+  if (cause !== undefined) out.cause = cause;
+  return out;
+}
+
+function deserializeError(payload: string | SerializedError): Error {
+  if (typeof payload === 'string') {
+    return new Error(payload);
+  }
+  if (!payload || typeof payload !== 'object') {
+    return new Error(String(payload));
+  }
+  const message =
+    payload.message != null ? String(payload.message) : 'Unknown error';
+  const err = new Error(message);
+  err.name = payload.name != null ? String(payload.name) : 'Error';
+  if (typeof payload.stack === 'string') {
+    err.stack = payload.stack;
+  }
+  if (payload.cause !== undefined) {
+    (err as Error & { cause?: unknown }).cause = deserializeError(
+      payload.cause
+    );
+  }
+  return err;
+}
+
 /**
  * Permissions that can be granted to the RLM JS interpreter sandbox.
  * By default all dangerous globals are blocked; users opt in via this enum.
@@ -512,6 +606,44 @@ const _setOnMessage = (handler) => {
 const _fnPending = new Map();
 let _fnCallId = 0;
 
+const _MAX_ERROR_CAUSE_DEPTH = ${MAX_ERROR_CAUSE_DEPTH};
+const _serializeError = (err, depth, seen) => {
+  depth = depth || 0;
+  seen = seen || new Set();
+  if (depth > _MAX_ERROR_CAUSE_DEPTH) return { name: 'Error', message: '[cause chain truncated]' };
+  if (err && typeof err === 'object' && seen.has(err)) return { name: 'Error', message: '[circular]' };
+  if (err && typeof err === 'object') seen.add(err);
+  const name = (err && err.name != null) ? String(err.name) : 'Error';
+  const message = (err && err.message != null) ? String(err.message) : String(err);
+  const stack = (err && typeof err.stack === 'string') ? err.stack : undefined;
+  let cause;
+  if (err && typeof err.cause !== 'undefined' && depth < _MAX_ERROR_CAUSE_DEPTH) {
+    try {
+      const c = err.cause;
+      if (c instanceof Error || (c && typeof c === 'object' && ('message' in c || 'name' in c))) {
+        cause = _serializeError(c, depth + 1, seen);
+      } else {
+        cause = { name: 'Error', message: String(c) };
+      }
+    } catch (_) { cause = { name: 'Error', message: String(err.cause) }; }
+  }
+  const out = { name, message };
+  if (stack !== undefined) out.stack = stack;
+  if (cause !== undefined) out.cause = cause;
+  return out;
+};
+const _deserializeError = (payload) => {
+  if (typeof payload === 'string') return new Error(payload);
+  if (!payload || typeof payload !== 'object') return new Error(String(payload));
+  const name = payload.name != null ? String(payload.name) : 'Error';
+  const message = payload.message != null ? String(payload.message) : '';
+  const err = new Error(message);
+  err.name = name;
+  if (typeof payload.stack === 'string') err.stack = payload.stack;
+  if (payload.cause !== undefined) err.cause = _deserializeError(payload.cause);
+  return err;
+};
+
 _setOnMessage(async (e) => {
   const msg = e.data;
 
@@ -613,7 +745,7 @@ _setOnMessage(async (e) => {
     if (pending) {
       _fnPending.delete(msg.id);
       if (msg.error) {
-        pending.reject(new Error(msg.error));
+        pending.reject(_deserializeError(msg.error));
       } else {
         pending.resolve(msg.value);
       }
@@ -650,7 +782,7 @@ _setOnMessage(async (e) => {
         _send({ type: 'result', id, value: String(result) });
       }
     } catch (err) {
-      _send({ type: 'result', id, error: err.message || String(err) });
+      _send({ type: 'result', id, error: _serializeError(err) });
     }
   }
 });
@@ -766,7 +898,7 @@ export class AxJSRuntime implements AxCodeRuntime {
         name?: string;
         args?: unknown[];
         value?: unknown;
-        error?: string;
+        error?: string | SerializedError;
       };
 
       if (typedMsg.type === 'result') {
@@ -777,8 +909,8 @@ export class AxJSRuntime implements AxCodeRuntime {
         const pending = pendingExecutions.get(typedMsg.id);
         if (pending) {
           pendingExecutions.delete(typedMsg.id);
-          if (typedMsg.error) {
-            pending.reject(new Error(typedMsg.error));
+          if (typedMsg.error !== undefined) {
+            pending.reject(deserializeError(typedMsg.error));
           } else {
             pending.resolve(typedMsg.value);
           }
@@ -812,7 +944,7 @@ export class AxJSRuntime implements AxCodeRuntime {
             worker?.postMessage({
               type: 'fn-result',
               id: typedMsg.id,
-              error: err.message || String(err),
+              error: serializeError(err) as SerializedError,
             });
           });
       }

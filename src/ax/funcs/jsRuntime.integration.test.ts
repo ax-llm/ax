@@ -70,4 +70,76 @@ describe('AxJSRuntime integration', () => {
       session.close();
     }
   });
+
+  it('thrown Error in worker preserves name and message when caught', async () => {
+    const runtime = new AxJSRuntime();
+    const session = runtime.createSession();
+    try {
+      await expect(
+        session.execute('throw new TypeError("bad type")')
+      ).rejects.toThrow('bad type');
+      const err = await session
+        .execute('throw new TypeError("bad type")')
+        .catch((e) => e);
+      expect(err).toBeInstanceOf(Error);
+      expect(err.name).toBe('TypeError');
+      expect(err.message).toBe('bad type');
+    } finally {
+      session.close();
+    }
+  });
+
+  it('thrown error with custom name preserves name when caught', async () => {
+    const runtime = new AxJSRuntime();
+    const session = runtime.createSession();
+    try {
+      const err = await session
+        .execute(
+          'throw (function(){ const e = new Error("wait"); e.name = "WaitForUserActionError"; return e; })()'
+        )
+        .catch((e) => e);
+      expect(err).toBeInstanceOf(Error);
+      expect(err.name).toBe('WaitForUserActionError');
+      expect(err.message).toBe('wait');
+    } finally {
+      session.close();
+    }
+  });
+
+  it('thrown error with cause preserves cause when caught', async () => {
+    const runtime = new AxJSRuntime();
+    const session = runtime.createSession();
+    try {
+      const err = await session
+        .execute('throw new Error("outer", { cause: new Error("inner") })')
+        .catch((e) => e);
+      expect(err).toBeInstanceOf(Error);
+      expect(err.message).toBe('outer');
+      const cause = (err as Error & { cause?: Error }).cause;
+      expect(cause).toBeInstanceOf(Error);
+      expect(cause!.message).toBe('inner');
+    } finally {
+      session.close();
+    }
+  });
+
+  it('callback (fn-call) error preserves name and message when caught', async () => {
+    const runtime = new AxJSRuntime();
+    const thrower = () => {
+      const err = new Error('callback failed');
+      err.name = 'CallbackError';
+      throw err;
+    };
+    const session = runtime.createSession({
+      thrower,
+    });
+    try {
+      const err = await session.execute('await thrower()').catch((e) => e);
+      expect(err).toBeInstanceOf(Error);
+      expect(err.name).toBe('CallbackError');
+      expect(err.message).toBe('callback failed');
+    } finally {
+      session.close();
+    }
+  });
 });

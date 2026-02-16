@@ -140,6 +140,81 @@ describe('AxJSRuntime', () => {
     await expect(promise).rejects.toThrow('Worker terminated');
   });
 
+  it('result with legacy string error rejects with Error with that message', async () => {
+    const interp = new AxJSRuntime();
+    const session = interp.createSession();
+
+    const promise = session.execute('1+1');
+    await Promise.resolve();
+    const executeCall = mockPostMessage.mock.calls.find(
+      (call) => call[0]?.type === 'execute'
+    );
+    const executeMsg = executeCall![0] as { type: string; id: number };
+    mockWorkerInstance.onmessage?.({
+      data: { type: 'result', id: executeMsg.id, error: 'something wrong' },
+    } as MessageEvent);
+
+    const err = await promise.catch((x) => x);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toBe('something wrong');
+  });
+
+  it('result with structured error rejects with Error preserving name and message', async () => {
+    const interp = new AxJSRuntime();
+    const session = interp.createSession();
+
+    const promise = session.execute('1+1');
+    await Promise.resolve();
+    const executeCall = mockPostMessage.mock.calls.find(
+      (call) => call[0]?.type === 'execute'
+    );
+    const executeMsg = executeCall![0] as { type: string; id: number };
+    mockWorkerInstance.onmessage?.({
+      data: {
+        type: 'result',
+        id: executeMsg.id,
+        error: { name: 'TypeError', message: 'x is not a function' },
+      },
+    } as MessageEvent);
+
+    const err = await promise.catch((x) => x);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).name).toBe('TypeError');
+    expect((err as Error).message).toBe('x is not a function');
+  });
+
+  it('result with structured error including cause rejects with cause chain', async () => {
+    const interp = new AxJSRuntime();
+    const session = interp.createSession();
+
+    const promise = session.execute('1+1');
+    await Promise.resolve();
+    const executeCall = mockPostMessage.mock.calls.find(
+      (call) => call[0]?.type === 'execute'
+    );
+    const executeMsg = executeCall![0] as { type: string; id: number };
+    mockWorkerInstance.onmessage?.({
+      data: {
+        type: 'result',
+        id: executeMsg.id,
+        error: {
+          name: 'WaitForUserActionError',
+          message: 'outer',
+          cause: { name: 'AgentError', message: 'inner' },
+        },
+      },
+    } as MessageEvent);
+
+    const err = await promise.catch((x) => x);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).name).toBe('WaitForUserActionError');
+    expect((err as Error).message).toBe('outer');
+    const cause = (err as Error & { cause?: Error }).cause;
+    expect(cause).toBeInstanceOf(Error);
+    expect(cause!.name).toBe('AgentError');
+    expect(cause!.message).toBe('inner');
+  });
+
   it('toFunction() executes code and closes session', async () => {
     const interp = new AxJSRuntime();
     const fn = interp.toFunction();
