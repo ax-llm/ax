@@ -1,5 +1,16 @@
 # Changelog
 
+## [17.0.7](///compare/17.0.5...17.0.6) (2026-02-16)
+
+### Features
+
+* enhance error handling with data preservation in AxJSRuntime 272a8ee
+## [17.0.6](///compare/17.0.5...17.0.6) (2026-02-16)
+
+### Features
+
+* enhance error handling in AxJSRuntime ed939cf
+
 ## [17.0.6](///compare/17.0.4...17.0.5) (2026-02-16)
 
 ### Features
