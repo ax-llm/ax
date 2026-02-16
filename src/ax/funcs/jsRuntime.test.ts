@@ -183,6 +183,38 @@ describe('AxJSRuntime', () => {
     expect((err as Error).message).toBe('x is not a function');
   });
 
+  it('result with structured error including data rejects with data on error', async () => {
+    const interp = new AxJSRuntime();
+    const session = interp.createSession();
+
+    const promise = session.execute('1+1');
+    await Promise.resolve();
+    const executeCall = mockPostMessage.mock.calls.find(
+      (call) => call[0]?.type === 'execute'
+    );
+    const executeMsg = executeCall![0] as { type: string; id: number };
+    mockWorkerInstance.onmessage?.({
+      data: {
+        type: 'result',
+        id: executeMsg.id,
+        error: {
+          name: 'CustomError',
+          message: 'failed',
+          data: { code: 'E1', args: [1, 2] },
+        },
+      },
+    } as MessageEvent);
+
+    const err = await promise.catch((x) => x);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).name).toBe('CustomError');
+    expect((err as Error).message).toBe('failed');
+    expect((err as Error & { data?: unknown }).data).toEqual({
+      code: 'E1',
+      args: [1, 2],
+    });
+  });
+
   it('result with structured error including cause rejects with cause chain', async () => {
     const interp = new AxJSRuntime();
     const session = interp.createSession();

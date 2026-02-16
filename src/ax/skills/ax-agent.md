@@ -488,6 +488,7 @@ try {
 
 - **`e.name`** and **`e.message`** are preserved, so you can branch on `e.name === 'WaitForUserActionError'` (or other custom error names) and use `e.message` for user-facing context.
 - **`e.cause`** is preserved when structured-cloneable, including recursive cause chains (with a depth limit).
+- **`e.data`** (optional) is preserved when the thrown error has a `data` property set to a structured-cloneable value (object, array, string, number, etc.). Use it for custom payloads (e.g. `(e as Error & { data?: unknown }).data`). Non-cloneable values are omitted.
 - **`instanceof`** works for built-in errors (e.g. `TypeError`, `RangeError`) and for `Error`; for custom classes defined only in the worker, use **`e.name`** checks instead, since prototype identity is not preserved across the boundary.
 
 ### Custom Interpreters

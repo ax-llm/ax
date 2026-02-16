@@ -404,6 +404,8 @@ export type SerializedError = {
   message: string;
   stack?: string;
   cause?: string | SerializedError;
+  /** Optional structured-cloneable payload (array, object, string, number, etc.). */
+  data?: unknown;
 };
 
 function serializeError(
@@ -464,6 +466,23 @@ function serializeError(
   const out: SerializedError = { name, message };
   if (stack !== undefined) out.stack = stack;
   if (cause !== undefined) out.cause = cause;
+  const errWithData = err as { data?: unknown } | null;
+  if (
+    errWithData &&
+    typeof errWithData === 'object' &&
+    'data' in errWithData &&
+    errWithData.data !== undefined
+  ) {
+    try {
+      if (typeof structuredClone === 'function') {
+        out.data = structuredClone(errWithData.data);
+      } else {
+        out.data = errWithData.data;
+      }
+    } catch {
+      // Non-cloneable data omitted
+    }
+  }
   return out;
 }
 
@@ -485,6 +504,9 @@ function deserializeError(payload: string | SerializedError): Error {
     (err as Error & { cause?: unknown }).cause = deserializeError(
       payload.cause
     );
+  }
+  if (payload.data !== undefined) {
+    (err as Error & { data?: unknown }).data = payload.data;
   }
   return err;
 }
@@ -630,6 +652,11 @@ const _serializeError = (err, depth, seen) => {
   const out = { name, message };
   if (stack !== undefined) out.stack = stack;
   if (cause !== undefined) out.cause = cause;
+  if (err && typeof err === 'object' && 'data' in err && err.data !== undefined) {
+    try {
+      out.data = typeof structuredClone === 'function' ? structuredClone(err.data) : err.data;
+    } catch (_) {}
+  }
   return out;
 };
 const _deserializeError = (payload) => {
@@ -641,6 +668,7 @@ const _deserializeError = (payload) => {
   err.name = name;
   if (typeof payload.stack === 'string') err.stack = payload.stack;
   if (payload.cause !== undefined) err.cause = _deserializeError(payload.cause);
+  if (payload.data !== undefined) err.data = payload.data;
   return err;
 };
 

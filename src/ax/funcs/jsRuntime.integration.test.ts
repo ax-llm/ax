@@ -123,6 +123,49 @@ describe('AxJSRuntime integration', () => {
     }
   });
 
+  it('thrown error with data field preserves data when caught', async () => {
+    const runtime = new AxJSRuntime();
+    const session = runtime.createSession();
+    try {
+      const err = await session
+        .execute(
+          'const e = new Error("oops"); e.name = "CustomError"; e.data = { foo: 1, bar: [2, 3] }; throw e'
+        )
+        .catch((e) => e);
+      expect(err).toBeInstanceOf(Error);
+      expect(err.name).toBe('CustomError');
+      expect(err.message).toBe('oops');
+      const data = (err as Error & { data?: unknown }).data;
+      expect(data).toEqual({ foo: 1, bar: [2, 3] });
+    } finally {
+      session.close();
+    }
+  });
+
+  it('catch pattern from skill: e.name, e.message, e.data all available', async () => {
+    const runtime = new AxJSRuntime();
+    const session = runtime.createSession();
+    let caughtName: string | null = null;
+    let caughtMessage: string | null = null;
+    let caughtData: unknown = null;
+    try {
+      await session.execute(
+        'const e = new Error("wait for user"); e.name = "WaitForUserActionError"; e.data = { action: "confirm", id: 1 }; throw e'
+      );
+    } catch (e) {
+      if (e instanceof Error) {
+        caughtName = e.name;
+        caughtMessage = e.message;
+        caughtData = (e as Error & { data?: unknown }).data;
+      }
+    } finally {
+      session.close();
+    }
+    expect(caughtName).toBe('WaitForUserActionError');
+    expect(caughtMessage).toBe('wait for user');
+    expect(caughtData).toEqual({ action: 'confirm', id: 1 });
+  });
+
   it('callback (fn-call) error preserves name and message when caught', async () => {
     const runtime = new AxJSRuntime();
     const thrower = () => {
