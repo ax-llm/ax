@@ -1,5 +1,12 @@
 # Changelog
 
+## [17.0.4](///compare/17.0.2...17.0.3) (2026-02-16)
+
+### Features
+
+* implement RLM session recreation and error handling 2158092
+## [17.0.3](///compare/17.0.2...17.0.3) (2026-02-16)
+
 ## [17.0.3](///compare/17.0.1...17.0.2) (2026-02-16)
 ## [17.0.2](///compare/17.0.1...17.0.2) (2026-02-15)
 
