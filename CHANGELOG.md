@@ -1,5 +1,16 @@
 # Changelog
 
+## [17.0.5](///compare/17.0.3...17.0.4) (2026-02-16)
+
+### Features
+
+* enhance RLM session management and error handling 77493d5
+## [17.0.4](///compare/17.0.3...17.0.4) (2026-02-16)
+
+### Features
+
+* implement RLM session recreation and error handling 2158092
+
 ## [17.0.4](///compare/17.0.2...17.0.3) (2026-02-16)
 
 ### Features
