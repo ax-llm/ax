@@ -831,10 +831,34 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         return runSingleLlmQuery(query, ctx);
       };
 
-      const session = interpreter.createSession({
-        ...contextValues,
-        llmQuery,
-      });
+      const createRlmSession = () => {
+        return interpreter.createSession({
+          ...contextValues,
+          llmQuery,
+        });
+      };
+
+      const defaultRuntimeTimeoutMs = 30_000;
+      const restartNotice = `[RLM session restarted; previous REPL variables were lost. AxJSRuntime default timeout is ${defaultRuntimeTimeoutMs}ms.]`;
+      let session = createRlmSession();
+
+      const formatInterpreterOutput = (result: unknown) => {
+        if (result === undefined) {
+          return '(no output)';
+        }
+        if (typeof result === 'string') {
+          return truncateText(result || '(no output)', maxRuntimeChars);
+        }
+        try {
+          return truncateText(JSON.stringify(result, null, 2), maxRuntimeChars);
+        } catch {
+          return truncateText(String(result), maxRuntimeChars);
+        }
+      };
+
+      const isSessionClosedError = (err: unknown): boolean => {
+        return err instanceof Error && err.message === 'Session is closed';
+      };
 
       // 3. Create codeInterpreter function
       const contextDesc = (this.rlmContextFields ?? [])
@@ -863,37 +887,36 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
             const result = await session.execute(code, {
               signal: effectiveAbortSignal,
             });
-            if (result === undefined) {
-              const output = '(no output)';
-              executionHistory.push({ code, output });
-              return output;
-            }
-            if (typeof result === 'string') {
-              const output = truncateText(
-                result || '(no output)',
-                maxRuntimeChars
-              );
-              executionHistory.push({ code, output });
-              return output;
-            }
-            try {
-              const output = truncateText(
-                JSON.stringify(result, null, 2),
-                maxRuntimeChars
-              );
-              executionHistory.push({ code, output });
-              return output;
-            } catch {
-              const output = truncateText(String(result), maxRuntimeChars);
-              executionHistory.push({ code, output });
-              return output;
-            }
+            const output = formatInterpreterOutput(result);
+            executionHistory.push({ code, output });
+            return output;
           } catch (err) {
             if (effectiveAbortSignal?.aborted) {
               throw new AxAIServiceAbortedError(
                 'rlm-session',
                 effectiveAbortSignal.reason ?? 'Aborted'
               );
+            }
+            if (isSessionClosedError(err)) {
+              try {
+                session = createRlmSession();
+                const retryResult = await session.execute(code, {
+                  signal: effectiveAbortSignal,
+                });
+                const output = truncateText(
+                  `${restartNotice}\n${formatInterpreterOutput(retryResult)}`,
+                  maxRuntimeChars
+                );
+                executionHistory.push({ code, output });
+                return output;
+              } catch (retryErr) {
+                const output = truncateText(
+                  `${restartNotice}\nError: ${(retryErr as Error).message}`,
+                  maxRuntimeChars
+                );
+                executionHistory.push({ code, output });
+                return output;
+              }
             }
             const output = truncateText(
               `Error: ${(err as Error).message}`,

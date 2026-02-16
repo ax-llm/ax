@@ -1197,4 +1197,68 @@ describe('RLM llmQuery runtime behavior', () => {
     expect(observedLlmQueryResultLength).toBe(longSubModelAnswer.length);
     expect(observedLlmQueryResultHasTruncationMarker).toBe(false);
   });
+
+  it('should recreate closed RLM session and retry once with globals restored', async () => {
+    let createSessionCount = 0;
+    let executeCount = 0;
+    const runtime: AxCodeRuntime = {
+      language: 'JavaScript',
+      createSession(globals?: Record<string, unknown>) {
+        createSessionCount++;
+        const safeGlobals = globals ?? {};
+        return {
+          execute: async (_code: string) => {
+            executeCount++;
+            if (executeCount === 1) {
+              throw new Error('Session is closed');
+            }
+            return `ctx:${String(safeGlobals.context)};hasLlmQuery:${String(typeof safeGlobals.llmQuery === 'function')}`;
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: true, streaming: false },
+      chatResponse: {
+        results: [{ index: 0, content: 'ok', finishReason: 'stop' }],
+        modelUsage: makeModelUsage(),
+      },
+    });
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      name: 'rlmSessionRestartAgent',
+      description:
+        'Agent used to verify RLM session recreation after closure errors.',
+      ai: testMockAI,
+      rlm: {
+        contextFields: ['context'],
+        runtime,
+      },
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (testAgent as any).rlmProgram = {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      forward: async (_ai: any, _values: any, forwardOptions: any) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const codeInterpreter = forwardOptions.functions.find((f: any) => {
+          return f.name === 'codeInterpreter';
+        });
+        const output = await codeInterpreter.func({ code: 'RESTART_TEST' });
+        return { answer: output };
+      },
+    };
+
+    const result = await testAgent.forward(testMockAI, {
+      context: 'global-context',
+      query: 'unused',
+    });
+
+    expect(createSessionCount).toBe(2);
+    expect(result.answer).toContain('[RLM session restarted');
+    expect(result.answer).toContain('AxJSRuntime default timeout is 30000ms');
+    expect(result.answer).toContain('ctx:global-context;hasLlmQuery:true');
+  });
 });
