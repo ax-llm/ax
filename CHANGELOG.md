@@ -1,5 +1,16 @@
 # Changelog
 
+## [17.0.9](///compare/17.0.7...17.0.8) (2026-02-17)
+
+### Features
+
+* new inline and function modse for axagent rlm a2b4c0f
+## [17.0.8](///compare/17.0.7...17.0.8) (2026-02-16)
+
+### Features
+
+* improve error handling in AxJSRuntime and integration tests 799a425
+
 ## [17.0.8](///compare/17.0.6...17.0.7) (2026-02-16)
 
 ### Features
