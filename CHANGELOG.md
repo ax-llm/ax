@@ -1,5 +1,16 @@
 # Changelog
 
+## [17.0.11](///compare/17.0.9...17.0.10) (2026-02-17)
+
+### Bug Fixes
+
+* update AxJSRuntime usage instructions and enhance llmQuery handling in AxAgent c424489
+## [17.0.10](///compare/17.0.9...17.0.10) (2026-02-17)
+
+### Features
+
+* enhance AxJSRuntime with output mode and usage instructions fe07dec
+
 ## [17.0.10](///compare/17.0.8...17.0.9) (2026-02-17)
 
 ### Features
