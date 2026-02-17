@@ -9,7 +9,7 @@ import {
 const llm = ai({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY!,
-  config: { model: AxAIGoogleGeminiModel.Gemini3Flash },
+  config: { model: AxAIGoogleGeminiModel.GeminiFlashLiteLatest },
 });
 
 const analyzer = agent(
@@ -20,6 +20,7 @@ const analyzer = agent(
       'Analyzes long documents using code interpreter and sub-LM queries',
     maxSteps: 15,
     rlm: {
+      mode: 'inline',
       contextFields: ['context'],
       runtime: new AxJSRuntime({
         // Optional, least-privilege sandbox permissions.

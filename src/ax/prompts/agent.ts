@@ -36,6 +36,7 @@ import {
 } from '../util/apicall.js';
 import type { AxRLMConfig } from './rlm.js';
 import { axBuildRLMDefinition } from './rlm.js';
+import { validateStructuredOutputValues } from '../dsp/extract.js';
 
 /**
  * Interface for agents that can be used as child agents.
@@ -166,10 +167,18 @@ const DEFAULT_RLM_MAX_LLM_CALLS = 50;
 const DEFAULT_RLM_MAX_RUNTIME_CHARS = 5_000;
 const DEFAULT_RLM_BATCH_CONCURRENCY = 8;
 const DEFAULT_RLM_MAX_STEPS = 20;
+const DEFAULT_RLM_MODE: NonNullable<AxRLMConfig['mode']> = 'inline';
+const DEFAULT_RLM_INLINE_LANGUAGE = 'javascript';
+const RLM_INLINE_LLM_QUERY_FIELD = 'llmQuery';
+const RLM_INLINE_RESULT_READY_FIELD = 'resultReady';
 
 type AxRLMExecutionEntry = {
   code: string;
   output: string;
+};
+
+type AxRLMInlineState = {
+  resultReady: boolean;
 };
 
 /**
@@ -213,6 +222,11 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private rlmConfig?: AxRLMConfig;
   private rlmContextFields?: readonly AxIField[];
   private rlmProgram?: AxGen<any, OUT>;
+  private rlmMode: NonNullable<AxRLMConfig['mode']> = DEFAULT_RLM_MODE;
+  private rlmInlineLanguage = DEFAULT_RLM_INLINE_LANGUAGE;
+  private rlmInlineCodeFieldName = toInlineCodeFieldName(
+    DEFAULT_RLM_INLINE_LANGUAGE
+  );
 
   private activeAbortControllers = new Set<AbortController>();
   private _stopRequested = false;
@@ -297,6 +311,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     if (options?.rlm) {
       this.rlmConfig = options.rlm;
       const rlmRuntime = options.rlm.runtime ?? options.rlm.interpreter;
+      this.rlmMode = options.rlm.mode ?? DEFAULT_RLM_MODE;
+      this.rlmInlineLanguage =
+        options.rlm.language?.trim() || DEFAULT_RLM_INLINE_LANGUAGE;
+      this.rlmInlineCodeFieldName = toInlineCodeFieldName(
+        this.rlmInlineLanguage
+      );
 
       // Validate contextFields exist in signature
       const inputFields = this.program.getSignature().getInputFields();
@@ -312,13 +332,54 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         );
       }
 
+      if (this.rlmMode === 'inline') {
+        validateNoReservedInlineOutputNames(
+          this.program.getSignature().getOutputFields(),
+          [
+            this.rlmInlineCodeFieldName,
+            RLM_INLINE_LLM_QUERY_FIELD,
+            RLM_INLINE_RESULT_READY_FIELD,
+          ]
+        );
+      }
+
       // Build inner signature: same outputs, inputs minus context fields
+      const baseOutputs = this.program.getSignature().getOutputFields();
+      const rlmOutputs =
+        this.rlmMode === 'inline'
+          ? [
+              ...makeOptionalOutputFields(baseOutputs),
+              {
+                name: this.rlmInlineCodeFieldName,
+                title: toTitle(this.rlmInlineCodeFieldName),
+                type: { name: 'code' as const },
+                description: `${this.rlmInlineLanguage} code to execute in runtime session`,
+                isOptional: true,
+              },
+              {
+                name: RLM_INLINE_LLM_QUERY_FIELD,
+                title: toTitle(RLM_INLINE_LLM_QUERY_FIELD),
+                type: { name: 'string' as const, isArray: true },
+                description: 'Batched sub-LM queries to execute',
+                isOptional: true,
+              },
+              {
+                name: RLM_INLINE_RESULT_READY_FIELD,
+                title: toTitle(RLM_INLINE_RESULT_READY_FIELD),
+                type: { name: 'boolean' as const },
+                description:
+                  'Set true only when final output fields are complete',
+                isOptional: true,
+              },
+            ]
+          : baseOutputs;
+
       const rlmSig = new AxSignature({
         description: this.program.getSignature().getDescription(),
         inputs: inputFields.filter(
           (f) => !options.rlm!.contextFields.includes(f.name)
         ),
-        outputs: this.program.getSignature().getOutputFields(),
+        outputs: rlmOutputs,
       });
 
       const contextFieldMeta = inputFields.filter((f) =>
@@ -329,7 +390,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       const rlmDef = axBuildRLMDefinition(
         definition ?? description,
         rlmRuntime.language,
-        contextFieldMeta
+        contextFieldMeta,
+        {
+          mode: this.rlmMode,
+          inlineCodeFieldName: this.rlmInlineCodeFieldName,
+          inlineLanguage: this.rlmInlineLanguage,
+        }
       );
 
       // Explicitly set maxSteps on the inner RLM AxGen so it does not
@@ -865,86 +931,37 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         }
       };
 
-      // 3. Create codeInterpreter function
+      // 3. Create code execution helpers
       const contextDesc = (this.rlmContextFields ?? [])
         .map((f) => `${f.name}: ${toFieldType(f.type)}`)
         .join(', ');
 
-      const codeInterpreterFn: AxFunction = {
-        name: 'codeInterpreter',
-        description:
-          `Execute ${interpreter.language} code in a persistent REPL. ` +
-          `Context available as: ${contextDesc || rlm.contextFields.join(', ')}. ` +
-          `Use \`await llmQuery(query, context?)\` for semantic analysis or \`await llmQuery([...])\` for batched queries. ` +
-          `Persist with var (sync) or bare assignment (async). Return a value to see it.`,
-        parameters: {
-          type: 'object',
-          properties: {
-            code: {
-              type: 'string',
-              description: `${interpreter.language} code to execute`,
-            },
-          },
-          required: ['code'],
-        },
-        func: async ({ code }: Readonly<{ code: string }>) => {
-          try {
-            const result = await session.execute(code, {
-              signal: effectiveAbortSignal,
-            });
-            const output = formatInterpreterOutput(result);
-            executionHistory.push({ code, output });
-            return output;
-          } catch (err) {
-            if (effectiveAbortSignal?.aborted) {
-              throw new AxAIServiceAbortedError(
-                'rlm-session',
-                effectiveAbortSignal.reason ?? 'Aborted'
-              );
-            }
-            if (
-              err instanceof Error &&
-              (err.name === 'AbortError' || err.message.startsWith('Aborted'))
-            ) {
-              throw err;
-            }
-            if (isExecutionTimedOutError(err)) {
-              shouldRestartClosedSession = true;
-            }
-            if (isSessionClosedError(err)) {
-              if (!shouldRestartClosedSession) {
-                const output = truncateText(
-                  `Error: ${(err as Error).message}`,
-                  maxRuntimeChars
-                );
-                executionHistory.push({ code, output });
-                return output;
-              }
-              try {
-                shouldRestartClosedSession = false;
-                session = createRlmSession();
-                const retryResult = await session.execute(code, {
-                  signal: effectiveAbortSignal,
-                });
-                const output = truncateText(
-                  `${timeoutRestartNotice}\n${formatInterpreterOutput(retryResult)}`,
-                  maxRuntimeChars
-                );
-                executionHistory.push({ code, output });
-                return output;
-              } catch (retryErr) {
-                if (isExecutionTimedOutError(retryErr)) {
-                  shouldRestartClosedSession = true;
-                }
-                const output = truncateText(
-                  `${timeoutRestartNotice}\nError: ${(retryErr as Error).message}`,
-                  maxRuntimeChars
-                );
-                executionHistory.push({ code, output });
-                return output;
-              }
-            }
-            if (isExecutionTimedOutError(err)) {
+      const executeInterpreterCode = async (code: string) => {
+        try {
+          const result = await session.execute(code, {
+            signal: effectiveAbortSignal,
+          });
+          const output = formatInterpreterOutput(result);
+          executionHistory.push({ code, output });
+          return output;
+        } catch (err) {
+          if (effectiveAbortSignal?.aborted) {
+            throw new AxAIServiceAbortedError(
+              'rlm-session',
+              effectiveAbortSignal.reason ?? 'Aborted'
+            );
+          }
+          if (
+            err instanceof Error &&
+            (err.name === 'AbortError' || err.message.startsWith('Aborted'))
+          ) {
+            throw err;
+          }
+          if (isExecutionTimedOutError(err)) {
+            shouldRestartClosedSession = true;
+          }
+          if (isSessionClosedError(err)) {
+            if (!shouldRestartClosedSession) {
               const output = truncateText(
                 `Error: ${(err as Error).message}`,
                 maxRuntimeChars
@@ -952,9 +969,40 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
               executionHistory.push({ code, output });
               return output;
             }
-            throw err;
+            try {
+              shouldRestartClosedSession = false;
+              session = createRlmSession();
+              const retryResult = await session.execute(code, {
+                signal: effectiveAbortSignal,
+              });
+              const output = truncateText(
+                `${timeoutRestartNotice}\n${formatInterpreterOutput(retryResult)}`,
+                maxRuntimeChars
+              );
+              executionHistory.push({ code, output });
+              return output;
+            } catch (retryErr) {
+              if (isExecutionTimedOutError(retryErr)) {
+                shouldRestartClosedSession = true;
+              }
+              const output = truncateText(
+                `${timeoutRestartNotice}\nError: ${(retryErr as Error).message}`,
+                maxRuntimeChars
+              );
+              executionHistory.push({ code, output });
+              return output;
+            }
           }
-        },
+          if (isExecutionTimedOutError(err)) {
+            const output = truncateText(
+              `Error: ${(err as Error).message}`,
+              maxRuntimeChars
+            );
+            executionHistory.push({ code, output });
+            return output;
+          }
+          throw err;
+        }
       };
 
       // 4. Run rlmProgram
@@ -963,30 +1011,20 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           ...this.options,
           ...options,
           debug,
-          functions: [...baseFunctions, codeInterpreterFn],
+          functions: baseFunctions,
           maxSteps: options?.maxSteps ?? this.options?.maxSteps ?? 20,
           abortSignal: effectiveAbortSignal,
         };
-        try {
-          return await this.rlmProgram!.forward(
-            ai,
-            nonContextValues as any,
-            mergedOptions as any
-          );
-        } catch (error) {
-          if (!isMaxStepsError(error)) {
-            throw error;
-          }
 
-          // Fallback extraction path, similar to DSPy RLM's extract step.
+        const runFallbackExtraction = async () => {
           const fallbackExtractor = this.buildRLMFallbackExtractor();
           const trajectory = formatRLMExecutionHistory(executionHistory);
-          return await fallbackExtractor.forward(
+          const fallbackResult = await fallbackExtractor.forward(
             ai,
             {
               ...nonContextValues,
-              _rlmVariablesInfo: buildRLMVariablesInfo(contextValues),
-              _rlmTrajectory: trajectory,
+              rlmVariablesInfo: buildRLMVariablesInfo(contextValues),
+              rlmTrajectory: trajectory,
             } as any,
             {
               ...mergedOptions,
@@ -994,6 +1032,106 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
               maxSteps: 1,
             } as any
           );
+          this.validateFinalRLMOutput(fallbackResult);
+          return fallbackResult;
+        };
+
+        if (this.rlmMode === 'inline') {
+          const inlineState: AxRLMInlineState = { resultReady: false };
+          const inlineProgram = this.rlmProgram!.clone();
+
+          inlineProgram.addFieldProcessor(
+            this.rlmInlineCodeFieldName as any,
+            async (value) => {
+              if (typeof value !== 'string' || value.trim().length === 0) {
+                return;
+              }
+              return await executeInterpreterCode(value);
+            }
+          );
+
+          inlineProgram.addFieldProcessor(
+            RLM_INLINE_LLM_QUERY_FIELD as any,
+            async (value) => {
+              if (!Array.isArray(value) || value.length === 0) {
+                return;
+              }
+              const queries = value
+                .map((v) => String(v))
+                .filter((q) => q.trim().length > 0);
+              if (queries.length === 0) {
+                return;
+              }
+              return (await llmQuery(
+                queries.map((query) => ({ query }))
+              )) as string[];
+            }
+          );
+
+          inlineProgram.addFieldProcessor(
+            RLM_INLINE_RESULT_READY_FIELD as any,
+            async (value) => {
+              inlineState.resultReady = toBoolean(value);
+              return;
+            }
+          );
+
+          try {
+            const inlineResult = await inlineProgram.forward(
+              ai,
+              nonContextValues as any,
+              mergedOptions as any
+            );
+            const businessResult = this.stripInlineHelperFields(inlineResult);
+            if (inlineState.resultReady) {
+              this.validateFinalRLMOutput(businessResult);
+              return businessResult;
+            }
+            return await runFallbackExtraction();
+          } catch (error) {
+            if (!isMaxStepsError(error)) {
+              throw error;
+            }
+            return await runFallbackExtraction();
+          }
+        }
+
+        const codeInterpreterFn: AxFunction = {
+          name: 'codeInterpreter',
+          description:
+            `Execute ${interpreter.language} code in a persistent REPL. ` +
+            `Context available as: ${contextDesc || rlm.contextFields.join(', ')}. ` +
+            `Use \`await llmQuery(query, context?)\` for semantic analysis or \`await llmQuery([...])\` for batched queries. ` +
+            `Persist with var (sync) or bare assignment (async). Return a value to see it.`,
+          parameters: {
+            type: 'object',
+            properties: {
+              code: {
+                type: 'string',
+                description: `${interpreter.language} code to execute`,
+              },
+            },
+            required: ['code'],
+          },
+          func: async ({ code }: Readonly<{ code: string }>) => {
+            return executeInterpreterCode(code);
+          },
+        };
+
+        try {
+          return await this.rlmProgram!.forward(
+            ai,
+            nonContextValues as any,
+            {
+              ...mergedOptions,
+              functions: [...baseFunctions, codeInterpreterFn],
+            } as any
+          );
+        } catch (error) {
+          if (!isMaxStepsError(error)) {
+            throw error;
+          }
+          return await runFallbackExtraction();
         }
       } finally {
         try {
@@ -1047,21 +1185,40 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     (this.program as any).applyOptimization?.(optimizedProgram);
   }
 
+  private validateFinalRLMOutput(values: OUT): void {
+    validateStructuredOutputValues(
+      this.program.getSignature(),
+      values as Record<string, unknown>
+    );
+  }
+
+  private stripInlineHelperFields(values: OUT): OUT {
+    if (this.rlmMode !== 'inline') {
+      return values;
+    }
+
+    const cloned = { ...(values as Record<string, unknown>) };
+    delete cloned[this.rlmInlineCodeFieldName];
+    delete cloned[RLM_INLINE_LLM_QUERY_FIELD];
+    delete cloned[RLM_INLINE_RESULT_READY_FIELD];
+    return cloned as OUT;
+  }
+
   private buildRLMFallbackExtractor(): AxGen<any, OUT> {
     const outputFields = this.program.getSignature().getOutputFields();
     const rlmInputs = this.rlmProgram!.getSignature().getInputFields();
     const fallbackInputs = [
       ...rlmInputs,
       {
-        name: '_rlmVariablesInfo',
-        title: 'RLM Variables Info',
+        name: 'rlmVariablesInfo',
+        title: 'Rlm Variables Info',
         type: { name: 'string' as const },
         description: 'Metadata about context variables available to REPL',
         isInternal: true,
       },
       {
-        name: '_rlmTrajectory',
-        title: 'RLM Trajectory',
+        name: 'rlmTrajectory',
+        title: 'Rlm Trajectory',
         type: { name: 'string' as const },
         description: 'Chronological code execution/output trace',
         isInternal: true,
@@ -1077,7 +1234,7 @@ Rules:
 - Prefer evidence from the latest successful code outputs.
 - If information is partial, provide the best possible answer grounded in trajectory.
 - Do not mention fallback mode in final outputs.
-- Use the input fields \`_rlmVariablesInfo\` and \`_rlmTrajectory\` as your primary evidence.`;
+- Use the input fields \`rlmVariablesInfo\` and \`rlmTrajectory\` as your primary evidence.`;
 
     const fallbackSignature = new AxSignature({
       description: fallbackDefinition,
@@ -1189,6 +1346,71 @@ async function runWithConcurrency<TIn, TOut>(
 
   await Promise.all(workers);
   return results;
+}
+
+function toInlineCodeFieldName(language: string): string {
+  const normalized = language
+    .trim()
+    .replace(/[^a-zA-Z0-9]+/g, ' ')
+    .trim();
+  const parts = normalized
+    .split(/\s+/)
+    .map((p) => p.toLowerCase())
+    .filter((p) => p.length > 0);
+
+  if (parts.length === 0) {
+    return 'javascriptCode';
+  }
+
+  const camel = parts
+    .map((part, index) =>
+      index === 0 ? part : part[0]!.toUpperCase() + part.slice(1)
+    )
+    .join('');
+  return `${camel}Code`;
+}
+
+function toTitle(name: string): string {
+  const withSpaces = name
+    .replace(/_/g, ' ')
+    .replace(/([A-Z]|[0-9]+)/g, ' $1')
+    .trim();
+  return withSpaces.charAt(0).toUpperCase() + withSpaces.slice(1);
+}
+
+function makeOptionalOutputFields(fields: readonly AxIField[]): AxIField[] {
+  return fields.map((field) => ({
+    ...field,
+    isOptional: true,
+  }));
+}
+
+function validateNoReservedInlineOutputNames(
+  outputFields: readonly AxIField[],
+  reservedNames: readonly string[]
+): void {
+  const reserved = new Set(reservedNames.map((n) => n.toLowerCase()));
+  for (const field of outputFields) {
+    if (reserved.has(field.name.toLowerCase())) {
+      throw new Error(
+        `RLM inline mode reserves output field "${field.name}". Rename the field or use rlm.mode="function".`
+      );
+    }
+  }
+}
+
+function toBoolean(value: unknown): boolean {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const lower = value.trim().toLowerCase();
+    return lower === 'true' || lower === '1' || lower === 'yes';
+  }
+  if (typeof value === 'number') {
+    return value !== 0;
+  }
+  return false;
 }
 
 function toCamelCase(inputString: string): string {

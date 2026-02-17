@@ -34,6 +34,13 @@ export interface AxCodeSession {
  * RLM configuration for AxAgent.
  */
 export interface AxRLMConfig {
+  /** RLM execution mode (default: 'inline'). */
+  mode?: 'function' | 'inline';
+  /**
+   * Language label used in inline mode helper field naming.
+   * Example: 'javascript' -> `javascriptCode` (default: 'javascript').
+   */
+  language?: string;
   /** Input fields holding long context (will be removed from the LLM prompt). */
   contextFields: string[];
   /**
@@ -70,7 +77,12 @@ export interface AxRLMConfig {
 export function axBuildRLMDefinition(
   baseDefinition: string | undefined,
   language: string,
-  contextFields: readonly AxIField[] | readonly string[]
+  contextFields: readonly AxIField[] | readonly string[],
+  options?: Readonly<{
+    mode?: 'function' | 'inline';
+    inlineCodeFieldName?: string;
+    inlineLanguage?: string;
+  }>
 ): string {
   // Backward compat: convert string[] to minimal AxIField[]
   const fields: readonly AxIField[] =
@@ -90,6 +102,57 @@ export function axBuildRLMDefinition(
     .join('\n');
 
   const firstFieldName = fields[0]?.name ?? 'context';
+
+  const mode = options?.mode ?? 'function';
+  const inlineCodeFieldName = options?.inlineCodeFieldName ?? 'javascriptCode';
+  const inlineLanguage = options?.inlineLanguage ?? 'javascript';
+
+  if (mode === 'inline') {
+    return `${baseDefinition ? `${baseDefinition}\n\n` : ''}## RLM Inline Runtime
+
+You can run iterative runtime work by filling helper output fields.
+
+### Pre-loaded context variables
+The following variables are available in the runtime session:
+${contextVarList}
+
+### Helper output fields
+- \`${inlineCodeFieldName}\` (optional): ${inlineLanguage} code to execute in the persistent runtime session.
+- \`llmQuery\` (optional): array of sub-LM query strings to run in parallel.
+- \`resultReady\` (optional): set to \`true\` only when your final required output fields are fully complete and validated.
+
+### Iteration strategy
+- This is iterative: do not solve everything in one step.
+- Start with runtime probing and small inspections.
+- Use \`${inlineCodeFieldName}\` for structural work (filter, map, slice, regex, property access).
+- Use \`llmQuery\` for semantic analysis.
+- Keep outputs concise; avoid large dumps.
+- If runtime output appears truncated, rerun with narrower scope.
+
+### Important
+- You may emit helper fields for intermediate steps.
+- On the final step, provide all required business output fields and set \`resultReady: true\`.
+- Do not include helper fields in the final business answer unless you are still iterating.
+
+### Example (iterative)
+Step 1 (probe):
+\`\`\`
+${inlineCodeFieldName}: var n = ${firstFieldName}.length; n
+\`\`\`
+
+Step 2 (semantic batch):
+\`\`\`
+llmQuery:
+- Summarize topic A
+- Summarize topic B
+\`\`\`
+
+Step 3 (finish):
+\`\`\`
+resultReady: true
+<required output fields...>
+\`\`\``;
+  }
 
   const rlmPrompt = `${baseDefinition ? `${baseDefinition}\n\n` : ''}## Code Interpreter
 

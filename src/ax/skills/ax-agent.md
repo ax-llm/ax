@@ -347,9 +347,11 @@ When you pass a long document to an LLM, you face:
 
 ### How It Works
 
-1. **Context extraction** — Fields listed in `contextFields` are removed from the LLM prompt and loaded into a code interpreter session as variables.
-2. **Code interpreter** — The LLM gets a `codeInterpreter` tool to execute code in a persistent REPL. Variables and state persist across calls.
-3. **Sub-LM queries** — Inside the code interpreter, `llmQuery(query, context?)` calls a sub-LM for semantic analysis. `llmQuery([...])` runs multiple queries in parallel.
+1. **Context extraction** — Fields listed in `contextFields` are removed from the LLM prompt and loaded into a runtime session as variables.
+2. **Execution mode**
+   - `mode: 'inline'` (default): the LLM emits helper output fields (`<language>Code`, `llmQuery`, `resultReady`) that are processed via field processors.
+   - `mode: 'function'`: the LLM uses the `codeInterpreter` tool.
+3. **Sub-LM queries** — Runtime calls use `llmQuery(...)` for semantic analysis.
 4. **Final answer** — When done, the LLM provides its final answer with the required output fields.
 
 The LLM writes code to inspect, filter, and iterate over the document. If useful, it can chunk data manually in code before calling `llmQuery`.
@@ -367,6 +369,8 @@ const analyzer = agent(
     description: 'Analyzes long documents using code interpreter and sub-LM queries',
     maxSteps: 15,
     rlm: {
+      mode: 'inline',                        // 'inline' (default) | 'function'
+      language: 'javascript',                // Used for inline helper field naming (default: 'javascript')
       contextFields: ['context'],              // Fields to load into runtime session
       runtime: new AxJSRuntime(),          // Code runtime implementation
       maxLlmCalls: 30,                         // Cap on sub-LM calls (default: 50)
@@ -452,7 +456,14 @@ Structured fields are loaded as native JavaScript objects in the interpreter, pr
 
 ### The REPL Loop
 
-In RLM mode, the agent gets a `codeInterpreter` tool. The LLM's typical workflow:
+In `mode: 'function'`, the agent gets a `codeInterpreter` tool.
+
+In `mode: 'inline'`, the model emits helper output fields:
+- `<language>Code` (for example `javascriptCode`) for runtime code execution
+- `llmQuery` (`string[]`) for batched sub-LM queries
+- `resultReady` (`boolean`) to signal completion
+
+The LLM's typical workflow:
 
 1. Peek at context structure (typeof, length, slice)
 2. Filter/select relevant slices (chunk manually only when needed)
@@ -529,6 +540,8 @@ RLM mode does not support true streaming. When using `streamingForward`, RLM run
 
 ```typescript
 interface AxRLMConfig {
+  mode?: 'function' | 'inline'; // RLM execution mode (default: 'inline')
+  language?: string;            // Inline helper field prefix (default: 'javascript')
   contextFields: string[];        // Input fields holding long context
   runtime?: AxCodeRuntime;    // Preferred runtime key
   interpreter?: AxCodeRuntime; // Legacy alias (deprecated)
