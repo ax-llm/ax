@@ -1,5 +1,16 @@
 # Changelog
 
+## [17.0.10](///compare/17.0.8...17.0.9) (2026-02-17)
+
+### Features
+
+* enhance AxJSRuntime with output mode and usage instructions fe07dec
+## [17.0.9](///compare/17.0.8...17.0.9) (2026-02-17)
+
+### Features
+
+* new inline and function modse for axagent rlm a2b4c0f
+
 ## [17.0.9](///compare/17.0.7...17.0.8) (2026-02-17)
 
 ### Features
