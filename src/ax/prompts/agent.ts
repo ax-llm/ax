@@ -6,6 +6,7 @@ import type {
   AxFunctionHandler,
   AxFunctionJSONSchema,
 } from '../ai/types.js';
+import { validateStructuredOutputValues } from '../dsp/extract.js';
 import type { AxInputFunctionType } from '../dsp/functions.js';
 import { AxGen } from '../dsp/generate.js';
 import { toFieldType } from '../dsp/prompt.js';
@@ -36,7 +37,6 @@ import {
 } from '../util/apicall.js';
 import type { AxRLMConfig } from './rlm.js';
 import { axBuildRLMDefinition } from './rlm.js';
-import { validateStructuredOutputValues } from '../dsp/extract.js';
 
 /**
  * Interface for agents that can be used as child agents.
@@ -1046,7 +1046,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
               if (typeof value !== 'string' || value.trim().length === 0) {
                 return;
               }
-              return await executeInterpreterCode(value);
+              const output = await executeInterpreterCode(value);
+              return `Code Executed: ${output}`;
             }
           );
 

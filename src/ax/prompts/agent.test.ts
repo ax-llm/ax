@@ -1429,6 +1429,7 @@ describe('RLM inline mode', () => {
   it('should process inline helper fields without codeInterpreter function', async () => {
     let callCount = 0;
     let sawCodeInterpreterFunction = false;
+    let sawCodeExecutedPrefix = false;
     const observedExecutedCode: string[] = [];
     let llmQueryCallCount = 0;
 
@@ -1455,6 +1456,10 @@ describe('RLM inline mode', () => {
         sawCodeInterpreterFunction = functions.some(
           (f) => f.name === 'codeInterpreter'
         );
+        if (callCount === 2) {
+          const serializedPrompt = JSON.stringify(req.chatPrompt);
+          sawCodeExecutedPrefix = serializedPrompt.includes('Code Executed:');
+        }
 
         if (callCount === 1) {
           return {
@@ -1519,9 +1524,82 @@ describe('RLM inline mode', () => {
     expect((result as Record<string, unknown>).llmQuery).toBeUndefined();
     expect((result as Record<string, unknown>).resultReady).toBeUndefined();
     expect(observedExecutedCode[0]).toBe('return "code-output"');
+    expect(sawCodeExecutedPrefix).toBe(true);
     expect(llmQueryCallCount).toBe(1);
     expect(callCount).toBe(2);
     expect(sawCodeInterpreterFunction).toBe(false);
+  });
+
+  it('should surface inline code execution exceptions in Code Executed output', async () => {
+    let callCount = 0;
+    let sawCodeExecutedPrefix = false;
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: true, streaming: false },
+      chatResponse: async (req) => {
+        callCount++;
+        if (callCount === 1) {
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: throw new Error("boom")',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        sawCodeExecutedPrefix = JSON.stringify(req.chatPrompt).includes(
+          'Code Executed:'
+        );
+        return {
+          results: [
+            {
+              index: 0,
+              content: 'Answer: recovered answer\nResult Ready: true',
+              finishReason: 'stop',
+            },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const runtime: AxCodeRuntime = {
+      language: 'JavaScript',
+      createSession() {
+        return {
+          execute: async () => {
+            throw new Error('Execution timed out');
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      name: 'rlmInlineExecutionErrorAgent',
+      description:
+        'Agent used to verify inline code execution errors are prefixed in processor output.',
+      ai: testMockAI,
+      rlm: {
+        mode: 'inline',
+        language: 'javascript',
+        contextFields: ['context'],
+        runtime,
+      },
+    });
+
+    const result = await testAgent.forward(testMockAI, {
+      context: 'unused context',
+      query: 'unused query',
+    });
+
+    expect(result.answer).toBe('recovered answer');
+    expect(sawCodeExecutedPrefix).toBe(true);
+    expect(callCount).toBe(2);
   });
 
   it('should expose codeInterpreter tool when mode is explicitly function', async () => {
