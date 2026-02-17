@@ -132,7 +132,7 @@ function getFieldProcessingMessage(
   const fieldTitle = field.title;
 
   if (isCodeField) {
-    return `Code in the field "${fieldTitle}" was executed. The code execution produced the following output: ${resultText}`;
+    return `Code Execution Result: ${resultText}`;
   }
   return `The field "${fieldTitle}" was processed. The field contents were transformed into the following output: ${resultText}`;
 }
