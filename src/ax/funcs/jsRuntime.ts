@@ -535,6 +535,8 @@ export enum AxJSRuntimePermission {
   WORKERS = 'workers',
 }
 
+export type AxJSRuntimeOutputMode = 'return' | 'stdout';
+
 /**
  * Returns the inline source code for the Web Worker.
  * The worker handles `init` and `execute` messages, proxies function calls
@@ -561,6 +563,8 @@ if (_isNodeWorker) {
 const _scope = typeof self !== 'undefined' ? self : globalThis;
 const _AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 const _FUNCTION_REF_KEY = '${FUNCTION_REF_KEY}';
+const _OUTPUT_MODE_RETURN = 'return';
+const _OUTPUT_MODE_STDOUT = 'stdout';
 const _LAST_LINE_NON_EXPRESSION_START =
   /^(if|for|while|switch|try|catch|finally|function|class|import|export|throw|return|var|let|const|break|continue|debugger)\\b/;
 const _TOP_LEVEL_RETURN_ONLY = /^\\s*return\\s+([^\\n;]+?)\\s*;?\\s*$/;
@@ -624,9 +628,60 @@ const _setOnMessage = (handler) => {
   _scope.onmessage = handler;
 };
 
+const _formatOutputArg = (value) => {
+  if (typeof value === 'string') {
+    return value;
+  }
+  try {
+    return JSON.stringify(value);
+  } catch (_e) {
+    return String(value);
+  }
+};
+
+const _captureConsoleMethod = (methodName, output) => {
+  const original =
+    _scope.console && typeof _scope.console[methodName] === 'function'
+      ? _scope.console[methodName].bind(_scope.console)
+      : null;
+
+  const wrapped = (...args) => {
+    output.push(args.map(_formatOutputArg).join(' '));
+    if (original) {
+      try {
+        original(...args);
+      } catch (_e) {
+        // Ignore console passthrough failures.
+      }
+    }
+  };
+
+  if (!_scope.console || typeof _scope.console !== 'object') {
+    _scope.console = {};
+  }
+  _scope.console[methodName] = wrapped;
+
+  return () => {
+    if (!_scope.console || typeof _scope.console !== 'object') {
+      return;
+    }
+    if (original) {
+      _scope.console[methodName] = original;
+      return;
+    }
+    try {
+      delete _scope.console[methodName];
+    } catch (_e) {
+      _scope.console[methodName] = undefined;
+    }
+  };
+};
+
 // Pending function-call promises keyed by call ID
 const _fnPending = new Map();
 let _fnCallId = 0;
+let _outputMode = _OUTPUT_MODE_RETURN;
+let _captureConsole = false;
 
 const _MAX_ERROR_CAUSE_DEPTH = ${MAX_ERROR_CAUSE_DEPTH};
 const _serializeError = (err, depth, seen) => {
@@ -676,6 +731,15 @@ _setOnMessage(async (e) => {
   const msg = e.data;
 
   if (msg.type === 'init') {
+    _outputMode =
+      msg.outputMode === _OUTPUT_MODE_STDOUT
+        ? _OUTPUT_MODE_STDOUT
+        : _OUTPUT_MODE_RETURN;
+    _captureConsole =
+      msg.captureConsole !== undefined
+        ? Boolean(msg.captureConsole)
+        : _outputMode === _OUTPUT_MODE_STDOUT;
+
     const _createFnProxy = (name) => (...args) => {
       const id = ++_fnCallId;
       return new Promise((resolve, reject) => {
@@ -783,6 +847,46 @@ _setOnMessage(async (e) => {
 
   if (msg.type === 'execute') {
     const { id, code } = msg;
+    const output = [];
+    const restoreFns = [];
+    const previousPrint = _scope.print;
+    const pushOutput = (...args) => {
+      output.push(args.map(_formatOutputArg).join(' '));
+    };
+
+    if (_outputMode === _OUTPUT_MODE_STDOUT) {
+      _scope.print = (...args) => {
+        pushOutput(...args);
+      };
+    }
+    if (_captureConsole) {
+      restoreFns.push(_captureConsoleMethod('log', output));
+      restoreFns.push(_captureConsoleMethod('info', output));
+      restoreFns.push(_captureConsoleMethod('warn', output));
+      restoreFns.push(_captureConsoleMethod('error', output));
+    }
+
+    const cleanupOutputCapture = () => {
+      for (const restore of restoreFns) {
+        try {
+          restore();
+        } catch (_e) {
+          // Best effort cleanup.
+        }
+      }
+      if (_outputMode === _OUTPUT_MODE_STDOUT) {
+        if (previousPrint === undefined) {
+          try {
+            delete _scope.print;
+          } catch (_e) {
+            _scope.print = undefined;
+          }
+        } else {
+          _scope.print = previousPrint;
+        }
+      }
+    };
+
     try {
       let result;
       if (/\\bawait\\b/.test(code)) {
@@ -803,11 +907,19 @@ _setOnMessage(async (e) => {
         const syncCode = _rewriteTopLevelReturnForSyncEval(code);
         result = (0, eval)(syncCode);
       }
+      let value = result;
+      if (_outputMode === _OUTPUT_MODE_STDOUT) {
+        const stdout = output.join('\\n').trim();
+        if (stdout) {
+          value = stdout;
+        }
+      }
+
       try {
-        _send({ type: 'result', id, value: result });
+        _send({ type: 'result', id, value });
       } catch {
         // Value not structured-cloneable, fall back to string
-        _send({ type: 'result', id, value: String(result) });
+        _send({ type: 'result', id, value: String(value) });
       }
     } catch (err) {
       const isCodeError =
@@ -825,6 +937,8 @@ _setOnMessage(async (e) => {
       } else {
         _send({ type: 'result', id, error: _serializeError(err) });
       }
+    } finally {
+      cleanupOutputCapture();
     }
   }
 });
@@ -842,11 +956,15 @@ export class AxJSRuntime implements AxCodeRuntime {
   private readonly allowUnsafeNodeHostAccess: boolean;
   private readonly nodeWorkerPoolSize: number;
   private readonly debugNodeWorkerPool: boolean;
+  private readonly outputMode: AxJSRuntimeOutputMode;
+  private readonly captureConsole: boolean;
 
   constructor(
     options?: Readonly<{
       timeout?: number;
       permissions?: readonly AxJSRuntimePermission[];
+      outputMode?: AxJSRuntimeOutputMode;
+      captureConsole?: boolean;
       /**
        * Warning: enables direct access to Node host globals (e.g. process/require)
        * from model-generated code in Node worker runtime.
@@ -870,10 +988,29 @@ export class AxJSRuntime implements AxCodeRuntime {
     this.permissions = options?.permissions ?? [];
     this.allowUnsafeNodeHostAccess =
       options?.allowUnsafeNodeHostAccess ?? false;
+    this.outputMode = options?.outputMode ?? 'stdout';
+    this.captureConsole =
+      options?.captureConsole ?? this.outputMode === 'stdout';
     this.nodeWorkerPoolSize = resolveNodeWorkerPoolSize(
       options?.nodeWorkerPoolSize
     );
     this.debugNodeWorkerPool = isNodePoolDebugEnabled(options);
+  }
+
+  public getUsageInstructions(): string {
+    return [
+      '- Treat the session like one long-running program split across multiple execute() calls.',
+      '- State is session-scoped: values persist across execute() calls only while using the same session.',
+      '- With await, code runs in an async-function path; do not rely on local const/let/var declarations for cross-call state.',
+      '- Prefer explicit global/shared state for durability across calls, for example `globalThis.state = await getState()` and then mutate `globalThis.state`.',
+      '- Mutating shared globals passed into createSession(...) is also a reliable persistence pattern.',
+      '- Bare assignment like `state = await getState()` may work, but explicit global/shared-object mutation is preferred.',
+      '- Use `console.log(...)` (or `print(...)`) whenever later code depends on an intermediate value and you need to inspect it before the next step.',
+      '- Return values and trailing expressions are still useful, but prefer explicit logs for step-by-step inspection.',
+      this.outputMode === 'stdout'
+        ? '- Stdout mode is enabled: visible output comes from captured logs/prints, otherwise from a returned value when provided.'
+        : '- Return mode is enabled: visible output comes from return values or trailing expressions.',
+    ].join('\n');
   }
 
   /**
@@ -1039,6 +1176,8 @@ export class AxJSRuntime implements AxCodeRuntime {
           fnNames: [...fnMap.keys()],
           permissions: [...this.permissions],
           allowUnsafeNodeHostAccess: this.allowUnsafeNodeHostAccess,
+          outputMode: this.outputMode,
+          captureConsole: this.captureConsole,
         });
       } catch (error) {
         cleanup();
@@ -1083,6 +1222,8 @@ export class AxJSRuntime implements AxCodeRuntime {
               fnNames: [...fnMap.keys()],
               permissions: [...this.permissions],
               allowUnsafeNodeHostAccess: this.allowUnsafeNodeHostAccess,
+              outputMode: this.outputMode,
+              captureConsole: this.captureConsole,
             });
           } catch (error) {
             if (nodeWorkerPool) {
@@ -1219,6 +1360,8 @@ export function axCreateJSRuntime(
   options?: Readonly<{
     timeout?: number;
     permissions?: readonly AxJSRuntimePermission[];
+    outputMode?: AxJSRuntimeOutputMode;
+    captureConsole?: boolean;
     allowUnsafeNodeHostAccess?: boolean;
     nodeWorkerPoolSize?: number;
     debugNodeWorkerPool?: boolean;

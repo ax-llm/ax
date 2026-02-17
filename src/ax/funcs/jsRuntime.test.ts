@@ -41,6 +41,17 @@ describe('AxJSRuntimePermission', () => {
 });
 
 describe('AxJSRuntime', () => {
+  it('provides runtime usage instructions for RLM prompts', () => {
+    const interp = new AxJSRuntime();
+    const instructions = interp.getUsageInstructions();
+
+    expect(typeof instructions).toBe('string');
+    expect(instructions.length).toBeGreaterThan(0);
+    expect(instructions).toContain('State is session-scoped');
+    expect(instructions).toContain('globalThis.state');
+    expect(instructions).toContain('await');
+  });
+
   it('sends empty permissions by default', () => {
     const interp = new AxJSRuntime();
     interp.createSession();
@@ -62,6 +73,36 @@ describe('AxJSRuntime', () => {
 
     const initMsg = mockPostMessage.mock.calls[0]![0];
     expect(initMsg.permissions).toEqual(['network', 'storage']);
+  });
+
+  it('uses stdout output mode by default', () => {
+    const interp = new AxJSRuntime();
+    interp.createSession();
+
+    const initMsg = mockPostMessage.mock.calls[0]![0];
+    expect(initMsg.outputMode).toBe('stdout');
+    expect(initMsg.captureConsole).toBe(true);
+  });
+
+  it('enables stdout capture mode when configured', () => {
+    const interp = new AxJSRuntime({ outputMode: 'stdout' });
+    interp.createSession();
+
+    const initMsg = mockPostMessage.mock.calls[0]![0];
+    expect(initMsg.outputMode).toBe('stdout');
+    expect(initMsg.captureConsole).toBe(true);
+  });
+
+  it('allows disabling console capture in stdout mode', () => {
+    const interp = new AxJSRuntime({
+      outputMode: 'stdout',
+      captureConsole: false,
+    });
+    interp.createSession();
+
+    const initMsg = mockPostMessage.mock.calls[0]![0];
+    expect(initMsg.outputMode).toBe('stdout');
+    expect(initMsg.captureConsole).toBe(false);
   });
 
   it('worker source contains _PERM_GLOBALS with expected globals', () => {
@@ -119,6 +160,30 @@ describe('AxJSRuntime', () => {
       'const _rewriteTopLevelReturnForSyncEval = (code) =>'
     );
     expect(source).toContain('_TOP_LEVEL_RETURN_ONLY');
+  });
+
+  it('worker source supports stdout capture and print hint output', () => {
+    const interp = new AxJSRuntime();
+    interp.createSession();
+
+    const BlobMock = vi.mocked(globalThis.Blob);
+    const blobArgs = BlobMock.mock.calls[0]![0] as string[];
+    const source = blobArgs[0]!;
+
+    expect(source).toContain('_OUTPUT_MODE_STDOUT');
+    expect(source).toContain('_scope.print = (...args) =>');
+  });
+
+  it('usage instructions mention output mode behavior', () => {
+    const stdoutMode = new AxJSRuntime().getUsageInstructions();
+    const returnMode = new AxJSRuntime({
+      outputMode: 'return',
+    }).getUsageInstructions();
+
+    expect(stdoutMode).toContain('one long-running program');
+    expect(stdoutMode).toContain('Stdout mode is enabled');
+    expect(stdoutMode).toContain('console.log(...)');
+    expect(returnMode).toContain('Return mode is enabled');
   });
 
   it('close() calls worker.terminate()', () => {

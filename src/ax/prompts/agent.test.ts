@@ -874,10 +874,21 @@ describe('axBuildRLMDefinition dual structured/string guidance', () => {
     expect(result).toContain('await llmQuery([{ query, context? }, ...])');
   });
 
-  it('should include execution rules section', () => {
+  it('should not include hardcoded runtime-specific execution rules', () => {
     const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
-    expect(result).toContain('### Execution rules');
-    expect(result).toContain('use `var` (not `const`/`let`)');
+    expect(result).not.toContain('### Execution rules');
+    expect(result).not.toContain('use `var` (not `const`/`let`)');
+  });
+
+  it('should append runtime-specific usage notes when provided', () => {
+    const result = axBuildRLMDefinition(undefined, 'JavaScript', fields, {
+      runtimeUsageInstructions:
+        '- Use globalThis.state for persistent state across async calls.',
+    });
+    expect(result).toContain('### Runtime-specific usage notes');
+    expect(result).toContain(
+      'Use globalThis.state for persistent state across async calls.'
+    );
   });
 
   it('should document llmQuery return type', () => {
@@ -1283,8 +1294,12 @@ describe('RLM llmQuery runtime behavior', () => {
 
     expect(createSessionCount).toBe(2); // initial + timeout-triggered restart
     expect(result.answer).toContain('Error: Execution timed out');
-    expect(result.answer).toContain('[RLM session restarted after timeout');
-    expect(result.answer).toContain('AxJSRuntime default timeout is 30000ms');
+    expect(result.answer).toContain('JavaScript runtime was restarted');
+    expect(result.answer).toContain('all global state was lost');
+    expect(result.answer).toContain('must be recreated if needed');
+    expect((result.answer.match(/runtime was restarted/g) ?? []).length).toBe(
+      1
+    );
     expect(result.answer).toContain('ctx:global-context;hasLlmQuery:true');
   });
 
@@ -1604,6 +1619,7 @@ describe('RLM inline mode', () => {
 
   it('should expose codeInterpreter tool when mode is explicitly function', async () => {
     let sawCodeInterpreterFunction = false;
+    let codeInterpreterDescription = '';
 
     const testMockAI = new AxMockAIService({
       features: { functions: true, streaming: false },
@@ -1640,9 +1656,14 @@ describe('RLM inline mode', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       forward: async (_ai: any, _values: any, forwardOptions: any) => {
         const functions = forwardOptions.functions ?? [];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const codeInterpreter = functions.find((f: any) => {
+          return f.name === 'codeInterpreter';
+        });
         sawCodeInterpreterFunction = functions.some(
           (f: { name: string }) => f.name === 'codeInterpreter'
         );
+        codeInterpreterDescription = String(codeInterpreter?.description ?? '');
         return { answer: 'done' };
       },
     };
@@ -1654,6 +1675,9 @@ describe('RLM inline mode', () => {
 
     expect(result.answer).toBe('done');
     expect(sawCodeInterpreterFunction).toBe(true);
+    expect(codeInterpreterDescription).not.toContain(
+      'Persist with var (sync) or bare assignment (async).'
+    );
   });
 
   it('should default to inline mode when rlm.mode is omitted', () => {

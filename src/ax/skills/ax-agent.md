@@ -477,8 +477,42 @@ The LLM's typical workflow:
 |-----|-------------|
 | `await llmQuery(query, context?)` | Ask a sub-LM a question, optionally with a context string. Returns a string. Oversized context is truncated to `maxRuntimeChars` |
 | `await llmQuery([{ query, context? }, ...])` | Run multiple sub-LM queries in parallel. Returns string[]. Failed items return `[ERROR] ...` |
-| `print(...args)` | Print output (appears in the function result) |
+| `print(...args)` | Available in `AxJSRuntime` when `outputMode: 'stdout'`; captured output appears in the function result |
 | Context variables | All fields listed in `contextFields` are available by name |
+
+By default, `AxJSRuntime` uses `outputMode: 'stdout'`, where visible output comes from `console.log(...)`, `print(...)`, and other captured stdout lines.
+
+### Session State and `await`
+
+`AxJSRuntime` state is session-scoped. Values survive across `execute()` calls only while you keep using the same session.
+
+- `mode: 'inline'` and `mode: 'function'` in RLM both run in a persistent runtime session.
+- `runtime.toFunction()` is different: it creates a new session per tool call, then closes it, so state does not persist across calls.
+
+When code contains `await`, the runtime compiles it as an async function so top-level `await` works. In that async path, local declarations (`const`/`let`/`var`) are function-scoped and should not be relied on for cross-call state.
+
+Prefer one of these patterns for durable state:
+
+```javascript
+// Pattern 1: Explicit global
+globalThis.state = await getState();
+globalThis.state.x += 1;
+return globalThis.state;
+```
+
+```javascript
+// Pattern 2: Shared object passed in globals/context
+state.x += 1;
+return state;
+```
+
+This may appear to work in some cases:
+
+```javascript
+state = await getState(); // no let/const/var
+```
+
+but `globalThis.state = ...` (or mutating a shared `state` object) is the recommended explicit pattern.
 
 ### Error handling in the code interpreter
 
@@ -512,6 +546,10 @@ import type { AxCodeRuntime, AxCodeSession } from '@ax-llm/ax';
 class MyBrowserInterpreter implements AxCodeRuntime {
   readonly language = 'JavaScript';
 
+  getUsageInstructions?(): string {
+    return 'Runtime-specific guidance for writing code in this environment.';
+  }
+
   createSession(globals?: Record<string, unknown>): AxCodeSession {
     return {
       async execute(code: string): Promise<unknown> {
@@ -528,7 +566,9 @@ class MyBrowserInterpreter implements AxCodeRuntime {
 The `globals` object passed to `createSession` includes:
 - All context field values (by field name)
 - `llmQuery` function (supports both single and batched queries)
-- `print` function
+- `print` function when supported by the runtime (for `AxJSRuntime`, set `outputMode: 'stdout'`)
+
+If provided, `getUsageInstructions()` is appended to the RLM system prompt as runtime-specific guidance. Use it for semantics that differ by runtime (for example state persistence or async execution behavior).
 
 ### RLM with Streaming
 
@@ -559,6 +599,7 @@ interface AxRLMConfig {
 ```typescript
 interface AxCodeRuntime {
   readonly language: string;
+  getUsageInstructions?(): string;
   createSession(globals?: Record<string, unknown>): AxCodeSession;
 }
 ```

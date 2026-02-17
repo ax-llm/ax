@@ -15,6 +15,11 @@ import type { AxIField } from '../dsp/sig.js';
 export interface AxCodeRuntime {
   readonly language: string; // e.g. 'JavaScript', 'Python'
   createSession(globals?: Record<string, unknown>): AxCodeSession;
+  /**
+   * Optional runtime-specific usage guidance injected into the RLM system prompt.
+   * Use this for execution semantics that differ by runtime/language.
+   */
+  getUsageInstructions?(): string;
 }
 
 /**
@@ -82,6 +87,7 @@ export function axBuildRLMDefinition(
     mode?: 'function' | 'inline';
     inlineCodeFieldName?: string;
     inlineLanguage?: string;
+    runtimeUsageInstructions?: string;
   }>
 ): string {
   // Backward compat: convert string[] to minimal AxIField[]
@@ -106,6 +112,11 @@ export function axBuildRLMDefinition(
   const mode = options?.mode ?? 'function';
   const inlineCodeFieldName = options?.inlineCodeFieldName ?? 'javascriptCode';
   const inlineLanguage = options?.inlineLanguage ?? 'javascript';
+  const runtimeUsageInstructions =
+    options?.runtimeUsageInstructions?.trim() ?? '';
+  const runtimeUsageNotesSection = runtimeUsageInstructions
+    ? `\n\n### Runtime-specific usage notes\n${runtimeUsageInstructions}`
+    : '';
 
   if (mode === 'inline') {
     return `${baseDefinition ? `${baseDefinition}\n\n` : ''}## RLM Inline Runtime
@@ -119,7 +130,7 @@ ${contextVarList}
 ### Helper output fields
 - \`${inlineCodeFieldName}\` (optional): ${inlineLanguage} code to execute in the persistent runtime session.
 - \`llmQuery\` (optional): array of sub-LM query strings to run in parallel.
-- \`resultReady\` (optional): set to \`true\` only when your final required output fields are fully complete and validated.
+- \`resultReady\` (optional): set to \`true\` only when your final required output fields are fully complete and validated. Otherwise omit this field (do not emit \`false\`).
 
 ### Iteration strategy
 - This is iterative: do not solve everything in one step.
@@ -132,6 +143,7 @@ ${contextVarList}
 ### Important
 - You may emit helper fields for intermediate steps.
 - On the final step, provide all required business output fields and set \`resultReady: true\`.
+- Do not emit \`resultReady: false\`; omit \`resultReady\` until it is true.
 - Do not include helper fields in the final business answer unless you are still iterating.
 
 ### Example (iterative)
@@ -175,14 +187,9 @@ There is also a runtime character cap for \`llmQuery\` context and \`codeInterpr
 - Explore first: inspect type/size/sample before heavy processing.
 - Iterate in small steps: run short code, inspect output, then decide next step.
 - Verify before final answer: if outputs look empty/odd, reassess and rerun.
-- Always print key intermediate checks so you can validate assumptions.
+- Always surface key intermediate checks so you can validate assumptions.
 - Keep long values in variables; avoid retyping large snippets.
 - Use \`llmQuery\` for semantic understanding, not for basic filtering/slicing.
-
-### Execution rules
-- Sync code: use \`var\` (not \`const\`/\`let\`) to persist variables across calls. The last expression is auto-returned.
-- Async code (with \`await\`): use bare assignments (e.g. \`results = await ...\`) to persist. A simple trailing expression is also auto-returned, but explicit \`return\` is still the safest option.
-- Convenience: \`return <expr>\` also works as a single-line sync snippet.
 
 ### Example
 Analyzing \`${firstFieldName}\`:
@@ -233,10 +240,10 @@ Then provide the final answer with the required output fields.
 ### Guidelines
 - Use code for structural work (filter, map, slice, regex, property access); use \`llmQuery\` for semantic understanding.
 - Keep \`llmQuery\` context small and within the configured runtime cap (\`maxRuntimeChars\`).
-- Keep codeInterpreter output concise; print summaries/counts instead of massive dumps.
+- Keep codeInterpreter output concise; return or print summaries/counts instead of massive dumps.
 - If output includes \`...[truncated N chars]\`, treat it as incomplete and retry with narrower context.
 - For batched \`llmQuery\`, keep successes and retry only failed \`[ERROR] ...\` items.
-- If \`llmQuery\` fails, use try/catch and retry with a smaller chunk or different query.`;
+- If \`llmQuery\` fails, use try/catch and retry with a smaller chunk or different query.${runtimeUsageNotesSection}`;
 
   return rlmPrompt;
 }

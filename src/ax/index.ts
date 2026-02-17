@@ -682,6 +682,7 @@ import { type AxDockerContainer, AxDockerSession } from './funcs/docker.js';
 import { AxEmbeddingAdapter } from './funcs/embed.js';
 import {
   AxJSRuntime,
+  type AxJSRuntimeOutputMode,
   AxJSRuntimePermission,
   axCreateJSRuntime,
 } from './funcs/jsRuntime.js';
@@ -1304,6 +1305,7 @@ export type { AxIField };
 export type { AxInputFunctionType };
 export type { AxInternalChatRequest };
 export type { AxInternalEmbedRequest };
+export type { AxJSRuntimeOutputMode };
 export type { AxJudgeMode };
 export type { AxJudgeOptions };
 export type { AxJudgeResult };

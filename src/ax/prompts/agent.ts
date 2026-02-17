@@ -368,7 +368,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
                 title: toTitle(RLM_INLINE_RESULT_READY_FIELD),
                 type: { name: 'boolean' as const },
                 description:
-                  'Set true only when final output fields are complete',
+                  'Emit only true when final output fields are complete; otherwise omit this field',
                 isOptional: true,
               },
             ]
@@ -395,6 +395,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           mode: this.rlmMode,
           inlineCodeFieldName: this.rlmInlineCodeFieldName,
           inlineLanguage: this.rlmInlineLanguage,
+          runtimeUsageInstructions: rlmRuntime.getUsageInstructions?.(),
         }
       );
 
@@ -904,8 +905,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         });
       };
 
-      const defaultRuntimeTimeoutMs = 30_000;
-      const timeoutRestartNotice = `[RLM session restarted after timeout; previous REPL variables were lost. AxJSRuntime default timeout is ${defaultRuntimeTimeoutMs}ms.]`;
+      const timeoutRestartNotice = `[The ${interpreter.language} runtime was restarted; all global state was lost and must be recreated if needed.]`;
       let session = createRlmSession();
       let shouldRestartClosedSession = false;
 
@@ -1072,7 +1072,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           inlineProgram.addFieldProcessor(
             RLM_INLINE_RESULT_READY_FIELD as any,
             async (value) => {
-              inlineState.resultReady = toBoolean(value);
+              if (toBoolean(value)) {
+                inlineState.resultReady = true;
+              }
               return;
             }
           );
@@ -1102,8 +1104,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           description:
             `Execute ${interpreter.language} code in a persistent REPL. ` +
             `Context available as: ${contextDesc || rlm.contextFields.join(', ')}. ` +
-            `Use \`await llmQuery(query, context?)\` for semantic analysis or \`await llmQuery([...])\` for batched queries. ` +
-            `Persist with var (sync) or bare assignment (async). Return a value to see it.`,
+            `Use \`await llmQuery(query, context?)\` for semantic analysis or \`await llmQuery([...])\` for batched queries.`,
           parameters: {
             type: 'object',
             properties: {
