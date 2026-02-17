@@ -169,7 +169,6 @@ const DEFAULT_RLM_BATCH_CONCURRENCY = 8;
 const DEFAULT_RLM_MAX_STEPS = 20;
 const DEFAULT_RLM_MODE: NonNullable<AxRLMConfig['mode']> = 'inline';
 const DEFAULT_RLM_INLINE_LANGUAGE = 'javascript';
-const RLM_INLINE_LLM_QUERY_FIELD = 'llmQuery';
 const RLM_INLINE_RESULT_READY_FIELD = 'resultReady';
 
 type AxRLMExecutionEntry = {
@@ -335,11 +334,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       if (this.rlmMode === 'inline') {
         validateNoReservedInlineOutputNames(
           this.program.getSignature().getOutputFields(),
-          [
-            this.rlmInlineCodeFieldName,
-            RLM_INLINE_LLM_QUERY_FIELD,
-            RLM_INLINE_RESULT_READY_FIELD,
-          ]
+          [this.rlmInlineCodeFieldName, RLM_INLINE_RESULT_READY_FIELD]
         );
       }
 
@@ -357,13 +352,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
                 isOptional: true,
               },
               {
-                name: RLM_INLINE_LLM_QUERY_FIELD,
-                title: toTitle(RLM_INLINE_LLM_QUERY_FIELD),
-                type: { name: 'string' as const, isArray: true },
-                description: 'Batched sub-LM queries to execute',
-                isOptional: true,
-              },
-              {
                 name: RLM_INLINE_RESULT_READY_FIELD,
                 title: toTitle(RLM_INLINE_RESULT_READY_FIELD),
                 type: { name: 'boolean' as const },
@@ -374,11 +362,22 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
             ]
           : baseOutputs;
 
-      const rlmSig = new AxSignature({
-        description: this.program.getSignature().getDescription(),
-        inputs: inputFields.filter(
+      const rlmInputs = [
+        ...inputFields.filter(
           (f) => !options.rlm!.contextFields.includes(f.name)
         ),
+        {
+          name: 'contextMetadata',
+          title: 'Context Metadata',
+          type: { name: 'string' as const },
+          description:
+            'Auto-generated metadata about pre-loaded context variables (type and size)',
+        },
+      ];
+
+      const rlmSig = new AxSignature({
+        description: this.program.getSignature().getDescription(),
+        inputs: rlmInputs,
         outputs: rlmOutputs,
       });
 
@@ -386,6 +385,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         options.rlm!.contextFields.includes(f.name)
       );
       this.rlmContextFields = contextFieldMeta;
+
+      const maxLlmCalls = options.rlm!.maxLlmCalls ?? DEFAULT_RLM_MAX_LLM_CALLS;
 
       const rlmDef = axBuildRLMDefinition(
         definition ?? description,
@@ -396,6 +397,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           inlineCodeFieldName: this.rlmInlineCodeFieldName,
           inlineLanguage: this.rlmInlineLanguage,
           runtimeUsageInstructions: rlmRuntime.getUsageInstructions?.(),
+          maxLlmCalls,
         }
       );
 
@@ -754,6 +756,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       const executionHistory: AxRLMExecutionEntry[] = [];
       let llmCallCount = 0;
       const maxLlmCalls = rlm.maxLlmCalls ?? DEFAULT_RLM_MAX_LLM_CALLS;
+      const llmCallWarnThreshold = Math.floor(maxLlmCalls * 0.8);
       const maxRuntimeChars =
         rlm.maxRuntimeChars ??
         rlm.maxSubQueryContextChars ??
@@ -765,9 +768,22 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       );
 
       const llmQuery = async (
-        queryOrQueries: string | readonly { query: string; context?: string }[],
+        queryOrQueries:
+          | string
+          | { query: string; context?: string }
+          | readonly { query: string; context?: string }[],
         ctx?: string
       ): Promise<string | string[]> => {
+        // Normalize single-object form: llmQuery({ query, context }) → llmQuery(query, context)
+        if (
+          !Array.isArray(queryOrQueries) &&
+          typeof queryOrQueries === 'object' &&
+          queryOrQueries !== null &&
+          'query' in queryOrQueries
+        ) {
+          return llmQuery(queryOrQueries.query, queryOrQueries.context ?? ctx);
+        }
+
         // Pre-check: if already aborted, throw immediately
         if (effectiveAbortSignal?.aborted) {
           throw new AxAIServiceAbortedError(
@@ -805,8 +821,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
             ? truncateText(singleCtx, maxRuntimeChars)
             : undefined;
 
-          if (llmCallCount++ >= maxLlmCalls) {
-            throw new Error(`Max LLM sub-calls (${maxLlmCalls}) exceeded`);
+          llmCallCount++;
+          if (llmCallCount > maxLlmCalls) {
+            return `[ERROR] Sub-query budget exhausted (${maxLlmCalls}/${maxLlmCalls}). Use the data you have already accumulated to produce your final answer.`;
           }
 
           const maxAttempts = 3;
@@ -895,7 +912,11 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           throw lastError;
         };
 
-        return runSingleLlmQuery(query, ctx);
+        const result = await runSingleLlmQuery(query, ctx);
+        if (llmCallCount === llmCallWarnThreshold) {
+          return `${result}\n[WARNING] ${llmCallCount}/${maxLlmCalls} sub-queries used. Plan to wrap up soon.`;
+        }
+        return result;
       };
 
       const createRlmSession = () => {
@@ -936,10 +957,13 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         .map((f) => `${f.name}: ${toFieldType(f.type)}`)
         .join(', ');
 
+      const reservedNames = ['llmQuery', ...rlm.contextFields];
+
       const executeInterpreterCode = async (code: string) => {
         try {
           const result = await session.execute(code, {
             signal: effectiveAbortSignal,
+            reservedNames,
           });
           const output = formatInterpreterOutput(result);
           executionHistory.push({ code, output });
@@ -974,6 +998,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
               session = createRlmSession();
               const retryResult = await session.execute(code, {
                 signal: effectiveAbortSignal,
+                reservedNames,
               });
               const output = truncateText(
                 `${timeoutRestartNotice}\n${formatInterpreterOutput(retryResult)}`,
@@ -1036,6 +1061,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           return fallbackResult;
         };
 
+        const contextMetadata = buildRLMVariablesInfo(contextValues);
+        const forwardValues = { ...nonContextValues, contextMetadata };
+
         if (this.rlmMode === 'inline') {
           const inlineState: AxRLMInlineState = { resultReady: false };
           const inlineProgram = this.rlmProgram!.clone();
@@ -1052,24 +1080,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           );
 
           inlineProgram.addFieldProcessor(
-            RLM_INLINE_LLM_QUERY_FIELD as any,
-            async (value) => {
-              if (!Array.isArray(value) || value.length === 0) {
-                return;
-              }
-              const queries = value
-                .map((v) => String(v))
-                .filter((q) => q.trim().length > 0);
-              if (queries.length === 0) {
-                return;
-              }
-              return (await llmQuery(
-                queries.map((query) => ({ query }))
-              )) as string[];
-            }
-          );
-
-          inlineProgram.addFieldProcessor(
             RLM_INLINE_RESULT_READY_FIELD as any,
             async (value) => {
               if (toBoolean(value)) {
@@ -1082,7 +1092,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           try {
             const inlineResult = await inlineProgram.forward(
               ai,
-              nonContextValues as any,
+              forwardValues as any,
               mergedOptions as any
             );
             const businessResult = this.stripInlineHelperFields(inlineResult);
@@ -1123,7 +1133,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         try {
           return await this.rlmProgram!.forward(
             ai,
-            nonContextValues as any,
+            forwardValues as any,
             {
               ...mergedOptions,
               functions: [...baseFunctions, codeInterpreterFn],
@@ -1201,7 +1211,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     const cloned = { ...(values as Record<string, unknown>) };
     delete cloned[this.rlmInlineCodeFieldName];
-    delete cloned[RLM_INLINE_LLM_QUERY_FIELD];
     delete cloned[RLM_INLINE_RESULT_READY_FIELD];
     return cloned as OUT;
   }

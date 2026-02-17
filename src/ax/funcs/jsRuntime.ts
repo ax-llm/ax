@@ -998,18 +998,20 @@ export class AxJSRuntime implements AxCodeRuntime {
   }
 
   public getUsageInstructions(): string {
-    return [
-      '- Treat the session like one long-running program split across multiple execute() calls.',
-      '- State is session-scoped: values persist across execute() calls only while using the same session.',
-      '- With await, code runs in an async-function path; do not rely on local const/let/var declarations for cross-call state.',
-      '- Prefer explicit global/shared state for durability across calls, for example `globalThis.state = await getState()` and then mutate `globalThis.state`.',
-      '- Mutating shared globals passed into createSession(...) is also a reliable persistence pattern.',
-      '- Bare assignment like `state = await getState()` may work, but explicit global/shared-object mutation is preferred.',
-      '- Use `console.log(...)` (or `print(...)`) whenever later code depends on an intermediate value and you need to inspect it before the next step.',
-      '- Return values and trailing expressions are still useful, but prefer explicit logs for step-by-step inspection.',
+    const outputLines =
       this.outputMode === 'stdout'
-        ? '- Stdout mode is enabled: visible output comes from captured logs/prints, otherwise from a returned value when provided.'
-        : '- Return mode is enabled: visible output comes from return values or trailing expressions.',
+        ? [
+            '- Stdout mode is enabled: `console.log(...)` and `print(...)` output is captured as the execution result.',
+            '- Use `console.log(...)` to inspect intermediate values between steps.',
+          ]
+        : [
+            '- Return mode is enabled: use `return` or a trailing expression to produce the execution result.',
+          ];
+
+    return [
+      '- State is session-scoped: `var` declarations persist across calls (sloppy-mode eval). Prefer `var` over `let`/`const` for cross-call variables.',
+      '- Bare assignment (e.g. `x = 1`) also persists via `globalThis`.',
+      ...outputLines,
     ].join('\n');
   }
 
@@ -1243,10 +1245,35 @@ export class AxJSRuntime implements AxCodeRuntime {
     return {
       execute(
         code: string,
-        options?: { signal?: AbortSignal }
+        options?: {
+          signal?: AbortSignal;
+          reservedNames?: readonly string[];
+        }
       ): Promise<unknown> {
         if (isClosed) {
           return Promise.reject(new Error('Session is closed'));
+        }
+
+        // Block "use strict" directive — it breaks the runtime sandbox
+        if (/['"]use strict['"]/.test(code)) {
+          return Promise.resolve(
+            '[ERROR] "use strict" is not allowed in the runtime session. Remove it and try again.'
+          );
+        }
+
+        // Block reassignment of reserved variables
+        const reserved = options?.reservedNames;
+        if (reserved) {
+          for (const name of reserved) {
+            const pattern = new RegExp(
+              `(?:^|[;\\n])\\s*(?:(?:var|let|const)\\s+)?${name}\\s*=`
+            );
+            if (pattern.test(code)) {
+              return Promise.resolve(
+                `[ERROR] Cannot reassign reserved variable '${name}'. Use a different variable name.`
+              );
+            }
+          }
         }
 
         const signal = options?.signal;

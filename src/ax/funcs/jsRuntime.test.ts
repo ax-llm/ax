@@ -48,8 +48,8 @@ describe('AxJSRuntime', () => {
     expect(typeof instructions).toBe('string');
     expect(instructions.length).toBeGreaterThan(0);
     expect(instructions).toContain('State is session-scoped');
-    expect(instructions).toContain('globalThis.state');
-    expect(instructions).toContain('await');
+    expect(instructions).toContain('globalThis');
+    expect(instructions).toContain('var');
   });
 
   it('sends empty permissions by default', () => {
@@ -180,7 +180,6 @@ describe('AxJSRuntime', () => {
       outputMode: 'return',
     }).getUsageInstructions();
 
-    expect(stdoutMode).toContain('one long-running program');
     expect(stdoutMode).toContain('Stdout mode is enabled');
     expect(stdoutMode).toContain('console.log(...)');
     expect(returnMode).toContain('Return mode is enabled');

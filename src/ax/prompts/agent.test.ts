@@ -866,7 +866,7 @@ describe('axBuildRLMDefinition dual structured/string guidance', () => {
 
   it('should include JSON.stringify guidance in APIs section', () => {
     const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
-    expect(result).toContain('use JSON.stringify() for objects/arrays');
+    expect(result).toContain('JSON.stringify()');
   });
 
   it('should document batched llmQuery overload', () => {
@@ -912,7 +912,7 @@ describe('axBuildRLMDefinition dual structured/string guidance', () => {
       inlineCodeFieldName: 'javascriptCode',
       inlineLanguage: 'javascript',
     });
-    expect(result).toContain('## RLM Inline Runtime');
+    expect(result).toContain('## Iterative Context Analysis');
     expect(result).toContain('`javascriptCode`');
     expect(result).toContain('`llmQuery`');
     expect(result).toContain('`resultReady`');
@@ -1046,6 +1046,67 @@ describe('RLM llmQuery runtime behavior', () => {
     });
     expect(result.answer).toContain('ok');
     expect(result.answer).toContain('[ERROR] boom');
+  });
+
+  it('should normalize single-object llmQuery({ query, context }) to positional args', async () => {
+    const testMockAI = new AxMockAIService({
+      features: { functions: true, streaming: false },
+      chatResponse: async () => ({
+        results: [
+          {
+            index: 0,
+            content: 'sub-lm-answer',
+            finishReason: 'stop' as const,
+          },
+        ],
+        modelUsage: makeModelUsage(),
+      }),
+    });
+
+    const runtime = makeTestRuntime(async (_code, globals) => {
+      // Call llmQuery with a single object (the form LLMs often produce)
+      const llmQueryFn = globals.llmQuery as (q: {
+        query: string;
+        context?: string;
+      }) => Promise<string>;
+      return await llmQueryFn({
+        query: 'summarize this',
+        context: 'some context',
+      });
+    });
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      name: 'rlmSingleObjectAgent',
+      description: 'Agent used to verify single-object llmQuery normalization.',
+      ai: testMockAI,
+      rlm: {
+        mode: 'function',
+        contextFields: ['context'],
+        runtime,
+      },
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (testAgent as any).rlmProgram = {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      forward: async (_ai: any, _values: any, forwardOptions: any) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const codeInterpreter = forwardOptions.functions.find((f: any) => {
+          return f.name === 'codeInterpreter';
+        });
+        const output = await codeInterpreter.func({
+          code: 'SINGLE_OBJ_TEST',
+        });
+        return { answer: output };
+      },
+    };
+
+    const result = await testAgent.forward(testMockAI, {
+      context: 'unused',
+      query: 'unused',
+    });
+    // Should succeed (not crash) and return the sub-LM answer
+    expect(result.answer).toBe('sub-lm-answer');
   });
 
   it('should prioritize maxRuntimeChars over deprecated aliases', async () => {
@@ -1399,16 +1460,16 @@ describe('RLM inline mode', () => {
     const codeField = outputFields.find(
       (f: AxIField) => f.name === 'javascriptCode'
     );
-    const llmQueryField = outputFields.find(
-      (f: AxIField) => f.name === 'llmQuery'
-    );
     const readyField = outputFields.find(
       (f: AxIField) => f.name === 'resultReady'
     );
 
     expect(answerField?.isOptional).toBe(true);
     expect(codeField?.isOptional).toBe(true);
-    expect(llmQueryField?.type?.isArray).toBe(true);
+    // llmQuery is no longer an output field — it's a runtime API called from code
+    expect(
+      outputFields.find((f: AxIField) => f.name === 'llmQuery')
+    ).toBeUndefined();
     expect(readyField?.type?.name).toBe('boolean');
   });
 
@@ -1446,7 +1507,6 @@ describe('RLM inline mode', () => {
     let sawCodeInterpreterFunction = false;
     let sawCodeExecutedPrefix = false;
     const observedExecutedCode: string[] = [];
-    let llmQueryCallCount = 0;
 
     const testMockAI = new AxMockAIService({
       features: { functions: true, streaming: false },
@@ -1457,7 +1517,6 @@ describe('RLM inline mode', () => {
             'Answer the query based on the provided context.'
           )
         ) {
-          llmQueryCallCount++;
           return {
             results: [
               { index: 0, content: 'sub-answer', finishReason: 'stop' },
@@ -1481,8 +1540,7 @@ describe('RLM inline mode', () => {
             results: [
               {
                 index: 0,
-                content:
-                  'Javascript Code: return "code-output"\nLlm Query:\n- summarize this',
+                content: 'Javascript Code: return "code-output"',
                 finishReason: 'stop',
               },
             ],
@@ -1536,11 +1594,9 @@ describe('RLM inline mode', () => {
 
     expect(result.answer).toBe('final answer');
     expect((result as Record<string, unknown>).javascriptCode).toBeUndefined();
-    expect((result as Record<string, unknown>).llmQuery).toBeUndefined();
     expect((result as Record<string, unknown>).resultReady).toBeUndefined();
     expect(observedExecutedCode[0]).toBe('return "code-output"');
     expect(sawCodeExecutedPrefix).toBe(true);
-    expect(llmQueryCallCount).toBe(1);
     expect(callCount).toBe(2);
     expect(sawCodeInterpreterFunction).toBe(false);
   });

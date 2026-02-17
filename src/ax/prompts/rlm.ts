@@ -31,7 +31,10 @@ export type AxCodeInterpreter = AxCodeRuntime;
  * A persistent code execution session. Variables persist across `execute()` calls.
  */
 export interface AxCodeSession {
-  execute(code: string, options?: { signal?: AbortSignal }): Promise<unknown>;
+  execute(
+    code: string,
+    options?: { signal?: AbortSignal; reservedNames?: readonly string[] }
+  ): Promise<unknown>;
   close(): void;
 }
 
@@ -88,6 +91,7 @@ export function axBuildRLMDefinition(
     inlineCodeFieldName?: string;
     inlineLanguage?: string;
     runtimeUsageInstructions?: string;
+    maxLlmCalls?: number;
   }>
 ): string {
   // Backward compat: convert string[] to minimal AxIField[]
@@ -112,6 +116,7 @@ export function axBuildRLMDefinition(
   const mode = options?.mode ?? 'function';
   const inlineCodeFieldName = options?.inlineCodeFieldName ?? 'javascriptCode';
   const inlineLanguage = options?.inlineLanguage ?? 'javascript';
+  const maxLlmCalls = options?.maxLlmCalls ?? 50;
   const runtimeUsageInstructions =
     options?.runtimeUsageInstructions?.trim() ?? '';
   const runtimeUsageNotesSection = runtimeUsageInstructions
@@ -119,9 +124,9 @@ export function axBuildRLMDefinition(
     : '';
 
   if (mode === 'inline') {
-    return `${baseDefinition ? `${baseDefinition}\n\n` : ''}## RLM Inline Runtime
+    const inlineBody = `## Iterative Context Analysis
 
-You can run iterative runtime work by filling helper output fields.
+You have a persistent ${inlineLanguage} runtime session. Variables and state persist across iterations. Use it to interactively explore, transform, and analyze context. You are strongly encouraged to use sub-LM queries for semantic analysis.
 
 ### Pre-loaded context variables
 The following variables are available in the runtime session:
@@ -129,96 +134,121 @@ ${contextVarList}
 
 ### Helper output fields
 - \`${inlineCodeFieldName}\` (optional): ${inlineLanguage} code to execute in the persistent runtime session.
-- \`llmQuery\` (optional): array of sub-LM query strings to run in parallel.
 - \`resultReady\` (optional): set to \`true\` only when your final required output fields are fully complete and validated. Otherwise omit this field (do not emit \`false\`).
 
+### Runtime APIs (available inside \`${inlineCodeFieldName}\`)
+- \`await llmQuery(query, context?)\` — Single sub-query. Both arguments are strings (pass context via JSON.stringify() for objects/arrays). Returns a string. Sub-LMs are powerful and can handle large context, so do not be afraid to pass substantial context to them.
+- \`await llmQuery([{ query, context? }, ...])\` — Parallel batch. Pass an array of { query, context? } objects. Returns string[]; failed items return \`[ERROR] ...\`. Use parallel queries when you have multiple independent chunks — it is much faster than sequential calls.
+
+Sub-queries have a call limit of ${maxLlmCalls} — use parallel queries and keep each context small.
+There is also a runtime character cap for \`llmQuery\` context and code output. Oversized values are truncated automatically.
+
 ### Iteration strategy
-- This is iterative: do not solve everything in one step.
-- Start with runtime probing and small inspections.
-- Use \`${inlineCodeFieldName}\` for structural work (filter, map, slice, regex, property access).
-- Use \`llmQuery\` for semantic analysis.
-- Keep outputs concise; avoid large dumps.
-- If runtime output appears truncated, rerun with narrower scope.
+1. **Explore first**: before doing any analysis, inspect the context — check its type, size, structure, and a sample. Do not try to solve everything in the first step.
+2. **Plan a chunking strategy**: figure out how to break the context into smart chunks (by section, by index range, by regex pattern, etc.) based on what you observe.
+3. **Use code for structural work**: filter, map, slice, regex, property access — use \`${inlineCodeFieldName}\` for anything computable.
+4. **Use \`llmQuery\` for semantic work**: summarization, interpretation, or answering questions about content. Keep each query focused but do not be afraid to pass substantial context.
+5. **Build up answers in variables**: use variables as buffers to accumulate intermediate results across steps, then combine them for the final answer.
+6. **Handle truncated output**: runtime output may be truncated. If it appears incomplete, rerun with narrower scope or smaller slices.
+7. **Verify before finishing**: check that your outputs look correct before setting \`resultReady: true\`.
+
+### Example (iterative analysis of \`${firstFieldName}\`)
+Step 1 (explore context):
+\`\`\`
+${inlineCodeFieldName}: var n = ${firstFieldName}.length; n
+\`\`\`
+
+Step 2 (inspect structure and plan chunking):
+\`\`\`
+${inlineCodeFieldName}: var sample = JSON.stringify(${firstFieldName}.slice(0, 2)); sample
+\`\`\`
+
+Step 3 (semantic batch — query sub-LMs on chunks with context):
+\`\`\`
+${inlineCodeFieldName}: var chunks = [${firstFieldName}.slice(0, 5), ${firstFieldName}.slice(5, 10)]
+results = await llmQuery(chunks.map(c => ({ query: "Summarize the key points", context: JSON.stringify(c) })))
+results
+\`\`\`
+
+Step 4 (aggregate in a buffer variable):
+\`\`\`
+${inlineCodeFieldName}: var ok = results.filter(r => !String(r).startsWith("[ERROR]"))
+var combined = ok.join("\\n"); combined
+\`\`\`
+
+Step 5 (finish):
+\`\`\`
+resultReady: true
+<required output fields...>
+\`\`\`
 
 ### Important
 - You may emit helper fields for intermediate steps.
 - On the final step, provide all required business output fields and set \`resultReady: true\`.
 - Do not emit \`resultReady: false\`; omit \`resultReady\` until it is true.
-- Do not include helper fields in the final business answer unless you are still iterating.
+- Do not include helper fields in the final business answer unless you are still iterating.${runtimeUsageNotesSection}`;
 
-### Example (iterative)
-Step 1 (probe):
-\`\`\`
-${inlineCodeFieldName}: var n = ${firstFieldName}.length; n
-\`\`\`
-
-Step 2 (semantic batch):
-\`\`\`
-llmQuery:
-- Summarize topic A
-- Summarize topic B
-\`\`\`
-
-Step 3 (finish):
-\`\`\`
-resultReady: true
-<required output fields...>
-\`\`\``;
+    return baseDefinition ? `${inlineBody}\n\n${baseDefinition}` : inlineBody;
   }
 
-  const rlmPrompt = `${baseDefinition ? `${baseDefinition}\n\n` : ''}## Code Interpreter
+  const rlmBody = `## Iterative Context Analysis
 
-You have a persistent ${language} REPL via the \`codeInterpreter\` function.
-Variables and state persist across calls.
+You have a persistent ${language} REPL via the \`codeInterpreter\` function. Variables and state persist across calls. Use it to interactively explore, transform, and analyze context. You are strongly encouraged to use sub-LM queries for semantic analysis.
 
 ### Pre-loaded context variables
 The following variables are available in the interpreter session:
 ${contextVarList}
 
 ### APIs
-- \`await llmQuery(query, context?)\` — Ask a sub-LM a natural-language question. Pass context as a string (use JSON.stringify() for objects/arrays). Returns a string.
-- \`await llmQuery([{ query, context? }, ...])\` — Parallel sub-queries. Returns string[]; failed items return \`[ERROR] ...\`.
+- \`await llmQuery(query, context?)\` — Single sub-query. Both arguments are strings (pass context via JSON.stringify() for objects/arrays). Returns a string. Sub-LMs are powerful and can handle large context, so do not be afraid to pass substantial context to them.
+- \`await llmQuery([{ query, context? }, ...])\` — Parallel batch. Pass an array of { query, context? } objects. Returns string[]; failed items return \`[ERROR] ...\`. Use parallel queries when you have multiple independent chunks — it is much faster than sequential calls.
 
-Sub-queries have a call limit — use parallel queries and keep each context small.
+Sub-queries have a call limit of ${maxLlmCalls} — use parallel queries and keep each context small.
 There is also a runtime character cap for \`llmQuery\` context and \`codeInterpreter\` output. Oversized values are truncated automatically.
 
 ### Iteration strategy
-- This is iterative: do not try to solve everything in one step.
-- Explore first: inspect type/size/sample before heavy processing.
-- Iterate in small steps: run short code, inspect output, then decide next step.
-- Verify before final answer: if outputs look empty/odd, reassess and rerun.
-- Always surface key intermediate checks so you can validate assumptions.
-- Keep long values in variables; avoid retyping large snippets.
-- Use \`llmQuery\` for semantic understanding, not for basic filtering/slicing.
+1. **Explore context first**: before any analysis, inspect the type, size, and structure of your context. Check a sample to understand the data shape.
+2. **Plan a chunking strategy**: based on what you observe, figure out how to break the context into smart chunks (by section headers, by index ranges, by regex patterns, etc.).
+3. **Iterate in small steps**: run short code, inspect output, then decide the next step. Do not try to solve everything in one call.
+4. **Use code for structural work**: filter, map, slice, regex, property access — anything computable.
+5. **Use \`llmQuery\` for semantic understanding**: summarization, interpretation, classification, or answering questions about content.
+6. **Build up answers in variables**: use variables as buffers to accumulate results across calls, then aggregate them for the final answer.
+7. **Handle truncation**: you will only see truncated output from the REPL. If output appears incomplete, rerun with narrower scope.
+8. **Verify before final answer**: if outputs look empty or unexpected, reassess and rerun. Always surface key intermediate checks so you can validate assumptions.
 
 ### Example
 Analyzing \`${firstFieldName}\`:
 
-**Call 1** — probe:
+**Call 1** — explore context:
 \`\`\`
 var n = ${firstFieldName}.length
-n
+var sample = JSON.stringify(${firstFieldName}.slice(0, 2))
+return { count: n, sample }
 \`\`\`
-→ 42
+→ { count: 42, sample: "[...]" }
 
-**Call 2** — filter/select relevant items first:
+**Call 2** — plan and chunk:
 \`\`\`
-var subset = ${firstFieldName}.slice(0, 5)
-subset.length
+var chunkSize = Math.ceil(n / 4)
+var chunks = []
+for (var i = 0; i < n; i += chunkSize) {
+  chunks.push(${firstFieldName}.slice(i, i + chunkSize))
+}
+return chunks.length
 \`\`\`
-→ 5
+→ 4
 
-**Call 3** — run semantic queries on selected context:
+**Call 3** — run semantic queries on chunks concurrently:
 \`\`\`
 results = await llmQuery(
-  subset.map(item => ({
-    query: "Summarize key points",
-    context: JSON.stringify(item)
+  chunks.map(chunk => ({
+    query: "Summarize the key points",
+    context: JSON.stringify(chunk)
   }))
 )
 return results
 \`\`\`
-→ ["Summary 1...", "Summary 2...", ...]
+→ ["Summary of chunk 0...", "Summary of chunk 1...", ...]
 
 **Call 4** — handle failed batch items if any:
 \`\`\`
@@ -226,9 +256,9 @@ var ok = results.filter(r => !String(r).startsWith("[ERROR]"))
 var failed = results.filter(r => String(r).startsWith("[ERROR]"))
 return { okCount: ok.length, failedCount: failed.length }
 \`\`\`
-→ { okCount: 4, failedCount: 1 }
+→ { okCount: 4, failedCount: 0 }
 
-**Call 5** — aggregate:
+**Call 5** — aggregate into final answer:
 \`\`\`
 answer = await llmQuery("Synthesize these summaries into a final answer", ok.join("\\n"))
 return answer
@@ -243,7 +273,8 @@ Then provide the final answer with the required output fields.
 - Keep codeInterpreter output concise; return or print summaries/counts instead of massive dumps.
 - If output includes \`...[truncated N chars]\`, treat it as incomplete and retry with narrower context.
 - For batched \`llmQuery\`, keep successes and retry only failed \`[ERROR] ...\` items.
-- If \`llmQuery\` fails, use try/catch and retry with a smaller chunk or different query.${runtimeUsageNotesSection}`;
+- If \`llmQuery\` fails, use try/catch and retry with a smaller chunk or different query.
+- Keep long values in variables; avoid retyping large snippets.${runtimeUsageNotesSection}`;
 
-  return rlmPrompt;
+  return baseDefinition ? `${rlmBody}\n\n${baseDefinition}` : rlmBody;
 }

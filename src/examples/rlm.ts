@@ -9,7 +9,12 @@ import {
 const llm = ai({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY!,
-  config: { model: AxAIGoogleGeminiModel.Gemini25Flash },
+  config: {
+    model: AxAIGoogleGeminiModel.Gemini25Flash,
+    thinking: {
+      thinkingTokenBudget: 600,
+    },
+  },
 });
 
 const analyzer = agent(
