@@ -736,6 +736,8 @@ import {
   type AxAgentFeatures,
   type AxAgentic,
   type AxAgentOptions,
+  type AxRLMInlineOutput,
+  type AxRLMInput,
   agent,
 } from './prompts/agent.js';
 import { axRAG } from './prompts/rag.js';
@@ -1382,6 +1384,8 @@ export type { AxProgramUsage };
 export type { AxProgrammable };
 export type { AxPromptTemplateOptions };
 export type { AxRLMConfig };
+export type { AxRLMInlineOutput };
+export type { AxRLMInput };
 export type { AxRateLimiterFunction };
 export type { AxRateLimiterTokenUsageOptions };
 export type { AxRerankerIn };

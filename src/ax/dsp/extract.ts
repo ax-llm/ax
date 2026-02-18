@@ -637,7 +637,18 @@ export function validateAndParseFieldValue(
         throw new Error('Expected an array');
       }
     } catch (e) {
-      throw createInvalidArrayError(field, (e as Error).message);
+      const msg = (e as Error).message;
+      // If the LLM returned a plain string (no list markers found), wrap it into a
+      // single-element array instead of failing. But if the content was a genuinely
+      // malformed list (e.g., mixed content), still throw.
+      if (
+        msg.includes('no valid list items found') ||
+        msg === 'Expected an array'
+      ) {
+        value = [fieldValue];
+      } else {
+        throw createInvalidArrayError(field, msg);
+      }
     }
   }
 

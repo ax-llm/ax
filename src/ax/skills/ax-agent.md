@@ -349,7 +349,7 @@ When you pass a long document to an LLM, you face:
 
 1. **Context extraction** — Fields listed in `contextFields` are removed from the LLM prompt and loaded into a runtime session as variables.
 2. **Execution mode**
-   - `mode: 'inline'` (default): the LLM emits helper output fields (`<language>Code`, `llmQuery`, `resultReady`) that are processed via field processors.
+   - `mode: 'inline'` (default): the LLM emits a `<language>Code` helper output field that is processed via field processors. The absence of the code field signals completion.
    - `mode: 'function'`: the LLM uses the `codeInterpreter` tool.
 3. **Sub-LM queries** — Runtime calls use `llmQuery(...)` for semantic analysis.
 4. **Final answer** — When done, the LLM provides its final answer with the required output fields.
@@ -458,10 +458,10 @@ Structured fields are loaded as native JavaScript objects in the interpreter, pr
 
 In `mode: 'function'`, the agent gets a `codeInterpreter` tool.
 
-In `mode: 'inline'`, the model emits helper output fields:
+In `mode: 'inline'`, the model emits a helper output field:
 - `<language>Code` (for example `javascriptCode`) for runtime code execution
-- `llmQuery` (`string[]`) for batched sub-LM queries
-- `resultReady` (`boolean`) to signal completion
+
+The absence of the code field signals that the LLM is providing its final answer. The `llmQuery` API is available inside code for semantic sub-queries.
 
 The LLM's typical workflow:
 

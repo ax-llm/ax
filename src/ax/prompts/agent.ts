@@ -10,7 +10,7 @@ import { validateStructuredOutputValues } from '../dsp/extract.js';
 import type { AxInputFunctionType } from '../dsp/functions.js';
 import { AxGen } from '../dsp/generate.js';
 import { toFieldType } from '../dsp/prompt.js';
-import type { AxIField } from '../dsp/sig.js';
+import type { AxIField, AxSignatureConfig } from '../dsp/sig.js';
 import { AxSignature } from '../dsp/sig.js';
 import type { ParseSignature } from '../dsp/sigtypes.js';
 import type {
@@ -37,6 +37,18 @@ import {
 } from '../util/apicall.js';
 import type { AxRLMConfig } from './rlm.js';
 import { axBuildRLMDefinition } from './rlm.js';
+
+/** RLM-extended input: original inputs minus context fields, plus contextMetadata */
+export type AxRLMInput<IN extends AxGenIn, ContextFields extends string> = Omit<
+  IN,
+  ContextFields
+> & { contextMetadata: string };
+
+/** RLM inline mode output: all original outputs optional, plus code field */
+export type AxRLMInlineOutput<
+  OUT extends AxGenOut,
+  CodeFieldName extends string = 'javascriptCode',
+> = Partial<OUT> & { [K in CodeFieldName]?: string };
 
 /**
  * Interface for agents that can be used as child agents.
@@ -169,15 +181,9 @@ const DEFAULT_RLM_BATCH_CONCURRENCY = 8;
 const DEFAULT_RLM_MAX_STEPS = 20;
 const DEFAULT_RLM_MODE: NonNullable<AxRLMConfig['mode']> = 'inline';
 const DEFAULT_RLM_INLINE_LANGUAGE = 'javascript';
-const RLM_INLINE_RESULT_READY_FIELD = 'resultReady';
-
 type AxRLMExecutionEntry = {
   code: string;
   output: string;
-};
-
-type AxRLMInlineState = {
-  resultReady: boolean;
 };
 
 /**
@@ -207,8 +213,12 @@ type AxRLMInlineState = {
  *   description: 'An agent that does something'
  * });
  */
-export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
-  implements AxAgentic<IN, OUT>
+export class AxAgent<
+  IN extends AxGenIn,
+  OUT extends AxGenOut,
+  RLMIN extends AxGenIn = IN,
+  RLMOUT extends AxGenOut = OUT,
+> implements AxAgentic<IN, OUT>
 {
   private ai?: AxAIService;
   private program: AxGen<IN, OUT>;
@@ -220,7 +230,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private options?: Readonly<AxAgentOptions>;
   private rlmConfig?: AxRLMConfig;
   private rlmContextFields?: readonly AxIField[];
-  private rlmProgram?: AxGen<any, OUT>;
+  private rlmProgram?: AxGen<RLMIN, RLMOUT>;
   private rlmMode: NonNullable<AxRLMConfig['mode']> = DEFAULT_RLM_MODE;
   private rlmInlineLanguage = DEFAULT_RLM_INLINE_LANGUAGE;
   private rlmInlineCodeFieldName = toInlineCodeFieldName(
@@ -248,7 +258,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       name: string;
       description: string;
       definition?: string;
-      signature: NonNullable<ConstructorParameters<typeof AxSignature>[0]>;
+      signature:
+        | string
+        | Readonly<AxSignatureConfig>
+        | Readonly<AxSignature<IN, OUT>>;
       agents?: AxAgentic<IN, OUT>[];
       functions?: AxInputFunctionType;
     }>,
@@ -334,7 +347,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       if (this.rlmMode === 'inline') {
         validateNoReservedInlineOutputNames(
           this.program.getSignature().getOutputFields(),
-          [this.rlmInlineCodeFieldName, RLM_INLINE_RESULT_READY_FIELD]
+          [this.rlmInlineCodeFieldName]
         );
       }
 
@@ -349,14 +362,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
                 title: toTitle(this.rlmInlineCodeFieldName),
                 type: { name: 'code' as const },
                 description: `${this.rlmInlineLanguage} code to execute in runtime session`,
-                isOptional: true,
-              },
-              {
-                name: RLM_INLINE_RESULT_READY_FIELD,
-                title: toTitle(RLM_INLINE_RESULT_READY_FIELD),
-                type: { name: 'boolean' as const },
-                description:
-                  'Emit only true when final output fields are complete; otherwise omit this field',
                 isOptional: true,
               },
             ]
@@ -407,7 +412,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         ...options,
         description: rlmDef,
         maxSteps: options?.maxSteps ?? DEFAULT_RLM_MAX_STEPS,
-      });
+      }) as unknown as AxGen<RLMIN, RLMOUT>;
     }
   }
 
@@ -445,6 +450,55 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
    * );
    * ```
    */
+  public static create<
+    const T extends string,
+    const CF extends readonly string[],
+    const Lang extends string = 'javascript',
+  >(
+    signature: T,
+    config: AxAgentConfig<
+      ParseSignature<T>['inputs'],
+      ParseSignature<T>['outputs']
+    > & {
+      rlm: Omit<AxRLMConfig, 'contextFields' | 'mode' | 'language'> & {
+        contextFields: CF;
+        mode?: 'inline';
+        language?: Lang;
+      };
+    }
+  ): AxAgent<
+    ParseSignature<T>['inputs'],
+    ParseSignature<T>['outputs'],
+    AxRLMInput<ParseSignature<T>['inputs'], CF[number]>,
+    AxRLMInlineOutput<ParseSignature<T>['outputs'], `${Lowercase<Lang>}Code`>
+  >;
+  public static create<
+    const T extends string,
+    const CF extends readonly string[],
+  >(
+    signature: T,
+    config: AxAgentConfig<
+      ParseSignature<T>['inputs'],
+      ParseSignature<T>['outputs']
+    > & {
+      rlm: Omit<AxRLMConfig, 'contextFields' | 'mode'> & {
+        contextFields: CF;
+        mode: 'function';
+      };
+    }
+  ): AxAgent<
+    ParseSignature<T>['inputs'],
+    ParseSignature<T>['outputs'],
+    AxRLMInput<ParseSignature<T>['inputs'], CF[number]>,
+    ParseSignature<T>['outputs']
+  >;
+  public static create<const T extends string>(
+    signature: T,
+    config: AxAgentConfig<
+      ParseSignature<T>['inputs'],
+      ParseSignature<T>['outputs']
+    >
+  ): AxAgent<ParseSignature<T>['inputs'], ParseSignature<T>['outputs']>;
   public static create<const T extends string>(
     signature: T,
     config: AxAgentConfig<
@@ -471,10 +525,21 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   }
 
   public setExamples(
-    examples: Readonly<AxProgramExamples<IN, OUT>>,
+    examples:
+      | Readonly<AxProgramExamples<IN, OUT>>
+      | Readonly<AxProgramExamples<RLMIN, RLMOUT>>,
     options?: Readonly<AxSetExamplesOptions>
   ) {
-    this.program.setExamples(examples, options);
+    this.program.setExamples(
+      examples as Readonly<AxProgramExamples<IN, OUT>>,
+      options
+    );
+    if (this.rlmProgram) {
+      this.rlmProgram.setExamples(
+        examples as Readonly<AxProgramExamples<RLMIN, RLMOUT>>,
+        options
+      );
+    }
   }
 
   public setId(id: string) {
@@ -489,8 +554,17 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     return this.program.getTraces();
   }
 
-  public setDemos(demos: readonly AxProgramDemos<IN, OUT>[]) {
-    this.program.setDemos(demos);
+  public setDemos(
+    demos:
+      | readonly AxProgramDemos<IN, OUT>[]
+      | readonly AxProgramDemos<RLMIN, RLMOUT>[]
+  ) {
+    this.program.setDemos(demos as readonly AxProgramDemos<IN, OUT>[]);
+    if (this.rlmProgram) {
+      this.rlmProgram.setDemos(
+        demos as readonly AxProgramDemos<RLMIN, RLMOUT>[]
+      );
+    }
   }
 
   public getUsage() {
@@ -1065,7 +1139,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         const forwardValues = { ...nonContextValues, contextMetadata };
 
         if (this.rlmMode === 'inline') {
-          const inlineState: AxRLMInlineState = { resultReady: false };
           const inlineProgram = this.rlmProgram!.clone();
 
           inlineProgram.addFieldProcessor(
@@ -1079,16 +1152,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
             }
           );
 
-          inlineProgram.addFieldProcessor(
-            RLM_INLINE_RESULT_READY_FIELD as any,
-            async (value) => {
-              if (toBoolean(value)) {
-                inlineState.resultReady = true;
-              }
-              return;
-            }
-          );
-
           try {
             const inlineResult = await inlineProgram.forward(
               ai,
@@ -1096,11 +1159,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
               mergedOptions as any
             );
             const businessResult = this.stripInlineHelperFields(inlineResult);
-            if (inlineState.resultReady) {
-              this.validateFinalRLMOutput(businessResult);
-              return businessResult;
-            }
-            return await runFallbackExtraction();
+            this.validateFinalRLMOutput(businessResult);
+            return businessResult;
           } catch (error) {
             if (!isMaxStepsError(error)) {
               throw error;
@@ -1131,14 +1191,14 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         };
 
         try {
-          return await this.rlmProgram!.forward(
+          return (await this.rlmProgram!.forward(
             ai,
             forwardValues as any,
             {
               ...mergedOptions,
               functions: [...baseFunctions, codeInterpreterFn],
             } as any
-          );
+          )) as unknown as OUT;
         } catch (error) {
           if (!isMaxStepsError(error)) {
             throw error;
@@ -1204,14 +1264,13 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     );
   }
 
-  private stripInlineHelperFields(values: OUT): OUT {
+  private stripInlineHelperFields(values: Record<string, unknown>): OUT {
     if (this.rlmMode !== 'inline') {
-      return values;
+      return values as OUT;
     }
 
     const cloned = { ...(values as Record<string, unknown>) };
     delete cloned[this.rlmInlineCodeFieldName];
-    delete cloned[RLM_INLINE_RESULT_READY_FIELD];
     return cloned as OUT;
   }
 
@@ -1410,20 +1469,6 @@ function validateNoReservedInlineOutputNames(
   }
 }
 
-function toBoolean(value: unknown): boolean {
-  if (typeof value === 'boolean') {
-    return value;
-  }
-  if (typeof value === 'string') {
-    const lower = value.trim().toLowerCase();
-    return lower === 'true' || lower === '1' || lower === 'yes';
-  }
-  if (typeof value === 'number') {
-    return value !== 0;
-  }
-  return false;
-}
-
 function toCamelCase(inputString: string): string {
   // Split the string by any non-alphanumeric character (including underscores, spaces, hyphens)
   const words = inputString.split(/[^a-zA-Z0-9]/);
@@ -1591,6 +1636,86 @@ export interface AxAgentConfig<IN extends AxGenIn, OUT extends AxGenOut>
  * console.log(result.responseText); // TypeScript knows this exists
  * ```
  */
+// --- String signature + RLM inline mode ---
+export function agent<
+  const T extends string,
+  const CF extends readonly string[],
+  const Lang extends string = 'javascript',
+>(
+  signature: T,
+  config: AxAgentConfig<
+    ParseSignature<T>['inputs'],
+    ParseSignature<T>['outputs']
+  > & {
+    rlm: Omit<AxRLMConfig, 'contextFields' | 'mode' | 'language'> & {
+      contextFields: CF;
+      mode?: 'inline';
+      language?: Lang;
+    };
+  }
+): AxAgent<
+  ParseSignature<T>['inputs'],
+  ParseSignature<T>['outputs'],
+  AxRLMInput<ParseSignature<T>['inputs'], CF[number]>,
+  AxRLMInlineOutput<ParseSignature<T>['outputs'], `${Lowercase<Lang>}Code`>
+>;
+// --- String signature + RLM function mode ---
+export function agent<
+  const T extends string,
+  const CF extends readonly string[],
+>(
+  signature: T,
+  config: AxAgentConfig<
+    ParseSignature<T>['inputs'],
+    ParseSignature<T>['outputs']
+  > & {
+    rlm: Omit<AxRLMConfig, 'contextFields' | 'mode'> & {
+      contextFields: CF;
+      mode: 'function';
+    };
+  }
+): AxAgent<
+  ParseSignature<T>['inputs'],
+  ParseSignature<T>['outputs'],
+  AxRLMInput<ParseSignature<T>['inputs'], CF[number]>,
+  ParseSignature<T>['outputs']
+>;
+// --- AxSignature + RLM inline mode (for f() fluent builder) ---
+export function agent<
+  TInput extends Record<string, any>,
+  TOutput extends Record<string, any>,
+  const CF extends readonly string[],
+  const Lang extends string = 'javascript',
+>(
+  signature: AxSignature<TInput, TOutput>,
+  config: AxAgentConfig<TInput, TOutput> & {
+    rlm: Omit<AxRLMConfig, 'contextFields' | 'mode' | 'language'> & {
+      contextFields: CF;
+      mode?: 'inline';
+      language?: Lang;
+    };
+  }
+): AxAgent<
+  TInput,
+  TOutput,
+  AxRLMInput<TInput, CF[number]>,
+  AxRLMInlineOutput<TOutput, `${Lowercase<Lang>}Code`>
+>;
+// --- AxSignature + RLM function mode (for f() fluent builder) ---
+export function agent<
+  TInput extends Record<string, any>,
+  TOutput extends Record<string, any>,
+  const CF extends readonly string[],
+>(
+  signature: AxSignature<TInput, TOutput>,
+  config: AxAgentConfig<TInput, TOutput> & {
+    rlm: Omit<AxRLMConfig, 'contextFields' | 'mode'> & {
+      contextFields: CF;
+      mode: 'function';
+    };
+  }
+): AxAgent<TInput, TOutput, AxRLMInput<TInput, CF[number]>, TOutput>;
+// --- String signature (no RLM) ---
 export function agent<const T extends string>(
   signature: T,
   config: AxAgentConfig<
@@ -1598,6 +1723,7 @@ export function agent<const T extends string>(
     ParseSignature<T>['outputs']
   >
 ): AxAgent<ParseSignature<T>['inputs'], ParseSignature<T>['outputs']>;
+// --- AxSignature (no RLM) ---
 export function agent<
   TInput extends Record<string, any>,
   TOutput extends Record<string, any>,
@@ -1605,26 +1731,13 @@ export function agent<
   signature: AxSignature<TInput, TOutput>,
   config: AxAgentConfig<TInput, TOutput>
 ): AxAgent<TInput, TOutput>;
-export function agent<
-  T extends string | AxSignature<any, any>,
-  TInput extends Record<string, any> = T extends string
-    ? ParseSignature<T>['inputs']
-    : T extends AxSignature<infer I, any>
-      ? I
-      : never,
-  TOutput extends Record<string, any> = T extends string
-    ? ParseSignature<T>['outputs']
-    : T extends AxSignature<any, infer O>
-      ? O
-      : never,
->(
-  signature: T,
-  config: AxAgentConfig<TInput, TOutput>
-): AxAgent<TInput, TOutput> {
+// --- Implementation ---
+export function agent(
+  signature: string | AxSignature<any, any>,
+  config: AxAgentConfig<any, any>
+): AxAgent<any, any, any, any> {
   const typedSignature =
-    typeof signature === 'string'
-      ? AxSignature.create(signature)
-      : (signature as AxSignature<TInput, TOutput>);
+    typeof signature === 'string' ? AxSignature.create(signature) : signature;
   const { ai, name, description, definition, agents, functions, ...options } =
     config;
 

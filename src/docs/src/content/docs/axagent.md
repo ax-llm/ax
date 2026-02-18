@@ -5,7 +5,7 @@ description: "Agent framework with child agents, tools, and RLM for long context
 
 # AxAgent Guide
 
-`AxAgent` is the agent framework in Ax. It wraps `AxGen` with support for child agents, tool use, smart model routing, and **RLM (Recursive Language Model)** mode for processing long contexts through a code interpreter.
+`AxAgent` is the agent framework in Ax. It wraps `AxGen` with support for child agents, tool use, smart model routing, and **RLM (Recursive Language Model)** mode for processing long contexts through runtime-backed code execution.
 
 Use `AxAgent` when you need:
 - Multi-step reasoning with tools (ReAct pattern)
@@ -151,7 +151,7 @@ const result = await myAgent.forward(llm, values, {
 
 ### `stop()` method
 
-Call `stop()` from any context — a timer, event handler, or another async task — to halt the multi-step loop. The loop throws `AxAIServiceAbortedError` at the next between-step check.
+Call `stop()` from any context — a timer, event handler, or another async task — to halt the multi-step loop. `stop()` aborts all in-flight calls started by the same `AxAgent` instance (including retry backoff waits), and the loop throws `AxAIServiceAbortedError`.
 
 ```typescript
 const myAgent = agent('question:string -> answer:string', {
@@ -301,12 +301,14 @@ When you pass a long document to an LLM, you face:
 
 ### How It Works
 
-1. **Context extraction** — Fields listed in `contextFields` are removed from the LLM prompt and loaded into a code interpreter session as variables.
-2. **Code interpreter** — The LLM gets a `codeInterpreter` tool to execute code in a persistent REPL. Variables and state persist across calls.
-3. **Sub-LM queries** — Inside the code interpreter, `llmQuery(query, context?)` calls a sub-LM for semantic analysis of chunks. `llmQuery([...])` runs multiple queries in parallel.
+1. **Context extraction** — Fields listed in `contextFields` are removed from the LLM prompt and loaded into a runtime session as variables.
+2. **Execution mode**
+   - `mode: 'inline'` (default): the LLM emits a `<language>Code` helper output field (for example `javascriptCode`) that is processed via field processors. The absence of the code field signals completion.
+   - `mode: 'function'`: the LLM uses the `codeInterpreter` tool.
+3. **Sub-LM queries** — Runtime calls use `llmQuery(...)` for semantic analysis.
 4. **Final answer** — When done, the LLM provides its final answer with the required output fields.
 
-The LLM writes code to chunk, filter, and iterate over the document, using `llmQuery` only for semantic understanding of small pieces. This keeps the LLM prompt small while allowing analysis of unlimited context.
+The LLM writes code to inspect, filter, and iterate over the document. If useful, it can chunk data manually in code before calling `llmQuery`.
 
 ### Configuration
 
@@ -321,12 +323,13 @@ const analyzer = agent(
     description: 'Analyzes long documents using code interpreter and sub-LM queries',
     maxSteps: 15,
     rlm: {
-      contextFields: ['context'],              // Fields to load into interpreter
+      mode: 'inline',                      // 'inline' (default) | 'function'
+      language: 'javascript',              // Used for inline helper field naming (default: 'javascript')
+      contextFields: ['context'],              // Fields to load into runtime session
       runtime: new AxJSRuntime(),          // Code runtime implementation
       maxLlmCalls: 30,                         // Cap on sub-LM calls (default: 50)
-      maxSubQueryContextChars: 20_000,         // Hard cap per llmQuery context (default: 20_000)
+      maxRuntimeChars: 2_000,                  // Shared cap for llmQuery context + interpreter output (default: 2_000)
       maxBatchedLlmQueryConcurrency: 6,        // Max parallel batched llmQuery calls (default: 8)
-      maxInterpreterOutputChars: 8_000,        // Max chars returned per codeInterpreter call (default: 10_000)
       subModel: 'gpt-4o-mini',                // Model for llmQuery (default: same as parent)
     },
   }
@@ -344,7 +347,7 @@ for executing model-generated code. It is cross-runtime and works in:
 
 It can be used both as:
 
-- an `AxCodeInterpreter` for RLM sessions (`createSession`)
+- an `AxCodeRuntime` for RLM sessions (`createSession`)
 - a function tool (`toFunction`) for non-RLM workflows
 
 ### Sandbox Permissions
@@ -433,16 +436,20 @@ Structured fields are loaded as native JavaScript objects in the interpreter, pr
 
 ### The REPL Loop
 
-In RLM mode, the agent gets a special function:
+In `mode: 'function'`, the agent gets a special function:
 
 - **`codeInterpreter`** — Execute code in a persistent session. Context fields are available as global variables.
+
+In `mode: 'inline'`, the model emits a helper output field instead:
+
+- **`<language>Code`** (for example `javascriptCode`) — Code to execute in the persistent runtime session. The `llmQuery` API is available inside code for semantic sub-queries. The absence of the code field signals that the LLM is providing its final answer.
 
 The LLM's typical workflow:
 
 ```
 1. Peek at context structure (typeof, length, slice)
-2. Chunk the context into manageable pieces
-3. Use llmQuery for semantic analysis of each chunk
+2. Filter/select relevant slices (chunk manually only when needed)
+3. Use llmQuery for semantic analysis of selected context
 4. Aggregate results
 5. Provide the final answer with the required output fields
 ```
@@ -453,20 +460,58 @@ Inside the code interpreter, these functions are available as globals:
 
 | API | Description |
 |-----|-------------|
-| `await llmQuery(query, context?)` | Ask a sub-LM a question, optionally with a context string. Returns a string |
-| `await llmQuery([{ query, context? }, ...])` | Run multiple sub-LM queries in parallel. Returns string[]. Each query counts individually toward the call limit |
-| `print(...args)` | Print output (appears in the function result) |
+| `await llmQuery(query, context?)` | Ask a sub-LM a question, optionally with a context string. Returns a string. Oversized context is truncated to `maxRuntimeChars` |
+| `await llmQuery([{ query, context? }, ...])` | Run multiple sub-LM queries in parallel. Returns string[]. Failed items return `[ERROR] ...`; each query still counts toward the call limit |
+| `print(...args)` | Available in `AxJSRuntime` when `outputMode: 'stdout'`; captured output appears in the function result |
 | Context variables | All fields listed in `contextFields` are available by name |
+
+By default, `AxJSRuntime` uses `outputMode: 'stdout'`, where visible output comes from `console.log(...)`, `print(...)`, and other captured stdout lines.
+
+### Session State and `await`
+
+`AxJSRuntime` state is session-scoped. Values survive across `execute()` calls only while you keep using the same session.
+
+- `mode: 'inline'` and `mode: 'function'` in RLM both run in a persistent runtime session.
+- `runtime.toFunction()` is different: it creates a new session per tool call, then closes it, so state does not persist across calls.
+
+When code contains `await`, the runtime compiles it as an async function so top-level `await` works. In that async path, local declarations (`const`/`let`/`var`) are function-scoped and should not be relied on for cross-call state.
+
+Prefer one of these patterns for durable state:
+
+```javascript
+// Pattern 1: Explicit global
+globalThis.state = await getState();
+globalThis.state.x += 1;
+return globalThis.state;
+```
+
+```javascript
+// Pattern 2: Shared object passed in globals/context
+state.x += 1;
+return state;
+```
+
+This may appear to work in some cases:
+
+```javascript
+state = await getState(); // no let/const/var
+```
+
+but `globalThis.state = ...` (or mutating a shared `state` object) is the recommended explicit pattern.
 
 ### Custom Interpreters
 
-The built-in `AxJSRuntime` uses Web Workers for sandboxed code execution. For other environments, implement the `AxCodeInterpreter` interface:
+The built-in `AxJSRuntime` uses Web Workers for sandboxed code execution. For other environments, implement the `AxCodeRuntime` interface:
 
 ```typescript
-import type { AxCodeInterpreter, AxCodeSession } from '@ax-llm/ax';
+import type { AxCodeRuntime, AxCodeSession } from '@ax-llm/ax';
 
-class MyBrowserInterpreter implements AxCodeInterpreter {
+class MyBrowserInterpreter implements AxCodeRuntime {
   readonly language = 'JavaScript';
+
+  getUsageInstructions?(): string {
+    return 'Runtime-specific guidance for writing code in this environment.';
+  }
 
   createSession(globals?: Record<string, unknown>): AxCodeSession {
     // Set up your execution environment with globals
@@ -485,19 +530,22 @@ class MyBrowserInterpreter implements AxCodeInterpreter {
 The `globals` object passed to `createSession` includes:
 - All context field values (by field name)
 - `llmQuery` function (supports both single and batched queries)
-- `print` function
+- `print` function when supported by the runtime (for `AxJSRuntime`, set `outputMode: 'stdout'`)
+
+If provided, `getUsageInstructions()` is appended to the RLM system prompt as runtime-specific guidance. Use it for semantics that differ by runtime (for example state persistence or async execution behavior).
 
 ### RLM with Streaming
 
 RLM mode does not support true streaming. When using `streamingForward`, RLM runs the full analysis and yields the final result as a single chunk.
 
-### Recommended Chunk Sizing
+### Runtime Character Cap
 
-Treat `maxSubQueryContextChars` as a hard ceiling, not your normal chunk size.
+`maxRuntimeChars` is a hard ceiling for runtime payloads.
 
-- **Target chunk size:** `2_000` to `10_000` chars
-- **Hard cap:** `20_000` chars by default
-- **Why:** smaller chunks usually improve latency, cost, and semantic precision for sub-calls
+- **Hard cap:** `2_000` chars by default
+- **Applies to:** `llmQuery` context and `codeInterpreter` output
+- **Truncation behavior:** if data exceeds the cap, it is truncated with a `...[truncated N chars]` suffix
+- **Manual chunking:** optional strategy you can implement in interpreter code; not done automatically by the runtime
 
 ## API Reference
 
@@ -505,22 +553,26 @@ Treat `maxSubQueryContextChars` as a hard ceiling, not your normal chunk size.
 
 ```typescript
 interface AxRLMConfig {
+  mode?: 'function' | 'inline';   // RLM execution mode (default: 'inline')
+  language?: string;              // Inline helper field prefix (default: 'javascript')
   contextFields: string[];        // Input fields holding long context
-  runtime?: AxCodeInterpreter;    // Preferred runtime key
-  interpreter?: AxCodeInterpreter; // Legacy alias (deprecated)
+  runtime?: AxCodeRuntime;    // Preferred runtime key
+  interpreter?: AxCodeRuntime; // Legacy alias (deprecated)
   maxLlmCalls?: number;           // Cap on sub-LM calls (default: 50)
-  maxSubQueryContextChars?: number;       // Hard cap per llmQuery context (default: 20_000)
+  maxRuntimeChars?: number;              // Shared cap for llmQuery context + interpreter output (default: 2_000)
+  maxSubQueryContextChars?: number;       // Deprecated alias for maxRuntimeChars
   maxBatchedLlmQueryConcurrency?: number; // Max parallel batched llmQuery calls (default: 8)
-  maxInterpreterOutputChars?: number;     // Max chars returned per codeInterpreter call (default: 10_000)
+  maxInterpreterOutputChars?: number;     // Deprecated alias for maxRuntimeChars
   subModel?: string;              // Model for llmQuery sub-calls
 }
 ```
 
-### `AxCodeInterpreter`
+### `AxCodeRuntime`
 
 ```typescript
-interface AxCodeInterpreter {
+interface AxCodeRuntime {
   readonly language: string;  // e.g. 'JavaScript', 'Python'
+  getUsageInstructions?(): string;
   createSession(globals?: Record<string, unknown>): AxCodeSession;
 }
 ```

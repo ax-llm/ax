@@ -915,7 +915,7 @@ describe('axBuildRLMDefinition dual structured/string guidance', () => {
     expect(result).toContain('## Iterative Context Analysis');
     expect(result).toContain('`javascriptCode`');
     expect(result).toContain('`llmQuery`');
-    expect(result).toContain('`resultReady`');
+    expect(result).not.toContain('`resultReady`');
   });
 });
 
@@ -1460,17 +1460,16 @@ describe('RLM inline mode', () => {
     const codeField = outputFields.find(
       (f: AxIField) => f.name === 'javascriptCode'
     );
-    const readyField = outputFields.find(
-      (f: AxIField) => f.name === 'resultReady'
-    );
-
     expect(answerField?.isOptional).toBe(true);
     expect(codeField?.isOptional).toBe(true);
     // llmQuery is no longer an output field — it's a runtime API called from code
     expect(
       outputFields.find((f: AxIField) => f.name === 'llmQuery')
     ).toBeUndefined();
-    expect(readyField?.type?.name).toBe('boolean');
+    // resultReady is no longer an output field — absence of code field signals completion
+    expect(
+      outputFields.find((f: AxIField) => f.name === 'resultReady')
+    ).toBeUndefined();
   });
 
   it('should reject signature collisions with inline reserved helper fields', () => {
@@ -1552,7 +1551,7 @@ describe('RLM inline mode', () => {
           results: [
             {
               index: 0,
-              content: 'Answer: final answer\nResult Ready: true',
+              content: 'Answer: final answer',
               finishReason: 'stop',
             },
           ],
@@ -1594,7 +1593,6 @@ describe('RLM inline mode', () => {
 
     expect(result.answer).toBe('final answer');
     expect((result as Record<string, unknown>).javascriptCode).toBeUndefined();
-    expect((result as Record<string, unknown>).resultReady).toBeUndefined();
     expect(observedExecutedCode[0]).toBe('return "code-output"');
     expect(sawCodeExecutedPrefix).toBe(true);
     expect(callCount).toBe(2);
@@ -1629,7 +1627,7 @@ describe('RLM inline mode', () => {
           results: [
             {
               index: 0,
-              content: 'Answer: recovered answer\nResult Ready: true',
+              content: 'Answer: recovered answer',
               finishReason: 'stop',
             },
           ],

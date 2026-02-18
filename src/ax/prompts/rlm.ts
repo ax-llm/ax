@@ -133,8 +133,7 @@ The following variables are available in the runtime session:
 ${contextVarList}
 
 ### Helper output fields
-- \`${inlineCodeFieldName}\` (optional): ${inlineLanguage} code to execute in the persistent runtime session.
-- \`resultReady\` (optional): set to \`true\` only when your final required output fields are fully complete and validated. Otherwise omit this field (do not emit \`false\`).
+- \`${inlineCodeFieldName}\` (optional): ${inlineLanguage} code to execute in the persistent runtime session. Emitting this field means the current step is a code step; omitting it signals that you are providing the final answer.
 
 ### Runtime APIs (available inside \`${inlineCodeFieldName}\`)
 - \`await llmQuery(query, context?)\` — Single sub-query. Both arguments are strings (pass context via JSON.stringify() for objects/arrays). Returns a string. Sub-LMs are powerful and can handle large context, so do not be afraid to pass substantial context to them.
@@ -150,10 +149,10 @@ There is also a runtime character cap for \`llmQuery\` context and code output. 
 4. **Use \`llmQuery\` for semantic work**: summarization, interpretation, or answering questions about content. Keep each query focused but do not be afraid to pass substantial context.
 5. **Build up answers in variables**: use variables as buffers to accumulate intermediate results across steps, then combine them for the final answer.
 6. **Handle truncated output**: runtime output may be truncated. If it appears incomplete, rerun with narrower scope or smaller slices.
-7. **Verify before finishing**: check that your outputs look correct before setting \`resultReady: true\`.
+7. **Verify before finishing**: check that your outputs look correct before emitting the final answer.
 
 ### Example (iterative analysis of \`${firstFieldName}\`)
-Step 1 (explore context):
+Step 1 (explore context — only code field, no business output fields):
 \`\`\`
 ${inlineCodeFieldName}: var n = ${firstFieldName}.length; n
 \`\`\`
@@ -176,17 +175,15 @@ ${inlineCodeFieldName}: var ok = results.filter(r => !String(r).startsWith("[ERR
 var combined = ok.join("\\n"); combined
 \`\`\`
 
-Step 5 (finish):
+Step 5 (finish — no code field, only business output fields):
 \`\`\`
-resultReady: true
-<required output fields...>
+<required output fields here — do NOT include ${inlineCodeFieldName}>
 \`\`\`
 
 ### Important
-- You may emit helper fields for intermediate steps.
-- On the final step, provide all required business output fields and set \`resultReady: true\`.
-- Do not emit \`resultReady: false\`; omit \`resultReady\` until it is true.
-- Do not include helper fields in the final business answer unless you are still iterating.${runtimeUsageNotesSection}`;
+- **Intermediate steps**: emit ONLY \`${inlineCodeFieldName}\`. Do not include any business output fields alongside code.
+- **Final step**: provide all required business output fields. Do not include \`${inlineCodeFieldName}\` in the final step.
+- Each step is either a code step or the final answer — never both.${runtimeUsageNotesSection}`;
 
     return baseDefinition ? `${inlineBody}\n\n${baseDefinition}` : inlineBody;
   }

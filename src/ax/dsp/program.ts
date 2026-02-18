@@ -1,5 +1,6 @@
 import type { AxOptimizedProgram } from './optimizer.js';
 import { AxInstanceRegistry } from './registry.js';
+import type { AxSignatureConfig } from './sig.js';
 import { AxSignature } from './sig.js';
 import type {
   AxFieldValue,
@@ -15,7 +16,9 @@ import type {
 
 import { mergeProgramUsage, validateValue } from './util.js';
 
-export class AxProgram<IN, OUT> implements AxUsable, AxTunable<IN, OUT> {
+export class AxProgram<IN = any, OUT = any>
+  implements AxUsable, AxTunable<IN, OUT>
+{
   protected signature: AxSignature;
   protected sigHash: string;
 
@@ -30,7 +33,11 @@ export class AxProgram<IN, OUT> implements AxUsable, AxTunable<IN, OUT> {
   private children: AxInstanceRegistry<Readonly<AxTunable<IN, OUT>>, IN, OUT>;
 
   constructor(
-    signature: ConstructorParameters<typeof AxSignature>[0],
+    signature:
+      | string
+      | Readonly<AxSignatureConfig>
+      | Readonly<AxSignature>
+      | undefined,
     options?: Readonly<AxProgramOptions>
   ) {
     this.signature = new AxSignature(signature);
@@ -58,7 +65,7 @@ export class AxProgram<IN, OUT> implements AxUsable, AxTunable<IN, OUT> {
   }
 
   public setSignature(
-    signature: ConstructorParameters<typeof AxSignature>[0]
+    signature: string | Readonly<AxSignatureConfig> | Readonly<AxSignature>
   ): void {
     this.signature = new AxSignature(signature);
 

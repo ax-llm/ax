@@ -1035,7 +1035,7 @@ Instruction:`;
     this.stats.bestScore = finalBestScore;
 
     // Create optimized generator with best configuration
-    const optimizedGen = new AxGen(program.getSignature());
+    const optimizedGen = new AxGen<IN, OUT>(program.getSignature());
     if ((finalBestConfig as any).instruction) {
       optimizedGen.setInstruction((finalBestConfig as any).instruction);
     }
