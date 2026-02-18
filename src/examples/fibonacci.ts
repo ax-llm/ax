@@ -1,5 +1,4 @@
-import { AxAIOpenAIModel, ai, ax } from '@ax-llm/ax';
-import { AxJSInterpreter } from '@ax-llm/ax-tools';
+import { AxAIOpenAIModel, AxJSRuntime, ai, ax } from '@ax-llm/ax';
 
 const gen = ax(
   'numberSeriesTask:string "Task to calculate number series" -> fibonacciSeries:number[] "Fibonacci series as an array of numbers"'
@@ -21,7 +20,7 @@ const res = await gen.forward(
     numberSeriesTask: 'Use code to calculate the fibonacci series of 10',
   },
   {
-    functions: [new AxJSInterpreter().toFunction()],
+    functions: [new AxJSRuntime().toFunction()],
     debug: true,
   }
 );

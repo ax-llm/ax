@@ -6,8 +6,10 @@ import type { AxChatResponse } from '../ai/types.js';
 import type { AxIField } from '../dsp/sig.js';
 import { s } from '../dsp/template.js';
 import type { AxMessage } from '../dsp/types.js';
+import { AxAIServiceAbortedError } from '../util/apicall.js';
 
 import { AxAgent, agent } from './agent.js';
+import type { AxCodeRuntime } from './rlm.js';
 import { axBuildRLMDefinition } from './rlm.js';
 
 // Helper function to create streaming responses
@@ -864,7 +866,7 @@ describe('axBuildRLMDefinition dual structured/string guidance', () => {
 
   it('should include JSON.stringify guidance in APIs section', () => {
     const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
-    expect(result).toContain('use JSON.stringify() for objects/arrays');
+    expect(result).toContain('JSON.stringify()');
   });
 
   it('should document batched llmQuery overload', () => {
@@ -872,10 +874,21 @@ describe('axBuildRLMDefinition dual structured/string guidance', () => {
     expect(result).toContain('await llmQuery([{ query, context? }, ...])');
   });
 
-  it('should include execution rules section', () => {
+  it('should not include hardcoded runtime-specific execution rules', () => {
     const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
-    expect(result).toContain('### Execution rules');
-    expect(result).toContain('use `var` (not `const`/`let`)');
+    expect(result).not.toContain('### Execution rules');
+    expect(result).not.toContain('use `var` (not `const`/`let`)');
+  });
+
+  it('should append runtime-specific usage notes when provided', () => {
+    const result = axBuildRLMDefinition(undefined, 'JavaScript', fields, {
+      runtimeUsageInstructions:
+        '- Use globalThis.state for persistent state across async calls.',
+    });
+    expect(result).toContain('### Runtime-specific usage notes');
+    expect(result).toContain(
+      'Use globalThis.state for persistent state across async calls.'
+    );
   });
 
   it('should document llmQuery return type', () => {
@@ -891,6 +904,18 @@ describe('axBuildRLMDefinition dual structured/string guidance', () => {
   it('should note sub-queries have a call limit', () => {
     const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
     expect(result).toContain('Sub-queries have a call limit');
+  });
+
+  it('should render inline mode helper field instructions', () => {
+    const result = axBuildRLMDefinition(undefined, 'JavaScript', fields, {
+      mode: 'inline',
+      inlineCodeFieldName: 'javascriptCode',
+      inlineLanguage: 'javascript',
+    });
+    expect(result).toContain('## Iterative Context Analysis');
+    expect(result).toContain('`javascriptCode`');
+    expect(result).toContain('`llmQuery`');
+    expect(result).toContain('`resultReady`');
   });
 });
 
@@ -937,5 +962,836 @@ describe('A/An article grammar in renderInputFields', () => {
     const type = 'number';
     const article = /^[aeiou]/i.test(type) ? 'An' : 'A';
     expect(article).toBe('A');
+  });
+});
+
+describe('RLM llmQuery runtime behavior', () => {
+  const makeModelUsage = () => ({
+    ai: 'mock-ai',
+    model: 'mock-model',
+    tokens: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+  });
+
+  const makeTestRuntime = (
+    executeHandler: (
+      code: string,
+      globals: Record<string, unknown>
+    ) => Promise<unknown> | unknown
+  ): AxCodeRuntime => ({
+    language: 'JavaScript',
+    createSession(globals?: Record<string, unknown>) {
+      const safeGlobals = globals ?? {};
+      return {
+        execute: async (code: string) => executeHandler(code, safeGlobals),
+        close: () => {},
+      };
+    },
+  });
+
+  it('should return per-item errors for batched llmQuery calls', async () => {
+    const testMockAI = new AxMockAIService({
+      features: { functions: true, streaming: false },
+      chatResponse: async (req) => {
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+        if (userPrompt.includes('Query: fail')) {
+          throw new Error('boom');
+        }
+        return {
+          results: [{ index: 0, content: 'ok', finishReason: 'stop' }],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const runtime = makeTestRuntime(async (code, globals) => {
+      if (code !== 'BATCH_TEST') return 'unexpected code';
+      return await (
+        globals.llmQuery as (
+          q: readonly { query: string; context?: string }[]
+        ) => Promise<string[]>
+      )([
+        { query: 'ok', context: 'ctx1' },
+        { query: 'fail', context: 'ctx2' },
+      ]);
+    });
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      name: 'rlmBatchToleranceAgent',
+      description: 'Agent used to verify batched llmQuery error tolerance.',
+      ai: testMockAI,
+      rlm: {
+        mode: 'function',
+        contextFields: ['context'],
+        runtime,
+      },
+    });
+
+    // Replace inner rlmProgram to directly invoke codeInterpreter.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (testAgent as any).rlmProgram = {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      forward: async (_ai: any, _values: any, forwardOptions: any) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const codeInterpreter = forwardOptions.functions.find((f: any) => {
+          return f.name === 'codeInterpreter';
+        });
+        const output = await codeInterpreter.func({ code: 'BATCH_TEST' });
+        return { answer: output };
+      },
+    };
+
+    const result = await testAgent.forward(testMockAI, {
+      context: 'unused',
+      query: 'unused',
+    });
+    expect(result.answer).toContain('ok');
+    expect(result.answer).toContain('[ERROR] boom');
+  });
+
+  it('should normalize single-object llmQuery({ query, context }) to positional args', async () => {
+    const testMockAI = new AxMockAIService({
+      features: { functions: true, streaming: false },
+      chatResponse: async () => ({
+        results: [
+          {
+            index: 0,
+            content: 'sub-lm-answer',
+            finishReason: 'stop' as const,
+          },
+        ],
+        modelUsage: makeModelUsage(),
+      }),
+    });
+
+    const runtime = makeTestRuntime(async (_code, globals) => {
+      // Call llmQuery with a single object (the form LLMs often produce)
+      const llmQueryFn = globals.llmQuery as (q: {
+        query: string;
+        context?: string;
+      }) => Promise<string>;
+      return await llmQueryFn({
+        query: 'summarize this',
+        context: 'some context',
+      });
+    });
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      name: 'rlmSingleObjectAgent',
+      description: 'Agent used to verify single-object llmQuery normalization.',
+      ai: testMockAI,
+      rlm: {
+        mode: 'function',
+        contextFields: ['context'],
+        runtime,
+      },
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (testAgent as any).rlmProgram = {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      forward: async (_ai: any, _values: any, forwardOptions: any) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const codeInterpreter = forwardOptions.functions.find((f: any) => {
+          return f.name === 'codeInterpreter';
+        });
+        const output = await codeInterpreter.func({
+          code: 'SINGLE_OBJ_TEST',
+        });
+        return { answer: output };
+      },
+    };
+
+    const result = await testAgent.forward(testMockAI, {
+      context: 'unused',
+      query: 'unused',
+    });
+    // Should succeed (not crash) and return the sub-LM answer
+    expect(result.answer).toBe('sub-lm-answer');
+  });
+
+  it('should prioritize maxRuntimeChars over deprecated aliases', async () => {
+    let lastUserPrompt = '';
+    const testMockAI = new AxMockAIService({
+      features: { functions: true, streaming: false },
+      chatResponse: async (req) => {
+        lastUserPrompt = String(req.chatPrompt[1]?.content ?? '');
+        return {
+          results: [{ index: 0, content: 'ok', finishReason: 'stop' }],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const runtime = makeTestRuntime(async (code, globals) => {
+      if (code !== 'ALIAS_PRECEDENCE_TEST') return 'unexpected code';
+      return await (
+        globals.llmQuery as (q: string, context?: string) => Promise<string>
+      )('q', '1234567890');
+    });
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      name: 'rlmAliasPrecedenceAgent',
+      description: 'Agent used to verify maxRuntimeChars alias precedence.',
+      ai: testMockAI,
+      rlm: {
+        mode: 'function',
+        contextFields: ['context'],
+        runtime,
+        maxRuntimeChars: 8,
+        maxSubQueryContextChars: 5,
+        maxInterpreterOutputChars: 5,
+      },
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (testAgent as any).rlmProgram = {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      forward: async (_ai: any, _values: any, forwardOptions: any) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const codeInterpreter = forwardOptions.functions.find((f: any) => {
+          return f.name === 'codeInterpreter';
+        });
+        const output = await codeInterpreter.func({
+          code: 'ALIAS_PRECEDENCE_TEST',
+        });
+        return { answer: output };
+      },
+    };
+
+    await testAgent.forward(testMockAI, {
+      context: 'unused',
+      query: 'unused',
+    });
+    expect(lastUserPrompt).toContain('[truncated 2 chars]');
+    expect(lastUserPrompt).not.toContain('[truncated 5 chars]');
+  });
+
+  it('should throw typed aborted error from llmQuery pre-check', async () => {
+    const testMockAI = new AxMockAIService({
+      features: { functions: true, streaming: false },
+      chatResponse: {
+        results: [{ index: 0, content: 'ok', finishReason: 'stop' }],
+        modelUsage: makeModelUsage(),
+      },
+    });
+
+    const runtime = makeTestRuntime(async (code, globals) => {
+      if (code !== 'ABORT_TYPE_TEST') return 'unexpected code';
+      try {
+        await (
+          globals.llmQuery as (q: string, context?: string) => Promise<string>
+        )('q', 'ctx');
+        return 'unexpected success';
+      } catch (err) {
+        return err instanceof AxAIServiceAbortedError
+          ? 'aborted-ok'
+          : `wrong-type:${String(err)}`;
+      }
+    });
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      name: 'rlmAbortTypeAgent',
+      description: 'Agent used to verify typed abort errors in llmQuery.',
+      ai: testMockAI,
+      rlm: {
+        mode: 'function',
+        contextFields: ['context'],
+        runtime,
+      },
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (testAgent as any).rlmProgram = {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      forward: async (_ai: any, _values: any, forwardOptions: any) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const codeInterpreter = forwardOptions.functions.find((f: any) => {
+          return f.name === 'codeInterpreter';
+        });
+        const output = await codeInterpreter.func({ code: 'ABORT_TYPE_TEST' });
+        return { answer: output };
+      },
+    };
+
+    const result = await testAgent.forward(
+      testMockAI,
+      {
+        context: 'unused',
+        query: 'unused',
+      },
+      { abortSignal: AbortSignal.abort('stop now') }
+    );
+    expect(result.answer).toContain('aborted-ok');
+  });
+
+  it('should truncate llmQuery context but not llmQuery response', async () => {
+    let observedLlmQueryResultLength = 0;
+    let observedLlmQueryResultHasTruncationMarker = false;
+    const longSubModelAnswer = 'R'.repeat(64);
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: true, streaming: false },
+      chatResponse: {
+        results: [
+          { index: 0, content: longSubModelAnswer, finishReason: 'stop' },
+        ],
+        modelUsage: makeModelUsage(),
+      },
+    });
+
+    const runtime = makeTestRuntime(async (code, globals) => {
+      if (code !== 'NO_OUTPUT_TRUNCATION_TEST') return 'unexpected code';
+      const llmQueryResult = await (
+        globals.llmQuery as (q: string, context?: string) => Promise<string>
+      )('q', '1234567890');
+      observedLlmQueryResultLength = llmQueryResult.length;
+      observedLlmQueryResultHasTruncationMarker =
+        llmQueryResult.includes('[truncated');
+      return 'ok';
+    });
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      name: 'rlmNoOutputTruncationAgent',
+      description: 'Agent used to verify llmQuery response is not truncated.',
+      ai: testMockAI,
+      rlm: {
+        mode: 'function',
+        contextFields: ['context'],
+        runtime,
+        maxRuntimeChars: 8,
+      },
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (testAgent as any).rlmProgram = {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      forward: async (_ai: any, _values: any, forwardOptions: any) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const codeInterpreter = forwardOptions.functions.find((f: any) => {
+          return f.name === 'codeInterpreter';
+        });
+        const output = await codeInterpreter.func({
+          code: 'NO_OUTPUT_TRUNCATION_TEST',
+        });
+        return { answer: output };
+      },
+    };
+
+    await testAgent.forward(testMockAI, {
+      context: 'unused',
+      query: 'unused',
+    });
+
+    expect(observedLlmQueryResultLength).toBe(longSubModelAnswer.length);
+    expect(observedLlmQueryResultHasTruncationMarker).toBe(false);
+  });
+
+  it('should restart closed session after timeout and restore globals', async () => {
+    let createSessionCount = 0;
+    let executeCount = 0;
+    const runtime: AxCodeRuntime = {
+      language: 'JavaScript',
+      createSession(globals?: Record<string, unknown>) {
+        createSessionCount++;
+        const safeGlobals = globals ?? {};
+        return {
+          execute: async (_code: string) => {
+            executeCount++;
+            if (executeCount === 1) {
+              throw new Error('Execution timed out');
+            }
+            if (executeCount === 2) {
+              throw new Error('Session is closed');
+            }
+            return `ctx:${String(safeGlobals.context)};hasLlmQuery:${String(typeof safeGlobals.llmQuery === 'function')}`;
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: true, streaming: false },
+      chatResponse: {
+        results: [{ index: 0, content: 'ok', finishReason: 'stop' }],
+        modelUsage: makeModelUsage(),
+      },
+    });
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      name: 'rlmSessionRestartAgent',
+      description:
+        'Agent used to verify RLM session recreation after closure errors.',
+      ai: testMockAI,
+      rlm: {
+        mode: 'function',
+        contextFields: ['context'],
+        runtime,
+      },
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (testAgent as any).rlmProgram = {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      forward: async (_ai: any, _values: any, forwardOptions: any) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const codeInterpreter = forwardOptions.functions.find((f: any) => {
+          return f.name === 'codeInterpreter';
+        });
+        const first = await codeInterpreter.func({
+          code: 'TIMEOUT_THEN_CLOSED',
+        });
+        const second = await codeInterpreter.func({
+          code: 'RESTART_AFTER_CLOSED',
+        });
+        return { answer: `${first}\n---\n${second}` };
+      },
+    };
+
+    const result = await testAgent.forward(testMockAI, {
+      context: 'global-context',
+      query: 'unused',
+    });
+
+    expect(createSessionCount).toBe(2); // initial + timeout-triggered restart
+    expect(result.answer).toContain('Error: Execution timed out');
+    expect(result.answer).toContain('JavaScript runtime was restarted');
+    expect(result.answer).toContain('all global state was lost');
+    expect(result.answer).toContain('must be recreated if needed');
+    expect((result.answer.match(/runtime was restarted/g) ?? []).length).toBe(
+      1
+    );
+    expect(result.answer).toContain('ctx:global-context;hasLlmQuery:true');
+  });
+
+  it('should not restart closed session if no timeout happened first', async () => {
+    let createSessionCount = 0;
+    const runtime: AxCodeRuntime = {
+      language: 'JavaScript',
+      createSession() {
+        createSessionCount++;
+        return {
+          execute: async () => {
+            throw new Error('Session is closed');
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: true, streaming: false },
+      chatResponse: {
+        results: [{ index: 0, content: 'ok', finishReason: 'stop' }],
+        modelUsage: makeModelUsage(),
+      },
+    });
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      name: 'rlmNoRestartWithoutTimeoutAgent',
+      description:
+        'Agent used to verify closed sessions do not restart without timeout.',
+      ai: testMockAI,
+      rlm: {
+        mode: 'function',
+        contextFields: ['context'],
+        runtime,
+      },
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (testAgent as any).rlmProgram = {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      forward: async (_ai: any, _values: any, forwardOptions: any) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const codeInterpreter = forwardOptions.functions.find((f: any) => {
+          return f.name === 'codeInterpreter';
+        });
+        const output = await codeInterpreter.func({ code: 'CLOSED_ONLY' });
+        return { answer: output };
+      },
+    };
+
+    const result = await testAgent.forward(testMockAI, {
+      context: 'unused',
+      query: 'unused',
+    });
+
+    expect(createSessionCount).toBe(1);
+    expect(result.answer).toBe('Error: Session is closed');
+    expect(result.answer).not.toContain('[RLM session restarted');
+  });
+});
+
+describe('RLM inline mode', () => {
+  const makeModelUsage = () => ({
+    ai: 'mock-ai',
+    model: 'mock-model',
+    tokens: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+  });
+
+  it('should add inline helper fields and make primary outputs optional', () => {
+    const runtime: AxCodeRuntime = {
+      language: 'JavaScript',
+      createSession() {
+        return {
+          execute: async () => 'ok',
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      name: 'rlmInlineSignatureAgent',
+      description:
+        'Agent used to verify inline mode helper field injection in signature.',
+      rlm: {
+        mode: 'inline',
+        language: 'javascript',
+        contextFields: ['context'],
+        runtime,
+      },
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rlmSig = (testAgent as any).rlmProgram.getSignature();
+    const outputFields = rlmSig.getOutputFields();
+    const answerField = outputFields.find((f: AxIField) => f.name === 'answer');
+    const codeField = outputFields.find(
+      (f: AxIField) => f.name === 'javascriptCode'
+    );
+    const readyField = outputFields.find(
+      (f: AxIField) => f.name === 'resultReady'
+    );
+
+    expect(answerField?.isOptional).toBe(true);
+    expect(codeField?.isOptional).toBe(true);
+    // llmQuery is no longer an output field — it's a runtime API called from code
+    expect(
+      outputFields.find((f: AxIField) => f.name === 'llmQuery')
+    ).toBeUndefined();
+    expect(readyField?.type?.name).toBe('boolean');
+  });
+
+  it('should reject signature collisions with inline reserved helper fields', () => {
+    const runtime: AxCodeRuntime = {
+      language: 'JavaScript',
+      createSession() {
+        return {
+          execute: async () => 'ok',
+          close: () => {},
+        };
+      },
+    };
+
+    expect(() =>
+      agent(
+        'context:string, query:string -> javascriptCode:string, answer:string',
+        {
+          name: 'rlmInlineReservedFieldCollision',
+          description:
+            'Agent used to verify inline mode reserved field collision validation.',
+          rlm: {
+            mode: 'inline',
+            language: 'javascript',
+            contextFields: ['context'],
+            runtime,
+          },
+        }
+      )
+    ).toThrow('RLM inline mode reserves output field');
+  });
+
+  it('should process inline helper fields without codeInterpreter function', async () => {
+    let callCount = 0;
+    let sawCodeInterpreterFunction = false;
+    let sawCodeExecutedPrefix = false;
+    const observedExecutedCode: string[] = [];
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: true, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        if (
+          systemPrompt.includes(
+            'Answer the query based on the provided context.'
+          )
+        ) {
+          return {
+            results: [
+              { index: 0, content: 'sub-answer', finishReason: 'stop' },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        callCount++;
+        const functions = req.functions ?? [];
+        sawCodeInterpreterFunction = functions.some(
+          (f) => f.name === 'codeInterpreter'
+        );
+        if (callCount === 2) {
+          const serializedPrompt = JSON.stringify(req.chatPrompt);
+          sawCodeExecutedPrefix = serializedPrompt.includes('Code Executed:');
+        }
+
+        if (callCount === 1) {
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: return "code-output"',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            {
+              index: 0,
+              content: 'Answer: final answer\nResult Ready: true',
+              finishReason: 'stop',
+            },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const runtime: AxCodeRuntime = {
+      language: 'JavaScript',
+      createSession() {
+        return {
+          execute: async (code: string) => {
+            observedExecutedCode.push(code);
+            return `executed:${code}`;
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      name: 'rlmInlineExecutionAgent',
+      description:
+        'Agent used to verify inline helper field processors and final validation flow.',
+      ai: testMockAI,
+      rlm: {
+        mode: 'inline',
+        language: 'javascript',
+        contextFields: ['context'],
+        runtime,
+      },
+    });
+
+    const result = await testAgent.forward(testMockAI, {
+      context: 'unused context',
+      query: 'unused query',
+    });
+
+    expect(result.answer).toBe('final answer');
+    expect((result as Record<string, unknown>).javascriptCode).toBeUndefined();
+    expect((result as Record<string, unknown>).resultReady).toBeUndefined();
+    expect(observedExecutedCode[0]).toBe('return "code-output"');
+    expect(sawCodeExecutedPrefix).toBe(true);
+    expect(callCount).toBe(2);
+    expect(sawCodeInterpreterFunction).toBe(false);
+  });
+
+  it('should surface inline code execution exceptions in Code Executed output', async () => {
+    let callCount = 0;
+    let sawCodeExecutedPrefix = false;
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: true, streaming: false },
+      chatResponse: async (req) => {
+        callCount++;
+        if (callCount === 1) {
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: throw new Error("boom")',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        sawCodeExecutedPrefix = JSON.stringify(req.chatPrompt).includes(
+          'Code Executed:'
+        );
+        return {
+          results: [
+            {
+              index: 0,
+              content: 'Answer: recovered answer\nResult Ready: true',
+              finishReason: 'stop',
+            },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const runtime: AxCodeRuntime = {
+      language: 'JavaScript',
+      createSession() {
+        return {
+          execute: async () => {
+            throw new Error('Execution timed out');
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      name: 'rlmInlineExecutionErrorAgent',
+      description:
+        'Agent used to verify inline code execution errors are prefixed in processor output.',
+      ai: testMockAI,
+      rlm: {
+        mode: 'inline',
+        language: 'javascript',
+        contextFields: ['context'],
+        runtime,
+      },
+    });
+
+    const result = await testAgent.forward(testMockAI, {
+      context: 'unused context',
+      query: 'unused query',
+    });
+
+    expect(result.answer).toBe('recovered answer');
+    expect(sawCodeExecutedPrefix).toBe(true);
+    expect(callCount).toBe(2);
+  });
+
+  it('should expose codeInterpreter tool when mode is explicitly function', async () => {
+    let sawCodeInterpreterFunction = false;
+    let codeInterpreterDescription = '';
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: true, streaming: false },
+      chatResponse: {
+        results: [{ index: 0, content: 'ok', finishReason: 'stop' }],
+        modelUsage: makeModelUsage(),
+      },
+    });
+
+    const runtime: AxCodeRuntime = {
+      language: 'JavaScript',
+      createSession() {
+        return {
+          execute: async () => 'ok',
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      name: 'rlmFunctionModeAgent',
+      description:
+        'Agent used to verify function mode remains tool-call based.',
+      ai: testMockAI,
+      rlm: {
+        mode: 'function',
+        contextFields: ['context'],
+        runtime,
+      },
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (testAgent as any).rlmProgram = {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      forward: async (_ai: any, _values: any, forwardOptions: any) => {
+        const functions = forwardOptions.functions ?? [];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const codeInterpreter = functions.find((f: any) => {
+          return f.name === 'codeInterpreter';
+        });
+        sawCodeInterpreterFunction = functions.some(
+          (f: { name: string }) => f.name === 'codeInterpreter'
+        );
+        codeInterpreterDescription = String(codeInterpreter?.description ?? '');
+        return { answer: 'done' };
+      },
+    };
+
+    const result = await testAgent.forward(testMockAI, {
+      context: 'unused',
+      query: 'unused',
+    });
+
+    expect(result.answer).toBe('done');
+    expect(sawCodeInterpreterFunction).toBe(true);
+    expect(codeInterpreterDescription).not.toContain(
+      'Persist with var (sync) or bare assignment (async).'
+    );
+  });
+
+  it('should default to inline mode when rlm.mode is omitted', () => {
+    const runtime: AxCodeRuntime = {
+      language: 'JavaScript',
+      createSession() {
+        return {
+          execute: async () => 'ok',
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      name: 'rlmInlineDefaultAgent',
+      description: 'Agent used to verify inline is the default RLM mode.',
+      rlm: {
+        contextFields: ['context'],
+        runtime,
+      },
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rlmSig = (testAgent as any).rlmProgram.getSignature();
+    const outputFields = rlmSig.getOutputFields();
+    expect(
+      outputFields.some((f: AxIField) => f.name === 'javascriptCode')
+    ).toBe(true);
+  });
+
+  it('should derive inline code field name from rlm.language', () => {
+    const runtime: AxCodeRuntime = {
+      language: 'JavaScript',
+      createSession() {
+        return {
+          execute: async () => 'ok',
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      name: 'rlmInlineLanguageFieldAgent',
+      description:
+        'Agent used to verify inline code field naming uses rlm.language.',
+      rlm: {
+        mode: 'inline',
+        language: 'python',
+        contextFields: ['context'],
+        runtime,
+      },
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rlmSig = (testAgent as any).rlmProgram.getSignature();
+    const outputFields = rlmSig.getOutputFields();
+    expect(outputFields.some((f: AxIField) => f.name === 'pythonCode')).toBe(
+      true
+    );
   });
 });

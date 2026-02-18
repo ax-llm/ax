@@ -1,6 +1,7 @@
 import {
   AxAIGoogleGeminiModel,
-  AxRLMJSInterpreter,
+  AxJSRuntime,
+  AxJSRuntimePermission,
   agent,
   ai,
 } from '@ax-llm/ax';
@@ -8,7 +9,12 @@ import {
 const llm = ai({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY!,
-  config: { model: AxAIGoogleGeminiModel.Gemini3Flash },
+  config: {
+    model: AxAIGoogleGeminiModel.Gemini25Flash,
+    thinking: {
+      thinkingTokenBudget: 600,
+    },
+  },
 });
 
 const analyzer = agent(
@@ -19,11 +25,16 @@ const analyzer = agent(
       'Analyzes long documents using code interpreter and sub-LM queries',
     maxSteps: 15,
     rlm: {
+      mode: 'inline',
       contextFields: ['context'],
-      // Pass permissions to grant access to specific APIs, e.g.:
-      //   new AxRLMJSInterpreter({ permissions: [AxRLMJSInterpreterPermission.NETWORK] })
-      interpreter: new AxRLMJSInterpreter(),
+      runtime: new AxJSRuntime({
+        // Optional, least-privilege sandbox permissions.
+        permissions: [AxJSRuntimePermission.TIMING],
+      }),
       maxLlmCalls: 30,
+      // Additional RLM guardrails are also supported:
+      // - maxRuntimeChars (shared cap for llmQuery context + interpreter output)
+      // - maxBatchedLlmQueryConcurrency
     },
     debug: true,
   }

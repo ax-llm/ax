@@ -48,13 +48,17 @@ describe('Field Processor Functions', () => {
     if (userMessage?.role === 'user' && Array.isArray(userMessage.content)) {
       const textContent = userMessage.content.find((c) => c.type === 'text');
       if (textContent && 'text' in textContent) {
-        expect(textContent.text).toContain('HELLO WORLD');
+        expect(textContent.text).toBe('HELLO WORLD');
+        expect(textContent.text).not.toContain('Code Execution Result:');
+        expect(textContent.text).not.toContain('was processed');
       }
     } else if (
       userMessage?.role === 'user' &&
       typeof userMessage.content === 'string'
     ) {
-      expect(userMessage.content).toContain('HELLO WORLD');
+      expect(userMessage.content).toBe('HELLO WORLD');
+      expect(userMessage.content).not.toContain('Code Execution Result:');
+      expect(userMessage.content).not.toContain('was processed');
     }
   });
 
@@ -110,13 +114,17 @@ describe('Field Processor Functions', () => {
     if (userMessage?.role === 'user' && Array.isArray(userMessage.content)) {
       const textContent = userMessage.content.find((c) => c.type === 'text');
       if (textContent && 'text' in textContent) {
-        expect(textContent.text).toContain('original updated');
+        expect(textContent.text).toBe('original updated');
+        expect(textContent.text).not.toContain('Code Execution Result:');
+        expect(textContent.text).not.toContain('was processed');
       }
     } else if (
       userMessage?.role === 'user' &&
       typeof userMessage.content === 'string'
     ) {
-      expect(userMessage.content).toContain('original updated');
+      expect(userMessage.content).toBe('original updated');
+      expect(userMessage.content).not.toContain('Code Execution Result:');
+      expect(userMessage.content).not.toContain('was processed');
     }
   });
 });

@@ -5,6 +5,7 @@ import type { AxChatRequest, AxChatResponse } from '../ai/types.js';
 import {
   AxAIServiceNetworkError,
   AxAIServiceStatusError,
+  AxAIServiceStreamTerminatedError,
   AxAIServiceTimeoutError,
   AxTokenLimitError,
 } from '../util/apicall.js';
@@ -250,6 +251,96 @@ describe('Infrastructure Error Retry', () => {
     ).rejects.toThrow('Internal Server Error');
 
     expect(callCount).toBe(6); // Initial + 5 retries
+  });
+
+  it('should attempt once when maxRetries is 0', async () => {
+    let callCount = 0;
+
+    const ai = new AxMockAIService({
+      features: {
+        functions: false,
+        streaming: false,
+        structuredOutputs: false,
+      },
+      chatResponse: async () => {
+        callCount++;
+        return {
+          results: [
+            {
+              index: 0,
+              content: 'Answer: Single attempt works',
+              finishReason: 'stop',
+            },
+          ],
+          modelUsage: {
+            ai: 'test-ai',
+            model: 'test-model',
+            tokens: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
+          },
+        } as AxChatResponse;
+      },
+    });
+
+    const signature = f()
+      .input('query', f.string())
+      .output('answer', f.string())
+      .build();
+
+    const gen = new AxGen(signature);
+
+    const result = await gen.forward(ai, { query: 'test' }, { maxRetries: 0 });
+
+    expect(result.answer).toBe('Single attempt works');
+    expect(callCount).toBe(1);
+  });
+
+  it('should retry on stream termination errors and eventually succeed', async () => {
+    let callCount = 0;
+
+    const ai = new AxMockAIService({
+      features: {
+        functions: false,
+        streaming: false,
+        structuredOutputs: false,
+      },
+      chatResponse: async () => {
+        callCount++;
+
+        if (callCount === 1) {
+          throw new AxAIServiceStreamTerminatedError(
+            'https://api.example.com/chat',
+            { test: 'request' }
+          );
+        }
+
+        return {
+          results: [
+            {
+              index: 0,
+              content: 'Answer: Success after stream retry',
+              finishReason: 'stop',
+            },
+          ],
+          modelUsage: {
+            ai: 'test-ai',
+            model: 'test-model',
+            tokens: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
+          },
+        } as AxChatResponse;
+      },
+    });
+
+    const signature = f()
+      .input('query', f.string())
+      .output('answer', f.string())
+      .build();
+
+    const gen = new AxGen(signature);
+
+    const result = await gen.forward(ai, { query: 'test' });
+
+    expect(result.answer).toBe('Success after stream retry');
+    expect(callCount).toBe(2);
   });
 
   it('should NOT retry on 4xx errors (client errors) by default', async () => {

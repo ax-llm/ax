@@ -46,15 +46,21 @@ packageJson.exports = {
 delete packageJson.devDependencies;
 delete packageJson.scripts;
 
-// Add bin entry for CLI
-packageJson.bin = {
-  ax: './cli/index.mjs',
-};
+// Conditionally add bin entry for CLI (only if cli/ directory exists)
+const cliSourcePath = path.join(packagePath, 'cli');
+if (existsSync(cliSourcePath)) {
+  packageJson.bin = {
+    ax: './cli/index.mjs',
+  };
+}
 
-// Add postinstall script
-packageJson.scripts = {
-  postinstall: 'node ./scripts/postinstall.mjs',
-};
+// Conditionally add postinstall script (only if scripts/ directory exists)
+const scriptsSourcePath = path.join(packagePath, 'scripts');
+if (existsSync(scriptsSourcePath)) {
+  packageJson.scripts = {
+    postinstall: 'node ./scripts/postinstall.mjs',
+  };
+}
 
 // Write the modified package.json to the build folder
 await writeFile(
@@ -87,7 +93,6 @@ if (existsSync(skillsSourcePath)) {
 }
 
 // Copy CLI directory
-const cliSourcePath = path.join(packagePath, 'cli');
 const cliDestPath = path.join(buildPath, 'cli');
 
 if (existsSync(cliSourcePath)) {
@@ -100,7 +105,6 @@ if (existsSync(cliSourcePath)) {
 }
 
 // Copy scripts directory
-const scriptsSourcePath = path.join(packagePath, 'scripts');
 const scriptsDestPath = path.join(buildPath, 'scripts');
 
 if (existsSync(scriptsSourcePath)) {

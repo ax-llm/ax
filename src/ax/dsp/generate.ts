@@ -161,7 +161,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
   private thoughtFieldName: string;
   private signatureToolCallingManager?: SignatureToolCallingManager;
   private structuredOutputFunctionFallback = false;
-  private abortController?: AbortController;
+  private activeAbortControllers = new Set<AbortController>();
   private _stopRequested = false;
 
   constructor(
@@ -201,7 +201,10 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
    */
   public stop(): void {
     this._stopRequested = true;
-    this.abortController?.abort('Stopped by user');
+    // Abort all in-flight executions started by this AxGen instance.
+    for (const controller of this.activeAbortControllers) {
+      controller.abort('Stopped by user');
+    }
   }
 
   public setInstruction(instruction: string): void {
@@ -635,6 +638,9 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     span?: Span,
     traceContext?: Context
   ): AxGenStreamingOut<OUT> {
+    // Reset per-call prompt-mode manager so previous calls do not leak mode.
+    this.signatureToolCallingManager = undefined;
+
     const rawStop = options?.stopFunction ?? this.options?.stopFunction;
     let stopFunctionNames = Array.isArray(rawStop)
       ? rawStop.map((s) => s.toLowerCase())
@@ -927,15 +933,21 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       // Use the same maxRetries for infrastructure errors (default 3)
       const infraMaxRetries = maxRetries;
 
-      // Infrastructure retry loop (outer loop for 5xx, network, timeout errors)
+      // Infrastructure retry loop (outer loop for 5xx, network, timeout, stream termination errors)
       for (
         let infraRetryCount = 0;
         infraRetryCount <= infraMaxRetries;
         infraRetryCount++
       ) {
         try {
-          // Validation/assertion error retry loop (inner loop)
-          for (let errCount = 0; errCount < maxRetries; errCount++) {
+          // Validation/assertion error retry loop (inner loop).
+          // `maxRetries` means extra attempts after the initial one.
+          const validationAttemptCount = maxRetries + 1;
+          for (
+            let errCount = 0;
+            errCount < validationAttemptCount;
+            errCount++
+          ) {
             // Reset states for new attempt
             states.forEach((s) => {
               s.content = '';
@@ -1284,7 +1296,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
                   args as HandleErrorForGenerateArgs<AxAIRefusalError>
                 );
               } else if (e instanceof AxAIServiceStreamTerminatedError) {
-                // Do nothing allow error correction to happen
+                // Route stream termination to infrastructure retry logic
+                throw e;
               } else {
                 // Check if this is a retryable infrastructure error
                 // If so, let it bubble up to the infrastructure retry loop
@@ -1418,7 +1431,51 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
             });
 
             // Wait before retrying
-            await new Promise((resolve) => setTimeout(resolve, delay));
+            await new Promise<void>((resolve, reject) => {
+              let settled = false;
+              let onAbort: (() => void) | undefined;
+              const cleanup = () => {
+                if (effectiveAbortSignal && onAbort) {
+                  effectiveAbortSignal.removeEventListener('abort', onAbort);
+                }
+              };
+              const onResolve = () => {
+                if (settled) return;
+                settled = true;
+                cleanup();
+                resolve();
+              };
+              const timer = setTimeout(onResolve, delay);
+
+              // Allow stop/abort to interrupt long backoff sleeps
+              if (!effectiveAbortSignal) {
+                return;
+              }
+
+              onAbort = () => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                cleanup();
+                reject(
+                  new AxAIServiceAbortedError(
+                    'infrastructure-retry-backoff',
+                    effectiveAbortSignal.reason
+                      ? String(effectiveAbortSignal.reason)
+                      : 'Aborted during retry backoff'
+                  )
+                );
+              };
+
+              if (effectiveAbortSignal.aborted) {
+                onAbort();
+                return;
+              }
+
+              effectiveAbortSignal.addEventListener('abort', onAbort, {
+                once: true,
+              });
+            });
             continue; // Retry infrastructure call
           }
 
@@ -1611,12 +1668,13 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     }
 
     // Create internal abort controller and merge with any user-provided signal
-    this.abortController = new AbortController();
+    const abortController = new AbortController();
+    this.activeAbortControllers.add(abortController);
     if (this._stopRequested) {
-      this.abortController.abort('Stopped by user (pre-forward)');
+      abortController.abort('Stopped by user (pre-forward)');
     }
     const effectiveAbortSignal = mergeAbortSignals(
-      this.abortController.signal,
+      abortController.signal,
       options?.abortSignal ?? axGlobals.abortSignal
     );
     const effectiveOptions = effectiveAbortSignal
@@ -1720,7 +1778,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         span.end();
       }
     } finally {
-      this.abortController = undefined;
+      this.activeAbortControllers.delete(abortController);
       this._stopRequested = false;
     }
   }
@@ -1764,7 +1822,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
    * @param options.mem - Memory instance for conversation history
    * @param options.sessionId - Session identifier for memory isolation
    * @param options.maxRetries - Maximum error correction attempts (default: 3)
-   * @param options.maxSteps - Maximum function call iterations (default: 10)
+   * @param options.maxSteps - Maximum function call iterations (default: 25)
    * @param options.debug - Enable debug logging
    *
    * @returns Promise resolving to the output values matching the signature's output fields
@@ -1976,7 +2034,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
             finalMetricsInstruments,
             errorCorrectionAttempts,
             success,
-            options?.maxRetries ?? 10,
+            options?.maxRetries ?? this.options?.maxRetries ?? 3,
             signatureName,
             finalCustomLabels
           );

@@ -132,6 +132,51 @@ const result = await assistant.forward(llm, {
 });
 ```
 
+### AxAgent + RLM for long context
+
+```typescript
+import { agent, AxJSRuntime } from "@ax-llm/ax";
+
+const analyzer = agent(
+  "context:string, query:string -> answer:string, evidence:string[]",
+  {
+    name: "documentAnalyzer",
+    description: "Analyze very long documents with recursive code + sub-queries",
+    maxSteps: 20,
+    rlm: {
+      contextFields: ["context"],
+      runtime: new AxJSRuntime(),
+      maxLlmCalls: 40,
+      maxRuntimeChars: 2_000, // Shared cap for llmQuery context + interpreter output
+      maxBatchedLlmQueryConcurrency: 6,
+      subModel: "gpt-4o-mini",
+    },
+  },
+);
+
+const result = await analyzer.forward(llm, {
+  context: veryLongDocument,
+  query: "What are the main arguments and supporting evidence?",
+});
+```
+
+RLM mode keeps long context out of the root prompt, runs iterative analysis in a persistent runtime session, and uses bounded sub-queries for semantic extraction (typically targeting <=10k chars per sub-call).
+
+### AxJSRuntime
+
+`AxJSRuntime` is the built-in JavaScript runtime used by RLM and tool-style execution.
+It works across:
+
+- Node.js/Bun-style backends (worker_threads runtime path)
+- Deno backends (module worker path)
+- Browser environments (Web Worker path)
+
+It supports:
+
+- Persistent sessions via `createSession()`
+- Function tool usage via `toFunction()`
+- Sandbox permissions via `AxJSRuntimePermission`
+
 ### Multi-modal (images, audio)
 
 ```typescript
@@ -159,7 +204,7 @@ npm install @ax-llm/ax-ai-aws-bedrock
 # Vercel AI SDK v5 integration
 npm install @ax-llm/ax-ai-sdk-provider
 
-# Tools: MCP stdio transport, JS interpreter
+# Tools: MCP stdio transport, JS runtime
 npm install @ax-llm/ax-tools
 ```
 
@@ -174,6 +219,7 @@ npm install @ax-llm/ax-tools
 - **Workflows** – Compose complex pipelines with AxFlow
 - **RAG** – Multi-hop retrieval with quality loops
 - **Agents** – Tools and multi-agent collaboration
+- **RLM in AxAgent** – Long-context analysis with recursive runtime loops
 - **Zero dependencies** – Lightweight, fast, reliable
 
 ## Documentation

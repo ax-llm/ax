@@ -686,10 +686,11 @@ import type {
 import { type AxDockerContainer, AxDockerSession } from './funcs/docker.js';
 import { AxEmbeddingAdapter } from './funcs/embed.js';
 import {
-  AxRLMJSInterpreter,
-  AxRLMJSInterpreterPermission,
-  axCreateRLMJSInterpreter,
-} from './funcs/rlmInterpreter.js';
+  AxJSRuntime,
+  type AxJSRuntimeOutputMode,
+  AxJSRuntimePermission,
+  axCreateJSRuntime,
+} from './funcs/jsRuntime.js';
 import { AxMCPClient } from './mcp/client.js';
 import type { AxMCPOAuthOptions } from './mcp/oauth/types.js';
 import type { AxMCPTransport } from './mcp/transport.js';
@@ -745,6 +746,7 @@ import {
 import { axRAG } from './prompts/rag.js';
 import {
   type AxCodeInterpreter,
+  type AxCodeRuntime,
   type AxCodeSession,
   type AxRLMConfig,
   axBuildRLMDefinition,
@@ -865,6 +867,8 @@ export { AxGen };
 export { AxGenerateError };
 export { AxHFDataLoader };
 export { AxInstanceRegistry };
+export { AxJSRuntime };
+export { AxJSRuntimePermission };
 export { AxJudge };
 export { AxLLMRequestTypeValues };
 export { AxLearn };
@@ -880,8 +884,6 @@ export { AxOptimizedProgramImpl };
 export { AxProgram };
 export { AxPromptTemplate };
 export { AxProviderRouter };
-export { AxRLMJSInterpreter };
-export { AxRLMJSInterpreterPermission };
 export { AxRateLimiterTokenUsage };
 export { AxSignature };
 export { AxSignatureBuilder };
@@ -945,7 +947,7 @@ export { axCreateDefaultOptimizerTextLogger };
 export { axCreateDefaultTextLogger };
 export { axCreateFlowColorLogger };
 export { axCreateFlowTextLogger };
-export { axCreateRLMJSInterpreter };
+export { axCreateJSRuntime };
 export { axDefaultFlowLogger };
 export { axDefaultMetricsConfig };
 export { axDefaultOptimizerLogger };
@@ -1216,6 +1218,7 @@ export type { AxCheckpointLoadFn };
 export type { AxCheckpointSaveFn };
 export type { AxCitation };
 export type { AxCodeInterpreter };
+export type { AxCodeRuntime };
 export type { AxCodeSession };
 export type { AxCompileOptions };
 export type { AxContentProcessingServices };
@@ -1309,6 +1312,7 @@ export type { AxIField };
 export type { AxInputFunctionType };
 export type { AxInternalChatRequest };
 export type { AxInternalEmbedRequest };
+export type { AxJSRuntimeOutputMode };
 export type { AxJudgeMode };
 export type { AxJudgeOptions };
 export type { AxJudgeResult };

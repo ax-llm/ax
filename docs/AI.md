@@ -604,7 +604,7 @@ const agentProvider = new AxAgentProvider({
 
 ## Ax Tools Package
 
-The `@ax-llm/ax-tools` package provides additional tools for Ax including MCP (Model Context Protocol) support and a JavaScript interpreter.
+The `@ax-llm/ax-tools` package provides additional tools for Ax including MCP (Model Context Protocol) support and a JavaScript runtime.
 
 ### Installation
 
@@ -635,22 +635,24 @@ const tools = await client.getTools();
 console.log("Available tools:", tools.map((t) => t.name));
 ```
 
-### JavaScript Interpreter
+### AxJSRuntime
 
-A sandboxed JavaScript interpreter that can be used as a function tool:
+A sandboxed JavaScript runtime that can be used as a function tool.
+`AxJSRuntime` is the runtime implementation and is designed
+to work across Node.js/Bun-style backends, Deno, and browsers.
 
 ```typescript
 import { ai, ax } from "@ax-llm/ax";
 import {
-  AxJSInterpreter,
-  AxJSInterpreterPermission,
-} from "@ax-llm/ax-tools";
+  AxJSRuntime,
+  AxJSRuntimePermission,
+} from "@ax-llm/ax";
 
-// Create interpreter with specific permissions
-const interpreter = new AxJSInterpreter({
+// Create runtime with specific permissions
+const runtime = new AxJSRuntime({
   permissions: [
-    AxJSInterpreterPermission.CRYPTO,
-    AxJSInterpreterPermission.OS,
+    AxJSRuntimePermission.NETWORK,
+    AxJSRuntimePermission.TIMING,
   ],
 });
 
@@ -658,7 +660,7 @@ const interpreter = new AxJSInterpreter({
 const llm = ai({ name: "openai", apiKey: process.env.OPENAI_APIKEY! });
 
 const codeRunner = ax("task:string -> result:string", {
-  functions: [interpreter.toFunction()],
+  functions: [runtime.toFunction()],
 });
 
 const result = await codeRunner.forward(llm, {
@@ -668,23 +670,24 @@ const result = await codeRunner.forward(llm, {
 
 ### Permissions
 
-Control what the interpreter can access:
+Control what the runtime can access:
 
 | Permission | Description |
 | ---------- | ----------- |
-| `FS` | File system access (`node:fs`) |
-| `NET` | Network access (`http`, `https`) |
-| `OS` | OS information (`node:os`) |
-| `CRYPTO` | Cryptographic functions |
-| `PROCESS` | Process information |
+| `NETWORK` | Network APIs (`fetch`, `WebSocket`, etc.) |
+| `STORAGE` | Client storage APIs (`indexedDB`, `caches`) |
+| `CODE_LOADING` | Dynamic script loading (`importScripts`) |
+| `COMMUNICATION` | Cross-context messaging (`BroadcastChannel`) |
+| `TIMING` | High-resolution timing (`performance`) |
+| `WORKERS` | Sub-worker spawning (`Worker`, `SharedWorker`) |
 
 ```typescript
-import { AxJSInterpreterPermission } from "@ax-llm/ax-tools";
+import { AxJSRuntimePermission } from "@ax-llm/ax";
 
-const interpreter = new AxJSInterpreter({
+const runtime = new AxJSRuntime({
   permissions: [
-    AxJSInterpreterPermission.FS,
-    AxJSInterpreterPermission.NET,
+    AxJSRuntimePermission.NETWORK,
+    AxJSRuntimePermission.STORAGE,
   ],
 });
 ```

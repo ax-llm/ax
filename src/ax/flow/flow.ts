@@ -132,8 +132,8 @@ export class AxFlow<
     meter?: Meter;
   }>;
 
-  // Abort controller for stop() support
-  private abortController?: AbortController;
+  // Abort controllers for stop() support across in-flight forwards
+  private activeAbortControllers = new Set<AbortController>();
   private _stopRequested = false;
 
   /**
@@ -149,7 +149,77 @@ export class AxFlow<
    */
   public stop(): void {
     this._stopRequested = true;
-    this.abortController?.abort('Stopped by user');
+    for (const controller of this.activeAbortControllers) {
+      controller.abort('Stopped by user');
+    }
+  }
+
+  private extractInputValues(values: IN | AxMessage<IN>[]): IN {
+    if (!Array.isArray(values)) return values;
+    const lastUserMessage = values.filter((msg) => msg.role === 'user').pop();
+    if (!lastUserMessage) {
+      throw new Error('No user message found in values array');
+    }
+    return lastUserMessage.values;
+  }
+
+  private getCacheKey(
+    values: IN | AxMessage<IN>[],
+    cachingFunction?: ((key: string, value?: AxGenOut) => unknown) | undefined
+  ): string | undefined {
+    if (!cachingFunction) return undefined;
+    this.ensureProgram();
+    const sig = this.program!.getSignature();
+    const inputNames = sig.getInputFields().map((f) => f.name);
+    const inputValues = this.extractInputValues(values);
+    const hasher = createHash('sha256');
+    hasher.update(sig.hash() ?? '');
+
+    const updateWithValue = (v: unknown): void => {
+      const t = typeof v;
+      hasher.update(`|${t}|`);
+      if (v === null || v === undefined) {
+        hasher.update('null');
+        return;
+      }
+      if (t === 'string' || t === 'number' || t === 'boolean') {
+        hasher.update(String(v));
+        return;
+      }
+      if (Array.isArray(v)) {
+        hasher.update('[');
+        for (const item of v) updateWithValue(item);
+        hasher.update(']');
+        return;
+      }
+      if (
+        typeof v === 'object' &&
+        v !== null &&
+        'mimeType' in (v as Record<string, unknown>) &&
+        'data' in (v as Record<string, unknown>)
+      ) {
+        const mv = v as { mimeType?: string; data?: string };
+        hasher.update(mv.mimeType ?? '');
+        const dataDigest = createHash('sha256')
+          .update(mv.data ?? '')
+          .digest('hex');
+        hasher.update(dataDigest);
+        return;
+      }
+      if (typeof v === 'object') {
+        const obj = v as Record<string, unknown>;
+        const keys = Object.keys(obj).sort();
+        for (const k of keys) {
+          hasher.update(`{${k}}`);
+          updateWithValue(obj[k]);
+        }
+        return;
+      }
+      hasher.update(String(v));
+    };
+
+    for (const n of inputNames) updateWithValue((inputValues as any)?.[n]);
+    return hasher.digest('hex');
   }
 
   /**
@@ -271,7 +341,7 @@ export class AxFlow<
    */
   private getStepType(
     step: AxFlowStepFunction,
-    _index: number
+    index: number
   ):
     | 'execute'
     | 'map'
@@ -283,6 +353,14 @@ export class AxFlow<
     | 'feedback'
     | 'while'
     | 'other' {
+    // Prefer planner metadata when available (stable across transpilation/minification)
+    const plannedStep = this.executionPlanner
+      .getExecutionPlan()
+      .steps.find((s) => s.stepIndex === index);
+    if (plannedStep) {
+      return plannedStep.type;
+    }
+
     const source = step.toString();
 
     // Check for execute steps (contain nodeName references)
@@ -901,67 +979,16 @@ export class AxFlow<
   public async *streamingForward<T extends Readonly<AxAIService>>(
     ai: T,
     values: IN | AxMessage<IN>[],
-    options?: Readonly<AxProgramStreamingForwardOptionsWithModels<T>>
+    options?: Readonly<
+      AxProgramStreamingForwardOptionsWithModels<T> & {
+        abortController?: AbortController;
+      }
+    >
   ): AxGenStreamingOut<OUT> {
     // Optional caching pre-check mirroring forward()
     const cachingFunction =
       (options as any)?.cachingFunction ?? axGlobals.cachingFunction;
-    const cacheKey = (() => {
-      if (!cachingFunction) return undefined;
-      this.ensureProgram();
-      const sig = this.program!.getSignature();
-      const inputNames = sig.getInputFields().map((f) => f.name);
-      const inputValues = Array.isArray(values)
-        ? (values as AxMessage<IN>[]).filter((m) => m.role === 'user').pop()!
-            .values
-        : (values as IN);
-      const hasher = createHash('sha256');
-      hasher.update(sig.hash() ?? '');
-      const updateWithValue = (v: unknown): void => {
-        const t = typeof v;
-        hasher.update(`|${t}|`);
-        if (v === null || v === undefined) {
-          hasher.update('null');
-          return;
-        }
-        if (t === 'string' || t === 'number' || t === 'boolean') {
-          hasher.update(String(v));
-          return;
-        }
-        if (Array.isArray(v)) {
-          hasher.update('[');
-          for (const item of v) updateWithValue(item);
-          hasher.update(']');
-          return;
-        }
-        if (
-          typeof v === 'object' &&
-          v !== null &&
-          'mimeType' in (v as Record<string, unknown>) &&
-          'data' in (v as Record<string, unknown>)
-        ) {
-          const mv = v as { mimeType?: string; data?: string };
-          hasher.update(mv.mimeType ?? '');
-          const dataDigest = createHash('sha256')
-            .update(mv.data ?? '')
-            .digest('hex');
-          hasher.update(dataDigest);
-          return;
-        }
-        if (typeof v === 'object') {
-          const obj = v as Record<string, unknown>;
-          const keys = Object.keys(obj).sort();
-          for (const k of keys) {
-            hasher.update(`{${k}}`);
-            updateWithValue(obj[k]);
-          }
-          return;
-        }
-        hasher.update(String(v));
-      };
-      for (const n of inputNames) updateWithValue((inputValues as any)?.[n]);
-      return hasher.digest('hex');
-    })();
+    const cacheKey = this.getCacheKey(values, cachingFunction as any);
     if (cachingFunction && cacheKey) {
       let cached: unknown;
       try {
@@ -1021,72 +1048,21 @@ export class AxFlow<
     ai: T,
     values: IN | AxMessage<IN>[],
     options?: Readonly<
-      AxProgramForwardOptionsWithModels<T> & { autoParallel?: boolean }
+      AxProgramForwardOptionsWithModels<T> & {
+        autoParallel?: boolean;
+        abortController?: AbortController;
+      }
     >
   ): Promise<OUT> {
     // Optional caching pre-check using ordered inputs by inferred signature
     const cachingFunction =
       (options as any)?.cachingFunction ?? axGlobals.cachingFunction;
-    const cacheKey = (() => {
-      if (!cachingFunction) return undefined;
-      // Ensure program exists to infer current signature
-      this.ensureProgram();
-      const sig = this.program!.getSignature();
-      const inputNames = sig.getInputFields().map((f) => f.name);
-      // Align the key with actual execution: use the same inputValues used below
-      const inputValues = Array.isArray(values)
-        ? (values as AxMessage<IN>[]).filter((m) => m.role === 'user').pop()!
-            .values
-        : (values as IN);
-      const hasher = createHash('sha256');
-      hasher.update(sig.hash() ?? '');
-      const updateWithValue = (v: unknown): void => {
-        const t = typeof v;
-        hasher.update(`|${t}|`);
-        if (v === null || v === undefined) {
-          hasher.update('null');
-          return;
-        }
-        if (t === 'string' || t === 'number' || t === 'boolean') {
-          hasher.update(String(v));
-          return;
-        }
-        if (Array.isArray(v)) {
-          hasher.update('[');
-          for (const item of v) updateWithValue(item);
-          hasher.update(']');
-          return;
-        }
-        if (
-          typeof v === 'object' &&
-          v !== null &&
-          'mimeType' in (v as Record<string, unknown>) &&
-          'data' in (v as Record<string, unknown>)
-        ) {
-          const mv = v as { mimeType?: string; data?: string };
-          hasher.update(mv.mimeType ?? '');
-          const dataDigest = createHash('sha256')
-            .update(mv.data ?? '')
-            .digest('hex');
-          hasher.update(dataDigest);
-          return;
-        }
-        if (typeof v === 'object') {
-          const obj = v as Record<string, unknown>;
-          const keys = Object.keys(obj).sort();
-          for (const k of keys) {
-            hasher.update(`{${k}}`);
-            updateWithValue(obj[k]);
-          }
-          return;
-        }
-        hasher.update(String(v));
-      };
-      for (const n of inputNames) updateWithValue((inputValues as any)?.[n]);
-      return hasher.digest('hex');
-    })();
+    const cacheKey = this.getCacheKey(values, cachingFunction as any);
     if (cachingFunction && cacheKey) {
-      const cached = await cachingFunction(cacheKey);
+      let cached: unknown;
+      try {
+        cached = await cachingFunction(cacheKey);
+      } catch {}
       if (cached !== undefined) {
         return cached as unknown as OUT;
       }
@@ -1097,27 +1073,15 @@ export class AxFlow<
 
     // Initialize state early so it's accessible in catch block
     let state: AxFlowState = {};
+    let parentSpan: ReturnType<Tracer['startSpan']> | undefined;
+    let runAbortController: AbortController | undefined;
 
     try {
       // Reset usage and trace tracking at the start of each forward call
       this.resetUsage();
       this.resetTraces();
 
-      // Extract values from input - handle both IN and AxMessage<IN>[] cases
-      let inputValues: IN;
-      if (Array.isArray(values)) {
-        // If values is an array of messages, find the most recent user message
-        const lastUserMessage = values
-          .filter((msg) => msg.role === 'user')
-          .pop();
-        if (!lastUserMessage) {
-          throw new Error('No user message found in values array');
-        }
-        inputValues = lastUserMessage.values;
-      } else {
-        // If values is a single IN object
-        inputValues = values;
-      }
+      const inputValues = this.extractInputValues(values);
 
       // Dynamic signature inference - only if using default signature and have nodes
       // This allows flows to be created with a simple signature and then have it
@@ -1151,9 +1115,6 @@ export class AxFlow<
       const providedCtx: OtelContext | undefined = (options as any)
         ?.traceContext;
 
-      let parentSpan:
-        | ReturnType<NonNullable<typeof tracer>['startSpan']>
-        | undefined;
       let parentCtx: OtelContext | undefined = providedCtx;
       if (tracer) {
         const execPlan = this.getExecutionPlan();
@@ -1174,13 +1135,18 @@ export class AxFlow<
       }
 
       // Create internal abort controller and merge with user-provided signal
-      this.abortController = new AbortController();
+      runAbortController = new AbortController();
+      this.activeAbortControllers.add(runAbortController);
       if (this._stopRequested) {
-        this.abortController.abort('Stopped by user (pre-forward)');
+        runAbortController.abort('Stopped by user (pre-forward)');
       }
+      const callerAbortSignal = mergeAbortSignals(
+        (options as any)?.abortSignal,
+        (options as any)?.abortController?.signal
+      );
       const effectiveAbortSignal = mergeAbortSignals(
-        this.abortController.signal,
-        (options as any)?.abortSignal
+        runAbortController.signal,
+        mergeAbortSignals(callerAbortSignal, axGlobals.abortSignal)
       );
 
       // Create execution context object
@@ -1262,9 +1228,6 @@ export class AxFlow<
         });
       }
 
-      // End parent span if created
-      if (parentSpan) parentSpan.end();
-
       // Return the final state cast to the expected output type
       // The type system ensures this is safe based on the signature inference
       // Post-store cache
@@ -1284,12 +1247,14 @@ export class AxFlow<
           state,
         });
       }
-      // End parent span on error (if created)
-      // @ts-expect-error runtime-scoped variable defined above
-      if (typeof parentSpan !== 'undefined' && parentSpan) parentSpan.end();
       throw error;
     } finally {
-      this.abortController = undefined;
+      if (parentSpan) {
+        parentSpan.end();
+      }
+      if (runAbortController) {
+        this.activeAbortControllers.delete(runAbortController);
+      }
       this._stopRequested = false;
     }
   }
@@ -1403,6 +1368,12 @@ export class AxFlow<
     TNodes & { [K in TName]: any }, // Using any here as the implementation handles all cases
     TState
   > {
+    if (this.nodes.has(name) || this.nodeGenerators.has(name)) {
+      throw new Error(
+        `Node '${name}' is already defined. Use a unique node name in this flow.`
+      );
+    }
+
     if (typeof nodeValue === 'string' || nodeValue instanceof AxSignature) {
       // Using signature string (original behavior)
       const signature = nodeValue;

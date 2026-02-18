@@ -96,7 +96,7 @@ export async function processStreamingFieldProcessors(
 }
 
 const addToMemory = (
-  field: Readonly<AxField>,
+  _field: Readonly<AxField>,
   mem: AxAIMemory,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   result: any | any[],
@@ -110,13 +110,9 @@ const addToMemory = (
     return;
   }
 
-  const resultText = JSON.stringify(
-    result,
-    (_key, value) => (typeof value === 'bigint' ? Number(value) : value),
-    2
-  );
+  const resultText = String(result);
 
-  const text = getFieldProcessingMessage(field, resultText);
+  const text = getFieldProcessingMessage(resultText);
   mem.addRequest(
     [{ role: 'user', content: [{ type: 'text', text }] }],
     sessionId
@@ -124,15 +120,6 @@ const addToMemory = (
   mem.addTag('processor', sessionId);
 };
 
-function getFieldProcessingMessage(
-  field: Readonly<AxField>,
-  resultText: string
-) {
-  const isCodeField = field.type?.name === 'code';
-  const fieldTitle = field.title;
-
-  if (isCodeField) {
-    return `Code in the field "${fieldTitle}" was executed. The code execution produced the following output: ${resultText}`;
-  }
-  return `The field "${fieldTitle}" was processed. The field contents were transformed into the following output: ${resultText}`;
+function getFieldProcessingMessage(resultText: string) {
+  return resultText;
 }

@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 
 import { AxMockAIService } from '../ai/mock/api.js';
 import type { AxChatResponse } from '../ai/types.js';
+import {
+  AxAIServiceAbortedError,
+  AxAIServiceStatusError,
+} from '../util/apicall.js';
 
 import { AxAgent } from './agent.js';
 
@@ -262,5 +266,43 @@ describe('AxAgent.stop()', () => {
     // The function handler should have received an abort signal
     expect(receivedSignal).toBeDefined();
     expect(receivedSignal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('aborts during retry backoff when stop() is called', async () => {
+    const ai = new AxMockAIService({
+      features: {
+        functions: false,
+        streaming: false,
+        structuredOutputs: false,
+      },
+      chatResponse: async (): Promise<AxChatResponse> => {
+        throw new AxAIServiceStatusError(
+          503,
+          'Service Unavailable',
+          'https://api.example.com/chat',
+          { test: 'request' },
+          { error: 'service_unavailable' }
+        );
+      },
+    });
+
+    const myAgent = new AxAgent(
+      {
+        name: 'testAgent',
+        description:
+          'A test agent that verifies stop aborts retry backoff execution',
+        signature: 'userQuery:string -> answer:string',
+      },
+      { maxRetries: 5 }
+    );
+
+    const pending = myAgent.forward(ai, { userQuery: 'test' });
+
+    // Let the retry path begin, then stop via internal controller.
+    await Promise.resolve();
+    await Promise.resolve();
+    myAgent.stop();
+
+    await expect(pending).rejects.toBeInstanceOf(AxAIServiceAbortedError);
   });
 });

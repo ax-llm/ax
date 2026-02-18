@@ -1,5 +1,152 @@
 # Changelog
 
+## [17.0.11](///compare/17.0.9...17.0.10) (2026-02-17)
+
+### Bug Fixes
+
+* update AxJSRuntime usage instructions and enhance llmQuery handling in AxAgent c424489
+## [17.0.10](///compare/17.0.9...17.0.10) (2026-02-17)
+
+### Features
+
+* enhance AxJSRuntime with output mode and usage instructions fe07dec
+
+## [17.0.10](///compare/17.0.8...17.0.9) (2026-02-17)
+
+### Features
+
+* enhance AxJSRuntime with output mode and usage instructions fe07dec
+## [17.0.9](///compare/17.0.8...17.0.9) (2026-02-17)
+
+### Features
+
+* new inline and function modse for axagent rlm a2b4c0f
+
+## [17.0.9](///compare/17.0.7...17.0.8) (2026-02-17)
+
+### Features
+
+* new inline and function modse for axagent rlm a2b4c0f
+## [17.0.8](///compare/17.0.7...17.0.8) (2026-02-16)
+
+### Features
+
+* improve error handling in AxJSRuntime and integration tests 799a425
+
+## [17.0.8](///compare/17.0.6...17.0.7) (2026-02-16)
+
+### Features
+
+* improve error handling in AxJSRuntime and integration tests 799a425
+## [17.0.7](///compare/17.0.6...17.0.7) (2026-02-16)
+
+### Features
+
+* enhance error handling with data preservation in AxJSRuntime 272a8ee
+
+## [17.0.7](///compare/17.0.5...17.0.6) (2026-02-16)
+
+### Features
+
+* enhance error handling with data preservation in AxJSRuntime 272a8ee
+## [17.0.6](///compare/17.0.5...17.0.6) (2026-02-16)
+
+### Features
+
+* enhance error handling in AxJSRuntime ed939cf
+
+## [17.0.6](///compare/17.0.4...17.0.5) (2026-02-16)
+
+### Features
+
+* enhance error handling in AxJSRuntime ed939cf
+## [17.0.5](///compare/17.0.4...17.0.5) (2026-02-16)
+
+### Features
+
+* enhance RLM session management and error handling 77493d5
+
+## [17.0.5](///compare/17.0.3...17.0.4) (2026-02-16)
+
+### Features
+
+* enhance RLM session management and error handling 77493d5
+## [17.0.4](///compare/17.0.3...17.0.4) (2026-02-16)
+
+### Features
+
+* implement RLM session recreation and error handling 2158092
+
+## [17.0.4](///compare/17.0.2...17.0.3) (2026-02-16)
+
+### Features
+
+* implement RLM session recreation and error handling 2158092
+## [17.0.3](///compare/17.0.2...17.0.3) (2026-02-16)
+
+## [17.0.3](///compare/17.0.1...17.0.2) (2026-02-16)
+## [17.0.2](///compare/17.0.1...17.0.2) (2026-02-15)
+
+### Features
+
+* rename AxCodeInterpreter to AxCodeRuntime d9b5e9a
+
+## [17.0.2](///compare/17.0.0...17.0.1) (2026-02-15)
+
+### Features
+
+* rename AxCodeInterpreter to AxCodeRuntime d9b5e9a
+## [17.0.1](///compare/17.0.0...17.0.1) (2026-02-15)
+
+### Bug Fixes
+
+* make RLM interpreter returns less brittle 6d0b314
+
+## [17.0.1](///compare/16.1.12...17.0.0) (2026-02-15)
+
+### Bug Fixes
+
+* make RLM interpreter returns less brittle 6d0b314
+## [17.0.0](///compare/16.1.12...17.0.0) (2026-02-15)
+
+### ⚠ BREAKING CHANGES
+
+* rename AxJSInterpreter API to AxJSRuntime
+
+### Features
+
+* harden stop/abort behavior across AxGen, AxAgent, and AxFlow a5c7f9b
+* rename AxJSInterpreter API to AxJSRuntime c0a6f13
+* unify JavaScript runtime interpreter across packages 9b0c0f7
+
+## [17.0.0](///compare/16.1.11...16.1.12) (2026-02-15)
+
+### ⚠ BREAKING CHANGES
+
+* rename AxJSInterpreter API to AxJSRuntime
+
+### Features
+
+* harden stop/abort behavior across AxGen, AxAgent, and AxFlow a5c7f9b
+* rename AxJSInterpreter API to AxJSRuntime c0a6f13
+* unify JavaScript runtime interpreter across packages 9b0c0f7
+## [16.1.12](///compare/16.1.11...16.1.12) (2026-02-14)
+
+### Features
+
+* add RLM support in AxAgent for long context analysis 41e3254
+
+## [16.1.12](///compare/16.1.10...16.1.11) (2026-02-14)
+
+### Features
+
+* add RLM support in AxAgent for long context analysis 41e3254
+## [16.1.11](///compare/16.1.10...16.1.11) (2026-02-14)
+
+### Features
+
+* introduce AxRLMJSInterpreter with sandbox permissions and update documentation 2f0e990
+
 ## [16.1.11](///compare/16.1.9...16.1.10) (2026-02-14)
 
 ### Features
