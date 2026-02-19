@@ -1,5 +1,12 @@
 # Changelog
 
+## [18.0.1](///compare/17.0.11...18.0.0) (2026-02-19)
+## [18.0.0](///compare/17.0.11...18.0.0) (2026-02-19)
+
+### Features
+
+* Redesign of AxAgent to be RLM native ddb1f17
+
 ## [18.0.0](///compare/17.0.10...17.0.11) (2026-02-19)
 
 ### Features
