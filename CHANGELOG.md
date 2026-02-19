@@ -1,5 +1,11 @@
 # Changelog
 
+## [18.0.2](///compare/18.0.0...18.0.1) (2026-02-19)
+
+### Features
+
+* Enhance AxAgent with demo validation and descriptions 462bc72
+
 ## [18.0.1](///compare/17.0.11...18.0.0) (2026-02-19)
 ## [18.0.0](///compare/17.0.11...18.0.0) (2026-02-19)
 
