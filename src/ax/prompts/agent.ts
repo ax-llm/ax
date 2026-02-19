@@ -10,6 +10,7 @@ import type { AxSignatureConfig } from '../dsp/sig.js';
 import { AxSignature, f } from '../dsp/sig.js';
 import type { ParseSignature } from '../dsp/sigtypes.js';
 import type {
+  AxFieldValue,
   AxGenIn,
   AxGenOut,
   AxGenStreamingOut,
@@ -44,9 +45,28 @@ export interface AxAgentic<IN extends AxGenIn, OUT extends AxGenOut>
 
 type AxAnyAgentic = AxAgentic<any, any>;
 
+/**
+ * Demo traces for AxAgent's split architecture.
+ * Actor demos use `{ javascriptCode }` + optional actorFields.
+ * Responder demos use the agent's output type + optional input fields.
+ */
+export type AxAgentDemos<
+  IN extends AxGenIn,
+  OUT extends AxGenOut,
+  PREFIX extends string = string,
+> =
+  | {
+      programId: `${PREFIX}.actor`;
+      traces: (Record<string, AxFieldValue> & { javascriptCode: string })[];
+    }
+  | {
+      programId: `${PREFIX}.responder`;
+      traces: (OUT & Partial<IN>)[];
+    };
+
 export type AxAgentOptions = Omit<
   AxProgramForwardOptions<string>,
-  'functions'
+  'functions' | 'description'
 > & {
   debug?: boolean;
   /** RLM configuration (required — AxAgent always uses split architecture) */
@@ -100,6 +120,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private options?: Readonly<AxAgentOptions>;
   private rlmConfig: AxRLMConfig;
   private actorBaseDefinition!: string;
+  private responderBaseDefinition!: string;
   private actorFieldNames: string[];
   private actorForwardOptions?: Partial<AxProgramForwardOptions<string>>;
   private responderForwardOptions?: Partial<AxProgramForwardOptions<string>>;
@@ -185,7 +206,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       (fld) => !rlm.contextFields.includes(fld.name)
     );
 
-    const sigDescription = this.program.getSignature().getDescription() ?? '';
+    if (this.program.getSignature().getDescription()) {
+      throw new Error(
+        'AxAgent does not support signature-level descriptions. ' +
+          'Use setActorDescription() and/or setResponderDescription() to customize the actor and responder prompts independently.'
+      );
+    }
 
     // --- Validate and split output fields by actorFields ---
     const originalOutputs = this.program.getSignature().getOutputFields();
@@ -207,7 +233,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     // --- Actor signature: inputs + contextMetadata + actionLog -> javascriptCode (+ actorFields) ---
     let actorSigBuilder = f()
-      .description(sigDescription)
       .addInputFields(nonContextInputs)
       .input(
         'contextMetadata',
@@ -236,7 +261,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     // --- Responder signature: inputs + contextMetadata + actionLog -> responderOutputFields ---
     const responderSig = f()
-      .description(sigDescription)
       .addInputFields(nonContextInputs)
       .input(
         'contextMetadata',
@@ -259,7 +283,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const maxLlmCalls = rlm.maxLlmCalls ?? DEFAULT_RLM_MAX_LLM_CALLS;
     const maxTurns = rlm.maxTurns ?? DEFAULT_RLM_MAX_TURNS;
 
-    const actorDef = axBuildActorDefinition(sigDescription, contextFieldMeta, {
+    const actorDef = axBuildActorDefinition(undefined, contextFieldMeta, {
       toolFunctions,
       agentFunctions: this.agents?.map((a) => a.getFunction()),
       runtimeUsageInstructions: runtime.getUsageInstructions?.(),
@@ -270,9 +294,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     this.actorBaseDefinition = actorDef;
 
     const responderDef = axBuildResponderDefinition(
-      sigDescription,
+      undefined,
       contextFieldMeta
     );
+    this.responderBaseDefinition = responderDef;
 
     this.actorProgram = new AxGen(actorSig, {
       ...options,
@@ -344,14 +369,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   }
 
   public setDemos(
-    demos: readonly AxProgramDemos<
-      IN,
-      OUT,
-      `${string}.${'actor' | 'responder'}`
-    >[],
+    demos: readonly (AxAgentDemos<IN, OUT> | AxProgramDemos<IN, OUT>)[],
     options?: { modelConfig?: Record<string, unknown> }
   ) {
-    this.program.setDemos(demos, options);
+    this.program.setDemos(demos as readonly AxProgramDemos<IN, OUT>[], options);
   }
 
   public getUsage() {
@@ -424,6 +445,16 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   public setActorDescription(additionalText: string): void {
     this.actorProgram.setDescription(
       `${this.actorBaseDefinition}\n\n${additionalText}`
+    );
+  }
+
+  /**
+   * Appends additional text to the Responder's existing RLM system prompt.
+   * The base RLM prompt is preserved; the additional text is appended after it.
+   */
+  public setResponderDescription(additionalText: string): void {
+    this.responderProgram.setDescription(
+      `${this.responderBaseDefinition}\n\n${additionalText}`
     );
   }
 

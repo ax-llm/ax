@@ -819,6 +819,38 @@ describe('AxPromptTemplate.render', () => {
       expect(histUser2.content).toContain('User Query: second message');
     });
 
+    it('should skip output-only demos (no input fields)', () => {
+      const signature = new AxSignature(
+        'userQuery:string -> aiResponse:string'
+      );
+      const template = new AxPromptTemplate(signature);
+
+      // Demo with only output field, no input — should be skipped
+      const demos = [{ aiResponse: 'demo output only' }];
+      const result = template.render({ userQuery: 'test' }, { demos });
+
+      // Should only have: system, user (query) — demo skipped
+      expect(result).toHaveLength(2);
+      expect(result[0]?.role).toBe('system');
+      expect(result[1]?.role).toBe('user');
+    });
+
+    it('should skip output-only items when passed as examples', () => {
+      const signature = new AxSignature(
+        'userQuery:string -> aiResponse:string'
+      );
+      const template = new AxPromptTemplate(signature);
+
+      // Examples with only output — should be skipped
+      const examples = [{ aiResponse: 'orphan output' }];
+      const result = template.render({ userQuery: 'test' }, { examples });
+
+      // Should only have: system, user (query) — example skipped
+      expect(result).toHaveLength(2);
+      expect(result[0]?.role).toBe('system');
+      expect(result[1]?.role).toBe('user');
+    });
+
     it('should render without examples when none provided', () => {
       const signature = new AxSignature(
         'userQuery:string -> aiResponse:string'

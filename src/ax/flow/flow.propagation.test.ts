@@ -69,7 +69,10 @@ describe('AxFlow propagation and instrumentation', () => {
 
     // Demos targeting child node by name-based ID should not throw
     const demos: AxProgramDemos<any, any>[] = [
-      { programId: 'root.n1', traces: [{ summaryText: 'test' }] },
+      {
+        programId: 'root.n1',
+        traces: [{ documentText: 'input text', summaryText: 'test' }],
+      },
     ];
     expect(() => wf.setDemos(demos)).not.toThrowError();
   });

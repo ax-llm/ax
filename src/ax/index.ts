@@ -733,6 +733,7 @@ import type {
 import {
   AxAgent,
   type AxAgentConfig,
+  type AxAgentDemos,
   type AxAgentic,
   type AxAgentOptions,
   agent,
@@ -1194,6 +1195,7 @@ export type { AxAIWebLLMEmbedResponse };
 export type { AxAPI };
 export type { AxAPIConfig };
 export type { AxAgentConfig };
+export type { AxAgentDemos };
 export type { AxAgentOptions };
 export type { AxAgentic };
 export type { AxApacheTikaArgs };

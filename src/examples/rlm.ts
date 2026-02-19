@@ -36,6 +36,46 @@ const analyzer = agent(
   }
 );
 
+// Type-safe demos for the Actor/Responder split architecture.
+// Each demo trace must include at least one input AND one output field.
+// Actor inputs: query, contextMetadata, actionLog → output: javascriptCode
+// Responder inputs: query, contextMetadata, actionLog → outputs: answer, evidence
+analyzer.setDemos([
+  {
+    programId: 'root.actor' as const,
+    traces: [
+      // 1. Explore the context variable
+      {
+        actionLog: '(no actions yet)',
+        javascriptCode: 'console.log(context.slice(0, 200))',
+      },
+      // 2. Use llmQuery to summarize a section
+      {
+        actionLog:
+          'Step 1 | console.log(context.slice(0, 200))\n→ Chapter 1: The Rise of Distributed Systems...',
+        javascriptCode:
+          'const summary = await llmQuery("Summarize the key arguments", context.slice(0, 500)); console.log(summary)',
+      },
+      // 3. Signal completion
+      {
+        actionLog:
+          'Step 1 | ...\nStep 2 | const summary = await llmQuery(...)\n→ The document argues about scalability, CAP theorem, and event sourcing.',
+        javascriptCode: 'done()',
+      },
+    ],
+  },
+  {
+    programId: 'root.responder' as const,
+    traces: [
+      {
+        query: 'What are the main arguments presented across all chapters?',
+        answer: 'The document presents arguments about distributed systems.',
+        evidence: ['Chapter 1 discusses scalability', 'Chapter 2 covers CAP'],
+      },
+    ],
+  },
+]);
+
 // A long document that would normally consume the entire context window.
 // RLM keeps this out of the LLM prompt and loads it into the code interpreter.
 const document = `

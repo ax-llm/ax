@@ -68,16 +68,71 @@ describe('AxAgent', () => {
     expect(actorDesc).toContain('Always prefer concise code.');
   });
 
-  it('should use signature description for Actor and Responder', () => {
+  it('should throw when signature has a description set', () => {
     const sig = s('query: string -> answer: string');
     sig.setDescription('You are a helpful weather assistant');
 
+    expect(
+      () =>
+        new AxAgent(
+          {
+            signature: sig,
+          },
+          { rlm: defaultRlm }
+        )
+    ).toThrow(/setActorDescription\(\) and\/or setResponderDescription\(\)/);
+  });
+
+  it('should append additional text to Responder prompt via setResponderDescription', () => {
     const a = new AxAgent(
       {
-        signature: sig,
+        signature: 'query: string -> answer: string',
       },
       { rlm: defaultRlm }
     );
+
+    a.setResponderDescription('Always respond in bullet points.');
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const responderDesc = (a as any).responderProgram
+      .getSignature()
+      .getDescription() as string;
+    // Should contain the base RLM prompt
+    expect(responderDesc).toContain('Answer Synthesis Agent');
+    // Should also contain the appended text
+    expect(responderDesc).toContain('Always respond in bullet points.');
+  });
+
+  it('should replace (not accumulate) when setActorDescription is called twice', () => {
+    const a = new AxAgent(
+      {
+        signature: 'query: string -> answer: string',
+      },
+      { rlm: defaultRlm }
+    );
+
+    a.setActorDescription('First instruction.');
+    a.setActorDescription('Second instruction.');
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const actorDesc = (a as any).actorProgram
+      .getSignature()
+      .getDescription() as string;
+    expect(actorDesc).toContain('Code Generation Agent');
+    expect(actorDesc).toContain('Second instruction.');
+    expect(actorDesc).not.toContain('First instruction.');
+  });
+
+  it('should allow independent actor and responder descriptions', () => {
+    const a = new AxAgent(
+      {
+        signature: 'query: string -> answer: string',
+      },
+      { rlm: defaultRlm }
+    );
+
+    a.setActorDescription('Actor-specific guidance.');
+    a.setResponderDescription('Responder-specific guidance.');
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const actorDesc = (a as any).actorProgram
@@ -88,8 +143,11 @@ describe('AxAgent', () => {
       .getSignature()
       .getDescription() as string;
 
-    expect(actorDesc).toContain('You are a helpful weather assistant');
-    expect(responderDesc).toContain('You are a helpful weather assistant');
+    expect(actorDesc).toContain('Actor-specific guidance.');
+    expect(actorDesc).not.toContain('Responder-specific guidance.');
+
+    expect(responderDesc).toContain('Responder-specific guidance.');
+    expect(responderDesc).not.toContain('Actor-specific guidance.');
   });
 });
 
@@ -992,9 +1050,11 @@ describe('axBuildResponderDefinition', () => {
     );
   });
 
-  it('should instruct to never generate code', () => {
+  it('should instruct to use available evidence', () => {
     const result = axBuildResponderDefinition(undefined, []);
-    expect(result).toContain('NEVER generate code');
+    expect(result).toContain(
+      'provide the best possible answer from available evidence'
+    );
   });
 
   it('should append base definition', () => {
@@ -1601,6 +1661,231 @@ describe('Program registration for optimization', () => {
 
     testAgent.resetUsage();
     expect(testAgent.getUsage().length).toBe(0);
+  });
+
+  it('should expose both Actor and Responder via namedPrograms()', () => {
+    const testAgent = new AxAgent(
+      {
+        signature: 'query:string -> answer:string',
+      },
+      { rlm: defaultRlm }
+    );
+
+    const programs = testAgent.namedPrograms();
+    const ids = programs.map((p) => p.id);
+
+    expect(ids).toContain('root.actor');
+    expect(ids).toContain('root.responder');
+  });
+
+  it('should accept actor and responder demos via setDemos()', () => {
+    const testAgent = new AxAgent(
+      {
+        signature: 'query:string -> answer:string',
+      },
+      { rlm: defaultRlm }
+    );
+
+    // Should not throw — demos have at least one input AND one output field
+    testAgent.setDemos([
+      {
+        programId: 'root.actor' as const,
+        traces: [
+          {
+            actionLog: '(no actions yet)',
+            javascriptCode: 'console.log("hello")',
+          },
+        ],
+      },
+      {
+        programId: 'root.responder' as const,
+        traces: [{ query: 'test query', answer: 'The answer' }],
+      },
+    ]);
+  });
+
+  it('should accept actor demos with actorFields via setDemos()', () => {
+    const testAgent = new AxAgent(
+      {
+        signature: 'query:string -> answer:string, reasoning:string',
+      },
+      { rlm: { ...defaultRlm, actorFields: ['reasoning'] } }
+    );
+
+    testAgent.setDemos([
+      {
+        programId: 'root.actor' as const,
+        traces: [
+          {
+            actionLog: '(no actions yet)',
+            javascriptCode: 'var x = 1',
+            reasoning: 'Step-by-step analysis',
+          },
+        ],
+      },
+      {
+        programId: 'root.responder' as const,
+        traces: [{ query: 'test query', answer: 'The final answer' }],
+      },
+    ]);
+  });
+
+  it('should reject demos with no output field values', () => {
+    const testAgent = new AxAgent(
+      {
+        signature: 'query:string -> answer:string',
+      },
+      { rlm: defaultRlm }
+    );
+
+    expect(() =>
+      testAgent.setDemos([
+        {
+          programId: 'root.actor' as const,
+          traces: [{ actionLog: '(no actions yet)' } as any],
+        },
+      ])
+    ).toThrow(/no output field values/);
+  });
+
+  it('should reject demos with no input field values', () => {
+    const testAgent = new AxAgent(
+      {
+        signature: 'query:string -> answer:string',
+      },
+      { rlm: defaultRlm }
+    );
+
+    expect(() =>
+      testAgent.setDemos([
+        {
+          programId: 'root.actor' as const,
+          traces: [{ javascriptCode: 'console.log("hello")' }],
+        },
+      ])
+    ).toThrow(/no input field values/);
+  });
+
+  it('should reject responder demos with no input field values', () => {
+    const testAgent = new AxAgent(
+      {
+        signature: 'query:string -> answer:string',
+      },
+      { rlm: defaultRlm }
+    );
+
+    expect(() =>
+      testAgent.setDemos([
+        {
+          programId: 'root.responder' as const,
+          traces: [{ answer: 'The answer' }],
+        },
+      ])
+    ).toThrow(/no input field values/);
+  });
+
+  it('should validate demo field values using signature validators', () => {
+    const testAgent = new AxAgent(
+      {
+        signature: 'query:string -> answer:string',
+      },
+      { rlm: defaultRlm }
+    );
+
+    // Boolean value for a string field should fail validation
+    expect(() =>
+      testAgent.setDemos([
+        {
+          programId: 'root.actor' as const,
+          traces: [
+            { actionLog: '(no actions yet)', javascriptCode: 123 } as any,
+          ],
+        },
+      ])
+    ).toThrow();
+  });
+
+  it('should render demos as few-shot examples in Actor/Responder prompts', async () => {
+    let actorCallCount = 0;
+    let actorPromptMessages: any[] = [];
+    let responderPromptMessages: any[] = [];
+
+    const mockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCallCount++;
+          actorPromptMessages = [...req.chatPrompt];
+          return {
+            results: [
+              {
+                index: 0,
+                content:
+                  actorCallCount === 1
+                    ? 'Javascript Code: "hello"'
+                    : 'Javascript Code: done()',
+                finishReason: 'stop' as const,
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        // Responder
+        responderPromptMessages = [...req.chatPrompt];
+        return {
+          results: [
+            {
+              index: 0,
+              content: 'Answer: traced result',
+              finishReason: 'stop' as const,
+            },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = new AxAgent(
+      {
+        signature: 'query:string -> answer:string',
+      },
+      { rlm: defaultRlm }
+    );
+
+    testAgent.setDemos([
+      {
+        programId: 'root.actor' as const,
+        traces: [
+          {
+            actionLog: '(no actions yet)',
+            javascriptCode: 'console.log("demo-actor-trace")',
+          },
+        ],
+      },
+      {
+        programId: 'root.responder' as const,
+        traces: [{ query: 'test query', answer: 'demo-responder-trace' }],
+      },
+    ]);
+
+    await testAgent.forward(mockAI, { query: 'test' });
+
+    // Actor prompt should contain the actor demo trace
+    const actorMessages = actorPromptMessages.map((m: any) =>
+      typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
+    );
+    const actorPromptText = actorMessages.join('\n');
+    expect(actorPromptText).toContain('demo-actor-trace');
+
+    // Responder prompt should contain the responder demo trace
+    const responderMessages = responderPromptMessages.map((m: any) =>
+      typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
+    );
+    const responderPromptText = responderMessages.join('\n');
+    expect(responderPromptText).toContain('demo-responder-trace');
   });
 });
 

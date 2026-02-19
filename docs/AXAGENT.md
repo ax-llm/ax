@@ -19,8 +19,10 @@ import { agent, ai } from '@ax-llm/ax';
 const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! });
 
 const myAgent = agent('userQuestion:string -> responseText:string', {
-  name: 'helpfulAgent',
-  description: 'An agent that provides helpful responses to user questions',
+  agentIdentity: {
+    name: 'helpfulAgent',
+    description: 'An agent that provides helpful responses to user questions',
+  },
 });
 
 const result = await myAgent.forward(llm, { userQuestion: 'What is TypeScript?' });
@@ -34,8 +36,10 @@ import { agent, s } from '@ax-llm/ax';
 
 const sig = s('userQuestion:string -> responseText:string');
 const myAgent = agent(sig, {
-  name: 'helpfulAgent',
-  description: 'An agent that provides helpful responses to user questions',
+  agentIdentity: {
+    name: 'helpfulAgent',
+    description: 'An agent that provides helpful responses to user questions',
+  },
 });
 ```
 
@@ -45,13 +49,14 @@ The `agent()` factory accepts a configuration object:
 
 ```typescript
 const myAgent = agent('input:string -> output:string', {
-  // Required
-  name: 'myAgent',                    // Agent name (min 5 chars)
-  description: 'Does something useful and interesting with inputs',  // Min 20 chars
+  // Agent identity (required when used as a child agent)
+  agentIdentity: {
+    name: 'myAgent',                  // Agent name (converted to camelCase)
+    description: 'Does something useful and interesting with inputs',
+  },
 
   // Optional
   ai: llm,                            // Bind a specific AI service
-  definition: 'You are a helpful assistant that... (detailed prompt)',  // Min 100 chars if provided
   functions: [searchTool, calcTool],   // Tool functions
   agents: [childAgent1, childAgent2],  // Child agents
   maxSteps: 25,                        // Max reasoning steps (default: 25)
@@ -64,17 +69,9 @@ const myAgent = agent('input:string -> output:string', {
 });
 ```
 
-### `name`
+### `agentIdentity`
 
-The agent's name, used as the function name when called as a child agent. Minimum 5 characters. Converted to camelCase automatically (e.g. `'Physics Researcher'` becomes `physicsResearcher`).
-
-### `description`
-
-A short description of what the agent does. Minimum 20 characters. This is shown to parent agents when they decide which child to call.
-
-### `definition`
-
-An optional detailed system prompt for the LLM. Minimum 100 characters if provided. If omitted, the `description` is used as the prompt.
+Required when the agent is used as a child agent. Contains `name` (converted to camelCase for the function name, e.g. `'Physics Researcher'` becomes `physicsResearcher`) and `description` (shown to parent agents when they decide which child to call).
 
 ### `functions`
 
@@ -99,8 +96,10 @@ If the agent was created with `ai` bound, the parent AI is used as fallback:
 
 ```typescript
 const myAgent = agent('input:string -> output:string', {
-  name: 'myAgent',
-  description: 'An agent that processes inputs reliably',
+  agentIdentity: {
+    name: 'myAgent',
+    description: 'An agent that processes inputs reliably',
+  },
   ai: llm,  // Bound AI service
 });
 
@@ -147,8 +146,10 @@ Call `stop()` from any context — a timer, event handler, or another async task
 
 ```typescript
 const myAgent = agent('question:string -> answer:string', {
-  name: 'myAgent',
-  description: 'An agent that answers questions thoroughly',
+  agentIdentity: {
+    name: 'myAgent',
+    description: 'An agent that answers questions thoroughly',
+  },
 });
 
 // Stop after 5 seconds
@@ -222,23 +223,31 @@ Agents can compose other agents as children. The parent agent sees each child as
 const researcher = agent(
   'question:string, physicsQuestion:string -> answer:string',
   {
-    name: 'Physics Researcher',
-    description: 'Researcher for physics questions can answer questions about advanced physics',
+    agentIdentity: {
+      name: 'Physics Researcher',
+      description: 'Researcher for physics questions can answer questions about advanced physics',
+    },
   }
 );
 
 const summarizer = agent(
   'answer:string -> shortSummary:string',
   {
-    name: 'Science Summarizer',
-    description: 'Summarizer can write short summaries of advanced science topics',
-    definition: 'You are a science summarizer. You can write short summaries of advanced science topics. Use numbered bullet points to summarize the answer in order of importance.',
+    agentIdentity: {
+      name: 'Science Summarizer',
+      description: 'Summarizer can write short summaries of advanced science topics',
+    },
   }
+);
+summarizer.setActorDescription(
+  'You are a science summarizer. You can write short summaries of advanced science topics. Use numbered bullet points to summarize the answer in order of importance.'
 );
 
 const scientist = agent('question:string -> answer:string', {
-  name: 'Scientist',
-  description: 'An agent that can answer advanced science questions',
+  agentIdentity: {
+    name: 'Scientist',
+    description: 'An agent that can answer advanced science questions',
+  },
   agents: [researcher, summarizer],
 });
 
@@ -281,8 +290,10 @@ import { agent, ai } from '@ax-llm/ax';
 const analyzer = agent(
   'context:string, query:string -> answer:string, evidence:string[]',
   {
-    name: 'documentAnalyzer',
-    description: 'Analyzes long documents using code interpreter and sub-LM queries',
+    agentIdentity: {
+      name: 'documentAnalyzer',
+      description: 'Analyzes long documents using code interpreter and sub-LM queries',
+    },
     rlm: {
       contextFields: ['context'],                // Fields to load into runtime session
       runtime: new AxJSRuntime(),                // Code runtime (default: AxJSRuntime)
@@ -369,8 +380,10 @@ const sig = s('query:string -> answer:string, evidence:string[]')
   }).array('Source documents'));
 
 const analyzer = agent(sig, {
-  name: 'structuredAnalyzer',
-  description: 'Analyzes structured document collections using RLM',
+  agentIdentity: {
+    name: 'structuredAnalyzer',
+    description: 'Analyzes structured document collections using RLM',
+  },
   rlm: {
     contextFields: ['documents'],
     runtime: new AxJSRuntime(),
@@ -469,6 +482,64 @@ const analyzer = agent('context:string, query:string -> answer:string', {
 ```
 
 Priority order (low to high): constructor base options < `actorOptions`/`responderOptions` < forward-time options.
+
+### Actor/Responder Descriptions
+
+Use `setActorDescription()` and `setResponderDescription()` to append additional instructions to the Actor or Responder system prompts. The base RLM prompts are preserved; your text is appended after them.
+
+```typescript
+const analyzer = agent('context:string, query:string -> answer:string', {
+  rlm: { contextFields: ['context'] },
+});
+
+// Add domain-specific instructions to the Actor (code generation agent)
+analyzer.setActorDescription('Focus on numerical data. Use precise calculations.');
+
+// Add domain-specific instructions to the Responder (answer synthesis agent)
+analyzer.setResponderDescription('Format answers as bullet points. Cite evidence.');
+```
+
+> **Note:** Signature-level descriptions (via `.description()` on the signature) are not supported on `AxAgent`. Use these methods instead to customize each sub-program independently.
+
+### Few-Shot Demos
+
+Use `setDemos()` to provide few-shot examples that guide the Actor and Responder. Demos are keyed by program ID — use `namedPrograms()` to discover available IDs.
+
+Each demo trace must include at least one input field AND one output field. The Actor's input fields are `contextMetadata`, `actionLog`, and any non-context inputs from the original signature. The Responder's input fields are the same.
+
+```typescript
+analyzer.setDemos([
+  {
+    programId: 'root.actor',
+    traces: [
+      {
+        actionLog: '(no actions yet)',
+        javascriptCode: 'console.log(context.slice(0, 200))',
+      },
+      {
+        actionLog: 'Step 1 | console.log(context.slice(0, 200))\n→ Chapter 1: The Rise of...',
+        javascriptCode: 'const summary = await llmQuery("Summarize", context.slice(0, 500)); console.log(summary)',
+      },
+      {
+        actionLog: 'Step 1 | ...\nStep 2 | llmQuery(...)\n→ The document argues about...',
+        javascriptCode: 'done()',
+      },
+    ],
+  },
+  {
+    programId: 'root.responder',
+    traces: [
+      {
+        query: 'What are the main arguments?',
+        answer: 'The document presents arguments about distributed systems.',
+        evidence: ['Chapter 1 discusses scalability', 'Chapter 2 covers CAP'],
+      },
+    ],
+  },
+]);
+```
+
+Demo values are validated against the target program's signature. Invalid values or missing input/output fields throw an error at `setDemos()` time.
 
 ### Available APIs in the Sandbox
 
@@ -606,9 +677,7 @@ interface AxCodeSession {
 ```typescript
 interface AxAgentConfig<IN, OUT> extends AxAgentOptions {
   ai?: AxAIService;
-  name: string;
-  description: string;
-  definition?: string;
+  agentIdentity?: { name: string; description: string };
   agents?: AxAgentic<IN, OUT>[];
   functions?: AxInputFunctionType;
 }
@@ -626,6 +695,22 @@ Extends `AxProgramForwardOptions` (without `functions`) with:
   responderOptions?: Partial<AxProgramForwardOptions>; // Default forward options for Responder
 }
 ```
+
+### `setActorDescription()`
+
+```typescript
+public setActorDescription(additionalText: string): void
+```
+
+Appends additional text to the Actor's RLM system prompt. The base prompt is preserved; the additional text is appended after it.
+
+### `setResponderDescription()`
+
+```typescript
+public setResponderDescription(additionalText: string): void
+```
+
+Appends additional text to the Responder's RLM system prompt. The base prompt is preserved; the additional text is appended after it.
 
 ### `stop()`
 

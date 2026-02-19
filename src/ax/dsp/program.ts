@@ -198,24 +198,62 @@ export class AxProgram<IN = any, OUT = any>
       }
     }
 
+    // Filter demos for this program and validate each trace
     // biome-ignore lint/complexity/useFlatMap: it can't
-    this.demos = demos
+    const filteredTraces = demos
       .filter((v) => v.programId === this.key.id)
       .map((v) => v.traces)
       .flat();
+
+    const sig = this.signature;
+    const fields = [...sig.getInputFields(), ...sig.getOutputFields()];
+    const inputFieldNames = new Set(sig.getInputFields().map((f) => f.name));
+    const outputFieldNames = new Set(sig.getOutputFields().map((f) => f.name));
+
+    this.demos = filteredTraces.map((trace, i) => {
+      const res: Record<string, AxFieldValue> = {};
+      for (const f of fields) {
+        const value = (trace as Record<string, AxFieldValue>)[f.name];
+        if (value !== undefined) {
+          validateValue(f, value);
+          res[f.name] = value;
+        }
+      }
+
+      // Require at least one input AND one output field value
+      const hasInput = Object.keys(res).some((k) => inputFieldNames.has(k));
+      const hasOutput = Object.keys(res).some((k) => outputFieldNames.has(k));
+
+      if (!hasOutput) {
+        throw new Error(
+          `Demo trace[${i}] for '${this.key.id}' has no output field values. ` +
+            `Expected at least one of: ${[...outputFieldNames].join(', ')}`
+        );
+      }
+      if (!hasInput) {
+        throw new Error(
+          `Demo trace[${i}] for '${this.key.id}' has no input field values. ` +
+            `Expected at least one of: ${[...inputFieldNames].join(', ')}. ` +
+            `Provide input context so the demo renders as a complete few-shot example.`
+        );
+      }
+
+      return res;
+    }) as OUT[];
 
     if (options?.modelConfig) {
       (this as any)._optimizedModelConfig = options.modelConfig;
     }
 
     // Walk the tree: propagate demos + options to all children
+    const wasPropagating = AxProgram._propagating;
     AxProgram._propagating = true;
     try {
       for (const child of Array.from(this.children)) {
         child?.setDemos(demos, options);
       }
     } finally {
-      AxProgram._propagating = false;
+      AxProgram._propagating = wasPropagating;
     }
   }
 

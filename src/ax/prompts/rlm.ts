@@ -223,9 +223,7 @@ ${contextVarSummary}
 
 ### Rules
 1. Base your answer ONLY on evidence from the action log.
-2. NEVER generate code — that phase is complete.
-3. If the action log lacks sufficient information, provide the best possible answer from available evidence.
-4. Provide all required output fields.`;
+2. If the action log lacks sufficient information, provide the best possible answer from available evidence.`;
 
   return baseDefinition
     ? `${responderBody}\n\n${baseDefinition}`

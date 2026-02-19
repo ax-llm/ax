@@ -1070,7 +1070,6 @@ export class AxPromptTemplate {
           }
         }
 
-        // Skip examples with empty user content
         const isUserContentEmpty =
           (typeof userContent === 'string' && userContent.trim() === '') ||
           (Array.isArray(userContent) && userContent.length === 0);
@@ -1081,7 +1080,10 @@ export class AxPromptTemplate {
 
         const functionCallId = `example-${pairs.length}`;
         pairs.push({
-          userMessage: { role: 'user', content: userContent },
+          userMessage: {
+            role: 'user',
+            content: userContent,
+          },
           assistantMessage: {
             role: 'assistant',
             functionCalls: [
@@ -1133,18 +1135,20 @@ export class AxPromptTemplate {
           .join('\n');
       }
 
-      // Skip examples with empty user or assistant content
+      const isOutputContentEmpty = outputContent.trim() === '';
       const isUserContentEmpty =
         (typeof userContent === 'string' && userContent.trim() === '') ||
         (Array.isArray(userContent) && userContent.length === 0);
-      const isOutputContentEmpty = outputContent.trim() === '';
 
       if (isUserContentEmpty || isOutputContentEmpty) {
         continue;
       }
 
       pairs.push({
-        userMessage: { role: 'user', content: userContent },
+        userMessage: {
+          role: 'user',
+          content: userContent,
+        },
         assistantMessage: { role: 'assistant', content: outputContent },
       });
     }
@@ -1159,7 +1163,6 @@ export class AxPromptTemplate {
   private renderDemosAsMessages = (
     data: Readonly<Record<string, AxFieldValue>[]>
   ): DemoMessagePair[] => {
-    // Demos use the same rendering logic as examples
     return this.renderExamplesAsMessages(data);
   };
 
