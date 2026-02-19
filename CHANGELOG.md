@@ -1,5 +1,16 @@
 # Changelog
 
+## [18.0.0](///compare/17.0.10...17.0.11) (2026-02-19)
+
+### Features
+
+* Redesign of AxAgent to be RLM native ddb1f17
+## [17.0.11](///compare/17.0.10...17.0.11) (2026-02-17)
+
+### Bug Fixes
+
+* update AxJSRuntime usage instructions and enhance llmQuery handling in AxAgent c424489
+
 ## [17.0.11](///compare/17.0.9...17.0.10) (2026-02-17)
 
 ### Bug Fixes
