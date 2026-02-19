@@ -1,6 +1,7 @@
 import {
   AxAIGoogleGeminiModel,
   type AxFunction,
+  AxJSRuntime,
   agent,
   ai,
   s,
@@ -180,10 +181,11 @@ const sig = s(
 );
 
 const gen = agent(sig, {
-  name: 'food-search',
-  description:
-    'Use this agent to find restaurants based on what the customer wants. Use the provided functions to get the weather and find restaurants and finally return the best match',
   functions,
+  rlm: {
+    contextFields: [],
+    runtime: new AxJSRuntime(),
+  },
 });
 
 const res = await gen.forward(

@@ -509,13 +509,18 @@ Instruction:`;
     }
 
     // Set demos if needed
-    if (config.bootstrappedDemos > 0 && program.setDemos) {
-      program.setDemos(bootstrappedDemos.slice(0, config.bootstrappedDemos));
-    }
-
-    // Set examples if needed
-    if (config.labeledExamples > 0 && program.setExamples) {
-      program.setExamples(labeledExamples.slice(0, config.labeledExamples));
+    if (program.setDemos) {
+      const demos = [...bootstrappedDemos.slice(0, config.bootstrappedDemos)];
+      if (config.labeledExamples > 0 && program.getId) {
+        const programId = program.getId();
+        demos.push({
+          traces: labeledExamples.slice(0, config.labeledExamples) as any,
+          programId,
+        });
+      }
+      if (demos.length > 0) {
+        program.setDemos(demos);
+      }
     }
   }
 
@@ -573,19 +578,17 @@ Instruction:`;
       axgen.setInstruction(config.instruction);
     }
 
-    // Set demos if needed
-    if (config.bootstrappedDemos > 0) {
-      axgen.setDemos(bootstrappedDemos.slice(0, config.bootstrappedDemos));
-    }
-
-    // Set examples if needed
+    // Set demos (bootstrapped + labeled examples) if needed
+    const demos = [...bootstrappedDemos.slice(0, config.bootstrappedDemos)];
     if (config.labeledExamples > 0) {
-      axgen.setExamples(
-        labeledExamples.slice(
-          0,
-          config.labeledExamples
-        ) as unknown as readonly (OUT & IN)[]
-      );
+      const programId = axgen.getId();
+      demos.push({
+        traces: labeledExamples.slice(0, config.labeledExamples) as any,
+        programId,
+      });
+    }
+    if (demos.length > 0) {
+      axgen.setDemos(demos);
     }
   }
 
@@ -845,12 +848,16 @@ Instruction:`;
         // Clone the program to apply the new instruction
         const programForEval = program.clone();
         programForEval.setInstruction(instruction);
-        programForEval.setExamples(
-          this.selectLabeledExamples(examples).slice(
-            0,
-            labeledExamples
-          ) as unknown as readonly (OUT & Partial<IN>)[]
-        );
+        const programId = programForEval.getId();
+        programForEval.setDemos([
+          {
+            traces: this.selectLabeledExamples(examples).slice(
+              0,
+              labeledExamples
+            ) as unknown as (OUT & Partial<IN>)[],
+            programId,
+          },
+        ]);
 
         // Choose evaluation set: minibatch vs full
         const useFullEval =
@@ -1039,15 +1046,10 @@ Instruction:`;
     if ((finalBestConfig as any).instruction) {
       optimizedGen.setInstruction((finalBestConfig as any).instruction);
     }
-    if (bestDemos.length > 0) {
-      optimizedGen.setDemos(bestDemos);
-    }
-    if ((finalBestConfig as any).temperature) {
-      // Store temperature in optimized generator - it will be used in forward calls via model config
-      (optimizedGen as any)._optimizedModelConfig = {
-        temperature: (finalBestConfig as any).temperature,
-      };
-    }
+    const modelConfig = (finalBestConfig as any).temperature
+      ? { temperature: (finalBestConfig as any).temperature }
+      : undefined;
+    optimizedGen.setDemos(bestDemos, { modelConfig });
 
     // Create unified optimization result for Python path
     const optimizedProgram = new AxOptimizedProgramImpl<OUT>({

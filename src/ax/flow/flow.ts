@@ -25,14 +25,12 @@ import type {
   AxGenStreamingOut,
   AxMessage,
   AxProgramDemos,
-  AxProgramExamples,
   AxProgramForwardOptions,
   AxProgramForwardOptionsWithModels,
   AxProgrammable,
   AxProgramStreamingForwardOptionsWithModels,
   AxProgramTrace,
   AxProgramUsage,
-  AxSetExamplesOptions,
 } from '../dsp/types.js';
 import { mergeProgramUsage } from '../dsp/util.js';
 import { mergeAbortSignals } from '../util/abort.js';
@@ -88,10 +86,8 @@ export class AxFlow<
   IN extends Record<string, any>,
   OUT,
   // NOTE: The `any` here is necessary because TNodes must accommodate AxProgrammable instances with various input/output types
-  TNodes extends Record<string, AxProgrammable<any, any>> = Record<
-    string,
-    never
-  >, // Node registry for type tracking
+  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
+  TNodes extends Record<string, AxProgrammable<any, any>> = {}, // Node registry for type tracking
   TState extends AxFlowState = IN, // Current evolving state type
 > implements AxFlowable<IN, OUT>
 {
@@ -781,20 +777,17 @@ export class AxFlow<
     const signature = this.inferSignatureFromFlow();
     if (!this.program) {
       this.program = new AxProgram<IN, OUT>(signature);
-      for (const [_nodeName, nodeProgram] of Array.from(this.nodeGenerators)) {
-        this.program.register(nodeProgram as any);
+      for (const [nodeName, nodeProgram] of Array.from(this.nodeGenerators)) {
+        this.program.register(nodeProgram as any, nodeName);
       }
       return;
     }
     this.program.setSignature(signature);
   }
 
-  public setExamples(
-    examples: Readonly<AxProgramExamples<IN, OUT>>,
-    options?: Readonly<AxSetExamplesOptions>
-  ): void {
+  public getId(): string {
     this.ensureProgram();
-    this.program!.setExamples(examples, options);
+    return this.program!.getId();
   }
 
   public setId(id: string): void {
@@ -802,9 +795,9 @@ export class AxFlow<
     this.program!.setId(id);
   }
 
-  public setParentId(parentId: string): void {
+  public namedPrograms(): Array<{ id: string; signature?: string }> {
     this.ensureProgram();
-    this.program!.setParentId(parentId);
+    return this.program!.namedPrograms();
   }
 
   public getTraces(): AxProgramTrace<IN, OUT>[] {
@@ -819,9 +812,16 @@ export class AxFlow<
     return allTraces;
   }
 
-  public setDemos(demos: readonly AxProgramDemos<IN, OUT>[]): void {
+  public setDemos(
+    demos: readonly AxProgramDemos<
+      IN,
+      OUT,
+      keyof TNodes extends never ? string : `${string}.${string & keyof TNodes}`
+    >[],
+    options?: { modelConfig?: Record<string, unknown> }
+  ): void {
     this.ensureProgram();
-    this.program!.setDemos(demos);
+    this.program!.setDemos(demos, options);
   }
 
   public description(name: string, description: string): this {
@@ -1397,7 +1397,7 @@ export class AxFlow<
 
       // Register the node with the program after program is initialized
       this.ensureProgram();
-      this.program!.register(nodeGenerator as any);
+      this.program!.register(nodeGenerator as any, name);
     } else if (typeof nodeValue === 'function') {
       // Using program class
       this.nodes.set(name, {
@@ -1411,7 +1411,7 @@ export class AxFlow<
 
       // Register the node with the program after program is initialized
       this.ensureProgram();
-      this.program!.register(programInstance as any);
+      this.program!.register(programInstance as any, name);
     } else if (
       nodeValue &&
       typeof nodeValue === 'object' &&
@@ -1429,7 +1429,7 @@ export class AxFlow<
 
       // Register the node with the program after program is initialized
       this.ensureProgram();
-      this.program!.register(nodeGenerator as any);
+      this.program!.register(nodeGenerator as any, name);
     } else {
       // Invalid argument type
       throw new Error(

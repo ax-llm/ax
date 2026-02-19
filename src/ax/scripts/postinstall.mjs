@@ -21,7 +21,7 @@ import {
   readdirSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -136,6 +136,31 @@ function getPackageVersion(sourcePath) {
 }
 
 /**
+ * Find the project root by using INIT_CWD (set by npm/yarn/pnpm to the
+ * directory where `install` was run), falling back to finding the
+ * topmost node_modules in __dirname and taking its parent.
+ */
+function findProjectRoot() {
+  // INIT_CWD is the most reliable — npm, yarn, and pnpm all set it
+  if (process.env.INIT_CWD) {
+    return process.env.INIT_CWD;
+  }
+
+  // Fallback: find the topmost node_modules segment in __dirname
+  // e.g. /home/user/project/node_modules/.pnpm/@ax-llm+ax@1.0/node_modules/@ax-llm/ax/scripts
+  //       → topmost node_modules is at /home/user/project/node_modules
+  //       → parent is /home/user/project
+  const segments = __dirname.split(sep);
+  const firstNmIndex = segments.indexOf('node_modules');
+  if (firstNmIndex > 0) {
+    return segments.slice(0, firstNmIndex).join(sep);
+  }
+
+  // Last resort: the old heuristic (4 levels up)
+  return join(__dirname, '..', '..', '..', '..');
+}
+
+/**
  * Main installation function
  */
 function install() {
@@ -147,9 +172,7 @@ function install() {
   try {
     // Paths
     const skillsSourceDir = join(__dirname, '..', 'skills');
-    // When installed via npm, script runs from: node_modules/@ax-llm/ax/scripts/postinstall.mjs
-    // Project root is 4 directories up: ../../../../
-    const projectRoot = join(__dirname, '..', '..', '..', '..');
+    const projectRoot = findProjectRoot();
     const skillTargetDir = join(projectRoot, '.claude', 'skills', 'ax');
 
     // Discover all *.md skill files

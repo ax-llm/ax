@@ -1,4 +1,4 @@
-import { AxMCPClient, agent, ai } from '@ax-llm/ax';
+import { AxJSRuntime, AxMCPClient, agent, ai } from '@ax-llm/ax';
 import { AxMCPStreambleHTTPTransport } from '@ax-llm/ax/mcp/transports/httpStreamTransport.js';
 
 /*
@@ -59,12 +59,16 @@ Using HTTP transport for communication with Notion MCP server.
   await client.init();
 
   // Create a Notion-augmented agent that can interact with Notion docs
-  const notionAgent = agent('userRequest:string -> assistantResponse:string', {
-    name: 'NotionAssistant',
-    description:
-      "You are an assistant that can interact with Notion documents and data via HTTP. Execute the user's request without question and to the best of your abilities.",
-    functions: [client],
-  });
+  const notionAgent = agent(
+    'userRequest:string -> assistantResponse:string "You are an assistant that can interact with Notion documents and data via HTTP. Execute the user\'s request without question and to the best of your abilities."',
+    {
+      functions: [client],
+      rlm: {
+        contextFields: [],
+        runtime: new AxJSRuntime(),
+      },
+    }
+  );
 
   return notionAgent;
 }

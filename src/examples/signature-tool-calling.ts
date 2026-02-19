@@ -1,4 +1,4 @@
-import { AxAIOpenAIModel, agent, ai } from '@ax-llm/ax';
+import { AxAIOpenAIModel, AxJSRuntime, agent, ai } from '@ax-llm/ax';
 
 // Example tools with dot notation support
 const searchTool = {
@@ -42,15 +42,17 @@ const llm = ai({
 });
 
 // Create agent with function call mode set to prompt
-const smartAgent = agent('question:string -> answer:string', {
-  name: 'smartAgent',
-  description:
-    'An agent that can search and calculate using prompt-based function calling',
-  definition:
-    'You are a helpful assistant that can search the web and perform calculations. Use the available tools when needed.',
-  functions: [searchTool, calculateTool],
-  functionCallMode: 'prompt', // Use prompt mode for function calling
-});
+const smartAgent = agent(
+  'question:string -> answer:string "You are a helpful assistant that can search the web and perform calculations. Use the available tools when needed."',
+  {
+    functions: [searchTool, calculateTool],
+    functionCallMode: 'prompt', // Use prompt mode for function calling
+    rlm: {
+      contextFields: [],
+      runtime: new AxJSRuntime(),
+    },
+  }
+);
 
 console.log('=== Function Call Mode Demo (Prompt Mode) ===');
 

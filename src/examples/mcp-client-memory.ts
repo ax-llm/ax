@@ -1,4 +1,10 @@
-import { AxAgent, AxAI, AxAIOpenAIModel, AxMCPClient } from '@ax-llm/ax';
+import {
+  AxAI,
+  AxAIOpenAIModel,
+  AxJSRuntime,
+  AxMCPClient,
+  agent,
+} from '@ax-llm/ax';
 import { AxMCPStdioTransport } from '@ax-llm/ax-tools';
 
 // Initialize the MCP client with server-memory
@@ -10,16 +16,16 @@ const client = new AxMCPClient(stdioTransport, { debug: false });
 await client.init();
 
 // Create a memory-augmented agent that can remember past conversations
-const memoryAgent = new AxAgent<
-  { userMessage: string; userId: string },
-  { assistantResponse: string }
->({
-  name: 'MemoryAssistant',
-  description:
-    'You are an assistant that remembers past conversations with users. You break down the information to be remembered by entity identifiers and the content to remeber. Use the provided database functions to manage memories, search for memories, and add memories. Use multiple searches with different entity identifiers to get a holistic view of the user.',
-  signature: 'userMessage, userId -> assistantResponse',
-  functions: [client],
-});
+const memoryAgent = agent(
+  'userMessage:string, userId:string -> assistantResponse:string "You are an assistant that remembers past conversations with users. You break down the information to be remembered by entity identifiers and the content to remeber. Use the provided database functions to manage memories, search for memories, and add memories. Use multiple searches with different entity identifiers to get a holistic view of the user."',
+  {
+    functions: [client],
+    rlm: {
+      contextFields: [],
+      runtime: new AxJSRuntime(),
+    },
+  }
+);
 
 // Initialize the AI model
 const ai = new AxAI({

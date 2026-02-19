@@ -1,6 +1,7 @@
 import {
   AxAIGoogleGeminiModel,
   type AxFunction,
+  AxJSRuntime,
   agent,
   ai,
   s,
@@ -92,9 +93,11 @@ const sig = s(
 );
 
 const gen = agent(sig, {
-  name: 'complex-agent',
-  description: 'Agent to check weather, time and stocks',
   functions,
+  rlm: {
+    contextFields: [],
+    runtime: new AxJSRuntime(),
+  },
 });
 
 console.log('Running complex parallel function call test...');

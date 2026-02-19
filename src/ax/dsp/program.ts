@@ -31,6 +31,9 @@ export class AxProgram<IN = any, OUT = any>
 
   private key: { id: string; custom?: boolean };
   private children: AxInstanceRegistry<Readonly<AxTunable<IN, OUT>>, IN, OUT>;
+  private childNames: Map<Readonly<AxTunable<IN, OUT> & AxUsable>, string> =
+    new Map();
+  private childCount = 0;
 
   constructor(
     signature:
@@ -57,7 +60,7 @@ export class AxProgram<IN = any, OUT = any>
 
     this.sigHash = this.signature?.hash();
     this.children = new AxInstanceRegistry();
-    this.key = { id: this.signature.hash() };
+    this.key = { id: 'root' };
   }
 
   public getSignature(): AxSignature {
@@ -85,45 +88,31 @@ export class AxProgram<IN = any, OUT = any>
 
   private updateSignatureHash() {
     this.sigHash = this.signature.hash();
-    this.key = { id: this.signature.hash() };
   }
 
-  public register(prog: Readonly<AxTunable<IN, OUT> & AxUsable>) {
-    if (this.key) {
-      prog.setParentId(this.key.id);
-    }
+  public getId(): string {
+    return this.key.id;
+  }
+
+  public register(
+    prog: Readonly<AxTunable<IN, OUT> & AxUsable>,
+    name?: string
+  ) {
+    const childName = name ?? `p${this.childCount}`;
+    this.childCount++;
+    prog.setId([this.key.id, childName].join('.'));
+    this.childNames.set(prog, childName);
     this.children.register(prog);
   }
 
   public setId(id: string) {
     this.key = { id, custom: true };
-    for (const child of Array.from(this.children)) {
-      child?.setParentId(id);
-    }
-  }
-
-  public setParentId(parentId: string) {
-    if (!this.key.custom) {
-      this.key.id = [parentId, this.key.id].join('/');
+    for (const [child, localName] of this.childNames) {
+      child.setId([id, localName].join('.'));
     }
   }
 
   public setExamples(
-    examples: Readonly<AxProgramExamples<IN, OUT>>,
-    options?: Readonly<AxSetExamplesOptions>
-  ) {
-    this._setExamples(examples, options);
-
-    if (!('programId' in examples)) {
-      return;
-    }
-
-    for (const child of Array.from(this.children)) {
-      child?.setExamples(examples, options);
-    }
-  }
-
-  private _setExamples(
     examples: Readonly<AxProgramExamples<IN, OUT>>,
     options?: Readonly<AxSetExamplesOptions>
   ) {
@@ -147,8 +136,6 @@ export class AxProgram<IN = any, OUT = any>
         for (const f of fields) {
           const value = e[f.name];
           if (value !== undefined) {
-            // Only validate the type of fields that are actually set
-            // Allow any field to be missing regardless of whether it's required
             validateValue(f, value);
             res[f.name] = value;
           }
@@ -189,17 +176,26 @@ export class AxProgram<IN = any, OUT = any>
     }
   }
 
-  public setDemos(demos: readonly AxProgramDemos<IN, OUT>[]) {
-    // Check if this program has children and if its programId is not found in demos
-    const hasChildren = Array.from(this.children).length > 0;
-    const hasMatchingDemo = demos.some(
-      (demo) => demo.programId === this.key.id
-    );
+  private static _propagating = false;
 
-    if (hasChildren && !hasMatchingDemo) {
-      throw new Error(
-        `Program with id '${this.key.id}' has children but no matching programId found in demos`
+  public setDemos(
+    demos: readonly AxProgramDemos<IN, OUT>[],
+    options?: { modelConfig?: Record<string, unknown> }
+  ) {
+    // Validate programIds at the top-level call only
+    if (!AxProgram._propagating && demos.length > 0) {
+      const knownIds = new Set(this.namedPrograms().map((p) => p.id));
+      const unknownIds = [...new Set(demos.map((d) => d.programId))].filter(
+        (id) => !knownIds.has(id)
       );
+      if (unknownIds.length > 0) {
+        const validIds = [...knownIds].join(', ');
+        throw new Error(
+          `Unknown program ID(s) in demos: ${unknownIds.join(', ')}. ` +
+            `Valid IDs: ${validIds}. ` +
+            `Use namedPrograms() to discover available IDs.`
+        );
+      }
     }
 
     // biome-ignore lint/complexity/useFlatMap: it can't
@@ -208,27 +204,71 @@ export class AxProgram<IN = any, OUT = any>
       .map((v) => v.traces)
       .flat();
 
-    for (const child of Array.from(this.children)) {
-      child?.setDemos(demos);
+    if (options?.modelConfig) {
+      (this as any)._optimizedModelConfig = options.modelConfig;
+    }
+
+    // Walk the tree: propagate demos + options to all children
+    AxProgram._propagating = true;
+    try {
+      for (const child of Array.from(this.children)) {
+        child?.setDemos(demos, options);
+      }
+    } finally {
+      AxProgram._propagating = false;
     }
   }
 
   /**
-   * Apply optimized configuration to this program
-   * @param optimizedProgram The optimized program configuration to apply
+   * Returns all programs in the hierarchy with their IDs and signatures.
+   * Use this to discover the IDs needed for `setDemos()`.
+   *
+   * Equivalent to DSPy's `named_parameters()`.
+   *
+   * @example
+   * ```ts
+   * agent.setId('qa');
+   * console.log(agent.namedPrograms());
+   * // [
+   * //   { id: 'qa.actor', signature: '... -> javascriptCode' },
+   * //   { id: 'qa.responder', signature: '... -> answer' },
+   * // ]
+   * ```
    */
-  public applyOptimization(optimizedProgram: AxOptimizedProgram<OUT>): void {
-    optimizedProgram.applyTo(this as any);
+  public namedPrograms(): Array<{ id: string; signature?: string }> {
+    const result: Array<{ id: string; signature?: string }> = [];
 
-    // Propagate to children
+    // Include self if it has a real signature (input/output fields)
+    const fields = [
+      ...this.signature.getInputFields(),
+      ...this.signature.getOutputFields(),
+    ];
+    if (fields.length > 0) {
+      result.push({
+        id: this.key.id,
+        signature: this.signature.toString(),
+      });
+    }
+
+    // Recursively collect from children
     for (const child of Array.from(this.children)) {
       if (
         child &&
-        'applyOptimization' in child &&
-        typeof child.applyOptimization === 'function'
+        'namedPrograms' in child &&
+        typeof (child as any).namedPrograms === 'function'
       ) {
-        child.applyOptimization(optimizedProgram);
+        result.push(...(child as any).namedPrograms());
+      } else if (child) {
+        result.push({ id: child.getId() });
       }
     }
+
+    return result;
+  }
+
+  public applyOptimization(optimizedProgram: AxOptimizedProgram<OUT>): void {
+    this.setDemos(optimizedProgram.demos ?? [], {
+      modelConfig: optimizedProgram.modelConfig,
+    });
   }
 }

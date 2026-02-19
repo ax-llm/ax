@@ -470,7 +470,10 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         stream,
         debug,
         // Hide system prompt in debug logging for steps > 0 to reduce noise in multi-step workflows
-        debugHideSystemPrompt: !firstStep,
+        debugHideSystemPrompt:
+          options?.debugHideSystemPrompt ??
+          this.options?.debugHideSystemPrompt ??
+          !firstStep,
         thinkingTokenBudget,
         showThoughts,
         traceContext,

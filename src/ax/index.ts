@@ -733,11 +733,8 @@ import type {
 import {
   AxAgent,
   type AxAgentConfig,
-  type AxAgentFeatures,
   type AxAgentic,
   type AxAgentOptions,
-  type AxRLMInlineOutput,
-  type AxRLMInput,
   agent,
 } from './prompts/agent.js';
 import { axRAG } from './prompts/rag.js';
@@ -746,7 +743,8 @@ import {
   type AxCodeRuntime,
   type AxCodeSession,
   type AxRLMConfig,
-  axBuildRLMDefinition,
+  axBuildActorDefinition,
+  axBuildResponderDefinition,
 } from './prompts/rlm.js';
 import { AxTraceLogger, type AxTraceLoggerOptions } from './trace/logger.js';
 import {
@@ -935,7 +933,8 @@ export { axAnalyzeChatPromptRequirements };
 export { axAnalyzeRequestRequirements };
 export { axBaseAIDefaultConfig };
 export { axBaseAIDefaultCreativeConfig };
-export { axBuildRLMDefinition };
+export { axBuildActorDefinition };
+export { axBuildResponderDefinition };
 export { axCheckMetricsHealth };
 export { axCreateDefaultColorLogger };
 export { axCreateDefaultOptimizerColorLogger };
@@ -1195,7 +1194,6 @@ export type { AxAIWebLLMEmbedResponse };
 export type { AxAPI };
 export type { AxAPIConfig };
 export type { AxAgentConfig };
-export type { AxAgentFeatures };
 export type { AxAgentOptions };
 export type { AxAgentic };
 export type { AxApacheTikaArgs };
@@ -1384,8 +1382,6 @@ export type { AxProgramUsage };
 export type { AxProgrammable };
 export type { AxPromptTemplateOptions };
 export type { AxRLMConfig };
-export type { AxRLMInlineOutput };
-export type { AxRLMInput };
 export type { AxRateLimiterFunction };
 export type { AxRateLimiterTokenUsageOptions };
 export type { AxRerankerIn };

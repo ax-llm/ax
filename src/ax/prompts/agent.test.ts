@@ -1,505 +1,753 @@
 import { describe, expect, it } from 'vitest';
 
 import { AxMockAIService } from '../ai/mock/api.js';
-import type { AxChatResponse } from '../ai/types.js';
 import { toFieldType } from '../dsp/prompt.js';
 import type { AxIField } from '../dsp/sig.js';
 import { s } from '../dsp/template.js';
-import type { AxMessage } from '../dsp/types.js';
 import { AxAIServiceAbortedError } from '../util/apicall.js';
 
 import { AxAgent, agent } from './agent.js';
 import type { AxCodeRuntime } from './rlm.js';
-import { axBuildRLMDefinition } from './rlm.js';
+import { axBuildActorDefinition, axBuildResponderDefinition } from './rlm.js';
 
-// Helper function to create streaming responses
-function createStreamingResponse(
-  chunks: AxChatResponse['results']
-): ReadableStream<AxChatResponse> {
-  return new ReadableStream({
-    start(controller) {
-      let count = 0;
+// ----- Helpers -----
 
-      const processChunks = async () => {
-        if (count >= chunks.length) {
-          controller.close();
-          return;
-        }
+const makeModelUsage = () => ({
+  ai: 'mock-ai',
+  model: 'mock-model',
+  tokens: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+});
 
-        const chunk = chunks[count];
-        if (chunk) {
-          try {
-            controller.enqueue({
-              results: [
-                {
-                  index: 0,
-                  content: chunk.content,
-                  finishReason: chunk.finishReason,
-                },
-              ],
-              modelUsage: {
-                ai: 'test-ai',
-                model: 'test-model',
-                tokens: {
-                  promptTokens: 0,
-                  completionTokens: 0,
-                  totalTokens: 0,
-                },
-              },
-            });
-            count++;
+/** Minimal runtime for tests that don't exercise code execution */
+const defaultRuntime: AxCodeRuntime = {
+  createSession() {
+    return {
+      execute: async () => 'ok',
+      close: () => {},
+    };
+  },
+};
 
-            // Small delay between chunks
-            await new Promise((resolve) => setTimeout(resolve, 10));
-            processChunks();
-          } catch (error) {
-            controller.error(error);
-          }
-        }
-      };
+/** Default rlm config for tests that don't need RLM behavior */
+const defaultRlm = {
+  contextFields: [] as string[],
+  runtime: defaultRuntime,
+};
 
-      processChunks().catch((error) => {
-        controller.error(error);
-      });
-    },
-
-    cancel() {},
-  });
-}
+// ----- AxAgent basic tests -----
 
 describe('AxAgent', () => {
-  const mockAI = new AxMockAIService({
-    features: {
-      functions: true,
-      streaming: true,
-    },
-    models: [
-      { key: 'gpt4', model: 'gpt-4', description: 'Advanced model' },
-      { key: 'gpt35', model: 'gpt-3.5', description: 'Fast model' },
-    ],
-  });
-
-  it('should handle smart model routing correctly', () => {
-    // Create agent with smart routing enabled (default)
-    const agent = new AxAgent({
-      ai: mockAI,
-      name: 'test smart routing agent',
-      description: 'Tests the smart model routing functionality of agents',
-      signature: 'userQuery: string -> agentResponse: string',
-    });
-
-    const func = agent.getFunction();
-    expect(func.parameters?.properties?.model).toBeDefined();
-    expect(func.parameters?.properties?.model?.enum).toEqual(['gpt4', 'gpt35']);
-  });
-
-  it('should disable smart model routing when specified', () => {
-    const agent = new AxAgent(
+  it('should throw when getFunction() called without agentIdentity', () => {
+    const a = new AxAgent(
       {
-        ai: mockAI,
-        name: 'test smart routing disabled',
-        description: 'Tests disabling smart model routing',
         signature: 'userQuery: string -> agentResponse: string',
       },
-      { disableSmartModelRouting: true }
+      { rlm: defaultRlm }
     );
 
-    const func = agent.getFunction();
-    expect(func.parameters?.properties?.model).toBeUndefined();
+    expect(() => a.getFunction()).toThrow(/agentIdentity/);
   });
 
-  it('should update description correctly', () => {
-    const agent = new AxAgent({
-      ai: mockAI,
-      name: 'test description updates',
-      description: 'Initial description that is long enough',
-      signature: 'userQuery: string -> agentResponse: string',
-    });
-
-    const newDescription =
-      'Updated description that is also long enough to pass validation';
-    agent.setDescription(newDescription);
-
-    const func = agent.getFunction();
-    expect(func.description).toBe(newDescription);
-  });
-
-  it('should throw error for short description', () => {
-    const agent = new AxAgent({
-      ai: mockAI,
-      name: 'test description validation',
-      description: 'Initial description that is long enough',
-      signature: 'userQuery: string -> agentResponse: string',
-    });
-
-    expect(() => agent.setDescription('Too short')).toThrow();
-  });
-
-  it('should expose features correctly', () => {
-    const agent = new AxAgent({
-      ai: mockAI,
-      name: 'test features',
-      description: 'Tests the feature reporting of agents',
-      signature: 'userQuery: string -> agentResponse: string',
-    });
-
-    const features = agent.getFeatures();
-    expect(features.canConfigureSmartModelRouting).toBe(false);
-    expect(features.excludeFieldsFromPassthrough).toEqual([]);
-  });
-
-  it('should respect excludeFieldsFromPassthrough option', () => {
-    const agent = new AxAgent(
+  it('should append additional text to Actor prompt via setActorDescription', () => {
+    const a = new AxAgent(
       {
-        ai: mockAI,
-        name: 'test excluded fields',
-        description: 'Tests field exclusion configuration',
-        signature: 'userQuery: string -> agentResponse: string',
+        signature: 'query: string -> answer: string',
       },
-      {
-        excludeFieldsFromPassthrough: ['someField'],
-      }
+      { rlm: defaultRlm }
     );
 
-    const features = agent.getFeatures();
-    expect(features.excludeFieldsFromPassthrough).toEqual(['someField']);
-  });
+    a.setActorDescription('Always prefer concise code.');
 
-  it('should update definition correctly using setDefinition', () => {
-    const agent = new AxAgent({
-      ai: mockAI,
-      name: 'test setDefinition',
-      description: 'Initial description that is long enough',
-      signature: 'userQuery: string -> agentResponse: string',
-    });
-
-    const validDefinition = 'A'.repeat(100); // valid definition (100 characters)
-    agent.setDefinition(validDefinition);
-    // Access the underlying program's signature to verify that the definition was applied
-    expect(
-      (
-        agent as unknown as {
-          program: { getSignature: () => { getDescription: () => string } };
-        }
-      ).program
-        .getSignature()
-        .getDescription()
-    ).toBe(validDefinition);
-  });
-
-  it('should throw error when setting a too short definition using setDefinition', () => {
-    const agent = new AxAgent({
-      ai: mockAI,
-      name: 'test setDefinition short',
-      description: 'Initial description that is long enough',
-      signature: 'userQuery: string -> agentResponse: string',
-    });
-
-    expect(() => agent.setDefinition('Too short')).toThrow();
-  });
-
-  it('should set definition in constructor if provided and valid', () => {
-    const validDefinition = 'D'.repeat(100); // valid definition (100 characters)
-    const agent = new AxAgent({
-      ai: mockAI,
-      name: 'test constructor with definition',
-      description: 'Initial description that is long enough',
-      definition: validDefinition,
-      signature: 'userQuery: string -> agentResponse: string',
-    });
-    // The underlying signature description should use the provided definition.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((agent as any).program.getSignature().getDescription()).toBe(
-      validDefinition
+    const actorDesc = (a as any).actorProgram
+      .getSignature()
+      .getDescription() as string;
+    // Should contain the base RLM prompt
+    expect(actorDesc).toContain('Code Generation Agent');
+    // Should also contain the appended text
+    expect(actorDesc).toContain('Always prefer concise code.');
+  });
+
+  it('should use signature description for Actor and Responder', () => {
+    const sig = s('query: string -> answer: string');
+    sig.setDescription('You are a helpful weather assistant');
+
+    const a = new AxAgent(
+      {
+        signature: sig,
+      },
+      { rlm: defaultRlm }
     );
-    // Note: The function description remains the original description.
-    expect(agent.getFunction().description).toBe(
-      'Initial description that is long enough'
-    );
-  });
 
-  it('should throw error in constructor for a too short definition', () => {
-    expect(
-      () =>
-        new AxAgent({
-          ai: mockAI,
-          name: 'test short definition',
-          description: 'Initial description that is long enough',
-          definition: 'Short definition',
-          signature: 'userQuery: string -> agentResponse: string',
-        })
-    ).toThrow();
-  });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const actorDesc = (a as any).actorProgram
+      .getSignature()
+      .getDescription() as string;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const responderDesc = (a as any).responderProgram
+      .getSignature()
+      .getDescription() as string;
 
-  it('should handle AxMessage array input in forward method', async () => {
-    // Create a mock AI service with a specific response for this test
-    const testMockAI = new AxMockAIService({
-      features: { functions: false, streaming: false },
-      chatResponse: {
-        results: [
-          {
-            index: 0,
-            content: 'Agent Response: Mocked response for message array',
-            finishReason: 'stop',
-          },
-        ],
-        modelUsage: {
-          ai: 'test-ai',
-          model: 'test-model',
-          tokens: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
-        },
-      },
-    });
-
-    const agent = new AxAgent({
-      ai: testMockAI,
-      name: 'test message array forward',
-      description: 'Tests handling of AxMessage array input in forward method',
-      signature: 'userQuery: string -> agentResponse: string',
-    });
-
-    const messages: AxMessage<{ userQuery: string }>[] = [
-      { role: 'user', values: { userQuery: 'Hello from message array' } },
-      { role: 'assistant', values: { userQuery: 'Previous response' } },
-      { role: 'user', values: { userQuery: 'Latest user message' } },
-    ];
-
-    const result = await agent.forward(testMockAI, messages);
-    expect(result).toBeDefined();
-    expect(result.agentResponse).toBe('Mocked response for message array');
-  });
-
-  it('should handle AxMessage array input in streamingForward method', async () => {
-    // Create streaming response chunks
-    const chunks: AxChatResponse['results'] = [
-      { index: 0, content: 'Agent Response: Streaming ' },
-      { index: 0, content: 'response ' },
-      { index: 0, content: 'chunk', finishReason: 'stop' },
-    ];
-    const streamingResponse = createStreamingResponse(chunks);
-
-    const testMockAI = new AxMockAIService({
-      features: { functions: false, streaming: true },
-      chatResponse: streamingResponse,
-    });
-
-    const agent = new AxAgent({
-      ai: testMockAI,
-      name: 'test message array streaming',
-      description:
-        'Tests handling of AxMessage array input in streamingForward method',
-      signature: 'userQuery: string -> agentResponse: string',
-    });
-
-    const messages: AxMessage<{ userQuery: string }>[] = [
-      { role: 'user', values: { userQuery: 'Streaming test message' } },
-    ];
-
-    const generator = agent.streamingForward(testMockAI, messages);
-    const results = [];
-
-    for await (const chunk of generator) {
-      results.push(chunk);
-    }
-
-    expect(results.length).toBeGreaterThan(0);
-    // Verify that we received streaming chunks
-    expect(results[0]).toHaveProperty('delta');
-  });
-
-  it('should handle empty AxMessage array gracefully', async () => {
-    const agent = new AxAgent({
-      ai: mockAI,
-      name: 'test empty message array',
-      description: 'Tests handling of empty AxMessage array input',
-      signature: 'userQuery: string -> agentResponse: string',
-    });
-
-    const messages: AxMessage<{ userQuery: string }>[] = [];
-
-    // This should not throw an error, but may result in an empty or default response
-    // depending on how the underlying prompt template handles empty message arrays
-    try {
-      await agent.forward(mockAI, messages);
-      // If it doesn't throw, that's fine - the behavior may vary
-    } catch (error) {
-      // If it throws, that's also acceptable behavior for empty input
-      expect(error).toBeDefined();
-    }
-  });
-
-  it('should extract values from most recent user message in AxMessage array', async () => {
-    // Create a mock AI service for this test
-    const testMockAI = new AxMockAIService({
-      features: { functions: false, streaming: false },
-      chatResponse: {
-        results: [
-          {
-            index: 0,
-            content: 'Agent Response: Parent response with child interaction',
-            finishReason: 'stop',
-          },
-        ],
-        modelUsage: {
-          ai: 'test-ai',
-          model: 'test-model',
-          tokens: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
-        },
-      },
-    });
-
-    // Create a child agent that will receive injected values
-    const childAgent = new AxAgent({
-      ai: testMockAI,
-      name: 'child agent for injection test',
-      description: 'Child agent that receives injected values from parent',
-      signature: 'contextInfo: string -> childResponse: string',
-    });
-
-    // Create parent agent with the child agent
-    const parentAgent = new AxAgent({
-      ai: testMockAI,
-      name: 'parent agent with child',
-      description: 'Parent agent that passes values to child agent',
-      signature:
-        'userQuery: string, contextInfo: string -> agentResponse: string',
-      agents: [childAgent],
-    });
-
-    const messages: AxMessage<{ userQuery: string; contextInfo: string }>[] = [
-      {
-        role: 'user',
-        values: { userQuery: 'First message', contextInfo: 'Old context' },
-      },
-      {
-        role: 'assistant',
-        values: {
-          userQuery: 'Assistant response',
-          contextInfo: 'Assistant context',
-        },
-      },
-      {
-        role: 'user',
-        values: { userQuery: 'Latest message', contextInfo: 'Latest context' },
-      },
-    ];
-
-    const result = await parentAgent.forward(testMockAI, messages);
-    expect(result).toBeDefined();
-
-    // The test verifies that the system can handle message arrays without throwing errors
-    // The actual value injection logic is tested implicitly through the successful execution
-  });
-
-  describe('AxAgent.create()', () => {
-    it('should create an agent with type-safe signature parsing', () => {
-      const agent = AxAgent.create(
-        'userInput:string "User question" -> responseText:string "Agent response"',
-        {
-          name: 'testCreateMethod',
-          description: 'Test agent created with AxAgent.create() method',
-          definition:
-            'You are a test agent that provides responses to user questions. Always respond helpfully and accurately.',
-          ai: mockAI,
-        }
-      );
-
-      expect(agent).toBeInstanceOf(AxAgent);
-
-      const signature = agent.getSignature();
-      expect(signature.getInputFields()).toHaveLength(1);
-      expect(signature.getOutputFields()).toHaveLength(1);
-      expect(signature.getInputFields()[0]?.name).toBe('userInput');
-      expect(signature.getOutputFields()[0]?.name).toBe('responseText');
-    });
-
-    it('should create agent with complex signature types', () => {
-      const agent = AxAgent.create(
-        `userQuery:string "User question",
-         context?:json "Optional context" ->
-         answer:string "Detailed answer",
-         confidence:number "Confidence score",
-         category:class "technical, general, personal" "Query category"`,
-        {
-          name: 'complexSignatureAgent',
-          description: 'Agent with complex signature for comprehensive testing',
-          definition:
-            'You are an agent that processes complex queries with multiple input and output types. Analyze the query carefully and provide detailed responses.',
-          ai: mockAI,
-        }
-      );
-
-      const signature = agent.getSignature();
-      const inputFields = signature.getInputFields();
-      const outputFields = signature.getOutputFields();
-
-      expect(inputFields).toHaveLength(2);
-      expect(outputFields).toHaveLength(3);
-
-      expect(inputFields[0]?.name).toBe('userQuery');
-      expect(inputFields[1]?.name).toBe('context');
-      expect(inputFields[1]?.isOptional).toBe(true);
-
-      expect(outputFields[0]?.name).toBe('answer');
-      expect(outputFields[1]?.name).toBe('confidence');
-      expect(outputFields[2]?.name).toBe('category');
-    });
-
-    it('should work identically to constructor with same parameters', () => {
-      const signature = 'testInput:string -> testOutput:string';
-      const config = {
-        name: 'identicalTestAgent',
-        description:
-          'Agent for testing identical behavior between create and constructor',
-        definition:
-          'You are a test agent that helps verify identical behavior between AxAgent.create() and constructor. Your role is to demonstrate that both creation methods produce functionally equivalent agent instances with the same capabilities and behavior.',
-        ai: mockAI,
-      };
-
-      const createdAgent = AxAgent.create(signature, config);
-      const constructedAgent = new AxAgent({
-        signature,
-        ...config,
-      });
-
-      expect(createdAgent.getSignature().toString()).toBe(
-        constructedAgent.getSignature().toString()
-      );
-      expect(createdAgent.getFunction().name).toBe(
-        constructedAgent.getFunction().name
-      );
-      expect(createdAgent.getFunction().description).toBe(
-        constructedAgent.getFunction().description
-      );
-    });
+    expect(actorDesc).toContain('You are a helpful weather assistant');
+    expect(responderDesc).toContain('You are a helpful weather assistant');
   });
 });
 
-describe('Enhanced agent() function with AxSignature Support', () => {
+// ----- Split architecture signature derivation -----
+
+describe('Split-architecture signature derivation', () => {
+  const runtime: AxCodeRuntime = {
+    createSession() {
+      return { execute: async () => 'ok', close: () => {} };
+    },
+  };
+
+  it('should derive Actor signature with actionLog input and code output', () => {
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      rlm: { contextFields: ['context'], runtime },
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const actorSig = (testAgent as any).actorProgram.getSignature();
+    const inputs = actorSig.getInputFields();
+    const outputs = actorSig.getOutputFields();
+
+    // Inputs: query (original minus context), contextMetadata, actionLog
+    expect(inputs.find((f: AxIField) => f.name === 'query')).toBeDefined();
+    expect(
+      inputs.find((f: AxIField) => f.name === 'contextMetadata')
+    ).toBeDefined();
+    expect(inputs.find((f: AxIField) => f.name === 'actionLog')).toBeDefined();
+    expect(inputs.find((f: AxIField) => f.name === 'context')).toBeUndefined();
+
+    // Outputs: only code field
+    expect(outputs).toHaveLength(1);
+    expect(outputs[0].name).toBe('javascriptCode');
+  });
+
+  it('should derive Responder signature with original outputs', () => {
+    const testAgent = agent(
+      'context:string, query:string -> answer:string, confidence:number',
+      {
+        rlm: { contextFields: ['context'], runtime },
+      }
+    );
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const responderSig = (testAgent as any).responderProgram.getSignature();
+    const inputs = responderSig.getInputFields();
+    const outputs = responderSig.getOutputFields();
+
+    // Responder inputs include actionLog and contextMetadata
+    expect(inputs.find((f: AxIField) => f.name === 'actionLog')).toBeDefined();
+    expect(
+      inputs.find((f: AxIField) => f.name === 'contextMetadata')
+    ).toBeDefined();
+
+    // Responder outputs are the original business outputs
+    expect(outputs.find((f: AxIField) => f.name === 'answer')).toBeDefined();
+    expect(
+      outputs.find((f: AxIField) => f.name === 'confidence')
+    ).toBeDefined();
+  });
+
+  it('should work with no context fields', () => {
+    const testAgent = agent('query:string -> answer:string', {
+      rlm: { contextFields: [], runtime },
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const actorSig = (testAgent as any).actorProgram.getSignature();
+    const inputs = actorSig.getInputFields();
+
+    // All original inputs preserved (none removed as context)
+    expect(inputs.find((f: AxIField) => f.name === 'query')).toBeDefined();
+  });
+});
+
+// ----- Actor/Responder execution loop -----
+
+describe('Actor/Responder execution loop', () => {
+  it('should exit loop when Actor returns done()', async () => {
+    let actorCallCount = 0;
+    let responderCalled = false;
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Answer the query')) {
+          // llmQuery sub-call
+          return {
+            results: [
+              { index: 0, content: 'sub-answer', finishReason: 'stop' },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCallCount++;
+          if (actorCallCount === 1) {
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: var x = 42; x',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          // Second call: signal done
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: done()',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Answer Synthesis Agent')) {
+          responderCalled = true;
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Answer: The answer is 42',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const runtime: AxCodeRuntime = {
+      createSession() {
+        return {
+          execute: async (code: string) => {
+            try {
+              const parts = code
+                .split(';')
+                .map((part) => part.trim())
+                .filter(Boolean);
+              const lastExpression = parts.pop();
+              if (!lastExpression) {
+                return 'error';
+              }
+              const setup = parts.length > 0 ? `${parts.join(';')};` : '';
+              const run = new Function(
+                `"use strict";${setup}return (${lastExpression});`
+              );
+              return String(run());
+            } catch {
+              return 'error';
+            }
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      rlm: {
+        contextFields: ['context'],
+        runtime,
+      },
+    });
+
+    const result = await testAgent.forward(testMockAI, {
+      context: 'some context',
+      query: 'What is the answer?',
+    });
+
+    expect(actorCallCount).toBe(2);
+    expect(responderCalled).toBe(true);
+    expect(result.answer).toBe('The answer is 42');
+  });
+
+  it('should enforce maxTurns limit', async () => {
+    let actorCallCount = 0;
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCallCount++;
+          // Never return done() — always return code
+          return {
+            results: [
+              {
+                index: 0,
+                content: `Javascript Code: var step${actorCallCount} = ${actorCallCount}`,
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Answer Synthesis Agent')) {
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Answer: forced answer after max turns',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const runtime: AxCodeRuntime = {
+      createSession() {
+        return {
+          execute: async () => 'ok',
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      rlm: {
+        contextFields: ['context'],
+        runtime,
+        maxTurns: 3,
+      },
+    });
+
+    const result = await testAgent.forward(testMockAI, {
+      context: 'unused',
+      query: 'unused',
+    });
+
+    expect(actorCallCount).toBe(3);
+    expect(result.answer).toBe('forced answer after max turns');
+  });
+
+  it('should accumulate actionLog across turns', async () => {
+    let lastActionLogValue = '';
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: done()',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Answer Synthesis Agent')) {
+          // Capture the actionLog that was passed to the Responder
+          const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+          lastActionLogValue = userPrompt;
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Answer: done',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const runtime: AxCodeRuntime = {
+      createSession() {
+        return {
+          execute: async () => 'executed',
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      rlm: {
+        contextFields: ['context'],
+        runtime,
+      },
+    });
+
+    await testAgent.forward(testMockAI, {
+      context: 'unused',
+      query: 'unused',
+    });
+
+    // Since Actor returned done() on first call, no actions were taken
+    expect(lastActionLogValue).toContain('no actions were taken');
+  });
+
+  it('should exit loop when Actor returns legacy "DONE" (with quotes)', async () => {
+    let actorCallCount = 0;
+    let responderCalled = false;
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCallCount++;
+          // Return "DONE" with quotes — the bug scenario
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: "DONE"',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Answer Synthesis Agent')) {
+          responderCalled = true;
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Answer: backward compat result',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      rlm: {
+        contextFields: [],
+        runtime: defaultRuntime,
+      },
+    });
+
+    const result = await testAgent.forward(testMockAI, {
+      query: 'test',
+    });
+
+    // Should exit on first call (not loop)
+    expect(actorCallCount).toBe(1);
+    expect(responderCalled).toBe(true);
+    expect(result.answer).toBe('backward compat result');
+  });
+});
+
+// ----- Functions as runtime globals -----
+
+describe('Functions as runtime globals', () => {
+  it('should expose registered functions as callable in the runtime', async () => {
+    let functionCalled = false;
+    let functionArg = '';
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          return {
+            results: [
+              {
+                index: 0,
+                content:
+                  'Javascript Code: var result = await myTool({ input: "test" }); result',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Answer Synthesis Agent')) {
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Answer: tool result received',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const runtime: AxCodeRuntime = {
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            // Simulate calling the tool function from globals
+            if (globals?.myTool && code.includes('myTool')) {
+              const toolFn = globals.myTool as (
+                args: Record<string, unknown>
+              ) => Promise<unknown>;
+              return await toolFn({ input: 'test' });
+            }
+            return 'no tool call';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      functions: [
+        {
+          name: 'myTool',
+          description: 'A test tool function',
+          parameters: {
+            type: 'object',
+            properties: {
+              input: { type: 'string', description: 'Input value' },
+            },
+            required: ['input'],
+          },
+          func: async (args: Record<string, unknown>) => {
+            functionCalled = true;
+            functionArg = String(args.input ?? '');
+            return 'tool-output';
+          },
+        },
+      ],
+      rlm: {
+        contextFields: [],
+        runtime,
+        maxTurns: 1,
+      },
+    });
+
+    await testAgent.forward(testMockAI, { query: 'test' });
+
+    expect(functionCalled).toBe(true);
+    expect(functionArg).toBe('test');
+  });
+});
+
+// ----- done() as runtime global -----
+
+describe('done() as runtime global', () => {
+  it('should exit actor loop when done() is called inline with code', async () => {
+    let actorCallCount = 0;
+    let responderCalled = false;
+    let executedCode = '';
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCallCount++;
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: var x = 42; done()',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Answer Synthesis Agent')) {
+          responderCalled = true;
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Answer: inline done result',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const runtime: AxCodeRuntime = {
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            executedCode = code;
+            // Simulate calling the done function from globals
+            if (globals?.done && code.includes('done()')) {
+              (globals.done as () => void)();
+            }
+            return 42;
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      rlm: {
+        contextFields: [],
+        runtime,
+      },
+    });
+
+    const result = await testAgent.forward(testMockAI, { query: 'test' });
+
+    // Actor should be called only once — done() signals exit after execution
+    expect(actorCallCount).toBe(1);
+    expect(responderCalled).toBe(true);
+    expect(result.answer).toBe('inline done result');
+    // The code with trailing done() stripped should have been executed
+    expect(executedCode).toContain('var x = 42');
+  });
+
+  it('should pass done function in session globals and include in reservedNames', async () => {
+    let receivedGlobals: Record<string, unknown> = {};
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: done()',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Answer Synthesis Agent')) {
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Answer: globals test',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const runtime: AxCodeRuntime = {
+      createSession(globals) {
+        receivedGlobals = globals ?? {};
+        return {
+          execute: async () => 'ok',
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      rlm: {
+        contextFields: [],
+        runtime,
+      },
+    });
+
+    await testAgent.forward(testMockAI, { query: 'test' });
+
+    // done should be passed as a session global
+    expect(receivedGlobals).toHaveProperty('done');
+    expect(typeof receivedGlobals.done).toBe('function');
+  });
+});
+
+// ----- agent() factory function -----
+
+describe('agent() factory function', () => {
   const mockAI = new AxMockAIService({
     features: { functions: false, streaming: false },
     chatResponse: {
       results: [
-        {
-          index: 0,
-          content: 'Mocked AI response',
-          finishReason: 'stop',
-        },
+        { index: 0, content: 'Mocked AI response', finishReason: 'stop' },
       ],
-      modelUsage: {
-        ai: 'test-ai',
-        model: 'test-model',
-        tokens: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
-      },
+      modelUsage: makeModelUsage(),
     },
   });
 
-  it('should work with string signatures in agent()', () => {
+  it('should work with string signatures', () => {
     const testAgent = agent('userInput:string -> responseText:string', {
-      name: 'testAgent',
-      description:
-        'A test agent that processes user input and returns a response',
       ai: mockAI,
+      rlm: defaultRlm,
     });
 
     expect(testAgent).toBeInstanceOf(AxAgent);
@@ -513,18 +761,14 @@ describe('Enhanced agent() function with AxSignature Support', () => {
     );
   });
 
-  it('should work with AxSignature objects in agent()', () => {
+  it('should work with AxSignature objects', () => {
     const signature = s('userInput:string -> responseText:string');
     const testAgent = agent(signature, {
-      name: 'testAgent',
-      description:
-        'A test agent that processes user input and returns a response',
       ai: mockAI,
+      rlm: defaultRlm,
     });
 
     expect(testAgent).toBeInstanceOf(AxAgent);
-    expect(testAgent.getSignature().getInputFields()).toHaveLength(1);
-    expect(testAgent.getSignature().getOutputFields()).toHaveLength(1);
     expect(testAgent.getSignature().getInputFields()[0]?.name).toBe(
       'userInput'
     );
@@ -533,48 +777,19 @@ describe('Enhanced agent() function with AxSignature Support', () => {
     );
   });
 
-  it('should maintain proper type inference with complex AxSignature in agent()', () => {
-    const signature = s(
-      'emailText:string, priority:number -> category:string, confidence:number'
-    );
-    const testAgent = agent(signature, {
-      name: 'emailAgent',
-      description:
-        'An agent that categorizes emails based on content and priority',
-      ai: mockAI,
-    });
-
-    // Should maintain all field information
-    expect(testAgent.getSignature().getInputFields()).toHaveLength(2);
-    expect(testAgent.getSignature().getOutputFields()).toHaveLength(2);
-    expect(testAgent.getSignature().getInputFields()[0]?.name).toBe(
-      'emailText'
-    );
-    expect(testAgent.getSignature().getInputFields()[1]?.name).toBe('priority');
-    expect(testAgent.getSignature().getOutputFields()[0]?.name).toBe(
-      'category'
-    );
-    expect(testAgent.getSignature().getOutputFields()[1]?.name).toBe(
-      'confidence'
-    );
-  });
-
-  it('should handle both overloads seamlessly in agent()', () => {
+  it('should handle both overloads seamlessly', () => {
     const stringSig = 'userInput:string -> agentOutput:string';
     const axSig = s('userInput:string -> agentOutput:string');
 
     const agent1 = agent(stringSig, {
-      name: 'agent1',
-      description: 'First agent using string signature',
       ai: mockAI,
+      rlm: defaultRlm,
     });
     const agent2 = agent(axSig, {
-      name: 'agent2',
-      description: 'Second agent using AxSignature object',
       ai: mockAI,
+      rlm: defaultRlm,
     });
 
-    // Both should have same signature structure (ignoring description differences)
     expect(agent1.getSignature().getInputFields()).toEqual(
       agent2.getSignature().getInputFields()
     );
@@ -585,63 +800,25 @@ describe('Enhanced agent() function with AxSignature Support', () => {
 
   it('should pass through all config options correctly', () => {
     const sig = s('userInput:string -> responseText:string');
-    const definition =
-      'You are a helpful assistant that provides clear, accurate responses to user questions. Always be polite and informative.';
 
     const testAgent = agent(sig, {
-      name: 'configTestAgent',
-      description: 'An agent to test configuration passing',
-      definition,
+      agentIdentity: {
+        name: 'configTestAgent',
+        description: 'An agent to test configuration passing',
+      },
       ai: mockAI,
       debug: true,
-      disableSmartModelRouting: true,
+      rlm: defaultRlm,
     });
 
-    expect(testAgent.getFunction().name).toBe('configtestagent'); // camelCase conversion
+    expect(testAgent.getFunction().name).toBe('configtestagent');
     expect(testAgent.getFunction().description).toBe(
       'An agent to test configuration passing'
     );
-    // Definition is used as the program description
-    expect(testAgent.getSignature().getDescription()).toBe(definition);
-  });
-
-  it('should work without ai parameter in config', () => {
-    const testAgent = agent('userInput:string -> responseText:string', {
-      name: 'noAiAgent',
-      description: 'An agent without built-in AI service',
-    });
-
-    expect(testAgent).toBeInstanceOf(AxAgent);
-    expect(testAgent.getSignature().getInputFields()[0]?.name).toBe(
-      'userInput'
-    );
-    expect(testAgent.getSignature().getOutputFields()[0]?.name).toBe(
-      'responseText'
-    );
-  });
-
-  it('should produce equivalent results to AxAgent.create()', () => {
-    const signature = 'userInput:string -> responseText:string';
-    const config = {
-      name: 'equivalentAgent',
-      description: 'An agent to test equivalence with AxAgent.create',
-      ai: mockAI,
-    };
-
-    const factoryAgent = agent(signature, config);
-    const staticAgent = AxAgent.create(signature, config);
-
-    expect(factoryAgent.getSignature().toString()).toBe(
-      staticAgent.getSignature().toString()
-    );
-    expect(factoryAgent.getFunction().name).toBe(
-      staticAgent.getFunction().name
-    );
-    expect(factoryAgent.getFunction().description).toBe(
-      staticAgent.getFunction().description
-    );
   });
 });
+
+// ----- toFieldType tests (unchanged) -----
 
 describe('toFieldType with object structure', () => {
   it('should render object with fields', () => {
@@ -705,62 +882,23 @@ describe('toFieldType with object structure', () => {
   });
 });
 
-describe('axBuildRLMDefinition with typed context fields', () => {
-  it('should render string field type', () => {
+// ----- axBuildActorDefinition tests -----
+
+describe('axBuildActorDefinition', () => {
+  it('should include Code Generation Agent header', () => {
+    const result = axBuildActorDefinition(undefined, [], {});
+    expect(result).toContain('## Code Generation Agent');
+  });
+
+  it('should render context field types', () => {
     const fields: AxIField[] = [
       { name: 'query', title: 'Query', type: { name: 'string' } },
     ];
-    const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
+    const result = axBuildActorDefinition(undefined, fields, {});
     expect(result).toContain('- `query` (string)');
   });
 
-  it('should render number field type', () => {
-    const fields: AxIField[] = [
-      { name: 'count', title: 'Count', type: { name: 'number' } },
-    ];
-    const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
-    expect(result).toContain('- `count` (number)');
-  });
-
-  it('should render object with nested fields', () => {
-    const fields: AxIField[] = [
-      {
-        name: 'doc',
-        title: 'Doc',
-        type: {
-          name: 'object',
-          fields: {
-            id: { type: 'number' },
-            title: { type: 'string' },
-          },
-        },
-      },
-    ];
-    const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
-    expect(result).toContain('- `doc` (object { id: number, title: string })');
-  });
-
-  it('should render array of objects', () => {
-    const fields: AxIField[] = [
-      {
-        name: 'items',
-        title: 'Items',
-        type: {
-          name: 'object',
-          isArray: true,
-          fields: {
-            id: { type: 'number' },
-          },
-        },
-      },
-    ];
-    const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
-    expect(result).toContain(
-      '- `items` (json array of object { id: number } items)'
-    );
-  });
-
-  it('should include field descriptions as suffix', () => {
+  it('should include field descriptions', () => {
     const fields: AxIField[] = [
       {
         name: 'query',
@@ -769,181 +907,1096 @@ describe('axBuildRLMDefinition with typed context fields', () => {
         description: "The user's search query",
       },
     ];
-    const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
+    const result = axBuildActorDefinition(undefined, fields, {});
     expect(result).toContain("- `query` (string): The user's search query");
   });
 
-  it('should render optional nested fields with ?', () => {
-    const fields: AxIField[] = [
-      {
-        name: 'config',
-        title: 'Config',
-        type: {
-          name: 'object',
-          fields: {
-            timeout: { type: 'number', isOptional: true },
-            retries: { type: 'number', isOptional: true },
-          },
-        },
-      },
-    ];
-    const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
-    expect(result).toContain(
-      '- `config` (object { timeout?: number, retries?: number })'
-    );
+  it('should document done() exit signal', () => {
+    const result = axBuildActorDefinition(undefined, [], {});
+    expect(result).toContain('done()');
   });
 
-  it('should maintain backward compat with string[]', () => {
-    const result = axBuildRLMDefinition(undefined, 'JavaScript', [
-      'documents',
-      'query',
-    ]);
-    expect(result).toContain('- `documents` (string)');
-    expect(result).toContain('- `query` (string)');
-  });
-
-  it('should include concrete example section instead of abstract workflow', () => {
-    const fields: AxIField[] = [
-      { name: 'docs', title: 'Docs', type: { name: 'string' } },
-    ];
-    const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
-    expect(result).toContain('### Example');
-    expect(result).toContain('Analyzing `docs`');
-    expect(result).not.toContain('### Workflow');
-  });
-
-  it('should include guidelines for structural and semantic work', () => {
-    const fields: AxIField[] = [
-      {
-        name: 'items',
-        title: 'Items',
-        type: {
-          name: 'object',
-          isArray: true,
-          fields: { id: { type: 'number' }, title: { type: 'string' } },
-        },
-      },
-    ];
-    const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
-    expect(result).toContain('filter, map, slice, regex, property access');
-    expect(result).not.toContain('### Tips');
-  });
-});
-
-describe('axBuildRLMDefinition dual structured/string guidance', () => {
-  const fields: AxIField[] = [
-    {
-      name: 'items',
-      title: 'Items',
-      type: {
-        name: 'object',
-        isArray: true,
-        fields: { id: { type: 'number' }, title: { type: 'string' } },
-      },
-    },
-  ];
-
-  it('should include JSON.stringify() guidance in output', () => {
-    const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
-    expect(result).toContain('JSON.stringify()');
-  });
-
-  it('should not include [0] probe or .slice(0, 500)', () => {
-    const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
-    expect(result).not.toContain('[0]');
-    expect(result).not.toContain('.slice(0, 500)');
-  });
-
-  it('should not contain "chunk it first"', () => {
-    const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
-    expect(result).not.toContain('chunk it first');
-  });
-
-  it('should include structural work guidance in guidelines', () => {
-    const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
-    expect(result).toContain('filter, map, slice, regex, property access');
-  });
-
-  it('should include JSON.stringify guidance in APIs section', () => {
-    const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
-    expect(result).toContain('JSON.stringify()');
-  });
-
-  it('should document batched llmQuery overload', () => {
-    const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
+  it('should document llmQuery API', () => {
+    const result = axBuildActorDefinition(undefined, [], {});
+    expect(result).toContain('await llmQuery(query, context?)');
     expect(result).toContain('await llmQuery([{ query, context? }, ...])');
   });
 
-  it('should not include hardcoded runtime-specific execution rules', () => {
-    const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
-    expect(result).not.toContain('### Execution rules');
-    expect(result).not.toContain('use `var` (not `const`/`let`)');
+  it('should list tool functions when provided', () => {
+    const tools = [
+      {
+        name: 'searchDocs',
+        description: 'Search through documents',
+        parameters: {
+          type: 'object' as const,
+          properties: {
+            query: { type: 'string', description: 'Search query' },
+          },
+          required: ['query'],
+        },
+        func: async () => 'result',
+      },
+    ];
+    const result = axBuildActorDefinition(undefined, [], {
+      toolFunctions: tools,
+    });
+    expect(result).toContain('await searchDocs');
+    expect(result).toContain('Search through documents');
   });
 
-  it('should append runtime-specific usage notes when provided', () => {
-    const result = axBuildRLMDefinition(undefined, 'JavaScript', fields, {
-      runtimeUsageInstructions:
-        '- Use globalThis.state for persistent state across async calls.',
+  it('should append runtime usage instructions', () => {
+    const result = axBuildActorDefinition(undefined, [], {
+      runtimeUsageInstructions: 'Use var instead of const.',
     });
     expect(result).toContain('### Runtime-specific usage notes');
-    expect(result).toContain(
-      'Use globalThis.state for persistent state across async calls.'
-    );
+    expect(result).toContain('Use var instead of const.');
   });
 
-  it('should document llmQuery return type', () => {
-    const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
-    expect(result).toContain('Returns a string.');
-  });
-
-  it('should document batched llmQuery return type', () => {
-    const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
-    expect(result).toContain('Returns string[]');
-  });
-
-  it('should note sub-queries have a call limit', () => {
-    const result = axBuildRLMDefinition(undefined, 'JavaScript', fields);
-    expect(result).toContain('Sub-queries have a call limit');
-  });
-
-  it('should render inline mode helper field instructions', () => {
-    const result = axBuildRLMDefinition(undefined, 'JavaScript', fields, {
-      mode: 'inline',
-      inlineCodeFieldName: 'javascriptCode',
-      inlineLanguage: 'javascript',
+  it('should include maxTurns in rules', () => {
+    const result = axBuildActorDefinition(undefined, [], {
+      maxTurns: 5,
     });
-    expect(result).toContain('## Iterative Context Analysis');
-    expect(result).toContain('`javascriptCode`');
-    expect(result).toContain('`llmQuery`');
-    expect(result).not.toContain('`resultReady`');
+    expect(result).toContain('5 turns maximum');
+  });
+
+  it('should append base definition', () => {
+    const result = axBuildActorDefinition(
+      'You are a helpful assistant.',
+      [],
+      {}
+    );
+    expect(result).toContain('You are a helpful assistant.');
   });
 });
 
-describe('codeInterpreter description with typed context', () => {
-  it('should include field types in context description', () => {
+// ----- axBuildResponderDefinition tests -----
+
+describe('axBuildResponderDefinition', () => {
+  it('should include Answer Synthesis Agent header', () => {
+    const result = axBuildResponderDefinition(undefined, []);
+    expect(result).toContain('## Answer Synthesis Agent');
+  });
+
+  it('should list context variable metadata', () => {
     const fields: AxIField[] = [
-      {
-        name: 'documents',
-        title: 'Documents',
-        type: {
-          name: 'object',
-          isArray: true,
-          fields: {
-            id: { type: 'number' },
-            title: { type: 'string' },
+      { name: 'documents', title: 'Documents', type: { name: 'string' } },
+    ];
+    const result = axBuildResponderDefinition(undefined, fields);
+    expect(result).toContain('- `documents` (string)');
+  });
+
+  it('should instruct to base answer on action log evidence', () => {
+    const result = axBuildResponderDefinition(undefined, []);
+    expect(result).toContain(
+      'Base your answer ONLY on evidence from the action log'
+    );
+  });
+
+  it('should instruct to never generate code', () => {
+    const result = axBuildResponderDefinition(undefined, []);
+    expect(result).toContain('NEVER generate code');
+  });
+
+  it('should append base definition', () => {
+    const result = axBuildResponderDefinition('You are a precise analyst.', []);
+    expect(result).toContain('You are a precise analyst.');
+  });
+});
+
+// ----- RLM llmQuery runtime behavior -----
+
+describe('RLM llmQuery runtime behavior', () => {
+  it('should return per-item errors for batched llmQuery calls', async () => {
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+        if (systemPrompt.includes('Answer the query')) {
+          if (userPrompt.includes('Query: fail')) {
+            throw new Error('boom');
+          }
+          return {
+            results: [{ index: 0, content: 'ok', finishReason: 'stop' }],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: BATCH_TEST',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Answer Synthesis Agent')) {
+          return {
+            results: [
+              { index: 0, content: 'Answer: done', finishReason: 'stop' },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    let batchResult: string[] = [];
+    const runtime: AxCodeRuntime = {
+      createSession(globals) {
+        return {
+          execute: async () => {
+            const llmQueryFn = globals?.llmQuery as (
+              q: readonly { query: string; context?: string }[]
+            ) => Promise<string[]>;
+            batchResult = await llmQueryFn([
+              { query: 'ok', context: 'ctx1' },
+              { query: 'fail', context: 'ctx2' },
+            ]);
+            return JSON.stringify(batchResult);
           },
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      rlm: {
+        contextFields: ['context'],
+        runtime,
+        maxTurns: 1,
+      },
+    });
+
+    await testAgent.forward(testMockAI, {
+      context: 'unused',
+      query: 'unused',
+    });
+
+    expect(batchResult[0]).toBe('ok');
+    expect(batchResult[1]).toContain('[ERROR] boom');
+  });
+
+  it('should normalize single-object llmQuery({ query, context }) to positional args', async () => {
+    let llmQueryResult = '';
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Answer the query')) {
+          return {
+            results: [
+              { index: 0, content: 'sub-lm-answer', finishReason: 'stop' },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: test',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Answer Synthesis Agent')) {
+          return {
+            results: [
+              { index: 0, content: 'Answer: done', finishReason: 'stop' },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const runtime: AxCodeRuntime = {
+      createSession(globals) {
+        return {
+          execute: async () => {
+            const llmQueryFn = globals?.llmQuery as (q: {
+              query: string;
+              context?: string;
+            }) => Promise<string>;
+            llmQueryResult = await llmQueryFn({
+              query: 'summarize this',
+              context: 'some context',
+            });
+            return llmQueryResult;
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      rlm: {
+        contextFields: ['context'],
+        runtime,
+        maxTurns: 1,
+      },
+    });
+
+    await testAgent.forward(testMockAI, {
+      context: 'unused',
+      query: 'unused',
+    });
+
+    expect(llmQueryResult).toBe('sub-lm-answer');
+  });
+
+  it('should throw typed aborted error from llmQuery pre-check', async () => {
+    let abortResult = '';
+    const abortController = new AbortController();
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          // Actor: return code that calls llmQuery
+          return {
+            results: [
+              {
+                index: 0,
+                content:
+                  'Javascript Code: var r = await llmQuery("q", "ctx"); r',
+                finishReason: 'stop' as const,
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        // Responder / llmQuery sub-call
+        return {
+          results: [
+            {
+              index: 0,
+              content: 'Answer: done',
+              finishReason: 'stop' as const,
+            },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const runtime: AxCodeRuntime = {
+      createSession(globals) {
+        return {
+          execute: async () => {
+            // Abort before calling llmQuery so the pre-check fires
+            abortController.abort('stop now');
+            try {
+              await (
+                globals?.llmQuery as (
+                  q: string,
+                  context?: string
+                ) => Promise<string>
+              )('q', 'ctx');
+              return 'unexpected success';
+            } catch (err) {
+              abortResult =
+                err instanceof AxAIServiceAbortedError
+                  ? 'aborted-ok'
+                  : `wrong-type:${String(err)}`;
+              return abortResult;
+            }
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      rlm: {
+        contextFields: ['context'],
+        runtime,
+        maxTurns: 1,
+      },
+    });
+
+    try {
+      await testAgent.forward(
+        testMockAI,
+        { context: 'unused', query: 'unused' },
+        { abortSignal: abortController.signal }
+      );
+    } catch {
+      // Expected: the forward itself may throw due to abort
+    }
+
+    // The llmQuery should have detected the abort
+    expect(abortResult).toBe('aborted-ok');
+  });
+});
+
+// ----- Session restart tests -----
+
+describe('RLM session restart', () => {
+  it('should restart closed session after timeout and restore globals', async () => {
+    let createSessionCount = 0;
+    let executeCount = 0;
+    const runtime: AxCodeRuntime = {
+      createSession(globals?: Record<string, unknown>) {
+        createSessionCount++;
+        const safeGlobals = globals ?? {};
+        return {
+          execute: async () => {
+            executeCount++;
+            if (executeCount === 1) {
+              throw new Error('Execution timed out');
+            }
+            if (executeCount === 2) {
+              throw new Error('Session is closed');
+            }
+            return `ctx:${String(safeGlobals.context)};hasLlmQuery:${String(typeof safeGlobals.llmQuery === 'function')}`;
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    let actorCallCount = 0;
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCallCount++;
+          if (actorCallCount <= 2) {
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: `Javascript Code: execute_step_${actorCallCount}`,
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: done()',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Answer Synthesis Agent')) {
+          return {
+            results: [
+              { index: 0, content: 'Answer: done', finishReason: 'stop' },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      rlm: {
+        contextFields: ['context'],
+        runtime,
+      },
+    });
+
+    await testAgent.forward(testMockAI, {
+      context: 'global-context',
+      query: 'unused',
+    });
+
+    expect(createSessionCount).toBe(2); // initial + timeout-triggered restart
+  });
+
+  it('should not restart closed session if no timeout happened first', async () => {
+    let createSessionCount = 0;
+    const runtime: AxCodeRuntime = {
+      createSession() {
+        createSessionCount++;
+        return {
+          execute: async () => {
+            throw new Error('Session is closed');
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    let actorCallCount = 0;
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCallCount++;
+          if (actorCallCount === 1) {
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: some_code',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: done()',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Answer Synthesis Agent')) {
+          return {
+            results: [
+              { index: 0, content: 'Answer: done', finishReason: 'stop' },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      rlm: {
+        contextFields: ['context'],
+        runtime,
+      },
+    });
+
+    await testAgent.forward(testMockAI, {
+      context: 'unused',
+      query: 'unused',
+    });
+
+    expect(createSessionCount).toBe(1); // No restart
+  });
+});
+
+// ----- Program registration and optimization support -----
+
+describe('Program registration for optimization', () => {
+  it('should include Actor and Responder traces in getTraces()', async () => {
+    let actorCallCount = 0;
+
+    const mockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCallCount++;
+          if (actorCallCount === 1) {
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: "hello"',
+                  finishReason: 'stop' as const,
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: done()',
+                finishReason: 'stop' as const,
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        // Responder
+        return {
+          results: [
+            {
+              index: 0,
+              content: 'Answer: traced result',
+              finishReason: 'stop' as const,
+            },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = new AxAgent(
+      {
+        signature: 'query:string -> answer:string',
+      },
+      { rlm: defaultRlm }
+    );
+
+    await testAgent.forward(mockAI, { query: 'test' });
+
+    const traces = testAgent.getTraces();
+    // Should have traces from both Actor and Responder (registered children)
+    expect(traces.length).toBeGreaterThanOrEqual(2);
+
+    // Each trace should have a programId
+    for (const t of traces) {
+      expect(t.programId).toBeDefined();
+    }
+  });
+
+  it('should aggregate usage from Actor and Responder', async () => {
+    let actorCallCount = 0;
+
+    const mockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCallCount++;
+          return {
+            results: [
+              {
+                index: 0,
+                content:
+                  actorCallCount === 1
+                    ? 'Javascript Code: "step"'
+                    : 'Javascript Code: done()',
+                finishReason: 'stop' as const,
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            {
+              index: 0,
+              content: 'Answer: done',
+              finishReason: 'stop' as const,
+            },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = new AxAgent(
+      {
+        signature: 'query:string -> answer:string',
+      },
+      { rlm: defaultRlm }
+    );
+
+    await testAgent.forward(mockAI, { query: 'test' });
+
+    const usage = testAgent.getUsage();
+    // Should have usage entries (aggregated from Actor + Responder)
+    expect(usage.length).toBeGreaterThan(0);
+  });
+
+  it('should reset usage for Actor and Responder', async () => {
+    let actorCallCount = 0;
+
+    const mockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCallCount++;
+          return {
+            results: [
+              {
+                index: 0,
+                content:
+                  actorCallCount === 1
+                    ? 'Javascript Code: "x"'
+                    : 'Javascript Code: done()',
+                finishReason: 'stop' as const,
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            {
+              index: 0,
+              content: 'Answer: done',
+              finishReason: 'stop' as const,
+            },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = new AxAgent(
+      {
+        signature: 'query:string -> answer:string',
+      },
+      { rlm: defaultRlm }
+    );
+
+    await testAgent.forward(mockAI, { query: 'test' });
+    expect(testAgent.getUsage().length).toBeGreaterThan(0);
+
+    testAgent.resetUsage();
+    expect(testAgent.getUsage().length).toBe(0);
+  });
+});
+
+// ----- Streaming tests -----
+
+describe('streamingForward', () => {
+  it('should yield streaming deltas from the Responder', async () => {
+    let actorCallCount = 0;
+
+    const mockAI = new AxMockAIService({
+      features: { functions: false, streaming: true },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCallCount++;
+          return {
+            results: [
+              {
+                index: 0,
+                content:
+                  actorCallCount === 1
+                    ? 'Javascript Code: "gather"'
+                    : 'Javascript Code: done()',
+                finishReason: 'stop' as const,
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        // Responder
+        return {
+          results: [
+            {
+              index: 0,
+              content: 'Answer: streamed result',
+              finishReason: 'stop' as const,
+            },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = new AxAgent(
+      {
+        signature: 'query:string -> answer:string',
+      },
+      { rlm: defaultRlm }
+    );
+
+    const deltas: unknown[] = [];
+    for await (const delta of testAgent.streamingForward(mockAI, {
+      query: 'test',
+    })) {
+      deltas.push(delta);
+    }
+
+    // Should yield at least one delta
+    expect(deltas.length).toBeGreaterThan(0);
+  });
+});
+
+// ----- actorFields tests -----
+
+describe('actorFields', () => {
+  const runtime: AxCodeRuntime = {
+    createSession() {
+      return { execute: async () => 'ok', close: () => {} };
+    },
+  };
+
+  it('should split output fields between Actor and Responder based on actorFields', () => {
+    const testAgent = agent(
+      'context:string, query:string -> answer:string, reasoning:string, confidence:number',
+      {
+        rlm: {
+          contextFields: ['context'],
+          runtime,
+          actorFields: ['reasoning'],
+        },
+      }
+    );
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const actorSig = (testAgent as any).actorProgram.getSignature();
+    const actorOutputs = actorSig.getOutputFields();
+
+    // Actor should have javascriptCode + reasoning
+    expect(
+      actorOutputs.find((f: AxIField) => f.name === 'javascriptCode')
+    ).toBeDefined();
+    expect(
+      actorOutputs.find((f: AxIField) => f.name === 'reasoning')
+    ).toBeDefined();
+    expect(actorOutputs).toHaveLength(2);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const responderSig = (testAgent as any).responderProgram.getSignature();
+    const responderOutputs = responderSig.getOutputFields();
+
+    // Responder should have answer + confidence (not reasoning)
+    expect(
+      responderOutputs.find((f: AxIField) => f.name === 'answer')
+    ).toBeDefined();
+    expect(
+      responderOutputs.find((f: AxIField) => f.name === 'confidence')
+    ).toBeDefined();
+    expect(
+      responderOutputs.find((f: AxIField) => f.name === 'reasoning')
+    ).toBeUndefined();
+    expect(responderOutputs).toHaveLength(2);
+  });
+
+  it('should throw for unknown actorField names', () => {
+    expect(() =>
+      agent('query:string -> answer:string', {
+        rlm: {
+          contextFields: [],
+          runtime,
+          actorFields: ['nonexistent'],
+        },
+      })
+    ).toThrow(/actorField "nonexistent" not found in output signature/);
+  });
+
+  it('should update Actor prompt rules when actorFields are set', () => {
+    const testAgent = agent('query:string -> answer:string, reasoning:string', {
+      rlm: {
+        contextFields: [],
+        runtime,
+        actorFields: ['reasoning'],
+      },
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const actorDesc = (testAgent as any).actorProgram
+      .getSignature()
+      .getDescription() as string;
+
+    // Should mention the actor field in the rules
+    expect(actorDesc).toContain('`reasoning`');
+    // Should NOT have the strict "Output ONLY" rule
+    expect(actorDesc).not.toContain('Output ONLY a `javascriptCode` field');
+  });
+
+  it('should merge actorFieldValues into forward result', async () => {
+    let actorCallCount = 0;
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCallCount++;
+          if (actorCallCount === 1) {
+            return {
+              results: [
+                {
+                  index: 0,
+                  content:
+                    'Javascript Code: "gathering"\nReasoning: Step 1 analysis',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: done()\nReasoning: Final reasoning',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Answer Synthesis Agent')) {
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Answer: The final answer',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('query:string -> answer:string, reasoning:string', {
+      ai: testMockAI,
+      rlm: {
+        contextFields: [],
+        runtime,
+        actorFields: ['reasoning'],
+      },
+    });
+
+    const result = await testAgent.forward(testMockAI, {
+      query: 'test',
+    });
+
+    // answer comes from Responder, reasoning from last Actor turn
+    expect(result.answer).toBe('The final answer');
+    expect(result.reasoning).toBe('Final reasoning');
+  });
+});
+
+// ----- actorCallback tests -----
+
+describe('actorCallback', () => {
+  const runtime: AxCodeRuntime = {
+    createSession() {
+      return { execute: async () => 'ok', close: () => {} };
+    },
+  };
+
+  it('should call actorCallback on every Actor turn including done()', async () => {
+    let actorCallCount = 0;
+    const callbackResults: Record<string, unknown>[] = [];
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCallCount++;
+          if (actorCallCount === 1) {
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: var x = 1',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: done()',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      rlm: {
+        contextFields: [],
+        runtime,
+        actorCallback: async (result) => {
+          callbackResults.push(result);
         },
       },
-      { name: 'query', title: 'Query', type: { name: 'string' } },
-    ];
-    const contextDesc = fields
-      .map((f) => `${f.name}: ${toFieldType(f.type)}`)
-      .join(', ');
-    expect(contextDesc).toBe(
-      'documents: json array of object { id: number, title: string } items, query: string'
-    );
+    });
+
+    await testAgent.forward(testMockAI, { query: 'test' });
+
+    // Callback should fire on both turns (code + done())
+    expect(callbackResults).toHaveLength(2);
+    expect(callbackResults[0]?.javascriptCode).toBe('var x = 1');
+    expect(callbackResults[1]?.javascriptCode).toBe('done()');
   });
 });
+
+// ----- actorOptions / responderOptions tests -----
+
+describe('actorOptions / responderOptions', () => {
+  const runtime: AxCodeRuntime = {
+    createSession() {
+      return { execute: async () => 'ok', close: () => {} };
+    },
+  };
+
+  it('should pass actorOptions to Actor forward calls', async () => {
+    let capturedActorModel: string | undefined;
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          capturedActorModel = req.model as string | undefined;
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: done()',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      rlm: { contextFields: [], runtime },
+      actorOptions: { model: 'actor-model' },
+    });
+
+    await testAgent.forward(testMockAI, { query: 'test' });
+
+    expect(capturedActorModel).toBe('actor-model');
+  });
+
+  it('should pass responderOptions to Responder forward calls', async () => {
+    let capturedResponderModel: string | undefined;
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: done()',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Answer Synthesis Agent')) {
+          capturedResponderModel = req.model as string | undefined;
+          return {
+            results: [
+              { index: 0, content: 'Answer: done', finishReason: 'stop' },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      rlm: { contextFields: [], runtime },
+      responderOptions: { model: 'responder-model' },
+    });
+
+    await testAgent.forward(testMockAI, { query: 'test' });
+
+    expect(capturedResponderModel).toBe('responder-model');
+  });
+});
+
+// ----- A/An article grammar tests (unchanged) -----
 
 describe('A/An article grammar in renderInputFields', () => {
   it('should use "An" before vowel-starting types like object', () => {
@@ -962,834 +2015,5 @@ describe('A/An article grammar in renderInputFields', () => {
     const type = 'number';
     const article = /^[aeiou]/i.test(type) ? 'An' : 'A';
     expect(article).toBe('A');
-  });
-});
-
-describe('RLM llmQuery runtime behavior', () => {
-  const makeModelUsage = () => ({
-    ai: 'mock-ai',
-    model: 'mock-model',
-    tokens: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
-  });
-
-  const makeTestRuntime = (
-    executeHandler: (
-      code: string,
-      globals: Record<string, unknown>
-    ) => Promise<unknown> | unknown
-  ): AxCodeRuntime => ({
-    language: 'JavaScript',
-    createSession(globals?: Record<string, unknown>) {
-      const safeGlobals = globals ?? {};
-      return {
-        execute: async (code: string) => executeHandler(code, safeGlobals),
-        close: () => {},
-      };
-    },
-  });
-
-  it('should return per-item errors for batched llmQuery calls', async () => {
-    const testMockAI = new AxMockAIService({
-      features: { functions: true, streaming: false },
-      chatResponse: async (req) => {
-        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
-        if (userPrompt.includes('Query: fail')) {
-          throw new Error('boom');
-        }
-        return {
-          results: [{ index: 0, content: 'ok', finishReason: 'stop' }],
-          modelUsage: makeModelUsage(),
-        };
-      },
-    });
-
-    const runtime = makeTestRuntime(async (code, globals) => {
-      if (code !== 'BATCH_TEST') return 'unexpected code';
-      return await (
-        globals.llmQuery as (
-          q: readonly { query: string; context?: string }[]
-        ) => Promise<string[]>
-      )([
-        { query: 'ok', context: 'ctx1' },
-        { query: 'fail', context: 'ctx2' },
-      ]);
-    });
-
-    const testAgent = agent('context:string, query:string -> answer:string', {
-      name: 'rlmBatchToleranceAgent',
-      description: 'Agent used to verify batched llmQuery error tolerance.',
-      ai: testMockAI,
-      rlm: {
-        mode: 'function',
-        contextFields: ['context'],
-        runtime,
-      },
-    });
-
-    // Replace inner rlmProgram to directly invoke codeInterpreter.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (testAgent as any).rlmProgram = {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      forward: async (_ai: any, _values: any, forwardOptions: any) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const codeInterpreter = forwardOptions.functions.find((f: any) => {
-          return f.name === 'codeInterpreter';
-        });
-        const output = await codeInterpreter.func({ code: 'BATCH_TEST' });
-        return { answer: output };
-      },
-    };
-
-    const result = await testAgent.forward(testMockAI, {
-      context: 'unused',
-      query: 'unused',
-    });
-    expect(result.answer).toContain('ok');
-    expect(result.answer).toContain('[ERROR] boom');
-  });
-
-  it('should normalize single-object llmQuery({ query, context }) to positional args', async () => {
-    const testMockAI = new AxMockAIService({
-      features: { functions: true, streaming: false },
-      chatResponse: async () => ({
-        results: [
-          {
-            index: 0,
-            content: 'sub-lm-answer',
-            finishReason: 'stop' as const,
-          },
-        ],
-        modelUsage: makeModelUsage(),
-      }),
-    });
-
-    const runtime = makeTestRuntime(async (_code, globals) => {
-      // Call llmQuery with a single object (the form LLMs often produce)
-      const llmQueryFn = globals.llmQuery as (q: {
-        query: string;
-        context?: string;
-      }) => Promise<string>;
-      return await llmQueryFn({
-        query: 'summarize this',
-        context: 'some context',
-      });
-    });
-
-    const testAgent = agent('context:string, query:string -> answer:string', {
-      name: 'rlmSingleObjectAgent',
-      description: 'Agent used to verify single-object llmQuery normalization.',
-      ai: testMockAI,
-      rlm: {
-        mode: 'function',
-        contextFields: ['context'],
-        runtime,
-      },
-    });
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (testAgent as any).rlmProgram = {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      forward: async (_ai: any, _values: any, forwardOptions: any) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const codeInterpreter = forwardOptions.functions.find((f: any) => {
-          return f.name === 'codeInterpreter';
-        });
-        const output = await codeInterpreter.func({
-          code: 'SINGLE_OBJ_TEST',
-        });
-        return { answer: output };
-      },
-    };
-
-    const result = await testAgent.forward(testMockAI, {
-      context: 'unused',
-      query: 'unused',
-    });
-    // Should succeed (not crash) and return the sub-LM answer
-    expect(result.answer).toBe('sub-lm-answer');
-  });
-
-  it('should prioritize maxRuntimeChars over deprecated aliases', async () => {
-    let lastUserPrompt = '';
-    const testMockAI = new AxMockAIService({
-      features: { functions: true, streaming: false },
-      chatResponse: async (req) => {
-        lastUserPrompt = String(req.chatPrompt[1]?.content ?? '');
-        return {
-          results: [{ index: 0, content: 'ok', finishReason: 'stop' }],
-          modelUsage: makeModelUsage(),
-        };
-      },
-    });
-
-    const runtime = makeTestRuntime(async (code, globals) => {
-      if (code !== 'ALIAS_PRECEDENCE_TEST') return 'unexpected code';
-      return await (
-        globals.llmQuery as (q: string, context?: string) => Promise<string>
-      )('q', '1234567890');
-    });
-
-    const testAgent = agent('context:string, query:string -> answer:string', {
-      name: 'rlmAliasPrecedenceAgent',
-      description: 'Agent used to verify maxRuntimeChars alias precedence.',
-      ai: testMockAI,
-      rlm: {
-        mode: 'function',
-        contextFields: ['context'],
-        runtime,
-        maxRuntimeChars: 8,
-        maxSubQueryContextChars: 5,
-        maxInterpreterOutputChars: 5,
-      },
-    });
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (testAgent as any).rlmProgram = {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      forward: async (_ai: any, _values: any, forwardOptions: any) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const codeInterpreter = forwardOptions.functions.find((f: any) => {
-          return f.name === 'codeInterpreter';
-        });
-        const output = await codeInterpreter.func({
-          code: 'ALIAS_PRECEDENCE_TEST',
-        });
-        return { answer: output };
-      },
-    };
-
-    await testAgent.forward(testMockAI, {
-      context: 'unused',
-      query: 'unused',
-    });
-    expect(lastUserPrompt).toContain('[truncated 2 chars]');
-    expect(lastUserPrompt).not.toContain('[truncated 5 chars]');
-  });
-
-  it('should throw typed aborted error from llmQuery pre-check', async () => {
-    const testMockAI = new AxMockAIService({
-      features: { functions: true, streaming: false },
-      chatResponse: {
-        results: [{ index: 0, content: 'ok', finishReason: 'stop' }],
-        modelUsage: makeModelUsage(),
-      },
-    });
-
-    const runtime = makeTestRuntime(async (code, globals) => {
-      if (code !== 'ABORT_TYPE_TEST') return 'unexpected code';
-      try {
-        await (
-          globals.llmQuery as (q: string, context?: string) => Promise<string>
-        )('q', 'ctx');
-        return 'unexpected success';
-      } catch (err) {
-        return err instanceof AxAIServiceAbortedError
-          ? 'aborted-ok'
-          : `wrong-type:${String(err)}`;
-      }
-    });
-
-    const testAgent = agent('context:string, query:string -> answer:string', {
-      name: 'rlmAbortTypeAgent',
-      description: 'Agent used to verify typed abort errors in llmQuery.',
-      ai: testMockAI,
-      rlm: {
-        mode: 'function',
-        contextFields: ['context'],
-        runtime,
-      },
-    });
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (testAgent as any).rlmProgram = {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      forward: async (_ai: any, _values: any, forwardOptions: any) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const codeInterpreter = forwardOptions.functions.find((f: any) => {
-          return f.name === 'codeInterpreter';
-        });
-        const output = await codeInterpreter.func({ code: 'ABORT_TYPE_TEST' });
-        return { answer: output };
-      },
-    };
-
-    const result = await testAgent.forward(
-      testMockAI,
-      {
-        context: 'unused',
-        query: 'unused',
-      },
-      { abortSignal: AbortSignal.abort('stop now') }
-    );
-    expect(result.answer).toContain('aborted-ok');
-  });
-
-  it('should truncate llmQuery context but not llmQuery response', async () => {
-    let observedLlmQueryResultLength = 0;
-    let observedLlmQueryResultHasTruncationMarker = false;
-    const longSubModelAnswer = 'R'.repeat(64);
-
-    const testMockAI = new AxMockAIService({
-      features: { functions: true, streaming: false },
-      chatResponse: {
-        results: [
-          { index: 0, content: longSubModelAnswer, finishReason: 'stop' },
-        ],
-        modelUsage: makeModelUsage(),
-      },
-    });
-
-    const runtime = makeTestRuntime(async (code, globals) => {
-      if (code !== 'NO_OUTPUT_TRUNCATION_TEST') return 'unexpected code';
-      const llmQueryResult = await (
-        globals.llmQuery as (q: string, context?: string) => Promise<string>
-      )('q', '1234567890');
-      observedLlmQueryResultLength = llmQueryResult.length;
-      observedLlmQueryResultHasTruncationMarker =
-        llmQueryResult.includes('[truncated');
-      return 'ok';
-    });
-
-    const testAgent = agent('context:string, query:string -> answer:string', {
-      name: 'rlmNoOutputTruncationAgent',
-      description: 'Agent used to verify llmQuery response is not truncated.',
-      ai: testMockAI,
-      rlm: {
-        mode: 'function',
-        contextFields: ['context'],
-        runtime,
-        maxRuntimeChars: 8,
-      },
-    });
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (testAgent as any).rlmProgram = {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      forward: async (_ai: any, _values: any, forwardOptions: any) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const codeInterpreter = forwardOptions.functions.find((f: any) => {
-          return f.name === 'codeInterpreter';
-        });
-        const output = await codeInterpreter.func({
-          code: 'NO_OUTPUT_TRUNCATION_TEST',
-        });
-        return { answer: output };
-      },
-    };
-
-    await testAgent.forward(testMockAI, {
-      context: 'unused',
-      query: 'unused',
-    });
-
-    expect(observedLlmQueryResultLength).toBe(longSubModelAnswer.length);
-    expect(observedLlmQueryResultHasTruncationMarker).toBe(false);
-  });
-
-  it('should restart closed session after timeout and restore globals', async () => {
-    let createSessionCount = 0;
-    let executeCount = 0;
-    const runtime: AxCodeRuntime = {
-      language: 'JavaScript',
-      createSession(globals?: Record<string, unknown>) {
-        createSessionCount++;
-        const safeGlobals = globals ?? {};
-        return {
-          execute: async (_code: string) => {
-            executeCount++;
-            if (executeCount === 1) {
-              throw new Error('Execution timed out');
-            }
-            if (executeCount === 2) {
-              throw new Error('Session is closed');
-            }
-            return `ctx:${String(safeGlobals.context)};hasLlmQuery:${String(typeof safeGlobals.llmQuery === 'function')}`;
-          },
-          close: () => {},
-        };
-      },
-    };
-
-    const testMockAI = new AxMockAIService({
-      features: { functions: true, streaming: false },
-      chatResponse: {
-        results: [{ index: 0, content: 'ok', finishReason: 'stop' }],
-        modelUsage: makeModelUsage(),
-      },
-    });
-
-    const testAgent = agent('context:string, query:string -> answer:string', {
-      name: 'rlmSessionRestartAgent',
-      description:
-        'Agent used to verify RLM session recreation after closure errors.',
-      ai: testMockAI,
-      rlm: {
-        mode: 'function',
-        contextFields: ['context'],
-        runtime,
-      },
-    });
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (testAgent as any).rlmProgram = {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      forward: async (_ai: any, _values: any, forwardOptions: any) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const codeInterpreter = forwardOptions.functions.find((f: any) => {
-          return f.name === 'codeInterpreter';
-        });
-        const first = await codeInterpreter.func({
-          code: 'TIMEOUT_THEN_CLOSED',
-        });
-        const second = await codeInterpreter.func({
-          code: 'RESTART_AFTER_CLOSED',
-        });
-        return { answer: `${first}\n---\n${second}` };
-      },
-    };
-
-    const result = await testAgent.forward(testMockAI, {
-      context: 'global-context',
-      query: 'unused',
-    });
-
-    expect(createSessionCount).toBe(2); // initial + timeout-triggered restart
-    expect(result.answer).toContain('Error: Execution timed out');
-    expect(result.answer).toContain('JavaScript runtime was restarted');
-    expect(result.answer).toContain('all global state was lost');
-    expect(result.answer).toContain('must be recreated if needed');
-    expect((result.answer.match(/runtime was restarted/g) ?? []).length).toBe(
-      1
-    );
-    expect(result.answer).toContain('ctx:global-context;hasLlmQuery:true');
-  });
-
-  it('should not restart closed session if no timeout happened first', async () => {
-    let createSessionCount = 0;
-    const runtime: AxCodeRuntime = {
-      language: 'JavaScript',
-      createSession() {
-        createSessionCount++;
-        return {
-          execute: async () => {
-            throw new Error('Session is closed');
-          },
-          close: () => {},
-        };
-      },
-    };
-
-    const testMockAI = new AxMockAIService({
-      features: { functions: true, streaming: false },
-      chatResponse: {
-        results: [{ index: 0, content: 'ok', finishReason: 'stop' }],
-        modelUsage: makeModelUsage(),
-      },
-    });
-
-    const testAgent = agent('context:string, query:string -> answer:string', {
-      name: 'rlmNoRestartWithoutTimeoutAgent',
-      description:
-        'Agent used to verify closed sessions do not restart without timeout.',
-      ai: testMockAI,
-      rlm: {
-        mode: 'function',
-        contextFields: ['context'],
-        runtime,
-      },
-    });
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (testAgent as any).rlmProgram = {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      forward: async (_ai: any, _values: any, forwardOptions: any) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const codeInterpreter = forwardOptions.functions.find((f: any) => {
-          return f.name === 'codeInterpreter';
-        });
-        const output = await codeInterpreter.func({ code: 'CLOSED_ONLY' });
-        return { answer: output };
-      },
-    };
-
-    const result = await testAgent.forward(testMockAI, {
-      context: 'unused',
-      query: 'unused',
-    });
-
-    expect(createSessionCount).toBe(1);
-    expect(result.answer).toBe('Error: Session is closed');
-    expect(result.answer).not.toContain('[RLM session restarted');
-  });
-});
-
-describe('RLM inline mode', () => {
-  const makeModelUsage = () => ({
-    ai: 'mock-ai',
-    model: 'mock-model',
-    tokens: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
-  });
-
-  it('should add inline helper fields and make primary outputs optional', () => {
-    const runtime: AxCodeRuntime = {
-      language: 'JavaScript',
-      createSession() {
-        return {
-          execute: async () => 'ok',
-          close: () => {},
-        };
-      },
-    };
-
-    const testAgent = agent('context:string, query:string -> answer:string', {
-      name: 'rlmInlineSignatureAgent',
-      description:
-        'Agent used to verify inline mode helper field injection in signature.',
-      rlm: {
-        mode: 'inline',
-        language: 'javascript',
-        contextFields: ['context'],
-        runtime,
-      },
-    });
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const rlmSig = (testAgent as any).rlmProgram.getSignature();
-    const outputFields = rlmSig.getOutputFields();
-    const answerField = outputFields.find((f: AxIField) => f.name === 'answer');
-    const codeField = outputFields.find(
-      (f: AxIField) => f.name === 'javascriptCode'
-    );
-    expect(answerField?.isOptional).toBe(true);
-    expect(codeField?.isOptional).toBe(true);
-    // llmQuery is no longer an output field — it's a runtime API called from code
-    expect(
-      outputFields.find((f: AxIField) => f.name === 'llmQuery')
-    ).toBeUndefined();
-    // resultReady is no longer an output field — absence of code field signals completion
-    expect(
-      outputFields.find((f: AxIField) => f.name === 'resultReady')
-    ).toBeUndefined();
-  });
-
-  it('should reject signature collisions with inline reserved helper fields', () => {
-    const runtime: AxCodeRuntime = {
-      language: 'JavaScript',
-      createSession() {
-        return {
-          execute: async () => 'ok',
-          close: () => {},
-        };
-      },
-    };
-
-    expect(() =>
-      agent(
-        'context:string, query:string -> javascriptCode:string, answer:string',
-        {
-          name: 'rlmInlineReservedFieldCollision',
-          description:
-            'Agent used to verify inline mode reserved field collision validation.',
-          rlm: {
-            mode: 'inline',
-            language: 'javascript',
-            contextFields: ['context'],
-            runtime,
-          },
-        }
-      )
-    ).toThrow('RLM inline mode reserves output field');
-  });
-
-  it('should process inline helper fields without codeInterpreter function', async () => {
-    let callCount = 0;
-    let sawCodeInterpreterFunction = false;
-    let sawCodeExecutedPrefix = false;
-    const observedExecutedCode: string[] = [];
-
-    const testMockAI = new AxMockAIService({
-      features: { functions: true, streaming: false },
-      chatResponse: async (req) => {
-        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
-        if (
-          systemPrompt.includes(
-            'Answer the query based on the provided context.'
-          )
-        ) {
-          return {
-            results: [
-              { index: 0, content: 'sub-answer', finishReason: 'stop' },
-            ],
-            modelUsage: makeModelUsage(),
-          };
-        }
-
-        callCount++;
-        const functions = req.functions ?? [];
-        sawCodeInterpreterFunction = functions.some(
-          (f) => f.name === 'codeInterpreter'
-        );
-        if (callCount === 2) {
-          const serializedPrompt = JSON.stringify(req.chatPrompt);
-          sawCodeExecutedPrefix = serializedPrompt.includes('Code Executed:');
-        }
-
-        if (callCount === 1) {
-          return {
-            results: [
-              {
-                index: 0,
-                content: 'Javascript Code: return "code-output"',
-                finishReason: 'stop',
-              },
-            ],
-            modelUsage: makeModelUsage(),
-          };
-        }
-
-        return {
-          results: [
-            {
-              index: 0,
-              content: 'Answer: final answer',
-              finishReason: 'stop',
-            },
-          ],
-          modelUsage: makeModelUsage(),
-        };
-      },
-    });
-
-    const runtime: AxCodeRuntime = {
-      language: 'JavaScript',
-      createSession() {
-        return {
-          execute: async (code: string) => {
-            observedExecutedCode.push(code);
-            return `executed:${code}`;
-          },
-          close: () => {},
-        };
-      },
-    };
-
-    const testAgent = agent('context:string, query:string -> answer:string', {
-      name: 'rlmInlineExecutionAgent',
-      description:
-        'Agent used to verify inline helper field processors and final validation flow.',
-      ai: testMockAI,
-      rlm: {
-        mode: 'inline',
-        language: 'javascript',
-        contextFields: ['context'],
-        runtime,
-      },
-    });
-
-    const result = await testAgent.forward(testMockAI, {
-      context: 'unused context',
-      query: 'unused query',
-    });
-
-    expect(result.answer).toBe('final answer');
-    expect((result as Record<string, unknown>).javascriptCode).toBeUndefined();
-    expect(observedExecutedCode[0]).toBe('return "code-output"');
-    expect(sawCodeExecutedPrefix).toBe(true);
-    expect(callCount).toBe(2);
-    expect(sawCodeInterpreterFunction).toBe(false);
-  });
-
-  it('should surface inline code execution exceptions in Code Executed output', async () => {
-    let callCount = 0;
-    let sawCodeExecutedPrefix = false;
-
-    const testMockAI = new AxMockAIService({
-      features: { functions: true, streaming: false },
-      chatResponse: async (req) => {
-        callCount++;
-        if (callCount === 1) {
-          return {
-            results: [
-              {
-                index: 0,
-                content: 'Javascript Code: throw new Error("boom")',
-                finishReason: 'stop',
-              },
-            ],
-            modelUsage: makeModelUsage(),
-          };
-        }
-
-        sawCodeExecutedPrefix = JSON.stringify(req.chatPrompt).includes(
-          'Code Executed:'
-        );
-        return {
-          results: [
-            {
-              index: 0,
-              content: 'Answer: recovered answer',
-              finishReason: 'stop',
-            },
-          ],
-          modelUsage: makeModelUsage(),
-        };
-      },
-    });
-
-    const runtime: AxCodeRuntime = {
-      language: 'JavaScript',
-      createSession() {
-        return {
-          execute: async () => {
-            throw new Error('Execution timed out');
-          },
-          close: () => {},
-        };
-      },
-    };
-
-    const testAgent = agent('context:string, query:string -> answer:string', {
-      name: 'rlmInlineExecutionErrorAgent',
-      description:
-        'Agent used to verify inline code execution errors are prefixed in processor output.',
-      ai: testMockAI,
-      rlm: {
-        mode: 'inline',
-        language: 'javascript',
-        contextFields: ['context'],
-        runtime,
-      },
-    });
-
-    const result = await testAgent.forward(testMockAI, {
-      context: 'unused context',
-      query: 'unused query',
-    });
-
-    expect(result.answer).toBe('recovered answer');
-    expect(sawCodeExecutedPrefix).toBe(true);
-    expect(callCount).toBe(2);
-  });
-
-  it('should expose codeInterpreter tool when mode is explicitly function', async () => {
-    let sawCodeInterpreterFunction = false;
-    let codeInterpreterDescription = '';
-
-    const testMockAI = new AxMockAIService({
-      features: { functions: true, streaming: false },
-      chatResponse: {
-        results: [{ index: 0, content: 'ok', finishReason: 'stop' }],
-        modelUsage: makeModelUsage(),
-      },
-    });
-
-    const runtime: AxCodeRuntime = {
-      language: 'JavaScript',
-      createSession() {
-        return {
-          execute: async () => 'ok',
-          close: () => {},
-        };
-      },
-    };
-
-    const testAgent = agent('context:string, query:string -> answer:string', {
-      name: 'rlmFunctionModeAgent',
-      description:
-        'Agent used to verify function mode remains tool-call based.',
-      ai: testMockAI,
-      rlm: {
-        mode: 'function',
-        contextFields: ['context'],
-        runtime,
-      },
-    });
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (testAgent as any).rlmProgram = {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      forward: async (_ai: any, _values: any, forwardOptions: any) => {
-        const functions = forwardOptions.functions ?? [];
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const codeInterpreter = functions.find((f: any) => {
-          return f.name === 'codeInterpreter';
-        });
-        sawCodeInterpreterFunction = functions.some(
-          (f: { name: string }) => f.name === 'codeInterpreter'
-        );
-        codeInterpreterDescription = String(codeInterpreter?.description ?? '');
-        return { answer: 'done' };
-      },
-    };
-
-    const result = await testAgent.forward(testMockAI, {
-      context: 'unused',
-      query: 'unused',
-    });
-
-    expect(result.answer).toBe('done');
-    expect(sawCodeInterpreterFunction).toBe(true);
-    expect(codeInterpreterDescription).not.toContain(
-      'Persist with var (sync) or bare assignment (async).'
-    );
-  });
-
-  it('should default to inline mode when rlm.mode is omitted', () => {
-    const runtime: AxCodeRuntime = {
-      language: 'JavaScript',
-      createSession() {
-        return {
-          execute: async () => 'ok',
-          close: () => {},
-        };
-      },
-    };
-
-    const testAgent = agent('context:string, query:string -> answer:string', {
-      name: 'rlmInlineDefaultAgent',
-      description: 'Agent used to verify inline is the default RLM mode.',
-      rlm: {
-        contextFields: ['context'],
-        runtime,
-      },
-    });
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const rlmSig = (testAgent as any).rlmProgram.getSignature();
-    const outputFields = rlmSig.getOutputFields();
-    expect(
-      outputFields.some((f: AxIField) => f.name === 'javascriptCode')
-    ).toBe(true);
-  });
-
-  it('should derive inline code field name from rlm.language', () => {
-    const runtime: AxCodeRuntime = {
-      language: 'JavaScript',
-      createSession() {
-        return {
-          execute: async () => 'ok',
-          close: () => {},
-        };
-      },
-    };
-
-    const testAgent = agent('context:string, query:string -> answer:string', {
-      name: 'rlmInlineLanguageFieldAgent',
-      description:
-        'Agent used to verify inline code field naming uses rlm.language.',
-      rlm: {
-        mode: 'inline',
-        language: 'python',
-        contextFields: ['context'],
-        runtime,
-      },
-    });
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const rlmSig = (testAgent as any).rlmProgram.getSignature();
-    const outputFields = rlmSig.getOutputFields();
-    expect(outputFields.some((f: AxIField) => f.name === 'pythonCode')).toBe(
-      true
-    );
   });
 });

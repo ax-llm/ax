@@ -18,14 +18,10 @@ const llm = ai({
 });
 
 const analyzer = agent(
-  'context:string, query:string -> answer:string, evidence:string[]',
+  'context:string, query:string -> answer:string, evidence:string[] "Analyzes long documents using code interpreter and sub-LM queries"',
   {
-    name: 'documentAnalyzer',
-    description:
-      'Analyzes long documents using code interpreter and sub-LM queries',
     maxSteps: 15,
     rlm: {
-      mode: 'inline',
       contextFields: ['context'],
       runtime: new AxJSRuntime({
         // Optional, least-privilege sandbox permissions.

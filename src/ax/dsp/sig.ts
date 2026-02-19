@@ -163,6 +163,32 @@ export class AxSignatureBuilder<
   }
 
   /**
+   * Add pre-existing input fields (e.g., extracted from another signature).
+   * Type safety is lost for these fields since they are dynamically defined.
+   */
+  public addInputFields(
+    fields: readonly AxIField[]
+  ): AxSignatureBuilder<Record<string, any>, _TOutput> {
+    for (const field of fields) {
+      this.inputFields.push(field);
+    }
+    return this as any;
+  }
+
+  /**
+   * Add pre-existing output fields (e.g., extracted from another signature).
+   * Type safety is lost for these fields since they are dynamically defined.
+   */
+  public addOutputFields(
+    fields: readonly AxIField[]
+  ): AxSignatureBuilder<_TInput, Record<string, any>> {
+    for (const field of fields) {
+      this.outputFields.push(field);
+    }
+    return this as any;
+  }
+
+  /**
    * Set the description for the signature
    * @param description - Description text
    */
