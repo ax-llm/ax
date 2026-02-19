@@ -11,15 +11,21 @@ AxAgent is the agent framework in Ax. It wraps AxGen with support for child agen
 ## Quick Reference
 
 ```typescript
-import { agent, ai } from '@ax-llm/ax';
+import { agent, ai, f } from '@ax-llm/ax';
 
 const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! });
 
 // Create and run an agent
-const myAgent = agent('userQuestion:string -> responseText:string', {
-  name: 'helpfulAgent',
-  description: 'An agent that provides helpful responses to user questions',
-});
+const myAgent = agent(
+  f()
+    .input('userQuestion', f.string())
+    .output('responseText', f.string())
+    .build(),
+  {
+    name: 'helpfulAgent',
+    description: 'An agent that provides helpful responses to user questions',
+  }
+);
 
 const result = await myAgent.forward(llm, { userQuestion: 'What is TypeScript?' });
 console.log(result.responseText);
@@ -33,32 +39,26 @@ for await (const chunk of stream) {
 
 ## Creating Agents
 
-Use the `agent()` factory function with a string signature:
+Use the `agent()` factory function with a signature built using `f()`:
 
 ```typescript
-import { agent, ai } from '@ax-llm/ax';
+import { agent, ai, f } from '@ax-llm/ax';
 
 const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! });
 
-const myAgent = agent('userQuestion:string -> responseText:string', {
-  name: 'helpfulAgent',
-  description: 'An agent that provides helpful responses to user questions',
-});
+const myAgent = agent(
+  f()
+    .input('userQuestion', f.string())
+    .output('responseText', f.string())
+    .build(),
+  {
+    name: 'helpfulAgent',
+    description: 'An agent that provides helpful responses to user questions',
+  }
+);
 
 const result = await myAgent.forward(llm, { userQuestion: 'What is TypeScript?' });
 console.log(result.responseText);
-```
-
-The `agent()` function accepts both string signatures and `AxSignature` objects:
-
-```typescript
-import { agent, s } from '@ax-llm/ax';
-
-const sig = s('userQuestion:string -> responseText:string');
-const myAgent = agent(sig, {
-  name: 'helpfulAgent',
-  description: 'An agent that provides helpful responses to user questions',
-});
 ```
 
 ## Agent Options
@@ -66,24 +66,30 @@ const myAgent = agent(sig, {
 The `agent()` factory accepts a configuration object:
 
 ```typescript
-const myAgent = agent('input:string -> output:string', {
-  // Required
-  name: 'myAgent',                    // Agent name (min 5 chars)
-  description: 'Does something useful and interesting with inputs',  // Min 20 chars
+const myAgent = agent(
+  f()
+    .input('input', f.string())
+    .output('output', f.string())
+    .build(),
+  {
+    // Required
+    name: 'myAgent',                    // Agent name (min 5 chars)
+    description: 'Does something useful and interesting with inputs',  // Min 20 chars
 
-  // Optional
-  ai: llm,                            // Bind a specific AI service
-  definition: 'You are a helpful assistant that... (detailed prompt)',  // Min 100 chars if provided
-  functions: [searchTool, calcTool],   // Tool functions
-  agents: [childAgent1, childAgent2],  // Child agents
-  maxSteps: 25,                        // Max reasoning steps (default: 25)
-  maxRetries: 3,                       // Retries on assertion failures
-  temperature: 0.7,                    // Sampling temperature
-  debug: false,                        // Debug logging
+    // Optional
+    ai: llm,                            // Bind a specific AI service
+    definition: 'You are a helpful assistant that... (detailed prompt)',  // Min 100 chars if provided
+    functions: [searchTool, calcTool],   // Tool functions
+    agents: [childAgent1, childAgent2],  // Child agents
+    maxSteps: 25,                        // Max reasoning steps (default: 25)
+    maxRetries: 3,                       // Retries on assertion failures
+    temperature: 0.7,                    // Sampling temperature
+    debug: false,                        // Debug logging
 
-  // RLM mode (see RLM section below)
-  rlm: { ... },
-});
+    // RLM mode (see RLM section below)
+    rlm: { ... },
+  }
+);
 ```
 
 ### `name`
@@ -120,11 +126,17 @@ console.log(result.responseText);
 If the agent was created with `ai` bound, the parent AI is used as fallback:
 
 ```typescript
-const myAgent = agent('input:string -> output:string', {
-  name: 'myAgent',
-  description: 'An agent that processes inputs reliably',
-  ai: llm,
-});
+const myAgent = agent(
+  f()
+    .input('input', f.string())
+    .output('output', f.string())
+    .build(),
+  {
+    name: 'myAgent',
+    description: 'An agent that processes inputs reliably',
+    ai: llm,
+  }
+);
 
 // Can also pass a different AI to override
 const result = await myAgent.forward(differentLlm, { input: 'test' });
@@ -168,10 +180,16 @@ const result = await myAgent.forward(llm, values, {
 Call `stop()` from any context — a timer, event handler, or another async task — to halt the multi-step loop. `stop()` aborts all in-flight calls started by the same `AxAgent` instance (including retry backoff waits):
 
 ```typescript
-const myAgent = agent('question:string -> answer:string', {
-  name: 'myAgent',
-  description: 'An agent that answers questions thoroughly',
-});
+const myAgent = agent(
+  f()
+    .input('question', f.string())
+    .output('answer', f.string())
+    .build(),
+  {
+    name: 'myAgent',
+    description: 'An agent that answers questions thoroughly',
+  }
+);
 
 const timer = setTimeout(() => myAgent.stop(), 5_000);
 
@@ -192,7 +210,12 @@ try {
 `stop()` is also available on `AxGen` and `AxFlow` instances:
 
 ```typescript
-const gen = ax('topic:string -> summary:string');
+const gen = ax(
+  f()
+    .input('topic', f.string())
+    .output('summary', f.string())
+    .build()
+);
 setTimeout(() => gen.stop(), 3_000);
 
 try {
@@ -240,7 +263,7 @@ try {
 Define tool functions with a name, description, JSON Schema parameters, and implementation:
 
 ```typescript
-import { ai, agent } from '@ax-llm/ax';
+import { ai, agent, f } from '@ax-llm/ax';
 
 const getCurrentWeather = {
   name: 'getCurrentWeather',
@@ -258,11 +281,17 @@ const getCurrentWeather = {
   }
 };
 
-const weatherAgent = agent('query:string -> response:string', {
-  name: 'weatherAssistant',
-  description: 'An assistant that helps with weather queries',
-  functions: [getCurrentWeather]
-});
+const weatherAgent = agent(
+  f()
+    .input('query', f.string())
+    .output('response', f.string())
+    .build(),
+  {
+    name: 'weatherAssistant',
+    description: 'An assistant that helps with weather queries',
+    functions: [getCurrentWeather]
+  }
+);
 
 const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! });
 const result = await weatherAgent.forward(llm, { query: 'Weather in Tokyo?' });
@@ -274,7 +303,11 @@ Agents can compose other agents as children. The parent agent sees each child as
 
 ```typescript
 const researcher = agent(
-  'question:string, physicsQuestion:string -> answer:string',
+  f()
+    .input('question', f.string())
+    .input('physicsQuestion', f.string())
+    .output('answer', f.string())
+    .build(),
   {
     name: 'Physics Researcher',
     description: 'Researcher for physics questions can answer questions about advanced physics',
@@ -282,7 +315,10 @@ const researcher = agent(
 );
 
 const summarizer = agent(
-  'answer:string -> shortSummary:string',
+  f()
+    .input('answer', f.string())
+    .output('shortSummary', f.string())
+    .build(),
   {
     name: 'Science Summarizer',
     description: 'Summarizer can write short summaries of advanced science topics',
@@ -290,11 +326,17 @@ const summarizer = agent(
   }
 );
 
-const scientist = agent('question:string -> answer:string', {
-  name: 'Scientist',
-  description: 'An agent that can answer advanced science questions',
-  agents: [researcher, summarizer],
-});
+const scientist = agent(
+  f()
+    .input('question', f.string())
+    .output('answer', f.string())
+    .build(),
+  {
+    name: 'Scientist',
+    description: 'An agent that can answer advanced science questions',
+    agents: [researcher, summarizer],
+  }
+);
 
 const result = await scientist.forward(llm, {
   question: 'Why is gravity not a real force?',
@@ -326,10 +368,15 @@ The Actor writes JavaScript code to inspect, filter, and iterate over the docume
 ### Configuration
 
 ```typescript
-import { agent, ai } from '@ax-llm/ax';
+import { agent, ai, f } from '@ax-llm/ax';
 
 const analyzer = agent(
-  'context:string, query:string -> answer:string, evidence:string[]',
+  f()
+    .input('context', f.string())
+    .input('query', f.string())
+    .output('answer', f.string())
+    .output('evidence', f.string().array())
+    .build(),
   {
     name: 'documentAnalyzer',
     description: 'Analyzes long documents using code interpreter and sub-LM queries',
@@ -383,15 +430,19 @@ Available permissions:
 Context fields aren't limited to plain strings. You can pass structured data — objects and arrays with typed sub-fields:
 
 ```typescript
-import { agent, f, s } from '@ax-llm/ax';
+import { agent, f } from '@ax-llm/ax';
 import { AxJSRuntime } from '@ax-llm/ax';
 
-const sig = s('query:string -> answer:string, evidence:string[]')
-  .appendInputField('documents', f.object({
+const sig = f()
+  .input('query', f.string())
+  .input('documents', f.object({
     id: f.number('Document ID'),
     title: f.string('Document title'),
     content: f.string('Document body'),
-  }).array('Source documents'));
+  }).array('Source documents'))
+  .output('answer', f.string())
+  .output('evidence', f.string().array())
+  .build();
 
 const analyzer = agent(sig, {
   name: 'structuredAnalyzer',
@@ -448,8 +499,15 @@ By default, all output fields from the signature go to the Responder. Use `actor
 
 ```typescript
 const analyzer = agent(
-  'context:string, query:string -> answer:string, reasoning:string',
+  f()
+    .input('context', f.string())
+    .input('query', f.string())
+    .output('answer', f.string())
+    .output('reasoning', f.string())
+    .build(),
   {
+    name: 'reasoningAnalyzer',
+    description: 'Analyzes context with explicit reasoning steps',
     rlm: {
       contextFields: ['context'],
       actorFields: ['reasoning'],   // Actor produces 'reasoning', Responder produces 'answer'
@@ -463,14 +521,23 @@ const analyzer = agent(
 Use `actorCallback` to observe each Actor turn. It receives the full Actor result (including `javascriptCode` and any `actorFields`) and fires every turn, including the done() turn.
 
 ```typescript
-const analyzer = agent('context:string, query:string -> answer:string', {
-  rlm: {
-    contextFields: ['context'],
-    actorCallback: async (result) => {
-      console.log('Actor code:', result.javascriptCode);
+const analyzer = agent(
+  f()
+    .input('context', f.string())
+    .input('query', f.string())
+    .output('answer', f.string())
+    .build(),
+  {
+    name: 'callbackAnalyzer',
+    description: 'Analyzes context with observable actor turns',
+    rlm: {
+      contextFields: ['context'],
+      actorCallback: async (result) => {
+        console.log('Actor code:', result.javascriptCode);
+      },
     },
-  },
-});
+  }
+);
 ```
 
 ### Actor/Responder Forward Options
@@ -478,17 +545,26 @@ const analyzer = agent('context:string, query:string -> answer:string', {
 Use `actorOptions` and `responderOptions` to set different forward options (model, thinking budget, etc.) for the Actor and Responder sub-programs. These are set at construction time and act as defaults that can still be overridden at forward time.
 
 ```typescript
-const analyzer = agent('context:string, query:string -> answer:string', {
-  rlm: { contextFields: ['context'] },
-  actorOptions: {
-    model: 'fast-model',
-    thinkingTokenBudget: 1024,
-  },
-  responderOptions: {
-    model: 'smart-model',
-    thinkingTokenBudget: 4096,
-  },
-});
+const analyzer = agent(
+  f()
+    .input('context', f.string())
+    .input('query', f.string())
+    .output('answer', f.string())
+    .build(),
+  {
+    name: 'dualModelAnalyzer',
+    description: 'Analyzes context using different models for actor and responder',
+    rlm: { contextFields: ['context'] },
+    actorOptions: {
+      model: 'fast-model',
+      thinkingTokenBudget: 1024,
+    },
+    responderOptions: {
+      model: 'smart-model',
+      thinkingTokenBudget: 4096,
+    },
+  }
+);
 ```
 
 Priority order (low to high): constructor base options < `actorOptions`/`responderOptions` < forward-time options.
