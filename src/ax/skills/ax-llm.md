@@ -1,5 +1,5 @@
 ---
-name: ax-llm
+name: ax
 description: This skill helps with using the @ax-llm/ax TypeScript library for building LLM applications. Use when the user asks about ax(), ai(), f(), s(), agent(), flow(), AxGen, AxAgent, AxFlow, signatures, streaming, or mentions @ax-llm/ax.
 version: "__VERSION__"
 ---
@@ -11,24 +11,20 @@ Ax is a TypeScript library for building LLM-powered applications with type-safe 
 ## Quick Reference
 
 ```typescript
-import { ax, ai, s, f, agent, flow, AxGen, AxAgent, AxFlow } from '@ax-llm/ax';
+import { ax, ai, f, agent, flow, AxGen, AxAgent, AxFlow } from '@ax-llm/ax';
 
 // Create AI provider
 const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_API_KEY });
 
-// Create typed generator
-const gen = ax('question:string -> answer:string');
+// Create typed generator using f() fluent API
+const gen = ax(
+  f()
+    .input('question', f.string('User question'))
+    .output('answer', f.string('AI response'))
+    .build()
+);
 const result = await gen.forward(llm, { question: 'What is 2+2?' });
 // result.answer is typed as string
-
-// Create signature separately
-const sig = s('text:string -> summary:string');
-
-// Field builders for programmatic signatures
-const customSig = f()
-  .input('text', f.string('Input text'))
-  .output('summary', f.string('Summary output'))
-  .build();
 ```
 
 ## 1. AI Provider Setup
@@ -89,7 +85,7 @@ const grok = ai({ name: 'grok', apiKey: 'your-key' });
 ### Full Provider Example
 
 ```typescript
-import { ai, ax } from '@ax-llm/ax';
+import { ai, ax, f } from '@ax-llm/ax';
 
 // Create provider with options
 const llm = ai({
@@ -103,117 +99,34 @@ const llm = ai({
 });
 
 // Use with generator
-const gen = ax('topic:string -> essay:string "A short essay"');
+const gen = ax(
+  f()
+    .input('topic', f.string())
+    .output('essay', f.string('A short essay'))
+    .build()
+);
 const result = await gen.forward(llm, { topic: 'Climate change' });
 console.log(result.essay);
 ```
 
 ## 2. Signatures & Generators
 
-### String Signature Syntax
+Use the `f()` fluent builder to create type-safe signatures with validation, descriptions, and constraints.
 
-```
-[description] inputField:type ["field desc"], ... -> outputField:type ["field desc"], ...
-```
-
-**Types:** `string`, `number`, `boolean`, `json`, `class`, `date`, `datetime`, `image`, `audio`, `file`, `code`, `url`
-
-**Modifiers:**
-- `field?:type` - Optional field
-- `field:type[]` - Array type
-- `field:class "opt1, opt2, opt3"` - Enum/classification
-
-### Signature Examples
+### Basic Signature
 
 ```typescript
-import { ax, s } from '@ax-llm/ax';
+import { ax, f } from '@ax-llm/ax';
 
-// Basic signature
-const gen1 = ax('question:string -> answer:string');
-
-// With descriptions
-const gen2 = ax('question:string "User question" -> answer:string "AI response"');
-
-// Optional fields
-const gen3 = ax('query:string, context?:string -> response:string');
-
-// Arrays
-const gen4 = ax('text:string -> keywords:string[]');
-
-// Classification (enum)
-const gen5 = ax('review:string -> sentiment:class "positive, negative, neutral"');
-
-// Multiple outputs
-const gen6 = ax('article:string -> title:string, summary:string, tags:string[]');
-
-// Numbers and booleans
-const gen7 = ax('text:string -> wordCount:number, isQuestion:boolean');
-
-// JSON output
-const gen8 = ax('data:string -> parsed:json');
-
-// Dates
-const gen9 = ax('text:string -> extractedDate:date');
-
-// Code blocks
-const gen10 = ax('task:string -> code:code "python"');
-
-// Signature description
-const gen11 = ax('"Translate text to French" text:string -> translation:string');
-
-// Using s() for signature only
-const sig = s('input:string -> output:string');
+const gen = ax(
+  f()
+    .input('question', f.string('User question'))
+    .output('answer', f.string('AI response'))
+    .build()
+);
 ```
 
-### Complete Generator Example
-
-```typescript
-import { ai, ax } from '@ax-llm/ax';
-
-const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_API_KEY! });
-
-// Create generator with options
-const summarizer = ax('article:string -> summary:string, keyPoints:string[]', {
-  description: 'Summarize articles and extract key points',
-  maxRetries: 3,
-  maxSteps: 5
-});
-
-// Forward (non-streaming)
-const result = await summarizer.forward(llm, {
-  article: 'Long article text here...'
-});
-
-console.log(result.summary);      // string
-console.log(result.keyPoints);    // string[]
-
-// With model override
-const result2 = await summarizer.forward(llm, { article: 'text' }, {
-  model: 'gpt-4o-mini'
-});
-```
-
-## 3. Field Builders (f.xxx())
-
-Use field builders for programmatic signature creation with full type safety.
-
-### Basic Field Types
-
-```typescript
-import { f } from '@ax-llm/ax';
-
-// Start a signature builder
-const sig = f()
-  .input('userQuery', f.string('The user question'))
-  .input('context', f.string('Background context').optional())
-  .output('response', f.string('AI response'))
-  .output('confidence', f.number('Confidence score 0-1'))
-  .output('isComplete', f.boolean('Whether response is complete'))
-  .description('Answer questions with confidence scoring')
-  .build();
-```
-
-### All Field Types
+### Field Types
 
 ```typescript
 import { f } from '@ax-llm/ax';
@@ -270,51 +183,186 @@ f.string().internal()                  // Internal (not shown to LLM)
 f.string().cache()                     // Enable caching
 ```
 
-### Complete Field Builder Example
+### Signature Examples
+
+```typescript
+import { ax, f } from '@ax-llm/ax';
+
+// Basic Q&A
+const gen1 = ax(
+  f()
+    .input('question', f.string())
+    .output('answer', f.string())
+    .build()
+);
+
+// With descriptions
+const gen2 = ax(
+  f()
+    .input('question', f.string('User question'))
+    .output('answer', f.string('AI response'))
+    .build()
+);
+
+// Optional fields
+const gen3 = ax(
+  f()
+    .input('query', f.string())
+    .input('context', f.string('Background context').optional())
+    .output('response', f.string())
+    .build()
+);
+
+// Arrays
+const gen4 = ax(
+  f()
+    .input('text', f.string())
+    .output('keywords', f.string().array())
+    .build()
+);
+
+// Classification (enum)
+const gen5 = ax(
+  f()
+    .input('review', f.string())
+    .output('sentiment', f.class(['positive', 'negative', 'neutral']))
+    .build()
+);
+
+// Multiple outputs
+const gen6 = ax(
+  f()
+    .input('article', f.string())
+    .output('title', f.string())
+    .output('summary', f.string())
+    .output('tags', f.string().array())
+    .build()
+);
+
+// Numbers and booleans
+const gen7 = ax(
+  f()
+    .input('text', f.string())
+    .output('wordCount', f.number())
+    .output('isQuestion', f.boolean())
+    .build()
+);
+
+// JSON output
+const gen8 = ax(
+  f()
+    .input('data', f.string())
+    .output('parsed', f.json())
+    .build()
+);
+
+// Dates
+const gen9 = ax(
+  f()
+    .input('text', f.string())
+    .output('extractedDate', f.date())
+    .build()
+);
+
+// Code blocks
+const gen10 = ax(
+  f()
+    .input('task', f.string())
+    .output('code', f.code('python'))
+    .build()
+);
+
+// Signature description
+const gen11 = ax(
+  f()
+    .input('text', f.string())
+    .output('translation', f.string())
+    .description('Translate text to French')
+    .build()
+);
+
+// Nested objects
+const gen12 = ax(
+  f()
+    .input('document', f.string('Document to analyze'))
+    .input('analysisType', f.class(['sentiment', 'entities', 'summary']))
+    .output('result', f.object({
+      score: f.number().min(0).max(1),
+      label: f.string(),
+      details: f.string().optional()
+    }))
+    .output('entities', f.object({
+      name: f.string(),
+      type: f.class(['person', 'org', 'location'])
+    }).array().optional())
+    .description('Analyze documents')
+    .build()
+);
+```
+
+### Complete Generator Example
 
 ```typescript
 import { ai, ax, f } from '@ax-llm/ax';
 
-// Build a complex signature
-const analysisSig = f()
-  .input('document', f.string('Document to analyze'))
-  .input('analysisType', f.class(['sentiment', 'entities', 'summary']))
-  .output('result', f.object({
-    score: f.number().min(0).max(1),
-    label: f.string(),
-    details: f.string().optional()
-  }))
-  .output('entities', f.object({
-    name: f.string(),
-    type: f.class(['person', 'org', 'location'])
-  }).array().optional())
-  .description('Analyze documents')
-  .build();
+const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_API_KEY! });
 
-// Create generator from signature
-const analyzer = ax(analysisSig);
+// Create generator with options
+const summarizer = ax(
+  f()
+    .input('article', f.string('Article to summarize'))
+    .output('summary', f.string('Concise summary'))
+    .output('keyPoints', f.string('Key point').array())
+    .build(),
+  {
+    description: 'Summarize articles and extract key points',
+    maxRetries: 3,
+    maxSteps: 5
+  }
+);
 
-const llm = ai({ name: 'anthropic', apiKey: process.env.ANTHROPIC_API_KEY! });
-
-const result = await analyzer.forward(llm, {
-  document: 'Apple Inc. announced new products in Cupertino.',
-  analysisType: 'entities'
+// Forward (non-streaming)
+const result = await summarizer.forward(llm, {
+  article: 'Long article text here...'
 });
 
-// Fully typed result
-console.log(result.result.score);
-console.log(result.entities?.[0]?.name);
+console.log(result.summary);      // string
+console.log(result.keyPoints);    // string[]
+
+// With model override
+const result2 = await summarizer.forward(llm, { article: 'text' }, {
+  model: 'gpt-4o-mini'
+});
 ```
 
-## 4. Streaming
+### String Shorthand
+
+For simple cases, you can also use string syntax:
+
+```typescript
+import { ax } from '@ax-llm/ax';
+
+// String shorthand: 'inputField:type -> outputField:type'
+const gen = ax('question:string -> answer:string');
+
+// Types: string, number, boolean, json, class, date, datetime, image, audio, file, code, url
+// Modifiers: field?:type (optional), field:type[] (array), field:class "opt1, opt2" (enum)
+```
+
+## 3. Streaming
 
 ### Basic Streaming
 
 ```typescript
-import { ai, ax } from '@ax-llm/ax';
+import { ai, ax, f } from '@ax-llm/ax';
 
 const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_API_KEY! });
-const gen = ax('topic:string -> content:string');
+const gen = ax(
+  f()
+    .input('topic', f.string())
+    .output('content', f.string())
+    .build()
+);
 
 // Stream responses
 for await (const chunk of gen.streamingForward(llm, { topic: 'AI' })) {
@@ -328,11 +376,17 @@ for await (const chunk of gen.streamingForward(llm, { topic: 'AI' })) {
 ### Complete Streaming Example
 
 ```typescript
-import { ai, ax } from '@ax-llm/ax';
+import { ai, ax, f } from '@ax-llm/ax';
 
 const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_API_KEY! });
 
-const writer = ax('prompt:string -> story:string, title:string');
+const writer = ax(
+  f()
+    .input('prompt', f.string())
+    .output('story', f.string())
+    .output('title', f.string())
+    .build()
+);
 
 async function streamStory() {
   let fullStory = '';
@@ -365,11 +419,16 @@ await streamStory();
 ### Streaming with Field Processors
 
 ```typescript
-import { ai, ax } from '@ax-llm/ax';
+import { ai, ax, f } from '@ax-llm/ax';
 
 const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_API_KEY! });
 
-const gen = ax('query:string -> response:string');
+const gen = ax(
+  f()
+    .input('query', f.string())
+    .output('response', f.string())
+    .build()
+);
 
 // Add streaming field processor
 gen.addStreamingFieldProcessor('response', (chunk, context) => {
@@ -381,7 +440,7 @@ gen.addStreamingFieldProcessor('response', (chunk, context) => {
 await gen.forward(llm, { query: 'Hello' }, { stream: true });
 ```
 
-## 5. Agents with Tools
+## 4. Agents with Tools
 
 Agents can use functions (tools) to perform actions.
 
@@ -412,17 +471,23 @@ const getCurrentWeather = {
 ### Creating Agents
 
 ```typescript
-import { ai, agent } from '@ax-llm/ax';
+import { ai, agent, f } from '@ax-llm/ax';
 
 const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_API_KEY! });
 
 // Create agent with functions
-const weatherAgent = agent('query:string -> response:string', {
-  name: 'weatherAssistant',
-  description: 'An assistant that helps with weather queries',
-  definition: 'You are a helpful weather assistant. Use the getCurrentWeather function to get weather data and provide friendly responses.',
-  functions: [getCurrentWeather]
-});
+const weatherAgent = agent(
+  f()
+    .input('query', f.string())
+    .output('response', f.string())
+    .build(),
+  {
+    name: 'weatherAssistant',
+    description: 'An assistant that helps with weather queries',
+    definition: 'You are a helpful weather assistant. Use the getCurrentWeather function to get weather data and provide friendly responses.',
+    functions: [getCurrentWeather]
+  }
+);
 
 const result = await weatherAgent.forward(llm, {
   query: 'What is the weather in Tokyo?'
@@ -434,7 +499,7 @@ console.log(result.response);
 ### Complete Agent Example
 
 ```typescript
-import { ai, agent } from '@ax-llm/ax';
+import { ai, agent, f } from '@ax-llm/ax';
 
 // Define tools
 const searchDatabase = {
@@ -480,7 +545,11 @@ const getProductDetails = {
 
 // Create agent
 const shopAssistant = agent(
-  'userQuery:string -> response:string, recommendations:string[]',
+  f()
+    .input('userQuery', f.string())
+    .output('response', f.string())
+    .output('recommendations', f.string().array())
+    .build(),
   {
     name: 'shoppingAssistant',
     description: 'An AI assistant that helps users find and learn about products',
@@ -507,20 +576,32 @@ console.log('Recommendations:', result.recommendations);
 ### Nested Agents
 
 ```typescript
-import { ai, agent } from '@ax-llm/ax';
+import { ai, agent, f } from '@ax-llm/ax';
 
 // Child agent
-const researcher = agent('topic:string -> findings:string', {
-  name: 'researchAgent',
-  description: 'Researches topics and provides detailed findings'
-});
+const researcher = agent(
+  f()
+    .input('topic', f.string())
+    .output('findings', f.string())
+    .build(),
+  {
+    name: 'researchAgent',
+    description: 'Researches topics and provides detailed findings'
+  }
+);
 
 // Parent agent that can use child agent
-const writer = agent('topic:string -> article:string', {
-  name: 'writerAgent',
-  description: 'Writes articles using research from the research agent',
-  agents: [researcher]
-});
+const writer = agent(
+  f()
+    .input('topic', f.string())
+    .output('article', f.string())
+    .build(),
+  {
+    name: 'writerAgent',
+    description: 'Writes articles using research from the research agent',
+    agents: [researcher]
+  }
+);
 
 const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_API_KEY! });
 
@@ -529,20 +610,30 @@ const result = await writer.forward(llm, {
 });
 ```
 
-## 6. Workflows (AxFlow)
+## 5. Workflows (AxFlow)
 
 AxFlow enables building complex, multi-step AI workflows with type safety.
 
 ### Basic Flow
 
 ```typescript
-import { ai, flow } from '@ax-llm/ax';
+import { ai, flow, f } from '@ax-llm/ax';
 
 const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_API_KEY! });
 
+const summarizerSig = f()
+  .input('text', f.string())
+  .output('summary', f.string())
+  .build();
+
+const translatorSig = f()
+  .input('text', f.string())
+  .output('translation', f.string())
+  .build();
+
 const pipeline = flow<{ text: string }, { result: string }>()
-  .node('summarizer', 'text:string -> summary:string')
-  .node('translator', 'text:string -> translation:string')
+  .node('summarizer', summarizerSig)
+  .node('translator', translatorSig)
   .execute('summarizer', (state) => ({ text: state.text }))
   .execute('translator', (state) => ({ text: state.summarizerResult.summary }))
   .map((state) => ({ result: state.translatorResult.translation }));
@@ -554,13 +645,23 @@ console.log(result.result);
 ### Flow with Branching
 
 ```typescript
-import { ai, flow } from '@ax-llm/ax';
+import { ai, flow, f } from '@ax-llm/ax';
 
 const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_API_KEY! });
 
+const technicalSig = f()
+  .input('query', f.string())
+  .output('answer', f.string())
+  .build();
+
+const creativeSig = f()
+  .input('query', f.string())
+  .output('answer', f.string())
+  .build();
+
 const workflow = flow<{ query: string; type: string }, { output: string }>()
-  .node('technical', 'query:string -> answer:string')
-  .node('creative', 'query:string -> answer:string')
+  .node('technical', technicalSig)
+  .node('creative', creativeSig)
   .branch(
     (state) => state.type === 'technical',
     (branch) => branch.execute('technical', (s) => ({ query: s.query })),
@@ -579,14 +680,30 @@ const result = await workflow.forward(llm, {
 ### Flow with Parallel Execution
 
 ```typescript
-import { ai, flow } from '@ax-llm/ax';
+import { ai, flow, f } from '@ax-llm/ax';
 
 const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_API_KEY! });
 
+const prosSig = f()
+  .input('topic', f.string())
+  .output('arguments', f.string())
+  .build();
+
+const consSig = f()
+  .input('topic', f.string())
+  .output('arguments', f.string())
+  .build();
+
+const summarySig = f()
+  .input('prosArgs', f.string())
+  .input('consArgs', f.string())
+  .output('summary', f.string())
+  .build();
+
 const parallelFlow = flow<{ topic: string }, { combined: string }>()
-  .node('pros', 'topic:string -> arguments:string')
-  .node('cons', 'topic:string -> arguments:string')
-  .node('summary', 'prosArgs:string, consArgs:string -> summary:string')
+  .node('pros', prosSig)
+  .node('cons', consSig)
+  .node('summary', summarySig)
   .parallel([
     { branch: (b) => b.execute('pros', (s) => ({ topic: s.topic })) },
     { branch: (b) => b.execute('cons', (s) => ({ topic: s.topic })) }
@@ -666,15 +783,19 @@ console.log('Article:', result.article);
 console.log('Word count:', result.wordCount);
 ```
 
-## 7. Common Patterns
+## 6. Common Patterns
 
 ### Classification
 
 ```typescript
-import { ai, ax } from '@ax-llm/ax';
+import { ai, ax, f } from '@ax-llm/ax';
 
 const classifier = ax(
-  'text:string -> category:class "spam, ham, uncertain", confidence:number'
+  f()
+    .input('text', f.string())
+    .output('category', f.class(['spam', 'ham', 'uncertain']))
+    .output('confidence', f.number().min(0).max(1))
+    .build()
 );
 
 const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_API_KEY! });
@@ -692,17 +813,7 @@ console.log(result.confidence);  // 0.95
 ```typescript
 import { ai, ax, f } from '@ax-llm/ax';
 
-// Using string syntax
-const extractor = ax(`
-  text:string ->
-  people:string[],
-  organizations:string[],
-  locations:string[],
-  dates:date[]
-`);
-
-// Or with field builders for structured output
-const structuredExtractor = ax(
+const extractor = ax(
   f()
     .input('text', f.string())
     .output('entities', f.object({
@@ -719,9 +830,9 @@ const result = await extractor.forward(llm, {
   text: 'Tim Cook announced that Apple will open a new store in Paris on January 15th.'
 });
 
-console.log(result.people);        // ['Tim Cook']
-console.log(result.organizations); // ['Apple']
-console.log(result.locations);     // ['Paris']
+console.log(result.entities.people);        // ['Tim Cook']
+console.log(result.entities.organizations); // ['Apple']
+console.log(result.entities.locations);     // ['Paris']
 ```
 
 ### Multi-modal (Images)
@@ -757,14 +868,34 @@ const result2 = await imageAnalyzer.forward(llm, {
 ### Chaining Generators
 
 ```typescript
-import { ai, ax } from '@ax-llm/ax';
+import { ai, ax, f } from '@ax-llm/ax';
 
 const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_API_KEY! });
 
 // Define generators
-const researcher = ax('topic:string -> research:string, keyFacts:string[]');
-const writer = ax('research:string, keyFacts:string[] -> article:string');
-const editor = ax('article:string -> editedArticle:string, suggestions:string[]');
+const researcher = ax(
+  f()
+    .input('topic', f.string())
+    .output('research', f.string())
+    .output('keyFacts', f.string().array())
+    .build()
+);
+
+const writer = ax(
+  f()
+    .input('research', f.string())
+    .input('keyFacts', f.string().array())
+    .output('article', f.string())
+    .build()
+);
+
+const editor = ax(
+  f()
+    .input('article', f.string())
+    .output('editedArticle', f.string())
+    .output('suggestions', f.string().array())
+    .build()
+);
 
 // Chain them
 async function createArticle(topic: string) {
@@ -789,9 +920,14 @@ console.log(result.editedArticle);
 ### Error Handling
 
 ```typescript
-import { ai, ax, AxGenerateError, AxAIServiceError } from '@ax-llm/ax';
+import { ai, ax, f, AxGenerateError, AxAIServiceError } from '@ax-llm/ax';
 
-const gen = ax('input:string -> output:string');
+const gen = ax(
+  f()
+    .input('input', f.string())
+    .output('output', f.string())
+    .build()
+);
 const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_API_KEY! });
 
 try {
@@ -812,9 +948,14 @@ try {
 ### Examples and Few-Shot Learning
 
 ```typescript
-import { ai, ax } from '@ax-llm/ax';
+import { ai, ax, f } from '@ax-llm/ax';
 
-const classifier = ax('text:string -> sentiment:class "positive, negative, neutral"');
+const classifier = ax(
+  f()
+    .input('text', f.string())
+    .output('sentiment', f.class(['positive', 'negative', 'neutral']))
+    .build()
+);
 
 // Set examples for few-shot learning
 classifier.setExamples([
@@ -833,9 +974,14 @@ const result = await classifier.forward(llm, {
 ### Assertions and Validation
 
 ```typescript
-import { ai, ax } from '@ax-llm/ax';
+import { ai, ax, f } from '@ax-llm/ax';
 
-const gen = ax('number:number -> doubled:number');
+const gen = ax(
+  f()
+    .input('number', f.number())
+    .output('doubled', f.number())
+    .build()
+);
 
 // Add assertion
 gen.addAssert(
@@ -852,9 +998,14 @@ const result = await gen.forward(llm, { number: 5 }, { maxRetries: 3 });
 ### Memory and Context
 
 ```typescript
-import { ai, ax, AxMemory } from '@ax-llm/ax';
+import { ai, ax, f, AxMemory } from '@ax-llm/ax';
 
-const chatbot = ax('userMessage:string -> response:string');
+const chatbot = ax(
+  f()
+    .input('userMessage', f.string())
+    .output('response', f.string())
+    .build()
+);
 const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_API_KEY! });
 
 // Create shared memory
@@ -866,15 +1017,20 @@ const response = await chatbot.forward(llm, { userMessage: 'What is my name?' },
 // response.response will reference "Alice"
 ```
 
-## 8. Advanced Configuration
+## 7. Advanced Configuration
 
 ### Model Configuration
 
 ```typescript
-import { ai, ax } from '@ax-llm/ax';
+import { ai, ax, f } from '@ax-llm/ax';
 
 const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_API_KEY! });
-const gen = ax('input:string -> output:string');
+const gen = ax(
+  f()
+    .input('input', f.string())
+    .output('output', f.string())
+    .build()
+);
 
 const result = await gen.forward(llm, { input: 'test' }, {
   model: 'gpt-4o',
@@ -889,10 +1045,15 @@ const result = await gen.forward(llm, { input: 'test' }, {
 ### Debugging
 
 ```typescript
-import { ai, ax, axCreateDefaultColorLogger } from '@ax-llm/ax';
+import { ai, ax, f, axCreateDefaultColorLogger } from '@ax-llm/ax';
 
 const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_API_KEY! });
-const gen = ax('input:string -> output:string');
+const gen = ax(
+  f()
+    .input('input', f.string())
+    .output('output', f.string())
+    .build()
+);
 
 // Enable debug logging
 const result = await gen.forward(llm, { input: 'test' }, {
@@ -904,9 +1065,15 @@ const result = await gen.forward(llm, { input: 'test' }, {
 ### Context Caching
 
 ```typescript
-import { ai, ax } from '@ax-llm/ax';
+import { ai, ax, f } from '@ax-llm/ax';
 
-const gen = ax('document:string, question:string -> answer:string');
+const gen = ax(
+  f()
+    .input('document', f.string())
+    .input('question', f.string())
+    .output('answer', f.string())
+    .build()
+);
 const llm = ai({ name: 'anthropic', apiKey: process.env.ANTHROPIC_API_KEY! });
 
 // Enable context caching for long documents
@@ -920,7 +1087,7 @@ const result = await gen.forward(llm, {
 });
 ```
 
-## 9. Forward & AI Options
+## 8. Forward & AI Options
 
 ### Quick Reference Table
 
@@ -940,10 +1107,15 @@ const result = await gen.forward(llm, {
 ### Execution Control Options
 
 ```typescript
-import { ai, ax } from '@ax-llm/ax';
+import { ai, ax, f } from '@ax-llm/ax';
 
 const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_API_KEY! });
-const gen = ax('input:string -> output:string');
+const gen = ax(
+  f()
+    .input('input', f.string())
+    .output('output', f.string())
+    .build()
+);
 
 const result = await gen.forward(llm, { input: 'test' }, {
   // Retry failed generations (validation failures, API errors)
@@ -960,10 +1132,15 @@ const result = await gen.forward(llm, { input: 'test' }, {
 ### Model Configuration
 
 ```typescript
-import { ai, ax } from '@ax-llm/ax';
+import { ai, ax, f } from '@ax-llm/ax';
 
 const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_API_KEY! });
-const gen = ax('input:string -> output:string');
+const gen = ax(
+  f()
+    .input('input', f.string())
+    .output('output', f.string())
+    .build()
+);
 
 const result = await gen.forward(llm, { input: 'test' }, {
   // Override the model for this request
@@ -1006,10 +1183,16 @@ const result = await gen.forward(llm, { input: 'test' }, {
 Context caching saves costs when repeatedly querying with the same large context (documents, system prompts, examples).
 
 ```typescript
-import { ai, ax } from '@ax-llm/ax';
+import { ai, ax, f } from '@ax-llm/ax';
 
 const llm = ai({ name: 'anthropic', apiKey: process.env.ANTHROPIC_API_KEY! });
-const gen = ax('document:string, question:string -> answer:string');
+const gen = ax(
+  f()
+    .input('document', f.string())
+    .input('question', f.string())
+    .output('answer', f.string())
+    .build()
+);
 
 const longDocument = '... very long document ...';
 
@@ -1047,10 +1230,15 @@ for (const question of questions) {
 For reasoning models that support extended thinking:
 
 ```typescript
-import { ai, ax } from '@ax-llm/ax';
+import { ai, ax, f } from '@ax-llm/ax';
 
 const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_API_KEY! });
-const gen = ax('problem:string -> solution:string');
+const gen = ax(
+  f()
+    .input('problem', f.string())
+    .output('solution', f.string())
+    .build()
+);
 
 const result = await gen.forward(llm, { problem: 'Complex math problem' }, {
   model: 'o1',
@@ -1071,10 +1259,16 @@ const result = await gen.forward(llm, { problem: 'Complex math problem' }, {
 Generate multiple samples and pick the best one:
 
 ```typescript
-import { ai, ax } from '@ax-llm/ax';
+import { ai, ax, f } from '@ax-llm/ax';
 
 const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_API_KEY! });
-const gen = ax('input:string -> output:string, confidence:number');
+const gen = ax(
+  f()
+    .input('input', f.string())
+    .output('output', f.string())
+    .output('confidence', f.number())
+    .build()
+);
 
 const result = await gen.forward(llm, { input: 'test' }, {
   // Generate multiple samples
@@ -1095,13 +1289,21 @@ const result = await gen.forward(llm, { input: 'test' }, {
 Control how agents use tools/functions:
 
 ```typescript
-import { ai, agent } from '@ax-llm/ax';
+import { ai, agent, f } from '@ax-llm/ax';
 
 const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_API_KEY! });
 
-const myAgent = agent('query:string -> answer:string', {
-  functions: [searchTool, calculatorTool]
-});
+const myAgent = agent(
+  f()
+    .input('query', f.string())
+    .output('answer', f.string())
+    .build(),
+  {
+    name: 'toolAgent',
+    description: 'An agent that uses tools to answer queries',
+    functions: [searchTool, calculatorTool]
+  }
+);
 
 const result = await myAgent.forward(llm, { query: 'test' }, {
   // Function calling mode:
@@ -1130,10 +1332,15 @@ const result = await myAgent.forward(llm, { query: 'test' }, {
 ### Debugging & Observability
 
 ```typescript
-import { ai, ax, axCreateDefaultColorLogger } from '@ax-llm/ax';
+import { ai, ax, f, axCreateDefaultColorLogger } from '@ax-llm/ax';
 
 const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_API_KEY! });
-const gen = ax('input:string -> output:string');
+const gen = ax(
+  f()
+    .input('input', f.string())
+    .output('output', f.string())
+    .build()
+);
 
 const result = await gen.forward(llm, { input: 'test' }, {
   // Enable debug logging
@@ -1168,7 +1375,7 @@ const result = await gen.forward(llm, { input: 'test' }, {
 ### Retry & Error Handling
 
 ```typescript
-import { ai, ax } from '@ax-llm/ax';
+import { ai, ax, f } from '@ax-llm/ax';
 
 const llm = ai({
   name: 'openai',
@@ -1207,10 +1414,15 @@ const llm = ai({
 ### Request Control
 
 ```typescript
-import { ai, ax } from '@ax-llm/ax';
+import { ai, ax, f } from '@ax-llm/ax';
 
 const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_API_KEY! });
-const gen = ax('input:string -> output:string');
+const gen = ax(
+  f()
+    .input('input', f.string())
+    .output('output', f.string())
+    .build()
+);
 
 // Create abort controller
 const controller = new AbortController();
@@ -1242,10 +1454,15 @@ try {
 ### Memory Configuration
 
 ```typescript
-import { ai, ax, AxMemory } from '@ax-llm/ax';
+import { ai, ax, f, AxMemory } from '@ax-llm/ax';
 
 const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_API_KEY! });
-const gen = ax('message:string -> response:string');
+const gen = ax(
+  f()
+    .input('message', f.string())
+    .output('response', f.string())
+    .build()
+);
 
 const memory = new AxMemory();
 
@@ -1261,10 +1478,15 @@ const result = await gen.forward(llm, { message: 'Hello' }, {
 ### Validation Options
 
 ```typescript
-import { ai, ax } from '@ax-llm/ax';
+import { ai, ax, f } from '@ax-llm/ax';
 
 const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_API_KEY! });
-const gen = ax('input:string -> output:string');
+const gen = ax(
+  f()
+    .input('input', f.string())
+    .output('output', f.string())
+    .build()
+);
 
 const result = await gen.forward(llm, { input: 'test' }, {
   // Strict mode: fail on any validation error
@@ -1288,7 +1510,7 @@ const result = await gen.forward(llm, { input: 'test' }, {
 });
 ```
 
-## 10. MCP Integration
+## 9. MCP Integration
 
 MCP (Model Context Protocol) enables AxAgent to use external tools from MCP-compliant servers. This allows your agents to interact with databases, file systems, APIs, and other services through a standardized protocol.
 
@@ -1312,7 +1534,10 @@ await mcpClient.init();
 const agent = new AxAgent({
   name: 'MyAssistant',
   description: 'An assistant with MCP capabilities',
-  signature: 'userMessage -> response',
+  signature: f()
+    .input('userMessage', f.string())
+    .output('response', f.string())
+    .build(),
   functions: [mcpClient],  // Pass client directly
 });
 
@@ -1364,7 +1589,7 @@ const transport = new AxMCPStreambleHTTPTransport(
 Pass the MCP client directly to the agent's `functions` array:
 
 ```typescript
-import { AxAgent, AxAI, AxMCPClient } from '@ax-llm/ax';
+import { AxAgent, AxAI, AxMCPClient, f } from '@ax-llm/ax';
 import { AxMCPStdioTransport } from '@ax-llm/ax-tools';
 
 const transport = new AxMCPStdioTransport({
@@ -1381,7 +1606,11 @@ const memoryAgent = new AxAgent<
 >({
   name: 'MemoryAssistant',
   description: 'An assistant that remembers past conversations. Use the database functions to manage, search, and add memories.',
-  signature: 'userMessage, userId -> assistantResponse',
+  signature: f()
+    .input('userMessage', f.string())
+    .input('userId', f.string())
+    .output('assistantResponse', f.string())
+    .build(),
   functions: [mcpClient],
 });
 
@@ -1470,7 +1699,10 @@ const functions = mcpClient.toFunction();
 // Use with agent
 const agent = new AxAgent({
   name: 'MyAgent',
-  signature: 'query -> answer',
+  signature: f()
+    .input('query', f.string())
+    .output('answer', f.string())
+    .build(),
   functions: functions,  // Or spread: [...functions, otherFunction]
 });
 ```
@@ -1478,7 +1710,7 @@ const agent = new AxAgent({
 ### Complete Example: Remote HTTP MCP Server
 
 ```typescript
-import { AxAgent, AxAI, AxMCPClient } from '@ax-llm/ax';
+import { AxAgent, AxAI, AxMCPClient, f } from '@ax-llm/ax';
 import { AxMCPStreambleHTTPTransport } from '@ax-llm/ax/mcp/transports/httpStreamTransport.js';
 import { createBackendClient } from '@pipedream/sdk/server';
 
@@ -1522,7 +1754,10 @@ const notionAgent = new AxAgent<
 >({
   name: 'NotionAssistant',
   description: 'An assistant that can interact with Notion documents. Use the provided functions to read, search, and analyze Notion content.',
-  signature: 'userRequest -> assistantResponse',
+  signature: f()
+    .input('userRequest', f.string())
+    .output('assistantResponse', f.string())
+    .build(),
   functions: [mcpClient],
 });
 

@@ -80,7 +80,7 @@ import { AxProgram } from './program.js';
 import { AxPromptTemplate } from './prompt.js';
 import { selectFromSamples, selectFromSamplesInMemory } from './samples.js';
 import { createSelfTuningFunction } from './selfTuning.js';
-import type { AxIField, AxSignature } from './sig.js';
+import type { AxIField, AxSignature, AxSignatureConfig } from './sig.js';
 import { SignatureToolCallingManager } from './signatureToolCalling.js';
 import { AxStepContextImpl } from './stepContext.js';
 import type {
@@ -148,7 +148,10 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
   implements AxProgrammable<IN, OUT>
 {
   public clone = (): AxGen<IN, OUT> => {
-    return new AxGen(this.signature, this.options);
+    return new AxGen(
+      this.signature as AxSignature<IN & Record<string, any>, OUT>,
+      this.options
+    );
   };
   private promptTemplate: AxPromptTemplate;
   private asserts: AxAssertion<OUT>[];
@@ -166,8 +169,9 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
   constructor(
     signature:
-      | NonNullable<ConstructorParameters<typeof AxSignature>[0]>
-      | AxSignature<any, any>,
+      | string
+      | Readonly<AxSignatureConfig>
+      | Readonly<AxSignature<IN & Record<string, any>, OUT>>,
     options?: Readonly<AxProgramForwardOptions<any>>
   ) {
     super(signature, {
@@ -255,15 +259,15 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     }));
   }
 
-  public addAssert = (fn: AxAssertion<OUT>['fn'], message?: string) => {
+  public addAssert(fn: AxAssertion<OUT>['fn'], message?: string) {
     this.asserts.push({ fn, message });
-  };
+  }
 
-  public addStreamingAssert = (
+  public addStreamingAssert(
     fieldName: keyof OUT,
     fn: AxStreamingAssertion['fn'],
     message?: string
-  ) => {
+  ) {
     // Validate that the field name exists in the output signature
     const outputField = this.signature
       .getOutputFields()
@@ -286,13 +290,13 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     }
 
     this.streamingAsserts.push({ fieldName: String(fieldName), fn, message });
-  };
+  }
 
-  private addFieldProcessorInternal = (
+  private addFieldProcessorInternal(
     fieldName: string,
     fn: AxFieldProcessor['process'],
     streaming = false
-  ) => {
+  ) {
     const field = this.signature
       .getOutputFields()
       .find((f) => f.name === fieldName);
@@ -314,35 +318,35 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     } else {
       this.fieldProcessors.push({ field, process: fn });
     }
-  };
+  }
 
-  public addStreamingFieldProcessor = (
-    fieldName: keyof OUT,
+  public addStreamingFieldProcessor<K extends keyof OUT>(
+    fieldName: K,
     fn: (
       value: string,
       context?: { values?: OUT; sessionId?: string; done?: boolean }
     ) => unknown | Promise<unknown>
-  ) => {
+  ) {
     this.addFieldProcessorInternal(
       String(fieldName),
       fn as AxFieldProcessor['process'],
       true
     );
-  };
+  }
 
-  public addFieldProcessor = (
-    fieldName: keyof OUT,
+  public addFieldProcessor<K extends keyof OUT>(
+    fieldName: K,
     fn: (
-      value: OUT[keyof OUT],
+      value: OUT[K],
       context?: { values?: OUT; sessionId?: string; done?: boolean }
     ) => unknown | Promise<unknown>
-  ) => {
+  ) {
     this.addFieldProcessorInternal(
       String(fieldName),
       fn as AxFieldProcessor['process'],
       false
     );
-  };
+  }
 
   private async forwardSendRequest({
     ai,
@@ -482,7 +486,10 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         stream,
         debug,
         // Hide system prompt in debug logging for steps > 0 to reduce noise in multi-step workflows
-        debugHideSystemPrompt: !firstStep,
+        debugHideSystemPrompt:
+          options?.debugHideSystemPrompt ??
+          this.options?.debugHideSystemPrompt ??
+          !firstStep,
         thinkingTokenBudget,
         showThoughts,
         traceContext,

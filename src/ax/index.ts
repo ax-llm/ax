@@ -322,6 +322,10 @@ import {
   axAITogetherDefaultConfig,
 } from './ai/together/api.js';
 import { axModelInfoTogether } from './ai/together/info.js';
+import {
+  type AxAITogetherChatModel,
+  AxAITogetherModel,
+} from './ai/together/types.js';
 import type {
   AxAIInputModelList,
   AxAIModelList,
@@ -738,9 +742,10 @@ import type {
 import {
   AxAgent,
   type AxAgentConfig,
-  type AxAgentFeatures,
+  type AxAgentDemos,
   type AxAgentic,
   type AxAgentOptions,
+  type AxAgentRecursionOptions,
   agent,
 } from './prompts/agent.js';
 import { axRAG } from './prompts/rag.js';
@@ -749,7 +754,8 @@ import {
   type AxCodeRuntime,
   type AxCodeSession,
   type AxRLMConfig,
-  axBuildRLMDefinition,
+  axBuildActorDefinition,
+  axBuildResponderDefinition,
 } from './prompts/rlm.js';
 import { AxTraceLogger, type AxTraceLoggerOptions } from './trace/logger.js';
 import {
@@ -830,6 +836,7 @@ export { AxAIServiceStatusError };
 export { AxAIServiceStreamTerminatedError };
 export { AxAIServiceTimeoutError };
 export { AxAITogether };
+export { AxAITogetherModel };
 export { AxAIWebLLM };
 export { AxAIWebLLMModel };
 export { AxAgent };
@@ -939,7 +946,8 @@ export { axAnalyzeChatPromptRequirements };
 export { axAnalyzeRequestRequirements };
 export { axBaseAIDefaultConfig };
 export { axBaseAIDefaultCreativeConfig };
-export { axBuildRLMDefinition };
+export { axBuildActorDefinition };
+export { axBuildResponderDefinition };
 export { axCheckMetricsHealth };
 export { axCreateDefaultColorLogger };
 export { axCreateDefaultOptimizerColorLogger };
@@ -1188,6 +1196,7 @@ export type { AxAIServiceMetrics };
 export type { AxAIServiceModelType };
 export type { AxAIServiceOptions };
 export type { AxAITogetherArgs };
+export type { AxAITogetherChatModel };
 export type { AxAIWebLLMArgs };
 export type { AxAIWebLLMChatRequest };
 export type { AxAIWebLLMChatResponse };
@@ -1199,8 +1208,9 @@ export type { AxAIWebLLMEmbedResponse };
 export type { AxAPI };
 export type { AxAPIConfig };
 export type { AxAgentConfig };
-export type { AxAgentFeatures };
+export type { AxAgentDemos };
 export type { AxAgentOptions };
+export type { AxAgentRecursionOptions };
 export type { AxAgentic };
 export type { AxApacheTikaArgs };
 export type { AxApacheTikaConvertOptions };

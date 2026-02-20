@@ -4,7 +4,7 @@
  * CLI for @ax-llm/ax
  *
  * Commands:
- *   setup-claude [--force]   Install/upgrade Claude Code skills to .claude/skills/ax/ (project-local)
+ *   setup-claude [--force]   Install/upgrade Claude Code skills to .claude/skills/<name>/SKILL.md (project-local)
  *   remove-claude            Remove all Claude Code skills
  *
  * Usage:
@@ -21,7 +21,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -30,8 +30,8 @@ const __dirname = dirname(__filename);
 // Skill files directory in the package
 const SKILLS_SOURCE_DIR = join(__dirname, '..', 'skills');
 
-// Target location in current working directory (project-local)
-const SKILL_TARGET_DIR = join(process.cwd(), '.claude', 'skills', 'ax');
+// Base target location for skills in current working directory (project-local)
+const SKILLS_BASE_DIR = join(process.cwd(), '.claude', 'skills');
 
 /**
  * Get all *.md skill files from the source directory
@@ -41,6 +41,20 @@ function getSkillFiles() {
     return [];
   }
   return readdirSync(SKILLS_SOURCE_DIR).filter((f) => f.endsWith('.md'));
+}
+
+/**
+ * Get the skill name from YAML frontmatter, falling back to filename without .md
+ */
+function getSkillName(filePath) {
+  try {
+    const content = readFileSync(filePath, 'utf8');
+    const match = content.match(/^name:\s*["']?([^"'\n\r]+)/m);
+    if (match) return match[1].trim();
+  } catch {
+    // Fall through to fallback
+  }
+  return basename(filePath, '.md');
 }
 
 /**
@@ -122,11 +136,28 @@ function setupClaude(force = false) {
     process.exit(1);
   }
 
+  // Clean up legacy flat file structure (.claude/skills/ax/*.md except SKILL.md)
+  const legacyDir = join(SKILLS_BASE_DIR, 'ax');
+  if (existsSync(legacyDir)) {
+    try {
+      const legacyFiles = readdirSync(legacyDir).filter(
+        (f) => f.endsWith('.md') && f !== 'SKILL.md'
+      );
+      for (const f of legacyFiles) {
+        rmSync(join(legacyDir, f), { force: true });
+      }
+    } catch {
+      // Ignore cleanup errors
+    }
+  }
+
   let allUpToDate = true;
 
   for (const file of skillFiles) {
     const skillSource = join(SKILLS_SOURCE_DIR, file);
-    const skillTarget = join(SKILL_TARGET_DIR, file);
+    const skillName = getSkillName(skillSource);
+    const skillDir = join(SKILLS_BASE_DIR, skillName);
+    const skillTarget = join(skillDir, 'SKILL.md');
 
     const packageVersion = getPackageVersion(skillSource);
     const installedVersion = getInstalledVersion(skillTarget);
@@ -146,11 +177,11 @@ function setupClaude(force = false) {
         shouldInstall = true;
         action = 'Upgraded';
       } else if (comparison === 0) {
-        console.log(`${file} is up to date (v${installedVersion})`);
+        console.log(`${skillName} is up to date (v${installedVersion})`);
         continue;
       } else {
         console.log(
-          `${file} is already at v${installedVersion} (package has v${packageVersion})`
+          `${skillName} is already at v${installedVersion} (package has v${packageVersion})`
         );
         continue;
       }
@@ -160,15 +191,17 @@ function setupClaude(force = false) {
     }
 
     if (!shouldInstall) {
-      console.log(`${file} is up to date (v${installedVersion || 'unknown'})`);
+      console.log(
+        `${skillName} is up to date (v${installedVersion || 'unknown'})`
+      );
       continue;
     }
 
     allUpToDate = false;
 
     // Create target directory if it doesn't exist
-    if (!existsSync(SKILL_TARGET_DIR)) {
-      mkdirSync(SKILL_TARGET_DIR, { recursive: true });
+    if (!existsSync(skillDir)) {
+      mkdirSync(skillDir, { recursive: true });
     }
 
     try {
@@ -177,15 +210,15 @@ function setupClaude(force = false) {
 
       if (action === 'Upgraded' && installedVersion && packageVersion) {
         console.log(
-          `\u2713 ${action} ${file} (v${installedVersion} \u2192 v${packageVersion})`
+          `\u2713 ${action} ${skillName} (v${installedVersion} \u2192 v${packageVersion})`
         );
       } else {
         console.log(
-          `\u2713 ${action} ${file} (v${packageVersion || 'unknown'})`
+          `\u2713 ${action} ${skillName} (v${packageVersion || 'unknown'})`
         );
       }
     } catch (err) {
-      console.error(`Error installing ${file}: ${err.message}`);
+      console.error(`Error installing ${skillName}: ${err.message}`);
       process.exit(1);
     }
   }
@@ -199,39 +232,54 @@ function setupClaude(force = false) {
  * Remove all Claude Code skills
  */
 function removeClaude() {
-  if (!existsSync(SKILL_TARGET_DIR)) {
-    console.log('Ax Claude Code skills are not installed.');
+  const skillFiles = getSkillFiles();
+
+  if (skillFiles.length === 0) {
+    console.log('No skill definitions found in package.');
     return;
   }
 
   try {
-    const installedFiles = readdirSync(SKILL_TARGET_DIR).filter((f) =>
-      f.endsWith('.md')
-    );
+    let removedCount = 0;
 
-    if (installedFiles.length === 0) {
-      console.log('Ax Claude Code skills are not installed.');
-      return;
-    }
+    for (const file of skillFiles) {
+      const skillName = getSkillName(join(SKILLS_SOURCE_DIR, file));
+      const skillDir = join(SKILLS_BASE_DIR, skillName);
+      const skillTarget = join(skillDir, 'SKILL.md');
 
-    for (const file of installedFiles) {
-      rmSync(join(SKILL_TARGET_DIR, file), { force: true });
-    }
+      if (existsSync(skillTarget)) {
+        rmSync(skillTarget, { force: true });
+        removedCount++;
 
-    // Try to remove the directory if empty
-    try {
-      const remaining = readdirSync(SKILL_TARGET_DIR);
-      if (remaining.length === 0) {
-        rmSync(SKILL_TARGET_DIR, { recursive: true, force: true });
+        // Try to remove the directory if empty
+        try {
+          const remaining = readdirSync(skillDir);
+          if (remaining.length === 0) {
+            rmSync(skillDir, { recursive: true, force: true });
+          }
+        } catch {
+          // Ignore errors when trying to clean up directory
+        }
       }
-    } catch {
-      // Ignore errors when trying to clean up directory
     }
 
-    const noun = installedFiles.length === 1 ? 'skill' : 'skills';
-    console.log(
-      `\u2713 Removed ${installedFiles.length} Ax Claude Code ${noun}`
-    );
+    // Also clean up legacy flat files from old .claude/skills/ax/ structure
+    const legacyDir = join(SKILLS_BASE_DIR, 'ax');
+    if (existsSync(legacyDir)) {
+      const legacyFiles = readdirSync(legacyDir).filter(
+        (f) => f.endsWith('.md') && f !== 'SKILL.md'
+      );
+      for (const f of legacyFiles) {
+        rmSync(join(legacyDir, f), { force: true });
+      }
+    }
+
+    if (removedCount > 0) {
+      const noun = removedCount === 1 ? 'skill' : 'skills';
+      console.log(`\u2713 Removed ${removedCount} Ax Claude Code ${noun}`);
+    } else {
+      console.log('Ax Claude Code skills are not installed.');
+    }
   } catch (err) {
     console.error(`Error removing skills: ${err.message}`);
     process.exit(1);

@@ -1,4 +1,10 @@
-import { AxAgent, AxAI, AxAIOpenAIModel, AxMCPClient } from '@ax-llm/ax';
+import {
+  AxAI,
+  AxAIOpenAIModel,
+  AxJSRuntime,
+  AxMCPClient,
+  agent,
+} from '@ax-llm/ax';
 import { AxMCPStdioTransport } from '@ax-llm/ax-tools';
 
 // Initialize the MCP client with Blender integration
@@ -10,13 +16,16 @@ const client = new AxMCPClient(blenderTransport, { debug: true });
 await client.init();
 
 // Create an artistic agent that transforms text prompts into digital art using Blender MCP integration
-const drawingAgent = new AxAgent<{ prompt: string }, { imageUrl: string }>({
-  name: 'ArtisticBlender',
-  description:
-    'An AI agent that transforms textual prompts into digital art using Blender MCP integration. Provide a prompt to generate awe-inspiring imagery.',
-  signature: 'prompt -> imageUrl',
-  functions: [client],
-});
+const drawingAgent = agent(
+  'prompt:string -> imageUrl:string "An AI agent that transforms textual prompts into digital art using Blender MCP integration. Provide a prompt to generate awe-inspiring imagery."',
+  {
+    functions: [client],
+    rlm: {
+      contextFields: [],
+      runtime: new AxJSRuntime(),
+    },
+  }
+);
 
 // Initialize the AI model with OpenAI GPT-4 Mini
 const ai = new AxAI({

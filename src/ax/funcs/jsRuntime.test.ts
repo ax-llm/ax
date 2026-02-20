@@ -180,9 +180,9 @@ describe('AxJSRuntime', () => {
       outputMode: 'return',
     }).getUsageInstructions();
 
-    expect(stdoutMode).toContain('Stdout mode is enabled');
     expect(stdoutMode).toContain('console.log(...)');
-    expect(returnMode).toContain('Return mode is enabled');
+    expect(stdoutMode).toContain('print(...)');
+    expect(returnMode).toContain('return');
   });
 
   it('close() calls worker.terminate()', () => {

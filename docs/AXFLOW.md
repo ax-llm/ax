@@ -669,10 +669,32 @@ const selfHealingFlow = flow<{ input: string }, { output: string }>()
     `@opentelemetry/api` `context.active()` or similar.
 - Meter: pass `meter` the same way as `tracer`; it is propagated to node
   forwards.
-- Demos/Examples routing: `flow.setDemos(demos)` routes by `programId` to the
-  correct prompts, similar to DSPy. The flow maintains an internal `AxProgram`
-  and registers all child nodes; each node filters demos by `programId`.
-- Optimization: `flow.applyOptimization(optimizedProgram)` applies to the flow’s
+- **Program IDs & `namedPrograms()`**: Each node is registered with a
+  dot-separated ID. Use `namedPrograms()` to discover them:
+  ```typescript
+  const wf = flow<{ input: string }>()
+    .node('summarizer', 'text:string -> summary:string')
+    .node('classifier', 'text:string -> category:string');
+
+  console.log(wf.namedPrograms());
+  // [
+  //   { id: 'root.summarizer', signature: 'text:string -> summary:string' },
+  //   { id: 'root.classifier', signature: 'text:string -> category:string' },
+  // ]
+  ```
+- **Demos/Examples routing**: `flow.setDemos(demos)` routes by `programId` to the
+  correct node. The flow maintains an internal `AxProgram`
+  and registers all child nodes; each node filters demos by its `programId`.
+  TypeScript narrows `programId` to registered node names — typos are caught at compile time:
+  ```typescript
+  // OK
+  wf.setDemos([{ programId: 'root.summarizer', traces: [] }]);
+
+  // TypeScript error: 'root.summerizer' is not a valid node name
+  wf.setDemos([{ programId: 'root.summerizer', traces: [] }]);
+  ```
+  At runtime, unknown programIds throw a descriptive error listing valid IDs.
+- **Optimization**: `flow.applyOptimization(optimizedProgram)` applies to the flow's
   internal program and all registered child nodes.
 - Parallel map: `flow.map([...], { parallel: true })` merges all transform
   outputs back into state.

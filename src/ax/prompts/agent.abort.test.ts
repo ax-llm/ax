@@ -2,76 +2,94 @@ import { describe, expect, it } from 'vitest';
 
 import { AxMockAIService } from '../ai/mock/api.js';
 import type { AxChatResponse } from '../ai/types.js';
-import {
-  AxAIServiceAbortedError,
-  AxAIServiceStatusError,
-} from '../util/apicall.js';
+import { AxAIServiceAbortedError } from '../util/apicall.js';
 
 import { AxAgent } from './agent.js';
+import type { AxCodeRuntime } from './rlm.js';
+
+const makeModelUsage = () => ({
+  ai: 'mock',
+  model: 'mock',
+  tokens: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+});
+
+const createSimpleRuntime = (): AxCodeRuntime => ({
+  createSession(globals) {
+    return {
+      execute: async (code: string) => {
+        if (globals?.submit && code.includes('submit(')) {
+          (globals.submit as (...args: unknown[]) => void)('done');
+          return 'submitted';
+        }
+        return `executed: ${code}`;
+      },
+      close: () => {},
+    };
+  },
+});
 
 describe('AxAgent.stop()', () => {
-  it('throws when stop() is called during multi-step loop', async () => {
-    let callCount = 0;
+  it('throws when stop() is called during Actor loop execution', async () => {
+    let actorCallCount = 0;
 
     const ai = new AxMockAIService({
-      features: { functions: true, streaming: false },
-      chatResponse: async (): Promise<AxChatResponse> => {
-        callCount++;
+      features: { functions: false, streaming: false },
+      chatResponse: async (req): Promise<AxChatResponse> => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCallCount++;
+          // Always return code (never submit()) so the loop continues
+          return {
+            results: [
+              {
+                index: 0,
+                content: `Javascript Code: "step ${actorCallCount}"`,
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        // Responder
         return {
           results: [
             {
               index: 0,
-              content: '',
-              functionCalls: [
-                {
-                  id: `call_${callCount}`,
-                  type: 'function' as const,
-                  function: {
-                    name: 'myFunc',
-                    params: { userInput: `step ${callCount}` },
-                  },
-                },
-              ],
-              finishReason: 'function_call',
+              content: 'Answer: done',
+              finishReason: 'stop',
             },
           ],
-          modelUsage: {
-            ai: 'mock',
-            model: 'mock',
-            tokens: {
-              promptTokens: 10,
-              completionTokens: 5,
-              totalTokens: 15,
-            },
-          },
+          modelUsage: makeModelUsage(),
         };
       },
     });
 
+    let stopCalled = false;
+    const runtime: AxCodeRuntime = {
+      createSession() {
+        return {
+          execute: async () => {
+            if (!stopCalled) {
+              stopCalled = true;
+              myAgent.stop();
+            }
+            return 'executed';
+          },
+          close: () => {},
+        };
+      },
+    };
+
     const myAgent = new AxAgent(
       {
-        name: 'testAgent',
-        description:
-          'A test agent that processes inputs for testing abort functionality',
         signature: 'userQuery:string -> answer:string',
-        functions: [
-          {
-            name: 'myFunc',
-            description: 'A test function that does nothing special',
-            parameters: {
-              type: 'object',
-              properties: { userInput: { type: 'string' } },
-            },
-            func: async () => {
-              if (callCount === 1) {
-                myAgent.stop();
-              }
-              return 'func result';
-            },
-          },
-        ],
       },
-      { maxSteps: 10 }
+      {
+        maxSteps: 10,
+        rlm: { contextFields: [], runtime, maxTurns: 5 },
+      }
     );
 
     await expect(myAgent.forward(ai, { userQuery: 'test' })).rejects.toThrow();
@@ -79,77 +97,60 @@ describe('AxAgent.stop()', () => {
 
   it('throws when external abort signal is triggered', async () => {
     const controller = new AbortController();
-    let callCount = 0;
+    let actorCallCount = 0;
 
     const ai = new AxMockAIService({
-      features: { functions: true, streaming: false },
-      chatResponse: async (): Promise<AxChatResponse> => {
-        callCount++;
-        if (callCount === 1) {
-          controller.abort('external abort');
+      features: { functions: false, streaming: false },
+      chatResponse: async (req): Promise<AxChatResponse> => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCallCount++;
+          if (actorCallCount === 1) {
+            controller.abort('external abort');
+          }
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: "step"',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
         }
+
         return {
           results: [
             {
               index: 0,
-              content: '',
-              functionCalls: [
-                {
-                  id: `call_${callCount}`,
-                  type: 'function' as const,
-                  function: {
-                    name: 'myFunc',
-                    params: { userInput: 'data' },
-                  },
-                },
-              ],
-              finishReason: 'function_call',
+              content: 'Answer: done',
+              finishReason: 'stop',
             },
           ],
-          modelUsage: {
-            ai: 'mock',
-            model: 'mock',
-            tokens: {
-              promptTokens: 10,
-              completionTokens: 5,
-              totalTokens: 15,
-            },
-          },
+          modelUsage: makeModelUsage(),
         };
       },
     });
 
     const myAgent = new AxAgent(
       {
-        name: 'testAgent',
-        description:
-          'A test agent that processes inputs for testing abort functionality',
         signature: 'userQuery:string -> answer:string',
-        functions: [
-          {
-            name: 'myFunc',
-            description: 'A test function that does nothing special',
-            parameters: {
-              type: 'object',
-              properties: { userInput: { type: 'string' } },
-            },
-            func: async () => 'result',
-          },
-        ],
       },
-      { maxSteps: 10 }
+      {
+        maxSteps: 10,
+        rlm: { contextFields: [], runtime: createSimpleRuntime(), maxTurns: 5 },
+      }
     );
 
     await expect(
       myAgent.forward(
         ai,
         { userQuery: 'test' },
-        {
-          abortSignal: controller.signal,
-        }
+        { abortSignal: controller.signal }
       )
     ).rejects.toThrow();
-    expect(callCount).toBe(1);
   });
 
   it('throws when stop() is called before forward()', async () => {
@@ -159,12 +160,12 @@ describe('AxAgent.stop()', () => {
 
     const myAgent = new AxAgent(
       {
-        name: 'testAgent',
-        description:
-          'A test agent that processes inputs for testing abort functionality',
         signature: 'userQuery:string -> answer:string',
       },
-      { maxSteps: 10 }
+      {
+        maxSteps: 10,
+        rlm: { contextFields: [], runtime: createSimpleRuntime(), maxTurns: 5 },
+      }
     );
 
     // Call stop before forward
@@ -173,134 +174,109 @@ describe('AxAgent.stop()', () => {
     await expect(myAgent.forward(ai, { userQuery: 'test' })).rejects.toThrow();
   });
 
-  it('propagates abortSignal to function handler extra parameter', async () => {
-    let receivedSignal: AbortSignal | undefined;
-    let callCount = 0;
+  it('propagates abortSignal through the Actor loop', async () => {
+    let runtimeReceivedAbort = false;
+    const controller = new AbortController();
 
     const ai = new AxMockAIService({
-      features: { functions: true, streaming: false },
-      chatResponse: async (): Promise<AxChatResponse> => {
-        callCount++;
-        if (callCount === 1) {
+      features: { functions: false, streaming: false },
+      chatResponse: async (req): Promise<AxChatResponse> => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
           return {
             results: [
               {
                 index: 0,
-                content: '',
-                functionCalls: [
-                  {
-                    id: 'call_1',
-                    type: 'function' as const,
-                    function: {
-                      name: 'myTool',
-                      params: { data: 'test data' },
-                    },
-                  },
-                ],
-                finishReason: 'function_call',
+                content: 'Javascript Code: "check abort"',
+                finishReason: 'stop',
               },
             ],
-            modelUsage: {
-              ai: 'mock',
-              model: 'mock',
-              tokens: {
-                promptTokens: 10,
-                completionTokens: 5,
-                totalTokens: 15,
-              },
-            },
+            modelUsage: makeModelUsage(),
           };
         }
+
         return {
           results: [
             {
               index: 0,
-              content: 'answer: done',
+              content: 'Answer: done',
               finishReason: 'stop',
             },
           ],
-          modelUsage: {
-            ai: 'mock',
-            model: 'mock',
-            tokens: {
-              promptTokens: 10,
-              completionTokens: 5,
-              totalTokens: 15,
-            },
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const runtime: AxCodeRuntime = {
+      createSession() {
+        return {
+          execute: async (_code: string, opts?: { signal?: AbortSignal }) => {
+            if (opts?.signal) {
+              runtimeReceivedAbort = true;
+            }
+            // Abort after first execution to trigger abort path
+            controller.abort('test abort');
+            return 'executed';
           },
+          close: () => {},
+        };
+      },
+    };
+
+    const myAgent = new AxAgent(
+      {
+        signature: 'userQuery:string -> answer:string',
+      },
+      {
+        maxSteps: 5,
+        rlm: { contextFields: [], runtime, maxTurns: 3 },
+      }
+    );
+
+    await myAgent
+      .forward(ai, { userQuery: 'test' }, { abortSignal: controller.signal })
+      .catch(() => {
+        /* expected to throw due to abort */
+      });
+
+    // The runtime should have received the signal
+    expect(runtimeReceivedAbort).toBe(true);
+  });
+
+  it('aborts when stop() is called during forward execution', async () => {
+    const ai = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (): Promise<AxChatResponse> => {
+        // Slow response to allow stop to be called
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        return {
+          results: [
+            {
+              index: 0,
+              content: 'Javascript Code: "step"',
+              finishReason: 'stop',
+            },
+          ],
+          modelUsage: makeModelUsage(),
         };
       },
     });
 
     const myAgent = new AxAgent(
       {
-        name: 'testAgent',
-        description:
-          'A test agent that verifies abort signal propagation to functions',
         signature: 'userQuery:string -> answer:string',
-        functions: [
-          {
-            name: 'myTool',
-            description: 'A tool that captures the abort signal from extra',
-            parameters: {
-              type: 'object',
-              properties: { data: { type: 'string', description: 'data' } },
-            },
-            func: async (_args: any, extra: any) => {
-              receivedSignal = extra?.abortSignal;
-              return 'tool result';
-            },
-          },
-        ],
       },
-      { maxSteps: 5 }
-    );
-
-    const controller = new AbortController();
-    await myAgent
-      .forward(ai, { userQuery: 'test' }, { abortSignal: controller.signal })
-      .catch(() => {
-        /* may fail due to mock, that's ok */
-      });
-
-    // The function handler should have received an abort signal
-    expect(receivedSignal).toBeDefined();
-    expect(receivedSignal).toBeInstanceOf(AbortSignal);
-  });
-
-  it('aborts during retry backoff when stop() is called', async () => {
-    const ai = new AxMockAIService({
-      features: {
-        functions: false,
-        streaming: false,
-        structuredOutputs: false,
-      },
-      chatResponse: async (): Promise<AxChatResponse> => {
-        throw new AxAIServiceStatusError(
-          503,
-          'Service Unavailable',
-          'https://api.example.com/chat',
-          { test: 'request' },
-          { error: 'service_unavailable' }
-        );
-      },
-    });
-
-    const myAgent = new AxAgent(
       {
-        name: 'testAgent',
-        description:
-          'A test agent that verifies stop aborts retry backoff execution',
-        signature: 'userQuery:string -> answer:string',
-      },
-      { maxRetries: 5 }
+        rlm: { contextFields: [], runtime: createSimpleRuntime(), maxTurns: 5 },
+      }
     );
 
     const pending = myAgent.forward(ai, { userQuery: 'test' });
 
-    // Let the retry path begin, then stop via internal controller.
-    await Promise.resolve();
-    await Promise.resolve();
+    // Let the forward start, then stop
+    await new Promise((resolve) => setTimeout(resolve, 10));
     myAgent.stop();
 
     await expect(pending).rejects.toBeInstanceOf(AxAIServiceAbortedError);

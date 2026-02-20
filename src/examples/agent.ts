@@ -1,29 +1,44 @@
-import { AxAgent, AxAI, AxAIOpenAIModel } from '@ax-llm/ax';
+import { AxAI, AxAIOpenAIModel, AxJSRuntime, agent } from '@ax-llm/ax';
 
-const researcher = new AxAgent({
-  name: 'Physics Researcher',
-  description:
-    'Researcher for physics questions can answer questions about advanced physics',
-  signature: `question, physicsQuestion "physics questions" -> answer "reply in bullet points"`,
-});
+const runtime = new AxJSRuntime();
 
-const summarizer = new AxAgent({
-  name: 'Science Summarizer',
-  description:
-    'Summarizer can write short summaries of advanced science topics',
-  definition:
-    'You are a science summarizer. You can write short summaries of advanced science topics. Use numbered bullet points to summarize the answer in order of importance.',
-  signature: `answer "bullet points to summarize" -> shortSummary "summarize in 10 to 20 words"`,
-});
+const researcher = agent(
+  'question, physicsQuestion "physics questions" -> answer "reply in bullet points"',
+  {
+    agentIdentity: {
+      name: 'Physics Researcher',
+      description:
+        'Researcher for physics questions can answer questions about advanced physics',
+    },
+    rlm: { contextFields: [], runtime },
+  }
+);
 
-const agent = new AxAgent({
-  name: 'Scientist',
-  description: 'An agent that can answer advanced science questions',
-  signature: 'question -> answer',
+const summarizer = agent(
+  'answer "bullet points to summarize" -> shortSummary "summarize in 10 to 20 words"',
+  {
+    agentIdentity: {
+      name: 'Science Summarizer',
+      description:
+        'Summarizer can write short summaries of advanced science topics',
+    },
+    rlm: { contextFields: [], runtime },
+  }
+);
+summarizer.setActorDescription(
+  'You are a science summarizer. You can write short summaries of advanced science topics. Use numbered bullet points to summarize the answer in order of importance.'
+);
+
+const myAgent = agent('question -> answer', {
+  agentIdentity: {
+    name: 'Scientist',
+    description: 'An agent that can answer advanced science questions',
+  },
   agents: [researcher, summarizer],
+  rlm: { contextFields: [], runtime },
 });
 
-const ai = new AxAI({
+const llm = new AxAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY as string,
   models: [
@@ -44,20 +59,9 @@ const ai = new AxAI({
     },
   ],
 });
-ai.setOptions({ debug: true });
+llm.setOptions({ debug: true });
 
-// const ai = new AxAI({
-//   name: 'google-gemini',
-//   apiKey: process.env.GOOGLE_APIKEY as string
-// });
-
-// const ai = new AxAI({
-//   name: 'groq',
-//   apiKey: process.env.GROQ_APIKEY as string
-// });
-
-// const question = `What is a cat?`
 const question = 'Why is gravity not a real force?';
 
-const res = await agent.forward(ai, { question });
+const res = await myAgent.forward(llm, { question });
 console.log('>', res);

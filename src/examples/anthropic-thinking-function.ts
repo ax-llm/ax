@@ -1,4 +1,4 @@
-import { type AxFunction, agent, ai } from '@ax-llm/ax';
+import { type AxFunction, AxJSRuntime, agent, ai } from '@ax-llm/ax';
 
 // Simple math tool to force tool use
 const tools: AxFunction[] = [
@@ -26,13 +26,16 @@ const llm = ai({
 const mathAgent = agent(
   'userQuestion:string "User question" -> responseText:string "Final answer", rationale:string "Brief reasoning"',
   {
-    name: 'math-helper',
-    description: 'Answers math questions. Use tools for arithmetic.',
-    definition:
-      'You are a precise math assistant. Use tools for any arithmetic. Provide a concise final answer and a short rationale.',
     ai: llm,
     functions: tools,
+    rlm: {
+      contextFields: [],
+      runtime: new AxJSRuntime(),
+    },
   }
+);
+mathAgent.setActorDescription(
+  'You are a precise math assistant. Use tools for any arithmetic. Provide a concise final answer and a short rationale.'
 );
 
 console.log('=== Anthropic + Tools + Thinking Demo ===');

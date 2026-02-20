@@ -609,7 +609,7 @@ const agentProvider = new AxAgentProvider({
 
 ## Ax Tools Package
 
-The `@ax-llm/ax-tools` package provides additional tools for Ax including MCP (Model Context Protocol) support and a JavaScript interpreter.
+The `@ax-llm/ax-tools` package provides additional tools for Ax including MCP (Model Context Protocol) support and a JavaScript runtime.
 
 ### Installation
 
@@ -653,7 +653,7 @@ import {
   AxJSRuntimePermission,
 } from "@ax-llm/ax";
 
-// Create interpreter with specific permissions
+// Create runtime with specific permissions
 const runtime = new AxJSRuntime({
   permissions: [
     AxJSRuntimePermission.NETWORK,
@@ -665,7 +665,7 @@ const runtime = new AxJSRuntime({
 const llm = ai({ name: "openai", apiKey: process.env.OPENAI_APIKEY! });
 
 const codeRunner = ax("task:string -> result:string", {
-  functions: [interpreter.toFunction()],
+  functions: [runtime.toFunction()],
 });
 
 const result = await codeRunner.forward(llm, {
@@ -675,7 +675,7 @@ const result = await codeRunner.forward(llm, {
 
 ### Permissions
 
-Control what the interpreter can access:
+Control what the runtime can access:
 
 | Permission | Description |
 | ---------- | ----------- |

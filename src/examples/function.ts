@@ -1,10 +1,11 @@
 import {
-  AxAgent,
   AxAI,
   AxAIAnthropicModel,
   type AxFunction,
   AxFunctionError,
+  AxJSRuntime,
   AxSignature,
+  agent,
 } from '@ax-llm/ax';
 
 // Restaurant booking function with validation
@@ -96,15 +97,12 @@ const signature = new AxSignature(
 );
 
 // Create the booking agent
-const gen = new AxAgent<
-  { customerQuery: string },
-  { confirmationNumber: string; details: string }
->({
-  name: 'restaurant-booking',
-  description:
-    'Use this agent to book restaurant reservations. Must use the provided functions to book a table',
-  signature,
+const gen = agent(signature, {
   functions,
+  rlm: {
+    contextFields: [],
+    runtime: new AxJSRuntime(),
+  },
 });
 
 // const ai = new AxAI({

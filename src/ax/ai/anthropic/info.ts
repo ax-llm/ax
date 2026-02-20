@@ -28,6 +28,31 @@ export const axModelInfoAnthropic: AxModelInfo[] = [
       structuredOutputs: true,
     },
   },
+  // 4.6 Sonnet (2026-02)
+  {
+    name: AxAIAnthropicModel.Claude46Sonnet,
+    currency: 'usd',
+    promptTokenCostPer1M: 3.0,
+    completionTokenCostPer1M: 15.0,
+    maxTokens: 64000,
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: true,
+    },
+  },
+  {
+    name: AxAIAnthropicVertexModel.Claude46Sonnet,
+    currency: 'usd',
+    promptTokenCostPer1M: 3.0,
+    completionTokenCostPer1M: 15.0,
+    maxTokens: 64000,
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: true,
+    },
+  },
   // 4.5 Opus (2025-11)
   {
     name: AxAIAnthropicModel.Claude45Opus,

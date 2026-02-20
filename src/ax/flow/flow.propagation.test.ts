@@ -44,9 +44,14 @@ class TestProgram
   }
 
   // AxUsable / AxTunable minimal surface for registry compatibility
-  setParentId(_parentId: string): void {}
-  setId(_id: string): void {}
-  setExamples(): void {}
+  private _id = '';
+  getId(): string {
+    return this._id;
+  }
+  setId(id: string): void {
+    this._id = id;
+  }
+  setDemos(): void {}
   getTraces(): any[] {
     return [];
   }
@@ -57,16 +62,40 @@ class TestProgram
 }
 
 describe('AxFlow propagation and instrumentation', () => {
-  it('throws on setDemos when parent program has children but no matching parent demo', () => {
+  it('setDemos propagates to children with name-based IDs', () => {
     const wf = flow<{ userInput: string }>();
-    // add a simple node to ensure program has children
     wf.node('n1', 'documentText:string -> summaryText:string');
-    // assign a known id so program is definitely considered a parent
     wf.setId('root');
 
-    // No demos for parent id "root" provided → should throw
+    // Demos targeting child node by name-based ID should not throw
+    const demos: AxProgramDemos<any, any>[] = [
+      {
+        programId: 'root.n1',
+        traces: [{ documentText: 'input text', summaryText: 'test' }],
+      },
+    ];
+    expect(() => wf.setDemos(demos)).not.toThrowError();
+  });
+
+  it('allows empty demos array (clears demos or propagates options)', () => {
+    const wf = flow<{ userInput: string }>();
+    wf.node('n1', 'documentText:string -> summaryText:string');
+    wf.setId('root');
+
+    // Empty demos should not throw
     const demos: AxProgramDemos<any, any>[] = [];
-    expect(() => wf.setDemos(demos)).toThrowError();
+    expect(() => wf.setDemos(demos)).not.toThrowError();
+  });
+
+  it('throws on unknown programId in setDemos', () => {
+    const wf = flow<{ userInput: string }>();
+    wf.node('n1', 'documentText:string -> summaryText:string');
+    wf.setId('root');
+
+    const demos: AxProgramDemos<any, any>[] = [
+      { programId: 'root.typo', traces: [{ summaryText: 'test' }] },
+    ];
+    expect(() => wf.setDemos(demos)).toThrowError(/Unknown program ID/);
   });
 
   it('applyOptimization propagates to node programs', () => {
@@ -188,9 +217,14 @@ describe('AxFlow propagation and instrumentation', () => {
         });
         return { outputText: values.inputText };
       }
-      setParentId(_parentId: string): void {}
-      setId(_id: string): void {}
-      setExamples(): void {}
+      private _id = '';
+      getId(): string {
+        return this._id;
+      }
+      setId(id: string): void {
+        this._id = id;
+      }
+      setDemos(): void {}
       getTraces(): any[] {
         return [];
       }

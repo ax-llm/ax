@@ -137,9 +137,9 @@ export type AxProgramTrace<IN, OUT> = {
   programId: string;
 };
 
-export type AxProgramDemos<IN, OUT> = {
+export type AxProgramDemos<IN, OUT, ID extends string = string> = {
   traces: (OUT & Partial<IN>)[];
-  programId: string;
+  programId: ID;
 };
 
 export type AxProgramExamples<IN, OUT> =
@@ -300,27 +300,26 @@ export interface AxForwardable<IN, OUT, TModelKey> {
 }
 
 export interface AxTunable<IN, OUT> {
-  setExamples: (
-    examples: Readonly<AxProgramExamples<IN, OUT>>,
-    options?: Readonly<AxSetExamplesOptions>
-  ) => void;
-  setId: (id: string) => void;
-  setParentId: (parentId: string) => void;
-  getTraces: () => AxProgramTrace<IN, OUT>[];
-  setDemos: (demos: readonly AxProgramDemos<IN, OUT>[]) => void;
-  applyOptimization: (optimizedProgram: AxOptimizedProgram<OUT>) => void;
+  getId(): string;
+  setId(id: string): void;
+  getTraces(): AxProgramTrace<IN, OUT>[];
+  setDemos(
+    demos: readonly AxProgramDemos<IN, OUT>[],
+    options?: { modelConfig?: Record<string, unknown> }
+  ): void;
+  applyOptimization(optimizedProgram: AxOptimizedProgram<OUT>): void;
 }
 
 export interface AxUsable {
-  getUsage: () => AxProgramUsage[];
-  resetUsage: () => void;
+  getUsage(): AxProgramUsage[];
+  resetUsage(): void;
 }
 
 export interface AxProgrammable<IN, OUT, TModelKey = string>
   extends AxForwardable<IN, OUT, TModelKey>,
     AxTunable<IN, OUT>,
     AxUsable {
-  getSignature: () => AxSignature;
+  getSignature(): AxSignature;
 }
 
 export type AxProgramUsage = AxChatResponse['modelUsage'] & {

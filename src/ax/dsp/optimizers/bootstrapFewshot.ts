@@ -84,6 +84,7 @@ export class AxBootstrapFewShot extends AxBaseOptimizer {
       this.maxExamples
     );
     const previousSuccessCount = this.traces.length;
+    const programId = (program as AxGen<IN, OUT>).getId();
 
     // Process examples in batches if batch size > 1
     for (let i = 0; i < examplesSample.length; i += this.batchSize) {
@@ -101,9 +102,12 @@ export class AxBootstrapFewShot extends AxBaseOptimizer {
 
         // Use remaining examples as demonstration examples (excluding current one)
         const exList = examples.filter((e) => e !== ex);
-        (program as AxGen<IN, OUT>).setExamples(
-          exList as unknown as readonly (OUT & IN)[]
-        );
+        (program as AxGen<IN, OUT>).setDemos([
+          {
+            traces: exList as unknown as (OUT & Partial<IN>)[],
+            programId,
+          },
+        ]);
 
         // Use teacher AI if provided, otherwise use student AI
         const aiService = this.getTeacherOrStudentAI();

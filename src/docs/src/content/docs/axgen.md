@@ -14,35 +14,34 @@ description: "The programmable unit of Ax for building AI workflows"
 To create an `AxGen` instance, you need a **Signature**. A signature defines the input fields and output fields for the generation task.
 
 ```typescript
-import { AxGen } from '@ax-llm/ax';
+import { ax } from "@ax-llm/ax";
 
-const gen = new AxGen(
-  `input:string -> output:string, reasoning:string`
+const gen = ax(
+  `input:string -> output:string, reasoning:string`,
 );
 ```
 
-You can also use the `AxSignature` builder for more complex signatures:
+You can also use `s()` for reusable signatures:
 
 ```typescript
-import { AxGen } from '@ax-llm/ax';
+import { ax, s } from "@ax-llm/ax";
 
-const gen = new AxGen(
-  `question:string, context:string[] -> answer:string`
-);
+const sig = s(`question:string, context:string[] -> answer:string`);
+const gen = ax(sig);
 ```
 
 ### Options
 
-The `AxGen` constructor accepts an optional configuration object:
+The `ax()` factory accepts an optional configuration object:
 
 ```typescript
-const gen = new AxGen('input -> output', {
-  description: 'A helpful assistant', // Description for the prompt
-  maxRetries: 3,        // Default retries for assertions/validation
-  maxSteps: 10,         // Max steps for multi-step generation
-  temperature: 0.7,     // Default Model temperature (can be overridden)
-  fastFail: false,      // If true, fail immediately on error
-  debug: false          // Enable debug logging
+const gen = ax("input -> output", {
+  description: "A helpful assistant", // Description for the prompt
+  maxRetries: 3, // Default retries for assertions/validation
+  maxSteps: 10, // Max steps for multi-step generation
+  temperature: 0.7, // Default Model temperature (can be overridden)
+  fastFail: false, // If true, fail immediately on error
+  debug: false, // Enable debug logging
 });
 ```
 
@@ -50,20 +49,20 @@ const gen = new AxGen('input -> output', {
 
 To run an `AxGen` instance, you use the `forward` method. This method sends the request to the AI service and processes the response.
 
-### passing an AI Service
+### Passing an AI Service
 
-You must pass an `AxAI` service instance to `forward`.
+You must pass an AI service instance (from `ai()`) to `forward`.
 
 ```typescript
-import { AxAI, AxAIOpenAIModel } from '@ax-llm/ax';
-  
-  const ai = new AxAI({
-    name: 'openai',
-    apiKey: process.env.OPENAI_API_KEY,
-    config: { model: AxAIOpenAIModel.GPT4O }
-  });
+import { ai } from "@ax-llm/ax";
 
-const result = await gen.forward(ai, { input: 'Hello world' });
+const llm = ai({
+  name: "openai",
+  apiKey: process.env.OPENAI_APIKEY,
+  config: { model: "gpt-4o" },
+});
+
+const result = await gen.forward(llm, { input: "Hello world" });
 console.log(result.output);
 ```
 
@@ -72,13 +71,13 @@ console.log(result.output);
 The `forward` method accepts an options object as the third argument, allowing you to override defaults and configure per-request behavior.
 
 ```typescript
-const result = await gen.forward(ai, { input: '...' }, {
+const result = await gen.forward(llm, { input: "..." }, {
   // Execution Control
   maxRetries: 5,        // Override default max retries
   stopFunction: 'stop', // Custom stop function name
 
   // AI Configuration
-  model: AxAIOpenAIModel.GPT4Turbo, // Override model for this call
+  model: "gpt-4.1", // Override model for this call
   modelConfig: {
     temperature: 0.9,
     maxTokens: 1000
@@ -97,6 +96,39 @@ const result = await gen.forward(ai, { input: '...' }, {
 });
 ```
 
+## Stopping AxGen
+
+`AxGen` supports two cancellation paths for in-flight `forward()` and `streamingForward()` calls:
+
+- `stop()` on the generator instance
+- `abortSignal` in per-call options
+
+Both paths throw `AxAIServiceAbortedError` so you can handle cancellation consistently. `stop()` aborts all in-flight calls started from the same `AxGen` instance, including retry backoff waits.
+
+```typescript
+import { AxAIServiceAbortedError, ai, ax } from "@ax-llm/ax";
+
+const llm = ai({ name: "openai", apiKey: process.env.OPENAI_APIKEY! });
+const gen = ax("topic:string -> summary:string");
+
+const timer = setTimeout(() => gen.stop(), 3_000);
+
+try {
+  const result = await gen.forward(llm, { topic: "Long document" }, {
+    abortSignal: AbortSignal.timeout(10_000),
+  });
+  console.log(result.summary);
+} catch (err) {
+  if (err instanceof AxAIServiceAbortedError) {
+    console.log("Generation was aborted");
+  } else {
+    throw err;
+  }
+} finally {
+  clearTimeout(timer);
+}
+```
+
 ## Streaming
 
 `AxGen` supports streaming responses, which is useful for real-time applications.
@@ -106,7 +138,7 @@ const result = await gen.forward(ai, { input: '...' }, {
 Use `streamingForward` to get an async generator that yields partial results.
 
 ```typescript
-const stream = gen.streamingForward(ai, { input: 'Write a long story' });
+const stream = gen.streamingForward(llm, { input: "Write a long story" });
 
 for await (const chunk of stream) {
   // chunk contains partial deltas and the current accumulated state

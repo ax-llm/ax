@@ -90,11 +90,11 @@ await fs.promises.writeFile('./tuned-demos.json', values)
 
 ### Using Your Tuned Prompt
 
-After tuning, you can load and use your optimized prompt:
+After tuning, load and apply your optimized configuration. The recommended approach uses `applyOptimization()`:
 
 ```typescript
 import fs from 'fs'
-import { AxAI, AxChainOfThought } from '@ax-llm/ax'
+import { AxAI, AxChainOfThought, AxOptimizedProgramImpl } from '@ax-llm/ax'
 
 // Load the AI service
 const ai = new AxAI({
@@ -107,10 +107,12 @@ const program = new AxChainOfThought<{ question: string }, { answer: string }>(
   `question -> answer "in short 2 or 3 words"`
 )
 
-// Load the tuned demonstrations
-const values = await fs.promises.readFile('./tuned-demos.json', 'utf8')
-const demos = JSON.parse(values)
-program.setDemos(demos)
+// Load and apply the complete optimization (demos + instruction + model config)
+const savedData = JSON.parse(
+  await fs.promises.readFile('./tuned-optimization.json', 'utf8')
+)
+const optimizedProgram = new AxOptimizedProgramImpl(savedData)
+program.applyOptimization(optimizedProgram)
 
 // Use the optimized program
 const result = await program.forward(ai, {
@@ -118,6 +120,27 @@ const result = await program.forward(ai, {
 })
 console.log(result) // Optimized answer
 ```
+
+You can also apply demos directly using `setDemos()`. Each demo carries a `programId` that routes it to the correct program in a hierarchy:
+
+```typescript
+// Discover valid program IDs
+console.log(program.namedPrograms())
+// [{ id: 'root', signature: 'question -> answer' }]
+
+// Apply demos by programId
+program.setDemos([
+  {
+    programId: 'root',
+    traces: [
+      { question: 'Who wrote Hamlet?', answer: 'Shakespeare' },
+      { question: 'Capital of France?', answer: 'Paris' },
+    ],
+  },
+])
+```
+
+For multi-program hierarchies (agents with children, flows with nodes), `programId` uses dot-separated paths like `'root.actor'`. Use `namedPrograms()` to discover valid IDs. Unknown programIds throw a descriptive error at runtime, and TypeScript catches typos at compile time on `AxAgent` and `AxFlow`.
 
 ## Advanced Tuning with AxMiPRO v2
 

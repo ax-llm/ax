@@ -1,46 +1,59 @@
-import { type AxAgentic, agent, ai } from '@ax-llm/ax';
+import { type AxAgentic, AxJSRuntime, agent, ai } from '@ax-llm/ax';
 
-// Example showing the migration from AxAgent class to agent() function
+// Example showing the agent() factory function
 
-// Create an AI instance using the new ai() factory function
+// Create an AI instance using the ai() factory function
 const llm = ai({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY!,
 });
 
-// Old way (deprecated)
-// const myAgent = new AxAgent({
-//   name: 'weatherAgent',
-//   description: 'An agent that provides weather information',
-//   definition: 'You are a helpful weather assistant. When users ask about weather, provide clear, concise information about current conditions, forecasts, and any relevant weather warnings.',
-//   signature: 'location:string "City or location for weather info" -> weatherInfo:string "Current weather and forecast", temperature:number "Current temperature in Celsius"'
-// });
+const runtime = new AxJSRuntime();
 
-// New way (recommended) - using the agent() factory function
+// Using the agent() factory function with the new simplified API
 const weatherAgent = agent(
   'location:string "City or location for weather info" -> weatherInfo:string "Current weather and forecast", temperature:number "Current temperature in Celsius"',
   {
-    name: 'weatherAgent',
-    description: 'An agent that provides weather information',
-    definition:
-      'You are a helpful weather assistant. When users ask about weather, provide clear, concise information about current conditions, forecasts, and any relevant weather warnings.',
+    agentIdentity: {
+      name: 'weatherAgent',
+      description: 'An agent that provides weather information',
+    },
+    rlm: {
+      contextFields: [],
+      runtime,
+    },
   }
+);
+weatherAgent.setActorDescription(
+  'You are a helpful weather assistant. When users ask about weather, provide clear, concise information about current conditions, forecasts, and any relevant weather warnings.'
 );
 
 // Create child agents using the new syntax
 const forecastAgent = agent(
   'location:string -> forecast:string "5-day weather forecast"',
   {
-    name: 'forecastAgent',
-    description: 'Provides detailed weather forecasts',
+    agentIdentity: {
+      name: 'forecastAgent',
+      description: 'Provides detailed weather forecasts',
+    },
+    rlm: {
+      contextFields: [],
+      runtime,
+    },
   }
 );
 
 const alertsAgent = agent(
   'location:string -> alerts:string[] "Active weather alerts"',
   {
-    name: 'alertsAgent',
-    description: 'Checks for weather warnings and alerts',
+    agentIdentity: {
+      name: 'alertsAgent',
+      description: 'Checks for weather warnings and alerts',
+    },
+    rlm: {
+      contextFields: [],
+      runtime,
+    },
   }
 );
 
@@ -48,13 +61,20 @@ const alertsAgent = agent(
 const weatherCoordinator = agent(
   'query:string "User weather query" -> response:string "Complete weather response"',
   {
-    name: 'weatherCoordinator',
-    description:
-      'Coordinates multiple weather agents to provide comprehensive information',
-    definition:
-      'You coordinate weather information requests by delegating to specialized agents for forecasts and alerts. Combine their responses into a comprehensive answer.',
+    agentIdentity: {
+      name: 'weatherCoordinator',
+      description:
+        'Coordinates multiple weather agents to provide comprehensive information',
+    },
     agents: [weatherAgent, forecastAgent, alertsAgent] as AxAgentic<any, any>[],
+    rlm: {
+      contextFields: [],
+      runtime,
+    },
   }
+);
+weatherCoordinator.setActorDescription(
+  'You coordinate weather information requests by delegating to specialized agents for forecasts and alerts. Combine their responses into a comprehensive answer.'
 );
 
 // Example usage

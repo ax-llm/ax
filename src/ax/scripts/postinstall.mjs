@@ -19,9 +19,10 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  rmSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -119,6 +120,20 @@ function getInstalledVersion(targetPath) {
 }
 
 /**
+ * Get the skill name from YAML frontmatter, falling back to filename without .md
+ */
+function getSkillName(filePath) {
+  try {
+    const content = readFileSync(filePath, 'utf8');
+    const match = content.match(/^name:\s*["']?([^"'\n\r]+)/m);
+    if (match) return match[1].trim();
+  } catch {
+    // Fall through to fallback
+  }
+  return basename(filePath, '.md');
+}
+
+/**
  * Get the package version from the skill source file
  */
 function getPackageVersion(sourcePath) {
@@ -136,6 +151,31 @@ function getPackageVersion(sourcePath) {
 }
 
 /**
+ * Find the project root by using INIT_CWD (set by npm/yarn/pnpm to the
+ * directory where `install` was run), falling back to finding the
+ * topmost node_modules in __dirname and taking its parent.
+ */
+function findProjectRoot() {
+  // INIT_CWD is the most reliable — npm, yarn, and pnpm all set it
+  if (process.env.INIT_CWD) {
+    return process.env.INIT_CWD;
+  }
+
+  // Fallback: find the topmost node_modules segment in __dirname
+  // e.g. /home/user/project/node_modules/.pnpm/@ax-llm+ax@1.0/node_modules/@ax-llm/ax/scripts
+  //       → topmost node_modules is at /home/user/project/node_modules
+  //       → parent is /home/user/project
+  const segments = __dirname.split(sep);
+  const firstNmIndex = segments.indexOf('node_modules');
+  if (firstNmIndex > 0) {
+    return segments.slice(0, firstNmIndex).join(sep);
+  }
+
+  // Last resort: the old heuristic (4 levels up)
+  return join(__dirname, '..', '..', '..', '..');
+}
+
+/**
  * Main installation function
  */
 function install() {
@@ -147,10 +187,8 @@ function install() {
   try {
     // Paths
     const skillsSourceDir = join(__dirname, '..', 'skills');
-    // When installed via npm, script runs from: node_modules/@ax-llm/ax/scripts/postinstall.mjs
-    // Project root is 4 directories up: ../../../../
-    const projectRoot = join(__dirname, '..', '..', '..', '..');
-    const skillTargetDir = join(projectRoot, '.claude', 'skills', 'ax');
+    const projectRoot = findProjectRoot();
+    const skillsBaseDir = join(projectRoot, '.claude', 'skills');
 
     // Discover all *.md skill files
     if (!existsSync(skillsSourceDir)) {
@@ -165,11 +203,28 @@ function install() {
       return;
     }
 
+    // Clean up legacy flat file structure (.claude/skills/ax/*.md except SKILL.md)
+    const legacyDir = join(skillsBaseDir, 'ax');
+    if (existsSync(legacyDir)) {
+      try {
+        const legacyFiles = readdirSync(legacyDir).filter(
+          (f) => f.endsWith('.md') && f !== 'SKILL.md'
+        );
+        for (const f of legacyFiles) {
+          rmSync(join(legacyDir, f), { force: true });
+        }
+      } catch {
+        // Ignore cleanup errors
+      }
+    }
+
     const results = [];
 
     for (const file of skillFiles) {
       const skillSource = join(skillsSourceDir, file);
-      const skillTarget = join(skillTargetDir, file);
+      const skillName = getSkillName(skillSource);
+      const skillDir = join(skillsBaseDir, skillName);
+      const skillTarget = join(skillDir, 'SKILL.md');
 
       const packageVersion = getPackageVersion(skillSource);
       const installedVersion = getInstalledVersion(skillTarget);
@@ -195,13 +250,13 @@ function install() {
       }
 
       if (shouldInstallFile) {
-        if (!existsSync(skillTargetDir)) {
-          mkdirSync(skillTargetDir, { recursive: true });
+        if (!existsSync(skillDir)) {
+          mkdirSync(skillDir, { recursive: true });
         }
 
         const content = readFileSync(skillSource, 'utf8');
         writeFileSync(skillTarget, content, 'utf8');
-        results.push({ file, action, versionInfo });
+        results.push({ file: skillName, action, versionInfo });
       }
     }
 

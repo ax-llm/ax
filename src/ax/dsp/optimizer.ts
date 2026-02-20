@@ -811,7 +811,6 @@ export interface AxOptimizedProgram<OUT = any> {
   // Program configuration
   instruction?: string;
   demos?: AxProgramDemos<any, OUT>[];
-  examples?: AxExample[];
 
   // Model configuration
   modelConfig?: {
@@ -894,25 +893,13 @@ export class AxOptimizedProgramImpl<OUT = any>
   }
 
   public applyTo<IN, T extends AxGenOut>(program: AxGen<IN, T>): void {
-    // Apply demos if available
+    // Apply demos and modelConfig if available
     if (this.demos && this.demos.length > 0) {
-      program.setDemos(this.demos as any);
-    }
-
-    // Apply examples if available
-    if (this.examples && this.examples.length > 0) {
-      program.setExamples(this.examples as any);
-    }
-
-    // Apply instruction if available (via program options)
-    if (this.instruction) {
-      // Store instruction in program options for use in prompt generation
-      (program as any)._optimizedInstruction = this.instruction;
-    }
-
-    // Apply model config if available (stored for use in forward calls)
-    if (this.modelConfig) {
-      (program as any)._optimizedModelConfig = this.modelConfig;
+      program.setDemos(this.demos as any, {
+        modelConfig: this.modelConfig,
+      });
+    } else if (this.modelConfig) {
+      program.setDemos([], { modelConfig: this.modelConfig });
     }
   }
 }

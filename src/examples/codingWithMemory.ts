@@ -1,8 +1,9 @@
 import {
   AxAI,
-  AxAgent,
+  AxJSRuntime,
   AxJSRuntimePermission,
   AxMCPClient,
+  agent,
   axCreateJSRuntime,
 } from '@ax-llm/ax';
 import { axCreateMCPStdioTransport } from '@ax-llm/ax-tools';
@@ -21,16 +22,16 @@ const jsRuntime = axCreateJSRuntime({
 });
 
 // Create a coding assistant with memory
-const codingAssistant = new AxAgent<
-  { userQuery: string },
-  { reply: string; codeResult?: string }
->({
-  name: 'CodingAssistant',
-  description:
-    'You are a coding assistant that can remember past conversations and execute JavaScript code.',
-  signature: 'userQuery -> reply, codeResult?',
-  functions: [mcpClient, jsRuntime.toFunction()],
-});
+const codingAssistant = agent(
+  'userQuery:string -> reply:string, codeResult?:string "You are a coding assistant that can remember past conversations and execute JavaScript code."',
+  {
+    functions: [mcpClient, jsRuntime.toFunction()],
+    rlm: {
+      contextFields: [],
+      runtime: new AxJSRuntime(),
+    },
+  }
+);
 
 // Initialize AI
 const ai = new AxAI({

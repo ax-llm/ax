@@ -5,6 +5,7 @@
  * No Node.js-specific imports; browser-safe.
  */
 
+import type { AxFunction } from '../ai/types.js';
 import { toFieldType } from '../dsp/adapter.js';
 import type { AxIField } from '../dsp/sig.js';
 
@@ -13,7 +14,6 @@ import type { AxIField } from '../dsp/sig.js';
  * Implement this interface for your target runtime (Node.js, browser, WASM, etc.).
  */
 export interface AxCodeRuntime {
-  readonly language: string; // e.g. 'JavaScript', 'Python'
   createSession(globals?: Record<string, unknown>): AxCodeSession;
   /**
    * Optional runtime-specific usage guidance injected into the RLM system prompt.
@@ -42,239 +42,227 @@ export interface AxCodeSession {
  * RLM configuration for AxAgent.
  */
 export interface AxRLMConfig {
-  /** RLM execution mode (default: 'inline'). */
-  mode?: 'function' | 'inline';
-  /**
-   * Language label used in inline mode helper field naming.
-   * Example: 'javascript' -> `javascriptCode` (default: 'javascript').
-   */
-  language?: string;
   /** Input fields holding long context (will be removed from the LLM prompt). */
   contextFields: string[];
-  /**
-   * Code runtime for the REPL loop.
-   * Preferred key.
-   */
+  /** Code runtime for the REPL loop (default: AxJSRuntime). */
   runtime?: AxCodeRuntime;
-  /**
-   * @deprecated Use `runtime` instead.
-   * Backward-compatible alias.
-   */
-  interpreter?: AxCodeRuntime;
   /** Cap on recursive sub-LM calls (default: 50). */
   maxLlmCalls?: number;
   /**
    * Maximum characters for RLM runtime payloads (default: 5000).
-   * Applies to llmQuery context and codeInterpreter output.
+   * Applies to llmQuery context and code execution output.
    */
   maxRuntimeChars?: number;
-  /** @deprecated Use `maxRuntimeChars` instead. */
-  maxSubQueryContextChars?: number;
   /** Maximum parallel llmQuery calls in batched mode (default: 8). */
   maxBatchedLlmQueryConcurrency?: number;
-  /** @deprecated Use `maxRuntimeChars` instead. */
-  maxInterpreterOutputChars?: number;
-  /** Model for llmQuery sub-calls (default: same as parent). */
-  subModel?: string;
+  /** Maximum Actor turns before forcing Responder (default: 10). */
+  maxTurns?: number;
+  /**
+   * If true, the Actor must return `actionDescription` and action logs will store
+   * short action descriptions instead of full code blocks.
+   */
+  compressLog?: boolean;
+  /** Output field names the Actor should produce (in addition to javascriptCode). */
+  actorFields?: string[];
+  /** Called after each Actor turn with the full actor result. */
+  actorCallback?: (result: Record<string, unknown>) => void | Promise<void>;
+  /**
+   * Sub-query execution mode (default: 'simple').
+   * - 'simple': llmQuery delegates to a plain AxGen (direct LLM call, no code runtime).
+   * - 'advanced': llmQuery delegates to a full AxAgent (Actor/Responder + code runtime).
+   */
+  mode?: 'simple' | 'advanced';
 }
 
 /**
- * Builds the RLM system prompt that instructs the LLM on how to use the
- * code interpreter, context variables, and llmQuery for semantic analysis.
+ * Builds the Actor system prompt. The Actor is a code generation agent that
+ * decides what code to execute next based on the current state. It NEVER
+ * generates final answers directly.
  */
-export function axBuildRLMDefinition(
+export function axBuildActorDefinition(
   baseDefinition: string | undefined,
-  language: string,
-  contextFields: readonly AxIField[] | readonly string[],
-  options?: Readonly<{
-    mode?: 'function' | 'inline';
-    inlineCodeFieldName?: string;
-    inlineLanguage?: string;
+  contextFields: readonly AxIField[],
+  options: Readonly<{
+    toolFunctions?: readonly AxFunction[];
+    agentFunctions?: readonly AxFunction[];
     runtimeUsageInstructions?: string;
     maxLlmCalls?: number;
+    maxTurns?: number;
+    actorFieldNames?: readonly string[];
+    compressLog?: boolean;
   }>
 ): string {
-  // Backward compat: convert string[] to minimal AxIField[]
-  const fields: readonly AxIField[] =
-    contextFields.length > 0 && typeof contextFields[0] === 'string'
-      ? (contextFields as readonly string[]).map((name) => ({
-          name,
-          title: name,
-        }))
-      : (contextFields as readonly AxIField[]);
-
-  const contextVarList = fields
-    .map((f) => {
-      const typeStr = toFieldType(f.type);
-      const desc = f.description ? `: ${f.description}` : '';
-      return `- \`${f.name}\` (${typeStr})${desc}`;
-    })
-    .join('\n');
-
-  const firstFieldName = fields[0]?.name ?? 'context';
-
-  const mode = options?.mode ?? 'function';
-  const inlineCodeFieldName = options?.inlineCodeFieldName ?? 'javascriptCode';
-  const inlineLanguage = options?.inlineLanguage ?? 'javascript';
-  const maxLlmCalls = options?.maxLlmCalls ?? 50;
+  const maxLlmCalls = options.maxLlmCalls ?? 50;
+  const maxTurns = options.maxTurns ?? 10;
   const runtimeUsageInstructions =
-    options?.runtimeUsageInstructions?.trim() ?? '';
+    options.runtimeUsageInstructions?.trim() ?? '';
   const runtimeUsageNotesSection = runtimeUsageInstructions
     ? `\n\n### Runtime-specific usage notes\n${runtimeUsageInstructions}`
     : '';
 
-  if (mode === 'inline') {
-    const inlineBody = `## Iterative Context Analysis
+  const contextVarList =
+    contextFields.length > 0
+      ? contextFields
+          .map((f) => {
+            const typeStr = toFieldType(f.type);
+            const desc = f.description ? `: ${f.description}` : '';
+            return `- \`${f.name}\` (${typeStr})${desc}`;
+          })
+          .join('\n')
+      : '(none)';
 
-You have a persistent ${inlineLanguage} runtime session. Variables and state persist across iterations. Use it to interactively explore, transform, and analyze context. You are strongly encouraged to use sub-LM queries for semantic analysis.
+  const toolSection =
+    options.toolFunctions && options.toolFunctions.length > 0
+      ? '\n\n### Available tools (callable as async functions)\n' +
+        options.toolFunctions
+          .map((fn) => {
+            const params = fn.parameters?.properties
+              ? Object.keys(fn.parameters.properties).join(', ')
+              : '';
+            return `- \`await ${fn.name}(${params ? `{ ${params} }` : ''})\` — ${fn.description}`;
+          })
+          .join('\n')
+      : '';
+
+  const agentSection =
+    options.agentFunctions && options.agentFunctions.length > 0
+      ? '\n\n### Available agents (accessible via `agents.*`)\n' +
+        options.agentFunctions
+          .map((fn) => {
+            const schema = fn.parameters
+              ? JSON.stringify(fn.parameters, null, 2)
+              : '{}';
+            return `#### \`await agents.${fn.name}({...})\`\n${fn.description}\n\nParameters:\n\`\`\`json\n${schema}\n\`\`\``;
+          })
+          .join('\n\n')
+      : '';
+
+  const firstFieldName = contextFields[0]?.name ?? 'data';
+
+  const actorFieldNames = options.actorFieldNames ?? [];
+  const requiredActorFields: string[] = [];
+  if (options.compressLog) {
+    requiredActorFields.push('`actionDescription`');
+  }
+  if (actorFieldNames.length > 0) {
+    requiredActorFields.push(...actorFieldNames.map((n) => `\`${n}\``));
+  }
+  const actorFieldsRule1 =
+    requiredActorFields.length > 0
+      ? `Output a \`javascriptCode\` field containing executable JavaScript code, and also produce these fields: ${requiredActorFields.join(', ')}.`
+      : 'Output ONLY a `javascriptCode` field containing executable JavaScript code.';
+  const actorFieldsRule2 =
+    requiredActorFields.length > 0
+      ? `Do NOT include fields other than \`javascriptCode\` and the listed actor fields — another agent handles the remaining answer fields.`
+      : 'NEVER include business answer fields — another agent handles the final answer.';
+  const compressLogRule = options.compressLog
+    ? '4. `actionDescription` is REQUIRED and must be a short plain-English description of what the code does.'
+    : '';
+  const signalRule = options.compressLog ? 5 : 4;
+  const variableRule = options.compressLog ? 6 : 5;
+  const exploreRule = options.compressLog ? 7 : 6;
+  const semanticRule = options.compressLog ? 8 : 7;
+  const turnsRule = options.compressLog ? 9 : 8;
+  const batchRule = options.compressLog ? 10 : 9;
+  const recursionRule = options.compressLog ? 11 : 10;
+
+  const actorBody = `## Code Generation Agent
+
+You are a code generation agent. Your ONLY job is to write JavaScript code that gathers information needed to answer the user's question. You NEVER answer the question directly — another agent handles the final answer.
 
 ### Pre-loaded context variables
 The following variables are available in the runtime session:
 ${contextVarList}
 
-### Helper output fields
-- \`${inlineCodeFieldName}\` (optional): ${inlineLanguage} code to execute in the persistent runtime session.
-- \`resultReady\` (optional): set to \`true\` only when your final required output fields are fully complete and validated. Otherwise omit this field (do not emit \`false\`).
-
-### Runtime APIs (available inside \`${inlineCodeFieldName}\`)
-- \`await llmQuery(query, context?)\` — Single sub-query. Both arguments are strings (pass context via JSON.stringify() for objects/arrays). Returns a string. Sub-LMs are powerful and can handle large context, so do not be afraid to pass substantial context to them.
-- \`await llmQuery([{ query, context? }, ...])\` — Parallel batch. Pass an array of { query, context? } objects. Returns string[]; failed items return \`[ERROR] ...\`. Use parallel queries when you have multiple independent chunks — it is much faster than sequential calls.
+### Runtime APIs (available inside \`javascriptCode\`)
+- \`await llmQuery(query, context)\` — Single sub-query. query is a string, context can be any value (string, object, array, etc.) and will be available as a variable in the sub-agent's runtime. Returns a string. Always pass the relevant context — sub-LMs are powerful and can handle large context.
+- \`await llmQuery([{ query, context }, ...])\` — Parallel batch. Pass an array of { query, context } objects where context can be any value. Returns string[]; failed items return \`[ERROR] ...\`. Use parallel queries when you have multiple independent chunks — it is much faster than sequential calls.
+- \`submit(...args)\` — Signal completion and provide payload arguments for the responder. Requires at least one argument. Can be called anywhere in your code — execution continues normally after calling it.
+- \`ask_clarification(...args)\` — Signal that more user input is needed and provide clarification arguments for the responder. Requires at least one argument. Can be called anywhere in your code — execution continues normally after calling it.
+${toolSection}${agentSection}
 
 Sub-queries have a call limit of ${maxLlmCalls} — use parallel queries and keep each context small.
 There is also a runtime character cap for \`llmQuery\` context and code output. Oversized values are truncated automatically.
 
+### Strategic planning
+Before writing any code, assess your input data. Often the context is small enough to handle in a few direct \`llmQuery\` calls without deep recursion. Think step by step: plan your approach and execute it immediately in your code — do not just describe what you will do. Prefer using code for structural work (slicing, filtering, aggregating) and reserve \`llmQuery\` only for semantic tasks that code cannot handle.
+
+### Rules
+1. ${actorFieldsRule1}
+2. ${actorFieldsRule2}
+3. When you have gathered enough information, call \`submit(...args)\`. If you need user input before continuing, call \`ask_clarification(...args)\`.
+${compressLogRule}
+${signalRule}. Use variables to accumulate results across turns (they persist in the session).
+${variableRule}. Explore context first (check type, size, structure) before doing analysis.
+${exploreRule}. Use \`llmQuery\` for semantic work, code for structural work.
+${semanticRule}. \`submit(...args)\` and \`ask_clarification(...args)\` each require at least one argument.
+${turnsRule}. You have ${maxTurns} turns maximum. Plan accordingly.
+${batchRule}. **Minimize \`llmQuery\` calls** — each call is expensive. Always batch related queries into a single parallel \`llmQuery([...])\` call. For example, if you have 100 items to analyze, chunk them into groups of 10 and make 10 parallel calls — never 100 individual calls.
+${recursionRule}. **Avoid unnecessary recursion** — analyze your data first. If the context is small or the task is straightforward, solve it directly with code or a single \`llmQuery\` call. Do NOT reflexively delegate to \`llmQuery\` when a \`console.log\`, string operation, or loop would suffice.
+
 ### Iteration strategy
-1. **Explore first**: before doing any analysis, inspect the context — check its type, size, structure, and a sample. Do not try to solve everything in the first step.
-2. **Plan a chunking strategy**: figure out how to break the context into smart chunks (by section, by index range, by regex pattern, etc.) based on what you observe.
-3. **Use code for structural work**: filter, map, slice, regex, property access — use \`${inlineCodeFieldName}\` for anything computable.
-4. **Use \`llmQuery\` for semantic work**: summarization, interpretation, or answering questions about content. Keep each query focused but do not be afraid to pass substantial context.
-5. **Build up answers in variables**: use variables as buffers to accumulate intermediate results across steps, then combine them for the final answer.
-6. **Handle truncated output**: runtime output may be truncated. If it appears incomplete, rerun with narrower scope or smaller slices.
-7. **Verify before finishing**: check that your outputs look correct before setting \`resultReady: true\`.
+1. **Explore first & assess**: before doing any analysis, inspect the context — check its type, size, structure, and a sample. Determine if the data is small enough to process directly without heavy recursion.
+2. **Plan before recursing**: based on your exploration, decide the minimum number of \`llmQuery\` calls needed. Often 1–3 well-crafted calls are sufficient. Do not launch recursive sub-queries until you have a concrete plan.
+3. **Plan a chunking strategy**: if the context is large, figure out how to break it into smart chunks based on what you observe.
+4. **Use code for structural work**: filter, map, slice, regex, property access — use \`javascriptCode\` for anything computable.
+5. **Use \`llmQuery\` for semantic work**: summarization, interpretation, or answering questions about content.
+6. **Build up answers in variables**: use variables as buffers to accumulate intermediate results across steps.
+7. **Handle truncated output**: runtime output may be truncated. If it appears incomplete, rerun with narrower scope.
+8. **Signal completion**: call \`submit(...args)\` when you have gathered enough information, or \`ask_clarification(...args)\` when user input is required. You can combine with final code: \`var result = await llmQuery(...); console.log(result); submit(result)\`
 
 ### Example (iterative analysis of \`${firstFieldName}\`)
-Step 1 (explore context):
+Step 1 (explore & assess):
 \`\`\`
-${inlineCodeFieldName}: var n = ${firstFieldName}.length; n
-\`\`\`
-
-Step 2 (inspect structure and plan chunking):
-\`\`\`
-${inlineCodeFieldName}: var sample = JSON.stringify(${firstFieldName}.slice(0, 2)); sample
+javascriptCode: var n = ${firstFieldName}.length; console.log("Size:", n, "Type:", typeof ${firstFieldName})
 \`\`\`
 
-Step 3 (semantic batch — query sub-LMs on chunks with context):
+Step 2 (inspect sample & plan):
 \`\`\`
-${inlineCodeFieldName}: var chunks = [${firstFieldName}.slice(0, 5), ${firstFieldName}.slice(5, 10)]
-results = await llmQuery(chunks.map(c => ({ query: "Summarize the key points", context: JSON.stringify(c) })))
-results
-\`\`\`
-
-Step 4 (aggregate in a buffer variable):
-\`\`\`
-${inlineCodeFieldName}: var ok = results.filter(r => !String(r).startsWith("[ERROR]"))
-var combined = ok.join("\\n"); combined
+javascriptCode: console.log(${firstFieldName}.slice(0, 200))
+// Based on size, decide: small data → single llmQuery + submit; large data → chunk and batch
 \`\`\`
 
-Step 5 (finish):
+Step 3 (semantic query + signal done):
 \`\`\`
-resultReady: true
-<required output fields...>
-\`\`\`
+javascriptCode: var result = await llmQuery("Summarize the key points", ${firstFieldName})
+console.log(result)
+submit(result)
+\`\`\`${runtimeUsageNotesSection}`;
 
-### Important
-- You may emit helper fields for intermediate steps.
-- On the final step, provide all required business output fields and set \`resultReady: true\`.
-- Do not emit \`resultReady: false\`; omit \`resultReady\` until it is true.
-- Do not include helper fields in the final business answer unless you are still iterating.${runtimeUsageNotesSection}`;
-
-    return baseDefinition ? `${inlineBody}\n\n${baseDefinition}` : inlineBody;
-  }
-
-  const rlmBody = `## Iterative Context Analysis
-
-You have a persistent ${language} REPL via the \`codeInterpreter\` function. Variables and state persist across calls. Use it to interactively explore, transform, and analyze context. You are strongly encouraged to use sub-LM queries for semantic analysis.
-
-### Pre-loaded context variables
-The following variables are available in the interpreter session:
-${contextVarList}
-
-### APIs
-- \`await llmQuery(query, context?)\` — Single sub-query. Both arguments are strings (pass context via JSON.stringify() for objects/arrays). Returns a string. Sub-LMs are powerful and can handle large context, so do not be afraid to pass substantial context to them.
-- \`await llmQuery([{ query, context? }, ...])\` — Parallel batch. Pass an array of { query, context? } objects. Returns string[]; failed items return \`[ERROR] ...\`. Use parallel queries when you have multiple independent chunks — it is much faster than sequential calls.
-
-Sub-queries have a call limit of ${maxLlmCalls} — use parallel queries and keep each context small.
-There is also a runtime character cap for \`llmQuery\` context and \`codeInterpreter\` output. Oversized values are truncated automatically.
-
-### Iteration strategy
-1. **Explore context first**: before any analysis, inspect the type, size, and structure of your context. Check a sample to understand the data shape.
-2. **Plan a chunking strategy**: based on what you observe, figure out how to break the context into smart chunks (by section headers, by index ranges, by regex patterns, etc.).
-3. **Iterate in small steps**: run short code, inspect output, then decide the next step. Do not try to solve everything in one call.
-4. **Use code for structural work**: filter, map, slice, regex, property access — anything computable.
-5. **Use \`llmQuery\` for semantic understanding**: summarization, interpretation, classification, or answering questions about content.
-6. **Build up answers in variables**: use variables as buffers to accumulate results across calls, then aggregate them for the final answer.
-7. **Handle truncation**: you will only see truncated output from the REPL. If output appears incomplete, rerun with narrower scope.
-8. **Verify before final answer**: if outputs look empty or unexpected, reassess and rerun. Always surface key intermediate checks so you can validate assumptions.
-
-### Example
-Analyzing \`${firstFieldName}\`:
-
-**Call 1** — explore context:
-\`\`\`
-var n = ${firstFieldName}.length
-var sample = JSON.stringify(${firstFieldName}.slice(0, 2))
-return { count: n, sample }
-\`\`\`
-→ { count: 42, sample: "[...]" }
-
-**Call 2** — plan and chunk:
-\`\`\`
-var chunkSize = Math.ceil(n / 4)
-var chunks = []
-for (var i = 0; i < n; i += chunkSize) {
-  chunks.push(${firstFieldName}.slice(i, i + chunkSize))
+  return baseDefinition ? `${actorBody}\n\n${baseDefinition}` : actorBody;
 }
-return chunks.length
-\`\`\`
-→ 4
 
-**Call 3** — run semantic queries on chunks concurrently:
-\`\`\`
-results = await llmQuery(
-  chunks.map(chunk => ({
-    query: "Summarize the key points",
-    context: JSON.stringify(chunk)
-  }))
-)
-return results
-\`\`\`
-→ ["Summary of chunk 0...", "Summary of chunk 1...", ...]
+/**
+ * Builds the Responder system prompt. The Responder synthesizes a final answer
+ * from the action log produced by the Actor. It NEVER generates code.
+ */
+export function axBuildResponderDefinition(
+  baseDefinition: string | undefined,
+  contextFields: readonly AxIField[]
+): string {
+  const contextVarSummary =
+    contextFields.length > 0
+      ? contextFields
+          .map((f) => {
+            const typeStr = toFieldType(f.type);
+            return `- \`${f.name}\` (${typeStr})`;
+          })
+          .join('\n')
+      : '(none)';
 
-**Call 4** — handle failed batch items if any:
-\`\`\`
-var ok = results.filter(r => !String(r).startsWith("[ERROR]"))
-var failed = results.filter(r => String(r).startsWith("[ERROR]"))
-return { okCount: ok.length, failedCount: failed.length }
-\`\`\`
-→ { okCount: 4, failedCount: 0 }
+  const responderBody = `## Answer Synthesis Agent
 
-**Call 5** — aggregate into final answer:
-\`\`\`
-answer = await llmQuery("Synthesize these summaries into a final answer", ok.join("\\n"))
-return answer
-\`\`\`
-→ "Final synthesized answer..."
+You synthesize a final answer from the provided actorResult payload. The payload includes the Actor completion type and arguments captured from submit(...args) or ask_clarification(...args).
 
-Then provide the final answer with the required output fields.
+### Context variables that were analyzed (metadata only)
+${contextVarSummary}
 
-### Guidelines
-- Use code for structural work (filter, map, slice, regex, property access); use \`llmQuery\` for semantic understanding.
-- Keep \`llmQuery\` context small and within the configured runtime cap (\`maxRuntimeChars\`).
-- Keep codeInterpreter output concise; return or print summaries/counts instead of massive dumps.
-- If output includes \`...[truncated N chars]\`, treat it as incomplete and retry with narrower context.
-- For batched \`llmQuery\`, keep successes and retry only failed \`[ERROR] ...\` items.
-- If \`llmQuery\` fails, use try/catch and retry with a smaller chunk or different query.
-- Keep long values in variables; avoid retyping large snippets.${runtimeUsageNotesSection}`;
+### Rules
+1. Base your answer ONLY on evidence from actorResult payload arguments.
+2. If actorResult lacks sufficient information, provide the best possible answer from available evidence.
+3. If actorResult.type is \`ask_clarification\`, ask for the missing information clearly in your output fields.`;
 
-  return baseDefinition ? `${rlmBody}\n\n${baseDefinition}` : rlmBody;
+  return baseDefinition
+    ? `${responderBody}\n\n${baseDefinition}`
+    : responderBody;
 }

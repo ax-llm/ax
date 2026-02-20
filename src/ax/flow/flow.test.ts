@@ -413,7 +413,6 @@ describe('AxFlow', () => {
       // Should have all required methods from AxProgram
       expect(typeof myFlow.forward).toBe('function');
       expect(typeof myFlow.getSignature).toBe('function');
-      expect(typeof myFlow.setExamples).toBe('function');
       expect(typeof myFlow.getTraces).toBe('function');
       expect(typeof myFlow.getUsage).toBe('function');
     });
