@@ -14,10 +14,13 @@ const makeModelUsage = () => ({
 });
 
 const createSimpleRuntime = (): AxCodeRuntime => ({
-  createSession() {
+  createSession(globals) {
     return {
       execute: async (code: string) => {
-        if (code.trim() === 'done()') return 'done()';
+        if (globals?.submit && code.includes('submit(')) {
+          (globals.submit as (...args: unknown[]) => void)('done');
+          return 'submitted';
+        }
         return `executed: ${code}`;
       },
       close: () => {},
@@ -36,7 +39,7 @@ describe('AxAgent.stop()', () => {
 
         if (systemPrompt.includes('Code Generation Agent')) {
           actorCallCount++;
-          // Always return code (never done()) so the loop continues
+          // Always return code (never submit()) so the loop continues
           return {
             results: [
               {

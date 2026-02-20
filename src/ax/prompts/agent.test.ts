@@ -20,9 +20,19 @@ const makeModelUsage = () => ({
 
 /** Minimal runtime for tests that don't exercise code execution */
 const defaultRuntime: AxCodeRuntime = {
-  createSession() {
+  createSession(globals) {
     return {
-      execute: async () => 'ok',
+      execute: async (code: string) => {
+        if (globals?.submit && code.includes('submit(')) {
+          (globals.submit as (...args: unknown[]) => void)('done');
+        }
+        if (globals?.ask_clarification && code.includes('ask_clarification(')) {
+          (globals.ask_clarification as (...args: unknown[]) => void)(
+            'clarification'
+          );
+        }
+        return 'ok';
+      },
       close: () => {},
     };
   },
@@ -183,6 +193,20 @@ describe('Split-architecture signature derivation', () => {
     expect(outputs[0].name).toBe('javascriptCode');
   });
 
+  it('should require actionDescription before javascriptCode when compressLog is enabled', () => {
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      rlm: { contextFields: ['context'], runtime, compressLog: true },
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const actorSig = (testAgent as any).actorProgram.getSignature();
+    const outputs = actorSig.getOutputFields();
+
+    expect(outputs).toHaveLength(2);
+    expect(outputs[0].name).toBe('actionDescription');
+    expect(outputs[1].name).toBe('javascriptCode');
+  });
+
   it('should derive Responder signature with original outputs', () => {
     const testAgent = agent(
       'context:string, query:string -> answer:string, confidence:number',
@@ -196,8 +220,10 @@ describe('Split-architecture signature derivation', () => {
     const inputs = responderSig.getInputFields();
     const outputs = responderSig.getOutputFields();
 
-    // Responder inputs include actionLog and contextMetadata
-    expect(inputs.find((f: AxIField) => f.name === 'actionLog')).toBeDefined();
+    // Responder inputs include actorResult and contextMetadata
+    expect(
+      inputs.find((f: AxIField) => f.name === 'actorResult')
+    ).toBeDefined();
     expect(
       inputs.find((f: AxIField) => f.name === 'contextMetadata')
     ).toBeDefined();
@@ -226,7 +252,7 @@ describe('Split-architecture signature derivation', () => {
 // ----- Actor/Responder execution loop -----
 
 describe('Actor/Responder execution loop', () => {
-  it('should exit loop when Actor returns done()', async () => {
+  it('should exit loop when Actor returns submit(...)', async () => {
     let actorCallCount = 0;
     let responderCalled = false;
 
@@ -259,12 +285,12 @@ describe('Actor/Responder execution loop', () => {
               modelUsage: makeModelUsage(),
             };
           }
-          // Second call: signal done
+          // Second call: signal submit
           return {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: done()',
+                content: 'Javascript Code: submit("done")',
                 finishReason: 'stop',
               },
             ],
@@ -294,9 +320,13 @@ describe('Actor/Responder execution loop', () => {
     });
 
     const runtime: AxCodeRuntime = {
-      createSession() {
+      createSession(globals) {
         return {
           execute: async (code: string) => {
+            if (globals?.submit && code.includes('submit(')) {
+              (globals.submit as (...args: unknown[]) => void)('done');
+              return 'done';
+            }
             try {
               const parts = code
                 .split(';')
@@ -348,7 +378,7 @@ describe('Actor/Responder execution loop', () => {
 
         if (systemPrompt.includes('Code Generation Agent')) {
           actorCallCount++;
-          // Never return done() — always return code
+          // Never return submit() — always return code
           return {
             results: [
               {
@@ -408,8 +438,8 @@ describe('Actor/Responder execution loop', () => {
     expect(result.answer).toBe('forced answer after max turns');
   });
 
-  it('should accumulate actionLog across turns', async () => {
-    let lastActionLogValue = '';
+  it('should send fallback actorResult payload when no submit()/ask_clarification() is called', async () => {
+    let responderPrompt = '';
 
     const testMockAI = new AxMockAIService({
       features: { functions: false, streaming: false },
@@ -421,7 +451,7 @@ describe('Actor/Responder execution loop', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: done()',
+                content: 'Javascript Code: var step = 1; step',
                 finishReason: 'stop',
               },
             ],
@@ -430,9 +460,81 @@ describe('Actor/Responder execution loop', () => {
         }
 
         if (systemPrompt.includes('Answer Synthesis Agent')) {
-          // Capture the actionLog that was passed to the Responder
+          responderPrompt = String(req.chatPrompt[1]?.content ?? '');
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Answer: fallback path',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const runtime: AxCodeRuntime = {
+      createSession() {
+        return {
+          execute: async () => 'executed-step',
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      rlm: {
+        contextFields: ['context'],
+        runtime,
+        maxTurns: 1,
+      },
+    });
+
+    await testAgent.forward(testMockAI, {
+      context: 'unused',
+      query: 'unused',
+    });
+
+    expect(responderPrompt).toContain('Actor Result:');
+    expect(responderPrompt).toContain('"type": "submit"');
+    expect(responderPrompt).toContain('Action 1:');
+    expect(responderPrompt).toContain('```javascript');
+    expect(responderPrompt).not.toContain('Action Log:');
+  });
+
+  it('should accumulate actionLog across turns', async () => {
+    let lastResponderPayload = '';
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: submit("done")',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Answer Synthesis Agent')) {
+          // Capture the actorResult payload that was passed to the Responder
           const userPrompt = String(req.chatPrompt[1]?.content ?? '');
-          lastActionLogValue = userPrompt;
+          lastResponderPayload = userPrompt;
           return {
             results: [
               {
@@ -453,9 +555,14 @@ describe('Actor/Responder execution loop', () => {
     });
 
     const runtime: AxCodeRuntime = {
-      createSession() {
+      createSession(globals) {
         return {
-          execute: async () => 'executed',
+          execute: async (code: string) => {
+            if (globals?.submit && code.includes('submit(')) {
+              (globals.submit as (...args: unknown[]) => void)('done');
+            }
+            return 'executed';
+          },
           close: () => {},
         };
       },
@@ -474,11 +581,99 @@ describe('Actor/Responder execution loop', () => {
       query: 'unused',
     });
 
-    // Since Actor returned done() on first call, no actions were taken
-    expect(lastActionLogValue).toContain('no actions were taken');
+    expect(lastResponderPayload).toContain('Actor Result:');
+    expect(lastResponderPayload).toContain('"type": "submit"');
+    expect(lastResponderPayload).toContain('"done"');
   });
 
-  it('should exit loop when Actor returns legacy "DONE" (with quotes)', async () => {
+  it('should compress actionLog entries using actionDescription when compressLog is enabled', async () => {
+    let actorCallCount = 0;
+    let secondActorPrompt = '';
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCallCount++;
+          if (actorCallCount === 1) {
+            return {
+              results: [
+                {
+                  index: 0,
+                  content:
+                    'Action Description: inspect structure\nJavascript Code: var sample = "ok"; sample',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+
+          secondActorPrompt = String(req.chatPrompt[1]?.content ?? '');
+          return {
+            results: [
+              {
+                index: 0,
+                content:
+                  'Action Description: finalize\nJavascript Code: submit("done")',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Answer Synthesis Agent')) {
+          return {
+            results: [
+              { index: 0, content: 'Answer: compressed', finishReason: 'stop' },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const runtime: AxCodeRuntime = {
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (globals?.submit && code.includes('submit(')) {
+              (globals.submit as (...args: unknown[]) => void)('done');
+            }
+            return 'executed';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      rlm: {
+        contextFields: ['context'],
+        runtime,
+        compressLog: true,
+      },
+    });
+
+    await testAgent.forward(testMockAI, {
+      context: 'unused',
+      query: 'unused',
+    });
+
+    expect(secondActorPrompt).toContain('Action: inspect structure');
+    expect(secondActorPrompt).not.toContain('```javascript');
+  });
+
+  it('should exit loop when Actor returns ask_clarification(...)', async () => {
     let actorCallCount = 0;
     let responderCalled = false;
 
@@ -489,12 +684,13 @@ describe('Actor/Responder execution loop', () => {
 
         if (systemPrompt.includes('Code Generation Agent')) {
           actorCallCount++;
-          // Return "DONE" with quotes — the bug scenario
+          // Signal clarification request
           return {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: "DONE"',
+                content:
+                  'Javascript Code: ask_clarification("Need additional context")',
                 finishReason: 'stop',
               },
             ],
@@ -640,10 +836,10 @@ describe('Functions as runtime globals', () => {
   });
 });
 
-// ----- done() as runtime global -----
+// ----- submit()/ask_clarification() as runtime globals -----
 
-describe('done() as runtime global', () => {
-  it('should exit actor loop when done() is called inline with code', async () => {
+describe('submit()/ask_clarification() as runtime globals', () => {
+  it('should exit actor loop when submit() is called inline with code', async () => {
     let actorCallCount = 0;
     let responderCalled = false;
     let executedCode = '';
@@ -659,7 +855,7 @@ describe('done() as runtime global', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: var x = 42; done()',
+                content: 'Javascript Code: var x = 42; submit("inline")',
                 finishReason: 'stop',
               },
             ],
@@ -693,9 +889,9 @@ describe('done() as runtime global', () => {
         return {
           execute: async (code: string) => {
             executedCode = code;
-            // Simulate calling the done function from globals
-            if (globals?.done && code.includes('done()')) {
-              (globals.done as () => void)();
+            // Simulate calling the submit function from globals
+            if (globals?.submit && code.includes('submit(')) {
+              (globals.submit as (...args: unknown[]) => void)('inline');
             }
             return 42;
           },
@@ -714,15 +910,14 @@ describe('done() as runtime global', () => {
 
     const result = await testAgent.forward(testMockAI, { query: 'test' });
 
-    // Actor should be called only once — done() signals exit after execution
+    // Actor should be called only once — submit() signals exit after execution
     expect(actorCallCount).toBe(1);
     expect(responderCalled).toBe(true);
     expect(result.answer).toBe('inline done result');
-    // The code with trailing done() stripped should have been executed
-    expect(executedCode).toContain('var x = 42');
+    expect(executedCode).toContain('submit("inline")');
   });
 
-  it('should pass done function in session globals and include in reservedNames', async () => {
+  it('should pass submit and ask_clarification functions in session globals', async () => {
     let receivedGlobals: Record<string, unknown> = {};
 
     const testMockAI = new AxMockAIService({
@@ -735,7 +930,7 @@ describe('done() as runtime global', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: done()',
+                content: 'Javascript Code: submit("done")',
                 finishReason: 'stop',
               },
             ],
@@ -767,7 +962,12 @@ describe('done() as runtime global', () => {
       createSession(globals) {
         receivedGlobals = globals ?? {};
         return {
-          execute: async () => 'ok',
+          execute: async (code: string) => {
+            if (globals?.submit && code.includes('submit(')) {
+              (globals.submit as (...args: unknown[]) => void)('done');
+            }
+            return 'ok';
+          },
           close: () => {},
         };
       },
@@ -783,9 +983,106 @@ describe('done() as runtime global', () => {
 
     await testAgent.forward(testMockAI, { query: 'test' });
 
-    // done should be passed as a session global
-    expect(receivedGlobals).toHaveProperty('done');
-    expect(typeof receivedGlobals.done).toBe('function');
+    expect(receivedGlobals).toHaveProperty('submit');
+    expect(typeof receivedGlobals.submit).toBe('function');
+    expect(receivedGlobals).toHaveProperty('ask_clarification');
+    expect(typeof receivedGlobals.ask_clarification).toBe('function');
+  });
+
+  it('should require at least one argument for submit()', async () => {
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: submit()',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const runtime: AxCodeRuntime = {
+      createSession(globals) {
+        return {
+          execute: async () => {
+            (globals?.submit as (...args: unknown[]) => void)();
+            return 'unreachable';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      rlm: { contextFields: [], runtime },
+    });
+
+    await expect(
+      testAgent.forward(testMockAI, { query: 'test' })
+    ).rejects.toThrow('submit() requires at least one argument');
+  });
+
+  it('should require at least one argument for ask_clarification()', async () => {
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: ask_clarification()',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const runtime: AxCodeRuntime = {
+      createSession(globals) {
+        return {
+          execute: async () => {
+            (globals?.ask_clarification as (...args: unknown[]) => void)();
+            return 'unreachable';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      rlm: { contextFields: [], runtime },
+    });
+
+    await expect(
+      testAgent.forward(testMockAI, { query: 'test' })
+    ).rejects.toThrow('ask_clarification() requires at least one argument');
   });
 });
 
@@ -969,15 +1266,16 @@ describe('axBuildActorDefinition', () => {
     expect(result).toContain("- `query` (string): The user's search query");
   });
 
-  it('should document done() exit signal', () => {
+  it('should document submit()/ask_clarification() exit signals', () => {
     const result = axBuildActorDefinition(undefined, [], {});
-    expect(result).toContain('done()');
+    expect(result).toContain('submit(...args)');
+    expect(result).toContain('ask_clarification(...args)');
   });
 
   it('should document llmQuery API', () => {
     const result = axBuildActorDefinition(undefined, [], {});
-    expect(result).toContain('await llmQuery(query, context?)');
-    expect(result).toContain('await llmQuery([{ query, context? }, ...])');
+    expect(result).toContain('await llmQuery(query, context)');
+    expect(result).toContain('await llmQuery([{ query, context }, ...])');
   });
 
   it('should list tool functions when provided', () => {
@@ -1017,6 +1315,13 @@ describe('axBuildActorDefinition', () => {
     expect(result).toContain('5 turns maximum');
   });
 
+  it('should require actionDescription in prompt when compressLog is enabled', () => {
+    const result = axBuildActorDefinition(undefined, [], {
+      compressLog: true,
+    });
+    expect(result).toContain('`actionDescription` is REQUIRED');
+  });
+
   it('should append base definition', () => {
     const result = axBuildActorDefinition(
       'You are a helpful assistant.',
@@ -1043,10 +1348,10 @@ describe('axBuildResponderDefinition', () => {
     expect(result).toContain('- `documents` (string)');
   });
 
-  it('should instruct to base answer on action log evidence', () => {
+  it('should instruct to base answer on actorResult evidence', () => {
     const result = axBuildResponderDefinition(undefined, []);
     expect(result).toContain(
-      'Base your answer ONLY on evidence from the action log'
+      'Base your answer ONLY on evidence from actorResult payload arguments'
     );
   });
 
@@ -1073,22 +1378,48 @@ describe('RLM llmQuery runtime behavior', () => {
         const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
         const userPrompt = String(req.chatPrompt[1]?.content ?? '');
 
-        if (systemPrompt.includes('Answer the query')) {
-          if (userPrompt.includes('Query: fail')) {
-            throw new Error('boom');
-          }
-          return {
-            results: [{ index: 0, content: 'ok', finishReason: 'stop' }],
-            modelUsage: makeModelUsage(),
-          };
-        }
-
         if (systemPrompt.includes('Code Generation Agent')) {
+          if (userPrompt.includes('Query: unused')) {
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: BATCH_TEST',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          if (userPrompt.includes('Query: ok')) {
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: submit("ok")',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          if (userPrompt.includes('Query: fail')) {
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: submit("fail")',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
           return {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: BATCH_TEST',
+                content: 'Javascript Code: submit("done")',
                 finishReason: 'stop',
               },
             ],
@@ -1097,6 +1428,17 @@ describe('RLM llmQuery runtime behavior', () => {
         }
 
         if (systemPrompt.includes('Answer Synthesis Agent')) {
+          if (userPrompt.includes('Task: fail')) {
+            throw new Error('boom');
+          }
+          if (userPrompt.includes('Task: ok')) {
+            return {
+              results: [
+                { index: 0, content: 'Answer: ok', finishReason: 'stop' },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
           return {
             results: [
               { index: 0, content: 'Answer: done', finishReason: 'stop' },
@@ -1116,15 +1458,30 @@ describe('RLM llmQuery runtime behavior', () => {
     const runtime: AxCodeRuntime = {
       createSession(globals) {
         return {
-          execute: async () => {
-            const llmQueryFn = globals?.llmQuery as (
-              q: readonly { query: string; context?: string }[]
-            ) => Promise<string[]>;
-            batchResult = await llmQueryFn([
-              { query: 'ok', context: 'ctx1' },
-              { query: 'fail', context: 'ctx2' },
-            ]);
-            return JSON.stringify(batchResult);
+          execute: async (code: string) => {
+            if (code === 'BATCH_TEST') {
+              const llmQueryFn = globals?.llmQuery as (
+                q: readonly { query: string; context?: string }[]
+              ) => Promise<string[]>;
+              batchResult = await llmQueryFn([
+                { query: 'ok', context: 'ctx1' },
+                { query: 'fail', context: 'ctx2' },
+              ]);
+              return JSON.stringify(batchResult);
+            }
+
+            if (globals?.submit && code.includes('submit(')) {
+              if (code.includes('"ok"')) {
+                (globals.submit as (...args: unknown[]) => void)('ok');
+              } else if (code.includes('"fail"')) {
+                (globals.submit as (...args: unknown[]) => void)('fail');
+              } else {
+                (globals.submit as (...args: unknown[]) => void)('done');
+              }
+              return 'submitted';
+            }
+
+            return 'ok';
           },
           close: () => {},
         };
@@ -1137,6 +1494,7 @@ describe('RLM llmQuery runtime behavior', () => {
         contextFields: ['context'],
         runtime,
         maxTurns: 1,
+        mode: 'advanced',
       },
     });
 
@@ -1146,7 +1504,7 @@ describe('RLM llmQuery runtime behavior', () => {
     });
 
     expect(batchResult[0]).toBe('ok');
-    expect(batchResult[1]).toContain('[ERROR] boom');
+    expect(batchResult[1]).toContain('boom');
   });
 
   it('should normalize single-object llmQuery({ query, context }) to positional args', async () => {
@@ -1156,22 +1514,38 @@ describe('RLM llmQuery runtime behavior', () => {
       features: { functions: false, streaming: false },
       chatResponse: async (req) => {
         const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
-
-        if (systemPrompt.includes('Answer the query')) {
-          return {
-            results: [
-              { index: 0, content: 'sub-lm-answer', finishReason: 'stop' },
-            ],
-            modelUsage: makeModelUsage(),
-          };
-        }
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
 
         if (systemPrompt.includes('Code Generation Agent')) {
+          if (userPrompt.includes('Query: unused')) {
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: test',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          if (userPrompt.includes('Task: summarize this')) {
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: submit("sub-lm-answer")',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
           return {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: test',
+                content: 'Javascript Code: submit("done")',
                 finishReason: 'stop',
               },
             ],
@@ -1180,6 +1554,18 @@ describe('RLM llmQuery runtime behavior', () => {
         }
 
         if (systemPrompt.includes('Answer Synthesis Agent')) {
+          if (userPrompt.includes('Task: summarize this')) {
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Answer: sub-lm-answer',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
           return {
             results: [
               { index: 0, content: 'Answer: done', finishReason: 'stop' },
@@ -1198,16 +1584,31 @@ describe('RLM llmQuery runtime behavior', () => {
     const runtime: AxCodeRuntime = {
       createSession(globals) {
         return {
-          execute: async () => {
-            const llmQueryFn = globals?.llmQuery as (q: {
-              query: string;
-              context?: string;
-            }) => Promise<string>;
-            llmQueryResult = await llmQueryFn({
-              query: 'summarize this',
-              context: 'some context',
-            });
-            return llmQueryResult;
+          execute: async (code: string) => {
+            if (code === 'test') {
+              const llmQueryFn = globals?.llmQuery as (q: {
+                query: string;
+                context?: string;
+              }) => Promise<string>;
+              llmQueryResult = await llmQueryFn({
+                query: 'summarize this',
+                context: 'some context',
+              });
+              return llmQueryResult;
+            }
+
+            if (globals?.submit && code.includes('submit(')) {
+              if (code.includes('"sub-lm-answer"')) {
+                (globals.submit as (...args: unknown[]) => void)(
+                  'sub-lm-answer'
+                );
+              } else {
+                (globals.submit as (...args: unknown[]) => void)('done');
+              }
+              return 'submitted';
+            }
+
+            return 'ok';
           },
           close: () => {},
         };
@@ -1220,6 +1621,7 @@ describe('RLM llmQuery runtime behavior', () => {
         contextFields: ['context'],
         runtime,
         maxTurns: 1,
+        mode: 'advanced',
       },
     });
 
@@ -1370,7 +1772,7 @@ describe('RLM session restart', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: done()',
+                content: 'Javascript Code: submit("done")',
                 finishReason: 'stop',
               },
             ],
@@ -1448,7 +1850,7 @@ describe('RLM session restart', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: done()',
+                content: 'Javascript Code: submit("done")',
                 finishReason: 'stop',
               },
             ],
@@ -1518,7 +1920,7 @@ describe('Program registration for optimization', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: done()',
+                content: 'Javascript Code: submit("done")',
                 finishReason: 'stop' as const,
               },
             ],
@@ -1576,7 +1978,7 @@ describe('Program registration for optimization', () => {
                 content:
                   actorCallCount === 1
                     ? 'Javascript Code: "step"'
-                    : 'Javascript Code: done()',
+                    : 'Javascript Code: submit("done")',
                 finishReason: 'stop' as const,
               },
             ],
@@ -1628,7 +2030,7 @@ describe('Program registration for optimization', () => {
                 content:
                   actorCallCount === 1
                     ? 'Javascript Code: "x"'
-                    : 'Javascript Code: done()',
+                    : 'Javascript Code: submit("done")',
                 finishReason: 'stop' as const,
               },
             ],
@@ -1825,7 +2227,7 @@ describe('Program registration for optimization', () => {
                 content:
                   actorCallCount === 1
                     ? 'Javascript Code: "hello"'
-                    : 'Javascript Code: done()',
+                    : 'Javascript Code: submit("done")',
                 finishReason: 'stop' as const,
               },
             ],
@@ -1909,7 +2311,7 @@ describe('streamingForward', () => {
                 content:
                   actorCallCount === 1
                     ? 'Javascript Code: "gather"'
-                    : 'Javascript Code: done()',
+                    : 'Javascript Code: submit("done")',
                 finishReason: 'stop' as const,
               },
             ],
@@ -2060,7 +2462,8 @@ describe('actorFields', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: done()\nReasoning: Final reasoning',
+                content:
+                  'Javascript Code: submit("done")\nReasoning: Final reasoning',
                 finishReason: 'stop',
               },
             ],
@@ -2111,12 +2514,20 @@ describe('actorFields', () => {
 
 describe('actorCallback', () => {
   const runtime: AxCodeRuntime = {
-    createSession() {
-      return { execute: async () => 'ok', close: () => {} };
+    createSession(globals) {
+      return {
+        execute: async (code: string) => {
+          if (globals?.submit && code.includes('submit(')) {
+            (globals.submit as (...args: unknown[]) => void)('done');
+          }
+          return 'ok';
+        },
+        close: () => {},
+      };
     },
   };
 
-  it('should call actorCallback on every Actor turn including done()', async () => {
+  it('should call actorCallback on every Actor turn including submit()', async () => {
     let actorCallCount = 0;
     const callbackResults: Record<string, unknown>[] = [];
 
@@ -2143,7 +2554,7 @@ describe('actorCallback', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: done()',
+                content: 'Javascript Code: submit("done")',
                 finishReason: 'stop',
               },
             ],
@@ -2173,10 +2584,10 @@ describe('actorCallback', () => {
 
     await testAgent.forward(testMockAI, { query: 'test' });
 
-    // Callback should fire on both turns (code + done())
+    // Callback should fire on both turns (code + submit)
     expect(callbackResults).toHaveLength(2);
     expect(callbackResults[0]?.javascriptCode).toBe('var x = 1');
-    expect(callbackResults[1]?.javascriptCode).toBe('done()');
+    expect(callbackResults[1]?.javascriptCode).toBe('submit("done")');
   });
 });
 
@@ -2203,7 +2614,7 @@ describe('actorOptions / responderOptions', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: done()',
+                content: 'Javascript Code: submit("done")',
                 finishReason: 'stop',
               },
             ],
@@ -2244,7 +2655,7 @@ describe('actorOptions / responderOptions', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: done()',
+                content: 'Javascript Code: submit("done")',
                 finishReason: 'stop',
               },
             ],
@@ -2278,6 +2689,777 @@ describe('actorOptions / responderOptions', () => {
     await testAgent.forward(testMockAI, { query: 'test' });
 
     expect(capturedResponderModel).toBe('responder-model');
+  });
+});
+
+// ----- recursionOptions and recursive parity tests -----
+
+describe('recursionOptions and recursive parity', () => {
+  it('should expose root tool globals inside recursive llmQuery child sessions', async () => {
+    let recursiveToolCalled = false;
+
+    const runtime: AxCodeRuntime = {
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code === 'ROOT_STEP') {
+              const llmQueryFn = globals?.llmQuery as (
+                q: string,
+                context?: string
+              ) => Promise<string>;
+              return await llmQueryFn('child query', 'child context');
+            }
+
+            if (code === 'CHILD_STEP') {
+              if (globals?.myTool) {
+                recursiveToolCalled = true;
+                const myTool = globals.myTool as (
+                  args: Record<string, unknown>
+                ) => Promise<unknown>;
+                await myTool({ input: 'ok' });
+              }
+              if (globals?.submit) {
+                (globals.submit as (...args: unknown[]) => void)(
+                  'child answer'
+                );
+              }
+              return 'child done';
+            }
+
+            if (globals?.submit && code.includes('submit(')) {
+              (globals.submit as (...args: unknown[]) => void)('root done');
+              return 'root done';
+            }
+
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          if (userPrompt.includes('Task: child query')) {
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: CHILD_STEP',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: ROOT_STEP',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Answer Synthesis Agent')) {
+          return {
+            results: [
+              { index: 0, content: 'Answer: done', finishReason: 'stop' },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      rlm: {
+        contextFields: ['context'],
+        runtime,
+        maxTurns: 1,
+        mode: 'advanced',
+      },
+      recursionOptions: {
+        maxDepth: 2,
+      },
+      functions: [
+        {
+          name: 'myTool',
+          description: 'recursive tool',
+          parameters: {
+            type: 'object',
+            properties: {
+              input: { type: 'string' },
+            },
+            required: ['input'],
+          },
+          func: async () => 'ok',
+        },
+      ],
+    });
+
+    await testAgent.forward(testMockAI, {
+      context: 'root context',
+      query: 'root query',
+    });
+
+    expect(recursiveToolCalled).toBe(true);
+  });
+
+  it('should NOT pass parent contextFields into recursive child runtime globals', async () => {
+    let childResponderPrompt = '';
+
+    const runtime: AxCodeRuntime = {
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code === 'ROOT_STEP') {
+              const llmQueryFn = globals?.llmQuery as (
+                q: string,
+                context?: string
+              ) => Promise<string>;
+              const childResult = await llmQueryFn('child query');
+              if (globals?.submit) {
+                (globals.submit as (...args: unknown[]) => void)(childResult);
+              }
+              return childResult;
+            }
+
+            if (code === 'CHILD_CHECK') {
+              const payload = {
+                parentKnowledge:
+                  (globals?.knowledge as string | undefined) ?? '',
+                contextType: typeof globals?.context,
+              };
+              if (globals?.submit) {
+                (globals.submit as (...args: unknown[]) => void)(payload);
+              }
+              return payload;
+            }
+
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          if (userPrompt.includes('Task: child query')) {
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: CHILD_CHECK',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: ROOT_STEP',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Answer Synthesis Agent')) {
+          if (userPrompt.includes('Task: child query')) {
+            childResponderPrompt = userPrompt;
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Answer: child result',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Answer: root result',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('knowledge:string, query:string -> answer:string', {
+      ai: testMockAI,
+      rlm: {
+        contextFields: ['knowledge'],
+        runtime,
+        maxTurns: 1,
+        mode: 'advanced',
+      },
+      recursionOptions: {
+        maxDepth: 2,
+      },
+    });
+
+    await testAgent.forward(testMockAI, {
+      knowledge: 'root-knowledge',
+      query: 'root query',
+    });
+
+    // Child should NOT inherit parent's 'knowledge' context field
+    expect(childResponderPrompt).toContain('"parentKnowledge": ""');
+    // In advanced mode, context defaults to empty string when not provided
+    expect(childResponderPrompt).toContain('"contextType": "string"');
+  });
+
+  it('should keep child submit()/ask_clarification() signals isolated from parent state', async () => {
+    let childSubmitActorCalls = 0;
+    let childAskActorCalls = 0;
+    let rootResponderPrompt = '';
+
+    const runtime: AxCodeRuntime = {
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code === 'ROOT_NO_SIGNAL') {
+              const llmQueryFn = globals?.llmQuery as (
+                q: string,
+                context?: string
+              ) => Promise<string>;
+              await llmQueryFn('child-submit', 'ctx');
+              await llmQueryFn('child-ask', 'ctx');
+              return 'root-finished';
+            }
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          if (userPrompt.includes('Task: child-submit')) {
+            childSubmitActorCalls++;
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: submit("child submit")',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          if (userPrompt.includes('Task: child-ask')) {
+            childAskActorCalls++;
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: ask_clarification("child ask")',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: ROOT_NO_SIGNAL',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Answer Synthesis Agent')) {
+          if (!userPrompt.includes('Task: child-')) {
+            rootResponderPrompt = userPrompt;
+          }
+          return {
+            results: [
+              { index: 0, content: 'Answer: done', finishReason: 'stop' },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      rlm: {
+        contextFields: ['context'],
+        runtime,
+        maxTurns: 1,
+        mode: 'advanced',
+      },
+      recursionOptions: {
+        maxDepth: 2,
+      },
+    });
+
+    await testAgent.forward(testMockAI, {
+      context: 'root context',
+      query: 'root query',
+    });
+
+    expect(childSubmitActorCalls).toBe(1);
+    expect(childAskActorCalls).toBe(1);
+    expect(rootResponderPrompt).toContain('"type": "submit"');
+    expect(rootResponderPrompt).toContain('```javascript');
+    expect(rootResponderPrompt).toContain('ROOT_NO_SIGNAL');
+  });
+
+  it('should carry actor/responder description overrides into recursive child prompts', async () => {
+    let sawActorOverrideInChild = false;
+    let sawResponderOverrideInChild = false;
+
+    const runtime: AxCodeRuntime = {
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code === 'ROOT_STEP') {
+              const llmQueryFn = globals?.llmQuery as (
+                q: string,
+                context?: string
+              ) => Promise<string>;
+              return await llmQueryFn('child query', 'child context');
+            }
+            if (globals?.submit) {
+              (globals.submit as (...args: unknown[]) => void)('done');
+            }
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          if (userPrompt.includes('Task: child query')) {
+            if (systemPrompt.includes('CHILD ACTOR OVERRIDE')) {
+              sawActorOverrideInChild = true;
+            }
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: submit("child answer")',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: ROOT_STEP',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Answer Synthesis Agent')) {
+          if (
+            userPrompt.includes('Task: child query') &&
+            systemPrompt.includes('CHILD RESPONDER OVERRIDE')
+          ) {
+            sawResponderOverrideInChild = true;
+          }
+          return {
+            results: [
+              { index: 0, content: 'Answer: done', finishReason: 'stop' },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      rlm: {
+        contextFields: ['context'],
+        runtime,
+        maxTurns: 1,
+        mode: 'advanced',
+      },
+      recursionOptions: {
+        maxDepth: 2,
+      },
+    });
+
+    testAgent.setActorDescription('CHILD ACTOR OVERRIDE');
+    testAgent.setResponderDescription('CHILD RESPONDER OVERRIDE');
+
+    await testAgent.forward(testMockAI, {
+      context: 'root context',
+      query: 'root query',
+    });
+
+    expect(sawActorOverrideInChild).toBe(true);
+    expect(sawResponderOverrideInChild).toBe(true);
+  });
+
+  it('should return depth-limit error from llmQuery when recursionOptions.maxDepth is 0', async () => {
+    let llmQueryResult = '';
+
+    const runtime: AxCodeRuntime = {
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code === 'ROOT_STEP') {
+              const llmQueryFn = globals?.llmQuery as (
+                q: string,
+                context?: string
+              ) => Promise<string>;
+              llmQueryResult = await llmQueryFn('child query', 'child context');
+              if (globals?.submit) {
+                (globals.submit as (...args: unknown[]) => void)(
+                  llmQueryResult
+                );
+              }
+              return llmQueryResult;
+            }
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        if (systemPrompt.includes('Code Generation Agent')) {
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: ROOT_STEP',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      rlm: {
+        contextFields: ['context'],
+        runtime,
+        maxTurns: 1,
+      },
+      recursionOptions: {
+        maxDepth: 0,
+      },
+    });
+
+    await testAgent.forward(testMockAI, {
+      context: 'root context',
+      query: 'root query',
+    });
+
+    expect(llmQueryResult).toContain('Recursion depth limit reached');
+  });
+
+  it('should use a fresh runtime session for each recursive llmQuery call', async () => {
+    let childReadResponderPayload = '';
+
+    const runtime: AxCodeRuntime = {
+      createSession(globals) {
+        const sessionState: { marker?: string } = {};
+        return {
+          execute: async (code: string) => {
+            if (code === 'ROOT_STEP') {
+              const llmQueryFn = globals?.llmQuery as (
+                q: string,
+                context?: string
+              ) => Promise<string>;
+              await llmQueryFn('child-set', 'ctx');
+              await llmQueryFn('child-read', 'ctx');
+              if (globals?.submit) {
+                (globals.submit as (...args: unknown[]) => void)('root done');
+              }
+              return 'root done';
+            }
+
+            if (code === 'CHILD_SET') {
+              sessionState.marker = 'set';
+              if (globals?.submit) {
+                (globals.submit as (...args: unknown[]) => void)(
+                  sessionState.marker
+                );
+              }
+              return sessionState.marker;
+            }
+
+            if (code === 'CHILD_READ') {
+              const marker = sessionState.marker ?? 'missing';
+              if (globals?.submit) {
+                (globals.submit as (...args: unknown[]) => void)(marker);
+              }
+              return marker;
+            }
+
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          if (userPrompt.includes('Task: child-set')) {
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: CHILD_SET',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          if (userPrompt.includes('Task: child-read')) {
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: CHILD_READ',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: ROOT_STEP',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Answer Synthesis Agent')) {
+          if (userPrompt.includes('Task: child-read')) {
+            childReadResponderPayload = userPrompt;
+          }
+          return {
+            results: [
+              { index: 0, content: 'Answer: done', finishReason: 'stop' },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      rlm: {
+        contextFields: ['context'],
+        runtime,
+        maxTurns: 1,
+        mode: 'advanced',
+      },
+      recursionOptions: {
+        maxDepth: 2,
+      },
+    });
+
+    await testAgent.forward(testMockAI, {
+      context: 'root context',
+      query: 'root query',
+    });
+
+    // The second child call cannot see marker set by the first child call.
+    expect(childReadResponderPayload).toContain('"missing"');
+  });
+
+  it('should propagate parent forward model to recursive llmQuery child by default', async () => {
+    let childModel: string | undefined;
+
+    const runtime: AxCodeRuntime = {
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code === 'ROOT_STEP') {
+              const llmQueryFn = globals?.llmQuery as (
+                q: string,
+                context?: string
+              ) => Promise<string>;
+              await llmQueryFn('child query', 'child context');
+              if (globals?.submit) {
+                (globals.submit as (...args: unknown[]) => void)('root done');
+              }
+              return 'root done';
+            }
+            if (globals?.submit) {
+              (globals.submit as (...args: unknown[]) => void)('child done');
+            }
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          if (userPrompt.includes('Task: child query')) {
+            childModel = req.model as string | undefined;
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: submit("child answer")',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: ROOT_STEP',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      rlm: {
+        contextFields: ['context'],
+        runtime,
+        maxTurns: 1,
+        mode: 'advanced',
+      },
+      recursionOptions: {
+        maxDepth: 2,
+      },
+    });
+
+    await testAgent.forward(
+      testMockAI,
+      {
+        context: 'root context',
+        query: 'root query',
+      },
+      { model: 'parent-model' }
+    );
+
+    expect(childModel).toBe('parent-model');
   });
 });
 

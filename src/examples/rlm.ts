@@ -10,10 +10,7 @@ const llm = ai({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY!,
   config: {
-    model: AxAIGoogleGeminiModel.Gemini25Flash,
-    thinking: {
-      thinkingTokenBudget: 600,
-    },
+    model: AxAIGoogleGeminiModel.Gemini3Flash,
   },
 });
 
@@ -28,6 +25,7 @@ const analyzer = agent(
         permissions: [AxJSRuntimePermission.TIMING],
       }),
       maxLlmCalls: 30,
+      mode: 'simple',
       // Additional RLM guardrails are also supported:
       // - maxRuntimeChars (shared cap for llmQuery context + interpreter output)
       // - maxBatchedLlmQueryConcurrency
@@ -39,8 +37,8 @@ const analyzer = agent(
 // Type-safe demos for the Actor/Responder split architecture.
 // Each demo trace must include at least one input AND one output field.
 // Actor inputs: query, contextMetadata, actionLog → output: javascriptCode
-// Responder inputs: query, contextMetadata, actionLog → outputs: answer, evidence
-analyzer.setDemos([
+// Responder inputs: query, contextMetadata, actorResult → outputs: answer, evidence
+const demos = [
   {
     programId: 'root.actor' as const,
     traces: [
@@ -60,7 +58,7 @@ analyzer.setDemos([
       {
         actionLog:
           'Step 1 | ...\nStep 2 | const summary = await llmQuery(...)\n→ The document argues about scalability, CAP theorem, and event sourcing.',
-        javascriptCode: 'done()',
+        javascriptCode: 'submit("analysis complete")',
       },
     ],
   },
@@ -74,7 +72,8 @@ analyzer.setDemos([
       },
     ],
   },
-]);
+];
+// analyzer.setDemos(demos);
 
 // A long document that would normally consume the entire context window.
 // RLM keeps this out of the LLM prompt and loads it into the code interpreter.

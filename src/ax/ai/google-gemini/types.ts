@@ -1,6 +1,8 @@
 import type { AxModelConfig } from '../types.js';
 
 export enum AxAIGoogleGeminiModel {
+  Gemini31ProPreview = 'gemini-3.1-pro-preview',
+  Gemini31ProPreviewCustomTools = 'gemini-3.1-pro-preview-customtools',
   Gemini3Flash = 'gemini-3-flash-preview',
   Gemini3Pro = 'gemini-3-pro-preview',
   Gemini3ProImage = 'gemini-3-pro-image-preview',
@@ -377,6 +379,8 @@ export type AxAIGoogleGeminiCacheUpdateRequest = {
  * Models that support explicit context caching.
  */
 export const GEMINI_CONTEXT_CACHE_SUPPORTED_MODELS = [
+  'gemini-3.1-pro-preview',
+  'gemini-3.1-pro-preview-customtools',
   'gemini-3-flash-preview',
   'gemini-3-pro-preview',
   'gemini-2.5-pro',

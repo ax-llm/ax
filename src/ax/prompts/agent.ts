@@ -1,6 +1,5 @@
 import type {
   AxAIService,
-  AxChatResponse,
   AxFunction,
   AxFunctionHandler,
 } from '../ai/types.js';
@@ -31,7 +30,7 @@ import {
   AxAIServiceStatusError,
   AxAIServiceTimeoutError,
 } from '../util/apicall.js';
-import type { AxRLMConfig } from './rlm.js';
+import type { AxCodeRuntime, AxRLMConfig } from './rlm.js';
 import { axBuildActorDefinition, axBuildResponderDefinition } from './rlm.js';
 
 /**
@@ -71,6 +70,8 @@ export type AxAgentOptions = Omit<
   debug?: boolean;
   /** RLM configuration (required — AxAgent always uses split architecture) */
   rlm: AxRLMConfig;
+  /** Default forward options for recursive llmQuery sub-agent calls. */
+  recursionOptions?: AxAgentRecursionOptions;
   /** Default forward options for the Actor sub-program. */
   actorOptions?: Partial<Omit<AxProgramForwardOptions<string>, 'functions'>>;
   /** Default forward options for the Responder sub-program. */
@@ -79,33 +80,37 @@ export type AxAgentOptions = Omit<
   >;
 };
 
+export type AxAgentRecursionOptions = Partial<
+  Omit<AxProgramForwardOptions<string>, 'functions'>
+> & {
+  /** Maximum nested recursion depth for llmQuery sub-agent calls. */
+  maxDepth?: number;
+};
+
 // ----- Constants -----
 
 const DEFAULT_RLM_MAX_LLM_CALLS = 50;
 const DEFAULT_RLM_MAX_RUNTIME_CHARS = 5_000;
 const DEFAULT_RLM_BATCH_CONCURRENCY = 8;
 const DEFAULT_RLM_MAX_TURNS = 10;
+const DEFAULT_RLM_MAX_RECURSION_DEPTH = 2;
 
-/**
- * Detects the "done" exit signal from the Actor.
- * Primary: done()  — the canonical form.
- * Legacy / defensive: DONE, "DONE", 'DONE' — for backward compat.
- */
-function isDoneSignal(code: string): boolean {
-  return /^(?:done\(\)|"?DONE"?|'DONE')$/.test(code);
-}
+type AxAgentActorResultPayload = {
+  type: 'submit' | 'ask_clarification';
+  args: unknown[];
+};
 
 // ----- AxAgent Class -----
 
 /**
  * A split-architecture AI agent that uses two AxGen programs:
  * - **Actor**: generates code to gather information (inputs, actionLog -> code)
- * - **Responder**: synthesizes the final answer from execution log (inputs, actionLog -> outputs)
+ * - **Responder**: synthesizes the final answer from actorResult payload (inputs, actorResult -> outputs)
  *
  * The execution loop is managed by TypeScript, not the LLM:
  * 1. Actor generates code → executed in runtime → result appended to actionLog
- * 2. Loop until Actor outputs done() or maxTurns reached
- * 3. Responder synthesizes final answer from complete actionLog
+ * 2. Loop until Actor calls submit(...) / ask_clarification(...) or maxTurns reached
+ * 3. Responder synthesizes final answer from actorResult payload
  */
 export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   implements AxAgentic<IN, OUT>
@@ -119,9 +124,13 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private debug?: boolean;
   private options?: Readonly<AxAgentOptions>;
   private rlmConfig: AxRLMConfig;
+  private runtime: AxCodeRuntime;
   private actorBaseDefinition!: string;
   private responderBaseDefinition!: string;
+  private actorDescriptionOverride?: string;
+  private responderDescriptionOverride?: string;
   private actorFieldNames: string[];
+  private recursionForwardOptions?: AxAgentRecursionOptions;
   private actorForwardOptions?: Partial<AxProgramForwardOptions<string>>;
   private responderForwardOptions?: Partial<AxProgramForwardOptions<string>>;
 
@@ -149,14 +158,20 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     }>,
     options: Readonly<AxAgentOptions>
   ) {
-    const { debug, rlm, actorOptions, responderOptions } = options;
+    const { debug, rlm, recursionOptions, actorOptions, responderOptions } =
+      options;
 
     this.ai = ai;
     this.agents = agents;
     this.functions = functions;
     this.debug = debug;
     this.options = options;
-    this.rlmConfig = rlm;
+    this.runtime = rlm.runtime ?? new AxJSRuntime();
+    this.rlmConfig = {
+      ...rlm,
+      runtime: this.runtime,
+    };
+    this.recursionForwardOptions = recursionOptions;
     this.actorForwardOptions = actorOptions;
     this.responderForwardOptions = responderOptions;
 
@@ -187,7 +202,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     }
 
     // ----- Split architecture setup -----
-    const runtime = rlm.runtime ?? new AxJSRuntime();
+    const runtime = this.runtime;
 
     // Validate contextFields exist in signature
     const inputFields = this.program.getSignature().getInputFields();
@@ -231,7 +246,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       (fld) => !actorFieldNames.includes(fld.name)
     );
 
-    // --- Actor signature: inputs + contextMetadata + actionLog -> javascriptCode (+ actorFields) ---
+    // --- Actor signature: inputs + contextMetadata + actionLog -> javascriptCode (+ actionDescription/+ actorFields) ---
     let actorSigBuilder = f()
       .addInputFields(nonContextInputs)
       .input(
@@ -245,13 +260,28 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         f.string(
           'Chronological trace of code executions and their outputs so far'
         )
-      )
-      .output(
+      ) as any;
+
+    if (rlm.compressLog) {
+      actorSigBuilder = actorSigBuilder
+        .output(
+          'actionDescription',
+          f.string('a short description of what the code does, keep it short')
+        )
+        .output(
+          'javascriptCode',
+          f.string(
+            'JavaScript code to execute in runtime session, call submit(...args) or ask_clarification(...args) to stop'
+          )
+        );
+    } else {
+      actorSigBuilder = actorSigBuilder.output(
         'javascriptCode',
         f.string(
-          'JavaScript code to execute in runtime session, or done() to signal completion'
+          'JavaScript code to execute in runtime session, call submit(...args) or ask_clarification(...args) to stop'
         )
-      ) as any;
+      );
+    }
 
     if (actorOutputFields.length > 0) {
       actorSigBuilder = actorSigBuilder.addOutputFields(actorOutputFields);
@@ -259,7 +289,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     const actorSig = actorSigBuilder.build();
 
-    // --- Responder signature: inputs + contextMetadata + actionLog -> responderOutputFields ---
+    // --- Responder signature: inputs + contextMetadata + actorResult -> responderOutputFields ---
     const responderSig = f()
       .addInputFields(nonContextInputs)
       .input(
@@ -269,9 +299,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         )
       )
       .input(
-        'actionLog',
-        f.string(
-          'Chronological trace of code executions and their outputs so far'
+        'actorResult',
+        f.json(
+          'Actor completion payload: { type: "submit" | "ask_clarification", args: unknown[] }'
         )
       )
       .addOutputFields(responderOutputFields)
@@ -290,6 +320,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       maxLlmCalls,
       maxTurns,
       actorFieldNames,
+      compressLog: rlm.compressLog,
     });
     this.actorBaseDefinition = actorDef;
 
@@ -443,6 +474,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
    * The base RLM prompt is preserved; the additional text is appended after it.
    */
   public setActorDescription(additionalText: string): void {
+    this.actorDescriptionOverride = additionalText;
     this.actorProgram.setDescription(
       `${this.actorBaseDefinition}\n\n${additionalText}`
     );
@@ -453,6 +485,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
    * The base RLM prompt is preserved; the additional text is appended after it.
    */
   public setResponderDescription(additionalText: string): void {
+    this.responderDescriptionOverride = additionalText;
     this.responderProgram.setDescription(
       `${this.responderBaseDefinition}\n\n${additionalText}`
     );
@@ -473,10 +506,11 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     nonContextValues: Record<string, unknown>;
     contextMetadata: string;
     actionLog: string;
+    actorResult: AxAgentActorResultPayload;
     actorFieldValues: Record<string, unknown>;
   }> {
     const rlm = this.rlmConfig;
-    const runtime = rlm.runtime ?? new AxJSRuntime();
+    const runtime = this.runtime;
 
     const debug =
       options?.debug ?? this.debug ?? ai?.getOptions()?.debug ?? false;
@@ -528,13 +562,98 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     let llmCallCount = 0;
     const llmCallWarnThreshold = Math.floor(maxLlmCalls * 0.8);
+    const configuredRecursionMaxDepth =
+      this.recursionForwardOptions?.maxDepth ?? DEFAULT_RLM_MAX_RECURSION_DEPTH;
+    const recursionMaxDepth = Math.max(0, configuredRecursionMaxDepth);
+
+    const { maxDepth: _, ...recursionForwardOptions } =
+      this.recursionForwardOptions ?? {};
+    const {
+      functions: __,
+      description: ___,
+      mem: ____,
+      sessionId: _____,
+      ...parentForwardOptions
+    } = options ?? {};
+    const childRecursionOptions: AxAgentRecursionOptions = {
+      ...(this.recursionForwardOptions ?? {}),
+      maxDepth: Math.max(0, recursionMaxDepth - 1),
+    };
+    const childContextFields = ['context'];
+    const childSignature = f()
+      .input('task', f.string('Task for recursive analysis'))
+      .input('context', f.json('Optional context for the recursive task'))
+      .output('answer', f.string('Answer from recursive analysis'))
+      .build();
+
+    const rlmMode = rlm.mode ?? 'simple';
+    const childRlmMode =
+      rlmMode === 'advanced' && (childRecursionOptions.maxDepth ?? 0) > 0
+        ? 'advanced'
+        : 'simple';
+
+    let recursiveSubAgent:
+      | AxGen<any, { answer: AxFieldValue }>
+      | AxAgent<any, { answer: AxFieldValue }>
+      | undefined;
+
+    if (recursionMaxDepth > 0) {
+      if (childRlmMode === 'advanced') {
+        const advancedAgent = new AxAgent<any, { answer: AxFieldValue }>(
+          {
+            signature: childSignature,
+            agents: this.agents,
+            functions: this.functions,
+          },
+          {
+            debug,
+            rlm: {
+              ...rlm,
+              contextFields: childContextFields,
+              actorFields: undefined,
+            },
+            recursionOptions: childRecursionOptions,
+            actorOptions: this.actorForwardOptions,
+            responderOptions: this.responderForwardOptions,
+          }
+        );
+        if (this.actorDescriptionOverride) {
+          advancedAgent.setActorDescription(this.actorDescriptionOverride);
+        }
+        if (this.responderDescriptionOverride) {
+          advancedAgent.setResponderDescription(
+            this.responderDescriptionOverride
+          );
+        }
+        recursiveSubAgent = advancedAgent;
+      } else {
+        recursiveSubAgent = new AxGen<any, { answer: AxFieldValue }>(
+          childSignature,
+          childRecursionOptions
+        );
+      }
+    }
+
+    const normalizeSubAgentAnswer = (value: AxFieldValue): string => {
+      if (value === undefined || value === null) {
+        return '';
+      }
+      if (typeof value === 'string') {
+        return truncateText(value, maxRuntimeChars);
+      }
+      try {
+        return truncateText(JSON.stringify(value), maxRuntimeChars);
+      } catch {
+        return truncateText(String(value), maxRuntimeChars);
+      }
+    };
 
     const llmQuery = async (
       queryOrQueries:
         | string
-        | { query: string; context?: string }
-        | readonly { query: string; context?: string }[],
-      ctx?: string
+        | { query: string; context?: unknown }
+        | readonly { query: string; context?: unknown }[],
+      ctx?: unknown
     ): Promise<string | string[]> => {
       // Normalize single-object form
       if (
@@ -576,15 +695,22 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
       const runSingleLlmQuery = async (
         singleQuery: string,
-        singleCtx?: string
+        singleCtx?: unknown
       ): Promise<string> => {
-        const normalizedCtx = singleCtx
-          ? truncateText(singleCtx, maxRuntimeChars)
-          : undefined;
+        const normalizedCtx =
+          singleCtx === undefined
+            ? undefined
+            : typeof singleCtx === 'string'
+              ? truncateText(singleCtx, maxRuntimeChars)
+              : singleCtx;
 
         llmCallCount++;
         if (llmCallCount > maxLlmCalls) {
           return `[ERROR] Sub-query budget exhausted (${maxLlmCalls}/${maxLlmCalls}). Use the data you have already accumulated to produce your final answer.`;
+        }
+
+        if (recursionMaxDepth <= 0 || !recursiveSubAgent) {
+          return `[ERROR] Recursion depth limit reached (${configuredRecursionMaxDepth}).`;
         }
 
         const maxAttempts = 3;
@@ -592,29 +718,28 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
           try {
-            const res = await ai.chat(
+            const recursiveResult = await recursiveSubAgent.forward(
+              ai,
               {
-                chatPrompt: [
-                  {
-                    role: 'system' as const,
-                    content: 'Answer the query based on the provided context.',
-                  },
-                  {
-                    role: 'user' as const,
-                    content: normalizedCtx
-                      ? `Context:\n${normalizedCtx}\n\nQuery: ${singleQuery}`
-                      : singleQuery,
-                  },
-                ],
-                ...(rlm.subModel ? { model: rlm.subModel } : {}),
+                task: singleQuery,
+                ...(normalizedCtx !== undefined
+                  ? { context: normalizedCtx }
+                  : childRlmMode === 'advanced'
+                    ? { context: '' }
+                    : {}),
               },
               {
-                stream: false,
+                ...(parentForwardOptions as Partial<
+                  Omit<AxProgramForwardOptions<string>, 'functions'>
+                >),
+                ...(recursionForwardOptions as Partial<
+                  Omit<AxProgramForwardOptions<string>, 'functions'>
+                >),
                 abortSignal: effectiveAbortSignal,
+                debug,
               }
             );
-            const chatRes = res as AxChatResponse;
-            return chatRes.results?.[0]?.content ?? '';
+            return normalizeSubAgentAnswer(recursiveResult.answer);
           } catch (err) {
             lastError = err;
             if (!isTransientError(err) || attempt >= maxAttempts - 1) {
@@ -682,16 +807,27 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     // Build tool function globals for the runtime
     const toolGlobals = this.buildRuntimeGlobals(effectiveAbortSignal);
 
-    let doneSignaled = false;
-    const doneFunction = () => {
-      doneSignaled = true;
+    let actorResultPayload: AxAgentActorResultPayload | undefined;
+    const setActorResultPayload = (
+      type: AxAgentActorResultPayload['type'],
+      args: unknown[]
+    ) => {
+      if (args.length === 0) {
+        throw new Error(`${type}() requires at least one argument`);
+      }
+      actorResultPayload = { type, args };
     };
+    const submitFunction = (...args: unknown[]) =>
+      setActorResultPayload('submit', args);
+    const askClarificationFunction = (...args: unknown[]) =>
+      setActorResultPayload('ask_clarification', args);
 
     const createSession = () => {
       return runtime.createSession({
         ...contextValues,
         llmQuery,
-        done: doneFunction,
+        submit: submitFunction,
+        ask_clarification: askClarificationFunction,
         ...toolGlobals,
       });
     };
@@ -703,7 +839,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const reservedNames = [
       'llmQuery',
       'agents',
-      'done',
+      'submit',
+      'ask_clarification',
       ...rlm.contextFields,
       ...Object.keys(toolGlobals),
     ];
@@ -763,7 +900,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           try {
             shouldRestartClosedSession = false;
             session = createSession();
-            doneSignaled = false;
+            actorResultPayload = undefined;
             const retryResult = await session.execute(code, {
               signal: effectiveAbortSignal,
               reservedNames,
@@ -836,24 +973,11 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         }
 
         let code = actorResult.javascriptCode as string | undefined;
-
-        // Exit condition: Actor outputs done()
         const trimmedCode = code?.trim();
-        if (!code || !trimmedCode || isDoneSignal(trimmedCode)) {
+        if (!code || !trimmedCode) {
           break;
         }
-
-        // Defensive: strip trailing done()/DONE the model may have appended to code
-        const doneStripped = code
-          .replace(/\n\s*(?:done\(\)|"?DONE"?)\s*$/, '')
-          .trim();
-        const hadTrailingDone = doneStripped !== trimmedCode;
-        if (hadTrailingDone) {
-          code = doneStripped;
-          if (!code) {
-            break;
-          }
-        }
+        code = trimmedCode;
 
         // Build actorFields output for actionLog
         let actorFieldsOutput = '';
@@ -867,14 +991,25 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           }
         }
 
-        // Reset flag before execution
-        doneSignaled = false;
+        // Reset Actor completion payload before execution.
+        actorResultPayload = undefined;
 
         const output = await executeInterpreterCode(code);
-        actionLog += `${actionLog ? '\n\n' : ''}Action ${turn + 1}:\n\`\`\`javascript\n${code}\n\`\`\`\nResult:\n${output}${actorFieldsOutput}`;
+        const actionDescription =
+          typeof actorResult.actionDescription === 'string'
+            ? actorResult.actionDescription.trim()
+            : '';
 
-        // Exit: trailing done was stripped, or done() was called during execution
-        if (hadTrailingDone || doneSignaled) {
+        if (rlm.compressLog) {
+          const actionLine =
+            actionDescription || '(missing action description)';
+          actionLog += `${actionLog ? '\n\n' : ''}Action ${turn + 1}:\nAction: ${actionLine}\nResult:\n${output}${actorFieldsOutput}`;
+        } else {
+          actionLog += `${actionLog ? '\n\n' : ''}Action ${turn + 1}:\n\`\`\`javascript\n${code}\n\`\`\`\nResult:\n${output}${actorFieldsOutput}`;
+        }
+
+        // Exit when Actor signaled completion via submit(...) or ask_clarification(...).
+        if (actorResultPayload) {
           break;
         }
       }
@@ -886,7 +1021,20 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       }
     }
 
-    return { nonContextValues, contextMetadata, actionLog, actorFieldValues };
+    const actorResult =
+      actorResultPayload ??
+      ({
+        type: 'submit',
+        args: [actionLog || '(no actions were taken)'],
+      } satisfies AxAgentActorResultPayload);
+
+    return {
+      nonContextValues,
+      contextMetadata,
+      actionLog,
+      actorResult,
+      actorFieldValues,
+    };
   }
 
   public async forward<T extends Readonly<AxAIService>>(
@@ -910,8 +1058,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       const debug =
         options?.debug ?? this.debug ?? ai?.getOptions()?.debug ?? false;
 
-      const { nonContextValues, contextMetadata, actionLog, actorFieldValues } =
-        await this._runActorLoop(ai, values, options, effectiveAbortSignal);
+      const {
+        nonContextValues,
+        contextMetadata,
+        actorResult,
+        actorFieldValues,
+      } = await this._runActorLoop(ai, values, options, effectiveAbortSignal);
 
       const responderMergedOptions = {
         ...this.options,
@@ -927,7 +1079,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         {
           ...nonContextValues,
           contextMetadata,
-          actionLog: actionLog || '(no actions were taken)',
+          actorResult,
         },
         responderMergedOptions
       );
@@ -961,8 +1113,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         options?.debug ?? this.debug ?? ai?.getOptions()?.debug ?? false;
 
       // Actor loop runs non-streaming
-      const { nonContextValues, contextMetadata, actionLog, actorFieldValues } =
-        await this._runActorLoop(ai, values, options, effectiveAbortSignal);
+      const {
+        nonContextValues,
+        contextMetadata,
+        actorResult,
+        actorFieldValues,
+      } = await this._runActorLoop(ai, values, options, effectiveAbortSignal);
 
       const responderMergedOptions = {
         ...this.options,
@@ -979,7 +1135,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         {
           ...nonContextValues,
           contextMetadata,
-          actionLog: actionLog || '(no actions were taken)',
+          actorResult,
         },
         responderMergedOptions
       )) {

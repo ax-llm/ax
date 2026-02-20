@@ -322,6 +322,10 @@ import {
   axAITogetherDefaultConfig,
 } from './ai/together/api.js';
 import { axModelInfoTogether } from './ai/together/info.js';
+import {
+  type AxAITogetherChatModel,
+  AxAITogetherModel,
+} from './ai/together/types.js';
 import type {
   AxAIInputModelList,
   AxAIModelList,
@@ -736,6 +740,7 @@ import {
   type AxAgentDemos,
   type AxAgentic,
   type AxAgentOptions,
+  type AxAgentRecursionOptions,
   agent,
 } from './prompts/agent.js';
 import { axRAG } from './prompts/rag.js';
@@ -826,6 +831,7 @@ export { AxAIServiceStatusError };
 export { AxAIServiceStreamTerminatedError };
 export { AxAIServiceTimeoutError };
 export { AxAITogether };
+export { AxAITogetherModel };
 export { AxAIWebLLM };
 export { AxAIWebLLMModel };
 export { AxAgent };
@@ -1184,6 +1190,7 @@ export type { AxAIServiceMetrics };
 export type { AxAIServiceModelType };
 export type { AxAIServiceOptions };
 export type { AxAITogetherArgs };
+export type { AxAITogetherChatModel };
 export type { AxAIWebLLMArgs };
 export type { AxAIWebLLMChatRequest };
 export type { AxAIWebLLMChatResponse };
@@ -1197,6 +1204,7 @@ export type { AxAPIConfig };
 export type { AxAgentConfig };
 export type { AxAgentDemos };
 export type { AxAgentOptions };
+export type { AxAgentRecursionOptions };
 export type { AxAgentic };
 export type { AxApacheTikaArgs };
 export type { AxApacheTikaConvertOptions };

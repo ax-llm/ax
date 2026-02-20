@@ -3,25 +3,25 @@ import { type AxAIOpenAIArgs, AxAIOpenAIBase } from '../openai/api.js';
 import type { AxAIOpenAIConfig } from '../openai/chat_types.js';
 
 import { axModelInfoTogether } from './info.js';
+import { AxAITogetherModel, type AxAITogetherChatModel } from './types.js';
 
-type TogetherAIConfig = AxAIOpenAIConfig<string, unknown>;
+type TogetherAIConfig = AxAIOpenAIConfig<AxAITogetherChatModel, unknown>;
 
 export const axAITogetherDefaultConfig = (): TogetherAIConfig =>
   structuredClone({
-    // cspell:disable-next-line
-    model: 'mistralai/Mixtral-8x7B-Instruct-v0.1',
+    model: AxAITogetherModel.Llama33_70B,
     ...axBaseAIDefaultConfig(),
   });
 
 export type AxAITogetherArgs<TModelKey> = AxAIOpenAIArgs<
   'together',
-  string,
+  AxAITogetherChatModel,
   unknown,
   TModelKey
 >;
 
 export class AxAITogether<TModelKey> extends AxAIOpenAIBase<
-  string,
+  AxAITogetherChatModel,
   unknown,
   TModelKey
 > {

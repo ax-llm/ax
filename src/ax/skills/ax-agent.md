@@ -369,9 +369,9 @@ When you pass a long document to an LLM, you face:
 1. **Context extraction** — Fields listed in `contextFields` are removed from the LLM prompt and loaded into a runtime session as variables.
 2. **Actor/Responder split** — The agent uses two internal programs:
    - **Actor** — A code generation agent that writes JavaScript to analyze context data. It NEVER generates final answers directly.
-   - **Responder** — An answer synthesis agent that produces the final answer from the Actor's action log. It NEVER generates code.
-3. **Sub-LM queries** — Inside code, `llmQuery(...)` delegates semantic work to a sub-model.
-4. **Completion** — The Actor signals done by calling `done()` (standalone or inline with other code), then the Responder synthesizes the final answer.
+   - **Responder** — An answer synthesis agent that produces the final answer from the Actor's `actorResult` payload. It NEVER generates code.
+3. **Recursive queries** — Inside code, `llmQuery(...)` delegates semantic work to a sub-query (plain AxGen in simple mode, full AxAgent in advanced mode).
+4. **Completion** — The Actor signals completion by calling `submit(...args)` or asks for more user input with `ask_clarification(...args)`, then the Responder synthesizes the final answer.
 
 The Actor writes JavaScript code to inspect, filter, and iterate over the document. It uses `llmQuery` for semantic analysis and can chunk data in code before querying.
 
@@ -398,12 +398,17 @@ const analyzer = agent(
       maxLlmCalls: 30,                           // Cap on sub-LM calls (default: 50)
       maxRuntimeChars: 2_000,                    // Cap for llmQuery context + code output (default: 5000)
       maxBatchedLlmQueryConcurrency: 6,          // Max parallel batched llmQuery calls (default: 8)
-      subModel: 'gpt-4o-mini',                   // Model for llmQuery (default: same as parent)
       maxTurns: 10,                              // Max Actor turns before forcing Responder (default: 10)
+      compressLog: true,                         // Store actionDescription in actionLog instead of full code
       actorFields: ['reasoning'],                  // Output fields produced by Actor instead of Responder
       actorCallback: async (result) => {           // Called after each Actor turn
         console.log('Actor turn:', result);
       },
+      mode: 'simple',                              // Sub-query mode: 'simple' = AxGen, 'advanced' = AxAgent (default: 'simple')
+    },
+    recursionOptions: {
+      model: 'gpt-4o-mini',                      // Forward options for recursive llmQuery agent calls
+      maxDepth: 2,                                // Maximum recursion depth
     },
   }
 );
@@ -496,7 +501,7 @@ The Actor generates JavaScript code in a `javascriptCode` output field. Each tur
 2. The runtime executes the code and returns the result
 3. The result is appended to the action log
 4. The Actor sees the updated action log and decides what to do next
-5. When the Actor calls `done()` (standalone or inline with other code), the loop ends and the Responder takes over
+5. When the Actor calls `submit(...args)` or `ask_clarification(...args)`, the loop ends and the Responder takes over
 
 The Actor's typical workflow:
 
@@ -505,7 +510,7 @@ The Actor's typical workflow:
 3. Use code for structural work (filter, map, regex, property access)
 4. Use llmQuery for semantic work (summarization, interpretation)
 5. Build up answers in variables across turns
-6. Signal done by calling `done()` — can be standalone or combined with final code
+6. Signal completion by calling `submit(...args)` (or `ask_clarification(...args)` to request user input)
 
 ### Actor Fields
 
@@ -534,7 +539,7 @@ const analyzer = agent(
 
 ### Actor Callback
 
-Use `actorCallback` to observe each Actor turn. It receives the full Actor result (including `javascriptCode` and any `actorFields`) and fires every turn, including the done() turn.
+Use `actorCallback` to observe each Actor turn. It receives the full Actor result (including `javascriptCode` and any `actorFields`) and fires every turn, including the `submit(...)`/`ask_clarification(...)` turn.
 
 ```typescript
 const analyzer = agent(
@@ -589,6 +594,23 @@ const analyzer = agent(
 
 Priority order (low to high): constructor base options < `actorOptions`/`responderOptions` < forward-time options.
 
+### Recursive llmQuery Options
+
+Use `recursionOptions` to set default forward options for recursive `llmQuery` sub-agent calls.
+
+```typescript
+const analyzer = agent('context:string, query:string -> answer:string', {
+  rlm: { contextFields: ['context'] },
+  recursionOptions: {
+    model: 'fast-model',
+    maxDepth: 2,
+    timeout: 60_000,
+  },
+});
+```
+
+Each `llmQuery` call runs a sub-query with a fresh session and the same registered tool/agent globals. The child receives only the `context` argument passed to `llmQuery(query, context)` — parent `contextFields` values are not forwarded. In simple mode (default), the child is a plain AxGen (direct LLM call). In advanced mode, the child is a full AxAgent with Actor/Responder and code runtime.
+
 ### Actor/Responder Descriptions
 
 Use `setActorDescription()` and `setResponderDescription()` to append additional instructions to the Actor or Responder system prompts. The base RLM prompts are preserved; your text is appended after them.
@@ -622,7 +644,7 @@ analyzer.setResponderDescription('Format answers as bullet points. Cite evidence
 
 Use `setDemos()` to provide few-shot examples that guide the Actor and Responder. Demos are keyed by program ID — use `namedPrograms()` to discover available IDs.
 
-Each demo trace must include at least one input field AND one output field. The Actor's input fields are `contextMetadata`, `actionLog`, and any non-context inputs from the original signature. The Responder's input fields are the same.
+Each demo trace must include at least one input field AND one output field. The Actor's input fields are `contextMetadata`, `actionLog`, and any non-context inputs from the original signature. The Responder's input fields are `contextMetadata`, `actorResult`, and any non-context inputs from the original signature.
 
 ```typescript
 analyzer.setDemos([
@@ -635,7 +657,7 @@ analyzer.setDemos([
       },
       {
         actionLog: 'Step 1 | console.log(context.slice(0, 200))\n→ Chapter 1: ...',
-        javascriptCode: 'done()',
+        javascriptCode: 'submit("analysis complete")',
       },
     ],
   },
@@ -658,8 +680,10 @@ Demo values are validated against the target program's signature. Invalid values
 
 | API | Description |
 |-----|-------------|
-| `await llmQuery(query, context?)` | Ask a sub-LM a question, optionally with a context string. Returns a string. Oversized context is truncated to `maxRuntimeChars` |
-| `await llmQuery([{ query, context? }, ...])` | Run multiple sub-LM queries in parallel. Returns string[]. Failed items return `[ERROR] ...` |
+| `await llmQuery(query, context)` | Ask a sub-LM a question with a context value. Returns a string. Oversized context is truncated to `maxRuntimeChars` |
+| `await llmQuery([{ query, context }, ...])` | Run multiple sub-LM queries in parallel. Returns string[]. Failed items return `[ERROR] ...` |
+| `submit(...args)` | Stop Actor execution and pass payload args to Responder. Requires at least one argument |
+| `ask_clarification(...args)` | Stop Actor execution and pass clarification payload args to Responder. Requires at least one argument |
 | `await agents.<name>({...})` | Call a child agent by name. Parameters match the agent's JSON schema. Returns a string |
 | `await <toolName>({...})` | Call a tool function by name. Parameters match the tool's JSON schema |
 | `print(...args)` | Available in `AxJSRuntime` when `outputMode: 'stdout'`; captured output appears in the function result |
@@ -749,6 +773,7 @@ class MyBrowserInterpreter implements AxCodeRuntime {
 The `globals` object passed to `createSession` includes:
 - All context field values (by field name)
 - `llmQuery` function (supports both single and batched queries)
+- `submit(...args)` and `ask_clarification(...args)` completion functions
 - `agents` namespace object with child agent functions (e.g., `agents.summarize(...)`)
 - Tool functions as flat globals
 - `print` function when supported by the runtime (for `AxJSRuntime`, set `outputMode: 'stdout'`)
@@ -770,10 +795,11 @@ interface AxRLMConfig {
   maxLlmCalls?: number;                      // Cap on sub-LM calls (default: 50)
   maxRuntimeChars?: number;                  // Cap for llmQuery context + code output (default: 5000)
   maxBatchedLlmQueryConcurrency?: number;    // Max parallel batched llmQuery calls (default: 8)
-  subModel?: string;                         // Model for llmQuery sub-calls
   maxTurns?: number;                         // Max Actor turns before forcing Responder (default: 10)
+  compressLog?: boolean;                     // Use actionDescription entries instead of full code in actionLog
   actorFields?: string[];                    // Output fields produced by Actor instead of Responder
   actorCallback?: (result: Record<string, unknown>) => void | Promise<void>;  // Called after each Actor turn
+  mode?: 'simple' | 'advanced';                  // Sub-query mode: 'simple' = AxGen, 'advanced' = AxAgent (default: 'simple')
 }
 ```
 
@@ -814,6 +840,9 @@ Extends `AxProgramForwardOptions` (without `functions`) with:
 {
   debug?: boolean;
   rlm: AxRLMConfig;
+  recursionOptions?: Partial<Omit<AxProgramForwardOptions, 'functions'>> & {
+    maxDepth?: number;  // Maximum recursion depth for llmQuery sub-agent calls (default: 2)
+  };
   actorOptions?: Partial<AxProgramForwardOptions>;   // Default forward options for Actor
   responderOptions?: Partial<AxProgramForwardOptions>; // Default forward options for Responder
 }

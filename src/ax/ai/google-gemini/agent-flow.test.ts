@@ -18,28 +18,42 @@ describe('Agent Split Architecture Flow', () => {
       features: { functions: false, streaming: false },
       chatResponse: async (req) => {
         const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
 
         if (systemPrompt.includes('Code Generation Agent')) {
-          actorCallCount++;
-          if (actorCallCount === 1) {
+          if (userPrompt.includes('Lunch in SF')) {
+            actorCallCount++;
+            if (actorCallCount === 1) {
+              return {
+                results: [
+                  {
+                    index: 0,
+                    content:
+                      'Javascript Code: var weather = await llmQuery("What is the weather in SF?"); weather',
+                    finishReason: 'stop' as const,
+                  },
+                ],
+                modelUsage: makeModelUsage(),
+              };
+            }
             return {
               results: [
                 {
                   index: 0,
-                  content:
-                    'Javascript Code: var weather = await llmQuery("What is the weather in SF?"); weather',
+                  content: 'Javascript Code: submit("done")',
                   finishReason: 'stop' as const,
                 },
               ],
               modelUsage: makeModelUsage(),
             };
           }
-          // Actor turn 2: done()
+
+          // Recursive sub-agent Actor call.
           return {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: done()',
+                content: 'Javascript Code: submit("Clear skies, 72F")',
                 finishReason: 'stop' as const,
               },
             ],
@@ -48,6 +62,19 @@ describe('Agent Split Architecture Flow', () => {
         }
 
         if (systemPrompt.includes('Answer Synthesis Agent')) {
+          if (userPrompt.includes('What is the weather in SF?')) {
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Answer: Clear skies, 72F',
+                  finishReason: 'stop' as const,
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+
           return {
             results: [
               {
@@ -61,15 +88,8 @@ describe('Agent Split Architecture Flow', () => {
           };
         }
 
-        // llmQuery sub-call
         return {
-          results: [
-            {
-              index: 0,
-              content: 'Clear skies, 72F',
-              finishReason: 'stop' as const,
-            },
-          ],
+          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
           modelUsage: makeModelUsage(),
         };
       },
@@ -80,7 +100,16 @@ describe('Agent Split Architecture Flow', () => {
       createSession(globals) {
         return {
           execute: async (code: string) => {
-            if (code.trim() === 'done()') return 'done()';
+            if (globals?.submit && code.includes('submit(')) {
+              if (code.includes('"Clear skies, 72F"')) {
+                (globals.submit as (...args: unknown[]) => void)(
+                  'Clear skies, 72F'
+                );
+              } else {
+                (globals.submit as (...args: unknown[]) => void)('done');
+              }
+              return 'submitted';
+            }
             if (globals?.llmQuery && code.includes('llmQuery')) {
               const llmQueryFn = globals.llmQuery as (
                 q: string
@@ -97,7 +126,7 @@ describe('Agent Split Architecture Flow', () => {
     const sig = s('customerQuery:string -> plan:string, restaurant:string');
 
     const gen = agent(sig, {
-      rlm: { contextFields: [], runtime, maxTurns: 3 },
+      rlm: { contextFields: [], runtime, maxTurns: 3, mode: 'advanced' },
     });
 
     const res = await gen.forward(mockAI, {

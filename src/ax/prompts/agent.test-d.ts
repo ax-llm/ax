@@ -16,6 +16,55 @@ import { agent, f, s, type AxCodeRuntime } from '../index.js';
   const _bad: Result = { answer: 'x' };
 }
 
+// Agent with recursionOptions and maxDepth
+{
+  const runtime = {} as AxCodeRuntime;
+  const a = agent('query:string -> answer:string', {
+    rlm: {
+      contextFields: [] as const,
+      runtime,
+    },
+    recursionOptions: {
+      model: 'tiny-model',
+      maxDepth: 3,
+      timeout: 1_000,
+    },
+  });
+
+  type Result = Awaited<ReturnType<typeof a.forward>>;
+  const _ok: Result = { answer: 'x' };
+}
+
+// recursionOptions.maxDepth should be numeric
+{
+  const runtime = {} as AxCodeRuntime;
+  // @ts-expect-error maxDepth must be a number
+  agent('query:string -> answer:string', {
+    rlm: {
+      contextFields: [] as const,
+      runtime,
+    },
+    recursionOptions: {
+      maxDepth: '3',
+    },
+  });
+}
+
+// Agent with compressLog enabled
+{
+  const runtime = {} as AxCodeRuntime;
+  const a = agent('context:string, query:string -> answer:string', {
+    rlm: {
+      contextFields: ['context'] as const,
+      runtime,
+      compressLog: true,
+    },
+  });
+
+  type Result = Awaited<ReturnType<typeof a.forward>>;
+  const _ok: Result = { answer: 'x' };
+}
+
 // Agent with AxSignature from s() — forward() returns typed output
 {
   const runtime = {} as AxCodeRuntime;
