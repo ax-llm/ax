@@ -20,10 +20,8 @@ const drawingAgent = agent(
   'prompt:string -> imageUrl:string "An AI agent that transforms textual prompts into digital art using Blender MCP integration. Provide a prompt to generate awe-inspiring imagery."',
   {
     functions: [client],
-    rlm: {
-      contextFields: [],
-      runtime: new AxJSRuntime(),
-    },
+    contextFields: [],
+    runtime: new AxJSRuntime(),
   }
 );
 

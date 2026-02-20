@@ -18,18 +18,16 @@ const analyzer = agent(
   'context:string, query:string -> answer:string, evidence:string[] "Analyzes long documents using code interpreter and sub-LM queries"',
   {
     maxSteps: 15,
-    rlm: {
-      contextFields: ['context'],
-      runtime: new AxJSRuntime({
-        // Optional, least-privilege sandbox permissions.
-        permissions: [AxJSRuntimePermission.TIMING],
-      }),
-      maxLlmCalls: 30,
-      mode: 'simple',
-      // Additional RLM guardrails are also supported:
-      // - maxRuntimeChars (shared cap for llmQuery context + interpreter output)
-      // - maxBatchedLlmQueryConcurrency
-    },
+    contextFields: ['context'],
+    runtime: new AxJSRuntime({
+      // Optional, least-privilege sandbox permissions.
+      permissions: [AxJSRuntimePermission.TIMING],
+    }),
+    maxLlmCalls: 30,
+    mode: 'simple',
+    // Additional RLM guardrails are also supported:
+    // - maxRuntimeChars (shared cap for llmQuery context + interpreter output)
+    // - maxBatchedLlmQueryConcurrency
     debug: true,
   }
 );
@@ -38,7 +36,7 @@ const analyzer = agent(
 // Each demo trace must include at least one input AND one output field.
 // Actor inputs: query, contextMetadata, actionLog → output: javascriptCode
 // Responder inputs: query, contextMetadata, actorResult → outputs: answer, evidence
-const demos = [
+const _demos = [
   {
     programId: 'root.actor' as const,
     traces: [

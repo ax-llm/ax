@@ -23,8 +23,8 @@ const defaultRuntime: AxCodeRuntime = {
   createSession(globals) {
     return {
       execute: async (code: string) => {
-        if (globals?.submit && code.includes('submit(')) {
-          (globals.submit as (...args: unknown[]) => void)('done');
+        if (globals?.final && code.includes('final(')) {
+          (globals.final as (...args: unknown[]) => void)('done');
         }
         if (globals?.ask_clarification && code.includes('ask_clarification(')) {
           (globals.ask_clarification as (...args: unknown[]) => void)(
@@ -39,7 +39,7 @@ const defaultRuntime: AxCodeRuntime = {
 };
 
 /** Default rlm config for tests that don't need RLM behavior */
-const defaultRlm = {
+const defaultRlmFields = {
   contextFields: [] as string[],
   runtime: defaultRuntime,
 };
@@ -52,21 +52,22 @@ describe('AxAgent', () => {
       {
         signature: 'userQuery: string -> agentResponse: string',
       },
-      { rlm: defaultRlm }
+      { ...defaultRlmFields }
     );
 
     expect(() => a.getFunction()).toThrow(/agentIdentity/);
   });
 
-  it('should append additional text to Actor prompt via setActorDescription', () => {
+  it('should append additional text to Actor prompt via actorOptions.description', () => {
     const a = new AxAgent(
       {
         signature: 'query: string -> answer: string',
       },
-      { rlm: defaultRlm }
+      {
+        ...defaultRlmFields,
+        actorOptions: { description: 'Always prefer concise code.' },
+      }
     );
-
-    a.setActorDescription('Always prefer concise code.');
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const actorDesc = (a as any).actorProgram
@@ -88,20 +89,21 @@ describe('AxAgent', () => {
           {
             signature: sig,
           },
-          { rlm: defaultRlm }
+          { ...defaultRlmFields }
         )
-    ).toThrow(/setActorDescription\(\) and\/or setResponderDescription\(\)/);
+    ).toThrow(/does not support signature-level descriptions/);
   });
 
-  it('should append additional text to Responder prompt via setResponderDescription', () => {
+  it('should append additional text to Responder prompt via responderOptions.description', () => {
     const a = new AxAgent(
       {
         signature: 'query: string -> answer: string',
       },
-      { rlm: defaultRlm }
+      {
+        ...defaultRlmFields,
+        responderOptions: { description: 'Always respond in bullet points.' },
+      }
     );
-
-    a.setResponderDescription('Always respond in bullet points.');
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const responderDesc = (a as any).responderProgram
@@ -113,36 +115,17 @@ describe('AxAgent', () => {
     expect(responderDesc).toContain('Always respond in bullet points.');
   });
 
-  it('should replace (not accumulate) when setActorDescription is called twice', () => {
-    const a = new AxAgent(
-      {
-        signature: 'query: string -> answer: string',
-      },
-      { rlm: defaultRlm }
-    );
-
-    a.setActorDescription('First instruction.');
-    a.setActorDescription('Second instruction.');
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorDesc = (a as any).actorProgram
-      .getSignature()
-      .getDescription() as string;
-    expect(actorDesc).toContain('Code Generation Agent');
-    expect(actorDesc).toContain('Second instruction.');
-    expect(actorDesc).not.toContain('First instruction.');
-  });
-
   it('should allow independent actor and responder descriptions', () => {
     const a = new AxAgent(
       {
         signature: 'query: string -> answer: string',
       },
-      { rlm: defaultRlm }
+      {
+        ...defaultRlmFields,
+        actorOptions: { description: 'Actor-specific guidance.' },
+        responderOptions: { description: 'Responder-specific guidance.' },
+      }
     );
-
-    a.setActorDescription('Actor-specific guidance.');
-    a.setResponderDescription('Responder-specific guidance.');
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const actorDesc = (a as any).actorProgram
@@ -172,7 +155,8 @@ describe('Split-architecture signature derivation', () => {
 
   it('should derive Actor signature with actionLog input and code output', () => {
     const testAgent = agent('context:string, query:string -> answer:string', {
-      rlm: { contextFields: ['context'], runtime },
+      contextFields: ['context'],
+      runtime,
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -195,7 +179,9 @@ describe('Split-architecture signature derivation', () => {
 
   it('should require actionDescription before javascriptCode when compressLog is enabled', () => {
     const testAgent = agent('context:string, query:string -> answer:string', {
-      rlm: { contextFields: ['context'], runtime, compressLog: true },
+      contextFields: ['context'],
+      runtime,
+      compressLog: true,
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -211,7 +197,8 @@ describe('Split-architecture signature derivation', () => {
     const testAgent = agent(
       'context:string, query:string -> answer:string, confidence:number',
       {
-        rlm: { contextFields: ['context'], runtime },
+        contextFields: ['context'],
+        runtime,
       }
     );
 
@@ -220,12 +207,11 @@ describe('Split-architecture signature derivation', () => {
     const inputs = responderSig.getInputFields();
     const outputs = responderSig.getOutputFields();
 
-    // Responder inputs include actorResult and contextMetadata
+    // Responder inputs include non-context input fields and contextData
+    expect(inputs.find((f: AxIField) => f.name === 'query')).toBeDefined();
+    expect(inputs.find((f: AxIField) => f.name === 'context')).toBeUndefined();
     expect(
-      inputs.find((f: AxIField) => f.name === 'actorResult')
-    ).toBeDefined();
-    expect(
-      inputs.find((f: AxIField) => f.name === 'contextMetadata')
+      inputs.find((f: AxIField) => f.name === 'contextData')
     ).toBeDefined();
 
     // Responder outputs are the original business outputs
@@ -237,7 +223,8 @@ describe('Split-architecture signature derivation', () => {
 
   it('should work with no context fields', () => {
     const testAgent = agent('query:string -> answer:string', {
-      rlm: { contextFields: [], runtime },
+      contextFields: [],
+      runtime,
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -252,7 +239,7 @@ describe('Split-architecture signature derivation', () => {
 // ----- Actor/Responder execution loop -----
 
 describe('Actor/Responder execution loop', () => {
-  it('should exit loop when Actor returns submit(...)', async () => {
+  it('should exit loop when Actor returns final(...)', async () => {
     let actorCallCount = 0;
     let responderCalled = false;
 
@@ -290,7 +277,7 @@ describe('Actor/Responder execution loop', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: submit("done")',
+                content: 'Javascript Code: final("done")',
                 finishReason: 'stop',
               },
             ],
@@ -323,8 +310,8 @@ describe('Actor/Responder execution loop', () => {
       createSession(globals) {
         return {
           execute: async (code: string) => {
-            if (globals?.submit && code.includes('submit(')) {
-              (globals.submit as (...args: unknown[]) => void)('done');
+            if (globals?.final && code.includes('final(')) {
+              (globals.final as (...args: unknown[]) => void)('done');
               return 'done';
             }
             try {
@@ -352,10 +339,8 @@ describe('Actor/Responder execution loop', () => {
 
     const testAgent = agent('context:string, query:string -> answer:string', {
       ai: testMockAI,
-      rlm: {
-        contextFields: ['context'],
-        runtime,
-      },
+      contextFields: ['context'],
+      runtime,
     });
 
     const result = await testAgent.forward(testMockAI, {
@@ -378,7 +363,7 @@ describe('Actor/Responder execution loop', () => {
 
         if (systemPrompt.includes('Code Generation Agent')) {
           actorCallCount++;
-          // Never return submit() — always return code
+          // Never return final() — always return code
           return {
             results: [
               {
@@ -422,11 +407,9 @@ describe('Actor/Responder execution loop', () => {
 
     const testAgent = agent('context:string, query:string -> answer:string', {
       ai: testMockAI,
-      rlm: {
-        contextFields: ['context'],
-        runtime,
-        maxTurns: 3,
-      },
+      contextFields: ['context'],
+      runtime,
+      maxTurns: 3,
     });
 
     const result = await testAgent.forward(testMockAI, {
@@ -438,7 +421,7 @@ describe('Actor/Responder execution loop', () => {
     expect(result.answer).toBe('forced answer after max turns');
   });
 
-  it('should send fallback actorResult payload when no submit()/ask_clarification() is called', async () => {
+  it('should send fallback contextData payload when no final()/ask_clarification() is called', async () => {
     let responderPrompt = '';
 
     const testMockAI = new AxMockAIService({
@@ -491,11 +474,9 @@ describe('Actor/Responder execution loop', () => {
 
     const testAgent = agent('context:string, query:string -> answer:string', {
       ai: testMockAI,
-      rlm: {
-        contextFields: ['context'],
-        runtime,
-        maxTurns: 1,
-      },
+      contextFields: ['context'],
+      runtime,
+      maxTurns: 1,
     });
 
     await testAgent.forward(testMockAI, {
@@ -503,8 +484,8 @@ describe('Actor/Responder execution loop', () => {
       query: 'unused',
     });
 
-    expect(responderPrompt).toContain('Actor Result:');
-    expect(responderPrompt).toContain('"type": "submit"');
+    expect(responderPrompt).toContain('Context Data:');
+    expect(responderPrompt).toContain('"type": "final"');
     expect(responderPrompt).toContain('Action 1:');
     expect(responderPrompt).toContain('```javascript');
     expect(responderPrompt).not.toContain('Action Log:');
@@ -523,7 +504,7 @@ describe('Actor/Responder execution loop', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: submit("done")',
+                content: 'Javascript Code: final("done")',
                 finishReason: 'stop',
               },
             ],
@@ -558,8 +539,8 @@ describe('Actor/Responder execution loop', () => {
       createSession(globals) {
         return {
           execute: async (code: string) => {
-            if (globals?.submit && code.includes('submit(')) {
-              (globals.submit as (...args: unknown[]) => void)('done');
+            if (globals?.final && code.includes('final(')) {
+              (globals.final as (...args: unknown[]) => void)('done');
             }
             return 'executed';
           },
@@ -570,10 +551,8 @@ describe('Actor/Responder execution loop', () => {
 
     const testAgent = agent('context:string, query:string -> answer:string', {
       ai: testMockAI,
-      rlm: {
-        contextFields: ['context'],
-        runtime,
-      },
+      contextFields: ['context'],
+      runtime,
     });
 
     await testAgent.forward(testMockAI, {
@@ -581,8 +560,8 @@ describe('Actor/Responder execution loop', () => {
       query: 'unused',
     });
 
-    expect(lastResponderPayload).toContain('Actor Result:');
-    expect(lastResponderPayload).toContain('"type": "submit"');
+    expect(lastResponderPayload).toContain('Context Data:');
+    expect(lastResponderPayload).toContain('"type": "final"');
     expect(lastResponderPayload).toContain('"done"');
   });
 
@@ -617,7 +596,7 @@ describe('Actor/Responder execution loop', () => {
               {
                 index: 0,
                 content:
-                  'Action Description: finalize\nJavascript Code: submit("done")',
+                  'Action Description: finalize\nJavascript Code: final("done")',
                 finishReason: 'stop',
               },
             ],
@@ -645,8 +624,8 @@ describe('Actor/Responder execution loop', () => {
       createSession(globals) {
         return {
           execute: async (code: string) => {
-            if (globals?.submit && code.includes('submit(')) {
-              (globals.submit as (...args: unknown[]) => void)('done');
+            if (globals?.final && code.includes('final(')) {
+              (globals.final as (...args: unknown[]) => void)('done');
             }
             return 'executed';
           },
@@ -657,11 +636,9 @@ describe('Actor/Responder execution loop', () => {
 
     const testAgent = agent('context:string, query:string -> answer:string', {
       ai: testMockAI,
-      rlm: {
-        contextFields: ['context'],
-        runtime,
-        compressLog: true,
-      },
+      contextFields: ['context'],
+      runtime,
+      compressLog: true,
     });
 
     await testAgent.forward(testMockAI, {
@@ -721,10 +698,8 @@ describe('Actor/Responder execution loop', () => {
 
     const testAgent = agent('query:string -> answer:string', {
       ai: testMockAI,
-      rlm: {
-        contextFields: [],
-        runtime: defaultRuntime,
-      },
+      contextFields: [],
+      runtime: defaultRuntime,
     });
 
     const result = await testAgent.forward(testMockAI, {
@@ -822,11 +797,9 @@ describe('Functions as runtime globals', () => {
           },
         },
       ],
-      rlm: {
-        contextFields: [],
-        runtime,
-        maxTurns: 1,
-      },
+      contextFields: [],
+      runtime,
+      maxTurns: 1,
     });
 
     await testAgent.forward(testMockAI, { query: 'test' });
@@ -836,10 +809,10 @@ describe('Functions as runtime globals', () => {
   });
 });
 
-// ----- submit()/ask_clarification() as runtime globals -----
+// ----- final()/ask_clarification() as runtime globals -----
 
-describe('submit()/ask_clarification() as runtime globals', () => {
-  it('should exit actor loop when submit() is called inline with code', async () => {
+describe('final()/ask_clarification() as runtime globals', () => {
+  it('should exit actor loop when final() is called inline with code', async () => {
     let actorCallCount = 0;
     let responderCalled = false;
     let executedCode = '';
@@ -855,7 +828,7 @@ describe('submit()/ask_clarification() as runtime globals', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: var x = 42; submit("inline")',
+                content: 'Javascript Code: var x = 42; final("inline")',
                 finishReason: 'stop',
               },
             ],
@@ -890,8 +863,8 @@ describe('submit()/ask_clarification() as runtime globals', () => {
           execute: async (code: string) => {
             executedCode = code;
             // Simulate calling the submit function from globals
-            if (globals?.submit && code.includes('submit(')) {
-              (globals.submit as (...args: unknown[]) => void)('inline');
+            if (globals?.final && code.includes('final(')) {
+              (globals.final as (...args: unknown[]) => void)('inline');
             }
             return 42;
           },
@@ -902,22 +875,20 @@ describe('submit()/ask_clarification() as runtime globals', () => {
 
     const testAgent = agent('query:string -> answer:string', {
       ai: testMockAI,
-      rlm: {
-        contextFields: [],
-        runtime,
-      },
+      contextFields: [],
+      runtime,
     });
 
     const result = await testAgent.forward(testMockAI, { query: 'test' });
 
-    // Actor should be called only once — submit() signals exit after execution
+    // Actor should be called only once — final() signals exit after execution
     expect(actorCallCount).toBe(1);
     expect(responderCalled).toBe(true);
     expect(result.answer).toBe('inline done result');
-    expect(executedCode).toContain('submit("inline")');
+    expect(executedCode).toContain('final("inline")');
   });
 
-  it('should pass submit and ask_clarification functions in session globals', async () => {
+  it('should pass final and ask_clarification functions in session globals', async () => {
     let receivedGlobals: Record<string, unknown> = {};
 
     const testMockAI = new AxMockAIService({
@@ -930,7 +901,7 @@ describe('submit()/ask_clarification() as runtime globals', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: submit("done")',
+                content: 'Javascript Code: final("done")',
                 finishReason: 'stop',
               },
             ],
@@ -963,8 +934,8 @@ describe('submit()/ask_clarification() as runtime globals', () => {
         receivedGlobals = globals ?? {};
         return {
           execute: async (code: string) => {
-            if (globals?.submit && code.includes('submit(')) {
-              (globals.submit as (...args: unknown[]) => void)('done');
+            if (globals?.final && code.includes('final(')) {
+              (globals.final as (...args: unknown[]) => void)('done');
             }
             return 'ok';
           },
@@ -975,21 +946,19 @@ describe('submit()/ask_clarification() as runtime globals', () => {
 
     const testAgent = agent('query:string -> answer:string', {
       ai: testMockAI,
-      rlm: {
-        contextFields: [],
-        runtime,
-      },
+      contextFields: [],
+      runtime,
     });
 
     await testAgent.forward(testMockAI, { query: 'test' });
 
-    expect(receivedGlobals).toHaveProperty('submit');
-    expect(typeof receivedGlobals.submit).toBe('function');
+    expect(receivedGlobals).toHaveProperty('final');
+    expect(typeof receivedGlobals.final).toBe('function');
     expect(receivedGlobals).toHaveProperty('ask_clarification');
     expect(typeof receivedGlobals.ask_clarification).toBe('function');
   });
 
-  it('should require at least one argument for submit()', async () => {
+  it('should require at least one argument for final()', async () => {
     const testMockAI = new AxMockAIService({
       features: { functions: false, streaming: false },
       chatResponse: async (req) => {
@@ -1000,7 +969,7 @@ describe('submit()/ask_clarification() as runtime globals', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: submit()',
+                content: 'Javascript Code: final()',
                 finishReason: 'stop',
               },
             ],
@@ -1019,7 +988,7 @@ describe('submit()/ask_clarification() as runtime globals', () => {
       createSession(globals) {
         return {
           execute: async () => {
-            (globals?.submit as (...args: unknown[]) => void)();
+            (globals?.final as (...args: unknown[]) => void)();
             return 'unreachable';
           },
           close: () => {},
@@ -1029,12 +998,13 @@ describe('submit()/ask_clarification() as runtime globals', () => {
 
     const testAgent = agent('query:string -> answer:string', {
       ai: testMockAI,
-      rlm: { contextFields: [], runtime },
+      contextFields: [],
+      runtime,
     });
 
     await expect(
       testAgent.forward(testMockAI, { query: 'test' })
-    ).rejects.toThrow('submit() requires at least one argument');
+    ).rejects.toThrow('final() requires at least one argument');
   });
 
   it('should require at least one argument for ask_clarification()', async () => {
@@ -1077,7 +1047,8 @@ describe('submit()/ask_clarification() as runtime globals', () => {
 
     const testAgent = agent('query:string -> answer:string', {
       ai: testMockAI,
-      rlm: { contextFields: [], runtime },
+      contextFields: [],
+      runtime,
     });
 
     await expect(
@@ -1102,7 +1073,7 @@ describe('agent() factory function', () => {
   it('should work with string signatures', () => {
     const testAgent = agent('userInput:string -> responseText:string', {
       ai: mockAI,
-      rlm: defaultRlm,
+      ...defaultRlmFields,
     });
 
     expect(testAgent).toBeInstanceOf(AxAgent);
@@ -1120,7 +1091,7 @@ describe('agent() factory function', () => {
     const signature = s('userInput:string -> responseText:string');
     const testAgent = agent(signature, {
       ai: mockAI,
-      rlm: defaultRlm,
+      ...defaultRlmFields,
     });
 
     expect(testAgent).toBeInstanceOf(AxAgent);
@@ -1138,11 +1109,11 @@ describe('agent() factory function', () => {
 
     const agent1 = agent(stringSig, {
       ai: mockAI,
-      rlm: defaultRlm,
+      ...defaultRlmFields,
     });
     const agent2 = agent(axSig, {
       ai: mockAI,
-      rlm: defaultRlm,
+      ...defaultRlmFields,
     });
 
     expect(agent1.getSignature().getInputFields()).toEqual(
@@ -1163,7 +1134,7 @@ describe('agent() factory function', () => {
       },
       ai: mockAI,
       debug: true,
-      rlm: defaultRlm,
+      ...defaultRlmFields,
     });
 
     expect(testAgent.getFunction().name).toBe('configtestagent');
@@ -1241,7 +1212,7 @@ describe('toFieldType with object structure', () => {
 
 describe('axBuildActorDefinition', () => {
   it('should include Code Generation Agent header', () => {
-    const result = axBuildActorDefinition(undefined, [], {});
+    const result = axBuildActorDefinition(undefined, [], [], {});
     expect(result).toContain('## Code Generation Agent');
   });
 
@@ -1249,7 +1220,12 @@ describe('axBuildActorDefinition', () => {
     const fields: AxIField[] = [
       { name: 'query', title: 'Query', type: { name: 'string' } },
     ];
-    const result = axBuildActorDefinition(undefined, fields, {});
+    const result = axBuildActorDefinition(
+      undefined,
+      fields,
+      [{ name: 'answer', title: 'Answer', type: { name: 'string' } }],
+      {}
+    );
     expect(result).toContain('- `query` (string)');
   });
 
@@ -1262,69 +1238,38 @@ describe('axBuildActorDefinition', () => {
         description: "The user's search query",
       },
     ];
-    const result = axBuildActorDefinition(undefined, fields, {});
+    const result = axBuildActorDefinition(
+      undefined,
+      fields,
+      [{ name: 'answer', title: 'Answer', type: { name: 'string' } }],
+      {}
+    );
     expect(result).toContain("- `query` (string): The user's search query");
   });
 
-  it('should document submit()/ask_clarification() exit signals', () => {
-    const result = axBuildActorDefinition(undefined, [], {});
-    expect(result).toContain('submit(...args)');
+  it('should document final()/ask_clarification() exit signals', () => {
+    const result = axBuildActorDefinition(undefined, [], [], {});
+    expect(result).toContain('final(...args)');
     expect(result).toContain('ask_clarification(...args)');
   });
 
   it('should document llmQuery API', () => {
-    const result = axBuildActorDefinition(undefined, [], {});
-    expect(result).toContain('await llmQuery(query, context)');
-    expect(result).toContain('await llmQuery([{ query, context }, ...])');
+    const result = axBuildActorDefinition(undefined, [], [], {});
+    expect(result).toContain('await llmQuery(query:string');
+    expect(result).toContain('await llmQuery([{');
   });
 
-  it('should list tool functions when provided', () => {
-    const tools = [
-      {
-        name: 'searchDocs',
-        description: 'Search through documents',
-        parameters: {
-          type: 'object' as const,
-          properties: {
-            query: { type: 'string', description: 'Search query' },
-          },
-          required: ['query'],
-        },
-        func: async () => 'result',
-      },
-    ];
-    const result = axBuildActorDefinition(undefined, [], {
-      toolFunctions: tools,
+  it('should include configured maxLlmCalls in batched llmQuery docs', () => {
+    const result = axBuildActorDefinition(undefined, [], [], {
+      maxLlmCalls: 7,
     });
-    expect(result).toContain('await searchDocs');
-    expect(result).toContain('Search through documents');
-  });
-
-  it('should append runtime usage instructions', () => {
-    const result = axBuildActorDefinition(undefined, [], {
-      runtimeUsageInstructions: 'Use var instead of const.',
-    });
-    expect(result).toContain('### Runtime-specific usage notes');
-    expect(result).toContain('Use var instead of const.');
-  });
-
-  it('should include maxTurns in rules', () => {
-    const result = axBuildActorDefinition(undefined, [], {
-      maxTurns: 5,
-    });
-    expect(result).toContain('5 turns maximum');
-  });
-
-  it('should require actionDescription in prompt when compressLog is enabled', () => {
-    const result = axBuildActorDefinition(undefined, [], {
-      compressLog: true,
-    });
-    expect(result).toContain('`actionDescription` is REQUIRED');
+    expect(result).toContain('call limit of 7');
   });
 
   it('should append base definition', () => {
     const result = axBuildActorDefinition(
       'You are a helpful assistant.',
+      [],
       [],
       {}
     );
@@ -1396,7 +1341,7 @@ describe('RLM llmQuery runtime behavior', () => {
               results: [
                 {
                   index: 0,
-                  content: 'Javascript Code: submit("ok")',
+                  content: 'Javascript Code: final("ok")',
                   finishReason: 'stop',
                 },
               ],
@@ -1408,7 +1353,7 @@ describe('RLM llmQuery runtime behavior', () => {
               results: [
                 {
                   index: 0,
-                  content: 'Javascript Code: submit("fail")',
+                  content: 'Javascript Code: final("fail")',
                   finishReason: 'stop',
                 },
               ],
@@ -1419,7 +1364,7 @@ describe('RLM llmQuery runtime behavior', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: submit("done")',
+                content: 'Javascript Code: final("done")',
                 finishReason: 'stop',
               },
             ],
@@ -1470,13 +1415,13 @@ describe('RLM llmQuery runtime behavior', () => {
               return JSON.stringify(batchResult);
             }
 
-            if (globals?.submit && code.includes('submit(')) {
+            if (globals?.final && code.includes('final(')) {
               if (code.includes('"ok"')) {
-                (globals.submit as (...args: unknown[]) => void)('ok');
+                (globals.final as (...args: unknown[]) => void)('ok');
               } else if (code.includes('"fail"')) {
-                (globals.submit as (...args: unknown[]) => void)('fail');
+                (globals.final as (...args: unknown[]) => void)('fail');
               } else {
-                (globals.submit as (...args: unknown[]) => void)('done');
+                (globals.final as (...args: unknown[]) => void)('done');
               }
               return 'submitted';
             }
@@ -1490,12 +1435,10 @@ describe('RLM llmQuery runtime behavior', () => {
 
     const testAgent = agent('context:string, query:string -> answer:string', {
       ai: testMockAI,
-      rlm: {
-        contextFields: ['context'],
-        runtime,
-        maxTurns: 1,
-        mode: 'advanced',
-      },
+      contextFields: ['context'],
+      runtime,
+      maxTurns: 1,
+      mode: 'advanced',
     });
 
     await testAgent.forward(testMockAI, {
@@ -1534,7 +1477,7 @@ describe('RLM llmQuery runtime behavior', () => {
               results: [
                 {
                   index: 0,
-                  content: 'Javascript Code: submit("sub-lm-answer")',
+                  content: 'Javascript Code: final("sub-lm-answer")',
                   finishReason: 'stop',
                 },
               ],
@@ -1545,7 +1488,7 @@ describe('RLM llmQuery runtime behavior', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: submit("done")',
+                content: 'Javascript Code: final("done")',
                 finishReason: 'stop',
               },
             ],
@@ -1597,13 +1540,13 @@ describe('RLM llmQuery runtime behavior', () => {
               return llmQueryResult;
             }
 
-            if (globals?.submit && code.includes('submit(')) {
+            if (globals?.final && code.includes('final(')) {
               if (code.includes('"sub-lm-answer"')) {
-                (globals.submit as (...args: unknown[]) => void)(
+                (globals.final as (...args: unknown[]) => void)(
                   'sub-lm-answer'
                 );
               } else {
-                (globals.submit as (...args: unknown[]) => void)('done');
+                (globals.final as (...args: unknown[]) => void)('done');
               }
               return 'submitted';
             }
@@ -1617,12 +1560,10 @@ describe('RLM llmQuery runtime behavior', () => {
 
     const testAgent = agent('context:string, query:string -> answer:string', {
       ai: testMockAI,
-      rlm: {
-        contextFields: ['context'],
-        runtime,
-        maxTurns: 1,
-        mode: 'advanced',
-      },
+      contextFields: ['context'],
+      runtime,
+      maxTurns: 1,
+      mode: 'advanced',
     });
 
     await testAgent.forward(testMockAI, {
@@ -1700,11 +1641,9 @@ describe('RLM llmQuery runtime behavior', () => {
 
     const testAgent = agent('context:string, query:string -> answer:string', {
       ai: testMockAI,
-      rlm: {
-        contextFields: ['context'],
-        runtime,
-        maxTurns: 1,
-      },
+      contextFields: ['context'],
+      runtime,
+      maxTurns: 1,
     });
 
     try {
@@ -1772,7 +1711,7 @@ describe('RLM session restart', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: submit("done")',
+                content: 'Javascript Code: final("done")',
                 finishReason: 'stop',
               },
             ],
@@ -1798,10 +1737,8 @@ describe('RLM session restart', () => {
 
     const testAgent = agent('context:string, query:string -> answer:string', {
       ai: testMockAI,
-      rlm: {
-        contextFields: ['context'],
-        runtime,
-      },
+      contextFields: ['context'],
+      runtime,
     });
 
     await testAgent.forward(testMockAI, {
@@ -1850,7 +1787,7 @@ describe('RLM session restart', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: submit("done")',
+                content: 'Javascript Code: final("done")',
                 finishReason: 'stop',
               },
             ],
@@ -1876,10 +1813,8 @@ describe('RLM session restart', () => {
 
     const testAgent = agent('context:string, query:string -> answer:string', {
       ai: testMockAI,
-      rlm: {
-        contextFields: ['context'],
-        runtime,
-      },
+      contextFields: ['context'],
+      runtime,
     });
 
     await testAgent.forward(testMockAI, {
@@ -1920,7 +1855,7 @@ describe('Program registration for optimization', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: submit("done")',
+                content: 'Javascript Code: final("done")',
                 finishReason: 'stop' as const,
               },
             ],
@@ -1946,7 +1881,7 @@ describe('Program registration for optimization', () => {
       {
         signature: 'query:string -> answer:string',
       },
-      { rlm: defaultRlm }
+      { ...defaultRlmFields }
     );
 
     await testAgent.forward(mockAI, { query: 'test' });
@@ -1978,7 +1913,7 @@ describe('Program registration for optimization', () => {
                 content:
                   actorCallCount === 1
                     ? 'Javascript Code: "step"'
-                    : 'Javascript Code: submit("done")',
+                    : 'Javascript Code: final("done")',
                 finishReason: 'stop' as const,
               },
             ],
@@ -2003,7 +1938,7 @@ describe('Program registration for optimization', () => {
       {
         signature: 'query:string -> answer:string',
       },
-      { rlm: defaultRlm }
+      { ...defaultRlmFields }
     );
 
     await testAgent.forward(mockAI, { query: 'test' });
@@ -2030,7 +1965,7 @@ describe('Program registration for optimization', () => {
                 content:
                   actorCallCount === 1
                     ? 'Javascript Code: "x"'
-                    : 'Javascript Code: submit("done")',
+                    : 'Javascript Code: final("done")',
                 finishReason: 'stop' as const,
               },
             ],
@@ -2055,7 +1990,7 @@ describe('Program registration for optimization', () => {
       {
         signature: 'query:string -> answer:string',
       },
-      { rlm: defaultRlm }
+      { ...defaultRlmFields }
     );
 
     await testAgent.forward(mockAI, { query: 'test' });
@@ -2070,7 +2005,7 @@ describe('Program registration for optimization', () => {
       {
         signature: 'query:string -> answer:string',
       },
-      { rlm: defaultRlm }
+      { ...defaultRlmFields }
     );
 
     const programs = testAgent.namedPrograms();
@@ -2085,7 +2020,7 @@ describe('Program registration for optimization', () => {
       {
         signature: 'query:string -> answer:string',
       },
-      { rlm: defaultRlm }
+      { ...defaultRlmFields }
     );
 
     // Should not throw — demos have at least one input AND one output field
@@ -2111,7 +2046,7 @@ describe('Program registration for optimization', () => {
       {
         signature: 'query:string -> answer:string, reasoning:string',
       },
-      { rlm: { ...defaultRlm, actorFields: ['reasoning'] } }
+      { ...defaultRlmFields, actorFields: ['reasoning'] }
     );
 
     testAgent.setDemos([
@@ -2137,7 +2072,7 @@ describe('Program registration for optimization', () => {
       {
         signature: 'query:string -> answer:string',
       },
-      { rlm: defaultRlm }
+      { ...defaultRlmFields }
     );
 
     expect(() =>
@@ -2155,7 +2090,7 @@ describe('Program registration for optimization', () => {
       {
         signature: 'query:string -> answer:string',
       },
-      { rlm: defaultRlm }
+      { ...defaultRlmFields }
     );
 
     expect(() =>
@@ -2173,7 +2108,7 @@ describe('Program registration for optimization', () => {
       {
         signature: 'query:string -> answer:string',
       },
-      { rlm: defaultRlm }
+      { ...defaultRlmFields }
     );
 
     expect(() =>
@@ -2191,7 +2126,7 @@ describe('Program registration for optimization', () => {
       {
         signature: 'query:string -> answer:string',
       },
-      { rlm: defaultRlm }
+      { ...defaultRlmFields }
     );
 
     // Boolean value for a string field should fail validation
@@ -2227,7 +2162,7 @@ describe('Program registration for optimization', () => {
                 content:
                   actorCallCount === 1
                     ? 'Javascript Code: "hello"'
-                    : 'Javascript Code: submit("done")',
+                    : 'Javascript Code: final("done")',
                 finishReason: 'stop' as const,
               },
             ],
@@ -2254,7 +2189,7 @@ describe('Program registration for optimization', () => {
       {
         signature: 'query:string -> answer:string',
       },
-      { rlm: defaultRlm }
+      { ...defaultRlmFields }
     );
 
     testAgent.setDemos([
@@ -2291,67 +2226,6 @@ describe('Program registration for optimization', () => {
   });
 });
 
-// ----- Streaming tests -----
-
-describe('streamingForward', () => {
-  it('should yield streaming deltas from the Responder', async () => {
-    let actorCallCount = 0;
-
-    const mockAI = new AxMockAIService({
-      features: { functions: false, streaming: true },
-      chatResponse: async (req) => {
-        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
-
-        if (systemPrompt.includes('Code Generation Agent')) {
-          actorCallCount++;
-          return {
-            results: [
-              {
-                index: 0,
-                content:
-                  actorCallCount === 1
-                    ? 'Javascript Code: "gather"'
-                    : 'Javascript Code: submit("done")',
-                finishReason: 'stop' as const,
-              },
-            ],
-            modelUsage: makeModelUsage(),
-          };
-        }
-
-        // Responder
-        return {
-          results: [
-            {
-              index: 0,
-              content: 'Answer: streamed result',
-              finishReason: 'stop' as const,
-            },
-          ],
-          modelUsage: makeModelUsage(),
-        };
-      },
-    });
-
-    const testAgent = new AxAgent(
-      {
-        signature: 'query:string -> answer:string',
-      },
-      { rlm: defaultRlm }
-    );
-
-    const deltas: unknown[] = [];
-    for await (const delta of testAgent.streamingForward(mockAI, {
-      query: 'test',
-    })) {
-      deltas.push(delta);
-    }
-
-    // Should yield at least one delta
-    expect(deltas.length).toBeGreaterThan(0);
-  });
-});
-
 // ----- actorFields tests -----
 
 describe('actorFields', () => {
@@ -2365,11 +2239,9 @@ describe('actorFields', () => {
     const testAgent = agent(
       'context:string, query:string -> answer:string, reasoning:string, confidence:number',
       {
-        rlm: {
-          contextFields: ['context'],
-          runtime,
-          actorFields: ['reasoning'],
-        },
+        contextFields: ['context'],
+        runtime,
+        actorFields: ['reasoning'],
       }
     );
 
@@ -2406,22 +2278,18 @@ describe('actorFields', () => {
   it('should throw for unknown actorField names', () => {
     expect(() =>
       agent('query:string -> answer:string', {
-        rlm: {
-          contextFields: [],
-          runtime,
-          actorFields: ['nonexistent'],
-        },
+        contextFields: [],
+        runtime,
+        actorFields: ['nonexistent'],
       })
     ).toThrow(/actorField "nonexistent" not found in output signature/);
   });
 
-  it('should update Actor prompt rules when actorFields are set', () => {
+  it('should keep Actor prompt focused on responder-owned fields when actorFields are set', () => {
     const testAgent = agent('query:string -> answer:string, reasoning:string', {
-      rlm: {
-        contextFields: [],
-        runtime,
-        actorFields: ['reasoning'],
-      },
+      contextFields: [],
+      runtime,
+      actorFields: ['reasoning'],
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -2429,9 +2297,8 @@ describe('actorFields', () => {
       .getSignature()
       .getDescription() as string;
 
-    // Should mention the actor field in the rules
-    expect(actorDesc).toContain('`reasoning`');
-    // Should NOT have the strict "Output ONLY" rule
+    expect(actorDesc).toContain('Responder output fields');
+    expect(actorDesc).toContain('`answer`');
     expect(actorDesc).not.toContain('Output ONLY a `javascriptCode` field');
   });
 
@@ -2463,7 +2330,7 @@ describe('actorFields', () => {
               {
                 index: 0,
                 content:
-                  'Javascript Code: submit("done")\nReasoning: Final reasoning',
+                  'Javascript Code: final("done")\nReasoning: Final reasoning',
                 finishReason: 'stop',
               },
             ],
@@ -2493,11 +2360,9 @@ describe('actorFields', () => {
 
     const testAgent = agent('query:string -> answer:string, reasoning:string', {
       ai: testMockAI,
-      rlm: {
-        contextFields: [],
-        runtime,
-        actorFields: ['reasoning'],
-      },
+      contextFields: [],
+      runtime,
+      actorFields: ['reasoning'],
     });
 
     const result = await testAgent.forward(testMockAI, {
@@ -2517,8 +2382,8 @@ describe('actorCallback', () => {
     createSession(globals) {
       return {
         execute: async (code: string) => {
-          if (globals?.submit && code.includes('submit(')) {
-            (globals.submit as (...args: unknown[]) => void)('done');
+          if (globals?.final && code.includes('final(')) {
+            (globals.final as (...args: unknown[]) => void)('done');
           }
           return 'ok';
         },
@@ -2527,7 +2392,7 @@ describe('actorCallback', () => {
     },
   };
 
-  it('should call actorCallback on every Actor turn including submit()', async () => {
+  it('should call actorCallback on every Actor turn including final()', async () => {
     let actorCallCount = 0;
     const callbackResults: Record<string, unknown>[] = [];
 
@@ -2554,7 +2419,7 @@ describe('actorCallback', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: submit("done")',
+                content: 'Javascript Code: final("done")',
                 finishReason: 'stop',
               },
             ],
@@ -2573,12 +2438,10 @@ describe('actorCallback', () => {
 
     const testAgent = agent('query:string -> answer:string', {
       ai: testMockAI,
-      rlm: {
-        contextFields: [],
-        runtime,
-        actorCallback: async (result) => {
-          callbackResults.push(result);
-        },
+      contextFields: [],
+      runtime,
+      actorCallback: async (result) => {
+        callbackResults.push(result);
       },
     });
 
@@ -2587,7 +2450,7 @@ describe('actorCallback', () => {
     // Callback should fire on both turns (code + submit)
     expect(callbackResults).toHaveLength(2);
     expect(callbackResults[0]?.javascriptCode).toBe('var x = 1');
-    expect(callbackResults[1]?.javascriptCode).toBe('submit("done")');
+    expect(callbackResults[1]?.javascriptCode).toBe('final("done")');
   });
 });
 
@@ -2614,7 +2477,7 @@ describe('actorOptions / responderOptions', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: submit("done")',
+                content: 'Javascript Code: final("done")',
                 finishReason: 'stop',
               },
             ],
@@ -2633,7 +2496,8 @@ describe('actorOptions / responderOptions', () => {
 
     const testAgent = agent('query:string -> answer:string', {
       ai: testMockAI,
-      rlm: { contextFields: [], runtime },
+      contextFields: [],
+      runtime,
       actorOptions: { model: 'actor-model' },
     });
 
@@ -2655,7 +2519,7 @@ describe('actorOptions / responderOptions', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: submit("done")',
+                content: 'Javascript Code: final("done")',
                 finishReason: 'stop',
               },
             ],
@@ -2682,7 +2546,8 @@ describe('actorOptions / responderOptions', () => {
 
     const testAgent = agent('query:string -> answer:string', {
       ai: testMockAI,
-      rlm: { contextFields: [], runtime },
+      contextFields: [],
+      runtime,
       responderOptions: { model: 'responder-model' },
     });
 
@@ -2718,16 +2583,14 @@ describe('recursionOptions and recursive parity', () => {
                 ) => Promise<unknown>;
                 await myTool({ input: 'ok' });
               }
-              if (globals?.submit) {
-                (globals.submit as (...args: unknown[]) => void)(
-                  'child answer'
-                );
+              if (globals?.final) {
+                (globals.final as (...args: unknown[]) => void)('child answer');
               }
               return 'child done';
             }
 
-            if (globals?.submit && code.includes('submit(')) {
-              (globals.submit as (...args: unknown[]) => void)('root done');
+            if (globals?.final && code.includes('final(')) {
+              (globals.final as (...args: unknown[]) => void)('root done');
               return 'root done';
             }
 
@@ -2787,12 +2650,10 @@ describe('recursionOptions and recursive parity', () => {
 
     const testAgent = agent('context:string, query:string -> answer:string', {
       ai: testMockAI,
-      rlm: {
-        contextFields: ['context'],
-        runtime,
-        maxTurns: 1,
-        mode: 'advanced',
-      },
+      contextFields: ['context'],
+      runtime,
+      maxTurns: 1,
+      mode: 'advanced',
       recursionOptions: {
         maxDepth: 2,
       },
@@ -2833,8 +2694,8 @@ describe('recursionOptions and recursive parity', () => {
                 context?: string
               ) => Promise<string>;
               const childResult = await llmQueryFn('child query');
-              if (globals?.submit) {
-                (globals.submit as (...args: unknown[]) => void)(childResult);
+              if (globals?.final) {
+                (globals.final as (...args: unknown[]) => void)(childResult);
               }
               return childResult;
             }
@@ -2845,8 +2706,8 @@ describe('recursionOptions and recursive parity', () => {
                   (globals?.knowledge as string | undefined) ?? '',
                 contextType: typeof globals?.context,
               };
-              if (globals?.submit) {
-                (globals.submit as (...args: unknown[]) => void)(payload);
+              if (globals?.final) {
+                (globals.final as (...args: unknown[]) => void)(payload);
               }
               return payload;
             }
@@ -2924,12 +2785,10 @@ describe('recursionOptions and recursive parity', () => {
 
     const testAgent = agent('knowledge:string, query:string -> answer:string', {
       ai: testMockAI,
-      rlm: {
-        contextFields: ['knowledge'],
-        runtime,
-        maxTurns: 1,
-        mode: 'advanced',
-      },
+      contextFields: ['knowledge'],
+      runtime,
+      maxTurns: 1,
+      mode: 'advanced',
       recursionOptions: {
         maxDepth: 2,
       },
@@ -2946,7 +2805,7 @@ describe('recursionOptions and recursive parity', () => {
     expect(childResponderPrompt).toContain('"contextType": "string"');
   });
 
-  it('should keep child submit()/ask_clarification() signals isolated from parent state', async () => {
+  it('should keep child final()/ask_clarification() signals isolated from parent state', async () => {
     let childSubmitActorCalls = 0;
     let childAskActorCalls = 0;
     let rootResponderPrompt = '';
@@ -2984,7 +2843,7 @@ describe('recursionOptions and recursive parity', () => {
               results: [
                 {
                   index: 0,
-                  content: 'Javascript Code: submit("child submit")',
+                  content: 'Javascript Code: final("child submit")',
                   finishReason: 'stop',
                 },
               ],
@@ -3037,12 +2896,10 @@ describe('recursionOptions and recursive parity', () => {
 
     const testAgent = agent('context:string, query:string -> answer:string', {
       ai: testMockAI,
-      rlm: {
-        contextFields: ['context'],
-        runtime,
-        maxTurns: 1,
-        mode: 'advanced',
-      },
+      contextFields: ['context'],
+      runtime,
+      maxTurns: 1,
+      mode: 'advanced',
       recursionOptions: {
         maxDepth: 2,
       },
@@ -3055,12 +2912,12 @@ describe('recursionOptions and recursive parity', () => {
 
     expect(childSubmitActorCalls).toBe(1);
     expect(childAskActorCalls).toBe(1);
-    expect(rootResponderPrompt).toContain('"type": "submit"');
+    expect(rootResponderPrompt).toContain('"type": "final"');
     expect(rootResponderPrompt).toContain('```javascript');
     expect(rootResponderPrompt).toContain('ROOT_NO_SIGNAL');
   });
 
-  it('should carry actor/responder description overrides into recursive child prompts', async () => {
+  it('should not carry actor/responder description options into recursive child prompts', async () => {
     let sawActorOverrideInChild = false;
     let sawResponderOverrideInChild = false;
 
@@ -3075,8 +2932,8 @@ describe('recursionOptions and recursive parity', () => {
               ) => Promise<string>;
               return await llmQueryFn('child query', 'child context');
             }
-            if (globals?.submit) {
-              (globals.submit as (...args: unknown[]) => void)('done');
+            if (globals?.final) {
+              (globals.final as (...args: unknown[]) => void)('done');
             }
             return 'ok';
           },
@@ -3100,7 +2957,7 @@ describe('recursionOptions and recursive parity', () => {
               results: [
                 {
                   index: 0,
-                  content: 'Javascript Code: submit("child answer")',
+                  content: 'Javascript Code: final("child answer")',
                   finishReason: 'stop',
                 },
               ],
@@ -3143,27 +3000,28 @@ describe('recursionOptions and recursive parity', () => {
 
     const testAgent = agent('context:string, query:string -> answer:string', {
       ai: testMockAI,
-      rlm: {
-        contextFields: ['context'],
-        runtime,
-        maxTurns: 1,
-        mode: 'advanced',
+      contextFields: ['context'],
+      runtime,
+      maxTurns: 1,
+      mode: 'advanced',
+      actorOptions: {
+        description: 'CHILD ACTOR OVERRIDE',
+      },
+      responderOptions: {
+        description: 'CHILD RESPONDER OVERRIDE',
       },
       recursionOptions: {
         maxDepth: 2,
       },
     });
 
-    testAgent.setActorDescription('CHILD ACTOR OVERRIDE');
-    testAgent.setResponderDescription('CHILD RESPONDER OVERRIDE');
-
     await testAgent.forward(testMockAI, {
       context: 'root context',
       query: 'root query',
     });
 
-    expect(sawActorOverrideInChild).toBe(true);
-    expect(sawResponderOverrideInChild).toBe(true);
+    expect(sawActorOverrideInChild).toBe(false);
+    expect(sawResponderOverrideInChild).toBe(false);
   });
 
   it('should return depth-limit error from llmQuery when recursionOptions.maxDepth is 0', async () => {
@@ -3179,10 +3037,8 @@ describe('recursionOptions and recursive parity', () => {
                 context?: string
               ) => Promise<string>;
               llmQueryResult = await llmQueryFn('child query', 'child context');
-              if (globals?.submit) {
-                (globals.submit as (...args: unknown[]) => void)(
-                  llmQueryResult
-                );
+              if (globals?.final) {
+                (globals.final as (...args: unknown[]) => void)(llmQueryResult);
               }
               return llmQueryResult;
             }
@@ -3220,11 +3076,9 @@ describe('recursionOptions and recursive parity', () => {
 
     const testAgent = agent('context:string, query:string -> answer:string', {
       ai: testMockAI,
-      rlm: {
-        contextFields: ['context'],
-        runtime,
-        maxTurns: 1,
-      },
+      contextFields: ['context'],
+      runtime,
+      maxTurns: 1,
       recursionOptions: {
         maxDepth: 0,
       },
@@ -3253,16 +3107,16 @@ describe('recursionOptions and recursive parity', () => {
               ) => Promise<string>;
               await llmQueryFn('child-set', 'ctx');
               await llmQueryFn('child-read', 'ctx');
-              if (globals?.submit) {
-                (globals.submit as (...args: unknown[]) => void)('root done');
+              if (globals?.final) {
+                (globals.final as (...args: unknown[]) => void)('root done');
               }
               return 'root done';
             }
 
             if (code === 'CHILD_SET') {
               sessionState.marker = 'set';
-              if (globals?.submit) {
-                (globals.submit as (...args: unknown[]) => void)(
+              if (globals?.final) {
+                (globals.final as (...args: unknown[]) => void)(
                   sessionState.marker
                 );
               }
@@ -3271,8 +3125,8 @@ describe('recursionOptions and recursive parity', () => {
 
             if (code === 'CHILD_READ') {
               const marker = sessionState.marker ?? 'missing';
-              if (globals?.submit) {
-                (globals.submit as (...args: unknown[]) => void)(marker);
+              if (globals?.final) {
+                (globals.final as (...args: unknown[]) => void)(marker);
               }
               return marker;
             }
@@ -3348,12 +3202,10 @@ describe('recursionOptions and recursive parity', () => {
 
     const testAgent = agent('context:string, query:string -> answer:string', {
       ai: testMockAI,
-      rlm: {
-        contextFields: ['context'],
-        runtime,
-        maxTurns: 1,
-        mode: 'advanced',
-      },
+      contextFields: ['context'],
+      runtime,
+      maxTurns: 1,
+      mode: 'advanced',
       recursionOptions: {
         maxDepth: 2,
       },
@@ -3381,13 +3233,13 @@ describe('recursionOptions and recursive parity', () => {
                 context?: string
               ) => Promise<string>;
               await llmQueryFn('child query', 'child context');
-              if (globals?.submit) {
-                (globals.submit as (...args: unknown[]) => void)('root done');
+              if (globals?.final) {
+                (globals.final as (...args: unknown[]) => void)('root done');
               }
               return 'root done';
             }
-            if (globals?.submit) {
-              (globals.submit as (...args: unknown[]) => void)('child done');
+            if (globals?.final) {
+              (globals.final as (...args: unknown[]) => void)('child done');
             }
             return 'ok';
           },
@@ -3409,7 +3261,7 @@ describe('recursionOptions and recursive parity', () => {
               results: [
                 {
                   index: 0,
-                  content: 'Javascript Code: submit("child answer")',
+                  content: 'Javascript Code: final("child answer")',
                   finishReason: 'stop',
                 },
               ],
@@ -3439,12 +3291,10 @@ describe('recursionOptions and recursive parity', () => {
 
     const testAgent = agent('context:string, query:string -> answer:string', {
       ai: testMockAI,
-      rlm: {
-        contextFields: ['context'],
-        runtime,
-        maxTurns: 1,
-        mode: 'advanced',
-      },
+      contextFields: ['context'],
+      runtime,
+      maxTurns: 1,
+      mode: 'advanced',
       recursionOptions: {
         maxDepth: 2,
       },

@@ -94,10 +94,8 @@ const sig = s(
 
 const gen = agent(sig, {
   functions,
-  rlm: {
-    contextFields: [],
-    runtime: new AxJSRuntime(),
-  },
+  contextFields: [],
+  runtime: new AxJSRuntime(),
 });
 
 console.log('Running complex parallel function call test...');

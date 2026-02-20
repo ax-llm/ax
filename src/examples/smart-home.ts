@@ -114,10 +114,8 @@ const myAgent = agent(
         },
       },
     ],
-    rlm: {
-      contextFields: [],
-      runtime: new AxJSRuntime(),
-    },
+    contextFields: [],
+    runtime: new AxJSRuntime(),
   }
 );
 

@@ -26,10 +26,8 @@ const codingAssistant = agent(
   'userQuery:string -> reply:string, codeResult?:string "You are a coding assistant that can remember past conversations and execute JavaScript code."',
   {
     functions: [mcpClient, jsRuntime.toFunction()],
-    rlm: {
-      contextFields: [],
-      runtime: new AxJSRuntime(),
-    },
+    contextFields: [],
+    runtime: new AxJSRuntime(),
   }
 );
 

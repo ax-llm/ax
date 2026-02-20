@@ -40,7 +40,7 @@ describe('Agent Split Architecture Flow', () => {
               results: [
                 {
                   index: 0,
-                  content: 'Javascript Code: submit("done")',
+                  content: 'Javascript Code: final("done")',
                   finishReason: 'stop' as const,
                 },
               ],
@@ -53,7 +53,7 @@ describe('Agent Split Architecture Flow', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: submit("Clear skies, 72F")',
+                content: 'Javascript Code: final("Clear skies, 72F")',
                 finishReason: 'stop' as const,
               },
             ],
@@ -100,13 +100,13 @@ describe('Agent Split Architecture Flow', () => {
       createSession(globals) {
         return {
           execute: async (code: string) => {
-            if (globals?.submit && code.includes('submit(')) {
+            if (globals?.final && code.includes('final(')) {
               if (code.includes('"Clear skies, 72F"')) {
-                (globals.submit as (...args: unknown[]) => void)(
+                (globals.final as (...args: unknown[]) => void)(
                   'Clear skies, 72F'
                 );
               } else {
-                (globals.submit as (...args: unknown[]) => void)('done');
+                (globals.final as (...args: unknown[]) => void)('done');
               }
               return 'submitted';
             }
@@ -126,7 +126,10 @@ describe('Agent Split Architecture Flow', () => {
     const sig = s('customerQuery:string -> plan:string, restaurant:string');
 
     const gen = agent(sig, {
-      rlm: { contextFields: [], runtime, maxTurns: 3, mode: 'advanced' },
+      contextFields: [],
+      runtime,
+      maxTurns: 3,
+      mode: 'advanced',
     });
 
     const res = await gen.forward(mockAI, {

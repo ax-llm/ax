@@ -47,10 +47,8 @@ const smartAgent = agent(
   {
     functions: [searchTool, calculateTool],
     functionCallMode: 'prompt', // Use prompt mode for function calling
-    rlm: {
-      contextFields: [],
-      runtime: new AxJSRuntime(),
-    },
+    contextFields: [],
+    runtime: new AxJSRuntime(),
   }
 );
 

@@ -10,7 +10,8 @@ const researcher = agent(
       description:
         'Researcher for physics questions can answer questions about advanced physics',
     },
-    rlm: { contextFields: [], runtime },
+    contextFields: [],
+    runtime,
   }
 );
 
@@ -22,11 +23,13 @@ const summarizer = agent(
       description:
         'Summarizer can write short summaries of advanced science topics',
     },
-    rlm: { contextFields: [], runtime },
+    actorOptions: {
+      description:
+        'You are a science summarizer. You can write short summaries of advanced science topics. Use numbered bullet points to summarize the answer in order of importance.',
+    },
+    contextFields: [],
+    runtime,
   }
-);
-summarizer.setActorDescription(
-  'You are a science summarizer. You can write short summaries of advanced science topics. Use numbered bullet points to summarize the answer in order of importance.'
 );
 
 const myAgent = agent('question -> answer', {
@@ -35,7 +38,8 @@ const myAgent = agent('question -> answer', {
     description: 'An agent that can answer advanced science questions',
   },
   agents: [researcher, summarizer],
-  rlm: { contextFields: [], runtime },
+  contextFields: [],
+  runtime,
 });
 
 const llm = new AxAI({

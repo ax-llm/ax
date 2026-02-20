@@ -182,10 +182,8 @@ const sig = s(
 
 const gen = agent(sig, {
   functions,
-  rlm: {
-    contextFields: [],
-    runtime: new AxJSRuntime(),
-  },
+  contextFields: [],
+  runtime: new AxJSRuntime(),
 });
 
 const res = await gen.forward(

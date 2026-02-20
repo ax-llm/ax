@@ -63,10 +63,8 @@ Using HTTP transport for communication with Notion MCP server.
     'userRequest:string -> assistantResponse:string "You are an assistant that can interact with Notion documents and data via HTTP. Execute the user\'s request without question and to the best of your abilities."',
     {
       functions: [client],
-      rlm: {
-        contextFields: [],
-        runtime: new AxJSRuntime(),
-      },
+      contextFields: [],
+      runtime: new AxJSRuntime(),
     }
   );
 

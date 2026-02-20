@@ -70,7 +70,10 @@ const myAgent = agent('input:string -> output:string', {
   debug: false,                        // Debug logging
 
   // RLM mode (see RLM section below)
-  rlm: { ... },
+  contextFields: ['context'],            // Fields to load into runtime session
+  runtime: new AxJSRuntime(),            // Code runtime (default: AxJSRuntime)
+  maxLlmCalls: 30,                       // Cap on sub-LM calls (default: 50)
+  // ... and other RLM fields as top-level properties
 });
 ```
 
@@ -299,18 +302,16 @@ const analyzer = agent(
       name: 'documentAnalyzer',
       description: 'Analyzes long documents using code interpreter and sub-LM queries',
     },
-    rlm: {
-      contextFields: ['context'],                // Fields to load into runtime session
-      runtime: new AxJSRuntime(),                // Code runtime (default: AxJSRuntime)
-      maxLlmCalls: 30,                           // Cap on sub-LM calls (default: 50)
-      maxRuntimeChars: 2_000,                    // Cap for llmQuery context + code output (default: 5000)
-      maxBatchedLlmQueryConcurrency: 6,          // Max parallel batched llmQuery calls (default: 8)
-      subModel: 'gpt-4o-mini',                   // Model for llmQuery (default: same as parent)
-      maxTurns: 10,                              // Max Actor turns before forcing Responder (default: 10)
-      actorFields: ['reasoning'],                  // Output fields produced by Actor instead of Responder
-      actorCallback: async (result) => {           // Called after each Actor turn
-        console.log('Actor turn:', result);
-      },
+    contextFields: ['context'],                // Fields to load into runtime session
+    runtime: new AxJSRuntime(),                // Code runtime (default: AxJSRuntime)
+    maxLlmCalls: 30,                           // Cap on sub-LM calls (default: 50)
+    maxRuntimeChars: 2_000,                    // Cap for llmQuery context + code output (default: 5000)
+    maxBatchedLlmQueryConcurrency: 6,          // Max parallel batched llmQuery calls (default: 8)
+    subModel: 'gpt-4o-mini',                   // Model for llmQuery (default: same as parent)
+    maxTurns: 10,                              // Max Actor turns before forcing Responder (default: 10)
+    actorFields: ['reasoning'],                  // Output fields produced by Actor instead of Responder
+    actorCallback: async (result) => {           // Called after each Actor turn
+      console.log('Actor turn:', result);
     },
   }
 );
@@ -389,10 +390,8 @@ const analyzer = agent(sig, {
     name: 'structuredAnalyzer',
     description: 'Analyzes structured document collections using RLM',
   },
-  rlm: {
-    contextFields: ['documents'],
-    runtime: new AxJSRuntime(),
-  },
+  contextFields: ['documents'],
+  runtime: new AxJSRuntime(),
 });
 ```
 
@@ -445,10 +444,8 @@ By default, all output fields from the signature go to the Responder. Use `actor
 const analyzer = agent(
   'context:string, query:string -> answer:string, reasoning:string',
   {
-    rlm: {
-      contextFields: ['context'],
-      actorFields: ['reasoning'],   // Actor produces 'reasoning', Responder produces 'answer'
-    },
+    contextFields: ['context'],
+    actorFields: ['reasoning'],   // Actor produces 'reasoning', Responder produces 'answer'
   }
 );
 ```
@@ -459,11 +456,9 @@ Use `actorCallback` to observe each Actor turn. It receives the full Actor resul
 
 ```typescript
 const analyzer = agent('context:string, query:string -> answer:string', {
-  rlm: {
-    contextFields: ['context'],
-    actorCallback: async (result) => {
-      console.log('Actor code:', result.javascriptCode);
-    },
+  contextFields: ['context'],
+  actorCallback: async (result) => {
+    console.log('Actor code:', result.javascriptCode);
   },
 });
 ```
@@ -474,7 +469,7 @@ Use `actorOptions` and `responderOptions` to set different forward options (mode
 
 ```typescript
 const analyzer = agent('context:string, query:string -> answer:string', {
-  rlm: { contextFields: ['context'] },
+  contextFields: ['context'],
   actorOptions: {
     model: 'fast-model',
     thinkingTokenBudget: 1024,
@@ -494,7 +489,7 @@ Use `setActorDescription()` and `setResponderDescription()` to append additional
 
 ```typescript
 const analyzer = agent('context:string, query:string -> answer:string', {
-  rlm: { contextFields: ['context'] },
+  contextFields: ['context'],
 });
 
 // Add domain-specific instructions to the Actor (code generation agent)
@@ -691,7 +686,17 @@ Extends `AxProgramForwardOptions` (without `functions`) with:
 ```typescript
 {
   debug?: boolean;
-  rlm: AxRLMConfig;
+  contextFields?: string[];                   // Input fields holding long context
+  runtime?: AxCodeRuntime;                    // Code runtime (default: AxJSRuntime)
+  maxLlmCalls?: number;                       // Cap on sub-LM calls (default: 50)
+  maxRuntimeChars?: number;                   // Cap for llmQuery context + code output (default: 5000)
+  maxBatchedLlmQueryConcurrency?: number;     // Max parallel batched llmQuery calls (default: 8)
+  subModel?: string;                          // Model for llmQuery sub-calls
+  maxTurns?: number;                          // Max Actor turns before forcing Responder (default: 10)
+  compressLog?: boolean;                      // Compress action log
+  actorFields?: string[];                     // Output fields produced by Actor instead of Responder
+  actorCallback?: (result: Record<string, unknown>) => void | Promise<void>;  // Called after each Actor turn
+  mode?: string;                              // RLM mode
   actorOptions?: Partial<AxProgramForwardOptions>;   // Default forward options for Actor
   responderOptions?: Partial<AxProgramForwardOptions>; // Default forward options for Responder
 }
