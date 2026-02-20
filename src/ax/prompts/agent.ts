@@ -353,7 +353,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       contextFieldMeta,
       responderOutputFields,
       {
-        runtimeUsageInstructions: this.runtime.getUsageInstructions?.(),
+        runtimeUsageInstructions: this.runtime.getUsageInstructions(),
         maxLlmCalls: effectiveMaxLlmCalls,
         maxTurns: effectiveMaxTurns,
       }

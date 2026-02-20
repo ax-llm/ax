@@ -18,7 +18,7 @@ export interface AxCodeRuntime {
    * Optional runtime-specific usage guidance injected into the RLM system prompt.
    * Use this for execution semantics that differ by runtime/language.
    */
-  getUsageInstructions?(): string;
+  getUsageInstructions(): string;
 }
 
 /**
@@ -138,6 +138,9 @@ Before writing any code, assess your input data some of which is in your llm con
 6. **Build up answers in variables**: use variables as buffers to accumulate intermediate results across steps.
 7. **Handle truncated output**: runtime output may be truncated. If it appears incomplete, rerun with narrower scope.
 8. **Signal completion**: call \`final(...args)\` when you have gathered enough information, or \`ask_clarification(...args)\` when user input is required. You can combine with final code: \`var result = await llmQuery(...); console.log(result); final(result)\`
+
+## Javascript Runtime Usage Instructions
+${options.runtimeUsageInstructions}
 `;
 
   return baseDefinition ? `${actorBody}\n\n${baseDefinition}` : actorBody;

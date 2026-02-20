@@ -96,6 +96,7 @@ describe('Agent Split Architecture Flow', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
       language: 'JavaScript',
       createSession(globals) {
         return {

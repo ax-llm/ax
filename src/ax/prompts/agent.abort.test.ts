@@ -14,6 +14,7 @@ const makeModelUsage = () => ({
 });
 
 const createSimpleRuntime = (): AxCodeRuntime => ({
+  getUsageInstructions: () => '',
   createSession(globals) {
     return {
       execute: async (code: string) => {
@@ -68,6 +69,7 @@ describe('AxAgent.stop()', () => {
 
     let stopCalled = false;
     const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
       createSession() {
         return {
           execute: async () => {
@@ -216,6 +218,7 @@ describe('AxAgent.stop()', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
       createSession() {
         return {
           execute: async (_code: string, opts?: { signal?: AbortSignal }) => {

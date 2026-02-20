@@ -20,6 +20,7 @@ const makeModelUsage = () => ({
 
 /** Minimal runtime for tests that don't exercise code execution */
 const defaultRuntime: AxCodeRuntime = {
+  getUsageInstructions: () => '',
   createSession(globals) {
     return {
       execute: async (code: string) => {
@@ -148,6 +149,7 @@ describe('AxAgent', () => {
 
 describe('Split-architecture signature derivation', () => {
   const runtime: AxCodeRuntime = {
+    getUsageInstructions: () => '',
     createSession() {
       return { execute: async () => 'ok', close: () => {} };
     },
@@ -307,6 +309,7 @@ describe('Actor/Responder execution loop', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
       createSession(globals) {
         return {
           execute: async (code: string) => {
@@ -397,6 +400,7 @@ describe('Actor/Responder execution loop', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
       createSession() {
         return {
           execute: async () => 'ok',
@@ -464,6 +468,7 @@ describe('Actor/Responder execution loop', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
       createSession() {
         return {
           execute: async () => 'executed-step',
@@ -536,6 +541,7 @@ describe('Actor/Responder execution loop', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
       createSession(globals) {
         return {
           execute: async (code: string) => {
@@ -621,6 +627,7 @@ describe('Actor/Responder execution loop', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
       createSession(globals) {
         return {
           execute: async (code: string) => {
@@ -760,6 +767,7 @@ describe('Functions as runtime globals', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
       createSession(globals) {
         return {
           execute: async (code: string) => {
@@ -858,6 +866,7 @@ describe('final()/ask_clarification() as runtime globals', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
       createSession(globals) {
         return {
           execute: async (code: string) => {
@@ -930,6 +939,7 @@ describe('final()/ask_clarification() as runtime globals', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
       createSession(globals) {
         receivedGlobals = globals ?? {};
         return {
@@ -985,6 +995,7 @@ describe('final()/ask_clarification() as runtime globals', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
       createSession(globals) {
         return {
           execute: async () => {
@@ -1034,6 +1045,7 @@ describe('final()/ask_clarification() as runtime globals', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
       createSession(globals) {
         return {
           execute: async () => {
@@ -1401,6 +1413,7 @@ describe('RLM llmQuery runtime behavior', () => {
 
     let batchResult: string[] = [];
     const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
       createSession(globals) {
         return {
           execute: async (code: string) => {
@@ -1525,6 +1538,7 @@ describe('RLM llmQuery runtime behavior', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
       createSession(globals) {
         return {
           execute: async (code: string) => {
@@ -1613,6 +1627,7 @@ describe('RLM llmQuery runtime behavior', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
       createSession(globals) {
         return {
           execute: async () => {
@@ -1668,6 +1683,7 @@ describe('RLM session restart', () => {
     let createSessionCount = 0;
     let executeCount = 0;
     const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
       createSession(globals?: Record<string, unknown>) {
         createSessionCount++;
         const safeGlobals = globals ?? {};
@@ -1752,6 +1768,7 @@ describe('RLM session restart', () => {
   it('should not restart closed session if no timeout happened first', async () => {
     let createSessionCount = 0;
     const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
       createSession() {
         createSessionCount++;
         return {
@@ -2230,6 +2247,7 @@ describe('Program registration for optimization', () => {
 
 describe('actorFields', () => {
   const runtime: AxCodeRuntime = {
+    getUsageInstructions: () => '',
     createSession() {
       return { execute: async () => 'ok', close: () => {} };
     },
@@ -2379,6 +2397,7 @@ describe('actorFields', () => {
 
 describe('actorCallback', () => {
   const runtime: AxCodeRuntime = {
+    getUsageInstructions: () => '',
     createSession(globals) {
       return {
         execute: async (code: string) => {
@@ -2458,6 +2477,7 @@ describe('actorCallback', () => {
 
 describe('actorOptions / responderOptions', () => {
   const runtime: AxCodeRuntime = {
+    getUsageInstructions: () => '',
     createSession() {
       return { execute: async () => 'ok', close: () => {} };
     },
@@ -2564,6 +2584,7 @@ describe('recursionOptions and recursive parity', () => {
     let recursiveToolCalled = false;
 
     const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
       createSession(globals) {
         return {
           execute: async (code: string) => {
@@ -2685,6 +2706,7 @@ describe('recursionOptions and recursive parity', () => {
     let childResponderPrompt = '';
 
     const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
       createSession(globals) {
         return {
           execute: async (code: string) => {
@@ -2811,6 +2833,7 @@ describe('recursionOptions and recursive parity', () => {
     let rootResponderPrompt = '';
 
     const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
       createSession(globals) {
         return {
           execute: async (code: string) => {
@@ -2922,6 +2945,7 @@ describe('recursionOptions and recursive parity', () => {
     let sawResponderOverrideInChild = false;
 
     const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
       createSession(globals) {
         return {
           execute: async (code: string) => {
@@ -3028,6 +3052,7 @@ describe('recursionOptions and recursive parity', () => {
     let llmQueryResult = '';
 
     const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
       createSession(globals) {
         return {
           execute: async (code: string) => {
@@ -3096,6 +3121,7 @@ describe('recursionOptions and recursive parity', () => {
     let childReadResponderPayload = '';
 
     const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
       createSession(globals) {
         const sessionState: { marker?: string } = {};
         return {
@@ -3224,6 +3250,7 @@ describe('recursionOptions and recursive parity', () => {
     let childModel: string | undefined;
 
     const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
       createSession(globals) {
         return {
           execute: async (code: string) => {
