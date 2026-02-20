@@ -1,5 +1,16 @@
 # Changelog
 
+## [18.0.4](///compare/18.0.2...18.0.3) (2026-02-20)
+
+### Features
+
+* Enhance AxAgent with recursion options and action description logging 908303d
+* Implement getUsageInstructions method in AxCodeRuntime and update related usages across multiple files for consistency 7f2dfcd
+
+### Bug Fixes
+
+* Migrate from nested `rlm` object to top-level properties for context fields, runtime, and other options across multiple agents and examples. Update documentation and examples to reflect the new structure, ensuring clarity in agent definitions and improving consistency in code organization. 3c55e1c
+
 ## [18.0.3](///compare/18.0.1...18.0.2) (2026-02-20)
 
 ### Features
