@@ -1,5 +1,16 @@
 # Changelog
 
+## [18.0.3](///compare/18.0.1...18.0.2) (2026-02-20)
+
+### Features
+
+* Enhance AxAgent with recursion options and action description logging 908303d
+## [18.0.2](///compare/18.0.1...18.0.2) (2026-02-19)
+
+### Features
+
+* Enhance AxAgent with demo validation and descriptions 462bc72
+
 ## [18.0.2](///compare/18.0.0...18.0.1) (2026-02-19)
 
 ### Features
