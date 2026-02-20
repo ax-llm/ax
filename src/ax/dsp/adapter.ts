@@ -355,6 +355,16 @@ export class AxDefaultAdapter implements AxPromptAdapter {
     const sections: string[] = [];
     const hasComplexFields = this.sig.hasComplexFields();
 
+    // Task definition section (signature description / user-added prompt)
+    // Put this FIRST for prompt caching optimization - stable instructions before schema
+    const taskDefinition = this.buildTaskDefinitionSection();
+    if (taskDefinition) {
+      sections.push('<task_definition>');
+      sections.push(taskDefinition);
+      sections.push('</task_definition>');
+      sections.push('\n');
+    }
+
     sections.push('<identity>');
     sections.push(this.buildIdentitySection());
     sections.push('</identity>');
@@ -395,19 +405,11 @@ export class AxDefaultAdapter implements AxPromptAdapter {
   private buildIdentitySection(): string {
     const parts: string[] = [];
 
-    const desc = this.sig.getDescription();
-    if (desc) {
-      const fieldMap = this.getFieldNameToTitleMap();
-      let text = formatDescription(desc);
-      text = formatFieldReferences(text, fieldMap);
-      parts.push(text);
-    }
-
     const inArgs = renderDescFields(this.sig.getInputFields());
     const outArgs = renderDescFields(this.sig.getOutputFields());
 
     parts.push(
-      `\nYou will be provided with the following fields: ${inArgs}. Your task is to generate new fields: ${outArgs}.`
+      `You will be provided with the following fields: ${inArgs}. Your task is to generate new fields: ${outArgs}.`
     );
 
     if (this.options?.showThoughts) {
@@ -417,6 +419,15 @@ export class AxDefaultAdapter implements AxPromptAdapter {
     }
 
     return parts.join('\n');
+  }
+
+  private buildTaskDefinitionSection(): string {
+    const desc = this.sig.getDescription();
+    if (!desc) return '';
+    const fieldMap = this.getFieldNameToTitleMap();
+    let text = formatDescription(desc);
+    text = formatFieldReferences(text, fieldMap);
+    return text;
   }
 
   private buildFunctionsSection(

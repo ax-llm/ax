@@ -3,11 +3,9 @@ import type {
   AxFunction,
   AxFunctionHandler,
 } from '../ai/types.js';
-import { toFieldType } from '../dsp/adapter.js';
-import { validateStructuredOutputValues } from '../dsp/extract.js';
 import type { AxInputFunctionType } from '../dsp/functions.js';
 import { AxGen } from '../dsp/generate.js';
-import type { AxIField, AxSignatureConfig } from '../dsp/sig.js';
+import type { AxSignatureConfig } from '../dsp/sig.js';
 import { AxSignature, f } from '../dsp/sig.js';
 import type { ParseSignature } from '../dsp/sigtypes.js';
 import type {
