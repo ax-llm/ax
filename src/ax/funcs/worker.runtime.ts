@@ -4,13 +4,16 @@ export type AxWorkerRuntimeConfig = Readonly<{
 }>;
 
 export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
-
   // ╔══════════════════════════════════════════════════════════════════════╗
   // ║  IMPORTANT: SERIALIZED FUNCTION — READ BEFORE EDITING              ║
   // ║                                                                    ║
   // ║  This function is serialized via .toString() by getWorkerSource()  ║
-  // ║  and evaluated as a standalone script inside a Web Worker or       ║
-  // ║  Node worker_threads context.                                      ║
+  // ║  in worker.ts and evaluated as a standalone script inside a Web    ║
+  // ║  Worker or Node worker_threads context.                            ║
+  // ║                                                                    ║
+  // ║  The serialized string has NO access to module-scope variables,    ║
+  // ║  imports, or bundler-injected helpers from the original bundle.    ║
+  // ║  Everything this function needs must live inside its own body.     ║
   // ║                                                                    ║
   // ║  Rules for code inside this function:                              ║
   // ║                                                                    ║
@@ -20,14 +23,33 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
   // ║  2. NO BARE `require` — esbuild/tsup replaces bare `require`      ║
   // ║     and `typeof require` with module-scope polyfill variables      ║
   // ║     that don't exist in the serialized worker context.             ║
-  // ║     Use `globalThis['require']` instead (see _detectNodeParentPort ║
-  // ║     for the correct pattern).                                      ║
+  // ║     `globalThis['require']` is also NOT sufficient — esbuild      ║
+  // ║     sees through it. Use `new Function(...)` to obtain `require`   ║
+  // ║     (see _detectNodeParentPort for the correct pattern).           ║
   // ║                                                                    ║
   // ║  3. NO BARE `import()` — dynamic import() may also be rewritten   ║
   // ║     by bundlers. If needed, use indirect eval to obtain it.        ║
   // ║                                                                    ║
   // ║  4. `typeof process` is SAFE — esbuild preserves this.            ║
   // ║     `typeof self` and `typeof globalThis` are also safe.           ║
+  // ║                                                                    ║
+  // ║  5. BUNDLER HELPERS — esbuild may inject module-scope helpers      ║
+  // ║     like `__name()` into this function body during minification.   ║
+  // ║     These don't exist in the isolated worker context.              ║
+  // ║     getWorkerSource() in worker.ts detects them and prepends       ║
+  // ║     lightweight no-op polyfills. If you encounter a new            ║
+  // ║     ReferenceError in the built bundle (but not in vitest),        ║
+  // ║     it's likely a new bundler helper — add a polyfill in           ║
+  // ║     getWorkerSource() and a matching test.                         ║
+  // ║                                                                    ║
+  // ║  HOW TO DEBUG SERIALIZATION ISSUES:                                ║
+  // ║                                                                    ║
+  // ║  - vitest runs unminified TS source → bundler helpers are absent.  ║
+  // ║    Tests pass but the built bundle may still break at runtime.     ║
+  // ║  - To catch this: `npx tsup && node -e "..."` to evaluate         ║
+  // ║    getWorkerSource() output in a clean context.                    ║
+  // ║  - The "isolated sandbox" test in worker.runtime.test.ts runs      ║
+  // ║    getWorkerSource() in node:vm with no bundler helpers.           ║
   // ║                                                                    ║
   // ║  Tests in worker.runtime.test.ts validate these invariants.        ║
   // ╚══════════════════════════════════════════════════════════════════════╝
@@ -49,7 +71,9 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
     data?: unknown;
   };
 
-  const _scope = (typeof self !== 'undefined' ? self : globalThis) as unknown as {
+  const _scope = (typeof self !== 'undefined'
+    ? self
+    : globalThis) as unknown as {
     [key: string]: unknown;
     postMessage?: (message: unknown) => void;
     onmessage?: ((event: WorkerEvent) => void) | null;
@@ -76,28 +100,59 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
     isNodeWorker: boolean;
     parentPort: NodeParentPort | null;
   } => {
-    // Use globalThis['require'] instead of bare `require` because this
-    // function is serialized via .toString() and evaluated in an isolated
-    // worker. esbuild replaces bare `require` with a module-scope polyfill
-    // variable that won't exist in the serialized context.
-    const _require =
-      typeof globalThis !== 'undefined'
-        ? ((globalThis as Record<string, unknown>)['require'] as
-            | ((id: string) => unknown)
-            | undefined)
-        : undefined;
+    // Obtain a module-loading function that works in the worker context.
+    //
+    // Strategy 1: `process.getBuiltinModule` (Node 22.3+).
+    //   Works in BOTH CJS and ESM workers, and is not rewritten by bundlers.
+    //
+    // Strategy 2: `new Function(...)` to obtain `require` (CJS workers only).
+    //   esbuild replaces both bare `require` AND `globalThis['require']` with
+    //   module-scope polyfill variables that don't exist in the serialized
+    //   worker context. `new Function()` is completely opaque to esbuild.
+    //   However, `require` is NOT available in ESM eval workers (when the
+    //   parent module is ESM, `new Worker(source, {eval:true})` creates an
+    //   ESM worker where `require` does not exist).
+    //
+    // We try strategy 1 first because it covers ESM workers on modern Node.
+
+    let _loadBuiltin: ((id: string) => unknown) | undefined;
+
+    // Strategy 1: process.getBuiltinModule (Node 22.3+, works in ESM workers)
+    if (
+      typeof process !== 'undefined' &&
+      typeof (process as unknown as { getBuiltinModule?: unknown })
+        .getBuiltinModule === 'function'
+    ) {
+      const _getBuiltinModule = (
+        process as unknown as {
+          getBuiltinModule: (specifier: string) => unknown;
+        }
+      ).getBuiltinModule.bind(process);
+      _loadBuiltin = _getBuiltinModule;
+    }
+
+    // Strategy 2: new Function to get require (CJS workers, older Node)
+    if (!_loadBuiltin) {
+      try {
+        _loadBuiltin = new Function(
+          'return typeof require==="function"?require:undefined'
+        )() as ((id: string) => unknown) | undefined;
+      } catch {
+        _loadBuiltin = undefined;
+      }
+    }
 
     const isNodeLike =
-      typeof _require === 'function' &&
+      typeof _loadBuiltin === 'function' &&
       typeof process !== 'undefined' &&
-      !!(process.versions && process.versions.node);
+      !!process.versions?.node;
 
     if (!isNodeLike) {
       return { isNodeWorker: false, parentPort: null };
     }
 
     try {
-      const workerThreads = _require!('node:worker_threads') as {
+      const workerThreads = _loadBuiltin!('node:worker_threads') as {
         parentPort?: NodeParentPort | null;
       };
       return {
@@ -218,7 +273,9 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
           }
         } else {
           if (prefixStatement) {
-            head = head ? `${head}\n${prefixStatement};` : `${prefixStatement};`;
+            head = head
+              ? `${head}\n${prefixStatement};`
+              : `${prefixStatement};`;
           }
           expression = maybeExpression;
         }
@@ -238,7 +295,10 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
     tail: number
   ): string | null => {
     const baseHead = lines.slice(0, start).join('\n');
-    const rawCandidate = lines.slice(start, tail + 1).join('\n').trim();
+    const rawCandidate = lines
+      .slice(start, tail + 1)
+      .join('\n')
+      .trim();
 
     if (!rawCandidate) {
       return null;
@@ -332,7 +392,9 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
     output: string[]
   ): (() => void) => {
     const consoleObject =
-      _scope.console && typeof _scope.console === 'object' ? _scope.console : null;
+      _scope.console && typeof _scope.console === 'object'
+        ? _scope.console
+        : null;
     const existingMethod = consoleObject?.[methodName];
     const original =
       typeof existingMethod === 'function'
@@ -345,13 +407,6 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
 
     const wrapped = (...args: unknown[]) => {
       output.push(args.map(_formatOutputArg).join(' '));
-      if (original) {
-        try {
-          original(...args);
-        } catch {
-          // Ignore console passthrough failures.
-        }
-      }
     };
 
     if (!_scope.console || typeof _scope.console !== 'object') {
@@ -489,10 +544,14 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
     const name = errObject?.name != null ? String(errObject.name) : 'Error';
     const message =
       errObject?.message != null ? String(errObject.message) : String(err);
-    const stack = typeof errObject?.stack === 'string' ? errObject.stack : undefined;
+    const stack =
+      typeof errObject?.stack === 'string' ? errObject.stack : undefined;
 
     let cause: SerializedError | undefined;
-    if (typeof errObject?.cause !== 'undefined' && depth < _MAX_ERROR_CAUSE_DEPTH) {
+    if (
+      typeof errObject?.cause !== 'undefined' &&
+      depth < _MAX_ERROR_CAUSE_DEPTH
+    ) {
       try {
         const sourceCause = errObject.cause;
         if (
@@ -678,6 +737,8 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
   const _executeSyncSnippet = (code: string): unknown => {
     const syncCode = _rewriteTopLevelReturnForSyncEval(code);
     // Indirect eval executes in worker global scope.
+    // biome-ignore lint/security/noGlobalEval: intentional indirect eval for worker sandbox
+    // biome-ignore lint/complexity/noCommaOperator: (0, eval) is the standard indirect eval pattern
     return (0, eval)(syncCode);
   };
 

@@ -126,18 +126,20 @@ The responder is looking to produce the following output fields: ${responderOutp
 
 - \`ask_clarification(...args)\` — Signal that more user input is needed and provide clarification arguments for the responder. Requires at least one argument. Execution ends after calling it.
 
-### Strategic planning
-Before writing any code, assess your input data some of which is in your llm context and the rest listed under "Pre-loaded context variables" above is available only in the javascript runtime. Check the type, size, structure, and a sample of the data to determine how to approach the problem. If the context is large or complex, plan how to break it into chunks and use \`llmQuery\` to delegate sub-tasks to a sub-agent. If its small or straightforward, solve it directly with code without unnecessary calls to \`llmQuery\` which an expensive operation. Think step by step, plan your approach and execute it with code. Prefer using code for structural work (slicing, filtering, aggregating) and reserve \`llmQuery\` only for semantic tasks that code cannot handle.
+### Important guidance and guardrails
+- Always do some due diligence first to figure out if you can solve the problem by writing code that looks at only a portion of the context. You have access to the \`contextMetadata\` which provides information about the context fields, use this in your decision making.
 
-### Iteration strategy
-1. **Explore first & assess**: before doing any analysis, inspect the context — check its type, size, structure, and a sample. Determine if the data is small enough to process directly without heavy recursion.
-2. **Plan before recursing**: based on your exploration, decide the minimum number of \`llmQuery\` calls needed. Often 1–3 well-crafted calls are sufficient. Do not launch recursive sub-queries until you have a concrete plan.
-3. **Plan a chunking strategy**: if the context is large, figure out how to break it into smart chunks based on what you observe.
-4. **Use code for structural work**: filter, map, slice, regex, property access — use \`javascriptCode\` for anything computable.
-5. **Use \`llmQuery\` for semantic work**: summarization, interpretation, or answering questions about content.
-6. **Build up answers in variables**: use variables as buffers to accumulate intermediate results across steps.
-7. **Handle truncated output**: runtime output may be truncated. If it appears incomplete, rerun with narrower scope.
-8. **Signal completion**: call \`final(...args)\` when you have gathered enough information, or \`ask_clarification(...args)\` when user input is required. You can combine with final code: \`var result = await llmQuery(...); console.log(result); final(result)\`
+- Use \`llmQuery\` to delegate sub-tasks to a sub-agent when the context is too large or complex to handle. You can also use the batched version of \`llmQuery\` to speed up processing when you want to explore parts of the context in parallel. Sub-agent calls have a call limit of ${maxLlmCalls} and oversized values are truncated automatically.
+
+- You can only send data to the responder to produce output by calling \`final(...args)\` or \`ask_clarification(...args)\` with a non-empty args. Do not attempt to return values or set variables for the responder to read. The responder can ONLY see the arguments you pass using these two functions.
+
+- Do not use \`final\` in the a code snippet that also contains \`console.log\`  statements. These statements mean that you want to look at intermediate results so only call \`final\` when you are done will looking at all the intermediate results and are ready to pass the final payload to the responder. 
+
+- First attempt to use code like filter, map, slice, regex, property access, etc combined with \`console.log\` to explore the context and gather information. Use \`llmQuery\` for anything that requires interpretation, summarization, or answering questions about the content.
+
+- Use variables as buffers to accumulate information across steps. For example, if you are gathering evidence from multiple parts of the context, you can store it in an array variable and then pass it all at once in the \`final\` call.
+
+- Runtime output may be truncated. If it appears incomplete, rerun with narrower scope.
 
 ## Javascript Runtime Usage Instructions
 ${options.runtimeUsageInstructions}

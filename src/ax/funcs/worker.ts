@@ -9,15 +9,30 @@ export const FUNCTION_REF_KEY = '__ax_rlm_fn_ref__';
 export const MAX_ERROR_CAUSE_DEPTH = 16;
 
 /**
- * Returns the inline source code for the Web Worker.
+ * Returns the inline source code for the Web Worker / Node worker_threads.
+ *
  * The worker handles `init` and `execute` messages, proxies function calls
  * back to the main thread, and supports both sync and async code paths.
  *
- * IMPORTANT: axWorkerRuntime is serialized via .toString() and evaluated in
- * an isolated worker context. The function body must be fully self-contained
- * and must NOT use bare `require`/`import` that bundlers (esbuild/tsup)
- * can rewrite into module-scope polyfill variables. See the comment block
- * at the top of axWorkerRuntime() in worker.runtime.ts for full rules.
+ * ## Serialization boundary
+ *
+ * `axWorkerRuntime` is serialized via `.toString()` and evaluated as a
+ * standalone script in an isolated context (Web Worker or Node worker_threads).
+ * The serialized string contains ONLY the function body — it has no access to
+ * module-scope variables, imports, or bundler-injected helpers from the
+ * original bundle.
+ *
+ * This function is the **single point** where we bridge that gap: any
+ * polyfills for bundler-injected references (e.g. `__name`) must be prepended
+ * here. See the rules block at the top of `axWorkerRuntime()` in
+ * `worker.runtime.ts` for the full list of constraints.
+ *
+ * ## Adding new polyfills
+ *
+ * If a future bundler version injects a new module-scope helper (e.g.
+ * `__export`, `__toESM`, `__require`), add a detection + polyfill block
+ * below following the same pattern as `__name`, and add a matching
+ * sandbox test in `worker.runtime.test.ts`.
  */
 export function getWorkerSource(): string {
   const runtimeConfig = {
@@ -25,5 +40,30 @@ export function getWorkerSource(): string {
     maxErrorCauseDepth: MAX_ERROR_CAUSE_DEPTH,
   } as const;
 
-  return `(${axWorkerRuntime.toString()})(${JSON.stringify(runtimeConfig)});\n`;
+  const source = `(${axWorkerRuntime.toString()})(${JSON.stringify(runtimeConfig)});\n`;
+
+  // --- Bundler helper polyfills ---
+  //
+  // esbuild/tsup may inject module-scope helper calls into the serialized
+  // function body. These helpers exist at the top of the bundle but are NOT
+  // available in the isolated worker context. We detect their presence in the
+  // serialized source and prepend lightweight no-op polyfills.
+  //
+  // Known helpers:
+  //   __name(fn, name) — injected when keepNames is enabled; preserves
+  //                       Function.name during minification. The polyfill
+  //                       simply returns the function unchanged.
+  //
+  // Why detection instead of always prepending?
+  //   In dev/test (vitest runs unminified TS), these helpers are absent.
+  //   Conditional prepending keeps the dev-time source clean and makes it
+  //   obvious when a polyfill is actually in effect.
+
+  let polyfills = '';
+
+  if (source.includes('__name')) {
+    polyfills += 'var __name=(fn,_n)=>fn;\n';
+  }
+
+  return polyfills ? `${polyfills}${source}` : source;
 }

@@ -316,9 +316,12 @@ describe('AxJSRuntime integration', () => {
     const session = runtime.createSession();
     try {
       const result = await session.execute(
-        ['await Promise.resolve(1);', 'if (true) {', '  const x = 3;', '}'].join(
-          '\n'
-        )
+        [
+          'await Promise.resolve(1);',
+          'if (true) {',
+          '  const x = 3;',
+          '}',
+        ].join('\n')
       );
       expect(result).toBe(undefined);
     } finally {

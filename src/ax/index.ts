@@ -690,6 +690,10 @@ import {
   AxJSRuntimePermission,
   axCreateJSRuntime,
 } from './funcs/jsRuntime.js';
+import {
+  type AxWorkerRuntimeConfig,
+  axWorkerRuntime,
+} from './funcs/worker.runtime.js';
 import { AxMCPClient } from './mcp/client.js';
 import type { AxMCPOAuthOptions } from './mcp/oauth/types.js';
 import type { AxMCPTransport } from './mcp/transport.js';
@@ -984,6 +988,7 @@ export { axUpdateOptimizerMetricsConfig };
 export { axValidateChatRequestMessage };
 export { axValidateChatResponseResult };
 export { axValidateProviderCapabilities };
+export { axWorkerRuntime };
 export { f };
 export { flow };
 export { s };
@@ -1426,3 +1431,4 @@ export type { AxTraceLoggerOptions };
 export type { AxTunable };
 export type { AxTypedExample };
 export type { AxUsable };
+export type { AxWorkerRuntimeConfig };
