@@ -5,8 +5,32 @@ export type AxWorkerRuntimeConfig = Readonly<{
 
 export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
 
-  // Keep runtime helpers inside this function. getWorkerSource() stringifies this
-  // function and injects it into worker source, so outer-scope functions are not available.
+  // ╔══════════════════════════════════════════════════════════════════════╗
+  // ║  IMPORTANT: SERIALIZED FUNCTION — READ BEFORE EDITING              ║
+  // ║                                                                    ║
+  // ║  This function is serialized via .toString() by getWorkerSource()  ║
+  // ║  and evaluated as a standalone script inside a Web Worker or       ║
+  // ║  Node worker_threads context.                                      ║
+  // ║                                                                    ║
+  // ║  Rules for code inside this function:                              ║
+  // ║                                                                    ║
+  // ║  1. NO IMPORTS — outer-scope modules/functions are NOT available   ║
+  // ║     in the worker. Everything must be self-contained.              ║
+  // ║                                                                    ║
+  // ║  2. NO BARE `require` — esbuild/tsup replaces bare `require`      ║
+  // ║     and `typeof require` with module-scope polyfill variables      ║
+  // ║     that don't exist in the serialized worker context.             ║
+  // ║     Use `globalThis['require']` instead (see _detectNodeParentPort ║
+  // ║     for the correct pattern).                                      ║
+  // ║                                                                    ║
+  // ║  3. NO BARE `import()` — dynamic import() may also be rewritten   ║
+  // ║     by bundlers. If needed, use indirect eval to obtain it.        ║
+  // ║                                                                    ║
+  // ║  4. `typeof process` is SAFE — esbuild preserves this.            ║
+  // ║     `typeof self` and `typeof globalThis` are also safe.           ║
+  // ║                                                                    ║
+  // ║  Tests in worker.runtime.test.ts validate these invariants.        ║
+  // ╚══════════════════════════════════════════════════════════════════════╝
 
   type WorkerEvent = { data: unknown };
   type NodeParentPort = {
@@ -52,8 +76,19 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
     isNodeWorker: boolean;
     parentPort: NodeParentPort | null;
   } => {
+    // Use globalThis['require'] instead of bare `require` because this
+    // function is serialized via .toString() and evaluated in an isolated
+    // worker. esbuild replaces bare `require` with a module-scope polyfill
+    // variable that won't exist in the serialized context.
+    const _require =
+      typeof globalThis !== 'undefined'
+        ? ((globalThis as Record<string, unknown>)['require'] as
+            | ((id: string) => unknown)
+            | undefined)
+        : undefined;
+
     const isNodeLike =
-      typeof require === 'function' &&
+      typeof _require === 'function' &&
       typeof process !== 'undefined' &&
       !!(process.versions && process.versions.node);
 
@@ -62,7 +97,7 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
     }
 
     try {
-      const workerThreads = require('node:worker_threads') as {
+      const workerThreads = _require!('node:worker_threads') as {
         parentPort?: NodeParentPort | null;
       };
       return {

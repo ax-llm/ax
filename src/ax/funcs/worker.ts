@@ -12,6 +12,12 @@ export const MAX_ERROR_CAUSE_DEPTH = 16;
  * Returns the inline source code for the Web Worker.
  * The worker handles `init` and `execute` messages, proxies function calls
  * back to the main thread, and supports both sync and async code paths.
+ *
+ * IMPORTANT: axWorkerRuntime is serialized via .toString() and evaluated in
+ * an isolated worker context. The function body must be fully self-contained
+ * and must NOT use bare `require`/`import` that bundlers (esbuild/tsup)
+ * can rewrite into module-scope polyfill variables. See the comment block
+ * at the top of axWorkerRuntime() in worker.runtime.ts for full rules.
  */
 export function getWorkerSource(): string {
   const runtimeConfig = {

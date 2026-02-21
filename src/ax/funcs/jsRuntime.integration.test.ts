@@ -435,6 +435,51 @@ describe('AxJSRuntime integration', () => {
     }
   });
 
+  it('function proxy calls resolve correctly (llmQuery + final pattern)', async () => {
+    const runtime = new AxJSRuntime();
+    const results: unknown[] = [];
+    const session = runtime.createSession({
+      context: 'some text content',
+      llmQuery: async (query: string, _ctx: unknown) => `Answer: ${query}`,
+      final: (...args: unknown[]) => {
+        results.push(...args);
+      },
+    });
+    try {
+      const code = [
+        'var result = await llmQuery("summarize", context);',
+        'final(result);',
+      ].join('\n');
+      await session.execute(code);
+      expect(results).toHaveLength(1);
+      expect(results[0]).toBe('Answer: summarize');
+    } finally {
+      session.close();
+    }
+  });
+
+  it('multiple sequential fn-call proxies resolve in order', async () => {
+    const runtime = new AxJSRuntime();
+    const finalArgs: unknown[] = [];
+    const session = runtime.createSession({
+      llmQuery: async (query: string) => `Response: ${query}`,
+      final: (...args: unknown[]) => {
+        finalArgs.push(args[0]);
+      },
+    });
+    try {
+      const code = [
+        'var r1 = await llmQuery("first");',
+        'var r2 = await llmQuery("second");',
+        'final(r1 + " | " + r2);',
+      ].join('\n');
+      await session.execute(code);
+      expect(finalArgs[0]).toBe('Response: first | Response: second');
+    } finally {
+      session.close();
+    }
+  });
+
   it('callback (fn-call) error preserves name and message when caught', async () => {
     const runtime = new AxJSRuntime();
     const thrower = () => {
