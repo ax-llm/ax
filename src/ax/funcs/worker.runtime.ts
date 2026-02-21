@@ -4,7 +4,6 @@ export type AxWorkerRuntimeConfig = Readonly<{
 }>;
 
 export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
-
   // Keep runtime helpers inside this function. getWorkerSource() stringifies this
   // function and injects it into worker source, so outer-scope functions are not available.
 
@@ -25,7 +24,9 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
     data?: unknown;
   };
 
-  const _scope = (typeof self !== 'undefined' ? self : globalThis) as unknown as {
+  const _scope = (typeof self !== 'undefined'
+    ? self
+    : globalThis) as unknown as {
     [key: string]: unknown;
     postMessage?: (message: unknown) => void;
     onmessage?: ((event: WorkerEvent) => void) | null;
@@ -55,7 +56,7 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
     const isNodeLike =
       typeof require === 'function' &&
       typeof process !== 'undefined' &&
-      !!(process.versions && process.versions.node);
+      !!process.versions?.node;
 
     if (!isNodeLike) {
       return { isNodeWorker: false, parentPort: null };
@@ -183,7 +184,9 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
           }
         } else {
           if (prefixStatement) {
-            head = head ? `${head}\n${prefixStatement};` : `${prefixStatement};`;
+            head = head
+              ? `${head}\n${prefixStatement};`
+              : `${prefixStatement};`;
           }
           expression = maybeExpression;
         }
@@ -203,7 +206,10 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
     tail: number
   ): string | null => {
     const baseHead = lines.slice(0, start).join('\n');
-    const rawCandidate = lines.slice(start, tail + 1).join('\n').trim();
+    const rawCandidate = lines
+      .slice(start, tail + 1)
+      .join('\n')
+      .trim();
 
     if (!rawCandidate) {
       return null;
@@ -297,7 +303,9 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
     output: string[]
   ): (() => void) => {
     const consoleObject =
-      _scope.console && typeof _scope.console === 'object' ? _scope.console : null;
+      _scope.console && typeof _scope.console === 'object'
+        ? _scope.console
+        : null;
     const existingMethod = consoleObject?.[methodName];
     const original =
       typeof existingMethod === 'function'
@@ -454,10 +462,14 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
     const name = errObject?.name != null ? String(errObject.name) : 'Error';
     const message =
       errObject?.message != null ? String(errObject.message) : String(err);
-    const stack = typeof errObject?.stack === 'string' ? errObject.stack : undefined;
+    const stack =
+      typeof errObject?.stack === 'string' ? errObject.stack : undefined;
 
     let cause: SerializedError | undefined;
-    if (typeof errObject?.cause !== 'undefined' && depth < _MAX_ERROR_CAUSE_DEPTH) {
+    if (
+      typeof errObject?.cause !== 'undefined' &&
+      depth < _MAX_ERROR_CAUSE_DEPTH
+    ) {
       try {
         const sourceCause = errObject.cause;
         if (
@@ -643,6 +655,8 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
   const _executeSyncSnippet = (code: string): unknown => {
     const syncCode = _rewriteTopLevelReturnForSyncEval(code);
     // Indirect eval executes in worker global scope.
+    // biome-ignore lint/security/noGlobalEval: intentional indirect eval for worker runtime
+    // biome-ignore lint/complexity/noCommaOperator: indirect eval pattern requires comma operator
     return (0, eval)(syncCode);
   };
 
