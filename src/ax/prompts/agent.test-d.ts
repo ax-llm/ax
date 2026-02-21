@@ -4,10 +4,8 @@ import { agent, f, s, type AxCodeRuntime } from '../index.js';
 {
   const runtime = {} as AxCodeRuntime;
   const a = agent('query:string -> answer:string, score:number', {
-    rlm: {
-      contextFields: [] as const,
-      runtime,
-    },
+    contextFields: [] as const,
+    runtime,
   });
 
   type Result = Awaited<ReturnType<typeof a.forward>>;
@@ -20,10 +18,8 @@ import { agent, f, s, type AxCodeRuntime } from '../index.js';
 {
   const runtime = {} as AxCodeRuntime;
   const a = agent('query:string -> answer:string', {
-    rlm: {
-      contextFields: [] as const,
-      runtime,
-    },
+    contextFields: [] as const,
+    runtime,
     recursionOptions: {
       model: 'tiny-model',
       maxDepth: 3,
@@ -40,10 +36,8 @@ import { agent, f, s, type AxCodeRuntime } from '../index.js';
   const runtime = {} as AxCodeRuntime;
   // @ts-expect-error maxDepth must be a number
   agent('query:string -> answer:string', {
-    rlm: {
-      contextFields: [] as const,
-      runtime,
-    },
+    contextFields: [] as const,
+    runtime,
     recursionOptions: {
       maxDepth: '3',
     },
@@ -54,11 +48,9 @@ import { agent, f, s, type AxCodeRuntime } from '../index.js';
 {
   const runtime = {} as AxCodeRuntime;
   const a = agent('context:string, query:string -> answer:string', {
-    rlm: {
-      contextFields: ['context'] as const,
-      runtime,
-      compressLog: true,
-    },
+    contextFields: ['context'] as const,
+    runtime,
+    compressLog: true,
   });
 
   type Result = Awaited<ReturnType<typeof a.forward>>;
@@ -70,10 +62,8 @@ import { agent, f, s, type AxCodeRuntime } from '../index.js';
   const runtime = {} as AxCodeRuntime;
   const sig = s('query:string -> answer:string, score:number');
   const a = agent(sig, {
-    rlm: {
-      contextFields: [] as const,
-      runtime,
-    },
+    contextFields: [] as const,
+    runtime,
   });
 
   type Result = Awaited<ReturnType<typeof a.forward>>;
@@ -89,10 +79,8 @@ import { agent, f, s, type AxCodeRuntime } from '../index.js';
     .output('score', f.number())
     .build();
   const a = agent(sig, {
-    rlm: {
-      contextFields: [] as const,
-      runtime,
-    },
+    contextFields: [] as const,
+    runtime,
   });
 
   type Result = Awaited<ReturnType<typeof a.forward>>;
@@ -107,10 +95,8 @@ import { agent, f, s, type AxCodeRuntime } from '../index.js';
   const a = agent(
     'context:string, query:string -> answer:string, evidence:string[]',
     {
-      rlm: {
-        contextFields: ['context'] as const,
-        runtime,
-      },
+      contextFields: ['context'] as const,
+      runtime,
     }
   );
 
@@ -130,10 +116,8 @@ import { agent, f, s, type AxCodeRuntime } from '../index.js';
     .build();
 
   const a = agent(sig, {
-    rlm: {
-      contextFields: ['context'] as const,
-      runtime,
-    },
+    contextFields: ['context'] as const,
+    runtime,
   });
 
   // forward() returns original OUT
@@ -145,10 +129,8 @@ import { agent, f, s, type AxCodeRuntime } from '../index.js';
 {
   const runtime = {} as AxCodeRuntime;
   const a = agent('query:string -> answer:string', {
-    rlm: {
-      contextFields: [] as const,
-      runtime,
-    },
+    contextFields: [] as const,
+    runtime,
   });
 
   // Valid: 'actor' and 'responder' are known children

@@ -92,7 +92,8 @@ const myAgent = agent(
     debug: false,                        // Debug logging
 
     // RLM mode (see RLM section below)
-    rlm: { ... },
+    contextFields: ['...'],          // Fields to load into runtime session
+    // ... other RLM options (see RLM section below)
   }
 );
 ```
@@ -392,20 +393,18 @@ const analyzer = agent(
       name: 'documentAnalyzer',
       description: 'Analyzes long documents using code interpreter and sub-LM queries',
     },
-    rlm: {
-      contextFields: ['context'],                // Fields to load into runtime session
-      runtime: new AxJSRuntime(),                // Code runtime (default: AxJSRuntime)
-      maxLlmCalls: 30,                           // Cap on sub-LM calls (default: 50)
-      maxRuntimeChars: 2_000,                    // Cap for llmQuery context + code output (default: 5000)
-      maxBatchedLlmQueryConcurrency: 6,          // Max parallel batched llmQuery calls (default: 8)
-      maxTurns: 10,                              // Max Actor turns before forcing Responder (default: 10)
-      compressLog: true,                         // Store actionDescription in actionLog instead of full code
-      actorFields: ['reasoning'],                  // Output fields produced by Actor instead of Responder
-      actorCallback: async (result) => {           // Called after each Actor turn
-        console.log('Actor turn:', result);
-      },
-      mode: 'simple',                              // Sub-query mode: 'simple' = AxGen, 'advanced' = AxAgent (default: 'simple')
+    contextFields: ['context'],                  // Fields to load into runtime session
+    runtime: new AxJSRuntime(),                  // Code runtime (default: AxJSRuntime)
+    maxLlmCalls: 30,                             // Cap on sub-LM calls (default: 50)
+    maxRuntimeChars: 2_000,                      // Cap for llmQuery context + code output (default: 5000)
+    maxBatchedLlmQueryConcurrency: 6,            // Max parallel batched llmQuery calls (default: 8)
+    maxTurns: 10,                                // Max Actor turns before forcing Responder (default: 10)
+    compressLog: true,                           // Store actionDescription in actionLog instead of full code
+    actorFields: ['reasoning'],                  // Output fields produced by Actor instead of Responder
+    actorCallback: async (result) => {           // Called after each Actor turn
+      console.log('Actor turn:', result);
     },
+    mode: 'simple',                              // Sub-query mode: 'simple' = AxGen, 'advanced' = AxAgent (default: 'simple')
     recursionOptions: {
       model: 'gpt-4o-mini',                      // Forward options for recursive llmQuery agent calls
       maxDepth: 2,                                // Maximum recursion depth
@@ -466,10 +465,8 @@ const analyzer = agent(sig, {
     name: 'structuredAnalyzer',
     description: 'Analyzes structured document collections using RLM',
   },
-  rlm: {
-    contextFields: ['documents'],
-    runtime: new AxJSRuntime(),
-  },
+  contextFields: ['documents'],
+  runtime: new AxJSRuntime(),
 });
 ```
 
@@ -529,10 +526,8 @@ const analyzer = agent(
       name: 'reasoningAnalyzer',
       description: 'Analyzes context with explicit reasoning steps',
     },
-    rlm: {
-      contextFields: ['context'],
-      actorFields: ['reasoning'],   // Actor produces 'reasoning', Responder produces 'answer'
-    },
+    contextFields: ['context'],
+    actorFields: ['reasoning'],   // Actor produces 'reasoning', Responder produces 'answer'
   }
 );
 ```
@@ -553,11 +548,9 @@ const analyzer = agent(
       name: 'callbackAnalyzer',
       description: 'Analyzes context with observable actor turns',
     },
-    rlm: {
-      contextFields: ['context'],
-      actorCallback: async (result) => {
-        console.log('Actor code:', result.javascriptCode);
-      },
+    contextFields: ['context'],
+    actorCallback: async (result) => {
+      console.log('Actor code:', result.javascriptCode);
     },
   }
 );
@@ -579,7 +572,7 @@ const analyzer = agent(
       name: 'dualModelAnalyzer',
       description: 'Analyzes context using different models for actor and responder',
     },
-    rlm: { contextFields: ['context'] },
+    contextFields: ['context'],
     actorOptions: {
       model: 'fast-model',
       thinkingTokenBudget: 1024,
@@ -600,7 +593,7 @@ Use `recursionOptions` to set default forward options for recursive `llmQuery` s
 
 ```typescript
 const analyzer = agent('context:string, query:string -> answer:string', {
-  rlm: { contextFields: ['context'] },
+  contextFields: ['context'],
   recursionOptions: {
     model: 'fast-model',
     maxDepth: 2,
@@ -627,7 +620,7 @@ const analyzer = agent(
       name: 'customAnalyzer',
       description: 'Analyzes context with custom actor and responder instructions',
     },
-    rlm: { contextFields: ['context'] },
+    contextFields: ['context'],
   }
 );
 
@@ -839,7 +832,16 @@ Extends `AxProgramForwardOptions` (without `functions`) with:
 ```typescript
 {
   debug?: boolean;
-  rlm: AxRLMConfig;
+  contextFields: string[];
+  runtime?: AxCodeRuntime;
+  maxLlmCalls?: number;
+  maxRuntimeChars?: number;
+  maxBatchedLlmQueryConcurrency?: number;
+  maxTurns?: number;
+  compressLog?: boolean;
+  actorFields?: string[];
+  actorCallback?: (result: Record<string, unknown>) => void | Promise<void>;
+  mode?: 'simple' | 'advanced';
   recursionOptions?: Partial<Omit<AxProgramForwardOptions, 'functions'>> & {
     maxDepth?: number;  // Maximum recursion depth for llmQuery sub-agent calls (default: 2)
   };

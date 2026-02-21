@@ -18,14 +18,13 @@ const weatherAgent = agent(
       name: 'weatherAgent',
       description: 'An agent that provides weather information',
     },
-    rlm: {
-      contextFields: [],
-      runtime,
+    actorOptions: {
+      description:
+        'You are a helpful weather assistant. When users ask about weather, provide clear, concise information about current conditions, forecasts, and any relevant weather warnings.',
     },
+    contextFields: [],
+    runtime,
   }
-);
-weatherAgent.setActorDescription(
-  'You are a helpful weather assistant. When users ask about weather, provide clear, concise information about current conditions, forecasts, and any relevant weather warnings.'
 );
 
 // Create child agents using the new syntax
@@ -36,10 +35,8 @@ const forecastAgent = agent(
       name: 'forecastAgent',
       description: 'Provides detailed weather forecasts',
     },
-    rlm: {
-      contextFields: [],
-      runtime,
-    },
+    contextFields: [],
+    runtime,
   }
 );
 
@@ -50,10 +47,8 @@ const alertsAgent = agent(
       name: 'alertsAgent',
       description: 'Checks for weather warnings and alerts',
     },
-    rlm: {
-      contextFields: [],
-      runtime,
-    },
+    contextFields: [],
+    runtime,
   }
 );
 
@@ -67,14 +62,13 @@ const weatherCoordinator = agent(
         'Coordinates multiple weather agents to provide comprehensive information',
     },
     agents: [weatherAgent, forecastAgent, alertsAgent] as AxAgentic<any, any>[],
-    rlm: {
-      contextFields: [],
-      runtime,
+    actorOptions: {
+      description:
+        'You coordinate weather information requests by delegating to specialized agents for forecasts and alerts. Combine their responses into a comprehensive answer.',
     },
+    contextFields: [],
+    runtime,
   }
-);
-weatherCoordinator.setActorDescription(
-  'You coordinate weather information requests by delegating to specialized agents for forecasts and alerts. Combine their responses into a comprehensive answer.'
 );
 
 // Example usage

@@ -68,15 +68,39 @@ export type AxAgentOptions = Omit<
   'functions' | 'description'
 > & {
   debug?: boolean;
-  /** RLM configuration (required — AxAgent always uses split architecture) */
-  rlm: AxRLMConfig;
+  /** Input fields holding long context (will be removed from the LLM prompt). */
+  contextFields: string[];
+  /** Code runtime for the REPL loop (default: AxJSRuntime). */
+  runtime?: AxCodeRuntime;
+  /** Cap on recursive sub-LM calls (default: 50). */
+  maxLlmCalls?: number;
+  /** Maximum characters for RLM runtime payloads (default: 5000). */
+  maxRuntimeChars?: number;
+  /** Maximum parallel llmQuery calls in batched mode (default: 8). */
+  maxBatchedLlmQueryConcurrency?: number;
+  /** Maximum Actor turns before forcing Responder (default: 10). */
+  maxTurns?: number;
+  /** If true, the Actor must return actionDescription and action logs will store short descriptions. */
+  compressLog?: boolean;
+  /** Output field names the Actor should produce (in addition to javascriptCode). */
+  actorFields?: string[];
+  /** Called after each Actor turn with the full actor result. */
+  actorCallback?: (result: Record<string, unknown>) => void | Promise<void>;
+  /** Sub-query execution mode (default: 'simple'). */
+  mode?: 'simple' | 'advanced';
   /** Default forward options for recursive llmQuery sub-agent calls. */
   recursionOptions?: AxAgentRecursionOptions;
   /** Default forward options for the Actor sub-program. */
-  actorOptions?: Partial<Omit<AxProgramForwardOptions<string>, 'functions'>>;
+  actorOptions?: Partial<
+    Omit<AxProgramForwardOptions<string>, 'functions'> & {
+      description?: string;
+    }
+  >;
   /** Default forward options for the Responder sub-program. */
   responderOptions?: Partial<
-    Omit<AxProgramForwardOptions<string>, 'functions'>
+    Omit<AxProgramForwardOptions<string>, 'functions'> & {
+      description?: string;
+    }
   >;
 };
 
@@ -96,7 +120,7 @@ const DEFAULT_RLM_MAX_TURNS = 10;
 const DEFAULT_RLM_MAX_RECURSION_DEPTH = 2;
 
 type AxAgentActorResultPayload = {
-  type: 'submit' | 'ask_clarification';
+  type: 'final' | 'ask_clarification';
   args: unknown[];
 };
 
@@ -109,7 +133,7 @@ type AxAgentActorResultPayload = {
  *
  * The execution loop is managed by TypeScript, not the LLM:
  * 1. Actor generates code → executed in runtime → result appended to actionLog
- * 2. Loop until Actor calls submit(...) / ask_clarification(...) or maxTurns reached
+ * 2. Loop until Actor calls final(...) / ask_clarification(...) or maxTurns reached
  * 3. Responder synthesizes final answer from actorResult payload
  */
 export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
@@ -125,11 +149,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private options?: Readonly<AxAgentOptions>;
   private rlmConfig: AxRLMConfig;
   private runtime: AxCodeRuntime;
-  private actorBaseDefinition!: string;
-  private responderBaseDefinition!: string;
-  private actorDescriptionOverride?: string;
-  private responderDescriptionOverride?: string;
   private actorFieldNames: string[];
+  private actorDescription?: string;
+  private responderDescription?: string;
   private recursionForwardOptions?: AxAgentRecursionOptions;
   private actorForwardOptions?: Partial<AxProgramForwardOptions<string>>;
   private responderForwardOptions?: Partial<AxProgramForwardOptions<string>>;
@@ -158,22 +180,53 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     }>,
     options: Readonly<AxAgentOptions>
   ) {
-    const { debug, rlm, recursionOptions, actorOptions, responderOptions } =
-      options;
+    const {
+      debug,
+      contextFields,
+      runtime,
+      maxLlmCalls,
+      maxRuntimeChars,
+      maxBatchedLlmQueryConcurrency,
+      maxTurns,
+      compressLog,
+      actorFields,
+      actorCallback,
+      mode,
+      recursionOptions,
+      actorOptions,
+      responderOptions,
+    } = options;
 
     this.ai = ai;
     this.agents = agents;
     this.functions = functions;
     this.debug = debug;
     this.options = options;
-    this.runtime = rlm.runtime ?? new AxJSRuntime();
+    this.runtime = runtime ?? new AxJSRuntime();
     this.rlmConfig = {
-      ...rlm,
+      contextFields,
       runtime: this.runtime,
+      maxLlmCalls,
+      maxRuntimeChars,
+      maxBatchedLlmQueryConcurrency,
+      maxTurns,
+      compressLog,
+      actorFields,
+      actorCallback,
+      mode,
     };
     this.recursionForwardOptions = recursionOptions;
-    this.actorForwardOptions = actorOptions;
-    this.responderForwardOptions = responderOptions;
+
+    const { description: actorDescription, ...actorForwardOptions } =
+      actorOptions ?? {};
+    const { description: responderDescription, ...responderForwardOptions } =
+      responderOptions ?? {};
+
+    this.actorDescription = actorDescription;
+    this.actorForwardOptions = actorForwardOptions;
+
+    this.responderDescription = responderDescription;
+    this.responderForwardOptions = responderForwardOptions;
 
     // Create the base program (used for signature/schema access)
     this.program = new AxGen<IN, OUT>(signature, {
@@ -202,11 +255,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     }
 
     // ----- Split architecture setup -----
-    const runtime = this.runtime;
 
     // Validate contextFields exist in signature
     const inputFields = this.program.getSignature().getInputFields();
-    for (const cf of rlm.contextFields) {
+    for (const cf of contextFields) {
       if (!inputFields.some((f) => f.name === cf)) {
         throw new Error(`RLM contextField "${cf}" not found in signature`);
       }
@@ -214,11 +266,11 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     // Identify context field metadata
     const contextFieldMeta = inputFields.filter((fld) =>
-      rlm.contextFields.includes(fld.name)
+      contextFields.includes(fld.name)
     );
     // Non-context inputs (shared by Actor and Responder)
     const nonContextInputs = inputFields.filter(
-      (fld) => !rlm.contextFields.includes(fld.name)
+      (fld) => !contextFields.includes(fld.name)
     );
 
     if (this.program.getSignature().getDescription()) {
@@ -230,7 +282,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     // --- Validate and split output fields by actorFields ---
     const originalOutputs = this.program.getSignature().getOutputFields();
-    const actorFieldNames = rlm.actorFields ?? [];
+    const actorFieldNames = actorFields ?? [];
     this.actorFieldNames = actorFieldNames;
 
     for (const af of actorFieldNames) {
@@ -251,35 +303,29 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       .addInputFields(nonContextInputs)
       .input(
         'contextMetadata',
-        f.string(
-          'Auto-generated metadata about pre-loaded context variables (type and size)'
-        )
+        f.string('Metadata about pre-loaded context variables (type and size)')
       )
       .input(
         'actionLog',
         f.string(
-          'Chronological trace of code executions and their outputs so far'
+          'Chronological trace of code executions or actions and their outputs so far'
         )
       ) as any;
 
-    if (rlm.compressLog) {
+    if (compressLog) {
       actorSigBuilder = actorSigBuilder
         .output(
           'actionDescription',
-          f.string('a short description of what the code does, keep it short')
+          f.string('A short description of what the code does, keep it short')
         )
         .output(
           'javascriptCode',
-          f.string(
-            'JavaScript code to execute in runtime session, call submit(...args) or ask_clarification(...args) to stop'
-          )
+          f.code('JavaScript code to execute in runtime session')
         );
     } else {
       actorSigBuilder = actorSigBuilder.output(
         'javascriptCode',
-        f.string(
-          'JavaScript code to execute in runtime session, call submit(...args) or ask_clarification(...args) to stop'
-        )
+        f.code('JavaScript code to execute in runtime session')
       );
     }
 
@@ -293,42 +339,30 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const responderSig = f()
       .addInputFields(nonContextInputs)
       .input(
-        'contextMetadata',
-        f.string(
-          'Auto-generated metadata about pre-loaded context variables (type and size)'
-        )
-      )
-      .input(
-        'actorResult',
-        f.json(
-          'Actor completion payload: { type: "submit" | "ask_clarification", args: unknown[] }'
-        )
+        'contextData',
+        f.json('Context data to help synthesize the final answer.')
       )
       .addOutputFields(responderOutputFields)
       .build();
 
-    // Collect tool functions for Actor definition (excludes child agents)
-    const toolFunctions = this.collectFunctions();
+    const effectiveMaxLlmCalls = maxLlmCalls ?? DEFAULT_RLM_MAX_LLM_CALLS;
+    const effectiveMaxTurns = maxTurns ?? DEFAULT_RLM_MAX_TURNS;
 
-    const maxLlmCalls = rlm.maxLlmCalls ?? DEFAULT_RLM_MAX_LLM_CALLS;
-    const maxTurns = rlm.maxTurns ?? DEFAULT_RLM_MAX_TURNS;
-
-    const actorDef = axBuildActorDefinition(undefined, contextFieldMeta, {
-      toolFunctions,
-      agentFunctions: this.agents?.map((a) => a.getFunction()),
-      runtimeUsageInstructions: runtime.getUsageInstructions?.(),
-      maxLlmCalls,
-      maxTurns,
-      actorFieldNames,
-      compressLog: rlm.compressLog,
-    });
-    this.actorBaseDefinition = actorDef;
+    const actorDef = axBuildActorDefinition(
+      this.actorDescription,
+      contextFieldMeta,
+      responderOutputFields,
+      {
+        runtimeUsageInstructions: this.runtime.getUsageInstructions(),
+        maxLlmCalls: effectiveMaxLlmCalls,
+        maxTurns: effectiveMaxTurns,
+      }
+    );
 
     const responderDef = axBuildResponderDefinition(
-      undefined,
+      this.responderDescription,
       contextFieldMeta
     );
-    this.responderBaseDefinition = responderDef;
 
     this.actorProgram = new AxGen(actorSig, {
       ...options,
@@ -469,28 +503,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     (this.program as any).applyOptimization?.(optimizedProgram);
   }
 
-  /**
-   * Appends additional text to the Actor's existing RLM system prompt.
-   * The base RLM prompt is preserved; the additional text is appended after it.
-   */
-  public setActorDescription(additionalText: string): void {
-    this.actorDescriptionOverride = additionalText;
-    this.actorProgram.setDescription(
-      `${this.actorBaseDefinition}\n\n${additionalText}`
-    );
-  }
-
-  /**
-   * Appends additional text to the Responder's existing RLM system prompt.
-   * The base RLM prompt is preserved; the additional text is appended after it.
-   */
-  public setResponderDescription(additionalText: string): void {
-    this.responderDescriptionOverride = additionalText;
-    this.responderProgram.setDescription(
-      `${this.responderBaseDefinition}\n\n${additionalText}`
-    );
-  }
-
   // ----- Forward (split architecture) -----
 
   /**
@@ -607,24 +619,15 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           },
           {
             debug,
-            rlm: {
-              ...rlm,
-              contextFields: childContextFields,
-              actorFields: undefined,
-            },
+            ...rlm,
+            contextFields: childContextFields,
+            actorFields: undefined,
             recursionOptions: childRecursionOptions,
             actorOptions: this.actorForwardOptions,
             responderOptions: this.responderForwardOptions,
           }
         );
-        if (this.actorDescriptionOverride) {
-          advancedAgent.setActorDescription(this.actorDescriptionOverride);
-        }
-        if (this.responderDescriptionOverride) {
-          advancedAgent.setResponderDescription(
-            this.responderDescriptionOverride
-          );
-        }
+
         recursiveSubAgent = advancedAgent;
       } else {
         recursiveSubAgent = new AxGen<any, { answer: AxFieldValue }>(
@@ -817,8 +820,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       }
       actorResultPayload = { type, args };
     };
-    const submitFunction = (...args: unknown[]) =>
-      setActorResultPayload('submit', args);
+    const finalFunction = (...args: unknown[]) =>
+      setActorResultPayload('final', args);
     const askClarificationFunction = (...args: unknown[]) =>
       setActorResultPayload('ask_clarification', args);
 
@@ -826,7 +829,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       return runtime.createSession({
         ...contextValues,
         llmQuery,
-        submit: submitFunction,
+        final: finalFunction,
         ask_clarification: askClarificationFunction,
         ...toolGlobals,
       });
@@ -839,7 +842,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const reservedNames = [
       'llmQuery',
       'agents',
-      'submit',
+      'final',
       'ask_clarification',
       ...rlm.contextFields,
       ...Object.keys(toolGlobals),
@@ -1008,7 +1011,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           actionLog += `${actionLog ? '\n\n' : ''}Action ${turn + 1}:\n\`\`\`javascript\n${code}\n\`\`\`\nResult:\n${output}${actorFieldsOutput}`;
         }
 
-        // Exit when Actor signaled completion via submit(...) or ask_clarification(...).
+        // Exit when Actor signaled completion via final(...) or ask_clarification(...).
         if (actorResultPayload) {
           break;
         }
@@ -1024,7 +1027,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const actorResult =
       actorResultPayload ??
       ({
-        type: 'submit',
+        type: 'final',
         args: [actionLog || '(no actions were taken)'],
       } satisfies AxAgentActorResultPayload);
 
@@ -1058,12 +1061,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       const debug =
         options?.debug ?? this.debug ?? ai?.getOptions()?.debug ?? false;
 
-      const {
-        nonContextValues,
-        contextMetadata,
-        actorResult,
-        actorFieldValues,
-      } = await this._runActorLoop(ai, values, options, effectiveAbortSignal);
+      const { nonContextValues, actorResult, actorFieldValues } =
+        await this._runActorLoop(ai, values, options, effectiveAbortSignal);
 
       const responderMergedOptions = {
         ...this.options,
@@ -1078,8 +1077,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         ai,
         {
           ...nonContextValues,
-          contextMetadata,
-          actorResult,
+          contextData: actorResult,
         },
         responderMergedOptions
       );
@@ -1236,16 +1234,14 @@ export interface AxAgentConfig<_IN extends AxGenIn, _OUT extends AxGenOut>
  * This is the recommended way to create agents, providing better type inference and cleaner syntax.
  *
  * @param signature - The input/output signature as a string or AxSignature object
- * @param config - Configuration options for the agent (rlm config is required)
+ * @param config - Configuration options for the agent (contextFields is required)
  * @returns A typed agent instance
  *
  * @example
  * ```typescript
  * const myAgent = agent('context:string, query:string -> answer:string', {
- *   rlm: {
- *     contextFields: ['context'],
- *     runtime: new AxJSRuntime(),
- *   },
+ *   contextFields: ['context'],
+ *   runtime: new AxJSRuntime(),
  * });
  * ```
  */
@@ -1255,13 +1251,11 @@ export function agent<
   const CF extends readonly string[],
 >(
   signature: T,
-  config: AxAgentConfig<
-    ParseSignature<T>['inputs'],
-    ParseSignature<T>['outputs']
+  config: Omit<
+    AxAgentConfig<ParseSignature<T>['inputs'], ParseSignature<T>['outputs']>,
+    'contextFields'
   > & {
-    rlm: Omit<AxRLMConfig, 'contextFields'> & {
-      contextFields: CF;
-    };
+    contextFields: CF;
   }
 ): AxAgent<ParseSignature<T>['inputs'], ParseSignature<T>['outputs']>;
 // --- AxSignature object ---
@@ -1271,10 +1265,8 @@ export function agent<
   const CF extends readonly string[],
 >(
   signature: AxSignature<TInput, TOutput>,
-  config: AxAgentConfig<TInput, TOutput> & {
-    rlm: Omit<AxRLMConfig, 'contextFields'> & {
-      contextFields: CF;
-    };
+  config: Omit<AxAgentConfig<TInput, TOutput>, 'contextFields'> & {
+    contextFields: CF;
   }
 ): AxAgent<TInput, TOutput>;
 // --- Implementation ---

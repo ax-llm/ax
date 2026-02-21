@@ -91,10 +91,8 @@ Using streamable HTTP transport for real-time communication with Pipedream MCP s
     `userRequest:string -> assistantResponse:string "You are an assistant that can interact with ${appLabel} documents and data. You can read, search, and analyze Notion content to help users with their requests. Use the provided Notion functions to access and work with the user's documents."`,
     {
       functions: [client],
-      rlm: {
-        contextFields: [],
-        runtime: new AxJSRuntime(),
-      },
+      contextFields: [],
+      runtime: new AxJSRuntime(),
     }
   );
 

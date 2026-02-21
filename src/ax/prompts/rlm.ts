@@ -5,7 +5,6 @@
  * No Node.js-specific imports; browser-safe.
  */
 
-import type { AxFunction } from '../ai/types.js';
 import { toFieldType } from '../dsp/adapter.js';
 import type { AxIField } from '../dsp/sig.js';
 
@@ -19,7 +18,7 @@ export interface AxCodeRuntime {
    * Optional runtime-specific usage guidance injected into the RLM system prompt.
    * Use this for execution semantics that differ by runtime/language.
    */
-  getUsageInstructions?(): string;
+  getUsageInstructions(): string;
 }
 
 /**
@@ -82,23 +81,14 @@ export interface AxRLMConfig {
 export function axBuildActorDefinition(
   baseDefinition: string | undefined,
   contextFields: readonly AxIField[],
+  responderOutputFields: readonly AxIField[],
   options: Readonly<{
-    toolFunctions?: readonly AxFunction[];
-    agentFunctions?: readonly AxFunction[];
     runtimeUsageInstructions?: string;
     maxLlmCalls?: number;
     maxTurns?: number;
-    actorFieldNames?: readonly string[];
-    compressLog?: boolean;
   }>
 ): string {
   const maxLlmCalls = options.maxLlmCalls ?? 50;
-  const maxTurns = options.maxTurns ?? 10;
-  const runtimeUsageInstructions =
-    options.runtimeUsageInstructions?.trim() ?? '';
-  const runtimeUsageNotesSection = runtimeUsageInstructions
-    ? `\n\n### Runtime-specific usage notes\n${runtimeUsageInstructions}`
-    : '';
 
   const contextVarList =
     contextFields.length > 0
@@ -111,94 +101,33 @@ export function axBuildActorDefinition(
           .join('\n')
       : '(none)';
 
-  const toolSection =
-    options.toolFunctions && options.toolFunctions.length > 0
-      ? '\n\n### Available tools (callable as async functions)\n' +
-        options.toolFunctions
-          .map((fn) => {
-            const params = fn.parameters?.properties
-              ? Object.keys(fn.parameters.properties).join(', ')
-              : '';
-            return `- \`await ${fn.name}(${params ? `{ ${params} }` : ''})\` — ${fn.description}`;
-          })
-          .join('\n')
-      : '';
+  const responderOutputFieldTitles = responderOutputFields
+    .map((f) => `\`${f.name}\``)
+    .join(', ');
 
-  const agentSection =
-    options.agentFunctions && options.agentFunctions.length > 0
-      ? '\n\n### Available agents (accessible via `agents.*`)\n' +
-        options.agentFunctions
-          .map((fn) => {
-            const schema = fn.parameters
-              ? JSON.stringify(fn.parameters, null, 2)
-              : '{}';
-            return `#### \`await agents.${fn.name}({...})\`\n${fn.description}\n\nParameters:\n\`\`\`json\n${schema}\n\`\`\``;
-          })
-          .join('\n\n')
-      : '';
+  const actorBody = `
+## Code Generation Agent
 
-  const firstFieldName = contextFields[0]?.name ?? 'data';
-
-  const actorFieldNames = options.actorFieldNames ?? [];
-  const requiredActorFields: string[] = [];
-  if (options.compressLog) {
-    requiredActorFields.push('`actionDescription`');
-  }
-  if (actorFieldNames.length > 0) {
-    requiredActorFields.push(...actorFieldNames.map((n) => `\`${n}\``));
-  }
-  const actorFieldsRule1 =
-    requiredActorFields.length > 0
-      ? `Output a \`javascriptCode\` field containing executable JavaScript code, and also produce these fields: ${requiredActorFields.join(', ')}.`
-      : 'Output ONLY a `javascriptCode` field containing executable JavaScript code.';
-  const actorFieldsRule2 =
-    requiredActorFields.length > 0
-      ? `Do NOT include fields other than \`javascriptCode\` and the listed actor fields — another agent handles the remaining answer fields.`
-      : 'NEVER include business answer fields — another agent handles the final answer.';
-  const compressLogRule = options.compressLog
-    ? '4. `actionDescription` is REQUIRED and must be a short plain-English description of what the code does.'
-    : '';
-  const signalRule = options.compressLog ? 5 : 4;
-  const variableRule = options.compressLog ? 6 : 5;
-  const exploreRule = options.compressLog ? 7 : 6;
-  const semanticRule = options.compressLog ? 8 : 7;
-  const turnsRule = options.compressLog ? 9 : 8;
-  const batchRule = options.compressLog ? 10 : 9;
-  const recursionRule = options.compressLog ? 11 : 10;
-
-  const actorBody = `## Code Generation Agent
-
-You are a code generation agent. Your ONLY job is to write JavaScript code that gathers information needed to answer the user's question. You NEVER answer the question directly — another agent handles the final answer.
+You are a code generation agent called the \`actor\`. Your ONLY job is to write JavaScript code to solve problems, complete tasks and gather information. There is another agent called the \`responder\` that will synthesize final answers from the information you gather. You NEVER generate final answers directly — you can only write code to explore and analyze the context, call tools, and ask for clarification.
 
 ### Pre-loaded context variables
-The following variables are available in the runtime session:
+The following variables are **ONLY** available in the javascript code runtime session:
 ${contextVarList}
 
-### Runtime APIs (available inside \`javascriptCode\`)
-- \`await llmQuery(query, context)\` — Single sub-query. query is a string, context can be any value (string, object, array, etc.) and will be available as a variable in the sub-agent's runtime. Returns a string. Always pass the relevant context — sub-LMs are powerful and can handle large context.
-- \`await llmQuery([{ query, context }, ...])\` — Parallel batch. Pass an array of { query, context } objects where context can be any value. Returns string[]; failed items return \`[ERROR] ...\`. Use parallel queries when you have multiple independent chunks — it is much faster than sequential calls.
-- \`submit(...args)\` — Signal completion and provide payload arguments for the responder. Requires at least one argument. Can be called anywhere in your code — execution continues normally after calling it.
-- \`ask_clarification(...args)\` — Signal that more user input is needed and provide clarification arguments for the responder. Requires at least one argument. Can be called anywhere in your code — execution continues normally after calling it.
-${toolSection}${agentSection}
+### Responder output fields
+The responder is looking to produce the following output fields: ${responderOutputFieldTitles}
 
-Sub-queries have a call limit of ${maxLlmCalls} — use parallel queries and keep each context small.
-There is also a runtime character cap for \`llmQuery\` context and code output. Oversized values are truncated automatically.
+### APIs (Some of the api's you can use in your code)
+- \`await llmQuery(query:string, context:object|array|string) : string\` — Have a sub agent work on a part of the task for you when the context is too large or complex to handle in a single turn. Its a way to divide and conquer but do not overuse it.
+
+- \`await llmQuery([{ query:string, context:object|array|string }, ...]) : string\` — A batched version of \`llmQuery\` that allows you to make multiple queries in parallel. Use this to speed up processing when you have many items to analyze. Sub-agent calls have a call limit of ${maxLlmCalls}. Oversized values are truncated automatically.
+
+- \`final(...args)\` — Signal completion and provide payload arguments for the responder to use to generate its output. Requires at least one argument. Execution ends after calling it.
+
+- \`ask_clarification(...args)\` — Signal that more user input is needed and provide clarification arguments for the responder. Requires at least one argument. Execution ends after calling it.
 
 ### Strategic planning
-Before writing any code, assess your input data. Often the context is small enough to handle in a few direct \`llmQuery\` calls without deep recursion. Think step by step: plan your approach and execute it immediately in your code — do not just describe what you will do. Prefer using code for structural work (slicing, filtering, aggregating) and reserve \`llmQuery\` only for semantic tasks that code cannot handle.
-
-### Rules
-1. ${actorFieldsRule1}
-2. ${actorFieldsRule2}
-3. When you have gathered enough information, call \`submit(...args)\`. If you need user input before continuing, call \`ask_clarification(...args)\`.
-${compressLogRule}
-${signalRule}. Use variables to accumulate results across turns (they persist in the session).
-${variableRule}. Explore context first (check type, size, structure) before doing analysis.
-${exploreRule}. Use \`llmQuery\` for semantic work, code for structural work.
-${semanticRule}. \`submit(...args)\` and \`ask_clarification(...args)\` each require at least one argument.
-${turnsRule}. You have ${maxTurns} turns maximum. Plan accordingly.
-${batchRule}. **Minimize \`llmQuery\` calls** — each call is expensive. Always batch related queries into a single parallel \`llmQuery([...])\` call. For example, if you have 100 items to analyze, chunk them into groups of 10 and make 10 parallel calls — never 100 individual calls.
-${recursionRule}. **Avoid unnecessary recursion** — analyze your data first. If the context is small or the task is straightforward, solve it directly with code or a single \`llmQuery\` call. Do NOT reflexively delegate to \`llmQuery\` when a \`console.log\`, string operation, or loop would suffice.
+Before writing any code, assess your input data some of which is in your llm context and the rest listed under "Pre-loaded context variables" above is available only in the javascript runtime. Check the type, size, structure, and a sample of the data to determine how to approach the problem. If the context is large or complex, plan how to break it into chunks and use \`llmQuery\` to delegate sub-tasks to a sub-agent. If its small or straightforward, solve it directly with code without unnecessary calls to \`llmQuery\` which an expensive operation. Think step by step, plan your approach and execute it with code. Prefer using code for structural work (slicing, filtering, aggregating) and reserve \`llmQuery\` only for semantic tasks that code cannot handle.
 
 ### Iteration strategy
 1. **Explore first & assess**: before doing any analysis, inspect the context — check its type, size, structure, and a sample. Determine if the data is small enough to process directly without heavy recursion.
@@ -208,26 +137,11 @@ ${recursionRule}. **Avoid unnecessary recursion** — analyze your data first. I
 5. **Use \`llmQuery\` for semantic work**: summarization, interpretation, or answering questions about content.
 6. **Build up answers in variables**: use variables as buffers to accumulate intermediate results across steps.
 7. **Handle truncated output**: runtime output may be truncated. If it appears incomplete, rerun with narrower scope.
-8. **Signal completion**: call \`submit(...args)\` when you have gathered enough information, or \`ask_clarification(...args)\` when user input is required. You can combine with final code: \`var result = await llmQuery(...); console.log(result); submit(result)\`
+8. **Signal completion**: call \`final(...args)\` when you have gathered enough information, or \`ask_clarification(...args)\` when user input is required. You can combine with final code: \`var result = await llmQuery(...); console.log(result); final(result)\`
 
-### Example (iterative analysis of \`${firstFieldName}\`)
-Step 1 (explore & assess):
-\`\`\`
-javascriptCode: var n = ${firstFieldName}.length; console.log("Size:", n, "Type:", typeof ${firstFieldName})
-\`\`\`
-
-Step 2 (inspect sample & plan):
-\`\`\`
-javascriptCode: console.log(${firstFieldName}.slice(0, 200))
-// Based on size, decide: small data → single llmQuery + submit; large data → chunk and batch
-\`\`\`
-
-Step 3 (semantic query + signal done):
-\`\`\`
-javascriptCode: var result = await llmQuery("Summarize the key points", ${firstFieldName})
-console.log(result)
-submit(result)
-\`\`\`${runtimeUsageNotesSection}`;
+## Javascript Runtime Usage Instructions
+${options.runtimeUsageInstructions}
+`;
 
   return baseDefinition ? `${actorBody}\n\n${baseDefinition}` : actorBody;
 }
@@ -252,7 +166,7 @@ export function axBuildResponderDefinition(
 
   const responderBody = `## Answer Synthesis Agent
 
-You synthesize a final answer from the provided actorResult payload. The payload includes the Actor completion type and arguments captured from submit(...args) or ask_clarification(...args).
+You synthesize a final answer from the provided actorResult payload. The payload includes the Actor completion type and arguments captured from final(...args) or ask_clarification(...args).
 
 ### Context variables that were analyzed (metadata only)
 ${contextVarSummary}

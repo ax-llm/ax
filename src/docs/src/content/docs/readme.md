@@ -148,14 +148,12 @@ const analyzer = agent(
     name: "documentAnalyzer",
     description: "Analyze very long documents with recursive code + sub-queries",
     maxSteps: 20,
-    rlm: {
-      contextFields: ["context"],
-      runtime: new AxJSRuntime(),
-      maxLlmCalls: 40,
-      maxRuntimeChars: 2_000, // Shared cap for llmQuery context + interpreter output
-      maxBatchedLlmQueryConcurrency: 6,
-      subModel: "gpt-4o-mini",
-    },
+    contextFields: ["context"],
+    runtime: new AxJSRuntime(),
+    maxLlmCalls: 40,
+    maxRuntimeChars: 2_000, // Shared cap for llmQuery context + interpreter output
+    maxBatchedLlmQueryConcurrency: 6,
+    subModel: "gpt-4o-mini",
   },
 );
 

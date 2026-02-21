@@ -99,10 +99,8 @@ const signature = new AxSignature(
 // Create the booking agent
 const gen = agent(signature, {
   functions,
-  rlm: {
-    contextFields: [],
-    runtime: new AxJSRuntime(),
-  },
+  contextFields: [],
+  runtime: new AxJSRuntime(),
 });
 
 // const ai = new AxAI({

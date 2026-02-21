@@ -14,11 +14,12 @@ const makeModelUsage = () => ({
 });
 
 const createSimpleRuntime = (): AxCodeRuntime => ({
+  getUsageInstructions: () => '',
   createSession(globals) {
     return {
       execute: async (code: string) => {
-        if (globals?.submit && code.includes('submit(')) {
-          (globals.submit as (...args: unknown[]) => void)('done');
+        if (globals?.final && code.includes('final(')) {
+          (globals.final as (...args: unknown[]) => void)('done');
           return 'submitted';
         }
         return `executed: ${code}`;
@@ -39,7 +40,7 @@ describe('AxAgent.stop()', () => {
 
         if (systemPrompt.includes('Code Generation Agent')) {
           actorCallCount++;
-          // Always return code (never submit()) so the loop continues
+          // Always return code (never final()) so the loop continues
           return {
             results: [
               {
@@ -68,6 +69,7 @@ describe('AxAgent.stop()', () => {
 
     let stopCalled = false;
     const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
       createSession() {
         return {
           execute: async () => {
@@ -88,7 +90,9 @@ describe('AxAgent.stop()', () => {
       },
       {
         maxSteps: 10,
-        rlm: { contextFields: [], runtime, maxTurns: 5 },
+        contextFields: [],
+        runtime,
+        maxTurns: 5,
       }
     );
 
@@ -140,7 +144,9 @@ describe('AxAgent.stop()', () => {
       },
       {
         maxSteps: 10,
-        rlm: { contextFields: [], runtime: createSimpleRuntime(), maxTurns: 5 },
+        contextFields: [],
+        runtime: createSimpleRuntime(),
+        maxTurns: 5,
       }
     );
 
@@ -164,7 +170,9 @@ describe('AxAgent.stop()', () => {
       },
       {
         maxSteps: 10,
-        rlm: { contextFields: [], runtime: createSimpleRuntime(), maxTurns: 5 },
+        contextFields: [],
+        runtime: createSimpleRuntime(),
+        maxTurns: 5,
       }
     );
 
@@ -210,6 +218,7 @@ describe('AxAgent.stop()', () => {
     });
 
     const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
       createSession() {
         return {
           execute: async (_code: string, opts?: { signal?: AbortSignal }) => {
@@ -231,7 +240,9 @@ describe('AxAgent.stop()', () => {
       },
       {
         maxSteps: 5,
-        rlm: { contextFields: [], runtime, maxTurns: 3 },
+        contextFields: [],
+        runtime,
+        maxTurns: 3,
       }
     );
 
@@ -269,7 +280,9 @@ describe('AxAgent.stop()', () => {
         signature: 'userQuery:string -> answer:string',
       },
       {
-        rlm: { contextFields: [], runtime: createSimpleRuntime(), maxTurns: 5 },
+        contextFields: [],
+        runtime: createSimpleRuntime(),
+        maxTurns: 5,
       }
     );
 

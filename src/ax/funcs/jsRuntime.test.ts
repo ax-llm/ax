@@ -131,7 +131,7 @@ describe('AxJSRuntime', () => {
 
     expect(source).toContain('_PERM_GLOBALS');
     for (const name of expectedGlobals) {
-      expect(source).toContain(`'${name}'`);
+      expect(source).toMatch(new RegExp(`['"]${name}['"]`));
     }
   });
 
@@ -144,8 +144,23 @@ describe('AxJSRuntime', () => {
     const source = blobArgs[0]!;
 
     expect(source).toContain('const _injectAsyncAutoReturn = (code) =>');
+    expect(source).toContain('const _buildAsyncAutoReturnSource = (');
+    expect(source).toContain('const _canCompileAsyncSource = (source) =>');
     expect(source).toContain('return (');
-    expect(source).toContain('lastLine');
+  });
+
+  it('worker source bootstraps serialized runtime with config payload', () => {
+    const interp = new AxJSRuntime();
+    interp.createSession();
+
+    const BlobMock = vi.mocked(globalThis.Blob);
+    const blobArgs = BlobMock.mock.calls[0]![0] as string[];
+    const source = blobArgs[0]!;
+
+    expect(source).toContain('function axWorkerRuntime');
+    expect(source).toContain('"functionRefKey"');
+    expect(source).toContain('"maxErrorCauseDepth"');
+    expect(source.endsWith('\n')).toBe(true);
   });
 
   it('worker source rewrites top-level sync return snippets', () => {

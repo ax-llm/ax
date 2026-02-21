@@ -28,14 +28,13 @@ const mathAgent = agent(
   {
     ai: llm,
     functions: tools,
-    rlm: {
-      contextFields: [],
-      runtime: new AxJSRuntime(),
+    actorOptions: {
+      description:
+        'You are a precise math assistant. Use tools for any arithmetic. Provide a concise final answer and a short rationale.',
     },
+    contextFields: [],
+    runtime: new AxJSRuntime(),
   }
-);
-mathAgent.setActorDescription(
-  'You are a precise math assistant. Use tools for any arithmetic. Provide a concise final answer and a short rationale.'
 );
 
 console.log('=== Anthropic + Tools + Thinking Demo ===');
