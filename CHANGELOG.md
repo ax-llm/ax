@@ -1,5 +1,16 @@
 # Changelog
 
+## [18.0.6](///compare/18.0.4...18.0.5) (2026-02-21)
+
+### Features
+
+* **worker:** enhance axWorkerRuntime and getWorkerSource with improved serialization handling and bundler polyfills 51a9994
+* **worker:** implement axWorkerRuntime for improved worker source management 9e99e48
+
+### Bug Fixes
+
+* **worker:** use bundler-safe require access in serialized runtime 4c0e127
+
 ## [18.0.5](///compare/18.0.3...18.0.4) (2026-02-21)
 
 ### Features
