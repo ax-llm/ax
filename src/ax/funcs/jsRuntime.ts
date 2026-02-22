@@ -25,6 +25,8 @@ type RLMWorker = {
   terminate: () => void;
   onmessage: ((event: RLMMessageEvent) => void) | null;
   onerror: ((error: Error) => void) | null;
+  /** True if the underlying worker thread has exited (Node only). */
+  readonly exited?: boolean;
 };
 
 /** True when the environment provides browser Web Worker primitives. */
@@ -224,22 +226,60 @@ const createNodeWorker = async (source: string): Promise<RLMWorker> => {
   )) as typeof import('node:worker_threads');
   const nodeWorker = new NodeWorker(source, { eval: true });
 
+  // Buffer errors/exit that fire before onerror handler is attached.
+  // The worker may crash during initialization (before ensureWorker's .then()
+  // or the pool's .then() sets onerror), silently dropping the error and
+  // causing execute() to hang until timeout.
+  let bufferedError: Error | null = null;
+  let externalOnerror: ((error: Error) => void) | null = null;
+  let exited = false;
+
+  nodeWorker.on('error', (error) => {
+    if (externalOnerror) {
+      externalOnerror(error);
+    } else {
+      bufferedError = error;
+    }
+  });
+
+  nodeWorker.on('exit', (code) => {
+    exited = true;
+    if (code !== 0 && !bufferedError) {
+      const error = new Error(`Worker exited with code ${code}`);
+      if (externalOnerror) {
+        externalOnerror(error);
+      } else {
+        bufferedError = error;
+      }
+    }
+  });
+
+  nodeWorker.on('message', (data) => {
+    wrapped.onmessage?.({ data });
+  });
+
   const wrapped: RLMWorker = {
     postMessage: (message) => nodeWorker.postMessage(message),
     terminate: () => {
       void nodeWorker.terminate();
     },
     onmessage: null,
-    onerror: null,
+    get onerror(): ((error: Error) => void) | null {
+      return externalOnerror;
+    },
+    set onerror(handler: ((error: Error) => void) | null) {
+      externalOnerror = handler;
+      // Replay buffered error from early initialization crash.
+      if (handler && bufferedError) {
+        const err = bufferedError;
+        bufferedError = null;
+        handler(err);
+      }
+    },
+    get exited() {
+      return exited;
+    },
   };
-
-  nodeWorker.on('message', (data) => {
-    wrapped.onmessage?.({ data });
-  });
-
-  nodeWorker.on('error', (error) => {
-    wrapped.onerror?.(error);
-  });
 
   return wrapped;
 };
@@ -288,10 +328,14 @@ class AxNodeFreshWorkerPool {
 
   /** Gets a fresh worker, preferring a prewarmed idle one. */
   async acquire(): Promise<RLMWorker> {
-    const worker = this.idle.pop();
-    if (worker) {
-      this.warm();
-      return worker;
+    // Skip dead workers that crashed during warmup initialization.
+    while (this.idle.length > 0) {
+      const worker = this.idle.pop()!;
+      if (!worker.exited) {
+        this.warm();
+        return worker;
+      }
+      // Dead worker — discard and try next.
     }
 
     this.warm();
@@ -592,19 +636,20 @@ export class AxJSRuntime implements AxCodeRuntime {
     const outputLines =
       this.outputMode === 'stdout'
         ? [
-            '- Use `console.log(...)` and `print(...)` output is captured as the execution result.',
-            '- Use `console.log(...)` to inspect intermediate values between steps.',
+            'Use `console.log(...)` output is captured as the execution result so use it to inspect intermediate values between steps instead of `return`.',
           ]
         : [
-            '- Use `return` or a trailing expression to produce the execution result.',
+            'Use `return` or a trailing expression to produce the execution result.',
           ];
 
     return [
-      "- Don't wrap async code in (async()=>{ ... })() — the runtime automatically handles async execution.",
-      '- State is session-scoped: `var` declarations persist across calls (sloppy-mode eval). Prefer `var` over `let`/`const` for cross-call variables.',
-      '- Bare assignment (e.g. `x = 1`) also persists via `globalThis`.',
+      "Don't wrap async code in (async()=>{ ... })() — the runtime automatically handles async execution.",
+      'State is session-scoped: all top-level declarations (`var`, `let`, `const`) persist across calls.',
+      'Bare assignment (e.g. `x = 1`) also persists via `globalThis`.',
       ...outputLines,
-    ].join('\n');
+    ]
+      .map((v) => `- ${v}`)
+      .join('\n');
   }
 
   /**

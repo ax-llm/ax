@@ -196,7 +196,6 @@ describe('AxJSRuntime', () => {
     }).getUsageInstructions();
 
     expect(stdoutMode).toContain('console.log(...)');
-    expect(stdoutMode).toContain('print(...)');
     expect(returnMode).toContain('return');
   });
 
