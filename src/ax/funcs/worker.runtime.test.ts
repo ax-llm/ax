@@ -688,3 +688,127 @@ describe('axWorkerRuntime fn-call proxy', () => {
     expect(result!.value).toBe('resolved-value');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Variable persistence across execute calls in sandbox
+// ---------------------------------------------------------------------------
+
+describe('axWorkerRuntime variable persistence', () => {
+  const runtimeConfig = {
+    functionRefKey: '__ax_fn_ref__',
+    maxErrorCauseDepth: 4,
+  } as const;
+
+  const makeSource = () =>
+    `(${axWorkerRuntime.toString()})(${JSON.stringify(runtimeConfig)});`;
+
+  const setupSandbox = () => {
+    const messages: unknown[] = [];
+    const sandbox: Record<string, unknown> = {
+      self: undefined as unknown,
+      postMessage: (msg: unknown) => messages.push(msg),
+      Promise,
+      console,
+    };
+    sandbox.self = sandbox;
+    sandbox.globalThis = sandbox;
+
+    runInNewContext(makeSource(), sandbox);
+    const onmessage = sandbox.onmessage as (event: { data: unknown }) => void;
+    onmessage({ data: { type: 'init', outputMode: 'return' } });
+    return { messages, onmessage };
+  };
+
+  const getResult = async (
+    messages: unknown[],
+    id: number
+  ): Promise<Record<string, unknown>> => {
+    await new Promise((r) => setTimeout(r, 50));
+    return messages.find(
+      (m) =>
+        (m as Record<string, unknown>).type === 'result' &&
+        (m as Record<string, unknown>).id === id
+    ) as Record<string, unknown>;
+  };
+
+  it('persists const from async code to subsequent sync read', async () => {
+    const { messages, onmessage } = setupSandbox();
+
+    onmessage({
+      data: {
+        type: 'execute',
+        id: 1,
+        code: 'const x = await Promise.resolve(42)',
+      },
+    });
+    await getResult(messages, 1);
+
+    onmessage({ data: { type: 'execute', id: 2, code: 'x' } });
+    const result = await getResult(messages, 2);
+    expect(result).toBeDefined();
+    expect(result.value).toBe(42);
+  });
+
+  it('persists let from async code to subsequent sync read', async () => {
+    const { messages, onmessage } = setupSandbox();
+
+    onmessage({
+      data: {
+        type: 'execute',
+        id: 1,
+        code: 'let y = await Promise.resolve("hi")',
+      },
+    });
+    await getResult(messages, 1);
+
+    onmessage({ data: { type: 'execute', id: 2, code: 'y' } });
+    const result = await getResult(messages, 2);
+    expect(result).toBeDefined();
+    expect(result.value).toBe('hi');
+  });
+
+  it('does NOT persist block-scoped declarations', async () => {
+    const { messages, onmessage } = setupSandbox();
+
+    onmessage({
+      data: {
+        type: 'execute',
+        id: 1,
+        code: 'if (true) { const inner = await Promise.resolve(1) }',
+      },
+    });
+    await getResult(messages, 1);
+
+    onmessage({
+      data: { type: 'execute', id: 2, code: 'typeof inner' },
+    });
+    const result = await getResult(messages, 2);
+    expect(result).toBeDefined();
+    expect(result.value).toBe('undefined');
+  });
+
+  it('persistence suffix does not break code with no declarations', async () => {
+    const { messages, onmessage } = setupSandbox();
+
+    onmessage({
+      data: { type: 'execute', id: 1, code: 'await Promise.resolve(7)' },
+    });
+    const result = await getResult(messages, 1);
+    expect(result).toBeDefined();
+    expect(result.value).toBe(7);
+  });
+
+  it('persists const/let from sync code', async () => {
+    const { messages, onmessage } = setupSandbox();
+
+    onmessage({
+      data: { type: 'execute', id: 1, code: 'const s = 55' },
+    });
+    await getResult(messages, 1);
+
+    onmessage({ data: { type: 'execute', id: 2, code: 's' } });
+    const result = await getResult(messages, 2);
+    expect(result).toBeDefined();
+    expect(result.value).toBe(55);
+  });
+});

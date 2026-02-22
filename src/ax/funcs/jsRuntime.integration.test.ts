@@ -502,4 +502,168 @@ describe('AxJSRuntime integration', () => {
       session.close();
     }
   });
+
+  // ---------------------------------------------------------------------------
+  // Variable persistence across session.execute() calls
+  // ---------------------------------------------------------------------------
+
+  it('persists const across async calls', async () => {
+    const runtime = new AxJSRuntime({ outputMode: 'return' });
+    const session = runtime.createSession();
+    try {
+      await session.execute('const x = await Promise.resolve(42)');
+      const result = await session.execute('x');
+      expect(result).toBe(42);
+    } finally {
+      session.close();
+    }
+  });
+
+  it('persists let across async calls', async () => {
+    const runtime = new AxJSRuntime({ outputMode: 'return' });
+    const session = runtime.createSession();
+    try {
+      await session.execute('let y = await Promise.resolve("hello")');
+      const result = await session.execute('y');
+      expect(result).toBe('hello');
+    } finally {
+      session.close();
+    }
+  });
+
+  it('persists var across async calls', async () => {
+    const runtime = new AxJSRuntime({ outputMode: 'return' });
+    const session = runtime.createSession();
+    try {
+      await session.execute('var z = await Promise.resolve(99)');
+      const result = await session.execute('z');
+      expect(result).toBe(99);
+    } finally {
+      session.close();
+    }
+  });
+
+  it('persists object destructuring from async calls', async () => {
+    const runtime = new AxJSRuntime({ outputMode: 'return' });
+    const session = runtime.createSession();
+    try {
+      await session.execute(
+        'const { a, b } = await Promise.resolve({ a: 1, b: 2 })'
+      );
+      const result = await session.execute('[a, b]');
+      expect(result).toEqual([1, 2]);
+    } finally {
+      session.close();
+    }
+  });
+
+  it('persists array destructuring from async calls', async () => {
+    const runtime = new AxJSRuntime({ outputMode: 'return' });
+    const session = runtime.createSession();
+    try {
+      await session.execute(
+        'const [first, second] = await Promise.resolve([10, 20])'
+      );
+      const result = await session.execute('[first, second]');
+      expect(result).toEqual([10, 20]);
+    } finally {
+      session.close();
+    }
+  });
+
+  it('persists multiple declarations in a single async call', async () => {
+    const runtime = new AxJSRuntime({ outputMode: 'return' });
+    const session = runtime.createSession();
+    try {
+      await session.execute(
+        'const p = await Promise.resolve(1);\nconst q = await Promise.resolve(2)'
+      );
+      const result = await session.execute('[p, q]');
+      expect(result).toEqual([1, 2]);
+    } finally {
+      session.close();
+    }
+  });
+
+  it('re-declaration overwrites previous persisted value', async () => {
+    const runtime = new AxJSRuntime({ outputMode: 'return' });
+    const session = runtime.createSession();
+    try {
+      await session.execute('const val = await Promise.resolve("old")');
+      await session.execute('const val = await Promise.resolve("new")');
+      const result = await session.execute('val');
+      expect(result).toBe('new');
+    } finally {
+      session.close();
+    }
+  });
+
+  it('does NOT persist declarations inside blocks', async () => {
+    const runtime = new AxJSRuntime({ outputMode: 'return' });
+    const session = runtime.createSession();
+    try {
+      await session.execute(
+        'if (true) { const blockScoped = await Promise.resolve(123) }'
+      );
+      const result = await session.execute('typeof blockScoped');
+      expect(result).toBe('undefined');
+    } finally {
+      session.close();
+    }
+  });
+
+  it('motivating use case: function proxy + const persistence', async () => {
+    const runtime = new AxJSRuntime({ outputMode: 'return' });
+    const session = runtime.createSession({
+      util: {
+        resolveAddresses: async () => ['alice@example.com', 'bob@example.com'],
+      },
+    });
+    try {
+      await session.execute('const recipients = await util.resolveAddresses()');
+      const result = await session.execute('recipients');
+      expect(result).toEqual(['alice@example.com', 'bob@example.com']);
+    } finally {
+      session.close();
+    }
+  });
+
+  it('persists const/let in sync code', async () => {
+    const runtime = new AxJSRuntime({ outputMode: 'return' });
+    const session = runtime.createSession();
+    try {
+      await session.execute('const syncConst = 100');
+      const r1 = await session.execute('syncConst');
+      expect(r1).toBe(100);
+
+      await session.execute('let syncLet = 200');
+      const r2 = await session.execute('syncLet');
+      expect(r2).toBe(200);
+    } finally {
+      session.close();
+    }
+  });
+
+  it('existing var sync persistence still works (regression)', async () => {
+    const runtime = new AxJSRuntime({ outputMode: 'return' });
+    const session = runtime.createSession();
+    try {
+      await session.execute('var items = [1, 2, 3]');
+      const result = await session.execute('return items');
+      expect(result).toEqual([1, 2, 3]);
+    } finally {
+      session.close();
+    }
+  });
+
+  it('persistence does not break code with no declarations', async () => {
+    const runtime = new AxJSRuntime({ outputMode: 'return' });
+    const session = runtime.createSession();
+    try {
+      const result = await session.execute('2 + 3');
+      expect(result).toBe(5);
+    } finally {
+      session.close();
+    }
+  });
 });

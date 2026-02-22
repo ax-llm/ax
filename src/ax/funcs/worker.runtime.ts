@@ -376,6 +376,432 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
     return expression || code;
   };
 
+  /**
+   * Extract top-level declared variable names from code.
+   *
+   * Character-by-character scanner that tracks brace/paren depth and skips
+   * strings, template literals, and comments. Only extracts names at depth 0.
+   *
+   * Returns an array of binding names (simple, destructured, rest, etc.).
+   * Errs on the side of NOT extracting (false negatives = safe).
+   */
+  const _extractTopLevelDeclaredNames = (code: string): string[] => {
+    const names: string[] = [];
+    const len = code.length;
+    let i = 0;
+    let braceDepth = 0;
+    let parenDepth = 0;
+
+    const isIdChar = (ch: string): boolean =>
+      (ch >= 'a' && ch <= 'z') ||
+      (ch >= 'A' && ch <= 'Z') ||
+      (ch >= '0' && ch <= '9') ||
+      ch === '_' ||
+      ch === '$';
+
+    // Skip a string literal (single, double, or template).
+    const skipString = (quote: string): void => {
+      i++; // skip opening quote
+      if (quote === '`') {
+        // Template literal: handle ${...} nesting
+        let tmplDepth = 0;
+        while (i < len) {
+          const ch = code[i]!;
+          if (ch === '\\') {
+            i += 2;
+            continue;
+          }
+          if (tmplDepth > 0) {
+            if (ch === '{') {
+              tmplDepth++;
+            } else if (ch === '}') {
+              tmplDepth--;
+            }
+            i++;
+            continue;
+          }
+          if (ch === '$' && i + 1 < len && code[i + 1] === '{') {
+            tmplDepth++;
+            i += 2;
+            continue;
+          }
+          if (ch === '`') {
+            i++;
+            return;
+          }
+          i++;
+        }
+      } else {
+        while (i < len) {
+          const ch = code[i]!;
+          if (ch === '\\') {
+            i += 2;
+            continue;
+          }
+          if (ch === quote) {
+            i++;
+            return;
+          }
+          i++;
+        }
+      }
+    };
+
+    // Skip a single-line comment (// to EOL).
+    const skipLineComment = (): void => {
+      i += 2; // skip //
+      while (i < len && code[i] !== '\n') {
+        i++;
+      }
+    };
+
+    // Skip a block comment (/* to */).
+    const skipBlockComment = (): void => {
+      i += 2; // skip /*
+      while (i < len) {
+        if (code[i] === '*' && i + 1 < len && code[i + 1] === '/') {
+          i += 2;
+          return;
+        }
+        i++;
+      }
+    };
+
+    // Read a word (identifier) at position i.
+    const readWord = (): string => {
+      const start = i;
+      while (i < len && isIdChar(code[i]!)) {
+        i++;
+      }
+      return code.slice(start, i);
+    };
+
+    // Skip whitespace and comments, return true if any was skipped.
+    const skipWS = (): boolean => {
+      const start = i;
+      while (i < len) {
+        const ch = code[i]!;
+        if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r') {
+          i++;
+          continue;
+        }
+        if (ch === '/' && i + 1 < len) {
+          if (code[i + 1] === '/') {
+            skipLineComment();
+            continue;
+          }
+          if (code[i + 1] === '*') {
+            skipBlockComment();
+            continue;
+          }
+        }
+        break;
+      }
+      return i > start;
+    };
+
+    // Extract names from a destructuring pattern (after the opening { or [).
+    const extractDestructuredNames = (close: string): void => {
+      let depth = 1;
+      while (i < len && depth > 0) {
+        skipWS();
+        if (i >= len) return;
+        const ch = code[i]!;
+        if (ch === close) {
+          depth--;
+          i++;
+          continue;
+        }
+        if (ch === '{' || ch === '[') {
+          // Nested destructuring
+          const nestedClose = ch === '{' ? '}' : ']';
+          i++;
+          depth++;
+          // Continue scanning — we'll hit the nested close
+          // But we need to track which close matches which open.
+          // Simplified: recurse
+          i--; // back up to re-read
+          depth--; // undo
+          i++; // skip the open brace/bracket
+          extractDestructuredNames(nestedClose);
+          continue;
+        }
+        if (
+          ch === '.' &&
+          i + 2 < len &&
+          code[i + 1] === '.' &&
+          code[i + 2] === '.'
+        ) {
+          // Rest element: ...name
+          i += 3;
+          skipWS();
+          if (i < len && isIdChar(code[i]!)) {
+            const name = readWord();
+            if (name) names.push(name);
+          }
+          continue;
+        }
+        if (ch === ',') {
+          i++;
+          continue;
+        }
+        if (ch === '=') {
+          // Default value — skip the expression
+          i++;
+          let eqDepth = 0;
+          while (i < len) {
+            const ec = code[i]!;
+            if (ec === "'" || ec === '"' || ec === '`') {
+              skipString(ec);
+              continue;
+            }
+            if (ec === '(' || ec === '[' || ec === '{') {
+              eqDepth++;
+              i++;
+              continue;
+            }
+            if (ec === ')' || ec === ']' || ec === '}') {
+              if (eqDepth > 0) {
+                eqDepth--;
+                i++;
+                continue;
+              }
+              // This is the outer close — don't consume it
+              break;
+            }
+            if (ec === ',' && eqDepth === 0) {
+              break;
+            }
+            i++;
+          }
+          continue;
+        }
+        if (isIdChar(ch)) {
+          const word = readWord();
+          skipWS();
+          if (i < len && code[i] === ':') {
+            // Property rename: `{ a: renamed }` or `{ a: { nested } }`
+            i++; // skip colon
+            skipWS();
+            if (i < len) {
+              const nc = code[i]!;
+              if (nc === '{' || nc === '[') {
+                const nestedClose = nc === '{' ? '}' : ']';
+                i++;
+                extractDestructuredNames(nestedClose);
+              } else if (isIdChar(nc)) {
+                const renamed = readWord();
+                if (renamed) names.push(renamed);
+              }
+            }
+          } else {
+            // Simple binding name
+            if (word) names.push(word);
+          }
+          continue;
+        }
+        // Unknown character — skip it
+        i++;
+      }
+    };
+
+    // After extracting a binding name or destructuring pattern,
+    // skip to the next comma (for another binding) or end of statement.
+    // Returns true if a comma was found (more bindings to come), false otherwise.
+    const skipToCommaOrEnd = (): boolean => {
+      let depth = 0;
+      while (i < len) {
+        const ch = code[i]!;
+        if (ch === "'" || ch === '"' || ch === '`') {
+          skipString(ch);
+          continue;
+        }
+        if (ch === '/' && i + 1 < len) {
+          if (code[i + 1] === '/') {
+            skipLineComment();
+            continue;
+          }
+          if (code[i + 1] === '*') {
+            skipBlockComment();
+            continue;
+          }
+        }
+        if (ch === '(' || ch === '[' || ch === '{') {
+          depth++;
+          i++;
+          continue;
+        }
+        if (ch === ')' || ch === ']' || ch === '}') {
+          if (depth > 0) {
+            depth--;
+            i++;
+            continue;
+          }
+          // End of surrounding scope — stop
+          return false;
+        }
+        if (ch === ',' && depth === 0) {
+          i++; // skip comma
+          return true; // more bindings follow
+        }
+        if (ch === ';' && depth === 0) {
+          i++;
+          return false; // statement ended
+        }
+        if (ch === '\n' && depth === 0) {
+          // Could be end of statement (ASI)
+          // Peek ahead: if next non-ws token isn't a comma, treat as end
+          const savedI = i;
+          i++;
+          skipWS();
+          if (i < len && code[i] === ',') {
+            i++; // skip comma, continue to next binding
+            return true;
+          }
+          // Not a comma — revert and end
+          i = savedI;
+          return false;
+        }
+        i++;
+      }
+      return false;
+    };
+
+    // Extract binding names after `var`/`let`/`const` keyword.
+    // Handles: simple names, object destructuring, array destructuring,
+    // and comma-separated bindings.
+    const extractBindings = (): void => {
+      while (i < len) {
+        skipWS();
+        if (i >= len) return;
+        const ch = code[i]!;
+
+        if (ch === '{') {
+          i++;
+          extractDestructuredNames('}');
+          if (!skipToCommaOrEnd()) return;
+          continue;
+        }
+        if (ch === '[') {
+          i++;
+          extractDestructuredNames(']');
+          if (!skipToCommaOrEnd()) return;
+          continue;
+        }
+        if (isIdChar(ch)) {
+          const name = readWord();
+          if (name) names.push(name);
+          if (!skipToCommaOrEnd()) return;
+          continue;
+        }
+        // Something unexpected — bail out
+        return;
+      }
+    };
+
+    // Check if position is at a statement boundary (start of code or preceded by
+    // a newline, semicolon, or opening brace — ignoring whitespace/comments).
+    const isStatementBoundary = (pos: number): boolean => {
+      if (pos === 0) return true;
+      let j = pos - 1;
+      while (j >= 0) {
+        const ch = code[j]!;
+        if (ch === ' ' || ch === '\t' || ch === '\r') {
+          j--;
+          continue;
+        }
+        return ch === '\n' || ch === ';' || ch === '{' || ch === '}';
+      }
+      return true; // reached start
+    };
+
+    while (i < len) {
+      const ch = code[i]!;
+
+      // Skip strings
+      if (ch === "'" || ch === '"' || ch === '`') {
+        skipString(ch);
+        continue;
+      }
+
+      // Skip comments
+      if (ch === '/' && i + 1 < len) {
+        if (code[i + 1] === '/') {
+          skipLineComment();
+          continue;
+        }
+        if (code[i + 1] === '*') {
+          skipBlockComment();
+          continue;
+        }
+      }
+
+      // Track brace and paren depth
+      if (ch === '{') {
+        braceDepth++;
+        i++;
+        continue;
+      }
+      if (ch === '}') {
+        braceDepth--;
+        i++;
+        continue;
+      }
+      if (ch === '(') {
+        parenDepth++;
+        i++;
+        continue;
+      }
+      if (ch === ')') {
+        parenDepth--;
+        i++;
+        continue;
+      }
+
+      // Only extract at top level
+      if (braceDepth === 0 && parenDepth === 0 && isIdChar(ch)) {
+        const wordStart = i;
+        const word = readWord();
+        if (
+          (word === 'var' || word === 'let' || word === 'const') &&
+          i < len &&
+          (code[i] === ' ' || code[i] === '\t' || code[i] === '\n') &&
+          isStatementBoundary(wordStart)
+        ) {
+          extractBindings();
+          continue;
+        }
+        // Not a declaration keyword — skip
+        continue;
+      }
+
+      i++;
+    }
+
+    // Deduplicate while preserving order
+    const seen = new Set<string>();
+    const unique: string[] = [];
+    for (const n of names) {
+      if (!seen.has(n)) {
+        seen.add(n);
+        unique.push(n);
+      }
+    }
+    return unique;
+  };
+
+  /**
+   * Build a persistence suffix that assigns declared names to globalThis.
+   * Wrapped in try/catch so failures are silent (fail-open to current behavior).
+   */
+  const _buildPersistenceSuffix = (declNames: string[]): string => {
+    if (declNames.length === 0) return '';
+    const assignments = declNames
+      .map((n) => `globalThis[${JSON.stringify(n)}] = ${n};`)
+      .join(' ');
+    return `\ntry { ${assignments} } catch (_ax_e) {} void 0;`;
+  };
+
   const _formatOutputArg = (value: unknown): string => {
     if (typeof value === 'string') {
       return value;
@@ -719,6 +1145,15 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
   const _executeAsyncSnippet = async (code: string): Promise<unknown> => {
     const fallbackSource = _ensureTrailingNewline(code);
 
+    // Extract declarations from the ORIGINAL code (before auto-return transform).
+    let declNames: string[] = [];
+    try {
+      declNames = _extractTopLevelDeclaredNames(code);
+    } catch {
+      declNames = [];
+    }
+    const suffix = _buildPersistenceSuffix(declNames);
+
     let transformedSource = fallbackSource;
     try {
       transformedSource = _injectAsyncAutoReturn(fallbackSource);
@@ -726,9 +1161,27 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
       transformedSource = fallbackSource;
     }
 
-    const sourceToRun = _canCompileAsyncSource(transformedSource)
-      ? transformedSource
-      : fallbackSource;
+    // Inject persistence suffix.
+    let withPersistence = transformedSource;
+    if (suffix) {
+      // If auto-return injected a `return (`, insert persistence before it.
+      const returnIdx = transformedSource.lastIndexOf('\nreturn (');
+      if (returnIdx !== -1) {
+        withPersistence =
+          transformedSource.slice(0, returnIdx) +
+          suffix +
+          transformedSource.slice(returnIdx);
+      } else {
+        // No auto-return — append at end.
+        withPersistence = transformedSource + suffix;
+      }
+    }
+
+    const sourceToRun = _canCompileAsyncSource(withPersistence)
+      ? withPersistence
+      : _canCompileAsyncSource(transformedSource)
+        ? transformedSource
+        : fallbackSource;
 
     const fn = new _AsyncFunction(sourceToRun);
     return await fn();
@@ -736,10 +1189,21 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
 
   const _executeSyncSnippet = (code: string): unknown => {
     const syncCode = _rewriteTopLevelReturnForSyncEval(code);
+
+    // Inject persistence for const/let/var declarations.
+    let declNames: string[] = [];
+    try {
+      declNames = _extractTopLevelDeclaredNames(code);
+    } catch {
+      declNames = [];
+    }
+    const suffix = _buildPersistenceSuffix(declNames);
+    const codeToRun = suffix ? syncCode + suffix : syncCode;
+
     // Indirect eval executes in worker global scope.
     // biome-ignore lint/security/noGlobalEval: intentional indirect eval for worker sandbox
     // biome-ignore lint/complexity/noCommaOperator: (0, eval) is the standard indirect eval pattern
-    return (0, eval)(syncCode);
+    return (0, eval)(codeToRun);
   };
 
   const _toOutputValue = (result: unknown, output: string[]): unknown => {

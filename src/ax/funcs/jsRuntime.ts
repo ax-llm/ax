@@ -644,7 +644,7 @@ export class AxJSRuntime implements AxCodeRuntime {
 
     return [
       "Don't wrap async code in (async()=>{ ... })() — the runtime automatically handles async execution.",
-      'State is session-scoped: `var` declarations persist across calls (sloppy-mode eval). Prefer `var` over `let`/`const` for cross-call variables.',
+      'State is session-scoped: all top-level declarations (`var`, `let`, `const`) persist across calls.',
       'Bare assignment (e.g. `x = 1`) also persists via `globalThis`.',
       ...outputLines,
     ]
