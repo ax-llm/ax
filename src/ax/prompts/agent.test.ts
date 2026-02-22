@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
+import { toFieldType } from '../dsp/adapter.js';
 import { AxMockAIService } from '../ai/mock/api.js';
-import { toFieldType } from '../dsp/prompt.js';
 import type { AxIField } from '../dsp/sig.js';
 import { s } from '../dsp/template.js';
 import { AxAIServiceAbortedError } from '../util/apicall.js';
