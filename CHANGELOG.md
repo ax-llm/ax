@@ -1,5 +1,20 @@
 # Changelog
 
+## [18.0.7](///compare/18.0.5...18.0.6) (2026-02-22)
+
+### Features
+
+* **worker:** add tests for variable persistence across async calls and enhance axWorkerRuntime with top-level declaration extraction a2ba6b3
+## [18.0.6](///compare/18.0.5...18.0.6) (2026-02-21)
+
+### Features
+
+* **worker:** enhance axWorkerRuntime and getWorkerSource with improved serialization handling and bundler polyfills 51a9994
+
+### Bug Fixes
+
+* **worker:** use bundler-safe require access in serialized runtime 4c0e127
+
 ## [18.0.6](///compare/18.0.4...18.0.5) (2026-02-21)
 
 ### Features
