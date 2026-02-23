@@ -1,5 +1,16 @@
 # Changelog
 
+## [18.0.8](///compare/18.0.6...18.0.7) (2026-02-23)
+
+### Features
+
+* **runtime:** add consecutive execution error cutoff and enhance error handling in AxJSRuntime f8c06fa
+## [18.0.7](///compare/18.0.6...18.0.7) (2026-02-22)
+
+### Features
+
+* **worker:** add tests for variable persistence across async calls and enhance axWorkerRuntime with top-level declaration extraction a2ba6b3
+
 ## [18.0.7](///compare/18.0.5...18.0.6) (2026-02-22)
 
 ### Features
