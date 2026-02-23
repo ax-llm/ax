@@ -315,12 +315,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     if (compressLog) {
       actorSigBuilder = actorSigBuilder
         .output(
-          'actionDescription',
-          f.string('A short description of what the code does, keep it short')
-        )
-        .output(
           'javascriptCode',
           f.code('JavaScript code to execute in runtime session')
+        )
+        .output(
+          'actionDescription',
+          f.string('A short description of what the code does, keep it short')
         );
     } else {
       actorSigBuilder = actorSigBuilder.output(
@@ -870,13 +870,59 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       }
     };
 
-    const executeInterpreterCode = async (code: string) => {
+    const formatInterpreterError = (err: unknown): string => {
+      const typedErr = err as {
+        name?: string;
+        message?: string;
+        cause?: unknown;
+        data?: unknown;
+      };
+      const name = typedErr?.name ?? 'Error';
+      const message = typedErr?.message ?? String(err);
+      const parts: string[] = [`${name}: ${message}`];
+
+      if (typedErr?.data !== undefined) {
+        try {
+          parts.push(`Data: ${JSON.stringify(typedErr.data, null, 2)}`);
+        } catch {
+          parts.push(`Data: ${String(typedErr.data)}`);
+        }
+      }
+
+      if (typedErr?.cause !== undefined) {
+        const fmtCause = (cause: unknown, depth: number): string => {
+          if (depth > 4) return '[cause chain truncated]';
+          const c = cause as typeof typedErr;
+          const cName = c?.name ?? 'Error';
+          const cMsg = c?.message ?? String(cause);
+          const cParts: string[] = [`${cName}: ${cMsg}`];
+          if (c?.data !== undefined) {
+            try {
+              cParts.push(`Data: ${JSON.stringify(c.data, null, 2)}`);
+            } catch {
+              cParts.push(`Data: ${String(c.data)}`);
+            }
+          }
+          if (c?.cause !== undefined) {
+            cParts.push(`Caused by: ${fmtCause(c.cause, depth + 1)}`);
+          }
+          return cParts.join('\n');
+        };
+        parts.push(`Caused by: ${fmtCause(typedErr.cause, 1)}`);
+      }
+
+      return truncateText(parts.join('\n'), maxRuntimeChars);
+    };
+
+    const executeInterpreterCode = async (
+      code: string
+    ): Promise<{ output: string; isError: boolean }> => {
       try {
         const result = await session.execute(code, {
           signal: effectiveAbortSignal,
           reservedNames,
         });
-        return formatInterpreterOutput(result);
+        return { output: formatInterpreterOutput(result), isError: false };
       } catch (err) {
         if (effectiveAbortSignal?.aborted) {
           throw new AxAIServiceAbortedError(
@@ -895,10 +941,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         }
         if (isSessionClosedError(err)) {
           if (!shouldRestartClosedSession) {
-            return truncateText(
-              `Error: ${(err as Error).message}`,
-              maxRuntimeChars
-            );
+            return {
+              output: formatInterpreterError(err),
+              isError: true,
+            };
           }
           try {
             shouldRestartClosedSession = false;
@@ -908,25 +954,31 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
               signal: effectiveAbortSignal,
               reservedNames,
             });
-            return truncateText(
-              `${timeoutRestartNotice}\n${formatInterpreterOutput(retryResult)}`,
-              maxRuntimeChars
-            );
+            return {
+              output: truncateText(
+                `${timeoutRestartNotice}\n${formatInterpreterOutput(retryResult)}`,
+                maxRuntimeChars
+              ),
+              isError: false,
+            };
           } catch (retryErr) {
             if (isExecutionTimedOutError(retryErr)) {
               shouldRestartClosedSession = true;
             }
-            return truncateText(
-              `${timeoutRestartNotice}\nError: ${(retryErr as Error).message}`,
-              maxRuntimeChars
-            );
+            return {
+              output: truncateText(
+                `${timeoutRestartNotice}\n${formatInterpreterError(retryErr)}`,
+                maxRuntimeChars
+              ),
+              isError: true,
+            };
           }
         }
         if (isExecutionTimedOutError(err)) {
-          return truncateText(
-            `Error: ${(err as Error).message}`,
-            maxRuntimeChars
-          );
+          return {
+            output: formatInterpreterError(err),
+            isError: true,
+          };
         }
         throw err;
       }
@@ -934,7 +986,31 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     // 3. Actor loop (TypeScript-managed)
     const contextMetadata = buildRLMVariablesInfo(contextValues) || '(none)';
-    let actionLog = '';
+
+    type ActionLogEntry = {
+      turn: number;
+      code: string;
+      actionDescription: string;
+      output: string;
+      actorFieldsOutput: string;
+      isError: boolean;
+    };
+    const actionLogEntries: ActionLogEntry[] = [];
+
+    const buildActionLog = (): string => {
+      if (actionLogEntries.length === 0) return '';
+
+      return actionLogEntries
+        .map((entry) => {
+          if (rlm.compressLog) {
+            const actionLine =
+              entry.actionDescription || '(missing action description)';
+            return `Action ${entry.turn}:\nAction: ${actionLine}\nResult:\n${entry.output}${entry.actorFieldsOutput}`;
+          }
+          return `Action ${entry.turn}:\n\`\`\`javascript\n${entry.code}\n\`\`\`\nResult:\n${entry.output}${entry.actorFieldsOutput}`;
+        })
+        .join('\n\n');
+    };
 
     const actorMergedOptions = {
       ...this.options,
@@ -953,7 +1029,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           {
             ...nonContextValues,
             contextMetadata,
-            actionLog: actionLog || '(no actions yet)',
+            actionLog: buildActionLog() || '(no actions yet)',
           },
           actorMergedOptions
         );
@@ -997,19 +1073,20 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         // Reset Actor completion payload before execution.
         actorResultPayload = undefined;
 
-        const output = await executeInterpreterCode(code);
+        const { output, isError } = await executeInterpreterCode(code);
         const actionDescription =
           typeof actorResult.actionDescription === 'string'
             ? actorResult.actionDescription.trim()
             : '';
 
-        if (rlm.compressLog) {
-          const actionLine =
-            actionDescription || '(missing action description)';
-          actionLog += `${actionLog ? '\n\n' : ''}Action ${turn + 1}:\nAction: ${actionLine}\nResult:\n${output}${actorFieldsOutput}`;
-        } else {
-          actionLog += `${actionLog ? '\n\n' : ''}Action ${turn + 1}:\n\`\`\`javascript\n${code}\n\`\`\`\nResult:\n${output}${actorFieldsOutput}`;
-        }
+        actionLogEntries.push({
+          turn: turn + 1,
+          code,
+          actionDescription,
+          output,
+          actorFieldsOutput,
+          isError,
+        });
 
         // Exit when Actor signaled completion via final(...) or ask_clarification(...).
         if (actorResultPayload) {
@@ -1028,13 +1105,13 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       actorResultPayload ??
       ({
         type: 'final',
-        args: [actionLog || '(no actions were taken)'],
+        args: [buildActionLog() || '(no actions were taken)'],
       } satisfies AxAgentActorResultPayload);
 
     return {
       nonContextValues,
       contextMetadata,
-      actionLog,
+      actionLog: buildActionLog(),
       actorResult,
       actorFieldValues,
     };

@@ -807,7 +807,7 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
       return value;
     }
     try {
-      return JSON.stringify(value);
+      return JSON.stringify(value, null, 2);
     } catch {
       return String(value);
     }
@@ -969,7 +969,9 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
 
     const name = errObject?.name != null ? String(errObject.name) : 'Error';
     const message =
-      errObject?.message != null ? String(errObject.message) : String(err);
+      errObject?.message != null
+        ? String(errObject.message)
+        : _safeStringify(err);
     const stack =
       typeof errObject?.stack === 'string' ? errObject.stack : undefined;
 
@@ -988,10 +990,10 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
         ) {
           cause = _serializeError(sourceCause, depth + 1, seen);
         } else {
-          cause = { name: 'Error', message: String(sourceCause) };
+          cause = { name: 'Error', message: _safeStringify(sourceCause) };
         }
       } catch {
-        cause = { name: 'Error', message: String(errObject.cause) };
+        cause = { name: 'Error', message: _safeStringify(errObject.cause) };
       }
     }
 
@@ -1073,12 +1075,55 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
     );
   };
 
+  const _safeStringify = (value: unknown): string => {
+    if (value === null || value === undefined) {
+      return String(value);
+    }
+    if (typeof value !== 'object') {
+      return String(value);
+    }
+    try {
+      return JSON.stringify(value, null, 2);
+    } catch {
+      return String(value);
+    }
+  };
+
   const _formatCodeError = (err: unknown): string => {
-    const typedErr = err as { name?: unknown; message?: unknown };
+    const typedErr = err as {
+      name?: unknown;
+      message?: unknown;
+      cause?: unknown;
+      data?: unknown;
+    };
     const name = typedErr?.name != null ? String(typedErr.name) : 'Error';
     const message =
-      typedErr?.message != null ? String(typedErr.message) : String(err);
-    return `${name}: ${message}`;
+      typedErr?.message != null
+        ? String(typedErr.message)
+        : _safeStringify(err);
+    const parts: string[] = [`${name}: ${message}`];
+
+    if (typedErr?.data !== undefined) {
+      parts.push(`Data: ${_safeStringify(typedErr.data)}`);
+    }
+    if (typedErr?.cause !== undefined) {
+      const _fmtCause = (cause: unknown, depth: number): string => {
+        if (depth > 4) return '[cause chain truncated]';
+        const c = cause as typeof typedErr;
+        const cName = c?.name != null ? String(c.name) : 'Error';
+        const cMsg =
+          c?.message != null ? String(c.message) : _safeStringify(cause);
+        const cParts: string[] = [`${cName}: ${cMsg}`];
+        if (c?.data !== undefined)
+          cParts.push(`Data: ${_safeStringify(c.data)}`);
+        if (c?.cause !== undefined)
+          cParts.push(`Caused by: ${_fmtCause(c.cause, depth + 1)}`);
+        return cParts.join('\n');
+      };
+      parts.push(`Caused by: ${_fmtCause(typedErr.cause, 1)}`);
+    }
+
+    return parts.join('\n');
   };
 
   // Pending function-call promises keyed by call ID.

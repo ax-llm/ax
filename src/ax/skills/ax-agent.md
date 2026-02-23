@@ -441,6 +441,31 @@ Available permissions:
 
 > **Warning**: Granting `WORKERS` allows code to spawn sub-workers that get fresh, unlocked globals. A child worker has full access to `fetch`, `indexedDB`, etc. regardless of the parent's permissions. Only grant `WORKERS` when you trust the executed code.
 
+### Consecutive Execution Error Cutoff
+
+`AxJSRuntime` can enforce a cutoff for consecutive execution failures:
+
+```typescript
+import { AxJSRuntime } from '@ax-llm/ax';
+
+const runtime = new AxJSRuntime({
+  consecutiveErrorCutoff: 3,
+});
+```
+
+Behavior:
+
+- The runtime tracks consecutive execution failures.
+- The counter resets on successful execution.
+- When failures hit the configured cutoff, the runtime throws `AxRuntimeExecutionError` and exits the session.
+- Preflight guardrail errors are not counted (for example blocked `"use strict"` and reserved-name reassignment checks).
+
+You can manually reset the runtime-level counter:
+
+```typescript
+runtime.resetConsecutiveErrorCounter();
+```
+
 ### Structured Context Fields
 
 Context fields aren't limited to plain strings. You can pass structured data — objects and arrays with typed sub-fields:
@@ -721,18 +746,24 @@ but `globalThis.state = ...` (or mutating a shared `state` object) is the recomm
 Errors thrown by code running inside `session.execute(code)` cross the worker boundary and can be caught on the host. Always `await` `session.execute()` inside a try/catch:
 
 ```typescript
+import { AxRuntimeExecutionError } from '@ax-llm/ax';
+
 try {
   const result = await session.execute(code);
   // use result
 } catch (e) {
-  // e is an Error with name and message preserved from the worker
-  if (e instanceof Error && e.name === 'WaitForUserActionError') {
+  if (e instanceof AxRuntimeExecutionError) {
+    // Consecutive execution failures reached the cutoff; session was exited.
+  } else if (e instanceof Error && e.name === 'WaitForUserActionError') {
     // handle domain-specific error
   }
-  console.error(e.message);
+  console.error(e instanceof Error ? e.message : String(e));
 }
 ```
 
+- **`AxRuntimeExecutionError`** is thrown when the runtime reaches the configured consecutive execution failure cutoff.
+- The cutoff counter **resets on successful execution**.
+- **Preflight guardrail errors are not counted** toward the cutoff.
 - **`e.name`** and **`e.message`** are preserved, so you can branch on `e.name === 'WaitForUserActionError'` (or other custom error names) and use `e.message` for user-facing context.
 - **`e.cause`** is preserved when structured-cloneable, including recursive cause chains (with a depth limit).
 - **`e.data`** (optional) is preserved when the thrown error has a `data` property set to a structured-cloneable value (object, array, string, number, etc.). Use it for custom payloads (e.g. `(e as Error & { data?: unknown }).data`). Non-cloneable values are omitted.
@@ -778,6 +809,27 @@ If provided, `getUsageInstructions()` is appended to the RLM system prompt as ru
 RLM mode does not support true streaming. When using `streamingForward`, RLM runs the full analysis and yields the final result as a single chunk.
 
 ## API Reference
+
+### `AxJSRuntime`
+
+```typescript
+new AxJSRuntime({
+  timeout?: number;
+  permissions?: readonly AxJSRuntimePermission[];
+  outputMode?: 'return' | 'stdout';
+  captureConsole?: boolean;
+  allowUnsafeNodeHostAccess?: boolean;
+  nodeWorkerPoolSize?: number;
+  debugNodeWorkerPool?: boolean;
+  consecutiveErrorCutoff?: number; // Cutoff for consecutive execution failures
+});
+
+runtime.resetConsecutiveErrorCounter(): void; // Resets runtime-level consecutive failure counter
+```
+
+### `AxRuntimeExecutionError`
+
+Thrown by `AxJSRuntime` when consecutive execution failures reach `consecutiveErrorCutoff`. When this happens, the active runtime session is exited. Preflight guardrail errors are not counted toward this cutoff.
 
 ### `AxRLMConfig`
 

@@ -179,7 +179,7 @@ describe('Split-architecture signature derivation', () => {
     expect(outputs[0].name).toBe('javascriptCode');
   });
 
-  it('should require actionDescription before javascriptCode when compressLog is enabled', () => {
+  it('should include javascriptCode and actionDescription when compressLog is enabled', () => {
     const testAgent = agent('context:string, query:string -> answer:string', {
       contextFields: ['context'],
       runtime,
@@ -191,8 +191,8 @@ describe('Split-architecture signature derivation', () => {
     const outputs = actorSig.getOutputFields();
 
     expect(outputs).toHaveLength(2);
-    expect(outputs[0].name).toBe('actionDescription');
-    expect(outputs[1].name).toBe('javascriptCode');
+    expect(outputs[0].name).toBe('javascriptCode');
+    expect(outputs[1].name).toBe('actionDescription');
   });
 
   it('should derive Responder signature with original outputs', () => {

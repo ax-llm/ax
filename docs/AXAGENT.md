@@ -369,6 +369,31 @@ Available permissions:
 
 > **Warning**: Granting `WORKERS` allows code to spawn sub-workers that get fresh, unlocked globals. A child worker has full access to `fetch`, `indexedDB`, etc. regardless of the parent's permissions. Only grant `WORKERS` when you trust the executed code.
 
+### Consecutive Execution Error Cutoff
+
+`AxJSRuntime` can enforce a cutoff for consecutive execution failures. This is useful when generated code gets stuck in a failure loop.
+
+```typescript
+import { AxJSRuntime } from '@ax-llm/ax';
+
+const runtime = new AxJSRuntime({
+  consecutiveErrorCutoff: 3,
+});
+```
+
+Behavior:
+
+- The runtime tracks consecutive execution failures.
+- The counter resets on successful execution.
+- When failures hit the configured cutoff, the runtime throws `AxRuntimeExecutionError` and exits the session.
+- Preflight guardrail errors are not counted (for example blocked `"use strict"` and reserved-name reassignment checks).
+
+You can manually reset the runtime-level counter:
+
+```typescript
+runtime.resetConsecutiveErrorCounter();
+```
+
 ### Structured Context Fields
 
 Context fields aren't limited to plain strings. You can pass structured data — objects and arrays with typed sub-fields — and the LLM will see their full schema in the code interpreter prompt.
@@ -612,6 +637,31 @@ state = await getState(); // no let/const/var
 
 but `globalThis.state = ...` (or mutating a shared `state` object) is the recommended explicit pattern.
 
+### Error Handling in the Code Interpreter
+
+Errors thrown by code running inside `session.execute(code)` cross the worker boundary and can be caught on the host. Always `await` `session.execute()` inside a try/catch:
+
+```typescript
+import { AxRuntimeExecutionError } from '@ax-llm/ax';
+
+try {
+  const result = await session.execute(code);
+  // use result
+} catch (e) {
+  if (e instanceof AxRuntimeExecutionError) {
+    // Consecutive execution failures reached the cutoff; session was exited.
+  } else if (e instanceof Error && e.name === 'WaitForUserActionError') {
+    // handle domain-specific error
+  }
+  console.error(e instanceof Error ? e.message : String(e));
+}
+```
+
+- `AxRuntimeExecutionError` is thrown when the runtime reaches the configured consecutive execution failure cutoff.
+- The cutoff counter resets on successful execution.
+- Preflight guardrail errors are not counted toward the cutoff.
+- For custom errors thrown in the worker, use `e.name` checks if prototype identity is not preserved across the worker boundary.
+
 ### Custom Interpreters
 
 The built-in `AxJSRuntime` uses Web Workers for sandboxed code execution. For other environments, implement the `AxCodeRuntime` interface:
@@ -662,6 +712,27 @@ RLM mode does not support true streaming. When using `streamingForward`, RLM run
 - **Manual chunking:** optional strategy you can implement in interpreter code; not done automatically by the runtime
 
 ## API Reference
+
+### `AxJSRuntime`
+
+```typescript
+new AxJSRuntime({
+  timeout?: number;
+  permissions?: readonly AxJSRuntimePermission[];
+  outputMode?: 'return' | 'stdout';
+  captureConsole?: boolean;
+  allowUnsafeNodeHostAccess?: boolean;
+  nodeWorkerPoolSize?: number;
+  debugNodeWorkerPool?: boolean;
+  consecutiveErrorCutoff?: number; // Cutoff for consecutive execution failures
+});
+
+runtime.resetConsecutiveErrorCounter(): void; // Resets runtime-level consecutive failure counter
+```
+
+### `AxRuntimeExecutionError`
+
+Thrown by `AxJSRuntime` when consecutive execution failures reach `consecutiveErrorCutoff`. When this happens, the active runtime session is exited. Preflight guardrail errors are not counted toward this cutoff.
 
 ### `AxRLMConfig`
 
