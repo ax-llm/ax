@@ -21,7 +21,7 @@
     "@astrojs/react": "^4.4.2",
     "@astrojs/tailwind": "^6.0.2",
     "@ax-llm/ax": "file:../ax",
-    "@mlc-ai/web-llm": "^0.2.79",
+    "@mlc-ai/web-llm": "^0.2.80",
     "@tailwindcss/typography": "^0.5.16",
     "astro": "^5.15.9",
     "class-variance-authority": "^0.7.1",
