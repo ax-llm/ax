@@ -189,3 +189,7 @@ GPTOSS
 moonshotai
 tput
 unminified
+tombstoning
+Mgmt
+tombstoned
+unscored

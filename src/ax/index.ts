@@ -752,6 +752,7 @@ import {
   type AxCodeInterpreter,
   type AxCodeRuntime,
   type AxCodeSession,
+  type AxContextManagementConfig,
   type AxRLMConfig,
   axBuildActorDefinition,
   axBuildResponderDefinition,
@@ -1235,6 +1236,7 @@ export type { AxContextCacheOperation };
 export type { AxContextCacheOptions };
 export type { AxContextCacheRegistry };
 export type { AxContextCacheRegistryEntry };
+export type { AxContextManagementConfig };
 export type { AxCostTracker };
 export type { AxCostTrackerOptions };
 export type { AxDBArgs };

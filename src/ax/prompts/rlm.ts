@@ -38,6 +38,28 @@ export interface AxCodeSession {
 }
 
 /**
+ * Configuration for semantic context management in the Actor loop.
+ * Controls how action log entries are evaluated, summarized, and pruned.
+ */
+export interface AxContextManagementConfig {
+  /** Prune error entries after a successful (non-error) turn. */
+  errorPruning?: boolean;
+  /** Enable tombstone generation for resolved errors.
+   *  When true, uses the main AI service with its default model.
+   *  Pass `{ model: '...' }` to override the model (e.g. a cheaper/faster one). */
+  tombstoning?: boolean | { model?: string };
+  /** Enable heuristic-based importance scoring on entries. */
+  hindsightEvaluation?: boolean;
+  /** Enable runtime state inspection tool for the actor.
+   *  `contextThreshold` is the character count on the serialized actionLog
+   *  above which an `inspect_runtime()` hint is shown to the actor. */
+  stateInspection?: { contextThreshold?: number };
+  /** Entries ranked strictly below this value are purged from active context.
+   *  Range: 0-5. Default: 2. */
+  pruneRank?: number;
+}
+
+/**
  * RLM configuration for AxAgent.
  */
 export interface AxRLMConfig {
@@ -57,10 +79,12 @@ export interface AxRLMConfig {
   /** Maximum Actor turns before forcing Responder (default: 10). */
   maxTurns?: number;
   /**
-   * If true, the Actor must return `actionDescription` and action logs will store
-   * short action descriptions instead of full code blocks.
+   * @deprecated Use `contextManagement.errorPruning` instead.
+   * If true, prune error entries from the action log after a successful turn.
    */
-  compressLog?: boolean;
+  trajectoryPruning?: boolean;
+  /** Semantic context management configuration. */
+  contextManagement?: AxContextManagementConfig;
   /** Output field names the Actor should produce (in addition to javascriptCode). */
   actorFields?: string[];
   /** Called after each Actor turn with the full actor result. */
@@ -86,6 +110,7 @@ export function axBuildActorDefinition(
     runtimeUsageInstructions?: string;
     maxLlmCalls?: number;
     maxTurns?: number;
+    hasInspectRuntime?: boolean;
   }>
 ): string {
   const maxLlmCalls = options.maxLlmCalls ?? 50;
@@ -125,7 +150,13 @@ The responder is looking to produce the following output fields: ${responderOutp
 - \`final(...args)\` — Signal completion and provide payload arguments for the responder to use to generate its output. Requires at least one argument. Execution ends after calling it.
 
 - \`ask_clarification(...args)\` — Signal that more user input is needed and provide clarification arguments for the responder. Requires at least one argument. Execution ends after calling it.
-
+${
+  options.hasInspectRuntime
+    ? `
+- \`await inspect_runtime() : string\` — Returns a compact snapshot of all user-defined variables in the runtime session (name, type, size, preview). Use this to re-ground yourself when the action log is large instead of re-reading previous outputs.
+`
+    : ''
+}
 ### Important guidance and guardrails
 - Always do some due diligence first to figure out if you can solve the problem by writing code that looks at only a portion of the context. You have access to the \`contextMetadata\` which provides information about the context fields, use this in your decision making.
 

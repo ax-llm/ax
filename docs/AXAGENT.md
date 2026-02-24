@@ -301,7 +301,13 @@ const analyzer = agent(
       maxRuntimeChars: 2_000,                    // Cap for llmQuery context + code output (default: 5000)
       maxBatchedLlmQueryConcurrency: 6,          // Max parallel batched llmQuery calls (default: 8)
       maxTurns: 10,                              // Max Actor turns before forcing Responder (default: 10)
-      compressLog: true,                         // Store actionDescription in actionLog instead of full code
+      contextManagement: {                         // Semantic context management (replaces trajectoryPruning)
+        errorPruning: true,                        // Prune error entries after successful turns
+        hindsightEvaluation: true,                 // Heuristic importance scoring on entries
+        tombstoning: true,                         // Replace resolved errors with compact summaries
+        stateInspection: { contextThreshold: 2000 }, // Enable inspect_runtime() tool
+        pruneRank: 2,                              // Entries ranked below this are purged (0-5, default: 2)
+      },
       actorFields: ['reasoning'],                  // Output fields produced by Actor instead of Responder
       actorCallback: async (result) => {           // Called after each Actor turn
         console.log('Actor turn:', result);
@@ -744,10 +750,19 @@ interface AxRLMConfig {
   maxRuntimeChars?: number;                  // Cap for llmQuery context + code output (default: 5000)
   maxBatchedLlmQueryConcurrency?: number;    // Max parallel batched llmQuery calls (default: 8)
   maxTurns?: number;                         // Max Actor turns before forcing Responder (default: 10)
-  compressLog?: boolean;                     // Use actionDescription entries instead of full code in actionLog
+  trajectoryPruning?: boolean;               // @deprecated Use contextManagement.errorPruning instead
+  contextManagement?: AxContextManagementConfig; // Semantic context management
   actorFields?: string[];                    // Output fields produced by Actor instead of Responder
   actorCallback?: (result: Record<string, unknown>) => void | Promise<void>;  // Called after each Actor turn
   mode?: 'simple' | 'advanced';                  // Sub-query mode: 'simple' = AxGen, 'advanced' = AxAgent (default: 'simple')
+}
+
+interface AxContextManagementConfig {
+  errorPruning?: boolean;                    // Prune error entries after successful turns
+  tombstoning?: boolean | { model?: string }; // Replace resolved errors with compact summaries
+  hindsightEvaluation?: boolean;             // Heuristic importance scoring on entries
+  stateInspection?: { contextThreshold?: number }; // Enable inspect_runtime() tool
+  pruneRank?: number;                        // Entries ranked below this are purged (0-5, default: 2)
 }
 ```
 

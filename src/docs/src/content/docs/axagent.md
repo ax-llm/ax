@@ -693,12 +693,21 @@ Extends `AxProgramForwardOptions` (without `functions`) with:
   maxBatchedLlmQueryConcurrency?: number;     // Max parallel batched llmQuery calls (default: 8)
   subModel?: string;                          // Model for llmQuery sub-calls
   maxTurns?: number;                          // Max Actor turns before forcing Responder (default: 10)
-  compressLog?: boolean;                      // Compress action log
+  trajectoryPruning?: boolean;                // @deprecated Use contextManagement.errorPruning instead
+  contextManagement?: AxContextManagementConfig; // Semantic context management
   actorFields?: string[];                     // Output fields produced by Actor instead of Responder
   actorCallback?: (result: Record<string, unknown>) => void | Promise<void>;  // Called after each Actor turn
   mode?: string;                              // RLM mode
   actorOptions?: Partial<AxProgramForwardOptions>;   // Default forward options for Actor
   responderOptions?: Partial<AxProgramForwardOptions>; // Default forward options for Responder
+}
+
+interface AxContextManagementConfig {
+  errorPruning?: boolean;                    // Prune error entries after successful turns
+  tombstoning?: boolean | { model?: string }; // Replace resolved errors with compact summaries
+  hindsightEvaluation?: boolean;             // Heuristic importance scoring on entries
+  stateInspection?: { contextThreshold?: number }; // Enable inspect_runtime() tool
+  pruneRank?: number;                        // Entries ranked below this are purged (0-5, default: 2)
 }
 ```
 

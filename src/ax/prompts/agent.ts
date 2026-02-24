@@ -30,8 +30,18 @@ import {
   AxAIServiceStatusError,
   AxAIServiceTimeoutError,
 } from '../util/apicall.js';
-import type { AxCodeRuntime, AxRLMConfig } from './rlm.js';
+import type {
+  AxCodeRuntime,
+  AxContextManagementConfig,
+  AxRLMConfig,
+} from './rlm.js';
 import { axBuildActorDefinition, axBuildResponderDefinition } from './rlm.js';
+import type { ActionLogEntry } from './contextManager.js';
+import {
+  buildActionLog,
+  buildInspectRuntimeCode,
+  manageContext,
+} from './contextManager.js';
 
 /**
  * Interface for agents that can be used as child agents.
@@ -80,8 +90,10 @@ export type AxAgentOptions = Omit<
   maxBatchedLlmQueryConcurrency?: number;
   /** Maximum Actor turns before forcing Responder (default: 10). */
   maxTurns?: number;
-  /** If true, the Actor must return actionDescription and action logs will store short descriptions. */
-  compressLog?: boolean;
+  /** @deprecated Use `contextManagement.errorPruning` instead. */
+  trajectoryPruning?: boolean;
+  /** Semantic context management configuration. */
+  contextManagement?: AxContextManagementConfig;
   /** Output field names the Actor should produce (in addition to javascriptCode). */
   actorFields?: string[];
   /** Called after each Actor turn with the full actor result. */
@@ -188,7 +200,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       maxRuntimeChars,
       maxBatchedLlmQueryConcurrency,
       maxTurns,
-      compressLog,
+      trajectoryPruning,
+      contextManagement,
       actorFields,
       actorCallback,
       mode,
@@ -210,7 +223,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       maxRuntimeChars,
       maxBatchedLlmQueryConcurrency,
       maxTurns,
-      compressLog,
+      trajectoryPruning,
+      contextManagement,
       actorFields,
       actorCallback,
       mode,
@@ -298,7 +312,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       (fld) => !actorFieldNames.includes(fld.name)
     );
 
-    // --- Actor signature: inputs + contextMetadata + actionLog -> javascriptCode (+ actionDescription/+ actorFields) ---
+    // --- Actor signature: inputs + contextMetadata + actionLog -> javascriptCode (+ actorFields) ---
     let actorSigBuilder = f()
       .addInputFields(nonContextInputs)
       .input(
@@ -310,24 +324,11 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         f.string(
           'Chronological trace of code executions or actions and their outputs so far'
         )
-      ) as any;
-
-    if (compressLog) {
-      actorSigBuilder = actorSigBuilder
-        .output(
-          'javascriptCode',
-          f.code('JavaScript code to execute in runtime session')
-        )
-        .output(
-          'actionDescription',
-          f.string('A short description of what the code does, keep it short')
-        );
-    } else {
-      actorSigBuilder = actorSigBuilder.output(
+      )
+      .output(
         'javascriptCode',
         f.code('JavaScript code to execute in runtime session')
-      );
-    }
+      ) as any;
 
     if (actorOutputFields.length > 0) {
       actorSigBuilder = actorSigBuilder.addOutputFields(actorOutputFields);
@@ -356,6 +357,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         runtimeUsageInstructions: this.runtime.getUsageInstructions(),
         maxLlmCalls: effectiveMaxLlmCalls,
         maxTurns: effectiveMaxTurns,
+        hasInspectRuntime: !!contextManagement?.stateInspection,
       }
     );
 
@@ -825,12 +827,40 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const askClarificationFunction = (...args: unknown[]) =>
       setActorResultPayload('ask_clarification', args);
 
+    const reservedNames = [
+      'llmQuery',
+      'agents',
+      'final',
+      'ask_clarification',
+      ...(rlm.contextManagement?.stateInspection ? ['inspect_runtime'] : []),
+      ...rlm.contextFields,
+      ...Object.keys(toolGlobals),
+    ];
+
+    // inspect_runtime: queries worker globalThis for current variable state
+    // Captures `session` by reference so it works after session restart.
+    const inspectRuntime = rlm.contextManagement?.stateInspection
+      ? async (): Promise<string> => {
+          try {
+            const code = buildInspectRuntimeCode(reservedNames);
+            const result = await session.execute(code, {
+              signal: effectiveAbortSignal,
+              reservedNames,
+            });
+            return typeof result === 'string' ? result : String(result);
+          } catch (err) {
+            return `[inspect_runtime error: ${err instanceof Error ? err.message : String(err)}]`;
+          }
+        }
+      : undefined;
+
     const createSession = () => {
       return runtime.createSession({
         ...contextValues,
         llmQuery,
         final: finalFunction,
         ask_clarification: askClarificationFunction,
+        ...(inspectRuntime ? { inspect_runtime: inspectRuntime } : {}),
         ...toolGlobals,
       });
     };
@@ -838,15 +868,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const timeoutRestartNotice = `[The JavaScript runtime was restarted; all global state was lost and must be recreated if needed.]`;
     let session = createSession();
     let shouldRestartClosedSession = false;
-
-    const reservedNames = [
-      'llmQuery',
-      'agents',
-      'final',
-      'ask_clarification',
-      ...rlm.contextFields,
-      ...Object.keys(toolGlobals),
-    ];
 
     const isSessionClosedError = (err: unknown): boolean => {
       return err instanceof Error && err.message === 'Session is closed';
@@ -987,30 +1008,16 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     // 3. Actor loop (TypeScript-managed)
     const contextMetadata = buildRLMVariablesInfo(contextValues) || '(none)';
 
-    type ActionLogEntry = {
-      turn: number;
-      code: string;
-      actionDescription: string;
-      output: string;
-      actorFieldsOutput: string;
-      isError: boolean;
+    // Resolve effective context management config
+    const contextMgmt = rlm.contextManagement;
+    const effectiveContextConfig = {
+      errorPruning: contextMgmt?.errorPruning ?? rlm.trajectoryPruning ?? false,
+      hindsightEvaluation: contextMgmt?.hindsightEvaluation ?? false,
+      tombstoning: contextMgmt?.tombstoning,
+      pruneRank: contextMgmt?.pruneRank ?? 2,
     };
+
     const actionLogEntries: ActionLogEntry[] = [];
-
-    const buildActionLog = (): string => {
-      if (actionLogEntries.length === 0) return '';
-
-      return actionLogEntries
-        .map((entry) => {
-          if (rlm.compressLog) {
-            const actionLine =
-              entry.actionDescription || '(missing action description)';
-            return `Action ${entry.turn}:\nAction: ${actionLine}\nResult:\n${entry.output}${entry.actorFieldsOutput}`;
-          }
-          return `Action ${entry.turn}:\n\`\`\`javascript\n${entry.code}\n\`\`\`\nResult:\n${entry.output}${entry.actorFieldsOutput}`;
-        })
-        .join('\n\n');
-    };
 
     const actorMergedOptions = {
       ...this.options,
@@ -1022,14 +1029,24 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     const actorFieldValues: Record<string, unknown> = {};
 
+    const contextThreshold = contextMgmt?.stateInspection?.contextThreshold;
+
     try {
       for (let turn = 0; turn < maxTurns; turn++) {
+        // Build action log, adding inspect_runtime hint when it gets large
+        let actionLogText =
+          buildActionLog(actionLogEntries) || '(no actions yet)';
+        if (contextThreshold && actionLogText.length > contextThreshold) {
+          actionLogText +=
+            '\n\n[HINT: Action log is large. Call `const state = await inspect_runtime()` for a compact snapshot of current variables instead of re-reading old outputs.]';
+        }
+
         const actorResult = await this.actorProgram.forward(
           ai,
           {
             ...nonContextValues,
             contextMetadata,
-            actionLog: buildActionLog() || '(no actions yet)',
+            actionLog: actionLogText,
           },
           actorMergedOptions
         );
@@ -1074,19 +1091,22 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         actorResultPayload = undefined;
 
         const { output, isError } = await executeInterpreterCode(code);
-        const actionDescription =
-          typeof actorResult.actionDescription === 'string'
-            ? actorResult.actionDescription.trim()
-            : '';
 
         actionLogEntries.push({
           turn: turn + 1,
           code,
-          actionDescription,
           output,
           actorFieldsOutput,
-          isError,
+          tags: isError ? ['error'] : [],
         });
+
+        // Semantic context management: hindsight eval, tombstoning, pruning
+        await manageContext(
+          actionLogEntries,
+          actionLogEntries.length - 1,
+          effectiveContextConfig,
+          ai
+        );
 
         // Exit when Actor signaled completion via final(...) or ask_clarification(...).
         if (actorResultPayload) {
@@ -1105,13 +1125,13 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       actorResultPayload ??
       ({
         type: 'final',
-        args: [buildActionLog() || '(no actions were taken)'],
+        args: [buildActionLog(actionLogEntries) || '(no actions were taken)'],
       } satisfies AxAgentActorResultPayload);
 
     return {
       nonContextValues,
       contextMetadata,
-      actionLog: buildActionLog(),
+      actionLog: buildActionLog(actionLogEntries),
       actorResult,
       actorFieldValues,
     };

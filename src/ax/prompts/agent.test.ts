@@ -179,20 +179,20 @@ describe('Split-architecture signature derivation', () => {
     expect(outputs[0].name).toBe('javascriptCode');
   });
 
-  it('should include javascriptCode and actionDescription when compressLog is enabled', () => {
+  it('should only have javascriptCode output when trajectoryPruning is enabled', () => {
     const testAgent = agent('context:string, query:string -> answer:string', {
       contextFields: ['context'],
       runtime,
-      compressLog: true,
+      trajectoryPruning: true,
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const actorSig = (testAgent as any).actorProgram.getSignature();
     const outputs = actorSig.getOutputFields();
 
-    expect(outputs).toHaveLength(2);
+    // trajectoryPruning does not affect the signature -- still just javascriptCode
+    expect(outputs).toHaveLength(1);
     expect(outputs[0].name).toBe('javascriptCode');
-    expect(outputs[1].name).toBe('actionDescription');
   });
 
   it('should derive Responder signature with original outputs', () => {
@@ -571,9 +571,116 @@ describe('Actor/Responder execution loop', () => {
     expect(lastResponderPayload).toContain('"done"');
   });
 
-  it('should compress actionLog entries using actionDescription when compressLog is enabled', async () => {
+  it('should prune error entries from actionLog after a successful turn when trajectoryPruning is enabled', async () => {
     let actorCallCount = 0;
-    let secondActorPrompt = '';
+    let thirdActorPrompt = '';
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCallCount++;
+          if (actorCallCount === 1) {
+            // Turn 1: code that will trigger an error
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: triggerError()',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          if (actorCallCount === 2) {
+            // Turn 2: code that succeeds
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: var x = 42; x',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+
+          // Turn 3: capture prompt, then finalize
+          thirdActorPrompt = String(req.chatPrompt[1]?.content ?? '');
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: final("done")',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Answer Synthesis Agent')) {
+          return {
+            results: [
+              { index: 0, content: 'Answer: pruned', finishReason: 'stop' },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testRuntime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (globals?.final && code.includes('final(')) {
+              (globals.final as (...args: unknown[]) => void)('done');
+              return 'done';
+            }
+            if (code.includes('triggerError')) {
+              throw new Error('Execution timed out');
+            }
+            return '42';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: ['context'],
+      runtime: testRuntime,
+      trajectoryPruning: true,
+    });
+
+    await testAgent.forward(testMockAI, {
+      context: 'unused',
+      query: 'unused',
+    });
+
+    // The error from turn 1 should be pruned after the successful turn 2
+    expect(thirdActorPrompt).not.toContain('triggerError');
+    // The successful turn 2 should still be present
+    expect(thirdActorPrompt).toContain('var x = 42');
+    // Action log should always use code block format
+    expect(thirdActorPrompt).toContain('```javascript');
+  });
+
+  it('should prune error entries when contextManagement.errorPruning is enabled (same as trajectoryPruning)', async () => {
+    let actorCallCount = 0;
+    let thirdActorPrompt = '';
 
     const testMockAI = new AxMockAIService({
       features: { functions: false, streaming: false },
@@ -587,8 +694,19 @@ describe('Actor/Responder execution loop', () => {
               results: [
                 {
                   index: 0,
-                  content:
-                    'Action Description: inspect structure\nJavascript Code: var sample = "ok"; sample',
+                  content: 'Javascript Code: triggerError()',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          if (actorCallCount === 2) {
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: var y = 99; y',
                   finishReason: 'stop',
                 },
               ],
@@ -596,13 +714,12 @@ describe('Actor/Responder execution loop', () => {
             };
           }
 
-          secondActorPrompt = String(req.chatPrompt[1]?.content ?? '');
+          thirdActorPrompt = String(req.chatPrompt[1]?.content ?? '');
           return {
             results: [
               {
                 index: 0,
-                content:
-                  'Action Description: finalize\nJavascript Code: final("done")',
+                content: 'Javascript Code: final("done")',
                 finishReason: 'stop',
               },
             ],
@@ -613,7 +730,7 @@ describe('Actor/Responder execution loop', () => {
         if (systemPrompt.includes('Answer Synthesis Agent')) {
           return {
             results: [
-              { index: 0, content: 'Answer: compressed', finishReason: 'stop' },
+              { index: 0, content: 'Answer: pruned', finishReason: 'stop' },
             ],
             modelUsage: makeModelUsage(),
           };
@@ -626,15 +743,19 @@ describe('Actor/Responder execution loop', () => {
       },
     });
 
-    const runtime: AxCodeRuntime = {
+    const testRuntime: AxCodeRuntime = {
       getUsageInstructions: () => '',
       createSession(globals) {
         return {
           execute: async (code: string) => {
             if (globals?.final && code.includes('final(')) {
               (globals.final as (...args: unknown[]) => void)('done');
+              return 'done';
             }
-            return 'executed';
+            if (code.includes('triggerError')) {
+              throw new Error('Execution timed out');
+            }
+            return '99';
           },
           close: () => {},
         };
@@ -644,8 +765,8 @@ describe('Actor/Responder execution loop', () => {
     const testAgent = agent('context:string, query:string -> answer:string', {
       ai: testMockAI,
       contextFields: ['context'],
-      runtime,
-      compressLog: true,
+      runtime: testRuntime,
+      contextManagement: { errorPruning: true },
     });
 
     await testAgent.forward(testMockAI, {
@@ -653,8 +774,38 @@ describe('Actor/Responder execution loop', () => {
       query: 'unused',
     });
 
-    expect(secondActorPrompt).toContain('Action: inspect structure');
-    expect(secondActorPrompt).not.toContain('```javascript');
+    // The error from turn 1 should be pruned after the successful turn 2
+    expect(thirdActorPrompt).not.toContain('triggerError');
+    // The successful turn 2 should still be present
+    expect(thirdActorPrompt).toContain('var y = 99');
+  });
+
+  it('should include inspect_runtime in actor definition when stateInspection is configured', () => {
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      contextFields: ['context'],
+      runtime: defaultRuntime,
+      contextManagement: { stateInspection: { contextThreshold: 500 } },
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const actorSig = (testAgent as any).actorProgram.getSignature();
+    const definition = actorSig.getDescription();
+
+    expect(definition).toContain('inspect_runtime');
+  });
+
+  it('should NOT include inspect_runtime in actor definition when stateInspection is not configured', () => {
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      contextFields: ['context'],
+      runtime: defaultRuntime,
+      contextManagement: { errorPruning: true },
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const actorSig = (testAgent as any).actorProgram.getSignature();
+    const definition = actorSig.getDescription();
+
+    expect(definition).not.toContain('inspect_runtime');
   });
 
   it('should exit loop when Actor returns ask_clarification(...)', async () => {
