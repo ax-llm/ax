@@ -87,6 +87,12 @@ export type AxAgentOptions = Omit<
   sharedFields?: string[];
   /** Shared fields from a parent agent that this agent should NOT receive. */
   excludeSharedFields?: string[];
+  /** Agents to automatically add to all direct child agents (one level). */
+  sharedAgents?: AxAnyAgentic[];
+  /** Fields to pass to ALL descendants recursively (entire agent tree). */
+  globalSharedFields?: string[];
+  /** Agents to automatically add to ALL descendants recursively (entire agent tree). */
+  globalSharedAgents?: AxAnyAgentic[];
   /** Code runtime for the REPL loop (default: AxJSRuntime). */
   runtime?: AxCodeRuntime;
   /** Cap on recursive sub-LM calls (default: 50). */
@@ -170,6 +176,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private runtime: AxCodeRuntime;
   private actorFieldNames: string[];
   private sharedFieldNames: string[];
+  private globalSharedFieldNames: string[];
   private excludedSharedFields: string[];
   private actorDescription?: string;
   private responderDescription?: string;
@@ -322,7 +329,21 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     this.excludedSharedFields = options.excludeSharedFields ?? [];
 
-    // Propagate shared fields to child agents
+    // Validate globalSharedFields exist in signature input fields
+    const globalSharedFieldNames = options.globalSharedFields ?? [];
+    this.globalSharedFieldNames = globalSharedFieldNames;
+    for (const gsf of globalSharedFieldNames) {
+      if (!inputFields.some((fld) => fld.name === gsf)) {
+        throw new Error(
+          `globalSharedField "${gsf}" not found in signature input fields`
+        );
+      }
+    }
+
+    const sharedAgentsList = options.sharedAgents ?? [];
+    const globalSharedAgentsList = options.globalSharedAgents ?? [];
+
+    // Propagate shared fields to child agents (one level)
     if (sharedFieldNames.length > 0 && agents) {
       const sharedFieldMeta = inputFields.filter((fld) =>
         sharedFieldNames.includes(fld.name)
@@ -338,6 +359,43 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         if (applicableFields.length === 0) continue;
 
         childAgent._extendForSharedFields(applicableFields, contextFields);
+      }
+    }
+
+    // Propagate shared agents to direct child agents (one level)
+    if (sharedAgentsList.length > 0 && agents) {
+      for (const childAgent of agents) {
+        if (!(childAgent instanceof AxAgent)) continue;
+        childAgent._extendForSharedAgents(sharedAgentsList);
+      }
+    }
+
+    // Propagate global shared fields to ALL descendants (recursive)
+    if (globalSharedFieldNames.length > 0 && agents) {
+      const globalSharedFieldMeta = inputFields.filter((fld) =>
+        globalSharedFieldNames.includes(fld.name)
+      );
+      for (const childAgent of agents) {
+        if (!(childAgent instanceof AxAgent)) continue;
+
+        const excluded = new Set(childAgent.getExcludedSharedFields());
+        const applicableFields = globalSharedFieldMeta.filter(
+          (fld) => !excluded.has(fld.name)
+        );
+        if (applicableFields.length === 0) continue;
+
+        childAgent._extendForGlobalSharedFields(
+          applicableFields,
+          contextFields
+        );
+      }
+    }
+
+    // Propagate global shared agents to ALL descendants (recursive)
+    if (globalSharedAgentsList.length > 0 && agents) {
+      for (const childAgent of agents) {
+        if (!(childAgent instanceof AxAgent)) continue;
+        childAgent._extendForGlobalSharedAgents(globalSharedAgentsList);
       }
     }
 
@@ -365,7 +423,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private _buildSplitPrograms(): void {
     const inputFields = this.program.getSignature().getInputFields();
     const contextFields = this.rlmConfig.contextFields;
-    const sharedFields = this.sharedFieldNames;
+    const sharedFields = [
+      ...this.sharedFieldNames,
+      ...this.globalSharedFieldNames,
+    ];
 
     // Identify context field metadata
     const contextFieldMeta = inputFields.filter((fld) =>
@@ -514,6 +575,129 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     // Update function metadata (input-only schema, minus parent-injected shared fields)
     if (this.func) {
       this.func.parameters = this._buildFuncParameters();
+    }
+  }
+
+  /**
+   * Extends this agent's agents list with shared agents from a parent.
+   * Called by a parent during its constructor. Avoids duplicates by function name.
+   */
+  private _extendForSharedAgents(newAgents: readonly AxAnyAgentic[]): void {
+    if (newAgents.length === 0) return;
+
+    const existingNames = new Set(
+      (this.agents ?? []).map((a) => a.getFunction().name)
+    );
+
+    const toAdd = newAgents.filter(
+      (a) => !existingNames.has(a.getFunction().name)
+    );
+
+    if (toAdd.length === 0) return;
+
+    this.agents = [...(this.agents ?? []), ...toAdd];
+
+    // Register new agents with the base program for optimizer discovery
+    for (const agent of toAdd) {
+      const childName = agent.getFunction().name;
+      this.program.register(
+        agent as unknown as Readonly<AxTunable<IN, OUT> & AxUsable>,
+        childName
+      );
+    }
+
+    // Rebuild Actor/Responder to include the new agents in the prompt
+    this._buildSplitPrograms();
+  }
+
+  /**
+   * Extends this agent and all its descendants with global shared fields.
+   * Adds fields to this agent's signature and sharedFieldNames, then
+   * recursively propagates to this agent's own children.
+   */
+  private _extendForGlobalSharedFields(
+    fields: readonly AxIField[],
+    parentContextFieldNames: readonly string[]
+  ): void {
+    // Extend THIS agent's signature (same logic as _extendForSharedFields)
+    const sig = this.program.getSignature();
+    const existingInputs = sig.getInputFields();
+    let modified = false;
+
+    for (const field of fields) {
+      if (existingInputs.some((f) => f.name === field.name)) continue;
+      this._parentSharedFields.add(field.name);
+      sig.addInputField(field);
+      modified = true;
+    }
+
+    if (modified) {
+      this.program.setSignature(sig);
+    }
+
+    // Auto-extend contextFields for fields that are context in the original parent
+    for (const field of fields) {
+      if (
+        parentContextFieldNames.includes(field.name) &&
+        !this.rlmConfig.contextFields.includes(field.name)
+      ) {
+        this.rlmConfig.contextFields.push(field.name);
+      }
+    }
+
+    // Add field names to this agent's own sharedFieldNames so that at runtime,
+    // this agent will extract their values and inject them to ITS children too.
+    for (const field of fields) {
+      if (!this.sharedFieldNames.includes(field.name)) {
+        this.sharedFieldNames.push(field.name);
+      }
+    }
+
+    // Rebuild Actor/Responder with updated signature
+    this._buildSplitPrograms();
+
+    // Update function metadata
+    if (this.func) {
+      this.func.parameters = this._buildFuncParameters();
+    }
+
+    // Recursively propagate to this agent's own children
+    if (this.agents) {
+      for (const childAgent of this.agents) {
+        if (!(childAgent instanceof AxAgent)) continue;
+        const excluded = new Set(childAgent.getExcludedSharedFields());
+        const applicableFields = fields.filter(
+          (fld) => !excluded.has(fld.name)
+        );
+        if (applicableFields.length === 0) continue;
+        childAgent._extendForGlobalSharedFields(
+          applicableFields,
+          parentContextFieldNames
+        );
+      }
+    }
+  }
+
+  /**
+   * Extends this agent and all its descendants with global shared agents.
+   * Adds agents to this agent's agents list, then recursively propagates
+   * to this agent's own children.
+   */
+  private _extendForGlobalSharedAgents(
+    newAgents: readonly AxAnyAgentic[]
+  ): void {
+    // Collect children to recurse into BEFORE extending (to avoid recursing
+    // into the newly added agents themselves, which could cause infinite loops).
+    const childrenToRecurse = this.agents
+      ? this.agents.filter((a): a is AxAgent<any, any> => a instanceof AxAgent)
+      : [];
+
+    // Extend THIS agent
+    this._extendForSharedAgents(newAgents);
+
+    // Recursively propagate to this agent's original children
+    for (const childAgent of childrenToRecurse) {
+      childAgent._extendForGlobalSharedAgents(newAgents);
     }
   }
 
@@ -679,7 +863,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       rawValues = values as Record<string, unknown>;
     }
 
-    const sharedFieldNames = this.sharedFieldNames;
+    const sharedFieldNames = [
+      ...this.sharedFieldNames,
+      ...this.globalSharedFieldNames,
+    ];
     for (const [k, v] of Object.entries(rawValues)) {
       if (rlm.contextFields.includes(k)) {
         contextValues[k] = v;

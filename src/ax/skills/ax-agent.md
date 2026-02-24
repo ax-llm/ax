@@ -1,6 +1,6 @@
 ---
 name: ax-agent
-description: This skill helps with building AxAgent-based agents using @ax-llm/ax. Use when the user asks about agent(), AxAgent, child agents, tool functions, RLM mode, stopping agents, or composing multi-agent hierarchies.
+description: This skill helps with building AxAgent-based agents using @ax-llm/ax. Use when the user asks about agent(), AxAgent, child agents, tool functions, RLM mode, stopping agents, composing multi-agent hierarchies, shared fields, shared agents, or global shared fields/agents.
 version: "__VERSION__"
 ---
 
@@ -351,6 +351,69 @@ const scientist = agent(
 
 const result = await scientist.forward(llm, {
   question: 'Why is gravity not a real force?',
+});
+```
+
+## Shared Fields and Agents
+
+When composing agent hierarchies, you often need to pass data or utility agents to child agents without requiring the parent's LLM to explicitly route them.
+
+### `sharedFields` — Pass fields to direct children (one level)
+
+Fields listed in `sharedFields` are automatically injected into direct child agents at runtime. They bypass the parent's LLM entirely.
+
+```typescript
+const parentAgent = agent('query:string, userId:string, knowledgeBase:string -> answer:string', {
+  agents: [childAgent],
+  contextFields: ['knowledgeBase'],
+  sharedFields: ['userId'],       // userId is injected into child agents automatically
+});
+```
+
+- `userId` is removed from the parent's Actor/Responder prompts
+- Children can opt out via `excludeSharedFields: ['userId']`
+
+### `globalSharedFields` — Pass fields to ALL descendants (recursive)
+
+Like `sharedFields`, but propagates through the entire agent tree — children, grandchildren, and beyond.
+
+```typescript
+const parent = agent('query:string, sessionId:string -> answer:string', {
+  agents: [child],
+  globalSharedFields: ['sessionId'],   // sessionId reaches child AND grandchild
+});
+```
+
+### `sharedAgents` — Add agents to direct children (one level)
+
+Utility agents listed in `sharedAgents` are added to every direct child agent's available agents list.
+
+```typescript
+const parent = agent('query:string -> answer:string', {
+  agents: [worker],
+  sharedAgents: [logger],   // worker can now call agents.logger(...)
+});
+```
+
+### `globalSharedAgents` — Add agents to ALL descendants (recursive)
+
+Like `sharedAgents`, but propagates through the entire agent tree.
+
+```typescript
+const parent = agent('query:string -> answer:string', {
+  agents: [child],
+  globalSharedAgents: [logger],   // both child AND grandchild can call agents.logger(...)
+});
+```
+
+### `excludeSharedFields`
+
+Any child agent can opt out of receiving specific shared fields:
+
+```typescript
+const sentiment = agent('text:string -> sentiment:string', {
+  agentIdentity: { name: 'Sentiment', description: 'Analyzes sentiment' },
+  excludeSharedFields: ['userId'],
 });
 ```
 
@@ -900,6 +963,11 @@ Extends `AxProgramForwardOptions` (without `functions`) with:
 {
   debug?: boolean;
   contextFields: string[];
+  sharedFields?: string[];               // Input fields to pass to direct child agents (one level)
+  excludeSharedFields?: string[];        // Shared fields this agent should NOT receive from its parent
+  sharedAgents?: AxAgentic[];            // Agents to add to direct child agents (one level)
+  globalSharedFields?: string[];         // Input fields to pass to ALL descendants (recursive)
+  globalSharedAgents?: AxAgentic[];      // Agents to add to ALL descendants (recursive)
   runtime?: AxCodeRuntime;
   maxLlmCalls?: number;
   maxRuntimeChars?: number;

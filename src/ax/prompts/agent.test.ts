@@ -3827,6 +3827,434 @@ describe('Shared Fields', () => {
   });
 });
 
+// ----- Shared Agents tests -----
+
+describe('Shared Agents', () => {
+  const runtime: AxCodeRuntime = {
+    getUsageInstructions: () => '',
+    createSession() {
+      return { execute: async () => 'ok', close: () => {} };
+    },
+  };
+
+  it('should add sharedAgents to direct child agents', () => {
+    const utilityAgent = agent('taskInput:string -> taskOutput:string', {
+      agentIdentity: { name: 'Utility', description: 'A utility agent' },
+      contextFields: [],
+      runtime,
+    });
+
+    const childAgent = agent('question:string -> answer:string', {
+      agentIdentity: { name: 'Child', description: 'A child agent' },
+      contextFields: [],
+      runtime,
+    });
+
+    agent('query:string -> finalAnswer:string', {
+      agents: [childAgent],
+      contextFields: [],
+      sharedAgents: [utilityAgent],
+      runtime,
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const childAgents = (childAgent as any).agents as any[];
+    const childAgentNames = childAgents.map((a: any) => a.getFunction().name);
+    expect(childAgentNames).toContain('utility');
+  });
+
+  it('should NOT propagate sharedAgents to grandchild agents', () => {
+    const utilityAgent = agent('taskInput:string -> taskOutput:string', {
+      agentIdentity: { name: 'Utility', description: 'A utility agent' },
+      contextFields: [],
+      runtime,
+    });
+
+    const grandchild = agent('question:string -> answer:string', {
+      agentIdentity: { name: 'Grandchild', description: 'A grandchild' },
+      contextFields: [],
+      runtime,
+    });
+
+    const child = agent('topic:string -> summary:string', {
+      agentIdentity: { name: 'Child', description: 'A child agent' },
+      agents: [grandchild],
+      contextFields: [],
+      runtime,
+    });
+
+    agent('query:string -> finalAnswer:string', {
+      agents: [child],
+      contextFields: [],
+      sharedAgents: [utilityAgent],
+      runtime,
+    });
+
+    // Child should have the utility agent
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const childAgents = (child as any).agents as any[];
+    const childAgentNames = childAgents.map((a: any) => a.getFunction().name);
+    expect(childAgentNames).toContain('utility');
+
+    // Grandchild should NOT have the utility agent
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const grandchildAgents = (grandchild as any).agents;
+    expect(grandchildAgents).toBeUndefined();
+  });
+
+  it('should avoid duplicate agents when child already has the agent', () => {
+    const utilityAgent = agent('taskInput:string -> taskOutput:string', {
+      agentIdentity: { name: 'Utility', description: 'A utility agent' },
+      contextFields: [],
+      runtime,
+    });
+
+    const childAgent = agent('question:string -> answer:string', {
+      agentIdentity: { name: 'Child', description: 'A child agent' },
+      agents: [utilityAgent],
+      contextFields: [],
+      runtime,
+    });
+
+    agent('query:string -> finalAnswer:string', {
+      agents: [childAgent],
+      contextFields: [],
+      sharedAgents: [utilityAgent],
+      runtime,
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const childAgents = (childAgent as any).agents as any[];
+    const utilityCount = childAgents.filter(
+      (a: any) => a.getFunction().name === 'utility'
+    ).length;
+    expect(utilityCount).toBe(1);
+  });
+});
+
+// ----- Global Shared Agents tests -----
+
+describe('Global Shared Agents', () => {
+  const runtime: AxCodeRuntime = {
+    getUsageInstructions: () => '',
+    createSession() {
+      return { execute: async () => 'ok', close: () => {} };
+    },
+  };
+
+  it('should add globalSharedAgents to all descendants', () => {
+    const utilityAgent = agent('taskInput:string -> taskOutput:string', {
+      agentIdentity: { name: 'Utility', description: 'A utility agent' },
+      contextFields: [],
+      runtime,
+    });
+
+    const grandchild = agent('question:string -> answer:string', {
+      agentIdentity: { name: 'Grandchild', description: 'A grandchild' },
+      contextFields: [],
+      runtime,
+    });
+
+    const child = agent('topic:string -> summary:string', {
+      agentIdentity: { name: 'Child', description: 'A child agent' },
+      agents: [grandchild],
+      contextFields: [],
+      runtime,
+    });
+
+    agent('query:string -> finalAnswer:string', {
+      agents: [child],
+      contextFields: [],
+      globalSharedAgents: [utilityAgent],
+      runtime,
+    });
+
+    // Child should have the utility agent
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const childAgents = (child as any).agents as any[];
+    const childAgentNames = childAgents.map((a: any) => a.getFunction().name);
+    expect(childAgentNames).toContain('utility');
+
+    // Grandchild should ALSO have the utility agent
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const grandchildAgents = (grandchild as any).agents as any[];
+    const grandchildAgentNames = grandchildAgents.map(
+      (a: any) => a.getFunction().name
+    );
+    expect(grandchildAgentNames).toContain('utility');
+  });
+
+  it('should avoid duplicates across the tree', () => {
+    const utilityAgent = agent('taskInput:string -> taskOutput:string', {
+      agentIdentity: { name: 'Utility', description: 'A utility agent' },
+      contextFields: [],
+      runtime,
+    });
+
+    const grandchild = agent('question:string -> answer:string', {
+      agentIdentity: { name: 'Grandchild', description: 'A grandchild' },
+      agents: [utilityAgent],
+      contextFields: [],
+      runtime,
+    });
+
+    const child = agent('topic:string -> summary:string', {
+      agentIdentity: { name: 'Child', description: 'A child agent' },
+      agents: [grandchild],
+      contextFields: [],
+      runtime,
+    });
+
+    agent('query:string -> finalAnswer:string', {
+      agents: [child],
+      contextFields: [],
+      globalSharedAgents: [utilityAgent],
+      runtime,
+    });
+
+    // Grandchild already had utility; should not be duplicated
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const grandchildAgents = (grandchild as any).agents as any[];
+    const utilityCount = grandchildAgents.filter(
+      (a: any) => a.getFunction().name === 'utility'
+    ).length;
+    expect(utilityCount).toBe(1);
+  });
+});
+
+// ----- Global Shared Fields tests -----
+
+describe('Global Shared Fields', () => {
+  const runtime: AxCodeRuntime = {
+    getUsageInstructions: () => '',
+    createSession() {
+      return { execute: async () => 'ok', close: () => {} };
+    },
+  };
+
+  it('should throw when globalSharedField is not in signature input fields', () => {
+    expect(
+      () =>
+        new AxAgent(
+          { signature: 'query:string -> answer:string' },
+          { contextFields: [], globalSharedFields: ['nonExistent'], runtime }
+        )
+    ).toThrow(
+      /globalSharedField "nonExistent" not found in signature input fields/
+    );
+  });
+
+  it('should exclude global shared fields from parent Actor and Responder', () => {
+    const childAgent = agent('question:string -> answer:string', {
+      agentIdentity: { name: 'Child', description: 'A child agent' },
+      contextFields: [],
+      runtime,
+    });
+
+    const parentAgent = agent('query:string, userId:string -> answer:string', {
+      agents: [childAgent],
+      contextFields: [],
+      globalSharedFields: ['userId'],
+      runtime,
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const actorSig = (parentAgent as any).actorProgram.getSignature();
+    const actorInputNames = actorSig
+      .getInputFields()
+      .map((f: { name: string }) => f.name);
+    expect(actorInputNames).not.toContain('userId');
+    expect(actorInputNames).toContain('query');
+  });
+
+  it('should extend all descendants signatures with globalSharedFields', () => {
+    const grandchild = agent('question:string -> answer:string', {
+      agentIdentity: { name: 'Grandchild', description: 'A grandchild' },
+      contextFields: [],
+      runtime,
+    });
+
+    const child = agent('topic:string -> summary:string', {
+      agentIdentity: { name: 'Child', description: 'A child agent' },
+      agents: [grandchild],
+      contextFields: [],
+      runtime,
+    });
+
+    agent('query:string, userId:string -> finalAnswer:string', {
+      agents: [child],
+      contextFields: [],
+      globalSharedFields: ['userId'],
+      runtime,
+    });
+
+    // Child should have userId in its signature
+    const childInputs = child
+      .getSignature()
+      .getInputFields()
+      .map((f) => f.name);
+    expect(childInputs).toContain('userId');
+
+    // Grandchild should ALSO have userId in its signature
+    const grandchildInputs = grandchild
+      .getSignature()
+      .getInputFields()
+      .map((f) => f.name);
+    expect(grandchildInputs).toContain('userId');
+  });
+
+  it('should strip globalSharedFields from all descendants getFunction().parameters', () => {
+    const grandchild = agent('question:string -> answer:string', {
+      agentIdentity: { name: 'Grandchild', description: 'A grandchild' },
+      contextFields: [],
+      runtime,
+    });
+
+    const child = agent('topic:string -> summary:string', {
+      agentIdentity: { name: 'Child', description: 'A child agent' },
+      agents: [grandchild],
+      contextFields: [],
+      runtime,
+    });
+
+    agent('query:string, userId:string -> finalAnswer:string', {
+      agents: [child],
+      contextFields: [],
+      globalSharedFields: ['userId'],
+      runtime,
+    });
+
+    // Child: userId should NOT appear in getFunction().parameters
+    const childParams = child.getFunction().parameters!;
+    expect(childParams.properties?.userId).toBeUndefined();
+    expect(childParams.properties?.topic).toBeDefined();
+
+    // Grandchild: userId should NOT appear in getFunction().parameters
+    const grandchildParams = grandchild.getFunction().parameters!;
+    expect(grandchildParams.properties?.userId).toBeUndefined();
+    expect(grandchildParams.properties?.question).toBeDefined();
+  });
+
+  it('should add globalSharedFields to intermediate agents sharedFieldNames for value chaining', () => {
+    const grandchild = agent('question:string -> answer:string', {
+      agentIdentity: { name: 'Grandchild', description: 'A grandchild' },
+      contextFields: [],
+      runtime,
+    });
+
+    const child = agent('topic:string -> summary:string', {
+      agentIdentity: { name: 'Child', description: 'A child agent' },
+      agents: [grandchild],
+      contextFields: [],
+      runtime,
+    });
+
+    agent('query:string, userId:string -> finalAnswer:string', {
+      agents: [child],
+      contextFields: [],
+      globalSharedFields: ['userId'],
+      runtime,
+    });
+
+    // Child's sharedFieldNames should include 'userId' (for value chaining)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const childSharedFields = (child as any).sharedFieldNames as string[];
+    expect(childSharedFields).toContain('userId');
+  });
+
+  it('should respect excludeSharedFields for globalSharedFields', () => {
+    const grandchild = agent('question:string -> answer:string', {
+      agentIdentity: { name: 'Grandchild', description: 'A grandchild' },
+      contextFields: [],
+      excludeSharedFields: ['userId'],
+      runtime,
+    });
+
+    const child = agent('topic:string -> summary:string', {
+      agentIdentity: { name: 'Child', description: 'A child agent' },
+      agents: [grandchild],
+      contextFields: [],
+      runtime,
+    });
+
+    agent('query:string, userId:string -> finalAnswer:string', {
+      agents: [child],
+      contextFields: [],
+      globalSharedFields: ['userId'],
+      runtime,
+    });
+
+    // Child should have userId
+    const childInputs = child
+      .getSignature()
+      .getInputFields()
+      .map((f) => f.name);
+    expect(childInputs).toContain('userId');
+
+    // Grandchild excluded it — should NOT have userId
+    const grandchildInputs = grandchild
+      .getSignature()
+      .getInputFields()
+      .map((f) => f.name);
+    expect(grandchildInputs).not.toContain('userId');
+  });
+
+  it('should auto-extend contextFields for globalSharedFields that are context in parent', () => {
+    const grandchild = agent('question:string -> answer:string', {
+      agentIdentity: { name: 'Grandchild', description: 'A grandchild' },
+      contextFields: [],
+      runtime,
+    });
+
+    const child = agent('topic:string -> summary:string', {
+      agentIdentity: { name: 'Child', description: 'A child agent' },
+      agents: [grandchild],
+      contextFields: [],
+      runtime,
+    });
+
+    agent('query:string, context:string, userId:string -> finalAnswer:string', {
+      agents: [child],
+      contextFields: ['context'],
+      globalSharedFields: ['context', 'userId'],
+      runtime,
+    });
+
+    // Child should have 'context' in its contextFields
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const childContextFields = (child as any).rlmConfig.contextFields;
+    expect(childContextFields).toContain('context');
+
+    // Grandchild should also have 'context' in its contextFields
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const grandchildContextFields = (grandchild as any).rlmConfig.contextFields;
+    expect(grandchildContextFields).toContain('context');
+  });
+
+  it('should not duplicate fields already in descendant signature', () => {
+    const child = agent('topic:string, userId:string -> summary:string', {
+      agentIdentity: { name: 'Child', description: 'A child agent' },
+      contextFields: [],
+      runtime,
+    });
+
+    agent('query:string, userId:string -> finalAnswer:string', {
+      agents: [child],
+      contextFields: [],
+      globalSharedFields: ['userId'],
+      runtime,
+    });
+
+    // Child already had userId — no duplicate
+    const childInputs = child
+      .getSignature()
+      .getInputFields()
+      .map((f) => f.name);
+    const userIdCount = childInputs.filter((n) => n === 'userId').length;
+    expect(userIdCount).toBe(1);
+  });
+});
+
 // ----- getFunction() parameter schema tests -----
 
 describe('getFunction() parameter schema', () => {

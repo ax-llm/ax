@@ -260,6 +260,107 @@ const result = await scientist.forward(llm, {
 
 When a parent and child agent share input field names, the parent automatically passes those values to the child. For example, if the parent has `question:string` and a child also expects `question:string`, the parent's value is injected automatically — the LLM doesn't need to re-type it.
 
+## Shared Fields and Agents
+
+When composing agent hierarchies, you often need to pass data or utility agents to child agents without requiring the parent's LLM to explicitly route them. AxAgent provides four options for this:
+
+### `sharedFields` — Pass fields to direct children (one level)
+
+Fields listed in `sharedFields` are automatically injected into direct child agents at runtime. They bypass the parent's LLM entirely — the Actor never sees them in its prompt.
+
+```typescript
+const childAgent = agent('question:string -> answer:string', {
+  agentIdentity: { name: 'Child', description: 'Answers questions' },
+});
+
+const parentAgent = agent('query:string, userId:string, knowledgeBase:string -> answer:string', {
+  agents: [childAgent],
+  contextFields: ['knowledgeBase'],
+  sharedFields: ['userId'],       // userId is injected into child agents automatically
+});
+```
+
+- `userId` is removed from the parent's Actor/Responder prompts
+- `userId` is automatically injected into every call to child agents
+- Children can opt out via `excludeSharedFields: ['userId']`
+
+### `globalSharedFields` — Pass fields to ALL descendants (recursive)
+
+Like `sharedFields`, but propagates through the entire agent tree — children, grandchildren, and beyond.
+
+```typescript
+const grandchild = agent('question:string -> answer:string', {
+  agentIdentity: { name: 'Grandchild', description: 'Answers questions' },
+});
+
+const child = agent('topic:string -> summary:string', {
+  agentIdentity: { name: 'Child', description: 'Summarizes topics' },
+  agents: [grandchild],
+});
+
+const parent = agent('query:string, sessionId:string -> answer:string', {
+  agents: [child],
+  globalSharedFields: ['sessionId'],   // sessionId reaches child AND grandchild
+});
+```
+
+- Values chain automatically: parent injects to child, child injects to grandchild
+- `excludeSharedFields` is respected at every level
+
+### `sharedAgents` — Add agents to direct children (one level)
+
+Utility agents listed in `sharedAgents` are added to every direct child agent's available agents list.
+
+```typescript
+const logger = agent('message:string -> logResult:string', {
+  agentIdentity: { name: 'Logger', description: 'Logs messages for debugging' },
+});
+
+const worker = agent('task:string -> result:string', {
+  agentIdentity: { name: 'Worker', description: 'Performs tasks' },
+});
+
+const parent = agent('query:string -> answer:string', {
+  agents: [worker],
+  sharedAgents: [logger],   // worker can now call agents.logger(...)
+});
+```
+
+### `globalSharedAgents` — Add agents to ALL descendants (recursive)
+
+Like `sharedAgents`, but propagates through the entire agent tree.
+
+```typescript
+const logger = agent('message:string -> logResult:string', {
+  agentIdentity: { name: 'Logger', description: 'Logs messages for debugging' },
+});
+
+const grandchild = agent('question:string -> answer:string', {
+  agentIdentity: { name: 'Grandchild', description: 'Answers questions' },
+});
+
+const child = agent('topic:string -> summary:string', {
+  agentIdentity: { name: 'Child', description: 'Summarizes topics' },
+  agents: [grandchild],
+});
+
+const parent = agent('query:string -> answer:string', {
+  agents: [child],
+  globalSharedAgents: [logger],   // both child AND grandchild can call agents.logger(...)
+});
+```
+
+### `excludeSharedFields`
+
+Any child agent can opt out of receiving specific shared fields (both `sharedFields` and `globalSharedFields`):
+
+```typescript
+const sentiment = agent('text:string -> sentiment:string', {
+  agentIdentity: { name: 'Sentiment', description: 'Analyzes sentiment' },
+  excludeSharedFields: ['userId'],   // Does not receive userId even if parent shares it
+});
+```
+
 ## RLM Mode
 
 **RLM (Recursive Language Model)** mode lets agents process arbitrarily long documents without hitting context window limits. Instead of stuffing the entire document into the LLM prompt, RLM loads it into a code interpreter session and gives the LLM tools to analyze it programmatically.
@@ -803,6 +904,11 @@ Extends `AxProgramForwardOptions` (without `functions`) with:
 {
   debug?: boolean;
   rlm: AxRLMConfig;
+  sharedFields?: string[];               // Input fields to pass to direct child agents (one level)
+  excludeSharedFields?: string[];        // Shared fields this agent should NOT receive from its parent
+  sharedAgents?: AxAgentic[];            // Agents to add to direct child agents (one level)
+  globalSharedFields?: string[];         // Input fields to pass to ALL descendants (recursive)
+  globalSharedAgents?: AxAgentic[];      // Agents to add to ALL descendants (recursive)
   recursionOptions?: Partial<Omit<AxProgramForwardOptions, 'functions'>> & {
     maxDepth?: number;  // Maximum recursion depth for llmQuery sub-agent calls (default: 2)
   };
