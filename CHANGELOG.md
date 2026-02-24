@@ -1,5 +1,18 @@
 # Changelog
 
+## [18.0.10](///compare/18.0.8...18.0.9) (2026-02-24)
+
+### Features
+
+* Add toInputJSONSchema method and related tests for AxSignature and agent function parameters c836239
+## [18.0.9](///compare/18.0.8...18.0.9) (2026-02-24)
+
+### Features
+
+* Add support for shared fields in AxAgent and context management 59d7604
+* Enhance context management with updated tombstoning options and new example 09a9c25
+* Implement semantic context management in AxAgent 899540b
+
 ## [18.0.9](///compare/18.0.7...18.0.8) (2026-02-24)
 
 ### Features
