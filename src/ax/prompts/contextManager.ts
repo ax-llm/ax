@@ -7,6 +7,7 @@
  */
 
 import type { AxAIService, AxChatResponse } from '../ai/types.js';
+import type { AxProgramForwardOptions } from '../dsp/types.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -37,7 +38,10 @@ export type ActionLogEntry = {
 export type ContextManagementEffectiveConfig = {
   errorPruning: boolean;
   hindsightEvaluation: boolean;
-  tombstoning: boolean | { model?: string } | undefined;
+  tombstoning:
+    | boolean
+    | Omit<AxProgramForwardOptions<string>, 'functions'>
+    | undefined;
   pruneRank: number;
 };
 
@@ -213,7 +217,7 @@ function addTag(entry: ActionLogEntry, tag: ActionLogTag): void {
  */
 export async function generateTombstoneAsync(
   ai: AxAIService,
-  model: string | undefined,
+  forwardOptions: Omit<AxProgramForwardOptions<string>, 'functions'> | undefined,
   errorEntry: Readonly<ActionLogEntry>,
   resolutionEntry: Readonly<ActionLogEntry>
 ): Promise<string> {
@@ -243,7 +247,8 @@ Format: [TOMBSTONE]: Resolved [Error Type] in [Module]. Fix: [1-line-summary]. A
         },
         { role: 'user' as const, content: prompt },
       ],
-      ...(model ? { model } : {}),
+      ...(forwardOptions?.model ? { model: forwardOptions.model } : {}),
+      ...(forwardOptions?.modelConfig ? { modelConfig: forwardOptions.modelConfig } : {}),
     });
 
     // Handle non-streaming response
@@ -313,13 +318,11 @@ export async function manageContext(
         const idx = entries.indexOf(entry);
         const next = entries[idx + 1];
         if (next && !next.tags.includes('error')) {
-          const model =
-            typeof config.tombstoning === 'object'
-              ? config.tombstoning.model
-              : undefined;
+          const forwardOptions =
+            typeof config.tombstoning === 'object' ? config.tombstoning : undefined;
           entry._tombstonePromise = generateTombstoneAsync(
             ai,
-            model,
+            forwardOptions,
             entry,
             next
           );

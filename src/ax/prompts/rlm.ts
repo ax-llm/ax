@@ -7,6 +7,7 @@
 
 import { toFieldType } from '../dsp/prompt.js';
 import type { AxIField } from '../dsp/sig.js';
+import type { AxProgramForwardOptions } from '../dsp/types.js';
 
 /**
  * A code runtime that can create persistent sessions.
@@ -45,9 +46,10 @@ export interface AxContextManagementConfig {
   /** Prune error entries after a successful (non-error) turn. */
   errorPruning?: boolean;
   /** Enable tombstone generation for resolved errors.
-   *  When true, uses the main AI service with its default model.
-   *  Pass `{ model: '...' }` to override the model (e.g. a cheaper/faster one). */
-  tombstoning?: boolean | { model?: string };
+   *  When `true`, uses the main AI service with its default settings.
+   *  Pass an `AxProgramForwardOptions` object to control the model, temperature,
+   *  max tokens, etc. of the tombstone generation call (e.g. a cheaper/faster model). */
+  tombstoning?: boolean | Omit<AxProgramForwardOptions<string>, 'functions'>;
   /** Enable heuristic-based importance scoring on entries. */
   hindsightEvaluation?: boolean;
   /** Enable runtime state inspection tool for the actor.

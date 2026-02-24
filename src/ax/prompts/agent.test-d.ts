@@ -81,7 +81,7 @@ import { agent, f, s, type AxCodeRuntime } from '../index.js';
     contextManagement: {
       errorPruning: true,
       hindsightEvaluation: true,
-      tombstoning: { model: 'fast-model' },
+      tombstoning: { model: 'fast-model', modelConfig: { temperature: 0.1 } },
       stateInspection: { contextThreshold: 1000 },
       pruneRank: 3,
     },

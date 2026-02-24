@@ -299,7 +299,7 @@ describe('generateTombstoneAsync', () => {
     expect(mockAi.chat).toHaveBeenCalledTimes(1);
   });
 
-  it('should pass model override when specified', async () => {
+  it('should pass model override when forwardOptions.model is specified', async () => {
     const mockAi = {
       chat: vi.fn().mockResolvedValue({
         results: [{ content: '[TOMBSTONE]: Done.' }],
@@ -307,12 +307,28 @@ describe('generateTombstoneAsync', () => {
     };
     await generateTombstoneAsync(
       mockAi as any,
-      'claude-3-5-haiku',
+      { model: 'claude-3-5-haiku' },
       makeErrorEntry(1),
       makeSuccessEntry(2)
     );
     const chatArg = mockAi.chat.mock.calls[0]![0];
     expect(chatArg.model).toBe('claude-3-5-haiku');
+  });
+
+  it('should pass modelConfig override when forwardOptions.modelConfig is specified', async () => {
+    const mockAi = {
+      chat: vi.fn().mockResolvedValue({
+        results: [{ content: '[TOMBSTONE]: Done.' }],
+      }),
+    };
+    await generateTombstoneAsync(
+      mockAi as any,
+      { modelConfig: { temperature: 0.1, maxTokens: 50 } },
+      makeErrorEntry(1),
+      makeSuccessEntry(2)
+    );
+    const chatArg = mockAi.chat.mock.calls[0]![0];
+    expect(chatArg.modelConfig).toEqual({ temperature: 0.1, maxTokens: 50 });
   });
 
   it('should return fallback on error', async () => {

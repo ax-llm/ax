@@ -704,7 +704,7 @@ Extends `AxProgramForwardOptions` (without `functions`) with:
 
 interface AxContextManagementConfig {
   errorPruning?: boolean;                    // Prune error entries after successful turns
-  tombstoning?: boolean | { model?: string }; // Replace resolved errors with compact summaries
+  tombstoning?: boolean | Omit<AxProgramForwardOptions<string>, 'functions'>; // Replace resolved errors with compact summaries
   hindsightEvaluation?: boolean;             // Heuristic importance scoring on entries
   stateInspection?: { contextThreshold?: number }; // Enable inspect_runtime() tool
   pruneRank?: number;                        // Entries ranked below this are purged (0-5, default: 2)
