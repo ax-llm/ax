@@ -1,5 +1,14 @@
 # Changelog
 
+## [18.0.9](///compare/18.0.7...18.0.8) (2026-02-24)
+
+### Features
+
+* Add support for shared fields in AxAgent and context management 59d7604
+* Enhance context management with updated tombstoning options and new example 09a9c25
+* Implement semantic context management in AxAgent 899540b
+* **runtime:** add consecutive execution error cutoff and enhance error handling in AxJSRuntime f8c06fa
+
 ## [18.0.8](///compare/18.0.6...18.0.7) (2026-02-23)
 
 ### Features
