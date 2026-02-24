@@ -487,10 +487,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     for (const field of fields) {
       // Skip if this agent already has this field in its signature
       if (existingInputs.some((f) => f.name === field.name)) continue;
-      sig.addInputField(field);
       // Track that this field was injected by a parent — it must not appear in
       // getFunction().parameters because wrapFunctionWithSharedFields auto-injects it.
       this._parentSharedFields.add(field.name);
+      sig.addInputField(field);
       modified = true;
     }
 

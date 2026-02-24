@@ -3945,6 +3945,42 @@ describe('getFunction() parameter schema', () => {
     expect(params.properties?.userId).toBeUndefined();
     expect(params.properties?.sessionId).toBeUndefined();
   });
+
+  it('should scope _parentSharedFields independently in a grandparent → parent → child chain', () => {
+    const grandchild = agent('question:string -> answer:string', {
+      agentIdentity: { name: 'Grandchild', description: 'A grandchild agent' },
+      contextFields: [],
+      runtime,
+    });
+
+    const child = agent('topic:string -> summary:string', {
+      agentIdentity: { name: 'Child', description: 'A child agent' },
+      agents: [grandchild],
+      contextFields: [],
+      sharedFields: ['topic'],
+      runtime,
+    });
+
+    agent('query:string, userId:string, topic:string -> finalAnswer:string', {
+      agents: [child],
+      contextFields: [],
+      sharedFields: ['userId', 'topic'],
+      runtime,
+    });
+
+    // Grandchild: 'topic' was shared by its parent (child) — should be hidden
+    const grandchildParams = grandchild.getFunction().parameters!;
+    expect(grandchildParams.properties?.question).toBeDefined();
+    expect(grandchildParams.properties?.topic).toBeUndefined();
+    // 'userId' was NOT shared by child to grandchild — should not appear at all
+    expect(grandchildParams.properties?.userId).toBeUndefined();
+
+    // Child: 'topic' is its OWN input field — should remain visible.
+    // 'userId' was injected by grandparent — should be hidden.
+    const childParams = child.getFunction().parameters!;
+    expect(childParams.properties?.topic).toBeDefined(); // child owns this
+    expect(childParams.properties?.userId).toBeUndefined(); // injected by grandparent
+  });
 });
 
 // ----- axBuildActorDefinition agents & functions section tests -----
@@ -4099,6 +4135,38 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
       ],
     });
     expect(result).toContain('"fast" | "slow"');
+  });
+
+  it('should render boolean type params correctly', () => {
+    const boolSchema: AxFunctionJSONSchema = {
+      type: 'object',
+      properties: {
+        verbose: { type: 'boolean', description: 'Enable verbose output' },
+      },
+      required: ['verbose'],
+    };
+    const result = axBuildActorDefinition(undefined, [], [], {
+      functions: [
+        { name: 'configure', description: 'desc', parameters: boolSchema },
+      ],
+    });
+    expect(result).toContain('verbose: boolean');
+  });
+
+  it('should render object type params correctly', () => {
+    const objSchema: AxFunctionJSONSchema = {
+      type: 'object',
+      properties: {
+        config: { type: 'object', description: 'Configuration object' },
+      },
+      required: ['config'],
+    };
+    const result = axBuildActorDefinition(undefined, [], [], {
+      agents: [
+        { name: 'setupAgent', description: 'desc', parameters: objSchema },
+      ],
+    });
+    expect(result).toContain('config: object');
   });
 
   it('actor program description should include sub-agent descriptions end-to-end', () => {
