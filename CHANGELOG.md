@@ -1,5 +1,16 @@
 # Changelog
 
+## [18.0.12](///compare/18.0.10...18.0.11) (2026-02-24)
+
+### Features
+
+* Add ai parameter to wrapFunction and related methods in AxAgent for enhanced functionality 0e59c96
+## [18.0.11](///compare/18.0.10...18.0.11) (2026-02-24)
+
+### Features
+
+* Enhance shared fields handling in AxAgent and add new tests for parameter scoping f8002bc
+
 ## [18.0.11](///compare/18.0.9...18.0.10) (2026-02-24)
 
 ### Features
