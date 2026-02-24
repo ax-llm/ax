@@ -217,7 +217,9 @@ function addTag(entry: ActionLogEntry, tag: ActionLogTag): void {
  */
 export async function generateTombstoneAsync(
   ai: AxAIService,
-  forwardOptions: Omit<AxProgramForwardOptions<string>, 'functions'> | undefined,
+  forwardOptions:
+    | Omit<AxProgramForwardOptions<string>, 'functions'>
+    | undefined,
   errorEntry: Readonly<ActionLogEntry>,
   resolutionEntry: Readonly<ActionLogEntry>
 ): Promise<string> {
@@ -248,7 +250,9 @@ Format: [TOMBSTONE]: Resolved [Error Type] in [Module]. Fix: [1-line-summary]. A
         { role: 'user' as const, content: prompt },
       ],
       ...(forwardOptions?.model ? { model: forwardOptions.model } : {}),
-      ...(forwardOptions?.modelConfig ? { modelConfig: forwardOptions.modelConfig } : {}),
+      ...(forwardOptions?.modelConfig
+        ? { modelConfig: forwardOptions.modelConfig }
+        : {}),
     });
 
     // Handle non-streaming response
@@ -319,7 +323,9 @@ export async function manageContext(
         const next = entries[idx + 1];
         if (next && !next.tags.includes('error')) {
           const forwardOptions =
-            typeof config.tombstoning === 'object' ? config.tombstoning : undefined;
+            typeof config.tombstoning === 'object'
+              ? config.tombstoning
+              : undefined;
           entry._tombstonePromise = generateTombstoneAsync(
             ai,
             forwardOptions,

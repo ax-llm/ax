@@ -70,10 +70,7 @@ const myAgent = agent('input:string -> output:string', {
   debug: false,                        // Debug logging
 
   // RLM mode (see RLM section below)
-  contextFields: ['context'],            // Fields to load into runtime session
-  runtime: new AxJSRuntime(),            // Code runtime (default: AxJSRuntime)
-  maxLlmCalls: 30,                       // Cap on sub-LM calls (default: 50)
-  // ... and other RLM fields as top-level properties
+  rlm: { ... },
 });
 ```
 
@@ -284,9 +281,9 @@ When you pass a long document to an LLM, you face:
 1. **Context extraction** — Fields listed in `contextFields` are removed from the LLM prompt and loaded into a runtime session as variables.
 2. **Actor/Responder split** — The agent uses two internal programs:
    - **Actor** — A code generation agent that writes JavaScript to analyze context data. It NEVER generates final answers directly.
-   - **Responder** — An answer synthesis agent that produces the final answer from the Actor's action log. It NEVER generates code.
-3. **Sub-LM queries** — Inside code, `llmQuery(...)` delegates semantic work to a sub-model.
-4. **Completion** — The Actor signals done by calling `done()` (standalone or inline with other code), then the Responder synthesizes the final answer.
+   - **Responder** — An answer synthesis agent that produces the final answer from the Actor's `actorResult` payload. It NEVER generates code.
+3. **Recursive queries** — Inside code, `llmQuery(...)` delegates semantic work to a sub-query (plain AxGen in simple mode, full AxAgent in advanced mode).
+4. **Completion** — The Actor signals completion by calling `submit(...args)` or asks for more user input with `ask_clarification(...args)`, then the Responder synthesizes the final answer.
 
 The Actor writes JavaScript code to inspect, filter, and iterate over the document. It uses `llmQuery` for semantic analysis and can chunk data in code before querying.
 
@@ -302,16 +299,29 @@ const analyzer = agent(
       name: 'documentAnalyzer',
       description: 'Analyzes long documents using code interpreter and sub-LM queries',
     },
-    contextFields: ['context'],                // Fields to load into runtime session
-    runtime: new AxJSRuntime(),                // Code runtime (default: AxJSRuntime)
-    maxLlmCalls: 30,                           // Cap on sub-LM calls (default: 50)
-    maxRuntimeChars: 2_000,                    // Cap for llmQuery context + code output (default: 5000)
-    maxBatchedLlmQueryConcurrency: 6,          // Max parallel batched llmQuery calls (default: 8)
-    subModel: 'gpt-4o-mini',                   // Model for llmQuery (default: same as parent)
-    maxTurns: 10,                              // Max Actor turns before forcing Responder (default: 10)
-    actorFields: ['reasoning'],                  // Output fields produced by Actor instead of Responder
-    actorCallback: async (result) => {           // Called after each Actor turn
-      console.log('Actor turn:', result);
+    rlm: {
+      contextFields: ['context'],                // Fields to load into runtime session
+      runtime: new AxJSRuntime(),                // Code runtime (default: AxJSRuntime)
+      maxLlmCalls: 30,                           // Cap on sub-LM calls (default: 50)
+      maxRuntimeChars: 2_000,                    // Cap for llmQuery context + code output (default: 5000)
+      maxBatchedLlmQueryConcurrency: 6,          // Max parallel batched llmQuery calls (default: 8)
+      maxTurns: 10,                              // Max Actor turns before forcing Responder (default: 10)
+      contextManagement: {                         // Semantic context management (replaces trajectoryPruning)
+        errorPruning: true,                        // Prune error entries after successful turns
+        hindsightEvaluation: true,                 // Heuristic importance scoring on entries
+        tombstoning: true,                         // Replace resolved errors with compact summaries
+        stateInspection: { contextThreshold: 2000 }, // Enable inspect_runtime() tool
+        pruneRank: 2,                              // Entries ranked below this are purged (0-5, default: 2)
+      },
+      actorFields: ['reasoning'],                  // Output fields produced by Actor instead of Responder
+      actorCallback: async (result) => {           // Called after each Actor turn
+        console.log('Actor turn:', result);
+      },
+      mode: 'simple',                              // Sub-query mode: 'simple' = AxGen, 'advanced' = AxAgent (default: 'simple')
+    },
+    recursionOptions: {
+      model: 'gpt-4o-mini',                      // Forward options for recursive llmQuery agent calls
+      maxDepth: 2,                                // Maximum recursion depth
     },
   }
 );
@@ -370,6 +380,31 @@ Available permissions:
 
 > **Warning**: Granting `WORKERS` allows code to spawn sub-workers that get fresh, unlocked globals. A child worker has full access to `fetch`, `indexedDB`, etc. regardless of the parent's permissions. Only grant `WORKERS` when you trust the executed code.
 
+### Consecutive Execution Error Cutoff
+
+`AxJSRuntime` can enforce a cutoff for consecutive execution failures. This is useful when generated code gets stuck in a failure loop.
+
+```typescript
+import { AxJSRuntime } from '@ax-llm/ax';
+
+const runtime = new AxJSRuntime({
+  consecutiveErrorCutoff: 3,
+});
+```
+
+Behavior:
+
+- The runtime tracks consecutive execution failures.
+- The counter resets on successful execution.
+- When failures hit the configured cutoff, the runtime throws `AxRuntimeExecutionError` and exits the session.
+- Preflight guardrail errors are not counted (for example blocked `"use strict"` and reserved-name reassignment checks).
+
+You can manually reset the runtime-level counter:
+
+```typescript
+runtime.resetConsecutiveErrorCounter();
+```
+
 ### Structured Context Fields
 
 Context fields aren't limited to plain strings. You can pass structured data — objects and arrays with typed sub-fields — and the LLM will see their full schema in the code interpreter prompt.
@@ -390,8 +425,10 @@ const analyzer = agent(sig, {
     name: 'structuredAnalyzer',
     description: 'Analyzes structured document collections using RLM',
   },
-  contextFields: ['documents'],
-  runtime: new AxJSRuntime(),
+  rlm: {
+    contextFields: ['documents'],
+    runtime: new AxJSRuntime(),
+  },
 });
 ```
 
@@ -423,7 +460,7 @@ The Actor generates JavaScript code in a `javascriptCode` output field. Each tur
 2. The runtime executes the code and returns the result
 3. The result is appended to the action log
 4. The Actor sees the updated action log and decides what to do next
-5. When the Actor calls `done()` (standalone or inline with other code), the loop ends and the Responder takes over
+5. When the Actor calls `submit(...args)` or `ask_clarification(...args)`, the loop ends and the Responder takes over
 
 The Actor's typical workflow:
 
@@ -433,7 +470,7 @@ The Actor's typical workflow:
 3. Use code for structural work (filter, map, regex, property access)
 4. Use llmQuery for semantic work (summarization, interpretation)
 5. Build up answers in variables across turns
-6. Signal done by calling done() — can be standalone or combined with final code
+6. Signal completion by calling `submit(...args)` (or `ask_clarification(...args)` to request user input)
 ```
 
 ### Actor Fields
@@ -444,21 +481,25 @@ By default, all output fields from the signature go to the Responder. Use `actor
 const analyzer = agent(
   'context:string, query:string -> answer:string, reasoning:string',
   {
-    contextFields: ['context'],
-    actorFields: ['reasoning'],   // Actor produces 'reasoning', Responder produces 'answer'
+    rlm: {
+      contextFields: ['context'],
+      actorFields: ['reasoning'],   // Actor produces 'reasoning', Responder produces 'answer'
+    },
   }
 );
 ```
 
 ### Actor Callback
 
-Use `actorCallback` to observe each Actor turn. It receives the full Actor result (including `javascriptCode` and any `actorFields`) and fires every turn, including the done() turn.
+Use `actorCallback` to observe each Actor turn. It receives the full Actor result (including `javascriptCode` and any `actorFields`) and fires every turn, including the `submit(...)`/`ask_clarification(...)` turn.
 
 ```typescript
 const analyzer = agent('context:string, query:string -> answer:string', {
-  contextFields: ['context'],
-  actorCallback: async (result) => {
-    console.log('Actor code:', result.javascriptCode);
+  rlm: {
+    contextFields: ['context'],
+    actorCallback: async (result) => {
+      console.log('Actor code:', result.javascriptCode);
+    },
   },
 });
 ```
@@ -469,7 +510,7 @@ Use `actorOptions` and `responderOptions` to set different forward options (mode
 
 ```typescript
 const analyzer = agent('context:string, query:string -> answer:string', {
-  contextFields: ['context'],
+  rlm: { contextFields: ['context'] },
   actorOptions: {
     model: 'fast-model',
     thinkingTokenBudget: 1024,
@@ -483,13 +524,30 @@ const analyzer = agent('context:string, query:string -> answer:string', {
 
 Priority order (low to high): constructor base options < `actorOptions`/`responderOptions` < forward-time options.
 
+### Recursive llmQuery Options
+
+Use `recursionOptions` to set default forward options for recursive `llmQuery` sub-agent calls.
+
+```typescript
+const analyzer = agent('context:string, query:string -> answer:string', {
+  rlm: { contextFields: ['context'] },
+  recursionOptions: {
+    model: 'fast-model',
+    maxDepth: 2,
+    timeout: 60_000,
+  },
+});
+```
+
+Each `llmQuery` call runs a sub-query with a fresh session and the same registered tool/agent globals. The child receives only the `context` argument passed to `llmQuery(query, context)` — parent `contextFields` values are not forwarded. In simple mode (default), the child is a plain AxGen (direct LLM call). In advanced mode, the child is a full AxAgent with Actor/Responder and code runtime.
+
 ### Actor/Responder Descriptions
 
 Use `setActorDescription()` and `setResponderDescription()` to append additional instructions to the Actor or Responder system prompts. The base RLM prompts are preserved; your text is appended after them.
 
 ```typescript
 const analyzer = agent('context:string, query:string -> answer:string', {
-  contextFields: ['context'],
+  rlm: { contextFields: ['context'] },
 });
 
 // Add domain-specific instructions to the Actor (code generation agent)
@@ -505,7 +563,7 @@ analyzer.setResponderDescription('Format answers as bullet points. Cite evidence
 
 Use `setDemos()` to provide few-shot examples that guide the Actor and Responder. Demos are keyed by program ID — use `namedPrograms()` to discover available IDs.
 
-Each demo trace must include at least one input field AND one output field. The Actor's input fields are `contextMetadata`, `actionLog`, and any non-context inputs from the original signature. The Responder's input fields are the same.
+Each demo trace must include at least one input field AND one output field. The Actor's input fields are `contextMetadata`, `actionLog`, and any non-context inputs from the original signature. The Responder's input fields are `contextMetadata`, `actorResult`, and any non-context inputs from the original signature.
 
 ```typescript
 analyzer.setDemos([
@@ -517,8 +575,12 @@ analyzer.setDemos([
         javascriptCode: 'console.log(context.slice(0, 200))',
       },
       {
-        actionLog: 'Step 1 | console.log(context.slice(0, 200))\n→ Chapter 1: ...',
-        javascriptCode: 'done()',
+        actionLog: 'Step 1 | console.log(context.slice(0, 200))\n→ Chapter 1: The Rise of...',
+        javascriptCode: 'const summary = await llmQuery("Summarize", context.slice(0, 500)); console.log(summary)',
+      },
+      {
+        actionLog: 'Step 1 | ...\nStep 2 | llmQuery(...)\n→ The document argues about...',
+        javascriptCode: 'submit("analysis complete")',
       },
     ],
   },
@@ -528,7 +590,7 @@ analyzer.setDemos([
       {
         query: 'What are the main arguments?',
         answer: 'The document presents arguments about distributed systems.',
-        evidence: ['Chapter 1 discusses scalability'],
+        evidence: ['Chapter 1 discusses scalability', 'Chapter 2 covers CAP'],
       },
     ],
   },
@@ -543,8 +605,10 @@ Inside the code interpreter, these functions are available as globals:
 
 | API | Description |
 |-----|-------------|
-| `await llmQuery(query, context?)` | Ask a sub-LM a question, optionally with a context string. Returns a string. Oversized context is truncated to `maxRuntimeChars` |
-| `await llmQuery([{ query, context? }, ...])` | Run multiple sub-LM queries in parallel. Returns string[]. Failed items return `[ERROR] ...`; each query still counts toward the call limit |
+| `await llmQuery(query, context)` | Ask a sub-LM a question with a context value. Returns a string. Oversized context is truncated to `maxRuntimeChars` |
+| `await llmQuery([{ query, context }, ...])` | Run multiple sub-LM queries in parallel. Returns string[]. Failed items return `[ERROR] ...`; each query still counts toward the call limit |
+| `submit(...args)` | Stop Actor execution and pass payload args to Responder. Requires at least one argument |
+| `ask_clarification(...args)` | Stop Actor execution and pass clarification payload args to Responder. Requires at least one argument |
 | `await agents.<name>({...})` | Call a child agent by name. Parameters match the agent's JSON schema. Returns a string |
 | `await <toolName>({...})` | Call a tool function by name. Parameters match the tool's JSON schema |
 | `print(...args)` | Available in `AxJSRuntime` when `outputMode: 'stdout'`; captured output appears in the function result |
@@ -584,6 +648,31 @@ state = await getState(); // no let/const/var
 
 but `globalThis.state = ...` (or mutating a shared `state` object) is the recommended explicit pattern.
 
+### Error Handling in the Code Interpreter
+
+Errors thrown by code running inside `session.execute(code)` cross the worker boundary and can be caught on the host. Always `await` `session.execute()` inside a try/catch:
+
+```typescript
+import { AxRuntimeExecutionError } from '@ax-llm/ax';
+
+try {
+  const result = await session.execute(code);
+  // use result
+} catch (e) {
+  if (e instanceof AxRuntimeExecutionError) {
+    // Consecutive execution failures reached the cutoff; session was exited.
+  } else if (e instanceof Error && e.name === 'WaitForUserActionError') {
+    // handle domain-specific error
+  }
+  console.error(e instanceof Error ? e.message : String(e));
+}
+```
+
+- `AxRuntimeExecutionError` is thrown when the runtime reaches the configured consecutive execution failure cutoff.
+- The cutoff counter resets on successful execution.
+- Preflight guardrail errors are not counted toward the cutoff.
+- For custom errors thrown in the worker, use `e.name` checks if prototype identity is not preserved across the worker boundary.
+
 ### Custom Interpreters
 
 The built-in `AxJSRuntime` uses Web Workers for sandboxed code execution. For other environments, implement the `AxCodeRuntime` interface:
@@ -613,6 +702,7 @@ class MyBrowserInterpreter implements AxCodeRuntime {
 The `globals` object passed to `createSession` includes:
 - All context field values (by field name)
 - `llmQuery` function (supports both single and batched queries)
+- `submit(...args)` and `ask_clarification(...args)` completion functions
 - `agents` namespace object with child agent functions (e.g., `agents.summarize(...)`)
 - Tool functions as flat globals
 - `print` function when supported by the runtime (for `AxJSRuntime`, set `outputMode: 'stdout'`)
@@ -634,6 +724,27 @@ RLM mode does not support true streaming. When using `streamingForward`, RLM run
 
 ## API Reference
 
+### `AxJSRuntime`
+
+```typescript
+new AxJSRuntime({
+  timeout?: number;
+  permissions?: readonly AxJSRuntimePermission[];
+  outputMode?: 'return' | 'stdout';
+  captureConsole?: boolean;
+  allowUnsafeNodeHostAccess?: boolean;
+  nodeWorkerPoolSize?: number;
+  debugNodeWorkerPool?: boolean;
+  consecutiveErrorCutoff?: number; // Cutoff for consecutive execution failures
+});
+
+runtime.resetConsecutiveErrorCounter(): void; // Resets runtime-level consecutive failure counter
+```
+
+### `AxRuntimeExecutionError`
+
+Thrown by `AxJSRuntime` when consecutive execution failures reach `consecutiveErrorCutoff`. When this happens, the active runtime session is exited. Preflight guardrail errors are not counted toward this cutoff.
+
 ### `AxRLMConfig`
 
 ```typescript
@@ -643,10 +754,20 @@ interface AxRLMConfig {
   maxLlmCalls?: number;                      // Cap on sub-LM calls (default: 50)
   maxRuntimeChars?: number;                  // Cap for llmQuery context + code output (default: 5000)
   maxBatchedLlmQueryConcurrency?: number;    // Max parallel batched llmQuery calls (default: 8)
-  subModel?: string;                         // Model for llmQuery sub-calls
   maxTurns?: number;                         // Max Actor turns before forcing Responder (default: 10)
+  trajectoryPruning?: boolean;               // @deprecated Use contextManagement.errorPruning instead
+  contextManagement?: AxContextManagementConfig; // Semantic context management
   actorFields?: string[];                    // Output fields produced by Actor instead of Responder
   actorCallback?: (result: Record<string, unknown>) => void | Promise<void>;  // Called after each Actor turn
+  mode?: 'simple' | 'advanced';                  // Sub-query mode: 'simple' = AxGen, 'advanced' = AxAgent (default: 'simple')
+}
+
+interface AxContextManagementConfig {
+  errorPruning?: boolean;                    // Prune error entries after successful turns
+  tombstoning?: boolean | Omit<AxProgramForwardOptions<string>, 'functions'>; // Replace resolved errors with compact summaries
+  hindsightEvaluation?: boolean;             // Heuristic importance scoring on entries
+  stateInspection?: { contextThreshold?: number }; // Enable inspect_runtime() tool
+  pruneRank?: number;                        // Entries ranked below this are purged (0-5, default: 2)
 }
 ```
 
@@ -686,28 +807,12 @@ Extends `AxProgramForwardOptions` (without `functions`) with:
 ```typescript
 {
   debug?: boolean;
-  contextFields?: string[];                   // Input fields holding long context
-  runtime?: AxCodeRuntime;                    // Code runtime (default: AxJSRuntime)
-  maxLlmCalls?: number;                       // Cap on sub-LM calls (default: 50)
-  maxRuntimeChars?: number;                   // Cap for llmQuery context + code output (default: 5000)
-  maxBatchedLlmQueryConcurrency?: number;     // Max parallel batched llmQuery calls (default: 8)
-  subModel?: string;                          // Model for llmQuery sub-calls
-  maxTurns?: number;                          // Max Actor turns before forcing Responder (default: 10)
-  trajectoryPruning?: boolean;                // @deprecated Use contextManagement.errorPruning instead
-  contextManagement?: AxContextManagementConfig; // Semantic context management
-  actorFields?: string[];                     // Output fields produced by Actor instead of Responder
-  actorCallback?: (result: Record<string, unknown>) => void | Promise<void>;  // Called after each Actor turn
-  mode?: string;                              // RLM mode
+  rlm: AxRLMConfig;
+  recursionOptions?: Partial<Omit<AxProgramForwardOptions, 'functions'>> & {
+    maxDepth?: number;  // Maximum recursion depth for llmQuery sub-agent calls (default: 2)
+  };
   actorOptions?: Partial<AxProgramForwardOptions>;   // Default forward options for Actor
   responderOptions?: Partial<AxProgramForwardOptions>; // Default forward options for Responder
-}
-
-interface AxContextManagementConfig {
-  errorPruning?: boolean;                    // Prune error entries after successful turns
-  tombstoning?: boolean | Omit<AxProgramForwardOptions<string>, 'functions'>; // Replace resolved errors with compact summaries
-  hindsightEvaluation?: boolean;             // Heuristic importance scoring on entries
-  stateInspection?: { contextThreshold?: number }; // Enable inspect_runtime() tool
-  pruneRank?: number;                        // Entries ranked below this are purged (0-5, default: 2)
 }
 ```
 

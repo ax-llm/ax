@@ -3512,3 +3512,316 @@ describe('A/An article grammar in renderInputFields', () => {
     expect(article).toBe('A');
   });
 });
+
+// ----- Shared Fields tests -----
+
+describe('Shared Fields', () => {
+  const runtime: AxCodeRuntime = {
+    getUsageInstructions: () => '',
+    createSession(globals) {
+      return {
+        execute: async (code: string) => {
+          if (globals?.final && code.includes('final(')) {
+            (globals.final as (...args: unknown[]) => void)('done');
+            return 'done';
+          }
+          return 'ok';
+        },
+        close: () => {},
+      };
+    },
+  };
+
+  it('should throw when sharedField is not in signature input fields', () => {
+    expect(
+      () =>
+        new AxAgent(
+          { signature: 'query:string -> answer:string' },
+          { contextFields: [], sharedFields: ['nonExistent'], runtime }
+        )
+    ).toThrow(/sharedField "nonExistent" not found in signature input fields/);
+  });
+
+  it('should exclude shared-only fields from Actor and Responder signatures', () => {
+    const parentAgent = agent(
+      'query:string, userId:string, context:string -> answer:string',
+      {
+        contextFields: ['context'],
+        sharedFields: ['userId'],
+        runtime,
+      }
+    );
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const actorSig = (parentAgent as any).actorProgram.getSignature();
+    const actorInputNames = actorSig
+      .getInputFields()
+      .map((f: { name: string }) => f.name);
+
+    // userId should NOT appear in Actor inputs (it's shared, bypasses LLM)
+    expect(actorInputNames).not.toContain('userId');
+    // query should still appear (it's a regular input)
+    expect(actorInputNames).toContain('query');
+    // context should NOT appear (it's a context field)
+    expect(actorInputNames).not.toContain('context');
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const responderSig = (parentAgent as any).responderProgram.getSignature();
+    const responderInputNames = responderSig
+      .getInputFields()
+      .map((f: { name: string }) => f.name);
+
+    expect(responderInputNames).not.toContain('userId');
+    expect(responderInputNames).toContain('query');
+  });
+
+  it('should extend child agent signature with shared fields', () => {
+    const childAgent = agent('question:string -> answer:string', {
+      agentIdentity: { name: 'Child', description: 'A child agent' },
+      contextFields: [],
+      runtime,
+    });
+
+    // Before: child has only 'question' input
+    const childInputsBefore = childAgent
+      .getSignature()
+      .getInputFields()
+      .map((f) => f.name);
+    expect(childInputsBefore).toEqual(['question']);
+
+    // Create parent with sharedFields
+    agent('query:string, userId:string -> answer:string', {
+      agents: [childAgent],
+      contextFields: [],
+      sharedFields: ['userId'],
+      runtime,
+    });
+
+    // After: child should have 'question' + 'userId'
+    const childInputsAfter = childAgent
+      .getSignature()
+      .getInputFields()
+      .map((f) => f.name);
+    expect(childInputsAfter).toContain('question');
+    expect(childInputsAfter).toContain('userId');
+  });
+
+  it('should auto-extend child contextFields for shared context fields', () => {
+    const childAgent = agent('question:string -> answer:string', {
+      agentIdentity: { name: 'Child', description: 'A child agent' },
+      contextFields: [],
+      runtime,
+    });
+
+    // Create parent where 'context' is both context and shared
+    agent('query:string, context:string -> answer:string', {
+      agents: [childAgent],
+      contextFields: ['context'],
+      sharedFields: ['context'],
+      runtime,
+    });
+
+    // Child should now have 'context' in its contextFields
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const childContextFields = (childAgent as any).rlmConfig.contextFields;
+    expect(childContextFields).toContain('context');
+
+    // Child signature should include 'context'
+    const childInputs = childAgent
+      .getSignature()
+      .getInputFields()
+      .map((f) => f.name);
+    expect(childInputs).toContain('context');
+  });
+
+  it('should respect child excludeSharedFields', () => {
+    const childAgent = agent('question:string -> answer:string', {
+      agentIdentity: { name: 'Child', description: 'A child agent' },
+      contextFields: [],
+      excludeSharedFields: ['userId'],
+      runtime,
+    });
+
+    // Create parent with shared userId
+    agent('query:string, userId:string -> answer:string', {
+      agents: [childAgent],
+      contextFields: [],
+      sharedFields: ['userId'],
+      runtime,
+    });
+
+    // Child should NOT have 'userId' (it excluded it)
+    const childInputs = childAgent
+      .getSignature()
+      .getInputFields()
+      .map((f) => f.name);
+    expect(childInputs).not.toContain('userId');
+  });
+
+  it('should not duplicate fields already in child signature', () => {
+    const childAgent = agent(
+      'question:string, userId:string -> answer:string',
+      {
+        agentIdentity: { name: 'Child', description: 'A child agent' },
+        contextFields: [],
+        runtime,
+      }
+    );
+
+    // Create parent that shares 'userId' which child already has
+    agent('query:string, userId:string -> answer:string', {
+      agents: [childAgent],
+      contextFields: [],
+      sharedFields: ['userId'],
+      runtime,
+    });
+
+    // Child should still have exactly one 'userId'
+    const childInputs = childAgent
+      .getSignature()
+      .getInputFields()
+      .filter((f) => f.name === 'userId');
+    expect(childInputs).toHaveLength(1);
+  });
+
+  it('should inject shared field values into subagent calls at runtime', async () => {
+    let capturedChildArgs: Record<string, unknown> | undefined;
+
+    const childAgent = agent('question:string -> answer:string', {
+      agentIdentity: { name: 'Child', description: 'A child agent' },
+      contextFields: [],
+      runtime,
+    });
+
+    // Spy on getFunction to capture args passed to the child
+    const originalGetFunction = childAgent.getFunction.bind(childAgent);
+    childAgent.getFunction = () => {
+      const fn = originalGetFunction();
+      fn.func = async (args: any) => {
+        capturedChildArgs = args;
+        return 'Child Answer: mocked';
+      };
+      return fn;
+    };
+
+    let actorTurn = 0;
+    const childCallRuntime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            // Check agents.child BEFORE final() since a code string might contain both
+            if (code.includes('agents.child')) {
+              const agentsObj = globals!.agents as Record<
+                string,
+                (...args: unknown[]) => Promise<unknown>
+              >;
+              const result = await agentsObj.child({ question: 'test' });
+              return String(result);
+            }
+            if (code.includes('final(')) {
+              (globals!.final as (...args: unknown[]) => void)('done');
+              return 'done';
+            }
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorTurn++;
+          if (actorTurn === 1) {
+            return {
+              results: [
+                {
+                  index: 0,
+                  content:
+                    'Javascript Code: const r = await agents.child({ question: "test" })',
+                  finishReason: 'stop' as const,
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: final("done")',
+                finishReason: 'stop' as const,
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+        return {
+          results: [
+            {
+              index: 0,
+              content: 'Answer: done',
+              finishReason: 'stop' as const,
+            },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const parentAgent = agent('query:string, userId:string -> answer:string', {
+      agents: [childAgent],
+      contextFields: [],
+      sharedFields: ['userId'],
+      runtime: childCallRuntime,
+    });
+
+    await parentAgent.forward(testMockAI, {
+      query: 'test query',
+      userId: 'user-123',
+    });
+
+    // The child should have received userId via shared field injection
+    expect(capturedChildArgs).toBeDefined();
+    expect(capturedChildArgs!.userId).toBe('user-123');
+    expect(capturedChildArgs!.question).toBe('test');
+  });
+
+  it('should handle field in both contextFields and sharedFields', () => {
+    const childAgent = agent('question:string -> answer:string', {
+      agentIdentity: { name: 'Child', description: 'A child agent' },
+      contextFields: [],
+      runtime,
+    });
+
+    const parentAgent = agent('query:string, context:string -> answer:string', {
+      agents: [childAgent],
+      contextFields: ['context'],
+      sharedFields: ['context'],
+      runtime,
+    });
+
+    // Parent's Actor should not include 'context' (it's a context field)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const actorInputs = (parentAgent as any).actorProgram
+      .getSignature()
+      .getInputFields()
+      .map((f: { name: string }) => f.name);
+    expect(actorInputs).not.toContain('context');
+
+    // Child should have 'context' in signature AND contextFields
+    const childInputs = childAgent
+      .getSignature()
+      .getInputFields()
+      .map((f) => f.name);
+    expect(childInputs).toContain('context');
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const childContextFields = (childAgent as any).rlmConfig.contextFields;
+    expect(childContextFields).toContain('context');
+  });
+});

@@ -67,6 +67,8 @@ export interface AxContextManagementConfig {
 export interface AxRLMConfig {
   /** Input fields holding long context (will be removed from the LLM prompt). */
   contextFields: string[];
+  /** Input fields to pass directly to subagents, bypassing the top-level LLM. */
+  sharedFields?: string[];
   /** Code runtime for the REPL loop (default: AxJSRuntime). */
   runtime?: AxCodeRuntime;
   /** Cap on recursive sub-LM calls (default: 50). */

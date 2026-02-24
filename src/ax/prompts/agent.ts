@@ -5,7 +5,7 @@ import type {
 } from '../ai/types.js';
 import type { AxInputFunctionType } from '../dsp/functions.js';
 import { AxGen } from '../dsp/generate.js';
-import type { AxSignatureConfig } from '../dsp/sig.js';
+import type { AxIField, AxSignatureConfig } from '../dsp/sig.js';
 import { AxSignature, f } from '../dsp/sig.js';
 import type { ParseSignature } from '../dsp/sigtypes.js';
 import type {
@@ -50,6 +50,8 @@ import {
 export interface AxAgentic<IN extends AxGenIn, OUT extends AxGenOut>
   extends AxProgrammable<IN, OUT> {
   getFunction(): AxFunction;
+  /** Returns the list of shared fields this agent wants to exclude. */
+  getExcludedSharedFields?(): readonly string[];
 }
 
 type AxAnyAgentic = AxAgentic<any, any>;
@@ -80,6 +82,10 @@ export type AxAgentOptions = Omit<
   debug?: boolean;
   /** Input fields holding long context (will be removed from the LLM prompt). */
   contextFields: string[];
+  /** Input fields to pass directly to subagents, bypassing the top-level LLM. */
+  sharedFields?: string[];
+  /** Shared fields from a parent agent that this agent should NOT receive. */
+  excludeSharedFields?: string[];
   /** Code runtime for the REPL loop (default: AxJSRuntime). */
   runtime?: AxCodeRuntime;
   /** Cap on recursive sub-LM calls (default: 50). */
@@ -153,8 +159,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 {
   private ai?: AxAIService;
   private program: AxGen<IN, OUT>;
-  private actorProgram: AxGen<any, any>;
-  private responderProgram: AxGen<any, OUT>;
+  private actorProgram!: AxGen<any, any>;
+  private responderProgram!: AxGen<any, OUT>;
   private functions?: AxInputFunctionType;
   private agents?: AxAnyAgentic[];
   private debug?: boolean;
@@ -162,6 +168,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private rlmConfig: AxRLMConfig;
   private runtime: AxCodeRuntime;
   private actorFieldNames: string[];
+  private sharedFieldNames: string[];
+  private excludedSharedFields: string[];
   private actorDescription?: string;
   private responderDescription?: string;
   private recursionForwardOptions?: AxAgentRecursionOptions;
@@ -218,6 +226,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     this.runtime = runtime ?? new AxJSRuntime();
     this.rlmConfig = {
       contextFields,
+      sharedFields: options.sharedFields,
       runtime: this.runtime,
       maxLlmCalls,
       maxRuntimeChars,
@@ -278,15 +287,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       }
     }
 
-    // Identify context field metadata
-    const contextFieldMeta = inputFields.filter((fld) =>
-      contextFields.includes(fld.name)
-    );
-    // Non-context inputs (shared by Actor and Responder)
-    const nonContextInputs = inputFields.filter(
-      (fld) => !contextFields.includes(fld.name)
-    );
-
     if (this.program.getSignature().getDescription()) {
       throw new Error(
         'AxAgent does not support signature-level descriptions. ' +
@@ -305,11 +305,80 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       }
     }
 
+    // Validate sharedFields exist in signature input fields
+    const sharedFieldNames = options.sharedFields ?? [];
+    this.sharedFieldNames = sharedFieldNames;
+    for (const sf of sharedFieldNames) {
+      if (!inputFields.some((fld) => fld.name === sf)) {
+        throw new Error(
+          `sharedField "${sf}" not found in signature input fields`
+        );
+      }
+    }
+
+    this.excludedSharedFields = options.excludeSharedFields ?? [];
+
+    // Propagate shared fields to child agents
+    if (sharedFieldNames.length > 0 && agents) {
+      const sharedFieldMeta = inputFields.filter((fld) =>
+        sharedFieldNames.includes(fld.name)
+      );
+      for (const childAgent of agents) {
+        if (!(childAgent instanceof AxAgent)) continue;
+
+        // Filter out fields the child has excluded
+        const excluded = new Set(childAgent.getExcludedSharedFields());
+        const applicableFields = sharedFieldMeta.filter(
+          (fld) => !excluded.has(fld.name)
+        );
+        if (applicableFields.length === 0) continue;
+
+        childAgent._extendForSharedFields(applicableFields, contextFields);
+      }
+    }
+
+    // Build Actor/Responder programs from current signature and config
+    this._buildSplitPrograms();
+
+    // Register Actor/Responder with DSPy-compatible names so optimizers
+    // can discover them via getTraces(), and setDemos()/applyOptimization() propagate.
+    this.program.register(
+      this.actorProgram as unknown as Readonly<AxTunable<IN, OUT> & AxUsable>,
+      'actor'
+    );
+    this.program.register(
+      this.responderProgram as unknown as Readonly<
+        AxTunable<IN, OUT> & AxUsable
+      >,
+      'responder'
+    );
+  }
+
+  /**
+   * Builds (or rebuilds) Actor and Responder programs from the current
+   * base signature, contextFields, sharedFields, and actorFieldNames.
+   */
+  private _buildSplitPrograms(): void {
+    const inputFields = this.program.getSignature().getInputFields();
+    const contextFields = this.rlmConfig.contextFields;
+    const sharedFields = this.sharedFieldNames;
+
+    // Identify context field metadata
+    const contextFieldMeta = inputFields.filter((fld) =>
+      contextFields.includes(fld.name)
+    );
+    // Non-context, non-shared-only inputs (visible to Actor and Responder)
+    const nonContextInputs = inputFields.filter(
+      (fld) =>
+        !contextFields.includes(fld.name) && !sharedFields.includes(fld.name)
+    );
+
+    const originalOutputs = this.program.getSignature().getOutputFields();
     const actorOutputFields = originalOutputs.filter((fld) =>
-      actorFieldNames.includes(fld.name)
+      this.actorFieldNames.includes(fld.name)
     );
     const responderOutputFields = originalOutputs.filter(
-      (fld) => !actorFieldNames.includes(fld.name)
+      (fld) => !this.actorFieldNames.includes(fld.name)
     );
 
     // --- Actor signature: inputs + contextMetadata + actionLog -> javascriptCode (+ actorFields) ---
@@ -336,7 +405,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     const actorSig = actorSigBuilder.build();
 
-    // --- Responder signature: inputs + contextMetadata + actorResult -> responderOutputFields ---
+    // --- Responder signature: inputs + contextData -> responderOutputFields ---
     const responderSig = f()
       .addInputFields(nonContextInputs)
       .input(
@@ -346,8 +415,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       .addOutputFields(responderOutputFields)
       .build();
 
-    const effectiveMaxLlmCalls = maxLlmCalls ?? DEFAULT_RLM_MAX_LLM_CALLS;
-    const effectiveMaxTurns = maxTurns ?? DEFAULT_RLM_MAX_TURNS;
+    const effectiveMaxLlmCalls =
+      this.rlmConfig.maxLlmCalls ?? DEFAULT_RLM_MAX_LLM_CALLS;
+    const effectiveMaxTurns = this.rlmConfig.maxTurns ?? DEFAULT_RLM_MAX_TURNS;
 
     const actorDef = axBuildActorDefinition(
       this.actorDescription,
@@ -357,7 +427,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         runtimeUsageInstructions: this.runtime.getUsageInstructions(),
         maxLlmCalls: effectiveMaxLlmCalls,
         maxTurns: effectiveMaxTurns,
-        hasInspectRuntime: !!contextManagement?.stateInspection,
+        hasInspectRuntime: !!this.rlmConfig.contextManagement?.stateInspection,
       }
     );
 
@@ -367,27 +437,57 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     );
 
     this.actorProgram = new AxGen(actorSig, {
-      ...options,
+      ...this.options,
       description: actorDef,
     });
 
     this.responderProgram = new AxGen(responderSig, {
-      ...options,
+      ...this.options,
       description: responderDef,
     }) as unknown as AxGen<any, OUT>;
+  }
 
-    // Register Actor/Responder with DSPy-compatible names so optimizers
-    // can discover them via getTraces(), and setDemos()/applyOptimization() propagate.
-    this.program.register(
-      this.actorProgram as unknown as Readonly<AxTunable<IN, OUT> & AxUsable>,
-      'actor'
-    );
-    this.program.register(
-      this.responderProgram as unknown as Readonly<
-        AxTunable<IN, OUT> & AxUsable
-      >,
-      'responder'
-    );
+  /**
+   * Extends this agent's input signature and context fields for shared fields
+   * propagated from a parent agent. Called by a parent during its constructor.
+   */
+  private _extendForSharedFields(
+    fields: readonly AxIField[],
+    parentContextFieldNames: readonly string[]
+  ): void {
+    // getSignature() returns a copy, so we must set it back after modification
+    const sig = this.program.getSignature();
+    const existingInputs = sig.getInputFields();
+    let modified = false;
+
+    for (const field of fields) {
+      // Skip if this agent already has this field in its signature
+      if (existingInputs.some((f) => f.name === field.name)) continue;
+      sig.addInputField(field);
+      modified = true;
+    }
+
+    if (modified) {
+      this.program.setSignature(sig);
+    }
+
+    // Auto-extend contextFields for shared fields that are context in parent
+    for (const field of fields) {
+      if (
+        parentContextFieldNames.includes(field.name) &&
+        !this.rlmConfig.contextFields.includes(field.name)
+      ) {
+        this.rlmConfig.contextFields.push(field.name);
+      }
+    }
+
+    // Rebuild Actor/Responder with updated signature and contextFields
+    this._buildSplitPrograms();
+
+    // Update function metadata (JSON schema) if agentIdentity is set
+    if (this.func) {
+      this.func.parameters = this.program.getSignature().toJSONSchema();
+    }
   }
 
   /**
@@ -491,6 +591,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     };
   }
 
+  public getExcludedSharedFields(): readonly string[] {
+    return this.excludedSharedFields;
+  }
+
   public getSignature(): AxSignature {
     return this.program.getSignature();
   }
@@ -548,11 +652,26 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       rawValues = values as Record<string, unknown>;
     }
 
+    const sharedFieldNames = this.sharedFieldNames;
     for (const [k, v] of Object.entries(rawValues)) {
       if (rlm.contextFields.includes(k)) {
         contextValues[k] = v;
-      } else {
+      } else if (!sharedFieldNames.includes(k)) {
         nonContextValues[k] = v;
+      }
+      // shared-only fields are excluded from nonContextValues
+      // (they bypass the LLM and go directly to subagents)
+    }
+
+    // Extract shared field values for subagent injection
+    const sharedFieldValues: Record<string, unknown> = {};
+    for (const sf of sharedFieldNames) {
+      if (sf in rawValues) {
+        sharedFieldValues[sf] = rawValues[sf];
+      }
+      // Also include shared fields that are context fields
+      if (sf in contextValues) {
+        sharedFieldValues[sf] = contextValues[sf];
       }
     }
 
@@ -810,7 +929,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     };
 
     // Build tool function globals for the runtime
-    const toolGlobals = this.buildRuntimeGlobals(effectiveAbortSignal);
+    const toolGlobals = this.buildRuntimeGlobals(
+      effectiveAbortSignal,
+      sharedFieldValues
+    );
 
     let actorResultPayload: AxAgentActorResultPayload | undefined;
     const setActorResultPayload = (
@@ -1286,11 +1408,52 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   }
 
   /**
+   * Wraps an AxFunction with automatic shared field injection.
+   * Shared field values are merged into call args (caller-provided args take precedence).
+   */
+  private static wrapFunctionWithSharedFields(
+    fn: AxFunction,
+    abortSignal?: AbortSignal,
+    sharedFieldValues?: Record<string, unknown>
+  ): (...args: unknown[]) => Promise<unknown> {
+    if (!sharedFieldValues || Object.keys(sharedFieldValues).length === 0) {
+      return AxAgent.wrapFunction(fn, abortSignal);
+    }
+    return async (...args: unknown[]) => {
+      let callArgs: Record<string, unknown>;
+
+      if (
+        args.length === 1 &&
+        typeof args[0] === 'object' &&
+        args[0] !== null &&
+        !Array.isArray(args[0])
+      ) {
+        callArgs = args[0] as Record<string, unknown>;
+      } else {
+        const paramNames = fn.parameters?.properties
+          ? Object.keys(fn.parameters.properties)
+          : [];
+        callArgs = {};
+        paramNames.forEach((name, i) => {
+          if (i < args.length) {
+            callArgs[name] = args[i];
+          }
+        });
+      }
+
+      // Merge shared fields (caller-provided args take precedence)
+      const merged = { ...sharedFieldValues, ...callArgs };
+      return await fn.func(merged, { abortSignal });
+    };
+  }
+
+  /**
    * Wraps registered functions as flat globals and child agents under
    * an `agents.*` namespace for the JS runtime session.
    */
   private buildRuntimeGlobals(
-    abortSignal?: AbortSignal
+    abortSignal?: AbortSignal,
+    sharedFieldValues?: Record<string, unknown>
   ): Record<string, unknown> {
     const globals: Record<string, unknown> = {};
 
@@ -1304,7 +1467,23 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       const agentsObj: Record<string, unknown> = {};
       for (const agent of this.agents) {
         const fn = agent.getFunction();
-        agentsObj[fn.name] = AxAgent.wrapFunction(fn, abortSignal);
+
+        // Determine which shared fields this agent accepts
+        const excluded = new Set(agent.getExcludedSharedFields?.() ?? []);
+        const applicable: Record<string, unknown> = {};
+        if (sharedFieldValues) {
+          for (const [k, v] of Object.entries(sharedFieldValues)) {
+            if (!excluded.has(k)) {
+              applicable[k] = v;
+            }
+          }
+        }
+
+        agentsObj[fn.name] = AxAgent.wrapFunctionWithSharedFields(
+          fn,
+          abortSignal,
+          applicable
+        );
       }
       globals.agents = agentsObj;
     }
