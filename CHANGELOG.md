@@ -1,5 +1,16 @@
 # Changelog
 
+## [18.0.11](///compare/18.0.9...18.0.10) (2026-02-24)
+
+### Features
+
+* Enhance shared fields handling in AxAgent and add new tests for parameter scoping f8002bc
+## [18.0.10](///compare/18.0.9...18.0.10) (2026-02-24)
+
+### Features
+
+* Add toInputJSONSchema method and related tests for AxSignature and agent function parameters c836239
+
 ## [18.0.10](///compare/18.0.8...18.0.9) (2026-02-24)
 
 ### Features
