@@ -2,6 +2,7 @@ import type {
   AxAIService,
   AxFunction,
   AxFunctionHandler,
+  AxFunctionJSONSchema,
 } from '../ai/types.js';
 import type { AxInputFunctionType } from '../dsp/functions.js';
 import { AxGen } from '../dsp/generate.js';
@@ -180,6 +181,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private _stopRequested = false;
 
   private func: AxFunction | undefined;
+  // Field names injected by a parent agent via shared-field propagation.
+  // These are auto-injected at runtime and must not appear in getFunction().parameters.
+  private _parentSharedFields: Set<string> = new Set();
 
   constructor(
     {
@@ -270,7 +274,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       this.func = {
         name: toCamelCase(agentIdentity.name),
         description: agentIdentity.description,
-        parameters: this.program.getSignature().toJSONSchema(),
+        parameters: this._buildFuncParameters(),
         func: async () => {
           throw new Error('Use getFunction() to get a callable wrapper');
         },
@@ -419,6 +423,24 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       this.rlmConfig.maxLlmCalls ?? DEFAULT_RLM_MAX_LLM_CALLS;
     const effectiveMaxTurns = this.rlmConfig.maxTurns ?? DEFAULT_RLM_MAX_TURNS;
 
+    // Collect metadata from child agents and tool functions so the actor prompt
+    // describes what's available in the JS runtime session.
+    const agentMeta =
+      this.agents?.map((a) => {
+        const fn = a.getFunction();
+        return {
+          name: fn.name,
+          description: fn.description,
+          parameters: fn.parameters,
+        };
+      }) ?? [];
+
+    const functionMeta = this.collectFunctions().map((fn) => ({
+      name: fn.name,
+      description: fn.description,
+      parameters: fn.parameters,
+    }));
+
     const actorDef = axBuildActorDefinition(
       this.actorDescription,
       contextFieldMeta,
@@ -428,6 +450,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         maxLlmCalls: effectiveMaxLlmCalls,
         maxTurns: effectiveMaxTurns,
         hasInspectRuntime: !!this.rlmConfig.contextManagement?.stateInspection,
+        agents: agentMeta,
+        functions: functionMeta,
       }
     );
 
@@ -464,6 +488,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       // Skip if this agent already has this field in its signature
       if (existingInputs.some((f) => f.name === field.name)) continue;
       sig.addInputField(field);
+      // Track that this field was injected by a parent — it must not appear in
+      // getFunction().parameters because wrapFunctionWithSharedFields auto-injects it.
+      this._parentSharedFields.add(field.name);
       modified = true;
     }
 
@@ -484,9 +511,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     // Rebuild Actor/Responder with updated signature and contextFields
     this._buildSplitPrograms();
 
-    // Update function metadata (JSON schema) if agentIdentity is set
+    // Update function metadata (input-only schema, minus parent-injected shared fields)
     if (this.func) {
-      this.func.parameters = this.program.getSignature().toJSONSchema();
+      this.func.parameters = this._buildFuncParameters();
     }
   }
 
@@ -1490,6 +1517,17 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     return globals;
   }
+
+  /**
+   * Builds the clean AxFunction parameters schema: input fields only, with any
+   * parent-injected shared fields stripped out (they are auto-injected at runtime).
+   */
+  private _buildFuncParameters(): AxFunctionJSONSchema {
+    const schema = this.program.getSignature().toInputJSONSchema();
+    return this._parentSharedFields.size > 0
+      ? stripSchemaProperties(schema, this._parentSharedFields)
+      : schema;
+  }
 }
 
 // ----- Factory Function -----
@@ -1635,6 +1673,27 @@ async function runWithConcurrency<TIn, TOut>(
 
   await Promise.all(workers);
   return results;
+}
+
+/**
+ * Returns a copy of `schema` with the listed property names removed from
+ * both `properties` and `required`.  Used to strip parent-injected shared
+ * fields from a child agent's public function signature.
+ */
+function stripSchemaProperties(
+  schema: AxFunctionJSONSchema,
+  namesToRemove: ReadonlySet<string>
+): AxFunctionJSONSchema {
+  if (!schema.properties || namesToRemove.size === 0) return schema;
+  const properties = Object.fromEntries(
+    Object.entries(schema.properties).filter(([k]) => !namesToRemove.has(k))
+  );
+  const required = schema.required?.filter((k) => !namesToRemove.has(k));
+  return {
+    ...schema,
+    properties,
+    ...(required !== undefined ? { required } : {}),
+  };
 }
 
 function toCamelCase(inputString: string): string {

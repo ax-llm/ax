@@ -2141,6 +2141,11 @@ export class AxSignature<
     const allFields = [...this.inputFields, ...this.outputFields];
     return toJsonSchema(allFields, this.description ?? 'Schema');
   };
+
+  public toInputJSONSchema = (): AxFunctionJSONSchema => {
+    // Only input fields — used for AxFunction.parameters so callers see exactly what to pass
+    return toJsonSchema(this.inputFields, this.description ?? 'Schema');
+  };
 }
 
 function renderField(field: Readonly<AxField>): string {

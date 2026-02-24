@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { AxMockAIService } from '../ai/mock/api.js';
+import type { AxFunctionJSONSchema } from '../ai/types.js';
 import { toFieldType } from '../dsp/prompt.js';
 import type { AxIField } from '../dsp/sig.js';
 import { s } from '../dsp/template.js';
@@ -3823,5 +3824,331 @@ describe('Shared Fields', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const childContextFields = (childAgent as any).rlmConfig.contextFields;
     expect(childContextFields).toContain('context');
+  });
+});
+
+// ----- getFunction() parameter schema tests -----
+
+describe('getFunction() parameter schema', () => {
+  const runtime: AxCodeRuntime = {
+    getUsageInstructions: () => '',
+    createSession() {
+      return { execute: async () => 'ok', close: () => {} };
+    },
+  };
+
+  it('should not include output fields in parameters', () => {
+    const a = agent(
+      'question:string, topic:string -> answer:string, reasoning:string',
+      {
+        agentIdentity: { name: 'Tester', description: 'A test agent' },
+        contextFields: [],
+        runtime,
+      }
+    );
+    const params = a.getFunction().parameters!;
+    // Input fields present
+    expect(params.properties?.question).toBeDefined();
+    expect(params.properties?.topic).toBeDefined();
+    // Output fields absent
+    expect(params.properties?.answer).toBeUndefined();
+    expect(params.properties?.reasoning).toBeUndefined();
+  });
+
+  it('should not include parent-injected shared fields in parameters', () => {
+    const childAgent = agent('question:string -> answer:string', {
+      agentIdentity: { name: 'Child', description: 'A child agent' },
+      contextFields: [],
+      runtime,
+    });
+
+    // Before parent registers it — only own input fields
+    const paramsBefore = childAgent.getFunction().parameters!;
+    expect(Object.keys(paramsBefore.properties ?? {})).toEqual(['question']);
+
+    // Create parent that injects 'userId' as a shared field
+    agent('query:string, userId:string -> answer:string', {
+      agents: [childAgent],
+      contextFields: [],
+      sharedFields: ['userId'],
+      runtime,
+    });
+
+    // After parent registration — shared field must NOT appear in parameters
+    const paramsAfter = childAgent.getFunction().parameters!;
+    expect(paramsAfter.properties?.question).toBeDefined();
+    expect(paramsAfter.properties?.userId).toBeUndefined();
+    expect(paramsAfter.required).not.toContain('userId');
+  });
+
+  it('should keep fields already in child signature when parent shares the same name', () => {
+    // Child already owns 'userId' — parent sharing it is a no-op in _extendForSharedFields
+    const childAgent = agent(
+      'question:string, userId:string -> answer:string',
+      {
+        agentIdentity: { name: 'Child', description: 'A child agent' },
+        contextFields: [],
+        runtime,
+      }
+    );
+
+    agent('query:string, userId:string -> answer:string', {
+      agents: [childAgent],
+      contextFields: [],
+      sharedFields: ['userId'],
+      runtime,
+    });
+
+    // userId was not injected (child already had it) so it remains in parameters
+    const params = childAgent.getFunction().parameters!;
+    expect(params.properties?.userId).toBeDefined();
+  });
+
+  it('should not include excluded shared fields', () => {
+    const childAgent = agent('question:string -> answer:string', {
+      agentIdentity: { name: 'Child', description: 'A child agent' },
+      contextFields: [],
+      excludeSharedFields: ['userId'],
+      runtime,
+    });
+
+    agent('query:string, userId:string -> answer:string', {
+      agents: [childAgent],
+      contextFields: [],
+      sharedFields: ['userId'],
+      runtime,
+    });
+
+    // userId was excluded — not extended into child, not in parameters
+    const params = childAgent.getFunction().parameters!;
+    expect(params.properties?.userId).toBeUndefined();
+  });
+
+  it('should handle multiple shared fields — only own fields remain in parameters', () => {
+    const childAgent = agent('question:string -> answer:string', {
+      agentIdentity: { name: 'Child', description: 'A child agent' },
+      contextFields: [],
+      runtime,
+    });
+
+    agent('query:string, userId:string, sessionId:string -> answer:string', {
+      agents: [childAgent],
+      contextFields: [],
+      sharedFields: ['userId', 'sessionId'],
+      runtime,
+    });
+
+    const params = childAgent.getFunction().parameters!;
+    // Own fields present
+    expect(params.properties?.question).toBeDefined();
+    // Both injected shared fields absent
+    expect(params.properties?.userId).toBeUndefined();
+    expect(params.properties?.sessionId).toBeUndefined();
+  });
+});
+
+// ----- axBuildActorDefinition agents & functions section tests -----
+
+describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () => {
+  const runtime: AxCodeRuntime = {
+    getUsageInstructions: () => '',
+    createSession() {
+      return { execute: async () => 'ok', close: () => {} };
+    },
+  };
+
+  const sampleSchema: AxFunctionJSONSchema = {
+    type: 'object',
+    properties: {
+      query: { type: 'string', description: 'The search query' },
+      limit: { type: 'number', description: 'Max results' },
+    },
+    required: ['query'],
+  };
+
+  it('should render ### Available Sub-Agents section when agents are provided', () => {
+    const result = axBuildActorDefinition(undefined, [], [], {
+      agents: [
+        {
+          name: 'searchAgent',
+          description: 'Searches the web',
+          parameters: sampleSchema,
+        },
+      ],
+    });
+    expect(result).toContain('### Available Sub-Agents');
+    expect(result).toContain('await agents.searchAgent(');
+    expect(result).toContain('Searches the web');
+  });
+
+  it('should render required params without ? and optional params with ?', () => {
+    const result = axBuildActorDefinition(undefined, [], [], {
+      agents: [
+        {
+          name: 'searchAgent',
+          description: 'desc',
+          parameters: sampleSchema,
+        },
+      ],
+    });
+    expect(result).toContain('query: string'); // required — no ?
+    expect(result).toContain('limit?: number'); // optional — has ?
+  });
+
+  it('should render ### Available Tool Functions section when functions are provided', () => {
+    const result = axBuildActorDefinition(undefined, [], [], {
+      functions: [
+        {
+          name: 'fetchData',
+          description: 'Fetches remote data',
+          parameters: sampleSchema,
+        },
+      ],
+    });
+    expect(result).toContain('### Available Tool Functions');
+    expect(result).toContain('await fetchData(');
+    expect(result).toContain('Fetches remote data');
+  });
+
+  it('should omit sub-agents section when agents array is empty', () => {
+    const result = axBuildActorDefinition(undefined, [], [], { agents: [] });
+    expect(result).not.toContain('### Available Sub-Agents');
+  });
+
+  it('should omit functions section when functions array is empty', () => {
+    const result = axBuildActorDefinition(undefined, [], [], { functions: [] });
+    expect(result).not.toContain('### Available Tool Functions');
+  });
+
+  it('should omit both sections when neither option is provided', () => {
+    const result = axBuildActorDefinition(undefined, [], [], {});
+    expect(result).not.toContain('### Available Sub-Agents');
+    expect(result).not.toContain('### Available Tool Functions');
+  });
+
+  it('should render {} for agent with undefined parameters', () => {
+    const result = axBuildActorDefinition(undefined, [], [], {
+      agents: [
+        { name: 'noParamsAgent', description: 'desc', parameters: undefined },
+      ],
+    });
+    expect(result).toContain('await agents.noParamsAgent({})');
+  });
+
+  it('should render {} for agent with empty properties', () => {
+    const result = axBuildActorDefinition(undefined, [], [], {
+      agents: [
+        {
+          name: 'emptyAgent',
+          description: 'desc',
+          parameters: { type: 'object', properties: {} },
+        },
+      ],
+    });
+    expect(result).toContain('await agents.emptyAgent({})');
+  });
+
+  it('should render multiple agents', () => {
+    const result = axBuildActorDefinition(undefined, [], [], {
+      agents: [
+        {
+          name: 'agentOne',
+          description: 'First agent',
+          parameters: sampleSchema,
+        },
+        { name: 'agentTwo', description: 'Second agent' },
+      ],
+    });
+    expect(result).toContain('await agents.agentOne(');
+    expect(result).toContain('First agent');
+    expect(result).toContain('await agents.agentTwo(');
+    expect(result).toContain('Second agent');
+  });
+
+  it('should render array type params correctly', () => {
+    const arraySchema: AxFunctionJSONSchema = {
+      type: 'object',
+      properties: {
+        ids: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'List of IDs',
+        },
+      },
+      required: ['ids'],
+    };
+    const result = axBuildActorDefinition(undefined, [], [], {
+      functions: [
+        { name: 'batchFetch', description: 'desc', parameters: arraySchema },
+      ],
+    });
+    expect(result).toContain('ids: string[]');
+  });
+
+  it('should render enum type params correctly', () => {
+    const enumSchema: AxFunctionJSONSchema = {
+      type: 'object',
+      properties: {
+        mode: { type: 'string', enum: ['fast', 'slow'], description: 'Mode' },
+      },
+      required: ['mode'],
+    };
+    const result = axBuildActorDefinition(undefined, [], [], {
+      agents: [
+        { name: 'modeAgent', description: 'desc', parameters: enumSchema },
+      ],
+    });
+    expect(result).toContain('"fast" | "slow"');
+  });
+
+  it('actor program description should include sub-agent descriptions end-to-end', () => {
+    const childAgent = agent('question:string -> answer:string', {
+      agentIdentity: {
+        name: 'Physics Researcher',
+        description: 'Answers physics questions',
+      },
+      contextFields: [],
+      runtime,
+    });
+
+    const parentAgent = agent('query:string -> finalAnswer:string', {
+      agents: [childAgent],
+      contextFields: [],
+      runtime,
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const actorDescription = (parentAgent as any).actorProgram
+      .getSignature()
+      .getDescription();
+
+    expect(actorDescription).toContain('### Available Sub-Agents');
+    expect(actorDescription).toContain('await agents.physicsResearcher(');
+    expect(actorDescription).toContain('Answers physics questions');
+    expect(actorDescription).toContain('question: string');
+  });
+
+  it('actor program description should include tool function descriptions end-to-end', () => {
+    const parentAgent = agent('query:string -> finalAnswer:string', {
+      functions: [
+        {
+          name: 'lookupData',
+          description: 'Looks up data in the database',
+          parameters: sampleSchema,
+          func: async () => 'result',
+        },
+      ],
+      contextFields: [],
+      runtime,
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const actorDescription = (parentAgent as any).actorProgram
+      .getSignature()
+      .getDescription();
+
+    expect(actorDescription).toContain('### Available Tool Functions');
+    expect(actorDescription).toContain('await lookupData(');
+    expect(actorDescription).toContain('Looks up data in the database');
   });
 });

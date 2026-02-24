@@ -5,9 +5,35 @@
  * No Node.js-specific imports; browser-safe.
  */
 
+import type { AxFunctionJSONSchema } from '../ai/types.js';
 import { toFieldType } from '../dsp/prompt.js';
 import type { AxIField } from '../dsp/sig.js';
 import type { AxProgramForwardOptions } from '../dsp/types.js';
+
+// ----- Helpers for rendering function/agent signatures in the actor prompt -----
+
+function schemaTypeToShortString(schema: AxFunctionJSONSchema): string {
+  if (schema.enum) return schema.enum.map((e) => `"${e}"`).join(' | ');
+  if (schema.type === 'array') {
+    const itemType = schema.items
+      ? schemaTypeToShortString(schema.items)
+      : 'unknown';
+    return `${itemType}[]`;
+  }
+  if (schema.type === 'object') return 'object';
+  return schema.type ?? 'unknown';
+}
+
+function renderParamsInline(schema: AxFunctionJSONSchema | undefined): string {
+  if (!schema?.properties || Object.keys(schema.properties).length === 0)
+    return '{}';
+  const required = new Set(schema.required ?? []);
+  const parts = Object.entries(schema.properties).map(([key, prop]) => {
+    const typeStr = schemaTypeToShortString(prop);
+    return required.has(key) ? `${key}: ${typeStr}` : `${key}?: ${typeStr}`;
+  });
+  return `{ ${parts.join(', ')} }`;
+}
 
 /**
  * A code runtime that can create persistent sessions.
@@ -115,6 +141,18 @@ export function axBuildActorDefinition(
     maxLlmCalls?: number;
     maxTurns?: number;
     hasInspectRuntime?: boolean;
+    /** Child agents available under the `agents.*` namespace in the JS runtime. */
+    agents?: ReadonlyArray<{
+      name: string;
+      description: string;
+      parameters?: AxFunctionJSONSchema;
+    }>;
+    /** Tool functions available as flat globals in the JS runtime. */
+    functions?: ReadonlyArray<{
+      name: string;
+      description: string;
+      parameters?: AxFunctionJSONSchema;
+    }>;
   }>
 ): string {
   const maxLlmCalls = options.maxLlmCalls ?? 50;
@@ -158,6 +196,32 @@ ${
   options.hasInspectRuntime
     ? `
 - \`await inspect_runtime() : string\` — Returns a compact snapshot of all user-defined variables in the runtime session (name, type, size, preview). Use this to re-ground yourself when the action log is large instead of re-reading previous outputs.
+`
+    : ''
+}${
+  options.agents && options.agents.length > 0
+    ? `
+### Available Sub-Agents
+The following agents are pre-loaded under the \`agents\` namespace. Call them for specialized tasks:
+${options.agents
+  .map(
+    (fn) =>
+      `- \`await agents.${fn.name}(${renderParamsInline(fn.parameters)})\` — ${fn.description}`
+  )
+  .join('\n')}
+`
+    : ''
+}${
+  options.functions && options.functions.length > 0
+    ? `
+### Available Tool Functions
+The following tool functions are available as global async functions in the runtime:
+${options.functions
+  .map(
+    (fn) =>
+      `- \`await ${fn.name}(${renderParamsInline(fn.parameters)})\` — ${fn.description}`
+  )
+  .join('\n')}
 `
     : ''
 }

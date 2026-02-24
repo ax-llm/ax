@@ -1129,3 +1129,56 @@ describe('Media type restrictions', () => {
     });
   });
 });
+
+// ----- toInputJSONSchema tests -----
+
+describe('AxSignature.toInputJSONSchema', () => {
+  it('should include only input fields, not output fields', () => {
+    const sig = new AxSignature('question:string -> answer:string');
+    const schema = sig.toInputJSONSchema();
+    expect(schema.properties?.question).toBeDefined();
+    expect(schema.properties?.answer).toBeUndefined();
+  });
+
+  it('should include all input fields when there are multiple', () => {
+    const sig = new AxSignature(
+      'query:string, topic:string -> analysisText:string'
+    );
+    const schema = sig.toInputJSONSchema();
+    expect(schema.properties?.query).toBeDefined();
+    expect(schema.properties?.topic).toBeDefined();
+    expect(schema.properties?.analysisText).toBeUndefined();
+  });
+
+  it('should mark required input fields in the required array', () => {
+    const sig = f()
+      .input('query', f.string())
+      .input('pageLimit', f.number().optional())
+      .output('analysisText', f.string())
+      .build();
+    const schema = sig.toInputJSONSchema();
+    expect(schema.required).toContain('query');
+    expect(schema.required).not.toContain('pageLimit');
+    expect(schema.required).not.toContain('analysisText');
+  });
+
+  it('should return only input field properties when there is one input and multiple outputs', () => {
+    const sig = new AxSignature(
+      'query:string -> outputA:string, outputB:string'
+    );
+    const schema = sig.toInputJSONSchema();
+    expect(Object.keys(schema.properties ?? {})).toHaveLength(1);
+    expect(schema.properties?.query).toBeDefined();
+  });
+
+  it('should not include output-only fields in required', () => {
+    const sig = new AxSignature(
+      'inputA:string, inputB:string -> outputA:string, outputB:string'
+    );
+    const schema = sig.toInputJSONSchema();
+    expect(schema.required).toContain('inputA');
+    expect(schema.required).toContain('inputB');
+    expect(schema.required).not.toContain('outputA');
+    expect(schema.required).not.toContain('outputB');
+  });
+});
