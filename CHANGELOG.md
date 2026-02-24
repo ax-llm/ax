@@ -1,5 +1,12 @@
 # Changelog
 
+## [18.0.13](///compare/18.0.11...18.0.12) (2026-02-24)
+
+### Features
+
+* Add ai parameter to wrapFunction and related methods in AxAgent for enhanced functionality 0e59c96
+* Add support for shared fields and agents in AxAgent, enhancing agent hierarchy data passing e541397
+
 ## [18.0.12](///compare/18.0.10...18.0.11) (2026-02-24)
 
 ### Features
