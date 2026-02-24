@@ -958,7 +958,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     // Build tool function globals for the runtime
     const toolGlobals = this.buildRuntimeGlobals(
       effectiveAbortSignal,
-      sharedFieldValues
+      sharedFieldValues,
+      ai
     );
 
     let actorResultPayload: AxAgentActorResultPayload | undefined;
@@ -1406,7 +1407,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
    */
   private static wrapFunction(
     fn: AxFunction,
-    abortSignal?: AbortSignal
+    abortSignal?: AbortSignal,
+    ai?: AxAIService
   ): (...args: unknown[]) => Promise<unknown> {
     return async (...args: unknown[]) => {
       let callArgs: Record<string, unknown>;
@@ -1430,7 +1432,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         });
       }
 
-      return await fn.func(callArgs, { abortSignal });
+      return await fn.func(callArgs, { abortSignal, ai });
     };
   }
 
@@ -1441,10 +1443,11 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private static wrapFunctionWithSharedFields(
     fn: AxFunction,
     abortSignal?: AbortSignal,
-    sharedFieldValues?: Record<string, unknown>
+    sharedFieldValues?: Record<string, unknown>,
+    ai?: AxAIService
   ): (...args: unknown[]) => Promise<unknown> {
     if (!sharedFieldValues || Object.keys(sharedFieldValues).length === 0) {
-      return AxAgent.wrapFunction(fn, abortSignal);
+      return AxAgent.wrapFunction(fn, abortSignal, ai);
     }
     return async (...args: unknown[]) => {
       let callArgs: Record<string, unknown>;
@@ -1470,7 +1473,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
       // Merge shared fields (caller-provided args take precedence)
       const merged = { ...sharedFieldValues, ...callArgs };
-      return await fn.func(merged, { abortSignal });
+      return await fn.func(merged, { abortSignal, ai });
     };
   }
 
@@ -1480,7 +1483,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
    */
   private buildRuntimeGlobals(
     abortSignal?: AbortSignal,
-    sharedFieldValues?: Record<string, unknown>
+    sharedFieldValues?: Record<string, unknown>,
+    ai?: AxAIService
   ): Record<string, unknown> {
     const globals: Record<string, unknown> = {};
 
@@ -1509,7 +1513,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         agentsObj[fn.name] = AxAgent.wrapFunctionWithSharedFields(
           fn,
           abortSignal,
-          applicable
+          applicable,
+          ai
         );
       }
       globals.agents = agentsObj;
