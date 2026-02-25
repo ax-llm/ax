@@ -742,6 +742,7 @@ import {
   AxAgent,
   type AxAgentConfig,
   type AxAgentDemos,
+  type AxAgentFunction,
   type AxAgentic,
   type AxAgentOptions,
   type AxAgentRecursionOptions,
@@ -1209,6 +1210,7 @@ export type { AxAPI };
 export type { AxAPIConfig };
 export type { AxAgentConfig };
 export type { AxAgentDemos };
+export type { AxAgentFunction };
 export type { AxAgentOptions };
 export type { AxAgentRecursionOptions };
 export type { AxAgentic };

@@ -7,7 +7,7 @@ import type { AxIField } from '../dsp/sig.js';
 import { s } from '../dsp/template.js';
 import { AxAIServiceAbortedError } from '../util/apicall.js';
 
-import { AxAgent, agent } from './agent.js';
+import { AxAgent, agent, type AxAgentFunction } from './agent.js';
 import type { AxCodeRuntime } from './rlm.js';
 import { axBuildActorDefinition, axBuildResponderDefinition } from './rlm.js';
 
@@ -924,8 +924,8 @@ describe('Functions as runtime globals', () => {
         return {
           execute: async (code: string) => {
             // Simulate calling the tool function from globals
-            if (globals?.myTool && code.includes('myTool')) {
-              const toolFn = globals.myTool as (
+            if ((globals?.utils as any)?.myTool && code.includes('myTool')) {
+              const toolFn = (globals!.utils as any).myTool as (
                 args: Record<string, unknown>
               ) => Promise<unknown>;
               return await toolFn({ input: 'test' });
@@ -939,24 +939,26 @@ describe('Functions as runtime globals', () => {
 
     const testAgent = agent('query:string -> answer:string', {
       ai: testMockAI,
-      functions: [
-        {
-          name: 'myTool',
-          description: 'A test tool function',
-          parameters: {
-            type: 'object',
-            properties: {
-              input: { type: 'string', description: 'Input value' },
+      functions: {
+        local: [
+          {
+            name: 'myTool',
+            description: 'A test tool function',
+            parameters: {
+              type: 'object',
+              properties: {
+                input: { type: 'string', description: 'Input value' },
+              },
+              required: ['input'],
             },
-            required: ['input'],
+            func: async (args: Record<string, unknown>) => {
+              functionCalled = true;
+              functionArg = String(args.input ?? '');
+              return 'tool-output';
+            },
           },
-          func: async (args: Record<string, unknown>) => {
-            functionCalled = true;
-            functionArg = String(args.input ?? '');
-            return 'tool-output';
-          },
-        },
-      ],
+        ],
+      },
       contextFields: [],
       runtime,
       maxTurns: 1,
@@ -2749,9 +2751,12 @@ describe('recursionOptions and recursive parity', () => {
             }
 
             if (code === 'CHILD_STEP') {
-              if (globals?.myTool) {
+              const utilsNs = globals?.utils as
+                | Record<string, unknown>
+                | undefined;
+              if (utilsNs?.myTool) {
                 recursiveToolCalled = true;
-                const myTool = globals.myTool as (
+                const myTool = utilsNs.myTool as (
                   args: Record<string, unknown>
                 ) => Promise<unknown>;
                 await myTool({ input: 'ok' });
@@ -2830,20 +2835,22 @@ describe('recursionOptions and recursive parity', () => {
       recursionOptions: {
         maxDepth: 2,
       },
-      functions: [
-        {
-          name: 'myTool',
-          description: 'recursive tool',
-          parameters: {
-            type: 'object',
-            properties: {
-              input: { type: 'string' },
+      functions: {
+        local: [
+          {
+            name: 'myTool',
+            description: 'recursive tool',
+            parameters: {
+              type: 'object',
+              properties: {
+                input: { type: 'string' },
+              },
+              required: ['input'],
             },
-            required: ['input'],
+            func: async () => 'ok',
           },
-          func: async () => 'ok',
-        },
-      ],
+        ],
+      },
     });
 
     await testAgent.forward(testMockAI, {
@@ -3538,7 +3545,7 @@ describe('Shared Fields', () => {
       () =>
         new AxAgent(
           { signature: 'query:string -> answer:string' },
-          { contextFields: [], sharedFields: ['nonExistent'], runtime }
+          { contextFields: [], fields: { shared: ['nonExistent'] }, runtime }
         )
     ).toThrow(/sharedField "nonExistent" not found in signature input fields/);
   });
@@ -3548,7 +3555,7 @@ describe('Shared Fields', () => {
       'query:string, userId:string, context:string -> answer:string',
       {
         contextFields: ['context'],
-        sharedFields: ['userId'],
+        fields: { shared: ['userId'] },
         runtime,
       }
     );
@@ -3592,9 +3599,9 @@ describe('Shared Fields', () => {
 
     // Create parent with sharedFields
     agent('query:string, userId:string -> answer:string', {
-      agents: [childAgent],
+      agents: { local: [childAgent] },
       contextFields: [],
-      sharedFields: ['userId'],
+      fields: { shared: ['userId'] },
       runtime,
     });
 
@@ -3616,9 +3623,9 @@ describe('Shared Fields', () => {
 
     // Create parent where 'context' is both context and shared
     agent('query:string, context:string -> answer:string', {
-      agents: [childAgent],
+      agents: { local: [childAgent] },
       contextFields: ['context'],
-      sharedFields: ['context'],
+      fields: { shared: ['context'] },
       runtime,
     });
 
@@ -3639,15 +3646,15 @@ describe('Shared Fields', () => {
     const childAgent = agent('question:string -> answer:string', {
       agentIdentity: { name: 'Child', description: 'A child agent' },
       contextFields: [],
-      excludeSharedFields: ['userId'],
+      fields: { excluded: ['userId'] },
       runtime,
     });
 
     // Create parent with shared userId
     agent('query:string, userId:string -> answer:string', {
-      agents: [childAgent],
+      agents: { local: [childAgent] },
       contextFields: [],
-      sharedFields: ['userId'],
+      fields: { shared: ['userId'] },
       runtime,
     });
 
@@ -3671,9 +3678,9 @@ describe('Shared Fields', () => {
 
     // Create parent that shares 'userId' which child already has
     agent('query:string, userId:string -> answer:string', {
-      agents: [childAgent],
+      agents: { local: [childAgent] },
       contextFields: [],
-      sharedFields: ['userId'],
+      fields: { shared: ['userId'] },
       runtime,
     });
 
@@ -3775,9 +3782,9 @@ describe('Shared Fields', () => {
     });
 
     const parentAgent = agent('query:string, userId:string -> answer:string', {
-      agents: [childAgent],
+      agents: { local: [childAgent] },
       contextFields: [],
-      sharedFields: ['userId'],
+      fields: { shared: ['userId'] },
       runtime: childCallRuntime,
     });
 
@@ -3800,9 +3807,9 @@ describe('Shared Fields', () => {
     });
 
     const parentAgent = agent('query:string, context:string -> answer:string', {
-      agents: [childAgent],
+      agents: { local: [childAgent] },
       contextFields: ['context'],
-      sharedFields: ['context'],
+      fields: { shared: ['context'] },
       runtime,
     });
 
@@ -3851,9 +3858,8 @@ describe('Shared Agents', () => {
     });
 
     agent('query:string -> finalAnswer:string', {
-      agents: [childAgent],
+      agents: { local: [childAgent], shared: [utilityAgent] },
       contextFields: [],
-      sharedAgents: [utilityAgent],
       runtime,
     });
 
@@ -3878,15 +3884,14 @@ describe('Shared Agents', () => {
 
     const child = agent('topic:string -> summary:string', {
       agentIdentity: { name: 'Child', description: 'A child agent' },
-      agents: [grandchild],
+      agents: { local: [grandchild] },
       contextFields: [],
       runtime,
     });
 
     agent('query:string -> finalAnswer:string', {
-      agents: [child],
+      agents: { local: [child], shared: [utilityAgent] },
       contextFields: [],
-      sharedAgents: [utilityAgent],
       runtime,
     });
 
@@ -3911,15 +3916,14 @@ describe('Shared Agents', () => {
 
     const childAgent = agent('question:string -> answer:string', {
       agentIdentity: { name: 'Child', description: 'A child agent' },
-      agents: [utilityAgent],
+      agents: { local: [utilityAgent] },
       contextFields: [],
       runtime,
     });
 
     agent('query:string -> finalAnswer:string', {
-      agents: [childAgent],
+      agents: { local: [childAgent], shared: [utilityAgent] },
       contextFields: [],
-      sharedAgents: [utilityAgent],
       runtime,
     });
 
@@ -3957,15 +3961,14 @@ describe('Global Shared Agents', () => {
 
     const child = agent('topic:string -> summary:string', {
       agentIdentity: { name: 'Child', description: 'A child agent' },
-      agents: [grandchild],
+      agents: { local: [grandchild] },
       contextFields: [],
       runtime,
     });
 
     agent('query:string -> finalAnswer:string', {
-      agents: [child],
+      agents: { local: [child], globallyShared: [utilityAgent] },
       contextFields: [],
-      globalSharedAgents: [utilityAgent],
       runtime,
     });
 
@@ -3993,22 +3996,21 @@ describe('Global Shared Agents', () => {
 
     const grandchild = agent('question:string -> answer:string', {
       agentIdentity: { name: 'Grandchild', description: 'A grandchild' },
-      agents: [utilityAgent],
+      agents: { local: [utilityAgent] },
       contextFields: [],
       runtime,
     });
 
     const child = agent('topic:string -> summary:string', {
       agentIdentity: { name: 'Child', description: 'A child agent' },
-      agents: [grandchild],
+      agents: { local: [grandchild] },
       contextFields: [],
       runtime,
     });
 
     agent('query:string -> finalAnswer:string', {
-      agents: [child],
+      agents: { local: [child], globallyShared: [utilityAgent] },
       contextFields: [],
-      globalSharedAgents: [utilityAgent],
       runtime,
     });
 
@@ -4037,7 +4039,11 @@ describe('Global Shared Fields', () => {
       () =>
         new AxAgent(
           { signature: 'query:string -> answer:string' },
-          { contextFields: [], globalSharedFields: ['nonExistent'], runtime }
+          {
+            contextFields: [],
+            fields: { globallyShared: ['nonExistent'] },
+            runtime,
+          }
         )
     ).toThrow(
       /globalSharedField "nonExistent" not found in signature input fields/
@@ -4052,9 +4058,9 @@ describe('Global Shared Fields', () => {
     });
 
     const parentAgent = agent('query:string, userId:string -> answer:string', {
-      agents: [childAgent],
+      agents: { local: [childAgent] },
       contextFields: [],
-      globalSharedFields: ['userId'],
+      fields: { globallyShared: ['userId'] },
       runtime,
     });
 
@@ -4076,15 +4082,15 @@ describe('Global Shared Fields', () => {
 
     const child = agent('topic:string -> summary:string', {
       agentIdentity: { name: 'Child', description: 'A child agent' },
-      agents: [grandchild],
+      agents: { local: [grandchild] },
       contextFields: [],
       runtime,
     });
 
     agent('query:string, userId:string -> finalAnswer:string', {
-      agents: [child],
+      agents: { local: [child] },
       contextFields: [],
-      globalSharedFields: ['userId'],
+      fields: { globallyShared: ['userId'] },
       runtime,
     });
 
@@ -4112,15 +4118,15 @@ describe('Global Shared Fields', () => {
 
     const child = agent('topic:string -> summary:string', {
       agentIdentity: { name: 'Child', description: 'A child agent' },
-      agents: [grandchild],
+      agents: { local: [grandchild] },
       contextFields: [],
       runtime,
     });
 
     agent('query:string, userId:string -> finalAnswer:string', {
-      agents: [child],
+      agents: { local: [child] },
       contextFields: [],
-      globalSharedFields: ['userId'],
+      fields: { globallyShared: ['userId'] },
       runtime,
     });
 
@@ -4144,15 +4150,15 @@ describe('Global Shared Fields', () => {
 
     const child = agent('topic:string -> summary:string', {
       agentIdentity: { name: 'Child', description: 'A child agent' },
-      agents: [grandchild],
+      agents: { local: [grandchild] },
       contextFields: [],
       runtime,
     });
 
     agent('query:string, userId:string -> finalAnswer:string', {
-      agents: [child],
+      agents: { local: [child] },
       contextFields: [],
-      globalSharedFields: ['userId'],
+      fields: { globallyShared: ['userId'] },
       runtime,
     });
 
@@ -4166,21 +4172,21 @@ describe('Global Shared Fields', () => {
     const grandchild = agent('question:string -> answer:string', {
       agentIdentity: { name: 'Grandchild', description: 'A grandchild' },
       contextFields: [],
-      excludeSharedFields: ['userId'],
+      fields: { excluded: ['userId'] },
       runtime,
     });
 
     const child = agent('topic:string -> summary:string', {
       agentIdentity: { name: 'Child', description: 'A child agent' },
-      agents: [grandchild],
+      agents: { local: [grandchild] },
       contextFields: [],
       runtime,
     });
 
     agent('query:string, userId:string -> finalAnswer:string', {
-      agents: [child],
+      agents: { local: [child] },
       contextFields: [],
-      globalSharedFields: ['userId'],
+      fields: { globallyShared: ['userId'] },
       runtime,
     });
 
@@ -4208,15 +4214,15 @@ describe('Global Shared Fields', () => {
 
     const child = agent('topic:string -> summary:string', {
       agentIdentity: { name: 'Child', description: 'A child agent' },
-      agents: [grandchild],
+      agents: { local: [grandchild] },
       contextFields: [],
       runtime,
     });
 
     agent('query:string, context:string, userId:string -> finalAnswer:string', {
-      agents: [child],
+      agents: { local: [child] },
       contextFields: ['context'],
-      globalSharedFields: ['context', 'userId'],
+      fields: { globallyShared: ['context', 'userId'] },
       runtime,
     });
 
@@ -4239,9 +4245,9 @@ describe('Global Shared Fields', () => {
     });
 
     agent('query:string, userId:string -> finalAnswer:string', {
-      agents: [child],
+      agents: { local: [child] },
       contextFields: [],
-      globalSharedFields: ['userId'],
+      fields: { globallyShared: ['userId'] },
       runtime,
     });
 
@@ -4296,9 +4302,9 @@ describe('getFunction() parameter schema', () => {
 
     // Create parent that injects 'userId' as a shared field
     agent('query:string, userId:string -> answer:string', {
-      agents: [childAgent],
+      agents: { local: [childAgent] },
       contextFields: [],
-      sharedFields: ['userId'],
+      fields: { shared: ['userId'] },
       runtime,
     });
 
@@ -4321,9 +4327,9 @@ describe('getFunction() parameter schema', () => {
     );
 
     agent('query:string, userId:string -> answer:string', {
-      agents: [childAgent],
+      agents: { local: [childAgent] },
       contextFields: [],
-      sharedFields: ['userId'],
+      fields: { shared: ['userId'] },
       runtime,
     });
 
@@ -4336,14 +4342,14 @@ describe('getFunction() parameter schema', () => {
     const childAgent = agent('question:string -> answer:string', {
       agentIdentity: { name: 'Child', description: 'A child agent' },
       contextFields: [],
-      excludeSharedFields: ['userId'],
+      fields: { excluded: ['userId'] },
       runtime,
     });
 
     agent('query:string, userId:string -> answer:string', {
-      agents: [childAgent],
+      agents: { local: [childAgent] },
       contextFields: [],
-      sharedFields: ['userId'],
+      fields: { shared: ['userId'] },
       runtime,
     });
 
@@ -4360,9 +4366,9 @@ describe('getFunction() parameter schema', () => {
     });
 
     agent('query:string, userId:string, sessionId:string -> answer:string', {
-      agents: [childAgent],
+      agents: { local: [childAgent] },
       contextFields: [],
-      sharedFields: ['userId', 'sessionId'],
+      fields: { shared: ['userId', 'sessionId'] },
       runtime,
     });
 
@@ -4383,16 +4389,16 @@ describe('getFunction() parameter schema', () => {
 
     const child = agent('topic:string -> summary:string', {
       agentIdentity: { name: 'Child', description: 'A child agent' },
-      agents: [grandchild],
+      agents: { local: [grandchild] },
       contextFields: [],
-      sharedFields: ['topic'],
+      fields: { shared: ['topic'] },
       runtime,
     });
 
     agent('query:string, userId:string, topic:string -> finalAnswer:string', {
-      agents: [child],
+      agents: { local: [child] },
       contextFields: [],
-      sharedFields: ['userId', 'topic'],
+      fields: { shared: ['userId', 'topic'] },
       runtime,
     });
 
@@ -4459,18 +4465,19 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
     expect(result).toContain('limit?: number'); // optional — has ?
   });
 
-  it('should render ### Available Tool Functions section when functions are provided', () => {
+  it('should render ### Available Functions section when agentFunctions are provided', () => {
     const result = axBuildActorDefinition(undefined, [], [], {
-      functions: [
+      agentFunctions: [
         {
           name: 'fetchData',
           description: 'Fetches remote data',
           parameters: sampleSchema,
+          namespace: 'utils',
         },
       ],
     });
-    expect(result).toContain('### Available Tool Functions');
-    expect(result).toContain('await fetchData(');
+    expect(result).toContain('### Available Functions');
+    expect(result).toContain('async function utils.fetchData(');
     expect(result).toContain('Fetches remote data');
   });
 
@@ -4479,15 +4486,17 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
     expect(result).not.toContain('### Available Sub-Agents');
   });
 
-  it('should omit functions section when functions array is empty', () => {
-    const result = axBuildActorDefinition(undefined, [], [], { functions: [] });
-    expect(result).not.toContain('### Available Tool Functions');
+  it('should omit functions section when agentFunctions array is empty', () => {
+    const result = axBuildActorDefinition(undefined, [], [], {
+      agentFunctions: [],
+    });
+    expect(result).not.toContain('### Available Functions');
   });
 
   it('should omit both sections when neither option is provided', () => {
     const result = axBuildActorDefinition(undefined, [], [], {});
     expect(result).not.toContain('### Available Sub-Agents');
-    expect(result).not.toContain('### Available Tool Functions');
+    expect(result).not.toContain('### Available Functions');
   });
 
   it('should render {} for agent with undefined parameters', () => {
@@ -4542,8 +4551,13 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
       required: ['ids'],
     };
     const result = axBuildActorDefinition(undefined, [], [], {
-      functions: [
-        { name: 'batchFetch', description: 'desc', parameters: arraySchema },
+      agentFunctions: [
+        {
+          name: 'batchFetch',
+          description: 'desc',
+          parameters: arraySchema,
+          namespace: 'utils',
+        },
       ],
     });
     expect(result).toContain('ids: string[]');
@@ -4574,8 +4588,13 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
       required: ['verbose'],
     };
     const result = axBuildActorDefinition(undefined, [], [], {
-      functions: [
-        { name: 'configure', description: 'desc', parameters: boolSchema },
+      agentFunctions: [
+        {
+          name: 'configure',
+          description: 'desc',
+          parameters: boolSchema,
+          namespace: 'utils',
+        },
       ],
     });
     expect(result).toContain('verbose: boolean');
@@ -4608,7 +4627,7 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
     });
 
     const parentAgent = agent('query:string -> finalAnswer:string', {
-      agents: [childAgent],
+      agents: { local: [childAgent] },
       contextFields: [],
       runtime,
     });
@@ -4624,16 +4643,18 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
     expect(actorDescription).toContain('question: string');
   });
 
-  it('actor program description should include tool function descriptions end-to-end', () => {
+  it('actor program description should include agent function descriptions end-to-end', () => {
     const parentAgent = agent('query:string -> finalAnswer:string', {
-      functions: [
-        {
-          name: 'lookupData',
-          description: 'Looks up data in the database',
-          parameters: sampleSchema,
-          func: async () => 'result',
-        },
-      ],
+      functions: {
+        local: [
+          {
+            name: 'lookupData',
+            description: 'Looks up data in the database',
+            parameters: sampleSchema,
+            func: async () => 'result',
+          },
+        ],
+      },
       contextFields: [],
       runtime,
     });
@@ -4643,8 +4664,437 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
       .getSignature()
       .getDescription();
 
-    expect(actorDescription).toContain('### Available Tool Functions');
-    expect(actorDescription).toContain('await lookupData(');
+    expect(actorDescription).toContain('### Available Functions');
+    expect(actorDescription).toContain('async function utils.lookupData(');
     expect(actorDescription).toContain('Looks up data in the database');
+  });
+});
+
+// ----- AxAgentFunction tests -----
+
+describe('AxAgentFunction', () => {
+  const runtime: AxCodeRuntime = {
+    getUsageInstructions: () => '',
+    createSession() {
+      return { execute: async () => 'ok', close: () => {} };
+    },
+  };
+
+  it('should register agent functions under default "utils" namespace in runtime globals', () => {
+    const myAgent = new AxAgent(
+      { signature: 'query:string -> answer:string' },
+      {
+        contextFields: [],
+        runtime,
+        functions: {
+          local: [
+            {
+              name: 'fetchData',
+              description: 'Fetches data',
+              parameters: {
+                type: 'object',
+                properties: { url: { type: 'string' } },
+                required: ['url'],
+              },
+              func: async () => 'result',
+            },
+          ],
+        },
+      }
+    );
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const globals = (myAgent as any).buildRuntimeGlobals();
+    expect(globals).toHaveProperty('utils');
+    expect(globals.utils).toHaveProperty('fetchData');
+    expect(typeof globals.utils.fetchData).toBe('function');
+  });
+
+  it('should register agent functions under custom namespace', () => {
+    const myAgent = new AxAgent(
+      { signature: 'query:string -> answer:string' },
+      {
+        contextFields: [],
+        runtime,
+        functions: {
+          local: [
+            {
+              name: 'processImage',
+              description: 'Processes an image',
+              parameters: {
+                type: 'object',
+                properties: { url: { type: 'string' } },
+                required: ['url'],
+              },
+              namespace: 'media',
+              func: async () => 'processed',
+            },
+          ],
+        },
+      }
+    );
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const globals = (myAgent as any).buildRuntimeGlobals();
+    expect(globals).toHaveProperty('media');
+    expect(globals.media).toHaveProperty('processImage');
+    expect(globals).not.toHaveProperty('utils');
+  });
+
+  it('should throw on reserved namespace', () => {
+    for (const ns of ['agents', 'llmQuery', 'final', 'ask_clarification']) {
+      expect(
+        () =>
+          new AxAgent(
+            { signature: 'query:string -> answer:string' },
+            {
+              contextFields: [],
+              runtime,
+              functions: {
+                local: [
+                  {
+                    name: 'badFn',
+                    description: 'bad',
+                    parameters: { type: 'object', properties: {} },
+                    namespace: ns,
+                    func: async () => 'x',
+                  },
+                ],
+              },
+            }
+          )
+      ).toThrow(`Agent function namespace "${ns}" is reserved`);
+    }
+  });
+
+  it('should render agent functions in actor prompt with namespace', () => {
+    const myAgent = agent('query:string -> answer:string', {
+      contextFields: [],
+      runtime,
+      functions: {
+        local: [
+          {
+            name: 'searchDB',
+            description: 'Searches the database',
+            parameters: {
+              type: 'object',
+              properties: {
+                query: { type: 'string', description: 'Search query' },
+                limit: { type: 'number', description: 'Max results' },
+              },
+              required: ['query'],
+            },
+            returns: {
+              type: 'object',
+              properties: {
+                results: {
+                  type: 'array',
+                  items: { type: 'string' },
+                  description: 'Results',
+                },
+              },
+            },
+            namespace: 'db',
+            func: async () => [],
+          },
+        ],
+      },
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const actorDesc = (myAgent as any).actorProgram
+      .getSignature()
+      .getDescription();
+
+    expect(actorDesc).toContain('### Available Functions');
+    expect(actorDesc).toContain('async function db.searchDB(');
+    expect(actorDesc).toContain('Searches the database');
+    expect(actorDesc).toContain('query: string');
+    expect(actorDesc).toContain('limit?: number');
+    expect(actorDesc).toContain('results: string[]');
+  });
+
+  it('should propagate shared agent functions to direct children', () => {
+    const sharedFn: AxAgentFunction = {
+      name: 'sharedUtil',
+      description: 'A shared utility',
+      parameters: {
+        type: 'object',
+        properties: { input: { type: 'string' } },
+        required: ['input'],
+      },
+      func: async () => 'shared-result',
+    };
+
+    const child = agent('question:string -> answer:string', {
+      agentIdentity: { name: 'Child', description: 'A child' },
+      contextFields: [],
+      runtime,
+    });
+
+    agent('query:string -> finalAnswer:string', {
+      agents: { local: [child] },
+      contextFields: [],
+      runtime,
+      functions: { shared: [sharedFn] },
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const childFunctions = (child as any).agentFunctions as AxAgentFunction[];
+    expect(childFunctions.map((f) => f.name)).toContain('sharedUtil');
+  });
+
+  it('should NOT propagate shared agent functions to grandchildren', () => {
+    const sharedFn: AxAgentFunction = {
+      name: 'sharedUtil',
+      description: 'A shared utility',
+      parameters: {
+        type: 'object',
+        properties: { input: { type: 'string' } },
+        required: ['input'],
+      },
+      func: async () => 'shared-result',
+    };
+
+    const grandchild = agent('question:string -> answer:string', {
+      agentIdentity: { name: 'Grandchild', description: 'A grandchild' },
+      contextFields: [],
+      runtime,
+    });
+
+    const child = agent('topic:string -> summary:string', {
+      agentIdentity: { name: 'Child', description: 'A child' },
+      agents: { local: [grandchild] },
+      contextFields: [],
+      runtime,
+    });
+
+    agent('query:string -> finalAnswer:string', {
+      agents: { local: [child] },
+      contextFields: [],
+      runtime,
+      functions: { shared: [sharedFn] },
+    });
+
+    // Child should have it
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const childFunctions = (child as any).agentFunctions as AxAgentFunction[];
+    expect(childFunctions.map((f) => f.name)).toContain('sharedUtil');
+
+    // Grandchild should NOT have it
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const grandchildFunctions = (grandchild as any)
+      .agentFunctions as AxAgentFunction[];
+    expect(grandchildFunctions.map((f) => f.name)).not.toContain('sharedUtil');
+  });
+
+  it('should propagate globallyShared agent functions to all descendants', () => {
+    const globalFn: AxAgentFunction = {
+      name: 'globalUtil',
+      description: 'A global utility',
+      parameters: {
+        type: 'object',
+        properties: { input: { type: 'string' } },
+        required: ['input'],
+      },
+      func: async () => 'global-result',
+    };
+
+    const grandchild = agent('question:string -> answer:string', {
+      agentIdentity: { name: 'Grandchild', description: 'A grandchild' },
+      contextFields: [],
+      runtime,
+    });
+
+    const child = agent('topic:string -> summary:string', {
+      agentIdentity: { name: 'Child', description: 'A child' },
+      agents: { local: [grandchild] },
+      contextFields: [],
+      runtime,
+    });
+
+    agent('query:string -> finalAnswer:string', {
+      agents: { local: [child] },
+      contextFields: [],
+      runtime,
+      functions: { globallyShared: [globalFn] },
+    });
+
+    // Child should have it
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const childFunctions = (child as any).agentFunctions as AxAgentFunction[];
+    expect(childFunctions.map((f) => f.name)).toContain('globalUtil');
+
+    // Grandchild should ALSO have it
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const grandchildFunctions = (grandchild as any)
+      .agentFunctions as AxAgentFunction[];
+    expect(grandchildFunctions.map((f) => f.name)).toContain('globalUtil');
+  });
+
+  it('should respect functions.excluded to block shared agent functions', () => {
+    const sharedFn: AxAgentFunction = {
+      name: 'blockedFn',
+      description: 'Should be blocked',
+      parameters: {
+        type: 'object',
+        properties: { input: { type: 'string' } },
+        required: ['input'],
+      },
+      func: async () => 'blocked',
+    };
+
+    const child = agent('question:string -> answer:string', {
+      agentIdentity: { name: 'Child', description: 'A child' },
+      contextFields: [],
+      runtime,
+      functions: { excluded: ['blockedFn'] },
+    });
+
+    agent('query:string -> finalAnswer:string', {
+      agents: { local: [child] },
+      contextFields: [],
+      runtime,
+      functions: { shared: [sharedFn] },
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const childFunctions = (child as any).agentFunctions as AxAgentFunction[];
+    expect(childFunctions.map((f) => f.name)).not.toContain('blockedFn');
+  });
+
+  it('should throw on duplicate agent function propagated from parent', () => {
+    const fn1: AxAgentFunction = {
+      name: 'dupFn',
+      description: 'First',
+      parameters: { type: 'object', properties: {} },
+      func: async () => 'a',
+    };
+
+    const fn2: AxAgentFunction = {
+      name: 'dupFn',
+      description: 'Second',
+      parameters: { type: 'object', properties: {} },
+      func: async () => 'b',
+    };
+
+    const child = agent('question:string -> answer:string', {
+      agentIdentity: { name: 'Child', description: 'A child' },
+      contextFields: [],
+      runtime,
+    });
+
+    expect(() =>
+      agent('query:string -> finalAnswer:string', {
+        agents: { local: [child] },
+        contextFields: [],
+        runtime,
+        functions: { shared: [fn1, fn2] },
+      })
+    ).toThrow(/Duplicate shared agent function/);
+  });
+
+  it('should skip shared function when child already defines it locally', () => {
+    const localFn: AxAgentFunction = {
+      name: 'myFn',
+      description: 'Child version',
+      parameters: { type: 'object', properties: {} },
+      func: async () => 'child-version',
+    };
+
+    const parentSharedFn: AxAgentFunction = {
+      name: 'myFn',
+      description: 'Parent version',
+      parameters: { type: 'object', properties: {} },
+      func: async () => 'parent-version',
+    };
+
+    const child = agent('question:string -> answer:string', {
+      agentIdentity: { name: 'Child', description: 'A child' },
+      contextFields: [],
+      runtime,
+      functions: { local: [localFn] },
+    });
+
+    // Should NOT throw — child owns it locally
+    agent('query:string -> finalAnswer:string', {
+      agents: { local: [child] },
+      contextFields: [],
+      runtime,
+      functions: { shared: [parentSharedFn] },
+    });
+
+    // Child should still have its own version
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const childFunctions = (child as any).agentFunctions as AxAgentFunction[];
+    const myFn = childFunctions.find((f) => f.name === 'myFn');
+    expect(myFn?.description).toBe('Child version');
+  });
+
+  it('should respect agents.excluded to block shared agents', () => {
+    const utilityAgent = agent('taskInput:string -> taskOutput:string', {
+      agentIdentity: { name: 'Utility', description: 'A utility agent' },
+      contextFields: [],
+      runtime,
+    });
+
+    const child = agent('question:string -> answer:string', {
+      agentIdentity: { name: 'Child', description: 'A child' },
+      contextFields: [],
+      runtime,
+      agents: { excluded: ['utility'] },
+    });
+
+    agent('query:string -> finalAnswer:string', {
+      agents: { local: [child], shared: [utilityAgent] },
+      contextFields: [],
+      runtime,
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const childAgents = (child as any).agents as any[] | undefined;
+    const childAgentNames = (childAgents ?? []).map(
+      (a: any) => a.getFunction().name
+    );
+    expect(childAgentNames).not.toContain('utility');
+  });
+
+  it('should dedup agent functions by namespace.name across namespaces', () => {
+    const fn1: AxAgentFunction = {
+      name: 'process',
+      description: 'Utils process',
+      parameters: { type: 'object', properties: {} },
+      namespace: 'utils',
+      func: async () => 'a',
+    };
+
+    const fn2: AxAgentFunction = {
+      name: 'process',
+      description: 'Media process',
+      parameters: { type: 'object', properties: {} },
+      namespace: 'media',
+      func: async () => 'b',
+    };
+
+    // Same name different namespace — should NOT throw
+    const child = agent('question:string -> answer:string', {
+      agentIdentity: { name: 'Child', description: 'A child' },
+      contextFields: [],
+      runtime,
+    });
+
+    agent('query:string -> finalAnswer:string', {
+      agents: { local: [child] },
+      contextFields: [],
+      runtime,
+      functions: { shared: [fn1, fn2] },
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const childFunctions = (child as any).agentFunctions as AxAgentFunction[];
+    expect(childFunctions).toHaveLength(2);
+    expect(childFunctions.map((f) => `${f.namespace}.${f.name}`)).toEqual(
+      expect.arrayContaining(['utils.process', 'media.process'])
+    );
   });
 });

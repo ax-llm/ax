@@ -1,6 +1,6 @@
 import {
   AxAIGoogleGeminiModel,
-  type AxFunction,
+  type AxAgentFunction,
   AxJSRuntime,
   agent,
   ai,
@@ -78,7 +78,7 @@ const opentableAPI = ({
 };
 
 // List of functions available to the AI
-const functions: AxFunction[] = [
+const functions: AxAgentFunction[] = [
   {
     name: 'getCurrentWeather',
     description: 'get the current weather for a location',
@@ -127,6 +127,7 @@ const functions: AxFunction[] = [
   {
     name: 'getDateTimestamp',
     description: 'Get the current date and time',
+    parameters: { type: 'object', properties: {} },
     func: async () => {
       return new Date().toISOString();
     },
@@ -181,7 +182,7 @@ const sig = s(
 );
 
 const gen = agent(sig, {
-  functions,
+  functions: { local: functions },
   contextFields: [],
   runtime: new AxJSRuntime(),
 });

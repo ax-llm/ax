@@ -55,17 +55,44 @@ const myAgent = agent('input:string -> output:string', {
     description: 'Does something useful and interesting with inputs',
   },
 
+  // Required when using context fields
+  contextFields: ['largeDoc'],        // Fields removed from LLM prompt; available as JS runtime vars
+
   // Optional
   ai: llm,                            // Bind a specific AI service
-  functions: [searchTool, calcTool],   // Tool functions
-  agents: [childAgent1, childAgent2],  // Child agents
-  maxSteps: 25,                        // Max reasoning steps (default: 25)
-  maxRetries: 3,                       // Retries on assertion failures
-  temperature: 0.7,                    // Sampling temperature
   debug: false,                        // Debug logging
 
-  // RLM mode (see RLM section below)
-  rlm: { ... },
+  // Child agents and sharing
+  agents: {
+    local: [childAgent1, childAgent2],    // Callable under agents.* in this agent
+    shared: [utilityAgent],               // Propagated one level to direct children
+    globallyShared: [loggerAgent],        // Propagated recursively to all descendants
+    excluded: ['agentName'],              // Agent names NOT to receive from parents
+  },
+
+  // Field sharing
+  fields: {
+    shared: ['userId'],                   // Passed to direct child agents
+    globallyShared: ['sessionId'],        // Passed to all descendants
+    excluded: ['field'],                  // Fields NOT to receive from parents
+  },
+
+  // Agent functions (namespaced JS runtime globals)
+  functions: {
+    local: [myAgentFn],                   // Available in this agent's JS runtime
+    shared: [sharedFn],                   // Propagated one level to direct children
+    globallyShared: [globalFn],           // Propagated recursively to all descendants
+    excluded: ['fnName'],                 // Function names NOT to receive from parents
+  },
+
+  // RLM limits (see RLM section below)
+  maxLlmCalls: 50,                       // Sub-agent call cap (default: 50)
+  maxRuntimeChars: 5000,                 // Runtime payload size cap (default: 5000)
+  maxTurns: 10,                          // Actor loop turn cap (default: 10)
+
+  actorOptions: { description: '...' },   // Extra guidance appended to Actor prompt
+  responderOptions: { description: '...' }, // Extra guidance appended to Responder prompt
+  recursionOptions: { maxDepth: 2 },      // llmQuery sub-agent options
 });
 ```
 
@@ -73,13 +100,9 @@ const myAgent = agent('input:string -> output:string', {
 
 Required when the agent is used as a child agent. Contains `name` (converted to camelCase for the function name, e.g. `'Physics Researcher'` becomes `physicsResearcher`) and `description` (shown to parent agents when they decide which child to call).
 
-### `functions`
-
-An array of tool functions the agent can call. Each function has a name, description, JSON Schema parameters, and an implementation.
-
 ### `agents`
 
-An array of child agents. When provided, the agent can delegate subtasks to these children. See [Child Agents](#child-agents).
+Grouped child agent configuration. `local` are callable under `agents.*` in this agent's JS runtime. See [Child Agents](#child-agents).
 
 ## Running Agents
 
@@ -237,10 +260,11 @@ const summarizer = agent(
       name: 'Science Summarizer',
       description: 'Summarizer can write short summaries of advanced science topics',
     },
+    contextFields: [],
+    actorOptions: {
+      description: 'Use numbered bullet points to summarize the answer in order of importance.',
+    },
   }
-);
-summarizer.setActorDescription(
-  'You are a science summarizer. You can write short summaries of advanced science topics. Use numbered bullet points to summarize the answer in order of importance.'
 );
 
 const scientist = agent('question:string -> answer:string', {
@@ -248,7 +272,8 @@ const scientist = agent('question:string -> answer:string', {
     name: 'Scientist',
     description: 'An agent that can answer advanced science questions',
   },
-  agents: [researcher, summarizer],
+  contextFields: [],
+  agents: { local: [researcher, summarizer] },
 });
 
 const result = await scientist.forward(llm, {
@@ -260,104 +285,176 @@ const result = await scientist.forward(llm, {
 
 When a parent and child agent share input field names, the parent automatically passes those values to the child. For example, if the parent has `question:string` and a child also expects `question:string`, the parent's value is injected automatically — the LLM doesn't need to re-type it.
 
+## Agent Functions (`AxAgentFunction`)
+
+Agent functions are registered as namespaced globals in the JS runtime. Unlike child agents (which are called via `await agents.<name>(...)`), agent functions are rendered directly in the Actor prompt as callable JS APIs.
+
+```typescript
+import { agent, type AxAgentFunction } from '@ax-llm/ax';
+
+const search: AxAgentFunction = {
+  name: 'search',
+  namespace: 'db',              // callable as db.search(...) in JS runtime
+  description: 'Search the product catalog',
+  parameters: {
+    type: 'object',
+    properties: {
+      query: { type: 'string' },
+      limit: { type: 'number' },
+    },
+    required: ['query'],
+  },
+  returns: {
+    type: 'object',
+    properties: {
+      results: { type: 'array', items: { type: 'string' } },
+    },
+  },
+  func: async ({ query, limit = 5 }) => {
+    return { results: [`result for ${query}`] };
+  },
+};
+
+const shopAssistant = agent(
+  'userQuery:string, catalog:string[] -> answer:string',
+  {
+    agentIdentity: { name: 'shopAssistant', description: 'Answers product questions' },
+    contextFields: ['catalog'],
+    functions: { local: [search] },
+  }
+);
+```
+
+The Actor prompt will include:
+
+```
+### Available Functions
+```javascript
+// db namespace
+// Search the product catalog
+async function db.search({ query: string, limit?: number }): Promise<{ results: string[] }>
+```
+```
+
+Key rules:
+- Default namespace is `'utils'` if omitted (callable as `utils.fnName(...)`)
+- Reserved namespaces: `agents`, `llmQuery`, `final`, `ask_clarification`
+- `parameters` is required; `returns` is optional but shown in the prompt
+- Use `functions.shared` / `functions.globallyShared` to propagate to child agents
+
 ## Shared Fields and Agents
 
-When composing agent hierarchies, you often need to pass data or utility agents to child agents without requiring the parent's LLM to explicitly route them. AxAgent provides four options for this:
+When composing agent hierarchies, you often need to pass data or utility agents to child agents without requiring the parent's LLM to explicitly route them. AxAgent provides grouped `fields`, `agents`, and `functions` options with three propagation levels each.
 
-### `sharedFields` — Pass fields to direct children (one level)
+### `fields.shared` — Pass fields to direct children (one level)
 
-Fields listed in `sharedFields` are automatically injected into direct child agents at runtime. They bypass the parent's LLM entirely — the Actor never sees them in its prompt.
+Fields listed in `fields.shared` are automatically injected into direct child agents at runtime. They bypass the parent's LLM entirely.
 
 ```typescript
 const childAgent = agent('question:string -> answer:string', {
   agentIdentity: { name: 'Child', description: 'Answers questions' },
+  contextFields: [],
 });
 
 const parentAgent = agent('query:string, userId:string, knowledgeBase:string -> answer:string', {
-  agents: [childAgent],
   contextFields: ['knowledgeBase'],
-  sharedFields: ['userId'],       // userId is injected into child agents automatically
+  agents: { local: [childAgent] },
+  fields: { shared: ['userId'] },   // userId is injected into child agents automatically
 });
 ```
 
 - `userId` is removed from the parent's Actor/Responder prompts
 - `userId` is automatically injected into every call to child agents
-- Children can opt out via `excludeSharedFields: ['userId']`
+- Children can opt out via `fields: { excluded: ['userId'] }`
 
-### `globalSharedFields` — Pass fields to ALL descendants (recursive)
+### `fields.globallyShared` — Pass fields to ALL descendants (recursive)
 
-Like `sharedFields`, but propagates through the entire agent tree — children, grandchildren, and beyond.
+Like `fields.shared`, but propagates through the entire agent tree — children, grandchildren, and beyond.
 
 ```typescript
 const grandchild = agent('question:string -> answer:string', {
   agentIdentity: { name: 'Grandchild', description: 'Answers questions' },
+  contextFields: [],
 });
 
 const child = agent('topic:string -> summary:string', {
   agentIdentity: { name: 'Child', description: 'Summarizes topics' },
-  agents: [grandchild],
+  contextFields: [],
+  agents: { local: [grandchild] },
 });
 
 const parent = agent('query:string, sessionId:string -> answer:string', {
-  agents: [child],
-  globalSharedFields: ['sessionId'],   // sessionId reaches child AND grandchild
+  contextFields: [],
+  agents: { local: [child] },
+  fields: { globallyShared: ['sessionId'] },   // sessionId reaches child AND grandchild
 });
 ```
 
-- Values chain automatically: parent injects to child, child injects to grandchild
-- `excludeSharedFields` is respected at every level
+### `agents.shared` — Add agents to direct children (one level)
 
-### `sharedAgents` — Add agents to direct children (one level)
-
-Utility agents listed in `sharedAgents` are added to every direct child agent's available agents list.
+Utility agents listed in `agents.shared` are added to every direct child agent's available agents list.
 
 ```typescript
 const logger = agent('message:string -> logResult:string', {
   agentIdentity: { name: 'Logger', description: 'Logs messages for debugging' },
+  contextFields: [],
 });
 
 const worker = agent('task:string -> result:string', {
   agentIdentity: { name: 'Worker', description: 'Performs tasks' },
+  contextFields: [],
 });
 
 const parent = agent('query:string -> answer:string', {
-  agents: [worker],
-  sharedAgents: [logger],   // worker can now call agents.logger(...)
+  contextFields: [],
+  agents: {
+    local: [worker],
+    shared: [logger],   // worker can now call agents.logger(...)
+  },
 });
 ```
 
-### `globalSharedAgents` — Add agents to ALL descendants (recursive)
+### `agents.globallyShared` — Add agents to ALL descendants (recursive)
 
-Like `sharedAgents`, but propagates through the entire agent tree.
+Like `agents.shared`, but propagates through the entire agent tree.
 
 ```typescript
 const logger = agent('message:string -> logResult:string', {
   agentIdentity: { name: 'Logger', description: 'Logs messages for debugging' },
+  contextFields: [],
 });
 
 const grandchild = agent('question:string -> answer:string', {
   agentIdentity: { name: 'Grandchild', description: 'Answers questions' },
+  contextFields: [],
 });
 
 const child = agent('topic:string -> summary:string', {
   agentIdentity: { name: 'Child', description: 'Summarizes topics' },
-  agents: [grandchild],
+  contextFields: [],
+  agents: { local: [grandchild] },
 });
 
 const parent = agent('query:string -> answer:string', {
-  agents: [child],
-  globalSharedAgents: [logger],   // both child AND grandchild can call agents.logger(...)
+  contextFields: [],
+  agents: {
+    local: [child],
+    globallyShared: [logger],   // both child AND grandchild can call agents.logger(...)
+  },
 });
 ```
 
-### `excludeSharedFields`
+### `fields.excluded` / `agents.excluded` / `functions.excluded`
 
-Any child agent can opt out of receiving specific shared fields (both `sharedFields` and `globalSharedFields`):
+Any child agent can opt out of receiving specific shared fields, agents, or functions from parents:
 
 ```typescript
 const sentiment = agent('text:string -> sentiment:string', {
   agentIdentity: { name: 'Sentiment', description: 'Analyzes sentiment' },
-  excludeSharedFields: ['userId'],   // Does not receive userId even if parent shares it
+  contextFields: [],
+  fields: { excluded: ['userId'] },      // Does not receive userId from parents
+  agents: { excluded: ['loggerAgent'] }, // Does not receive logger from parents
+  functions: { excluded: ['searchFn'] }, // Does not receive searchFn from parents
 });
 ```
 
@@ -379,7 +476,7 @@ When you pass a long document to an LLM, you face:
    - **Actor** — A code generation agent that writes JavaScript to analyze context data. It NEVER generates final answers directly.
    - **Responder** — An answer synthesis agent that produces the final answer from the Actor's `actorResult` payload. It NEVER generates code.
 3. **Recursive queries** — Inside code, `llmQuery(...)` delegates semantic work to a sub-query (plain AxGen in simple mode, full AxAgent in advanced mode).
-4. **Completion** — The Actor signals completion by calling `submit(...args)` or asks for more user input with `ask_clarification(...args)`, then the Responder synthesizes the final answer.
+4. **Completion** — The Actor signals completion by calling `final(...args)` or asks for more user input with `ask_clarification(...args)`, then the Responder synthesizes the final answer.
 
 The Actor writes JavaScript code to inspect, filter, and iterate over the document. It uses `llmQuery` for semantic analysis and can chunk data in code before querying.
 
@@ -395,29 +492,27 @@ const analyzer = agent(
       name: 'documentAnalyzer',
       description: 'Analyzes long documents using code interpreter and sub-LM queries',
     },
-    rlm: {
-      contextFields: ['context'],                // Fields to load into runtime session
-      runtime: new AxJSRuntime(),                // Code runtime (default: AxJSRuntime)
-      maxLlmCalls: 30,                           // Cap on sub-LM calls (default: 50)
-      maxRuntimeChars: 2_000,                    // Cap for llmQuery context + code output (default: 5000)
-      maxBatchedLlmQueryConcurrency: 6,          // Max parallel batched llmQuery calls (default: 8)
-      maxTurns: 10,                              // Max Actor turns before forcing Responder (default: 10)
-      contextManagement: {                         // Semantic context management (replaces trajectoryPruning)
-        errorPruning: true,                        // Prune error entries after successful turns
-        hindsightEvaluation: true,                 // Heuristic importance scoring on entries
-        tombstoning: true,                         // Replace resolved errors with compact summaries
-        stateInspection: { contextThreshold: 2000 }, // Enable inspect_runtime() tool
-        pruneRank: 2,                              // Entries ranked below this are purged (0-5, default: 2)
-      },
-      actorFields: ['reasoning'],                  // Output fields produced by Actor instead of Responder
-      actorCallback: async (result) => {           // Called after each Actor turn
-        console.log('Actor turn:', result);
-      },
-      mode: 'simple',                              // Sub-query mode: 'simple' = AxGen, 'advanced' = AxAgent (default: 'simple')
+    contextFields: ['context'],                  // Fields to load into runtime session
+    runtime: new AxJSRuntime(),                  // Code runtime (default: AxJSRuntime)
+    maxLlmCalls: 30,                             // Cap on sub-LM calls (default: 50)
+    maxRuntimeChars: 2_000,                      // Cap for llmQuery context + code output (default: 5000)
+    maxBatchedLlmQueryConcurrency: 6,            // Max parallel batched llmQuery calls (default: 8)
+    maxTurns: 10,                                // Max Actor turns before forcing Responder (default: 10)
+    contextManagement: {                          // Semantic context management
+      errorPruning: true,                         // Prune error entries after successful turns
+      hindsightEvaluation: true,                  // Heuristic importance scoring on entries
+      tombstoning: true,                          // Replace resolved errors with compact summaries
+      stateInspection: { contextThreshold: 2000 }, // Enable inspect_runtime() tool
+      pruneRank: 2,                               // Entries ranked below this are purged (0-5, default: 2)
     },
+    actorFields: ['reasoning'],                   // Output fields produced by Actor instead of Responder
+    actorCallback: async (result) => {            // Called after each Actor turn
+      console.log('Actor turn:', result);
+    },
+    mode: 'simple',                               // Sub-query mode: 'simple' = AxGen, 'advanced' = AxAgent (default: 'simple')
     recursionOptions: {
       model: 'gpt-4o-mini',                      // Forward options for recursive llmQuery agent calls
-      maxDepth: 2,                                // Maximum recursion depth
+      maxDepth: 2,                               // Maximum recursion depth
     },
   }
 );
@@ -521,10 +616,8 @@ const analyzer = agent(sig, {
     name: 'structuredAnalyzer',
     description: 'Analyzes structured document collections using RLM',
   },
-  rlm: {
-    contextFields: ['documents'],
-    runtime: new AxJSRuntime(),
-  },
+  contextFields: ['documents'],
+  runtime: new AxJSRuntime(),
 });
 ```
 
@@ -556,7 +649,7 @@ The Actor generates JavaScript code in a `javascriptCode` output field. Each tur
 2. The runtime executes the code and returns the result
 3. The result is appended to the action log
 4. The Actor sees the updated action log and decides what to do next
-5. When the Actor calls `submit(...args)` or `ask_clarification(...args)`, the loop ends and the Responder takes over
+5. When the Actor calls `final(...args)` or `ask_clarification(...args)`, the loop ends and the Responder takes over
 
 The Actor's typical workflow:
 
@@ -566,7 +659,7 @@ The Actor's typical workflow:
 3. Use code for structural work (filter, map, regex, property access)
 4. Use llmQuery for semantic work (summarization, interpretation)
 5. Build up answers in variables across turns
-6. Signal completion by calling `submit(...args)` (or `ask_clarification(...args)` to request user input)
+6. Signal completion by calling `final(...args)` (or `ask_clarification(...args)` to request user input)
 ```
 
 ### Actor Fields
@@ -577,25 +670,21 @@ By default, all output fields from the signature go to the Responder. Use `actor
 const analyzer = agent(
   'context:string, query:string -> answer:string, reasoning:string',
   {
-    rlm: {
-      contextFields: ['context'],
-      actorFields: ['reasoning'],   // Actor produces 'reasoning', Responder produces 'answer'
-    },
+    contextFields: ['context'],
+    actorFields: ['reasoning'],   // Actor produces 'reasoning', Responder produces 'answer'
   }
 );
 ```
 
 ### Actor Callback
 
-Use `actorCallback` to observe each Actor turn. It receives the full Actor result (including `javascriptCode` and any `actorFields`) and fires every turn, including the `submit(...)`/`ask_clarification(...)` turn.
+Use `actorCallback` to observe each Actor turn. It receives the full Actor result (including `javascriptCode` and any `actorFields`) and fires every turn, including the `final(...)`/`ask_clarification(...)` turn.
 
 ```typescript
 const analyzer = agent('context:string, query:string -> answer:string', {
-  rlm: {
-    contextFields: ['context'],
-    actorCallback: async (result) => {
-      console.log('Actor code:', result.javascriptCode);
-    },
+  contextFields: ['context'],
+  actorCallback: async (result) => {
+    console.log('Actor code:', result.javascriptCode);
   },
 });
 ```
@@ -606,7 +695,7 @@ Use `actorOptions` and `responderOptions` to set different forward options (mode
 
 ```typescript
 const analyzer = agent('context:string, query:string -> answer:string', {
-  rlm: { contextFields: ['context'] },
+  contextFields: ['context'],
   actorOptions: {
     model: 'fast-model',
     thinkingTokenBudget: 1024,
@@ -626,7 +715,7 @@ Use `recursionOptions` to set default forward options for recursive `llmQuery` s
 
 ```typescript
 const analyzer = agent('context:string, query:string -> answer:string', {
-  rlm: { contextFields: ['context'] },
+  contextFields: ['context'],
   recursionOptions: {
     model: 'fast-model',
     maxDepth: 2,
@@ -639,27 +728,29 @@ Each `llmQuery` call runs a sub-query with a fresh session and the same register
 
 ### Actor/Responder Descriptions
 
-Use `setActorDescription()` and `setResponderDescription()` to append additional instructions to the Actor or Responder system prompts. The base RLM prompts are preserved; your text is appended after them.
+Use `actorOptions.description` and `responderOptions.description` to append additional instructions to the Actor or Responder system prompts. The base prompts are preserved; your text is appended after them.
 
 ```typescript
 const analyzer = agent('context:string, query:string -> answer:string', {
-  rlm: { contextFields: ['context'] },
+  contextFields: ['context'],
+  actorOptions: {
+    description: 'Focus on numerical data. Use precise calculations.',
+  },
+  responderOptions: {
+    description: 'Format answers as bullet points. Cite evidence.',
+  },
 });
-
-// Add domain-specific instructions to the Actor (code generation agent)
-analyzer.setActorDescription('Focus on numerical data. Use precise calculations.');
-
-// Add domain-specific instructions to the Responder (answer synthesis agent)
-analyzer.setResponderDescription('Format answers as bullet points. Cite evidence.');
 ```
 
-> **Note:** Signature-level descriptions (via `.description()` on the signature) are not supported on `AxAgent`. Use these methods instead to customize each sub-program independently.
+> **Note:** Signature-level descriptions (via `.description()` on the signature) are not supported on `AxAgent`. Use `actorOptions.description` / `responderOptions.description` instead to customize each sub-program independently.
 
 ### Few-Shot Demos
 
 Use `setDemos()` to provide few-shot examples that guide the Actor and Responder. Demos are keyed by program ID — use `namedPrograms()` to discover available IDs.
 
 Each demo trace must include at least one input field AND one output field. The Actor's input fields are `contextMetadata`, `actionLog`, and any non-context inputs from the original signature. The Responder's input fields are `contextMetadata`, `actorResult`, and any non-context inputs from the original signature.
+
+Note: use `final(...)` (not `submit(...)`) in Actor demo traces to signal completion.
 
 ```typescript
 analyzer.setDemos([
@@ -676,7 +767,7 @@ analyzer.setDemos([
       },
       {
         actionLog: 'Step 1 | ...\nStep 2 | llmQuery(...)\n→ The document argues about...',
-        javascriptCode: 'submit("analysis complete")',
+        javascriptCode: 'final("analysis complete")',
       },
     ],
   },
@@ -703,10 +794,10 @@ Inside the code interpreter, these functions are available as globals:
 |-----|-------------|
 | `await llmQuery(query, context)` | Ask a sub-LM a question with a context value. Returns a string. Oversized context is truncated to `maxRuntimeChars` |
 | `await llmQuery([{ query, context }, ...])` | Run multiple sub-LM queries in parallel. Returns string[]. Failed items return `[ERROR] ...`; each query still counts toward the call limit |
-| `submit(...args)` | Stop Actor execution and pass payload args to Responder. Requires at least one argument |
+| `final(...args)` | Stop Actor execution and pass payload args to Responder. Requires at least one argument |
 | `ask_clarification(...args)` | Stop Actor execution and pass clarification payload args to Responder. Requires at least one argument |
-| `await agents.<name>({...})` | Call a child agent by name. Parameters match the agent's JSON schema. Returns a string |
-| `await <toolName>({...})` | Call a tool function by name. Parameters match the tool's JSON schema |
+| `await agents.<name>({...})` | Call a child agent by name (from `agents.local`). Parameters match the agent's JSON schema. Returns a string |
+| `await <namespace>.<fnName>({...})` | Call an agent function by namespace and name (from `functions.local`). Returns the typed result |
 | `print(...args)` | Available in `AxJSRuntime` when `outputMode: 'stdout'`; captured output appears in the function result |
 | Context variables | All fields listed in `contextFields` are available by name |
 
@@ -798,9 +889,9 @@ class MyBrowserInterpreter implements AxCodeRuntime {
 The `globals` object passed to `createSession` includes:
 - All context field values (by field name)
 - `llmQuery` function (supports both single and batched queries)
-- `submit(...args)` and `ask_clarification(...args)` completion functions
+- `final(...args)` and `ask_clarification(...args)` completion functions
 - `agents` namespace object with child agent functions (e.g., `agents.summarize(...)`)
-- Tool functions as flat globals
+- Agent functions under their namespaces (e.g., `utils.myFn(...)`, `db.search(...)`)
 - `print` function when supported by the runtime (for `AxJSRuntime`, set `outputMode: 'stdout'`)
 
 If provided, `getUsageInstructions()` is appended to the RLM system prompt as runtime-specific guidance. Use it for semantics that differ by runtime (for example state persistence or async execution behavior).
@@ -891,47 +982,70 @@ interface AxCodeSession {
 interface AxAgentConfig<IN, OUT> extends AxAgentOptions {
   ai?: AxAIService;
   agentIdentity?: { name: string; description: string };
-  agents?: AxAgentic<IN, OUT>[];
-  functions?: AxInputFunctionType;
 }
 ```
 
+### `AxAgentFunction`
+
+```typescript
+type AxAgentFunction = {
+  name: string;
+  description: string;
+  parameters: AxFunctionJSONSchema;  // required
+  returns?: AxFunctionJSONSchema;    // optional output schema
+  namespace?: string;                // default: 'utils'
+  func: AxFunctionHandler;
+};
+```
+
+Agent functions are registered as namespaced globals in the JS runtime (e.g. `utils.search`, `db.query`). Reserved namespaces: `agents`, `llmQuery`, `final`, `ask_clarification`.
+
 ### `AxAgentOptions`
 
-Extends `AxProgramForwardOptions` (without `functions`) with:
+Extends `AxProgramForwardOptions` (without `functions` or `description`) with:
 
 ```typescript
 {
   debug?: boolean;
-  rlm: AxRLMConfig;
-  sharedFields?: string[];               // Input fields to pass to direct child agents (one level)
-  excludeSharedFields?: string[];        // Shared fields this agent should NOT receive from its parent
-  sharedAgents?: AxAgentic[];            // Agents to add to direct child agents (one level)
-  globalSharedFields?: string[];         // Input fields to pass to ALL descendants (recursive)
-  globalSharedAgents?: AxAgentic[];      // Agents to add to ALL descendants (recursive)
+  contextFields: string[];               // Input fields loaded into JS runtime (removed from LLM prompt)
+
+  agents?: {
+    local?: AxAnyAgentic[];              // Callable under agents.* in this agent
+    shared?: AxAnyAgentic[];             // Propagated one level to direct children
+    globallyShared?: AxAnyAgentic[];     // Propagated recursively to all descendants
+    excluded?: string[];                 // Agent names NOT to receive from parents
+  };
+
+  fields?: {
+    shared?: string[];                   // Fields passed to direct child agents
+    globallyShared?: string[];           // Fields passed to all descendants
+    excluded?: string[];                 // Fields NOT to receive from parents
+  };
+
+  functions?: {
+    local?: AxAgentFunction[];           // Namespaced globals in this agent's JS runtime
+    shared?: AxAgentFunction[];          // Propagated one level to direct children
+    globallyShared?: AxAgentFunction[];  // Propagated recursively to all descendants
+    excluded?: string[];                 // Function names NOT to receive from parents
+  };
+
+  runtime?: AxCodeRuntime;
+  maxLlmCalls?: number;
+  maxRuntimeChars?: number;
+  maxBatchedLlmQueryConcurrency?: number;
+  maxTurns?: number;
+  contextManagement?: AxContextManagementConfig;
+  actorFields?: string[];
+  actorCallback?: (result: Record<string, unknown>) => void | Promise<void>;
+  mode?: 'simple' | 'advanced';
+
   recursionOptions?: Partial<Omit<AxProgramForwardOptions, 'functions'>> & {
     maxDepth?: number;  // Maximum recursion depth for llmQuery sub-agent calls (default: 2)
   };
-  actorOptions?: Partial<AxProgramForwardOptions>;   // Default forward options for Actor
-  responderOptions?: Partial<AxProgramForwardOptions>; // Default forward options for Responder
+  actorOptions?: Partial<AxProgramForwardOptions & { description?: string }>;
+  responderOptions?: Partial<AxProgramForwardOptions & { description?: string }>;
 }
 ```
-
-### `setActorDescription()`
-
-```typescript
-public setActorDescription(additionalText: string): void
-```
-
-Appends additional text to the Actor's RLM system prompt. The base prompt is preserved; the additional text is appended after it.
-
-### `setResponderDescription()`
-
-```typescript
-public setResponderDescription(additionalText: string): void
-```
-
-Appends additional text to the Responder's RLM system prompt. The base prompt is preserved; the additional text is appended after it.
 
 ### `stop()`
 

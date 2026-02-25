@@ -127,6 +127,48 @@ export interface AxRLMConfig {
   mode?: 'simple' | 'advanced';
 }
 
+function renderReturnsInline(schema: AxFunctionJSONSchema | undefined): string {
+  if (!schema?.properties || Object.keys(schema.properties).length === 0)
+    return 'unknown';
+  const parts = Object.entries(schema.properties).map(([key, prop]) => {
+    const typeStr = schemaTypeToShortString(prop);
+    return `${key}: ${typeStr}`;
+  });
+  return `{ ${parts.join(', ')} }`;
+}
+
+function renderAgentFunctionsAsJsApi(
+  fns: ReadonlyArray<{
+    name: string;
+    description: string;
+    parameters: AxFunctionJSONSchema;
+    returns?: AxFunctionJSONSchema;
+    namespace: string;
+  }>
+): string {
+  // Group by namespace
+  const byNamespace = new Map<string, typeof fns>();
+  for (const fn of fns) {
+    const group = byNamespace.get(fn.namespace) ?? [];
+    byNamespace.set(fn.namespace, [...group, fn]);
+  }
+
+  const sections: string[] = [];
+  for (const [ns, nsFns] of byNamespace) {
+    sections.push(`// ${ns} namespace`);
+    for (const fn of nsFns) {
+      sections.push(`// ${fn.description}`);
+      const params = renderParamsInline(fn.parameters);
+      const returns = fn.returns ? renderReturnsInline(fn.returns) : 'unknown';
+      sections.push(
+        `async function ${ns}.${fn.name}(${params}): Promise<${returns}>`
+      );
+      sections.push('');
+    }
+  }
+  return sections.join('\n');
+}
+
 /**
  * Builds the Actor system prompt. The Actor is a code generation agent that
  * decides what code to execute next based on the current state. It NEVER
@@ -147,11 +189,13 @@ export function axBuildActorDefinition(
       description: string;
       parameters?: AxFunctionJSONSchema;
     }>;
-    /** Tool functions available as flat globals in the JS runtime. */
-    functions?: ReadonlyArray<{
+    /** Agent functions available under namespaced globals in the JS runtime. */
+    agentFunctions?: ReadonlyArray<{
       name: string;
       description: string;
-      parameters?: AxFunctionJSONSchema;
+      parameters: AxFunctionJSONSchema;
+      returns?: AxFunctionJSONSchema;
+      namespace: string;
     }>;
   }>
 ): string {
@@ -212,16 +256,13 @@ ${options.agents
 `
     : ''
 }${
-  options.functions && options.functions.length > 0
+  options.agentFunctions && options.agentFunctions.length > 0
     ? `
-### Available Tool Functions
-The following tool functions are available as global async functions in the runtime:
-${options.functions
-  .map(
-    (fn) =>
-      `- \`await ${fn.name}(${renderParamsInline(fn.parameters)})\` — ${fn.description}`
-  )
-  .join('\n')}
+### Available Functions
+The following functions are available under namespaced globals in the runtime:
+\`\`\`javascript
+${renderAgentFunctionsAsJsApi(options.agentFunctions)}
+\`\`\`
 `
     : ''
 }

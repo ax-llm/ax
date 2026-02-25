@@ -4,7 +4,6 @@ import type {
   AxFunctionHandler,
   AxFunctionJSONSchema,
 } from '../ai/types.js';
-import type { AxInputFunctionType } from '../dsp/functions.js';
 import { AxGen } from '../dsp/generate.js';
 import type { AxIField, AxSignatureConfig } from '../dsp/sig.js';
 import { AxSignature, f } from '../dsp/sig.js';
@@ -53,9 +52,31 @@ export interface AxAgentic<IN extends AxGenIn, OUT extends AxGenOut>
   getFunction(): AxFunction;
   /** Returns the list of shared fields this agent wants to exclude. */
   getExcludedSharedFields?(): readonly string[];
+  /** Returns the list of shared agents this agent wants to exclude (by function name). */
+  getExcludedAgents?(): readonly string[];
+  /** Returns the list of shared agent functions this agent wants to exclude (by name). */
+  getExcludedAgentFunctions?(): readonly string[];
 }
 
 type AxAnyAgentic = AxAgentic<any, any>;
+
+/**
+ * An agent function registered as a namespaced global in the JS runtime.
+ * Unlike AxGen tool functions, these:
+ * - Require a schema (parameters is mandatory)
+ * - Have an optional output schema (returns)
+ * - Are rendered into the Actor prompt as callable JS APIs
+ * - Are registered under namespace.functionName (default namespace: 'utils')
+ * - Are NOT added to the AxGen functions list
+ */
+export type AxAgentFunction = {
+  readonly name: string;
+  readonly description: string;
+  readonly parameters: AxFunctionJSONSchema;
+  readonly returns?: AxFunctionJSONSchema;
+  readonly namespace?: string;
+  readonly func: AxFunctionHandler;
+};
 
 /**
  * Demo traces for AxAgent's split architecture.
@@ -83,16 +104,41 @@ export type AxAgentOptions = Omit<
   debug?: boolean;
   /** Input fields holding long context (will be removed from the LLM prompt). */
   contextFields: string[];
-  /** Input fields to pass directly to subagents, bypassing the top-level LLM. */
-  sharedFields?: string[];
-  /** Shared fields from a parent agent that this agent should NOT receive. */
-  excludeSharedFields?: string[];
-  /** Agents to automatically add to all direct child agents (one level). */
-  sharedAgents?: AxAnyAgentic[];
-  /** Fields to pass to ALL descendants recursively (entire agent tree). */
-  globalSharedFields?: string[];
-  /** Agents to automatically add to ALL descendants recursively (entire agent tree). */
-  globalSharedAgents?: AxAnyAgentic[];
+
+  /** Child agents and agent sharing configuration. */
+  agents?: {
+    /** Agents registered under the `agents.*` namespace (local to this agent only). */
+    local?: AxAnyAgentic[];
+    /** Agents to automatically add to all direct child agents (one level). */
+    shared?: AxAnyAgentic[];
+    /** Agents to automatically add to ALL descendants recursively (entire agent tree). */
+    globallyShared?: AxAnyAgentic[];
+    /** Agent function names this agent should NOT receive from parents. */
+    excluded?: string[];
+  };
+
+  /** Field sharing configuration. */
+  fields?: {
+    /** Input fields to pass directly to subagents, bypassing the top-level LLM. */
+    shared?: string[];
+    /** Fields to pass to ALL descendants recursively (entire agent tree). */
+    globallyShared?: string[];
+    /** Shared fields from a parent agent that this agent should NOT receive. */
+    excluded?: string[];
+  };
+
+  /** Agent function configuration. */
+  functions?: {
+    /** Agent functions local to this agent (registered under namespace globals). */
+    local?: AxAgentFunction[];
+    /** Agent functions to share with direct child agents (one level). */
+    shared?: AxAgentFunction[];
+    /** Agent functions to share with ALL descendants recursively. */
+    globallyShared?: AxAgentFunction[];
+    /** Agent function names this agent should NOT receive from parents. */
+    excluded?: string[];
+  };
+
   /** Code runtime for the REPL loop (default: AxJSRuntime). */
   runtime?: AxCodeRuntime;
   /** Cap on recursive sub-LM calls (default: 50). */
@@ -168,8 +214,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private program: AxGen<IN, OUT>;
   private actorProgram!: AxGen<any, any>;
   private responderProgram!: AxGen<any, OUT>;
-  private functions?: AxInputFunctionType;
   private agents?: AxAnyAgentic[];
+  private agentFunctions: AxAgentFunction[];
   private debug?: boolean;
   private options?: Readonly<AxAgentOptions>;
   private rlmConfig: AxRLMConfig;
@@ -178,6 +224,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private sharedFieldNames: string[];
   private globalSharedFieldNames: string[];
   private excludedSharedFields: string[];
+  private excludedAgents: string[];
+  private excludedAgentFunctions: string[];
   private actorDescription?: string;
   private responderDescription?: string;
   private recursionForwardOptions?: AxAgentRecursionOptions;
@@ -191,14 +239,16 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   // Field names injected by a parent agent via shared-field propagation.
   // These are auto-injected at runtime and must not appear in getFunction().parameters.
   private _parentSharedFields: Set<string> = new Set();
+  // Agent names injected by a parent via shared-agent propagation.
+  private _parentSharedAgents: Set<string> = new Set();
+  // Agent function keys (namespace.name) injected by a parent.
+  private _parentSharedAgentFunctions: Set<string> = new Set();
 
   constructor(
     {
       ai,
       agentIdentity,
       signature,
-      agents,
-      functions,
     }: Readonly<{
       ai?: Readonly<AxAIService>;
       agentIdentity?: Readonly<{ name: string; description: string }>;
@@ -206,8 +256,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         | string
         | Readonly<AxSignatureConfig>
         | Readonly<AxSignature<IN, OUT>>;
-      agents?: AxAnyAgentic[];
-      functions?: AxInputFunctionType;
     }>,
     options: Readonly<AxAgentOptions>
   ) {
@@ -230,14 +278,14 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     } = options;
 
     this.ai = ai;
-    this.agents = agents;
-    this.functions = functions;
+    this.agents = options.agents?.local;
+    this.agentFunctions = options.functions?.local ?? [];
     this.debug = debug;
     this.options = options;
     this.runtime = runtime ?? new AxJSRuntime();
     this.rlmConfig = {
       contextFields,
-      sharedFields: options.sharedFields,
+      sharedFields: options.fields?.shared,
       runtime: this.runtime,
       maxLlmCalls,
       maxRuntimeChars,
@@ -263,10 +311,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     this.responderForwardOptions = responderForwardOptions;
 
     // Create the base program (used for signature/schema access)
-    this.program = new AxGen<IN, OUT>(signature, {
-      ...options,
-    });
+    const { agents: _a, fields: _f, functions: _fn, ...genOptions } = options;
+    this.program = new AxGen<IN, OUT>(signature, genOptions);
 
+    const agents = this.agents;
     for (const agent of agents ?? []) {
       // Use agent function name as the child name for DSPy-compatible IDs
       const childName = agent.getFunction().name;
@@ -316,8 +364,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       }
     }
 
-    // Validate sharedFields exist in signature input fields
-    const sharedFieldNames = options.sharedFields ?? [];
+    // --- Read grouped field options ---
+    const sharedFieldNames = options.fields?.shared ?? [];
     this.sharedFieldNames = sharedFieldNames;
     for (const sf of sharedFieldNames) {
       if (!inputFields.some((fld) => fld.name === sf)) {
@@ -327,10 +375,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       }
     }
 
-    this.excludedSharedFields = options.excludeSharedFields ?? [];
+    this.excludedSharedFields = options.fields?.excluded ?? [];
 
-    // Validate globalSharedFields exist in signature input fields
-    const globalSharedFieldNames = options.globalSharedFields ?? [];
+    const globalSharedFieldNames = options.fields?.globallyShared ?? [];
     this.globalSharedFieldNames = globalSharedFieldNames;
     for (const gsf of globalSharedFieldNames) {
       if (!inputFields.some((fld) => fld.name === gsf)) {
@@ -340,8 +387,33 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       }
     }
 
-    const sharedAgentsList = options.sharedAgents ?? [];
-    const globalSharedAgentsList = options.globalSharedAgents ?? [];
+    // --- Read grouped agent options ---
+    const sharedAgentsList = options.agents?.shared ?? [];
+    const globalSharedAgentsList = options.agents?.globallyShared ?? [];
+    this.excludedAgents = options.agents?.excluded ?? [];
+
+    // --- Read grouped function options ---
+    const sharedAgentFnList = options.functions?.shared ?? [];
+    const globalSharedAgentFnList = options.functions?.globallyShared ?? [];
+    this.excludedAgentFunctions = options.functions?.excluded ?? [];
+
+    // Validate reserved namespaces for agent functions
+    const RESERVED_NS = new Set([
+      'agents',
+      'llmQuery',
+      'final',
+      'ask_clarification',
+    ]);
+    for (const fn of [
+      ...this.agentFunctions,
+      ...sharedAgentFnList,
+      ...globalSharedAgentFnList,
+    ]) {
+      const ns = fn.namespace ?? 'utils';
+      if (RESERVED_NS.has(ns)) {
+        throw new Error(`Agent function namespace "${ns}" is reserved`);
+      }
+    }
 
     // Propagate shared fields to child agents (one level)
     if (sharedFieldNames.length > 0 && agents) {
@@ -396,6 +468,24 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       for (const childAgent of agents) {
         if (!(childAgent instanceof AxAgent)) continue;
         childAgent._extendForGlobalSharedAgents(globalSharedAgentsList);
+      }
+    }
+
+    // Propagate shared agent functions to direct child agents (one level)
+    if (sharedAgentFnList.length > 0 && agents) {
+      for (const childAgent of agents) {
+        if (!(childAgent instanceof AxAgent)) continue;
+        childAgent._extendForSharedAgentFunctions(sharedAgentFnList);
+      }
+    }
+
+    // Propagate global shared agent functions to ALL descendants (recursive)
+    if (globalSharedAgentFnList.length > 0 && agents) {
+      for (const childAgent of agents) {
+        if (!(childAgent instanceof AxAgent)) continue;
+        childAgent._extendForGlobalSharedAgentFunctions(
+          globalSharedAgentFnList
+        );
       }
     }
 
@@ -496,10 +586,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         };
       }) ?? [];
 
-    const functionMeta = this.collectFunctions().map((fn) => ({
+    const agentFunctionMeta = this.agentFunctions.map((fn) => ({
       name: fn.name,
       description: fn.description,
       parameters: fn.parameters,
+      returns: fn.returns,
+      namespace: fn.namespace ?? 'utils',
     }));
 
     const actorDef = axBuildActorDefinition(
@@ -512,7 +604,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         maxTurns: effectiveMaxTurns,
         hasInspectRuntime: !!this.rlmConfig.contextManagement?.stateInspection,
         agents: agentMeta,
-        functions: functionMeta,
+        agentFunctions: agentFunctionMeta,
       }
     );
 
@@ -522,12 +614,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     );
 
     this.actorProgram = new AxGen(actorSig, {
-      ...this.options,
+      ...this._genOptions,
       description: actorDef,
     });
 
     this.responderProgram = new AxGen(responderSig, {
-      ...this.options,
+      ...this._genOptions,
       description: responderDef,
     }) as unknown as AxGen<any, OUT>;
   }
@@ -546,8 +638,16 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     let modified = false;
 
     for (const field of fields) {
-      // Skip if this agent already has this field in its signature
-      if (existingInputs.some((f) => f.name === field.name)) continue;
+      if (existingInputs.some((f) => f.name === field.name)) {
+        // Already injected by a parent — duplicate propagation
+        if (this._parentSharedFields.has(field.name)) {
+          throw new Error(
+            `Duplicate shared field "${field.name}" — already propagated from a parent`
+          );
+        }
+        // Child owns this field in its own signature — skip silently
+        continue;
+      }
       // Track that this field was injected by a parent — it must not appear in
       // getFunction().parameters because wrapFunctionWithSharedFields auto-injects it.
       this._parentSharedFields.add(field.name);
@@ -580,7 +680,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
   /**
    * Extends this agent's agents list with shared agents from a parent.
-   * Called by a parent during its constructor. Avoids duplicates by function name.
+   * Called by a parent during its constructor. Throws on duplicate propagation.
    */
   private _extendForSharedAgents(newAgents: readonly AxAnyAgentic[]): void {
     if (newAgents.length === 0) return;
@@ -588,10 +688,25 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const existingNames = new Set(
       (this.agents ?? []).map((a) => a.getFunction().name)
     );
+    const excluded = new Set(this.excludedAgents);
+    const toAdd: AxAnyAgentic[] = [];
 
-    const toAdd = newAgents.filter(
-      (a) => !existingNames.has(a.getFunction().name)
-    );
+    for (const agent of newAgents) {
+      const name = agent.getFunction().name;
+      if (excluded.has(name)) continue;
+      if (existingNames.has(name)) {
+        if (this._parentSharedAgents.has(name)) {
+          throw new Error(
+            `Duplicate shared agent "${name}" — already propagated from a parent`
+          );
+        }
+        // Child owns this agent locally — skip silently
+        continue;
+      }
+      this._parentSharedAgents.add(name);
+      existingNames.add(name);
+      toAdd.push(agent);
+    }
 
     if (toAdd.length === 0) return;
 
@@ -625,7 +740,14 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     let modified = false;
 
     for (const field of fields) {
-      if (existingInputs.some((f) => f.name === field.name)) continue;
+      if (existingInputs.some((f) => f.name === field.name)) {
+        if (this._parentSharedFields.has(field.name)) {
+          throw new Error(
+            `Duplicate shared field "${field.name}" — already propagated from a parent`
+          );
+        }
+        continue;
+      }
       this._parentSharedFields.add(field.name);
       sig.addInputField(field);
       modified = true;
@@ -702,18 +824,58 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   }
 
   /**
-   * Collects tool functions (from this.functions only, not child agents).
+   * Extends this agent's agent functions list with shared agent functions
+   * from a parent. Throws on duplicate propagation.
    */
-  private collectFunctions(): AxFunction[] {
-    const result: AxFunction[] = [];
-    if (this.functions) {
-      for (const fnDef of this.functions) {
-        if (typeof fnDef === 'object' && 'func' in fnDef) {
-          result.push(fnDef as AxFunction);
+  private _extendForSharedAgentFunctions(
+    newFns: readonly AxAgentFunction[]
+  ): void {
+    if (newFns.length === 0) return;
+
+    const existingKeys = new Set(
+      this.agentFunctions.map((f) => `${f.namespace ?? 'utils'}.${f.name}`)
+    );
+    const excluded = new Set(this.excludedAgentFunctions);
+    const toAdd: AxAgentFunction[] = [];
+
+    for (const fn of newFns) {
+      if (excluded.has(fn.name)) continue;
+      const key = `${fn.namespace ?? 'utils'}.${fn.name}`;
+      if (existingKeys.has(key)) {
+        if (this._parentSharedAgentFunctions.has(key)) {
+          throw new Error(
+            `Duplicate shared agent function "${key}" — already propagated from a parent`
+          );
         }
+        // Child owns this function locally — skip silently
+        continue;
       }
+      this._parentSharedAgentFunctions.add(key);
+      existingKeys.add(key);
+      toAdd.push(fn);
     }
-    return result;
+
+    if (toAdd.length === 0) return;
+    this.agentFunctions = [...this.agentFunctions, ...toAdd];
+    this._buildSplitPrograms();
+  }
+
+  /**
+   * Extends this agent and all its descendants with globally shared agent functions.
+   */
+  private _extendForGlobalSharedAgentFunctions(
+    newFns: readonly AxAgentFunction[]
+  ): void {
+    // Collect children BEFORE extending to avoid recursing into newly added items
+    const childrenToRecurse = this.agents
+      ? this.agents.filter((a): a is AxAgent<any, any> => a instanceof AxAgent)
+      : [];
+
+    this._extendForSharedAgentFunctions(newFns);
+
+    for (const childAgent of childrenToRecurse) {
+      childAgent._extendForGlobalSharedAgentFunctions(newFns);
+    }
   }
 
   /**
@@ -804,6 +966,14 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
   public getExcludedSharedFields(): readonly string[] {
     return this.excludedSharedFields;
+  }
+
+  public getExcludedAgents(): readonly string[] {
+    return this.excludedAgents;
+  }
+
+  public getExcludedAgentFunctions(): readonly string[] {
+    return this.excludedAgentFunctions;
   }
 
   public getSignature(): AxSignature {
@@ -949,12 +1119,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         const advancedAgent = new AxAgent<any, { answer: AxFieldValue }>(
           {
             signature: childSignature,
-            agents: this.agents,
-            functions: this.functions,
           },
           {
             debug,
             ...rlm,
+            agents: { local: this.agents },
+            functions: { local: this.agentFunctions },
             contextFields: childContextFields,
             actorFields: undefined,
             recursionOptions: childRecursionOptions,
@@ -1164,11 +1334,15 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const askClarificationFunction = (...args: unknown[]) =>
       setActorResultPayload('ask_clarification', args);
 
+    const agentFunctionNamespaces = [
+      ...new Set(this.agentFunctions.map((f) => f.namespace ?? 'utils')),
+    ];
     const reservedNames = [
       'llmQuery',
       'agents',
       'final',
       'ask_clarification',
+      ...agentFunctionNamespaces,
       ...(rlm.contextManagement?.stateInspection ? ['inspect_runtime'] : []),
       ...rlm.contextFields,
       ...Object.keys(toolGlobals),
@@ -1357,7 +1531,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const actionLogEntries: ActionLogEntry[] = [];
 
     const actorMergedOptions = {
-      ...this.options,
+      ...this._genOptions,
       ...this.actorForwardOptions,
       ...options,
       debug,
@@ -1499,7 +1673,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         await this._runActorLoop(ai, values, options, effectiveAbortSignal);
 
       const responderMergedOptions = {
-        ...this.options,
+        ...this._genOptions,
         ...this.responderForwardOptions,
         ...options,
         debug,
@@ -1553,7 +1727,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       } = await this._runActorLoop(ai, values, options, effectiveAbortSignal);
 
       const responderMergedOptions = {
-        ...this.options,
+        ...this._genOptions,
         ...this.responderForwardOptions,
         ...options,
         debug,
@@ -1665,7 +1839,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   }
 
   /**
-   * Wraps registered functions as flat globals and child agents under
+   * Wraps agent functions under namespaced globals and child agents under
    * an `agents.*` namespace for the JS runtime session.
    */
   private buildRuntimeGlobals(
@@ -1675,9 +1849,14 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   ): Record<string, unknown> {
     const globals: Record<string, unknown> = {};
 
-    // Tool functions as flat globals
-    for (const fn of this.collectFunctions()) {
-      globals[fn.name] = AxAgent.wrapFunction(fn, abortSignal);
+    // Agent functions under namespace.* (e.g. utils.myFn, custom.otherFn)
+    for (const agentFn of this.agentFunctions) {
+      const ns = agentFn.namespace ?? 'utils';
+      if (!globals[ns] || typeof globals[ns] !== 'object') {
+        globals[ns] = {};
+      }
+      (globals[ns] as Record<string, unknown>)[agentFn.name] =
+        AxAgent.wrapFunction(agentFn, abortSignal, ai);
     }
 
     // Child agents under agents.* namespace
@@ -1711,6 +1890,15 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   }
 
   /**
+   * Returns options compatible with AxGen (strips agent-specific grouped options).
+   */
+  private get _genOptions(): Record<string, unknown> {
+    if (!this.options) return {};
+    const { agents: _a, fields: _f, functions: _fn, ...rest } = this.options;
+    return rest;
+  }
+
+  /**
    * Builds the clean AxFunction parameters schema: input fields only, with any
    * parent-injected shared fields stripped out (they are auto-injected at runtime).
    */
@@ -1731,8 +1919,6 @@ export interface AxAgentConfig<_IN extends AxGenIn, _OUT extends AxGenOut>
   extends AxAgentOptions {
   ai?: AxAIService;
   agentIdentity?: { name: string; description: string };
-  agents?: AxAnyAgentic[];
-  functions?: AxInputFunctionType;
 }
 
 /**
@@ -1782,15 +1968,13 @@ export function agent(
 ): AxAgent<any, any> {
   const typedSignature =
     typeof signature === 'string' ? AxSignature.create(signature) : signature;
-  const { ai, agentIdentity, agents, functions, ...options } = config;
+  const { ai, agentIdentity, ...options } = config;
 
   return new AxAgent(
     {
       ai,
       agentIdentity,
       signature: typedSignature,
-      agents,
-      functions,
     },
     options
   );
