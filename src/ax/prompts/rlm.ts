@@ -228,7 +228,7 @@ ${contextVarList}
 ### Responder output fields
 The responder is looking to produce the following output fields: ${responderOutputFieldTitles}
 
-### APIs (Some of the api's you can use in your code)
+### Functions for context analysis and responding
 - \`await llmQuery(query:string, context:object|array|string) : string\` — Have a sub agent work on a part of the task for you when the context is too large or complex to handle in a single turn. Its a way to divide and conquer but do not overuse it.
 
 - \`await llmQuery([{ query:string, context:object|array|string }, ...]) : string\` — A batched version of \`llmQuery\` that allows you to make multiple queries in parallel. Use this to speed up processing when you have many items to analyze. Sub-agent calls have a call limit of ${maxLlmCalls}. Oversized values are truncated automatically.
@@ -245,7 +245,7 @@ ${
 }${
   options.agents && options.agents.length > 0
     ? `
-### Available Sub-Agents
+### Available Agents Functions
 The following agents are pre-loaded under the \`agents\` namespace. Call them for specialized tasks:
 ${options.agents
   .map(

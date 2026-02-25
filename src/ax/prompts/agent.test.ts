@@ -3934,6 +3934,26 @@ describe('Shared Agents', () => {
     ).length;
     expect(utilityCount).toBe(1);
   });
+
+  it('should not add a child agent to itself when listed in shared (self-registration)', () => {
+    const childAgent = agent('question:string -> answer:string', {
+      agentIdentity: { name: 'Child', description: 'A child agent' },
+      contextFields: [],
+      runtime,
+    });
+
+    agent('query:string -> finalAnswer:string', {
+      agents: { local: [childAgent], shared: [childAgent] },
+      contextFields: [],
+      runtime,
+    });
+
+    // childAgent's own agents list must not contain itself
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const childAgents = (childAgent as any).agents as any[] | undefined;
+    const selfRefs = (childAgents ?? []).filter((a: any) => a === childAgent);
+    expect(selfRefs).toHaveLength(0);
+  });
 });
 
 // ----- Global Shared Agents tests -----
@@ -4021,6 +4041,26 @@ describe('Global Shared Agents', () => {
       (a: any) => a.getFunction().name === 'utility'
     ).length;
     expect(utilityCount).toBe(1);
+  });
+
+  it('should not add a child agent to itself when listed in globallyShared (self-registration)', () => {
+    const childAgent = agent('question:string -> answer:string', {
+      agentIdentity: { name: 'Child', description: 'A child agent' },
+      contextFields: [],
+      runtime,
+    });
+
+    agent('query:string -> finalAnswer:string', {
+      agents: { local: [childAgent], globallyShared: [childAgent] },
+      contextFields: [],
+      runtime,
+    });
+
+    // childAgent's own agents list must not contain itself
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const childAgents = (childAgent as any).agents as any[] | undefined;
+    const selfRefs = (childAgents ?? []).filter((a: any) => a === childAgent);
+    expect(selfRefs).toHaveLength(0);
   });
 });
 
@@ -4436,7 +4476,7 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
     required: ['query'],
   };
 
-  it('should render ### Available Sub-Agents section when agents are provided', () => {
+  it('should render ### Available Agents Functions section when agents are provided', () => {
     const result = axBuildActorDefinition(undefined, [], [], {
       agents: [
         {
@@ -4446,7 +4486,7 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
         },
       ],
     });
-    expect(result).toContain('### Available Sub-Agents');
+    expect(result).toContain('### Available Agents Functions');
     expect(result).toContain('await agents.searchAgent(');
     expect(result).toContain('Searches the web');
   });
@@ -4483,7 +4523,7 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
 
   it('should omit sub-agents section when agents array is empty', () => {
     const result = axBuildActorDefinition(undefined, [], [], { agents: [] });
-    expect(result).not.toContain('### Available Sub-Agents');
+    expect(result).not.toContain('### Available Agents Functions');
   });
 
   it('should omit functions section when agentFunctions array is empty', () => {
@@ -4495,7 +4535,7 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
 
   it('should omit both sections when neither option is provided', () => {
     const result = axBuildActorDefinition(undefined, [], [], {});
-    expect(result).not.toContain('### Available Sub-Agents');
+    expect(result).not.toContain('### Available Agents Functions');
     expect(result).not.toContain('### Available Functions');
   });
 
@@ -4637,7 +4677,7 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
       .getSignature()
       .getDescription();
 
-    expect(actorDescription).toContain('### Available Sub-Agents');
+    expect(actorDescription).toContain('### Available Agents Functions');
     expect(actorDescription).toContain('await agents.physicsResearcher(');
     expect(actorDescription).toContain('Answers physics questions');
     expect(actorDescription).toContain('question: string');

@@ -692,6 +692,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const toAdd: AxAnyAgentic[] = [];
 
     for (const agent of newAgents) {
+      if (agent === this) continue;
       const name = agent.getFunction().name;
       if (excluded.has(name)) continue;
       if (existingNames.has(name)) {
