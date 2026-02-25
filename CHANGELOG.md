@@ -1,5 +1,11 @@
 # Changelog
 
+## [19.0.0](///compare/18.0.13...18.0.14) (2026-02-25)
+
+### Features
+
+* enhance AxAgent with agent function management and sharing capabilities 9ab332b
+
 ## [18.0.14](///compare/18.0.12...18.0.13) (2026-02-25)
 
 ### Features
