@@ -43,77 +43,79 @@ const ai = new AxAI({
 const myAgent = agent(
   'instruction -> room:string "the room where the dog is found"',
   {
-    functions: [
-      {
-        name: 'toggleLight',
-        description: 'Toggle the light in a room',
-        parameters: {
-          type: 'object',
-          properties: {
-            room: { type: 'string', description: 'Room to toggle light' },
+    functions: {
+      local: [
+        {
+          name: 'toggleLight',
+          description: 'Toggle the light in a room',
+          parameters: {
+            type: 'object',
+            properties: {
+              room: { type: 'string', description: 'Room to toggle light' },
+            },
+            required: ['room'],
+          } as AxFunctionJSONSchema,
+          func: async (args: Readonly<{ room?: string }>) => {
+            if (!args?.room) {
+              throw new Error('Missing required parameter: room');
+            }
+            const roomState = state.rooms[args.room];
+            if (roomState) {
+              roomState.light = !roomState.light;
+              console.log(
+                `Toggled light in ${args.room}: ${roomState.light ? 'on' : 'off'}`
+              );
+              return {
+                success: true,
+                light: roomState.light ? 'on' : 'off',
+              };
+            }
+            return { success: false, message: 'Invalid room' };
           },
-          required: ['room'],
-        } as AxFunctionJSONSchema,
-        func: async (args) => {
-          if (!args?.room) {
-            throw new Error('Missing required parameter: room');
-          }
-          const roomState = state.rooms[args.room];
-          if (roomState) {
-            roomState.light = !roomState.light;
-            console.log(
-              `Toggled light in ${args.room}: ${roomState.light ? 'on' : 'off'}`
-            );
-            return {
-              success: true,
-              light: roomState.light ? 'on' : 'off',
-            };
-          }
-          return { success: false, message: 'Invalid room' };
         },
-      },
-      {
-        name: 'moveRobot',
-        description: 'Move the robot to an adjacent room',
-        parameters: {
-          type: 'object',
-          properties: {
-            destination: { type: 'string', description: 'Destination room' },
+        {
+          name: 'moveRobot',
+          description: 'Move the robot to an adjacent room',
+          parameters: {
+            type: 'object',
+            properties: {
+              destination: { type: 'string', description: 'Destination room' },
+            },
+            required: ['destination'],
+          } as AxFunctionJSONSchema,
+          func: async (args: Readonly<{ destination: string }>) => {
+            if (state.rooms[args.destination]) {
+              state.robotLocation = args.destination;
+              console.log(`Moved robot to ${args.destination}`);
+              return { success: true, location: args.destination };
+            }
+            return { success: false, message: 'Invalid destination' };
           },
-          required: ['destination'],
-        } as AxFunctionJSONSchema,
-        func: async (args: Readonly<{ destination: string }>) => {
-          if (state.rooms[args.destination]) {
-            state.robotLocation = args.destination;
-            console.log(`Moved robot to ${args.destination}`);
-            return { success: true, location: args.destination };
-          }
-          return { success: false, message: 'Invalid destination' };
         },
-      },
-      {
-        name: 'lookWithRobot',
-        description: 'Look with the robot in its current room',
-        parameters: {
-          type: 'object',
-          properties: {},
-        } as AxFunctionJSONSchema,
-        func: async () => {
-          const location = state.robotLocation;
-          const room = state.rooms[location];
+        {
+          name: 'lookWithRobot',
+          description: 'Look with the robot in its current room',
+          parameters: {
+            type: 'object',
+            properties: {},
+          } as AxFunctionJSONSchema,
+          func: async () => {
+            const location = state.robotLocation;
+            const room = state.rooms[location];
 
-          if (room?.light) {
-            const items = location === state.dogLocation ? ['dog'] : [];
-            console.log(
-              `Looking in ${location}: ${items.length ? 'dog found' : 'no dog'}`
-            );
-            return { success: true, items };
-          }
-          console.log(`Too dark to see anything in ${location}`);
-          return { success: false, message: "It's too dark to see anything" };
+            if (room?.light) {
+              const items = location === state.dogLocation ? ['dog'] : [];
+              console.log(
+                `Looking in ${location}: ${items.length ? 'dog found' : 'no dog'}`
+              );
+              return { success: true, items };
+            }
+            console.log(`Too dark to see anything in ${location}`);
+            return { success: false, message: "It's too dark to see anything" };
+          },
         },
-      },
-    ],
+      ],
+    },
     contextFields: [],
     runtime: new AxJSRuntime(),
   }

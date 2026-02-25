@@ -5,8 +5,35 @@
  * No Node.js-specific imports; browser-safe.
  */
 
+import type { AxFunctionJSONSchema } from '../ai/types.js';
 import { toFieldType } from '../dsp/adapter.js';
 import type { AxIField } from '../dsp/sig.js';
+import type { AxProgramForwardOptions } from '../dsp/types.js';
+
+// ----- Helpers for rendering function/agent signatures in the actor prompt -----
+
+function schemaTypeToShortString(schema: AxFunctionJSONSchema): string {
+  if (schema.enum) return schema.enum.map((e) => `"${e}"`).join(' | ');
+  if (schema.type === 'array') {
+    const itemType = schema.items
+      ? schemaTypeToShortString(schema.items)
+      : 'unknown';
+    return `${itemType}[]`;
+  }
+  if (schema.type === 'object') return 'object';
+  return schema.type ?? 'unknown';
+}
+
+function renderParamsInline(schema: AxFunctionJSONSchema | undefined): string {
+  if (!schema?.properties || Object.keys(schema.properties).length === 0)
+    return '{}';
+  const required = new Set(schema.required ?? []);
+  const parts = Object.entries(schema.properties).map(([key, prop]) => {
+    const typeStr = schemaTypeToShortString(prop);
+    return required.has(key) ? `${key}: ${typeStr}` : `${key}?: ${typeStr}`;
+  });
+  return `{ ${parts.join(', ')} }`;
+}
 
 /**
  * A code runtime that can create persistent sessions.
@@ -38,11 +65,36 @@ export interface AxCodeSession {
 }
 
 /**
+ * Configuration for semantic context management in the Actor loop.
+ * Controls how action log entries are evaluated, summarized, and pruned.
+ */
+export interface AxContextManagementConfig {
+  /** Prune error entries after a successful (non-error) turn. */
+  errorPruning?: boolean;
+  /** Enable tombstone generation for resolved errors.
+   *  When `true`, uses the main AI service with its default settings.
+   *  Pass an `AxProgramForwardOptions` object to control the model, temperature,
+   *  max tokens, etc. of the tombstone generation call (e.g. a cheaper/faster model). */
+  tombstoning?: boolean | Omit<AxProgramForwardOptions<string>, 'functions'>;
+  /** Enable heuristic-based importance scoring on entries. */
+  hindsightEvaluation?: boolean;
+  /** Enable runtime state inspection tool for the actor.
+   *  `contextThreshold` is the character count on the serialized actionLog
+   *  above which an `inspect_runtime()` hint is shown to the actor. */
+  stateInspection?: { contextThreshold?: number };
+  /** Entries ranked strictly below this value are purged from active context.
+   *  Range: 0-5. Default: 2. */
+  pruneRank?: number;
+}
+
+/**
  * RLM configuration for AxAgent.
  */
 export interface AxRLMConfig {
   /** Input fields holding long context (will be removed from the LLM prompt). */
   contextFields: string[];
+  /** Input fields to pass directly to subagents, bypassing the top-level LLM. */
+  sharedFields?: string[];
   /** Code runtime for the REPL loop (default: AxJSRuntime). */
   runtime?: AxCodeRuntime;
   /** Cap on recursive sub-LM calls (default: 50). */
@@ -57,10 +109,12 @@ export interface AxRLMConfig {
   /** Maximum Actor turns before forcing Responder (default: 10). */
   maxTurns?: number;
   /**
-   * If true, the Actor must return `actionDescription` and action logs will store
-   * short action descriptions instead of full code blocks.
+   * @deprecated Use `contextManagement.errorPruning` instead.
+   * If true, prune error entries from the action log after a successful turn.
    */
-  compressLog?: boolean;
+  trajectoryPruning?: boolean;
+  /** Semantic context management configuration. */
+  contextManagement?: AxContextManagementConfig;
   /** Output field names the Actor should produce (in addition to javascriptCode). */
   actorFields?: string[];
   /** Called after each Actor turn with the full actor result. */
@@ -71,6 +125,48 @@ export interface AxRLMConfig {
    * - 'advanced': llmQuery delegates to a full AxAgent (Actor/Responder + code runtime).
    */
   mode?: 'simple' | 'advanced';
+}
+
+function renderReturnsInline(schema: AxFunctionJSONSchema | undefined): string {
+  if (!schema?.properties || Object.keys(schema.properties).length === 0)
+    return 'unknown';
+  const parts = Object.entries(schema.properties).map(([key, prop]) => {
+    const typeStr = schemaTypeToShortString(prop);
+    return `${key}: ${typeStr}`;
+  });
+  return `{ ${parts.join(', ')} }`;
+}
+
+function renderAgentFunctionsAsJsApi(
+  fns: ReadonlyArray<{
+    name: string;
+    description: string;
+    parameters: AxFunctionJSONSchema;
+    returns?: AxFunctionJSONSchema;
+    namespace: string;
+  }>
+): string {
+  // Group by namespace
+  const byNamespace = new Map<string, typeof fns>();
+  for (const fn of fns) {
+    const group = byNamespace.get(fn.namespace) ?? [];
+    byNamespace.set(fn.namespace, [...group, fn]);
+  }
+
+  const sections: string[] = [];
+  for (const [ns, nsFns] of byNamespace) {
+    sections.push(`// ${ns} namespace`);
+    for (const fn of nsFns) {
+      sections.push(`// ${fn.description}`);
+      const params = renderParamsInline(fn.parameters);
+      const returns = fn.returns ? renderReturnsInline(fn.returns) : 'unknown';
+      sections.push(
+        `async function ${ns}.${fn.name}(${params}): Promise<${returns}>`
+      );
+      sections.push('');
+    }
+  }
+  return sections.join('\n');
 }
 
 /**
@@ -86,6 +182,21 @@ export function axBuildActorDefinition(
     runtimeUsageInstructions?: string;
     maxLlmCalls?: number;
     maxTurns?: number;
+    hasInspectRuntime?: boolean;
+    /** Child agents available under the `agents.*` namespace in the JS runtime. */
+    agents?: ReadonlyArray<{
+      name: string;
+      description: string;
+      parameters?: AxFunctionJSONSchema;
+    }>;
+    /** Agent functions available under namespaced globals in the JS runtime. */
+    agentFunctions?: ReadonlyArray<{
+      name: string;
+      description: string;
+      parameters: AxFunctionJSONSchema;
+      returns?: AxFunctionJSONSchema;
+      namespace: string;
+    }>;
   }>
 ): string {
   const maxLlmCalls = options.maxLlmCalls ?? 50;
@@ -117,7 +228,7 @@ ${contextVarList}
 ### Responder output fields
 The responder is looking to produce the following output fields: ${responderOutputFieldTitles}
 
-### APIs (Some of the api's you can use in your code)
+### Functions for context analysis and responding
 - \`await llmQuery(query:string, context:object|array|string) : string\` — Have a sub agent work on a part of the task for you when the context is too large or complex to handle in a single turn. Its a way to divide and conquer but do not overuse it.
 
 - \`await llmQuery([{ query:string, context:object|array|string }, ...]) : string\` — A batched version of \`llmQuery\` that allows you to make multiple queries in parallel. Use this to speed up processing when you have many items to analyze. Sub-agent calls have a call limit of ${maxLlmCalls}. Oversized values are truncated automatically.
@@ -125,7 +236,36 @@ The responder is looking to produce the following output fields: ${responderOutp
 - \`final(...args)\` — Signal completion and provide payload arguments for the responder to use to generate its output. Requires at least one argument. Execution ends after calling it.
 
 - \`ask_clarification(...args)\` — Signal that more user input is needed and provide clarification arguments for the responder. Requires at least one argument. Execution ends after calling it.
-
+${
+  options.hasInspectRuntime
+    ? `
+- \`await inspect_runtime() : string\` — Returns a compact snapshot of all user-defined variables in the runtime session (name, type, size, preview). Use this to re-ground yourself when the action log is large instead of re-reading previous outputs.
+`
+    : ''
+}${
+  options.agents && options.agents.length > 0
+    ? `
+### Available Agents Functions
+The following agents are pre-loaded under the \`agents\` namespace. Call them for specialized tasks:
+${options.agents
+  .map(
+    (fn) =>
+      `- \`await agents.${fn.name}(${renderParamsInline(fn.parameters)})\` — ${fn.description}`
+  )
+  .join('\n')}
+`
+    : ''
+}${
+  options.agentFunctions && options.agentFunctions.length > 0
+    ? `
+### Available Functions
+The following functions are available under namespaced globals in the runtime:
+\`\`\`javascript
+${renderAgentFunctionsAsJsApi(options.agentFunctions)}
+\`\`\`
+`
+    : ''
+}
 ### Important guidance and guardrails
 - Always do some due diligence first to figure out if you can solve the problem by writing code that looks at only a portion of the context. You have access to the \`contextMetadata\` which provides information about the context fields, use this in your decision making.
 

@@ -451,6 +451,20 @@ export type SerializedError = {
   data?: unknown;
 };
 
+function safeStringify(value: unknown): string {
+  if (value === null || value === undefined) {
+    return String(value);
+  }
+  if (typeof value !== 'object') {
+    return String(value);
+  }
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
 function serializeError(
   err: unknown,
   maxDepth: number = MAX_ERROR_CAUSE_DEPTH,
@@ -477,7 +491,7 @@ function serializeError(
     typeof err === 'object' &&
     (err as { message?: unknown }).message != null
       ? String((err as { message: unknown }).message)
-      : String(err);
+      : safeStringify(err);
   const stack =
     err !== null &&
     typeof err === 'object' &&
@@ -500,10 +514,10 @@ function serializeError(
       ) {
         cause = serializeError(c, maxDepth, depth + 1, seen) as SerializedError;
       } else {
-        cause = { name: 'Error', message: String(c) };
+        cause = { name: 'Error', message: safeStringify(c) };
       }
     } catch {
-      cause = { name: 'Error', message: String(errObj.cause) };
+      cause = { name: 'Error', message: safeStringify(errObj.cause) };
     }
   }
   const out: SerializedError = { name, message };

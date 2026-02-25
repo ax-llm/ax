@@ -1,4 +1,4 @@
-import { type AxAgentic, AxJSRuntime, agent, ai } from '@ax-llm/ax';
+import { AxJSRuntime, agent, ai } from '@ax-llm/ax';
 
 // Example showing the agent() factory function
 
@@ -61,7 +61,9 @@ const weatherCoordinator = agent(
       description:
         'Coordinates multiple weather agents to provide comprehensive information',
     },
-    agents: [weatherAgent, forecastAgent, alertsAgent] as AxAgentic<any, any>[],
+    agents: {
+      local: [weatherAgent, forecastAgent, alertsAgent],
+    },
     actorOptions: {
       description:
         'You coordinate weather information requests by delegating to specialized agents for forecasts and alerts. Combine their responses into a comprehensive answer.',

@@ -44,17 +44,60 @@ import { agent, f, s, type AxCodeRuntime } from '../index.js';
   });
 }
 
-// Agent with compressLog enabled
+// Agent with trajectoryPruning enabled (deprecated but still valid)
 {
   const runtime = {} as AxCodeRuntime;
   const a = agent('context:string, query:string -> answer:string', {
     contextFields: ['context'] as const,
     runtime,
-    compressLog: true,
+    trajectoryPruning: true,
   });
 
   type Result = Awaited<ReturnType<typeof a.forward>>;
   const _ok: Result = { answer: 'x' };
+}
+
+// Agent with contextManagement — errorPruning
+{
+  const runtime = {} as AxCodeRuntime;
+  const a = agent('context:string, query:string -> answer:string', {
+    contextFields: ['context'] as const,
+    runtime,
+    contextManagement: {
+      errorPruning: true,
+    },
+  });
+
+  type Result = Awaited<ReturnType<typeof a.forward>>;
+  const _ok: Result = { answer: 'x' };
+}
+
+// Agent with contextManagement — all options
+{
+  const runtime = {} as AxCodeRuntime;
+  agent('context:string, query:string -> answer:string', {
+    contextFields: ['context'] as const,
+    runtime,
+    contextManagement: {
+      errorPruning: true,
+      hindsightEvaluation: true,
+      tombstoning: { model: 'fast-model', modelConfig: { temperature: 0.1 } },
+      stateInspection: { contextThreshold: 1000 },
+      pruneRank: 3,
+    },
+  });
+}
+
+// Agent with contextManagement — tombstoning as boolean
+{
+  const runtime = {} as AxCodeRuntime;
+  agent('context:string, query:string -> answer:string', {
+    contextFields: ['context'] as const,
+    runtime,
+    contextManagement: {
+      tombstoning: true,
+    },
+  });
 }
 
 // Agent with AxSignature from s() — forward() returns typed output

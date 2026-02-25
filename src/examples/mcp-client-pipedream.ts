@@ -1,6 +1,8 @@
 import {
   AxAI,
   AxAIOpenAIModel,
+  type AxAgentFunction,
+  type AxFunction,
   AxJSRuntime,
   AxMCPClient,
   agent,
@@ -86,11 +88,17 @@ Using streamable HTTP transport for real-time communication with Pipedream MCP s
   const client = new AxMCPClient(httpTransport, { debug: false });
   await client.init();
 
+  const toAgentFunctions = (functions: AxFunction[]): AxAgentFunction[] =>
+    functions.map((fn) => ({
+      ...fn,
+      parameters: fn.parameters ?? { type: 'object', properties: {} },
+    }));
+
   // Create a Notion-augmented agent that can interact with Notion docs
   const notionAgent = agent(
     `userRequest:string -> assistantResponse:string "You are an assistant that can interact with ${appLabel} documents and data. You can read, search, and analyze Notion content to help users with their requests. Use the provided Notion functions to access and work with the user's documents."`,
     {
-      functions: [client],
+      functions: { local: toAgentFunctions(client.toFunction()) },
       contextFields: [],
       runtime: new AxJSRuntime(),
     }

@@ -1,5 +1,102 @@
 # Changelog
 
+## [19.0.2](///compare/19.0.0...19.0.1) (2026-02-25)
+
+### Features
+
+* add self-registration prevention for child agents and update documentation references 74f9c14
+## [19.0.1](///compare/19.0.0...19.0.1) (2026-02-25)
+
+### Features
+
+* update agent function structure to use object notation for functions and agents 399e454
+
+## [19.0.1](///compare/18.0.14...19.0.0) (2026-02-25)
+
+### Features
+
+* update agent function structure to use object notation for functions and agents 399e454
+## [19.0.0](///compare/18.0.14...19.0.0) (2026-02-25)
+
+## [19.0.0](///compare/18.0.13...18.0.14) (2026-02-25)
+
+### Features
+
+* enhance AxAgent with agent function management and sharing capabilities 9ab332b
+
+## [18.0.14](///compare/18.0.12...18.0.13) (2026-02-25)
+
+### Features
+
+* enhance AxAgent with agent function management and sharing capabilities 9ab332b
+## [18.0.13](///compare/18.0.12...18.0.13) (2026-02-24)
+
+### Features
+
+* Add support for shared fields and agents in AxAgent, enhancing agent hierarchy data passing e541397
+
+## [18.0.13](///compare/18.0.11...18.0.12) (2026-02-24)
+
+### Features
+
+* Add ai parameter to wrapFunction and related methods in AxAgent for enhanced functionality 0e59c96
+* Add support for shared fields and agents in AxAgent, enhancing agent hierarchy data passing e541397
+
+## [18.0.12](///compare/18.0.10...18.0.11) (2026-02-24)
+
+### Features
+
+* Add ai parameter to wrapFunction and related methods in AxAgent for enhanced functionality 0e59c96
+## [18.0.11](///compare/18.0.10...18.0.11) (2026-02-24)
+
+### Features
+
+* Enhance shared fields handling in AxAgent and add new tests for parameter scoping f8002bc
+
+## [18.0.11](///compare/18.0.9...18.0.10) (2026-02-24)
+
+### Features
+
+* Enhance shared fields handling in AxAgent and add new tests for parameter scoping f8002bc
+## [18.0.10](///compare/18.0.9...18.0.10) (2026-02-24)
+
+### Features
+
+* Add toInputJSONSchema method and related tests for AxSignature and agent function parameters c836239
+
+## [18.0.10](///compare/18.0.8...18.0.9) (2026-02-24)
+
+### Features
+
+* Add toInputJSONSchema method and related tests for AxSignature and agent function parameters c836239
+## [18.0.9](///compare/18.0.8...18.0.9) (2026-02-24)
+
+### Features
+
+* Add support for shared fields in AxAgent and context management 59d7604
+* Enhance context management with updated tombstoning options and new example 09a9c25
+* Implement semantic context management in AxAgent 899540b
+
+## [18.0.9](///compare/18.0.7...18.0.8) (2026-02-24)
+
+### Features
+
+* Add support for shared fields in AxAgent and context management 59d7604
+* Enhance context management with updated tombstoning options and new example 09a9c25
+* Implement semantic context management in AxAgent 899540b
+* **runtime:** add consecutive execution error cutoff and enhance error handling in AxJSRuntime f8c06fa
+
+## [18.0.8](///compare/18.0.6...18.0.7) (2026-02-23)
+
+### Features
+
+* **runtime:** add consecutive execution error cutoff and enhance error handling in AxJSRuntime f8c06fa
+## [18.0.7](///compare/18.0.6...18.0.7) (2026-02-22)
+
+### Features
+
+* **worker:** add tests for variable persistence across async calls and enhance axWorkerRuntime with top-level declaration extraction a2ba6b3
+
 ## [18.0.7](///compare/18.0.5...18.0.6) (2026-02-22)
 
 ### Features

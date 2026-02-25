@@ -1,5 +1,7 @@
 import {
   AxAI,
+  type AxAgentFunction,
+  type AxFunction,
   AxJSRuntime,
   AxJSRuntimePermission,
   AxMCPClient,
@@ -21,11 +23,22 @@ const jsRuntime = axCreateJSRuntime({
   permissions: [AxJSRuntimePermission.NETWORK],
 });
 
+const toAgentFunctions = (functions: AxFunction[]): AxAgentFunction[] =>
+  functions.map((fn) => ({
+    ...fn,
+    parameters: fn.parameters ?? { type: 'object', properties: {} },
+  }));
+
+const functions = toAgentFunctions([
+  ...mcpClient.toFunction(),
+  jsRuntime.toFunction(),
+]);
+
 // Create a coding assistant with memory
 const codingAssistant = agent(
   'userQuery:string -> reply:string, codeResult?:string "You are a coding assistant that can remember past conversations and execute JavaScript code."',
   {
-    functions: [mcpClient, jsRuntime.toFunction()],
+    functions: { local: functions },
     contextFields: [],
     runtime: new AxJSRuntime(),
   }
