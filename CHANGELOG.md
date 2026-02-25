@@ -1,5 +1,12 @@
 # Changelog
 
+## [19.0.1](///compare/18.0.14...19.0.0) (2026-02-25)
+
+### Features
+
+* update agent function structure to use object notation for functions and agents 399e454
+## [19.0.0](///compare/18.0.14...19.0.0) (2026-02-25)
+
 ## [19.0.0](///compare/18.0.13...18.0.14) (2026-02-25)
 
 ### Features
