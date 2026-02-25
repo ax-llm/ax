@@ -1,5 +1,16 @@
 # Changelog
 
+## [19.0.2](///compare/19.0.0...19.0.1) (2026-02-25)
+
+### Features
+
+* add self-registration prevention for child agents and update documentation references 74f9c14
+## [19.0.1](///compare/19.0.0...19.0.1) (2026-02-25)
+
+### Features
+
+* update agent function structure to use object notation for functions and agents 399e454
+
 ## [19.0.1](///compare/18.0.14...19.0.0) (2026-02-25)
 
 ### Features
