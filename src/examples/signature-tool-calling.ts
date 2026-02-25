@@ -45,7 +45,7 @@ const llm = ai({
 const smartAgent = agent(
   'question:string -> answer:string "You are a helpful assistant that can search the web and perform calculations. Use the available tools when needed."',
   {
-    functions: [searchTool, calculateTool],
+    functions: { local: [searchTool, calculateTool] },
     functionCallMode: 'prompt', // Use prompt mode for function calling
     contextFields: [],
     runtime: new AxJSRuntime(),

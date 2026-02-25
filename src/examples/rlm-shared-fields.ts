@@ -13,9 +13,9 @@
  *
  * Key concepts:
  *
- *   sharedFields      — input fields forwarded to every subagent call
+ *   fields.shared     — input fields forwarded to every subagent call
  *   contextFields     — fields kept out of the LLM prompt (loaded into runtime)
- *   excludeSharedFields — lets a subagent opt out of receiving specific fields
+ *   fields.excluded   — lets a subagent opt out of receiving specific fields
  *
  * When a shared field is also a context field in the parent, it is
  * automatically added to each child's contextFields so the child's RLM
@@ -103,7 +103,7 @@ const sentimentAgent = agent(
       description: 'Classifies the sentiment of a customer message',
     },
     // This agent does not need the knowledge base or userId
-    excludeSharedFields: ['knowledgeBase', 'userId'],
+    fields: { excluded: ['knowledgeBase', 'userId'] },
     contextFields: [],
     runtime,
   }
@@ -135,9 +135,9 @@ const supportAgent = agent(
       description:
         'Routes customer queries to the right specialist agent and synthesizes a final answer',
     },
-    agents: [policyAgent, billingAgent, sentimentAgent],
+    agents: { local: [policyAgent, billingAgent, sentimentAgent] },
     contextFields: ['knowledgeBase'],
-    sharedFields: ['knowledgeBase', 'userId'],
+    fields: { shared: ['knowledgeBase', 'userId'] },
     runtime,
     debug: true,
   }

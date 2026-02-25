@@ -1,7 +1,7 @@
-import { type AxFunction, AxJSRuntime, agent, ai } from '@ax-llm/ax';
+import { type AxAgentFunction, AxJSRuntime, agent, ai } from '@ax-llm/ax';
 
 // Simple math tool to force tool use
-const tools: AxFunction[] = [
+const tools: AxAgentFunction[] = [
   {
     name: 'addNumbers',
     description: 'Add two numbers and return their sum',
@@ -27,7 +27,7 @@ const mathAgent = agent(
   'userQuestion:string "User question" -> responseText:string "Final answer", rationale:string "Brief reasoning"',
   {
     ai: llm,
-    functions: tools,
+    functions: { local: tools },
     actorOptions: {
       description:
         'You are a precise math assistant. Use tools for any arithmetic. Provide a concise final answer and a short rationale.',

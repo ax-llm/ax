@@ -1,7 +1,7 @@
 import {
   AxAI,
   AxAIAnthropicModel,
-  type AxFunction,
+  type AxAgentFunction,
   AxFunctionError,
   AxJSRuntime,
   AxSignature,
@@ -62,7 +62,7 @@ const bookRestaurantAPI = ({
 };
 
 // List of functions available to the AI
-const functions: AxFunction[] = [
+const functions: AxAgentFunction[] = [
   {
     name: 'bookRestaurant',
     description:
@@ -98,7 +98,7 @@ const signature = new AxSignature(
 
 // Create the booking agent
 const gen = agent(signature, {
-  functions,
+  functions: { local: functions },
   contextFields: [],
   runtime: new AxJSRuntime(),
 });

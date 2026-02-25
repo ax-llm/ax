@@ -37,7 +37,7 @@ const myAgent = agent('question -> answer', {
     name: 'Scientist',
     description: 'An agent that can answer advanced science questions',
   },
-  agents: [researcher, summarizer],
+  agents: { local: [researcher, summarizer] },
   contextFields: [],
   runtime,
 });
