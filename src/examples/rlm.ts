@@ -24,7 +24,7 @@ const analyzer = agent(
       permissions: [AxJSRuntimePermission.TIMING],
     }),
     actorOptions: {
-        thinkingTokenBudget: 'minimal',
+      thinkingTokenBudget: 'minimal',
     },
     maxSubAgentCalls: 30,
     mode: 'simple',
