@@ -1089,7 +1089,11 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
     }
   };
 
-  const _formatCodeError = (err: unknown, code?: string): string => {
+  const _formatCodeError = (
+    err: unknown,
+    code?: string,
+    lineOffset = 0
+  ): string => {
     const typedErr = err as {
       name?: unknown;
       message?: unknown;
@@ -1108,7 +1112,9 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
     if (typeof typedErr?.stack === 'string') {
       const lineMatch = typedErr.stack.match(/<anonymous>:(\d+):(\d+)/);
       if (lineMatch) {
-        parts.push(`  at line ${lineMatch[1]}, column ${lineMatch[2]}`);
+        // Adjust for wrapper preamble lines (e.g. AsyncFunction adds 2 lines).
+        const adjustedLine = Math.max(1, Number(lineMatch[1]) - lineOffset);
+        parts.push(`  at line ${adjustedLine}, column ${lineMatch[2]}`);
       }
     }
 
@@ -1337,10 +1343,11 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
 
     const id = msg.id;
     const code = msg.code;
+    const isAsync = /\bawait\b/.test(code);
     const { output, cleanup } = _setupOutputCapture();
 
     try {
-      const result = /\bawait\b/.test(code)
+      const result = isAsync
         ? await _executeAsyncSnippet(code)
         : _executeSyncSnippet(code);
       const value = _toOutputValue(result, output);
@@ -1353,7 +1360,14 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
       }
     } catch (err) {
       if (_isCodeExecutionError(err)) {
-        _send({ type: 'result', id, value: _formatCodeError(err, code) });
+        // AsyncFunction prepends a 2-line preamble (`async function anonymous(\n) {`)
+        // that shifts stack-trace line numbers. Subtract to align with original source.
+        const lineOffset = isAsync ? 2 : 0;
+        _send({
+          type: 'result',
+          id,
+          value: _formatCodeError(err, code, lineOffset),
+        });
       } else {
         _send({ type: 'result', id, error: _serializeError(err) });
       }

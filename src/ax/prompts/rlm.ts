@@ -9,6 +9,7 @@ import type { AxFunctionJSONSchema } from '../ai/types.js';
 import { toFieldType } from '../dsp/prompt.js';
 import type { AxIField } from '../dsp/sig.js';
 import type { AxProgramForwardOptions } from '../dsp/types.js';
+import { renderPromptTemplate } from './templateEngine.js';
 
 // ----- Helpers for rendering function/agent signatures in the actor prompt -----
 
@@ -274,70 +275,31 @@ export function axBuildActorDefinition(
       return a.name.localeCompare(b.name);
     }
   );
-  const actorBody = `
-## Code Generation Agent
-
-You are a code generation agent called the \`actor\`. Your ONLY job is to write simple JavaScript code to solve problems, complete tasks and gather information. Use \`console.log\` to inspect variables and return values before writing more code that depends on those values. There is another agent called the \`responder\` that will synthesize final answers from the information you gather. You NEVER generate final answers directly — you can only write code to explore and analyze the context, call tools, and ask for clarification.
-
-### Runtime Field Access
-In JavaScript code, context fields map to \`inputs.<fieldName>\` as follows:
-${contextVarList}
-
-### Responder output fields
-The responder is looking to produce the following output fields: ${responderOutputFieldTitles}
-
-### Functions for context analysis and responding
-- \`await llmQuery(query:string, context:any) : string\` — Ask a sub-agent one semantic question.
-- \`await llmQuery([{ query:string, context:any }, ...]) : string[]\` — Batched parallel form.
-- \`final(...args)\` — Complete and pass payload to the responder.
-- \`ask_clarification(...args)\` — Request missing user input and pass clarification payload.
-${
-  options.hasInspectRuntime
-    ? `
-- \`await inspect_runtime() : string\` — Returns a compact snapshot of all user-defined variables in the runtime session (name, type, size, preview). Use this to re-ground yourself when the action log is large instead of re-reading previous outputs.
-`
-    : ''
-}
-
-${
-  sortedAgents.length > 0
-    ? `
-### Available Agent Functions
-${sortedAgents
-  .map((fn) =>
-    renderCallableEntry({
-      qualifiedName: `agents.${fn.name}`,
-      parameters: fn.parameters,
-    })
-  )
-  .join('\n')}
-`
-    : ''
-}${
-  sortedAgentFunctions.length > 0
-    ? `
-### Available Functions
-${sortedAgentFunctions
-  .map((fn) =>
-    renderCallableEntry({
-      qualifiedName: `${fn.namespace}.${fn.name}`,
-      parameters: fn.parameters,
-      returns: fn.returns,
-    })
-  )
-  .join('\n')}
-`
-    : ''
-}
-### Important guidance and guardrails
-- Start with targeted code-based exploration on a small portion of context. Use \`contextMetadata\` to choose scope.
-- Use code (filter/map/slice/regex/property access) for structural work; use \`llmQuery\` for semantic interpretation and summarization.
-- Only \`final(...args)\` and \`ask_clarification(...args)\` transmit payload to the responder.
-- Runtime output may be truncated. If output is incomplete, rerun with narrower scope.
-
-## Javascript Runtime Usage Instructions
-${options.runtimeUsageInstructions}
-`
+  const actorBody = renderPromptTemplate('rlm/actor.md', {
+    contextVarList,
+    responderOutputFieldTitles,
+    hasInspectRuntime: Boolean(options.hasInspectRuntime),
+    hasAgentFunctions: sortedAgents.length > 0,
+    agentFunctionsList: sortedAgents
+      .map((fn) =>
+        renderCallableEntry({
+          qualifiedName: `agents.${fn.name}`,
+          parameters: fn.parameters,
+        })
+      )
+      .join('\n'),
+    hasFunctions: sortedAgentFunctions.length > 0,
+    functionsList: sortedAgentFunctions
+      .map((fn) =>
+        renderCallableEntry({
+          qualifiedName: `${fn.namespace}.${fn.name}`,
+          parameters: fn.parameters,
+          returns: fn.returns,
+        })
+      )
+      .join('\n'),
+    runtimeUsageInstructions: String(options.runtimeUsageInstructions),
+  })
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 
@@ -363,17 +325,9 @@ export function axBuildResponderDefinition(
           .join('\n')
       : '(none)';
 
-  const responderBody = `## Answer Synthesis Agent
-
-You synthesize a final answer from the provided actorResult payload. The payload includes the Actor completion type and arguments captured from final(...args) or ask_clarification(...args).
-
-### Context variables that were analyzed (metadata only)
-${contextVarSummary}
-
-### Rules
-1. Base your answer ONLY on evidence from actorResult payload arguments.
-2. If actorResult lacks sufficient information, provide the best possible answer from available evidence.
-3. If actorResult.type is \`ask_clarification\`, ask for the missing information clearly in your output fields.`;
+  const responderBody = renderPromptTemplate('rlm/responder.md', {
+    contextVarSummary,
+  }).trim();
 
   return baseDefinition
     ? `${responderBody}\n\n${baseDefinition}`
