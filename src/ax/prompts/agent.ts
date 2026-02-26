@@ -134,8 +134,8 @@ export type AxAgentOptions = Omit<
 
   /** Code runtime for the REPL loop (default: AxJSRuntime). */
   runtime?: AxCodeRuntime;
-  /** Cap on recursive sub-LM calls (default: 50). */
-  maxLlmCalls?: number;
+  /** Cap on recursive sub-agent calls (default: 50). */
+  maxSubAgentCalls?: number;
   /** Maximum characters for RLM runtime payloads (default: 5000). */
   maxRuntimeChars?: number;
   /** Maximum parallel llmQuery calls in batched mode (default: 8). */
@@ -258,7 +258,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       debug,
       contextFields,
       runtime,
-      maxLlmCalls,
+      maxSubAgentCalls,
       maxRuntimeChars,
       maxBatchedLlmQueryConcurrency,
       maxTurns,
@@ -295,7 +295,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       contextFields: normalizedContext.contextFieldNames,
       sharedFields: options.fields?.shared,
       runtime: this.runtime,
-      maxLlmCalls,
+      maxSubAgentCalls,
       maxRuntimeChars,
       maxBatchedLlmQueryConcurrency,
       maxTurns,
@@ -587,8 +587,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       .addOutputFields(responderOutputFields)
       .build();
 
-    const effectiveMaxLlmCalls =
-      this.rlmConfig.maxLlmCalls ?? DEFAULT_RLM_MAX_LLM_CALLS;
+    const effectiveMaxSubAgentCalls =
+      this.rlmConfig.maxSubAgentCalls ?? DEFAULT_RLM_MAX_LLM_CALLS;
     const effectiveMaxTurns = this.rlmConfig.maxTurns ?? DEFAULT_RLM_MAX_TURNS;
 
     // Collect metadata from child agents and tool functions so the actor prompt
@@ -617,7 +617,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       responderOutputFields,
       {
         runtimeUsageInstructions: this.runtime.getUsageInstructions(),
-        maxLlmCalls: effectiveMaxLlmCalls,
+        maxSubAgentCalls: effectiveMaxSubAgentCalls,
         maxTurns: effectiveMaxTurns,
         hasInspectRuntime: !!this.rlmConfig.contextManagement?.stateInspection,
         agents: agentMeta,
@@ -1099,7 +1099,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     }
 
     // 2. Build runtime globals (context + llmQuery + tool functions)
-    const maxLlmCalls = rlm.maxLlmCalls ?? DEFAULT_RLM_MAX_LLM_CALLS;
+    const maxSubAgentCalls = rlm.maxSubAgentCalls ?? DEFAULT_RLM_MAX_LLM_CALLS;
     const maxRuntimeChars =
       rlm.maxRuntimeChars ?? DEFAULT_RLM_MAX_RUNTIME_CHARS;
     const maxBatchedLlmQueryConcurrency = Math.max(
@@ -1109,7 +1109,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const maxTurns = rlm.maxTurns ?? DEFAULT_RLM_MAX_TURNS;
 
     let llmCallCount = 0;
-    const llmCallWarnThreshold = Math.floor(maxLlmCalls * 0.8);
+    const llmCallWarnThreshold = Math.floor(maxSubAgentCalls * 0.8);
     const configuredRecursionMaxDepth =
       this.recursionForwardOptions?.maxDepth ?? DEFAULT_RLM_MAX_RECURSION_DEPTH;
     const recursionMaxDepth = Math.max(0, configuredRecursionMaxDepth);
@@ -1244,8 +1244,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
               : singleCtx;
 
         llmCallCount++;
-        if (llmCallCount > maxLlmCalls) {
-          return `[ERROR] Sub-query budget exhausted (${maxLlmCalls}/${maxLlmCalls}). Use the data you have already accumulated to produce your final answer.`;
+        if (llmCallCount > maxSubAgentCalls) {
+          return `[ERROR] Sub-query budget exhausted (${maxSubAgentCalls}/${maxSubAgentCalls}). Use the data you have already accumulated to produce your final answer.`;
         }
 
         if (recursionMaxDepth <= 0 || !recursiveSubAgent) {
@@ -1338,7 +1338,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
       const result = await runSingleLlmQuery(query, ctx);
       if (llmCallCount === llmCallWarnThreshold) {
-        return `${result}\n[WARNING] ${llmCallCount}/${maxLlmCalls} sub-queries used. Plan to wrap up soon.`;
+        return `${result}\n[WARNING] ${llmCallCount}/${maxSubAgentCalls} sub-queries used. Plan to wrap up soon.`;
       }
       return result;
     };

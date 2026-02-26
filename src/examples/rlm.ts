@@ -23,7 +23,7 @@ const analyzer = agent(
       // Optional, least-privilege sandbox permissions.
       permissions: [AxJSRuntimePermission.TIMING],
     }),
-    maxLlmCalls: 30,
+    maxSubAgentCalls: 30,
     mode: 'simple',
     // Additional RLM guardrails are also supported:
     // - maxRuntimeChars (shared cap for llmQuery context + interpreter output)

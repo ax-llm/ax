@@ -302,7 +302,7 @@ const analyzer = agent(
     rlm: {
       contextFields: ['context'],                // Fields to load into runtime session
       runtime: new AxJSRuntime(),                // Code runtime (default: AxJSRuntime)
-      maxLlmCalls: 30,                           // Cap on sub-LM calls (default: 50)
+      maxSubAgentCalls: 30,                           // Cap on sub-LM calls (default: 50)
       maxRuntimeChars: 2_000,                    // Cap for llmQuery context + code output (default: 5000)
       maxBatchedLlmQueryConcurrency: 6,          // Max parallel batched llmQuery calls (default: 8)
       maxTurns: 10,                              // Max Actor turns before forcing Responder (default: 10)
@@ -751,7 +751,7 @@ Thrown by `AxJSRuntime` when consecutive execution failures reach `consecutiveEr
 interface AxRLMConfig {
   contextFields: string[];                   // Input fields holding long context
   runtime?: AxCodeRuntime;                   // Code runtime (default: AxJSRuntime)
-  maxLlmCalls?: number;                      // Cap on sub-LM calls (default: 50)
+  maxSubAgentCalls?: number;                      // Cap on sub-LM calls (default: 50)
   maxRuntimeChars?: number;                  // Cap for llmQuery context + code output (default: 5000)
   maxBatchedLlmQueryConcurrency?: number;    // Max parallel batched llmQuery calls (default: 8)
   maxTurns?: number;                         // Max Actor turns before forcing Responder (default: 10)

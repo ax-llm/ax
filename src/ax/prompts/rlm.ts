@@ -24,35 +24,21 @@ function schemaTypeToShortString(schema: AxFunctionJSONSchema): string {
   return schema.type ?? 'unknown';
 }
 
-function shouldIncludeShortDescription(
-  description: string | undefined
-): boolean {
-  if (!description) return false;
-  return description.trim().split(/\s+/).length <= 12;
-}
-
-function renderCallArgObject(schema: AxFunctionJSONSchema | undefined): string {
+function renderObjectType(
+  schema: AxFunctionJSONSchema | undefined,
+  options?: Readonly<{ respectRequired?: boolean }>
+): string {
   if (!schema?.properties || Object.keys(schema.properties).length === 0) {
     return '{}';
   }
-  return `{ ${Object.keys(schema.properties).join(', ')} }`;
-}
-
-function renderArgsDetail(schema: AxFunctionJSONSchema | undefined): string {
-  if (!schema?.properties || Object.keys(schema.properties).length === 0) {
-    return 'none';
-  }
   const required = new Set(schema.required ?? []);
+  const respectRequired = options?.respectRequired ?? false;
   const parts = Object.entries(schema.properties).map(([key, prop]) => {
     const typeStr = schemaTypeToShortString(prop);
-    const marker = required.has(key) ? 'required' : 'optional';
-    const base = `${key}:${typeStr} (${marker})`;
-    if (shouldIncludeShortDescription(prop.description)) {
-      return `${base} - ${prop.description}`;
-    }
-    return base;
+    const optionalMarker = respectRequired && !required.has(key) ? '?' : '';
+    return `${key}${optionalMarker}: ${typeStr}`;
   });
-  return parts.join(', ');
+  return `{ ${parts.join(', ')} }`;
 }
 
 function renderReturnsSummary(
@@ -61,30 +47,19 @@ function renderReturnsSummary(
   if (!schema?.properties || Object.keys(schema.properties).length === 0) {
     return 'unknown';
   }
-
-  const parts = Object.entries(schema.properties).map(([key, prop]) => {
-    const typeStr = schemaTypeToShortString(prop);
-    if (shouldIncludeShortDescription(prop.description)) {
-      return `${key}:${typeStr} (${prop.description})`;
-    }
-    return `${key}:${typeStr}`;
-  });
-  return `{ ${parts.join(', ')} }`;
+  return renderObjectType(schema);
 }
 
 function renderCallableEntry(args: {
   qualifiedName: string;
-  description: string;
   parameters?: AxFunctionJSONSchema;
   returns?: AxFunctionJSONSchema;
 }): string {
-  return [
-    `- \`${args.qualifiedName}\``,
-    `  purpose: ${args.description}`,
-    `  call: \`await ${args.qualifiedName}(${renderCallArgObject(args.parameters)})\``,
-    `  args: ${renderArgsDetail(args.parameters)}`,
-    `  returns: ${renderReturnsSummary(args.returns)}`,
-  ].join('\n');
+  const paramType = renderObjectType(args.parameters, {
+    respectRequired: true,
+  });
+  const returnType = renderReturnsSummary(args.returns);
+  return `- \`${args.qualifiedName}(args: ${paramType}): Promise<${returnType}>\``;
 }
 
 /**
@@ -149,8 +124,8 @@ export interface AxRLMConfig {
   sharedFields?: string[];
   /** Code runtime for the REPL loop (default: AxJSRuntime). */
   runtime?: AxCodeRuntime;
-  /** Cap on recursive sub-LM calls (default: 50). */
-  maxLlmCalls?: number;
+  /** Cap on recursive sub-agent calls (default: 50). */
+  maxSubAgentCalls?: number;
   /**
    * Maximum characters for RLM runtime payloads (default: 5000).
    * Applies to llmQuery context and code execution output.
@@ -190,7 +165,7 @@ export function axBuildActorDefinition(
   responderOutputFields: readonly AxIField[],
   options: Readonly<{
     runtimeUsageInstructions?: string;
-    maxLlmCalls?: number;
+    maxSubAgentCalls?: number;
     maxTurns?: number;
     hasInspectRuntime?: boolean;
     /** Child agents available under the `agents.*` namespace in the JS runtime. */
@@ -209,7 +184,7 @@ export function axBuildActorDefinition(
     }>;
   }>
 ): string {
-  const maxLlmCalls = options.maxLlmCalls ?? 50;
+  const maxSubAgentCalls = options.maxSubAgentCalls ?? 50;
 
   const contextVarList =
     contextFields.length > 0
@@ -217,7 +192,7 @@ export function axBuildActorDefinition(
           .map((f) => {
             const typeStr = toFieldType(f.type);
             const desc = f.description ? `: ${f.description}` : '';
-            return `- \`${f.name}\` (${typeStr})${desc}`;
+            return `- \`${f.name}\` -> \`inputs.${f.name}\` (${typeStr})${desc}`;
           })
           .join('\n')
       : '(none)';
@@ -237,36 +212,24 @@ export function axBuildActorDefinition(
       return a.name.localeCompare(b.name);
     }
   );
-  const hasUnknownFunctionReturn = sortedAgentFunctions.some(
-    (fn) =>
-      !fn.returns?.properties || Object.keys(fn.returns.properties).length === 0
-  );
-
   const actorBody = `
 ## Code Generation Agent
 
 You are a code generation agent called the \`actor\`. Your ONLY job is to write JavaScript code to solve problems, complete tasks and gather information. There is another agent called the \`responder\` that will synthesize final answers from the information you gather. You NEVER generate final answers directly — you can only write code to explore and analyze the context, call tools, and ask for clarification.
 
-### Pre-loaded context variables
-All input fields are available in the JavaScript runtime via \`inputs.<field>\` (including context fields).
-Top-level aliases may exist for non-colliding names, but \`inputs.<field>\` is the canonical path.
-Example: \`const kb = inputs.knowledgeBase\`
-Mapping rule: a field named \`foo\` maps to \`inputs.foo\` in runtime code.
-
-Context-focused fields loaded for runtime analysis:
+### Runtime Field Access
+In JavaScript code, context fields map to \`inputs.<fieldName>\` as follows:
 ${contextVarList}
-
-Some configured context fields may also appear directly in Actor prompt inputs when compact (threshold-based).
 
 ### Responder output fields
 The responder is looking to produce the following output fields: ${responderOutputFieldTitles}
 
 ### Functions for context analysis and responding
-- \`await llmQuery(query:string, context?:object|array|string) : string\` — Delegate semantic work to a sub-agent when context is too large or complex for one turn.
-- \`await llmQuery({ query:string, context?:object|array|string }) : string\` — Single-object convenience form of \`llmQuery\`.
-- \`await llmQuery([{ query:string, context?:object|array|string }, ...]) : string[]\` — Batched \`llmQuery\` for parallel analysis. Sub-agent calls have a call limit of ${maxLlmCalls}. Oversized values are truncated automatically.
-- \`final(...args)\` — Signal completion and provide payload arguments for the responder to use to generate its output. Requires at least one argument. Execution ends after calling it.
-- \`ask_clarification(...args)\` — Signal that more user input is needed and provide clarification arguments for the responder. Requires at least one argument. Execution ends after calling it.
+- \`await llmQuery(query:string, context?:object|array|string) : string\` — Ask a sub-agent one semantic question.
+- \`await llmQuery({ query:string, context?:object|array|string }) : string\` — Single-object form.
+- \`await llmQuery([{ query:string, context?:object|array|string }, ...]) : string[]\` — Batched parallel form.
+- \`final(...args)\` — Complete and pass payload to the responder.
+- \`ask_clarification(...args)\` — Request missing user input and pass clarification payload.
 ${
   options.hasInspectRuntime
     ? `
@@ -279,7 +242,6 @@ ${
 - Use \`await agents.<name>({...})\` and \`await <namespace>.<fnName>({...})\` with a single object argument.
 - \`llmQuery\` supports positional (\`llmQuery(query, context?)\`), single-object (\`llmQuery({ query, context })\`), and batched (\`llmQuery([{ query, context }, ...])\`) forms.
 - \`final(...args)\` and \`ask_clarification(...args)\` are completion signals; do not use \`await\`.
-- Use exact namespace-qualified names.
 ${
   sortedAgents.length > 0
     ? `
@@ -289,7 +251,6 @@ ${sortedAgents
   .map((fn) =>
     renderCallableEntry({
       qualifiedName: `agents.${fn.name}`,
-      description: fn.description,
       parameters: fn.parameters,
     })
   )
@@ -301,11 +262,10 @@ ${sortedAgents
     ? `
 ### Available Functions
 The following functions are available under namespaced globals in the runtime:
-${hasUnknownFunctionReturn ? '- If \`returns\` is \`unknown\`, inspect with \`console.log(result)\` before chaining.\n' : ''}${sortedAgentFunctions
+${sortedAgentFunctions
   .map((fn) =>
     renderCallableEntry({
       qualifiedName: `${fn.namespace}.${fn.name}`,
-      description: fn.description,
       parameters: fn.parameters,
       returns: fn.returns,
     })
@@ -317,9 +277,8 @@ ${hasUnknownFunctionReturn ? '- If \`returns\` is \`unknown\`, inspect with \`co
 ### Important guidance and guardrails
 - Start with targeted code-based exploration on a small portion of context. Use \`contextMetadata\` to choose scope.
 - Use code (filter/map/slice/regex/property access) for structural work; use \`llmQuery\` for semantic interpretation and summarization.
-- Use batched \`llmQuery\` only when parallelism materially helps. Total sub-agent call budget is ${maxLlmCalls}.
-- Accumulate intermediate findings in variables. Send final payload only through \`final(...args)\` or \`ask_clarification(...args)\`.
-- The responder can only see arguments passed to \`final(...args)\` or \`ask_clarification(...args)\`.
+- Sub-agent call budget: ${maxSubAgentCalls}.
+- Only \`final(...args)\` and \`ask_clarification(...args)\` transmit payload to the responder.
 - Runtime output may be truncated. If output is incomplete, rerun with narrower scope.
 
 ## Javascript Runtime Usage Instructions

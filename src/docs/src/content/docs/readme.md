@@ -151,7 +151,7 @@ const analyzer = agent(
     rlm: {
       contextFields: ["context"],
       runtime: new AxJSRuntime(),
-      maxLlmCalls: 40,
+      maxSubAgentCalls: 40,
       maxRuntimeChars: 2_000, // Shared cap for llmQuery context + interpreter output
       maxBatchedLlmQueryConcurrency: 6,
       subModel: "gpt-4o-mini",

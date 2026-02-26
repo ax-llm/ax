@@ -1769,7 +1769,7 @@ describe('axBuildActorDefinition', () => {
       [{ name: 'answer', title: 'Answer', type: { name: 'string' } }],
       {}
     );
-    expect(result).toContain('- `query` (string)');
+    expect(result).toContain('- `query` -> `inputs.query` (string)');
   });
 
   it('should include field descriptions', () => {
@@ -1787,7 +1787,9 @@ describe('axBuildActorDefinition', () => {
       [{ name: 'answer', title: 'Answer', type: { name: 'string' } }],
       {}
     );
-    expect(result).toContain("- `query` (string): The user's search query");
+    expect(result).toContain(
+      "- `query` -> `inputs.query` (string): The user's search query"
+    );
   });
 
   it('should document final()/ask_clarification() exit signals', () => {
@@ -1810,10 +1812,11 @@ describe('axBuildActorDefinition', () => {
 
   it('should document canonical runtime input access', () => {
     const result = axBuildActorDefinition(undefined, [], [], {});
-    expect(result).toContain('inputs.<field>');
-    expect(result).toContain('including context fields');
-    expect(result).toContain('const kb = inputs.knowledgeBase');
-    expect(result).toContain('a field named `foo` maps to `inputs.foo`');
+    expect(result).toContain(
+      'In JavaScript code, context fields map to `inputs.<fieldName>` as follows:'
+    );
+    expect(result).not.toContain('### Pre-loaded context variables');
+    expect(result).toContain('### Runtime Field Access');
   });
 
   it('should document scoped function call contract rules', () => {
@@ -1827,6 +1830,7 @@ describe('axBuildActorDefinition', () => {
     expect(result).toContain(
       '`final(...args)` and `ask_clarification(...args)` are completion signals; do not use `await`.'
     );
+    expect(result).not.toContain('Use exact namespace-qualified names.');
   });
 
   it('should not include contradictory legacy guidance', () => {
@@ -1837,11 +1841,14 @@ describe('axBuildActorDefinition', () => {
     );
   });
 
-  it('should include configured maxLlmCalls in batched llmQuery docs', () => {
+  it('should keep batched llmQuery docs concise when maxSubAgentCalls is configured', () => {
     const result = axBuildActorDefinition(undefined, [], [], {
-      maxLlmCalls: 7,
+      maxSubAgentCalls: 7,
     });
-    expect(result).toContain('call limit of 7');
+    expect(result).toContain(
+      '- `await llmQuery([{ query:string, context?:object|array|string }, ...]) : string[]` — Batched parallel form.'
+    );
+    expect(result).toContain('Sub-agent call budget: 7.');
   });
 
   it('should append base definition', () => {
@@ -1894,6 +1901,125 @@ describe('axBuildResponderDefinition', () => {
 // ----- RLM llmQuery runtime behavior -----
 
 describe('RLM llmQuery runtime behavior', () => {
+  it('should enforce maxSubAgentCalls budget in runtime', async () => {
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          if (userPrompt.includes('Query: unused')) {
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: BUDGET_TEST',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          if (userPrompt.includes('Task: one')) {
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: final("one")',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          if (userPrompt.includes('Task: two')) {
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: final("two")',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: final("done")',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Answer Synthesis Agent')) {
+          return {
+            results: [
+              { index: 0, content: 'Answer: done', finishReason: 'stop' },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    let budgetResult: string[] = [];
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code === 'BUDGET_TEST') {
+              const llmQueryFn = globals?.llmQuery as (
+                query: string,
+                context?: string
+              ) => Promise<string>;
+              const r1 = await llmQueryFn('one', 'ctx1');
+              const r2 = await llmQueryFn('two', 'ctx2');
+              budgetResult = [r1, r2];
+              return JSON.stringify(budgetResult);
+            }
+
+            if (globals?.final && code.includes('final(')) {
+              (globals.final as (...args: unknown[]) => void)('done');
+              return 'submitted';
+            }
+
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: ['context'],
+      runtime,
+      maxTurns: 1,
+      maxSubAgentCalls: 1,
+      mode: 'advanced',
+    });
+
+    await testAgent.forward(testMockAI, {
+      context: 'unused',
+      query: 'unused',
+    });
+
+    expect(budgetResult[0]).not.toContain('Sub-query budget exhausted');
+    expect(budgetResult[1]).toContain('Sub-query budget exhausted (1/1)');
+  });
+
   it('should return per-item errors for batched llmQuery calls', async () => {
     const testMockAI = new AxMockAIService({
       features: { functions: false, streaming: false },
@@ -4899,14 +5025,12 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
       ],
     });
     expect(result).toContain('### Available Agent Functions');
-    expect(result).toContain('- `agents.searchAgent`');
-    expect(result).toContain('purpose: Searches the web');
     expect(result).toContain(
-      'call: `await agents.searchAgent({ query, limit })`'
+      '- `agents.searchAgent(args: { query: string, limit?: number }): Promise<unknown>`'
     );
   });
 
-  it('should render required and optional params in args detail', () => {
+  it('should render required and optional params in TypeScript-style signature', () => {
     const result = axBuildActorDefinition(undefined, [], [], {
       agents: [
         {
@@ -4916,8 +5040,8 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
         },
       ],
     });
-    expect(result).toContain('args: query:string (required)');
-    expect(result).toContain('limit:number (optional)');
+    expect(result).toContain('query: string');
+    expect(result).toContain('limit?: number');
   });
 
   it('should render ### Available Functions section when agentFunctions are provided', () => {
@@ -4932,9 +5056,9 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
       ],
     });
     expect(result).toContain('### Available Functions');
-    expect(result).toContain('- `utils.fetchData`');
-    expect(result).toContain('purpose: Fetches remote data');
-    expect(result).toContain('call: `await utils.fetchData({ query, limit })`');
+    expect(result).toContain(
+      '- `utils.fetchData(args: { query: string, limit?: number }): Promise<unknown>`'
+    );
   });
 
   it('should omit sub-agents section when agents array is empty', () => {
@@ -4961,7 +5085,9 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
         { name: 'noParamsAgent', description: 'desc', parameters: undefined },
       ],
     });
-    expect(result).toContain('call: `await agents.noParamsAgent({})`');
+    expect(result).toContain(
+      '- `agents.noParamsAgent(args: {}): Promise<unknown>`'
+    );
   });
 
   it('should render {} for agent with empty properties', () => {
@@ -4974,7 +5100,9 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
         },
       ],
     });
-    expect(result).toContain('call: `await agents.emptyAgent({})`');
+    expect(result).toContain(
+      '- `agents.emptyAgent(args: {}): Promise<unknown>`'
+    );
   });
 
   it('should render multiple agents', () => {
@@ -4988,10 +5116,8 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
         { name: 'agentTwo', description: 'Second agent' },
       ],
     });
-    expect(result).toContain('- `agents.agentOne`');
-    expect(result).toContain('First agent');
-    expect(result).toContain('- `agents.agentTwo`');
-    expect(result).toContain('Second agent');
+    expect(result).toContain('- `agents.agentOne(args: ');
+    expect(result).toContain('- `agents.agentTwo(args: ');
   });
 
   it('should render array type params correctly', () => {
@@ -5016,7 +5142,7 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
         },
       ],
     });
-    expect(result).toContain('ids:string[] (required)');
+    expect(result).toContain('ids: string[]');
   });
 
   it('should render enum type params correctly', () => {
@@ -5053,7 +5179,7 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
         },
       ],
     });
-    expect(result).toContain('verbose:boolean (required)');
+    expect(result).toContain('verbose: boolean');
   });
 
   it('should render object type params correctly', () => {
@@ -5069,10 +5195,10 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
         { name: 'setupAgent', description: 'desc', parameters: objSchema },
       ],
     });
-    expect(result).toContain('config:object (required)');
+    expect(result).toContain('config: object');
   });
 
-  it('actor program description should include sub-agent descriptions end-to-end', () => {
+  it('actor program description should include sub-agent call signatures end-to-end', () => {
     const childAgent = agent('question:string -> answer:string', {
       agentIdentity: {
         name: 'Physics Researcher',
@@ -5094,12 +5220,12 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
       .getDescription();
 
     expect(actorDescription).toContain('### Available Agent Functions');
-    expect(actorDescription).toContain('- `agents.physicsResearcher`');
-    expect(actorDescription).toContain('Answers physics questions');
-    expect(actorDescription).toContain('question:string (required)');
+    expect(actorDescription).toContain(
+      '- `agents.physicsResearcher(args: { question: string }): Promise<unknown>`'
+    );
   });
 
-  it('actor program description should include agent function descriptions end-to-end', () => {
+  it('actor program description should include agent function call signatures end-to-end', () => {
     const parentAgent = agent('query:string -> finalAnswer:string', {
       functions: {
         local: [
@@ -5121,8 +5247,9 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
       .getDescription();
 
     expect(actorDescription).toContain('### Available Functions');
-    expect(actorDescription).toContain('- `utils.lookupData`');
-    expect(actorDescription).toContain('Looks up data in the database');
+    expect(actorDescription).toContain(
+      '- `utils.lookupData(args: { query: string, limit?: number }): Promise<unknown>`'
+    );
   });
 
   it('should render sorted function entries by namespace then name', () => {
@@ -5149,15 +5276,15 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
       ],
     });
 
-    const alpha = result.indexOf('`db.alpha`');
-    const beta = result.indexOf('`db.beta`');
-    const zeta = result.indexOf('`utils.zeta`');
+    const alpha = result.indexOf('`db.alpha(args: ');
+    const beta = result.indexOf('`db.beta(args: ');
+    const zeta = result.indexOf('`utils.zeta(args: ');
     expect(alpha).toBeGreaterThan(-1);
     expect(beta).toBeGreaterThan(alpha);
     expect(zeta).toBeGreaterThan(beta);
   });
 
-  it('should render unknown returns note when return schema is missing', () => {
+  it('should render unknown return type when return schema is missing', () => {
     const result = axBuildActorDefinition(undefined, [], [], {
       agentFunctions: [
         {
@@ -5169,9 +5296,8 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
       ],
     });
     expect(result).toContain(
-      'If `returns` is `unknown`, inspect with `console.log(result)` before chaining.'
+      '- `utils.fetchData(args: { query: string, limit?: number }): Promise<unknown>`'
     );
-    expect(result).toContain('returns: unknown');
   });
 });
 
@@ -5336,11 +5462,9 @@ describe('AxFunction', () => {
       .getDescription();
 
     expect(actorDesc).toContain('### Available Functions');
-    expect(actorDesc).toContain('- `db.searchDB`');
-    expect(actorDesc).toContain('call: `await db.searchDB({ query, limit })`');
-    expect(actorDesc).toContain('args: query:string (required)');
-    expect(actorDesc).toContain('limit:number (optional)');
-    expect(actorDesc).toContain('returns: { results:string[] (Results) }');
+    expect(actorDesc).toContain(
+      '- `db.searchDB(args: { query: string, limit?: number }): Promise<{ results: string[] }>`'
+    );
     expect(actorDesc).not.toContain('async function db.searchDB(');
   });
 
