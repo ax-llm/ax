@@ -1,5 +1,12 @@
 # Changelog
 
+## [19.0.3](///compare/19.0.1...19.0.2) (2026-02-26)
+## [19.0.2](///compare/19.0.1...19.0.2) (2026-02-25)
+
+### Features
+
+* add self-registration prevention for child agents and update documentation references 74f9c14
+
 ## [19.0.2](///compare/19.0.0...19.0.1) (2026-02-25)
 
 ### Features
