@@ -1,5 +1,11 @@
 # Changelog
 
+## [19.0.8](///compare/19.0.6...19.0.7) (2026-02-26)
+
+### Features
+
+* enhance error formatting and template rendering 1dc59ae
+
 ## [19.0.7](///compare/19.0.5...19.0.6) (2026-02-26)
 ## [19.0.6](///compare/19.0.5...19.0.6) (2026-02-26)
 
