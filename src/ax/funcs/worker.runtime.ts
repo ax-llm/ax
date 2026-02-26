@@ -1089,10 +1089,11 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
     }
   };
 
-  const _formatCodeError = (err: unknown): string => {
+  const _formatCodeError = (err: unknown, code?: string): string => {
     const typedErr = err as {
       name?: unknown;
       message?: unknown;
+      stack?: unknown;
       cause?: unknown;
       data?: unknown;
     };
@@ -1102,6 +1103,31 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
         ? String(typedErr.message)
         : _safeStringify(err);
     const parts: string[] = [`${name}: ${message}`];
+
+    // Extract line/column from stack trace if available.
+    if (typeof typedErr?.stack === 'string') {
+      const lineMatch = typedErr.stack.match(/<anonymous>:(\d+):(\d+)/);
+      if (lineMatch) {
+        parts.push(`  at line ${lineMatch[1]}, column ${lineMatch[2]}`);
+      }
+    }
+
+    // Include the source code with line numbers for context.
+    if (code) {
+      const lines = code.split('\n');
+      const maxLines = 30;
+      const numbered =
+        lines.length <= maxLines
+          ? lines
+          : [
+              ...lines.slice(0, maxLines),
+              `... (${lines.length - maxLines} more lines)`,
+            ];
+      const numberedSrc = numbered
+        .map((l, i) => `  ${String(i + 1).padStart(3)}| ${l}`)
+        .join('\n');
+      parts.push(`Source:\n${numberedSrc}`);
+    }
 
     if (typedErr?.data !== undefined) {
       parts.push(`Data: ${_safeStringify(typedErr.data)}`);
@@ -1134,7 +1160,7 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
 
   const _createFnProxy =
     (name: string) =>
-    (...args: unknown[]): Promise<unknown> => {
+    (...args: unknown[]) => {
       const id = ++_fnCallId;
       return new Promise((resolve, reject) => {
         _fnPending.set(id, { resolve, reject });
@@ -1187,7 +1213,7 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
     }
   };
 
-  const _executeAsyncSnippet = async (code: string): Promise<unknown> => {
+  const _executeAsyncSnippet = async (code: string) => {
     const fallbackSource = _ensureTrailingNewline(code);
 
     // Extract declarations from the ORIGINAL code (before auto-return transform).
@@ -1327,7 +1353,7 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
       }
     } catch (err) {
       if (_isCodeExecutionError(err)) {
-        _send({ type: 'result', id, value: _formatCodeError(err) });
+        _send({ type: 'result', id, value: _formatCodeError(err, code) });
       } else {
         _send({ type: 'result', id, error: _serializeError(err) });
       }

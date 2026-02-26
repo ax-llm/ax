@@ -900,7 +900,7 @@ export class AxJSRuntime implements AxCodeRuntime {
           signal?: AbortSignal;
           reservedNames?: readonly string[];
         }
-      ): Promise<unknown> {
+      ) {
         if (isClosed) {
           return Promise.reject(new Error('Session is closed'));
         }

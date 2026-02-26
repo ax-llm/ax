@@ -40,7 +40,7 @@ export class AxEmbeddingAdapter {
   private async embedAdapter(
     text: string,
     extra?: Readonly<AxAIServiceOptions>
-  ): Promise<unknown> {
+  ) {
     const embedRes = await this.aiService.embed(
       { texts: [text] },
       {

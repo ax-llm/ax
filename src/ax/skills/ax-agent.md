@@ -837,7 +837,7 @@ class MyBrowserInterpreter implements AxCodeRuntime {
 
   createSession(globals?: Record<string, unknown>): AxCodeSession {
     return {
-      async execute(code: string): Promise<unknown> {
+      async execute(code: string) {
         // Execute code and return result
       },
       close() {
@@ -924,7 +924,7 @@ interface AxCodeRuntime {
 
 ```typescript
 interface AxCodeSession {
-  execute(code: string, options?: { signal?: AbortSignal }): Promise<unknown>;
+  execute(code: string, options?: { signal?: AbortSignal });
   close(): void;
 }
 ```

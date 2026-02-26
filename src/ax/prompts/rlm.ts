@@ -117,8 +117,10 @@ function renderCallableEntry(args: {
   const paramType = renderObjectType(args.parameters, {
     respectRequired: true,
   });
-  const returnType = renderReturnsSummary(args.returns);
-  return `- \`${args.qualifiedName}(args: ${paramType}): Promise<${returnType}>\``;
+  const returnType = args.returns
+    ? `: Promise<${renderReturnsSummary(args.returns)}>`
+    : '';
+  return `- \`${args.qualifiedName}(args: ${paramType})${returnType}\``;
 }
 
 /**
@@ -243,7 +245,7 @@ export function axBuildActorDefinition(
     }>;
   }>
 ): string {
-  const maxSubAgentCalls = options.maxSubAgentCalls ?? 50;
+  //   const maxSubAgentCalls = options.maxSubAgentCalls ?? 50;
 
   const contextVarList =
     contextFields.length > 0
@@ -275,7 +277,7 @@ export function axBuildActorDefinition(
   const actorBody = `
 ## Code Generation Agent
 
-You are a code generation agent called the \`actor\`. Your ONLY job is to write JavaScript code to solve problems, complete tasks and gather information. There is another agent called the \`responder\` that will synthesize final answers from the information you gather. You NEVER generate final answers directly — you can only write code to explore and analyze the context, call tools, and ask for clarification.
+You are a code generation agent called the \`actor\`. Your ONLY job is to write simple JavaScript code to solve problems, complete tasks and gather information. Use \`console.log\` to inspect variables and return values before writing more code that depends on those values. There is another agent called the \`responder\` that will synthesize final answers from the information you gather. You NEVER generate final answers directly — you can only write code to explore and analyze the context, call tools, and ask for clarification.
 
 ### Runtime Field Access
 In JavaScript code, context fields map to \`inputs.<fieldName>\` as follows:
@@ -285,9 +287,8 @@ ${contextVarList}
 The responder is looking to produce the following output fields: ${responderOutputFieldTitles}
 
 ### Functions for context analysis and responding
-- \`await llmQuery(query:string, context?:any) : string\` — Ask a sub-agent one semantic question.
-- \`await llmQuery({ query:string, context?:any }) : string\` — Single-object form.
-- \`await llmQuery([{ query:string, context?:any }, ...]) : string[]\` — Batched parallel form.
+- \`await llmQuery(query:string, context:any) : string\` — Ask a sub-agent one semantic question.
+- \`await llmQuery([{ query:string, context:any }, ...]) : string[]\` — Batched parallel form.
 - \`final(...args)\` — Complete and pass payload to the responder.
 - \`ask_clarification(...args)\` — Request missing user input and pass clarification payload.
 ${
@@ -298,15 +299,10 @@ ${
     : ''
 }
 
-### Function call contract
-- Use \`await agents.<name>({...})\` and \`await <namespace>.<fnName>({...})\` with a single object argument.
-- \`llmQuery\` supports positional (\`llmQuery(query, context?)\`), single-object (\`llmQuery({ query, context })\`), and batched (\`llmQuery([{ query, context }, ...])\`) forms.
-- \`final(...args)\` and \`ask_clarification(...args)\` are completion signals; do not use \`await\`.
 ${
   sortedAgents.length > 0
     ? `
 ### Available Agent Functions
-The following agents are pre-loaded under the \`agents\` namespace:
 ${sortedAgents
   .map((fn) =>
     renderCallableEntry({
@@ -321,7 +317,6 @@ ${sortedAgents
   sortedAgentFunctions.length > 0
     ? `
 ### Available Functions
-The following functions are available under namespaced globals in the runtime:
 ${sortedAgentFunctions
   .map((fn) =>
     renderCallableEntry({
@@ -337,7 +332,6 @@ ${sortedAgentFunctions
 ### Important guidance and guardrails
 - Start with targeted code-based exploration on a small portion of context. Use \`contextMetadata\` to choose scope.
 - Use code (filter/map/slice/regex/property access) for structural work; use \`llmQuery\` for semantic interpretation and summarization.
-- Sub-agent call budget: ${maxSubAgentCalls}.
 - Only \`final(...args)\` and \`ask_clarification(...args)\` transmit payload to the responder.
 - Runtime output may be truncated. If output is incomplete, rerun with narrower scope.
 

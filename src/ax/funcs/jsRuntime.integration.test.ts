@@ -79,6 +79,7 @@ describe('AxJSRuntime integration', () => {
       const result = await session.execute('const x = ;');
       expect(typeof result).toBe('string');
       expect(result).toMatch(/^SyntaxError: /);
+      expect(result).toContain('Source:');
       expect(result.length).toBeGreaterThan(10);
     } finally {
       session.close();

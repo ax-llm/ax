@@ -1986,18 +1986,6 @@ describe('axBuildActorDefinition', () => {
     expect(result).toContain('ask_clarification(...args)');
   });
 
-  it('should document llmQuery API', () => {
-    const result = axBuildActorDefinition(undefined, [], [], {});
-    expect(result).toContain(
-      'await llmQuery(query:string, context?:any) : string'
-    );
-    expect(result).toContain(
-      'await llmQuery({ query:string, context?:any }) : string'
-    );
-    expect(result).toContain('await llmQuery([{');
-    expect(result).toContain(']) : string[]');
-  });
-
   it('should document canonical runtime input access', () => {
     const result = axBuildActorDefinition(undefined, [], [], {});
     expect(result).toContain(
@@ -2007,36 +1995,12 @@ describe('axBuildActorDefinition', () => {
     expect(result).toContain('### Runtime Field Access');
   });
 
-  it('should document scoped function call contract rules', () => {
-    const result = axBuildActorDefinition(undefined, [], [], {});
-    expect(result).toContain(
-      'Use `await agents.<name>({...})` and `await <namespace>.<fnName>({...})` with a single object argument.'
-    );
-    expect(result).toContain(
-      '`llmQuery` supports positional (`llmQuery(query, context?)`), single-object (`llmQuery({ query, context })`), and batched (`llmQuery([{ query, context }, ...])`) forms.'
-    );
-    expect(result).toContain(
-      '`final(...args)` and `ask_clarification(...args)` are completion signals; do not use `await`.'
-    );
-    expect(result).not.toContain('Use exact namespace-qualified names.');
-  });
-
   it('should not include contradictory legacy guidance', () => {
     const result = axBuildActorDefinition(undefined, [], [], {});
     expect(result).not.toContain('Pass a single object argument.');
     expect(result).not.toContain(
       'Do not use `final` in the a code snippet that also contains `console.log`  statements.'
     );
-  });
-
-  it('should keep batched llmQuery docs concise when maxSubAgentCalls is configured', () => {
-    const result = axBuildActorDefinition(undefined, [], [], {
-      maxSubAgentCalls: 7,
-    });
-    expect(result).toContain(
-      '- `await llmQuery([{ query:string, context?:any }, ...]) : string[]` — Batched parallel form.'
-    );
-    expect(result).toContain('Sub-agent call budget: 7.');
   });
 
   it('should append base definition', () => {
@@ -5227,7 +5191,7 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
     });
     expect(result).toContain('### Available Agent Functions');
     expect(result).toContain(
-      '- `agents.searchAgent(args: { query: string, limit?: number }): Promise<unknown>`'
+      '- `agents.searchAgent(args: { query: string, limit?: number })`'
     );
   });
 
@@ -5258,7 +5222,7 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
     });
     expect(result).toContain('### Available Functions');
     expect(result).toContain(
-      '- `utils.fetchData(args: { query: string, limit?: number }): Promise<unknown>`'
+      '- `utils.fetchData(args: { query: string, limit?: number })`'
     );
   });
 
@@ -5286,9 +5250,7 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
         { name: 'noParamsAgent', description: 'desc', parameters: undefined },
       ],
     });
-    expect(result).toContain(
-      '- `agents.noParamsAgent(args: {}): Promise<unknown>`'
-    );
+    expect(result).toContain('- `agents.noParamsAgent(args: {})`');
   });
 
   it('should render {} for agent with empty properties', () => {
@@ -5301,9 +5263,7 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
         },
       ],
     });
-    expect(result).toContain(
-      '- `agents.emptyAgent(args: {}): Promise<unknown>`'
-    );
+    expect(result).toContain('- `agents.emptyAgent(args: {})`');
   });
 
   it('should render multiple agents', () => {
@@ -5471,7 +5431,7 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
       ],
     });
     expect(result).toContain(
-      '- `agents.mapAgent(args: { [key: string]: unknown }): Promise<unknown>`'
+      '- `agents.mapAgent(args: { [key: string]: unknown })`'
     );
   });
 
@@ -5495,7 +5455,7 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
       ],
     });
     expect(result).toContain(
-      '- `utils.openQuery(args: { query: string, [key: string]: unknown }): Promise<unknown>`'
+      '- `utils.openQuery(args: { query: string, [key: string]: unknown })`'
     );
   });
 
@@ -5538,7 +5498,7 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
 
     expect(actorDescription).toContain('### Available Agent Functions');
     expect(actorDescription).toContain(
-      '- `agents.physicsResearcher(args: { question: string }): Promise<unknown>`'
+      '- `agents.physicsResearcher(args: { question: string })`'
     );
   });
 
@@ -5565,7 +5525,7 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
 
     expect(actorDescription).toContain('### Available Functions');
     expect(actorDescription).toContain(
-      '- `utils.lookupData(args: { query: string, limit?: number }): Promise<unknown>`'
+      '- `utils.lookupData(args: { query: string, limit?: number })`'
     );
   });
 
@@ -5613,7 +5573,7 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
       ],
     });
     expect(result).toContain(
-      '- `utils.fetchData(args: { query: string, limit?: number }): Promise<unknown>`'
+      '- `utils.fetchData(args: { query: string, limit?: number })`'
     );
   });
 });
