@@ -912,7 +912,7 @@ export class AxJSRuntime implements AxCodeRuntime {
           );
         }
 
-        // Block reassignment of reserved variables
+        // Block assignment/redeclaration of reserved runtime names.
         const reserved = options?.reservedNames;
         if (reserved) {
           for (const name of reserved) {
@@ -921,7 +921,8 @@ export class AxJSRuntime implements AxCodeRuntime {
             );
             if (pattern.test(code)) {
               return Promise.resolve(
-                `[ERROR] Cannot reassign reserved variable '${name}'. Use a different variable name.`
+                `[ERROR] Cannot assign to or redeclare reserved runtime variable '${name}'. ` +
+                  `Use a different local variable name (for example: \`ctx\`) or access the original via \`inputs.${name}\`.`
               );
             }
           }

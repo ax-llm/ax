@@ -1075,8 +1075,18 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       }
     }
 
+    const optionalContextFields = new Set(
+      this.program
+        .getSignature()
+        .getInputFields()
+        .filter((f) => rlm.contextFields.includes(f.name) && f.isOptional)
+        .map((f) => f.name)
+    );
     for (const field of rlm.contextFields) {
-      if (!(field in contextValues)) {
+      if (optionalContextFields.has(field)) {
+        continue;
+      }
+      if (!(field in contextValues) || contextValues[field] === undefined) {
         throw new Error(
           `RLM contextField "${field}" is missing from input values`
         );
@@ -1384,7 +1394,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         ([k]) => !reservedTopLevelNames.has(k)
       )
     );
-    const reservedNames = [
+    const protectedRuntimeNames = [...reservedTopLevelNames];
+    const inspectReservedNames = [
       ...reservedTopLevelNames,
       ...Object.keys(runtimeTopLevelInputAliases),
     ];
@@ -1394,10 +1405,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const inspectRuntime = rlm.contextManagement?.stateInspection
       ? async (): Promise<string> => {
           try {
-            const code = buildInspectRuntimeCode(reservedNames);
+            const code = buildInspectRuntimeCode(inspectReservedNames);
             const result = await session.execute(code, {
               signal: effectiveAbortSignal,
-              reservedNames,
+              reservedNames: inspectReservedNames,
             });
             return typeof result === 'string' ? result : String(result);
           } catch (err) {
@@ -1494,7 +1505,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       try {
         const result = await session.execute(code, {
           signal: effectiveAbortSignal,
-          reservedNames,
+          reservedNames: protectedRuntimeNames,
         });
         return { output: formatInterpreterOutput(result), isError: false };
       } catch (err) {
@@ -1526,7 +1537,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
             actorResultPayload = undefined;
             const retryResult = await session.execute(code, {
               signal: effectiveAbortSignal,
-              reservedNames,
+              reservedNames: protectedRuntimeNames,
             });
             return {
               output: truncateText(

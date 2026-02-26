@@ -203,7 +203,7 @@ export type AxFunctionHandler = (
 ) => unknown;
 
 export type AxFunctionJSONSchema = {
-  type: string;
+  type: string | string[];
   properties?: Record<
     string,
     AxFunctionJSONSchema & {

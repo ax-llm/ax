@@ -12,42 +12,101 @@ import type { AxProgramForwardOptions } from '../dsp/types.js';
 
 // ----- Helpers for rendering function/agent signatures in the actor prompt -----
 
+function normalizeSchemaTypes(schema: AxFunctionJSONSchema): string[] {
+  const rawType = (schema as { type?: unknown }).type;
+
+  if (Array.isArray(rawType)) {
+    return rawType.filter((t): t is string => typeof t === 'string');
+  }
+
+  if (typeof rawType === 'string') {
+    if (rawType.includes(',')) {
+      return rawType
+        .split(',')
+        .map((part) => part.trim())
+        .filter(Boolean);
+    }
+    return [rawType];
+  }
+
+  return [];
+}
+
+function isJsonAnyTypeUnion(types: readonly string[]): boolean {
+  const normalized = new Set(types);
+  return (
+    normalized.has('object') &&
+    normalized.has('array') &&
+    normalized.has('string') &&
+    normalized.has('number') &&
+    normalized.has('boolean') &&
+    normalized.has('null')
+  );
+}
+
 function schemaTypeToShortString(schema: AxFunctionJSONSchema): string {
   if (schema.enum) return schema.enum.map((e) => `"${e}"`).join(' | ');
-  if (schema.type === 'array') {
-    const itemType = schema.items
-      ? schemaTypeToShortString(schema.items)
-      : 'unknown';
-    return `${itemType}[]`;
-  }
-  if (schema.type === 'object') return 'object';
-  return schema.type ?? 'unknown';
+
+  const types = normalizeSchemaTypes(schema);
+  if (types.length === 0) return 'unknown';
+
+  if (isJsonAnyTypeUnion(types)) return 'any';
+
+  const rendered = [...new Set(types)].map((type) => {
+    if (type === 'array') {
+      const itemType = schema.items
+        ? schemaTypeToShortString(schema.items)
+        : 'unknown';
+      return itemType.includes(' | ') ? `(${itemType})[]` : `${itemType}[]`;
+    }
+    if (type === 'object') {
+      if (schema.properties && Object.keys(schema.properties).length > 0) {
+        return renderObjectType(schema);
+      }
+      return 'object';
+    }
+    return type;
+  });
+
+  return rendered.length > 1
+    ? rendered.join(' | ')
+    : (rendered[0] ?? 'unknown');
 }
 
 function renderObjectType(
   schema: AxFunctionJSONSchema | undefined,
   options?: Readonly<{ respectRequired?: boolean }>
 ): string {
-  if (!schema?.properties || Object.keys(schema.properties).length === 0) {
+  if (!schema) {
     return '{}';
+  }
+  const hasProperties =
+    !!schema.properties && Object.keys(schema.properties).length > 0;
+  const supportsExtraProps = schema.additionalProperties === true;
+
+  if (!hasProperties) {
+    return supportsExtraProps ? '{ [key: string]: unknown }' : '{}';
   }
   const required = new Set(schema.required ?? []);
   const respectRequired = options?.respectRequired ?? false;
-  const parts = Object.entries(schema.properties).map(([key, prop]) => {
+  const parts = Object.entries(schema.properties!).map(([key, prop]) => {
     const typeStr = schemaTypeToShortString(prop);
     const optionalMarker = respectRequired && !required.has(key) ? '?' : '';
     return `${key}${optionalMarker}: ${typeStr}`;
   });
+  if (schema?.additionalProperties === true) {
+    parts.push('[key: string]: unknown');
+  }
   return `{ ${parts.join(', ')} }`;
 }
 
 function renderReturnsSummary(
   schema: AxFunctionJSONSchema | undefined
 ): string {
-  if (!schema?.properties || Object.keys(schema.properties).length === 0) {
+  if (!schema) {
     return 'unknown';
   }
-  return renderObjectType(schema);
+  return schemaTypeToShortString(schema);
 }
 
 function renderCallableEntry(args: {
@@ -191,8 +250,9 @@ export function axBuildActorDefinition(
       ? contextFields
           .map((f) => {
             const typeStr = toFieldType(f.type);
+            const optionality = f.isOptional ? 'optional' : 'required';
             const desc = f.description ? `: ${f.description}` : '';
-            return `- \`${f.name}\` -> \`inputs.${f.name}\` (${typeStr})${desc}`;
+            return `- \`${f.name}\` -> \`inputs.${f.name}\` (${typeStr}, ${optionality})${desc}`;
           })
           .join('\n')
       : '(none)';
@@ -225,9 +285,9 @@ ${contextVarList}
 The responder is looking to produce the following output fields: ${responderOutputFieldTitles}
 
 ### Functions for context analysis and responding
-- \`await llmQuery(query:string, context?:object|array|string) : string\` — Ask a sub-agent one semantic question.
-- \`await llmQuery({ query:string, context?:object|array|string }) : string\` — Single-object form.
-- \`await llmQuery([{ query:string, context?:object|array|string }, ...]) : string[]\` — Batched parallel form.
+- \`await llmQuery(query:string, context?:any) : string\` — Ask a sub-agent one semantic question.
+- \`await llmQuery({ query:string, context?:any }) : string\` — Single-object form.
+- \`await llmQuery([{ query:string, context?:any }, ...]) : string[]\` — Batched parallel form.
 - \`final(...args)\` — Complete and pass payload to the responder.
 - \`ask_clarification(...args)\` — Request missing user input and pass clarification payload.
 ${
@@ -303,7 +363,8 @@ export function axBuildResponderDefinition(
       ? contextFields
           .map((f) => {
             const typeStr = toFieldType(f.type);
-            return `- \`${f.name}\` (${typeStr})`;
+            const optionality = f.isOptional ? 'optional' : 'required';
+            return `- \`${f.name}\` (${typeStr}, ${optionality})`;
           })
           .join('\n')
       : '(none)';

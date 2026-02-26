@@ -635,6 +635,101 @@ describe('Actor/Responder execution loop', () => {
     expect(result.answer).toBe('The answer is 42');
   });
 
+  it('should throw when a required context field is missing at runtime', async () => {
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async () => ({
+        results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
+        modelUsage: makeModelUsage(),
+      }),
+    });
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: ['context'],
+      runtime: defaultRuntime,
+    });
+
+    await expect(
+      testAgent.forward(testMockAI, { query: 'missing context' } as any)
+    ).rejects.toThrow(
+      'RLM contextField "context" is missing from input values'
+    );
+  });
+
+  it('should treat undefined required context field as missing at runtime', async () => {
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async () => ({
+        results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
+        modelUsage: makeModelUsage(),
+      }),
+    });
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: ['context'],
+      runtime: defaultRuntime,
+    });
+
+    await expect(
+      testAgent.forward(testMockAI, {
+        query: 'test',
+        context: undefined,
+      } as any)
+    ).rejects.toThrow(
+      'RLM contextField "context" is missing from input values'
+    );
+  });
+
+  it('should allow missing optional context fields at runtime', async () => {
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: final("done")',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Answer Synthesis Agent')) {
+          return {
+            results: [
+              { index: 0, content: 'Answer: done', finishReason: 'stop' },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('context?:string, query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: ['context'],
+      runtime: defaultRuntime,
+    });
+
+    const result = await testAgent.forward(testMockAI, {
+      query: 'no context provided',
+    });
+
+    expect(result.answer).toBe('done');
+  });
+
   it('should enforce maxTurns limit', async () => {
     let actorCallCount = 0;
 
@@ -1170,6 +1265,81 @@ describe('Actor/Responder execution loop', () => {
     expect(inspectReservedNames).toContain('context');
     expect(inspectReservedNames).toContain('query');
     expect(responderPrompt).toContain('stateVar: number = 7');
+  });
+
+  it('should not reserve top-level input aliases during normal code execution', async () => {
+    let executionReservedNames: readonly string[] | undefined;
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          return {
+            results: [
+              {
+                index: 0,
+                content:
+                  'Javascript Code: const context = inputs.context; final(context)',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Answer Synthesis Agent')) {
+          return {
+            results: [
+              { index: 0, content: 'Answer: ok', finishReason: 'stop' },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (
+            code: string,
+            opts?: { signal?: AbortSignal; reservedNames?: readonly string[] }
+          ) => {
+            executionReservedNames = opts?.reservedNames;
+            if (code.includes('final(') && globals?.final) {
+              (globals.final as (...args: unknown[]) => void)('ok');
+            }
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: ['context'],
+      runtime,
+    });
+
+    const result = await testAgent.forward(testMockAI, {
+      context: 'ctx',
+      query: 'q',
+    });
+
+    expect(result.answer).toBe('ok');
+    expect(executionReservedNames).toBeDefined();
+    expect(executionReservedNames).toContain('inputs');
+    expect(executionReservedNames).not.toContain('context');
+    expect(executionReservedNames).not.toContain('query');
   });
 
   it('should NOT include inspect_runtime in actor definition when stateInspection is not configured', () => {
@@ -1769,7 +1939,7 @@ describe('axBuildActorDefinition', () => {
       [{ name: 'answer', title: 'Answer', type: { name: 'string' } }],
       {}
     );
-    expect(result).toContain('- `query` -> `inputs.query` (string)');
+    expect(result).toContain('- `query` -> `inputs.query` (string, required)');
   });
 
   it('should include field descriptions', () => {
@@ -1788,8 +1958,26 @@ describe('axBuildActorDefinition', () => {
       {}
     );
     expect(result).toContain(
-      "- `query` -> `inputs.query` (string): The user's search query"
+      "- `query` -> `inputs.query` (string, required): The user's search query"
     );
+  });
+
+  it('should mark optional context fields in runtime mapping', () => {
+    const fields: AxIField[] = [
+      {
+        name: 'query',
+        title: 'Query',
+        type: { name: 'string' },
+        isOptional: true,
+      },
+    ];
+    const result = axBuildActorDefinition(
+      undefined,
+      fields,
+      [{ name: 'answer', title: 'Answer', type: { name: 'string' } }],
+      {}
+    );
+    expect(result).toContain('- `query` -> `inputs.query` (string, optional)');
   });
 
   it('should document final()/ask_clarification() exit signals', () => {
@@ -1801,10 +1989,10 @@ describe('axBuildActorDefinition', () => {
   it('should document llmQuery API', () => {
     const result = axBuildActorDefinition(undefined, [], [], {});
     expect(result).toContain(
-      'await llmQuery(query:string, context?:object|array|string) : string'
+      'await llmQuery(query:string, context?:any) : string'
     );
     expect(result).toContain(
-      'await llmQuery({ query:string, context?:object|array|string }) : string'
+      'await llmQuery({ query:string, context?:any }) : string'
     );
     expect(result).toContain('await llmQuery([{');
     expect(result).toContain(']) : string[]');
@@ -1846,7 +2034,7 @@ describe('axBuildActorDefinition', () => {
       maxSubAgentCalls: 7,
     });
     expect(result).toContain(
-      '- `await llmQuery([{ query:string, context?:object|array|string }, ...]) : string[]` — Batched parallel form.'
+      '- `await llmQuery([{ query:string, context?:any }, ...]) : string[]` — Batched parallel form.'
     );
     expect(result).toContain('Sub-agent call budget: 7.');
   });
@@ -1875,7 +2063,20 @@ describe('axBuildResponderDefinition', () => {
       { name: 'documents', title: 'Documents', type: { name: 'string' } },
     ];
     const result = axBuildResponderDefinition(undefined, fields);
-    expect(result).toContain('- `documents` (string)');
+    expect(result).toContain('- `documents` (string, required)');
+  });
+
+  it('should mark optional context variable metadata', () => {
+    const fields: AxIField[] = [
+      {
+        name: 'documents',
+        title: 'Documents',
+        type: { name: 'string' },
+        isOptional: true,
+      },
+    ];
+    const result = axBuildResponderDefinition(undefined, fields);
+    expect(result).toContain('- `documents` (string, optional)');
   });
 
   it('should instruct to base answer on actorResult evidence', () => {
@@ -5180,6 +5381,122 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
       ],
     });
     expect(result).toContain('verbose: boolean');
+  });
+
+  it('should render union params with TypeScript pipe syntax', () => {
+    const unionSchema: AxFunctionJSONSchema = {
+      type: 'object',
+      properties: {
+        maybeText: {
+          type: ['string', 'null'],
+          description: 'Optional text value',
+        },
+      },
+      required: ['maybeText'],
+    };
+    const result = axBuildActorDefinition(undefined, [], [], {
+      agents: [
+        { name: 'unionAgent', description: 'desc', parameters: unionSchema },
+      ],
+    });
+    expect(result).toContain('maybeText: string | null');
+  });
+
+  it('should render broad json unions as any for readability', () => {
+    const jsonUnionSchema: AxFunctionJSONSchema = {
+      type: 'object',
+      properties: {
+        task: { type: 'string', description: 'Task' },
+        context: {
+          type: ['object', 'array', 'string', 'number', 'boolean', 'null'],
+          description: 'Generic context',
+        },
+      },
+      required: ['task'],
+    };
+    const result = axBuildActorDefinition(undefined, [], [], {
+      agents: [
+        {
+          name: 'searchAgent',
+          description: 'desc',
+          parameters: jsonUnionSchema,
+        },
+      ],
+    });
+    expect(result).toContain('task: string, context?: any');
+  });
+
+  it('should render primitive return schemas in call signatures', () => {
+    const result = axBuildActorDefinition(undefined, [], [], {
+      agentFunctions: [
+        {
+          name: 'countMatches',
+          description: 'Counts matches',
+          parameters: sampleSchema,
+          returns: { type: 'number' },
+          namespace: 'utils',
+        },
+      ],
+    });
+    expect(result).toContain(
+      '- `utils.countMatches(args: { query: string, limit?: number }): Promise<number>`'
+    );
+  });
+
+  it('should render union return schemas with TypeScript pipe syntax', () => {
+    const result = axBuildActorDefinition(undefined, [], [], {
+      agentFunctions: [
+        {
+          name: 'maybeFind',
+          description: 'Finds maybe',
+          parameters: sampleSchema,
+          returns: { type: ['string', 'null'] },
+          namespace: 'utils',
+        },
+      ],
+    });
+    expect(result).toContain(
+      '- `utils.maybeFind(args: { query: string, limit?: number }): Promise<string | null>`'
+    );
+  });
+
+  it('should render open object parameter schemas as index signatures', () => {
+    const result = axBuildActorDefinition(undefined, [], [], {
+      agents: [
+        {
+          name: 'mapAgent',
+          description: 'Accepts key/value map',
+          parameters: { type: 'object', additionalProperties: true },
+        },
+      ],
+    });
+    expect(result).toContain(
+      '- `agents.mapAgent(args: { [key: string]: unknown }): Promise<unknown>`'
+    );
+  });
+
+  it('should include index signature for object params with explicit properties and additionalProperties=true', () => {
+    const openObjectSchema: AxFunctionJSONSchema = {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Query' },
+      },
+      required: ['query'],
+      additionalProperties: true,
+    };
+    const result = axBuildActorDefinition(undefined, [], [], {
+      agentFunctions: [
+        {
+          name: 'openQuery',
+          description: 'Open query',
+          parameters: openObjectSchema,
+          namespace: 'utils',
+        },
+      ],
+    });
+    expect(result).toContain(
+      '- `utils.openQuery(args: { query: string, [key: string]: unknown }): Promise<unknown>`'
+    );
   });
 
   it('should render object type params correctly', () => {
