@@ -1,5 +1,16 @@
 # Changelog
 
+## [19.0.6](///compare/19.0.4...19.0.5) (2026-02-26)
+
+### Bug Fixes
+
+* build fix 7286042
+## [19.0.5](///compare/19.0.4...19.0.5) (2026-02-26)
+
+### Features
+
+* enhance context field handling and improve type normalization in RLM bdd2ccd
+
 ## [19.0.5](///compare/19.0.3...19.0.4) (2026-02-26)
 
 ### Features
