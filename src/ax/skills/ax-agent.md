@@ -84,8 +84,8 @@ const myAgent = agent(
 
     // Optional
     ai: llm,                            // Bind a specific AI service
-    contextFields: ['...'],             // Fields removed from LLM; available in JS runtime
-    functions: { local: [searchTool, calcTool] },   // Agent functions (AxAgentFunction)
+    contextFields: ['...'],             // Runtime context fields (supports string or { field, promptMaxChars })
+    functions: { local: [searchTool, calcTool] },   // Agent functions (AxFunction)
     agents: { local: [childAgent1, childAgent2] },  // Child agents
     debug: false,                        // Debug logging
     // ... other RLM options (see RLM section below)
@@ -416,7 +416,7 @@ When you pass a long document to an LLM, you face:
 
 ### How It Works
 
-1. **Context extraction** — Fields listed in `contextFields` are removed from the LLM prompt and loaded into a runtime session as variables.
+1. **Context extraction** — Fields listed in `contextFields` are loaded into the runtime and are always available as `inputs.<field>`. String-form entries stay runtime-only. Object-form entries (`{ field, promptMaxChars }`) may also be inlined into Actor prompt inputs when compact (default `promptMaxChars: 1200`).
 2. **Actor/Responder split** — The agent uses two internal programs:
    - **Actor** — A code generation agent that writes JavaScript to analyze context data. It NEVER generates final answers directly.
    - **Responder** — An answer synthesis agent that produces the final answer from the Actor's `actorResult` payload. It NEVER generates code.
@@ -442,7 +442,7 @@ const analyzer = agent(
       name: 'documentAnalyzer',
       description: 'Analyzes long documents using code interpreter and sub-LM queries',
     },
-    contextFields: ['context'],                  // Fields to load into runtime session
+    contextFields: [{ field: 'context', promptMaxChars: 1200 }], // Runtime context + optional Actor inlining when small
     runtime: new AxJSRuntime(),                  // Code runtime (default: AxJSRuntime)
     maxLlmCalls: 30,                             // Cap on sub-LM calls (default: 50)
     maxRuntimeChars: 2_000,                      // Cap for llmQuery context + code output (default: 5000)
@@ -682,7 +682,7 @@ const analyzer = agent('context:string, query:string -> answer:string', {
 });
 ```
 
-Each `llmQuery` call runs a sub-query with a fresh session and the same registered tool/agent globals. The child receives only the `context` argument passed to `llmQuery(query, context)` — parent `contextFields` values are not forwarded. In simple mode (default), the child is a plain AxGen (direct LLM call). In advanced mode, the child is a full AxAgent with Actor/Responder and code runtime.
+Each `llmQuery` call runs a sub-query with a fresh session and the same registered tool/agent globals. The child receives only the `context` value passed to `llmQuery(...)` — parent `contextFields` values are not forwarded. In simple mode (default), the child is a plain AxGen (direct LLM call). In advanced mode, the child is a full AxAgent with Actor/Responder and code runtime.
 
 ### Actor/Responder Descriptions
 
@@ -751,14 +751,15 @@ Demo values are validated against the target program's signature. Invalid values
 
 | API | Description |
 |-----|-------------|
-| `await llmQuery(query, context)` | Ask a sub-LM a question with a context value. Returns a string. Oversized context is truncated to `maxRuntimeChars` |
+| `await llmQuery(query, context?)` | Ask a sub-LM a question with optional context. Returns a string. Oversized context is truncated to `maxRuntimeChars` |
+| `await llmQuery({ query, context? })` | Single-object convenience form of `llmQuery`. Returns a string |
 | `await llmQuery([{ query, context }, ...])` | Run multiple sub-LM queries in parallel. Returns string[]. Failed items return `[ERROR] ...` |
 | `final(...args)` | Stop Actor execution and pass payload args to Responder. Requires at least one argument |
 | `ask_clarification(...args)` | Stop Actor execution and pass clarification payload args to Responder. Requires at least one argument |
 | `await agents.<name>({...})` | Call a child agent by name. Parameters match the agent's JSON schema. Returns a string |
 | `await <namespace>.<name>({...})` | Call an agent function. Registered under `namespace.name` (default namespace: `utils`) |
 | `print(...args)` | Available in `AxJSRuntime` when `outputMode: 'stdout'`; captured output appears in the function result |
-| Context variables | All fields listed in `contextFields` are available by name |
+| Context variables | All input fields are available as `inputs.<field>` (including context fields). Non-colliding top-level aliases may also exist |
 
 By default, `AxJSRuntime` uses `outputMode: 'stdout'`, where visible output comes from `console.log(...)`, `print(...)`, and other captured stdout lines.
 
@@ -888,7 +889,7 @@ Thrown by `AxJSRuntime` when consecutive execution failures reach `consecutiveEr
 
 ```typescript
 interface AxRLMConfig {
-  contextFields: string[];                   // Input fields holding long context
+  contextFields: string[];                   // Normalized runtime context field names (AxAgentOptions accepts string or object-form inputs)
   runtime?: AxCodeRuntime;                   // Code runtime (default: AxJSRuntime)
   maxLlmCalls?: number;                      // Cap on sub-LM calls (default: 50)
   maxRuntimeChars?: number;                  // Cap for llmQuery context + code output (default: 5000)
@@ -937,18 +938,20 @@ interface AxAgentConfig<IN, OUT> extends AxAgentOptions {
 }
 ```
 
-### `AxAgentFunction`
+### `AxFunction`
 
 ```typescript
-type AxAgentFunction = {
+type AxFunction = {
   name: string;
   description: string;
-  parameters: AxFunctionJSONSchema;  // required
+  parameters?: AxFunctionJSONSchema;
   returns?: AxFunctionJSONSchema;
   namespace?: string;                // default: 'utils'
   func: AxFunctionHandler;
 };
 ```
+
+For `agent(..., { functions })`, `parameters` is required at runtime.
 
 ### `AxAgentOptions`
 
@@ -957,7 +960,7 @@ Extends `AxProgramForwardOptions` (without `functions`) with:
 ```typescript
 {
   debug?: boolean;
-  contextFields: string[];
+  contextFields: readonly (string | { field: string; promptMaxChars?: number })[];
 
   agents?: {
     local?: AxAnyAgentic[];        // Agents callable under the agents.* namespace
@@ -973,9 +976,9 @@ Extends `AxProgramForwardOptions` (without `functions`) with:
   };
 
   functions?: {
-    local?: AxAgentFunction[];         // Registered as namespace.name globals in the JS runtime
-    shared?: AxAgentFunction[];        // Shared with direct child agents (one level)
-    globallyShared?: AxAgentFunction[]; // Shared with ALL descendants recursively
+    local?: AxFunction[];         // Registered as namespace.name globals in the JS runtime
+    shared?: AxFunction[];        // Shared with direct child agents (one level)
+    globallyShared?: AxFunction[]; // Shared with ALL descendants recursively
     excluded?: string[];               // Function names this agent should NOT receive from parents
   };
 

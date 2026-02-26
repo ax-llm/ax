@@ -1,6 +1,6 @@
 import {
   AxAIGoogleGeminiModel,
-  type AxAgentFunction,
+  type AxFunction,
   AxJSRuntime,
   agent,
   ai,
@@ -25,7 +25,7 @@ const stockAPI = (_: Readonly<{ symbol: string }>) => {
   return { price: `$${price}`, change: '+1.2%' };
 };
 
-const functions: AxAgentFunction[] = [
+const functions: AxFunction[] = [
   {
     name: 'getCurrentWeather',
     description: 'get the current weather for a location',

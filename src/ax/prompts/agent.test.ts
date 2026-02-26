@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import { AxMockAIService } from '../ai/mock/api.js';
-import type { AxFunctionJSONSchema } from '../ai/types.js';
+import type { AxFunction, AxFunctionJSONSchema } from '../ai/types.js';
 import { toFieldType } from '../dsp/prompt.js';
 import type { AxIField } from '../dsp/sig.js';
 import { s } from '../dsp/template.js';
 import { AxAIServiceAbortedError } from '../util/apicall.js';
 
-import { AxAgent, agent, type AxAgentFunction } from './agent.js';
+import { AxAgent, agent } from './agent.js';
 import type { AxCodeRuntime } from './rlm.js';
 import { axBuildActorDefinition, axBuildResponderDefinition } from './rlm.js';
 
@@ -180,6 +180,21 @@ describe('Split-architecture signature derivation', () => {
     expect(outputs[0].name).toBe('javascriptCode');
   });
 
+  it('should include object-configured context field as optional Actor input', () => {
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      contextFields: [{ field: 'context', promptMaxChars: 1200 }],
+      runtime,
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const actorSig = (testAgent as any).actorProgram.getSignature();
+    const inputs = actorSig.getInputFields();
+    const contextField = inputs.find((f: AxIField) => f.name === 'context');
+
+    expect(contextField).toBeDefined();
+    expect(contextField?.isOptional).toBe(true);
+  });
+
   it('should only have javascriptCode output when trajectoryPruning is enabled', () => {
     const testAgent = agent('context:string, query:string -> answer:string', {
       contextFields: ['context'],
@@ -236,6 +251,269 @@ describe('Split-architecture signature derivation', () => {
 
     // All original inputs preserved (none removed as context)
     expect(inputs.find((f: AxIField) => f.name === 'query')).toBeDefined();
+  });
+});
+
+// ----- Context field runtime access and prompt inlining -----
+
+describe('Context field runtime access and prompt inlining', () => {
+  const makeMock = (onActorPrompt?: (prompt: string) => void) =>
+    new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          onActorPrompt?.(userPrompt);
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: final("done")',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Answer Synthesis Agent')) {
+          return {
+            results: [
+              { index: 0, content: 'Answer: ok', finishReason: 'stop' },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+  it('should expose all inputs via inputs.<field> and keep non-colliding top-level aliases', async () => {
+    let capturedGlobals: Record<string, unknown> | undefined;
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        capturedGlobals = globals;
+        return {
+          execute: async (code: string) => {
+            if (code.includes('final(') && globals?.final) {
+              (globals.final as (...args: unknown[]) => void)('done');
+            }
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testMockAI = makeMock();
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: ['context'],
+      runtime,
+    });
+
+    await testAgent.forward(testMockAI, {
+      context: 'ctx',
+      query: 'what is this',
+    });
+
+    expect((capturedGlobals?.inputs as Record<string, unknown>)?.context).toBe(
+      'ctx'
+    );
+    expect((capturedGlobals?.inputs as Record<string, unknown>)?.query).toBe(
+      'what is this'
+    );
+    expect(capturedGlobals?.context).toBe('ctx');
+    expect(capturedGlobals?.query).toBe('what is this');
+  });
+
+  it('should preserve reserved top-level names while keeping colliding inputs under inputs.<field>', async () => {
+    let capturedGlobals: Record<string, unknown> | undefined;
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        capturedGlobals = globals;
+        return {
+          execute: async (code: string) => {
+            if (code.includes('final(') && globals?.final) {
+              (globals.final as (...args: unknown[]) => void)('done');
+            }
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testMockAI = makeMock();
+    const testAgent = agent('final:string, query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: [],
+      runtime,
+    });
+
+    await testAgent.forward(testMockAI, {
+      final: 'user-final-value',
+      query: 'question',
+    });
+
+    expect(typeof capturedGlobals?.final).toBe('function');
+    expect((capturedGlobals?.inputs as Record<string, unknown>)?.final).toBe(
+      'user-final-value'
+    );
+    expect(capturedGlobals?.query).toBe('question');
+  });
+
+  it('should inline small object-configured context values into Actor prompt', async () => {
+    let actorPrompt = '';
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code.includes('final(') && globals?.final) {
+              (globals.final as (...args: unknown[]) => void)('done');
+            }
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testMockAI = makeMock((prompt) => {
+      actorPrompt = prompt;
+    });
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: [{ field: 'context', promptMaxChars: 20 }],
+      runtime,
+    });
+
+    const token = 'INLINE_TOKEN_123';
+    await testAgent.forward(testMockAI, {
+      context: token,
+      query: 'question',
+    });
+
+    expect(actorPrompt).toContain(token);
+    expect(actorPrompt).toContain('prompt=inline (<=20 chars)');
+  });
+
+  it('should not inline large object-configured context values into Actor prompt', async () => {
+    let actorPrompt = '';
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code.includes('final(') && globals?.final) {
+              (globals.final as (...args: unknown[]) => void)('done');
+            }
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testMockAI = makeMock((prompt) => {
+      actorPrompt = prompt;
+    });
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: [{ field: 'context', promptMaxChars: 10 }],
+      runtime,
+    });
+
+    const token = 'LARGE_CONTEXT_TOKEN_abcdefghijklmnopqrstuvwxyz';
+    await testAgent.forward(testMockAI, {
+      context: token,
+      query: 'question',
+    });
+
+    expect(actorPrompt).not.toContain(token);
+    expect(actorPrompt).toContain('prompt=runtime-only (>10 chars)');
+  });
+
+  it('should keep string-form context fields runtime-only in Actor prompt', async () => {
+    let actorPrompt = '';
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code.includes('final(') && globals?.final) {
+              (globals.final as (...args: unknown[]) => void)('done');
+            }
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testMockAI = makeMock((prompt) => {
+      actorPrompt = prompt;
+    });
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: ['context'],
+      runtime,
+    });
+
+    const token = 'STRING_FORM_CONTEXT_TOKEN';
+    await testAgent.forward(testMockAI, {
+      context: token,
+      query: 'question',
+    });
+
+    expect(actorPrompt).not.toContain(token);
+    expect(actorPrompt).toContain('prompt=runtime-only');
+  });
+
+  it('should validate object-form context field configuration', () => {
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession() {
+        return { execute: async () => 'ok', close: () => {} };
+      },
+    };
+
+    expect(() =>
+      agent('context:string, query:string -> answer:string', {
+        contextFields: [{ field: 'missingField', promptMaxChars: 1200 }],
+        runtime,
+      })
+    ).toThrow(/RLM contextField "missingField" not found in signature/);
+
+    expect(() =>
+      agent('context:string, query:string -> answer:string', {
+        contextFields: ['context', { field: 'context' }],
+        runtime,
+      })
+    ).toThrow(/Duplicate contextField "context"/);
+
+    expect(() =>
+      agent('context:string, query:string -> answer:string', {
+        contextFields: [{ field: 'context', promptMaxChars: -1 }],
+        runtime,
+      })
+    ).toThrow(
+      /contextField "context" promptMaxChars must be a finite number >= 0/
+    );
   });
 });
 
@@ -793,6 +1071,105 @@ describe('Actor/Responder execution loop', () => {
     const definition = actorSig.getDescription();
 
     expect(definition).toContain('inspect_runtime');
+  });
+
+  it('should execute inspect_runtime at runtime and pass reserved names', async () => {
+    let inspectExecuted = false;
+    let inspectReservedNames: readonly string[] | undefined;
+    let responderPrompt = '';
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: INSPECT_TEST',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Answer Synthesis Agent')) {
+          responderPrompt = userPrompt;
+          return {
+            results: [
+              { index: 0, content: 'Answer: inspected', finishReason: 'stop' },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (
+            code: string,
+            opts?: { signal?: AbortSignal; reservedNames?: readonly string[] }
+          ) => {
+            if (code === 'INSPECT_TEST') {
+              const inspectRuntime = globals?.inspect_runtime as
+                | (() => Promise<string>)
+                | undefined;
+              if (!inspectRuntime) {
+                throw new Error('inspect_runtime missing');
+              }
+
+              const snapshot = await inspectRuntime();
+              if (globals?.final) {
+                (globals.final as (...args: unknown[]) => void)(snapshot);
+              }
+              return snapshot;
+            }
+
+            if (code.includes('Object.entries(globalThis)')) {
+              inspectExecuted = true;
+              inspectReservedNames = opts?.reservedNames;
+              return 'stateVar: number = 7';
+            }
+
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: ['context'],
+      runtime,
+      contextManagement: { stateInspection: { contextThreshold: 500 } },
+    });
+
+    const result = await testAgent.forward(testMockAI, {
+      context: 'ctx',
+      query: 'q',
+    });
+
+    expect(result.answer).toBe('inspected');
+    expect(inspectExecuted).toBe(true);
+    expect(inspectReservedNames).toBeDefined();
+    expect(inspectReservedNames).toContain('inputs');
+    expect(inspectReservedNames).toContain('inspect_runtime');
+    expect(inspectReservedNames).toContain('context');
+    expect(inspectReservedNames).toContain('query');
+    expect(responderPrompt).toContain('stateVar: number = 7');
   });
 
   it('should NOT include inspect_runtime in actor definition when stateInspection is not configured', () => {
@@ -1421,8 +1798,43 @@ describe('axBuildActorDefinition', () => {
 
   it('should document llmQuery API', () => {
     const result = axBuildActorDefinition(undefined, [], [], {});
-    expect(result).toContain('await llmQuery(query:string');
+    expect(result).toContain(
+      'await llmQuery(query:string, context?:object|array|string) : string'
+    );
+    expect(result).toContain(
+      'await llmQuery({ query:string, context?:object|array|string }) : string'
+    );
     expect(result).toContain('await llmQuery([{');
+    expect(result).toContain(']) : string[]');
+  });
+
+  it('should document canonical runtime input access', () => {
+    const result = axBuildActorDefinition(undefined, [], [], {});
+    expect(result).toContain('inputs.<field>');
+    expect(result).toContain('including context fields');
+    expect(result).toContain('const kb = inputs.knowledgeBase');
+    expect(result).toContain('a field named `foo` maps to `inputs.foo`');
+  });
+
+  it('should document scoped function call contract rules', () => {
+    const result = axBuildActorDefinition(undefined, [], [], {});
+    expect(result).toContain(
+      'Use `await agents.<name>({...})` and `await <namespace>.<fnName>({...})` with a single object argument.'
+    );
+    expect(result).toContain(
+      '`llmQuery` supports positional (`llmQuery(query, context?)`), single-object (`llmQuery({ query, context })`), and batched (`llmQuery([{ query, context }, ...])`) forms.'
+    );
+    expect(result).toContain(
+      '`final(...args)` and `ask_clarification(...args)` are completion signals; do not use `await`.'
+    );
+  });
+
+  it('should not include contradictory legacy guidance', () => {
+    const result = axBuildActorDefinition(undefined, [], [], {});
+    expect(result).not.toContain('Pass a single object argument.');
+    expect(result).not.toContain(
+      'Do not use `final` in the a code snippet that also contains `console.log`  statements.'
+    );
   });
 
   it('should include configured maxLlmCalls in batched llmQuery docs', () => {
@@ -4476,7 +4888,7 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
     required: ['query'],
   };
 
-  it('should render ### Available Agents Functions section when agents are provided', () => {
+  it('should render ### Available Agent Functions section when agents are provided', () => {
     const result = axBuildActorDefinition(undefined, [], [], {
       agents: [
         {
@@ -4486,12 +4898,15 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
         },
       ],
     });
-    expect(result).toContain('### Available Agents Functions');
-    expect(result).toContain('await agents.searchAgent(');
-    expect(result).toContain('Searches the web');
+    expect(result).toContain('### Available Agent Functions');
+    expect(result).toContain('- `agents.searchAgent`');
+    expect(result).toContain('purpose: Searches the web');
+    expect(result).toContain(
+      'call: `await agents.searchAgent({ query, limit })`'
+    );
   });
 
-  it('should render required params without ? and optional params with ?', () => {
+  it('should render required and optional params in args detail', () => {
     const result = axBuildActorDefinition(undefined, [], [], {
       agents: [
         {
@@ -4501,8 +4916,8 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
         },
       ],
     });
-    expect(result).toContain('query: string'); // required — no ?
-    expect(result).toContain('limit?: number'); // optional — has ?
+    expect(result).toContain('args: query:string (required)');
+    expect(result).toContain('limit:number (optional)');
   });
 
   it('should render ### Available Functions section when agentFunctions are provided', () => {
@@ -4517,13 +4932,14 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
       ],
     });
     expect(result).toContain('### Available Functions');
-    expect(result).toContain('async function utils.fetchData(');
-    expect(result).toContain('Fetches remote data');
+    expect(result).toContain('- `utils.fetchData`');
+    expect(result).toContain('purpose: Fetches remote data');
+    expect(result).toContain('call: `await utils.fetchData({ query, limit })`');
   });
 
   it('should omit sub-agents section when agents array is empty', () => {
     const result = axBuildActorDefinition(undefined, [], [], { agents: [] });
-    expect(result).not.toContain('### Available Agents Functions');
+    expect(result).not.toContain('### Available Agent Functions');
   });
 
   it('should omit functions section when agentFunctions array is empty', () => {
@@ -4535,7 +4951,7 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
 
   it('should omit both sections when neither option is provided', () => {
     const result = axBuildActorDefinition(undefined, [], [], {});
-    expect(result).not.toContain('### Available Agents Functions');
+    expect(result).not.toContain('### Available Agent Functions');
     expect(result).not.toContain('### Available Functions');
   });
 
@@ -4545,7 +4961,7 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
         { name: 'noParamsAgent', description: 'desc', parameters: undefined },
       ],
     });
-    expect(result).toContain('await agents.noParamsAgent({})');
+    expect(result).toContain('call: `await agents.noParamsAgent({})`');
   });
 
   it('should render {} for agent with empty properties', () => {
@@ -4558,7 +4974,7 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
         },
       ],
     });
-    expect(result).toContain('await agents.emptyAgent({})');
+    expect(result).toContain('call: `await agents.emptyAgent({})`');
   });
 
   it('should render multiple agents', () => {
@@ -4572,9 +4988,9 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
         { name: 'agentTwo', description: 'Second agent' },
       ],
     });
-    expect(result).toContain('await agents.agentOne(');
+    expect(result).toContain('- `agents.agentOne`');
     expect(result).toContain('First agent');
-    expect(result).toContain('await agents.agentTwo(');
+    expect(result).toContain('- `agents.agentTwo`');
     expect(result).toContain('Second agent');
   });
 
@@ -4600,7 +5016,7 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
         },
       ],
     });
-    expect(result).toContain('ids: string[]');
+    expect(result).toContain('ids:string[] (required)');
   });
 
   it('should render enum type params correctly', () => {
@@ -4637,7 +5053,7 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
         },
       ],
     });
-    expect(result).toContain('verbose: boolean');
+    expect(result).toContain('verbose:boolean (required)');
   });
 
   it('should render object type params correctly', () => {
@@ -4653,7 +5069,7 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
         { name: 'setupAgent', description: 'desc', parameters: objSchema },
       ],
     });
-    expect(result).toContain('config: object');
+    expect(result).toContain('config:object (required)');
   });
 
   it('actor program description should include sub-agent descriptions end-to-end', () => {
@@ -4677,10 +5093,10 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
       .getSignature()
       .getDescription();
 
-    expect(actorDescription).toContain('### Available Agents Functions');
-    expect(actorDescription).toContain('await agents.physicsResearcher(');
+    expect(actorDescription).toContain('### Available Agent Functions');
+    expect(actorDescription).toContain('- `agents.physicsResearcher`');
     expect(actorDescription).toContain('Answers physics questions');
-    expect(actorDescription).toContain('question: string');
+    expect(actorDescription).toContain('question:string (required)');
   });
 
   it('actor program description should include agent function descriptions end-to-end', () => {
@@ -4705,14 +5121,63 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
       .getDescription();
 
     expect(actorDescription).toContain('### Available Functions');
-    expect(actorDescription).toContain('async function utils.lookupData(');
+    expect(actorDescription).toContain('- `utils.lookupData`');
     expect(actorDescription).toContain('Looks up data in the database');
+  });
+
+  it('should render sorted function entries by namespace then name', () => {
+    const result = axBuildActorDefinition(undefined, [], [], {
+      agentFunctions: [
+        {
+          name: 'zeta',
+          description: 'zeta fn',
+          parameters: sampleSchema,
+          namespace: 'utils',
+        },
+        {
+          name: 'alpha',
+          description: 'alpha fn',
+          parameters: sampleSchema,
+          namespace: 'db',
+        },
+        {
+          name: 'beta',
+          description: 'beta fn',
+          parameters: sampleSchema,
+          namespace: 'db',
+        },
+      ],
+    });
+
+    const alpha = result.indexOf('`db.alpha`');
+    const beta = result.indexOf('`db.beta`');
+    const zeta = result.indexOf('`utils.zeta`');
+    expect(alpha).toBeGreaterThan(-1);
+    expect(beta).toBeGreaterThan(alpha);
+    expect(zeta).toBeGreaterThan(beta);
+  });
+
+  it('should render unknown returns note when return schema is missing', () => {
+    const result = axBuildActorDefinition(undefined, [], [], {
+      agentFunctions: [
+        {
+          name: 'fetchData',
+          description: 'Fetches data',
+          parameters: sampleSchema,
+          namespace: 'utils',
+        },
+      ],
+    });
+    expect(result).toContain(
+      'If `returns` is `unknown`, inspect with `console.log(result)` before chaining.'
+    );
+    expect(result).toContain('returns: unknown');
   });
 });
 
-// ----- AxAgentFunction tests -----
+// ----- AxFunction tests -----
 
-describe('AxAgentFunction', () => {
+describe('AxFunction', () => {
   const runtime: AxCodeRuntime = {
     getUsageInstructions: () => '',
     createSession() {
@@ -4807,6 +5272,30 @@ describe('AxAgentFunction', () => {
     }
   });
 
+  it('should require parameters for functions used in agent runtime', () => {
+    expect(
+      () =>
+        new AxAgent(
+          { signature: 'query:string -> answer:string' },
+          {
+            contextFields: [],
+            runtime,
+            functions: {
+              local: [
+                {
+                  name: 'missingSchema',
+                  description: 'Missing parameters',
+                  func: async () => 'x',
+                },
+              ],
+            },
+          }
+        )
+    ).toThrow(
+      'Agent function "missingSchema" must define parameters schema for agent runtime usage.'
+    );
+  });
+
   it('should render agent functions in actor prompt with namespace', () => {
     const myAgent = agent('query:string -> answer:string', {
       contextFields: [],
@@ -4847,15 +5336,16 @@ describe('AxAgentFunction', () => {
       .getDescription();
 
     expect(actorDesc).toContain('### Available Functions');
-    expect(actorDesc).toContain('async function db.searchDB(');
-    expect(actorDesc).toContain('Searches the database');
-    expect(actorDesc).toContain('query: string');
-    expect(actorDesc).toContain('limit?: number');
-    expect(actorDesc).toContain('results: string[]');
+    expect(actorDesc).toContain('- `db.searchDB`');
+    expect(actorDesc).toContain('call: `await db.searchDB({ query, limit })`');
+    expect(actorDesc).toContain('args: query:string (required)');
+    expect(actorDesc).toContain('limit:number (optional)');
+    expect(actorDesc).toContain('returns: { results:string[] (Results) }');
+    expect(actorDesc).not.toContain('async function db.searchDB(');
   });
 
   it('should propagate shared agent functions to direct children', () => {
-    const sharedFn: AxAgentFunction = {
+    const sharedFn: AxFunction = {
       name: 'sharedUtil',
       description: 'A shared utility',
       parameters: {
@@ -4880,12 +5370,12 @@ describe('AxAgentFunction', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const childFunctions = (child as any).agentFunctions as AxAgentFunction[];
+    const childFunctions = (child as any).agentFunctions as AxFunction[];
     expect(childFunctions.map((f) => f.name)).toContain('sharedUtil');
   });
 
   it('should NOT propagate shared agent functions to grandchildren', () => {
-    const sharedFn: AxAgentFunction = {
+    const sharedFn: AxFunction = {
       name: 'sharedUtil',
       description: 'A shared utility',
       parameters: {
@@ -4918,18 +5408,18 @@ describe('AxAgentFunction', () => {
 
     // Child should have it
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const childFunctions = (child as any).agentFunctions as AxAgentFunction[];
+    const childFunctions = (child as any).agentFunctions as AxFunction[];
     expect(childFunctions.map((f) => f.name)).toContain('sharedUtil');
 
     // Grandchild should NOT have it
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const grandchildFunctions = (grandchild as any)
-      .agentFunctions as AxAgentFunction[];
+      .agentFunctions as AxFunction[];
     expect(grandchildFunctions.map((f) => f.name)).not.toContain('sharedUtil');
   });
 
   it('should propagate globallyShared agent functions to all descendants', () => {
-    const globalFn: AxAgentFunction = {
+    const globalFn: AxFunction = {
       name: 'globalUtil',
       description: 'A global utility',
       parameters: {
@@ -4962,18 +5452,18 @@ describe('AxAgentFunction', () => {
 
     // Child should have it
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const childFunctions = (child as any).agentFunctions as AxAgentFunction[];
+    const childFunctions = (child as any).agentFunctions as AxFunction[];
     expect(childFunctions.map((f) => f.name)).toContain('globalUtil');
 
     // Grandchild should ALSO have it
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const grandchildFunctions = (grandchild as any)
-      .agentFunctions as AxAgentFunction[];
+      .agentFunctions as AxFunction[];
     expect(grandchildFunctions.map((f) => f.name)).toContain('globalUtil');
   });
 
   it('should respect functions.excluded to block shared agent functions', () => {
-    const sharedFn: AxAgentFunction = {
+    const sharedFn: AxFunction = {
       name: 'blockedFn',
       description: 'Should be blocked',
       parameters: {
@@ -4999,19 +5489,19 @@ describe('AxAgentFunction', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const childFunctions = (child as any).agentFunctions as AxAgentFunction[];
+    const childFunctions = (child as any).agentFunctions as AxFunction[];
     expect(childFunctions.map((f) => f.name)).not.toContain('blockedFn');
   });
 
   it('should throw on duplicate agent function propagated from parent', () => {
-    const fn1: AxAgentFunction = {
+    const fn1: AxFunction = {
       name: 'dupFn',
       description: 'First',
       parameters: { type: 'object', properties: {} },
       func: async () => 'a',
     };
 
-    const fn2: AxAgentFunction = {
+    const fn2: AxFunction = {
       name: 'dupFn',
       description: 'Second',
       parameters: { type: 'object', properties: {} },
@@ -5035,14 +5525,14 @@ describe('AxAgentFunction', () => {
   });
 
   it('should skip shared function when child already defines it locally', () => {
-    const localFn: AxAgentFunction = {
+    const localFn: AxFunction = {
       name: 'myFn',
       description: 'Child version',
       parameters: { type: 'object', properties: {} },
       func: async () => 'child-version',
     };
 
-    const parentSharedFn: AxAgentFunction = {
+    const parentSharedFn: AxFunction = {
       name: 'myFn',
       description: 'Parent version',
       parameters: { type: 'object', properties: {} },
@@ -5066,7 +5556,7 @@ describe('AxAgentFunction', () => {
 
     // Child should still have its own version
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const childFunctions = (child as any).agentFunctions as AxAgentFunction[];
+    const childFunctions = (child as any).agentFunctions as AxFunction[];
     const myFn = childFunctions.find((f) => f.name === 'myFn');
     expect(myFn?.description).toBe('Child version');
   });
@@ -5100,7 +5590,7 @@ describe('AxAgentFunction', () => {
   });
 
   it('should dedup agent functions by namespace.name across namespaces', () => {
-    const fn1: AxAgentFunction = {
+    const fn1: AxFunction = {
       name: 'process',
       description: 'Utils process',
       parameters: { type: 'object', properties: {} },
@@ -5108,7 +5598,7 @@ describe('AxAgentFunction', () => {
       func: async () => 'a',
     };
 
-    const fn2: AxAgentFunction = {
+    const fn2: AxFunction = {
       name: 'process',
       description: 'Media process',
       parameters: { type: 'object', properties: {} },
@@ -5131,7 +5621,7 @@ describe('AxAgentFunction', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const childFunctions = (child as any).agentFunctions as AxAgentFunction[];
+    const childFunctions = (child as any).agentFunctions as AxFunction[];
     expect(childFunctions).toHaveLength(2);
     expect(childFunctions.map((f) => `${f.namespace}.${f.name}`)).toEqual(
       expect.arrayContaining(['utils.process', 'media.process'])

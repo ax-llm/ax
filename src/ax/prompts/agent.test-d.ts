@@ -1,4 +1,4 @@
-import { agent, f, s, type AxCodeRuntime } from '../index.js';
+import { agent, f, s, type AxCodeRuntime, type AxFunction } from '../index.js';
 
 // Basic agent with string signature — forward() returns typed output
 {
@@ -70,6 +70,27 @@ import { agent, f, s, type AxCodeRuntime } from '../index.js';
 
   type Result = Awaited<ReturnType<typeof a.forward>>;
   const _ok: Result = { answer: 'x' };
+}
+
+// Agent with object context field config
+{
+  const runtime = {} as AxCodeRuntime;
+  agent('context:string, query:string -> answer:string', {
+    contextFields: [{ field: 'context', promptMaxChars: 1200 }] as const,
+    runtime,
+  });
+}
+
+// Agent with mixed context field config
+{
+  const runtime = {} as AxCodeRuntime;
+  agent('context:string, notes:string, query:string -> answer:string', {
+    contextFields: [
+      'context',
+      { field: 'notes', promptMaxChars: 900 },
+    ] as const,
+    runtime,
+  });
 }
 
 // Agent with contextManagement — all options
@@ -186,4 +207,36 @@ import { agent, f, s, type AxCodeRuntime } from '../index.js';
   a.setDemos([{ programId: 'root.actr', traces: [] }]);
   // @ts-expect-error unknown child name
   a.setDemos([{ programId: 'root.predictor', traces: [] }]);
+}
+
+// AxFunction output schema should be optional
+{
+  const fnWithoutReturns: AxFunction = {
+    name: 'lookupUser',
+    description: 'Lookup a user by id',
+    parameters: {
+      type: 'object',
+      properties: {
+        userId: { type: 'string' },
+      },
+      required: ['userId'],
+    },
+    async func(args) {
+      return { userId: (args as { userId: string }).userId };
+    },
+  };
+
+  const fnWithReturns: AxFunction = {
+    ...fnWithoutReturns,
+    returns: {
+      type: 'object',
+      properties: {
+        userId: { type: 'string' },
+      },
+      required: ['userId'],
+    },
+  };
+
+  const _ok = [fnWithoutReturns, fnWithReturns];
+  void _ok;
 }

@@ -222,6 +222,8 @@ export type AxFunction = {
   name: string;
   description: string;
   parameters?: AxFunctionJSONSchema;
+  returns?: AxFunctionJSONSchema;
+  namespace?: string;
   func: AxFunctionHandler;
 };
 

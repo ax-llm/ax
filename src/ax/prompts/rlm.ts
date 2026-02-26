@@ -24,15 +24,67 @@ function schemaTypeToShortString(schema: AxFunctionJSONSchema): string {
   return schema.type ?? 'unknown';
 }
 
-function renderParamsInline(schema: AxFunctionJSONSchema | undefined): string {
-  if (!schema?.properties || Object.keys(schema.properties).length === 0)
+function shouldIncludeShortDescription(
+  description: string | undefined
+): boolean {
+  if (!description) return false;
+  return description.trim().split(/\s+/).length <= 12;
+}
+
+function renderCallArgObject(schema: AxFunctionJSONSchema | undefined): string {
+  if (!schema?.properties || Object.keys(schema.properties).length === 0) {
     return '{}';
+  }
+  return `{ ${Object.keys(schema.properties).join(', ')} }`;
+}
+
+function renderArgsDetail(schema: AxFunctionJSONSchema | undefined): string {
+  if (!schema?.properties || Object.keys(schema.properties).length === 0) {
+    return 'none';
+  }
   const required = new Set(schema.required ?? []);
   const parts = Object.entries(schema.properties).map(([key, prop]) => {
     const typeStr = schemaTypeToShortString(prop);
-    return required.has(key) ? `${key}: ${typeStr}` : `${key}?: ${typeStr}`;
+    const marker = required.has(key) ? 'required' : 'optional';
+    const base = `${key}:${typeStr} (${marker})`;
+    if (shouldIncludeShortDescription(prop.description)) {
+      return `${base} - ${prop.description}`;
+    }
+    return base;
+  });
+  return parts.join(', ');
+}
+
+function renderReturnsSummary(
+  schema: AxFunctionJSONSchema | undefined
+): string {
+  if (!schema?.properties || Object.keys(schema.properties).length === 0) {
+    return 'unknown';
+  }
+
+  const parts = Object.entries(schema.properties).map(([key, prop]) => {
+    const typeStr = schemaTypeToShortString(prop);
+    if (shouldIncludeShortDescription(prop.description)) {
+      return `${key}:${typeStr} (${prop.description})`;
+    }
+    return `${key}:${typeStr}`;
   });
   return `{ ${parts.join(', ')} }`;
+}
+
+function renderCallableEntry(args: {
+  qualifiedName: string;
+  description: string;
+  parameters?: AxFunctionJSONSchema;
+  returns?: AxFunctionJSONSchema;
+}): string {
+  return [
+    `- \`${args.qualifiedName}\``,
+    `  purpose: ${args.description}`,
+    `  call: \`await ${args.qualifiedName}(${renderCallArgObject(args.parameters)})\``,
+    `  args: ${renderArgsDetail(args.parameters)}`,
+    `  returns: ${renderReturnsSummary(args.returns)}`,
+  ].join('\n');
 }
 
 /**
@@ -127,48 +179,6 @@ export interface AxRLMConfig {
   mode?: 'simple' | 'advanced';
 }
 
-function renderReturnsInline(schema: AxFunctionJSONSchema | undefined): string {
-  if (!schema?.properties || Object.keys(schema.properties).length === 0)
-    return 'unknown';
-  const parts = Object.entries(schema.properties).map(([key, prop]) => {
-    const typeStr = schemaTypeToShortString(prop);
-    return `${key}: ${typeStr}`;
-  });
-  return `{ ${parts.join(', ')} }`;
-}
-
-function renderAgentFunctionsAsJsApi(
-  fns: ReadonlyArray<{
-    name: string;
-    description: string;
-    parameters: AxFunctionJSONSchema;
-    returns?: AxFunctionJSONSchema;
-    namespace: string;
-  }>
-): string {
-  // Group by namespace
-  const byNamespace = new Map<string, typeof fns>();
-  for (const fn of fns) {
-    const group = byNamespace.get(fn.namespace) ?? [];
-    byNamespace.set(fn.namespace, [...group, fn]);
-  }
-
-  const sections: string[] = [];
-  for (const [ns, nsFns] of byNamespace) {
-    sections.push(`// ${ns} namespace`);
-    for (const fn of nsFns) {
-      sections.push(`// ${fn.description}`);
-      const params = renderParamsInline(fn.parameters);
-      const returns = fn.returns ? renderReturnsInline(fn.returns) : 'unknown';
-      sections.push(
-        `async function ${ns}.${fn.name}(${params}): Promise<${returns}>`
-      );
-      sections.push('');
-    }
-  }
-  return sections.join('\n');
-}
-
 /**
  * Builds the Actor system prompt. The Actor is a code generation agent that
  * decides what code to execute next based on the current state. It NEVER
@@ -216,25 +226,46 @@ export function axBuildActorDefinition(
     .map((f) => `\`${f.name}\``)
     .join(', ');
 
+  const sortedAgents = [...(options.agents ?? [])].sort((a, b) =>
+    a.name.localeCompare(b.name)
+  );
+  const sortedAgentFunctions = [...(options.agentFunctions ?? [])].sort(
+    (a, b) => {
+      if (a.namespace !== b.namespace) {
+        return a.namespace.localeCompare(b.namespace);
+      }
+      return a.name.localeCompare(b.name);
+    }
+  );
+  const hasUnknownFunctionReturn = sortedAgentFunctions.some(
+    (fn) =>
+      !fn.returns?.properties || Object.keys(fn.returns.properties).length === 0
+  );
+
   const actorBody = `
 ## Code Generation Agent
 
 You are a code generation agent called the \`actor\`. Your ONLY job is to write JavaScript code to solve problems, complete tasks and gather information. There is another agent called the \`responder\` that will synthesize final answers from the information you gather. You NEVER generate final answers directly — you can only write code to explore and analyze the context, call tools, and ask for clarification.
 
 ### Pre-loaded context variables
-The following variables are **ONLY** available in the javascript code runtime session:
+All input fields are available in the JavaScript runtime via \`inputs.<field>\` (including context fields).
+Top-level aliases may exist for non-colliding names, but \`inputs.<field>\` is the canonical path.
+Example: \`const kb = inputs.knowledgeBase\`
+Mapping rule: a field named \`foo\` maps to \`inputs.foo\` in runtime code.
+
+Context-focused fields loaded for runtime analysis:
 ${contextVarList}
+
+Some configured context fields may also appear directly in Actor prompt inputs when compact (threshold-based).
 
 ### Responder output fields
 The responder is looking to produce the following output fields: ${responderOutputFieldTitles}
 
 ### Functions for context analysis and responding
-- \`await llmQuery(query:string, context:object|array|string) : string\` — Have a sub agent work on a part of the task for you when the context is too large or complex to handle in a single turn. Its a way to divide and conquer but do not overuse it.
-
-- \`await llmQuery([{ query:string, context:object|array|string }, ...]) : string\` — A batched version of \`llmQuery\` that allows you to make multiple queries in parallel. Use this to speed up processing when you have many items to analyze. Sub-agent calls have a call limit of ${maxLlmCalls}. Oversized values are truncated automatically.
-
+- \`await llmQuery(query:string, context?:object|array|string) : string\` — Delegate semantic work to a sub-agent when context is too large or complex for one turn.
+- \`await llmQuery({ query:string, context?:object|array|string }) : string\` — Single-object convenience form of \`llmQuery\`.
+- \`await llmQuery([{ query:string, context?:object|array|string }, ...]) : string[]\` — Batched \`llmQuery\` for parallel analysis. Sub-agent calls have a call limit of ${maxLlmCalls}. Oversized values are truncated automatically.
 - \`final(...args)\` — Signal completion and provide payload arguments for the responder to use to generate its output. Requires at least one argument. Execution ends after calling it.
-
 - \`ask_clarification(...args)\` — Signal that more user input is needed and provide clarification arguments for the responder. Requires at least one argument. Execution ends after calling it.
 ${
   options.hasInspectRuntime
@@ -242,48 +273,60 @@ ${
 - \`await inspect_runtime() : string\` — Returns a compact snapshot of all user-defined variables in the runtime session (name, type, size, preview). Use this to re-ground yourself when the action log is large instead of re-reading previous outputs.
 `
     : ''
-}${
-  options.agents && options.agents.length > 0
+}
+
+### Function call contract
+- Use \`await agents.<name>({...})\` and \`await <namespace>.<fnName>({...})\` with a single object argument.
+- \`llmQuery\` supports positional (\`llmQuery(query, context?)\`), single-object (\`llmQuery({ query, context })\`), and batched (\`llmQuery([{ query, context }, ...])\`) forms.
+- \`final(...args)\` and \`ask_clarification(...args)\` are completion signals; do not use \`await\`.
+- Use exact namespace-qualified names.
+${
+  sortedAgents.length > 0
     ? `
-### Available Agents Functions
-The following agents are pre-loaded under the \`agents\` namespace. Call them for specialized tasks:
-${options.agents
-  .map(
-    (fn) =>
-      `- \`await agents.${fn.name}(${renderParamsInline(fn.parameters)})\` — ${fn.description}`
+### Available Agent Functions
+The following agents are pre-loaded under the \`agents\` namespace:
+${sortedAgents
+  .map((fn) =>
+    renderCallableEntry({
+      qualifiedName: `agents.${fn.name}`,
+      description: fn.description,
+      parameters: fn.parameters,
+    })
   )
   .join('\n')}
 `
     : ''
 }${
-  options.agentFunctions && options.agentFunctions.length > 0
+  sortedAgentFunctions.length > 0
     ? `
 ### Available Functions
 The following functions are available under namespaced globals in the runtime:
-\`\`\`javascript
-${renderAgentFunctionsAsJsApi(options.agentFunctions)}
-\`\`\`
+${hasUnknownFunctionReturn ? '- If \`returns\` is \`unknown\`, inspect with \`console.log(result)\` before chaining.\n' : ''}${sortedAgentFunctions
+  .map((fn) =>
+    renderCallableEntry({
+      qualifiedName: `${fn.namespace}.${fn.name}`,
+      description: fn.description,
+      parameters: fn.parameters,
+      returns: fn.returns,
+    })
+  )
+  .join('\n')}
 `
     : ''
 }
 ### Important guidance and guardrails
-- Always do some due diligence first to figure out if you can solve the problem by writing code that looks at only a portion of the context. You have access to the \`contextMetadata\` which provides information about the context fields, use this in your decision making.
-
-- Use \`llmQuery\` to delegate sub-tasks to a sub-agent when the context is too large or complex to handle. You can also use the batched version of \`llmQuery\` to speed up processing when you want to explore parts of the context in parallel. Sub-agent calls have a call limit of ${maxLlmCalls} and oversized values are truncated automatically.
-
-- You can only send data to the responder to produce output by calling \`final(...args)\` or \`ask_clarification(...args)\` with a non-empty args. Do not attempt to return values or set variables for the responder to read. The responder can ONLY see the arguments you pass using these two functions.
-
-- Do not use \`final\` in the a code snippet that also contains \`console.log\`  statements. These statements mean that you want to look at intermediate results so only call \`final\` when you are done will looking at all the intermediate results and are ready to pass the final payload to the responder. 
-
-- First attempt to use code like filter, map, slice, regex, property access, etc combined with \`console.log\` to explore the context and gather information. Use \`llmQuery\` for anything that requires interpretation, summarization, or answering questions about the content.
-
-- Use variables as buffers to accumulate information across steps. For example, if you are gathering evidence from multiple parts of the context, you can store it in an array variable and then pass it all at once in the \`final\` call.
-
-- Runtime output may be truncated. If it appears incomplete, rerun with narrower scope.
+- Start with targeted code-based exploration on a small portion of context. Use \`contextMetadata\` to choose scope.
+- Use code (filter/map/slice/regex/property access) for structural work; use \`llmQuery\` for semantic interpretation and summarization.
+- Use batched \`llmQuery\` only when parallelism materially helps. Total sub-agent call budget is ${maxLlmCalls}.
+- Accumulate intermediate findings in variables. Send final payload only through \`final(...args)\` or \`ask_clarification(...args)\`.
+- The responder can only see arguments passed to \`final(...args)\` or \`ask_clarification(...args)\`.
+- Runtime output may be truncated. If output is incomplete, rerun with narrower scope.
 
 ## Javascript Runtime Usage Instructions
 ${options.runtimeUsageInstructions}
-`;
+`
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 
   return baseDefinition ? `${actorBody}\n\n${baseDefinition}` : actorBody;
 }

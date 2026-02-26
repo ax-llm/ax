@@ -1,7 +1,6 @@
 import {
   AxAI,
   AxAIOpenAIModel,
-  type AxAgentFunction,
   type AxFunction,
   AxJSRuntime,
   AxMCPClient,
@@ -88,7 +87,7 @@ Using streamable HTTP transport for real-time communication with Pipedream MCP s
   const client = new AxMCPClient(httpTransport, { debug: false });
   await client.init();
 
-  const toAgentFunctions = (functions: AxFunction[]): AxAgentFunction[] =>
+  const toAgentFunctions = (functions: AxFunction[]): AxFunction[] =>
     functions.map((fn) => ({
       ...fn,
       parameters: fn.parameters ?? { type: 'object', properties: {} },
