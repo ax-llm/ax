@@ -1,5 +1,16 @@
 # Changelog
 
+## [19.0.10](///compare/19.0.8...19.0.9) (2026-02-27)
+
+### Features
+
+* implement session auto-recovery after timeout and improve error handling 7f76d94
+## [19.0.9](///compare/19.0.8...19.0.9) (2026-02-27)
+
+### Features
+
+* enhance error handling by providing focused source context for runtime errors 7b3e5ee
+
 ## [19.0.9](///compare/19.0.7...19.0.8) (2026-02-27)
 
 ### Features
