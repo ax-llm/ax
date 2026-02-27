@@ -4,7 +4,7 @@
 import { AxAgentProvider, AxAIProvider } from './src/aisdk/provider.js';
 import {
   AxAIBedrock,
-  AxAIBedrockConfig,
+  type AxAIBedrockConfig,
   AxAIBedrockEmbedModel,
   AxAIBedrockModel,
 } from './src/aws-bedrock/api.js';
@@ -755,18 +755,16 @@ import type {
 import {
   AxAgent,
   type AxAgentConfig,
-  type AxAgentFeatures,
   type AxAgentic,
   type AxAgentOptions,
   agent,
 } from './src/ax/prompts/agent.js';
 import { axRAG } from './src/ax/prompts/rag.js';
-import {
-  type AxCodeInterpreter,
-  type AxCodeRuntime,
-  type AxCodeSession,
-  type AxRLMConfig,
-  axBuildRLMDefinition,
+import type {
+  AxCodeInterpreter,
+  AxCodeRuntime,
+  AxCodeSession,
+  AxRLMConfig,
 } from './src/ax/prompts/rlm.js';
 import {
   AxTraceLogger,
@@ -812,7 +810,6 @@ export { AxAIAnthropicModel };
 export { AxAIAnthropicVertexModel };
 export { AxAIAzureOpenAI };
 export { AxAIBedrock };
-export { AxAIBedrockConfig };
 export { AxAIBedrockEmbedModel };
 export { AxAIBedrockModel };
 export { AxAICohere };
@@ -969,7 +966,6 @@ export { axAnalyzeChatPromptRequirements };
 export { axAnalyzeRequestRequirements };
 export { axBaseAIDefaultConfig };
 export { axBaseAIDefaultCreativeConfig };
-export { axBuildRLMDefinition };
 export { axCheckMetricsHealth };
 export { axCreateDefaultColorLogger };
 export { axCreateDefaultOptimizerColorLogger };
@@ -1232,7 +1228,6 @@ export type { AxAIWebLLMEmbedResponse };
 export type { AxAPI };
 export type { AxAPIConfig };
 export type { AxAgentConfig };
-export type { AxAgentFeatures };
 export type { AxAgentOptions };
 export type { AxAgentic };
 export type { AxApacheTikaArgs };
