@@ -1109,28 +1109,32 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
     const parts: string[] = [`${name}: ${message}`];
 
     // Extract line/column from stack trace if available.
+    let errorLine: number | undefined;
     if (typeof typedErr?.stack === 'string') {
       const lineMatch = typedErr.stack.match(/<anonymous>:(\d+):(\d+)/);
       if (lineMatch) {
         // Adjust for wrapper preamble lines (e.g. AsyncFunction adds 2 lines).
-        const adjustedLine = Math.max(1, Number(lineMatch[1]) - lineOffset);
-        parts.push(`  at line ${adjustedLine}, column ${lineMatch[2]}`);
+        errorLine = Math.max(1, Number(lineMatch[1]) - lineOffset);
+        parts.push(`  at line ${errorLine}, column ${lineMatch[2]}`);
       }
     }
 
-    // Include the source code with line numbers for context.
-    if (code) {
+    // Include source code context around the error line (when known).
+    // When errorLine is unknown (e.g. SyntaxErrors from new Function/eval),
+    // skip the Source section — the code is already in the action log code block.
+    if (
+      code &&
+      errorLine !== undefined &&
+      errorLine >= 1 &&
+      errorLine <= code.split('\n').length
+    ) {
       const lines = code.split('\n');
-      const maxLines = 30;
-      const numbered =
-        lines.length <= maxLines
-          ? lines
-          : [
-              ...lines.slice(0, maxLines),
-              `... (${lines.length - maxLines} more lines)`,
-            ];
-      const numberedSrc = numbered
-        .map((l, i) => `  ${String(i + 1).padStart(3)}| ${l}`)
+      // Show a focused window: error line ± 1 line (clamped to bounds).
+      const start = Math.max(0, errorLine - 2);
+      const end = Math.min(lines.length, errorLine + 1);
+      const contextLines = lines.slice(start, end);
+      const numberedSrc = contextLines
+        .map((l, i) => `  ${String(start + i + 1).padStart(3)}| ${l}`)
         .join('\n');
       parts.push(`Source:\n${numberedSrc}`);
     }
