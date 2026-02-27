@@ -144,10 +144,21 @@ export class AxPromptTemplate {
 
   /**
    * Build legacy prompt format (backward compatible)
+   * For caching optimization: instructions come BEFORE schema definitions.
    */
   private buildLegacyPrompt(): { type: 'text'; text: string } {
     const task = [];
     const hasComplexFields = this.sig.hasComplexFields();
+
+    // IMPORTANT: Description (instructions) comes FIRST for caching optimization
+    // This ensures stable content is at the beginning for Anthropic prompt caching
+    const desc = this.sig.getDescription();
+    if (desc) {
+      const fieldMap = this.getFieldNameToTitleMap();
+      let text = formatDescription(desc);
+      text = formatFieldReferences(text, fieldMap);
+      task.push(text);
+    }
 
     const inArgs = renderDescFields(this.sig.getInputFields());
     const outArgs = renderDescFields(this.sig.getOutputFields());
@@ -200,13 +211,6 @@ export class AxPromptTemplate {
       task.push(formattingRules.trim());
     }
 
-    const desc = this.sig.getDescription();
-    if (desc) {
-      let text = formatDescription(desc);
-      text = formatFieldReferences(text, fieldMap);
-      task.push(text);
-    }
-
     return {
       type: 'text' as const,
       text: task.join('\n\n'),
@@ -215,23 +219,25 @@ export class AxPromptTemplate {
 
   /**
    * Build XML-structured prompt with format protection
+   * For caching optimization: instructions come BEFORE schema.
    */
   private buildStructuredPrompt(): { type: 'text'; text: string } {
     const sections: string[] = [];
     const hasComplexFields = this.sig.hasComplexFields();
 
-    // Identity section (stable role: input/output summary only)
-    sections.push('<identity>');
-    sections.push(this.buildIdentitySection());
-    sections.push('</identity>');
-
-    // Task definition section (signature description / user-added prompt)
+    // Task definition section FIRST (instructions for caching optimization)
+    // This ensures stable content is at the beginning for Anthropic prompt caching
     const taskDefinition = this.buildTaskDefinitionSection();
     if (taskDefinition) {
-      sections.push('\n<task_definition>');
+      sections.push('<task_definition>');
       sections.push(taskDefinition);
       sections.push('</task_definition>');
     }
+
+    // Identity section (stable role: input/output summary only) - comes AFTER instructions
+    sections.push('\n<identity>');
+    sections.push(this.buildIdentitySection());
+    sections.push('</identity>');
 
     // Functions section (if present)
     const funcs = this.functions?.flatMap((f) =>
