@@ -1,5 +1,4 @@
 import {
-  type AxAgentFunction,
   type AxFunction,
   AxJSRuntime,
   AxMCPClient,
@@ -64,7 +63,7 @@ async function createNotionAgent() {
   const client = new AxMCPClient(sseTransport, { debug: false });
   await client.init();
 
-  const toAgentFunctions = (functions: AxFunction[]): AxAgentFunction[] =>
+  const toAgentFunctions = (functions: AxFunction[]): AxFunction[] =>
     functions.map((fn) => ({
       ...fn,
       parameters: fn.parameters ?? { type: 'object', properties: {} },

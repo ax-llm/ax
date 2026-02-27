@@ -203,7 +203,7 @@ export type AxFunctionHandler = (
 ) => unknown;
 
 export type AxFunctionJSONSchema = {
-  type: string;
+  type: string | string[];
   properties?: Record<
     string,
     AxFunctionJSONSchema & {
@@ -222,6 +222,8 @@ export type AxFunction = {
   name: string;
   description: string;
   parameters?: AxFunctionJSONSchema;
+  returns?: AxFunctionJSONSchema;
+  namespace?: string;
   func: AxFunctionHandler;
 };
 

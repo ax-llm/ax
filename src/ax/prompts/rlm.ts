@@ -9,30 +9,119 @@ import type { AxFunctionJSONSchema } from '../ai/types.js';
 import { toFieldType } from '../dsp/adapter.js';
 import type { AxIField } from '../dsp/sig.js';
 import type { AxProgramForwardOptions } from '../dsp/types.js';
+import { renderPromptTemplate } from './templateEngine.js';
 
 // ----- Helpers for rendering function/agent signatures in the actor prompt -----
 
-function schemaTypeToShortString(schema: AxFunctionJSONSchema): string {
-  if (schema.enum) return schema.enum.map((e) => `"${e}"`).join(' | ');
-  if (schema.type === 'array') {
-    const itemType = schema.items
-      ? schemaTypeToShortString(schema.items)
-      : 'unknown';
-    return `${itemType}[]`;
+function normalizeSchemaTypes(schema: AxFunctionJSONSchema): string[] {
+  const rawType = (schema as { type?: unknown }).type;
+
+  if (Array.isArray(rawType)) {
+    return rawType.filter((t): t is string => typeof t === 'string');
   }
-  if (schema.type === 'object') return 'object';
-  return schema.type ?? 'unknown';
+
+  if (typeof rawType === 'string') {
+    if (rawType.includes(',')) {
+      return rawType
+        .split(',')
+        .map((part) => part.trim())
+        .filter(Boolean);
+    }
+    return [rawType];
+  }
+
+  return [];
 }
 
-function renderParamsInline(schema: AxFunctionJSONSchema | undefined): string {
-  if (!schema?.properties || Object.keys(schema.properties).length === 0)
-    return '{}';
-  const required = new Set(schema.required ?? []);
-  const parts = Object.entries(schema.properties).map(([key, prop]) => {
-    const typeStr = schemaTypeToShortString(prop);
-    return required.has(key) ? `${key}: ${typeStr}` : `${key}?: ${typeStr}`;
+function isJsonAnyTypeUnion(types: readonly string[]): boolean {
+  const normalized = new Set(types);
+  return (
+    normalized.has('object') &&
+    normalized.has('array') &&
+    normalized.has('string') &&
+    normalized.has('number') &&
+    normalized.has('boolean') &&
+    normalized.has('null')
+  );
+}
+
+function schemaTypeToShortString(schema: AxFunctionJSONSchema): string {
+  if (schema.enum) return schema.enum.map((e) => `"${e}"`).join(' | ');
+
+  const types = normalizeSchemaTypes(schema);
+  if (types.length === 0) return 'unknown';
+
+  if (isJsonAnyTypeUnion(types)) return 'any';
+
+  const rendered = [...new Set(types)].map((type) => {
+    if (type === 'array') {
+      const itemType = schema.items
+        ? schemaTypeToShortString(schema.items)
+        : 'unknown';
+      return itemType.includes(' | ') ? `(${itemType})[]` : `${itemType}[]`;
+    }
+    if (type === 'object') {
+      if (schema.properties && Object.keys(schema.properties).length > 0) {
+        return renderObjectType(schema);
+      }
+      return 'object';
+    }
+    return type;
   });
+
+  return rendered.length > 1
+    ? rendered.join(' | ')
+    : (rendered[0] ?? 'unknown');
+}
+
+function renderObjectType(
+  schema: AxFunctionJSONSchema | undefined,
+  options?: Readonly<{ respectRequired?: boolean }>
+): string {
+  if (!schema) {
+    return '{}';
+  }
+  const hasProperties =
+    !!schema.properties && Object.keys(schema.properties).length > 0;
+  const supportsExtraProps = schema.additionalProperties === true;
+
+  if (!hasProperties) {
+    return supportsExtraProps ? '{ [key: string]: unknown }' : '{}';
+  }
+  const required = new Set(schema.required ?? []);
+  const respectRequired = options?.respectRequired ?? false;
+  const parts = Object.entries(schema.properties!).map(([key, prop]) => {
+    const typeStr = schemaTypeToShortString(prop);
+    const optionalMarker = respectRequired && !required.has(key) ? '?' : '';
+    return `${key}${optionalMarker}: ${typeStr}`;
+  });
+  if (schema?.additionalProperties === true) {
+    parts.push('[key: string]: unknown');
+  }
   return `{ ${parts.join(', ')} }`;
+}
+
+function renderReturnsSummary(
+  schema: AxFunctionJSONSchema | undefined
+): string {
+  if (!schema) {
+    return 'unknown';
+  }
+  return schemaTypeToShortString(schema);
+}
+
+function renderCallableEntry(args: {
+  qualifiedName: string;
+  parameters?: AxFunctionJSONSchema;
+  returns?: AxFunctionJSONSchema;
+}): string {
+  const paramType = renderObjectType(args.parameters, {
+    respectRequired: true,
+  });
+  const returnType = args.returns
+    ? `: Promise<${renderReturnsSummary(args.returns)}>`
+    : '';
+  return `- \`${args.qualifiedName}(args: ${paramType})${returnType}\``;
 }
 
 /**
@@ -97,8 +186,8 @@ export interface AxRLMConfig {
   sharedFields?: string[];
   /** Code runtime for the REPL loop (default: AxJSRuntime). */
   runtime?: AxCodeRuntime;
-  /** Cap on recursive sub-LM calls (default: 50). */
-  maxLlmCalls?: number;
+  /** Cap on recursive sub-agent calls (default: 50). */
+  maxSubAgentCalls?: number;
   /**
    * Maximum characters for RLM runtime payloads (default: 5000).
    * Applies to llmQuery context and code execution output.
@@ -127,48 +216,6 @@ export interface AxRLMConfig {
   mode?: 'simple' | 'advanced';
 }
 
-function renderReturnsInline(schema: AxFunctionJSONSchema | undefined): string {
-  if (!schema?.properties || Object.keys(schema.properties).length === 0)
-    return 'unknown';
-  const parts = Object.entries(schema.properties).map(([key, prop]) => {
-    const typeStr = schemaTypeToShortString(prop);
-    return `${key}: ${typeStr}`;
-  });
-  return `{ ${parts.join(', ')} }`;
-}
-
-function renderAgentFunctionsAsJsApi(
-  fns: ReadonlyArray<{
-    name: string;
-    description: string;
-    parameters: AxFunctionJSONSchema;
-    returns?: AxFunctionJSONSchema;
-    namespace: string;
-  }>
-): string {
-  // Group by namespace
-  const byNamespace = new Map<string, typeof fns>();
-  for (const fn of fns) {
-    const group = byNamespace.get(fn.namespace) ?? [];
-    byNamespace.set(fn.namespace, [...group, fn]);
-  }
-
-  const sections: string[] = [];
-  for (const [ns, nsFns] of byNamespace) {
-    sections.push(`// ${ns} namespace`);
-    for (const fn of nsFns) {
-      sections.push(`// ${fn.description}`);
-      const params = renderParamsInline(fn.parameters);
-      const returns = fn.returns ? renderReturnsInline(fn.returns) : 'unknown';
-      sections.push(
-        `async function ${ns}.${fn.name}(${params}): Promise<${returns}>`
-      );
-      sections.push('');
-    }
-  }
-  return sections.join('\n');
-}
-
 /**
  * Builds the Actor system prompt. The Actor is a code generation agent that
  * decides what code to execute next based on the current state. It NEVER
@@ -180,7 +227,7 @@ export function axBuildActorDefinition(
   responderOutputFields: readonly AxIField[],
   options: Readonly<{
     runtimeUsageInstructions?: string;
-    maxLlmCalls?: number;
+    maxSubAgentCalls?: number;
     maxTurns?: number;
     hasInspectRuntime?: boolean;
     /** Child agents available under the `agents.*` namespace in the JS runtime. */
@@ -199,15 +246,16 @@ export function axBuildActorDefinition(
     }>;
   }>
 ): string {
-  const maxLlmCalls = options.maxLlmCalls ?? 50;
+  //   const maxSubAgentCalls = options.maxSubAgentCalls ?? 50;
 
   const contextVarList =
     contextFields.length > 0
       ? contextFields
           .map((f) => {
             const typeStr = toFieldType(f.type);
+            const optionality = f.isOptional ? 'optional' : 'required';
             const desc = f.description ? `: ${f.description}` : '';
-            return `- \`${f.name}\` (${typeStr})${desc}`;
+            return `- \`${f.name}\` -> \`inputs.${f.name}\` (${typeStr}, ${optionality})${desc}`;
           })
           .join('\n')
       : '(none)';
@@ -216,74 +264,44 @@ export function axBuildActorDefinition(
     .map((f) => `\`${f.name}\``)
     .join(', ');
 
-  const actorBody = `
-## Code Generation Agent
-
-You are a code generation agent called the \`actor\`. Your ONLY job is to write JavaScript code to solve problems, complete tasks and gather information. There is another agent called the \`responder\` that will synthesize final answers from the information you gather. You NEVER generate final answers directly — you can only write code to explore and analyze the context, call tools, and ask for clarification.
-
-### Pre-loaded context variables
-The following variables are **ONLY** available in the javascript code runtime session:
-${contextVarList}
-
-### Responder output fields
-The responder is looking to produce the following output fields: ${responderOutputFieldTitles}
-
-### Functions for context analysis and responding
-- \`await llmQuery(query:string, context:object|array|string) : string\` — Have a sub agent work on a part of the task for you when the context is too large or complex to handle in a single turn. Its a way to divide and conquer but do not overuse it.
-
-- \`await llmQuery([{ query:string, context:object|array|string }, ...]) : string\` — A batched version of \`llmQuery\` that allows you to make multiple queries in parallel. Use this to speed up processing when you have many items to analyze. Sub-agent calls have a call limit of ${maxLlmCalls}. Oversized values are truncated automatically.
-
-- \`final(...args)\` — Signal completion and provide payload arguments for the responder to use to generate its output. Requires at least one argument. Execution ends after calling it.
-
-- \`ask_clarification(...args)\` — Signal that more user input is needed and provide clarification arguments for the responder. Requires at least one argument. Execution ends after calling it.
-${
-  options.hasInspectRuntime
-    ? `
-- \`await inspect_runtime() : string\` — Returns a compact snapshot of all user-defined variables in the runtime session (name, type, size, preview). Use this to re-ground yourself when the action log is large instead of re-reading previous outputs.
-`
-    : ''
-}${
-  options.agents && options.agents.length > 0
-    ? `
-### Available Agents Functions
-The following agents are pre-loaded under the \`agents\` namespace. Call them for specialized tasks:
-${options.agents
-  .map(
-    (fn) =>
-      `- \`await agents.${fn.name}(${renderParamsInline(fn.parameters)})\` — ${fn.description}`
-  )
-  .join('\n')}
-`
-    : ''
-}${
-  options.agentFunctions && options.agentFunctions.length > 0
-    ? `
-### Available Functions
-The following functions are available under namespaced globals in the runtime:
-\`\`\`javascript
-${renderAgentFunctionsAsJsApi(options.agentFunctions)}
-\`\`\`
-`
-    : ''
-}
-### Important guidance and guardrails
-- Always do some due diligence first to figure out if you can solve the problem by writing code that looks at only a portion of the context. You have access to the \`contextMetadata\` which provides information about the context fields, use this in your decision making.
-
-- Use \`llmQuery\` to delegate sub-tasks to a sub-agent when the context is too large or complex to handle. You can also use the batched version of \`llmQuery\` to speed up processing when you want to explore parts of the context in parallel. Sub-agent calls have a call limit of ${maxLlmCalls} and oversized values are truncated automatically.
-
-- You can only send data to the responder to produce output by calling \`final(...args)\` or \`ask_clarification(...args)\` with a non-empty args. Do not attempt to return values or set variables for the responder to read. The responder can ONLY see the arguments you pass using these two functions.
-
-- Do not use \`final\` in the a code snippet that also contains \`console.log\`  statements. These statements mean that you want to look at intermediate results so only call \`final\` when you are done will looking at all the intermediate results and are ready to pass the final payload to the responder. 
-
-- First attempt to use code like filter, map, slice, regex, property access, etc combined with \`console.log\` to explore the context and gather information. Use \`llmQuery\` for anything that requires interpretation, summarization, or answering questions about the content.
-
-- Use variables as buffers to accumulate information across steps. For example, if you are gathering evidence from multiple parts of the context, you can store it in an array variable and then pass it all at once in the \`final\` call.
-
-- Runtime output may be truncated. If it appears incomplete, rerun with narrower scope.
-
-## Javascript Runtime Usage Instructions
-${options.runtimeUsageInstructions}
-`;
+  const sortedAgents = [...(options.agents ?? [])].sort((a, b) =>
+    a.name.localeCompare(b.name)
+  );
+  const sortedAgentFunctions = [...(options.agentFunctions ?? [])].sort(
+    (a, b) => {
+      if (a.namespace !== b.namespace) {
+        return a.namespace.localeCompare(b.namespace);
+      }
+      return a.name.localeCompare(b.name);
+    }
+  );
+  const actorBody = renderPromptTemplate('rlm/actor.md', {
+    contextVarList,
+    responderOutputFieldTitles,
+    hasInspectRuntime: Boolean(options.hasInspectRuntime),
+    hasAgentFunctions: sortedAgents.length > 0,
+    agentFunctionsList: sortedAgents
+      .map((fn) =>
+        renderCallableEntry({
+          qualifiedName: `agents.${fn.name}`,
+          parameters: fn.parameters,
+        })
+      )
+      .join('\n'),
+    hasFunctions: sortedAgentFunctions.length > 0,
+    functionsList: sortedAgentFunctions
+      .map((fn) =>
+        renderCallableEntry({
+          qualifiedName: `${fn.namespace}.${fn.name}`,
+          parameters: fn.parameters,
+          returns: fn.returns,
+        })
+      )
+      .join('\n'),
+    runtimeUsageInstructions: String(options.runtimeUsageInstructions),
+  })
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 
   return baseDefinition ? `${actorBody}\n\n${baseDefinition}` : actorBody;
 }
@@ -301,22 +319,15 @@ export function axBuildResponderDefinition(
       ? contextFields
           .map((f) => {
             const typeStr = toFieldType(f.type);
-            return `- \`${f.name}\` (${typeStr})`;
+            const optionality = f.isOptional ? 'optional' : 'required';
+            return `- \`${f.name}\` (${typeStr}, ${optionality})`;
           })
           .join('\n')
       : '(none)';
 
-  const responderBody = `## Answer Synthesis Agent
-
-You synthesize a final answer from the provided actorResult payload. The payload includes the Actor completion type and arguments captured from final(...args) or ask_clarification(...args).
-
-### Context variables that were analyzed (metadata only)
-${contextVarSummary}
-
-### Rules
-1. Base your answer ONLY on evidence from actorResult payload arguments.
-2. If actorResult lacks sufficient information, provide the best possible answer from available evidence.
-3. If actorResult.type is \`ask_clarification\`, ask for the missing information clearly in your output fields.`;
+  const responderBody = renderPromptTemplate('rlm/responder.md', {
+    contextVarSummary,
+  }).trim();
 
   return baseDefinition
     ? `${responderBody}\n\n${baseDefinition}`

@@ -1,5 +1,4 @@
 import {
-  type AxAgentFunction,
   type AxFunction,
   AxJSRuntime,
   AxMCPClient,
@@ -65,7 +64,7 @@ Using HTTP transport for communication with Notion MCP server.
   const client = new AxMCPClient(httpTransport, { debug: false });
   await client.init();
 
-  const toAgentFunctions = (functions: AxFunction[]): AxAgentFunction[] =>
+  const toAgentFunctions = (functions: AxFunction[]): AxFunction[] =>
     functions.map((fn) => ({
       ...fn,
       parameters: fn.parameters ?? { type: 'object', properties: {} },

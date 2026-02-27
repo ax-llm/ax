@@ -306,17 +306,16 @@ const analyzer = agent(
         'Analyzes long documents using code interpreter and sub-LM queries',
     },
     rlm: {
-      contextFields: ['context'], // Fields to load into runtime session
-      runtime: new AxJSRuntime(), // Code runtime (default: AxJSRuntime)
-      maxLlmCalls: 30, // Cap on sub-LM calls (default: 50)
-      maxRuntimeChars: 2_000, // Cap for llmQuery context + code output (default: 5000)
-      maxBatchedLlmQueryConcurrency: 6, // Max parallel batched llmQuery calls (default: 8)
-      maxTurns: 10, // Max Actor turns before forcing Responder (default: 10)
-      contextManagement: {
-        // Semantic context management (replaces trajectoryPruning)
-        errorPruning: true, // Prune error entries after successful turns
-        hindsightEvaluation: true, // Heuristic importance scoring on entries
-        tombstoning: true, // Replace resolved errors with compact summaries
+      contextFields: ['context'],                // Fields to load into runtime session
+      runtime: new AxJSRuntime(),                // Code runtime (default: AxJSRuntime)
+      maxSubAgentCalls: 30,                           // Cap on sub-LM calls (default: 50)
+      maxRuntimeChars: 2_000,                    // Cap for llmQuery context + code output (default: 5000)
+      maxBatchedLlmQueryConcurrency: 6,          // Max parallel batched llmQuery calls (default: 8)
+      maxTurns: 10,                              // Max Actor turns before forcing Responder (default: 10)
+      contextManagement: {                         // Semantic context management (replaces trajectoryPruning)
+        errorPruning: true,                        // Prune error entries after successful turns
+        hindsightEvaluation: true,                 // Heuristic importance scoring on entries
+        tombstoning: true,                         // Replace resolved errors with compact summaries
         stateInspection: { contextThreshold: 2000 }, // Enable inspect_runtime() tool
         pruneRank: 2, // Entries ranked below this are purged (0-5, default: 2)
       },
@@ -709,7 +708,7 @@ class MyBrowserInterpreter implements AxCodeRuntime {
   createSession(globals?: Record<string, unknown>): AxCodeSession {
     // Set up your execution environment with globals
     return {
-      async execute(code: string): Promise<unknown> {
+      async execute(code: string) {
         // Execute code and return result
       },
       close() {
@@ -771,17 +770,17 @@ Thrown by `AxJSRuntime` when consecutive execution failures reach `consecutiveEr
 
 ```typescript
 interface AxRLMConfig {
-  contextFields: string[] // Input fields holding long context
-  runtime?: AxCodeRuntime // Code runtime (default: AxJSRuntime)
-  maxLlmCalls?: number // Cap on sub-LM calls (default: 50)
-  maxRuntimeChars?: number // Cap for llmQuery context + code output (default: 5000)
-  maxBatchedLlmQueryConcurrency?: number // Max parallel batched llmQuery calls (default: 8)
-  maxTurns?: number // Max Actor turns before forcing Responder (default: 10)
-  trajectoryPruning?: boolean // @deprecated Use contextManagement.errorPruning instead
-  contextManagement?: AxContextManagementConfig // Semantic context management
-  actorFields?: string[] // Output fields produced by Actor instead of Responder
-  actorCallback?: (result: Record<string, unknown>) => void | Promise<void> // Called after each Actor turn
-  mode?: 'simple' | 'advanced' // Sub-query mode: 'simple' = AxGen, 'advanced' = AxAgent (default: 'simple')
+  contextFields: string[];                   // Input fields holding long context
+  runtime?: AxCodeRuntime;                   // Code runtime (default: AxJSRuntime)
+  maxSubAgentCalls?: number;                      // Cap on sub-LM calls (default: 50)
+  maxRuntimeChars?: number;                  // Cap for llmQuery context + code output (default: 5000)
+  maxBatchedLlmQueryConcurrency?: number;    // Max parallel batched llmQuery calls (default: 8)
+  maxTurns?: number;                         // Max Actor turns before forcing Responder (default: 10)
+  trajectoryPruning?: boolean;               // @deprecated Use contextManagement.errorPruning instead
+  contextManagement?: AxContextManagementConfig; // Semantic context management
+  actorFields?: string[];                    // Output fields produced by Actor instead of Responder
+  actorCallback?: (result: Record<string, unknown>) => void | Promise<void>;  // Called after each Actor turn
+  mode?: 'simple' | 'advanced';                  // Sub-query mode: 'simple' = AxGen, 'advanced' = AxAgent (default: 'simple')
 }
 
 interface AxContextManagementConfig {
@@ -806,8 +805,8 @@ interface AxCodeRuntime {
 
 ```typescript
 interface AxCodeSession {
-  execute(code: string, options?: { signal?: AbortSignal }): Promise<unknown>
-  close(): void
+  execute(code: string, options?: { signal?: AbortSignal });
+  close(): void;
 }
 ```
 

@@ -79,7 +79,39 @@ describe('AxJSRuntime integration', () => {
       const result = await session.execute('const x = ;');
       expect(typeof result).toBe('string');
       expect(result).toMatch(/^SyntaxError: /);
+      // SyntaxErrors from new Function/eval have no line info in stack trace,
+      // so Source section is omitted (code is already in the action log code block).
+      expect(result).not.toContain('Source:');
       expect(result.length).toBeGreaterThan(10);
+    } finally {
+      session.close();
+    }
+  });
+
+  it('runtime error Source section shows only context window around error line', async () => {
+    const runtime = new AxJSRuntime();
+    const session = runtime.createSession();
+    try {
+      // ReferenceError on line 4; only lines 3, 4, 5 should appear in Source.
+      // (Runtime errors include <anonymous>:N:M in the stack trace, enabling the
+      //  focused context window. SyntaxErrors lack this, so Source is omitted.)
+      const code = [
+        'const a = 1;',
+        'const b = 2;',
+        'const c = 3;',
+        'undeclaredVar.foo;',
+        'const e = 5;',
+      ].join('\n');
+      const result = await session.execute(code);
+      expect(result).toMatch(/^(ReferenceError|TypeError): /);
+      expect(result).toContain('Source:');
+      // Lines surrounding the error should be present.
+      expect(result).toContain('3| const c = 3;');
+      expect(result).toContain('4| undeclaredVar.foo;');
+      expect(result).toContain('5| const e = 5;');
+      // Lines far from the error should not appear.
+      expect(result).not.toContain('1| const a = 1;');
+      expect(result).not.toContain('2| const b = 2;');
     } finally {
       session.close();
     }

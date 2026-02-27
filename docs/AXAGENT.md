@@ -86,7 +86,7 @@ const myAgent = agent('input:string -> output:string', {
   },
 
   // RLM limits (see RLM section below)
-  maxLlmCalls: 50,                       // Sub-agent call cap (default: 50)
+  maxSubAgentCalls: 50,                       // Sub-agent call cap (default: 50)
   maxRuntimeChars: 5000,                 // Runtime payload size cap (default: 5000)
   maxTurns: 10,                          // Actor loop turn cap (default: 10)
 
@@ -494,7 +494,7 @@ const analyzer = agent(
     },
     contextFields: ['context'],                  // Fields to load into runtime session
     runtime: new AxJSRuntime(),                  // Code runtime (default: AxJSRuntime)
-    maxLlmCalls: 30,                             // Cap on sub-LM calls (default: 50)
+    maxSubAgentCalls: 30,                             // Cap on sub-LM calls (default: 50)
     maxRuntimeChars: 2_000,                      // Cap for llmQuery context + code output (default: 5000)
     maxBatchedLlmQueryConcurrency: 6,            // Max parallel batched llmQuery calls (default: 8)
     maxTurns: 10,                                // Max Actor turns before forcing Responder (default: 10)
@@ -724,7 +724,7 @@ const analyzer = agent('context:string, query:string -> answer:string', {
 });
 ```
 
-Each `llmQuery` call runs a sub-query with a fresh session and the same registered tool/agent globals. The child receives only the `context` argument passed to `llmQuery(query, context)` — parent `contextFields` values are not forwarded. In simple mode (default), the child is a plain AxGen (direct LLM call). In advanced mode, the child is a full AxAgent with Actor/Responder and code runtime.
+Each `llmQuery` call runs a sub-query with a fresh session and the same registered tool/agent globals. The child receives only the `context` value passed to `llmQuery(...)` — parent `contextFields` values are not forwarded. In simple mode (default), the child is a plain AxGen (direct LLM call). In advanced mode, the child is a full AxAgent with Actor/Responder and code runtime.
 
 ### Actor/Responder Descriptions
 
@@ -792,14 +792,15 @@ Inside the code interpreter, these functions are available as globals:
 
 | API | Description |
 |-----|-------------|
-| `await llmQuery(query, context)` | Ask a sub-LM a question with a context value. Returns a string. Oversized context is truncated to `maxRuntimeChars` |
+| `await llmQuery(query, context?)` | Ask a sub-LM a question with optional context. Returns a string. Oversized context is truncated to `maxRuntimeChars` |
+| `await llmQuery({ query, context? })` | Single-object convenience form of `llmQuery`. Returns a string |
 | `await llmQuery([{ query, context }, ...])` | Run multiple sub-LM queries in parallel. Returns string[]. Failed items return `[ERROR] ...`; each query still counts toward the call limit |
 | `final(...args)` | Stop Actor execution and pass payload args to Responder. Requires at least one argument |
 | `ask_clarification(...args)` | Stop Actor execution and pass clarification payload args to Responder. Requires at least one argument |
 | `await agents.<name>({...})` | Call a child agent by name (from `agents.local`). Parameters match the agent's JSON schema. Returns a string |
 | `await <namespace>.<fnName>({...})` | Call an agent function by namespace and name (from `functions.local`). Returns the typed result |
 | `print(...args)` | Available in `AxJSRuntime` when `outputMode: 'stdout'`; captured output appears in the function result |
-| Context variables | All fields listed in `contextFields` are available by name |
+| Context variables | All input fields are available as `inputs.<field>` (including context fields). Non-colliding top-level aliases may also exist |
 
 By default, `AxJSRuntime` uses `outputMode: 'stdout'`, where visible output comes from `console.log(...)`, `print(...)`, and other captured stdout lines.
 
@@ -875,7 +876,7 @@ class MyBrowserInterpreter implements AxCodeRuntime {
   createSession(globals?: Record<string, unknown>): AxCodeSession {
     // Set up your execution environment with globals
     return {
-      async execute(code: string): Promise<unknown> {
+      async execute(code: string) {
         // Execute code and return result
       },
       close() {
@@ -938,7 +939,7 @@ Thrown by `AxJSRuntime` when consecutive execution failures reach `consecutiveEr
 interface AxRLMConfig {
   contextFields: string[];                   // Input fields holding long context
   runtime?: AxCodeRuntime;                   // Code runtime (default: AxJSRuntime)
-  maxLlmCalls?: number;                      // Cap on sub-LM calls (default: 50)
+  maxSubAgentCalls?: number;                      // Cap on sub-LM calls (default: 50)
   maxRuntimeChars?: number;                  // Cap for llmQuery context + code output (default: 5000)
   maxBatchedLlmQueryConcurrency?: number;    // Max parallel batched llmQuery calls (default: 8)
   maxTurns?: number;                         // Max Actor turns before forcing Responder (default: 10)
@@ -971,7 +972,7 @@ interface AxCodeRuntime {
 
 ```typescript
 interface AxCodeSession {
-  execute(code: string, options?: { signal?: AbortSignal }): Promise<unknown>;
+  execute(code: string, options?: { signal?: AbortSignal });
   close(): void;
 }
 ```
@@ -1030,7 +1031,7 @@ Extends `AxProgramForwardOptions` (without `functions` or `description`) with:
   };
 
   runtime?: AxCodeRuntime;
-  maxLlmCalls?: number;
+  maxSubAgentCalls?: number;
   maxRuntimeChars?: number;
   maxBatchedLlmQueryConcurrency?: number;
   maxTurns?: number;

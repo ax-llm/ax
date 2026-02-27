@@ -487,7 +487,7 @@ export class AxContentProcessingError extends Error {
 }
 
 // Utility Functions
-async function safeReadResponseBody(response: Response): Promise<unknown> {
+async function safeReadResponseBody(response: Response) {
   try {
     if (response.headers.get('content-type')?.includes('application/json')) {
       return await response.json();

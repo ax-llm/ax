@@ -1,5 +1,68 @@
 # Changelog
 
+## [19.0.10](///compare/19.0.8...19.0.9) (2026-02-27)
+
+### Features
+
+* implement session auto-recovery after timeout and improve error handling 7f76d94
+## [19.0.9](///compare/19.0.8...19.0.9) (2026-02-27)
+
+### Features
+
+* enhance error handling by providing focused source context for runtime errors 7b3e5ee
+
+## [19.0.9](///compare/19.0.7...19.0.8) (2026-02-27)
+
+### Features
+
+* enhance error handling by providing focused source context for runtime errors 7b3e5ee
+## [19.0.8](///compare/19.0.7...19.0.8) (2026-02-26)
+
+### Features
+
+* enhance error formatting and template rendering 1dc59ae
+
+## [19.0.8](///compare/19.0.6...19.0.7) (2026-02-26)
+
+### Features
+
+* enhance error formatting and template rendering 1dc59ae
+
+## [19.0.7](///compare/19.0.5...19.0.6) (2026-02-26)
+## [19.0.6](///compare/19.0.5...19.0.6) (2026-02-26)
+
+### Bug Fixes
+
+* build fix 7286042
+
+## [19.0.6](///compare/19.0.4...19.0.5) (2026-02-26)
+
+### Bug Fixes
+
+* build fix 7286042
+## [19.0.5](///compare/19.0.4...19.0.5) (2026-02-26)
+
+### Features
+
+* enhance context field handling and improve type normalization in RLM bdd2ccd
+
+## [19.0.5](///compare/19.0.3...19.0.4) (2026-02-26)
+
+### Features
+
+* enhance context field handling and improve type normalization in RLM bdd2ccd
+## [19.0.4](///compare/19.0.3...19.0.4) (2026-02-26)
+
+## [19.0.4](///compare/19.0.2...19.0.3) (2026-02-26)
+## [19.0.3](///compare/19.0.2...19.0.3) (2026-02-26)
+
+## [19.0.3](///compare/19.0.1...19.0.2) (2026-02-26)
+## [19.0.2](///compare/19.0.1...19.0.2) (2026-02-25)
+
+### Features
+
+* add self-registration prevention for child agents and update documentation references 74f9c14
+
 ## [19.0.2](///compare/19.0.0...19.0.1) (2026-02-25)
 
 ### Features

@@ -29,6 +29,36 @@ import {
   AxAICohereModel,
 } from './types.js';
 
+function normalizeCohereSchemaType(
+  type: string | string[] | undefined
+): string {
+  if (Array.isArray(type)) {
+    const preferredOrder = [
+      'string',
+      'number',
+      'integer',
+      'boolean',
+      'object',
+      'array',
+    ] as const;
+    const preferred = preferredOrder.find((candidate) =>
+      type.includes(candidate)
+    );
+    if (preferred) {
+      return preferred;
+    }
+    return (
+      type.find((candidate) => candidate !== 'null') ?? type[0] ?? 'string'
+    );
+  }
+
+  if (typeof type === 'string') {
+    return type;
+  }
+
+  return 'string';
+}
+
 /**
  * Creates the default configuration for Cohere AI service
  * @returns A deep clone of the default Cohere configuration with CommandRPlus model and EmbedEnglishV30 embed model
@@ -149,7 +179,7 @@ class AxAICohereImpl
         for (const [key, value] of Object.entries(v.parameters.properties)) {
           props[key] = {
             description: value.description,
-            type: value.type,
+            type: normalizeCohereSchemaType(value.type),
             required: v.parameters.required?.includes(key) ?? false,
           };
         }

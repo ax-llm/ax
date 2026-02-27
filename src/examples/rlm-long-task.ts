@@ -38,7 +38,7 @@ const analyzer = agent(
       permissions: [AxJSRuntimePermission.TIMING],
     }),
     maxTurns: 20,
-    maxLlmCalls: 40,
+    maxSubAgentCalls: 40,
     mode: 'simple',
 
     contextManagement: {

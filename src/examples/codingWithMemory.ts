@@ -1,6 +1,5 @@
 import {
   AxAI,
-  type AxAgentFunction,
   type AxFunction,
   AxJSRuntime,
   AxJSRuntimePermission,
@@ -23,7 +22,7 @@ const jsRuntime = axCreateJSRuntime({
   permissions: [AxJSRuntimePermission.NETWORK],
 });
 
-const toAgentFunctions = (functions: AxFunction[]): AxAgentFunction[] =>
+const toAgentFunctions = (functions: AxFunction[]): AxFunction[] =>
   functions.map((fn) => ({
     ...fn,
     parameters: fn.parameters ?? { type: 'object', properties: {} },

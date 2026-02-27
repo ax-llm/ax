@@ -1,7 +1,6 @@
 import {
   AxAI,
   AxAIOpenAIModel,
-  type AxAgentFunction,
   type AxFunction,
   AxJSRuntime,
   AxMCPClient,
@@ -17,7 +16,7 @@ const blenderTransport = new AxMCPStdioTransport({
 const client = new AxMCPClient(blenderTransport, { debug: true });
 await client.init();
 
-const toAgentFunctions = (functions: AxFunction[]): AxAgentFunction[] =>
+const toAgentFunctions = (functions: AxFunction[]): AxFunction[] =>
   functions.map((fn) => ({
     ...fn,
     parameters: fn.parameters ?? { type: 'object', properties: {} },

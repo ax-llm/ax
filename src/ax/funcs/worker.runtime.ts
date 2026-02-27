@@ -1089,10 +1089,15 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
     }
   };
 
-  const _formatCodeError = (err: unknown): string => {
+  const _formatCodeError = (
+    err: unknown,
+    code?: string,
+    lineOffset = 0
+  ): string => {
     const typedErr = err as {
       name?: unknown;
       message?: unknown;
+      stack?: unknown;
       cause?: unknown;
       data?: unknown;
     };
@@ -1102,6 +1107,37 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
         ? String(typedErr.message)
         : _safeStringify(err);
     const parts: string[] = [`${name}: ${message}`];
+
+    // Extract line/column from stack trace if available.
+    let errorLine: number | undefined;
+    if (typeof typedErr?.stack === 'string') {
+      const lineMatch = typedErr.stack.match(/<anonymous>:(\d+):(\d+)/);
+      if (lineMatch) {
+        // Adjust for wrapper preamble lines (e.g. AsyncFunction adds 2 lines).
+        errorLine = Math.max(1, Number(lineMatch[1]) - lineOffset);
+        parts.push(`  at line ${errorLine}, column ${lineMatch[2]}`);
+      }
+    }
+
+    // Include source code context around the error line (when known).
+    // When errorLine is unknown (e.g. SyntaxErrors from new Function/eval),
+    // skip the Source section — the code is already in the action log code block.
+    if (
+      code &&
+      errorLine !== undefined &&
+      errorLine >= 1 &&
+      errorLine <= code.split('\n').length
+    ) {
+      const lines = code.split('\n');
+      // Show a focused window: error line ± 1 line (clamped to bounds).
+      const start = Math.max(0, errorLine - 2);
+      const end = Math.min(lines.length, errorLine + 1);
+      const contextLines = lines.slice(start, end);
+      const numberedSrc = contextLines
+        .map((l, i) => `  ${String(start + i + 1).padStart(3)}| ${l}`)
+        .join('\n');
+      parts.push(`Source:\n${numberedSrc}`);
+    }
 
     if (typedErr?.data !== undefined) {
       parts.push(`Data: ${_safeStringify(typedErr.data)}`);
@@ -1134,7 +1170,7 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
 
   const _createFnProxy =
     (name: string) =>
-    (...args: unknown[]): Promise<unknown> => {
+    (...args: unknown[]) => {
       const id = ++_fnCallId;
       return new Promise((resolve, reject) => {
         _fnPending.set(id, { resolve, reject });
@@ -1187,7 +1223,7 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
     }
   };
 
-  const _executeAsyncSnippet = async (code: string): Promise<unknown> => {
+  const _executeAsyncSnippet = async (code: string) => {
     const fallbackSource = _ensureTrailingNewline(code);
 
     // Extract declarations from the ORIGINAL code (before auto-return transform).
@@ -1311,10 +1347,11 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
 
     const id = msg.id;
     const code = msg.code;
+    const isAsync = /\bawait\b/.test(code);
     const { output, cleanup } = _setupOutputCapture();
 
     try {
-      const result = /\bawait\b/.test(code)
+      const result = isAsync
         ? await _executeAsyncSnippet(code)
         : _executeSyncSnippet(code);
       const value = _toOutputValue(result, output);
@@ -1327,7 +1364,14 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
       }
     } catch (err) {
       if (_isCodeExecutionError(err)) {
-        _send({ type: 'result', id, value: _formatCodeError(err) });
+        // AsyncFunction prepends a 2-line preamble (`async function anonymous(\n) {`)
+        // that shifts stack-trace line numbers. Subtract to align with original source.
+        const lineOffset = isAsync ? 2 : 0;
+        _send({
+          type: 'result',
+          id,
+          value: _formatCodeError(err, code, lineOffset),
+        });
       } else {
         _send({ type: 'result', id, error: _serializeError(err) });
       }

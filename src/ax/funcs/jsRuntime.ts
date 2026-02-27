@@ -782,9 +782,8 @@ export class AxJSRuntime implements AxCodeRuntime {
       }
     };
 
-    /** Terminates current session worker and rejects all pending executions. */
-    const cleanup = () => {
-      isClosed = true;
+    /** Terminates the current worker, allowing a new one to be created on next execute(). */
+    const resetWorker = () => {
       if (worker) {
         if (workerRuntime === 'node' && nodeWorkerPool) {
           nodeWorkerPool.release(worker);
@@ -794,6 +793,13 @@ export class AxJSRuntime implements AxCodeRuntime {
         worker = null;
         workerRuntime = null;
       }
+      workerReady = null;
+    };
+
+    /** Permanently closes the session and rejects all pending executions. */
+    const cleanup = () => {
+      isClosed = true;
+      resetWorker();
       for (const pending of pendingExecutions.values()) {
         pending.reject(new Error('Worker terminated'));
       }
@@ -802,15 +808,7 @@ export class AxJSRuntime implements AxCodeRuntime {
 
     /** Fails all pending executions when the worker errors unexpectedly. */
     const handleWorkerError = (error: Error) => {
-      if (worker) {
-        if (workerRuntime === 'node' && nodeWorkerPool) {
-          nodeWorkerPool.release(worker);
-        } else {
-          worker.terminate();
-        }
-        worker = null;
-        workerRuntime = null;
-      }
+      resetWorker();
       for (const pending of pendingExecutions.values()) {
         pending.reject(error);
       }
@@ -845,6 +843,27 @@ export class AxJSRuntime implements AxCodeRuntime {
       }
       if (isClosed) {
         throw new Error('Session is closed');
+      }
+      if (canUseWebWorker()) {
+        worker = createBrowserWorker(source, this.permissions);
+        workerRuntime = 'browser';
+        worker.onmessage = handleWorkerMessage;
+        worker.onerror = handleWorkerError;
+        try {
+          worker.postMessage({
+            type: 'init',
+            globals: serializableGlobals,
+            fnNames: [...fnMap.keys()],
+            permissions: [...this.permissions],
+            allowUnsafeNodeHostAccess: this.allowUnsafeNodeHostAccess,
+            outputMode: this.outputMode,
+            captureConsole: this.captureConsole,
+          });
+        } catch (error) {
+          cleanup();
+          throw error;
+        }
+        return;
       }
       if (!isNodeRuntime()) {
         throw new Error(
@@ -900,7 +919,7 @@ export class AxJSRuntime implements AxCodeRuntime {
           signal?: AbortSignal;
           reservedNames?: readonly string[];
         }
-      ): Promise<unknown> {
+      ) {
         if (isClosed) {
           return Promise.reject(new Error('Session is closed'));
         }
@@ -912,7 +931,7 @@ export class AxJSRuntime implements AxCodeRuntime {
           );
         }
 
-        // Block reassignment of reserved variables
+        // Block assignment/redeclaration of reserved runtime names.
         const reserved = options?.reservedNames;
         if (reserved) {
           for (const name of reserved) {
@@ -921,7 +940,8 @@ export class AxJSRuntime implements AxCodeRuntime {
             );
             if (pattern.test(code)) {
               return Promise.resolve(
-                `[ERROR] Cannot reassign reserved variable '${name}'. Use a different variable name.`
+                `[ERROR] Cannot assign to or redeclare reserved runtime variable '${name}'. ` +
+                  `Use a different local variable name (for example: \`ctx\`) or access the original via \`inputs.${name}\`.`
               );
             }
           }
@@ -937,10 +957,14 @@ export class AxJSRuntime implements AxCodeRuntime {
         const id = ++nextId;
 
         return new Promise<unknown>((resolve, reject) => {
-          // Timeout
+          // Timeout — reset worker (not permanent close) so next execute() auto-recovers
           const timer = setTimeout(() => {
             pendingExecutions.delete(id);
-            cleanup();
+            resetWorker();
+            for (const pending of pendingExecutions.values()) {
+              pending.reject(new Error('Worker terminated'));
+            }
+            pendingExecutions.clear();
             reject(new Error('Execution timed out'));
           }, timeout);
 

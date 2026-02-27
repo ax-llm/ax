@@ -1,6 +1,6 @@
 {
   "name": "@ax-llm/ax",
-  "version": "19.0.2",
+  "version": "19.0.10",
   "type": "module",
   "description": "The best library to work with LLMs",
   "repository": {
@@ -15,10 +15,12 @@
   "types": "./dist/index.d.ts",
   "scripts": {
     "dev": "tsup --watch",
-    "build": "npm run build:index && tsup",
+    "build": "npm run build:templates && npm run build:index && tsup",
+    "build:templates": "node ../../scripts/buildPromptTemplates.mjs",
     "build:index": "node --import=tsx ../../scripts/generateIndex.ts",
     "clean": "rm -rf dist",
     "test": "run-s test:*",
+    "test:templates": "node ../../scripts/buildPromptTemplates.mjs --check",
     "test:index": "node --import=tsx ../../scripts/generateIndex.ts",
     "test:type-check": "tsc --noEmit",
     "test:unit": "vitest run",

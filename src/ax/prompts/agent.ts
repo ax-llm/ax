@@ -60,23 +60,12 @@ export interface AxAgentic<IN extends AxGenIn, OUT extends AxGenOut>
 
 type AxAnyAgentic = AxAgentic<any, any>;
 
-/**
- * An agent function registered as a namespaced global in the JS runtime.
- * Unlike AxGen tool functions, these:
- * - Require a schema (parameters is mandatory)
- * - Have an optional output schema (returns)
- * - Are rendered into the Actor prompt as callable JS APIs
- * - Are registered under namespace.functionName (default namespace: 'utils')
- * - Are NOT added to the AxGen functions list
- */
-export type AxAgentFunction = {
-  readonly name: string;
-  readonly description: string;
-  readonly parameters: AxFunctionJSONSchema;
-  readonly returns?: AxFunctionJSONSchema;
-  readonly namespace?: string;
-  readonly func: AxFunctionHandler;
-};
+export type AxContextFieldInput =
+  | string
+  | {
+      field: string;
+      promptMaxChars?: number;
+    };
 
 /**
  * Demo traces for AxAgent's split architecture.
@@ -102,8 +91,12 @@ export type AxAgentOptions = Omit<
   'functions' | 'description'
 > & {
   debug?: boolean;
-  /** Input fields holding long context (will be removed from the LLM prompt). */
-  contextFields: string[];
+  /**
+   * Input fields used as context.
+   * - `string`: runtime-only (legacy behavior)
+   * - `{ field, promptMaxChars }`: runtime + conditionally inlined into Actor prompt
+   */
+  contextFields: readonly AxContextFieldInput[];
 
   /** Child agents and agent sharing configuration. */
   agents?: {
@@ -130,19 +123,19 @@ export type AxAgentOptions = Omit<
   /** Agent function configuration. */
   functions?: {
     /** Agent functions local to this agent (registered under namespace globals). */
-    local?: AxAgentFunction[];
+    local?: AxFunction[];
     /** Agent functions to share with direct child agents (one level). */
-    shared?: AxAgentFunction[];
+    shared?: AxFunction[];
     /** Agent functions to share with ALL descendants recursively. */
-    globallyShared?: AxAgentFunction[];
+    globallyShared?: AxFunction[];
     /** Agent function names this agent should NOT receive from parents. */
     excluded?: string[];
   };
 
   /** Code runtime for the REPL loop (default: AxJSRuntime). */
   runtime?: AxCodeRuntime;
-  /** Cap on recursive sub-LM calls (default: 50). */
-  maxLlmCalls?: number;
+  /** Cap on recursive sub-agent calls (default: 50). */
+  maxSubAgentCalls?: number;
   /** Maximum characters for RLM runtime payloads (default: 5000). */
   maxRuntimeChars?: number;
   /** Maximum parallel llmQuery calls in batched mode (default: 8). */
@@ -189,6 +182,7 @@ const DEFAULT_RLM_MAX_RUNTIME_CHARS = 5_000;
 const DEFAULT_RLM_BATCH_CONCURRENCY = 8;
 const DEFAULT_RLM_MAX_TURNS = 10;
 const DEFAULT_RLM_MAX_RECURSION_DEPTH = 2;
+const DEFAULT_CONTEXT_FIELD_PROMPT_MAX_CHARS = 1_200;
 
 type AxAgentActorResultPayload = {
   type: 'final' | 'ask_clarification';
@@ -215,7 +209,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private actorProgram!: AxGen<any, any>;
   private responderProgram!: AxGen<any, OUT>;
   private agents?: AxAnyAgentic[];
-  private agentFunctions: AxAgentFunction[];
+  private agentFunctions: AxFunction[];
   private debug?: boolean;
   private options?: Readonly<AxAgentOptions>;
   private rlmConfig: AxRLMConfig;
@@ -231,6 +225,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private recursionForwardOptions?: AxAgentRecursionOptions;
   private actorForwardOptions?: Partial<AxProgramForwardOptions<string>>;
   private responderForwardOptions?: Partial<AxProgramForwardOptions<string>>;
+  private contextPromptMaxCharsByField: Map<string, number> = new Map();
 
   private activeAbortControllers = new Set<AbortController>();
   private _stopRequested = false;
@@ -263,7 +258,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       debug,
       contextFields,
       runtime,
-      maxLlmCalls,
+      maxSubAgentCalls,
       maxRuntimeChars,
       maxBatchedLlmQueryConcurrency,
       maxTurns,
@@ -283,11 +278,24 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     this.debug = debug;
     this.options = options;
     this.runtime = runtime ?? new AxJSRuntime();
-    this.rlmConfig = {
+
+    // Create the base program (used for signature/schema access)
+    const { agents: _a, fields: _f, functions: _fn, ...genOptions } = options;
+    this.program = new AxGen<IN, OUT>(signature, genOptions);
+    const inputFields = this.program.getSignature().getInputFields();
+
+    const normalizedContext = normalizeContextFields(
       contextFields,
+      inputFields,
+      DEFAULT_CONTEXT_FIELD_PROMPT_MAX_CHARS
+    );
+    this.contextPromptMaxCharsByField = normalizedContext.promptMaxCharsByField;
+
+    this.rlmConfig = {
+      contextFields: normalizedContext.contextFieldNames,
       sharedFields: options.fields?.shared,
       runtime: this.runtime,
-      maxLlmCalls,
+      maxSubAgentCalls,
       maxRuntimeChars,
       maxBatchedLlmQueryConcurrency,
       maxTurns,
@@ -309,10 +317,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     this.responderDescription = responderDescription;
     this.responderForwardOptions = responderForwardOptions;
-
-    // Create the base program (used for signature/schema access)
-    const { agents: _a, fields: _f, functions: _fn, ...genOptions } = options;
-    this.program = new AxGen<IN, OUT>(signature, genOptions);
 
     const agents = this.agents;
     for (const agent of agents ?? []) {
@@ -337,14 +341,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     }
 
     // ----- Split architecture setup -----
-
-    // Validate contextFields exist in signature
-    const inputFields = this.program.getSignature().getInputFields();
-    for (const cf of contextFields) {
-      if (!inputFields.some((f) => f.name === cf)) {
-        throw new Error(`RLM contextField "${cf}" not found in signature`);
-      }
-    }
 
     if (this.program.getSignature().getDescription()) {
       throw new Error(
@@ -397,6 +393,20 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const globalSharedAgentFnList = options.functions?.globallyShared ?? [];
     this.excludedAgentFunctions = options.functions?.excluded ?? [];
 
+    const allAgentFns = [
+      ...this.agentFunctions,
+      ...sharedAgentFnList,
+      ...globalSharedAgentFnList,
+    ];
+
+    for (const fn of allAgentFns) {
+      if (!fn.parameters) {
+        throw new Error(
+          `Agent function "${fn.name}" must define parameters schema for agent runtime usage.`
+        );
+      }
+    }
+
     // Validate reserved namespaces for agent functions
     const RESERVED_NS = new Set([
       'agents',
@@ -404,11 +414,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       'final',
       'ask_clarification',
     ]);
-    for (const fn of [
-      ...this.agentFunctions,
-      ...sharedAgentFnList,
-      ...globalSharedAgentFnList,
-    ]) {
+    for (const fn of allAgentFns) {
       const ns = fn.namespace ?? 'utils';
       if (RESERVED_NS.has(ns)) {
         throw new Error(`Agent function namespace "${ns}" is reserved`);
@@ -430,7 +436,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         );
         if (applicableFields.length === 0) continue;
 
-        childAgent._extendForSharedFields(applicableFields, contextFields);
+        childAgent._extendForSharedFields(
+          applicableFields,
+          this.rlmConfig.contextFields
+        );
       }
     }
 
@@ -458,7 +467,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
         childAgent._extendForGlobalSharedFields(
           applicableFields,
-          contextFields
+          this.rlmConfig.contextFields
         );
       }
     }
@@ -522,6 +531,13 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const contextFieldMeta = inputFields.filter((fld) =>
       contextFields.includes(fld.name)
     );
+    const actorInlineContextInputs = contextFieldMeta
+      .filter(
+        (fld) =>
+          this.contextPromptMaxCharsByField.has(fld.name) &&
+          !sharedFields.includes(fld.name)
+      )
+      .map((fld) => ({ ...fld, isOptional: true }));
     // Non-context, non-shared-only inputs (visible to Actor and Responder)
     const nonContextInputs = inputFields.filter(
       (fld) =>
@@ -539,6 +555,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     // --- Actor signature: inputs + contextMetadata + actionLog -> javascriptCode (+ actorFields) ---
     let actorSigBuilder = f()
       .addInputFields(nonContextInputs)
+      .addInputFields(actorInlineContextInputs)
       .input(
         'contextMetadata',
         f.string('Metadata about pre-loaded context variables (type and size)')
@@ -570,8 +587,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       .addOutputFields(responderOutputFields)
       .build();
 
-    const effectiveMaxLlmCalls =
-      this.rlmConfig.maxLlmCalls ?? DEFAULT_RLM_MAX_LLM_CALLS;
+    const effectiveMaxSubAgentCalls =
+      this.rlmConfig.maxSubAgentCalls ?? DEFAULT_RLM_MAX_LLM_CALLS;
     const effectiveMaxTurns = this.rlmConfig.maxTurns ?? DEFAULT_RLM_MAX_TURNS;
 
     // Collect metadata from child agents and tool functions so the actor prompt
@@ -589,7 +606,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const agentFunctionMeta = this.agentFunctions.map((fn) => ({
       name: fn.name,
       description: fn.description,
-      parameters: fn.parameters,
+      parameters: fn.parameters!,
       returns: fn.returns,
       namespace: fn.namespace ?? 'utils',
     }));
@@ -600,7 +617,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       responderOutputFields,
       {
         runtimeUsageInstructions: this.runtime.getUsageInstructions(),
-        maxLlmCalls: effectiveMaxLlmCalls,
+        maxSubAgentCalls: effectiveMaxSubAgentCalls,
         maxTurns: effectiveMaxTurns,
         hasInspectRuntime: !!this.rlmConfig.contextManagement?.stateInspection,
         agents: agentMeta,
@@ -828,16 +845,14 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
    * Extends this agent's agent functions list with shared agent functions
    * from a parent. Throws on duplicate propagation.
    */
-  private _extendForSharedAgentFunctions(
-    newFns: readonly AxAgentFunction[]
-  ): void {
+  private _extendForSharedAgentFunctions(newFns: readonly AxFunction[]): void {
     if (newFns.length === 0) return;
 
     const existingKeys = new Set(
       this.agentFunctions.map((f) => `${f.namespace ?? 'utils'}.${f.name}`)
     );
     const excluded = new Set(this.excludedAgentFunctions);
-    const toAdd: AxAgentFunction[] = [];
+    const toAdd: AxFunction[] = [];
 
     for (const fn of newFns) {
       if (excluded.has(fn.name)) continue;
@@ -865,7 +880,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
    * Extends this agent and all its descendants with globally shared agent functions.
    */
   private _extendForGlobalSharedAgentFunctions(
-    newFns: readonly AxAgentFunction[]
+    newFns: readonly AxFunction[]
   ): void {
     // Collect children BEFORE extending to avoid recursing into newly added items
     const childrenToRecurse = this.agents
@@ -1060,16 +1075,41 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       }
     }
 
+    const optionalContextFields = new Set(
+      this.program
+        .getSignature()
+        .getInputFields()
+        .filter((f) => rlm.contextFields.includes(f.name) && f.isOptional)
+        .map((f) => f.name)
+    );
     for (const field of rlm.contextFields) {
-      if (!(field in contextValues)) {
+      if (optionalContextFields.has(field)) {
+        continue;
+      }
+      if (!(field in contextValues) || contextValues[field] === undefined) {
         throw new Error(
           `RLM contextField "${field}" is missing from input values`
         );
       }
     }
 
+    const actorInlineContextValues: Record<string, unknown> = {};
+    for (const [field, maxChars] of this.contextPromptMaxCharsByField) {
+      if (sharedFieldNames.includes(field)) {
+        continue;
+      }
+      if (!(field in contextValues)) {
+        continue;
+      }
+      const value = contextValues[field];
+      const size = estimateValueSize(value);
+      if (size <= maxChars) {
+        actorInlineContextValues[field] = value;
+      }
+    }
+
     // 2. Build runtime globals (context + llmQuery + tool functions)
-    const maxLlmCalls = rlm.maxLlmCalls ?? DEFAULT_RLM_MAX_LLM_CALLS;
+    const maxSubAgentCalls = rlm.maxSubAgentCalls ?? DEFAULT_RLM_MAX_LLM_CALLS;
     const maxRuntimeChars =
       rlm.maxRuntimeChars ?? DEFAULT_RLM_MAX_RUNTIME_CHARS;
     const maxBatchedLlmQueryConcurrency = Math.max(
@@ -1079,7 +1119,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const maxTurns = rlm.maxTurns ?? DEFAULT_RLM_MAX_TURNS;
 
     let llmCallCount = 0;
-    const llmCallWarnThreshold = Math.floor(maxLlmCalls * 0.8);
+    const llmCallWarnThreshold = Math.floor(maxSubAgentCalls * 0.8);
     const configuredRecursionMaxDepth =
       this.recursionForwardOptions?.maxDepth ?? DEFAULT_RLM_MAX_RECURSION_DEPTH;
     const recursionMaxDepth = Math.max(0, configuredRecursionMaxDepth);
@@ -1214,8 +1254,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
               : singleCtx;
 
         llmCallCount++;
-        if (llmCallCount > maxLlmCalls) {
-          return `[ERROR] Sub-query budget exhausted (${maxLlmCalls}/${maxLlmCalls}). Use the data you have already accumulated to produce your final answer.`;
+        if (llmCallCount > maxSubAgentCalls) {
+          return `[ERROR] Sub-query budget exhausted (${maxSubAgentCalls}/${maxSubAgentCalls}). Use the data you have already accumulated to produce your final answer.`;
         }
 
         if (recursionMaxDepth <= 0 || !recursiveSubAgent) {
@@ -1308,7 +1348,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
       const result = await runSingleLlmQuery(query, ctx);
       if (llmCallCount === llmCallWarnThreshold) {
-        return `${result}\n[WARNING] ${llmCallCount}/${maxLlmCalls} sub-queries used. Plan to wrap up soon.`;
+        return `${result}\n[WARNING] ${llmCallCount}/${maxSubAgentCalls} sub-queries used. Plan to wrap up soon.`;
       }
       return result;
     };
@@ -1338,15 +1378,26 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const agentFunctionNamespaces = [
       ...new Set(this.agentFunctions.map((f) => f.namespace ?? 'utils')),
     ];
-    const reservedNames = [
+    const runtimeInputs = { ...rawValues };
+    const reservedTopLevelNames = new Set([
+      'inputs',
       'llmQuery',
       'agents',
       'final',
       'ask_clarification',
       ...agentFunctionNamespaces,
       ...(rlm.contextManagement?.stateInspection ? ['inspect_runtime'] : []),
-      ...rlm.contextFields,
       ...Object.keys(toolGlobals),
+    ]);
+    const runtimeTopLevelInputAliases = Object.fromEntries(
+      Object.entries(runtimeInputs).filter(
+        ([k]) => !reservedTopLevelNames.has(k)
+      )
+    );
+    const protectedRuntimeNames = [...reservedTopLevelNames];
+    const inspectReservedNames = [
+      ...reservedTopLevelNames,
+      ...Object.keys(runtimeTopLevelInputAliases),
     ];
 
     // inspect_runtime: queries worker globalThis for current variable state
@@ -1354,10 +1405,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const inspectRuntime = rlm.contextManagement?.stateInspection
       ? async (): Promise<string> => {
           try {
-            const code = buildInspectRuntimeCode(reservedNames);
+            const code = buildInspectRuntimeCode(inspectReservedNames);
             const result = await session.execute(code, {
               signal: effectiveAbortSignal,
-              reservedNames,
+              reservedNames: inspectReservedNames,
             });
             return typeof result === 'string' ? result : String(result);
           } catch (err) {
@@ -1368,7 +1419,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     const createSession = () => {
       return runtime.createSession({
-        ...contextValues,
+        ...runtimeTopLevelInputAliases,
+        inputs: runtimeInputs,
         llmQuery,
         final: finalFunction,
         ask_clarification: askClarificationFunction,
@@ -1379,7 +1431,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     const timeoutRestartNotice = `[The JavaScript runtime was restarted; all global state was lost and must be recreated if needed.]`;
     let session = createSession();
-    let shouldRestartClosedSession = false;
 
     const isSessionClosedError = (err: unknown): boolean => {
       return err instanceof Error && err.message === 'Session is closed';
@@ -1453,7 +1504,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       try {
         const result = await session.execute(code, {
           signal: effectiveAbortSignal,
-          reservedNames,
+          reservedNames: protectedRuntimeNames,
         });
         return { output: formatInterpreterOutput(result), isError: false };
       } catch (err) {
@@ -1469,23 +1520,24 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         ) {
           throw err;
         }
+        // Timeout: worker was reset internally, next execute() auto-creates a new worker.
         if (isExecutionTimedOutError(err)) {
-          shouldRestartClosedSession = true;
+          return {
+            output: truncateText(
+              `${timeoutRestartNotice}\n${formatInterpreterError(err)}`,
+              maxRuntimeChars
+            ),
+            isError: true,
+          };
         }
+        // Unexpected session close: restart with a new session and retry.
         if (isSessionClosedError(err)) {
-          if (!shouldRestartClosedSession) {
-            return {
-              output: formatInterpreterError(err),
-              isError: true,
-            };
-          }
           try {
-            shouldRestartClosedSession = false;
             session = createSession();
             actorResultPayload = undefined;
             const retryResult = await session.execute(code, {
               signal: effectiveAbortSignal,
-              reservedNames,
+              reservedNames: protectedRuntimeNames,
             });
             return {
               output: truncateText(
@@ -1495,9 +1547,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
               isError: false,
             };
           } catch (retryErr) {
-            if (isExecutionTimedOutError(retryErr)) {
-              shouldRestartClosedSession = true;
-            }
             return {
               output: truncateText(
                 `${timeoutRestartNotice}\n${formatInterpreterError(retryErr)}`,
@@ -1507,18 +1556,16 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
             };
           }
         }
-        if (isExecutionTimedOutError(err)) {
-          return {
-            output: formatInterpreterError(err),
-            isError: true,
-          };
-        }
         throw err;
       }
     };
 
     // 3. Actor loop (TypeScript-managed)
-    const contextMetadata = buildRLMVariablesInfo(contextValues) || '(none)';
+    const contextMetadata =
+      buildRLMVariablesInfo(contextValues, {
+        promptMaxCharsByField: this.contextPromptMaxCharsByField,
+        inlinedFields: new Set(Object.keys(actorInlineContextValues)),
+      }) || '(none)';
 
     // Resolve effective context management config
     const contextMgmt = rlm.contextManagement;
@@ -1557,6 +1604,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           ai,
           {
             ...nonContextValues,
+            ...actorInlineContextValues,
             contextMetadata,
             actionLog: actionLogText,
           },
@@ -1941,7 +1989,7 @@ export interface AxAgentConfig<_IN extends AxGenIn, _OUT extends AxGenOut>
 // --- String signature ---
 export function agent<
   const T extends string,
-  const CF extends readonly string[],
+  const CF extends readonly AxContextFieldInput[],
 >(
   signature: T,
   config: Omit<
@@ -1955,7 +2003,7 @@ export function agent<
 export function agent<
   TInput extends Record<string, any>,
   TOutput extends Record<string, any>,
-  const CF extends readonly string[],
+  const CF extends readonly AxContextFieldInput[],
 >(
   signature: AxSignature<TInput, TOutput>,
   config: Omit<AxAgentConfig<TInput, TOutput>, 'contextFields'> & {
@@ -2004,7 +2052,63 @@ function truncateText(text: string, maxChars: number): string {
   return `${text.slice(0, maxChars)}\n...[truncated ${text.length - maxChars} chars]`;
 }
 
-function buildRLMVariablesInfo(contextValues: Record<string, unknown>): string {
+function estimateValueSize(value: unknown): number {
+  if (typeof value === 'string') {
+    return value.length;
+  }
+  try {
+    return JSON.stringify(value).length;
+  } catch {
+    return String(value).length;
+  }
+}
+
+function normalizeContextFields(
+  contextFields: readonly AxContextFieldInput[],
+  inputFields: readonly AxIField[],
+  defaultPromptMaxChars: number
+): {
+  contextFieldNames: string[];
+  promptMaxCharsByField: Map<string, number>;
+} {
+  const inputFieldNames = new Set(inputFields.map((f) => f.name));
+  const seen = new Set<string>();
+  const contextFieldNames: string[] = [];
+  const promptMaxCharsByField = new Map<string, number>();
+
+  for (const cf of contextFields) {
+    const field = typeof cf === 'string' ? cf : cf.field;
+
+    if (!inputFieldNames.has(field)) {
+      throw new Error(`RLM contextField "${field}" not found in signature`);
+    }
+    if (seen.has(field)) {
+      throw new Error(`Duplicate contextField "${field}"`);
+    }
+    seen.add(field);
+    contextFieldNames.push(field);
+
+    if (typeof cf !== 'string') {
+      const promptMaxChars = cf.promptMaxChars ?? defaultPromptMaxChars;
+      if (!Number.isFinite(promptMaxChars) || promptMaxChars < 0) {
+        throw new Error(
+          `contextField "${field}" promptMaxChars must be a finite number >= 0`
+        );
+      }
+      promptMaxCharsByField.set(field, promptMaxChars);
+    }
+  }
+
+  return { contextFieldNames, promptMaxCharsByField };
+}
+
+function buildRLMVariablesInfo(
+  contextValues: Record<string, unknown>,
+  options?: {
+    promptMaxCharsByField?: ReadonlyMap<string, number>;
+    inlinedFields?: ReadonlySet<string>;
+  }
+): string {
   const lines: string[] = [];
   for (const [key, value] of Object.entries(contextValues)) {
     const valueType = Array.isArray(value) ? 'array' : typeof value;
@@ -2016,7 +2120,16 @@ function buildRLMVariablesInfo(contextValues: Record<string, unknown>): string {
           : value && typeof value === 'object'
             ? `${Object.keys(value as Record<string, unknown>).length} keys`
             : 'n/a';
-    lines.push(`- ${key}: type=${valueType}, size=${size}`);
+    const threshold = options?.promptMaxCharsByField?.get(key);
+    const promptMode =
+      threshold === undefined
+        ? 'runtime-only'
+        : options?.inlinedFields?.has(key)
+          ? `inline (<=${threshold} chars)`
+          : `runtime-only (>${threshold} chars)`;
+    lines.push(
+      `- ${key}: type=${valueType}, size=${size}, prompt=${promptMode}`
+    );
   }
   return lines.join('\n');
 }

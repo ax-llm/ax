@@ -1,7 +1,7 @@
-import { type AxAgentFunction, AxJSRuntime, agent, ai } from '@ax-llm/ax';
+import { type AxFunction, AxJSRuntime, agent, ai } from '@ax-llm/ax';
 
 // Simple math tool to force tool use
-const tools: AxAgentFunction[] = [
+const tools: AxFunction[] = [
   {
     name: 'addNumbers',
     description: 'Add two numbers and return their sum',

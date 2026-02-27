@@ -1,7 +1,7 @@
 import {
   AxAI,
   AxAIAnthropicModel,
-  type AxAgentFunction,
+  type AxFunction,
   AxFunctionError,
   AxJSRuntime,
   AxSignature,
@@ -62,7 +62,7 @@ const bookRestaurantAPI = ({
 };
 
 // List of functions available to the AI
-const functions: AxAgentFunction[] = [
+const functions: AxFunction[] = [
   {
     name: 'bookRestaurant',
     description:

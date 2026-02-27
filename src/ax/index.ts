@@ -747,10 +747,10 @@ import {
   AxAgent,
   type AxAgentConfig,
   type AxAgentDemos,
-  type AxAgentFunction,
   type AxAgentic,
   type AxAgentOptions,
   type AxAgentRecursionOptions,
+  type AxContextFieldInput,
   agent,
 } from './prompts/agent.js';
 import { axRAG } from './prompts/rag.js';
@@ -1216,7 +1216,6 @@ export type { AxAPI };
 export type { AxAPIConfig };
 export type { AxAgentConfig };
 export type { AxAgentDemos };
-export type { AxAgentFunction };
 export type { AxAgentOptions };
 export type { AxAgentRecursionOptions };
 export type { AxAgentic };
@@ -1245,6 +1244,7 @@ export type { AxContextCacheOperation };
 export type { AxContextCacheOptions };
 export type { AxContextCacheRegistry };
 export type { AxContextCacheRegistryEntry };
+export type { AxContextFieldInput };
 export type { AxContextManagementConfig };
 export type { AxCostTracker };
 export type { AxCostTrackerOptions };

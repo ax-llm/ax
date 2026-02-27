@@ -351,6 +351,42 @@ describe('AxJSRuntime', () => {
     expect(mockTerminate).toHaveBeenCalledOnce();
   });
 
+  it('session is not permanently closed after timeout', async () => {
+    vi.useFakeTimers();
+
+    const interp = new AxJSRuntime({ timeout: 100 });
+    const session = interp.createSession();
+
+    // First execute: will time out
+    const timeoutPromise = session.execute('while(true){}');
+    vi.advanceTimersByTime(101);
+    await expect(timeoutPromise).rejects.toThrow('Execution timed out');
+
+    // Second execute: should NOT throw "Session is closed"
+    // (ensureWorker will recreate a browser worker)
+    const secondPromise = session.execute('1+1');
+
+    // Flush microtasks so ensureWorker().then() runs and posts the execute message
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Simulate the worker returning a result for '1+1'
+    const executeMsg = mockPostMessage.mock.calls.find(
+      (call: unknown[]) =>
+        (call[0] as { type: string }).type === 'execute' &&
+        (call[0] as { code: string }).code === '1+1'
+    );
+    expect(executeMsg).toBeDefined();
+    const id = (executeMsg![0] as { id: number }).id;
+    mockWorkerInstance.onmessage?.({
+      data: { type: 'result', id, value: 2 },
+    } as MessageEvent);
+
+    await expect(secondPromise).resolves.toBe(2);
+
+    session.close();
+    vi.useRealTimers();
+  });
+
   it('uses Deno module worker options when available', () => {
     (globalThis as { Deno?: unknown }).Deno = { version: { deno: '2.6.3' } };
 
