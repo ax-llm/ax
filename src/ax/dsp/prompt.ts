@@ -57,7 +57,7 @@ export class AxPromptTemplate {
     }> = {}
   ): Extract<
     AxChatRequest['chatPrompt'][number],
-    { role: 'user' | 'system' | 'assistant' }
+    { role: 'user' | 'system' | 'assistant' | 'function' }
   >[] => {
     return this.adapter.render(values, options);
   };

@@ -173,4 +173,100 @@ describe('Structured Output Features', () => {
     expect(exampleUser.content).toContain('Field 1: value1');
     expect(exampleUser.content).toContain('Field 2: value2');
   });
+
+  it('should render structured examples as function calls when structuredOutputFunctionName is set', () => {
+    const signature = f()
+      .input('userQuery', f.string())
+      .output(
+        'metadata',
+        f.object({
+          label: f.string(),
+          score: f.number(),
+        })
+      )
+      .build();
+
+    const template = new AxPromptTemplate(signature, {
+      structuredOutputFunctionName: 'return_structured',
+    });
+
+    const rendered = template.render(
+      { userQuery: 'test' },
+      {
+        examples: [
+          {
+            userQuery: 'hello',
+            metadata: {
+              label: 'world',
+              score: 1,
+            },
+          },
+        ],
+      }
+    );
+
+    // Should have: system, user (example), assistant (function call), function result, user (query)
+    expect(rendered).toHaveLength(5);
+    expect(rendered[1]?.role).toBe('user');
+    expect(rendered[2]?.role).toBe('assistant');
+    expect(rendered[3]?.role).toBe('function');
+    expect(rendered[4]?.role).toBe('user');
+
+    const exampleAssistant = rendered[2] as {
+      role: 'assistant';
+      functionCalls?: {
+        id: string;
+        type: 'function';
+        function: { name: string; params?: string | object };
+      }[];
+    };
+    const functionCall = exampleAssistant.functionCalls?.[0];
+    expect(functionCall?.function.name).toBe('return_structured');
+    expect(functionCall?.function.params).toEqual({
+      metadata: { label: 'world', score: 1 },
+    });
+
+    const functionResult = rendered[3] as {
+      role: 'function';
+      result: string;
+      functionId: string;
+    };
+    expect(functionResult.result).toBe('done');
+    expect(functionResult.functionId).toBe(functionCall?.id);
+  });
+
+  it('should preserve all grouped extra field descriptions in error correction', () => {
+    const signature = f()
+      .input('userQuery', f.string())
+      .output('aiResponse', f.string())
+      .build();
+
+    const template = new AxPromptTemplate(signature);
+
+    const errorFields = [
+      {
+        name: 'aiResponse',
+        title: 'Ai Response',
+        description: 'Missing citation',
+        type: { name: 'string' },
+      },
+      {
+        name: 'aiResponse',
+        title: 'Ai Response',
+        description: 'Tone is too vague',
+        type: { name: 'string' },
+      },
+    ];
+
+    // @ts-ignore - construct AxIField manually for test
+    const rendered = template.renderExtraFields(errorFields as any);
+
+    const textParts = rendered
+      .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
+      .map((p) => p.text)
+      .join('');
+
+    expect(textParts).toContain('- Missing citation');
+    expect(textParts).toContain('- Tone is too vague');
+  });
 });

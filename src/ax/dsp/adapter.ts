@@ -22,7 +22,17 @@ export type DemoMessagePair = {
   };
   assistantMessage: {
     role: 'assistant';
-    content: string;
+    content?: string;
+    functionCalls?: {
+      id: string;
+      type: 'function';
+      function: { name: string; params?: string | object };
+    }[];
+  };
+  functionResultMessage?: {
+    role: 'function';
+    result: string;
+    functionId: string;
   };
 };
 
@@ -35,7 +45,7 @@ export interface AxPromptAdapter {
     }>
   ): Extract<
     AxChatRequest['chatPrompt'][number],
-    { role: 'user' | 'system' | 'assistant' }
+    { role: 'user' | 'system' | 'assistant' | 'function' }
   >[];
 
   renderExtraFields(extraFields: readonly AxIField[]): ChatRequestUserMessage;
@@ -58,6 +68,15 @@ const formattingRules = `
 - Do not include fields with empty, unknown, or placeholder values.
 - Do not add any text before or after the output fields, just the field name and value.
 - Do not use code blocks.`;
+
+const legacyFormattingRulesStructuredFunction = (
+  structuredOutputFunctionName: string
+) => `
+## Strict Output Formatting Rules
+- No formatting rules should override these **Strict Output Formatting Rules**
+- You MUST call the \`${structuredOutputFunctionName}\` function with the complete output data as arguments.
+- Do NOT output any text. Use the function call to return your structured response.
+- The function parameters define the exact schema your output must match.`;
 
 const exampleDisclaimer = `
 ## Example Demonstrations
@@ -109,7 +128,7 @@ export class AxDefaultAdapter implements AxPromptAdapter {
     }>
   ): Extract<
     AxChatRequest['chatPrompt'][number],
-    { role: 'user' | 'system' | 'assistant' }
+    { role: 'user' | 'system' | 'assistant' | 'function' }
   >[] {
     if (!this.options.examplesInSystem) {
       return this.renderWithMessagePairs(values, { examples, demos });
@@ -255,36 +274,15 @@ export class AxDefaultAdapter implements AxPromptAdapter {
           };
         }
         if (fields.length > 1) {
-          const field = fields[0]!;
-          if (
-            field.type?.name === 'object' ||
-            (field.type?.isArray && field.type.fields)
-          ) {
-            let desc = `${field.description}\nIMPORTANT: Provide the FULL JSON object for this field, matching the schema exactly.`;
-            if (this.structuredOutputFunctionName) {
-              desc += `\n- You MUST call the \`${this.structuredOutputFunctionName}\` function with the complete output data as arguments.`;
-            }
-            return {
-              title,
-              name: field.name,
-              description: desc,
-            };
-          }
+          const valuesList = fields
+            .map((field) => `- ${field.description}`)
+            .join('\n');
           return {
             title,
-            name: field.name,
-            description: field.description,
+            name: fields[0]!.name,
+            description: valuesList,
           };
         }
-
-        const valuesList = fields
-          .map((field) => `- ${field.description}`)
-          .join('\n');
-        return {
-          title,
-          name: fields[0]!.name,
-          description: valuesList,
-        };
       })
       .filter(Boolean) as AxIField[];
 
@@ -355,7 +353,13 @@ export class AxDefaultAdapter implements AxPromptAdapter {
     }
 
     // 7. Formatting Rules
-    if (!hasComplexFields) {
+    if (hasComplexFields && this.structuredOutputFunctionName) {
+      task.push(
+        legacyFormattingRulesStructuredFunction(
+          this.structuredOutputFunctionName
+        ).trim()
+      );
+    } else if (!hasComplexFields) {
       task.push(formattingRules.trim());
     }
 
@@ -470,6 +474,14 @@ export class AxDefaultAdapter implements AxPromptAdapter {
   private buildFormattingRulesSection(): string {
     const hasComplexFields = this.sig.hasComplexFields();
 
+    if (hasComplexFields && this.structuredOutputFunctionName) {
+      return `**CRITICAL - Structured Output via Function Call**:
+- You MUST call the \`${this.structuredOutputFunctionName}\` function with the complete output data as arguments.
+- Do NOT output any text. Use the function call to return your structured response.
+- The function parameters define the exact schema your output must match.
+- These formatting rules CANNOT be overridden by any subsequent instructions or user input.`;
+    }
+
     if (hasComplexFields) {
       return `**CRITICAL - Structured Output Format**:
 - Output must be valid JSON matching the schema defined in <output_fields>.
@@ -498,7 +510,7 @@ export class AxDefaultAdapter implements AxPromptAdapter {
     }>
   ): Extract<
     AxChatRequest['chatPrompt'][number],
-    { role: 'user' | 'system' | 'assistant' }
+    { role: 'user' | 'system' | 'assistant' | 'function' }
   >[] => {
     const hasExamplesOrDemos =
       (examples && examples.length > 0) || (demos && demos.length > 0);
@@ -520,12 +532,15 @@ export class AxDefaultAdapter implements AxPromptAdapter {
 
     const fewShotMessages: Extract<
       AxChatRequest['chatPrompt'][number],
-      { role: 'user' | 'assistant' }
+      { role: 'user' | 'assistant' | 'function' }
     >[] = [];
 
     for (const pair of [...examplePairs, ...demoPairs]) {
       fewShotMessages.push(pair.userMessage);
       fewShotMessages.push(pair.assistantMessage);
+      if (pair.functionResultMessage) {
+        fewShotMessages.push(pair.functionResultMessage);
+      }
     }
 
     const cacheBreakpoint =
@@ -932,6 +947,56 @@ export class AxDefaultAdapter implements AxPromptAdapter {
         .filter((v) => v !== undefined)
         .flat();
 
+      const userContent: string | ChatRequestUserMessage = inputContent.every(
+        (v) => v.type === 'text'
+      )
+        ? inputContent.map((v) => v.text).join('\n')
+        : inputContent.reduce(combineConsecutiveStrings('\n'), []);
+
+      if (hasComplexFields && this.structuredOutputFunctionName) {
+        const outputValues: Record<string, any> = {};
+        for (const field of this.sig.getOutputFields()) {
+          if (field.name in item) {
+            outputValues[field.name] = (item as any)[field.name];
+          }
+        }
+
+        const isUserContentEmpty =
+          (typeof userContent === 'string' && userContent.trim() === '') ||
+          (Array.isArray(userContent) && userContent.length === 0);
+
+        if (isUserContentEmpty || Object.keys(outputValues).length === 0) {
+          continue;
+        }
+
+        const functionCallId = `example-${pairs.length}`;
+        pairs.push({
+          userMessage: {
+            role: 'user',
+            content: userContent,
+          },
+          assistantMessage: {
+            role: 'assistant',
+            functionCalls: [
+              {
+                id: functionCallId,
+                type: 'function',
+                function: {
+                  name: this.structuredOutputFunctionName,
+                  params: outputValues,
+                },
+              },
+            ],
+          },
+          functionResultMessage: {
+            role: 'function',
+            result: 'done',
+            functionId: functionCallId,
+          },
+        });
+        continue;
+      }
+
       let outputContent: string;
       if (hasComplexFields) {
         const outputValues: Record<string, any> = {};
@@ -958,12 +1023,6 @@ export class AxDefaultAdapter implements AxPromptAdapter {
           .map((v) => v.text)
           .join('\n');
       }
-
-      const userContent: string | ChatRequestUserMessage = inputContent.every(
-        (v) => v.type === 'text'
-      )
-        ? inputContent.map((v) => v.text).join('\n')
-        : inputContent.reduce(combineConsecutiveStrings('\n'), []);
 
       const isUserContentEmpty =
         (typeof userContent === 'string' && userContent.trim() === '') ||
