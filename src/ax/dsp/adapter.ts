@@ -369,6 +369,17 @@ export class AxDefaultAdapter implements AxPromptAdapter {
     const sections: string[] = [];
     const hasComplexFields = this.sig.hasComplexFields();
 
+    // Task definition section - contains signature description
+    const desc = this.sig.getDescription();
+    if (desc) {
+      const fieldMap = this.getFieldNameToTitleMap();
+      let text = formatDescription(desc);
+      text = formatFieldReferences(text, fieldMap);
+      sections.push('<task_definition>');
+      sections.push(text);
+      sections.push('</task_definition>');
+    }
+
     sections.push('<identity>');
     sections.push(this.buildIdentitySection());
     sections.push('</identity>');
@@ -409,19 +420,12 @@ export class AxDefaultAdapter implements AxPromptAdapter {
   private buildIdentitySection(): string {
     const parts: string[] = [];
 
-    const desc = this.sig.getDescription();
-    if (desc) {
-      const fieldMap = this.getFieldNameToTitleMap();
-      let text = formatDescription(desc);
-      text = formatFieldReferences(text, fieldMap);
-      parts.push(text);
-    }
-
+    // Description is now in task_definition section, not here
     const inArgs = renderDescFields(this.sig.getInputFields());
     const outArgs = renderDescFields(this.sig.getOutputFields());
 
     parts.push(
-      `\nYou will be provided with the following fields: ${inArgs}. Your task is to generate new fields: ${outArgs}.`
+      `You will be provided with the following fields: ${inArgs}. Your task is to generate new fields: ${outArgs}.`
     );
 
     return parts.join('\n');
