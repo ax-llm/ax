@@ -21,6 +21,8 @@ export interface AxPromptTemplateOptions {
   ignoreBreakpoints?: boolean;
   /** When set, indicates structured output should be delivered via a function call with this name */
   structuredOutputFunctionName?: string;
+  /** When true, includes thought process in the prompt output */
+  showThoughts?: boolean;
 }
 type AxChatRequestChatPrompt = Writeable<AxChatRequest['chatPrompt'][0]>;
 
@@ -460,6 +462,11 @@ export class AxPromptTemplate {
 
       let firstItem = true;
       for (const message of history) {
+        // Skip messages that don't have values (e.g., system messages)
+        if (!('values' in message)) {
+          continue;
+        }
+
         let content: string | ChatRequestUserMessage;
 
         if (firstItem) {
@@ -593,6 +600,11 @@ export class AxPromptTemplate {
       let isFirstUserMessage = true;
 
       for (const message of history) {
+        // Skip messages that don't have values (e.g., system messages)
+        if (!('values' in message)) {
+          continue;
+        }
+
         const renderedContent = this.renderInputFields(message.values);
         let content: string | ChatRequestUserMessage = renderedContent.every(
           (v) => v.type === 'text'
