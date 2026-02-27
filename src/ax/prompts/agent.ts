@@ -1431,7 +1431,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     const timeoutRestartNotice = `[The JavaScript runtime was restarted; all global state was lost and must be recreated if needed.]`;
     let session = createSession();
-    let shouldRestartClosedSession = false;
 
     const isSessionClosedError = (err: unknown): boolean => {
       return err instanceof Error && err.message === 'Session is closed';
@@ -1521,18 +1520,19 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         ) {
           throw err;
         }
+        // Timeout: worker was reset internally, next execute() auto-creates a new worker.
         if (isExecutionTimedOutError(err)) {
-          shouldRestartClosedSession = true;
+          return {
+            output: truncateText(
+              `${timeoutRestartNotice}\n${formatInterpreterError(err)}`,
+              maxRuntimeChars
+            ),
+            isError: true,
+          };
         }
+        // Unexpected session close: restart with a new session and retry.
         if (isSessionClosedError(err)) {
-          if (!shouldRestartClosedSession) {
-            return {
-              output: formatInterpreterError(err),
-              isError: true,
-            };
-          }
           try {
-            shouldRestartClosedSession = false;
             session = createSession();
             actorResultPayload = undefined;
             const retryResult = await session.execute(code, {
@@ -1547,9 +1547,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
               isError: false,
             };
           } catch (retryErr) {
-            if (isExecutionTimedOutError(retryErr)) {
-              shouldRestartClosedSession = true;
-            }
             return {
               output: truncateText(
                 `${timeoutRestartNotice}\n${formatInterpreterError(retryErr)}`,
@@ -1558,12 +1555,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
               isError: true,
             };
           }
-        }
-        if (isExecutionTimedOutError(err)) {
-          return {
-            output: formatInterpreterError(err),
-            isError: true,
-          };
         }
         throw err;
       }

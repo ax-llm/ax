@@ -2536,7 +2536,7 @@ describe('RLM llmQuery runtime behavior', () => {
 // ----- Session restart tests -----
 
 describe('RLM session restart', () => {
-  it('should restart closed session after timeout and restore globals', async () => {
+  it('should auto-recover after timeout without needing session restart', async () => {
     let createSessionCount = 0;
     let executeCount = 0;
     const runtime: AxCodeRuntime = {
@@ -2550,9 +2550,7 @@ describe('RLM session restart', () => {
             if (executeCount === 1) {
               throw new Error('Execution timed out');
             }
-            if (executeCount === 2) {
-              throw new Error('Session is closed');
-            }
+            // After timeout, next execute succeeds (worker auto-recovered)
             return `ctx:${String(safeGlobals.context)};hasLlmQuery:${String(typeof safeGlobals.llmQuery === 'function')}`;
           },
           close: () => {},
@@ -2619,18 +2617,25 @@ describe('RLM session restart', () => {
       query: 'unused',
     });
 
-    expect(createSessionCount).toBe(2); // initial + timeout-triggered restart
+    // Only one session created — timeout auto-recovers without needing a new session
+    expect(createSessionCount).toBe(1);
   });
 
-  it('should not restart closed session if no timeout happened first', async () => {
+  it('should restart session on unexpected session-closed error', async () => {
     let createSessionCount = 0;
+    let executeCount = 0;
     const runtime: AxCodeRuntime = {
       getUsageInstructions: () => '',
       createSession() {
         createSessionCount++;
         return {
           execute: async () => {
-            throw new Error('Session is closed');
+            executeCount++;
+            if (executeCount === 1) {
+              throw new Error('Session is closed');
+            }
+            // Retry on new session succeeds
+            return 'recovered';
           },
           close: () => {},
         };
@@ -2696,7 +2701,8 @@ describe('RLM session restart', () => {
       query: 'unused',
     });
 
-    expect(createSessionCount).toBe(1); // No restart
+    // Session was restarted due to unexpected close
+    expect(createSessionCount).toBe(2);
   });
 });
 
