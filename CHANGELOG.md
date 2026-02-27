@@ -1,5 +1,16 @@
 # Changelog
 
+## [19.0.9](///compare/19.0.7...19.0.8) (2026-02-27)
+
+### Features
+
+* enhance error handling by providing focused source context for runtime errors 7b3e5ee
+## [19.0.8](///compare/19.0.7...19.0.8) (2026-02-26)
+
+### Features
+
+* enhance error formatting and template rendering 1dc59ae
+
 ## [19.0.8](///compare/19.0.6...19.0.7) (2026-02-26)
 
 ### Features
