@@ -57,48 +57,73 @@ describe('AxAIAnthropic model key preset merging', () => {
 });
 
 describe('AxAIAnthropic schema validation', () => {
-  it('should throw an error for arbitrary JSON objects in structured outputs', async () => {
+  it('should allow arbitrary JSON objects in structured outputs', async () => {
     const ai = new AxAIAnthropic({
       apiKey: 'key',
       config: { model: AxAIAnthropicModel.Claude35Sonnet },
     });
 
-    const fetch = createMockFetch({
-      id: 'id',
-      type: 'message',
-      role: 'assistant',
-      content: [{ type: 'text', text: 'ok' }],
-      model: 'claude-3-5-sonnet-latest',
-      stop_reason: 'end_turn',
-      usage: { input_tokens: 1, output_tokens: 1 },
-    });
+    const capture: { lastBody?: any } = {};
+    const fetch = vi
+      .fn()
+      .mockImplementation(
+        async (_url: RequestInfo | URL, init?: RequestInit) => {
+          if (init?.body && typeof init.body === 'string') {
+            capture.lastBody = JSON.parse(init.body);
+          }
+          return new Response(
+            JSON.stringify({
+              id: 'id',
+              type: 'message',
+              role: 'assistant',
+              content: [{ type: 'text', text: 'ok' }],
+              model: 'claude-3-5-sonnet-latest',
+              stop_reason: 'end_turn',
+              usage: { input_tokens: 1, output_tokens: 1 },
+            }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            }
+          );
+        }
+      );
 
     ai.setOptions({ fetch });
 
     await expect(
-      ai.chat({
-        chatPrompt: [{ role: 'user', content: 'hi' }],
-        responseFormat: {
-          type: 'json_schema',
-          schema: {
-            type: 'object',
-            properties: {
-              arbitrary: {
-                type: [
-                  'object',
-                  'array',
-                  'string',
-                  'number',
-                  'boolean',
-                  'null',
-                ],
+      ai.chat(
+        {
+          chatPrompt: [{ role: 'user', content: 'hi' }],
+          responseFormat: {
+            type: 'json_schema',
+            schema: {
+              type: 'object',
+              properties: {
+                arbitrary: {
+                  type: [
+                    'object',
+                    'array',
+                    'string',
+                    'number',
+                    'boolean',
+                    'null',
+                  ],
+                },
               },
             },
           },
         },
-      })
-    ).rejects.toThrow(
-      'Anthropic models do not support arbitrary JSON objects (e.g. f.json() or f.object() with no properties) in structured outputs. Please use f.string() and instruct the model to return a JSON string, or define the expected structure with f.object({ ... })'
+        { stream: false }
+      )
+    ).resolves.toMatchObject({
+      results: [{ content: 'ok' }],
+    });
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(capture.lastBody?.output_format?.type).toBe('json_schema');
+    expect(capture.lastBody?.output_format?.schema?.additionalProperties).toBe(
+      false
     );
   });
 });
