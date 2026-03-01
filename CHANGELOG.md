@@ -1,5 +1,21 @@
 # Changelog
 
+## [19.0.11](///compare/19.0.9...19.0.10) (2026-03-01)
+
+### Features
+
+* add local field support to keep shared fields available in parent agents e84014b
+
+### Bug Fixes
+
+* don't throw on bare object schemas in Anthropic tool parameters ([#494](undefined/undefined/undefined/issues/494)) c7a4ecc
+* update schema validation to allow arbitrary JSON objects in structured outputs 77c4583
+## [19.0.10](///compare/19.0.9...19.0.10) (2026-02-27)
+
+### Features
+
+* implement session auto-recovery after timeout and improve error handling 7f76d94
+
 ## [19.0.10](///compare/19.0.8...19.0.9) (2026-02-27)
 
 ### Features
