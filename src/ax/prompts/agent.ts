@@ -112,6 +112,11 @@ export type AxAgentOptions = Omit<
 
   /** Field sharing configuration. */
   fields?: {
+    /**
+     * Shared/global fields that should remain available in this agent's own
+     * Actor/Responder flow instead of bypassing it.
+     */
+    local?: string[];
     /** Input fields to pass directly to subagents, bypassing the top-level LLM. */
     shared?: string[];
     /** Fields to pass to ALL descendants recursively (entire agent tree). */
@@ -215,6 +220,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private rlmConfig: AxRLMConfig;
   private runtime: AxCodeRuntime;
   private actorFieldNames: string[];
+  private localFieldNames: string[];
   private sharedFieldNames: string[];
   private globalSharedFieldNames: string[];
   private excludedSharedFields: string[];
@@ -382,6 +388,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         );
       }
     }
+    this.localFieldNames = options.fields?.local ?? [];
 
     // --- Read grouped agent options ---
     const sharedAgentsList = options.agents?.shared ?? [];
@@ -522,10 +529,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private _buildSplitPrograms(): void {
     const inputFields = this.program.getSignature().getInputFields();
     const contextFields = this.rlmConfig.contextFields;
-    const sharedFields = [
-      ...this.sharedFieldNames,
-      ...this.globalSharedFieldNames,
-    ];
+    const bypassedSharedFields = this._getBypassedSharedFieldNames();
 
     // Identify context field metadata
     const contextFieldMeta = inputFields.filter((fld) =>
@@ -535,13 +539,13 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       .filter(
         (fld) =>
           this.contextPromptMaxCharsByField.has(fld.name) &&
-          !sharedFields.includes(fld.name)
+          !bypassedSharedFields.has(fld.name)
       )
       .map((fld) => ({ ...fld, isOptional: true }));
     // Non-context, non-shared-only inputs (visible to Actor and Responder)
     const nonContextInputs = inputFields.filter(
       (fld) =>
-        !contextFields.includes(fld.name) && !sharedFields.includes(fld.name)
+        !contextFields.includes(fld.name) && !bypassedSharedFields.has(fld.name)
     );
 
     const originalOutputs = this.program.getSignature().getOutputFields();
@@ -984,6 +988,17 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     return this.excludedSharedFields;
   }
 
+  private _getBypassedSharedFieldNames(): Set<string> {
+    const bypassed = new Set([
+      ...this.sharedFieldNames,
+      ...this.globalSharedFieldNames,
+    ]);
+    for (const fieldName of this.localFieldNames) {
+      bypassed.delete(fieldName);
+    }
+    return bypassed;
+  }
+
   public getExcludedAgents(): readonly string[] {
     return this.excludedAgents;
   }
@@ -1053,14 +1068,15 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       ...this.sharedFieldNames,
       ...this.globalSharedFieldNames,
     ];
+    const bypassedSharedFields = this._getBypassedSharedFieldNames();
     for (const [k, v] of Object.entries(rawValues)) {
       if (rlm.contextFields.includes(k)) {
         contextValues[k] = v;
-      } else if (!sharedFieldNames.includes(k)) {
+      } else if (!bypassedSharedFields.has(k)) {
         nonContextValues[k] = v;
       }
-      // shared-only fields are excluded from nonContextValues
-      // (they bypass the LLM and go directly to subagents)
+      // Shared/global fields that are not marked local are excluded from
+      // nonContextValues (they bypass the LLM and go directly to subagents).
     }
 
     // Extract shared field values for subagent injection
@@ -1095,7 +1111,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     const actorInlineContextValues: Record<string, unknown> = {};
     for (const [field, maxChars] of this.contextPromptMaxCharsByField) {
-      if (sharedFieldNames.includes(field)) {
+      if (bypassedSharedFields.has(field)) {
         continue;
       }
       if (!(field in contextValues)) {

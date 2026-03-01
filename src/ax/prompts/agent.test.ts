@@ -4292,6 +4292,36 @@ describe('Shared Fields', () => {
     expect(responderInputNames).toContain('query');
   });
 
+  it('should keep shared fields local when listed in fields.local', () => {
+    const parentAgent = agent(
+      'query:string, userId:string, context:string -> answer:string',
+      {
+        contextFields: ['context'],
+        fields: { shared: ['userId'], local: ['userId'] },
+        runtime,
+      }
+    );
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const actorSig = (parentAgent as any).actorProgram.getSignature();
+    const actorInputNames = actorSig
+      .getInputFields()
+      .map((f: { name: string }) => f.name);
+
+    expect(actorInputNames).toContain('userId');
+    expect(actorInputNames).toContain('query');
+    expect(actorInputNames).not.toContain('context');
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const responderSig = (parentAgent as any).responderProgram.getSignature();
+    const responderInputNames = responderSig
+      .getInputFields()
+      .map((f: { name: string }) => f.name);
+
+    expect(responderInputNames).toContain('userId');
+    expect(responderInputNames).toContain('query');
+  });
+
   it('should extend child agent signature with shared fields', () => {
     const childAgent = agent('question:string -> answer:string', {
       agentIdentity: { name: 'Child', description: 'A child agent' },
@@ -4820,6 +4850,36 @@ describe('Global Shared Fields', () => {
       .map((f: { name: string }) => f.name);
     expect(actorInputNames).not.toContain('userId');
     expect(actorInputNames).toContain('query');
+  });
+
+  it('should keep globallyShared fields local when listed in fields.local', () => {
+    const childAgent = agent('question:string -> answer:string', {
+      agentIdentity: { name: 'Child', description: 'A child agent' },
+      contextFields: [],
+      runtime,
+    });
+
+    const parentAgent = agent('query:string, userId:string -> answer:string', {
+      agents: { local: [childAgent] },
+      contextFields: [],
+      fields: { globallyShared: ['userId'], local: ['userId'] },
+      runtime,
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const actorSig = (parentAgent as any).actorProgram.getSignature();
+    const actorInputNames = actorSig
+      .getInputFields()
+      .map((f: { name: string }) => f.name);
+    expect(actorInputNames).toContain('userId');
+    expect(actorInputNames).toContain('query');
+
+    // Should still propagate globally to descendants
+    const childInputs = childAgent
+      .getSignature()
+      .getInputFields()
+      .map((f) => f.name);
+    expect(childInputs).toContain('userId');
   });
 
   it('should extend all descendants signatures with globalSharedFields', () => {

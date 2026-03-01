@@ -348,17 +348,20 @@ When composing agent hierarchies, you often need to pass data or utility agents 
 
 ### `fields.shared` — Pass fields to direct children (one level)
 
-Fields listed in `fields.shared` are automatically injected into direct child agents at runtime. They bypass the parent's LLM entirely.
+Fields listed in `fields.shared` are automatically injected into direct child agents at runtime. By default, they bypass the parent's LLM.
 
 ```typescript
 const parentAgent = agent('query:string, userId:string, knowledgeBase:string -> answer:string', {
   agents: { local: [childAgent] },
   contextFields: ['knowledgeBase'],
-  fields: { shared: ['userId'] },  // userId is injected into child agents automatically
+  fields: {
+    shared: ['userId'],  // userId is injected into child agents automatically
+    local: ['userId'],   // and remains available in the parent Actor/Responder too
+  },
 });
 ```
 
-- `userId` is removed from the parent's Actor/Responder prompts
+- Without `fields.local`, `userId` is removed from the parent's Actor/Responder prompts
 - Children can opt out via `fields: { excluded: ['userId'] }`
 
 ### `fields.globallyShared` — Pass fields to ALL descendants (recursive)
@@ -371,6 +374,8 @@ const parent = agent('query:string, sessionId:string -> answer:string', {
   fields: { globallyShared: ['sessionId'] },  // sessionId reaches child AND grandchild
 });
 ```
+
+Use `fields.local: ['sessionId']` when a globally shared field should also remain visible in the current parent agent.
 
 ### `agents.shared` — Add agents to direct children (one level)
 
@@ -970,6 +975,7 @@ Extends `AxProgramForwardOptions` (without `functions`) with:
   };
 
   fields?: {
+    local?: string[];              // Keep shared/global fields visible in this agent
     shared?: string[];             // Fields passed to direct child agents (one level)
     globallyShared?: string[];     // Fields passed to ALL descendants recursively
     excluded?: string[];           // Fields this agent should NOT receive from parents

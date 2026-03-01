@@ -72,6 +72,7 @@ const myAgent = agent('input:string -> output:string', {
 
   // Field sharing
   fields: {
+    local: ['userId'],                    // Keep shared/global fields visible in this agent
     shared: ['userId'],                   // Passed to direct child agents
     globallyShared: ['sessionId'],        // Passed to all descendants
     excluded: ['field'],                  // Fields NOT to receive from parents
@@ -348,7 +349,7 @@ When composing agent hierarchies, you often need to pass data or utility agents 
 
 ### `fields.shared` — Pass fields to direct children (one level)
 
-Fields listed in `fields.shared` are automatically injected into direct child agents at runtime. They bypass the parent's LLM entirely.
+Fields listed in `fields.shared` are automatically injected into direct child agents at runtime. By default, they bypass the parent's LLM.
 
 ```typescript
 const childAgent = agent('question:string -> answer:string', {
@@ -366,6 +367,7 @@ const parentAgent = agent('query:string, userId:string, knowledgeBase:string -> 
 - `userId` is removed from the parent's Actor/Responder prompts
 - `userId` is automatically injected into every call to child agents
 - Children can opt out via `fields: { excluded: ['userId'] }`
+- Add `fields.local: ['userId']` to keep `userId` available in the parent too
 
 ### `fields.globallyShared` — Pass fields to ALL descendants (recursive)
 
@@ -1018,6 +1020,7 @@ Extends `AxProgramForwardOptions` (without `functions` or `description`) with:
   };
 
   fields?: {
+    local?: string[];                    // Keep shared/global fields visible in this agent
     shared?: string[];                   // Fields passed to direct child agents
     globallyShared?: string[];           // Fields passed to all descendants
     excluded?: string[];                 // Fields NOT to receive from parents
