@@ -453,6 +453,11 @@ import {
   type AxApacheTikaConvertOptions,
 } from './docs/tika.js';
 import {
+  type AxChatRequestChatPrompt,
+  AxDefaultAdapter,
+  type AxPromptAdapter,
+} from './dsp/adapter.js';
+import {
   type AxAssertion,
   AxAssertionError,
   type AxStreamingAssertion,
@@ -855,6 +860,7 @@ export { AxDBManager };
 export { AxDBMemory };
 export { AxDBPinecone };
 export { AxDBWeaviate };
+export { AxDefaultAdapter };
 export { AxDefaultCostTracker };
 export { AxDefaultResultReranker };
 export { AxDockerSession };
@@ -1220,6 +1226,7 @@ export type { AxBalancerOptions };
 export type { AxBaseAIArgs };
 export type { AxBootstrapOptimizerOptions };
 export type { AxChatRequest };
+export type { AxChatRequestChatPrompt };
 export type { AxChatResponse };
 export type { AxChatResponseFunctionCall };
 export type { AxChatResponseResult };
@@ -1399,6 +1406,7 @@ export type { AxProgramStreamingForwardOptionsWithModels };
 export type { AxProgramTrace };
 export type { AxProgramUsage };
 export type { AxProgrammable };
+export type { AxPromptAdapter };
 export type { AxPromptTemplateOptions };
 export type { AxRLMConfig };
 export type { AxRateLimiterFunction };
