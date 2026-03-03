@@ -3336,6 +3336,517 @@ describe('actorCallback', () => {
   });
 });
 
+// ----- inputUpdateCallback tests -----
+
+describe('inputUpdateCallback', () => {
+  it('should apply callback patches before each turn and pass updated inputs to Responder', async () => {
+    let actorTurn = 0;
+    const callbackSnapshots: Array<Record<string, unknown>> = [];
+    let finalArg: unknown;
+    let capturedResponderInput: Record<string, unknown> | undefined;
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code.includes('__ax_get_host_inputs__')) {
+              const hostInputs = (await (
+                globals?.__ax_get_host_inputs__ as
+                  | (() => Promise<Record<string, unknown>>)
+                  | undefined
+              )?.()) as Record<string, unknown> | undefined;
+              if (globals && hostInputs) {
+                if (
+                  globals.inputs &&
+                  typeof globals.inputs === 'object' &&
+                  !Array.isArray(globals.inputs)
+                ) {
+                  const inputs = globals.inputs as Record<string, unknown>;
+                  for (const key of Object.keys(inputs)) {
+                    if (!(key in hostInputs)) {
+                      delete inputs[key];
+                    }
+                  }
+                  for (const [key, value] of Object.entries(hostInputs)) {
+                    inputs[key] = value;
+                  }
+                }
+                globals.query = hostInputs.query;
+              }
+              return '__ax_runtime_inputs_synced__';
+            }
+            if (code.includes('final(') && globals?.final) {
+              finalArg = (globals.inputs as Record<string, unknown>)?.query;
+              (globals.final as (...args: unknown[]) => void)(finalArg);
+              return 'done';
+            }
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorTurn++;
+          return {
+            results: [
+              {
+                index: 0,
+                content:
+                  actorTurn === 1
+                    ? 'Javascript Code: var x = 1'
+                    : 'Javascript Code: final(inputs.query)',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: [],
+      runtime,
+      inputUpdateCallback: (currentInputs) => {
+        callbackSnapshots.push(currentInputs as Record<string, unknown>);
+        if (callbackSnapshots.length === 1) {
+          return { query: 'updated-query' };
+        }
+        return undefined;
+      },
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const responderProgram = (testAgent as any).responderProgram;
+    const originalResponderForward =
+      responderProgram.forward.bind(responderProgram);
+    responderProgram.forward = async (
+      ai: unknown,
+      values: Record<string, unknown>,
+      options: unknown
+    ) => {
+      capturedResponderInput = values;
+      return await originalResponderForward(ai, values, options);
+    };
+
+    await testAgent.forward(testMockAI, { query: 'initial-query' });
+
+    expect(callbackSnapshots).toHaveLength(2);
+    expect(callbackSnapshots[0]?.query).toBe('initial-query');
+    expect(callbackSnapshots[1]?.query).toBe('updated-query');
+    expect(finalArg).toBe('updated-query');
+    expect(capturedResponderInput?.query).toBe('updated-query');
+  });
+
+  it('should sync non-colliding top-level aliases when inputs are updated', async () => {
+    let finalArg: unknown;
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code.includes('__ax_get_host_inputs__')) {
+              const hostInputs = (await (
+                globals?.__ax_get_host_inputs__ as
+                  | (() => Promise<Record<string, unknown>>)
+                  | undefined
+              )?.()) as Record<string, unknown> | undefined;
+              if (globals && hostInputs) {
+                if (
+                  globals.inputs &&
+                  typeof globals.inputs === 'object' &&
+                  !Array.isArray(globals.inputs)
+                ) {
+                  const inputs = globals.inputs as Record<string, unknown>;
+                  for (const key of Object.keys(inputs)) {
+                    if (!(key in hostInputs)) {
+                      delete inputs[key];
+                    }
+                  }
+                  for (const [key, value] of Object.entries(hostInputs)) {
+                    inputs[key] = value;
+                  }
+                }
+                globals.query = hostInputs.query;
+              }
+              return '__ax_runtime_inputs_synced__';
+            }
+            if (code.includes('final(') && globals?.final) {
+              finalArg = globals.query;
+              (globals.final as (...args: unknown[]) => void)(finalArg);
+              return 'done';
+            }
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        if (systemPrompt.includes('Code Generation Agent')) {
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: final(query)',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: [],
+      runtime,
+      inputUpdateCallback: () => ({ query: 'alias-updated' }),
+    });
+
+    await testAgent.forward(testMockAI, { query: 'initial-query' });
+
+    expect(finalArg).toBe('alias-updated');
+  });
+
+  it('should ignore unknown patch keys and apply known input keys', async () => {
+    let finalArg: unknown;
+    let hasUnknownKey = true;
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code.includes('__ax_get_host_inputs__')) {
+              return '__ax_runtime_inputs_synced__';
+            }
+            if (code.includes('final(') && globals?.final) {
+              const inputs = globals.inputs as Record<string, unknown>;
+              finalArg = inputs.query;
+              hasUnknownKey = Object.hasOwn(inputs, 'unknownKey');
+              (globals.final as (...args: unknown[]) => void)(finalArg);
+              return 'done';
+            }
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        if (systemPrompt.includes('Code Generation Agent')) {
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: final(inputs.query)',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: [],
+      runtime,
+      inputUpdateCallback: () =>
+        ({ query: 'known-updated', unknownKey: 'x' }) as any,
+    });
+
+    await testAgent.forward(testMockAI, { query: 'initial-query' });
+
+    expect(finalArg).toBe('known-updated');
+    expect(hasUnknownKey).toBe(false);
+  });
+
+  it('should treat undefined callback return as a no-op', async () => {
+    let finalArg: unknown;
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code.includes('__ax_get_host_inputs__')) {
+              return '__ax_runtime_inputs_synced__';
+            }
+            if (code.includes('final(') && globals?.final) {
+              finalArg = (globals.inputs as Record<string, unknown>).query;
+              (globals.final as (...args: unknown[]) => void)(finalArg);
+              return 'done';
+            }
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        if (systemPrompt.includes('Code Generation Agent')) {
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: final(inputs.query)',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: [],
+      runtime,
+      inputUpdateCallback: () => undefined,
+    });
+
+    await testAgent.forward(testMockAI, { query: 'initial-query' });
+
+    expect(finalArg).toBe('initial-query');
+  });
+
+  it('should fail the run when inputUpdateCallback throws', async () => {
+    let actorCallCount = 0;
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCallCount++;
+        }
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: [],
+      runtime: defaultRuntime,
+      inputUpdateCallback: () => {
+        throw new Error('update-callback-failed');
+      },
+    });
+
+    await expect(
+      testAgent.forward(testMockAI, { query: 'initial-query' })
+    ).rejects.toThrow('update-callback-failed');
+    expect(actorCallCount).toBe(0);
+  });
+
+  it('should propagate patched shared fields to child agents on later turns', async () => {
+    let actorTurn = 0;
+    let capturedChildArgs: Record<string, unknown> | undefined;
+
+    const childAgent = agent('question:string -> answer:string', {
+      agentIdentity: { name: 'Child', description: 'A child agent' },
+      contextFields: [],
+      runtime: defaultRuntime,
+    });
+
+    const originalGetFunction = childAgent.getFunction.bind(childAgent);
+    childAgent.getFunction = () => {
+      const fn = originalGetFunction();
+      fn.func = async (args: any) => {
+        capturedChildArgs = args;
+        return 'Child Answer: mocked';
+      };
+      return fn;
+    };
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code.includes('__ax_get_host_inputs__')) {
+              return '__ax_runtime_inputs_synced__';
+            }
+            if (code.includes('agents.child')) {
+              const agentsObj = globals!.agents as Record<
+                string,
+                (...args: unknown[]) => Promise<unknown>
+              >;
+              await agentsObj.child({ question: 'test' });
+            }
+            if (code.includes('final(') && globals?.final) {
+              (globals.final as (...args: unknown[]) => void)('done');
+              return 'done';
+            }
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorTurn++;
+          return {
+            results: [
+              {
+                index: 0,
+                content:
+                  actorTurn === 1
+                    ? 'Javascript Code: var prep = true'
+                    : 'Javascript Code: const r = await agents.child({ question: "test" }); final(r)',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    let callbackTurn = 0;
+    const parentAgent = agent('query:string, userId:string -> answer:string', {
+      ai: testMockAI,
+      agents: { local: [childAgent] },
+      contextFields: [],
+      fields: { shared: ['userId'] },
+      runtime,
+      inputUpdateCallback: () => {
+        callbackTurn++;
+        return callbackTurn === 2 ? { userId: 'updated-user' } : undefined;
+      },
+    });
+
+    await parentAgent.forward(testMockAI, {
+      query: 'question',
+      userId: 'initial-user',
+    });
+
+    expect(capturedChildArgs?.userId).toBe('updated-user');
+  });
+
+  it('should apply callback updates in streamingForward actor loop', async () => {
+    let finalArg: unknown;
+    let callbackCalls = 0;
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code.includes('__ax_get_host_inputs__')) {
+              return '__ax_runtime_inputs_synced__';
+            }
+            if (code.includes('final(') && globals?.final) {
+              finalArg = (globals.inputs as Record<string, unknown>)?.query;
+              (globals.final as (...args: unknown[]) => void)(finalArg);
+              return 'done';
+            }
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('query:string -> answer:string', {
+      contextFields: [],
+      runtime,
+      inputUpdateCallback: () => {
+        callbackCalls++;
+        return { query: 'stream-updated' };
+      },
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const anyAgent = testAgent as any;
+    anyAgent.actorProgram.forward = async () => ({
+      javascriptCode: 'final(inputs.query)',
+    });
+    anyAgent.responderProgram.streamingForward = async function* () {
+      yield { version: 1, index: 0, delta: { answer: 'ok' } };
+    };
+
+    const ai = new AxMockAIService({
+      features: { functions: false, streaming: false },
+    });
+
+    for await (const _delta of testAgent.streamingForward(ai, {
+      query: 'initial-query',
+    })) {
+      // consume stream
+    }
+
+    expect(callbackCalls).toBe(1);
+    expect(finalArg).toBe('stream-updated');
+  });
+});
+
 // ----- actorOptions / responderOptions tests -----
 
 describe('actorOptions / responderOptions', () => {

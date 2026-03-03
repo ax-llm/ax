@@ -1,4 +1,4 @@
-import { agent, f, s, type AxCodeRuntime, type AxFunction } from '../index.js';
+import { type AxCodeRuntime, type AxFunction, agent, f, s } from '../index.js';
 
 // Basic agent with string signature — forward() returns typed output
 {
@@ -239,4 +239,45 @@ import { agent, f, s, type AxCodeRuntime, type AxFunction } from '../index.js';
 
   const _ok = [fnWithoutReturns, fnWithReturns];
   void _ok;
+}
+
+// inputUpdateCallback should infer callback input and patch output from signature inputs
+{
+  const runtime = {} as AxCodeRuntime;
+  agent('query:string, count:number -> answer:string', {
+    contextFields: [] as const,
+    runtime,
+    inputUpdateCallback: (currentInputs) => {
+      const _query: string = currentInputs.query;
+      const _count: number = currentInputs.count;
+      void [_query, _count];
+      return { query: _query, count: _count + 1 };
+    },
+  });
+}
+
+// inputUpdateCallback should allow undefined (no-op)
+{
+  const runtime = {} as AxCodeRuntime;
+  agent('query:string -> answer:string', {
+    contextFields: [] as const,
+    runtime,
+    inputUpdateCallback: (currentInputs) => {
+      if (currentInputs.query.length > 0) {
+        return undefined;
+      }
+      return { query: 'fallback' };
+    },
+  });
+}
+
+// inputUpdateCallback patch should reject unknown keys
+{
+  const runtime = {} as AxCodeRuntime;
+  // @ts-expect-error unknown key is not part of signature inputs
+  agent('query:string -> answer:string', {
+    contextFields: [] as const,
+    runtime,
+    inputUpdateCallback: () => ({ unknownKey: 'x' }),
+  });
 }

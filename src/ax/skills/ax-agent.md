@@ -453,6 +453,9 @@ const analyzer = agent(
     maxRuntimeChars: 2_000,                      // Cap for llmQuery context + code output (default: 5000)
     maxBatchedLlmQueryConcurrency: 6,            // Max parallel batched llmQuery calls (default: 8)
     maxTurns: 10,                                // Max Actor turns before forcing Responder (default: 10)
+    inputUpdateCallback: async (inputs) => ({    // Optional host-side per-turn input patch
+      query: inputs.query,
+    }),
     contextManagement: {                           // Semantic context management (replaces trajectoryPruning)
       errorPruning: true,                          // Prune error entries after successful turns
       hindsightEvaluation: true,                   // Heuristic importance scoring on entries
@@ -585,6 +588,8 @@ The Actor generates JavaScript code in a `javascriptCode` output field. Each tur
 4. The Actor sees the updated action log and decides what to do next
 5. When the Actor calls `final(...args)` or `ask_clarification(...args)`, the loop ends and the Responder takes over
 
+Host applications can update inputs during this loop by setting `inputUpdateCallback`. The callback runs before each Actor turn, can return a partial patch of signature input fields, and those updates are applied to both prompt inputs and runtime `inputs.<field>` values.
+
 The Actor's typical workflow:
 
 1. Explore context structure (typeof, length, slice)
@@ -640,6 +645,26 @@ const analyzer = agent(
   }
 );
 ```
+
+### Input Update Callback
+
+Use `inputUpdateCallback` to apply host-side input updates while `forward()` / `streamingForward()` is in progress. It runs before each Actor turn.
+
+```typescript
+let latestQuery = 'initial question';
+
+const analyzer = agent('query:string -> answer:string', {
+  contextFields: [],
+  inputUpdateCallback: async (inputs) => {
+    if (latestQuery !== inputs.query) {
+      return { query: latestQuery };
+    }
+    return undefined; // no-op this turn
+  },
+});
+```
+
+Updates from this callback are merged into current inputs (unknown keys are ignored), then synchronized into runtime `inputs.<field>` and existing non-colliding top-level aliases before code execution.
 
 ### Actor/Responder Forward Options
 
@@ -764,7 +789,7 @@ Demo values are validated against the target program's signature. Invalid values
 | `await agents.<name>({...})` | Call a child agent by name. Parameters match the agent's JSON schema. Returns a string |
 | `await <namespace>.<name>({...})` | Call an agent function. Registered under `namespace.name` (default namespace: `utils`) |
 | `print(...args)` | Available in `AxJSRuntime` when `outputMode: 'stdout'`; captured output appears in the function result |
-| Context variables | All input fields are available as `inputs.<field>` (including context fields). Non-colliding top-level aliases may also exist |
+| Context variables | All input fields are available as `inputs.<field>` (including context fields). Non-colliding top-level aliases may also exist and are refreshed from `inputUpdateCallback` patches before each turn |
 
 By default, `AxJSRuntime` uses `outputMode: 'stdout'`, where visible output comes from `console.log(...)`, `print(...)`, and other captured stdout lines.
 
@@ -997,6 +1022,7 @@ Extends `AxProgramForwardOptions` (without `functions`) with:
   contextManagement?: AxContextManagementConfig;
   actorFields?: string[];
   actorCallback?: (result: Record<string, unknown>) => void | Promise<void>;
+  inputUpdateCallback?: (currentInputs: Record<string, unknown>) => Promise<Record<string, unknown> | undefined> | Record<string, unknown> | undefined;
   mode?: 'simple' | 'advanced';
   recursionOptions?: Partial<Omit<AxProgramForwardOptions, 'functions'>> & {
     maxDepth?: number;  // Maximum recursion depth for llmQuery sub-agent calls (default: 2)

@@ -30,18 +30,18 @@ import {
   AxAIServiceStatusError,
   AxAIServiceTimeoutError,
 } from '../util/apicall.js';
-import type {
-  AxCodeRuntime,
-  AxContextManagementConfig,
-  AxRLMConfig,
-} from './rlm.js';
-import { axBuildActorDefinition, axBuildResponderDefinition } from './rlm.js';
 import type { ActionLogEntry } from './contextManager.js';
 import {
   buildActionLog,
   buildInspectRuntimeCode,
   manageContext,
 } from './contextManager.js';
+import type {
+  AxCodeRuntime,
+  AxContextManagementConfig,
+  AxRLMConfig,
+} from './rlm.js';
+import { axBuildActorDefinition, axBuildResponderDefinition } from './rlm.js';
 
 /**
  * Interface for agents that can be used as child agents.
@@ -86,7 +86,11 @@ export type AxAgentDemos<
       traces: (OUT & Partial<IN>)[];
     };
 
-export type AxAgentOptions = Omit<
+export type AxAgentInputUpdateCallback<IN extends AxGenIn> = (
+  currentInputs: Readonly<IN>
+) => Promise<Partial<IN> | undefined> | Partial<IN> | undefined;
+
+export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
   AxProgramForwardOptions<string>,
   'functions' | 'description'
 > & {
@@ -155,6 +159,11 @@ export type AxAgentOptions = Omit<
   actorFields?: string[];
   /** Called after each Actor turn with the full actor result. */
   actorCallback?: (result: Record<string, unknown>) => void | Promise<void>;
+  /**
+   * Called before each Actor turn with current input values. Return a partial patch
+   * to update in-flight inputs for subsequent Actor/Responder steps.
+   */
+  inputUpdateCallback?: AxAgentInputUpdateCallback<IN>;
   /** Sub-query execution mode (default: 'simple'). */
   mode?: 'simple' | 'advanced';
   /** Default forward options for recursive llmQuery sub-agent calls. */
@@ -216,7 +225,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private agents?: AxAnyAgentic[];
   private agentFunctions: AxFunction[];
   private debug?: boolean;
-  private options?: Readonly<AxAgentOptions>;
+  private options?: Readonly<AxAgentOptions<IN>>;
   private rlmConfig: AxRLMConfig;
   private runtime: AxCodeRuntime;
   private actorFieldNames: string[];
@@ -231,6 +240,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private recursionForwardOptions?: AxAgentRecursionOptions;
   private actorForwardOptions?: Partial<AxProgramForwardOptions<string>>;
   private responderForwardOptions?: Partial<AxProgramForwardOptions<string>>;
+  private inputUpdateCallback?: AxAgentInputUpdateCallback<IN>;
   private contextPromptMaxCharsByField: Map<string, number> = new Map();
 
   private activeAbortControllers = new Set<AbortController>();
@@ -258,7 +268,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         | Readonly<AxSignatureConfig>
         | Readonly<AxSignature<IN, OUT>>;
     }>,
-    options: Readonly<AxAgentOptions>
+    options: Readonly<AxAgentOptions<IN>>
   ) {
     const {
       debug,
@@ -276,6 +286,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       recursionOptions,
       actorOptions,
       responderOptions,
+      inputUpdateCallback,
     } = options;
 
     this.ai = ai;
@@ -286,7 +297,13 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     this.runtime = runtime ?? new AxJSRuntime();
 
     // Create the base program (used for signature/schema access)
-    const { agents: _a, fields: _f, functions: _fn, ...genOptions } = options;
+    const {
+      agents: _a,
+      fields: _f,
+      functions: _fn,
+      inputUpdateCallback: _iuc,
+      ...genOptions
+    } = options;
     this.program = new AxGen<IN, OUT>(signature, genOptions);
     const inputFields = this.program.getSignature().getInputFields();
 
@@ -323,6 +340,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     this.responderDescription = responderDescription;
     this.responderForwardOptions = responderForwardOptions;
+    this.inputUpdateCallback = inputUpdateCallback;
 
     const agents = this.agents;
     for (const agent of agents ?? []) {
@@ -1045,9 +1063,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const debug =
       options?.debug ?? this.debug ?? ai?.getOptions()?.debug ?? false;
 
-    // 1. Separate context from non-context values
-    const contextValues: Record<string, unknown> = {};
-    const nonContextValues: Record<string, unknown> = {};
+    // 1. Build mutable in-flight input state
     let rawValues: Record<string, unknown>;
 
     if (Array.isArray(values)) {
@@ -1064,32 +1080,24 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       rawValues = values as Record<string, unknown>;
     }
 
+    const currentInputs: Record<string, unknown> = { ...rawValues };
+    const signatureInputFieldNames = new Set(
+      this.program
+        .getSignature()
+        .getInputFields()
+        .map((f) => f.name)
+    );
+
     const sharedFieldNames = [
       ...this.sharedFieldNames,
       ...this.globalSharedFieldNames,
     ];
     const bypassedSharedFields = this._getBypassedSharedFieldNames();
-    for (const [k, v] of Object.entries(rawValues)) {
-      if (rlm.contextFields.includes(k)) {
-        contextValues[k] = v;
-      } else if (!bypassedSharedFields.has(k)) {
-        nonContextValues[k] = v;
-      }
-      // Shared/global fields that are not marked local are excluded from
-      // nonContextValues (they bypass the LLM and go directly to subagents).
-    }
-
-    // Extract shared field values for subagent injection
     const sharedFieldValues: Record<string, unknown> = {};
-    for (const sf of sharedFieldNames) {
-      if (sf in rawValues) {
-        sharedFieldValues[sf] = rawValues[sf];
-      }
-      // Also include shared fields that are context fields
-      if (sf in contextValues) {
-        sharedFieldValues[sf] = contextValues[sf];
-      }
-    }
+    let contextValues: Record<string, unknown> = {};
+    let nonContextValues: Record<string, unknown> = {};
+    let actorInlineContextValues: Record<string, unknown> = {};
+    let contextMetadata = '(none)';
 
     const optionalContextFields = new Set(
       this.program
@@ -1098,31 +1106,77 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         .filter((f) => rlm.contextFields.includes(f.name) && f.isOptional)
         .map((f) => f.name)
     );
-    for (const field of rlm.contextFields) {
-      if (optionalContextFields.has(field)) {
-        continue;
-      }
-      if (!(field in contextValues) || contextValues[field] === undefined) {
-        throw new Error(
-          `RLM contextField "${field}" is missing from input values`
-        );
-      }
-    }
 
-    const actorInlineContextValues: Record<string, unknown> = {};
-    for (const [field, maxChars] of this.contextPromptMaxCharsByField) {
-      if (bypassedSharedFields.has(field)) {
-        continue;
+    const recomputeTurnInputs = (validateRequiredContext: boolean): void => {
+      const nextContextValues: Record<string, unknown> = {};
+      const nextNonContextValues: Record<string, unknown> = {};
+
+      for (const [k, v] of Object.entries(currentInputs)) {
+        if (rlm.contextFields.includes(k)) {
+          nextContextValues[k] = v;
+        } else if (!bypassedSharedFields.has(k)) {
+          nextNonContextValues[k] = v;
+        }
+        // Shared/global fields that are not marked local are excluded from
+        // nonContextValues (they bypass the LLM and go directly to subagents).
       }
-      if (!(field in contextValues)) {
-        continue;
+
+      if (validateRequiredContext) {
+        for (const field of rlm.contextFields) {
+          if (optionalContextFields.has(field)) {
+            continue;
+          }
+          if (
+            !(field in nextContextValues) ||
+            nextContextValues[field] === undefined
+          ) {
+            throw new Error(
+              `RLM contextField "${field}" is missing from input values`
+            );
+          }
+        }
       }
-      const value = contextValues[field];
-      const size = estimateValueSize(value);
-      if (size <= maxChars) {
-        actorInlineContextValues[field] = value;
+
+      const nextInlineContextValues: Record<string, unknown> = {};
+      for (const [field, maxChars] of this.contextPromptMaxCharsByField) {
+        if (bypassedSharedFields.has(field)) {
+          continue;
+        }
+        if (!(field in nextContextValues)) {
+          continue;
+        }
+        const value = nextContextValues[field];
+        const size = estimateValueSize(value);
+        if (size <= maxChars) {
+          nextInlineContextValues[field] = value;
+        }
       }
-    }
+
+      contextValues = nextContextValues;
+      nonContextValues = nextNonContextValues;
+      actorInlineContextValues = nextInlineContextValues;
+
+      for (const k of Object.keys(sharedFieldValues)) {
+        delete sharedFieldValues[k];
+      }
+      for (const sf of sharedFieldNames) {
+        if (sf in currentInputs) {
+          sharedFieldValues[sf] = currentInputs[sf];
+        }
+        // Also include shared fields that are context fields
+        if (sf in contextValues) {
+          sharedFieldValues[sf] = contextValues[sf];
+        }
+      }
+
+      contextMetadata =
+        buildRLMVariablesInfo(contextValues, {
+          promptMaxCharsByField: this.contextPromptMaxCharsByField,
+          inlinedFields: new Set(Object.keys(actorInlineContextValues)),
+        }) || '(none)';
+    };
+
+    recomputeTurnInputs(false);
 
     // 2. Build runtime globals (context + llmQuery + tool functions)
     const maxSubAgentCalls = rlm.maxSubAgentCalls ?? DEFAULT_RLM_MAX_LLM_CALLS;
@@ -1391,30 +1445,55 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const askClarificationFunction = (...args: unknown[]) =>
       setActorResultPayload('ask_clarification', args);
 
+    const INTERNAL_HOST_INPUTS_FN = '__ax_get_host_inputs__';
+    const RUNTIME_INPUT_SYNC_OK = '__ax_runtime_inputs_synced__';
+
     const agentFunctionNamespaces = [
       ...new Set(this.agentFunctions.map((f) => f.namespace ?? 'utils')),
     ];
-    const runtimeInputs = { ...rawValues };
+    const runtimeInputs = { ...currentInputs };
     const reservedTopLevelNames = new Set([
       'inputs',
       'llmQuery',
       'agents',
       'final',
       'ask_clarification',
+      INTERNAL_HOST_INPUTS_FN,
       ...agentFunctionNamespaces,
       ...(rlm.contextManagement?.stateInspection ? ['inspect_runtime'] : []),
       ...Object.keys(toolGlobals),
     ]);
-    const runtimeTopLevelInputAliases = Object.fromEntries(
-      Object.entries(runtimeInputs).filter(
-        ([k]) => !reservedTopLevelNames.has(k)
-      )
-    );
+    const runtimeAliasKeys = [
+      ...new Set([...Object.keys(runtimeInputs), ...signatureInputFieldNames]),
+    ].filter((k) => !reservedTopLevelNames.has(k));
+    const runtimeTopLevelInputAliases: Record<string, unknown> = {};
+    for (const key of runtimeAliasKeys) {
+      runtimeTopLevelInputAliases[key] = runtimeInputs[key];
+    }
+
+    const refreshRuntimeBindings = () => {
+      for (const key of Object.keys(runtimeInputs)) {
+        delete runtimeInputs[key];
+      }
+      for (const [key, value] of Object.entries(currentInputs)) {
+        runtimeInputs[key] = value;
+      }
+
+      for (const key of runtimeAliasKeys) {
+        if (key in currentInputs) {
+          runtimeTopLevelInputAliases[key] = currentInputs[key];
+        } else {
+          delete runtimeTopLevelInputAliases[key];
+        }
+      }
+    };
+
     const protectedRuntimeNames = [...reservedTopLevelNames];
     const inspectReservedNames = [
       ...reservedTopLevelNames,
-      ...Object.keys(runtimeTopLevelInputAliases),
+      ...runtimeAliasKeys,
     ];
+    const getHostInputsSnapshot = () => ({ ...currentInputs });
 
     // inspect_runtime: queries worker globalThis for current variable state
     // Captures `session` by reference so it works after session restart.
@@ -1440,6 +1519,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         llmQuery,
         final: finalFunction,
         ask_clarification: askClarificationFunction,
+        [INTERNAL_HOST_INPUTS_FN]: getHostInputsSnapshot,
         ...(inspectRuntime ? { inspect_runtime: inspectRuntime } : {}),
         ...toolGlobals,
       });
@@ -1576,13 +1656,66 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       }
     };
 
-    // 3. Actor loop (TypeScript-managed)
-    const contextMetadata =
-      buildRLMVariablesInfo(contextValues, {
-        promptMaxCharsByField: this.contextPromptMaxCharsByField,
-        inlinedFields: new Set(Object.keys(actorInlineContextValues)),
-      }) || '(none)';
+    const applyInputUpdateCallback = async () => {
+      if (!this.inputUpdateCallback) {
+        return;
+      }
+      const patch = await this.inputUpdateCallback({
+        ...(currentInputs as IN),
+      } as Readonly<IN>);
+      if (patch === undefined) {
+        return;
+      }
+      if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+        throw new Error(
+          'inputUpdateCallback must return an object patch or undefined'
+        );
+      }
+      for (const [key, value] of Object.entries(
+        patch as Record<string, unknown>
+      )) {
+        if (signatureInputFieldNames.has(key)) {
+          currentInputs[key] = value;
+        }
+      }
+    };
 
+    const syncRuntimeInputsToSession = async (): Promise<void> => {
+      refreshRuntimeBindings();
+
+      const syncCode = `
+const __hostInputs = await ${INTERNAL_HOST_INPUTS_FN}();
+if (!__hostInputs || typeof __hostInputs !== 'object') {
+  throw new Error('Host input snapshot must be an object');
+}
+if (!inputs || typeof inputs !== 'object') {
+  throw new Error('Runtime inputs container is not available');
+}
+for (const __key of Object.keys(inputs)) {
+  if (!Object.prototype.hasOwnProperty.call(__hostInputs, __key)) {
+    delete inputs[__key];
+  }
+}
+for (const [__key, __value] of Object.entries(__hostInputs)) {
+  inputs[__key] = __value;
+}
+for (const __key of ${JSON.stringify(runtimeAliasKeys)}) {
+  if (Object.prototype.hasOwnProperty.call(__hostInputs, __key)) {
+    globalThis[__key] = __hostInputs[__key];
+  } else {
+    delete globalThis[__key];
+  }
+}
+"${RUNTIME_INPUT_SYNC_OK}";
+`.trim();
+
+      const { output, isError } = await executeInterpreterCode(syncCode);
+      if (isError || output.trim() !== RUNTIME_INPUT_SYNC_OK) {
+        throw new Error(`Failed to sync runtime inputs: ${output}`);
+      }
+    };
+
+    // 3. Actor loop (TypeScript-managed)
     // Resolve effective context management config
     const contextMgmt = rlm.contextManagement;
     const effectiveContextConfig = {
@@ -1608,6 +1741,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     try {
       for (let turn = 0; turn < maxTurns; turn++) {
+        await applyInputUpdateCallback();
+        recomputeTurnInputs(true);
+
         // Build action log, adding inspect_runtime hint when it gets large
         let actionLogText =
           buildActionLog(actionLogEntries) || '(no actions yet)';
@@ -1666,6 +1802,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         // Reset Actor completion payload before execution.
         actorResultPayload = undefined;
 
+        if (this.inputUpdateCallback) {
+          await syncRuntimeInputsToSession();
+        }
         const { output, isError } = await executeInterpreterCode(code);
 
         actionLogEntries.push({
@@ -1869,10 +2008,15 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private static wrapFunctionWithSharedFields(
     fn: AxFunction,
     abortSignal?: AbortSignal,
-    sharedFieldValues?: Record<string, unknown>,
+    sharedFieldValues?:
+      | Record<string, unknown>
+      | (() => Record<string, unknown>),
     ai?: AxAIService
   ): (...args: unknown[]) => Promise<unknown> {
-    if (!sharedFieldValues || Object.keys(sharedFieldValues).length === 0) {
+    if (
+      typeof sharedFieldValues !== 'function' &&
+      (!sharedFieldValues || Object.keys(sharedFieldValues).length === 0)
+    ) {
       return AxAgent.wrapFunction(fn, abortSignal, ai);
     }
     return async (...args: unknown[]) => {
@@ -1897,8 +2041,15 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         });
       }
 
+      const currentSharedFieldValues =
+        typeof sharedFieldValues === 'function'
+          ? sharedFieldValues()
+          : sharedFieldValues;
+
       // Merge shared fields (caller-provided args take precedence)
-      const merged = { ...sharedFieldValues, ...callArgs };
+      const merged = currentSharedFieldValues
+        ? { ...currentSharedFieldValues, ...callArgs }
+        : callArgs;
       return await fn.func(merged, { abortSignal, ai });
     };
   }
@@ -1932,19 +2083,22 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
         // Determine which shared fields this agent accepts
         const excluded = new Set(agent.getExcludedSharedFields?.() ?? []);
-        const applicable: Record<string, unknown> = {};
-        if (sharedFieldValues) {
-          for (const [k, v] of Object.entries(sharedFieldValues)) {
-            if (!excluded.has(k)) {
-              applicable[k] = v;
+        const getApplicableSharedFields = (): Record<string, unknown> => {
+          const applicable: Record<string, unknown> = {};
+          if (sharedFieldValues) {
+            for (const [k, v] of Object.entries(sharedFieldValues)) {
+              if (!excluded.has(k)) {
+                applicable[k] = v;
+              }
             }
           }
-        }
+          return applicable;
+        };
 
         agentsObj[fn.name] = AxAgent.wrapFunctionWithSharedFields(
           fn,
           abortSignal,
-          applicable,
+          getApplicableSharedFields,
           ai
         );
       }
@@ -1959,7 +2113,13 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
    */
   private get _genOptions(): Record<string, unknown> {
     if (!this.options) return {};
-    const { agents: _a, fields: _f, functions: _fn, ...rest } = this.options;
+    const {
+      agents: _a,
+      fields: _f,
+      functions: _fn,
+      inputUpdateCallback: _iuc,
+      ...rest
+    } = this.options;
     return rest;
   }
 
@@ -1981,7 +2141,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
  * Configuration options for creating an agent using the agent() factory function.
  */
 export interface AxAgentConfig<_IN extends AxGenIn, _OUT extends AxGenOut>
-  extends AxAgentOptions {
+  extends AxAgentOptions<_IN> {
   ai?: AxAIService;
   agentIdentity?: { name: string; description: string };
 }
