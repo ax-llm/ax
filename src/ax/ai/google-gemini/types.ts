@@ -2,8 +2,9 @@ import type { AxModelConfig } from '../types.js';
 
 export enum AxAIGoogleGeminiModel {
   Gemini31Pro = 'gemini-3.1-pro-preview',
+  Gemini3FlashLite = 'gemini-3.1-flash-lite-preview',
   Gemini3Flash = 'gemini-3-flash-preview',
-  Gemini3Pro = 'gemini-3-pro-preview',
+  Gemini3Pro = 'gemini-3.1-pro-preview',
   Gemini3ProImage = 'gemini-3-pro-image-preview',
   Gemini25Pro = 'gemini-2.5-pro',
   Gemini25Flash = 'gemini-2.5-flash',
@@ -380,8 +381,8 @@ export type AxAIGoogleGeminiCacheUpdateRequest = {
 export const GEMINI_CONTEXT_CACHE_SUPPORTED_MODELS = [
   'gemini-3.1-pro-preview',
   'gemini-3.1-pro-preview-customtools',
+  'gemini-3.1-flash-lite-preview',
   'gemini-3-flash-preview',
-  'gemini-3-pro-preview',
   'gemini-2.5-pro',
   'gemini-2.5-flash',
   'gemini-2.5-flash-lite',
