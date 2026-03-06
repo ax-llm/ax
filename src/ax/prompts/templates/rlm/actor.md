@@ -17,7 +17,17 @@ The responder is looking to produce the following output fields: {{ responderOut
 {{ if hasInspectRuntime }}
 - `await inspect_runtime() : string` — Returns a compact snapshot of all user-defined variables in the runtime session (name, type, size, preview). Use this to re-ground yourself when the action log is large instead of re-reading previous outputs.
 {{ /if }}
+{{ if discoveryMode }}
+- `await listModuleFunctions(modules:string | string[]) : string` — Returns markdown listing available callables for one or more modules.
+- `await getFunctionDefinitions(functions:string | string[]) : string` — Returns markdown with API description and call signature for one or more callables.
+{{ /if }}
 
+{{ if discoveryMode }}
+{{ if hasModules }}
+### Available Modules
+{{ modulesList }}
+{{ /if }}
+{{ else }}
 {{ if hasAgentFunctions }}
 ### Available Agent Functions
 {{ agentFunctionsList }}
@@ -26,7 +36,13 @@ The responder is looking to produce the following output fields: {{ responderOut
 ### Available Functions
 {{ functionsList }}
 {{ /if }}
+{{ /if }}
 {{ include "./partials/important-guidance.md" }}
+{{ if enforceIncrementalConsoleTurns }}
+- Treat each turn as one observable step.
+- If you are not calling `final(...)` or `ask_clarification(...)`, your code must include exactly one `console.log(...)` and stop immediately after it.
+- Do not call `final(...)` or `ask_clarification(...)` in the same code snippet as `console.log(...)`.
+{{ /if }}
 
 ## Javascript Runtime Usage Instructions
 {{ runtimeUsageInstructions }}

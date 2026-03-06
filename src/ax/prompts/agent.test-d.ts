@@ -281,3 +281,53 @@ import { type AxCodeRuntime, type AxFunction, agent, f, s } from '../index.js';
     inputUpdateCallback: () => ({ unknownKey: 'x' }),
   });
 }
+
+// agentIdentity.namespace should be accepted and normalized at runtime
+{
+  const runtime = {} as AxCodeRuntime;
+  agent('query:string -> answer:string', {
+    contextFields: [] as const,
+    runtime,
+    agentIdentity: {
+      name: 'Parent Agent',
+      description: 'Parent',
+      namespace: 'Team Namespace',
+    },
+  });
+}
+
+// agentIdentity.namespace should reject non-string values
+{
+  const runtime = {} as AxCodeRuntime;
+  // @ts-expect-error namespace must be a string
+  agent('query:string -> answer:string', {
+    contextFields: [] as const,
+    runtime,
+    agentIdentity: {
+      name: 'Parent Agent',
+      description: 'Parent',
+      namespace: 123,
+    },
+  });
+}
+
+// functions.discovery should accept boolean values
+{
+  const runtime = {} as AxCodeRuntime;
+  agent('query:string -> answer:string', {
+    contextFields: [] as const,
+    runtime,
+    functions: { discovery: true, local: [] },
+  });
+}
+
+// functions.discovery should reject non-boolean values
+{
+  const runtime = {} as AxCodeRuntime;
+  // @ts-expect-error discovery must be a boolean
+  agent('query:string -> answer:string', {
+    contextFields: [] as const,
+    runtime,
+    functions: { discovery: 'yes', local: [] },
+  });
+}

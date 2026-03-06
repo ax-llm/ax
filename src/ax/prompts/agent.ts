@@ -60,6 +60,12 @@ export interface AxAgentic<IN extends AxGenIn, OUT extends AxGenOut>
 
 type AxAnyAgentic = AxAgentic<any, any>;
 
+type AxAgentIdentity = {
+  name: string;
+  description: string;
+  namespace?: string;
+};
+
 export type AxContextFieldInput =
   | string
   | {
@@ -104,7 +110,7 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
 
   /** Child agents and agent sharing configuration. */
   agents?: {
-    /** Agents registered under the `agents.*` namespace (local to this agent only). */
+    /** Agents registered under the configured child-agent module namespace (default: `agents.*`). */
     local?: AxAnyAgentic[];
     /** Agents to automatically add to all direct child agents (one level). */
     shared?: AxAnyAgentic[];
@@ -139,6 +145,8 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
     globallyShared?: AxFunction[];
     /** Agent function names this agent should NOT receive from parents. */
     excluded?: string[];
+    /** Enables runtime callable discovery (modules + on-demand definitions). */
+    discovery?: boolean;
   };
 
   /** Code runtime for the REPL loop (default: AxJSRuntime). */
@@ -197,6 +205,9 @@ const DEFAULT_RLM_BATCH_CONCURRENCY = 8;
 const DEFAULT_RLM_MAX_TURNS = 10;
 const DEFAULT_RLM_MAX_RECURSION_DEPTH = 2;
 const DEFAULT_CONTEXT_FIELD_PROMPT_MAX_CHARS = 1_200;
+const DEFAULT_AGENT_MODULE_NAMESPACE = 'agents';
+const DISCOVERY_LIST_MODULE_FUNCTIONS_NAME = 'listModuleFunctions';
+const DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME = 'getFunctionDefinitions';
 
 type AxAgentActorResultPayload = {
   type: 'final' | 'ask_clarification';
@@ -242,6 +253,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private responderForwardOptions?: Partial<AxProgramForwardOptions<string>>;
   private inputUpdateCallback?: AxAgentInputUpdateCallback<IN>;
   private contextPromptMaxCharsByField: Map<string, number> = new Map();
+  private agentModuleNamespace = DEFAULT_AGENT_MODULE_NAMESPACE;
+  private functionDiscoveryEnabled = false;
+  private runtimeUsageInstructions = '';
+  private enforceIncrementalConsoleTurns = false;
 
   private activeAbortControllers = new Set<AbortController>();
   private _stopRequested = false;
@@ -259,10 +274,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     {
       ai,
       agentIdentity,
+      agentModuleNamespace,
       signature,
     }: Readonly<{
       ai?: Readonly<AxAIService>;
-      agentIdentity?: Readonly<{ name: string; description: string }>;
+      agentIdentity?: Readonly<AxAgentIdentity>;
+      agentModuleNamespace?: string;
       signature:
         | string
         | Readonly<AxSignatureConfig>
@@ -292,9 +309,40 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     this.ai = ai;
     this.agents = options.agents?.local;
     this.agentFunctions = options.functions?.local ?? [];
+    this.functionDiscoveryEnabled = options.functions?.discovery ?? false;
     this.debug = debug;
     this.options = options;
     this.runtime = runtime ?? new AxJSRuntime();
+    this.runtimeUsageInstructions = this.runtime.getUsageInstructions();
+    this.enforceIncrementalConsoleTurns = shouldEnforceIncrementalConsoleTurns(
+      this.runtimeUsageInstructions
+    );
+
+    const resolvedAgentModuleNamespace =
+      agentModuleNamespace ??
+      agentIdentity?.namespace ??
+      DEFAULT_AGENT_MODULE_NAMESPACE;
+    this.agentModuleNamespace = normalizeAgentModuleNamespace(
+      resolvedAgentModuleNamespace,
+      {
+        normalize: agentModuleNamespace === undefined,
+      }
+    );
+
+    const reservedAgentModuleNamespaces = new Set([
+      'inputs',
+      'llmQuery',
+      'final',
+      'ask_clarification',
+      'inspect_runtime',
+      DISCOVERY_LIST_MODULE_FUNCTIONS_NAME,
+      DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME,
+    ]);
+    if (reservedAgentModuleNamespaces.has(this.agentModuleNamespace)) {
+      throw new Error(
+        `Agent module namespace "${this.agentModuleNamespace}" is reserved`
+      );
+    }
 
     // Create the base program (used for signature/schema access)
     const {
@@ -434,10 +482,17 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     // Validate reserved namespaces for agent functions
     const RESERVED_NS = new Set([
-      'agents',
+      DEFAULT_AGENT_MODULE_NAMESPACE,
+      this.agentModuleNamespace,
       'llmQuery',
       'final',
       'ask_clarification',
+      ...(this.functionDiscoveryEnabled
+        ? [
+            DISCOVERY_LIST_MODULE_FUNCTIONS_NAME,
+            DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME,
+          ]
+        : []),
     ]);
     for (const fn of allAgentFns) {
       const ns = fn.namespace ?? 'utils';
@@ -632,16 +687,27 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       returns: fn.returns,
       namespace: fn.namespace ?? 'utils',
     }));
+    const moduleSet = new Set(
+      agentFunctionMeta.map((fn) => fn.namespace ?? 'utils')
+    );
+    if (agentMeta.length > 0) {
+      moduleSet.add(this.agentModuleNamespace);
+    }
+    const availableModules = [...moduleSet].sort((a, b) => a.localeCompare(b));
 
     const actorDef = axBuildActorDefinition(
       this.actorDescription,
       contextFieldMeta,
       responderOutputFields,
       {
-        runtimeUsageInstructions: this.runtime.getUsageInstructions(),
+        runtimeUsageInstructions: this.runtimeUsageInstructions,
         maxSubAgentCalls: effectiveMaxSubAgentCalls,
         maxTurns: effectiveMaxTurns,
         hasInspectRuntime: !!this.rlmConfig.contextManagement?.stateInspection,
+        enforceIncrementalConsoleTurns: this.enforceIncrementalConsoleTurns,
+        agentModuleNamespace: this.agentModuleNamespace,
+        discoveryMode: this.functionDiscoveryEnabled,
+        availableModules,
         agents: agentMeta,
         agentFunctions: agentFunctionMeta,
       }
@@ -1229,13 +1295,17 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       if (childRlmMode === 'advanced') {
         const advancedAgent = new AxAgent<any, { answer: AxFieldValue }>(
           {
+            agentModuleNamespace: this.agentModuleNamespace,
             signature: childSignature,
           },
           {
             debug,
             ...rlm,
             agents: { local: this.agents },
-            functions: { local: this.agentFunctions },
+            functions: {
+              local: this.agentFunctions,
+              discovery: this.functionDiscoveryEnabled,
+            },
             contextFields: childContextFields,
             actorFields: undefined,
             recursionOptions: childRecursionOptions,
@@ -1334,6 +1404,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
         const maxAttempts = 3;
         let lastError: unknown;
+        const formatSubAgentError = (error: unknown) =>
+          `[ERROR] ${error instanceof Error ? error.message : String(error)}`;
 
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
           try {
@@ -1360,9 +1432,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
             );
             return normalizeSubAgentAnswer(recursiveResult.answer);
           } catch (err) {
+            if (err instanceof AxAIServiceAbortedError) {
+              throw err;
+            }
             lastError = err;
             if (!isTransientError(err) || attempt >= maxAttempts - 1) {
-              throw err;
+              return formatSubAgentError(err);
             }
             const delay = Math.min(60_000, 1000 * Math.pow(2, attempt));
             await new Promise<void>((resolve, reject) => {
@@ -1413,7 +1488,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
             });
           }
         }
-        throw lastError;
+        return formatSubAgentError(lastError);
       };
 
       const result = await runSingleLlmQuery(query, ctx);
@@ -1455,7 +1530,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const reservedTopLevelNames = new Set([
       'inputs',
       'llmQuery',
-      'agents',
+      DEFAULT_AGENT_MODULE_NAMESPACE,
+      this.agentModuleNamespace,
       'final',
       'ask_clarification',
       INTERNAL_HOST_INPUTS_FN,
@@ -1652,7 +1728,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
             };
           }
         }
-        throw err;
+        return {
+          output: truncateText(formatInterpreterError(err), maxRuntimeChars),
+          isError: true,
+        };
       }
     };
 
@@ -1801,6 +1880,27 @@ for (const __key of ${JSON.stringify(runtimeAliasKeys)}) {
 
         // Reset Actor completion payload before execution.
         actorResultPayload = undefined;
+
+        if (this.enforceIncrementalConsoleTurns) {
+          const policyViolation = validateActorTurnCodePolicy(code);
+          if (policyViolation) {
+            actionLogEntries.push({
+              turn: turn + 1,
+              code,
+              output: policyViolation,
+              actorFieldsOutput,
+              tags: ['error'],
+            });
+
+            await manageContext(
+              actionLogEntries,
+              actionLogEntries.length - 1,
+              effectiveContextConfig,
+              ai
+            );
+            continue;
+          }
+        }
 
         if (this.inputUpdateCallback) {
           await syncRuntimeInputsToSession();
@@ -2056,7 +2156,7 @@ for (const __key of ${JSON.stringify(runtimeAliasKeys)}) {
 
   /**
    * Wraps agent functions under namespaced globals and child agents under
-   * an `agents.*` namespace for the JS runtime session.
+   * a configurable `<module>.*` namespace for the JS runtime session.
    */
   private buildRuntimeGlobals(
     abortSignal?: AbortSignal,
@@ -2064,6 +2164,18 @@ for (const __key of ${JSON.stringify(runtimeAliasKeys)}) {
     ai?: AxAIService
   ): Record<string, unknown> {
     const globals: Record<string, unknown> = {};
+    const callableLookup = new Map<string, DiscoveryCallableMeta>();
+    const moduleLookup = new Map<string, string[]>();
+    const registerCallable = (
+      meta: DiscoveryCallableMeta,
+      qualifiedName: string
+    ) => {
+      callableLookup.set(qualifiedName, meta);
+      if (!moduleLookup.has(meta.module)) {
+        moduleLookup.set(meta.module, []);
+      }
+      moduleLookup.get(meta.module)?.push(qualifiedName);
+    };
 
     // Agent functions under namespace.* (e.g. utils.myFn, custom.otherFn)
     for (const agentFn of this.agentFunctions) {
@@ -2073,9 +2185,19 @@ for (const __key of ${JSON.stringify(runtimeAliasKeys)}) {
       }
       (globals[ns] as Record<string, unknown>)[agentFn.name] =
         AxAgent.wrapFunction(agentFn, abortSignal, ai);
+      registerCallable(
+        {
+          module: ns,
+          name: agentFn.name,
+          description: agentFn.description,
+          parameters: agentFn.parameters,
+          returns: agentFn.returns,
+        },
+        `${ns}.${agentFn.name}`
+      );
     }
 
-    // Child agents under agents.* namespace
+    // Child agents under <module>.* namespace
     if (this.agents && this.agents.length > 0) {
       const agentsObj: Record<string, unknown> = {};
       for (const agent of this.agents) {
@@ -2101,8 +2223,39 @@ for (const __key of ${JSON.stringify(runtimeAliasKeys)}) {
           getApplicableSharedFields,
           ai
         );
+        registerCallable(
+          {
+            module: this.agentModuleNamespace,
+            name: fn.name,
+            description: fn.description,
+            parameters: fn.parameters,
+          },
+          `${this.agentModuleNamespace}.${fn.name}`
+        );
       }
-      globals.agents = agentsObj;
+      globals[this.agentModuleNamespace] = agentsObj;
+    }
+
+    if (this.functionDiscoveryEnabled) {
+      globals[DISCOVERY_LIST_MODULE_FUNCTIONS_NAME] = async (
+        modulesInput: unknown
+      ): Promise<string> => {
+        const modules = normalizeDiscoveryStringInput(modulesInput, 'modules');
+        return renderDiscoveryModuleListMarkdown(modules, moduleLookup);
+      };
+
+      globals[DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME] = async (
+        functionsInput: unknown
+      ): Promise<string> => {
+        const items = normalizeDiscoveryStringInput(
+          functionsInput,
+          'functions'
+        );
+        return renderDiscoveryFunctionDefinitionsMarkdown(
+          items,
+          callableLookup
+        );
+      };
     }
 
     return globals;
@@ -2143,7 +2296,7 @@ for (const __key of ${JSON.stringify(runtimeAliasKeys)}) {
 export interface AxAgentConfig<_IN extends AxGenIn, _OUT extends AxGenOut>
   extends AxAgentOptions<_IN> {
   ai?: AxAIService;
-  agentIdentity?: { name: string; description: string };
+  agentIdentity?: AxAgentIdentity;
 }
 
 /**
@@ -2341,6 +2494,213 @@ async function runWithConcurrency<TIn, TOut>(
   return results;
 }
 
+function shouldEnforceIncrementalConsoleTurns(
+  runtimeUsageInstructions: string
+): boolean {
+  return runtimeUsageInstructions.includes('console.log');
+}
+
+function validateActorTurnCodePolicy(code: string): string | undefined {
+  const sanitized = stripJsStringsAndComments(code);
+  const hasFinal = /\bfinal\s*\(/.test(sanitized);
+  const hasAskClarification = /\bask_clarification\s*\(/.test(sanitized);
+  const completionSignalCount = Number(hasFinal) + Number(hasAskClarification);
+  const consoleLogCalls = findConsoleLogCalls(sanitized);
+
+  if (completionSignalCount > 1) {
+    return '[POLICY] Use exactly one completion signal per turn: either final(...) or ask_clarification(...), not both.';
+  }
+
+  if (completionSignalCount === 1) {
+    if (consoleLogCalls.length > 0) {
+      return '[POLICY] Do not combine console.log(...) with final(...)/ask_clarification(...) in the same turn. Inspect in one turn, then complete in the next turn.';
+    }
+    return undefined;
+  }
+
+  if (consoleLogCalls.length === 0) {
+    return '[POLICY] Non-final turns must include exactly one console.log(...) so the next turn can reason from its output.';
+  }
+
+  if (consoleLogCalls.length > 1) {
+    return '[POLICY] Use exactly one console.log(...) per non-final turn, then stop.';
+  }
+
+  const onlyLog = consoleLogCalls[0];
+  if (onlyLog === undefined) {
+    return '[POLICY] Unable to verify console.log(...) usage. Emit exactly one console.log(...) per non-final turn.';
+  }
+  if (onlyLog.closeParenIndex === undefined) {
+    return '[POLICY] Could not parse console.log(...). Keep a single valid console.log(...) call as the last statement in non-final turns.';
+  }
+
+  const trailing = sanitized
+    .slice(onlyLog.closeParenIndex + 1)
+    .replace(/^[\s;]+/, '');
+  if (trailing.length > 0) {
+    return '[POLICY] End non-final turns immediately after console.log(...). Do not execute additional statements after logging.';
+  }
+
+  return undefined;
+}
+
+function stripJsStringsAndComments(code: string): string {
+  let out = '';
+  let i = 0;
+  let state:
+    | 'normal'
+    | 'single'
+    | 'double'
+    | 'template'
+    | 'lineComment'
+    | 'blockComment' = 'normal';
+  let escaped = false;
+
+  while (i < code.length) {
+    const ch = code[i] ?? '';
+    const next = code[i + 1] ?? '';
+
+    if (state === 'lineComment') {
+      if (ch === '\n') {
+        out += '\n';
+        state = 'normal';
+      } else {
+        out += ' ';
+      }
+      i++;
+      continue;
+    }
+
+    if (state === 'blockComment') {
+      if (ch === '*' && next === '/') {
+        out += '  ';
+        i += 2;
+        state = 'normal';
+      } else {
+        out += ch === '\n' ? '\n' : ' ';
+        i++;
+      }
+      continue;
+    }
+
+    if (state === 'single' || state === 'double' || state === 'template') {
+      const quote = state === 'single' ? "'" : state === 'double' ? '"' : '`';
+      if (escaped) {
+        out += ch === '\n' ? '\n' : ' ';
+        escaped = false;
+        i++;
+        continue;
+      }
+      if (ch === '\\') {
+        out += ' ';
+        escaped = true;
+        i++;
+        continue;
+      }
+      if (ch === quote) {
+        out += ' ';
+        state = 'normal';
+        i++;
+        continue;
+      }
+      out += ch === '\n' ? '\n' : ' ';
+      i++;
+      continue;
+    }
+
+    if (ch === '/' && next === '/') {
+      out += '  ';
+      i += 2;
+      state = 'lineComment';
+      continue;
+    }
+
+    if (ch === '/' && next === '*') {
+      out += '  ';
+      i += 2;
+      state = 'blockComment';
+      continue;
+    }
+
+    if (ch === "'") {
+      out += ' ';
+      i++;
+      state = 'single';
+      continue;
+    }
+
+    if (ch === '"') {
+      out += ' ';
+      i++;
+      state = 'double';
+      continue;
+    }
+
+    if (ch === '`') {
+      out += ' ';
+      i++;
+      state = 'template';
+      continue;
+    }
+
+    out += ch;
+    i++;
+  }
+
+  return out;
+}
+
+function findConsoleLogCalls(
+  sanitizedCode: string
+): Array<{ closeParenIndex?: number }> {
+  const matches = sanitizedCode.matchAll(/\bconsole\s*\.\s*log\s*\(/g);
+  const calls: Array<{ closeParenIndex?: number }> = [];
+
+  for (const match of matches) {
+    const fullMatch = match[0];
+    if (fullMatch === undefined) {
+      continue;
+    }
+    const matchIndex = match.index ?? -1;
+    if (matchIndex < 0) {
+      continue;
+    }
+    const openParenOffset = fullMatch.lastIndexOf('(');
+    const openParenIndex = matchIndex + openParenOffset;
+    const closeParenIndex = findMatchingParenIndex(
+      sanitizedCode,
+      openParenIndex
+    );
+    calls.push({ closeParenIndex });
+  }
+
+  return calls;
+}
+
+function findMatchingParenIndex(
+  code: string,
+  openParenIndex: number
+): number | undefined {
+  if (openParenIndex < 0 || code[openParenIndex] !== '(') {
+    return undefined;
+  }
+
+  let depth = 0;
+  for (let i = openParenIndex; i < code.length; i++) {
+    const ch = code[i];
+    if (ch === '(') {
+      depth++;
+    } else if (ch === ')') {
+      depth--;
+      if (depth === 0) {
+        return i;
+      }
+    }
+  }
+
+  return undefined;
+}
+
 /**
  * Returns a copy of `schema` with the listed property names removed from
  * both `properties` and `required`.  Used to strip parent-injected shared
@@ -2360,6 +2720,208 @@ function stripSchemaProperties(
     properties,
     ...(required !== undefined ? { required } : {}),
   };
+}
+
+type DiscoveryCallableMeta = {
+  module: string;
+  name: string;
+  description: string;
+  parameters?: AxFunctionJSONSchema;
+  returns?: AxFunctionJSONSchema;
+};
+
+function normalizeAgentModuleNamespace(
+  namespace: string,
+  options?: Readonly<{ normalize?: boolean }>
+): string {
+  const trimmed = namespace.trim();
+  const shouldNormalize = options?.normalize ?? true;
+  const normalized = shouldNormalize ? toCamelCase(trimmed) : trimmed;
+  if (!normalized) {
+    throw new Error('Agent module namespace must contain letters or numbers');
+  }
+  return normalized;
+}
+
+function normalizeDiscoveryStringInput(
+  value: unknown,
+  fieldName: string
+): string[] {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (trimmed.length === 0) {
+      throw new Error(`${fieldName} must be a non-empty string`);
+    }
+    return [trimmed];
+  }
+
+  if (!Array.isArray(value)) {
+    throw new Error(`${fieldName} must be a string or string[]`);
+  }
+
+  if (!value.every((item) => typeof item === 'string')) {
+    throw new Error(`${fieldName} must contain only strings`);
+  }
+
+  const normalized = value
+    .map((item) => item as string)
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+
+  if (normalized.length === 0) {
+    throw new Error(`${fieldName} must contain at least one non-empty string`);
+  }
+
+  return [...new Set(normalized)];
+}
+
+function normalizeSchemaTypesForDiscovery(
+  schema: AxFunctionJSONSchema
+): string[] {
+  const rawType = (schema as { type?: unknown }).type;
+  if (Array.isArray(rawType)) {
+    return rawType.filter((t): t is string => typeof t === 'string');
+  }
+  if (typeof rawType === 'string') {
+    if (rawType.includes(',')) {
+      return rawType
+        .split(',')
+        .map((part) => part.trim())
+        .filter(Boolean);
+    }
+    return [rawType];
+  }
+  return [];
+}
+
+function isJsonAnyTypeUnionForDiscovery(types: readonly string[]): boolean {
+  const normalized = new Set(types);
+  return (
+    normalized.has('object') &&
+    normalized.has('array') &&
+    normalized.has('string') &&
+    normalized.has('number') &&
+    normalized.has('boolean') &&
+    normalized.has('null')
+  );
+}
+
+function schemaTypeToShortStringForDiscovery(
+  schema: AxFunctionJSONSchema
+): string {
+  if (schema.enum) return schema.enum.map((e) => `"${e}"`).join(' | ');
+
+  const types = normalizeSchemaTypesForDiscovery(schema);
+  if (types.length === 0) return 'unknown';
+  if (isJsonAnyTypeUnionForDiscovery(types)) return 'any';
+
+  const rendered = [...new Set(types)].map((type) => {
+    if (type === 'array') {
+      const itemType = schema.items
+        ? schemaTypeToShortStringForDiscovery(schema.items)
+        : 'unknown';
+      return itemType.includes(' | ') ? `(${itemType})[]` : `${itemType}[]`;
+    }
+    if (type === 'object') {
+      if (schema.properties && Object.keys(schema.properties).length > 0) {
+        return renderObjectTypeForDiscovery(schema);
+      }
+      return 'object';
+    }
+    return type;
+  });
+
+  return rendered.length > 1
+    ? rendered.join(' | ')
+    : (rendered[0] ?? 'unknown');
+}
+
+function renderObjectTypeForDiscovery(
+  schema: AxFunctionJSONSchema | undefined,
+  options?: Readonly<{ respectRequired?: boolean }>
+): string {
+  if (!schema) {
+    return '{}';
+  }
+
+  const hasProperties =
+    !!schema.properties && Object.keys(schema.properties).length > 0;
+  const supportsExtraProps = schema.additionalProperties === true;
+
+  if (!hasProperties) {
+    return supportsExtraProps ? '{ [key: string]: unknown }' : '{}';
+  }
+
+  const required = new Set(schema.required ?? []);
+  const respectRequired = options?.respectRequired ?? false;
+  const parts = Object.entries(schema.properties!).map(([key, prop]) => {
+    const typeStr = schemaTypeToShortStringForDiscovery(prop);
+    const optionalMarker = respectRequired && !required.has(key) ? '?' : '';
+    return `${key}${optionalMarker}: ${typeStr}`;
+  });
+  if (schema.additionalProperties === true) {
+    parts.push('[key: string]: unknown');
+  }
+
+  return `{ ${parts.join(', ')} }`;
+}
+
+function renderCallableEntryForDiscovery(args: {
+  qualifiedName: string;
+  parameters?: AxFunctionJSONSchema;
+  returns?: AxFunctionJSONSchema;
+}): string {
+  const paramType = renderObjectTypeForDiscovery(args.parameters, {
+    respectRequired: true,
+  });
+  const returnType = args.returns
+    ? `: Promise<${schemaTypeToShortStringForDiscovery(args.returns)}>`
+    : '';
+  return `- \`${args.qualifiedName}(args: ${paramType})${returnType}\``;
+}
+
+function renderDiscoveryModuleListMarkdown(
+  modules: readonly string[],
+  moduleLookup: ReadonlyMap<string, readonly string[]>
+): string {
+  return modules
+    .map((module) => {
+      const functions = [...(moduleLookup.get(module) ?? [])].sort((a, b) =>
+        a.localeCompare(b)
+      );
+      const list =
+        functions.length > 0
+          ? functions.map((name) => `- \`${name}\``).join('\n')
+          : '- (not found)';
+      return `### Module \`${module}\`\n${list}`;
+    })
+    .join('\n\n');
+}
+
+function renderDiscoveryFunctionDefinitionsMarkdown(
+  identifiers: readonly string[],
+  callableLookup: ReadonlyMap<string, DiscoveryCallableMeta>
+): string {
+  return identifiers
+    .map((rawIdentifier) => {
+      const qualifiedName = rawIdentifier.includes('.')
+        ? rawIdentifier
+        : `utils.${rawIdentifier}`;
+      const meta = callableLookup.get(qualifiedName);
+      if (!meta) {
+        return `### \`${qualifiedName}\`\n- Not found.`;
+      }
+      return [
+        `### \`${qualifiedName}\``,
+        meta.description,
+        renderCallableEntryForDiscovery({
+          qualifiedName,
+          parameters: meta.parameters,
+          returns: meta.returns,
+        }),
+      ].join('\n');
+    })
+    .join('\n\n');
 }
 
 function toCamelCase(inputString: string): string {

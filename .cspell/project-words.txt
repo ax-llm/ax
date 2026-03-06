@@ -193,3 +193,6 @@ tombstoning
 Mgmt
 tombstoned
 unscored
+teamnamespace
+LLMQUERY
+failer
