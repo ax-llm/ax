@@ -1,5 +1,26 @@
 # Changelog
 
+## [19.0.12](///compare/19.0.10...19.0.11) (2026-03-06)
+
+### Features
+
+* add inputUpdateCallback for dynamic input updates during actor turns b233e2f
+* add RLM Discovery example with writing coach and analytics tools 9f5ec0d
+
+### Bug Fixes
+
+* update model names and costs for Google Gemini configurations 48b3235
+## [19.0.11](///compare/19.0.10...19.0.11) (2026-03-01)
+
+### Features
+
+* add local field support to keep shared fields available in parent agents e84014b
+
+### Bug Fixes
+
+* don't throw on bare object schemas in Anthropic tool parameters ([#494](undefined/undefined/undefined/issues/494)) c7a4ecc
+* update schema validation to allow arbitrary JSON objects in structured outputs 77c4583
+
 ## [19.0.11](///compare/19.0.9...19.0.10) (2026-03-01)
 
 ### Features
