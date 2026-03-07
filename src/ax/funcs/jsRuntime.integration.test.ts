@@ -698,4 +698,94 @@ describe('AxJSRuntime integration', () => {
       session.close();
     }
   });
+
+  it('patchGlobals overwrites scalars and reconciles plain objects in place', async () => {
+    const runtime = new AxJSRuntime({ outputMode: 'return' });
+    const session = runtime.createSession({
+      query: 'initial',
+      tags: ['old'],
+      inputs: { query: 'initial', stale: 'old' },
+    });
+
+    try {
+      await session.execute('globalThis.savedInputs = inputs');
+      await session.patchGlobals({
+        query: 'updated',
+        tags: ['fresh'],
+        note: undefined,
+        inputs: { query: 'updated' },
+        helper: {
+          describe: async () => 'patched helper',
+        },
+      });
+
+      const result = await session.execute(`
+        ({
+          query,
+          tags,
+          note,
+          savedInputsSame: globalThis.savedInputs === inputs,
+          savedInputsQuery: globalThis.savedInputs.query,
+          inputsKeys: Object.keys(inputs).sort(),
+          helperResult: await helper.describe()
+        })
+      `);
+
+      expect(result).toEqual({
+        query: 'updated',
+        tags: ['fresh'],
+        note: undefined,
+        savedInputsSame: true,
+        savedInputsQuery: 'updated',
+        inputsKeys: ['query'],
+        helperResult: 'patched helper',
+      });
+    } finally {
+      session.close();
+    }
+  });
+
+  it('patchGlobals survives worker reset and recreation', async () => {
+    const runtime = new AxJSRuntime({ outputMode: 'return', timeout: 100 });
+    const session = runtime.createSession({
+      query: 'initial',
+      inputs: { query: 'initial' },
+    });
+
+    try {
+      await session.patchGlobals({
+        query: 'updated',
+        inputs: { query: 'updated' },
+      });
+
+      await expect(session.execute('while(true){}')).rejects.toThrow(
+        'Execution timed out'
+      );
+
+      const result = await session.execute(
+        '({ query, inputQuery: inputs.query })'
+      );
+      expect(result).toEqual({ query: 'updated', inputQuery: 'updated' });
+    } finally {
+      session.close();
+    }
+  });
+
+  it('patchGlobals respects abort signals', async () => {
+    const runtime = new AxJSRuntime({ outputMode: 'return' });
+    const session = runtime.createSession();
+    const controller = new AbortController();
+    controller.abort('stop patching');
+
+    try {
+      await expect(
+        session.patchGlobals(
+          { query: 'updated' },
+          { signal: controller.signal }
+        )
+      ).rejects.toThrow('Aborted: stop patching');
+    } finally {
+      session.close();
+    }
+  });
 });

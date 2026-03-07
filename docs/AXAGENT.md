@@ -731,7 +731,7 @@ const analyzer = agent('query:string -> answer:string', {
 });
 ```
 
-Updates from this callback are merged into current inputs (unknown keys are ignored), then synchronized into runtime `inputs.<field>` and existing non-colliding top-level aliases before code execution.
+Updates from this callback are merged into current inputs (unknown keys are ignored), then synchronized into runtime `inputs.<field>` and existing non-colliding top-level aliases via `AxCodeSession.patchGlobals(...)` before code execution. This host-side sync does not run through the Actor's `execute(code)` path.
 
 ### Actor/Responder Forward Options
 
@@ -922,10 +922,36 @@ class MyBrowserInterpreter implements AxCodeRuntime {
   }
 
   createSession(globals?: Record<string, unknown>): AxCodeSession {
+    const scope = { ...globals };
+    const isPlainObject = (
+      value: unknown
+    ): value is Record<string, unknown> => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return false;
+      }
+      const proto = Object.getPrototypeOf(value);
+      return proto === Object.prototype || proto === null;
+    };
+
     // Set up your execution environment with globals
     return {
       async execute(code: string) {
         // Execute code and return result
+      },
+      async patchGlobals(nextGlobals: Record<string, unknown>) {
+        for (const [key, value] of Object.entries(nextGlobals)) {
+          const current = scope[key];
+          if (isPlainObject(current) && isPlainObject(value)) {
+            for (const existingKey of Object.keys(current)) {
+              if (!(existingKey in value)) {
+                delete current[existingKey];
+              }
+            }
+            Object.assign(current, value);
+            continue;
+          }
+          scope[key] = value;
+        }
       },
       close() {
         // Clean up resources
@@ -934,6 +960,8 @@ class MyBrowserInterpreter implements AxCodeRuntime {
   }
 }
 ```
+
+When patching object-valued globals such as `inputs`, reconcile the existing object in place instead of blindly replacing the reference. That keeps previously saved references in the runtime session aligned with later host-side updates.
 
 The `globals` object passed to `createSession` includes:
 - All context field values (by field name)
@@ -1020,7 +1048,14 @@ interface AxCodeRuntime {
 
 ```typescript
 interface AxCodeSession {
-  execute(code: string, options?: { signal?: AbortSignal });
+  execute(
+    code: string,
+    options?: { signal?: AbortSignal; reservedNames?: readonly string[] }
+  ): Promise<unknown>;
+  patchGlobals(
+    globals: Record<string, unknown>,
+    options?: { signal?: AbortSignal }
+  ): Promise<void>;
   close(): void;
 }
 ```

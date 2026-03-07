@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
-
-import { AxMockAIService } from '../mock/api.js';
 import { agent, s } from '../../index.js';
 import type { AxCodeRuntime } from '../../prompts/rlm.js';
+import { AxMockAIService } from '../mock/api.js';
 
 const makeModelUsage = () => ({
   ai: 'mock',
@@ -119,6 +118,7 @@ describe('Agent Split Architecture Flow', () => {
             }
             return `executed: ${code}`;
           },
+          patchGlobals: async () => {},
           close: () => {},
         };
       },

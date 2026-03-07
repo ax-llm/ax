@@ -38,6 +38,7 @@ import {
 } from './contextManager.js';
 import type {
   AxCodeRuntime,
+  AxCodeSession,
   AxContextManagementConfig,
   AxRLMConfig,
 } from './rlm.js';
@@ -1520,9 +1521,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const askClarificationFunction = (...args: unknown[]) =>
       setActorResultPayload('ask_clarification', args);
 
-    const INTERNAL_HOST_INPUTS_FN = '__ax_get_host_inputs__';
-    const RUNTIME_INPUT_SYNC_OK = '__ax_runtime_inputs_synced__';
-
     const agentFunctionNamespaces = [
       ...new Set(this.agentFunctions.map((f) => f.namespace ?? 'utils')),
     ];
@@ -1534,7 +1532,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       this.agentModuleNamespace,
       'final',
       'ask_clarification',
-      INTERNAL_HOST_INPUTS_FN,
       ...agentFunctionNamespaces,
       ...(rlm.contextManagement?.stateInspection ? ['inspect_runtime'] : []),
       ...Object.keys(toolGlobals),
@@ -1556,11 +1553,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       }
 
       for (const key of runtimeAliasKeys) {
-        if (key in currentInputs) {
-          runtimeTopLevelInputAliases[key] = currentInputs[key];
-        } else {
-          delete runtimeTopLevelInputAliases[key];
-        }
+        runtimeTopLevelInputAliases[key] = currentInputs[key];
       }
     };
 
@@ -1569,7 +1562,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       ...reservedTopLevelNames,
       ...runtimeAliasKeys,
     ];
-    const getHostInputsSnapshot = () => ({ ...currentInputs });
 
     // inspect_runtime: queries worker globalThis for current variable state
     // Captures `session` by reference so it works after session restart.
@@ -1595,7 +1587,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         llmQuery,
         final: finalFunction,
         ask_clarification: askClarificationFunction,
-        [INTERNAL_HOST_INPUTS_FN]: getHostInputsSnapshot,
         ...(inspectRuntime ? { inspect_runtime: inspectRuntime } : {}),
         ...toolGlobals,
       });
@@ -1759,38 +1750,52 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       }
     };
 
+    const getPatchableSession = (runtimeSession: AxCodeSession) => {
+      if (typeof runtimeSession.patchGlobals !== 'function') {
+        throw new Error(
+          'AxCodeSession.patchGlobals() is required when using inputUpdateCallback'
+        );
+      }
+      return runtimeSession;
+    };
+
     const syncRuntimeInputsToSession = async (): Promise<void> => {
       refreshRuntimeBindings();
 
-      const syncCode = `
-const __hostInputs = await ${INTERNAL_HOST_INPUTS_FN}();
-if (!__hostInputs || typeof __hostInputs !== 'object') {
-  throw new Error('Host input snapshot must be an object');
-}
-if (!inputs || typeof inputs !== 'object') {
-  throw new Error('Runtime inputs container is not available');
-}
-for (const __key of Object.keys(inputs)) {
-  if (!Object.prototype.hasOwnProperty.call(__hostInputs, __key)) {
-    delete inputs[__key];
-  }
-}
-for (const [__key, __value] of Object.entries(__hostInputs)) {
-  inputs[__key] = __value;
-}
-for (const __key of ${JSON.stringify(runtimeAliasKeys)}) {
-  if (Object.prototype.hasOwnProperty.call(__hostInputs, __key)) {
-    globalThis[__key] = __hostInputs[__key];
-  } else {
-    delete globalThis[__key];
-  }
-}
-"${RUNTIME_INPUT_SYNC_OK}";
-`.trim();
+      const patchGlobals = async (targetSession: AxCodeSession) => {
+        const patchableSession = getPatchableSession(targetSession);
+        await patchableSession.patchGlobals(
+          {
+            inputs: { ...runtimeInputs },
+            ...runtimeTopLevelInputAliases,
+          },
+          { signal: effectiveAbortSignal }
+        );
+      };
 
-      const { output, isError } = await executeInterpreterCode(syncCode);
-      if (isError || output.trim() !== RUNTIME_INPUT_SYNC_OK) {
-        throw new Error(`Failed to sync runtime inputs: ${output}`);
+      try {
+        await patchGlobals(session);
+      } catch (err) {
+        if (effectiveAbortSignal?.aborted) {
+          throw new AxAIServiceAbortedError(
+            'rlm-session',
+            effectiveAbortSignal.reason ?? 'Aborted'
+          );
+        }
+        if (
+          err instanceof Error &&
+          (err.name === 'AbortError' || err.message.startsWith('Aborted'))
+        ) {
+          throw err;
+        }
+        if (isSessionClosedError(err)) {
+          session = createSession();
+          await patchGlobals(session);
+          return;
+        }
+        throw new Error(
+          `Failed to sync runtime inputs: ${formatInterpreterError(err)}`
+        );
       }
     };
 

@@ -35,6 +35,7 @@ const defaultRuntime: AxCodeRuntime = {
         }
         return 'ok';
       },
+      patchGlobals: async () => {},
       close: () => {},
     };
   },
@@ -3757,6 +3758,40 @@ describe('actorCallback', () => {
 // ----- inputUpdateCallback tests -----
 
 describe('inputUpdateCallback', () => {
+  const isPlainObject = (value: unknown): value is Record<string, unknown> => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return false;
+    }
+    const proto = Object.getPrototypeOf(value);
+    return proto === Object.prototype || proto === null;
+  };
+
+  const applyPatchedGlobals = (
+    globals: Record<string, unknown> | undefined,
+    patch: Record<string, unknown>
+  ) => {
+    if (!globals) {
+      return;
+    }
+
+    for (const [key, nextValue] of Object.entries(patch)) {
+      const currentValue = globals[key];
+      if (isPlainObject(currentValue) && isPlainObject(nextValue)) {
+        for (const existingKey of Object.keys(currentValue)) {
+          if (!Object.hasOwn(nextValue, existingKey)) {
+            delete currentValue[existingKey];
+          }
+        }
+        for (const [nextKey, nextEntryValue] of Object.entries(nextValue)) {
+          currentValue[nextKey] = nextEntryValue;
+        }
+        continue;
+      }
+
+      globals[key] = nextValue;
+    }
+  };
+
   it('should apply callback patches before each turn and pass updated inputs to Responder', async () => {
     let actorTurn = 0;
     const callbackSnapshots: Array<Record<string, unknown>> = [];
@@ -3768,38 +3803,15 @@ describe('inputUpdateCallback', () => {
       createSession(globals) {
         return {
           execute: async (code: string) => {
-            if (code.includes('__ax_get_host_inputs__')) {
-              const hostInputs = (await (
-                globals?.__ax_get_host_inputs__ as
-                  | (() => Promise<Record<string, unknown>>)
-                  | undefined
-              )?.()) as Record<string, unknown> | undefined;
-              if (globals && hostInputs) {
-                if (
-                  globals.inputs &&
-                  typeof globals.inputs === 'object' &&
-                  !Array.isArray(globals.inputs)
-                ) {
-                  const inputs = globals.inputs as Record<string, unknown>;
-                  for (const key of Object.keys(inputs)) {
-                    if (!(key in hostInputs)) {
-                      delete inputs[key];
-                    }
-                  }
-                  for (const [key, value] of Object.entries(hostInputs)) {
-                    inputs[key] = value;
-                  }
-                }
-                globals.query = hostInputs.query;
-              }
-              return '__ax_runtime_inputs_synced__';
-            }
             if (code.includes('final(') && globals?.final) {
               finalArg = (globals.inputs as Record<string, unknown>)?.query;
               (globals.final as (...args: unknown[]) => void)(finalArg);
               return 'done';
             }
             return 'ok';
+          },
+          patchGlobals: async (patch) => {
+            applyPatchedGlobals(globals as Record<string, unknown>, patch);
           },
           close: () => {},
         };
@@ -3879,38 +3891,15 @@ describe('inputUpdateCallback', () => {
       createSession(globals) {
         return {
           execute: async (code: string) => {
-            if (code.includes('__ax_get_host_inputs__')) {
-              const hostInputs = (await (
-                globals?.__ax_get_host_inputs__ as
-                  | (() => Promise<Record<string, unknown>>)
-                  | undefined
-              )?.()) as Record<string, unknown> | undefined;
-              if (globals && hostInputs) {
-                if (
-                  globals.inputs &&
-                  typeof globals.inputs === 'object' &&
-                  !Array.isArray(globals.inputs)
-                ) {
-                  const inputs = globals.inputs as Record<string, unknown>;
-                  for (const key of Object.keys(inputs)) {
-                    if (!(key in hostInputs)) {
-                      delete inputs[key];
-                    }
-                  }
-                  for (const [key, value] of Object.entries(hostInputs)) {
-                    inputs[key] = value;
-                  }
-                }
-                globals.query = hostInputs.query;
-              }
-              return '__ax_runtime_inputs_synced__';
-            }
             if (code.includes('final(') && globals?.final) {
               finalArg = globals.query;
               (globals.final as (...args: unknown[]) => void)(finalArg);
               return 'done';
             }
             return 'ok';
+          },
+          patchGlobals: async (patch) => {
+            applyPatchedGlobals(globals as Record<string, unknown>, patch);
           },
           close: () => {},
         };
@@ -3963,9 +3952,6 @@ describe('inputUpdateCallback', () => {
       createSession(globals) {
         return {
           execute: async (code: string) => {
-            if (code.includes('__ax_get_host_inputs__')) {
-              return '__ax_runtime_inputs_synced__';
-            }
             if (code.includes('final(') && globals?.final) {
               const inputs = globals.inputs as Record<string, unknown>;
               finalArg = inputs.query;
@@ -3974,6 +3960,9 @@ describe('inputUpdateCallback', () => {
               return 'done';
             }
             return 'ok';
+          },
+          patchGlobals: async (patch) => {
+            applyPatchedGlobals(globals as Record<string, unknown>, patch);
           },
           close: () => {},
         };
@@ -4027,15 +4016,15 @@ describe('inputUpdateCallback', () => {
       createSession(globals) {
         return {
           execute: async (code: string) => {
-            if (code.includes('__ax_get_host_inputs__')) {
-              return '__ax_runtime_inputs_synced__';
-            }
             if (code.includes('final(') && globals?.final) {
               finalArg = (globals.inputs as Record<string, unknown>).query;
               (globals.final as (...args: unknown[]) => void)(finalArg);
               return 'done';
             }
             return 'ok';
+          },
+          patchGlobals: async (patch) => {
+            applyPatchedGlobals(globals as Record<string, unknown>, patch);
           },
           close: () => {},
         };
@@ -4137,9 +4126,6 @@ describe('inputUpdateCallback', () => {
       createSession(globals) {
         return {
           execute: async (code: string) => {
-            if (code.includes('__ax_get_host_inputs__')) {
-              return '__ax_runtime_inputs_synced__';
-            }
             if (code.includes('agents.child')) {
               const agentsObj = globals!.agents as Record<
                 string,
@@ -4152,6 +4138,9 @@ describe('inputUpdateCallback', () => {
               return 'done';
             }
             return 'ok';
+          },
+          patchGlobals: async (patch) => {
+            applyPatchedGlobals(globals as Record<string, unknown>, patch);
           },
           close: () => {},
         };
@@ -4217,15 +4206,15 @@ describe('inputUpdateCallback', () => {
       createSession(globals) {
         return {
           execute: async (code: string) => {
-            if (code.includes('__ax_get_host_inputs__')) {
-              return '__ax_runtime_inputs_synced__';
-            }
             if (code.includes('final(') && globals?.final) {
               finalArg = (globals.inputs as Record<string, unknown>)?.query;
               (globals.final as (...args: unknown[]) => void)(finalArg);
               return 'done';
             }
             return 'ok';
+          },
+          patchGlobals: async (patch) => {
+            applyPatchedGlobals(globals as Record<string, unknown>, patch);
           },
           close: () => {},
         };
@@ -4262,6 +4251,192 @@ describe('inputUpdateCallback', () => {
 
     expect(callbackCalls).toBe(1);
     expect(finalArg).toBe('stream-updated');
+  });
+
+  it('should send only actor-authored code through execute during input updates', async () => {
+    const executedCode: string[] = [];
+    const patchedGlobals: Record<string, unknown>[] = [];
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            executedCode.push(code);
+            if (code.includes('final(') && globals?.final) {
+              (globals.final as (...args: unknown[]) => void)(
+                (globals.inputs as Record<string, unknown>)?.query
+              );
+              return 'done';
+            }
+            return 'ok';
+          },
+          patchGlobals: async (patch) => {
+            patchedGlobals.push({ ...patch });
+            applyPatchedGlobals(globals as Record<string, unknown>, patch);
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('query:string -> answer:string', {
+      contextFields: [],
+      runtime,
+      inputUpdateCallback: () => ({ query: 'updated-query' }),
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const anyAgent = testAgent as any;
+    anyAgent.actorProgram.forward = async () => ({
+      javascriptCode: 'final(inputs.query)',
+    });
+    anyAgent.responderProgram.forward = async () => ({ answer: 'ok' });
+
+    const ai = new AxMockAIService({
+      features: { functions: false, streaming: false },
+    });
+
+    await testAgent.forward(ai, { query: 'initial-query' });
+
+    expect(executedCode).toEqual(['final(inputs.query)']);
+    expect(patchedGlobals).toHaveLength(1);
+    expect(patchedGlobals[0]?.query).toBe('updated-query');
+    expect((patchedGlobals[0]?.inputs as Record<string, unknown>)?.query).toBe(
+      'updated-query'
+    );
+  });
+
+  it('should patch missing aliases to undefined instead of leaving stale values', async () => {
+    let aliasStates: unknown[] = [];
+    let callbackTurn = 0;
+    let executeTurn = 0;
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            executeTurn++;
+            if (executeTurn === 1) {
+              aliasStates = [globals?.note, globals?.note];
+              return 'saved';
+            }
+            if (code.includes('final(') && globals?.final) {
+              aliasStates.push(globals?.note, globals?.note);
+              (globals.final as (...args: unknown[]) => void)(aliasStates);
+              return 'done';
+            }
+            return 'ok';
+          },
+          patchGlobals: async (patch) => {
+            applyPatchedGlobals(globals as Record<string, unknown>, patch);
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('query:string, note?:string -> answer:string', {
+      contextFields: [],
+      runtime,
+      inputUpdateCallback: () => {
+        callbackTurn++;
+        return callbackTurn === 2 ? { note: undefined } : undefined;
+      },
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const anyAgent = testAgent as any;
+    let actorTurn = 0;
+    anyAgent.actorProgram.forward = async () => {
+      actorTurn++;
+      if (actorTurn === 1) {
+        return {
+          javascriptCode:
+            'globalThis.savedAliasStates = [note, globalThis.note]; "saved"',
+        };
+      }
+      return {
+        javascriptCode:
+          'globalThis.savedAliasStates.push(note, globalThis.note); final(globalThis.savedAliasStates)',
+      };
+    };
+    anyAgent.responderProgram.forward = async (_ai: unknown, values: any) => ({
+      answer: JSON.stringify(values.actorResult),
+    });
+
+    const ai = new AxMockAIService({
+      features: { functions: false, streaming: false },
+    });
+
+    await testAgent.forward(ai, {
+      query: 'initial-query',
+      note: 'present',
+    });
+
+    expect(aliasStates).toEqual(['present', 'present', undefined, undefined]);
+  });
+
+  it('should preserve inputs object identity across patches', async () => {
+    let callbackTurn = 0;
+    let savedQuery: unknown;
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code.includes('globalThis.savedInputs = inputs')) {
+              (globals as Record<string, unknown>).savedInputs =
+                globals?.inputs;
+              return 'saved';
+            }
+            if (code.includes('final(') && globals?.final) {
+              const savedInputs = (globals as Record<string, unknown>)
+                .savedInputs as Record<string, unknown>;
+              savedQuery = savedInputs?.query;
+              (globals.final as (...args: unknown[]) => void)(savedQuery);
+              return 'done';
+            }
+            return 'ok';
+          },
+          patchGlobals: async (patch) => {
+            applyPatchedGlobals(globals as Record<string, unknown>, patch);
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('query:string -> answer:string', {
+      contextFields: [],
+      runtime,
+      inputUpdateCallback: () => {
+        callbackTurn++;
+        return callbackTurn === 2 ? { query: 'updated-query' } : undefined;
+      },
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const anyAgent = testAgent as any;
+    let actorTurn = 0;
+    anyAgent.actorProgram.forward = async () => {
+      actorTurn++;
+      if (actorTurn === 1) {
+        return { javascriptCode: 'globalThis.savedInputs = inputs; "saved"' };
+      }
+      return { javascriptCode: 'final(globalThis.savedInputs.query)' };
+    };
+    anyAgent.responderProgram.forward = async () => ({ answer: 'ok' });
+
+    const ai = new AxMockAIService({
+      features: { functions: false, streaming: false },
+    });
+
+    await testAgent.forward(ai, { query: 'initial-query' });
+
+    expect(savedQuery).toBe('updated-query');
   });
 });
 

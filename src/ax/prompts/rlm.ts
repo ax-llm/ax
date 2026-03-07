@@ -150,6 +150,10 @@ export interface AxCodeSession {
     code: string,
     options?: { signal?: AbortSignal; reservedNames?: readonly string[] }
   ): Promise<unknown>;
+  patchGlobals(
+    globals: Record<string, unknown>,
+    options?: { signal?: AbortSignal }
+  ): Promise<void>;
   close(): void;
 }
 

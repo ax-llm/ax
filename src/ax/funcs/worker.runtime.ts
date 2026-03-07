@@ -1206,11 +1206,38 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
     return value;
   };
 
+  const _isPlainObject = (value: unknown): value is Record<string, unknown> => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return false;
+    }
+    const proto = Object.getPrototypeOf(value);
+    return proto === Object.prototype || proto === null;
+  };
+
+  const _patchGlobals = (globals: Record<string, unknown>): void => {
+    for (const [key, rawValue] of Object.entries(globals)) {
+      const nextValue = _rehydrateFnRefs(rawValue);
+      const currentValue = _scope[key];
+
+      if (_isPlainObject(currentValue) && _isPlainObject(nextValue)) {
+        for (const existingKey of Object.keys(currentValue)) {
+          if (!Object.hasOwn(nextValue, existingKey)) {
+            delete currentValue[existingKey];
+          }
+        }
+        for (const [nextKey, nextEntryValue] of Object.entries(nextValue)) {
+          currentValue[nextKey] = nextEntryValue;
+        }
+        continue;
+      }
+
+      _scope[key] = nextValue;
+    }
+  };
+
   const _setGlobalsAndFnProxies = (msg: Record<string, unknown>): void => {
     if (msg.globals && typeof msg.globals === 'object') {
-      for (const [key, value] of Object.entries(msg.globals)) {
-        _scope[key] = _rehydrateFnRefs(value);
-      }
+      _patchGlobals(msg.globals as Record<string, unknown>);
     }
 
     // Backward compatibility: allow explicit top-level function proxies.
@@ -1333,6 +1360,22 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
         } else {
           pending.resolve(msg.value);
         }
+      }
+      return;
+    }
+
+    if (msg.type === 'update-globals') {
+      if (typeof msg.id !== 'number') {
+        return;
+      }
+
+      try {
+        if (msg.globals && typeof msg.globals === 'object') {
+          _patchGlobals(msg.globals as Record<string, unknown>);
+        }
+        _send({ type: 'result', id: msg.id, value: undefined });
+      } catch (err) {
+        _send({ type: 'result', id: msg.id, error: _serializeError(err) });
       }
       return;
     }
