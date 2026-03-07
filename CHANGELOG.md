@@ -1,5 +1,21 @@
 # Changelog
 
+## [19.0.13](///compare/19.0.11...19.0.12) (2026-03-07)
+
+### Features
+
+* implement patchGlobals method for AxCodeSession and update related functionality ef03ceb
+## [19.0.12](///compare/19.0.11...19.0.12) (2026-03-06)
+
+### Features
+
+* add inputUpdateCallback for dynamic input updates during actor turns b233e2f
+* add RLM Discovery example with writing coach and analytics tools 9f5ec0d
+
+### Bug Fixes
+
+* update model names and costs for Google Gemini configurations 48b3235
+
 ## [19.0.12](///compare/19.0.10...19.0.11) (2026-03-06)
 
 ### Features
