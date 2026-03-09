@@ -7555,6 +7555,15 @@ describe('AxFunction', () => {
     expect(actorDesc).toContain(
       'await getFunctionDefinitions(functions:string | string[]) : string'
     );
+    expect(actorDesc).toContain(
+      "prefer one batched call such as `await listModuleFunctions(['timeRange', 'schedulingOrganizer'])`"
+    );
+    expect(actorDesc).toContain(
+      'Treat discovery results as markdown meant for direct `console.log(...)` inspection.'
+    );
+    expect(actorDesc).toContain(
+      'Do not split discovery into `Promise.all(...)` calls or reformat discovery results into JSON or custom objects.'
+    );
   });
 
   it('should propagate shared agent functions to direct children', () => {

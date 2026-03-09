@@ -360,6 +360,10 @@ Set `functions.discovery: true` to avoid dumping full callable definitions into 
   - `await listModuleFunctions(modules: string | string[]) : string`
   - `await getFunctionDefinitions(functions: string | string[]) : string`
 - Both APIs return markdown.
+- When multiple modules are needed, prefer one batched call such as `await listModuleFunctions(['timeRange', 'schedulingOrganizer'])`.
+- When multiple callable definitions are needed, prefer one batched `await getFunctionDefinitions([...])` call.
+- Treat discovery results as markdown sections to inspect or log directly; do not wrap them in JSON or custom objects.
+- Do not fan out discovery work with `Promise.all(...)`.
 - `getFunctionDefinitions` accepts fully-qualified names like `db.search` or `<agentModule>.researcher`, where `<agentModule>` is `agentIdentity.namespace` when set, otherwise `agents`.
 - Bare names resolve to `utils.<name>` (for example `lookup` -> `utils.lookup`).
 
@@ -843,8 +847,8 @@ Inside the code interpreter, these functions are available as globals:
 | `ask_clarification(...args)` | Stop Actor execution and pass clarification payload args to Responder. Requires at least one argument |
 | `await <agentModule>.<name>({...})` | Call a child agent by name (from `agents.local`). `<agentModule>` is `agentIdentity.namespace` when set, otherwise `agents`. Parameters match the agent's JSON schema. Returns a string |
 | `await <namespace>.<fnName>({...})` | Call an agent function by namespace and name (from `functions.local`). Returns the typed result |
-| `await listModuleFunctions(modules)` | Discovery mode only (`functions.discovery: true`). Returns markdown list of callable names for one or more modules |
-| `await getFunctionDefinitions(functions)` | Discovery mode only (`functions.discovery: true`). Returns markdown API descriptions and signatures for one or more callables |
+| `await listModuleFunctions(modules)` | Discovery mode only (`functions.discovery: true`). Returns markdown sections listing callable names for one or more modules. Prefer one batched array call when inspecting multiple modules |
+| `await getFunctionDefinitions(functions)` | Discovery mode only (`functions.discovery: true`). Returns markdown sections with API descriptions and signatures for one or more callables. Prefer one batched array call when inspecting multiple callables |
 | `print(...args)` | Available in `AxJSRuntime` when `outputMode: 'stdout'`; captured output appears in the function result |
 | Context variables | All input fields are available as `inputs.<field>` (including context fields). Non-colliding top-level aliases may also exist and are refreshed from `inputUpdateCallback` patches before each turn |
 

@@ -186,10 +186,14 @@ Both return Markdown.
 Rules:
 
 1. Call `listModuleFunctions(...)`.
-2. Inspect the logged result.
-3. Call `getFunctionDefinitions(...)` for only the callables you plan to use.
-4. Inspect the logged result.
-5. Call discovered functions and child agents.
+2. If you need multiple modules, use one batched array call such as `listModuleFunctions(['timeRange', 'schedulingOrganizer'])`.
+3. Log or inspect the returned markdown directly. Do not wrap it in JSON or custom objects.
+4. If you need multiple callable definitions, prefer one batched `getFunctionDefinitions([...])` call.
+5. Do not split discovery into separate calls with `Promise.all(...)`.
+6. Inspect the logged result.
+7. Call `getFunctionDefinitions(...)` for only the callables you plan to use.
+8. Inspect the logged result.
+9. Call discovered functions and child agents.
 
 Examples:
 
@@ -208,6 +212,8 @@ Do not:
 - Do not guess callable names when discovery mode is on.
 - Do not assume sub-agents live under `agents` if `agentIdentity.namespace` is configured.
 - Do not dump large pre-known tool definitions into actor code when discovery mode is enabled.
+- Do not use `Promise.all(...)` to fan out discovery calls across modules or definitions.
+- Do not convert discovery markdown into JSON before logging or using it.
 
 ## RLM Actor Code Rules
 
