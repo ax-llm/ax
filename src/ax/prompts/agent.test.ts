@@ -5,6 +5,7 @@ import type { AxFunction, AxFunctionJSONSchema } from '../ai/types.js';
 import { toFieldType } from '../dsp/prompt.js';
 import type { AxIField } from '../dsp/sig.js';
 import { s } from '../dsp/template.js';
+import { AxJSRuntime } from '../funcs/jsRuntime.js';
 import { AxAIServiceAbortedError } from '../util/apicall.js';
 
 import { AxAgent, agent } from './agent.js';
@@ -1820,6 +1821,71 @@ describe('final()/ask_clarification() as runtime globals', () => {
 
     expect(sawMissingAskArgsError).toBe(true);
     expect(result.answer).toBe('recovered clarification');
+  });
+
+  it('should not leak [object Promise] into the action log for bare ask_clarification() with AxJSRuntime', async () => {
+    let actorCallCount = 0;
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCallCount++;
+          return {
+            results: [
+              {
+                index: 0,
+                content:
+                  'Javascript Code: ask_clarification({ question: "What is the duration?", taskId: "task-123" })',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: [],
+      runtime: new AxJSRuntime(),
+      maxTurns: 2,
+    });
+
+    const loopResult = await (
+      testAgent as unknown as {
+        _runActorLoop: (
+          ai: unknown,
+          values: { query: string },
+          options: undefined,
+          signal: AbortSignal
+        ) => Promise<{
+          actionLog: string;
+          actorResult: { type: string; args: unknown[] };
+        }>;
+      }
+    )._runActorLoop(
+      testMockAI,
+      { query: 'test' },
+      undefined,
+      new AbortController().signal
+    );
+
+    expect(actorCallCount).toBe(1);
+    expect(loopResult.actionLog).not.toContain('[object Promise]');
+    expect(loopResult.actorResult.type).toBe('ask_clarification');
+    expect(loopResult.actorResult.args[0]).toEqual({
+      question: 'What is the duration?',
+      taskId: 'task-123',
+    });
   });
 });
 
@@ -7314,6 +7380,53 @@ describe('AxFunction', () => {
     ).toThrow('Agent function namespace "team" is reserved');
   });
 
+  it('should throw on reserved namespace metadata names that are not discoverable modules', () => {
+    for (const ns of ['llmQuery', 'final', 'ask_clarification']) {
+      expect(
+        () =>
+          new AxAgent(
+            { signature: 'query:string -> answer:string' },
+            {
+              contextFields: [],
+              runtime,
+              namespaces: [
+                {
+                  name: ns,
+                  title: 'Reserved',
+                  description: 'Should fail',
+                },
+              ],
+            }
+          )
+      ).toThrow(`Agent namespace "${ns}" is reserved`);
+    }
+  });
+
+  it('should throw on duplicate namespace metadata names', () => {
+    expect(
+      () =>
+        new AxAgent(
+          { signature: 'query:string -> answer:string' },
+          {
+            contextFields: [],
+            runtime,
+            namespaces: [
+              {
+                name: 'db',
+                title: 'Database',
+                description: 'Database tools',
+              },
+              {
+                name: 'db',
+                title: 'Duplicate',
+                description: 'Duplicate metadata',
+              },
+            ],
+          }
+        )
+    ).toThrow('Duplicate agent namespace "db"');
+  });
+
   it('should throw when agentIdentity.namespace normalizes to empty', () => {
     expect(
       () =>
@@ -7350,6 +7463,26 @@ describe('AxFunction', () => {
       agents: { local: [child] },
       contextFields: [],
       runtime,
+      namespaces: [
+        {
+          name: 'team',
+          title: 'Team Agents',
+          description:
+            'Delegated specialist agents that assist with scheduling.',
+        },
+        {
+          name: 'db',
+          title: 'Scheduling Database',
+          description:
+            'Database accessors for schedule lookups and availability.',
+        },
+        {
+          name: 'calendar',
+          title: 'Calendar Utilities',
+          description:
+            'Metadata-only calendar helpers with no registered callables yet.',
+        },
+      ],
       functions: {
         discovery: true,
         local: [
@@ -7379,7 +7512,68 @@ describe('AxFunction', () => {
             },
             returns: { type: 'number' },
             namespace: 'db',
+            examples: [
+              {
+                title: 'Find open slots',
+                description:
+                  'Lookup the next five available windows for a participant.',
+                code: 'await db.search({ query: "availability for Alex", limit: 5 });',
+              },
+            ],
             func: async () => 1,
+          },
+          {
+            name: 'resolveWindow',
+            description: 'Resolve a scheduling window from natural language',
+            parameters: {
+              type: 'object',
+              properties: {
+                request: {
+                  type: 'string',
+                  description: 'Natural-language scheduling request',
+                },
+                options: {
+                  type: 'object',
+                  description: 'Optional parsing and timezone controls',
+                  properties: {
+                    timezone: {
+                      type: 'string',
+                      description: 'IANA timezone for resolving the request',
+                    },
+                    participants: {
+                      type: 'array',
+                      description:
+                        'Participants included in the scheduling search',
+                      items: {
+                        type: 'string',
+                        description: 'Participant identifier',
+                      },
+                    },
+                  },
+                  required: ['timezone'],
+                },
+              },
+              required: ['request'],
+            },
+            namespace: 'db',
+            examples: [
+              {
+                title: 'Resolve a Pacific-time window',
+                code: [
+                  'await db.resolveWindow({',
+                  '  request: "next Tuesday afternoon",',
+                  '  options: {',
+                  '    timezone: "America/Los_Angeles",',
+                  '    participants: ["alex", "sam"]',
+                  '  }',
+                  '});',
+                ].join('\n'),
+              },
+            ],
+            func: async () => ({
+              start: '2026-03-10T13:00:00-08:00',
+              end: '2026-03-10T15:00:00-08:00',
+            }),
           },
         ],
       },
@@ -7400,19 +7594,41 @@ describe('AxFunction', () => {
       functions: string | string[]
     ) => Promise<string>;
 
-    const moduleMarkdown = await listModuleFunctions(['team', 'db', 'missing']);
+    const moduleMarkdown = await listModuleFunctions([
+      'team',
+      'db',
+      'calendar',
+      'missing',
+    ]);
     const singleModuleMarkdown = await listModuleFunctions('team');
     expect(singleModuleMarkdown).toContain('### Module `team`');
+    expect(singleModuleMarkdown).toContain('**Team Agents**');
+    expect(singleModuleMarkdown).toContain(
+      'Delegated specialist agents that assist with scheduling.'
+    );
+    expect(singleModuleMarkdown).not.toContain('#### Callables');
     expect(moduleMarkdown).toContain('### Module `team`');
     expect(moduleMarkdown).toContain('- `team.childAgent`');
     expect(moduleMarkdown).toContain('### Module `db`');
+    expect(moduleMarkdown).toContain('**Scheduling Database**');
+    expect(moduleMarkdown).toContain(
+      'Database accessors for schedule lookups and availability.'
+    );
     expect(moduleMarkdown).toContain('- `db.search`');
+    expect(moduleMarkdown).toContain('- `db.resolveWindow`');
+    expect(moduleMarkdown).not.toContain('**Calendar Utilities**');
     expect(moduleMarkdown).toContain('### Module `missing`');
-    expect(moduleMarkdown).toContain('- (not found)');
+    expect(moduleMarkdown).toContain(
+      '- Error: module `calendar` does not exist.'
+    );
+    expect(moduleMarkdown).toContain(
+      '- Error: module `missing` does not exist.'
+    );
 
     const definitionMarkdown = await getFunctionDefinitions([
       'team.childAgent',
       'db.search',
+      'db.resolveWindow',
       'lookup',
       'unknownFn',
     ]);
@@ -7427,6 +7643,28 @@ describe('AxFunction', () => {
     expect(definitionMarkdown).toContain('Search in database');
     expect(definitionMarkdown).toContain(
       '- `db.search(args: { query: string, limit?: number }): Promise<number>`'
+    );
+    expect(definitionMarkdown).toContain('#### Arguments');
+    expect(definitionMarkdown).toContain(
+      '- `query` (`string`, required): Query'
+    );
+    expect(definitionMarkdown).toContain(
+      '- `limit` (`number`, optional): Limit'
+    );
+    expect(definitionMarkdown).toContain('#### Examples');
+    expect(definitionMarkdown).toContain('##### Find open slots');
+    expect(definitionMarkdown).toContain(
+      'await db.search({ query: "availability for Alex", limit: 5 });'
+    );
+    expect(definitionMarkdown).toContain('### `db.resolveWindow`');
+    expect(definitionMarkdown).toContain(
+      '- `options.timezone` (`string`): IANA timezone for resolving the request'
+    );
+    expect(definitionMarkdown).toContain(
+      '- `options.participants` (`string[]`): Participants included in the scheduling search'
+    );
+    expect(definitionMarkdown).toContain(
+      '- `options.participants[]` (`string`): Participant identifier'
     );
     expect(definitionMarkdown).toContain('### `utils.lookup`');
     expect(definitionMarkdown).toContain('Lookup utility function');

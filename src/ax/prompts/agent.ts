@@ -67,6 +67,23 @@ type AxAgentIdentity = {
   namespace?: string;
 };
 
+export type AxAgentNamespace = {
+  name: string;
+  title: string;
+  description: string;
+};
+
+export type AxAgentFunctionExample = {
+  code: string;
+  title?: string;
+  description?: string;
+  language?: string;
+};
+
+export type AxAgentFunction = AxFunction & {
+  examples?: readonly AxAgentFunctionExample[];
+};
+
 export type AxContextFieldInput =
   | string
   | {
@@ -136,14 +153,17 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
     excluded?: string[];
   };
 
+  /** Optional metadata for discovery modules rendered by `listModuleFunctions(...)`. */
+  namespaces?: readonly AxAgentNamespace[];
+
   /** Agent function configuration. */
   functions?: {
     /** Agent functions local to this agent (registered under namespace globals). */
-    local?: AxFunction[];
+    local?: AxAgentFunction[];
     /** Agent functions to share with direct child agents (one level). */
-    shared?: AxFunction[];
+    shared?: AxAgentFunction[];
     /** Agent functions to share with ALL descendants recursively. */
-    globallyShared?: AxFunction[];
+    globallyShared?: AxAgentFunction[];
     /** Agent function names this agent should NOT receive from parents. */
     excluded?: string[];
     /** Enables runtime callable discovery (modules + on-demand definitions). */
@@ -235,7 +255,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private actorProgram!: AxGen<any, any>;
   private responderProgram!: AxGen<any, OUT>;
   private agents?: AxAnyAgentic[];
-  private agentFunctions: AxFunction[];
+  private agentFunctions: AxAgentFunction[];
+  private discoveryNamespaces: AxAgentNamespace[] = [];
   private debug?: boolean;
   private options?: Readonly<AxAgentOptions<IN>>;
   private rlmConfig: AxRLMConfig;
@@ -390,6 +411,18 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     this.responderDescription = responderDescription;
     this.responderForwardOptions = responderForwardOptions;
     this.inputUpdateCallback = inputUpdateCallback;
+    this.discoveryNamespaces = normalizeAgentNamespaces(
+      options.namespaces,
+      new Set([
+        'inputs',
+        'llmQuery',
+        'final',
+        'ask_clarification',
+        'inspect_runtime',
+        DISCOVERY_LIST_MODULE_FUNCTIONS_NAME,
+        DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME,
+      ])
+    );
 
     const agents = this.agents;
     for (const agent of agents ?? []) {
@@ -478,6 +511,15 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         throw new Error(
           `Agent function "${fn.name}" must define parameters schema for agent runtime usage.`
         );
+      }
+      if (fn.examples) {
+        for (const [index, example] of fn.examples.entries()) {
+          if (!example.code.trim()) {
+            throw new Error(
+              `Agent function "${fn.name}" example at index ${index} must define non-empty code`
+            );
+          }
+        }
       }
     }
 
@@ -1661,6 +1703,37 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       return truncateText(parts.join('\n'), maxRuntimeChars);
     };
 
+    const hasCompletionSignalCall = (code: string): boolean => {
+      const sanitized = stripJsStringsAndComments(code);
+      return (
+        /\bfinal\s*\(/.test(sanitized) ||
+        /\bask_clarification\s*\(/.test(sanitized)
+      );
+    };
+
+    const looksLikePromisePlaceholder = (result: unknown): boolean => {
+      if (
+        result &&
+        (typeof result === 'object' || typeof result === 'function') &&
+        'then' in result &&
+        typeof (result as { then?: unknown }).then === 'function'
+      ) {
+        return true;
+      }
+      return typeof result === 'string' && result.trim() === '[object Promise]';
+    };
+
+    const waitForActorCompletionSignal = async (): Promise<void> => {
+      if (actorResultPayload) {
+        return;
+      }
+      for (let i = 0; i < 3 && !actorResultPayload; i++) {
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, 0);
+        });
+      }
+    };
+
     const executeInterpreterCode = async (
       code: string
     ): Promise<{ output: string; isError: boolean }> => {
@@ -1669,6 +1742,18 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           signal: effectiveAbortSignal,
           reservedNames: protectedRuntimeNames,
         });
+        if (
+          hasCompletionSignalCall(code) &&
+          (actorResultPayload || looksLikePromisePlaceholder(result))
+        ) {
+          await waitForActorCompletionSignal();
+          if (actorResultPayload) {
+            return {
+              output: formatInterpreterOutput(undefined),
+              isError: false,
+            };
+          }
+        }
         return { output: formatInterpreterOutput(result), isError: false };
       } catch (err) {
         if (effectiveAbortSignal?.aborted) {
@@ -2171,6 +2256,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const globals: Record<string, unknown> = {};
     const callableLookup = new Map<string, DiscoveryCallableMeta>();
     const moduleLookup = new Map<string, string[]>();
+    const moduleMetaLookup = new Map<string, AxAgentNamespace>();
+    for (const namespaceMeta of this.discoveryNamespaces) {
+      moduleMetaLookup.set(namespaceMeta.name, namespaceMeta);
+    }
     const registerCallable = (
       meta: DiscoveryCallableMeta,
       qualifiedName: string
@@ -2197,6 +2286,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           description: agentFn.description,
           parameters: agentFn.parameters,
           returns: agentFn.returns,
+          examples: agentFn.examples,
         },
         `${ns}.${agentFn.name}`
       );
@@ -2246,7 +2336,11 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         modulesInput: unknown
       ): Promise<string> => {
         const modules = normalizeDiscoveryStringInput(modulesInput, 'modules');
-        return renderDiscoveryModuleListMarkdown(modules, moduleLookup);
+        return renderDiscoveryModuleListMarkdown(
+          modules,
+          moduleLookup,
+          moduleMetaLookup
+        );
       };
 
       globals[DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME] = async (
@@ -2733,6 +2827,7 @@ type DiscoveryCallableMeta = {
   description: string;
   parameters?: AxFunctionJSONSchema;
   returns?: AxFunctionJSONSchema;
+  examples?: readonly AxAgentFunctionExample[];
 };
 
 function normalizeAgentModuleNamespace(
@@ -2746,6 +2841,51 @@ function normalizeAgentModuleNamespace(
     throw new Error('Agent module namespace must contain letters or numbers');
   }
   return normalized;
+}
+
+function normalizeAgentNamespaces(
+  namespaces: readonly AxAgentNamespace[] | undefined,
+  reservedNames: ReadonlySet<string>
+): AxAgentNamespace[] {
+  if (!namespaces || namespaces.length === 0) {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  return namespaces.map((namespaceMeta) => {
+    const name = namespaceMeta.name.trim();
+    const title = namespaceMeta.title.trim();
+    const description = namespaceMeta.description.trim();
+
+    if (!name) {
+      throw new Error(
+        'Agent namespace metadata name must be a non-empty string'
+      );
+    }
+    if (!title) {
+      throw new Error(
+        `Agent namespace "${name}" must define a non-empty title`
+      );
+    }
+    if (!description) {
+      throw new Error(
+        `Agent namespace "${name}" must define a non-empty description`
+      );
+    }
+    if (reservedNames.has(name)) {
+      throw new Error(`Agent namespace "${name}" is reserved`);
+    }
+    if (seen.has(name)) {
+      throw new Error(`Duplicate agent namespace "${name}"`);
+    }
+    seen.add(name);
+
+    return {
+      name,
+      title,
+      description,
+    };
+  });
 }
 
 function normalizeDiscoveryStringInput(
@@ -2885,20 +3025,132 @@ function renderCallableEntryForDiscovery(args: {
   return `- \`${args.qualifiedName}(args: ${paramType})${returnType}\``;
 }
 
+type DiscoveryArgDoc = {
+  name: string;
+  type: string;
+  required?: boolean;
+  description: string;
+};
+
+function collectDiscoveryArgumentDocs(
+  schema: AxFunctionJSONSchema | undefined,
+  prefix = '',
+  includeRequired = true
+): DiscoveryArgDoc[] {
+  if (!schema?.properties) {
+    return [];
+  }
+
+  const required = new Set(schema.required ?? []);
+  const docs: DiscoveryArgDoc[] = [];
+
+  for (const [key, prop] of Object.entries(schema.properties)) {
+    const path = prefix ? `${prefix}.${key}` : key;
+    const description = prop.description?.trim();
+    if (description) {
+      docs.push({
+        name: path,
+        type: schemaTypeToShortStringForDiscovery(prop),
+        required: includeRequired ? required.has(key) : undefined,
+        description,
+      });
+    }
+
+    const propTypes = normalizeSchemaTypesForDiscovery(prop);
+    if (propTypes.includes('object') && prop.properties) {
+      docs.push(...collectDiscoveryArgumentDocs(prop, path, false));
+    }
+
+    if (propTypes.includes('array') && prop.items) {
+      const itemDescription = (
+        prop.items as AxFunctionJSONSchema & { description?: string }
+      ).description?.trim();
+      const itemPath = `${path}[]`;
+      if (itemDescription) {
+        docs.push({
+          name: itemPath,
+          type: schemaTypeToShortStringForDiscovery(prop.items),
+          description: itemDescription,
+        });
+      }
+      const itemTypes = normalizeSchemaTypesForDiscovery(prop.items);
+      if (itemTypes.includes('object') && prop.items.properties) {
+        docs.push(...collectDiscoveryArgumentDocs(prop.items, itemPath, false));
+      }
+    }
+  }
+
+  return docs;
+}
+
+function renderDiscoveryArgumentDocsMarkdown(
+  schema: AxFunctionJSONSchema | undefined
+): string | undefined {
+  const docs = collectDiscoveryArgumentDocs(schema);
+  if (docs.length === 0) {
+    return undefined;
+  }
+
+  return [
+    '#### Arguments',
+    ...docs.map((doc) => {
+      const suffix =
+        doc.required === undefined
+          ? `\`${doc.type}\``
+          : `\`${doc.type}\`, ${doc.required ? 'required' : 'optional'}`;
+      return `- \`${doc.name}\` (${suffix}): ${doc.description}`;
+    }),
+  ].join('\n');
+}
+
+function renderDiscoveryExamplesMarkdown(
+  examples: readonly AxAgentFunctionExample[] | undefined
+): string | undefined {
+  if (!examples || examples.length === 0) {
+    return undefined;
+  }
+
+  const blocks = examples
+    .map((example) => {
+      const parts: string[] = [];
+      if (example.title?.trim()) {
+        parts.push(`##### ${example.title.trim()}`);
+      }
+      if (example.description?.trim()) {
+        parts.push(example.description.trim());
+      }
+      parts.push(`\`\`\`${example.language?.trim() || 'typescript'}`);
+      parts.push(example.code);
+      parts.push('```');
+      return parts.join('\n');
+    })
+    .join('\n\n');
+
+  return ['#### Examples', blocks].join('\n');
+}
+
 function renderDiscoveryModuleListMarkdown(
   modules: readonly string[],
-  moduleLookup: ReadonlyMap<string, readonly string[]>
+  moduleLookup: ReadonlyMap<string, readonly string[]>,
+  moduleMetaLookup: ReadonlyMap<string, AxAgentNamespace>
 ): string {
   return modules
     .map((module) => {
       const functions = [...(moduleLookup.get(module) ?? [])].sort((a, b) =>
         a.localeCompare(b)
       );
-      const list =
-        functions.length > 0
-          ? functions.map((name) => `- \`${name}\``).join('\n')
-          : '- (not found)';
-      return `### Module \`${module}\`\n${list}`;
+      const exists = functions.length > 0;
+      const meta = exists ? moduleMetaLookup.get(module) : undefined;
+      const body = exists
+        ? functions.map((name) => `- \`${name}\``).join('\n')
+        : `- Error: module \`${module}\` does not exist.`;
+      const parts = [`### Module \`${module}\``];
+      if (meta) {
+        parts.push(`**${meta.title}**`);
+        parts.push(meta.description);
+      }
+      parts.push(body);
+      return parts.join('\n');
     })
     .join('\n\n');
 }
@@ -2924,7 +3176,11 @@ function renderDiscoveryFunctionDefinitionsMarkdown(
           parameters: meta.parameters,
           returns: meta.returns,
         }),
-      ].join('\n');
+        renderDiscoveryArgumentDocsMarkdown(meta.parameters),
+        renderDiscoveryExamplesMarkdown(meta.examples),
+      ]
+        .filter((part): part is string => !!part)
+        .join('\n');
     })
     .join('\n\n');
 }

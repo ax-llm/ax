@@ -79,6 +79,19 @@ const myAgent = agent('input:string -> output:string', {
     excluded: ['field'],                  // Fields NOT to receive from parents
   },
 
+  namespaces: [
+    {
+      name: 'db',
+      title: 'Scheduling Database',
+      description: 'Database helpers for availability and slot lookup.',
+    },
+    {
+      name: 'agents',
+      title: 'Child Agents',
+      description: 'Delegated specialist agents available in this runtime.',
+    },
+  ],
+
   // Agent functions (namespaced JS runtime globals)
   functions: {
     discovery: true,                      // Optional: module discovery mode for runtime callables
@@ -364,6 +377,10 @@ Set `functions.discovery: true` to avoid dumping full callable definitions into 
 - When multiple callable definitions are needed, prefer one batched `await getFunctionDefinitions([...])` call.
 - Treat discovery results as markdown sections to inspect or log directly; do not wrap them in JSON or custom objects.
 - Do not fan out discovery work with `Promise.all(...)`.
+- `listModuleFunctions(...)` only advertises modules that currently have callable entries. Namespace metadata from `namespaces` is used only to enrich those callable-backed modules.
+- If a requested module does not exist, `listModuleFunctions(...)` returns a per-module markdown error instead of failing the whole call.
+- `getFunctionDefinitions(...)` includes argument comments from JSON Schema property descriptions.
+- `getFunctionDefinitions(...)` includes fenced code examples from `AxAgentFunction.examples`.
 - `getFunctionDefinitions` accepts fully-qualified names like `db.search` or `<agentModule>.researcher`, where `<agentModule>` is `agentIdentity.namespace` when set, otherwise `agents`.
 - Bare names resolve to `utils.<name>` (for example `lookup` -> `utils.lookup`).
 
@@ -847,7 +864,7 @@ Inside the code interpreter, these functions are available as globals:
 | `ask_clarification(...args)` | Stop Actor execution and pass clarification payload args to Responder. Requires at least one argument |
 | `await <agentModule>.<name>({...})` | Call a child agent by name (from `agents.local`). `<agentModule>` is `agentIdentity.namespace` when set, otherwise `agents`. Parameters match the agent's JSON schema. Returns a string |
 | `await <namespace>.<fnName>({...})` | Call an agent function by namespace and name (from `functions.local`). Returns the typed result |
-| `await listModuleFunctions(modules)` | Discovery mode only (`functions.discovery: true`). Returns markdown sections listing callable names for one or more modules. Prefer one batched array call when inspecting multiple modules |
+| `await listModuleFunctions(modules)` | Discovery mode only (`functions.discovery: true`). Returns markdown sections listing callable names for callable-backed modules, and per-module markdown errors for unknown requested modules. Prefer one batched array call when inspecting multiple modules |
 | `await getFunctionDefinitions(functions)` | Discovery mode only (`functions.discovery: true`). Returns markdown sections with API descriptions and signatures for one or more callables. Prefer one batched array call when inspecting multiple callables |
 | `print(...args)` | Available in `AxJSRuntime` when `outputMode: 'stdout'`; captured output appears in the function result |
 | Context variables | All input fields are available as `inputs.<field>` (including context fields). Non-colliding top-level aliases may also exist and are refreshed from `inputUpdateCallback` patches before each turn |
@@ -1082,11 +1099,27 @@ type AxAgentFunction = {
   parameters: AxFunctionJSONSchema;  // required
   returns?: AxFunctionJSONSchema;    // optional output schema
   namespace?: string;                // default: 'utils'
+  examples?: {
+    code: string;
+    title?: string;
+    description?: string;
+    language?: string;               // default render language: 'typescript'
+  }[];
   func: AxFunctionHandler;
 };
 ```
 
 Agent functions are registered as namespaced globals in the JS runtime (e.g. `utils.search`, `db.query`). Reserved namespaces: `agents`, `llmQuery`, `final`, `ask_clarification`, and the configured `agentIdentity.namespace` when set.
+
+### `AxAgentNamespace`
+
+```typescript
+type AxAgentNamespace = {
+  name: string;         // Discovery module name, such as 'db' or 'agents'
+  title: string;        // Human-readable module title
+  description: string;  // Summary shown in discovery markdown
+};
+```
 
 ### `AxAgentOptions`
 
@@ -1110,6 +1143,8 @@ Extends `AxProgramForwardOptions` (without `functions` or `description`) with:
     globallyShared?: string[];           // Fields passed to all descendants
     excluded?: string[];                 // Fields NOT to receive from parents
   };
+
+  namespaces?: AxAgentNamespace[];       // Discovery-only module metadata
 
   functions?: {
     discovery?: boolean;                 // Enable module discovery APIs instead of prompt definition dump

@@ -1,8 +1,9 @@
 import {
   AxAIGoogleGeminiModel,
+  type AxAgentFunction,
+  type AxAgentNamespace,
   AxJSRuntime,
   AxJSRuntimePermission,
-  type AxFunction,
   agent,
   ai,
 } from '@ax-llm/ax';
@@ -39,7 +40,7 @@ const handbookSnippets = [
   'Escalate to on-call lead if mitigation takes longer than 20 minutes.',
 ];
 
-const tools: AxFunction[] = [
+const tools: AxAgentFunction[] = [
   {
     name: 'findSnippets',
     namespace: 'kb',
@@ -176,6 +177,33 @@ const tools: AxFunction[] = [
   },
 ];
 
+const namespaces: AxAgentNamespace[] = [
+  {
+    name: 'team',
+    title: 'Team Agents',
+    description:
+      'Specialist child agents that can refine or delegate parts of the analysis workflow.',
+  },
+  {
+    name: 'kb',
+    title: 'Policy Knowledge Base',
+    description:
+      'Handbook and incident policy lookup helpers for grounding summaries in internal guidance.',
+  },
+  {
+    name: 'metrics',
+    title: 'Coverage Metrics',
+    description:
+      'Scoring utilities for quantifying how well a summary covers required operational signals.',
+  },
+  {
+    name: 'utils',
+    title: 'Formatting Utilities',
+    description:
+      'Output-shaping helpers for turning collected evidence into markdown-ready text.',
+  },
+];
+
 const analyst = agent(
   'context:string, query:string, audience:string -> answer:string, evidence:string[], coverageScore:number, polishedSummary:string',
   {
@@ -187,6 +215,7 @@ const analyst = agent(
     } as any,
     contextFields: ['context'],
     runtime,
+    namespaces,
     agents: { local: [writingCoach] },
     fields: { shared: ['audience'] },
     functions: { discovery: true, local: tools } as any,

@@ -742,8 +742,11 @@ import {
   AxAgent,
   type AxAgentConfig,
   type AxAgentDemos,
+  type AxAgentFunction,
+  type AxAgentFunctionExample,
   type AxAgentInputUpdateCallback,
   type AxAgentic,
+  type AxAgentNamespace,
   type AxAgentOptions,
   type AxAgentRecursionOptions,
   type AxContextFieldInput,
@@ -1211,7 +1214,10 @@ export type { AxAPI };
 export type { AxAPIConfig };
 export type { AxAgentConfig };
 export type { AxAgentDemos };
+export type { AxAgentFunction };
+export type { AxAgentFunctionExample };
 export type { AxAgentInputUpdateCallback };
+export type { AxAgentNamespace };
 export type { AxAgentOptions };
 export type { AxAgentRecursionOptions };
 export type { AxAgentic };

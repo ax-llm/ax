@@ -1,4 +1,12 @@
-import { type AxCodeRuntime, type AxFunction, agent, f, s } from '../index.js';
+import {
+  type AxAgentFunction,
+  type AxAgentNamespace,
+  type AxCodeRuntime,
+  type AxFunction,
+  agent,
+  f,
+  s,
+} from '../index.js';
 
 // Basic agent with string signature — forward() returns typed output
 {
@@ -239,6 +247,60 @@ import { type AxCodeRuntime, type AxFunction, agent, f, s } from '../index.js';
 
   const _ok = [fnWithoutReturns, fnWithReturns];
   void _ok;
+}
+
+// AxAgent-specific discovery metadata should be accepted without changing AxFunction
+{
+  const runtime = {} as AxCodeRuntime;
+
+  const namespaces: AxAgentNamespace[] = [
+    {
+      name: 'db',
+      title: 'Database Tools',
+      description: 'Schedule lookup helpers',
+    },
+    {
+      name: 'agents',
+      title: 'Child Agents',
+      description: 'Delegated specialists',
+    },
+  ];
+
+  const agentFns: AxAgentFunction[] = [
+    {
+      name: 'lookupSchedule',
+      description: 'Lookup schedule data',
+      namespace: 'db',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Query text' },
+        },
+        required: ['query'],
+      },
+      examples: [
+        {
+          title: 'Simple lookup',
+          code: 'await db.lookupSchedule({ query: "alex" });',
+        },
+      ],
+      async func() {
+        return [];
+      },
+    },
+  ];
+
+  agent('query:string -> answer:string', {
+    contextFields: [] as const,
+    runtime,
+    namespaces,
+    functions: {
+      discovery: true,
+      local: agentFns,
+      shared: [agentFns[0]!],
+      globallyShared: [agentFns[0]!],
+    },
+  });
 }
 
 // inputUpdateCallback should infer callback input and patch output from signature inputs

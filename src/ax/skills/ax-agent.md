@@ -116,9 +116,9 @@ Rules:
 ## Tool Functions And Namespaces
 
 ```typescript
-import type { AxFunction } from '@ax-llm/ax';
+import type { AxAgentFunction } from '@ax-llm/ax';
 
-const tools: AxFunction[] = [
+const tools: AxAgentFunction[] = [
   {
     name: 'findSnippets',
     namespace: 'kb',
@@ -134,11 +134,24 @@ const tools: AxFunction[] = [
       type: 'array',
       items: { type: 'string' },
     },
+    examples: [
+      {
+        title: 'Find severity guidance',
+        code: 'await kb.findSnippets({ topic: "severity" });',
+      },
+    ],
     func: async ({ topic }) => [],
   },
 ];
 
 const analyst = agent('query:string -> answer:string', {
+  namespaces: [
+    {
+      name: 'kb',
+      title: 'Knowledge Base',
+      description: 'Handbook and documentation search helpers.',
+    },
+  ],
   functions: { local: tools },
   contextFields: [],
 });
@@ -182,6 +195,10 @@ Discovery APIs:
 - `await getFunctionDefinitions(functions: string | string[])`
 
 Both return Markdown.
+
+- `listModuleFunctions(...)` only lists modules that actually have callable entries. Namespace metadata from `namespaces` only enriches those callable-backed modules.
+- If a requested module does not exist, `listModuleFunctions(...)` returns a per-module markdown error without failing the whole call.
+- `getFunctionDefinitions(...)` may include argument comments from schema descriptions and fenced code examples from `AxAgentFunction.examples`.
 
 Rules:
 
