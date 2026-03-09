@@ -416,6 +416,7 @@ describe('buildActionLog', () => {
     const log = buildActionLogWithPolicy(entries, {
       actionReplay: 'adaptive',
       recentFullActions: 1,
+      successSummarization: true,
     });
     expect(log).toContain('Action 1:');
     expect(log).toContain('[SUMMARY]:');
@@ -443,6 +444,7 @@ describe('buildActionLog', () => {
       actionReplay: 'minimal',
       recentFullActions: 0,
       stateSummary: 'total: number = 5',
+      successSummarization: true,
     });
     expect(log).toContain('Live Runtime State:');
     expect(log).toContain('total: number = 5');

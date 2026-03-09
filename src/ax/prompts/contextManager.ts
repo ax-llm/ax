@@ -608,7 +608,6 @@ export function buildActionLogWithPolicy(
           return '';
         case 'summary':
           return `Action ${entry.turn}:\n${entry.summary ?? buildEntrySummary(entry)}`;
-        case 'full':
         default:
           return `Action ${entry.turn}:\n\`\`\`javascript\n${entry.code}\n\`\`\`\nResult:\n${entry.output}${entry.actorFieldsOutput}`;
       }
