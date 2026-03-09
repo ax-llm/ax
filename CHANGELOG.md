@@ -1,5 +1,17 @@
 # Changelog
 
+## [19.0.14](///compare/19.0.12...19.0.13) (2026-03-09)
+
+### Bug Fixes
+
+* make llm use batch functions a5d694e
+* optimize discovery prompts for axagent 8304a63
+## [19.0.13](///compare/19.0.12...19.0.13) (2026-03-07)
+
+### Features
+
+* implement patchGlobals method for AxCodeSession and update related functionality ef03ceb
+
 ## [19.0.13](///compare/19.0.11...19.0.12) (2026-03-07)
 
 ### Features
