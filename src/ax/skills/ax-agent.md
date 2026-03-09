@@ -15,6 +15,7 @@ Use this skill to generate `AxAgent` code. Prefer short, modern, copyable patter
 - Assume the child-agent module is `agents` unless `agentIdentity.namespace` is set.
 - If `functions.discovery` is `true`, discover callables from modules before using them.
 - In stdout-mode RLM, use one observable `console.log(...)` step per non-final actor turn.
+- For long RLM tasks, prefer `contextManagement.actionReplay: 'adaptive'` plus `stateSummary` so prior exploratory turns are summarized and live runtime state stays visible.
 
 ## Critical Rules
 
@@ -25,6 +26,8 @@ Use this skill to generate `AxAgent` code. Prefer short, modern, copyable patter
 - Never combine `console.log(...)` with `final(...)` or `ask_clarification(...)` in the same actor turn.
 - If a child agent needs parent inputs such as `audience`, use `fields.shared` or `fields.globallyShared`.
 - `llmQuery(...)` failures may come back as `[ERROR] ...`; do not assume success.
+- If `contextManagement.stateSummary.enabled` is on, rely on the `Live Runtime State` block for current variables instead of re-reading old action log code.
+- If `contextManagement.actionReplay` is `'adaptive'` or `'minimal'`, assume older successful turns may be summarized or omitted.
 
 ## Canonical Pattern
 
@@ -239,10 +242,46 @@ Use these rules when generating actor JavaScript for RLM in stdout mode:
 - Treat each actor turn as exactly one observable step.
 - If you need to inspect a value, compute it, `console.log(...)` it, and stop immediately after that `console.log(...)`.
 - On the next turn, read the logged result from `Action Log` before writing more code that depends on it.
+- If the prompt contains `Live Runtime State`, treat it as the canonical view of current variables.
 - Errors from child-agent or tool calls appear in `Action Log`; inspect them and fix the code on the next turn.
 - Non-final turns should contain exactly one `console.log(...)`.
 - Final turns should call `final(...)` or `ask_clarification(...)` without `console.log(...)`.
 - Do not write a complete multi-step program in one actor turn.
+- Do not assume older successful turns remain fully replayed; adaptive replay may compress them to `[SUMMARY]: ...`.
+
+## RLM Adaptive Replay
+
+Prefer this configuration for long, multi-turn runtime analysis:
+
+```typescript
+const analyst = agent(
+  'context:string, question:string -> answer:string, findings:string[]',
+  {
+    contextFields: ['context'],
+    runtime: new AxJSRuntime(),
+    maxTurns: 10,
+    contextManagement: {
+      actionReplay: 'adaptive',
+      recentFullActions: 1,
+      successSummarization: true,
+      stateSummary: { enabled: true, maxEntries: 6 },
+      stateInspection: { contextThreshold: 2_000 },
+      errorPruning: true,
+      hindsightEvaluation: true,
+      pruneRank: 2,
+    },
+  }
+);
+```
+
+Rules:
+
+- Use `actionReplay: 'adaptive'` when the task needs runtime state across many turns but old exploratory code should not keep bloating the prompt.
+- Use `recentFullActions` to keep the newest one or two turns verbatim while older successful turns collapse to summaries.
+- Use `successSummarization: true` for explicit, compact summaries of older successful turns.
+- Use `stateSummary.enabled` to inject a compact `Live Runtime State` block into the actor prompt.
+- Use `actionReplay: 'minimal'` only when you want aggressively compressed history and can rely mostly on current runtime state.
+- Keep `stateInspection.contextThreshold` on so the actor is reminded to call `inspect_runtime()` when context grows.
 
 Good pattern:
 

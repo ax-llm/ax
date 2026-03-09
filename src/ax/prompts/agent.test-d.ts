@@ -101,6 +101,21 @@ import {
   });
 }
 
+// Agent with truncated prompt context config
+{
+  const runtime = {} as AxCodeRuntime;
+  agent('chatHistory:string, query:string -> answer:string', {
+    contextFields: [
+      {
+        field: 'chatHistory',
+        keepInPromptChars: 500,
+        reverseTruncate: true,
+      },
+    ] as const,
+    runtime,
+  });
+}
+
 // Agent with contextManagement — all options
 {
   const runtime = {} as AxCodeRuntime;

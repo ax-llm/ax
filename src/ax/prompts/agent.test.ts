@@ -197,6 +197,23 @@ describe('Split-architecture signature derivation', () => {
     expect(contextField?.isOptional).toBe(true);
   });
 
+  it('should include keepInPromptChars context field as optional Actor input', () => {
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      contextFields: [
+        { field: 'context', keepInPromptChars: 500, reverseTruncate: true },
+      ],
+      runtime,
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const actorSig = (testAgent as any).actorProgram.getSignature();
+    const inputs = actorSig.getInputFields();
+    const contextField = inputs.find((f: AxIField) => f.name === 'context');
+
+    expect(contextField).toBeDefined();
+    expect(contextField?.isOptional).toBe(true);
+  });
+
   it('should only have javascriptCode output when trajectoryPruning is enabled', () => {
     const testAgent = agent('context:string, query:string -> answer:string', {
       contextFields: ['context'],
@@ -486,6 +503,160 @@ describe('Context field runtime access and prompt inlining', () => {
     expect(actorPrompt).toContain('prompt=runtime-only');
   });
 
+  it('should inline short keepInPromptChars string values unchanged', async () => {
+    let actorPrompt = '';
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code.includes('final(') && globals?.final) {
+              (globals.final as (...args: unknown[]) => void)('done');
+            }
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testMockAI = makeMock((prompt) => {
+      actorPrompt = prompt;
+    });
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: [{ field: 'context', keepInPromptChars: 20 }],
+      runtime,
+    });
+
+    const token = 'SHORT_CONTEXT';
+    await testAgent.forward(testMockAI, {
+      context: token,
+      query: 'question',
+    });
+
+    expect(actorPrompt).toContain(token);
+    expect(actorPrompt).not.toContain('[truncated');
+    expect(actorPrompt).toContain('prompt=inline (<=20 chars)');
+  });
+
+  it('should inline truncated prefix for long keepInPromptChars string values', async () => {
+    let actorPrompt = '';
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code.includes('final(') && globals?.final) {
+              (globals.final as (...args: unknown[]) => void)('done');
+            }
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testMockAI = makeMock((prompt) => {
+      actorPrompt = prompt;
+    });
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: [{ field: 'context', keepInPromptChars: 5 }],
+      runtime,
+    });
+
+    await testAgent.forward(testMockAI, {
+      context: 'ABCDE12345',
+      query: 'question',
+    });
+
+    expect(actorPrompt).toContain('ABCDE...[truncated 5 chars]');
+    expect(actorPrompt).toContain(
+      'prompt=inline-truncated(first 5 chars of 10)'
+    );
+  });
+
+  it('should inline truncated suffix for reverseTruncate context values', async () => {
+    let actorPrompt = '';
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code.includes('final(') && globals?.final) {
+              (globals.final as (...args: unknown[]) => void)('done');
+            }
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testMockAI = makeMock((prompt) => {
+      actorPrompt = prompt;
+    });
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: [
+        { field: 'context', keepInPromptChars: 5, reverseTruncate: true },
+      ],
+      runtime,
+    });
+
+    await testAgent.forward(testMockAI, {
+      context: 'ABCDE12345',
+      query: 'question',
+    });
+
+    expect(actorPrompt).toContain('[truncated 5 chars]...12345');
+    expect(actorPrompt).toContain(
+      'prompt=inline-truncated(last 5 chars of 10)'
+    );
+  });
+
+  it('should keep non-string keepInPromptChars values runtime-only in Actor prompt', async () => {
+    let actorPrompt = '';
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code.includes('final(') && globals?.final) {
+              (globals.final as (...args: unknown[]) => void)('done');
+            }
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testMockAI = makeMock((prompt) => {
+      actorPrompt = prompt;
+    });
+    const testAgent = agent('context:json, query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: [{ field: 'context', keepInPromptChars: 20 }],
+      runtime,
+    });
+
+    await testAgent.forward(testMockAI, {
+      context: { secret: 'NON_STRING_SECRET_TOKEN' },
+      query: 'question',
+    });
+
+    expect(actorPrompt).not.toContain('NON_STRING_SECRET_TOKEN');
+    expect(actorPrompt).toContain(
+      'prompt=runtime-only (keepInPromptChars requires string)'
+    );
+  });
+
   it('should validate object-form context field configuration', () => {
     const runtime: AxCodeRuntime = {
       getUsageInstructions: () => '',
@@ -515,6 +686,35 @@ describe('Context field runtime access and prompt inlining', () => {
       })
     ).toThrow(
       /contextField "context" promptMaxChars must be a finite number >= 0/
+    );
+
+    expect(() =>
+      agent('context:string, query:string -> answer:string', {
+        contextFields: [{ field: 'context', keepInPromptChars: -1 }],
+        runtime,
+      })
+    ).toThrow(
+      /contextField "context" keepInPromptChars must be a finite number >= 0/
+    );
+
+    expect(() =>
+      agent('context:string, query:string -> answer:string', {
+        contextFields: [{ field: 'context', reverseTruncate: true }],
+        runtime,
+      })
+    ).toThrow(
+      /contextField "context" reverseTruncate requires keepInPromptChars/
+    );
+
+    expect(() =>
+      agent('context:string, query:string -> answer:string', {
+        contextFields: [
+          { field: 'context', promptMaxChars: 10, keepInPromptChars: 5 },
+        ],
+        runtime,
+      })
+    ).toThrow(
+      /contextField "context" cannot set both promptMaxChars and keepInPromptChars/
     );
   });
 });
@@ -868,7 +1068,8 @@ describe('Actor/Responder execution loop', () => {
     expect(responderPrompt).toContain('Context Data:');
     expect(responderPrompt).toContain('"type": "final"');
     expect(responderPrompt).toContain('Action 1:');
-    expect(responderPrompt).toContain('```javascript');
+    expect(responderPrompt).toContain('Evidence summary');
+    expect(responderPrompt).not.toContain('```javascript');
     expect(responderPrompt).not.toContain('Action Log:');
   });
 
@@ -1168,6 +1369,193 @@ describe('Actor/Responder execution loop', () => {
     const definition = actorSig.getDescription();
 
     expect(definition).toContain('inspect_runtime');
+  });
+
+  it('should summarize superseded actions in later actor prompts when actionReplay is adaptive', async () => {
+    let actorCallCount = 0;
+    let thirdActorPrompt = '';
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCallCount++;
+          if (actorCallCount === 3) {
+            thirdActorPrompt = userPrompt;
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: final("done")',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+
+          return {
+            results: [
+              {
+                index: 0,
+                content:
+                  actorCallCount === 1
+                    ? 'Javascript Code: const firstPass = "draft"; console.log(firstPass)'
+                    : 'Javascript Code: const secondPass = "final"; console.log(secondPass)',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (globals?.final && code.includes('final(')) {
+              (globals.final as (...args: unknown[]) => void)('done');
+              return 'done';
+            }
+            if (code.includes('firstPass')) {
+              return 'draft';
+            }
+            if (code.includes('secondPass')) {
+              return 'final';
+            }
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: ['context'],
+      runtime,
+      maxTurns: 3,
+      contextManagement: {
+        actionReplay: 'adaptive',
+        recentFullActions: 1,
+      },
+    });
+
+    const result = await testAgent.forward(testMockAI, {
+      context: 'ctx',
+      query: 'q',
+    });
+
+    expect(result.answer).toBe('done');
+    expect(thirdActorPrompt).toContain('[SUMMARY]:');
+    expect(thirdActorPrompt).not.toContain('const firstPass = "draft"');
+    expect(thirdActorPrompt).toContain('const secondPass = "final"');
+  });
+
+  it('should include live runtime state in actor prompts when stateSummary is enabled', async () => {
+    let actorCallCount = 0;
+    let secondActorPrompt = '';
+    let hasTotal = false;
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCallCount++;
+          if (actorCallCount === 2) {
+            secondActorPrompt = userPrompt;
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: final("done")',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: const total = 5; console.log(total)',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code.includes('Object.entries(globalThis)')) {
+              return hasTotal ? 'total: number = 5' : '(no user variables)';
+            }
+            if (globals?.final && code.includes('final(')) {
+              (globals.final as (...args: unknown[]) => void)('done');
+              return 'done';
+            }
+            if (code.includes('const total = 5')) {
+              hasTotal = true;
+              return '5';
+            }
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: ['context'],
+      runtime,
+      maxTurns: 2,
+      contextManagement: {
+        actionReplay: 'minimal',
+        recentFullActions: 0,
+        stateSummary: { enabled: true, maxEntries: 2 },
+      },
+    });
+
+    const result = await testAgent.forward(testMockAI, {
+      context: 'ctx',
+      query: 'q',
+    });
+
+    expect(result.answer).toBe('done');
+    expect(secondActorPrompt).toContain('Live Runtime State:');
+    expect(secondActorPrompt).toContain('total: number = 5');
   });
 
   it('should execute inspect_runtime at runtime and pass reserved names', async () => {
@@ -1886,6 +2274,83 @@ describe('final()/ask_clarification() as runtime globals', () => {
       question: 'What is the duration?',
       taskId: 'task-123',
     });
+  });
+
+  it('should send responder a compact evidence summary when actor exits without final', async () => {
+    let responderPrompt = '';
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          return {
+            results: [
+              {
+                index: 0,
+                content:
+                  'Javascript Code: const answer = 42; console.log(answer)',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Answer Synthesis Agent')) {
+          responderPrompt = userPrompt;
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Answer: summarized fallback',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession() {
+        return {
+          execute: async (code: string) => {
+            if (code.includes('const answer = 42')) {
+              return '42';
+            }
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: [],
+      runtime,
+      maxTurns: 1,
+      contextManagement: {
+        actionReplay: 'adaptive',
+      },
+    });
+
+    const result = await testAgent.forward(testMockAI, { query: 'test' });
+
+    expect(result.answer).toBe('summarized fallback');
+    expect(responderPrompt).toContain('Evidence summary');
+    expect(responderPrompt).not.toContain('```javascript');
+    expect(responderPrompt).not.toContain('const answer = 42');
   });
 });
 
@@ -4974,8 +5439,9 @@ describe('recursionOptions and recursive parity', () => {
     expect(childSubmitActorCalls).toBe(1);
     expect(childAskActorCalls).toBe(1);
     expect(rootResponderPrompt).toContain('"type": "final"');
-    expect(rootResponderPrompt).toContain('```javascript');
-    expect(rootResponderPrompt).toContain('ROOT_NO_SIGNAL');
+    expect(rootResponderPrompt).toContain('Evidence summary');
+    expect(rootResponderPrompt).not.toContain('```javascript');
+    expect(rootResponderPrompt).not.toContain('ROOT_NO_SIGNAL');
   });
 
   it('should not carry actor/responder description options into recursive child prompts', async () => {

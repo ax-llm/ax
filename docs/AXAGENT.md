@@ -57,7 +57,14 @@ const myAgent = agent('input:string -> output:string', {
   },
 
   // Required when using context fields
-  contextFields: ['largeDoc'],        // Fields removed from LLM prompt; available as JS runtime vars
+  contextFields: [
+    'largeDoc',                       // Runtime-only (legacy behavior)
+    {
+      field: 'chatHistory',
+      keepInPromptChars: 500,
+      reverseTruncate: true,          // Keep the last 500 chars in the Actor prompt
+    },
+  ],
 
   // Optional
   ai: llm,                            // Bind a specific AI service
@@ -535,7 +542,14 @@ const analyzer = agent(
       name: 'documentAnalyzer',
       description: 'Analyzes long documents using code interpreter and sub-LM queries',
     },
-    contextFields: ['context'],                  // Fields to load into runtime session
+    contextFields: [
+      'context',                                  // Runtime-only context field
+      {
+        field: 'chatHistory',
+        keepInPromptChars: 500,
+        reverseTruncate: true,                    // Keep the last 500 chars in the Actor prompt
+      },
+    ],
     runtime: new AxJSRuntime(),                  // Code runtime (default: AxJSRuntime)
     maxSubAgentCalls: 30,                             // Cap on sub-LM calls (default: 50)
     maxRuntimeChars: 2_000,                      // Cap for llmQuery context + code output (default: 5000)
@@ -1128,7 +1142,15 @@ Extends `AxProgramForwardOptions` (without `functions` or `description`) with:
 ```typescript
 {
   debug?: boolean;
-  contextFields: string[];               // Input fields loaded into JS runtime (removed from LLM prompt)
+  contextFields: readonly (
+    | string
+    | {
+        field: string;
+        promptMaxChars?: number;         // Inline only when the full value is at or below the threshold
+        keepInPromptChars?: number;      // Keep a truncated string excerpt in the Actor prompt
+        reverseTruncate?: boolean;       // With keepInPromptChars, keep the last N chars instead of the first N
+      }
+  )[];                                  // Input fields loaded into JS runtime; object form can also expose prompt excerpts
 
   agents?: {
     local?: AxAnyAgentic[];              // Callable under <agentModule>.* in this agent

@@ -32,7 +32,8 @@ import {
 } from '../util/apicall.js';
 import type { ActionLogEntry } from './contextManager.js';
 import {
-  buildActionLog,
+  buildActionEvidenceSummary,
+  buildActionLogWithPolicy,
   buildInspectRuntimeCode,
   manageContext,
 } from './contextManager.js';
@@ -89,6 +90,19 @@ export type AxContextFieldInput =
   | {
       field: string;
       promptMaxChars?: number;
+      keepInPromptChars?: number;
+      reverseTruncate?: boolean;
+    };
+
+type AxContextFieldPromptConfig =
+  | {
+      kind: 'threshold';
+      promptMaxChars: number;
+    }
+  | {
+      kind: 'truncate';
+      keepInPromptChars: number;
+      reverseTruncate: boolean;
     };
 
 /**
@@ -123,6 +137,7 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
    * Input fields used as context.
    * - `string`: runtime-only (legacy behavior)
    * - `{ field, promptMaxChars }`: runtime + conditionally inlined into Actor prompt
+   * - `{ field, keepInPromptChars, reverseTruncate? }`: runtime + truncated string excerpt in Actor prompt
    */
   contextFields: readonly AxContextFieldInput[];
 
@@ -274,7 +289,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private actorForwardOptions?: Partial<AxProgramForwardOptions<string>>;
   private responderForwardOptions?: Partial<AxProgramForwardOptions<string>>;
   private inputUpdateCallback?: AxAgentInputUpdateCallback<IN>;
-  private contextPromptMaxCharsByField: Map<string, number> = new Map();
+  private contextPromptConfigByField: Map<string, AxContextFieldPromptConfig> =
+    new Map();
   private agentModuleNamespace = DEFAULT_AGENT_MODULE_NAMESPACE;
   private functionDiscoveryEnabled = false;
   private runtimeUsageInstructions = '';
@@ -382,7 +398,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       inputFields,
       DEFAULT_CONTEXT_FIELD_PROMPT_MAX_CHARS
     );
-    this.contextPromptMaxCharsByField = normalizedContext.promptMaxCharsByField;
+    this.contextPromptConfigByField = normalizedContext.promptConfigByField;
 
     this.rlmConfig = {
       contextFields: normalizedContext.contextFieldNames,
@@ -654,7 +670,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const actorInlineContextInputs = contextFieldMeta
       .filter(
         (fld) =>
-          this.contextPromptMaxCharsByField.has(fld.name) &&
+          this.contextPromptConfigByField.has(fld.name) &&
           !bypassedSharedFields.has(fld.name)
       )
       .map((fld) => ({ ...fld, isOptional: true }));
@@ -1247,17 +1263,19 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       }
 
       const nextInlineContextValues: Record<string, unknown> = {};
-      for (const [field, maxChars] of this.contextPromptMaxCharsByField) {
+      for (const [field, promptConfig] of this.contextPromptConfigByField) {
         if (bypassedSharedFields.has(field)) {
           continue;
         }
         if (!(field in nextContextValues)) {
           continue;
         }
-        const value = nextContextValues[field];
-        const size = estimateValueSize(value);
-        if (size <= maxChars) {
-          nextInlineContextValues[field] = value;
+        const inlined = buildContextFieldPromptInlineValue(
+          nextContextValues[field],
+          promptConfig
+        );
+        if (inlined !== undefined) {
+          nextInlineContextValues[field] = inlined;
         }
       }
 
@@ -1280,7 +1298,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
       contextMetadata =
         buildRLMVariablesInfo(contextValues, {
-          promptMaxCharsByField: this.contextPromptMaxCharsByField,
+          promptConfigByField: this.contextPromptConfigByField,
           inlinedFields: new Set(Object.keys(actorInlineContextValues)),
         }) || '(none)';
     };
@@ -1562,6 +1580,17 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       setActorResultPayload('final', args);
     const askClarificationFunction = (...args: unknown[]) =>
       setActorResultPayload('ask_clarification', args);
+    const contextMgmt = rlm.contextManagement;
+    const effectiveContextConfig = {
+      errorPruning: contextMgmt?.errorPruning ?? rlm.trajectoryPruning ?? false,
+      hindsightEvaluation: contextMgmt?.hindsightEvaluation ?? false,
+      tombstoning: contextMgmt?.tombstoning,
+      pruneRank: contextMgmt?.pruneRank ?? 2,
+      actionReplay: contextMgmt?.actionReplay ?? 'full',
+      recentFullActions: contextMgmt?.recentFullActions ?? 1,
+      successSummarization: contextMgmt?.successSummarization,
+      stateSummary: contextMgmt?.stateSummary,
+    };
 
     const agentFunctionNamespaces = [
       ...new Set(this.agentFunctions.map((f) => f.namespace ?? 'utils')),
@@ -1575,7 +1604,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       'final',
       'ask_clarification',
       ...agentFunctionNamespaces,
-      ...(rlm.contextManagement?.stateInspection ? ['inspect_runtime'] : []),
+      ...(contextMgmt?.stateInspection || contextMgmt?.stateSummary?.enabled
+        ? ['inspect_runtime']
+        : []),
       ...Object.keys(toolGlobals),
     ]);
     const runtimeAliasKeys = [
@@ -1607,20 +1638,48 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     // inspect_runtime: queries worker globalThis for current variable state
     // Captures `session` by reference so it works after session restart.
-    const inspectRuntime = rlm.contextManagement?.stateInspection
-      ? async (): Promise<string> => {
-          try {
-            const code = buildInspectRuntimeCode(inspectReservedNames);
-            const result = await session.execute(code, {
-              signal: effectiveAbortSignal,
-              reservedNames: inspectReservedNames,
-            });
-            return typeof result === 'string' ? result : String(result);
-          } catch (err) {
-            return `[inspect_runtime error: ${err instanceof Error ? err.message : String(err)}]`;
+    const inspectRuntime =
+      contextMgmt?.stateInspection || contextMgmt?.stateSummary?.enabled
+        ? async (): Promise<string> => {
+            try {
+              const code = buildInspectRuntimeCode(inspectReservedNames);
+              const result = await session.execute(code, {
+                signal: effectiveAbortSignal,
+                reservedNames: inspectReservedNames,
+              });
+              return typeof result === 'string' ? result : String(result);
+            } catch (err) {
+              return `[inspect_runtime error: ${err instanceof Error ? err.message : String(err)}]`;
+            }
           }
-        }
-      : undefined;
+        : undefined;
+
+    const formatStateSummary = (snapshot: string): string => {
+      const maxEntries =
+        effectiveContextConfig.stateSummary?.maxEntries &&
+        effectiveContextConfig.stateSummary.maxEntries > 0
+          ? effectiveContextConfig.stateSummary.maxEntries
+          : 8;
+
+      return snapshot
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .slice(0, maxEntries)
+        .join('\n');
+    };
+
+    const captureRuntimeStateSummary = async (): Promise<
+      string | undefined
+    > => {
+      if (!effectiveContextConfig.stateSummary?.enabled || !inspectRuntime) {
+        return undefined;
+      }
+
+      const snapshot = await inspectRuntime();
+      const formatted = formatStateSummary(snapshot);
+      return formatted || '(no user variables)';
+    };
 
     const createSession = () => {
       return runtime.createSession({
@@ -1885,16 +1944,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     };
 
     // 3. Actor loop (TypeScript-managed)
-    // Resolve effective context management config
-    const contextMgmt = rlm.contextManagement;
-    const effectiveContextConfig = {
-      errorPruning: contextMgmt?.errorPruning ?? rlm.trajectoryPruning ?? false,
-      hindsightEvaluation: contextMgmt?.hindsightEvaluation ?? false,
-      tombstoning: contextMgmt?.tombstoning,
-      pruneRank: contextMgmt?.pruneRank ?? 2,
-    };
-
     const actionLogEntries: ActionLogEntry[] = [];
+    let runtimeStateSummary: string | undefined;
 
     const actorMergedOptions = {
       ...this._genOptions,
@@ -1912,10 +1963,19 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       for (let turn = 0; turn < maxTurns; turn++) {
         await applyInputUpdateCallback();
         recomputeTurnInputs(true);
+        runtimeStateSummary = await captureRuntimeStateSummary();
 
         // Build action log, adding inspect_runtime hint when it gets large
         let actionLogText =
-          buildActionLog(actionLogEntries) || '(no actions yet)';
+          buildActionLogWithPolicy(actionLogEntries, {
+            actionReplay: effectiveContextConfig.actionReplay,
+            recentFullActions: effectiveContextConfig.recentFullActions,
+            stateSummary: runtimeStateSummary,
+            successSummarization:
+              effectiveContextConfig.successSummarization === undefined
+                ? effectiveContextConfig.actionReplay !== 'full'
+                : Boolean(effectiveContextConfig.successSummarization),
+          }) || '(no actions yet)';
         if (contextThreshold && actionLogText.length > contextThreshold) {
           actionLogText +=
             '\n\n[HINT: Action log is large. Call `const state = await inspect_runtime()` for a compact snapshot of current variables instead of re-reading old outputs.]';
@@ -1988,6 +2048,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
               effectiveContextConfig,
               ai
             );
+            runtimeStateSummary = await captureRuntimeStateSummary();
             continue;
           }
         }
@@ -2012,6 +2073,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           effectiveContextConfig,
           ai
         );
+        runtimeStateSummary = await captureRuntimeStateSummary();
 
         // Exit when Actor signaled completion via final(...) or ask_clarification(...).
         if (actorResultPayload) {
@@ -2030,13 +2092,26 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       actorResultPayload ??
       ({
         type: 'final',
-        args: [buildActionLog(actionLogEntries) || '(no actions were taken)'],
+        args: [
+          buildActionEvidenceSummary(actionLogEntries, {
+            stateSummary: runtimeStateSummary,
+          }),
+        ],
       } satisfies AxAgentActorResultPayload);
 
     return {
       nonContextValues,
       contextMetadata,
-      actionLog: buildActionLog(actionLogEntries),
+      actionLog:
+        buildActionLogWithPolicy(actionLogEntries, {
+          actionReplay: effectiveContextConfig.actionReplay,
+          recentFullActions: effectiveContextConfig.recentFullActions,
+          stateSummary: runtimeStateSummary,
+          successSummarization:
+            effectiveContextConfig.successSummarization === undefined
+              ? effectiveContextConfig.actionReplay !== 'full'
+              : Boolean(effectiveContextConfig.successSummarization),
+        }) || '(no actions yet)',
       actorResult,
       actorFieldValues,
     };
@@ -2480,6 +2555,63 @@ function truncateText(text: string, maxChars: number): string {
   return `${text.slice(0, maxChars)}\n...[truncated ${text.length - maxChars} chars]`;
 }
 
+function buildContextFieldPromptInlineValue(
+  value: unknown,
+  promptConfig: AxContextFieldPromptConfig
+): unknown {
+  if (promptConfig.kind === 'threshold') {
+    return estimateValueSize(value) <= promptConfig.promptMaxChars
+      ? value
+      : undefined;
+  }
+
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const keepChars = promptConfig.keepInPromptChars;
+  if (value.length <= keepChars) {
+    return value;
+  }
+
+  const truncatedChars = value.length - keepChars;
+  if (promptConfig.reverseTruncate) {
+    const suffix = keepChars > 0 ? value.slice(-keepChars) : '';
+    return `[truncated ${truncatedChars} chars]...${suffix}`;
+  }
+
+  const prefix = keepChars > 0 ? value.slice(0, keepChars) : '';
+  return `${prefix}...[truncated ${truncatedChars} chars]`;
+}
+
+function describeContextFieldPromptMode(
+  value: unknown,
+  promptConfig: AxContextFieldPromptConfig,
+  isInlined: boolean
+): string {
+  if (promptConfig.kind === 'threshold') {
+    return isInlined
+      ? `inline (<=${promptConfig.promptMaxChars} chars)`
+      : `runtime-only (>${promptConfig.promptMaxChars} chars)`;
+  }
+
+  if (typeof value !== 'string') {
+    return 'runtime-only (keepInPromptChars requires string)';
+  }
+
+  if (!isInlined) {
+    return 'runtime-only';
+  }
+
+  if (value.length <= promptConfig.keepInPromptChars) {
+    return `inline (<=${promptConfig.keepInPromptChars} chars)`;
+  }
+
+  return promptConfig.reverseTruncate
+    ? `inline-truncated(last ${promptConfig.keepInPromptChars} chars of ${value.length})`
+    : `inline-truncated(first ${promptConfig.keepInPromptChars} chars of ${value.length})`;
+}
+
 function estimateValueSize(value: unknown): number {
   if (typeof value === 'string') {
     return value.length;
@@ -2497,12 +2629,12 @@ function normalizeContextFields(
   defaultPromptMaxChars: number
 ): {
   contextFieldNames: string[];
-  promptMaxCharsByField: Map<string, number>;
+  promptConfigByField: Map<string, AxContextFieldPromptConfig>;
 } {
   const inputFieldNames = new Set(inputFields.map((f) => f.name));
   const seen = new Set<string>();
   const contextFieldNames: string[] = [];
-  const promptMaxCharsByField = new Map<string, number>();
+  const promptConfigByField = new Map<string, AxContextFieldPromptConfig>();
 
   for (const cf of contextFields) {
     const field = typeof cf === 'string' ? cf : cf.field;
@@ -2517,23 +2649,60 @@ function normalizeContextFields(
     contextFieldNames.push(field);
 
     if (typeof cf !== 'string') {
+      const hasKeepInPromptChars = cf.keepInPromptChars !== undefined;
+      const hasPromptMaxChars = cf.promptMaxChars !== undefined;
+
+      if (hasKeepInPromptChars && hasPromptMaxChars) {
+        throw new Error(
+          `contextField "${field}" cannot set both promptMaxChars and keepInPromptChars`
+        );
+      }
+
+      if ('reverseTruncate' in cf && !hasKeepInPromptChars) {
+        throw new Error(
+          `contextField "${field}" reverseTruncate requires keepInPromptChars`
+        );
+      }
+
+      if (hasKeepInPromptChars) {
+        const keepInPromptChars = cf.keepInPromptChars;
+        if (
+          !Number.isFinite(keepInPromptChars) ||
+          keepInPromptChars === undefined ||
+          keepInPromptChars < 0
+        ) {
+          throw new Error(
+            `contextField "${field}" keepInPromptChars must be a finite number >= 0`
+          );
+        }
+        promptConfigByField.set(field, {
+          kind: 'truncate',
+          keepInPromptChars,
+          reverseTruncate: cf.reverseTruncate === true,
+        });
+        continue;
+      }
+
       const promptMaxChars = cf.promptMaxChars ?? defaultPromptMaxChars;
       if (!Number.isFinite(promptMaxChars) || promptMaxChars < 0) {
         throw new Error(
           `contextField "${field}" promptMaxChars must be a finite number >= 0`
         );
       }
-      promptMaxCharsByField.set(field, promptMaxChars);
+      promptConfigByField.set(field, {
+        kind: 'threshold',
+        promptMaxChars,
+      });
     }
   }
 
-  return { contextFieldNames, promptMaxCharsByField };
+  return { contextFieldNames, promptConfigByField };
 }
 
 function buildRLMVariablesInfo(
   contextValues: Record<string, unknown>,
   options?: {
-    promptMaxCharsByField?: ReadonlyMap<string, number>;
+    promptConfigByField?: ReadonlyMap<string, AxContextFieldPromptConfig>;
     inlinedFields?: ReadonlySet<string>;
   }
 ): string {
@@ -2548,13 +2717,15 @@ function buildRLMVariablesInfo(
           : value && typeof value === 'object'
             ? `${Object.keys(value as Record<string, unknown>).length} keys`
             : 'n/a';
-    const threshold = options?.promptMaxCharsByField?.get(key);
+    const promptConfig = options?.promptConfigByField?.get(key);
     const promptMode =
-      threshold === undefined
+      promptConfig === undefined
         ? 'runtime-only'
-        : options?.inlinedFields?.has(key)
-          ? `inline (<=${threshold} chars)`
-          : `runtime-only (>${threshold} chars)`;
+        : describeContextFieldPromptMode(
+            value,
+            promptConfig,
+            options?.inlinedFields?.has(key) === true
+          );
     lines.push(
       `- ${key}: type=${valueType}, size=${size}, prompt=${promptMode}`
     );

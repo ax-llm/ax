@@ -171,10 +171,20 @@ export interface AxContextManagementConfig {
   tombstoning?: boolean | Omit<AxProgramForwardOptions<string>, 'functions'>;
   /** Enable heuristic-based importance scoring on entries. */
   hindsightEvaluation?: boolean;
+  /** Controls how prior actor actions are replayed into the next prompt. */
+  actionReplay?: 'full' | 'adaptive' | 'minimal';
+  /** Number of most-recent actions that should always remain fully rendered. */
+  recentFullActions?: number;
+  /** Enable compact summaries for successful actions instead of raw code/output replay. */
+  successSummarization?:
+    | boolean
+    | Omit<AxProgramForwardOptions<string>, 'functions'>;
   /** Enable runtime state inspection tool for the actor.
    *  `contextThreshold` is the character count on the serialized actionLog
    *  above which an `inspect_runtime()` hint is shown to the actor. */
   stateInspection?: { contextThreshold?: number };
+  /** Include a compact live runtime state block ahead of the action log. */
+  stateSummary?: { enabled?: boolean; maxEntries?: number };
   /** Entries ranked strictly below this value are purged from active context.
    *  Range: 0-5. Default: 2. */
   pruneRank?: number;

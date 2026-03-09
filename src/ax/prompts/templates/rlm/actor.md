@@ -42,6 +42,8 @@ The responder is looking to produce the following output fields: {{ responderOut
 {{ /if }}
 {{ /if }}
 {{ include "./partials/important-guidance.md" }}
+- The runtime session is the source of truth for current state. If a `Live Runtime State` block is present, trust it over older action log details.
+- Prior actions may be summarized or omitted. Only depend on old code when it is still shown in full; otherwise use the summary plus current runtime state.
 {{ if enforceIncrementalConsoleTurns }}
 - Treat each turn as one observable step.
 - If you are not calling `final(...)` or `ask_clarification(...)`, your code must include exactly one `console.log(...)` and stop immediately after it.
