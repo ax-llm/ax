@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { ActionLogEntry } from './contextManager.js';
 import {
+  buildActionEvidenceSummary,
   buildActionLog,
+  buildActionLogWithPolicy,
   buildInspectRuntimeCode,
   evaluateHindsight,
   extractDeclaredVariables,
@@ -183,6 +185,9 @@ describe('manageContext', () => {
       hindsightEvaluation: false,
       tombstoning: undefined,
       pruneRank: 2,
+      actionReplay: 'full',
+      recentFullActions: 1,
+      successSummarization: false,
     });
     expect(entries).toHaveLength(1);
     expect(entries[0]!.turn).toBe(2);
@@ -195,6 +200,9 @@ describe('manageContext', () => {
       hindsightEvaluation: false,
       tombstoning: undefined,
       pruneRank: 2,
+      actionReplay: 'full',
+      recentFullActions: 1,
+      successSummarization: false,
     });
     expect(entries).toHaveLength(2);
   });
@@ -210,6 +218,9 @@ describe('manageContext', () => {
       hindsightEvaluation: true,
       tombstoning: undefined,
       pruneRank: 2,
+      actionReplay: 'full',
+      recentFullActions: 1,
+      successSummarization: false,
     });
     // Turn 1 gets rank 1 (superseded) < pruneRank 2 → pruned
     expect(entries).toHaveLength(1);
@@ -226,6 +237,9 @@ describe('manageContext', () => {
       hindsightEvaluation: true,
       tombstoning: undefined,
       pruneRank: 2,
+      actionReplay: 'full',
+      recentFullActions: 1,
+      successSummarization: false,
     });
     // Turn 1 gets rank 5 (foundational) >= pruneRank 2 → kept
     expect(entries).toHaveLength(2);
@@ -240,6 +254,9 @@ describe('manageContext', () => {
       hindsightEvaluation: true,
       tombstoning: undefined,
       pruneRank: 2,
+      actionReplay: 'full',
+      recentFullActions: 1,
+      successSummarization: false,
     });
     // Last entry is never pruned
     expect(entries).toHaveLength(1);
@@ -255,6 +272,9 @@ describe('manageContext', () => {
       hindsightEvaluation: false,
       tombstoning: undefined,
       pruneRank: 2,
+      actionReplay: 'full',
+      recentFullActions: 1,
+      successSummarization: false,
     });
     // Error with tombstone should be kept
     expect(entries).toHaveLength(2);
@@ -270,6 +290,9 @@ describe('manageContext', () => {
       hindsightEvaluation: false,
       tombstoning: undefined,
       pruneRank: 2,
+      actionReplay: 'full',
+      recentFullActions: 1,
+      successSummarization: false,
     });
     // Error with pending tombstone should be kept
     expect(entries).toHaveLength(2);
@@ -383,6 +406,65 @@ describe('buildActionLog', () => {
     expect(log).toContain('[TOMBSTONE]');
     expect(log).toContain('```javascript');
     expect(log).toContain('var y = 2');
+  });
+
+  it('should summarize superseded successful turns in adaptive mode', () => {
+    const entries = [
+      makeSuccessEntry(1, 'const draft = "v1"', 'draft ready'),
+      makeSuccessEntry(2, 'const finalDraft = "v2"', 'final ready'),
+    ];
+    const log = buildActionLogWithPolicy(entries, {
+      actionReplay: 'adaptive',
+      recentFullActions: 1,
+      successSummarization: true,
+    });
+    expect(log).toContain('Action 1:');
+    expect(log).toContain('[SUMMARY]:');
+    expect(log).not.toContain('const draft = "v1"');
+    expect(log).toContain('const finalDraft = "v2"');
+  });
+
+  it('should keep referenced prior steps fully rendered in adaptive mode', () => {
+    const entries = [
+      makeSuccessEntry(1, 'const data = [1,2,3]', 'data ready'),
+      makeSuccessEntry(2, 'const length = data.length', '3'),
+      makeSuccessEntry(3, 'final(length)', '(no output)'),
+    ];
+    const log = buildActionLogWithPolicy(entries, {
+      actionReplay: 'adaptive',
+      recentFullActions: 1,
+    });
+    expect(log).toContain('const data = [1,2,3]');
+    expect(log).toContain('const length = data.length');
+  });
+
+  it('should include a live runtime state block in minimal mode', () => {
+    const entries = [makeSuccessEntry(1, 'const total = 5', '5')];
+    const log = buildActionLogWithPolicy(entries, {
+      actionReplay: 'minimal',
+      recentFullActions: 0,
+      stateSummary: 'total: number = 5',
+      successSummarization: true,
+    });
+    expect(log).toContain('Live Runtime State:');
+    expect(log).toContain('total: number = 5');
+    expect(log).toContain('[SUMMARY]:');
+  });
+});
+
+describe('buildActionEvidenceSummary', () => {
+  it('should summarize actions without replaying raw code', () => {
+    const entries = [
+      makeSuccessEntry(1, 'const draft = "v1"', 'draft ready'),
+      makeErrorEntry(2, 'ReferenceError: draft2 is not defined'),
+    ];
+    const summary = buildActionEvidenceSummary(entries, {
+      stateSummary: 'draft: string = "v1"',
+    });
+    expect(summary).toContain('Evidence summary');
+    expect(summary).toContain('draft: string = "v1"');
+    expect(summary).not.toContain('```javascript');
+    expect(summary).not.toContain('const draft = "v1"');
   });
 });
 

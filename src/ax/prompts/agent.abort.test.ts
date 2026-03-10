@@ -24,6 +24,7 @@ const createSimpleRuntime = (): AxCodeRuntime => ({
         }
         return `executed: ${code}`;
       },
+      patchGlobals: async () => {},
       close: () => {},
     };
   },
@@ -79,6 +80,7 @@ describe('AxAgent.stop()', () => {
             }
             return 'executed';
           },
+          patchGlobals: async () => {},
           close: () => {},
         };
       },
@@ -229,6 +231,7 @@ describe('AxAgent.stop()', () => {
             controller.abort('test abort');
             return 'executed';
           },
+          patchGlobals: async () => {},
           close: () => {},
         };
       },

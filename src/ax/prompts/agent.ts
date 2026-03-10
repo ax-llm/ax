@@ -30,18 +30,20 @@ import {
   AxAIServiceStatusError,
   AxAIServiceTimeoutError,
 } from '../util/apicall.js';
+import type { ActionLogEntry } from './contextManager.js';
+import {
+  buildActionEvidenceSummary,
+  buildActionLogWithPolicy,
+  buildInspectRuntimeCode,
+  manageContext,
+} from './contextManager.js';
 import type {
   AxCodeRuntime,
+  AxCodeSession,
   AxContextManagementConfig,
   AxRLMConfig,
 } from './rlm.js';
 import { axBuildActorDefinition, axBuildResponderDefinition } from './rlm.js';
-import type { ActionLogEntry } from './contextManager.js';
-import {
-  buildActionLog,
-  buildInspectRuntimeCode,
-  manageContext,
-} from './contextManager.js';
 
 /**
  * Interface for agents that can be used as child agents.
@@ -60,11 +62,47 @@ export interface AxAgentic<IN extends AxGenIn, OUT extends AxGenOut>
 
 type AxAnyAgentic = AxAgentic<any, any>;
 
+type AxAgentIdentity = {
+  name: string;
+  description: string;
+  namespace?: string;
+};
+
+export type AxAgentNamespace = {
+  name: string;
+  title: string;
+  description: string;
+};
+
+export type AxAgentFunctionExample = {
+  code: string;
+  title?: string;
+  description?: string;
+  language?: string;
+};
+
+export type AxAgentFunction = AxFunction & {
+  examples?: readonly AxAgentFunctionExample[];
+};
+
 export type AxContextFieldInput =
   | string
   | {
       field: string;
       promptMaxChars?: number;
+      keepInPromptChars?: number;
+      reverseTruncate?: boolean;
+    };
+
+type AxContextFieldPromptConfig =
+  | {
+      kind: 'threshold';
+      promptMaxChars: number;
+    }
+  | {
+      kind: 'truncate';
+      keepInPromptChars: number;
+      reverseTruncate: boolean;
     };
 
 /**
@@ -86,7 +124,11 @@ export type AxAgentDemos<
       traces: (OUT & Partial<IN>)[];
     };
 
-export type AxAgentOptions = Omit<
+export type AxAgentInputUpdateCallback<IN extends AxGenIn> = (
+  currentInputs: Readonly<IN>
+) => Promise<Partial<IN> | undefined> | Partial<IN> | undefined;
+
+export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
   AxProgramForwardOptions<string>,
   'functions' | 'description'
 > & {
@@ -95,12 +137,13 @@ export type AxAgentOptions = Omit<
    * Input fields used as context.
    * - `string`: runtime-only (legacy behavior)
    * - `{ field, promptMaxChars }`: runtime + conditionally inlined into Actor prompt
+   * - `{ field, keepInPromptChars, reverseTruncate? }`: runtime + truncated string excerpt in Actor prompt
    */
   contextFields: readonly AxContextFieldInput[];
 
   /** Child agents and agent sharing configuration. */
   agents?: {
-    /** Agents registered under the `agents.*` namespace (local to this agent only). */
+    /** Agents registered under the configured child-agent module namespace (default: `agents.*`). */
     local?: AxAnyAgentic[];
     /** Agents to automatically add to all direct child agents (one level). */
     shared?: AxAnyAgentic[];
@@ -112,6 +155,11 @@ export type AxAgentOptions = Omit<
 
   /** Field sharing configuration. */
   fields?: {
+    /**
+     * Shared/global fields that should remain available in this agent's own
+     * Actor/Responder flow instead of bypassing it.
+     */
+    local?: string[];
     /** Input fields to pass directly to subagents, bypassing the top-level LLM. */
     shared?: string[];
     /** Fields to pass to ALL descendants recursively (entire agent tree). */
@@ -120,16 +168,21 @@ export type AxAgentOptions = Omit<
     excluded?: string[];
   };
 
+  /** Optional metadata for discovery modules rendered by `listModuleFunctions(...)`. */
+  namespaces?: readonly AxAgentNamespace[];
+
   /** Agent function configuration. */
   functions?: {
     /** Agent functions local to this agent (registered under namespace globals). */
-    local?: AxFunction[];
+    local?: AxAgentFunction[];
     /** Agent functions to share with direct child agents (one level). */
-    shared?: AxFunction[];
+    shared?: AxAgentFunction[];
     /** Agent functions to share with ALL descendants recursively. */
-    globallyShared?: AxFunction[];
+    globallyShared?: AxAgentFunction[];
     /** Agent function names this agent should NOT receive from parents. */
     excluded?: string[];
+    /** Enables runtime callable discovery (modules + on-demand definitions). */
+    discovery?: boolean;
   };
 
   /** Code runtime for the REPL loop (default: AxJSRuntime). */
@@ -150,6 +203,11 @@ export type AxAgentOptions = Omit<
   actorFields?: string[];
   /** Called after each Actor turn with the full actor result. */
   actorCallback?: (result: Record<string, unknown>) => void | Promise<void>;
+  /**
+   * Called before each Actor turn with current input values. Return a partial patch
+   * to update in-flight inputs for subsequent Actor/Responder steps.
+   */
+  inputUpdateCallback?: AxAgentInputUpdateCallback<IN>;
   /** Sub-query execution mode (default: 'simple'). */
   mode?: 'simple' | 'advanced';
   /** Default forward options for recursive llmQuery sub-agent calls. */
@@ -183,6 +241,9 @@ const DEFAULT_RLM_BATCH_CONCURRENCY = 8;
 const DEFAULT_RLM_MAX_TURNS = 10;
 const DEFAULT_RLM_MAX_RECURSION_DEPTH = 2;
 const DEFAULT_CONTEXT_FIELD_PROMPT_MAX_CHARS = 1_200;
+const DEFAULT_AGENT_MODULE_NAMESPACE = 'agents';
+const DISCOVERY_LIST_MODULE_FUNCTIONS_NAME = 'listModuleFunctions';
+const DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME = 'getFunctionDefinitions';
 
 type AxAgentActorResultPayload = {
   type: 'final' | 'ask_clarification';
@@ -209,12 +270,14 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private actorProgram!: AxGen<any, any>;
   private responderProgram!: AxGen<any, OUT>;
   private agents?: AxAnyAgentic[];
-  private agentFunctions: AxFunction[];
+  private agentFunctions: AxAgentFunction[];
+  private discoveryNamespaces: AxAgentNamespace[] = [];
   private debug?: boolean;
-  private options?: Readonly<AxAgentOptions>;
+  private options?: Readonly<AxAgentOptions<IN>>;
   private rlmConfig: AxRLMConfig;
   private runtime: AxCodeRuntime;
   private actorFieldNames: string[];
+  private localFieldNames: string[];
   private sharedFieldNames: string[];
   private globalSharedFieldNames: string[];
   private excludedSharedFields: string[];
@@ -225,7 +288,13 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private recursionForwardOptions?: AxAgentRecursionOptions;
   private actorForwardOptions?: Partial<AxProgramForwardOptions<string>>;
   private responderForwardOptions?: Partial<AxProgramForwardOptions<string>>;
-  private contextPromptMaxCharsByField: Map<string, number> = new Map();
+  private inputUpdateCallback?: AxAgentInputUpdateCallback<IN>;
+  private contextPromptConfigByField: Map<string, AxContextFieldPromptConfig> =
+    new Map();
+  private agentModuleNamespace = DEFAULT_AGENT_MODULE_NAMESPACE;
+  private functionDiscoveryEnabled = false;
+  private runtimeUsageInstructions = '';
+  private enforceIncrementalConsoleTurns = false;
 
   private activeAbortControllers = new Set<AbortController>();
   private _stopRequested = false;
@@ -243,16 +312,18 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     {
       ai,
       agentIdentity,
+      agentModuleNamespace,
       signature,
     }: Readonly<{
       ai?: Readonly<AxAIService>;
-      agentIdentity?: Readonly<{ name: string; description: string }>;
+      agentIdentity?: Readonly<AxAgentIdentity>;
+      agentModuleNamespace?: string;
       signature:
         | string
         | Readonly<AxSignatureConfig>
         | Readonly<AxSignature<IN, OUT>>;
     }>,
-    options: Readonly<AxAgentOptions>
+    options: Readonly<AxAgentOptions<IN>>
   ) {
     const {
       debug,
@@ -270,17 +341,55 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       recursionOptions,
       actorOptions,
       responderOptions,
+      inputUpdateCallback,
     } = options;
 
     this.ai = ai;
     this.agents = options.agents?.local;
     this.agentFunctions = options.functions?.local ?? [];
+    this.functionDiscoveryEnabled = options.functions?.discovery ?? false;
     this.debug = debug;
     this.options = options;
     this.runtime = runtime ?? new AxJSRuntime();
+    this.runtimeUsageInstructions = this.runtime.getUsageInstructions();
+    this.enforceIncrementalConsoleTurns = shouldEnforceIncrementalConsoleTurns(
+      this.runtimeUsageInstructions
+    );
+
+    const resolvedAgentModuleNamespace =
+      agentModuleNamespace ??
+      agentIdentity?.namespace ??
+      DEFAULT_AGENT_MODULE_NAMESPACE;
+    this.agentModuleNamespace = normalizeAgentModuleNamespace(
+      resolvedAgentModuleNamespace,
+      {
+        normalize: agentModuleNamespace === undefined,
+      }
+    );
+
+    const reservedAgentModuleNamespaces = new Set([
+      'inputs',
+      'llmQuery',
+      'final',
+      'ask_clarification',
+      'inspect_runtime',
+      DISCOVERY_LIST_MODULE_FUNCTIONS_NAME,
+      DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME,
+    ]);
+    if (reservedAgentModuleNamespaces.has(this.agentModuleNamespace)) {
+      throw new Error(
+        `Agent module namespace "${this.agentModuleNamespace}" is reserved`
+      );
+    }
 
     // Create the base program (used for signature/schema access)
-    const { agents: _a, fields: _f, functions: _fn, ...genOptions } = options;
+    const {
+      agents: _a,
+      fields: _f,
+      functions: _fn,
+      inputUpdateCallback: _iuc,
+      ...genOptions
+    } = options;
     this.program = new AxGen<IN, OUT>(signature, genOptions);
     const inputFields = this.program.getSignature().getInputFields();
 
@@ -289,7 +398,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       inputFields,
       DEFAULT_CONTEXT_FIELD_PROMPT_MAX_CHARS
     );
-    this.contextPromptMaxCharsByField = normalizedContext.promptMaxCharsByField;
+    this.contextPromptConfigByField = normalizedContext.promptConfigByField;
 
     this.rlmConfig = {
       contextFields: normalizedContext.contextFieldNames,
@@ -317,6 +426,19 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     this.responderDescription = responderDescription;
     this.responderForwardOptions = responderForwardOptions;
+    this.inputUpdateCallback = inputUpdateCallback;
+    this.discoveryNamespaces = normalizeAgentNamespaces(
+      options.namespaces,
+      new Set([
+        'inputs',
+        'llmQuery',
+        'final',
+        'ask_clarification',
+        'inspect_runtime',
+        DISCOVERY_LIST_MODULE_FUNCTIONS_NAME,
+        DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME,
+      ])
+    );
 
     const agents = this.agents;
     for (const agent of agents ?? []) {
@@ -382,6 +504,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         );
       }
     }
+    this.localFieldNames = options.fields?.local ?? [];
 
     // --- Read grouped agent options ---
     const sharedAgentsList = options.agents?.shared ?? [];
@@ -405,14 +528,30 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           `Agent function "${fn.name}" must define parameters schema for agent runtime usage.`
         );
       }
+      if (fn.examples) {
+        for (const [index, example] of fn.examples.entries()) {
+          if (!example.code.trim()) {
+            throw new Error(
+              `Agent function "${fn.name}" example at index ${index} must define non-empty code`
+            );
+          }
+        }
+      }
     }
 
     // Validate reserved namespaces for agent functions
     const RESERVED_NS = new Set([
-      'agents',
+      DEFAULT_AGENT_MODULE_NAMESPACE,
+      this.agentModuleNamespace,
       'llmQuery',
       'final',
       'ask_clarification',
+      ...(this.functionDiscoveryEnabled
+        ? [
+            DISCOVERY_LIST_MODULE_FUNCTIONS_NAME,
+            DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME,
+          ]
+        : []),
     ]);
     for (const fn of allAgentFns) {
       const ns = fn.namespace ?? 'utils';
@@ -522,10 +661,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private _buildSplitPrograms(): void {
     const inputFields = this.program.getSignature().getInputFields();
     const contextFields = this.rlmConfig.contextFields;
-    const sharedFields = [
-      ...this.sharedFieldNames,
-      ...this.globalSharedFieldNames,
-    ];
+    const bypassedSharedFields = this._getBypassedSharedFieldNames();
 
     // Identify context field metadata
     const contextFieldMeta = inputFields.filter((fld) =>
@@ -534,14 +670,14 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const actorInlineContextInputs = contextFieldMeta
       .filter(
         (fld) =>
-          this.contextPromptMaxCharsByField.has(fld.name) &&
-          !sharedFields.includes(fld.name)
+          this.contextPromptConfigByField.has(fld.name) &&
+          !bypassedSharedFields.has(fld.name)
       )
       .map((fld) => ({ ...fld, isOptional: true }));
     // Non-context, non-shared-only inputs (visible to Actor and Responder)
     const nonContextInputs = inputFields.filter(
       (fld) =>
-        !contextFields.includes(fld.name) && !sharedFields.includes(fld.name)
+        !contextFields.includes(fld.name) && !bypassedSharedFields.has(fld.name)
     );
 
     const originalOutputs = this.program.getSignature().getOutputFields();
@@ -610,16 +746,27 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       returns: fn.returns,
       namespace: fn.namespace ?? 'utils',
     }));
+    const moduleSet = new Set(
+      agentFunctionMeta.map((fn) => fn.namespace ?? 'utils')
+    );
+    if (agentMeta.length > 0) {
+      moduleSet.add(this.agentModuleNamespace);
+    }
+    const availableModules = [...moduleSet].sort((a, b) => a.localeCompare(b));
 
     const actorDef = axBuildActorDefinition(
       this.actorDescription,
       contextFieldMeta,
       responderOutputFields,
       {
-        runtimeUsageInstructions: this.runtime.getUsageInstructions(),
+        runtimeUsageInstructions: this.runtimeUsageInstructions,
         maxSubAgentCalls: effectiveMaxSubAgentCalls,
         maxTurns: effectiveMaxTurns,
         hasInspectRuntime: !!this.rlmConfig.contextManagement?.stateInspection,
+        enforceIncrementalConsoleTurns: this.enforceIncrementalConsoleTurns,
+        agentModuleNamespace: this.agentModuleNamespace,
+        discoveryMode: this.functionDiscoveryEnabled,
+        availableModules,
         agents: agentMeta,
         agentFunctions: agentFunctionMeta,
       }
@@ -984,6 +1131,17 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     return this.excludedSharedFields;
   }
 
+  private _getBypassedSharedFieldNames(): Set<string> {
+    const bypassed = new Set([
+      ...this.sharedFieldNames,
+      ...this.globalSharedFieldNames,
+    ]);
+    for (const fieldName of this.localFieldNames) {
+      bypassed.delete(fieldName);
+    }
+    return bypassed;
+  }
+
   public getExcludedAgents(): readonly string[] {
     return this.excludedAgents;
   }
@@ -1030,9 +1188,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const debug =
       options?.debug ?? this.debug ?? ai?.getOptions()?.debug ?? false;
 
-    // 1. Separate context from non-context values
-    const contextValues: Record<string, unknown> = {};
-    const nonContextValues: Record<string, unknown> = {};
+    // 1. Build mutable in-flight input state
     let rawValues: Record<string, unknown>;
 
     if (Array.isArray(values)) {
@@ -1049,31 +1205,24 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       rawValues = values as Record<string, unknown>;
     }
 
+    const currentInputs: Record<string, unknown> = { ...rawValues };
+    const signatureInputFieldNames = new Set(
+      this.program
+        .getSignature()
+        .getInputFields()
+        .map((f) => f.name)
+    );
+
     const sharedFieldNames = [
       ...this.sharedFieldNames,
       ...this.globalSharedFieldNames,
     ];
-    for (const [k, v] of Object.entries(rawValues)) {
-      if (rlm.contextFields.includes(k)) {
-        contextValues[k] = v;
-      } else if (!sharedFieldNames.includes(k)) {
-        nonContextValues[k] = v;
-      }
-      // shared-only fields are excluded from nonContextValues
-      // (they bypass the LLM and go directly to subagents)
-    }
-
-    // Extract shared field values for subagent injection
+    const bypassedSharedFields = this._getBypassedSharedFieldNames();
     const sharedFieldValues: Record<string, unknown> = {};
-    for (const sf of sharedFieldNames) {
-      if (sf in rawValues) {
-        sharedFieldValues[sf] = rawValues[sf];
-      }
-      // Also include shared fields that are context fields
-      if (sf in contextValues) {
-        sharedFieldValues[sf] = contextValues[sf];
-      }
-    }
+    let contextValues: Record<string, unknown> = {};
+    let nonContextValues: Record<string, unknown> = {};
+    let actorInlineContextValues: Record<string, unknown> = {};
+    let contextMetadata = '(none)';
 
     const optionalContextFields = new Set(
       this.program
@@ -1082,31 +1231,79 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         .filter((f) => rlm.contextFields.includes(f.name) && f.isOptional)
         .map((f) => f.name)
     );
-    for (const field of rlm.contextFields) {
-      if (optionalContextFields.has(field)) {
-        continue;
-      }
-      if (!(field in contextValues) || contextValues[field] === undefined) {
-        throw new Error(
-          `RLM contextField "${field}" is missing from input values`
-        );
-      }
-    }
 
-    const actorInlineContextValues: Record<string, unknown> = {};
-    for (const [field, maxChars] of this.contextPromptMaxCharsByField) {
-      if (sharedFieldNames.includes(field)) {
-        continue;
+    const recomputeTurnInputs = (validateRequiredContext: boolean): void => {
+      const nextContextValues: Record<string, unknown> = {};
+      const nextNonContextValues: Record<string, unknown> = {};
+
+      for (const [k, v] of Object.entries(currentInputs)) {
+        if (rlm.contextFields.includes(k)) {
+          nextContextValues[k] = v;
+        } else if (!bypassedSharedFields.has(k)) {
+          nextNonContextValues[k] = v;
+        }
+        // Shared/global fields that are not marked local are excluded from
+        // nonContextValues (they bypass the LLM and go directly to subagents).
       }
-      if (!(field in contextValues)) {
-        continue;
+
+      if (validateRequiredContext) {
+        for (const field of rlm.contextFields) {
+          if (optionalContextFields.has(field)) {
+            continue;
+          }
+          if (
+            !(field in nextContextValues) ||
+            nextContextValues[field] === undefined
+          ) {
+            throw new Error(
+              `RLM contextField "${field}" is missing from input values`
+            );
+          }
+        }
       }
-      const value = contextValues[field];
-      const size = estimateValueSize(value);
-      if (size <= maxChars) {
-        actorInlineContextValues[field] = value;
+
+      const nextInlineContextValues: Record<string, unknown> = {};
+      for (const [field, promptConfig] of this.contextPromptConfigByField) {
+        if (bypassedSharedFields.has(field)) {
+          continue;
+        }
+        if (!(field in nextContextValues)) {
+          continue;
+        }
+        const inlined = buildContextFieldPromptInlineValue(
+          nextContextValues[field],
+          promptConfig
+        );
+        if (inlined !== undefined) {
+          nextInlineContextValues[field] = inlined;
+        }
       }
-    }
+
+      contextValues = nextContextValues;
+      nonContextValues = nextNonContextValues;
+      actorInlineContextValues = nextInlineContextValues;
+
+      for (const k of Object.keys(sharedFieldValues)) {
+        delete sharedFieldValues[k];
+      }
+      for (const sf of sharedFieldNames) {
+        if (sf in currentInputs) {
+          sharedFieldValues[sf] = currentInputs[sf];
+        }
+        // Also include shared fields that are context fields
+        if (sf in contextValues) {
+          sharedFieldValues[sf] = contextValues[sf];
+        }
+      }
+
+      contextMetadata =
+        buildRLMVariablesInfo(contextValues, {
+          promptConfigByField: this.contextPromptConfigByField,
+          inlinedFields: new Set(Object.keys(actorInlineContextValues)),
+        }) || '(none)';
+    };
+
+    recomputeTurnInputs(false);
 
     // 2. Build runtime globals (context + llmQuery + tool functions)
     const maxSubAgentCalls = rlm.maxSubAgentCalls ?? DEFAULT_RLM_MAX_LLM_CALLS;
@@ -1159,13 +1356,17 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       if (childRlmMode === 'advanced') {
         const advancedAgent = new AxAgent<any, { answer: AxFieldValue }>(
           {
+            agentModuleNamespace: this.agentModuleNamespace,
             signature: childSignature,
           },
           {
             debug,
             ...rlm,
             agents: { local: this.agents },
-            functions: { local: this.agentFunctions },
+            functions: {
+              local: this.agentFunctions,
+              discovery: this.functionDiscoveryEnabled,
+            },
             contextFields: childContextFields,
             actorFields: undefined,
             recursionOptions: childRecursionOptions,
@@ -1264,6 +1465,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
         const maxAttempts = 3;
         let lastError: unknown;
+        const formatSubAgentError = (error: unknown) =>
+          `[ERROR] ${error instanceof Error ? error.message : String(error)}`;
 
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
           try {
@@ -1290,9 +1493,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
             );
             return normalizeSubAgentAnswer(recursiveResult.answer);
           } catch (err) {
+            if (err instanceof AxAIServiceAbortedError) {
+              throw err;
+            }
             lastError = err;
             if (!isTransientError(err) || attempt >= maxAttempts - 1) {
-              throw err;
+              return formatSubAgentError(err);
             }
             const delay = Math.min(60_000, 1000 * Math.pow(2, attempt));
             await new Promise<void>((resolve, reject) => {
@@ -1343,7 +1549,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
             });
           }
         }
-        throw lastError;
+        return formatSubAgentError(lastError);
       };
 
       const result = await runSingleLlmQuery(query, ctx);
@@ -1374,48 +1580,106 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       setActorResultPayload('final', args);
     const askClarificationFunction = (...args: unknown[]) =>
       setActorResultPayload('ask_clarification', args);
+    const contextMgmt = rlm.contextManagement;
+    const effectiveContextConfig = {
+      errorPruning: contextMgmt?.errorPruning ?? rlm.trajectoryPruning ?? false,
+      hindsightEvaluation: contextMgmt?.hindsightEvaluation ?? false,
+      tombstoning: contextMgmt?.tombstoning,
+      pruneRank: contextMgmt?.pruneRank ?? 2,
+      actionReplay: contextMgmt?.actionReplay ?? 'full',
+      recentFullActions: contextMgmt?.recentFullActions ?? 1,
+      successSummarization: contextMgmt?.successSummarization,
+      stateSummary: contextMgmt?.stateSummary,
+    };
 
     const agentFunctionNamespaces = [
       ...new Set(this.agentFunctions.map((f) => f.namespace ?? 'utils')),
     ];
-    const runtimeInputs = { ...rawValues };
+    const runtimeInputs = { ...currentInputs };
     const reservedTopLevelNames = new Set([
       'inputs',
       'llmQuery',
-      'agents',
+      DEFAULT_AGENT_MODULE_NAMESPACE,
+      this.agentModuleNamespace,
       'final',
       'ask_clarification',
       ...agentFunctionNamespaces,
-      ...(rlm.contextManagement?.stateInspection ? ['inspect_runtime'] : []),
+      ...(contextMgmt?.stateInspection || contextMgmt?.stateSummary?.enabled
+        ? ['inspect_runtime']
+        : []),
       ...Object.keys(toolGlobals),
     ]);
-    const runtimeTopLevelInputAliases = Object.fromEntries(
-      Object.entries(runtimeInputs).filter(
-        ([k]) => !reservedTopLevelNames.has(k)
-      )
-    );
+    const runtimeAliasKeys = [
+      ...new Set([...Object.keys(runtimeInputs), ...signatureInputFieldNames]),
+    ].filter((k) => !reservedTopLevelNames.has(k));
+    const runtimeTopLevelInputAliases: Record<string, unknown> = {};
+    for (const key of runtimeAliasKeys) {
+      runtimeTopLevelInputAliases[key] = runtimeInputs[key];
+    }
+
+    const refreshRuntimeBindings = () => {
+      for (const key of Object.keys(runtimeInputs)) {
+        delete runtimeInputs[key];
+      }
+      for (const [key, value] of Object.entries(currentInputs)) {
+        runtimeInputs[key] = value;
+      }
+
+      for (const key of runtimeAliasKeys) {
+        runtimeTopLevelInputAliases[key] = currentInputs[key];
+      }
+    };
+
     const protectedRuntimeNames = [...reservedTopLevelNames];
     const inspectReservedNames = [
       ...reservedTopLevelNames,
-      ...Object.keys(runtimeTopLevelInputAliases),
+      ...runtimeAliasKeys,
     ];
 
     // inspect_runtime: queries worker globalThis for current variable state
     // Captures `session` by reference so it works after session restart.
-    const inspectRuntime = rlm.contextManagement?.stateInspection
-      ? async (): Promise<string> => {
-          try {
-            const code = buildInspectRuntimeCode(inspectReservedNames);
-            const result = await session.execute(code, {
-              signal: effectiveAbortSignal,
-              reservedNames: inspectReservedNames,
-            });
-            return typeof result === 'string' ? result : String(result);
-          } catch (err) {
-            return `[inspect_runtime error: ${err instanceof Error ? err.message : String(err)}]`;
+    const inspectRuntime =
+      contextMgmt?.stateInspection || contextMgmt?.stateSummary?.enabled
+        ? async (): Promise<string> => {
+            try {
+              const code = buildInspectRuntimeCode(inspectReservedNames);
+              const result = await session.execute(code, {
+                signal: effectiveAbortSignal,
+                reservedNames: inspectReservedNames,
+              });
+              return typeof result === 'string' ? result : String(result);
+            } catch (err) {
+              return `[inspect_runtime error: ${err instanceof Error ? err.message : String(err)}]`;
+            }
           }
-        }
-      : undefined;
+        : undefined;
+
+    const formatStateSummary = (snapshot: string): string => {
+      const maxEntries =
+        effectiveContextConfig.stateSummary?.maxEntries &&
+        effectiveContextConfig.stateSummary.maxEntries > 0
+          ? effectiveContextConfig.stateSummary.maxEntries
+          : 8;
+
+      return snapshot
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .slice(0, maxEntries)
+        .join('\n');
+    };
+
+    const captureRuntimeStateSummary = async (): Promise<
+      string | undefined
+    > => {
+      if (!effectiveContextConfig.stateSummary?.enabled || !inspectRuntime) {
+        return undefined;
+      }
+
+      const snapshot = await inspectRuntime();
+      const formatted = formatStateSummary(snapshot);
+      return formatted || '(no user variables)';
+    };
 
     const createSession = () => {
       return runtime.createSession({
@@ -1498,6 +1762,37 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       return truncateText(parts.join('\n'), maxRuntimeChars);
     };
 
+    const hasCompletionSignalCall = (code: string): boolean => {
+      const sanitized = stripJsStringsAndComments(code);
+      return (
+        /\bfinal\s*\(/.test(sanitized) ||
+        /\bask_clarification\s*\(/.test(sanitized)
+      );
+    };
+
+    const looksLikePromisePlaceholder = (result: unknown): boolean => {
+      if (
+        result &&
+        (typeof result === 'object' || typeof result === 'function') &&
+        'then' in result &&
+        typeof (result as { then?: unknown }).then === 'function'
+      ) {
+        return true;
+      }
+      return typeof result === 'string' && result.trim() === '[object Promise]';
+    };
+
+    const waitForActorCompletionSignal = async (): Promise<void> => {
+      if (actorResultPayload) {
+        return;
+      }
+      for (let i = 0; i < 3 && !actorResultPayload; i++) {
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, 0);
+        });
+      }
+    };
+
     const executeInterpreterCode = async (
       code: string
     ): Promise<{ output: string; isError: boolean }> => {
@@ -1506,6 +1801,18 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           signal: effectiveAbortSignal,
           reservedNames: protectedRuntimeNames,
         });
+        if (
+          hasCompletionSignalCall(code) &&
+          (actorResultPayload || looksLikePromisePlaceholder(result))
+        ) {
+          await waitForActorCompletionSignal();
+          if (actorResultPayload) {
+            return {
+              output: formatInterpreterOutput(undefined),
+              isError: false,
+            };
+          }
+        }
         return { output: formatInterpreterOutput(result), isError: false };
       } catch (err) {
         if (effectiveAbortSignal?.aborted) {
@@ -1556,27 +1863,89 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
             };
           }
         }
-        throw err;
+        return {
+          output: truncateText(formatInterpreterError(err), maxRuntimeChars),
+          isError: true,
+        };
+      }
+    };
+
+    const applyInputUpdateCallback = async () => {
+      if (!this.inputUpdateCallback) {
+        return;
+      }
+      const patch = await this.inputUpdateCallback({
+        ...(currentInputs as IN),
+      } as Readonly<IN>);
+      if (patch === undefined) {
+        return;
+      }
+      if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+        throw new Error(
+          'inputUpdateCallback must return an object patch or undefined'
+        );
+      }
+      for (const [key, value] of Object.entries(
+        patch as Record<string, unknown>
+      )) {
+        if (signatureInputFieldNames.has(key)) {
+          currentInputs[key] = value;
+        }
+      }
+    };
+
+    const getPatchableSession = (runtimeSession: AxCodeSession) => {
+      if (typeof runtimeSession.patchGlobals !== 'function') {
+        throw new Error(
+          'AxCodeSession.patchGlobals() is required when using inputUpdateCallback'
+        );
+      }
+      return runtimeSession;
+    };
+
+    const syncRuntimeInputsToSession = async (): Promise<void> => {
+      refreshRuntimeBindings();
+
+      const patchGlobals = async (targetSession: AxCodeSession) => {
+        const patchableSession = getPatchableSession(targetSession);
+        await patchableSession.patchGlobals(
+          {
+            inputs: { ...runtimeInputs },
+            ...runtimeTopLevelInputAliases,
+          },
+          { signal: effectiveAbortSignal }
+        );
+      };
+
+      try {
+        await patchGlobals(session);
+      } catch (err) {
+        if (effectiveAbortSignal?.aborted) {
+          throw new AxAIServiceAbortedError(
+            'rlm-session',
+            effectiveAbortSignal.reason ?? 'Aborted'
+          );
+        }
+        if (
+          err instanceof Error &&
+          (err.name === 'AbortError' || err.message.startsWith('Aborted'))
+        ) {
+          throw err;
+        }
+        if (isSessionClosedError(err)) {
+          session = createSession();
+          await patchGlobals(session);
+          return;
+        }
+        throw new Error(
+          `Failed to sync runtime inputs: ${formatInterpreterError(err)}`
+        );
       }
     };
 
     // 3. Actor loop (TypeScript-managed)
-    const contextMetadata =
-      buildRLMVariablesInfo(contextValues, {
-        promptMaxCharsByField: this.contextPromptMaxCharsByField,
-        inlinedFields: new Set(Object.keys(actorInlineContextValues)),
-      }) || '(none)';
-
-    // Resolve effective context management config
-    const contextMgmt = rlm.contextManagement;
-    const effectiveContextConfig = {
-      errorPruning: contextMgmt?.errorPruning ?? rlm.trajectoryPruning ?? false,
-      hindsightEvaluation: contextMgmt?.hindsightEvaluation ?? false,
-      tombstoning: contextMgmt?.tombstoning,
-      pruneRank: contextMgmt?.pruneRank ?? 2,
-    };
-
     const actionLogEntries: ActionLogEntry[] = [];
+    let runtimeStateSummary: string | undefined;
 
     const actorMergedOptions = {
       ...this._genOptions,
@@ -1592,9 +1961,21 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     try {
       for (let turn = 0; turn < maxTurns; turn++) {
+        await applyInputUpdateCallback();
+        recomputeTurnInputs(true);
+        runtimeStateSummary = await captureRuntimeStateSummary();
+
         // Build action log, adding inspect_runtime hint when it gets large
         let actionLogText =
-          buildActionLog(actionLogEntries) || '(no actions yet)';
+          buildActionLogWithPolicy(actionLogEntries, {
+            actionReplay: effectiveContextConfig.actionReplay,
+            recentFullActions: effectiveContextConfig.recentFullActions,
+            stateSummary: runtimeStateSummary,
+            successSummarization:
+              effectiveContextConfig.successSummarization === undefined
+                ? effectiveContextConfig.actionReplay !== 'full'
+                : Boolean(effectiveContextConfig.successSummarization),
+          }) || '(no actions yet)';
         if (contextThreshold && actionLogText.length > contextThreshold) {
           actionLogText +=
             '\n\n[HINT: Action log is large. Call `const state = await inspect_runtime()` for a compact snapshot of current variables instead of re-reading old outputs.]';
@@ -1650,6 +2031,31 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         // Reset Actor completion payload before execution.
         actorResultPayload = undefined;
 
+        if (this.enforceIncrementalConsoleTurns) {
+          const policyViolation = validateActorTurnCodePolicy(code);
+          if (policyViolation) {
+            actionLogEntries.push({
+              turn: turn + 1,
+              code,
+              output: policyViolation,
+              actorFieldsOutput,
+              tags: ['error'],
+            });
+
+            await manageContext(
+              actionLogEntries,
+              actionLogEntries.length - 1,
+              effectiveContextConfig,
+              ai
+            );
+            runtimeStateSummary = await captureRuntimeStateSummary();
+            continue;
+          }
+        }
+
+        if (this.inputUpdateCallback) {
+          await syncRuntimeInputsToSession();
+        }
         const { output, isError } = await executeInterpreterCode(code);
 
         actionLogEntries.push({
@@ -1667,6 +2073,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           effectiveContextConfig,
           ai
         );
+        runtimeStateSummary = await captureRuntimeStateSummary();
 
         // Exit when Actor signaled completion via final(...) or ask_clarification(...).
         if (actorResultPayload) {
@@ -1685,13 +2092,26 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       actorResultPayload ??
       ({
         type: 'final',
-        args: [buildActionLog(actionLogEntries) || '(no actions were taken)'],
+        args: [
+          buildActionEvidenceSummary(actionLogEntries, {
+            stateSummary: runtimeStateSummary,
+          }),
+        ],
       } satisfies AxAgentActorResultPayload);
 
     return {
       nonContextValues,
       contextMetadata,
-      actionLog: buildActionLog(actionLogEntries),
+      actionLog:
+        buildActionLogWithPolicy(actionLogEntries, {
+          actionReplay: effectiveContextConfig.actionReplay,
+          recentFullActions: effectiveContextConfig.recentFullActions,
+          stateSummary: runtimeStateSummary,
+          successSummarization:
+            effectiveContextConfig.successSummarization === undefined
+              ? effectiveContextConfig.actionReplay !== 'full'
+              : Boolean(effectiveContextConfig.successSummarization),
+        }) || '(no actions yet)',
       actorResult,
       actorFieldValues,
     };
@@ -1853,10 +2273,15 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private static wrapFunctionWithSharedFields(
     fn: AxFunction,
     abortSignal?: AbortSignal,
-    sharedFieldValues?: Record<string, unknown>,
+    sharedFieldValues?:
+      | Record<string, unknown>
+      | (() => Record<string, unknown>),
     ai?: AxAIService
   ): (...args: unknown[]) => Promise<unknown> {
-    if (!sharedFieldValues || Object.keys(sharedFieldValues).length === 0) {
+    if (
+      typeof sharedFieldValues !== 'function' &&
+      (!sharedFieldValues || Object.keys(sharedFieldValues).length === 0)
+    ) {
       return AxAgent.wrapFunction(fn, abortSignal, ai);
     }
     return async (...args: unknown[]) => {
@@ -1881,15 +2306,22 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         });
       }
 
+      const currentSharedFieldValues =
+        typeof sharedFieldValues === 'function'
+          ? sharedFieldValues()
+          : sharedFieldValues;
+
       // Merge shared fields (caller-provided args take precedence)
-      const merged = { ...sharedFieldValues, ...callArgs };
+      const merged = currentSharedFieldValues
+        ? { ...currentSharedFieldValues, ...callArgs }
+        : callArgs;
       return await fn.func(merged, { abortSignal, ai });
     };
   }
 
   /**
    * Wraps agent functions under namespaced globals and child agents under
-   * an `agents.*` namespace for the JS runtime session.
+   * a configurable `<module>.*` namespace for the JS runtime session.
    */
   private buildRuntimeGlobals(
     abortSignal?: AbortSignal,
@@ -1897,6 +2329,22 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     ai?: AxAIService
   ): Record<string, unknown> {
     const globals: Record<string, unknown> = {};
+    const callableLookup = new Map<string, DiscoveryCallableMeta>();
+    const moduleLookup = new Map<string, string[]>();
+    const moduleMetaLookup = new Map<string, AxAgentNamespace>();
+    for (const namespaceMeta of this.discoveryNamespaces) {
+      moduleMetaLookup.set(namespaceMeta.name, namespaceMeta);
+    }
+    const registerCallable = (
+      meta: DiscoveryCallableMeta,
+      qualifiedName: string
+    ) => {
+      callableLookup.set(qualifiedName, meta);
+      if (!moduleLookup.has(meta.module)) {
+        moduleLookup.set(meta.module, []);
+      }
+      moduleLookup.get(meta.module)?.push(qualifiedName);
+    };
 
     // Agent functions under namespace.* (e.g. utils.myFn, custom.otherFn)
     for (const agentFn of this.agentFunctions) {
@@ -1906,9 +2354,20 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       }
       (globals[ns] as Record<string, unknown>)[agentFn.name] =
         AxAgent.wrapFunction(agentFn, abortSignal, ai);
+      registerCallable(
+        {
+          module: ns,
+          name: agentFn.name,
+          description: agentFn.description,
+          parameters: agentFn.parameters,
+          returns: agentFn.returns,
+          examples: agentFn.examples,
+        },
+        `${ns}.${agentFn.name}`
+      );
     }
 
-    // Child agents under agents.* namespace
+    // Child agents under <module>.* namespace
     if (this.agents && this.agents.length > 0) {
       const agentsObj: Record<string, unknown> = {};
       for (const agent of this.agents) {
@@ -1916,23 +2375,61 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
         // Determine which shared fields this agent accepts
         const excluded = new Set(agent.getExcludedSharedFields?.() ?? []);
-        const applicable: Record<string, unknown> = {};
-        if (sharedFieldValues) {
-          for (const [k, v] of Object.entries(sharedFieldValues)) {
-            if (!excluded.has(k)) {
-              applicable[k] = v;
+        const getApplicableSharedFields = (): Record<string, unknown> => {
+          const applicable: Record<string, unknown> = {};
+          if (sharedFieldValues) {
+            for (const [k, v] of Object.entries(sharedFieldValues)) {
+              if (!excluded.has(k)) {
+                applicable[k] = v;
+              }
             }
           }
-        }
+          return applicable;
+        };
 
         agentsObj[fn.name] = AxAgent.wrapFunctionWithSharedFields(
           fn,
           abortSignal,
-          applicable,
+          getApplicableSharedFields,
           ai
         );
+        registerCallable(
+          {
+            module: this.agentModuleNamespace,
+            name: fn.name,
+            description: fn.description,
+            parameters: fn.parameters,
+          },
+          `${this.agentModuleNamespace}.${fn.name}`
+        );
       }
-      globals.agents = agentsObj;
+      globals[this.agentModuleNamespace] = agentsObj;
+    }
+
+    if (this.functionDiscoveryEnabled) {
+      globals[DISCOVERY_LIST_MODULE_FUNCTIONS_NAME] = async (
+        modulesInput: unknown
+      ): Promise<string> => {
+        const modules = normalizeDiscoveryStringInput(modulesInput, 'modules');
+        return renderDiscoveryModuleListMarkdown(
+          modules,
+          moduleLookup,
+          moduleMetaLookup
+        );
+      };
+
+      globals[DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME] = async (
+        functionsInput: unknown
+      ): Promise<string> => {
+        const items = normalizeDiscoveryStringInput(
+          functionsInput,
+          'functions'
+        );
+        return renderDiscoveryFunctionDefinitionsMarkdown(
+          items,
+          callableLookup
+        );
+      };
     }
 
     return globals;
@@ -1943,7 +2440,13 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
    */
   private get _genOptions(): Record<string, unknown> {
     if (!this.options) return {};
-    const { agents: _a, fields: _f, functions: _fn, ...rest } = this.options;
+    const {
+      agents: _a,
+      fields: _f,
+      functions: _fn,
+      inputUpdateCallback: _iuc,
+      ...rest
+    } = this.options;
     return rest;
   }
 
@@ -1965,9 +2468,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
  * Configuration options for creating an agent using the agent() factory function.
  */
 export interface AxAgentConfig<_IN extends AxGenIn, _OUT extends AxGenOut>
-  extends AxAgentOptions {
+  extends AxAgentOptions<_IN> {
   ai?: AxAIService;
-  agentIdentity?: { name: string; description: string };
+  agentIdentity?: AxAgentIdentity;
 }
 
 /**
@@ -2052,6 +2555,63 @@ function truncateText(text: string, maxChars: number): string {
   return `${text.slice(0, maxChars)}\n...[truncated ${text.length - maxChars} chars]`;
 }
 
+function buildContextFieldPromptInlineValue(
+  value: unknown,
+  promptConfig: AxContextFieldPromptConfig
+): unknown {
+  if (promptConfig.kind === 'threshold') {
+    return estimateValueSize(value) <= promptConfig.promptMaxChars
+      ? value
+      : undefined;
+  }
+
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const keepChars = promptConfig.keepInPromptChars;
+  if (value.length <= keepChars) {
+    return value;
+  }
+
+  const truncatedChars = value.length - keepChars;
+  if (promptConfig.reverseTruncate) {
+    const suffix = keepChars > 0 ? value.slice(-keepChars) : '';
+    return `[truncated ${truncatedChars} chars]...${suffix}`;
+  }
+
+  const prefix = keepChars > 0 ? value.slice(0, keepChars) : '';
+  return `${prefix}...[truncated ${truncatedChars} chars]`;
+}
+
+function describeContextFieldPromptMode(
+  value: unknown,
+  promptConfig: AxContextFieldPromptConfig,
+  isInlined: boolean
+): string {
+  if (promptConfig.kind === 'threshold') {
+    return isInlined
+      ? `inline (<=${promptConfig.promptMaxChars} chars)`
+      : `runtime-only (>${promptConfig.promptMaxChars} chars)`;
+  }
+
+  if (typeof value !== 'string') {
+    return 'runtime-only (keepInPromptChars requires string)';
+  }
+
+  if (!isInlined) {
+    return 'runtime-only';
+  }
+
+  if (value.length <= promptConfig.keepInPromptChars) {
+    return `inline (<=${promptConfig.keepInPromptChars} chars)`;
+  }
+
+  return promptConfig.reverseTruncate
+    ? `inline-truncated(last ${promptConfig.keepInPromptChars} chars of ${value.length})`
+    : `inline-truncated(first ${promptConfig.keepInPromptChars} chars of ${value.length})`;
+}
+
 function estimateValueSize(value: unknown): number {
   if (typeof value === 'string') {
     return value.length;
@@ -2069,12 +2629,12 @@ function normalizeContextFields(
   defaultPromptMaxChars: number
 ): {
   contextFieldNames: string[];
-  promptMaxCharsByField: Map<string, number>;
+  promptConfigByField: Map<string, AxContextFieldPromptConfig>;
 } {
   const inputFieldNames = new Set(inputFields.map((f) => f.name));
   const seen = new Set<string>();
   const contextFieldNames: string[] = [];
-  const promptMaxCharsByField = new Map<string, number>();
+  const promptConfigByField = new Map<string, AxContextFieldPromptConfig>();
 
   for (const cf of contextFields) {
     const field = typeof cf === 'string' ? cf : cf.field;
@@ -2089,23 +2649,60 @@ function normalizeContextFields(
     contextFieldNames.push(field);
 
     if (typeof cf !== 'string') {
+      const hasKeepInPromptChars = cf.keepInPromptChars !== undefined;
+      const hasPromptMaxChars = cf.promptMaxChars !== undefined;
+
+      if (hasKeepInPromptChars && hasPromptMaxChars) {
+        throw new Error(
+          `contextField "${field}" cannot set both promptMaxChars and keepInPromptChars`
+        );
+      }
+
+      if ('reverseTruncate' in cf && !hasKeepInPromptChars) {
+        throw new Error(
+          `contextField "${field}" reverseTruncate requires keepInPromptChars`
+        );
+      }
+
+      if (hasKeepInPromptChars) {
+        const keepInPromptChars = cf.keepInPromptChars;
+        if (
+          !Number.isFinite(keepInPromptChars) ||
+          keepInPromptChars === undefined ||
+          keepInPromptChars < 0
+        ) {
+          throw new Error(
+            `contextField "${field}" keepInPromptChars must be a finite number >= 0`
+          );
+        }
+        promptConfigByField.set(field, {
+          kind: 'truncate',
+          keepInPromptChars,
+          reverseTruncate: cf.reverseTruncate === true,
+        });
+        continue;
+      }
+
       const promptMaxChars = cf.promptMaxChars ?? defaultPromptMaxChars;
       if (!Number.isFinite(promptMaxChars) || promptMaxChars < 0) {
         throw new Error(
           `contextField "${field}" promptMaxChars must be a finite number >= 0`
         );
       }
-      promptMaxCharsByField.set(field, promptMaxChars);
+      promptConfigByField.set(field, {
+        kind: 'threshold',
+        promptMaxChars,
+      });
     }
   }
 
-  return { contextFieldNames, promptMaxCharsByField };
+  return { contextFieldNames, promptConfigByField };
 }
 
 function buildRLMVariablesInfo(
   contextValues: Record<string, unknown>,
   options?: {
-    promptMaxCharsByField?: ReadonlyMap<string, number>;
+    promptConfigByField?: ReadonlyMap<string, AxContextFieldPromptConfig>;
     inlinedFields?: ReadonlySet<string>;
   }
 ): string {
@@ -2120,13 +2717,15 @@ function buildRLMVariablesInfo(
           : value && typeof value === 'object'
             ? `${Object.keys(value as Record<string, unknown>).length} keys`
             : 'n/a';
-    const threshold = options?.promptMaxCharsByField?.get(key);
+    const promptConfig = options?.promptConfigByField?.get(key);
     const promptMode =
-      threshold === undefined
+      promptConfig === undefined
         ? 'runtime-only'
-        : options?.inlinedFields?.has(key)
-          ? `inline (<=${threshold} chars)`
-          : `runtime-only (>${threshold} chars)`;
+        : describeContextFieldPromptMode(
+            value,
+            promptConfig,
+            options?.inlinedFields?.has(key) === true
+          );
     lines.push(
       `- ${key}: type=${valueType}, size=${size}, prompt=${promptMode}`
     );
@@ -2165,6 +2764,213 @@ async function runWithConcurrency<TIn, TOut>(
   return results;
 }
 
+function shouldEnforceIncrementalConsoleTurns(
+  runtimeUsageInstructions: string
+): boolean {
+  return runtimeUsageInstructions.includes('console.log');
+}
+
+function validateActorTurnCodePolicy(code: string): string | undefined {
+  const sanitized = stripJsStringsAndComments(code);
+  const hasFinal = /\bfinal\s*\(/.test(sanitized);
+  const hasAskClarification = /\bask_clarification\s*\(/.test(sanitized);
+  const completionSignalCount = Number(hasFinal) + Number(hasAskClarification);
+  const consoleLogCalls = findConsoleLogCalls(sanitized);
+
+  if (completionSignalCount > 1) {
+    return '[POLICY] Use exactly one completion signal per turn: either final(...) or ask_clarification(...), not both.';
+  }
+
+  if (completionSignalCount === 1) {
+    if (consoleLogCalls.length > 0) {
+      return '[POLICY] Do not combine console.log(...) with final(...)/ask_clarification(...) in the same turn. Inspect in one turn, then complete in the next turn.';
+    }
+    return undefined;
+  }
+
+  if (consoleLogCalls.length === 0) {
+    return '[POLICY] Non-final turns must include exactly one console.log(...) so the next turn can reason from its output.';
+  }
+
+  if (consoleLogCalls.length > 1) {
+    return '[POLICY] Use exactly one console.log(...) per non-final turn, then stop.';
+  }
+
+  const onlyLog = consoleLogCalls[0];
+  if (onlyLog === undefined) {
+    return '[POLICY] Unable to verify console.log(...) usage. Emit exactly one console.log(...) per non-final turn.';
+  }
+  if (onlyLog.closeParenIndex === undefined) {
+    return '[POLICY] Could not parse console.log(...). Keep a single valid console.log(...) call as the last statement in non-final turns.';
+  }
+
+  const trailing = sanitized
+    .slice(onlyLog.closeParenIndex + 1)
+    .replace(/^[\s;]+/, '');
+  if (trailing.length > 0) {
+    return '[POLICY] End non-final turns immediately after console.log(...). Do not execute additional statements after logging.';
+  }
+
+  return undefined;
+}
+
+function stripJsStringsAndComments(code: string): string {
+  let out = '';
+  let i = 0;
+  let state:
+    | 'normal'
+    | 'single'
+    | 'double'
+    | 'template'
+    | 'lineComment'
+    | 'blockComment' = 'normal';
+  let escaped = false;
+
+  while (i < code.length) {
+    const ch = code[i] ?? '';
+    const next = code[i + 1] ?? '';
+
+    if (state === 'lineComment') {
+      if (ch === '\n') {
+        out += '\n';
+        state = 'normal';
+      } else {
+        out += ' ';
+      }
+      i++;
+      continue;
+    }
+
+    if (state === 'blockComment') {
+      if (ch === '*' && next === '/') {
+        out += '  ';
+        i += 2;
+        state = 'normal';
+      } else {
+        out += ch === '\n' ? '\n' : ' ';
+        i++;
+      }
+      continue;
+    }
+
+    if (state === 'single' || state === 'double' || state === 'template') {
+      const quote = state === 'single' ? "'" : state === 'double' ? '"' : '`';
+      if (escaped) {
+        out += ch === '\n' ? '\n' : ' ';
+        escaped = false;
+        i++;
+        continue;
+      }
+      if (ch === '\\') {
+        out += ' ';
+        escaped = true;
+        i++;
+        continue;
+      }
+      if (ch === quote) {
+        out += ' ';
+        state = 'normal';
+        i++;
+        continue;
+      }
+      out += ch === '\n' ? '\n' : ' ';
+      i++;
+      continue;
+    }
+
+    if (ch === '/' && next === '/') {
+      out += '  ';
+      i += 2;
+      state = 'lineComment';
+      continue;
+    }
+
+    if (ch === '/' && next === '*') {
+      out += '  ';
+      i += 2;
+      state = 'blockComment';
+      continue;
+    }
+
+    if (ch === "'") {
+      out += ' ';
+      i++;
+      state = 'single';
+      continue;
+    }
+
+    if (ch === '"') {
+      out += ' ';
+      i++;
+      state = 'double';
+      continue;
+    }
+
+    if (ch === '`') {
+      out += ' ';
+      i++;
+      state = 'template';
+      continue;
+    }
+
+    out += ch;
+    i++;
+  }
+
+  return out;
+}
+
+function findConsoleLogCalls(
+  sanitizedCode: string
+): Array<{ closeParenIndex?: number }> {
+  const matches = sanitizedCode.matchAll(/\bconsole\s*\.\s*log\s*\(/g);
+  const calls: Array<{ closeParenIndex?: number }> = [];
+
+  for (const match of matches) {
+    const fullMatch = match[0];
+    if (fullMatch === undefined) {
+      continue;
+    }
+    const matchIndex = match.index ?? -1;
+    if (matchIndex < 0) {
+      continue;
+    }
+    const openParenOffset = fullMatch.lastIndexOf('(');
+    const openParenIndex = matchIndex + openParenOffset;
+    const closeParenIndex = findMatchingParenIndex(
+      sanitizedCode,
+      openParenIndex
+    );
+    calls.push({ closeParenIndex });
+  }
+
+  return calls;
+}
+
+function findMatchingParenIndex(
+  code: string,
+  openParenIndex: number
+): number | undefined {
+  if (openParenIndex < 0 || code[openParenIndex] !== '(') {
+    return undefined;
+  }
+
+  let depth = 0;
+  for (let i = openParenIndex; i < code.length; i++) {
+    const ch = code[i];
+    if (ch === '(') {
+      depth++;
+    } else if (ch === ')') {
+      depth--;
+      if (depth === 0) {
+        return i;
+      }
+    }
+  }
+
+  return undefined;
+}
+
 /**
  * Returns a copy of `schema` with the listed property names removed from
  * both `properties` and `required`.  Used to strip parent-injected shared
@@ -2184,6 +2990,370 @@ function stripSchemaProperties(
     properties,
     ...(required !== undefined ? { required } : {}),
   };
+}
+
+type DiscoveryCallableMeta = {
+  module: string;
+  name: string;
+  description: string;
+  parameters?: AxFunctionJSONSchema;
+  returns?: AxFunctionJSONSchema;
+  examples?: readonly AxAgentFunctionExample[];
+};
+
+function normalizeAgentModuleNamespace(
+  namespace: string,
+  options?: Readonly<{ normalize?: boolean }>
+): string {
+  const trimmed = namespace.trim();
+  const shouldNormalize = options?.normalize ?? true;
+  const normalized = shouldNormalize ? toCamelCase(trimmed) : trimmed;
+  if (!normalized) {
+    throw new Error('Agent module namespace must contain letters or numbers');
+  }
+  return normalized;
+}
+
+function normalizeAgentNamespaces(
+  namespaces: readonly AxAgentNamespace[] | undefined,
+  reservedNames: ReadonlySet<string>
+): AxAgentNamespace[] {
+  if (!namespaces || namespaces.length === 0) {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  return namespaces.map((namespaceMeta) => {
+    const name = namespaceMeta.name.trim();
+    const title = namespaceMeta.title.trim();
+    const description = namespaceMeta.description.trim();
+
+    if (!name) {
+      throw new Error(
+        'Agent namespace metadata name must be a non-empty string'
+      );
+    }
+    if (!title) {
+      throw new Error(
+        `Agent namespace "${name}" must define a non-empty title`
+      );
+    }
+    if (!description) {
+      throw new Error(
+        `Agent namespace "${name}" must define a non-empty description`
+      );
+    }
+    if (reservedNames.has(name)) {
+      throw new Error(`Agent namespace "${name}" is reserved`);
+    }
+    if (seen.has(name)) {
+      throw new Error(`Duplicate agent namespace "${name}"`);
+    }
+    seen.add(name);
+
+    return {
+      name,
+      title,
+      description,
+    };
+  });
+}
+
+function normalizeDiscoveryStringInput(
+  value: unknown,
+  fieldName: string
+): string[] {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (trimmed.length === 0) {
+      throw new Error(`${fieldName} must be a non-empty string`);
+    }
+    return [trimmed];
+  }
+
+  if (!Array.isArray(value)) {
+    throw new Error(`${fieldName} must be a string or string[]`);
+  }
+
+  if (!value.every((item) => typeof item === 'string')) {
+    throw new Error(`${fieldName} must contain only strings`);
+  }
+
+  const normalized = value
+    .map((item) => item as string)
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+
+  if (normalized.length === 0) {
+    throw new Error(`${fieldName} must contain at least one non-empty string`);
+  }
+
+  return [...new Set(normalized)];
+}
+
+function normalizeSchemaTypesForDiscovery(
+  schema: AxFunctionJSONSchema
+): string[] {
+  const rawType = (schema as { type?: unknown }).type;
+  if (Array.isArray(rawType)) {
+    return rawType.filter((t): t is string => typeof t === 'string');
+  }
+  if (typeof rawType === 'string') {
+    if (rawType.includes(',')) {
+      return rawType
+        .split(',')
+        .map((part) => part.trim())
+        .filter(Boolean);
+    }
+    return [rawType];
+  }
+  return [];
+}
+
+function isJsonAnyTypeUnionForDiscovery(types: readonly string[]): boolean {
+  const normalized = new Set(types);
+  return (
+    normalized.has('object') &&
+    normalized.has('array') &&
+    normalized.has('string') &&
+    normalized.has('number') &&
+    normalized.has('boolean') &&
+    normalized.has('null')
+  );
+}
+
+function schemaTypeToShortStringForDiscovery(
+  schema: AxFunctionJSONSchema
+): string {
+  if (schema.enum) return schema.enum.map((e) => `"${e}"`).join(' | ');
+
+  const types = normalizeSchemaTypesForDiscovery(schema);
+  if (types.length === 0) return 'unknown';
+  if (isJsonAnyTypeUnionForDiscovery(types)) return 'any';
+
+  const rendered = [...new Set(types)].map((type) => {
+    if (type === 'array') {
+      const itemType = schema.items
+        ? schemaTypeToShortStringForDiscovery(schema.items)
+        : 'unknown';
+      return itemType.includes(' | ') ? `(${itemType})[]` : `${itemType}[]`;
+    }
+    if (type === 'object') {
+      if (schema.properties && Object.keys(schema.properties).length > 0) {
+        return renderObjectTypeForDiscovery(schema);
+      }
+      return 'object';
+    }
+    return type;
+  });
+
+  return rendered.length > 1
+    ? rendered.join(' | ')
+    : (rendered[0] ?? 'unknown');
+}
+
+function renderObjectTypeForDiscovery(
+  schema: AxFunctionJSONSchema | undefined,
+  options?: Readonly<{ respectRequired?: boolean }>
+): string {
+  if (!schema) {
+    return '{}';
+  }
+
+  const hasProperties =
+    !!schema.properties && Object.keys(schema.properties).length > 0;
+  const supportsExtraProps = schema.additionalProperties === true;
+
+  if (!hasProperties) {
+    return supportsExtraProps ? '{ [key: string]: unknown }' : '{}';
+  }
+
+  const required = new Set(schema.required ?? []);
+  const respectRequired = options?.respectRequired ?? false;
+  const parts = Object.entries(schema.properties!).map(([key, prop]) => {
+    const typeStr = schemaTypeToShortStringForDiscovery(prop);
+    const optionalMarker = respectRequired && !required.has(key) ? '?' : '';
+    return `${key}${optionalMarker}: ${typeStr}`;
+  });
+  if (schema.additionalProperties === true) {
+    parts.push('[key: string]: unknown');
+  }
+
+  return `{ ${parts.join(', ')} }`;
+}
+
+function renderCallableEntryForDiscovery(args: {
+  qualifiedName: string;
+  parameters?: AxFunctionJSONSchema;
+  returns?: AxFunctionJSONSchema;
+}): string {
+  const paramType = renderObjectTypeForDiscovery(args.parameters, {
+    respectRequired: true,
+  });
+  const returnType = args.returns
+    ? `: Promise<${schemaTypeToShortStringForDiscovery(args.returns)}>`
+    : '';
+  return `- \`${args.qualifiedName}(args: ${paramType})${returnType}\``;
+}
+
+type DiscoveryArgDoc = {
+  name: string;
+  type: string;
+  required?: boolean;
+  description: string;
+};
+
+function collectDiscoveryArgumentDocs(
+  schema: AxFunctionJSONSchema | undefined,
+  prefix = '',
+  includeRequired = true
+): DiscoveryArgDoc[] {
+  if (!schema?.properties) {
+    return [];
+  }
+
+  const required = new Set(schema.required ?? []);
+  const docs: DiscoveryArgDoc[] = [];
+
+  for (const [key, prop] of Object.entries(schema.properties)) {
+    const path = prefix ? `${prefix}.${key}` : key;
+    const description = prop.description?.trim();
+    if (description) {
+      docs.push({
+        name: path,
+        type: schemaTypeToShortStringForDiscovery(prop),
+        required: includeRequired ? required.has(key) : undefined,
+        description,
+      });
+    }
+
+    const propTypes = normalizeSchemaTypesForDiscovery(prop);
+    if (propTypes.includes('object') && prop.properties) {
+      docs.push(...collectDiscoveryArgumentDocs(prop, path, false));
+    }
+
+    if (propTypes.includes('array') && prop.items) {
+      const itemDescription = (
+        prop.items as AxFunctionJSONSchema & { description?: string }
+      ).description?.trim();
+      const itemPath = `${path}[]`;
+      if (itemDescription) {
+        docs.push({
+          name: itemPath,
+          type: schemaTypeToShortStringForDiscovery(prop.items),
+          description: itemDescription,
+        });
+      }
+      const itemTypes = normalizeSchemaTypesForDiscovery(prop.items);
+      if (itemTypes.includes('object') && prop.items.properties) {
+        docs.push(...collectDiscoveryArgumentDocs(prop.items, itemPath, false));
+      }
+    }
+  }
+
+  return docs;
+}
+
+function renderDiscoveryArgumentDocsMarkdown(
+  schema: AxFunctionJSONSchema | undefined
+): string | undefined {
+  const docs = collectDiscoveryArgumentDocs(schema);
+  if (docs.length === 0) {
+    return undefined;
+  }
+
+  return [
+    '#### Arguments',
+    ...docs.map((doc) => {
+      const suffix =
+        doc.required === undefined
+          ? `\`${doc.type}\``
+          : `\`${doc.type}\`, ${doc.required ? 'required' : 'optional'}`;
+      return `- \`${doc.name}\` (${suffix}): ${doc.description}`;
+    }),
+  ].join('\n');
+}
+
+function renderDiscoveryExamplesMarkdown(
+  examples: readonly AxAgentFunctionExample[] | undefined
+): string | undefined {
+  if (!examples || examples.length === 0) {
+    return undefined;
+  }
+
+  const blocks = examples
+    .map((example) => {
+      const parts: string[] = [];
+      if (example.title?.trim()) {
+        parts.push(`##### ${example.title.trim()}`);
+      }
+      if (example.description?.trim()) {
+        parts.push(example.description.trim());
+      }
+      parts.push(`\`\`\`${example.language?.trim() || 'typescript'}`);
+      parts.push(example.code);
+      parts.push('```');
+      return parts.join('\n');
+    })
+    .join('\n\n');
+
+  return ['#### Examples', blocks].join('\n');
+}
+
+function renderDiscoveryModuleListMarkdown(
+  modules: readonly string[],
+  moduleLookup: ReadonlyMap<string, readonly string[]>,
+  moduleMetaLookup: ReadonlyMap<string, AxAgentNamespace>
+): string {
+  return modules
+    .map((module) => {
+      const functions = [...(moduleLookup.get(module) ?? [])].sort((a, b) =>
+        a.localeCompare(b)
+      );
+      const exists = functions.length > 0;
+      const meta = exists ? moduleMetaLookup.get(module) : undefined;
+      const body = exists
+        ? functions.map((name) => `- \`${name}\``).join('\n')
+        : `- Error: module \`${module}\` does not exist.`;
+      const parts = [`### Module \`${module}\``];
+      if (meta) {
+        parts.push(`**${meta.title}**`);
+        parts.push(meta.description);
+      }
+      parts.push(body);
+      return parts.join('\n');
+    })
+    .join('\n\n');
+}
+
+function renderDiscoveryFunctionDefinitionsMarkdown(
+  identifiers: readonly string[],
+  callableLookup: ReadonlyMap<string, DiscoveryCallableMeta>
+): string {
+  return identifiers
+    .map((rawIdentifier) => {
+      const qualifiedName = rawIdentifier.includes('.')
+        ? rawIdentifier
+        : `utils.${rawIdentifier}`;
+      const meta = callableLookup.get(qualifiedName);
+      if (!meta) {
+        return `### \`${qualifiedName}\`\n- Not found.`;
+      }
+      return [
+        `### \`${qualifiedName}\``,
+        meta.description,
+        renderCallableEntryForDiscovery({
+          qualifiedName,
+          parameters: meta.parameters,
+          returns: meta.returns,
+        }),
+        renderDiscoveryArgumentDocsMarkdown(meta.parameters),
+        renderDiscoveryExamplesMarkdown(meta.examples),
+      ]
+        .filter((part): part is string => !!part)
+        .join('\n');
+    })
+    .join('\n\n');
 }
 
 function toCamelCase(inputString: string): string {

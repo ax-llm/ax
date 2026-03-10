@@ -46,9 +46,8 @@ const cleanSchemaForAnthropic = (schema: any): any => {
 
   if (isObjectType) {
     if (!cleaned.properties || Object.keys(cleaned.properties).length === 0) {
-      throw new Error(
-        'Anthropic models do not support arbitrary JSON objects (e.g. f.json() or f.object() with no properties) in structured outputs. Please use f.string() and instruct the model to return a JSON string, or define the expected structure with f.object({ ... })'
-      );
+      // Return as-is; callers already handle bare objects by adding dummy properties
+      return cleaned;
     }
     if (cleaned.additionalProperties === undefined) {
       cleaned.additionalProperties = false;

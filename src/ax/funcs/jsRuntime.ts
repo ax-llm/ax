@@ -372,7 +372,10 @@ const getNodeWorkerPool = (
   return pool;
 };
 
-const splitGlobalsForWorker = (globals?: Record<string, unknown>) => {
+const splitGlobalsForWorker = (
+  globals?: Record<string, unknown>,
+  options?: Readonly<{ nextFnId?: () => number }>
+) => {
   const serializableGlobals: Record<string, unknown> = {};
   const fnMap = new Map<string, (...args: unknown[]) => unknown>();
   let nextFnId = 0;
@@ -380,7 +383,8 @@ const splitGlobalsForWorker = (globals?: Record<string, unknown>) => {
 
   const toSerializable = (value: unknown, path: string): unknown => {
     if (typeof value === 'function') {
-      const ref = `fn_${++nextFnId}_${path || 'root'}`;
+      const refId = options?.nextFnId ? options.nextFnId() : ++nextFnId;
+      const ref = `fn_${refId}_${path || 'root'}`;
       fnMap.set(ref, value as (...args: unknown[]) => unknown);
       return { [FUNCTION_REF_KEY]: ref };
     }
@@ -699,13 +703,16 @@ export class AxJSRuntime implements AxCodeRuntime {
     let isClosed = false;
 
     const timeout = this.timeout;
+    let nextFnRefId = 0;
 
     // Convert nested function values into worker-callable references.
-    const { serializableGlobals, fnMap } = splitGlobalsForWorker(globals);
+    const { serializableGlobals, fnMap } = splitGlobalsForWorker(globals, {
+      nextFnId: () => ++nextFnRefId,
+    });
     validateSerializableGlobals(serializableGlobals);
 
-    // Pending execute promises keyed by correlation ID
-    const pendingExecutions = new Map<
+    // Pending worker requests keyed by correlation ID.
+    const pendingRequests = new Map<
       number,
       { resolve: (v: unknown) => void; reject: (e: Error) => void }
     >();
@@ -738,9 +745,9 @@ export class AxJSRuntime implements AxCodeRuntime {
           return;
         }
 
-        const pending = pendingExecutions.get(typedMsg.id);
+        const pending = pendingRequests.get(typedMsg.id);
         if (pending) {
-          pendingExecutions.delete(typedMsg.id);
+          pendingRequests.delete(typedMsg.id);
           if (typedMsg.error !== undefined) {
             pending.reject(deserializeError(typedMsg.error));
           } else {
@@ -800,19 +807,31 @@ export class AxJSRuntime implements AxCodeRuntime {
     const cleanup = () => {
       isClosed = true;
       resetWorker();
-      for (const pending of pendingExecutions.values()) {
+      for (const pending of pendingRequests.values()) {
         pending.reject(new Error('Worker terminated'));
       }
-      pendingExecutions.clear();
+      pendingRequests.clear();
     };
 
     /** Fails all pending executions when the worker errors unexpectedly. */
     const handleWorkerError = (error: Error) => {
       resetWorker();
-      for (const pending of pendingExecutions.values()) {
+      for (const pending of pendingRequests.values()) {
         pending.reject(error);
       }
-      pendingExecutions.clear();
+      pendingRequests.clear();
+    };
+
+    const postInitMessage = (targetWorker: RLMWorker) => {
+      targetWorker.postMessage({
+        type: 'init',
+        globals: serializableGlobals,
+        fnNames: [...fnMap.keys()],
+        permissions: [...this.permissions],
+        allowUnsafeNodeHostAccess: this.allowUnsafeNodeHostAccess,
+        outputMode: this.outputMode,
+        captureConsole: this.captureConsole,
+      });
     };
 
     if (canUseWebWorker()) {
@@ -821,15 +840,7 @@ export class AxJSRuntime implements AxCodeRuntime {
       worker.onmessage = handleWorkerMessage;
       worker.onerror = handleWorkerError;
       try {
-        worker.postMessage({
-          type: 'init',
-          globals: serializableGlobals,
-          fnNames: [...fnMap.keys()],
-          permissions: [...this.permissions],
-          allowUnsafeNodeHostAccess: this.allowUnsafeNodeHostAccess,
-          outputMode: this.outputMode,
-          captureConsole: this.captureConsole,
-        });
+        postInitMessage(worker);
       } catch (error) {
         cleanup();
         throw error;
@@ -850,15 +861,7 @@ export class AxJSRuntime implements AxCodeRuntime {
         worker.onmessage = handleWorkerMessage;
         worker.onerror = handleWorkerError;
         try {
-          worker.postMessage({
-            type: 'init',
-            globals: serializableGlobals,
-            fnNames: [...fnMap.keys()],
-            permissions: [...this.permissions],
-            allowUnsafeNodeHostAccess: this.allowUnsafeNodeHostAccess,
-            outputMode: this.outputMode,
-            captureConsole: this.captureConsole,
-          });
+          postInitMessage(worker);
         } catch (error) {
           cleanup();
           throw error;
@@ -888,15 +891,7 @@ export class AxJSRuntime implements AxCodeRuntime {
           worker.onmessage = handleWorkerMessage;
           worker.onerror = handleWorkerError;
           try {
-            worker.postMessage({
-              type: 'init',
-              globals: serializableGlobals,
-              fnNames: [...fnMap.keys()],
-              permissions: [...this.permissions],
-              allowUnsafeNodeHostAccess: this.allowUnsafeNodeHostAccess,
-              outputMode: this.outputMode,
-              captureConsole: this.captureConsole,
-            });
+            postInitMessage(worker);
           } catch (error) {
             if (nodeWorkerPool) {
               nodeWorkerPool.release(created);
@@ -910,6 +905,89 @@ export class AxJSRuntime implements AxCodeRuntime {
         });
       }
       await workerReady;
+    };
+
+    const dispatchWorkerRequest = (
+      payload: Record<string, unknown>,
+      options: Readonly<{
+        signal?: AbortSignal;
+        timeoutMessage: string;
+      }>
+    ): Promise<unknown> => {
+      if (isClosed) {
+        return Promise.reject(new Error('Session is closed'));
+      }
+
+      const signal = options.signal;
+      if (signal?.aborted) {
+        return Promise.reject(
+          new Error(`Aborted: ${signal.reason ?? 'execution aborted'}`)
+        );
+      }
+
+      const id = ++nextId;
+
+      return new Promise<unknown>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          pendingRequests.delete(id);
+          resetWorker();
+          for (const pending of pendingRequests.values()) {
+            pending.reject(new Error('Worker terminated'));
+          }
+          pendingRequests.clear();
+          reject(new Error(options.timeoutMessage));
+        }, timeout);
+
+        const originalResolve = resolve;
+        const originalReject = reject;
+
+        let onCleanup = () => {};
+        pendingRequests.set(id, {
+          resolve: (value: unknown) => {
+            clearTimeout(timer);
+            onCleanup();
+            originalResolve(value);
+          },
+          reject: (error: Error) => {
+            clearTimeout(timer);
+            onCleanup();
+            originalReject(error);
+          },
+        });
+
+        if (signal) {
+          const onAbort = () => {
+            clearTimeout(timer);
+            pendingRequests.delete(id);
+            cleanup();
+            originalReject(
+              new Error(`Aborted: ${signal.reason ?? 'execution aborted'}`)
+            );
+          };
+          signal.addEventListener('abort', onAbort, { once: true });
+          onCleanup = () => {
+            signal.removeEventListener('abort', onAbort);
+          };
+        }
+
+        void ensureWorker()
+          .then(() => {
+            if (!worker) {
+              throw new Error('Worker unavailable');
+            }
+            worker.postMessage({ ...payload, id });
+          })
+          .catch((error: Error) => {
+            const pending = pendingRequests.get(id);
+            if (!pending) {
+              return;
+            }
+            pendingRequests.delete(id);
+            clearTimeout(timer);
+            onCleanup();
+            originalReject(error);
+          });
+      });
     };
 
     return {
@@ -947,79 +1025,47 @@ export class AxJSRuntime implements AxCodeRuntime {
           }
         }
 
-        const signal = options?.signal;
-        if (signal?.aborted) {
-          return Promise.reject(
-            new Error(`Aborted: ${signal.reason ?? 'execution aborted'}`)
-          );
+        return dispatchWorkerRequest(
+          { type: 'execute', code },
+          {
+            signal: options?.signal,
+            timeoutMessage: 'Execution timed out',
+          }
+        );
+      },
+
+      async patchGlobals(
+        globals: Record<string, unknown>,
+        options?: { signal?: AbortSignal }
+      ) {
+        if (!globals || typeof globals !== 'object' || Array.isArray(globals)) {
+          throw new Error('patchGlobals expects an object');
         }
 
-        const id = ++nextId;
-
-        return new Promise<unknown>((resolve, reject) => {
-          // Timeout — reset worker (not permanent close) so next execute() auto-recovers
-          const timer = setTimeout(() => {
-            pendingExecutions.delete(id);
-            resetWorker();
-            for (const pending of pendingExecutions.values()) {
-              pending.reject(new Error('Worker terminated'));
-            }
-            pendingExecutions.clear();
-            reject(new Error('Execution timed out'));
-          }, timeout);
-
-          // Wrap resolve/reject to clear timer
-          const originalResolve = resolve;
-          const originalReject = reject;
-
-          pendingExecutions.set(id, {
-            resolve: (v: unknown) => {
-              clearTimeout(timer);
-              onCleanup();
-              originalResolve(v);
-            },
-            reject: (e: Error) => {
-              clearTimeout(timer);
-              onCleanup();
-              originalReject(e);
-            },
+        const { serializableGlobals: serializablePatch, fnMap: patchFnMap } =
+          splitGlobalsForWorker(globals, {
+            nextFnId: () => ++nextFnRefId,
           });
+        validateSerializableGlobals(serializablePatch);
 
-          // AbortSignal listener
-          let onCleanup = () => {};
-          if (signal) {
-            const onAbort = () => {
-              clearTimeout(timer);
-              pendingExecutions.delete(id);
-              cleanup();
-              originalReject(
-                new Error(`Aborted: ${signal.reason ?? 'execution aborted'}`)
-              );
-            };
-            signal.addEventListener('abort', onAbort, { once: true });
-            onCleanup = () => {
-              signal.removeEventListener('abort', onAbort);
-            };
+        if (Object.keys(serializablePatch).length === 0) {
+          return;
+        }
+
+        await dispatchWorkerRequest(
+          { type: 'update-globals', globals: serializablePatch },
+          {
+            signal: options?.signal,
+            timeoutMessage: 'Global patch timed out',
           }
+        );
 
-          void ensureWorker()
-            .then(() => {
-              if (!worker) {
-                throw new Error('Worker unavailable');
-              }
-              worker.postMessage({ type: 'execute', id, code });
-            })
-            .catch((error: Error) => {
-              const pending = pendingExecutions.get(id);
-              if (!pending) {
-                return;
-              }
-              pendingExecutions.delete(id);
-              clearTimeout(timer);
-              onCleanup();
-              originalReject(error);
-            });
-        });
+        for (const [key, value] of Object.entries(serializablePatch)) {
+          serializableGlobals[key] = value;
+        }
+        for (const [key, fn] of patchFnMap.entries()) {
+          fnMap.set(key, fn);
+        }
       },
 
       close() {

@@ -61,6 +61,12 @@ describe('template integration', () => {
     );
     expect(actorDefinition).toContain('### Important guidance and guardrails');
     expect(actorDefinition).toContain(
+      'Treat any context field excerpt already shown in the prompt as first-pass evidence.'
+    );
+    expect(actorDefinition).toContain(
+      'prefer targeted inspection such as `slice(...)`, regex extraction, or focused parsing'
+    );
+    expect(actorDefinition).toContain(
       '## Javascript Runtime Usage Instructions'
     );
     expect(actorDefinition).toContain('Use return statements only.');

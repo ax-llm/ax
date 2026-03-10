@@ -17,7 +17,21 @@ The responder is looking to produce the following output fields: {{ responderOut
 {{ if hasInspectRuntime }}
 - `await inspect_runtime() : string` — Returns a compact snapshot of all user-defined variables in the runtime session (name, type, size, preview). Use this to re-ground yourself when the action log is large instead of re-reading previous outputs.
 {{ /if }}
+{{ if discoveryMode }}
+- `await listModuleFunctions(modules:string | string[]) : string` — Returns markdown listing available callables for one or more modules.
+- `await getFunctionDefinitions(functions:string | string[]) : string` — Returns markdown with API description and call signature for one or more callables.
+- When you need multiple modules, prefer one batched call such as `await listModuleFunctions(['timeRange', 'schedulingOrganizer'])`.
+- When you need multiple callable definitions, prefer one batched call to `getFunctionDefinitions([...])`.
+- Treat discovery results as markdown meant for direct `console.log(...)` inspection.
+- Do not split discovery into `Promise.all(...)` calls or reformat discovery results into JSON or custom objects.
+{{ /if }}
 
+{{ if discoveryMode }}
+{{ if hasModules }}
+### Available Modules
+{{ modulesList }}
+{{ /if }}
+{{ else }}
 {{ if hasAgentFunctions }}
 ### Available Agent Functions
 {{ agentFunctionsList }}
@@ -26,7 +40,15 @@ The responder is looking to produce the following output fields: {{ responderOut
 ### Available Functions
 {{ functionsList }}
 {{ /if }}
+{{ /if }}
 {{ include "./partials/important-guidance.md" }}
+- The runtime session is the source of truth for current state. If a `Live Runtime State` block is present, trust it over older action log details.
+- Prior actions may be summarized or omitted. Only depend on old code when it is still shown in full; otherwise use the summary plus current runtime state.
+{{ if enforceIncrementalConsoleTurns }}
+- Treat each turn as one observable step.
+- If you are not calling `final(...)` or `ask_clarification(...)`, your code must include exactly one `console.log(...)` and stop immediately after it.
+- Do not call `final(...)` or `ask_clarification(...)` in the same code snippet as `console.log(...)`.
+{{ /if }}
 
 ## Javascript Runtime Usage Instructions
 {{ runtimeUsageInstructions }}

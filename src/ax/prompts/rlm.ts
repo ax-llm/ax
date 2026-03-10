@@ -150,6 +150,10 @@ export interface AxCodeSession {
     code: string,
     options?: { signal?: AbortSignal; reservedNames?: readonly string[] }
   ): Promise<unknown>;
+  patchGlobals(
+    globals: Record<string, unknown>,
+    options?: { signal?: AbortSignal }
+  ): Promise<void>;
   close(): void;
 }
 
@@ -167,10 +171,20 @@ export interface AxContextManagementConfig {
   tombstoning?: boolean | Omit<AxProgramForwardOptions<string>, 'functions'>;
   /** Enable heuristic-based importance scoring on entries. */
   hindsightEvaluation?: boolean;
+  /** Controls how prior actor actions are replayed into the next prompt. */
+  actionReplay?: 'full' | 'adaptive' | 'minimal';
+  /** Number of most-recent actions that should always remain fully rendered. */
+  recentFullActions?: number;
+  /** Enable compact summaries for successful actions instead of raw code/output replay. */
+  successSummarization?:
+    | boolean
+    | Omit<AxProgramForwardOptions<string>, 'functions'>;
   /** Enable runtime state inspection tool for the actor.
    *  `contextThreshold` is the character count on the serialized actionLog
    *  above which an `inspect_runtime()` hint is shown to the actor. */
   stateInspection?: { contextThreshold?: number };
+  /** Include a compact live runtime state block ahead of the action log. */
+  stateSummary?: { enabled?: boolean; maxEntries?: number };
   /** Entries ranked strictly below this value are purged from active context.
    *  Range: 0-5. Default: 2. */
   pruneRank?: number;
@@ -230,7 +244,9 @@ export function axBuildActorDefinition(
     maxSubAgentCalls?: number;
     maxTurns?: number;
     hasInspectRuntime?: boolean;
-    /** Child agents available under the `agents.*` namespace in the JS runtime. */
+    /** When true, Actor must run one observable console step per non-final turn. */
+    enforceIncrementalConsoleTurns?: boolean;
+    /** Child agents available under the `<agentModuleNamespace>.*` namespace in the JS runtime. */
     agents?: ReadonlyArray<{
       name: string;
       description: string;
@@ -244,6 +260,12 @@ export function axBuildActorDefinition(
       returns?: AxFunctionJSONSchema;
       namespace: string;
     }>;
+    /** Module namespace used for child agent calls (default: "agents"). */
+    agentModuleNamespace?: string;
+    /** Enables module-only discovery rendering in prompt. */
+    discoveryMode?: boolean;
+    /** Precomputed available modules for runtime discovery mode. */
+    availableModules?: readonly string[];
   }>
 ): string {
   //   const maxSubAgentCalls = options.maxSubAgentCalls ?? 50;
@@ -275,20 +297,33 @@ export function axBuildActorDefinition(
       return a.name.localeCompare(b.name);
     }
   );
+  const agentModuleNamespace = options.agentModuleNamespace ?? 'agents';
+  const discoveryMode = Boolean(options.discoveryMode);
+  const availableModules = options.availableModules
+    ? [...new Set(options.availableModules)].sort((a, b) => a.localeCompare(b))
+    : [
+        ...new Set([
+          ...sortedAgentFunctions.map((fn) => fn.namespace),
+          ...(sortedAgents.length > 0 ? [agentModuleNamespace] : []),
+        ]),
+      ].sort((a, b) => a.localeCompare(b));
+
   const actorBody = renderPromptTemplate('rlm/actor.md', {
     contextVarList,
     responderOutputFieldTitles,
+    discoveryMode,
     hasInspectRuntime: Boolean(options.hasInspectRuntime),
-    hasAgentFunctions: sortedAgents.length > 0,
+    hasAgentFunctions: !discoveryMode && sortedAgents.length > 0,
+    agentModuleNamespace,
     agentFunctionsList: sortedAgents
       .map((fn) =>
         renderCallableEntry({
-          qualifiedName: `agents.${fn.name}`,
+          qualifiedName: `${agentModuleNamespace}.${fn.name}`,
           parameters: fn.parameters,
         })
       )
       .join('\n'),
-    hasFunctions: sortedAgentFunctions.length > 0,
+    hasFunctions: !discoveryMode && sortedAgentFunctions.length > 0,
     functionsList: sortedAgentFunctions
       .map((fn) =>
         renderCallableEntry({
@@ -298,7 +333,12 @@ export function axBuildActorDefinition(
         })
       )
       .join('\n'),
+    hasModules: discoveryMode && availableModules.length > 0,
+    modulesList: availableModules.map((module) => `- \`${module}\``).join('\n'),
     runtimeUsageInstructions: String(options.runtimeUsageInstructions),
+    enforceIncrementalConsoleTurns: Boolean(
+      options.enforceIncrementalConsoleTurns
+    ),
   })
     .replace(/\n{3,}/g, '\n\n')
     .trim();

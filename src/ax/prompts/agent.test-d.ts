@@ -1,4 +1,12 @@
-import { agent, f, s, type AxCodeRuntime, type AxFunction } from '../index.js';
+import {
+  type AxAgentFunction,
+  type AxAgentNamespace,
+  type AxCodeRuntime,
+  type AxFunction,
+  agent,
+  f,
+  s,
+} from '../index.js';
 
 // Basic agent with string signature — forward() returns typed output
 {
@@ -88,6 +96,21 @@ import { agent, f, s, type AxCodeRuntime, type AxFunction } from '../index.js';
     contextFields: [
       'context',
       { field: 'notes', promptMaxChars: 900 },
+    ] as const,
+    runtime,
+  });
+}
+
+// Agent with truncated prompt context config
+{
+  const runtime = {} as AxCodeRuntime;
+  agent('chatHistory:string, query:string -> answer:string', {
+    contextFields: [
+      {
+        field: 'chatHistory',
+        keepInPromptChars: 500,
+        reverseTruncate: true,
+      },
     ] as const,
     runtime,
   });
@@ -239,4 +262,149 @@ import { agent, f, s, type AxCodeRuntime, type AxFunction } from '../index.js';
 
   const _ok = [fnWithoutReturns, fnWithReturns];
   void _ok;
+}
+
+// AxAgent-specific discovery metadata should be accepted without changing AxFunction
+{
+  const runtime = {} as AxCodeRuntime;
+
+  const namespaces: AxAgentNamespace[] = [
+    {
+      name: 'db',
+      title: 'Database Tools',
+      description: 'Schedule lookup helpers',
+    },
+    {
+      name: 'agents',
+      title: 'Child Agents',
+      description: 'Delegated specialists',
+    },
+  ];
+
+  const agentFns: AxAgentFunction[] = [
+    {
+      name: 'lookupSchedule',
+      description: 'Lookup schedule data',
+      namespace: 'db',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Query text' },
+        },
+        required: ['query'],
+      },
+      examples: [
+        {
+          title: 'Simple lookup',
+          code: 'await db.lookupSchedule({ query: "alex" });',
+        },
+      ],
+      async func() {
+        return [];
+      },
+    },
+  ];
+
+  agent('query:string -> answer:string', {
+    contextFields: [] as const,
+    runtime,
+    namespaces,
+    functions: {
+      discovery: true,
+      local: agentFns,
+      shared: [agentFns[0]!],
+      globallyShared: [agentFns[0]!],
+    },
+  });
+}
+
+// inputUpdateCallback should infer callback input and patch output from signature inputs
+{
+  const runtime = {} as AxCodeRuntime;
+  agent('query:string, count:number -> answer:string', {
+    contextFields: [] as const,
+    runtime,
+    inputUpdateCallback: (currentInputs) => {
+      const _query: string = currentInputs.query;
+      const _count: number = currentInputs.count;
+      void [_query, _count];
+      return { query: _query, count: _count + 1 };
+    },
+  });
+}
+
+// inputUpdateCallback should allow undefined (no-op)
+{
+  const runtime = {} as AxCodeRuntime;
+  agent('query:string -> answer:string', {
+    contextFields: [] as const,
+    runtime,
+    inputUpdateCallback: (currentInputs) => {
+      if (currentInputs.query.length > 0) {
+        return undefined;
+      }
+      return { query: 'fallback' };
+    },
+  });
+}
+
+// inputUpdateCallback patch should reject unknown keys
+{
+  const runtime = {} as AxCodeRuntime;
+  // @ts-expect-error unknown key is not part of signature inputs
+  agent('query:string -> answer:string', {
+    contextFields: [] as const,
+    runtime,
+    inputUpdateCallback: () => ({ unknownKey: 'x' }),
+  });
+}
+
+// agentIdentity.namespace should be accepted and normalized at runtime
+{
+  const runtime = {} as AxCodeRuntime;
+  agent('query:string -> answer:string', {
+    contextFields: [] as const,
+    runtime,
+    agentIdentity: {
+      name: 'Parent Agent',
+      description: 'Parent',
+      namespace: 'Team Namespace',
+    },
+  });
+}
+
+// agentIdentity.namespace should reject non-string values
+{
+  const runtime = {} as AxCodeRuntime;
+  // @ts-expect-error namespace must be a string
+  agent('query:string -> answer:string', {
+    contextFields: [] as const,
+    runtime,
+    agentIdentity: {
+      name: 'Parent Agent',
+      description: 'Parent',
+      namespace: 123,
+    },
+  });
+}
+
+// functions.discovery should accept boolean values
+{
+  const runtime = {} as AxCodeRuntime;
+  agent('query:string -> answer:string', {
+    contextFields: [] as const,
+    runtime,
+    functions: { discovery: true, local: [] },
+  });
+}
+
+// functions.discovery should reject non-boolean values
+{
+  const runtime = {} as AxCodeRuntime;
+  // @ts-expect-error discovery must be a boolean
+  agent('query:string -> answer:string', {
+    contextFields: [] as const,
+    runtime,
+    functions: { discovery: 'yes', local: [] },
+  });
 }

@@ -53,10 +53,18 @@ const myAgent = agent('input:string -> output:string', {
   agentIdentity: {
     name: 'myAgent',                  // Agent name (converted to camelCase)
     description: 'Does something useful and interesting with inputs',
+    namespace: 'team',                // Optional child-agent module namespace (default: 'agents')
   },
 
   // Required when using context fields
-  contextFields: ['largeDoc'],        // Fields removed from LLM prompt; available as JS runtime vars
+  contextFields: [
+    'largeDoc',                       // Runtime-only (legacy behavior)
+    {
+      field: 'chatHistory',
+      keepInPromptChars: 500,
+      reverseTruncate: true,          // Keep the last 500 chars in the Actor prompt
+    },
+  ],
 
   // Optional
   ai: llm,                            // Bind a specific AI service
@@ -64,7 +72,7 @@ const myAgent = agent('input:string -> output:string', {
 
   // Child agents and sharing
   agents: {
-    local: [childAgent1, childAgent2],    // Callable under agents.* in this agent
+    local: [childAgent1, childAgent2],    // Callable under <agentModule>.* in this agent
     shared: [utilityAgent],               // Propagated one level to direct children
     globallyShared: [loggerAgent],        // Propagated recursively to all descendants
     excluded: ['agentName'],              // Agent names NOT to receive from parents
@@ -72,13 +80,28 @@ const myAgent = agent('input:string -> output:string', {
 
   // Field sharing
   fields: {
+    local: ['userId'],                    // Keep shared/global fields visible in this agent
     shared: ['userId'],                   // Passed to direct child agents
     globallyShared: ['sessionId'],        // Passed to all descendants
     excluded: ['field'],                  // Fields NOT to receive from parents
   },
 
+  namespaces: [
+    {
+      name: 'db',
+      title: 'Scheduling Database',
+      description: 'Database helpers for availability and slot lookup.',
+    },
+    {
+      name: 'agents',
+      title: 'Child Agents',
+      description: 'Delegated specialist agents available in this runtime.',
+    },
+  ],
+
   // Agent functions (namespaced JS runtime globals)
   functions: {
+    discovery: true,                      // Optional: module discovery mode for runtime callables
     local: [myAgentFn],                   // Available in this agent's JS runtime
     shared: [sharedFn],                   // Propagated one level to direct children
     globallyShared: [globalFn],           // Propagated recursively to all descendants
@@ -89,6 +112,9 @@ const myAgent = agent('input:string -> output:string', {
   maxSubAgentCalls: 50,                       // Sub-agent call cap (default: 50)
   maxRuntimeChars: 5000,                 // Runtime payload size cap (default: 5000)
   maxTurns: 10,                          // Actor loop turn cap (default: 10)
+  inputUpdateCallback: async (inputs) => ({ // Optional host-side per-turn input patch
+    query: inputs.query,
+  }),
 
   actorOptions: { description: '...' },   // Extra guidance appended to Actor prompt
   responderOptions: { description: '...' }, // Extra guidance appended to Responder prompt
@@ -98,11 +124,14 @@ const myAgent = agent('input:string -> output:string', {
 
 ### `agentIdentity`
 
-Required when the agent is used as a child agent. Contains `name` (converted to camelCase for the function name, e.g. `'Physics Researcher'` becomes `physicsResearcher`) and `description` (shown to parent agents when they decide which child to call).
+Required when the agent is used as a child agent. Contains:
+- `name` (converted to camelCase for the function name, e.g. `'Physics Researcher'` becomes `physicsResearcher`)
+- `description` (shown to parent agents when they decide which child to call)
+- `namespace` (optional module name used for child-agent calls in this agent's runtime; defaults to `agents`, example: `team.researcher(...)`)
 
 ### `agents`
 
-Grouped child agent configuration. `local` are callable under `agents.*` in this agent's JS runtime. See [Child Agents](#child-agents).
+Grouped child agent configuration. `local` are callable under `<agentModule>.*` in this agent's JS runtime (`agentIdentity.namespace` if set, otherwise `agents`). See [Child Agents](#child-agents).
 
 ## Running Agents
 
@@ -287,7 +316,7 @@ When a parent and child agent share input field names, the parent automatically 
 
 ## Agent Functions (`AxAgentFunction`)
 
-Agent functions are registered as namespaced globals in the JS runtime. Unlike child agents (which are called via `await agents.<name>(...)`), agent functions are rendered directly in the Actor prompt as callable JS APIs.
+Agent functions are registered as namespaced globals in the JS runtime. Unlike child agents (which are called via `await <agentModule>.<name>(...)`, where `<agentModule>` defaults to `agents`), agent functions are rendered directly in the Actor prompt as callable JS APIs.
 
 ```typescript
 import { agent, type AxAgentFunction } from '@ax-llm/ax';
@@ -338,9 +367,29 @@ async function db.search({ query: string, limit?: number }): Promise<{ results: 
 
 Key rules:
 - Default namespace is `'utils'` if omitted (callable as `utils.fnName(...)`)
-- Reserved namespaces: `agents`, `llmQuery`, `final`, `ask_clarification`
+- Reserved namespaces: `agents`, `llmQuery`, `final`, `ask_clarification`, and the configured `agentIdentity.namespace` (if set)
 - `parameters` is required; `returns` is optional but shown in the prompt
 - Use `functions.shared` / `functions.globallyShared` to propagate to child agents
+
+### Callable Discovery Mode
+
+Set `functions.discovery: true` to avoid dumping full callable definitions into the Actor prompt.
+
+- Prompt behavior: shows `### Available Modules` (for function namespaces and the child-agent module namespace)
+- Runtime APIs:
+  - `await listModuleFunctions(modules: string | string[]) : string`
+  - `await getFunctionDefinitions(functions: string | string[]) : string`
+- Both APIs return markdown.
+- When multiple modules are needed, prefer one batched call such as `await listModuleFunctions(['timeRange', 'schedulingOrganizer'])`.
+- When multiple callable definitions are needed, prefer one batched `await getFunctionDefinitions([...])` call.
+- Treat discovery results as markdown sections to inspect or log directly; do not wrap them in JSON or custom objects.
+- Do not fan out discovery work with `Promise.all(...)`.
+- `listModuleFunctions(...)` only advertises modules that currently have callable entries. Namespace metadata from `namespaces` is used only to enrich those callable-backed modules.
+- If a requested module does not exist, `listModuleFunctions(...)` returns a per-module markdown error instead of failing the whole call.
+- `getFunctionDefinitions(...)` includes argument comments from JSON Schema property descriptions.
+- `getFunctionDefinitions(...)` includes fenced code examples from `AxAgentFunction.examples`.
+- `getFunctionDefinitions` accepts fully-qualified names like `db.search` or `<agentModule>.researcher`, where `<agentModule>` is `agentIdentity.namespace` when set, otherwise `agents`.
+- Bare names resolve to `utils.<name>` (for example `lookup` -> `utils.lookup`).
 
 ## Shared Fields and Agents
 
@@ -348,7 +397,7 @@ When composing agent hierarchies, you often need to pass data or utility agents 
 
 ### `fields.shared` — Pass fields to direct children (one level)
 
-Fields listed in `fields.shared` are automatically injected into direct child agents at runtime. They bypass the parent's LLM entirely.
+Fields listed in `fields.shared` are automatically injected into direct child agents at runtime. By default, they bypass the parent's LLM.
 
 ```typescript
 const childAgent = agent('question:string -> answer:string', {
@@ -366,6 +415,7 @@ const parentAgent = agent('query:string, userId:string, knowledgeBase:string -> 
 - `userId` is removed from the parent's Actor/Responder prompts
 - `userId` is automatically injected into every call to child agents
 - Children can opt out via `fields: { excluded: ['userId'] }`
+- Add `fields.local: ['userId']` to keep `userId` available in the parent too
 
 ### `fields.globallyShared` — Pass fields to ALL descendants (recursive)
 
@@ -492,7 +542,14 @@ const analyzer = agent(
       name: 'documentAnalyzer',
       description: 'Analyzes long documents using code interpreter and sub-LM queries',
     },
-    contextFields: ['context'],                  // Fields to load into runtime session
+    contextFields: [
+      'context',                                  // Runtime-only context field
+      {
+        field: 'chatHistory',
+        keepInPromptChars: 500,
+        reverseTruncate: true,                    // Keep the last 500 chars in the Actor prompt
+      },
+    ],
     runtime: new AxJSRuntime(),                  // Code runtime (default: AxJSRuntime)
     maxSubAgentCalls: 30,                             // Cap on sub-LM calls (default: 50)
     maxRuntimeChars: 2_000,                      // Cap for llmQuery context + code output (default: 5000)
@@ -651,6 +708,8 @@ The Actor generates JavaScript code in a `javascriptCode` output field. Each tur
 4. The Actor sees the updated action log and decides what to do next
 5. When the Actor calls `final(...args)` or `ask_clarification(...args)`, the loop ends and the Responder takes over
 
+Host applications can update inputs during this loop by setting `inputUpdateCallback`. The callback runs before each Actor turn, can return a partial patch of signature input fields, and those updates are applied to both prompt inputs and runtime `inputs.<field>` values.
+
 The Actor's typical workflow:
 
 ```
@@ -688,6 +747,26 @@ const analyzer = agent('context:string, query:string -> answer:string', {
   },
 });
 ```
+
+### Input Update Callback
+
+Use `inputUpdateCallback` to apply host-side input updates while `forward()` / `streamingForward()` is in progress. It runs before each Actor turn.
+
+```typescript
+let latestQuery = 'initial question';
+
+const analyzer = agent('query:string -> answer:string', {
+  contextFields: [],
+  inputUpdateCallback: async (inputs) => {
+    if (latestQuery !== inputs.query) {
+      return { query: latestQuery };
+    }
+    return undefined; // no-op this turn
+  },
+});
+```
+
+Updates from this callback are merged into current inputs (unknown keys are ignored), then synchronized into runtime `inputs.<field>` and existing non-colliding top-level aliases via `AxCodeSession.patchGlobals(...)` before code execution. This host-side sync does not run through the Actor's `execute(code)` path.
 
 ### Actor/Responder Forward Options
 
@@ -792,15 +871,19 @@ Inside the code interpreter, these functions are available as globals:
 
 | API | Description |
 |-----|-------------|
-| `await llmQuery(query, context?)` | Ask a sub-LM a question with optional context. Returns a string. Oversized context is truncated to `maxRuntimeChars` |
-| `await llmQuery({ query, context? })` | Single-object convenience form of `llmQuery`. Returns a string |
+| `await llmQuery(query, context?)` | Ask a sub-LM a question with optional context. Returns a string. On non-abort sub-query failures, the string may be `[ERROR] ...`. Oversized context is truncated to `maxRuntimeChars` |
+| `await llmQuery({ query, context? })` | Single-object convenience form of `llmQuery`. Returns a string, including `[ERROR] ...` on non-abort sub-query failures |
 | `await llmQuery([{ query, context }, ...])` | Run multiple sub-LM queries in parallel. Returns string[]. Failed items return `[ERROR] ...`; each query still counts toward the call limit |
 | `final(...args)` | Stop Actor execution and pass payload args to Responder. Requires at least one argument |
 | `ask_clarification(...args)` | Stop Actor execution and pass clarification payload args to Responder. Requires at least one argument |
-| `await agents.<name>({...})` | Call a child agent by name (from `agents.local`). Parameters match the agent's JSON schema. Returns a string |
+| `await <agentModule>.<name>({...})` | Call a child agent by name (from `agents.local`). `<agentModule>` is `agentIdentity.namespace` when set, otherwise `agents`. Parameters match the agent's JSON schema. Returns a string |
 | `await <namespace>.<fnName>({...})` | Call an agent function by namespace and name (from `functions.local`). Returns the typed result |
+| `await listModuleFunctions(modules)` | Discovery mode only (`functions.discovery: true`). Returns markdown sections listing callable names for callable-backed modules, and per-module markdown errors for unknown requested modules. Prefer one batched array call when inspecting multiple modules |
+| `await getFunctionDefinitions(functions)` | Discovery mode only (`functions.discovery: true`). Returns markdown sections with API descriptions and signatures for one or more callables. Prefer one batched array call when inspecting multiple callables |
 | `print(...args)` | Available in `AxJSRuntime` when `outputMode: 'stdout'`; captured output appears in the function result |
-| Context variables | All input fields are available as `inputs.<field>` (including context fields). Non-colliding top-level aliases may also exist |
+| Context variables | All input fields are available as `inputs.<field>` (including context fields). Non-colliding top-level aliases may also exist and are refreshed from `inputUpdateCallback` patches before each turn |
+
+Errors from actor-authored child-agent or tool calls appear in `Action Log` as execution errors so the Actor can correct its code on the next turn. Abort/cancellation still stops execution.
 
 By default, `AxJSRuntime` uses `outputMode: 'stdout'`, where visible output comes from `console.log(...)`, `print(...)`, and other captured stdout lines.
 
@@ -874,10 +957,36 @@ class MyBrowserInterpreter implements AxCodeRuntime {
   }
 
   createSession(globals?: Record<string, unknown>): AxCodeSession {
+    const scope = { ...globals };
+    const isPlainObject = (
+      value: unknown
+    ): value is Record<string, unknown> => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return false;
+      }
+      const proto = Object.getPrototypeOf(value);
+      return proto === Object.prototype || proto === null;
+    };
+
     // Set up your execution environment with globals
     return {
       async execute(code: string) {
         // Execute code and return result
+      },
+      async patchGlobals(nextGlobals: Record<string, unknown>) {
+        for (const [key, value] of Object.entries(nextGlobals)) {
+          const current = scope[key];
+          if (isPlainObject(current) && isPlainObject(value)) {
+            for (const existingKey of Object.keys(current)) {
+              if (!(existingKey in value)) {
+                delete current[existingKey];
+              }
+            }
+            Object.assign(current, value);
+            continue;
+          }
+          scope[key] = value;
+        }
       },
       close() {
         // Clean up resources
@@ -887,11 +996,13 @@ class MyBrowserInterpreter implements AxCodeRuntime {
 }
 ```
 
+When patching object-valued globals such as `inputs`, reconcile the existing object in place instead of blindly replacing the reference. That keeps previously saved references in the runtime session aligned with later host-side updates.
+
 The `globals` object passed to `createSession` includes:
 - All context field values (by field name)
 - `llmQuery` function (supports both single and batched queries)
 - `final(...args)` and `ask_clarification(...args)` completion functions
-- `agents` namespace object with child agent functions (e.g., `agents.summarize(...)`)
+- Child-agent namespace object (`agentIdentity.namespace` if set, else `agents`) with child agent functions (e.g., `agents.summarize(...)`, `team.summarize(...)`)
 - Agent functions under their namespaces (e.g., `utils.myFn(...)`, `db.search(...)`)
 - `print` function when supported by the runtime (for `AxJSRuntime`, set `outputMode: 'stdout'`)
 
@@ -972,7 +1083,14 @@ interface AxCodeRuntime {
 
 ```typescript
 interface AxCodeSession {
-  execute(code: string, options?: { signal?: AbortSignal });
+  execute(
+    code: string,
+    options?: { signal?: AbortSignal; reservedNames?: readonly string[] }
+  ): Promise<unknown>;
+  patchGlobals(
+    globals: Record<string, unknown>,
+    options?: { signal?: AbortSignal }
+  ): Promise<void>;
   close(): void;
 }
 ```
@@ -982,7 +1100,7 @@ interface AxCodeSession {
 ```typescript
 interface AxAgentConfig<IN, OUT> extends AxAgentOptions {
   ai?: AxAIService;
-  agentIdentity?: { name: string; description: string };
+  agentIdentity?: { name: string; description: string; namespace?: string };
 }
 ```
 
@@ -995,11 +1113,27 @@ type AxAgentFunction = {
   parameters: AxFunctionJSONSchema;  // required
   returns?: AxFunctionJSONSchema;    // optional output schema
   namespace?: string;                // default: 'utils'
+  examples?: {
+    code: string;
+    title?: string;
+    description?: string;
+    language?: string;               // default render language: 'typescript'
+  }[];
   func: AxFunctionHandler;
 };
 ```
 
-Agent functions are registered as namespaced globals in the JS runtime (e.g. `utils.search`, `db.query`). Reserved namespaces: `agents`, `llmQuery`, `final`, `ask_clarification`.
+Agent functions are registered as namespaced globals in the JS runtime (e.g. `utils.search`, `db.query`). Reserved namespaces: `agents`, `llmQuery`, `final`, `ask_clarification`, and the configured `agentIdentity.namespace` when set.
+
+### `AxAgentNamespace`
+
+```typescript
+type AxAgentNamespace = {
+  name: string;         // Discovery module name, such as 'db' or 'agents'
+  title: string;        // Human-readable module title
+  description: string;  // Summary shown in discovery markdown
+};
+```
 
 ### `AxAgentOptions`
 
@@ -1008,22 +1142,34 @@ Extends `AxProgramForwardOptions` (without `functions` or `description`) with:
 ```typescript
 {
   debug?: boolean;
-  contextFields: string[];               // Input fields loaded into JS runtime (removed from LLM prompt)
+  contextFields: readonly (
+    | string
+    | {
+        field: string;
+        promptMaxChars?: number;         // Inline only when the full value is at or below the threshold
+        keepInPromptChars?: number;      // Keep a truncated string excerpt in the Actor prompt
+        reverseTruncate?: boolean;       // With keepInPromptChars, keep the last N chars instead of the first N
+      }
+  )[];                                  // Input fields loaded into JS runtime; object form can also expose prompt excerpts
 
   agents?: {
-    local?: AxAnyAgentic[];              // Callable under agents.* in this agent
+    local?: AxAnyAgentic[];              // Callable under <agentModule>.* in this agent
     shared?: AxAnyAgentic[];             // Propagated one level to direct children
     globallyShared?: AxAnyAgentic[];     // Propagated recursively to all descendants
     excluded?: string[];                 // Agent names NOT to receive from parents
   };
 
   fields?: {
+    local?: string[];                    // Keep shared/global fields visible in this agent
     shared?: string[];                   // Fields passed to direct child agents
     globallyShared?: string[];           // Fields passed to all descendants
     excluded?: string[];                 // Fields NOT to receive from parents
   };
 
+  namespaces?: AxAgentNamespace[];       // Discovery-only module metadata
+
   functions?: {
+    discovery?: boolean;                 // Enable module discovery APIs instead of prompt definition dump
     local?: AxAgentFunction[];           // Namespaced globals in this agent's JS runtime
     shared?: AxAgentFunction[];          // Propagated one level to direct children
     globallyShared?: AxAgentFunction[];  // Propagated recursively to all descendants
@@ -1038,6 +1184,7 @@ Extends `AxProgramForwardOptions` (without `functions` or `description`) with:
   contextManagement?: AxContextManagementConfig;
   actorFields?: string[];
   actorCallback?: (result: Record<string, unknown>) => void | Promise<void>;
+  inputUpdateCallback?: (currentInputs: Record<string, unknown>) => Promise<Record<string, unknown> | undefined> | Record<string, unknown> | undefined;
   mode?: 'simple' | 'advanced';
 
   recursionOptions?: Partial<Omit<AxProgramForwardOptions, 'functions'>> & {

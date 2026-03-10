@@ -1,5 +1,78 @@
 # Changelog
 
+## [19.0.15](///compare/19.0.13...19.0.14) (2026-03-09)
+## [19.0.14](///compare/19.0.13...19.0.14) (2026-03-09)
+
+### Bug Fixes
+
+* make llm use batch functions a5d694e
+* optimize discovery prompts for axagent 8304a63
+
+## [19.0.14](///compare/19.0.12...19.0.13) (2026-03-09)
+
+### Bug Fixes
+
+* make llm use batch functions a5d694e
+* optimize discovery prompts for axagent 8304a63
+## [19.0.13](///compare/19.0.12...19.0.13) (2026-03-07)
+
+### Features
+
+* implement patchGlobals method for AxCodeSession and update related functionality ef03ceb
+
+## [19.0.13](///compare/19.0.11...19.0.12) (2026-03-07)
+
+### Features
+
+* implement patchGlobals method for AxCodeSession and update related functionality ef03ceb
+## [19.0.12](///compare/19.0.11...19.0.12) (2026-03-06)
+
+### Features
+
+* add inputUpdateCallback for dynamic input updates during actor turns b233e2f
+* add RLM Discovery example with writing coach and analytics tools 9f5ec0d
+
+### Bug Fixes
+
+* update model names and costs for Google Gemini configurations 48b3235
+
+## [19.0.12](///compare/19.0.10...19.0.11) (2026-03-06)
+
+### Features
+
+* add inputUpdateCallback for dynamic input updates during actor turns b233e2f
+* add RLM Discovery example with writing coach and analytics tools 9f5ec0d
+
+### Bug Fixes
+
+* update model names and costs for Google Gemini configurations 48b3235
+## [19.0.11](///compare/19.0.10...19.0.11) (2026-03-01)
+
+### Features
+
+* add local field support to keep shared fields available in parent agents e84014b
+
+### Bug Fixes
+
+* don't throw on bare object schemas in Anthropic tool parameters ([#494](undefined/undefined/undefined/issues/494)) c7a4ecc
+* update schema validation to allow arbitrary JSON objects in structured outputs 77c4583
+
+## [19.0.11](///compare/19.0.9...19.0.10) (2026-03-01)
+
+### Features
+
+* add local field support to keep shared fields available in parent agents e84014b
+
+### Bug Fixes
+
+* don't throw on bare object schemas in Anthropic tool parameters ([#494](undefined/undefined/undefined/issues/494)) c7a4ecc
+* update schema validation to allow arbitrary JSON objects in structured outputs 77c4583
+## [19.0.10](///compare/19.0.9...19.0.10) (2026-02-27)
+
+### Features
+
+* implement session auto-recovery after timeout and improve error handling 7f76d94
+
 ## [19.0.10](///compare/19.0.8...19.0.9) (2026-02-27)
 
 ### Features
