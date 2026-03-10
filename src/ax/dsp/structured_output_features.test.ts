@@ -235,6 +235,46 @@ describe('Structured Output Features', () => {
     expect(functionResult.functionId).toBe(functionCall?.id);
   });
 
+  it('should cache the last assistant example when a function result follows', () => {
+    const signature = f()
+      .input('userQuery', f.string())
+      .output(
+        'metadata',
+        f.object({
+          label: f.string(),
+          score: f.number(),
+        })
+      )
+      .build();
+
+    const template = new AxPromptTemplate(signature, {
+      structuredOutputFunctionName: 'return_structured',
+      contextCache: { ttlSeconds: 3600 },
+    });
+
+    const rendered = template.render(
+      { userQuery: 'test' },
+      {
+        examples: [
+          {
+            userQuery: 'hello',
+            metadata: {
+              label: 'world',
+              score: 1,
+            },
+          },
+        ],
+      }
+    );
+
+    const exampleAssistant = rendered[2] as {
+      role: 'assistant';
+      cache?: boolean;
+    };
+
+    expect(exampleAssistant.cache).toBe(true);
+  });
+
   it('should preserve all grouped extra field descriptions in error correction', () => {
     const signature = f()
       .input('userQuery', f.string())
