@@ -458,9 +458,12 @@ export class AxDefaultAdapter implements AxPromptAdapter {
     const hasComplexFields = this.sig.hasComplexFields();
 
     if (hasComplexFields && this.structuredOutputFunctionName) {
-      return renderPromptTemplate('dsp/formatting-rules-structured-function.md', {
-        structuredOutputFunctionName: this.structuredOutputFunctionName,
-      });
+      return renderPromptTemplate(
+        'dsp/formatting-rules-structured-function.md',
+        {
+          structuredOutputFunctionName: this.structuredOutputFunctionName,
+        }
+      );
     }
 
     if (hasComplexFields) {
