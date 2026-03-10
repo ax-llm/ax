@@ -1,6 +1,10 @@
 import type { AxFunction } from '../ai/types.js';
 import type { AxCodeRuntime, AxCodeSession } from '../prompts/rlm.js';
 import {
+  extractTopLevelDeclaredNames,
+  stripJsStringsAndComments,
+} from '../util/jsAnalysis.js';
+import {
   DEFAULT_NODE_WORKER_POOL_SIZE,
   FUNCTION_REF_KEY,
   getWorkerSource,
@@ -445,6 +449,189 @@ const validateSerializableGlobals = (
   }
 };
 
+const isIdentifierChar = (ch: string | undefined): boolean =>
+  !!ch && /[A-Za-z0-9_$]/.test(ch);
+
+const isIdentifierStart = (ch: string | undefined): boolean =>
+  !!ch && /[A-Za-z_$]/.test(ch);
+
+const findReservedRuntimeNameViolation = (
+  code: string,
+  reservedNames: readonly string[]
+): string | undefined => {
+  const reserved = new Set(reservedNames);
+
+  for (const name of extractTopLevelDeclaredNames(code)) {
+    if (reserved.has(name)) {
+      return name;
+    }
+  }
+
+  const sanitized = stripJsStringsAndComments(code);
+  const len = sanitized.length;
+  let i = 0;
+  let braceDepth = 0;
+  let parenDepth = 0;
+
+  const skipWhitespace = (index: number): number => {
+    let current = index;
+    while (current < len && /\s/.test(sanitized[current] ?? '')) {
+      current++;
+    }
+    return current;
+  };
+
+  const previousNonWhitespaceIndex = (index: number): number => {
+    let current = index;
+    while (current >= 0 && /\s/.test(sanitized[current] ?? '')) {
+      current--;
+    }
+    return current;
+  };
+
+  const isStatementBoundary = (index: number): boolean => {
+    const prevIndex = previousNonWhitespaceIndex(index - 1);
+    if (prevIndex < 0) return true;
+    const prev = sanitized[prevIndex];
+    return prev === '\n' || prev === ';' || prev === '{' || prev === '}';
+  };
+
+  const readWord = (): string => {
+    const start = i;
+    while (i < len && isIdentifierChar(sanitized[i])) {
+      i++;
+    }
+    return sanitized.slice(start, i);
+  };
+
+  const isAssignmentOperatorAt = (index: number): boolean => {
+    const twoChars = sanitized.slice(index, index + 2);
+    const threeChars = sanitized.slice(index, index + 3);
+
+    if (threeChars === '===' || twoChars === '==' || twoChars === '=>') {
+      return false;
+    }
+
+    return (
+      sanitized[index] === '=' ||
+      [
+        '+=',
+        '-=',
+        '*=',
+        '/=',
+        '%=',
+        '&=',
+        '|=',
+        '^=',
+        '&&=',
+        '||=',
+        '??=',
+        '**=',
+        '<<=',
+        '>>=',
+        '>>>=',
+      ].some((op) => sanitized.startsWith(op, index))
+    );
+  };
+
+  while (i < len) {
+    const ch = sanitized[i]!;
+
+    if (ch === '{') {
+      braceDepth++;
+      i++;
+      continue;
+    }
+    if (ch === '}') {
+      braceDepth--;
+      i++;
+      continue;
+    }
+    if (ch === '(') {
+      parenDepth++;
+      i++;
+      continue;
+    }
+    if (ch === ')') {
+      parenDepth--;
+      i++;
+      continue;
+    }
+
+    if (braceDepth === 0 && parenDepth === 0 && isIdentifierStart(ch)) {
+      const wordStart = i;
+      const word = readWord();
+
+      if (
+        (word === 'function' || word === 'class') &&
+        isStatementBoundary(wordStart)
+      ) {
+        const nameStart = skipWhitespace(i);
+        if (isIdentifierStart(sanitized[nameStart])) {
+          let nameEnd = nameStart + 1;
+          while (nameEnd < len && isIdentifierChar(sanitized[nameEnd])) {
+            nameEnd++;
+          }
+          const declaredName = sanitized.slice(nameStart, nameEnd);
+          if (reserved.has(declaredName)) {
+            return declaredName;
+          }
+        }
+        continue;
+      }
+
+      if (word === 'async' && isStatementBoundary(wordStart)) {
+        const keywordIndex = skipWhitespace(i);
+        if (sanitized.startsWith('function', keywordIndex)) {
+          const nameStart = skipWhitespace(keywordIndex + 'function'.length);
+          if (isIdentifierStart(sanitized[nameStart])) {
+            let nameEnd = nameStart + 1;
+            while (nameEnd < len && isIdentifierChar(sanitized[nameEnd])) {
+              nameEnd++;
+            }
+            const declaredName = sanitized.slice(nameStart, nameEnd);
+            if (reserved.has(declaredName)) {
+              return declaredName;
+            }
+          }
+        }
+        continue;
+      }
+
+      if (reserved.has(word)) {
+        const prevIndex = previousNonWhitespaceIndex(wordStart - 1);
+        const prev = prevIndex >= 0 ? sanitized[prevIndex] : undefined;
+        const nextIndex = skipWhitespace(i);
+        const next = sanitized[nextIndex];
+
+        const isMemberAccess =
+          prev === '.' ||
+          prev === '?' ||
+          (prev === '[' && sanitized[nextIndex] === ']');
+        const isUpdate =
+          sanitized.startsWith('++', nextIndex) ||
+          sanitized.startsWith('--', nextIndex) ||
+          (prevIndex > 0 &&
+            (sanitized.slice(prevIndex - 1, prevIndex + 1) === '++' ||
+              sanitized.slice(prevIndex - 1, prevIndex + 1) === '--'));
+
+        if (
+          !isMemberAccess &&
+          (isUpdate || isAssignmentOperatorAt(nextIndex))
+        ) {
+          return word;
+        }
+      }
+
+      continue;
+    }
+
+    i++;
+  }
+
+  return undefined;
+};
+
 /** Structured error payload sent across worker boundary (supports recursive cause). */
 export type SerializedError = {
   name: string;
@@ -717,6 +904,17 @@ export class AxJSRuntime implements AxCodeRuntime {
       { resolve: (v: unknown) => void; reject: (e: Error) => void }
     >();
     let nextId = 0;
+    type QueuedSessionOperation = {
+      started: boolean;
+      settled: boolean;
+      signal?: AbortSignal;
+      onAbort?: () => void;
+      resolve: (value: unknown) => void;
+      reject: (error: Error) => void;
+      operation: () => Promise<unknown>;
+    };
+    const queuedOperations: QueuedSessionOperation[] = [];
+    let activeQueuedOperation: Promise<void> | null = null;
 
     /** Dispatches worker messages for execution and host-function bridging. */
     const handleWorkerMessage = (e: RLMMessageEvent) => {
@@ -807,6 +1005,16 @@ export class AxJSRuntime implements AxCodeRuntime {
     const cleanup = () => {
       isClosed = true;
       resetWorker();
+      for (const operation of queuedOperations) {
+        if (!operation.started && !operation.settled) {
+          operation.settled = true;
+          if (operation.signal && operation.onAbort) {
+            operation.signal.removeEventListener('abort', operation.onAbort);
+          }
+          operation.reject(new Error('Worker terminated'));
+        }
+      }
+      queuedOperations.length = 0;
       for (const pending of pendingRequests.values()) {
         pending.reject(new Error('Worker terminated'));
       }
@@ -990,6 +1198,141 @@ export class AxJSRuntime implements AxCodeRuntime {
       });
     };
 
+    const enqueueSessionRequest = <T>(
+      signal: AbortSignal | undefined,
+      operation: () => Promise<T>
+    ): Promise<T> => {
+      if (isClosed) {
+        return Promise.reject(new Error('Session is closed'));
+      }
+      if (signal?.aborted) {
+        return Promise.reject(
+          new Error(`Aborted: ${signal.reason ?? 'execution aborted'}`)
+        );
+      }
+
+      return new Promise<T>((resolve, reject) => {
+        const queuedOperation: QueuedSessionOperation = {
+          started: false,
+          settled: false,
+          signal,
+          resolve: resolve as (value: unknown) => void,
+          reject,
+          operation: operation as () => Promise<unknown>,
+        };
+
+        if (signal) {
+          const onAbort = () => {
+            if (queuedOperation.settled) {
+              return;
+            }
+            queuedOperation.settled = true;
+            const index = queuedOperations.indexOf(queuedOperation);
+            if (index !== -1) {
+              queuedOperations.splice(index, 1);
+            }
+            signal.removeEventListener('abort', onAbort);
+            reject(
+              new Error(`Aborted: ${signal.reason ?? 'execution aborted'}`)
+            );
+          };
+          queuedOperation.onAbort = onAbort;
+          signal.addEventListener('abort', onAbort, { once: true });
+        }
+
+        queuedOperations.push(queuedOperation);
+
+        const processNextQueuedOperation = () => {
+          if (activeQueuedOperation) {
+            return;
+          }
+
+          const nextOperation = queuedOperations.find(
+            (queued) => !queued.started && !queued.settled
+          );
+          if (!nextOperation) {
+            return;
+          }
+
+          const finish = () => {
+            activeQueuedOperation = null;
+            processNextQueuedOperation();
+          };
+
+          activeQueuedOperation = (async () => {
+            if (nextOperation.settled) {
+              return;
+            }
+            if (isClosed) {
+              nextOperation.settled = true;
+              if (nextOperation.signal && nextOperation.onAbort) {
+                nextOperation.signal.removeEventListener(
+                  'abort',
+                  nextOperation.onAbort
+                );
+              }
+              nextOperation.reject(new Error('Worker terminated'));
+              return;
+            }
+            if (nextOperation.signal?.aborted) {
+              nextOperation.settled = true;
+              if (nextOperation.onAbort) {
+                nextOperation.signal.removeEventListener(
+                  'abort',
+                  nextOperation.onAbort
+                );
+              }
+              nextOperation.reject(
+                new Error(
+                  `Aborted: ${nextOperation.signal.reason ?? 'execution aborted'}`
+                )
+              );
+              return;
+            }
+
+            nextOperation.started = true;
+
+            try {
+              const value = await nextOperation.operation();
+              if (nextOperation.settled) {
+                return;
+              }
+              nextOperation.settled = true;
+              if (nextOperation.signal && nextOperation.onAbort) {
+                nextOperation.signal.removeEventListener(
+                  'abort',
+                  nextOperation.onAbort
+                );
+              }
+              nextOperation.resolve(value);
+            } catch (error) {
+              if (nextOperation.settled) {
+                return;
+              }
+              nextOperation.settled = true;
+              if (nextOperation.signal && nextOperation.onAbort) {
+                nextOperation.signal.removeEventListener(
+                  'abort',
+                  nextOperation.onAbort
+                );
+              }
+              nextOperation.reject(error as Error);
+            } finally {
+              const index = queuedOperations.indexOf(nextOperation);
+              if (index !== -1) {
+                queuedOperations.splice(index, 1);
+              }
+              finish();
+            }
+          })().catch(() => {
+            finish();
+          });
+        };
+
+        processNextQueuedOperation();
+      });
+    };
+
     return {
       execute(
         code: string,
@@ -1012,25 +1355,23 @@ export class AxJSRuntime implements AxCodeRuntime {
         // Block assignment/redeclaration of reserved runtime names.
         const reserved = options?.reservedNames;
         if (reserved) {
-          for (const name of reserved) {
-            const pattern = new RegExp(
-              `(?:^|[;\\n])\\s*(?:(?:var|let|const)\\s+)?${name}\\s*=`
+          const violation = findReservedRuntimeNameViolation(code, reserved);
+          if (violation) {
+            return Promise.resolve(
+              `[ERROR] Cannot assign to, redeclare, or shadow reserved runtime variable '${violation}'. ` +
+                `Use a different local variable name (for example: \`ctx\`) or access the original via \`inputs.${violation}\`.`
             );
-            if (pattern.test(code)) {
-              return Promise.resolve(
-                `[ERROR] Cannot assign to or redeclare reserved runtime variable '${name}'. ` +
-                  `Use a different local variable name (for example: \`ctx\`) or access the original via \`inputs.${name}\`.`
-              );
-            }
           }
         }
 
-        return dispatchWorkerRequest(
-          { type: 'execute', code },
-          {
-            signal: options?.signal,
-            timeoutMessage: 'Execution timed out',
-          }
+        return enqueueSessionRequest(options?.signal, () =>
+          dispatchWorkerRequest(
+            { type: 'execute', code },
+            {
+              signal: options?.signal,
+              timeoutMessage: 'Execution timed out',
+            }
+          )
         );
       },
 
@@ -1052,12 +1393,14 @@ export class AxJSRuntime implements AxCodeRuntime {
           return;
         }
 
-        await dispatchWorkerRequest(
-          { type: 'update-globals', globals: serializablePatch },
-          {
-            signal: options?.signal,
-            timeoutMessage: 'Global patch timed out',
-          }
+        await enqueueSessionRequest(options?.signal, () =>
+          dispatchWorkerRequest(
+            { type: 'update-globals', globals: serializablePatch },
+            {
+              signal: options?.signal,
+              timeoutMessage: 'Global patch timed out',
+            }
+          )
         );
 
         for (const [key, value] of Object.entries(serializablePatch)) {

@@ -15,7 +15,7 @@ Use this skill to generate `AxAgent` code. Prefer short, modern, copyable patter
 - Assume the child-agent module is `agents` unless `agentIdentity.namespace` is set.
 - If `functions.discovery` is `true`, discover callables from modules before using them.
 - In stdout-mode RLM, use one observable `console.log(...)` step per non-final actor turn.
-- For long RLM tasks, prefer `contextManagement.actionReplay: 'adaptive'` plus `stateSummary` so prior exploratory turns are summarized and live runtime state stays visible.
+- For long RLM tasks, prefer `contextPolicy: { preset: 'adaptive' }` so older successful turns collapse into checkpoint summaries while live runtime state stays visible.
 
 ## Critical Rules
 
@@ -26,8 +26,8 @@ Use this skill to generate `AxAgent` code. Prefer short, modern, copyable patter
 - Never combine `console.log(...)` with `final(...)` or `ask_clarification(...)` in the same actor turn.
 - If a child agent needs parent inputs such as `audience`, use `fields.shared` or `fields.globallyShared`.
 - `llmQuery(...)` failures may come back as `[ERROR] ...`; do not assume success.
-- If `contextManagement.stateSummary.enabled` is on, rely on the `Live Runtime State` block for current variables instead of re-reading old action log code.
-- If `contextManagement.actionReplay` is `'adaptive'` or `'minimal'`, assume older successful turns may be summarized or omitted.
+- If `contextPolicy.state.summary` is on, rely on the `Live Runtime State` block for current variables instead of re-reading old action log code.
+- If `contextPolicy.preset` is `'adaptive'` or `'lean'`, assume older successful turns may be replaced by a checkpoint summary or omitted from raw replay.
 
 ## Canonical Pattern
 
@@ -247,7 +247,7 @@ Use these rules when generating actor JavaScript for RLM in stdout mode:
 - Non-final turns should contain exactly one `console.log(...)`.
 - Final turns should call `final(...)` or `ask_clarification(...)` without `console.log(...)`.
 - Do not write a complete multi-step program in one actor turn.
-- Do not assume older successful turns remain fully replayed; adaptive replay may compress them to `[SUMMARY]: ...`.
+- Do not assume older successful turns remain fully replayed; adaptive or lean policies may collapse them into a `Checkpoint Summary` block.
 
 ## RLM Adaptive Replay
 
@@ -260,15 +260,22 @@ const analyst = agent(
     contextFields: ['context'],
     runtime: new AxJSRuntime(),
     maxTurns: 10,
-    contextManagement: {
-      actionReplay: 'adaptive',
-      recentFullActions: 1,
-      successSummarization: true,
-      stateSummary: { enabled: true, maxEntries: 6 },
-      stateInspection: { contextThreshold: 2_000 },
-      errorPruning: true,
-      hindsightEvaluation: true,
-      pruneRank: 2,
+    contextPolicy: {
+      preset: 'adaptive',
+      state: {
+        summary: true,
+        inspect: true,
+        inspectThresholdChars: 2_000,
+        maxEntries: 6,
+      },
+      checkpoints: {
+        enabled: true,
+        triggerChars: 2_000,
+      },
+      expert: {
+        pruneErrors: true,
+        rankPruning: { enabled: true, minRank: 2 },
+      },
     },
   }
 );
@@ -276,12 +283,10 @@ const analyst = agent(
 
 Rules:
 
-- Use `actionReplay: 'adaptive'` when the task needs runtime state across many turns but old exploratory code should not keep bloating the prompt.
-- Use `recentFullActions` to keep the newest one or two turns verbatim while older successful turns collapse to summaries.
-- Use `successSummarization: true` for explicit, compact summaries of older successful turns.
-- Use `stateSummary.enabled` to inject a compact `Live Runtime State` block into the actor prompt.
-- Use `actionReplay: 'minimal'` only when you want aggressively compressed history and can rely mostly on current runtime state.
-- Keep `stateInspection.contextThreshold` on so the actor is reminded to call `inspect_runtime()` when context grows.
+- Use `preset: 'adaptive'` when the task needs runtime state across many turns but older successful work should collapse into checkpoint summaries.
+- Use `preset: 'lean'` when you want more aggressive compression and can rely mostly on current runtime state plus checkpoint summaries.
+- Use `state.summary` to inject a compact `Live Runtime State` block into the actor prompt.
+- Use `state.inspect` with `inspectThresholdChars` so the actor is reminded to call `inspect_runtime()` when context grows.
 
 Good pattern:
 
@@ -455,7 +460,7 @@ agentIdentity?: {
   maxRuntimeChars?: number;
   maxBatchedLlmQueryConcurrency?: number;
   maxTurns?: number;
-  contextManagement?: AxContextManagementConfig;
+  contextPolicy?: AxContextPolicyConfig;
   actorFields?: string[];
   actorCallback?: (result: Record<string, unknown>) => void | Promise<void>;
   inputUpdateCallback?: (currentInputs: Record<string, unknown>) => Promise<Record<string, unknown> | undefined> | Record<string, unknown> | undefined;

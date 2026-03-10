@@ -15,7 +15,7 @@ const llm = ai({
 });
 
 const incidentAnalyst = agent(
-  'incidentLog:string, question:string -> answer:string, findings:string[] "Analyzes a long incident log with adaptive action replay so old exploratory turns are summarized while live runtime state stays available"',
+  'incidentLog:string, question:string -> answer:string, findings:string[] "Analyzes a long incident log with adaptive replay so older successful turns collapse into checkpoint summaries while live runtime state stays available"',
   {
     contextFields: [
       {
@@ -30,15 +30,22 @@ const incidentAnalyst = agent(
     maxTurns: 10,
     maxSubAgentCalls: 20,
     mode: 'simple',
-    contextManagement: {
-      actionReplay: 'adaptive',
-      recentFullActions: 1,
-      successSummarization: true,
-      stateSummary: { enabled: true, maxEntries: 6 },
-      stateInspection: { contextThreshold: 2_000 },
-      errorPruning: true,
-      hindsightEvaluation: true,
-      pruneRank: 2,
+    contextPolicy: {
+      preset: 'adaptive',
+      state: {
+        summary: true,
+        inspect: true,
+        inspectThresholdChars: 2_000,
+        maxEntries: 6,
+      },
+      checkpoints: {
+        enabled: true,
+        triggerChars: 2_000,
+      },
+      expert: {
+        pruneErrors: true,
+        rankPruning: { enabled: true, minRank: 2 },
+      },
     },
     actorOptions: {
       thinkingTokenBudget: 'minimal',

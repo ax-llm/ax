@@ -196,3 +196,5 @@ unscored
 teamnamespace
 LLMQUERY
 failer
+checkpointable
+checkpointed

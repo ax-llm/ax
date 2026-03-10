@@ -34,13 +34,17 @@ import type { ActionLogEntry } from './contextManager.js';
 import {
   buildActionEvidenceSummary,
   buildActionLogWithPolicy,
+  buildInspectRuntimeBaselineCode,
   buildInspectRuntimeCode,
+  type CheckpointSummaryState,
+  generateCheckpointSummaryAsync,
   manageContext,
 } from './contextManager.js';
 import type {
   AxCodeRuntime,
   AxCodeSession,
-  AxContextManagementConfig,
+  AxContextPolicyConfig,
+  AxContextPolicyPreset,
   AxRLMConfig,
 } from './rlm.js';
 import { axBuildActorDefinition, axBuildResponderDefinition } from './rlm.js';
@@ -195,10 +199,8 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
   maxBatchedLlmQueryConcurrency?: number;
   /** Maximum Actor turns before forcing Responder (default: 10). */
   maxTurns?: number;
-  /** @deprecated Use `contextManagement.errorPruning` instead. */
-  trajectoryPruning?: boolean;
-  /** Semantic context management configuration. */
-  contextManagement?: AxContextManagementConfig;
+  /** Context replay, checkpointing, and runtime-state policy. */
+  contextPolicy?: AxContextPolicyConfig;
   /** Output field names the Actor should produce (in addition to javascriptCode). */
   actorFields?: string[];
   /** Called after each Actor turn with the full actor result. */
@@ -245,10 +247,127 @@ const DEFAULT_AGENT_MODULE_NAMESPACE = 'agents';
 const DISCOVERY_LIST_MODULE_FUNCTIONS_NAME = 'listModuleFunctions';
 const DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME = 'getFunctionDefinitions';
 
+type AxResolvedContextPolicy = {
+  preset: AxContextPolicyPreset;
+  actionReplay: 'full' | 'adaptive' | 'minimal';
+  recentFullActions: number;
+  errorPruning: boolean;
+  hindsightEvaluation: boolean;
+  pruneRank: number;
+  tombstoning:
+    | boolean
+    | Omit<AxProgramForwardOptions<string>, 'functions'>
+    | undefined;
+  stateSummary: { enabled: boolean; maxEntries?: number };
+  stateInspection: { enabled: boolean; contextThreshold?: number };
+  checkpoints: { enabled: boolean; triggerChars?: number };
+};
+
 type AxAgentActorResultPayload = {
   type: 'final' | 'ask_clarification';
   args: unknown[];
 };
+
+function resolveContextPolicy(
+  contextPolicy: AxContextPolicyConfig | undefined
+): AxResolvedContextPolicy {
+  const preset = contextPolicy?.preset ?? 'full';
+  const presetDefaults = getContextPolicyPresetDefaults(preset);
+  const rankPruning = contextPolicy?.expert?.rankPruning;
+  const rankPruningEnabled =
+    rankPruning?.enabled ??
+    (rankPruning?.minRank !== undefined ? true : presetDefaults.hindsight);
+  const stateSummaryEnabled =
+    contextPolicy?.state?.summary ?? presetDefaults.stateSummary;
+  const stateInspectEnabled =
+    contextPolicy?.state?.inspect ?? presetDefaults.inspect;
+  const checkpointsEnabled =
+    contextPolicy?.checkpoints?.enabled ?? presetDefaults.checkpointsEnabled;
+
+  if (checkpointsEnabled && !stateSummaryEnabled && !stateInspectEnabled) {
+    throw new Error(
+      'contextPolicy.checkpoints requires either state.summary or state.inspect to be enabled'
+    );
+  }
+
+  return {
+    preset,
+    actionReplay: contextPolicy?.expert?.replay ?? presetDefaults.actionReplay,
+    recentFullActions: Math.max(
+      contextPolicy?.expert?.recentFullActions ??
+        presetDefaults.recentFullActions,
+      0
+    ),
+    errorPruning:
+      contextPolicy?.expert?.pruneErrors ?? presetDefaults.errorPruning,
+    hindsightEvaluation: rankPruningEnabled,
+    pruneRank: rankPruning?.minRank ?? presetDefaults.pruneRank,
+    tombstoning: contextPolicy?.expert?.tombstones,
+    stateSummary: {
+      enabled: stateSummaryEnabled,
+      maxEntries: contextPolicy?.state?.maxEntries ?? presetDefaults.maxEntries,
+    },
+    stateInspection: {
+      enabled: stateInspectEnabled,
+      contextThreshold:
+        contextPolicy?.state?.inspectThresholdChars ??
+        presetDefaults.inspectThreshold,
+    },
+    checkpoints: {
+      enabled: checkpointsEnabled,
+      triggerChars:
+        contextPolicy?.checkpoints?.triggerChars ??
+        presetDefaults.checkpointTriggerChars,
+    },
+  };
+}
+
+function getContextPolicyPresetDefaults(preset: AxContextPolicyPreset) {
+  switch (preset) {
+    case 'adaptive':
+      return {
+        actionReplay: 'adaptive' as const,
+        recentFullActions: 1,
+        errorPruning: true,
+        hindsight: false,
+        pruneRank: 2,
+        stateSummary: true,
+        inspect: true,
+        inspectThreshold: 2_000,
+        maxEntries: 6,
+        checkpointsEnabled: true,
+        checkpointTriggerChars: 2_000,
+      };
+    case 'lean':
+      return {
+        actionReplay: 'minimal' as const,
+        recentFullActions: 0,
+        errorPruning: true,
+        hindsight: true,
+        pruneRank: 2,
+        stateSummary: true,
+        inspect: true,
+        inspectThreshold: 1_500,
+        maxEntries: 6,
+        checkpointsEnabled: true,
+        checkpointTriggerChars: 1_500,
+      };
+    default:
+      return {
+        actionReplay: 'full' as const,
+        recentFullActions: 1,
+        errorPruning: false,
+        hindsight: false,
+        pruneRank: 2,
+        stateSummary: false,
+        inspect: false,
+        inspectThreshold: undefined,
+        maxEntries: undefined,
+        checkpointsEnabled: false,
+        checkpointTriggerChars: undefined,
+      };
+  }
+}
 
 // ----- AxAgent Class -----
 
@@ -308,6 +427,84 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   // Agent function keys (namespace.name) injected by a parent.
   private _parentSharedAgentFunctions: Set<string> = new Set();
 
+  private _reservedAgentFunctionNamespaces(): Set<string> {
+    return new Set([
+      'inputs',
+      'llmQuery',
+      'final',
+      'ask_clarification',
+      'inspect_runtime',
+      DEFAULT_AGENT_MODULE_NAMESPACE,
+      this.agentModuleNamespace,
+      ...(this.functionDiscoveryEnabled
+        ? [
+            DISCOVERY_LIST_MODULE_FUNCTIONS_NAME,
+            DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME,
+          ]
+        : []),
+    ]);
+  }
+
+  private _validateConfiguredSignature(signature: Readonly<AxSignature>): void {
+    if (signature.getDescription()) {
+      throw new Error(
+        'AxAgent does not support signature-level descriptions. ' +
+          'Use setActorDescription() and/or setResponderDescription() to customize the actor and responder prompts independently.'
+      );
+    }
+
+    const inputFieldNames = new Set(
+      signature.getInputFields().map((field) => field.name)
+    );
+    const outputFieldNames = new Set(
+      signature.getOutputFields().map((field) => field.name)
+    );
+
+    for (const field of this.rlmConfig.contextFields) {
+      if (!inputFieldNames.has(field)) {
+        throw new Error(`RLM contextField "${field}" not found in signature`);
+      }
+    }
+
+    for (const field of this.sharedFieldNames) {
+      if (!inputFieldNames.has(field)) {
+        throw new Error(
+          `sharedField "${field}" not found in signature input fields`
+        );
+      }
+    }
+
+    for (const field of this.globalSharedFieldNames) {
+      if (!inputFieldNames.has(field)) {
+        throw new Error(
+          `globalSharedField "${field}" not found in signature input fields`
+        );
+      }
+    }
+
+    for (const field of this.actorFieldNames) {
+      if (!outputFieldNames.has(field)) {
+        throw new Error(
+          `RLM actorField "${field}" not found in output signature`
+        );
+      }
+    }
+  }
+
+  private _validateAgentFunctionNamespaces(
+    functions: readonly AxAgentFunction[]
+  ): void {
+    const reservedNamespaces = this._reservedAgentFunctionNamespaces();
+    for (const fn of functions) {
+      const ns = fn.namespace ?? 'utils';
+      if (reservedNamespaces.has(ns)) {
+        throw new Error(
+          `Agent function namespace "${ns}" conflicts with an AxAgent runtime global and is reserved`
+        );
+      }
+    }
+  }
+
   constructor(
     {
       ai,
@@ -333,8 +530,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       maxRuntimeChars,
       maxBatchedLlmQueryConcurrency,
       maxTurns,
-      trajectoryPruning,
-      contextManagement,
+      contextPolicy,
       actorFields,
       actorCallback,
       mode,
@@ -408,8 +604,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       maxRuntimeChars,
       maxBatchedLlmQueryConcurrency,
       maxTurns,
-      trajectoryPruning,
-      contextManagement,
+      contextPolicy,
       actorFields,
       actorCallback,
       mode,
@@ -464,46 +659,17 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     // ----- Split architecture setup -----
 
-    if (this.program.getSignature().getDescription()) {
-      throw new Error(
-        'AxAgent does not support signature-level descriptions. ' +
-          'Use setActorDescription() and/or setResponderDescription() to customize the actor and responder prompts independently.'
-      );
-    }
-
-    // --- Validate and split output fields by actorFields ---
-    const originalOutputs = this.program.getSignature().getOutputFields();
     const actorFieldNames = actorFields ?? [];
     this.actorFieldNames = actorFieldNames;
-
-    for (const af of actorFieldNames) {
-      if (!originalOutputs.some((fld) => fld.name === af)) {
-        throw new Error(`RLM actorField "${af}" not found in output signature`);
-      }
-    }
 
     // --- Read grouped field options ---
     const sharedFieldNames = options.fields?.shared ?? [];
     this.sharedFieldNames = sharedFieldNames;
-    for (const sf of sharedFieldNames) {
-      if (!inputFields.some((fld) => fld.name === sf)) {
-        throw new Error(
-          `sharedField "${sf}" not found in signature input fields`
-        );
-      }
-    }
 
     this.excludedSharedFields = options.fields?.excluded ?? [];
 
     const globalSharedFieldNames = options.fields?.globallyShared ?? [];
     this.globalSharedFieldNames = globalSharedFieldNames;
-    for (const gsf of globalSharedFieldNames) {
-      if (!inputFields.some((fld) => fld.name === gsf)) {
-        throw new Error(
-          `globalSharedField "${gsf}" not found in signature input fields`
-        );
-      }
-    }
     this.localFieldNames = options.fields?.local ?? [];
 
     // --- Read grouped agent options ---
@@ -539,26 +705,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       }
     }
 
-    // Validate reserved namespaces for agent functions
-    const RESERVED_NS = new Set([
-      DEFAULT_AGENT_MODULE_NAMESPACE,
-      this.agentModuleNamespace,
-      'llmQuery',
-      'final',
-      'ask_clarification',
-      ...(this.functionDiscoveryEnabled
-        ? [
-            DISCOVERY_LIST_MODULE_FUNCTIONS_NAME,
-            DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME,
-          ]
-        : []),
-    ]);
-    for (const fn of allAgentFns) {
-      const ns = fn.namespace ?? 'utils';
-      if (RESERVED_NS.has(ns)) {
-        throw new Error(`Agent function namespace "${ns}" is reserved`);
-      }
-    }
+    this._validateConfiguredSignature(this.program.getSignature());
+    this._validateAgentFunctionNamespaces(allAgentFns);
 
     // Propagate shared fields to child agents (one level)
     if (sharedFieldNames.length > 0 && agents) {
@@ -762,7 +910,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         runtimeUsageInstructions: this.runtimeUsageInstructions,
         maxSubAgentCalls: effectiveMaxSubAgentCalls,
         maxTurns: effectiveMaxTurns,
-        hasInspectRuntime: !!this.rlmConfig.contextManagement?.stateInspection,
+        hasInspectRuntime: resolveContextPolicy(this.rlmConfig.contextPolicy)
+          .stateInspection.enabled,
         enforceIncrementalConsoleTurns: this.enforceIncrementalConsoleTurns,
         agentModuleNamespace: this.agentModuleNamespace,
         discoveryMode: this.functionDiscoveryEnabled,
@@ -777,15 +926,25 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       contextFieldMeta
     );
 
-    this.actorProgram = new AxGen(actorSig, {
-      ...this._genOptions,
-      description: actorDef,
-    });
+    if (this.actorProgram) {
+      this.actorProgram.setSignature(actorSig);
+      this.actorProgram.setDescription(actorDef);
+    } else {
+      this.actorProgram = new AxGen(actorSig, {
+        ...this._genOptions,
+        description: actorDef,
+      });
+    }
 
-    this.responderProgram = new AxGen(responderSig, {
-      ...this._genOptions,
-      description: responderDef,
-    }) as unknown as AxGen<any, OUT>;
+    if (this.responderProgram) {
+      this.responderProgram.setSignature(responderSig);
+      this.responderProgram.setDescription(responderDef);
+    } else {
+      this.responderProgram = new AxGen(responderSig, {
+        ...this._genOptions,
+        description: responderDef,
+      }) as unknown as AxGen<any, OUT>;
+    }
   }
 
   /**
@@ -1157,7 +1316,24 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   public setSignature(
     signature: NonNullable<ConstructorParameters<typeof AxSignature>[0]>
   ) {
-    this.program.setSignature(signature);
+    const nextSignature = new AxSignature(signature);
+    this._validateConfiguredSignature(nextSignature);
+
+    const previousSignature = this.program.getSignature();
+    try {
+      this.program.setSignature(nextSignature);
+      this._buildSplitPrograms();
+      if (this.func) {
+        this.func.parameters = this._buildFuncParameters();
+      }
+    } catch (err) {
+      this.program.setSignature(previousSignature);
+      this._buildSplitPrograms();
+      if (this.func) {
+        this.func.parameters = this._buildFuncParameters();
+      }
+      throw err;
+    }
   }
 
   public applyOptimization(optimizedProgram: any): void {
@@ -1580,17 +1756,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       setActorResultPayload('final', args);
     const askClarificationFunction = (...args: unknown[]) =>
       setActorResultPayload('ask_clarification', args);
-    const contextMgmt = rlm.contextManagement;
-    const effectiveContextConfig = {
-      errorPruning: contextMgmt?.errorPruning ?? rlm.trajectoryPruning ?? false,
-      hindsightEvaluation: contextMgmt?.hindsightEvaluation ?? false,
-      tombstoning: contextMgmt?.tombstoning,
-      pruneRank: contextMgmt?.pruneRank ?? 2,
-      actionReplay: contextMgmt?.actionReplay ?? 'full',
-      recentFullActions: contextMgmt?.recentFullActions ?? 1,
-      successSummarization: contextMgmt?.successSummarization,
-      stateSummary: contextMgmt?.stateSummary,
-    };
+    const effectiveContextConfig = resolveContextPolicy(rlm.contextPolicy);
 
     const agentFunctionNamespaces = [
       ...new Set(this.agentFunctions.map((f) => f.namespace ?? 'utils')),
@@ -1604,7 +1770,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       'final',
       'ask_clarification',
       ...agentFunctionNamespaces,
-      ...(contextMgmt?.stateInspection || contextMgmt?.stateSummary?.enabled
+      ...(effectiveContextConfig.stateInspection.enabled
         ? ['inspect_runtime']
         : []),
       ...Object.keys(toolGlobals),
@@ -1635,28 +1801,62 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       ...reservedTopLevelNames,
       ...runtimeAliasKeys,
     ];
+    let session!: AxCodeSession;
+    let inspectBaselineNames: string[] | undefined;
 
-    // inspect_runtime: queries worker globalThis for current variable state
-    // Captures `session` by reference so it works after session restart.
-    const inspectRuntime =
-      contextMgmt?.stateInspection || contextMgmt?.stateSummary?.enabled
-        ? async (): Promise<string> => {
-            try {
-              const code = buildInspectRuntimeCode(inspectReservedNames);
-              const result = await session.execute(code, {
-                signal: effectiveAbortSignal,
-                reservedNames: inspectReservedNames,
-              });
-              return typeof result === 'string' ? result : String(result);
-            } catch (err) {
-              return `[inspect_runtime error: ${err instanceof Error ? err.message : String(err)}]`;
-            }
+    const loadInspectBaselineNames = async (): Promise<string[]> => {
+      try {
+        const result = await session.execute(
+          buildInspectRuntimeBaselineCode(),
+          {
+            signal: effectiveAbortSignal,
+            reservedNames: inspectReservedNames,
           }
-        : undefined;
+        );
+        if (typeof result !== 'string') {
+          return [];
+        }
+        const parsed = JSON.parse(result);
+        return Array.isArray(parsed)
+          ? parsed.filter((value): value is string => typeof value === 'string')
+          : [];
+      } catch {
+        return [];
+      }
+    };
+
+    const ensureInspectBaselineNames = async (): Promise<string[]> => {
+      if (!inspectBaselineNames) {
+        inspectBaselineNames = await loadInspectBaselineNames();
+      }
+      return inspectBaselineNames;
+    };
+
+    const inspectRuntimeState = async (): Promise<string> => {
+      try {
+        const baselineNames = await ensureInspectBaselineNames();
+        const code = buildInspectRuntimeCode(
+          inspectReservedNames,
+          baselineNames
+        );
+        const result = await session.execute(code, {
+          signal: effectiveAbortSignal,
+          reservedNames: inspectReservedNames,
+        });
+        return typeof result === 'string' ? result : String(result);
+      } catch (err) {
+        return `[inspect_runtime error: ${err instanceof Error ? err.message : String(err)}]`;
+      }
+    };
+
+    // inspect_runtime: queries worker globalThis for current variable state.
+    const inspectRuntime = effectiveContextConfig.stateInspection.enabled
+      ? async (): Promise<string> => inspectRuntimeState()
+      : undefined;
 
     const formatStateSummary = (snapshot: string): string => {
       const maxEntries =
-        effectiveContextConfig.stateSummary?.maxEntries &&
+        effectiveContextConfig.stateSummary.maxEntries &&
         effectiveContextConfig.stateSummary.maxEntries > 0
           ? effectiveContextConfig.stateSummary.maxEntries
           : 8;
@@ -1672,16 +1872,17 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const captureRuntimeStateSummary = async (): Promise<
       string | undefined
     > => {
-      if (!effectiveContextConfig.stateSummary?.enabled || !inspectRuntime) {
+      if (!effectiveContextConfig.stateSummary.enabled) {
         return undefined;
       }
 
-      const snapshot = await inspectRuntime();
+      const snapshot = await inspectRuntimeState();
       const formatted = formatStateSummary(snapshot);
       return formatted || '(no user variables)';
     };
 
     const createSession = () => {
+      inspectBaselineNames = undefined;
       return runtime.createSession({
         ...runtimeTopLevelInputAliases,
         inputs: runtimeInputs,
@@ -1694,7 +1895,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     };
 
     const timeoutRestartNotice = `[The JavaScript runtime was restarted; all global state was lost and must be recreated if needed.]`;
-    let session = createSession();
+    session = createSession();
 
     const isSessionClosedError = (err: unknown): boolean => {
       return err instanceof Error && err.message === 'Session is closed';
@@ -1956,26 +2157,86 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     };
 
     const actorFieldValues: Record<string, unknown> = {};
+    const contextThreshold = effectiveContextConfig.stateInspection.enabled
+      ? effectiveContextConfig.stateInspection.contextThreshold
+      : undefined;
+    let checkpointState: CheckpointSummaryState | undefined;
 
-    const contextThreshold = contextMgmt?.stateInspection?.contextThreshold;
+    const getCheckpointCandidates = () => {
+      const checkpointableCount = Math.max(
+        actionLogEntries.length - effectiveContextConfig.recentFullActions,
+        0
+      );
+
+      return actionLogEntries
+        .slice(0, checkpointableCount)
+        .filter((entry) => !entry.tags.includes('error'));
+    };
+
+    const renderActionLog = () =>
+      buildActionLogWithPolicy(actionLogEntries, {
+        actionReplay: effectiveContextConfig.actionReplay,
+        recentFullActions: effectiveContextConfig.recentFullActions,
+        stateSummary: runtimeStateSummary,
+        checkpointSummary: checkpointState?.summary,
+        checkpointTurns: checkpointState?.turns,
+      }) || '(no actions yet)';
+
+    const refreshCheckpointSummary = async () => {
+      if (!effectiveContextConfig.checkpoints.enabled) {
+        checkpointState = undefined;
+        return;
+      }
+
+      const rawActionLog = buildActionLogWithPolicy(actionLogEntries, {
+        actionReplay: effectiveContextConfig.actionReplay,
+        recentFullActions: effectiveContextConfig.recentFullActions,
+        stateSummary: runtimeStateSummary,
+      });
+
+      const triggerChars = effectiveContextConfig.checkpoints.triggerChars;
+      if (!triggerChars || rawActionLog.length <= triggerChars) {
+        checkpointState = undefined;
+        return;
+      }
+
+      const checkpointEntries = getCheckpointCandidates();
+      if (checkpointEntries.length === 0) {
+        checkpointState = undefined;
+        return;
+      }
+
+      const fingerprint = JSON.stringify(
+        checkpointEntries.map((entry) => ({
+          turn: entry.turn,
+          code: entry.code,
+          output: entry.output,
+          actorFieldsOutput: entry.actorFieldsOutput,
+          tags: entry.tags,
+          tombstone: entry.tombstone,
+        }))
+      );
+
+      if (checkpointState?.fingerprint === fingerprint) {
+        return;
+      }
+
+      checkpointState = {
+        fingerprint,
+        turns: checkpointEntries.map((entry) => entry.turn),
+        summary: await generateCheckpointSummaryAsync(ai, checkpointEntries),
+      };
+    };
 
     try {
       for (let turn = 0; turn < maxTurns; turn++) {
         await applyInputUpdateCallback();
         recomputeTurnInputs(true);
         runtimeStateSummary = await captureRuntimeStateSummary();
+        await refreshCheckpointSummary();
 
         // Build action log, adding inspect_runtime hint when it gets large
-        let actionLogText =
-          buildActionLogWithPolicy(actionLogEntries, {
-            actionReplay: effectiveContextConfig.actionReplay,
-            recentFullActions: effectiveContextConfig.recentFullActions,
-            stateSummary: runtimeStateSummary,
-            successSummarization:
-              effectiveContextConfig.successSummarization === undefined
-                ? effectiveContextConfig.actionReplay !== 'full'
-                : Boolean(effectiveContextConfig.successSummarization),
-          }) || '(no actions yet)';
+        let actionLogText = renderActionLog();
         if (contextThreshold && actionLogText.length > contextThreshold) {
           actionLogText +=
             '\n\n[HINT: Action log is large. Call `const state = await inspect_runtime()` for a compact snapshot of current variables instead of re-reading old outputs.]';
@@ -2049,6 +2310,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
               ai
             );
             runtimeStateSummary = await captureRuntimeStateSummary();
+            await refreshCheckpointSummary();
             continue;
           }
         }
@@ -2074,6 +2336,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           ai
         );
         runtimeStateSummary = await captureRuntimeStateSummary();
+        await refreshCheckpointSummary();
 
         // Exit when Actor signaled completion via final(...) or ask_clarification(...).
         if (actorResultPayload) {
@@ -2088,6 +2351,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       }
     }
 
+    await refreshCheckpointSummary();
+
     const actorResult =
       actorResultPayload ??
       ({
@@ -2095,6 +2360,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         args: [
           buildActionEvidenceSummary(actionLogEntries, {
             stateSummary: runtimeStateSummary,
+            checkpointSummary: checkpointState?.summary,
+            checkpointTurns: checkpointState?.turns,
           }),
         ],
       } satisfies AxAgentActorResultPayload);
@@ -2102,16 +2369,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     return {
       nonContextValues,
       contextMetadata,
-      actionLog:
-        buildActionLogWithPolicy(actionLogEntries, {
-          actionReplay: effectiveContextConfig.actionReplay,
-          recentFullActions: effectiveContextConfig.recentFullActions,
-          stateSummary: runtimeStateSummary,
-          successSummarization:
-            effectiveContextConfig.successSummarization === undefined
-              ? effectiveContextConfig.actionReplay !== 'full'
-              : Boolean(effectiveContextConfig.successSummarization),
-        }) || '(no actions yet)',
+      actionLog: renderActionLog(),
       actorResult,
       actorFieldValues,
     };
@@ -2188,12 +2446,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         options?.debug ?? this.debug ?? ai?.getOptions()?.debug ?? false;
 
       // Actor loop runs non-streaming
-      const {
-        nonContextValues,
-        contextMetadata,
-        actorResult,
-        actorFieldValues,
-      } = await this._runActorLoop(ai, values, options, effectiveAbortSignal);
+      const { nonContextValues, actorResult, actorFieldValues } =
+        await this._runActorLoop(ai, values, options, effectiveAbortSignal);
 
       const responderMergedOptions = {
         ...this._genOptions,
@@ -2209,8 +2463,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         ai,
         {
           ...nonContextValues,
-          contextMetadata,
-          actorResult,
+          contextData: actorResult,
         },
         responderMergedOptions
       )) {

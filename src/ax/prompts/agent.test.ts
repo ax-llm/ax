@@ -214,20 +214,41 @@ describe('Split-architecture signature derivation', () => {
     expect(contextField?.isOptional).toBe(true);
   });
 
-  it('should only have javascriptCode output when trajectoryPruning is enabled', () => {
+  it('should only have javascriptCode output when contextPolicy is enabled', () => {
     const testAgent = agent('context:string, query:string -> answer:string', {
       contextFields: ['context'],
       runtime,
-      trajectoryPruning: true,
+      contextPolicy: { preset: 'adaptive' },
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const actorSig = (testAgent as any).actorProgram.getSignature();
     const outputs = actorSig.getOutputFields();
 
-    // trajectoryPruning does not affect the signature -- still just javascriptCode
+    // contextPolicy does not affect the signature -- still just javascriptCode
     expect(outputs).toHaveLength(1);
     expect(outputs[0].name).toBe('javascriptCode');
+  });
+
+  it('should reject checkpoints when both state.summary and state.inspect are disabled', () => {
+    expect(() =>
+      agent('context:string, query:string -> answer:string', {
+        contextFields: ['context'],
+        runtime,
+        contextPolicy: {
+          preset: 'adaptive',
+          state: {
+            summary: false,
+            inspect: false,
+          },
+          checkpoints: {
+            enabled: true,
+          },
+        },
+      })
+    ).toThrow(
+      'contextPolicy.checkpoints requires either state.summary or state.inspect to be enabled'
+    );
   });
 
   it('should derive Responder signature with original outputs', () => {
@@ -270,6 +291,101 @@ describe('Split-architecture signature derivation', () => {
 
     // All original inputs preserved (none removed as context)
     expect(inputs.find((f: AxIField) => f.name === 'query')).toBeDefined();
+  });
+
+  it('should rebuild derived signatures and function schema after setSignature', () => {
+    const testAgent = agent('query:string -> answer:string', {
+      contextFields: [],
+      runtime,
+      agentIdentity: {
+        name: 'Updater',
+        description: 'Updates signatures',
+      },
+    });
+
+    testAgent.setSignature(
+      'query:string, note:string -> answer:string, confidence:number'
+    );
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const actorSig = (testAgent as any).actorProgram.getSignature();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const responderSig = (testAgent as any).responderProgram.getSignature();
+    const actorInputs = actorSig.getInputFields();
+    const responderInputs = responderSig.getInputFields();
+    const responderOutputs = responderSig.getOutputFields();
+    const functionSchema = testAgent.getFunction().parameters;
+
+    expect(actorInputs.find((f: AxIField) => f.name === 'query')).toBeDefined();
+    expect(actorInputs.find((f: AxIField) => f.name === 'note')).toBeDefined();
+    expect(
+      actorInputs.find((f: AxIField) => f.name === 'contextMetadata')
+    ).toBeDefined();
+    expect(
+      actorInputs.find((f: AxIField) => f.name === 'actionLog')
+    ).toBeDefined();
+
+    expect(
+      responderInputs.find((f: AxIField) => f.name === 'query')
+    ).toBeDefined();
+    expect(
+      responderInputs.find((f: AxIField) => f.name === 'note')
+    ).toBeDefined();
+    expect(
+      responderInputs.find((f: AxIField) => f.name === 'contextData')
+    ).toBeDefined();
+    expect(
+      responderOutputs.find((f: AxIField) => f.name === 'confidence')
+    ).toBeDefined();
+
+    expect(functionSchema.properties?.query).toBeDefined();
+    expect(functionSchema.properties?.note).toBeDefined();
+  });
+
+  it('should reject setSignature when configured fields are removed', () => {
+    const cases = [
+      {
+        initialSignature: 'context:string, query:string -> answer:string',
+        nextSignature: 'query:string -> answer:string',
+        config: { contextFields: ['context'] },
+        expectedError: 'RLM contextField "context" not found in signature',
+      },
+      {
+        initialSignature: 'query:string, userId:string -> answer:string',
+        nextSignature: 'query:string -> answer:string',
+        config: { contextFields: [], fields: { shared: ['userId'] } },
+        expectedError:
+          'sharedField "userId" not found in signature input fields',
+      },
+      {
+        initialSignature: 'query:string, orgId:string -> answer:string',
+        nextSignature: 'query:string -> answer:string',
+        config: { contextFields: [], fields: { globallyShared: ['orgId'] } },
+        expectedError:
+          'globalSharedField "orgId" not found in signature input fields',
+      },
+      {
+        initialSignature: 'query:string -> answer:string, reasoning:string',
+        nextSignature: 'query:string -> answer:string',
+        config: { contextFields: [], actorFields: ['reasoning'] },
+        expectedError:
+          'RLM actorField "reasoning" not found in output signature',
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      const testAgent = agent(testCase.initialSignature, {
+        runtime,
+        ...testCase.config,
+      });
+
+      expect(() => testAgent.setSignature(testCase.nextSignature)).toThrow(
+        testCase.expectedError
+      );
+      expect(testAgent.getSignature().toString()).toBe(
+        testCase.initialSignature
+      );
+    }
   });
 });
 
@@ -1148,7 +1264,7 @@ describe('Actor/Responder execution loop', () => {
     expect(lastResponderPayload).toContain('"done"');
   });
 
-  it('should prune error entries from actionLog after a successful turn when trajectoryPruning is enabled', async () => {
+  it('should prune resolved error entries when contextPolicy expert.pruneErrors is enabled', async () => {
     let actorCallCount = 0;
     let thirdActorPrompt = '';
 
@@ -1239,7 +1355,11 @@ describe('Actor/Responder execution loop', () => {
       ai: testMockAI,
       contextFields: ['context'],
       runtime: testRuntime,
-      trajectoryPruning: true,
+      contextPolicy: {
+        expert: {
+          pruneErrors: true,
+        },
+      },
     });
 
     await testAgent.forward(testMockAI, {
@@ -1255,7 +1375,7 @@ describe('Actor/Responder execution loop', () => {
     expect(thirdActorPrompt).toContain('```javascript');
   });
 
-  it('should prune error entries when contextManagement.errorPruning is enabled (same as trajectoryPruning)', async () => {
+  it('should prune resolved error entries with the adaptive preset', async () => {
     let actorCallCount = 0;
     let thirdActorPrompt = '';
 
@@ -1343,7 +1463,7 @@ describe('Actor/Responder execution loop', () => {
       ai: testMockAI,
       contextFields: ['context'],
       runtime: testRuntime,
-      contextManagement: { errorPruning: true },
+      contextPolicy: { preset: 'adaptive' },
     });
 
     await testAgent.forward(testMockAI, {
@@ -1357,11 +1477,11 @@ describe('Actor/Responder execution loop', () => {
     expect(thirdActorPrompt).toContain('var y = 99');
   });
 
-  it('should include inspect_runtime in actor definition when stateInspection is configured', () => {
+  it('should include inspect_runtime in actor definition when contextPolicy.state.inspect is enabled', () => {
     const testAgent = agent('context:string, query:string -> answer:string', {
       contextFields: ['context'],
       runtime: defaultRuntime,
-      contextManagement: { stateInspection: { contextThreshold: 500 } },
+      contextPolicy: { state: { inspect: true, inspectThresholdChars: 500 } },
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1371,7 +1491,7 @@ describe('Actor/Responder execution loop', () => {
     expect(definition).toContain('inspect_runtime');
   });
 
-  it('should summarize superseded actions in later actor prompts when actionReplay is adaptive', async () => {
+  it('should render a checkpoint summary for older successful turns after the trigger threshold', async () => {
     let actorCallCount = 0;
     let thirdActorPrompt = '';
 
@@ -1380,6 +1500,26 @@ describe('Actor/Responder execution loop', () => {
       chatResponse: async (req) => {
         const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
         const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+        if (systemPrompt.includes('checkpoint summaries')) {
+          return {
+            results: [
+              {
+                index: 0,
+                content: [
+                  'Objective: refine the draft',
+                  'Durable state: firstPass',
+                  'Evidence: draft ready',
+                  'Conclusions: keep the first pass as prior work',
+                  'Actor fields: none',
+                  'Next step: finalize the answer',
+                ].join('\n'),
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
 
         if (systemPrompt.includes('Code Generation Agent')) {
           actorCallCount++;
@@ -1448,9 +1588,11 @@ describe('Actor/Responder execution loop', () => {
       contextFields: ['context'],
       runtime,
       maxTurns: 3,
-      contextManagement: {
-        actionReplay: 'adaptive',
-        recentFullActions: 1,
+      contextPolicy: {
+        preset: 'adaptive',
+        checkpoints: {
+          triggerChars: 1,
+        },
       },
     });
 
@@ -1460,12 +1602,13 @@ describe('Actor/Responder execution loop', () => {
     });
 
     expect(result.answer).toBe('done');
-    expect(thirdActorPrompt).toContain('[SUMMARY]:');
+    expect(thirdActorPrompt).toContain('Checkpoint Summary:');
+    expect(thirdActorPrompt).toContain('Objective: refine the draft');
     expect(thirdActorPrompt).not.toContain('const firstPass = "draft"');
     expect(thirdActorPrompt).toContain('const secondPass = "final"');
   });
 
-  it('should include live runtime state in actor prompts when stateSummary is enabled', async () => {
+  it('should include live runtime state in actor prompts when contextPolicy.state.summary is enabled', async () => {
     let actorCallCount = 0;
     let secondActorPrompt = '';
     let hasTotal = false;
@@ -1518,6 +1661,9 @@ describe('Actor/Responder execution loop', () => {
       createSession(globals) {
         return {
           execute: async (code: string) => {
+            if (code.includes('Object.getOwnPropertyNames(globalThis)')) {
+              return JSON.stringify(['setImmediate', 'clearImmediate']);
+            }
             if (code.includes('Object.entries(globalThis)')) {
               return hasTotal ? 'total: number = 5' : '(no user variables)';
             }
@@ -1541,10 +1687,12 @@ describe('Actor/Responder execution loop', () => {
       contextFields: ['context'],
       runtime,
       maxTurns: 2,
-      contextManagement: {
-        actionReplay: 'minimal',
-        recentFullActions: 0,
-        stateSummary: { enabled: true, maxEntries: 2 },
+      contextPolicy: {
+        preset: 'lean',
+        state: {
+          summary: true,
+          maxEntries: 2,
+        },
       },
     });
 
@@ -1607,6 +1755,13 @@ describe('Actor/Responder execution loop', () => {
             code: string,
             opts?: { signal?: AbortSignal; reservedNames?: readonly string[] }
           ) => {
+            if (code.includes('Object.getOwnPropertyNames(globalThis)')) {
+              return JSON.stringify([
+                'setImmediate',
+                'clearImmediate',
+                'clearInterval',
+              ]);
+            }
             if (code === 'INSPECT_TEST') {
               const inspectRuntime = globals?.inspect_runtime as
                 | (() => Promise<string>)
@@ -1639,7 +1794,9 @@ describe('Actor/Responder execution loop', () => {
       ai: testMockAI,
       contextFields: ['context'],
       runtime,
-      contextManagement: { stateInspection: { contextThreshold: 500 } },
+      contextPolicy: {
+        state: { inspect: true, inspectThresholdChars: 500 },
+      },
     });
 
     const result = await testAgent.forward(testMockAI, {
@@ -1655,6 +1812,7 @@ describe('Actor/Responder execution loop', () => {
     expect(inspectReservedNames).toContain('context');
     expect(inspectReservedNames).toContain('query');
     expect(responderPrompt).toContain('stateVar: number = 7');
+    expect(responderPrompt).not.toContain('setImmediate');
   });
 
   it('should not reserve top-level input aliases during normal code execution', async () => {
@@ -1732,11 +1890,11 @@ describe('Actor/Responder execution loop', () => {
     expect(executionReservedNames).not.toContain('query');
   });
 
-  it('should NOT include inspect_runtime in actor definition when stateInspection is not configured', () => {
+  it('should NOT include inspect_runtime in actor definition when inspect is disabled', () => {
     const testAgent = agent('context:string, query:string -> answer:string', {
       contextFields: ['context'],
       runtime: defaultRuntime,
-      contextManagement: { errorPruning: true },
+      contextPolicy: { preset: 'adaptive', state: { inspect: false } },
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -2340,9 +2498,7 @@ describe('final()/ask_clarification() as runtime globals', () => {
       contextFields: [],
       runtime,
       maxTurns: 1,
-      contextManagement: {
-        actionReplay: 'adaptive',
-      },
+      contextPolicy: { preset: 'adaptive' },
     });
 
     const result = await testAgent.forward(testMockAI, { query: 'test' });
@@ -4731,6 +4887,7 @@ describe('inputUpdateCallback', () => {
   it('should apply callback updates in streamingForward actor loop', async () => {
     let finalArg: unknown;
     let callbackCalls = 0;
+    let responderValues: Record<string, unknown> | undefined;
 
     const runtime: AxCodeRuntime = {
       getUsageInstructions: () => '',
@@ -4766,7 +4923,11 @@ describe('inputUpdateCallback', () => {
     anyAgent.actorProgram.forward = async () => ({
       javascriptCode: 'final(inputs.query)',
     });
-    anyAgent.responderProgram.streamingForward = async function* () {
+    anyAgent.responderProgram.streamingForward = async function* (
+      _ai: unknown,
+      values: Record<string, unknown>
+    ) {
+      responderValues = values;
       yield { version: 1, index: 0, delta: { answer: 'ok' } };
     };
 
@@ -4782,6 +4943,13 @@ describe('inputUpdateCallback', () => {
 
     expect(callbackCalls).toBe(1);
     expect(finalArg).toBe('stream-updated');
+    expect(responderValues).toEqual({
+      query: 'stream-updated',
+      contextData: {
+        type: 'final',
+        args: ['stream-updated'],
+      },
+    });
   });
 
   it('should send only actor-authored code through execute during input updates', async () => {
@@ -7790,7 +7958,14 @@ describe('AxFunction', () => {
   });
 
   it('should throw on reserved namespace', () => {
-    for (const ns of ['agents', 'llmQuery', 'final', 'ask_clarification']) {
+    for (const ns of [
+      'agents',
+      'inputs',
+      'llmQuery',
+      'final',
+      'ask_clarification',
+      'inspect_runtime',
+    ]) {
       expect(
         () =>
           new AxAgent(
@@ -7811,7 +7986,9 @@ describe('AxFunction', () => {
               },
             }
           )
-      ).toThrow(`Agent function namespace "${ns}" is reserved`);
+      ).toThrow(
+        `Agent function namespace "${ns}" conflicts with an AxAgent runtime global and is reserved`
+      );
     }
   });
 
@@ -7843,7 +8020,9 @@ describe('AxFunction', () => {
             },
           }
         )
-    ).toThrow('Agent function namespace "team" is reserved');
+    ).toThrow(
+      'Agent function namespace "team" conflicts with an AxAgent runtime global and is reserved'
+    );
   });
 
   it('should throw on reserved namespace metadata names that are not discoverable modules', () => {

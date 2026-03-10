@@ -5,11 +5,13 @@ import {
   buildActionEvidenceSummary,
   buildActionLog,
   buildActionLogWithPolicy,
+  buildInspectRuntimeBaselineCode,
   buildInspectRuntimeCode,
   evaluateHindsight,
   extractDeclaredVariables,
   extractErrorSignature,
   extractReferencedIdentifiers,
+  generateCheckpointSummaryAsync,
   generateTombstoneAsync,
   manageContext,
 } from './contextManager.js';
@@ -84,6 +86,24 @@ describe('extractDeclaredVariables', () => {
   it('should return empty for code with no declarations', () => {
     expect(extractDeclaredVariables('console.log("hello")')).toEqual([]);
   });
+
+  it('should ignore block-scoped declarations that do not persist across turns', () => {
+    expect(
+      extractDeclaredVariables(
+        ['const topLevel = 1;', 'if (true) {', '  const inner = 2;', '}'].join(
+          '\n'
+        )
+      )
+    ).toEqual(['topLevel']);
+  });
+
+  it('should extract top-level comma-separated and destructured bindings', () => {
+    expect(
+      extractDeclaredVariables(
+        'const a = 1, { b: renamed, c } = obj, [first, ...rest] = items'
+      )
+    ).toEqual(['a', 'renamed', 'c', 'first', 'rest']);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -107,6 +127,21 @@ describe('extractReferencedIdentifiers', () => {
     expect(ids.has('true')).toBe(false);
     expect(ids.has('return')).toBe(false);
     expect(ids.has('null')).toBe(false);
+  });
+
+  it('should ignore identifiers that only appear in comments or strings', () => {
+    const ids = extractReferencedIdentifiers(
+      [
+        'const actual = data.length;',
+        '// fakeCommentRef',
+        'const text = "fakeStringRef";',
+      ].join('\n')
+    );
+    expect(ids.has('actual')).toBe(true);
+    expect(ids.has('data')).toBe(true);
+    expect(ids.has('length')).toBe(true);
+    expect(ids.has('fakeCommentRef')).toBe(false);
+    expect(ids.has('fakeStringRef')).toBe(false);
   });
 });
 
@@ -187,7 +222,9 @@ describe('manageContext', () => {
       pruneRank: 2,
       actionReplay: 'full',
       recentFullActions: 1,
-      successSummarization: false,
+      stateSummary: { enabled: false },
+      stateInspection: { enabled: false },
+      checkpoints: { enabled: false },
     });
     expect(entries).toHaveLength(1);
     expect(entries[0]!.turn).toBe(2);
@@ -202,7 +239,9 @@ describe('manageContext', () => {
       pruneRank: 2,
       actionReplay: 'full',
       recentFullActions: 1,
-      successSummarization: false,
+      stateSummary: { enabled: false },
+      stateInspection: { enabled: false },
+      checkpoints: { enabled: false },
     });
     expect(entries).toHaveLength(2);
   });
@@ -220,7 +259,9 @@ describe('manageContext', () => {
       pruneRank: 2,
       actionReplay: 'full',
       recentFullActions: 1,
-      successSummarization: false,
+      stateSummary: { enabled: false },
+      stateInspection: { enabled: false },
+      checkpoints: { enabled: false },
     });
     // Turn 1 gets rank 1 (superseded) < pruneRank 2 → pruned
     expect(entries).toHaveLength(1);
@@ -239,7 +280,9 @@ describe('manageContext', () => {
       pruneRank: 2,
       actionReplay: 'full',
       recentFullActions: 1,
-      successSummarization: false,
+      stateSummary: { enabled: false },
+      stateInspection: { enabled: false },
+      checkpoints: { enabled: false },
     });
     // Turn 1 gets rank 5 (foundational) >= pruneRank 2 → kept
     expect(entries).toHaveLength(2);
@@ -256,7 +299,9 @@ describe('manageContext', () => {
       pruneRank: 2,
       actionReplay: 'full',
       recentFullActions: 1,
-      successSummarization: false,
+      stateSummary: { enabled: false },
+      stateInspection: { enabled: false },
+      checkpoints: { enabled: false },
     });
     // Last entry is never pruned
     expect(entries).toHaveLength(1);
@@ -274,7 +319,9 @@ describe('manageContext', () => {
       pruneRank: 2,
       actionReplay: 'full',
       recentFullActions: 1,
-      successSummarization: false,
+      stateSummary: { enabled: false },
+      stateInspection: { enabled: false },
+      checkpoints: { enabled: false },
     });
     // Error with tombstone should be kept
     expect(entries).toHaveLength(2);
@@ -292,7 +339,9 @@ describe('manageContext', () => {
       pruneRank: 2,
       actionReplay: 'full',
       recentFullActions: 1,
-      successSummarization: false,
+      stateSummary: { enabled: false },
+      stateInspection: { enabled: false },
+      checkpoints: { enabled: false },
     });
     // Error with pending tombstone should be kept
     expect(entries).toHaveLength(2);
@@ -408,7 +457,7 @@ describe('buildActionLog', () => {
     expect(log).toContain('var y = 2');
   });
 
-  it('should summarize superseded successful turns in adaptive mode', () => {
+  it('should replace checkpointed successful turns with a checkpoint block', () => {
     const entries = [
       makeSuccessEntry(1, 'const draft = "v1"', 'draft ready'),
       makeSuccessEntry(2, 'const finalDraft = "v2"', 'final ready'),
@@ -416,10 +465,14 @@ describe('buildActionLog', () => {
     const log = buildActionLogWithPolicy(entries, {
       actionReplay: 'adaptive',
       recentFullActions: 1,
-      successSummarization: true,
+      checkpointSummary: [
+        'Objective: refine the draft',
+        'Durable state: draft, finalDraft',
+      ].join('\n'),
+      checkpointTurns: [1],
     });
-    expect(log).toContain('Action 1:');
-    expect(log).toContain('[SUMMARY]:');
+    expect(log).toContain('Checkpoint Summary:');
+    expect(log).toContain('Objective: refine the draft');
     expect(log).not.toContain('const draft = "v1"');
     expect(log).toContain('const finalDraft = "v2"');
   });
@@ -444,27 +497,72 @@ describe('buildActionLog', () => {
       actionReplay: 'minimal',
       recentFullActions: 0,
       stateSummary: 'total: number = 5',
-      successSummarization: true,
+      checkpointSummary: 'Objective: inspect totals\nDurable state: total',
+      checkpointTurns: [1],
     });
     expect(log).toContain('Live Runtime State:');
     expect(log).toContain('total: number = 5');
-    expect(log).toContain('[SUMMARY]:');
+    expect(log).toContain('Checkpoint Summary:');
   });
 });
 
 describe('buildActionEvidenceSummary', () => {
-  it('should summarize actions without replaying raw code', () => {
+  it('should prefer checkpoint summaries over raw historical code', () => {
     const entries = [
       makeSuccessEntry(1, 'const draft = "v1"', 'draft ready'),
       makeErrorEntry(2, 'ReferenceError: draft2 is not defined'),
     ];
     const summary = buildActionEvidenceSummary(entries, {
       stateSummary: 'draft: string = "v1"',
+      checkpointSummary: 'Objective: draft answer\nDurable state: draft',
+      checkpointTurns: [1],
     });
     expect(summary).toContain('Evidence summary');
+    expect(summary).toContain('Checkpoint summary');
     expect(summary).toContain('draft: string = "v1"');
     expect(summary).not.toContain('```javascript');
     expect(summary).not.toContain('const draft = "v1"');
+  });
+});
+
+describe('generateCheckpointSummaryAsync', () => {
+  it('should call ai.chat and return the checkpoint summary', async () => {
+    const mockAi = {
+      chat: vi.fn().mockResolvedValue({
+        results: [
+          {
+            content: [
+              'Objective: verify draft',
+              'Durable state: draft',
+              'Evidence: draft ready',
+              'Conclusions: use draft',
+              'Actor fields: none',
+              'Next step: finalize answer',
+            ].join('\n'),
+          },
+        ],
+      }),
+    };
+
+    const result = await generateCheckpointSummaryAsync(mockAi as any, [
+      makeSuccessEntry(1, 'const draft = "v1"', 'draft ready'),
+    ]);
+
+    expect(result).toContain('Objective: verify draft');
+    expect(mockAi.chat).toHaveBeenCalledTimes(1);
+  });
+
+  it('should return a deterministic fallback on error', async () => {
+    const mockAi = {
+      chat: vi.fn().mockRejectedValue(new Error('network error')),
+    };
+
+    const result = await generateCheckpointSummaryAsync(mockAi as any, [
+      makeSuccessEntry(1, 'const draft = "v1"', 'draft ready'),
+    ]);
+
+    expect(result).toContain('Objective:');
+    expect(result).toContain('Durable state: draft');
   });
 });
 
@@ -484,5 +582,19 @@ describe('buildInspectRuntimeCode', () => {
     const code = buildInspectRuntimeCode([]);
     expect(code.trim().startsWith('(() =>')).toBe(true);
     expect(code.trim().endsWith(')()')).toBe(true);
+  });
+
+  it('should include baseline globals in the skip list', () => {
+    const code = buildInspectRuntimeCode(['llmQuery'], ['setImmediate']);
+    expect(code).toContain("'llmQuery'");
+    expect(code).toContain("'setImmediate'");
+  });
+});
+
+describe('buildInspectRuntimeBaselineCode', () => {
+  it('should collect baseline globals from globalThis', () => {
+    const code = buildInspectRuntimeBaselineCode();
+    expect(code).toContain('Object.getOwnPropertyNames(globalThis)');
+    expect(code.trim().startsWith('(() =>')).toBe(true);
   });
 });

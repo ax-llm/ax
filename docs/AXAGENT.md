@@ -555,12 +555,23 @@ const analyzer = agent(
     maxRuntimeChars: 2_000,                      // Cap for llmQuery context + code output (default: 5000)
     maxBatchedLlmQueryConcurrency: 6,            // Max parallel batched llmQuery calls (default: 8)
     maxTurns: 10,                                // Max Actor turns before forcing Responder (default: 10)
-    contextManagement: {                          // Semantic context management
-      errorPruning: true,                         // Prune error entries after successful turns
-      hindsightEvaluation: true,                  // Heuristic importance scoring on entries
-      tombstoning: true,                          // Replace resolved errors with compact summaries
-      stateInspection: { contextThreshold: 2000 }, // Enable inspect_runtime() tool
-      pruneRank: 2,                               // Entries ranked below this are purged (0-5, default: 2)
+    contextPolicy: {                              // Context replay + checkpoint policy
+      preset: 'adaptive',                         // Opinionated defaults for long runtime tasks
+      state: {
+        summary: true,                            // Include Live Runtime State in the actor prompt
+        inspect: true,                            // Expose inspect_runtime() to the actor
+        inspectThresholdChars: 2000,
+        maxEntries: 6,
+      },
+      checkpoints: {
+        enabled: true,                            // Summarize older successful turns into a checkpoint
+        triggerChars: 2000,
+      },
+      expert: {
+        pruneErrors: true,                        // Prune resolved errors after successful turns
+        rankPruning: { enabled: true, minRank: 2 },
+        tombstones: true,                         // Replace resolved errors with compact tombstones
+      },
     },
     actorFields: ['reasoning'],                   // Output fields produced by Actor instead of Responder
     actorCallback: async (result) => {            // Called after each Actor turn
@@ -1054,19 +1065,33 @@ interface AxRLMConfig {
   maxRuntimeChars?: number;                  // Cap for llmQuery context + code output (default: 5000)
   maxBatchedLlmQueryConcurrency?: number;    // Max parallel batched llmQuery calls (default: 8)
   maxTurns?: number;                         // Max Actor turns before forcing Responder (default: 10)
-  trajectoryPruning?: boolean;               // @deprecated Use contextManagement.errorPruning instead
-  contextManagement?: AxContextManagementConfig; // Semantic context management
+  contextPolicy?: AxContextPolicyConfig;     // Context replay, checkpointing, and runtime-state policy
   actorFields?: string[];                    // Output fields produced by Actor instead of Responder
   actorCallback?: (result: Record<string, unknown>) => void | Promise<void>;  // Called after each Actor turn
   mode?: 'simple' | 'advanced';                  // Sub-query mode: 'simple' = AxGen, 'advanced' = AxAgent (default: 'simple')
 }
 
-interface AxContextManagementConfig {
-  errorPruning?: boolean;                    // Prune error entries after successful turns
-  tombstoning?: boolean | Omit<AxProgramForwardOptions<string>, 'functions'>; // Replace resolved errors with compact summaries
-  hindsightEvaluation?: boolean;             // Heuristic importance scoring on entries
-  stateInspection?: { contextThreshold?: number }; // Enable inspect_runtime() tool
-  pruneRank?: number;                        // Entries ranked below this are purged (0-5, default: 2)
+type AxContextPolicyPreset = 'full' | 'adaptive' | 'lean';
+
+interface AxContextPolicyConfig {
+  preset?: AxContextPolicyPreset;
+  state?: {
+    summary?: boolean;                       // Include Live Runtime State ahead of the action log
+    inspect?: boolean;                       // Expose inspect_runtime() to the actor
+    inspectThresholdChars?: number;          // Large-context hint threshold
+    maxEntries?: number;                     // Max runtime-state entries to render
+  };
+  checkpoints?: {
+    enabled?: boolean;                       // Enable rolling checkpoint summaries
+    triggerChars?: number;                   // Generate a checkpoint when the prompt grows past this size
+  };
+  expert?: {
+    replay?: 'full' | 'adaptive' | 'minimal';
+    recentFullActions?: number;
+    pruneErrors?: boolean;
+    rankPruning?: { enabled?: boolean; minRank?: number };
+    tombstones?: boolean | Omit<AxProgramForwardOptions<string>, 'functions'>;
+  };
 }
 ```
 
@@ -1181,7 +1206,7 @@ Extends `AxProgramForwardOptions` (without `functions` or `description`) with:
   maxRuntimeChars?: number;
   maxBatchedLlmQueryConcurrency?: number;
   maxTurns?: number;
-  contextManagement?: AxContextManagementConfig;
+  contextPolicy?: AxContextPolicyConfig;
   actorFields?: string[];
   actorCallback?: (result: Record<string, unknown>) => void | Promise<void>;
   inputUpdateCallback?: (currentInputs: Record<string, unknown>) => Promise<Record<string, unknown> | undefined> | Record<string, unknown> | undefined;

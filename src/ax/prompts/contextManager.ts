@@ -8,6 +8,10 @@
 
 import type { AxAIService, AxChatResponse } from '../ai/types.js';
 import type { AxProgramForwardOptions } from '../dsp/types.js';
+import {
+  extractTopLevelDeclaredNames,
+  stripJsStringsAndComments,
+} from '../util/jsAnalysis.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -27,7 +31,7 @@ export type ActionLogStepKind =
   | 'finalize'
   | 'error';
 
-export type ActionReplayMode = 'full' | 'summary' | 'omit';
+export type ActionReplayMode = 'full' | 'omit';
 
 export type ActionLogEntry = {
   turn: number;
@@ -60,18 +64,23 @@ export type ContextManagementEffectiveConfig = {
   pruneRank: number;
   actionReplay: 'full' | 'adaptive' | 'minimal';
   recentFullActions: number;
-  successSummarization:
-    | boolean
-    | Omit<AxProgramForwardOptions<string>, 'functions'>
-    | undefined;
-  stateSummary?: { enabled?: boolean; maxEntries?: number };
+  stateSummary: { enabled: boolean; maxEntries?: number };
+  stateInspection: { enabled: boolean; contextThreshold?: number };
+  checkpoints: { enabled: boolean; triggerChars?: number };
 };
 
 export type ActionLogBuildPolicy = {
   actionReplay?: 'full' | 'adaptive' | 'minimal';
   recentFullActions?: number;
   stateSummary?: string;
-  successSummarization?: boolean;
+  checkpointSummary?: string;
+  checkpointTurns?: readonly number[];
+};
+
+export type CheckpointSummaryState = {
+  fingerprint: string;
+  summary: string;
+  turns: number[];
 };
 
 // ---------------------------------------------------------------------------
@@ -91,14 +100,7 @@ export function extractErrorSignature(output: string): string {
  * Extracts variable names declared via `var`, `let`, or `const`.
  */
 export function extractDeclaredVariables(code: string): string[] {
-  const vars: string[] = [];
-  const declRegex = /(?:^|[\n;])\s*(?:var|let|const)\s+(\w+)/g;
-  let match: RegExpExecArray | null = declRegex.exec(code);
-  while (match !== null) {
-    if (match[1]) vars.push(match[1]);
-    match = declRegex.exec(code);
-  }
-  return vars;
+  return extractTopLevelDeclaredNames(code);
 }
 
 const JS_KEYWORDS = new Set([
@@ -152,14 +154,15 @@ const JS_KEYWORDS = new Set([
  * Filters out JavaScript keywords.
  */
 export function extractReferencedIdentifiers(code: string): Set<string> {
+  const sanitized = stripJsStringsAndComments(code);
   const identRegex = /\b([a-zA-Z_$][a-zA-Z0-9_$]*)\b/g;
   const ids = new Set<string>();
-  let match: RegExpExecArray | null = identRegex.exec(code);
+  let match: RegExpExecArray | null = identRegex.exec(sanitized);
   while (match !== null) {
     if (match[1] && !JS_KEYWORDS.has(match[1])) {
       ids.add(match[1]);
     }
-    match = identRegex.exec(code);
+    match = identRegex.exec(sanitized);
   }
   return ids;
 }
@@ -275,7 +278,6 @@ function assignReplayModes(
 ): void {
   const actionReplay = policy.actionReplay ?? 'full';
   const recentFullActions = Math.max(policy.recentFullActions ?? 1, 0);
-  const successSummarization = policy.successSummarization ?? false;
 
   for (const entry of entries) {
     ensureEntryMetadata(entry);
@@ -286,7 +288,7 @@ function assignReplayModes(
 
   entries.forEach((entry, index) => {
     if (entry.tombstone) {
-      entry.replayMode = 'summary';
+      entry.replayMode = 'full';
       return;
     }
 
@@ -311,22 +313,6 @@ function assignReplayModes(
 
     if (actionReplay === 'adaptive' && referencedLater) {
       entry.replayMode = 'full';
-      return;
-    }
-
-    const summary = entry.summary ?? buildEntrySummary(entry);
-    const isTrivialSuccess =
-      !entry.tags.includes('error') &&
-      producedVars.length === 0 &&
-      truncateInline(entry.output).length <= 20;
-
-    if (!entry.tags.includes('error') && !successSummarization) {
-      entry.replayMode = 'omit';
-      return;
-    }
-
-    if (summary && !isTrivialSuccess) {
-      entry.replayMode = 'summary';
       return;
     }
 
@@ -477,6 +463,116 @@ function isStreamResponse(
   );
 }
 
+function serializeCheckpointEntries(
+  entries: readonly ActionLogEntry[]
+): string {
+  return entries
+    .map((entry) => {
+      ensureEntryMetadata(entry);
+      const actorFields = entry.actorFieldsOutput
+        .replace(/^Actor fields:\s*/i, '')
+        .trim();
+
+      return [
+        `Turn: ${entry.turn}`,
+        `Step kind: ${entry.stepKind ?? 'explore'}`,
+        `Referenced inputs: ${(entry.referencedVars ?? []).join(', ') || 'none'}`,
+        `Durable values created: ${(entry.producedVars ?? []).join(', ') || 'none'}`,
+        `State delta: ${entry.stateDelta ?? 'none'}`,
+        `Observed result: ${truncateInline(entry.output || '(no output)', 240)}`,
+        `Actor fields: ${actorFields || 'none'}`,
+        `Code excerpt: ${truncateInline(entry.code || '(no code)', 240)}`,
+      ].join('\n');
+    })
+    .join('\n\n');
+}
+
+function buildFallbackCheckpointSummary(
+  entries: readonly ActionLogEntry[]
+): string {
+  const objectives = new Set<string>();
+  const durableValues = new Set<string>();
+  const evidence: string[] = [];
+  const actorFields: string[] = [];
+  let nextStep = 'Continue from the latest live runtime state.';
+
+  for (const entry of entries) {
+    ensureEntryMetadata(entry);
+    objectives.add(entry.stepKind ?? 'explore');
+    for (const value of entry.producedVars ?? []) {
+      durableValues.add(value);
+    }
+    const observation = truncateInline(entry.output || '(no output)', 140);
+    evidence.push(`Turn ${entry.turn}: ${observation}`);
+    const trimmedActorFields = entry.actorFieldsOutput
+      .replace(/^Actor fields:\s*/i, '')
+      .trim();
+    if (trimmedActorFields) {
+      actorFields.push(`Turn ${entry.turn}: ${trimmedActorFields}`);
+    }
+    nextStep =
+      entry.stepKind === 'finalize'
+        ? 'Complete the responder handoff.'
+        : 'Continue from the latest live runtime state.';
+  }
+
+  return [
+    `Objective: ${[...objectives].join(', ') || 'none'}`,
+    `Durable state: ${[...durableValues].join(', ') || 'none'}`,
+    `Evidence: ${evidence.join(' | ') || 'none'}`,
+    `Conclusions: Preserve the durable state and evidence above.`,
+    `Actor fields: ${actorFields.join(' | ') || 'none'}`,
+    `Next step: ${nextStep}`,
+  ].join('\n');
+}
+
+export async function generateCheckpointSummaryAsync(
+  ai: AxAIService,
+  entries: readonly ActionLogEntry[]
+): Promise<string> {
+  const prompt = `Compress these older successful agent turns into one compact checkpoint for future turns.
+
+Rules:
+- Keep only information needed to continue the task.
+- Do not restate raw code or quote large outputs.
+- Use plain text with exactly these labels:
+Objective:
+Durable state:
+Evidence:
+Conclusions:
+Actor fields:
+Next step:
+- Use "none" when a section has nothing worth preserving.
+- Be concise and factual.
+
+Turns:
+${serializeCheckpointEntries(entries)}`;
+
+  try {
+    const response = await ai.chat({
+      chatPrompt: [
+        {
+          role: 'system' as const,
+          content:
+            'You compress prior agent progress into checkpoint summaries for future reasoning turns.',
+        },
+        { role: 'user' as const, content: prompt },
+      ],
+    });
+
+    if (!isStreamResponse(response) && response.results?.[0]?.content) {
+      const content = response.results[0].content;
+      const text =
+        typeof content === 'string' ? content.trim() : String(content).trim();
+      return text || buildFallbackCheckpointSummary(entries);
+    }
+
+    return buildFallbackCheckpointSummary(entries);
+  } catch {
+    return buildFallbackCheckpointSummary(entries);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // manageContext — main orchestration
 // ---------------------------------------------------------------------------
@@ -593,12 +689,23 @@ export function buildActionLogWithPolicy(
   entries: readonly ActionLogEntry[],
   policy: Readonly<ActionLogBuildPolicy>
 ): string {
-  if (entries.length === 0 && !policy.stateSummary) return '';
+  if (
+    entries.length === 0 &&
+    !policy.stateSummary &&
+    !policy.checkpointSummary
+  ) {
+    return '';
+  }
 
   assignReplayModes(entries, policy);
+  const checkpointTurns = new Set(policy.checkpointTurns ?? []);
 
   const renderedEntries = entries
     .map((entry) => {
+      if (checkpointTurns.has(entry.turn) && !entry.tags.includes('error')) {
+        return '';
+      }
+
       if (entry.tombstone) {
         return `Action ${entry.turn}:\n${entry.tombstone}`;
       }
@@ -606,8 +713,6 @@ export function buildActionLogWithPolicy(
       switch (entry.replayMode) {
         case 'omit':
           return '';
-        case 'summary':
-          return `Action ${entry.turn}:\n${entry.summary ?? buildEntrySummary(entry)}`;
         default:
           return `Action ${entry.turn}:\n\`\`\`javascript\n${entry.code}\n\`\`\`\nResult:\n${entry.output}${entry.actorFieldsOutput}`;
       }
@@ -615,13 +720,15 @@ export function buildActionLogWithPolicy(
     .filter(Boolean)
     .join('\n\n');
 
-  if (!policy.stateSummary) {
-    return renderedEntries;
+  const parts: string[] = [];
+  if (policy.stateSummary) {
+    parts.push(`Live Runtime State:\n${policy.stateSummary}`);
   }
-
-  const parts = [`Live Runtime State:\n${policy.stateSummary}`];
   if (renderedEntries) {
     parts.push(renderedEntries);
+  }
+  if (policy.checkpointSummary) {
+    parts.push(`Checkpoint Summary:\n${policy.checkpointSummary}`);
   }
 
   return parts.join('\n\n');
@@ -629,21 +736,33 @@ export function buildActionLogWithPolicy(
 
 export function buildActionEvidenceSummary(
   entries: readonly ActionLogEntry[],
-  options?: Readonly<{ stateSummary?: string }>
+  options?: Readonly<{
+    stateSummary?: string;
+    checkpointSummary?: string;
+    checkpointTurns?: readonly number[];
+  }>
 ): string {
+  const checkpointTurns = new Set(options?.checkpointTurns ?? []);
   const summaries = entries
     .map((entry) => {
+      if (checkpointTurns.has(entry.turn) && !entry.tags.includes('error')) {
+        return '';
+      }
       ensureEntryMetadata(entry);
       const detail =
         entry.tombstone ?? entry.summary ?? buildEntrySummary(entry);
       return `- Action ${entry.turn}: ${detail}`;
     })
+    .filter(Boolean)
     .join('\n');
 
   const parts = ['Actor stopped without calling final(...). Evidence summary:'];
+  if (options?.checkpointSummary) {
+    parts.push(`Checkpoint summary:\n${options.checkpointSummary}`);
+  }
   if (summaries) {
     parts.push(summaries);
-  } else {
+  } else if (!options?.checkpointSummary) {
     parts.push('- No actions were taken.');
   }
   if (options?.stateSummary) {
@@ -662,9 +781,12 @@ export function buildActionEvidenceSummary(
  * size, and a truncated preview.
  */
 export function buildInspectRuntimeCode(
-  reservedNames: readonly string[]
+  reservedNames: readonly string[],
+  baselineNames: readonly string[] = []
 ): string {
-  const skipList = reservedNames.map((n) => `'${n}'`).join(',');
+  const skipList = [...reservedNames, ...baselineNames]
+    .map((n) => `'${n}'`)
+    .join(',');
   return `(() => {
   const skip = new Set([${skipList}]);
   return Object.entries(globalThis)
@@ -683,4 +805,8 @@ export function buildInspectRuntimeCode(
       return k + ': ' + type + (size ? ' (' + size + ')' : '') + ' = ' + preview;
     }).join('\\n') || '(no user variables)';
 })()`;
+}
+
+export function buildInspectRuntimeBaselineCode(): string {
+  return `(() => JSON.stringify(Object.getOwnPropertyNames(globalThis).sort()))()`;
 }

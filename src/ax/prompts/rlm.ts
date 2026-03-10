@@ -157,37 +157,46 @@ export interface AxCodeSession {
   close(): void;
 }
 
+export type AxContextPolicyPreset = 'full' | 'adaptive' | 'lean';
+
 /**
- * Configuration for semantic context management in the Actor loop.
- * Controls how action log entries are evaluated, summarized, and pruned.
+ * Public context policy for the Actor loop.
+ * Presets provide the common behavior; `state` and `expert` override specific pieces.
  */
-export interface AxContextManagementConfig {
-  /** Prune error entries after a successful (non-error) turn. */
-  errorPruning?: boolean;
-  /** Enable tombstone generation for resolved errors.
-   *  When `true`, uses the main AI service with its default settings.
-   *  Pass an `AxProgramForwardOptions` object to control the model, temperature,
-   *  max tokens, etc. of the tombstone generation call (e.g. a cheaper/faster model). */
-  tombstoning?: boolean | Omit<AxProgramForwardOptions<string>, 'functions'>;
-  /** Enable heuristic-based importance scoring on entries. */
-  hindsightEvaluation?: boolean;
-  /** Controls how prior actor actions are replayed into the next prompt. */
-  actionReplay?: 'full' | 'adaptive' | 'minimal';
-  /** Number of most-recent actions that should always remain fully rendered. */
-  recentFullActions?: number;
-  /** Enable compact summaries for successful actions instead of raw code/output replay. */
-  successSummarization?:
-    | boolean
-    | Omit<AxProgramForwardOptions<string>, 'functions'>;
-  /** Enable runtime state inspection tool for the actor.
-   *  `contextThreshold` is the character count on the serialized actionLog
-   *  above which an `inspect_runtime()` hint is shown to the actor. */
-  stateInspection?: { contextThreshold?: number };
-  /** Include a compact live runtime state block ahead of the action log. */
-  stateSummary?: { enabled?: boolean; maxEntries?: number };
-  /** Entries ranked strictly below this value are purged from active context.
-   *  Range: 0-5. Default: 2. */
-  pruneRank?: number;
+export interface AxContextPolicyConfig {
+  /** Opinionated preset for how the agent should replay and compress context. */
+  preset?: AxContextPolicyPreset;
+  /** Runtime-state visibility controls. */
+  state?: {
+    /** Include a compact live runtime state block ahead of the action log. */
+    summary?: boolean;
+    /** Expose `inspect_runtime()` to the actor and show the large-context hint. */
+    inspect?: boolean;
+    /** Character count above which the actor is reminded to call `inspect_runtime()`. */
+    inspectThresholdChars?: number;
+    /** Maximum number of runtime state entries to render in the summary block. */
+    maxEntries?: number;
+  };
+  /** Rolling checkpoint summary controls. */
+  checkpoints?: {
+    /** Enable checkpoint summaries for older successful turns. */
+    enabled?: boolean;
+    /** Character count above which a checkpoint summary is generated. */
+    triggerChars?: number;
+  };
+  /** Expert-level overrides for the preset-derived internal policy. */
+  expert?: {
+    /** Controls how prior actor actions are replayed before checkpoint compression. */
+    replay?: 'full' | 'adaptive' | 'minimal';
+    /** Number of most-recent actions that should always remain fully rendered. */
+    recentFullActions?: number;
+    /** Prune error entries after a successful (non-error) turn. */
+    pruneErrors?: boolean;
+    /** Rank-based pruning of low-value actions. */
+    rankPruning?: { enabled?: boolean; minRank?: number };
+    /** Replace resolved errors with compact tombstones before pruning. */
+    tombstones?: boolean | Omit<AxProgramForwardOptions<string>, 'functions'>;
+  };
 }
 
 /**
@@ -211,13 +220,8 @@ export interface AxRLMConfig {
   maxBatchedLlmQueryConcurrency?: number;
   /** Maximum Actor turns before forcing Responder (default: 10). */
   maxTurns?: number;
-  /**
-   * @deprecated Use `contextManagement.errorPruning` instead.
-   * If true, prune error entries from the action log after a successful turn.
-   */
-  trajectoryPruning?: boolean;
-  /** Semantic context management configuration. */
-  contextManagement?: AxContextManagementConfig;
+  /** Context replay, checkpointing, and runtime-state policy. */
+  contextPolicy?: AxContextPolicyConfig;
   /** Output field names the Actor should produce (in addition to javascriptCode). */
   actorFields?: string[];
   /** Called after each Actor turn with the full actor result. */

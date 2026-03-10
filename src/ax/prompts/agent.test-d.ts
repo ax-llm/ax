@@ -52,27 +52,14 @@ import {
   });
 }
 
-// Agent with trajectoryPruning enabled (deprecated but still valid)
+// Agent with contextPolicy preset
 {
   const runtime = {} as AxCodeRuntime;
   const a = agent('context:string, query:string -> answer:string', {
     contextFields: ['context'] as const,
     runtime,
-    trajectoryPruning: true,
-  });
-
-  type Result = Awaited<ReturnType<typeof a.forward>>;
-  const _ok: Result = { answer: 'x' };
-}
-
-// Agent with contextManagement — errorPruning
-{
-  const runtime = {} as AxCodeRuntime;
-  const a = agent('context:string, query:string -> answer:string', {
-    contextFields: ['context'] as const,
-    runtime,
-    contextManagement: {
-      errorPruning: true,
+    contextPolicy: {
+      preset: 'adaptive',
     },
   });
 
@@ -116,31 +103,70 @@ import {
   });
 }
 
-// Agent with contextManagement — all options
+// Agent with contextPolicy — all options
 {
   const runtime = {} as AxCodeRuntime;
+  agent('context:string, query:string -> answer:string', {
+    contextFields: ['context'] as const,
+    runtime,
+    contextPolicy: {
+      preset: 'lean',
+      state: {
+        summary: true,
+        inspect: true,
+        inspectThresholdChars: 1000,
+        maxEntries: 4,
+      },
+      checkpoints: {
+        enabled: true,
+        triggerChars: 900,
+      },
+      expert: {
+        replay: 'adaptive',
+        recentFullActions: 2,
+        pruneErrors: true,
+        rankPruning: { enabled: true, minRank: 3 },
+        tombstones: { model: 'fast-model', modelConfig: { temperature: 0.1 } },
+      },
+    },
+  });
+}
+
+// Agent with contextPolicy — tombstones as boolean
+{
+  const runtime = {} as AxCodeRuntime;
+  agent('context:string, query:string -> answer:string', {
+    contextFields: ['context'] as const,
+    runtime,
+    contextPolicy: {
+      expert: {
+        tombstones: true,
+      },
+    },
+  });
+}
+
+// Removed contextManagement API should fail
+{
+  const runtime = {} as AxCodeRuntime;
+  // @ts-expect-error contextManagement was removed
   agent('context:string, query:string -> answer:string', {
     contextFields: ['context'] as const,
     runtime,
     contextManagement: {
       errorPruning: true,
-      hindsightEvaluation: true,
-      tombstoning: { model: 'fast-model', modelConfig: { temperature: 0.1 } },
-      stateInspection: { contextThreshold: 1000 },
-      pruneRank: 3,
     },
   });
 }
 
-// Agent with contextManagement — tombstoning as boolean
+// Removed trajectoryPruning API should fail
 {
   const runtime = {} as AxCodeRuntime;
+  // @ts-expect-error trajectoryPruning was removed
   agent('context:string, query:string -> answer:string', {
     contextFields: ['context'] as const,
     runtime,
-    contextManagement: {
-      tombstoning: true,
-    },
+    trajectoryPruning: true,
   });
 }
 
