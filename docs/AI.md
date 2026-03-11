@@ -359,15 +359,15 @@ to cache only the system prompt.
 When using functions/tools, caching is automatically applied:
 
 ```ts
-import { ai, ax, type AxFunction } from "@ax-llm/ax";
+import { ai, ax, f, fn } from "@ax-llm/ax";
 
-const tools: AxFunction[] = [
-  {
-    name: "calculate",
-    description: "Evaluate a math expression",
-    parameters: { type: "object", properties: { expression: { type: "string" } } },
-    func: ({ expression }) => eval(expression),
-  },
+const tools = [
+  fn("calculate")
+    .description("Evaluate a math expression")
+    .arg("expression", f.string("Math expression"))
+    .returns(f.number("Calculated value"))
+    .handler(({ expression }) => eval(expression))
+    .build(),
 ];
 
 const agent = ax("question:string -> answer:string", {

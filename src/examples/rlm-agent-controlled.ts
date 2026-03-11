@@ -1,10 +1,4 @@
-import {
-  AxAIOpenAIModel,
-  AxJSRuntime,
-  agent,
-  ai,
-  type AxAgentFunction,
-} from '@ax-llm/ax';
+import { AxAIOpenAIModel, AxJSRuntime, agent, ai, f, fn } from '@ax-llm/ax';
 
 const llm = ai({
   name: 'openai',
@@ -16,49 +10,31 @@ const llm = ai({
 
 const runtime = new AxJSRuntime();
 
-export const workflowTools: AxAgentFunction[] = [
-  {
-    name: 'finishReply',
-    namespace: 'workflow',
-    description:
-      'Complete the current actor turn from host-side code with the final reply text.',
-    parameters: {
-      type: 'object',
-      properties: {
-        reply: {
-          type: 'string',
-          description: 'Final reply to send back to the user',
-        },
-      },
-      required: ['reply'],
-    },
-    returns: { type: 'string' },
-    func: async ({ reply }: { reply: string }, extra) => {
+export const workflowTools = [
+  fn('finishReply')
+    .description(
+      'Complete the current actor turn from host-side code with the final reply text.'
+    )
+    .namespace('workflow')
+    .arg('reply', f.string('Final reply to send back to the user'))
+    .returns(f.string('Final reply text'))
+    .handler(async ({ reply }, extra) => {
       extra?.protocol?.final(reply);
       return reply;
-    },
-  },
-  {
-    name: 'askForOrderId',
-    namespace: 'workflow',
-    description:
-      'Complete the current actor turn from host-side code by asking the user for the missing order ID.',
-    parameters: {
-      type: 'object',
-      properties: {
-        question: {
-          type: 'string',
-          description: 'Clarification question to ask the user',
-        },
-      },
-      required: ['question'],
-    },
-    returns: { type: 'string' },
-    func: async ({ question }: { question: string }, extra) => {
+    })
+    .build(),
+  fn('askForOrderId')
+    .description(
+      'Complete the current actor turn from host-side code by asking the user for the missing order ID.'
+    )
+    .namespace('workflow')
+    .arg('question', f.string('Clarification question to ask the user'))
+    .returns(f.string('Clarification question'))
+    .handler(async ({ question }, extra) => {
       extra?.protocol?.askClarification(question);
       return question;
-    },
-  },
+    })
+    .build(),
 ];
 
 export const supportAgent = agent('message:string -> reply:string', {

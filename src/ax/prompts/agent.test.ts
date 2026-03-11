@@ -7544,12 +7544,15 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
           namespace: 'utils',
         },
       ],
-      availableModules: ['utils', 'team'],
+      availableModules: [
+        { namespace: 'utils', selectionCriteria: 'Use for generic helpers' },
+        { namespace: 'team' },
+      ],
     });
 
     expect(result).toContain('### Available Modules');
     expect(result).toContain('- `team`');
-    expect(result).toContain('- `utils`');
+    expect(result).toContain('- `utils` - Use for generic helpers');
     expect(result).not.toContain('### Available Agent Functions');
     expect(result).not.toContain('### Available Functions');
   });
@@ -7993,6 +7996,44 @@ describe('AxFunction', () => {
     expect(globals).not.toHaveProperty('utils');
   });
 
+  it('should register grouped agent functions under the group namespace', () => {
+    const myAgent = new AxAgent(
+      { signature: 'query:string -> answer:string' },
+      {
+        contextFields: [],
+        runtime,
+        functions: {
+          local: [
+            {
+              namespace: 'media',
+              title: 'Media Tools',
+              selectionCriteria: 'Use for image or file processing.',
+              description: 'Helpers for media processing.',
+              functions: [
+                {
+                  name: 'processImage',
+                  description: 'Processes an image',
+                  parameters: {
+                    type: 'object',
+                    properties: { url: { type: 'string' } },
+                    required: ['url'],
+                  },
+                  func: async () => 'processed',
+                },
+              ],
+            },
+          ],
+        },
+      }
+    );
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const globals = (myAgent as any).buildRuntimeGlobals();
+    expect(globals).toHaveProperty('media');
+    expect(globals.media).toHaveProperty('processImage');
+    expect(typeof globals.media.processImage).toBe('function');
+  });
+
   it('should expose child agents under default agents namespace in runtime globals', () => {
     const child = agent('question:string -> answer:string', {
       agentIdentity: { name: 'Child', description: 'child' },
@@ -8130,7 +8171,7 @@ describe('AxFunction', () => {
     );
   });
 
-  it('should throw on reserved namespace metadata names that are not discoverable modules', () => {
+  it('should throw on reserved grouped function namespaces', () => {
     for (const ns of ['llmQuery', 'final', 'ask_clarification']) {
       expect(
         () =>
@@ -8139,20 +8180,33 @@ describe('AxFunction', () => {
             {
               contextFields: [],
               runtime,
-              namespaces: [
-                {
-                  name: ns,
-                  title: 'Reserved',
-                  description: 'Should fail',
-                },
-              ],
+              functions: {
+                local: [
+                  {
+                    namespace: ns,
+                    title: 'Reserved',
+                    selectionCriteria: 'Reserved namespace',
+                    description: 'Should fail',
+                    functions: [
+                      {
+                        name: 'lookup',
+                        description: 'Lookup',
+                        parameters: { type: 'object', properties: {} },
+                        func: async () => 'x',
+                      },
+                    ],
+                  },
+                ],
+              },
             }
           )
-      ).toThrow(`Agent namespace "${ns}" is reserved`);
+      ).toThrow(
+        `Agent function namespace "${ns}" conflicts with an AxAgent runtime global and is reserved`
+      );
     }
   });
 
-  it('should throw on duplicate namespace metadata names', () => {
+  it('should throw on duplicate grouped function namespaces', () => {
     expect(
       () =>
         new AxAgent(
@@ -8160,21 +8214,75 @@ describe('AxFunction', () => {
           {
             contextFields: [],
             runtime,
-            namespaces: [
-              {
-                name: 'db',
-                title: 'Database',
-                description: 'Database tools',
-              },
-              {
-                name: 'db',
-                title: 'Duplicate',
-                description: 'Duplicate metadata',
-              },
-            ],
+            functions: {
+              local: [
+                {
+                  namespace: 'db',
+                  title: 'Database',
+                  selectionCriteria: 'Use for database lookups',
+                  description: 'Database tools',
+                  functions: [
+                    {
+                      name: 'search',
+                      description: 'Search database',
+                      parameters: { type: 'object', properties: {} },
+                      func: async () => 'x',
+                    },
+                  ],
+                },
+                {
+                  namespace: 'db',
+                  title: 'Duplicate',
+                  selectionCriteria: 'Use for duplicate lookups',
+                  description: 'Duplicate metadata',
+                  functions: [
+                    {
+                      name: 'other',
+                      description: 'Other database search',
+                      parameters: { type: 'object', properties: {} },
+                      func: async () => 'y',
+                    },
+                  ],
+                },
+              ],
+            },
           }
         )
-    ).toThrow('Duplicate agent namespace "db"');
+    ).toThrow('Duplicate agent function group namespace "db"');
+  });
+
+  it('should throw when grouped functions define an inner namespace', () => {
+    expect(
+      () =>
+        new AxAgent(
+          { signature: 'query:string -> answer:string' },
+          {
+            contextFields: [],
+            runtime,
+            functions: {
+              local: [
+                {
+                  namespace: 'db',
+                  title: 'Database',
+                  selectionCriteria: 'Use for database lookups',
+                  description: 'Database tools',
+                  functions: [
+                    {
+                      name: 'search',
+                      description: 'Search database',
+                      parameters: { type: 'object', properties: {} },
+                      namespace: 'db',
+                      func: async () => 'x',
+                    },
+                  ],
+                },
+              ],
+            },
+          }
+        )
+    ).toThrow(
+      'Grouped agent function "db.search" must not define namespace; use the parent group namespace instead'
+    );
   });
 
   it('should throw when agentIdentity.namespace normalizes to empty', () => {
@@ -8213,117 +8321,114 @@ describe('AxFunction', () => {
       agents: { local: [child] },
       contextFields: [],
       runtime,
-      namespaces: [
-        {
-          name: 'team',
-          title: 'Team Agents',
-          description:
-            'Delegated specialist agents that assist with scheduling.',
-        },
-        {
-          name: 'db',
-          title: 'Scheduling Database',
-          description:
-            'Database accessors for schedule lookups and availability.',
-        },
-        {
-          name: 'calendar',
-          title: 'Calendar Utilities',
-          description:
-            'Metadata-only calendar helpers with no registered callables yet.',
-        },
-      ],
       functions: {
         discovery: true,
         local: [
           {
-            name: 'lookup',
-            description: 'Lookup utility function',
-            parameters: {
-              type: 'object',
-              properties: {
-                query: { type: 'string', description: 'Query' },
-              },
-              required: ['query'],
-            },
             namespace: 'utils',
-            func: async () => 'result',
-          },
-          {
-            name: 'search',
-            description: 'Search in database',
-            parameters: {
-              type: 'object',
-              properties: {
-                query: { type: 'string', description: 'Query' },
-                limit: { type: 'number', description: 'Limit' },
-              },
-              required: ['query'],
-            },
-            returns: { type: 'number' },
-            namespace: 'db',
-            examples: [
+            title: 'Utilities',
+            selectionCriteria: 'Use for general-purpose helpers.',
+            description: 'General-purpose runtime helpers.',
+            functions: [
               {
-                title: 'Find open slots',
-                description:
-                  'Lookup the next five available windows for a participant.',
-                code: 'await db.search({ query: "availability for Alex", limit: 5 });',
+                name: 'lookup',
+                description: 'Lookup utility function',
+                parameters: {
+                  type: 'object',
+                  properties: {
+                    query: { type: 'string', description: 'Query' },
+                  },
+                  required: ['query'],
+                },
+                func: async () => 'result',
               },
             ],
-            func: async () => 1,
           },
           {
-            name: 'resolveWindow',
-            description: 'Resolve a scheduling window from natural language',
-            parameters: {
-              type: 'object',
-              properties: {
-                request: {
-                  type: 'string',
-                  description: 'Natural-language scheduling request',
-                },
-                options: {
+            namespace: 'db',
+            title: 'Scheduling Database',
+            selectionCriteria:
+              'Use for schedule lookups or natural-language window resolution.',
+            description:
+              'Database accessors for schedule lookups and availability.',
+            functions: [
+              {
+                name: 'search',
+                description: 'Search in database',
+                parameters: {
                   type: 'object',
-                  description: 'Optional parsing and timezone controls',
                   properties: {
-                    timezone: {
+                    query: { type: 'string', description: 'Query' },
+                    limit: { type: 'number', description: 'Limit' },
+                  },
+                  required: ['query'],
+                },
+                returns: { type: 'number' },
+                examples: [
+                  {
+                    title: 'Find open slots',
+                    description:
+                      'Lookup the next five available windows for a participant.',
+                    code: 'await db.search({ query: "availability for Alex", limit: 5 });',
+                  },
+                ],
+                func: async () => 1,
+              },
+              {
+                name: 'resolveWindow',
+                description:
+                  'Resolve a scheduling window from natural language',
+                parameters: {
+                  type: 'object',
+                  properties: {
+                    request: {
                       type: 'string',
-                      description: 'IANA timezone for resolving the request',
+                      description: 'Natural-language scheduling request',
                     },
-                    participants: {
-                      type: 'array',
-                      description:
-                        'Participants included in the scheduling search',
-                      items: {
-                        type: 'string',
-                        description: 'Participant identifier',
+                    options: {
+                      type: 'object',
+                      description: 'Optional parsing and timezone controls',
+                      properties: {
+                        timezone: {
+                          type: 'string',
+                          description:
+                            'IANA timezone for resolving the request',
+                        },
+                        participants: {
+                          type: 'array',
+                          description:
+                            'Participants included in the scheduling search',
+                          items: {
+                            type: 'string',
+                            description: 'Participant identifier',
+                          },
+                        },
                       },
+                      required: ['timezone'],
                     },
                   },
-                  required: ['timezone'],
+                  required: ['request'],
                 },
-              },
-              required: ['request'],
-            },
-            namespace: 'db',
-            examples: [
-              {
-                title: 'Resolve a Pacific-time window',
-                code: [
-                  'await db.resolveWindow({',
-                  '  request: "next Tuesday afternoon",',
-                  '  options: {',
-                  '    timezone: "America/Los_Angeles",',
-                  '    participants: ["alex", "sam"]',
-                  '  }',
-                  '});',
-                ].join('\n'),
+                examples: [
+                  {
+                    title: 'Resolve a Pacific-time window',
+                    code: [
+                      'await db.resolveWindow({',
+                      '  request: "next Tuesday afternoon",',
+                      '  options: {',
+                      '    timezone: "America/Los_Angeles",',
+                      '    participants: ["alex", "sam"]',
+                      '  }',
+                      '});',
+                    ].join('\n'),
+                  },
+                ],
+                func: async () => ({
+                  start: '2026-03-10T13:00:00-08:00',
+                  end: '2026-03-10T15:00:00-08:00',
+                }),
               },
             ],
-            func: async () => ({
-              start: '2026-03-10T13:00:00-08:00',
-              end: '2026-03-10T15:00:00-08:00',
-            }),
           },
         ],
       },
@@ -8344,33 +8449,20 @@ describe('AxFunction', () => {
       functions: string | string[]
     ) => Promise<string>;
 
-    const moduleMarkdown = await listModuleFunctions([
-      'team',
-      'db',
-      'calendar',
-      'missing',
-    ]);
+    const moduleMarkdown = await listModuleFunctions(['team', 'db', 'missing']);
     const singleModuleMarkdown = await listModuleFunctions('team');
     expect(singleModuleMarkdown).toContain('### Module `team`');
-    expect(singleModuleMarkdown).toContain('**Team Agents**');
-    expect(singleModuleMarkdown).toContain(
-      'Delegated specialist agents that assist with scheduling.'
-    );
     expect(singleModuleMarkdown).not.toContain('#### Callables');
     expect(moduleMarkdown).toContain('### Module `team`');
-    expect(moduleMarkdown).toContain('- `team.childAgent`');
+    expect(moduleMarkdown).toContain('- `childAgent`');
     expect(moduleMarkdown).toContain('### Module `db`');
     expect(moduleMarkdown).toContain('**Scheduling Database**');
     expect(moduleMarkdown).toContain(
       'Database accessors for schedule lookups and availability.'
     );
-    expect(moduleMarkdown).toContain('- `db.search`');
-    expect(moduleMarkdown).toContain('- `db.resolveWindow`');
-    expect(moduleMarkdown).not.toContain('**Calendar Utilities**');
+    expect(moduleMarkdown).toContain('- `search`');
+    expect(moduleMarkdown).toContain('- `resolveWindow`');
     expect(moduleMarkdown).toContain('### Module `missing`');
-    expect(moduleMarkdown).toContain(
-      '- Error: module `calendar` does not exist.'
-    );
     expect(moduleMarkdown).toContain(
       '- Error: module `missing` does not exist.'
     );
@@ -8512,6 +8604,65 @@ describe('AxFunction', () => {
         discovery: true,
         local: [
           {
+            namespace: 'db',
+            title: 'Database Tools',
+            selectionCriteria: 'Use when you need structured data lookups.',
+            description: 'Database lookup helpers.',
+            functions: [
+              {
+                name: 'searchDB',
+                description: 'Searches the database',
+                parameters: {
+                  type: 'object',
+                  properties: {
+                    query: { type: 'string', description: 'Search query' },
+                  },
+                  required: ['query'],
+                },
+                func: async () => [],
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const actorDesc = (myAgent as any).actorProgram
+      .getSignature()
+      .getDescription();
+    expect(actorDesc).toContain('### Available Modules');
+    expect(actorDesc).toContain('- `team`');
+    expect(actorDesc).toContain(
+      '- `db` - Use when you need structured data lookups.'
+    );
+    expect(actorDesc).not.toContain('### Available Agent Functions');
+    expect(actorDesc).not.toContain('### Available Functions');
+    expect(actorDesc).toContain(
+      'await listModuleFunctions(modules:string | string[]) : string'
+    );
+    expect(actorDesc).toContain(
+      'await getFunctionDefinitions(functions:string | string[]) : string'
+    );
+    expect(actorDesc).toContain(
+      "prefer one batched call such as `await listModuleFunctions(['timeRange', 'schedulingOrganizer'])`"
+    );
+    expect(actorDesc).toContain(
+      'Treat discovery results as markdown meant for direct `console.log(...)` inspection.'
+    );
+    expect(actorDesc).toContain(
+      'Do not split discovery into `Promise.all(...)` calls or reformat discovery results into JSON or custom objects.'
+    );
+  });
+
+  it('should keep flat legacy discovery modules without selection criteria', () => {
+    const myAgent = agent('query:string -> answer:string', {
+      contextFields: [],
+      runtime,
+      functions: {
+        discovery: true,
+        local: [
+          {
             name: 'searchDB',
             description: 'Searches the database',
             parameters: {
@@ -8532,26 +8683,10 @@ describe('AxFunction', () => {
     const actorDesc = (myAgent as any).actorProgram
       .getSignature()
       .getDescription();
+
     expect(actorDesc).toContain('### Available Modules');
-    expect(actorDesc).toContain('- `team`');
     expect(actorDesc).toContain('- `db`');
-    expect(actorDesc).not.toContain('### Available Agent Functions');
-    expect(actorDesc).not.toContain('### Available Functions');
-    expect(actorDesc).toContain(
-      'await listModuleFunctions(modules:string | string[]) : string'
-    );
-    expect(actorDesc).toContain(
-      'await getFunctionDefinitions(functions:string | string[]) : string'
-    );
-    expect(actorDesc).toContain(
-      "prefer one batched call such as `await listModuleFunctions(['timeRange', 'schedulingOrganizer'])`"
-    );
-    expect(actorDesc).toContain(
-      'Treat discovery results as markdown meant for direct `console.log(...)` inspection.'
-    );
-    expect(actorDesc).toContain(
-      'Do not split discovery into `Promise.all(...)` calls or reformat discovery results into JSON or custom objects.'
-    );
+    expect(actorDesc).not.toContain('- `db` -');
   });
 
   it('should propagate shared agent functions to direct children', () => {

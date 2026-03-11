@@ -11,6 +11,7 @@ Use this skill to generate `AxAgent` code. Prefer short, modern, copyable patter
 ## Use These Defaults
 
 - Use `agent(...)`, not `new AxAgent(...)`.
+- Prefer `fn(...)` for host-side function definitions instead of hand-writing JSON Schema objects.
 - Prefer namespaced functions such as `utils.search(...)` or `kb.find(...)`.
 - Assume the child-agent module is `agents` unless `agentIdentity.namespace` is set.
 - If `functions.discovery` is `true`, discover callables from modules before using them.
@@ -134,43 +135,34 @@ Rules:
 ## Tool Functions And Namespaces
 
 ```typescript
-import type { AxAgentFunction } from '@ax-llm/ax';
+import { f, fn } from '@ax-llm/ax';
 
-const tools: AxAgentFunction[] = [
-  {
-    name: 'findSnippets',
-    namespace: 'kb',
-    description: 'Find handbook snippets by topic',
-    parameters: {
-      type: 'object',
-      properties: {
-        topic: { type: 'string', description: 'Topic keyword' },
-      },
-      required: ['topic'],
-    },
-    returns: {
-      type: 'array',
-      items: { type: 'string' },
-    },
-    examples: [
-      {
-        title: 'Find severity guidance',
-        code: 'await kb.findSnippets({ topic: "severity" });',
-      },
-    ],
-    func: async ({ topic }) => [],
-  },
+const tools = [
+  fn('findSnippets')
+    .description('Find handbook snippets by topic')
+    .namespace('kb')
+    .arg('topic', f.string('Topic keyword'))
+    .returns(f.string('Matching snippet').array())
+    .example({
+      title: 'Find severity guidance',
+      code: 'await kb.findSnippets({ topic: "severity" });',
+    })
+    .handler(async ({ topic }) => [])
+    .build(),
 ];
 
 const analyst = agent('query:string -> answer:string', {
-  namespaces: [
-    {
-      name: 'kb',
-      title: 'Knowledge Base',
-      description: 'Handbook and documentation search helpers.',
-    },
-  ],
-  functions: { local: tools },
+  functions: {
+    local: [
+      {
+        namespace: 'kb',
+        title: 'Knowledge Base',
+        selectionCriteria: 'Use for handbook and documentation lookups.',
+        description: 'Handbook and documentation search helpers.',
+        functions: tools.map(({ namespace: _namespace, ...tool }) => tool),
+      },
+    ],
+  },
   contextFields: [],
 });
 ```
@@ -192,41 +184,29 @@ Rules:
 Use this pattern when the actor should call a namespaced function, but the host-side function implementation should decide to end the turn:
 
 ```typescript
-import type { AxAgentFunction } from '@ax-llm/ax';
+import { f, fn } from '@ax-llm/ax';
 
-const workflowTools: AxAgentFunction[] = [
-  {
-    name: 'finishReply',
-    namespace: 'workflow',
-    description: 'Complete the actor turn with the final reply text',
-    parameters: {
-      type: 'object',
-      properties: {
-        reply: { type: 'string', description: 'Final reply text' },
-      },
-      required: ['reply'],
-    },
-    func: async ({ reply }, extra) => {
+const workflowTools = [
+  fn('finishReply')
+    .description('Complete the actor turn with the final reply text')
+    .namespace('workflow')
+    .arg('reply', f.string('Final reply text'))
+    .returns(f.string('Final reply text'))
+    .handler(async ({ reply }, extra) => {
       extra?.protocol?.final(reply);
       return reply;
-    },
-  },
-  {
-    name: 'askForOrderId',
-    namespace: 'workflow',
-    description: 'Complete the actor turn by requesting clarification',
-    parameters: {
-      type: 'object',
-      properties: {
-        question: { type: 'string', description: 'Clarification question' },
-      },
-      required: ['question'],
-    },
-    func: async ({ question }, extra) => {
+    })
+    .build(),
+  fn('askForOrderId')
+    .description('Complete the actor turn by requesting clarification')
+    .namespace('workflow')
+    .arg('question', f.string('Clarification question'))
+    .returns(f.string('Clarification question'))
+    .handler(async ({ question }, extra) => {
       extra?.protocol?.askClarification(question);
       return question;
-    },
-  },
+    })
+    .build(),
 ];
 ```
 
@@ -264,7 +244,8 @@ Discovery APIs:
 
 Both return Markdown.
 
-- `listModuleFunctions(...)` only lists modules that actually have callable entries. Namespace metadata from `namespaces` only enriches those callable-backed modules.
+- `listModuleFunctions(...)` only lists modules that actually have callable entries.
+- Grouped modules render in the Actor prompt as `<namespace> - <selection criteria>` when criteria is provided.
 - If a requested module does not exist, `listModuleFunctions(...)` returns a per-module markdown error without failing the whole call.
 - `getFunctionDefinitions(...)` may include argument comments from schema descriptions and fenced code examples from `AxAgentFunction.examples`.
 

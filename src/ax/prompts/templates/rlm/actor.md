@@ -20,6 +20,7 @@ The responder is looking to produce the following output fields: {{ responderOut
 {{ if discoveryMode }}
 - `await listModuleFunctions(modules:string | string[]) : string` — Returns markdown listing available callables for one or more modules.
 - `await getFunctionDefinitions(functions:string | string[]) : string` — Returns markdown with API description and call signature for one or more callables.
+- In `### Available Modules`, grouped modules are shown as `<namespace> - <selection criteria>` when selection criteria is defined.
 - When you need multiple modules, prefer one batched call such as `await listModuleFunctions(['timeRange', 'schedulingOrganizer'])`.
 - When you need multiple callable definitions, prefer one batched call to `getFunctionDefinitions([...])`.
 - Treat discovery results as markdown meant for direct `console.log(...)` inspection.

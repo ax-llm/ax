@@ -86,25 +86,12 @@ const myAgent = agent('input:string -> output:string', {
     excluded: ['field'],                  // Fields NOT to receive from parents
   },
 
-  namespaces: [
-    {
-      name: 'db',
-      title: 'Scheduling Database',
-      description: 'Database helpers for availability and slot lookup.',
-    },
-    {
-      name: 'agents',
-      title: 'Child Agents',
-      description: 'Delegated specialist agents available in this runtime.',
-    },
-  ],
-
   // Agent functions (namespaced JS runtime globals)
   functions: {
     discovery: true,                      // Optional: module discovery mode for runtime callables
-    local: [myAgentFn],                   // Available in this agent's JS runtime
-    shared: [sharedFn],                   // Propagated one level to direct children
-    globallyShared: [globalFn],           // Propagated recursively to all descendants
+    local: [myAgentFn],                   // Flat AxAgentFunction[] OR grouped AxAgentFunctionGroup[]
+    shared: [sharedFn],                   // Flat or grouped; propagated one level to direct children
+    globallyShared: [globalFn],           // Flat or grouped; propagated recursively to all descendants
     excluded: ['fnName'],                 // Function names NOT to receive from parents
   },
 
@@ -319,30 +306,18 @@ When a parent and child agent share input field names, the parent automatically 
 Agent functions are registered as namespaced globals in the JS runtime. Unlike child agents (which are called via `await <agentModule>.<name>(...)`, where `<agentModule>` defaults to `agents`), agent functions are rendered directly in the Actor prompt as callable JS APIs.
 
 ```typescript
-import { agent, type AxAgentFunction } from '@ax-llm/ax';
+import { agent, f, fn } from '@ax-llm/ax';
 
-const search: AxAgentFunction = {
-  name: 'search',
-  namespace: 'db',              // callable as db.search(...) in JS runtime
-  description: 'Search the product catalog',
-  parameters: {
-    type: 'object',
-    properties: {
-      query: { type: 'string' },
-      limit: { type: 'number' },
-    },
-    required: ['query'],
-  },
-  returns: {
-    type: 'object',
-    properties: {
-      results: { type: 'array', items: { type: 'string' } },
-    },
-  },
-  func: async ({ query, limit = 5 }) => {
+const search = fn('search')
+  .description('Search the product catalog')
+  .namespace('db')              // callable as db.search(...) in JS runtime
+  .arg('query', f.string('Search query'))
+  .arg('limit', f.number('Maximum results').optional())
+  .returnsField('results', f.string('Result item').array())
+  .handler(async ({ query, limit = 5 }) => {
     return { results: [`result for ${query}`] };
-  },
-};
+  })
+  .build();
 
 const shopAssistant = agent(
   'userQuery:string, catalog:string[] -> answer:string',
@@ -354,23 +329,46 @@ const shopAssistant = agent(
 );
 ```
 
+For discovery mode, you can group functions by module and attach discovery metadata:
+
+```typescript
+import { agent, f, fn, type AxAgentFunctionGroup } from '@ax-llm/ax';
+
+const dbTools: AxAgentFunctionGroup = {
+  namespace: 'db',
+  title: 'Scheduling Database',
+  selectionCriteria: 'Use for availability lookups or window resolution.',
+  description: 'Database helpers for schedule and availability data.',
+  functions: [
+    fn('search')
+      .description('Search the product catalog')
+      .arg('query', f.string('Search query'))
+      .arg('limit', f.number('Maximum results').optional())
+      .returnsField('results', f.string('Result item').array())
+      .handler(async ({ query, limit = 5 }) => {
+        return { results: [`result for ${query}`] };
+      })
+      .build(),
+  ],
+};
+
+const shopAssistant = agent('userQuery:string -> answer:string', {
+  contextFields: [],
+  functions: { discovery: true, local: [dbTools] },
+});
+```
+
 When an agent function is invoked from an active AxAgent actor runtime session, the handler also receives a call-scoped protocol capability on the `extra` argument. Use it to end the current actor turn from host-side code without changing the runtime globals:
 
 ```typescript
-const complete: AxAgentFunction = {
-  name: 'complete',
-  description: 'Finish the current actor turn',
-  parameters: {
-    type: 'object',
-    properties: {
-      answer: { type: 'string' },
-    },
-    required: ['answer'],
-  },
-  func: async ({ answer }, extra) => {
+const complete = fn('complete')
+  .description('Finish the current actor turn')
+  .arg('answer', f.string('Final answer'))
+  .handler(async ({ answer }, extra) => {
     extra?.protocol?.final(answer);
-  },
-};
+    return answer;
+  })
+  .build();
 ```
 
 `extra.protocol` is only defined for host-side function calls that originate from an active AxAgent actor runtime session. It is not part of discovery mode, is not a normal registered function, and remains unavailable in regular AxGen/AxFlow function-calling paths.
@@ -390,6 +388,8 @@ Key rules:
 - Default namespace is `'utils'` if omitted (callable as `utils.fnName(...)`)
 - Reserved namespaces: `agents`, `llmQuery`, `final`, `ask_clarification`, and the configured `agentIdentity.namespace` (if set)
 - `parameters` is required; `returns` is optional but shown in the prompt
+- Grouped function modules (`AxAgentFunctionGroup`) own the namespace and discovery metadata for every function in `functions`
+- Functions inside a group must not define `namespace`
 - Use `functions.shared` / `functions.globallyShared` to propagate to child agents
 
 ### Callable Discovery Mode
@@ -405,7 +405,9 @@ Set `functions.discovery: true` to avoid dumping full callable definitions into 
 - When multiple callable definitions are needed, prefer one batched `await getFunctionDefinitions([...])` call.
 - Treat discovery results as markdown sections to inspect or log directly; do not wrap them in JSON or custom objects.
 - Do not fan out discovery work with `Promise.all(...)`.
-- `listModuleFunctions(...)` only advertises modules that currently have callable entries. Namespace metadata from `namespaces` is used only to enrich those callable-backed modules.
+- `listModuleFunctions(...)` only advertises modules that currently have callable entries.
+- Grouped modules render in the Actor prompt as ``<namespace> - <selection criteria>`` when `selectionCriteria` is defined.
+- `listModuleFunctions(...)` prints the module namespace, title, description, and the function names available in that module.
 - If a requested module does not exist, `listModuleFunctions(...)` returns a per-module markdown error instead of failing the whole call.
 - `getFunctionDefinitions(...)` includes argument comments from JSON Schema property descriptions.
 - `getFunctionDefinitions(...)` includes fenced code examples from `AxAgentFunction.examples`.
@@ -1185,13 +1187,15 @@ type AxAgentFunction = {
 
 Agent functions are registered as namespaced globals in the JS runtime (e.g. `utils.search`, `db.query`). Reserved namespaces: `agents`, `llmQuery`, `final`, `ask_clarification`, and the configured `agentIdentity.namespace` when set.
 
-### `AxAgentNamespace`
+### `AxAgentFunctionGroup`
 
 ```typescript
-type AxAgentNamespace = {
-  name: string;         // Discovery module name, such as 'db' or 'agents'
-  title: string;        // Human-readable module title
-  description: string;  // Summary shown in discovery markdown
+type AxAgentFunctionGroup = {
+  namespace: string;          // Discovery/runtime module name, such as 'db'
+  title: string;              // Human-readable module title
+  selectionCriteria: string;  // Short guidance shown in the Actor prompt module list
+  description: string;        // Summary shown in discovery markdown
+  functions: Omit<AxAgentFunction, 'namespace'>[];
 };
 ```
 
@@ -1226,13 +1230,11 @@ Extends `AxProgramForwardOptions` (without `functions` or `description`) with:
     excluded?: string[];                 // Fields NOT to receive from parents
   };
 
-  namespaces?: AxAgentNamespace[];       // Discovery-only module metadata
-
   functions?: {
     discovery?: boolean;                 // Enable module discovery APIs instead of prompt definition dump
-    local?: AxAgentFunction[];           // Namespaced globals in this agent's JS runtime
-    shared?: AxAgentFunction[];          // Propagated one level to direct children
-    globallyShared?: AxAgentFunction[];  // Propagated recursively to all descendants
+    local?: AxAgentFunction[] | AxAgentFunctionGroup[];           // Flat or grouped function modules in this agent's JS runtime
+    shared?: AxAgentFunction[] | AxAgentFunctionGroup[];          // Flat or grouped; propagated one level to direct children
+    globallyShared?: AxAgentFunction[] | AxAgentFunctionGroup[];  // Flat or grouped; propagated recursively to all descendants
     excluded?: string[];                 // Function names NOT to receive from parents
   };
 

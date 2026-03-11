@@ -73,9 +73,10 @@ type AxAgentIdentity = {
   namespace?: string;
 };
 
-export type AxAgentNamespace = {
-  name: string;
+type AxAgentFunctionModuleMeta = {
+  namespace: string;
   title: string;
+  selectionCriteria: string;
   description: string;
 };
 
@@ -88,6 +89,19 @@ export type AxAgentFunctionExample = {
 
 export type AxAgentFunction = AxFunction & {
   examples?: readonly AxAgentFunctionExample[];
+};
+
+export type AxAgentFunctionGroup = AxAgentFunctionModuleMeta & {
+  functions: readonly Omit<AxAgentFunction, 'namespace'>[];
+};
+
+type AxAgentFunctionCollection =
+  | readonly AxAgentFunction[]
+  | readonly AxAgentFunctionGroup[];
+
+type NormalizedAgentFunctionCollection = {
+  functions: AxAgentFunction[];
+  moduleMetadata: AxAgentFunctionModuleMeta[];
 };
 
 export type AxContextFieldInput =
@@ -173,17 +187,14 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
     excluded?: string[];
   };
 
-  /** Optional metadata for discovery modules rendered by `listModuleFunctions(...)`. */
-  namespaces?: readonly AxAgentNamespace[];
-
   /** Agent function configuration. */
   functions?: {
     /** Agent functions local to this agent (registered under namespace globals). */
-    local?: AxAgentFunction[];
+    local?: AxAgentFunctionCollection;
     /** Agent functions to share with direct child agents (one level). */
-    shared?: AxAgentFunction[];
+    shared?: AxAgentFunctionCollection;
     /** Agent functions to share with ALL descendants recursively. */
-    globallyShared?: AxAgentFunction[];
+    globallyShared?: AxAgentFunctionCollection;
     /** Agent function names this agent should NOT receive from parents. */
     excluded?: string[];
     /** Enables runtime callable discovery (modules + on-demand definitions). */
@@ -434,7 +445,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private responderProgram!: AxGen<any, OUT>;
   private agents?: AxAnyAgentic[];
   private agentFunctions: AxAgentFunction[];
-  private discoveryNamespaces: AxAgentNamespace[] = [];
+  private agentFunctionModuleMetadata = new Map<
+    string,
+    AxAgentFunctionModuleMeta
+  >();
   private debug?: boolean;
   private options?: Readonly<AxAgentOptions<IN>>;
   private rlmConfig: AxRLMConfig;
@@ -487,6 +501,33 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           ]
         : []),
     ]);
+  }
+
+  private _mergeAgentFunctionModuleMetadata(
+    newMetadata: readonly AxAgentFunctionModuleMeta[]
+  ): boolean {
+    let changed = false;
+
+    for (const meta of newMetadata) {
+      const existing = this.agentFunctionModuleMetadata.get(meta.namespace);
+      if (!existing) {
+        this.agentFunctionModuleMetadata.set(meta.namespace, meta);
+        changed = true;
+        continue;
+      }
+
+      if (
+        existing.title !== meta.title ||
+        existing.selectionCriteria !== meta.selectionCriteria ||
+        existing.description !== meta.description
+      ) {
+        throw new Error(
+          `Conflicting agent function group metadata for namespace "${meta.namespace}"`
+        );
+      }
+    }
+
+    return changed;
   }
 
   private _validateConfiguredSignature(signature: Readonly<AxSignature>): void {
@@ -586,7 +627,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     this.ai = ai;
     this.agents = options.agents?.local;
-    this.agentFunctions = options.functions?.local ?? [];
     this.functionDiscoveryEnabled = options.functions?.discovery ?? false;
     this.debug = debug;
     this.options = options;
@@ -621,6 +661,23 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         `Agent module namespace "${this.agentModuleNamespace}" is reserved`
       );
     }
+
+    const reservedAgentFunctionNamespaces =
+      this._reservedAgentFunctionNamespaces();
+    const localAgentFnBundle = normalizeAgentFunctionCollection(
+      options.functions?.local,
+      reservedAgentFunctionNamespaces
+    );
+    const sharedAgentFnBundle = normalizeAgentFunctionCollection(
+      options.functions?.shared,
+      reservedAgentFunctionNamespaces
+    );
+    const globalSharedAgentFnBundle = normalizeAgentFunctionCollection(
+      options.functions?.globallyShared,
+      reservedAgentFunctionNamespaces
+    );
+    this.agentFunctions = localAgentFnBundle.functions;
+    this._mergeAgentFunctionModuleMetadata(localAgentFnBundle.moduleMetadata);
 
     // Create the base program (used for signature/schema access)
     const {
@@ -666,18 +723,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     this.responderDescription = responderDescription;
     this.responderForwardOptions = responderForwardOptions;
     this.inputUpdateCallback = inputUpdateCallback;
-    this.discoveryNamespaces = normalizeAgentNamespaces(
-      options.namespaces,
-      new Set([
-        'inputs',
-        'llmQuery',
-        'final',
-        'ask_clarification',
-        'inspect_runtime',
-        DISCOVERY_LIST_MODULE_FUNCTIONS_NAME,
-        DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME,
-      ])
-    );
 
     const agents = this.agents;
     for (const agent of agents ?? []) {
@@ -722,8 +767,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     this.excludedAgents = options.agents?.excluded ?? [];
 
     // --- Read grouped function options ---
-    const sharedAgentFnList = options.functions?.shared ?? [];
-    const globalSharedAgentFnList = options.functions?.globallyShared ?? [];
+    const sharedAgentFnList = sharedAgentFnBundle.functions;
+    const globalSharedAgentFnList = globalSharedAgentFnBundle.functions;
     this.excludedAgentFunctions = options.functions?.excluded ?? [];
 
     const allAgentFns = [
@@ -815,7 +860,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     if (sharedAgentFnList.length > 0 && agents) {
       for (const childAgent of agents) {
         if (!(childAgent instanceof AxAgent)) continue;
-        childAgent._extendForSharedAgentFunctions(sharedAgentFnList);
+        childAgent._extendForSharedAgentFunctions(sharedAgentFnBundle);
       }
     }
 
@@ -824,7 +869,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       for (const childAgent of agents) {
         if (!(childAgent instanceof AxAgent)) continue;
         childAgent._extendForGlobalSharedAgentFunctions(
-          globalSharedAgentFnList
+          globalSharedAgentFnBundle
         );
       }
     }
@@ -944,7 +989,13 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     if (agentMeta.length > 0) {
       moduleSet.add(this.agentModuleNamespace);
     }
-    const availableModules = [...moduleSet].sort((a, b) => a.localeCompare(b));
+    const availableModules = [...moduleSet]
+      .sort((a, b) => a.localeCompare(b))
+      .map((namespace) => ({
+        namespace,
+        selectionCriteria:
+          this.agentFunctionModuleMetadata.get(namespace)?.selectionCriteria,
+      }));
 
     const actorDef = axBuildActorDefinition(
       this.actorDescription,
@@ -1195,16 +1246,23 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
    * Extends this agent's agent functions list with shared agent functions
    * from a parent. Throws on duplicate propagation.
    */
-  private _extendForSharedAgentFunctions(newFns: readonly AxFunction[]): void {
-    if (newFns.length === 0) return;
+  private _extendForSharedAgentFunctions(
+    bundle: Readonly<NormalizedAgentFunctionCollection>
+  ): void {
+    if (bundle.functions.length === 0 && bundle.moduleMetadata.length === 0) {
+      return;
+    }
 
     const existingKeys = new Set(
       this.agentFunctions.map((f) => `${f.namespace ?? 'utils'}.${f.name}`)
     );
     const excluded = new Set(this.excludedAgentFunctions);
-    const toAdd: AxFunction[] = [];
+    const toAdd: AxAgentFunction[] = [];
+    const metadataChanged = this._mergeAgentFunctionModuleMetadata(
+      bundle.moduleMetadata
+    );
 
-    for (const fn of newFns) {
+    for (const fn of bundle.functions) {
       if (excluded.has(fn.name)) continue;
       const key = `${fn.namespace ?? 'utils'}.${fn.name}`;
       if (existingKeys.has(key)) {
@@ -1221,8 +1279,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       toAdd.push(fn);
     }
 
-    if (toAdd.length === 0) return;
-    this.agentFunctions = [...this.agentFunctions, ...toAdd];
+    if (toAdd.length === 0 && !metadataChanged) return;
+    if (toAdd.length > 0) {
+      this.agentFunctions = [...this.agentFunctions, ...toAdd];
+    }
     this._buildSplitPrograms();
   }
 
@@ -1230,17 +1290,17 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
    * Extends this agent and all its descendants with globally shared agent functions.
    */
   private _extendForGlobalSharedAgentFunctions(
-    newFns: readonly AxFunction[]
+    bundle: Readonly<NormalizedAgentFunctionCollection>
   ): void {
     // Collect children BEFORE extending to avoid recursing into newly added items
     const childrenToRecurse = this.agents
       ? this.agents.filter((a): a is AxAgent<any, any> => a instanceof AxAgent)
       : [];
 
-    this._extendForSharedAgentFunctions(newFns);
+    this._extendForSharedAgentFunctions(bundle);
 
     for (const childAgent of childrenToRecurse) {
-      childAgent._extendForGlobalSharedAgentFunctions(newFns);
+      childAgent._extendForGlobalSharedAgentFunctions(bundle);
     }
   }
 
@@ -2640,9 +2700,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const globals: Record<string, unknown> = {};
     const callableLookup = new Map<string, DiscoveryCallableMeta>();
     const moduleLookup = new Map<string, string[]>();
-    const moduleMetaLookup = new Map<string, AxAgentNamespace>();
-    for (const namespaceMeta of this.discoveryNamespaces) {
-      moduleMetaLookup.set(namespaceMeta.name, namespaceMeta);
+    const moduleMetaLookup = new Map<string, AxAgentFunctionModuleMeta>();
+    for (const [namespace, meta] of this.agentFunctionModuleMetadata) {
+      moduleMetaLookup.set(namespace, meta);
     }
     const registerCallable = (
       meta: DiscoveryCallableMeta,
@@ -3324,49 +3384,110 @@ function normalizeAgentModuleNamespace(
   return normalized;
 }
 
-function normalizeAgentNamespaces(
-  namespaces: readonly AxAgentNamespace[] | undefined,
+function isAgentFunctionGroup(
+  value: AxAgentFunction | AxAgentFunctionGroup
+): value is AxAgentFunctionGroup {
+  return Array.isArray((value as AxAgentFunctionGroup).functions);
+}
+
+function normalizeAgentFunctionCollection(
+  collection: AxAgentFunctionCollection | undefined,
   reservedNames: ReadonlySet<string>
-): AxAgentNamespace[] {
-  if (!namespaces || namespaces.length === 0) {
-    return [];
+): NormalizedAgentFunctionCollection {
+  if (!collection || collection.length === 0) {
+    return { functions: [], moduleMetadata: [] };
   }
 
-  const seen = new Set<string>();
-  return namespaces.map((namespaceMeta) => {
-    const name = namespaceMeta.name.trim();
-    const title = namespaceMeta.title.trim();
-    const description = namespaceMeta.description.trim();
+  const allGroups = collection.every((item) =>
+    isAgentFunctionGroup(item as AxAgentFunction | AxAgentFunctionGroup)
+  );
+  const allFunctions = collection.every(
+    (item) =>
+      !isAgentFunctionGroup(item as AxAgentFunction | AxAgentFunctionGroup)
+  );
 
-    if (!name) {
+  if (!allGroups && !allFunctions) {
+    throw new Error(
+      'Agent functions collections must contain either flat functions or grouped function modules, not both'
+    );
+  }
+
+  if (allFunctions) {
+    return {
+      functions: [...(collection as readonly AxAgentFunction[])],
+      moduleMetadata: [],
+    };
+  }
+
+  const seenNamespaces = new Set<string>();
+  const moduleMetadata: AxAgentFunctionModuleMeta[] = [];
+  const functions: AxAgentFunction[] = [];
+
+  for (const group of collection as readonly AxAgentFunctionGroup[]) {
+    const namespace = group.namespace.trim();
+    const title = group.title.trim();
+    const selectionCriteria = group.selectionCriteria.trim();
+    const description = group.description.trim();
+
+    if (!namespace) {
       throw new Error(
-        'Agent namespace metadata name must be a non-empty string'
+        'Agent function group namespace must be a non-empty string'
       );
     }
     if (!title) {
       throw new Error(
-        `Agent namespace "${name}" must define a non-empty title`
+        `Agent function group "${namespace}" must define a non-empty title`
+      );
+    }
+    if (!selectionCriteria) {
+      throw new Error(
+        `Agent function group "${namespace}" must define a non-empty selectionCriteria`
       );
     }
     if (!description) {
       throw new Error(
-        `Agent namespace "${name}" must define a non-empty description`
+        `Agent function group "${namespace}" must define a non-empty description`
       );
     }
-    if (reservedNames.has(name)) {
-      throw new Error(`Agent namespace "${name}" is reserved`);
+    if (reservedNames.has(namespace)) {
+      throw new Error(
+        `Agent function namespace "${namespace}" conflicts with an AxAgent runtime global and is reserved`
+      );
     }
-    if (seen.has(name)) {
-      throw new Error(`Duplicate agent namespace "${name}"`);
+    if (seenNamespaces.has(namespace)) {
+      throw new Error(
+        `Duplicate agent function group namespace "${namespace}"`
+      );
     }
-    seen.add(name);
+    if (group.functions.length === 0) {
+      throw new Error(
+        `Agent function group "${namespace}" must contain at least one function`
+      );
+    }
 
-    return {
-      name,
+    seenNamespaces.add(namespace);
+    moduleMetadata.push({
+      namespace,
       title,
+      selectionCriteria,
       description,
-    };
-  });
+    });
+
+    for (const fn of group.functions) {
+      if ('namespace' in fn && fn.namespace !== undefined) {
+        throw new Error(
+          `Grouped agent function "${namespace}.${fn.name}" must not define namespace; use the parent group namespace instead`
+        );
+      }
+
+      functions.push({
+        ...fn,
+        namespace,
+      });
+    }
+  }
+
+  return { functions, moduleMetadata };
 }
 
 function normalizeDiscoveryStringInput(
@@ -3613,13 +3734,13 @@ function renderDiscoveryExamplesMarkdown(
 function renderDiscoveryModuleListMarkdown(
   modules: readonly string[],
   moduleLookup: ReadonlyMap<string, readonly string[]>,
-  moduleMetaLookup: ReadonlyMap<string, AxAgentNamespace>
+  moduleMetaLookup: ReadonlyMap<string, AxAgentFunctionModuleMeta>
 ): string {
   return modules
     .map((module) => {
-      const functions = [...(moduleLookup.get(module) ?? [])].sort((a, b) =>
-        a.localeCompare(b)
-      );
+      const functions = [...(moduleLookup.get(module) ?? [])]
+        .map((qualifiedName) => qualifiedName.split('.').pop() ?? qualifiedName)
+        .sort((a, b) => a.localeCompare(b));
       const exists = functions.length > 0;
       const meta = exists ? moduleMetaLookup.get(module) : undefined;
       const body = exists

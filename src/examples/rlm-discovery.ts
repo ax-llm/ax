@@ -1,11 +1,12 @@
 import {
   AxAIGoogleGeminiModel,
-  type AxAgentFunction,
-  type AxAgentNamespace,
+  type AxAgentFunctionGroup,
   AxJSRuntime,
   AxJSRuntimePermission,
   agent,
   ai,
+  f,
+  fn,
 } from '@ax-llm/ax';
 
 const llm = ai({
@@ -40,167 +41,124 @@ const handbookSnippets = [
   'Escalate to on-call lead if mitigation takes longer than 20 minutes.',
 ];
 
-const tools: AxAgentFunction[] = [
+const tools: AxAgentFunctionGroup[] = [
   {
-    name: 'findSnippets',
     namespace: 'kb',
-    description:
-      'Find handbook snippets related to a topic keyword. Accepts topic or query.',
-    parameters: {
-      type: 'object',
-      properties: {
-        topic: { type: 'string', description: 'Keyword or topic to search' },
-        query: {
-          type: 'string',
-          description: 'Alias for topic keyword',
-        },
-        maxItems: {
-          type: 'number',
-          description: 'Maximum number of snippets to return',
-        },
-      },
-      required: [],
-    },
-    returns: {
-      type: 'array',
-      items: { type: 'string' },
-    },
-    func: async ({
-      topic,
-      query,
-      maxItems = 3,
-    }: {
-      topic?: string;
-      query?: string;
-      maxItems?: number;
-    }) => {
-      const needle = (topic ?? query ?? '').trim().toLowerCase();
-      if (!needle) {
-        return [];
-      }
-      return handbookSnippets
-        .filter((snippet) => snippet.toLowerCase().includes(needle))
-        .slice(0, Math.max(1, Math.floor(maxItems)));
-    },
-  },
-  {
-    name: 'scoreCoverage',
-    namespace: 'metrics',
-    description:
-      'Calculate a 0-1 coverage score. Prefer matched/total; also accepts summary/query text.',
-    parameters: {
-      type: 'object',
-      properties: {
-        matched: { type: 'number', description: 'Number of matched items' },
-        total: { type: 'number', description: 'Total number of target items' },
-        summary: {
-          type: 'string',
-          description: 'Summary text to score for policy coverage',
-        },
-        query: {
-          type: 'string',
-          description: 'Alias for summary text',
-        },
-      },
-      required: [],
-    },
-    returns: { type: 'number' },
-    func: async ({
-      matched,
-      total,
-      summary,
-      query,
-    }: {
-      matched?: number;
-      total?: number;
-      summary?: string;
-      query?: string;
-    }) => {
-      const policyNeedles = [
-        'severity',
-        'mitigation',
-        'recovery',
-        'postmortem',
-        'retry backoff',
-      ];
-      const numericTotal = Number.isFinite(total) ? (total as number) : 0;
-
-      if (numericTotal <= 0) {
-        const text = (summary ?? query ?? '').toLowerCase();
-        if (!text) {
-          return 0;
-        }
-        const hitCount = policyNeedles.filter((needle) =>
-          text.includes(needle)
-        ).length;
-        return Math.max(0, Math.min(1, hitCount / policyNeedles.length));
-      }
-      const ratio = (matched ?? 0) / numericTotal;
-      return Math.max(0, Math.min(1, ratio));
-    },
-  },
-  {
-    name: 'toBulletList',
-    namespace: 'utils',
-    description:
-      'Convert text or an array of lines into a markdown bullet list.',
-    parameters: {
-      type: 'object',
-      properties: {
-        lines: {
-          type: 'array',
-          items: { type: 'string' },
-          description:
-            'Lines to render as bullets (runtime also accepts a single string)',
-        },
-      },
-      required: ['lines'],
-    },
-    returns: { type: 'string' },
-    func: async ({ lines }: { lines: unknown }) => {
-      const collect = (value: unknown): string[] => {
-        if (Array.isArray(value)) {
-          return value.flatMap((item) => collect(item));
-        }
-        if (typeof value !== 'string') {
-          return [];
-        }
-        return value
-          .split(/\r?\n/)
-          .map((line) => line.trim())
-          .filter(Boolean);
-      };
-      const normalized = collect(lines);
-
-      return normalized.map((line) => `- ${line}`).join('\n');
-    },
-  },
-];
-
-const namespaces: AxAgentNamespace[] = [
-  {
-    name: 'team',
-    title: 'Team Agents',
-    description:
-      'Specialist child agents that can refine or delegate parts of the analysis workflow.',
-  },
-  {
-    name: 'kb',
     title: 'Policy Knowledge Base',
+    selectionCriteria:
+      'Use for handbook or incident-policy lookups grounded in internal guidance.',
     description:
       'Handbook and incident policy lookup helpers for grounding summaries in internal guidance.',
+    functions: [
+      fn('findSnippets')
+        .description(
+          'Find handbook snippets related to a topic keyword. Accepts topic or query.'
+        )
+        .arg('topic', f.string('Keyword or topic to search').optional())
+        .arg('query', f.string('Alias for topic keyword').optional())
+        .arg(
+          'maxItems',
+          f.number('Maximum number of snippets to return').optional()
+        )
+        .returns(f.string('Matching handbook snippet').array())
+        .handler(async ({ topic, query, maxItems = 3 }) => {
+          const needle = (topic ?? query ?? '').trim().toLowerCase();
+          if (!needle) {
+            return [];
+          }
+          return handbookSnippets
+            .filter((snippet) => snippet.toLowerCase().includes(needle))
+            .slice(0, Math.max(1, Math.floor(maxItems)));
+        })
+        .build(),
+    ],
   },
   {
-    name: 'metrics',
+    namespace: 'metrics',
     title: 'Coverage Metrics',
+    selectionCriteria:
+      'Use for scoring how well a summary covers required operational signals.',
     description:
       'Scoring utilities for quantifying how well a summary covers required operational signals.',
+    functions: [
+      fn('scoreCoverage')
+        .description(
+          'Calculate a 0-1 coverage score. Prefer matched/total; also accepts summary/query text.'
+        )
+        .arg('matched', f.number('Number of matched items').optional())
+        .arg('total', f.number('Total number of target items').optional())
+        .arg(
+          'summary',
+          f.string('Summary text to score for policy coverage').optional()
+        )
+        .arg('query', f.string('Alias for summary text').optional())
+        .returns(f.number('Coverage score between 0 and 1'))
+        .handler(async ({ matched, total, summary, query }) => {
+          const policyNeedles = [
+            'severity',
+            'mitigation',
+            'recovery',
+            'postmortem',
+            'retry backoff',
+          ];
+          const numericTotal = Number.isFinite(total) ? (total as number) : 0;
+
+          if (numericTotal <= 0) {
+            const text = (summary ?? query ?? '').toLowerCase();
+            if (!text) {
+              return 0;
+            }
+            const hitCount = policyNeedles.filter((needle) =>
+              text.includes(needle)
+            ).length;
+            return Math.max(0, Math.min(1, hitCount / policyNeedles.length));
+          }
+          const ratio = (matched ?? 0) / numericTotal;
+          return Math.max(0, Math.min(1, ratio));
+        })
+        .build(),
+    ],
   },
   {
-    name: 'utils',
+    namespace: 'utils',
     title: 'Formatting Utilities',
+    selectionCriteria:
+      'Use for output-shaping helpers when the data is already collected.',
     description:
       'Output-shaping helpers for turning collected evidence into markdown-ready text.',
+    functions: [
+      fn('toBulletList')
+        .description(
+          'Convert text or an array of lines into a markdown bullet list.'
+        )
+        .arg(
+          'lines',
+          f
+            .string(
+              'Lines to render as bullets (runtime also accepts a single string)'
+            )
+            .array()
+        )
+        .returns(f.string('Markdown bullet list'))
+        .handler(async ({ lines }: { lines: unknown }) => {
+          const collect = (value: unknown): string[] => {
+            if (Array.isArray(value)) {
+              return value.flatMap((item) => collect(item));
+            }
+            if (typeof value !== 'string') {
+              return [];
+            }
+            return value
+              .split(/\r?\n/)
+              .map((line) => line.trim())
+              .filter(Boolean);
+          };
+          const normalized = collect(lines);
+
+          return normalized.map((line) => `- ${line}`).join('\n');
+        })
+        .build(),
+    ],
   },
 ];
 
@@ -215,7 +173,6 @@ const analyst = agent(
     } as any,
     contextFields: ['context'],
     runtime,
-    namespaces,
     agents: { local: [writingCoach] },
     fields: { shared: ['audience'] },
     functions: { discovery: true, local: tools } as any,

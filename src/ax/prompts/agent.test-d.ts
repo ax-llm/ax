@@ -1,6 +1,6 @@
 import {
   type AxAgentFunction,
-  type AxAgentNamespace,
+  type AxAgentFunctionGroup,
   type AxCodeRuntime,
   type AxFunction,
   agent,
@@ -290,20 +290,38 @@ import {
   void _ok;
 }
 
-// AxAgent-specific discovery metadata should be accepted without changing AxFunction
+// AxAgent grouped function modules should be accepted without changing AxFunction
 {
   const runtime = {} as AxCodeRuntime;
 
-  const namespaces: AxAgentNamespace[] = [
+  const groupedFns: AxAgentFunctionGroup[] = [
     {
-      name: 'db',
+      namespace: 'db',
       title: 'Database Tools',
+      selectionCriteria: 'Use for schedule or availability lookups',
       description: 'Schedule lookup helpers',
-    },
-    {
-      name: 'agents',
-      title: 'Child Agents',
-      description: 'Delegated specialists',
+      functions: [
+        {
+          name: 'lookupSchedule',
+          description: 'Lookup schedule data',
+          parameters: {
+            type: 'object',
+            properties: {
+              query: { type: 'string', description: 'Query text' },
+            },
+            required: ['query'],
+          },
+          examples: [
+            {
+              title: 'Simple lookup',
+              code: 'await db.lookupSchedule({ query: "alex" });',
+            },
+          ],
+          async func() {
+            return [];
+          },
+        },
+      ],
     },
   ];
 
@@ -334,12 +352,48 @@ import {
   agent('query:string -> answer:string', {
     contextFields: [] as const,
     runtime,
-    namespaces,
     functions: {
       discovery: true,
-      local: agentFns,
+      local: groupedFns,
       shared: [agentFns[0]!],
       globallyShared: [agentFns[0]!],
+    },
+  });
+}
+
+// grouped function modules should reject inner namespace declarations
+{
+  const runtime = {} as AxCodeRuntime;
+  agent('query:string -> answer:string', {
+    contextFields: [] as const,
+    runtime,
+    functions: {
+      local: [
+        {
+          namespace: 'db',
+          title: 'Database Tools',
+          selectionCriteria: 'Use for schedule lookups',
+          description: 'Schedule lookup helpers',
+          functions: [
+            {
+              name: 'lookupSchedule',
+              description: 'Lookup schedule data',
+              parameters: {
+                type: 'object',
+                properties: {
+                  query: { type: 'string', description: 'Query text' },
+                },
+                required: ['query'],
+              },
+              // @ts-expect-error grouped functions must not define namespace
+              namespace: 'db',
+              async func() {
+                return [];
+              },
+            },
+          ],
+        },
+      ],
     },
   });
 }
@@ -382,6 +436,17 @@ import {
     contextFields: [] as const,
     runtime,
     inputUpdateCallback: () => ({ unknownKey: 'x' }),
+  });
+}
+
+// namespaces should no longer be accepted
+{
+  const runtime = {} as AxCodeRuntime;
+  // @ts-expect-error namespaces was removed in favor of grouped function modules
+  agent('query:string -> answer:string', {
+    contextFields: [] as const,
+    runtime,
+    namespaces: [],
   });
 }
 

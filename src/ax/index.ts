@@ -600,6 +600,7 @@ import {
   AxSignatureBuilder,
   type AxSignatureConfig,
   f,
+  fn,
 } from './dsp/sig.js';
 import { AxStepContextImpl } from './dsp/stepContext.js';
 import { AxStringUtil } from './dsp/strutil.js';
@@ -745,9 +746,9 @@ import {
   type AxAgentDemos,
   type AxAgentFunction,
   type AxAgentFunctionExample,
+  type AxAgentFunctionGroup,
   type AxAgentInputUpdateCallback,
   type AxAgentic,
-  type AxAgentNamespace,
   type AxAgentOptions,
   type AxAgentRecursionOptions,
   type AxContextFieldInput,
@@ -999,6 +1000,7 @@ export { axValidateProviderCapabilities };
 export { axWorkerRuntime };
 export { f };
 export { flow };
+export { fn };
 export { s };
 
 // Type exports
@@ -1219,8 +1221,8 @@ export type { AxAgentConfig };
 export type { AxAgentDemos };
 export type { AxAgentFunction };
 export type { AxAgentFunctionExample };
+export type { AxAgentFunctionGroup };
 export type { AxAgentInputUpdateCallback };
-export type { AxAgentNamespace };
 export type { AxAgentOptions };
 export type { AxAgentRecursionOptions };
 export type { AxAgentic };

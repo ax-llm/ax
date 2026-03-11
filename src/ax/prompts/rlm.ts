@@ -287,10 +287,17 @@ export function axBuildActorDefinition(
     /** Enables module-only discovery rendering in prompt. */
     discoveryMode?: boolean;
     /** Precomputed available modules for runtime discovery mode. */
-    availableModules?: readonly string[];
+    availableModules?: ReadonlyArray<{
+      namespace: string;
+      selectionCriteria?: string;
+    }>;
   }>
 ): string {
   //   const maxSubAgentCalls = options.maxSubAgentCalls ?? 50;
+  type AvailableModule = {
+    namespace: string;
+    selectionCriteria?: string;
+  };
 
   const contextVarList =
     contextFields.length > 0
@@ -321,14 +328,18 @@ export function axBuildActorDefinition(
   );
   const agentModuleNamespace = options.agentModuleNamespace ?? 'agents';
   const discoveryMode = Boolean(options.discoveryMode);
-  const availableModules = options.availableModules
-    ? [...new Set(options.availableModules)].sort((a, b) => a.localeCompare(b))
+  const availableModules: AvailableModule[] = options.availableModules
+    ? [...options.availableModules].sort((a, b) =>
+        a.namespace.localeCompare(b.namespace)
+      )
     : [
         ...new Set([
           ...sortedAgentFunctions.map((fn) => fn.namespace),
           ...(sortedAgents.length > 0 ? [agentModuleNamespace] : []),
         ]),
-      ].sort((a, b) => a.localeCompare(b));
+      ]
+        .sort((a, b) => a.localeCompare(b))
+        .map((namespace) => ({ namespace }));
 
   const actorBody = renderPromptTemplate('rlm/actor.md', {
     contextVarList,
@@ -356,7 +367,13 @@ export function axBuildActorDefinition(
       )
       .join('\n'),
     hasModules: discoveryMode && availableModules.length > 0,
-    modulesList: availableModules.map((module) => `- \`${module}\``).join('\n'),
+    modulesList: availableModules
+      .map((module) =>
+        module.selectionCriteria?.trim()
+          ? `- \`${module.namespace}\` - ${module.selectionCriteria.trim()}`
+          : `- \`${module.namespace}\``
+      )
+      .join('\n'),
     runtimeUsageInstructions: String(options.runtimeUsageInstructions),
     enforceIncrementalConsoleTurns: Boolean(
       options.enforceIncrementalConsoleTurns
