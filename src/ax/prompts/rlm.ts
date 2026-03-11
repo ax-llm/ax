@@ -157,6 +157,18 @@ export interface AxCodeSession {
   close(): void;
 }
 
+/**
+ * Opinionated context replay presets for the Actor loop.
+ *
+ * - `full`: Keep prior actions fully replayed with minimal compression.
+ *   Best for debugging or short tasks where the actor should reread exact old code/output.
+ * - `adaptive`: Keep live runtime state visible, preserve recent or dependency-relevant
+ *   actions in full, and collapse older successful work into checkpoint summaries as
+ *   context grows. Best default for long multi-turn tasks.
+ * - `lean`: Most aggressive compression. Keep live runtime state visible, checkpoint
+ *   older successful work, and summarize replay-pruned successful turns instead of
+ *   replaying their full code blocks. Best when token pressure matters more than raw replay detail.
+ */
 export type AxContextPolicyPreset = 'full' | 'adaptive' | 'lean';
 
 /**
@@ -164,7 +176,13 @@ export type AxContextPolicyPreset = 'full' | 'adaptive' | 'lean';
  * Presets provide the common behavior; `state` and `expert` override specific pieces.
  */
 export interface AxContextPolicyConfig {
-  /** Opinionated preset for how the agent should replay and compress context. */
+  /**
+   * Opinionated preset for how the agent should replay and compress context.
+   *
+   * - `full`: prefer raw replay of earlier actions
+   * - `adaptive`: balance replay detail with checkpoint compression
+   * - `lean`: prefer live state + compact summaries over raw replay detail
+   */
   preset?: AxContextPolicyPreset;
   /** Runtime-state visibility controls. */
   state?: {

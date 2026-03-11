@@ -1706,6 +1706,111 @@ describe('Actor/Responder execution loop', () => {
     expect(secondActorPrompt).toContain('total: number = 5');
   });
 
+  it('should preserve omitted stdout inspection results as summaries in lean actor prompts', async () => {
+    let actorCallCount = 0;
+    let secondActorPrompt = '';
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCallCount++;
+          if (actorCallCount === 2) {
+            secondActorPrompt = userPrompt;
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: final("done")',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+
+          return {
+            results: [
+              {
+                index: 0,
+                content:
+                  'Javascript Code: console.log("growth leader: East Widget-A")',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () =>
+        [
+          '- State is session-scoped: all top-level declarations persist across calls.',
+          '- Use `console.log(...)` output is captured as the execution result so use it to inspect intermediate values between steps instead of `return`.',
+        ].join('\n'),
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code.includes('Object.getOwnPropertyNames(globalThis)')) {
+              return JSON.stringify(['setImmediate', 'clearImmediate']);
+            }
+            if (code.includes('Object.entries(globalThis)')) {
+              return '(no user variables)';
+            }
+            if (globals?.final && code.includes('final(')) {
+              (globals.final as (...args: unknown[]) => void)('done');
+              return 'done';
+            }
+            if (code.includes('console.log("growth leader: East Widget-A")')) {
+              return 'growth leader: East Widget-A';
+            }
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: ['context'],
+      runtime,
+      maxTurns: 2,
+      contextPolicy: {
+        preset: 'lean',
+        state: {
+          summary: true,
+          maxEntries: 2,
+        },
+      },
+    });
+
+    const result = await testAgent.forward(testMockAI, {
+      context: 'ctx',
+      query: 'q',
+    });
+
+    expect(result.answer).toBe('done');
+    expect(secondActorPrompt).toContain('Live Runtime State:');
+    expect(secondActorPrompt).toContain('(no user variables)');
+    expect(secondActorPrompt).toContain('Action 1:');
+    expect(secondActorPrompt).toContain('[SUMMARY]: Explore step.');
+    expect(secondActorPrompt).toContain('growth leader: East Widget-A');
+    expect(secondActorPrompt).not.toContain('```javascript');
+  });
+
   it('should execute inspect_runtime at runtime and pass reserved names', async () => {
     let inspectExecuted = false;
     let inspectReservedNames: readonly string[] | undefined;
@@ -8731,5 +8836,353 @@ describe('AxFunction', () => {
     expect(childFunctions.map((f) => `${f.namespace}.${f.name}`)).toEqual(
       expect.arrayContaining(['utils.process', 'media.process'])
     );
+  });
+
+  it('should let host-side agent functions call extra.protocol.final and unwind the current actor turn', async () => {
+    let continuedAfterCompletion = false;
+    let sawProtocolInHostFunction = false;
+
+    const completeFn: AxFunction = {
+      name: 'complete',
+      description: 'Complete the actor turn',
+      namespace: 'utils',
+      parameters: {
+        type: 'object',
+        properties: {
+          answer: { type: 'string', description: 'Final answer' },
+        },
+        required: ['answer'],
+      },
+      func: async (
+        { answer }: { answer: string },
+        extra?: { protocol?: { final: (...args: unknown[]) => never } }
+      ) => {
+        sawProtocolInHostFunction = extra?.protocol !== undefined;
+        extra?.protocol?.final(answer);
+        continuedAfterCompletion = true;
+        return 'unreachable';
+      },
+    };
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code === 'HOST_COMPLETE') {
+              const utils = globals?.utils as Record<
+                string,
+                (args: Record<string, unknown>) => Promise<unknown>
+              >;
+              await utils.complete({ answer: 'done' });
+              continuedAfterCompletion = true;
+              return 'after completion';
+            }
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('query:string -> answer:string', {
+      contextFields: [],
+      runtime,
+      functions: { local: [completeFn] },
+    });
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: HOST_COMPLETE',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        throw new Error('Responder should not run in _runActorLoop test');
+      },
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const actorState = await (testAgent as any)._runActorLoop(
+      testMockAI,
+      { query: 'root' },
+      undefined,
+      undefined
+    );
+
+    expect(sawProtocolInHostFunction).toBe(true);
+    expect(continuedAfterCompletion).toBe(false);
+    expect(actorState.actorResult).toEqual({
+      type: 'final',
+      args: ['done'],
+    });
+    expect(actorState.actionLog).not.toContain('Error:');
+    expect(actorState.actionLog).not.toContain(
+      'AxAgentProtocolCompletionSignal'
+    );
+  });
+
+  it('should let host-side agent functions call extra.protocol.askClarification', async () => {
+    let continuedAfterClarification = false;
+    let sawProtocolInHostFunction = false;
+
+    const askFn: AxFunction = {
+      name: 'requestMoreInfo',
+      description: 'Ask for clarification',
+      namespace: 'utils',
+      parameters: {
+        type: 'object',
+        properties: {
+          prompt: { type: 'string', description: 'Clarification prompt' },
+        },
+        required: ['prompt'],
+      },
+      func: async (
+        { prompt }: { prompt: string },
+        extra?: {
+          protocol?: { askClarification: (...args: unknown[]) => never };
+        }
+      ) => {
+        sawProtocolInHostFunction = extra?.protocol !== undefined;
+        extra?.protocol?.askClarification(prompt);
+        continuedAfterClarification = true;
+        return 'unreachable';
+      },
+    };
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code === 'HOST_ASK') {
+              const utils = globals?.utils as Record<
+                string,
+                (args: Record<string, unknown>) => Promise<unknown>
+              >;
+              await utils.requestMoreInfo({ prompt: 'Need more details' });
+              continuedAfterClarification = true;
+              return 'after clarification';
+            }
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('query:string -> answer:string', {
+      contextFields: [],
+      runtime,
+      functions: { local: [askFn] },
+    });
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: HOST_ASK',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        throw new Error('Responder should not run in _runActorLoop test');
+      },
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const actorState = await (testAgent as any)._runActorLoop(
+      testMockAI,
+      { query: 'root' },
+      undefined,
+      undefined
+    );
+
+    expect(sawProtocolInHostFunction).toBe(true);
+    expect(continuedAfterClarification).toBe(false);
+    expect(actorState.actorResult).toEqual({
+      type: 'ask_clarification',
+      args: ['Need more details'],
+    });
+    expect(actorState.actionLog).not.toContain('Error:');
+    expect(actorState.actionLog).not.toContain(
+      'AxAgentProtocolCompletionSignal'
+    );
+  });
+
+  it('should leave extra.protocol undefined outside AxAgent actor runtime calls', async () => {
+    let seenProtocol: unknown = Symbol('unset');
+
+    const fn: AxFunction = {
+      name: 'checkProtocol',
+      description: 'Check protocol availability',
+      parameters: { type: 'object', properties: {} },
+      func: async (_args, extra) => {
+        seenProtocol = extra?.protocol;
+        return 'ok';
+      },
+    };
+
+    await fn.func({});
+
+    expect(seenProtocol).toBeUndefined();
+  });
+
+  it('should keep host-side protocol completions isolated to recursive child sessions', async () => {
+    let continuedAfterChildCompletion = false;
+
+    const completeChildFn: AxFunction = {
+      name: 'completeChild',
+      description: 'Complete the child actor turn',
+      namespace: 'utils',
+      parameters: {
+        type: 'object',
+        properties: {
+          value: { type: 'string', description: 'Child answer' },
+        },
+        required: ['value'],
+      },
+      func: async (
+        { value }: { value: string },
+        extra?: { protocol?: { final: (...args: unknown[]) => never } }
+      ) => {
+        extra?.protocol?.final(value);
+        continuedAfterChildCompletion = true;
+        return 'unreachable';
+      },
+    };
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code === 'ROOT_PROTOCOL_CHILD') {
+              const llmQueryFn = globals?.llmQuery as (
+                q: string,
+                context?: string
+              ) => Promise<string>;
+              const childAnswer = await llmQueryFn('child query', 'ctx');
+              if (globals?.final) {
+                (globals.final as (...args: unknown[]) => void)(
+                  `root:${childAnswer}`
+                );
+              }
+              return 'root complete';
+            }
+
+            if (code === 'CHILD_PROTOCOL_COMPLETE') {
+              const utils = globals?.utils as Record<
+                string,
+                (args: Record<string, unknown>) => Promise<unknown>
+              >;
+              await utils.completeChild({ value: 'child answer' });
+              continuedAfterChildCompletion = true;
+              return 'child complete';
+            }
+
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('query:string -> answer:string', {
+      contextFields: [],
+      runtime,
+      functions: { local: [completeChildFn] },
+      mode: 'advanced',
+      recursionOptions: { maxDepth: 2 },
+    });
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          if (userPrompt.includes('Task: child query')) {
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: CHILD_PROTOCOL_COMPLETE',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: ROOT_PROTOCOL_CHILD',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Answer Synthesis Agent')) {
+          if (userPrompt.includes('Task: child query')) {
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'answer: child answer',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'answer: root:child answer',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        throw new Error('Unexpected prompt');
+      },
+    });
+
+    const result = await testAgent.forward(testMockAI, {
+      query: 'root',
+    });
+
+    expect(continuedAfterChildCompletion).toBe(false);
+    expect(result.answer).toContain('root:child answer');
   });
 });

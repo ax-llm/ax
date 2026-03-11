@@ -712,7 +712,8 @@ export function buildActionLogWithPolicy(
 
       switch (entry.replayMode) {
         case 'omit':
-          return '';
+          ensureEntryMetadata(entry);
+          return `Action ${entry.turn}:\n${entry.summary ?? buildEntrySummary(entry)}`;
         default:
           return `Action ${entry.turn}:\n\`\`\`javascript\n${entry.code}\n\`\`\`\nResult:\n${entry.output}${entry.actorFieldsOutput}`;
       }

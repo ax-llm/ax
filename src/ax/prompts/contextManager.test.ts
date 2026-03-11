@@ -504,6 +504,43 @@ describe('buildActionLog', () => {
     expect(log).toContain('total: number = 5');
     expect(log).toContain('Checkpoint Summary:');
   });
+
+  it('should render compact summaries for omitted successful turns in minimal mode', () => {
+    const entries = [
+      makeSuccessEntry(
+        1,
+        'console.log(rows.slice(0, 2))',
+        '[{"id":1},{"id":2}]'
+      ),
+    ];
+    const log = buildActionLogWithPolicy(entries, {
+      actionReplay: 'minimal',
+      recentFullActions: 0,
+      stateSummary: '(no user variables)',
+    });
+
+    expect(log).toContain('Action 1:');
+    expect(log).toContain('[SUMMARY]: Explore step.');
+    expect(log).toContain('Result: [{"id":1},{"id":2}]');
+    expect(log).not.toContain('```javascript');
+  });
+
+  it('should mix tombstones with summarized successful turns', () => {
+    const entries = [
+      { ...makeErrorEntry(1), tombstone: '[TOMBSTONE]: Fixed it.' },
+      makeSuccessEntry(2, 'console.log(summary)', 'north up 12%'),
+    ];
+    const log = buildActionLogWithPolicy(entries, {
+      actionReplay: 'minimal',
+      recentFullActions: 0,
+    });
+
+    expect(log).toContain('[TOMBSTONE]: Fixed it.');
+    expect(log).toContain('Action 2:');
+    expect(log).toContain('[SUMMARY]: Explore step.');
+    expect(log).toContain('north up 12%');
+    expect(log).not.toContain('```javascript');
+  });
 });
 
 describe('buildActionEvidenceSummary', () => {

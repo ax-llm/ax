@@ -1,5 +1,6 @@
 import type {
   AxAIService,
+  AxAgentCompletionProtocol,
   AxFunction,
   AxFunctionHandler,
   AxFunctionJSONSchema,
@@ -267,6 +268,49 @@ type AxAgentActorResultPayload = {
   type: 'final' | 'ask_clarification';
   args: unknown[];
 };
+
+class AxAgentProtocolCompletionSignal extends Error {
+  constructor(public readonly type: AxAgentActorResultPayload['type']) {
+    super(`AxAgent protocol completion: ${type}`);
+    this.name = 'AxAgentProtocolCompletionSignal';
+  }
+}
+
+function createCompletionBindings(
+  setActorResultPayload: (
+    type: AxAgentActorResultPayload['type'],
+    args: unknown[]
+  ) => void
+): {
+  finalFunction: (...args: unknown[]) => void;
+  askClarificationFunction: (...args: unknown[]) => void;
+  protocol: AxAgentCompletionProtocol;
+} {
+  const finalFunction = (...args: unknown[]) => {
+    setActorResultPayload('final', args);
+  };
+
+  const askClarificationFunction = (...args: unknown[]) => {
+    setActorResultPayload('ask_clarification', args);
+  };
+
+  const protocol: AxAgentCompletionProtocol = {
+    final: (...args: unknown[]): never => {
+      setActorResultPayload('final', args);
+      throw new AxAgentProtocolCompletionSignal('final');
+    },
+    askClarification: (...args: unknown[]): never => {
+      setActorResultPayload('ask_clarification', args);
+      throw new AxAgentProtocolCompletionSignal('ask_clarification');
+    },
+  };
+
+  return {
+    finalFunction,
+    askClarificationFunction,
+    protocol,
+  };
+}
 
 function resolveContextPolicy(
   contextPolicy: AxContextPolicyConfig | undefined
@@ -1735,13 +1779,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       return result;
     };
 
-    // Build tool function globals for the runtime
-    const toolGlobals = this.buildRuntimeGlobals(
-      effectiveAbortSignal,
-      sharedFieldValues,
-      ai
-    );
-
     let actorResultPayload: AxAgentActorResultPayload | undefined;
     const setActorResultPayload = (
       type: AxAgentActorResultPayload['type'],
@@ -1752,10 +1789,15 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       }
       actorResultPayload = { type, args };
     };
-    const finalFunction = (...args: unknown[]) =>
-      setActorResultPayload('final', args);
-    const askClarificationFunction = (...args: unknown[]) =>
-      setActorResultPayload('ask_clarification', args);
+    const { finalFunction, askClarificationFunction, protocol } =
+      createCompletionBindings(setActorResultPayload);
+    // Build tool function globals for the runtime
+    const toolGlobals = this.buildRuntimeGlobals(
+      effectiveAbortSignal,
+      sharedFieldValues,
+      ai,
+      protocol
+    );
     const effectiveContextConfig = resolveContextPolicy(rlm.contextPolicy);
 
     const agentFunctionNamespaces = [
@@ -1997,25 +2039,36 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const executeInterpreterCode = async (
       code: string
     ): Promise<{ output: string; isError: boolean }> => {
+      const completionOutput = {
+        output: formatInterpreterOutput(undefined),
+        isError: false,
+      };
+
       try {
         const result = await session.execute(code, {
           signal: effectiveAbortSignal,
           reservedNames: protectedRuntimeNames,
         });
+        if (actorResultPayload) {
+          return completionOutput;
+        }
         if (
           hasCompletionSignalCall(code) &&
-          (actorResultPayload || looksLikePromisePlaceholder(result))
+          looksLikePromisePlaceholder(result)
         ) {
           await waitForActorCompletionSignal();
           if (actorResultPayload) {
-            return {
-              output: formatInterpreterOutput(undefined),
-              isError: false,
-            };
+            return completionOutput;
           }
         }
         return { output: formatInterpreterOutput(result), isError: false };
       } catch (err) {
+        if (
+          err instanceof AxAgentProtocolCompletionSignal ||
+          actorResultPayload
+        ) {
+          return completionOutput;
+        }
         if (effectiveAbortSignal?.aborted) {
           throw new AxAIServiceAbortedError(
             'rlm-session',
@@ -2491,7 +2544,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private static wrapFunction(
     fn: AxFunction,
     abortSignal?: AbortSignal,
-    ai?: AxAIService
+    ai?: AxAIService,
+    protocol?: AxAgentCompletionProtocol
   ): (...args: unknown[]) => Promise<unknown> {
     return async (...args: unknown[]) => {
       let callArgs: Record<string, unknown>;
@@ -2515,7 +2569,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         });
       }
 
-      return await fn.func(callArgs, { abortSignal, ai });
+      return await fn.func(callArgs, { abortSignal, ai, protocol });
     };
   }
 
@@ -2529,13 +2583,14 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     sharedFieldValues?:
       | Record<string, unknown>
       | (() => Record<string, unknown>),
-    ai?: AxAIService
+    ai?: AxAIService,
+    protocol?: AxAgentCompletionProtocol
   ): (...args: unknown[]) => Promise<unknown> {
     if (
       typeof sharedFieldValues !== 'function' &&
       (!sharedFieldValues || Object.keys(sharedFieldValues).length === 0)
     ) {
-      return AxAgent.wrapFunction(fn, abortSignal, ai);
+      return AxAgent.wrapFunction(fn, abortSignal, ai, protocol);
     }
     return async (...args: unknown[]) => {
       let callArgs: Record<string, unknown>;
@@ -2568,7 +2623,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       const merged = currentSharedFieldValues
         ? { ...currentSharedFieldValues, ...callArgs }
         : callArgs;
-      return await fn.func(merged, { abortSignal, ai });
+      return await fn.func(merged, { abortSignal, ai, protocol });
     };
   }
 
@@ -2579,7 +2634,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private buildRuntimeGlobals(
     abortSignal?: AbortSignal,
     sharedFieldValues?: Record<string, unknown>,
-    ai?: AxAIService
+    ai?: AxAIService,
+    protocol?: AxAgentCompletionProtocol
   ): Record<string, unknown> {
     const globals: Record<string, unknown> = {};
     const callableLookup = new Map<string, DiscoveryCallableMeta>();
@@ -2606,7 +2662,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         globals[ns] = {};
       }
       (globals[ns] as Record<string, unknown>)[agentFn.name] =
-        AxAgent.wrapFunction(agentFn, abortSignal, ai);
+        AxAgent.wrapFunction(agentFn, abortSignal, ai, protocol);
       registerCallable(
         {
           module: ns,
@@ -2644,7 +2700,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           fn,
           abortSignal,
           getApplicableSharedFields,
-          ai
+          ai,
+          protocol
         );
         registerCallable(
           {

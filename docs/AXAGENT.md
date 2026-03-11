@@ -354,6 +354,27 @@ const shopAssistant = agent(
 );
 ```
 
+When an agent function is invoked from an active AxAgent actor runtime session, the handler also receives a call-scoped protocol capability on the `extra` argument. Use it to end the current actor turn from host-side code without changing the runtime globals:
+
+```typescript
+const complete: AxAgentFunction = {
+  name: 'complete',
+  description: 'Finish the current actor turn',
+  parameters: {
+    type: 'object',
+    properties: {
+      answer: { type: 'string' },
+    },
+    required: ['answer'],
+  },
+  func: async ({ answer }, extra) => {
+    extra?.protocol?.final(answer);
+  },
+};
+```
+
+`extra.protocol` is only defined for host-side function calls that originate from an active AxAgent actor runtime session. It is not part of discovery mode, is not a normal registered function, and remains unavailable in regular AxGen/AxFlow function-calling paths.
+
 The Actor prompt will include:
 
 ```
@@ -896,6 +917,8 @@ Inside the code interpreter, these functions are available as globals:
 
 Errors from actor-authored child-agent or tool calls appear in `Action Log` as execution errors so the Actor can correct its code on the next turn. Abort/cancellation still stops execution.
 
+Host-side function handlers can trigger the same completion flow through `extra.protocol.final(...)` or `extra.protocol.askClarification(...)`. Inside actor-authored JavaScript, continue using the runtime globals `final(...)` and `ask_clarification(...)`.
+
 By default, `AxJSRuntime` uses `outputMode: 'stdout'`, where visible output comes from `console.log(...)`, `print(...)`, and other captured stdout lines.
 
 ### Session State and `await`
@@ -1073,8 +1096,20 @@ interface AxRLMConfig {
 
 type AxContextPolicyPreset = 'full' | 'adaptive' | 'lean';
 
+// Preset meanings:
+// - 'full': keep prior actions fully replayed with minimal compression
+// - 'adaptive': keep live runtime state visible, preserve important recent actions,
+//   and collapse older successful work into checkpoint summaries as context grows
+// - 'lean': prefer live runtime state plus compact summaries/checkpoints over full replay
+//   of older successful turns
+
+// Practical rule:
+// - use 'adaptive' for most long multi-turn tasks
+// - use 'lean' when token pressure matters more than raw replay detail
+// - use 'full' when debugging or when the actor must reread exact prior code/output
+
 interface AxContextPolicyConfig {
-  preset?: AxContextPolicyPreset;
+  preset?: AxContextPolicyPreset;            // Compression profile: 'full' | 'adaptive' | 'lean'
   state?: {
     summary?: boolean;                       // Include Live Runtime State ahead of the action log
     inspect?: boolean;                       // Expose inspect_runtime() to the actor

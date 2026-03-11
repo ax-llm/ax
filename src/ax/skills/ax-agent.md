@@ -17,6 +17,20 @@ Use this skill to generate `AxAgent` code. Prefer short, modern, copyable patter
 - In stdout-mode RLM, use one observable `console.log(...)` step per non-final actor turn.
 - For long RLM tasks, prefer `contextPolicy: { preset: 'adaptive' }` so older successful turns collapse into checkpoint summaries while live runtime state stays visible.
 
+## Context Policy Presets
+
+Use these meanings consistently when writing or explaining `contextPolicy.preset`:
+
+- `full`: Keep prior actions fully replayed. Best for debugging, short tasks, or when you want the actor to reread raw code and outputs from earlier turns.
+- `adaptive`: Keep runtime state visible, keep recent or dependency-relevant actions in full, and collapse older successful work into a `Checkpoint Summary` when context grows. This is the default recommendation for long multi-turn tasks.
+- `lean`: Most aggressive compression. Keep `Live Runtime State`, checkpoint older successful work, and summarize replay-pruned successful turns instead of showing their full code blocks. Use when token pressure matters more than raw replay detail.
+
+Practical rule:
+
+- Start with `adaptive` for most long RLM tasks.
+- Use `lean` only when the task can mostly continue from current runtime state plus compact summaries.
+- Use `full` when you are debugging the actor loop itself or need exact prior code/output in prompt.
+
 ## Critical Rules
 
 - Use `agent(...)` factory syntax for new code.
@@ -24,10 +38,11 @@ Use this skill to generate `AxAgent` code. Prefer short, modern, copyable patter
 - If `functions.discovery` is `true`, call `listModuleFunctions(...)` first, then `getFunctionDefinitions(...)`, then call only discovered functions.
 - In stdout-mode RLM, non-final turns must emit exactly one `console.log(...)` and stop immediately after it.
 - Never combine `console.log(...)` with `final(...)` or `ask_clarification(...)` in the same actor turn.
+- If a host-side `AxAgentFunction` needs to end the current actor turn, use `extra.protocol.final(...)` or `extra.protocol.askClarification(...)`.
 - If a child agent needs parent inputs such as `audience`, use `fields.shared` or `fields.globallyShared`.
 - `llmQuery(...)` failures may come back as `[ERROR] ...`; do not assume success.
 - If `contextPolicy.state.summary` is on, rely on the `Live Runtime State` block for current variables instead of re-reading old action log code.
-- If `contextPolicy.preset` is `'adaptive'` or `'lean'`, assume older successful turns may be replaced by a checkpoint summary or omitted from raw replay.
+- If `contextPolicy.preset` is `'adaptive'` or `'lean'`, assume older successful turns may be replaced by a `Checkpoint Summary` and that replay-pruned successful turns may appear as compact summaries instead of full code blocks.
 
 ## Canonical Pattern
 
@@ -172,6 +187,56 @@ Rules:
 - Default function namespace is `utils` when no namespace is set.
 - Use the runtime call shape `await <namespace>.<name>({...})`.
 
+## Host-Side Completion From Functions
+
+Use this pattern when the actor should call a namespaced function, but the host-side function implementation should decide to end the turn:
+
+```typescript
+import type { AxAgentFunction } from '@ax-llm/ax';
+
+const workflowTools: AxAgentFunction[] = [
+  {
+    name: 'finishReply',
+    namespace: 'workflow',
+    description: 'Complete the actor turn with the final reply text',
+    parameters: {
+      type: 'object',
+      properties: {
+        reply: { type: 'string', description: 'Final reply text' },
+      },
+      required: ['reply'],
+    },
+    func: async ({ reply }, extra) => {
+      extra?.protocol?.final(reply);
+      return reply;
+    },
+  },
+  {
+    name: 'askForOrderId',
+    namespace: 'workflow',
+    description: 'Complete the actor turn by requesting clarification',
+    parameters: {
+      type: 'object',
+      properties: {
+        question: { type: 'string', description: 'Clarification question' },
+      },
+      required: ['question'],
+    },
+    func: async ({ question }, extra) => {
+      extra?.protocol?.askClarification(question);
+      return question;
+    },
+  },
+];
+```
+
+Rules:
+
+- `extra.protocol` is only available when the function call comes from an active AxAgent actor runtime session.
+- Use `extra.protocol.final(...)` or `extra.protocol.askClarification(...)` only inside host-side function handlers.
+- Inside actor-authored JavaScript, keep using the runtime globals `final(...)` and `ask_clarification(...)`.
+- Do not model these protocol completions as normal registered tool functions or discovery entries.
+
 ## Discovery Mode
 
 Enable discovery mode when you want the actor to discover modules and fetch callable definitions on demand:
@@ -247,7 +312,7 @@ Use these rules when generating actor JavaScript for RLM in stdout mode:
 - Non-final turns should contain exactly one `console.log(...)`.
 - Final turns should call `final(...)` or `ask_clarification(...)` without `console.log(...)`.
 - Do not write a complete multi-step program in one actor turn.
-- Do not assume older successful turns remain fully replayed; adaptive or lean policies may collapse them into a `Checkpoint Summary` block.
+- Do not assume older successful turns remain fully replayed; adaptive or lean policies may collapse them into a `Checkpoint Summary` block or compact action summaries.
 
 ## RLM Adaptive Replay
 
@@ -283,8 +348,9 @@ const analyst = agent(
 
 Rules:
 
-- Use `preset: 'adaptive'` when the task needs runtime state across many turns but older successful work should collapse into checkpoint summaries.
-- Use `preset: 'lean'` when you want more aggressive compression and can rely mostly on current runtime state plus checkpoint summaries.
+- Use `preset: 'full'` when the actor should keep seeing raw prior code and outputs with minimal compression.
+- Use `preset: 'adaptive'` when the task needs runtime state across many turns but older successful work should collapse into checkpoint summaries while important recent steps can still stay fully replayed.
+- Use `preset: 'lean'` when you want more aggressive compression and can rely mostly on current runtime state plus checkpoint summaries and compact action summaries.
 - Use `state.summary` to inject a compact `Live Runtime State` block into the actor prompt.
 - Use `state.inspect` with `inspectThresholdChars` so the actor is reminded to call `inspect_runtime()` when context grows.
 

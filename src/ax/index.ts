@@ -327,6 +327,7 @@ import {
   AxAITogetherModel,
 } from './ai/together/types.js';
 import type {
+  AxAgentCompletionProtocol,
   AxAIInputModelList,
   AxAIModelList,
   AxAIModelListBase,
@@ -1213,6 +1214,7 @@ export type { AxAIWebLLMEmbedRequest };
 export type { AxAIWebLLMEmbedResponse };
 export type { AxAPI };
 export type { AxAPIConfig };
+export type { AxAgentCompletionProtocol };
 export type { AxAgentConfig };
 export type { AxAgentDemos };
 export type { AxAgentFunction };
