@@ -389,6 +389,175 @@ describe('Split-architecture signature derivation', () => {
   });
 });
 
+describe('AxAgent.test()', () => {
+  it('returns captured console.log output from registered runtime globals', async () => {
+    const testAgent = agent('query:string -> answer:string', {
+      contextFields: ['query'],
+      runtime: new AxJSRuntime(),
+      functions: {
+        local: [
+          {
+            name: 'uppercase',
+            namespace: 'tools',
+            description: 'Uppercase a string',
+            parameters: {
+              type: 'object',
+              properties: {
+                value: { type: 'string' },
+              },
+              required: ['value'],
+            },
+            func: async ({ value }) => String(value).toUpperCase(),
+          },
+        ],
+      },
+    });
+
+    await expect(
+      testAgent.test('console.log(await tools.uppercase({ value: query }))', {
+        query: 'hello',
+      })
+    ).resolves.toBe('HELLO');
+  });
+
+  it('exposes inputs and top-level aliases the same way as actor code', async () => {
+    const testAgent = agent('context:string -> answer:string', {
+      contextFields: ['context'],
+      runtime: new AxJSRuntime(),
+    });
+
+    await expect(
+      testAgent.test(
+        'console.log([String(inputs.context), String(context)].join("|"))',
+        { context: 'ctx' }
+      )
+    ).resolves.toBe('ctx|ctx');
+  });
+
+  it('supports child-agent globals with shared-field injection', async () => {
+    const childAgent = {
+      _id: 'child',
+      getFunction: () => ({
+        name: 'child',
+        description: 'Child agent',
+        parameters: {
+          type: 'object',
+          properties: {
+            query: { type: 'string' },
+          },
+          required: ['query'],
+        },
+        func: async (values: Record<string, unknown>) =>
+          `child:${values.query}:${values.userId}`,
+      }),
+      getId() {
+        return this._id;
+      },
+      setId(id: string) {
+        this._id = id;
+      },
+    } as any;
+
+    const testAgent = agent('query:string, userId:string -> answer:string', {
+      contextFields: ['userId'],
+      runtime: new AxJSRuntime(),
+      fields: {
+        shared: ['userId'],
+      },
+      agents: {
+        local: [childAgent],
+      },
+    });
+
+    await expect(
+      testAgent.test('console.log(await agents.child({ query: "hi" }))', {
+        userId: 'u123',
+      })
+    ).resolves.toBe('child:hi:u123');
+  });
+
+  it('uses a fresh runtime session for each test() call', async () => {
+    const testAgent = agent('context:string -> answer:string', {
+      contextFields: ['context'],
+      runtime: new AxJSRuntime(),
+    });
+
+    await expect(
+      testAgent.test('const seen = context; console.log("ok")', {
+        context: 'first',
+      })
+    ).resolves.toBe('ok');
+
+    await expect(testAgent.test('console.log(typeof seen)')).resolves.toBe(
+      'undefined'
+    );
+  });
+
+  it('throws when snippets fail with syntax or runtime errors', async () => {
+    const testAgent = agent('query:string -> answer:string', {
+      contextFields: [],
+      runtime: new AxJSRuntime(),
+    });
+
+    await expect(testAgent.test('const broken = ;')).rejects.toThrow(
+      /SyntaxError:/
+    );
+
+    await expect(testAgent.test('null.foo')).rejects.toThrow(/TypeError:/);
+  });
+
+  it('throws when snippets call final(...) or ask_clarification(...)', async () => {
+    const testAgent = agent('query:string -> answer:string', {
+      contextFields: [],
+      runtime: new AxJSRuntime(),
+    });
+
+    await expect(testAgent.test('final("done")')).rejects.toThrow(
+      /must not call final/
+    );
+
+    await expect(testAgent.test('ask_clarification("more")')).rejects.toThrow(
+      /must not call final/
+    );
+  });
+
+  it('throws a clear error when llmQuery is used without an AI service', async () => {
+    const testAgent = agent('query:string -> answer:string', {
+      contextFields: [],
+      runtime: new AxJSRuntime(),
+    });
+
+    await expect(
+      testAgent.test('console.log(await llmQuery("hello"))')
+    ).rejects.toThrow(/AI service is required to use llmQuery/);
+  });
+
+  it('exposes inspect_runtime when enabled by context policy', async () => {
+    const testAgent = agent('query:string -> answer:string', {
+      contextFields: [],
+      runtime: new AxJSRuntime(),
+      contextPolicy: {
+        preset: 'adaptive',
+      },
+    });
+
+    await expect(
+      testAgent.test('console.log(typeof inspect_runtime)')
+    ).resolves.toBe('function');
+  });
+
+  it('rejects non-context field values passed to test()', async () => {
+    const testAgent = agent('query:string, note:string -> answer:string', {
+      contextFields: ['query'],
+      runtime: new AxJSRuntime(),
+    });
+
+    await expect(
+      testAgent.test('console.log("x")', { note: 'not allowed' } as any)
+    ).rejects.toThrow(/only accepts context field values/);
+  });
+});
+
 // ----- Context field runtime access and prompt inlining -----
 
 describe('Context field runtime access and prompt inlining', () => {

@@ -1,6 +1,6 @@
 import type {
-  AxAIService,
   AxAgentCompletionProtocol,
+  AxAIService,
   AxFunction,
   AxFunctionHandler,
   AxFunctionJSONSchema,
@@ -258,6 +258,12 @@ const DEFAULT_CONTEXT_FIELD_PROMPT_MAX_CHARS = 1_200;
 const DEFAULT_AGENT_MODULE_NAMESPACE = 'agents';
 const DISCOVERY_LIST_MODULE_FUNCTIONS_NAME = 'listModuleFunctions';
 const DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME = 'getFunctionDefinitions';
+const TEST_HARNESS_COMPLETION_ERROR =
+  'AxAgent.test() snippets must not call final(...) or ask_clarification(). Use this harness only to validate runtime code.';
+const TEST_HARNESS_LLM_QUERY_AI_REQUIRED_ERROR =
+  'AI service is required to use llmQuery(...) in AxAgent.test(). Pass options.ai or configure ai on the agent.';
+const RUNTIME_RESTART_NOTICE =
+  '[The JavaScript runtime was restarted; all global state was lost and must be recreated if needed.]';
 
 type AxResolvedContextPolicy = {
   preset: AxContextPolicyPreset;
@@ -278,6 +284,31 @@ type AxResolvedContextPolicy = {
 type AxAgentActorResultPayload = {
   type: 'final' | 'ask_clarification';
   args: unknown[];
+};
+
+type AxAgentRuntimeInputState = {
+  currentInputs: Record<string, unknown>;
+  signatureInputFieldNames: Set<string>;
+  sharedFieldValues: Record<string, unknown>;
+  recomputeTurnInputs: (validateRequiredContext: boolean) => void;
+  getNonContextValues: () => Record<string, unknown>;
+  getActorInlineContextValues: () => Record<string, unknown>;
+  getContextMetadata: () => string;
+};
+
+type AxAgentRuntimeCompletionState = {
+  payload: AxAgentActorResultPayload | undefined;
+};
+
+type AxAgentRuntimeExecutionContext = {
+  effectiveContextConfig: AxResolvedContextPolicy;
+  captureRuntimeStateSummary: () => Promise<string | undefined>;
+  syncRuntimeInputsToSession: () => Promise<void>;
+  executeActorCode: (
+    code: string
+  ) => Promise<{ output: string; isError: boolean }>;
+  executeTestCode: (code: string) => Promise<string>;
+  close: () => void;
 };
 
 class AxAgentProtocolCompletionSignal extends Error {
@@ -1405,70 +1436,13 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     return bypassed;
   }
 
-  public getExcludedAgents(): readonly string[] {
-    return this.excludedAgents;
-  }
-
-  public getExcludedAgentFunctions(): readonly string[] {
-    return this.excludedAgentFunctions;
-  }
-
-  public getSignature(): AxSignature {
-    return this.program.getSignature();
-  }
-
-  public setSignature(
-    signature: NonNullable<ConstructorParameters<typeof AxSignature>[0]>
-  ) {
-    const nextSignature = new AxSignature(signature);
-    this._validateConfiguredSignature(nextSignature);
-
-    const previousSignature = this.program.getSignature();
-    try {
-      this.program.setSignature(nextSignature);
-      this._buildSplitPrograms();
-      if (this.func) {
-        this.func.parameters = this._buildFuncParameters();
-      }
-    } catch (err) {
-      this.program.setSignature(previousSignature);
-      this._buildSplitPrograms();
-      if (this.func) {
-        this.func.parameters = this._buildFuncParameters();
-      }
-      throw err;
-    }
-  }
-
-  public applyOptimization(optimizedProgram: any): void {
-    (this.program as any).applyOptimization?.(optimizedProgram);
-  }
-
-  // ----- Forward (split architecture) -----
-
-  /**
-   * Runs the Actor loop: sets up the runtime session, executes code iteratively,
-   * and returns the state needed by the Responder. Closes the session before returning.
-   */
-  private async _runActorLoop(
-    ai: AxAIService,
-    values: IN | AxMessage<IN>[],
-    options: Readonly<AxProgramForwardOptions<string>> | undefined,
-    effectiveAbortSignal: AbortSignal | undefined
-  ): Promise<{
-    nonContextValues: Record<string, unknown>;
-    contextMetadata: string;
-    actionLog: string;
-    actorResult: AxAgentActorResultPayload;
-    actorFieldValues: Record<string, unknown>;
-  }> {
-    const rlm = this.rlmConfig;
-    const runtime = this.runtime;
-
-    const debug =
-      options?.debug ?? this.debug ?? ai?.getOptions()?.debug ?? false;
-
-    // 1. Build mutable in-flight input state
+  private _createRuntimeInputState(
+    values: IN | AxMessage<IN>[] | Partial<IN>,
+    options?: Readonly<{
+      allowedFieldNames?: readonly string[];
+      validateInputKeys?: boolean;
+    }>
+  ): AxAgentRuntimeInputState {
     let rawValues: Record<string, unknown>;
 
     if (Array.isArray(values)) {
@@ -1485,13 +1459,28 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       rawValues = values as Record<string, unknown>;
     }
 
+    const allowedFieldNames = options?.allowedFieldNames
+      ? new Set(options.allowedFieldNames)
+      : undefined;
+    if (allowedFieldNames && options?.validateInputKeys) {
+      for (const key of Object.keys(rawValues)) {
+        if (!allowedFieldNames.has(key)) {
+          throw new Error(
+            `AxAgent.test() only accepts context field values. "${key}" is not configured in contextFields.`
+          );
+        }
+      }
+    }
+
     const currentInputs: Record<string, unknown> = { ...rawValues };
-    const signatureInputFieldNames = new Set(
-      this.program
-        .getSignature()
-        .getInputFields()
-        .map((f) => f.name)
-    );
+    const signatureInputFieldNames = allowedFieldNames
+      ? new Set(allowedFieldNames)
+      : new Set(
+          this.program
+            .getSignature()
+            .getInputFields()
+            .map((f) => f.name)
+        );
 
     const sharedFieldNames = [
       ...this.sharedFieldNames,
@@ -1508,7 +1497,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       this.program
         .getSignature()
         .getInputFields()
-        .filter((f) => rlm.contextFields.includes(f.name) && f.isOptional)
+        .filter(
+          (f) => this.rlmConfig.contextFields.includes(f.name) && f.isOptional
+        )
         .map((f) => f.name)
     );
 
@@ -1517,17 +1508,15 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       const nextNonContextValues: Record<string, unknown> = {};
 
       for (const [k, v] of Object.entries(currentInputs)) {
-        if (rlm.contextFields.includes(k)) {
+        if (this.rlmConfig.contextFields.includes(k)) {
           nextContextValues[k] = v;
         } else if (!bypassedSharedFields.has(k)) {
           nextNonContextValues[k] = v;
         }
-        // Shared/global fields that are not marked local are excluded from
-        // nonContextValues (they bypass the LLM and go directly to subagents).
       }
 
       if (validateRequiredContext) {
-        for (const field of rlm.contextFields) {
+        for (const field of this.rlmConfig.contextFields) {
           if (optionalContextFields.has(field)) {
             continue;
           }
@@ -1563,16 +1552,15 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       nonContextValues = nextNonContextValues;
       actorInlineContextValues = nextInlineContextValues;
 
-      for (const k of Object.keys(sharedFieldValues)) {
-        delete sharedFieldValues[k];
+      for (const key of Object.keys(sharedFieldValues)) {
+        delete sharedFieldValues[key];
       }
-      for (const sf of sharedFieldNames) {
-        if (sf in currentInputs) {
-          sharedFieldValues[sf] = currentInputs[sf];
+      for (const field of sharedFieldNames) {
+        if (field in currentInputs) {
+          sharedFieldValues[field] = currentInputs[field];
         }
-        // Also include shared fields that are context fields
-        if (sf in contextValues) {
-          sharedFieldValues[sf] = contextValues[sf];
+        if (field in contextValues) {
+          sharedFieldValues[field] = contextValues[field];
         }
       }
 
@@ -1583,9 +1571,38 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         }) || '(none)';
     };
 
-    recomputeTurnInputs(false);
+    return {
+      currentInputs,
+      signatureInputFieldNames,
+      sharedFieldValues,
+      recomputeTurnInputs,
+      getNonContextValues: () => nonContextValues,
+      getActorInlineContextValues: () => actorInlineContextValues,
+      getContextMetadata: () => contextMetadata,
+    };
+  }
 
-    // 2. Build runtime globals (context + llmQuery + tool functions)
+  private _createRuntimeExecutionContext({
+    ai,
+    inputState,
+    options,
+    effectiveAbortSignal,
+    debug,
+    completionState,
+    completionBindings,
+  }: Readonly<{
+    ai?: AxAIService;
+    inputState: AxAgentRuntimeInputState;
+    options?: Readonly<
+      Partial<Omit<AxProgramForwardOptions<string>, 'functions'>>
+    >;
+    effectiveAbortSignal?: AbortSignal;
+    debug: boolean;
+    completionState: AxAgentRuntimeCompletionState;
+    completionBindings: ReturnType<typeof createCompletionBindings>;
+  }>): AxAgentRuntimeExecutionContext {
+    const rlm = this.rlmConfig;
+    const runtime = this.runtime;
     const maxSubAgentCalls = rlm.maxSubAgentCalls ?? DEFAULT_RLM_MAX_LLM_CALLS;
     const maxRuntimeChars =
       rlm.maxRuntimeChars ?? DEFAULT_RLM_MAX_RUNTIME_CHARS;
@@ -1593,18 +1610,17 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       1,
       rlm.maxBatchedLlmQueryConcurrency ?? DEFAULT_RLM_BATCH_CONCURRENCY
     );
-    const maxTurns = rlm.maxTurns ?? DEFAULT_RLM_MAX_TURNS;
-
-    let llmCallCount = 0;
-    const llmCallWarnThreshold = Math.floor(maxSubAgentCalls * 0.8);
     const configuredRecursionMaxDepth =
       this.recursionForwardOptions?.maxDepth ?? DEFAULT_RLM_MAX_RECURSION_DEPTH;
     const recursionMaxDepth = Math.max(0, configuredRecursionMaxDepth);
+    const effectiveContextConfig = resolveContextPolicy(rlm.contextPolicy);
+
+    let llmCallCount = 0;
+    const llmCallWarnThreshold = Math.floor(maxSubAgentCalls * 0.8);
 
     const { maxDepth: _, ...recursionForwardOptions } =
       this.recursionForwardOptions ?? {};
     const {
-      functions: __,
       description: ___,
       mem: ____,
       sessionId: _____,
@@ -1634,7 +1650,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     if (recursionMaxDepth > 0) {
       if (childRlmMode === 'advanced') {
-        const advancedAgent = new AxAgent<any, { answer: AxFieldValue }>(
+        recursiveSubAgent = new AxAgent<any, { answer: AxFieldValue }>(
           {
             agentModuleNamespace: this.agentModuleNamespace,
             signature: childSignature,
@@ -1654,8 +1670,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
             responderOptions: this.responderForwardOptions,
           }
         );
-
-        recursiveSubAgent = advancedAgent;
       } else {
         recursiveSubAgent = new AxGen<any, { answer: AxFieldValue }>(
           childSignature,
@@ -1664,20 +1678,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       }
     }
 
-    const normalizeSubAgentAnswer = (value: AxFieldValue): string => {
-      if (value === undefined || value === null) {
-        return '';
-      }
-      if (typeof value === 'string') {
-        return truncateText(value, maxRuntimeChars);
-      }
-      try {
-        return truncateText(JSON.stringify(value), maxRuntimeChars);
-      } catch {
-        return truncateText(String(value), maxRuntimeChars);
-      }
-    };
-
     const llmQuery = async (
       queryOrQueries:
         | string
@@ -1685,7 +1685,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         | readonly { query: string; context?: unknown }[],
       ctx?: unknown
     ): Promise<string | string[]> => {
-      // Normalize single-object form
       if (
         !Array.isArray(queryOrQueries) &&
         typeof queryOrQueries === 'object' &&
@@ -1721,7 +1720,24 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         );
       }
 
+      if (!ai) {
+        throw new Error(TEST_HARNESS_LLM_QUERY_AI_REQUIRED_ERROR);
+      }
+
       const query = queryOrQueries as string;
+      const normalizeSubAgentAnswer = (value: AxFieldValue): string => {
+        if (value === undefined || value === null) {
+          return '';
+        }
+        if (typeof value === 'string') {
+          return truncateText(value, maxRuntimeChars);
+        }
+        try {
+          return truncateText(JSON.stringify(value), maxRuntimeChars);
+        } catch {
+          return truncateText(String(value), maxRuntimeChars);
+        }
+      };
 
       const runSingleLlmQuery = async (
         singleQuery: string,
@@ -1792,7 +1808,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
               };
 
               const onResolve = () => {
-                if (settled) return;
+                if (settled) {
+                  return;
+                }
                 settled = true;
                 cleanup();
                 resolve();
@@ -1804,7 +1822,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
               }
 
               onAbort = () => {
-                if (settled) return;
+                if (settled) {
+                  return;
+                }
                 settled = true;
                 clearTimeout(timer);
                 cleanup();
@@ -1829,6 +1849,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
             });
           }
         }
+
         return formatSubAgentError(lastError);
       };
 
@@ -1839,31 +1860,16 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       return result;
     };
 
-    let actorResultPayload: AxAgentActorResultPayload | undefined;
-    const setActorResultPayload = (
-      type: AxAgentActorResultPayload['type'],
-      args: unknown[]
-    ) => {
-      if (args.length === 0) {
-        throw new Error(`${type}() requires at least one argument`);
-      }
-      actorResultPayload = { type, args };
-    };
-    const { finalFunction, askClarificationFunction, protocol } =
-      createCompletionBindings(setActorResultPayload);
-    // Build tool function globals for the runtime
     const toolGlobals = this.buildRuntimeGlobals(
       effectiveAbortSignal,
-      sharedFieldValues,
+      inputState.sharedFieldValues,
       ai,
-      protocol
+      completionBindings.protocol
     );
-    const effectiveContextConfig = resolveContextPolicy(rlm.contextPolicy);
-
     const agentFunctionNamespaces = [
       ...new Set(this.agentFunctions.map((f) => f.namespace ?? 'utils')),
     ];
-    const runtimeInputs = { ...currentInputs };
+    const runtimeInputs = { ...inputState.currentInputs };
     const reservedTopLevelNames = new Set([
       'inputs',
       'llmQuery',
@@ -1878,8 +1884,11 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       ...Object.keys(toolGlobals),
     ]);
     const runtimeAliasKeys = [
-      ...new Set([...Object.keys(runtimeInputs), ...signatureInputFieldNames]),
-    ].filter((k) => !reservedTopLevelNames.has(k));
+      ...new Set([
+        ...Object.keys(runtimeInputs),
+        ...inputState.signatureInputFieldNames,
+      ]),
+    ].filter((key) => !reservedTopLevelNames.has(key));
     const runtimeTopLevelInputAliases: Record<string, unknown> = {};
     for (const key of runtimeAliasKeys) {
       runtimeTopLevelInputAliases[key] = runtimeInputs[key];
@@ -1889,12 +1898,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       for (const key of Object.keys(runtimeInputs)) {
         delete runtimeInputs[key];
       }
-      for (const [key, value] of Object.entries(currentInputs)) {
+      for (const [key, value] of Object.entries(inputState.currentInputs)) {
         runtimeInputs[key] = value;
       }
 
       for (const key of runtimeAliasKeys) {
-        runtimeTopLevelInputAliases[key] = currentInputs[key];
+        runtimeTopLevelInputAliases[key] = inputState.currentInputs[key];
       }
     };
 
@@ -1951,10 +1960,35 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       }
     };
 
-    // inspect_runtime: queries worker globalThis for current variable state.
     const inspectRuntime = effectiveContextConfig.stateInspection.enabled
       ? async (): Promise<string> => inspectRuntimeState()
       : undefined;
+
+    const createSession = () => {
+      inspectBaselineNames = undefined;
+      return runtime.createSession({
+        ...runtimeTopLevelInputAliases,
+        inputs: runtimeInputs,
+        llmQuery,
+        final: completionBindings.finalFunction,
+        ask_clarification: completionBindings.askClarificationFunction,
+        ...(inspectRuntime ? { inspect_runtime: inspectRuntime } : {}),
+        ...toolGlobals,
+      });
+    };
+
+    session = createSession();
+
+    const waitForCompletionSignal = async (): Promise<void> => {
+      if (completionState.payload) {
+        return;
+      }
+      for (let i = 0; i < 3 && !completionState.payload; i++) {
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, 0);
+        });
+      }
+    };
 
     const formatStateSummary = (snapshot: string): string => {
       const maxEntries =
@@ -1981,231 +2015,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       const snapshot = await inspectRuntimeState();
       const formatted = formatStateSummary(snapshot);
       return formatted || '(no user variables)';
-    };
-
-    const createSession = () => {
-      inspectBaselineNames = undefined;
-      return runtime.createSession({
-        ...runtimeTopLevelInputAliases,
-        inputs: runtimeInputs,
-        llmQuery,
-        final: finalFunction,
-        ask_clarification: askClarificationFunction,
-        ...(inspectRuntime ? { inspect_runtime: inspectRuntime } : {}),
-        ...toolGlobals,
-      });
-    };
-
-    const timeoutRestartNotice = `[The JavaScript runtime was restarted; all global state was lost and must be recreated if needed.]`;
-    session = createSession();
-
-    const isSessionClosedError = (err: unknown): boolean => {
-      return err instanceof Error && err.message === 'Session is closed';
-    };
-
-    const isExecutionTimedOutError = (err: unknown): boolean => {
-      return err instanceof Error && err.message === 'Execution timed out';
-    };
-
-    const formatInterpreterOutput = (result: unknown) => {
-      if (result === undefined) {
-        return '(no output)';
-      }
-      if (typeof result === 'string') {
-        return truncateText(result || '(no output)', maxRuntimeChars);
-      }
-      try {
-        return truncateText(JSON.stringify(result, null, 2), maxRuntimeChars);
-      } catch {
-        return truncateText(String(result), maxRuntimeChars);
-      }
-    };
-
-    const formatInterpreterError = (err: unknown): string => {
-      const typedErr = err as {
-        name?: string;
-        message?: string;
-        cause?: unknown;
-        data?: unknown;
-      };
-      const name = typedErr?.name ?? 'Error';
-      const message = typedErr?.message ?? String(err);
-      const parts: string[] = [`${name}: ${message}`];
-
-      if (typedErr?.data !== undefined) {
-        try {
-          parts.push(`Data: ${JSON.stringify(typedErr.data, null, 2)}`);
-        } catch {
-          parts.push(`Data: ${String(typedErr.data)}`);
-        }
-      }
-
-      if (typedErr?.cause !== undefined) {
-        const fmtCause = (cause: unknown, depth: number): string => {
-          if (depth > 4) return '[cause chain truncated]';
-          const c = cause as typeof typedErr;
-          const cName = c?.name ?? 'Error';
-          const cMsg = c?.message ?? String(cause);
-          const cParts: string[] = [`${cName}: ${cMsg}`];
-          if (c?.data !== undefined) {
-            try {
-              cParts.push(`Data: ${JSON.stringify(c.data, null, 2)}`);
-            } catch {
-              cParts.push(`Data: ${String(c.data)}`);
-            }
-          }
-          if (c?.cause !== undefined) {
-            cParts.push(`Caused by: ${fmtCause(c.cause, depth + 1)}`);
-          }
-          return cParts.join('\n');
-        };
-        parts.push(`Caused by: ${fmtCause(typedErr.cause, 1)}`);
-      }
-
-      return truncateText(parts.join('\n'), maxRuntimeChars);
-    };
-
-    const hasCompletionSignalCall = (code: string): boolean => {
-      const sanitized = stripJsStringsAndComments(code);
-      return (
-        /\bfinal\s*\(/.test(sanitized) ||
-        /\bask_clarification\s*\(/.test(sanitized)
-      );
-    };
-
-    const looksLikePromisePlaceholder = (result: unknown): boolean => {
-      if (
-        result &&
-        (typeof result === 'object' || typeof result === 'function') &&
-        'then' in result &&
-        typeof (result as { then?: unknown }).then === 'function'
-      ) {
-        return true;
-      }
-      return typeof result === 'string' && result.trim() === '[object Promise]';
-    };
-
-    const waitForActorCompletionSignal = async (): Promise<void> => {
-      if (actorResultPayload) {
-        return;
-      }
-      for (let i = 0; i < 3 && !actorResultPayload; i++) {
-        await new Promise<void>((resolve) => {
-          setTimeout(resolve, 0);
-        });
-      }
-    };
-
-    const executeInterpreterCode = async (
-      code: string
-    ): Promise<{ output: string; isError: boolean }> => {
-      const completionOutput = {
-        output: formatInterpreterOutput(undefined),
-        isError: false,
-      };
-
-      try {
-        const result = await session.execute(code, {
-          signal: effectiveAbortSignal,
-          reservedNames: protectedRuntimeNames,
-        });
-        if (actorResultPayload) {
-          return completionOutput;
-        }
-        if (
-          hasCompletionSignalCall(code) &&
-          looksLikePromisePlaceholder(result)
-        ) {
-          await waitForActorCompletionSignal();
-          if (actorResultPayload) {
-            return completionOutput;
-          }
-        }
-        return { output: formatInterpreterOutput(result), isError: false };
-      } catch (err) {
-        if (
-          err instanceof AxAgentProtocolCompletionSignal ||
-          actorResultPayload
-        ) {
-          return completionOutput;
-        }
-        if (effectiveAbortSignal?.aborted) {
-          throw new AxAIServiceAbortedError(
-            'rlm-session',
-            effectiveAbortSignal.reason ?? 'Aborted'
-          );
-        }
-        if (
-          err instanceof Error &&
-          (err.name === 'AbortError' || err.message.startsWith('Aborted'))
-        ) {
-          throw err;
-        }
-        // Timeout: worker was reset internally, next execute() auto-creates a new worker.
-        if (isExecutionTimedOutError(err)) {
-          return {
-            output: truncateText(
-              `${timeoutRestartNotice}\n${formatInterpreterError(err)}`,
-              maxRuntimeChars
-            ),
-            isError: true,
-          };
-        }
-        // Unexpected session close: restart with a new session and retry.
-        if (isSessionClosedError(err)) {
-          try {
-            session = createSession();
-            actorResultPayload = undefined;
-            const retryResult = await session.execute(code, {
-              signal: effectiveAbortSignal,
-              reservedNames: protectedRuntimeNames,
-            });
-            return {
-              output: truncateText(
-                `${timeoutRestartNotice}\n${formatInterpreterOutput(retryResult)}`,
-                maxRuntimeChars
-              ),
-              isError: false,
-            };
-          } catch (retryErr) {
-            return {
-              output: truncateText(
-                `${timeoutRestartNotice}\n${formatInterpreterError(retryErr)}`,
-                maxRuntimeChars
-              ),
-              isError: true,
-            };
-          }
-        }
-        return {
-          output: truncateText(formatInterpreterError(err), maxRuntimeChars),
-          isError: true,
-        };
-      }
-    };
-
-    const applyInputUpdateCallback = async () => {
-      if (!this.inputUpdateCallback) {
-        return;
-      }
-      const patch = await this.inputUpdateCallback({
-        ...(currentInputs as IN),
-      } as Readonly<IN>);
-      if (patch === undefined) {
-        return;
-      }
-      if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
-        throw new Error(
-          'inputUpdateCallback must return an object patch or undefined'
-        );
-      }
-      for (const [key, value] of Object.entries(
-        patch as Record<string, unknown>
-      )) {
-        if (signatureInputFieldNames.has(key)) {
-          currentInputs[key] = value;
-        }
-      }
     };
 
     const getPatchableSession = (runtimeSession: AxCodeSession) => {
@@ -2252,12 +2061,299 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           return;
         }
         throw new Error(
-          `Failed to sync runtime inputs: ${formatInterpreterError(err)}`
+          `Failed to sync runtime inputs: ${formatInterpreterError(err, maxRuntimeChars)}`
         );
       }
     };
 
-    // 3. Actor loop (TypeScript-managed)
+    const executeActorCode = async (
+      code: string
+    ): Promise<{ output: string; isError: boolean }> => {
+      const completionOutput = {
+        output: formatInterpreterOutput(undefined, maxRuntimeChars),
+        isError: false,
+      };
+
+      try {
+        const result = await session.execute(code, {
+          signal: effectiveAbortSignal,
+          reservedNames: protectedRuntimeNames,
+        });
+        if (completionState.payload) {
+          return completionOutput;
+        }
+        if (
+          hasCompletionSignalCall(code) &&
+          looksLikePromisePlaceholder(result)
+        ) {
+          await waitForCompletionSignal();
+          if (completionState.payload) {
+            return completionOutput;
+          }
+        }
+        return {
+          output: formatInterpreterOutput(result, maxRuntimeChars),
+          isError: false,
+        };
+      } catch (err) {
+        if (
+          err instanceof AxAgentProtocolCompletionSignal ||
+          completionState.payload
+        ) {
+          return completionOutput;
+        }
+        if (effectiveAbortSignal?.aborted) {
+          throw new AxAIServiceAbortedError(
+            'rlm-session',
+            effectiveAbortSignal.reason ?? 'Aborted'
+          );
+        }
+        if (
+          err instanceof Error &&
+          (err.name === 'AbortError' || err.message.startsWith('Aborted'))
+        ) {
+          throw err;
+        }
+        if (isExecutionTimedOutError(err)) {
+          return {
+            output: truncateText(
+              `${RUNTIME_RESTART_NOTICE}\n${formatInterpreterError(err, maxRuntimeChars)}`,
+              maxRuntimeChars
+            ),
+            isError: true,
+          };
+        }
+        if (isSessionClosedError(err)) {
+          try {
+            session = createSession();
+            completionState.payload = undefined;
+            const retryResult = await session.execute(code, {
+              signal: effectiveAbortSignal,
+              reservedNames: protectedRuntimeNames,
+            });
+            return {
+              output: truncateText(
+                `${RUNTIME_RESTART_NOTICE}\n${formatInterpreterOutput(retryResult, maxRuntimeChars)}`,
+                maxRuntimeChars
+              ),
+              isError: false,
+            };
+          } catch (retryErr) {
+            return {
+              output: truncateText(
+                `${RUNTIME_RESTART_NOTICE}\n${formatInterpreterError(retryErr, maxRuntimeChars)}`,
+                maxRuntimeChars
+              ),
+              isError: true,
+            };
+          }
+        }
+        return {
+          output: truncateText(
+            formatInterpreterError(err, maxRuntimeChars),
+            maxRuntimeChars
+          ),
+          isError: true,
+        };
+      }
+    };
+
+    const executeTestCode = async (code: string): Promise<string> => {
+      try {
+        const result = await session.execute(code, {
+          signal: effectiveAbortSignal,
+          reservedNames: protectedRuntimeNames,
+        });
+        if (
+          hasCompletionSignalCall(code) &&
+          looksLikePromisePlaceholder(result)
+        ) {
+          await waitForCompletionSignal();
+        }
+        if (completionState.payload) {
+          throw new Error(TEST_HARNESS_COMPLETION_ERROR);
+        }
+        const output = formatInterpreterOutput(result, maxRuntimeChars);
+        if (isLikelyRuntimeErrorOutput(output)) {
+          throw new Error(output);
+        }
+        return output;
+      } catch (err) {
+        if (
+          err instanceof AxAgentProtocolCompletionSignal ||
+          completionState.payload
+        ) {
+          throw new Error(TEST_HARNESS_COMPLETION_ERROR);
+        }
+        throw err;
+      }
+    };
+
+    return {
+      effectiveContextConfig,
+      captureRuntimeStateSummary,
+      syncRuntimeInputsToSession,
+      executeActorCode,
+      executeTestCode,
+      close: () => {
+        session.close();
+      },
+    };
+  }
+
+  public getExcludedAgents(): readonly string[] {
+    return this.excludedAgents;
+  }
+
+  public getExcludedAgentFunctions(): readonly string[] {
+    return this.excludedAgentFunctions;
+  }
+
+  public getSignature(): AxSignature {
+    return this.program.getSignature();
+  }
+
+  public async test(
+    code: string,
+    values?: Partial<IN>,
+    options?: Readonly<{
+      ai?: AxAIService;
+      abortSignal?: AbortSignal;
+      debug?: boolean;
+    }>
+  ): Promise<string> {
+    const ai = this.ai ?? options?.ai;
+    const debug =
+      options?.debug ?? this.debug ?? ai?.getOptions()?.debug ?? false;
+    const inputState = this._createRuntimeInputState(values ?? {}, {
+      allowedFieldNames: this.rlmConfig.contextFields,
+      validateInputKeys: true,
+    });
+    inputState.recomputeTurnInputs(false);
+
+    const completionState: AxAgentRuntimeCompletionState = {
+      payload: undefined,
+    };
+    const completionBindings = createCompletionBindings((type, args) => {
+      if (args.length === 0) {
+        throw new Error(`${type}() requires at least one argument`);
+      }
+      completionState.payload = { type, args };
+    });
+
+    const runtimeContext = this._createRuntimeExecutionContext({
+      ai,
+      inputState,
+      options: undefined,
+      effectiveAbortSignal: options?.abortSignal,
+      debug,
+      completionState,
+      completionBindings,
+    });
+
+    try {
+      return await runtimeContext.executeTestCode(code);
+    } finally {
+      runtimeContext.close();
+    }
+  }
+
+  public setSignature(
+    signature: NonNullable<ConstructorParameters<typeof AxSignature>[0]>
+  ) {
+    const nextSignature = new AxSignature(signature);
+    this._validateConfiguredSignature(nextSignature);
+
+    const previousSignature = this.program.getSignature();
+    try {
+      this.program.setSignature(nextSignature);
+      this._buildSplitPrograms();
+      if (this.func) {
+        this.func.parameters = this._buildFuncParameters();
+      }
+    } catch (err) {
+      this.program.setSignature(previousSignature);
+      this._buildSplitPrograms();
+      if (this.func) {
+        this.func.parameters = this._buildFuncParameters();
+      }
+      throw err;
+    }
+  }
+
+  public applyOptimization(optimizedProgram: any): void {
+    (this.program as any).applyOptimization?.(optimizedProgram);
+  }
+
+  // ----- Forward (split architecture) -----
+
+  /**
+   * Runs the Actor loop: sets up the runtime session, executes code iteratively,
+   * and returns the state needed by the Responder. Closes the session before returning.
+   */
+  private async _runActorLoop(
+    ai: AxAIService,
+    values: IN | AxMessage<IN>[],
+    options: Readonly<AxProgramForwardOptions<string>> | undefined,
+    effectiveAbortSignal: AbortSignal | undefined
+  ): Promise<{
+    nonContextValues: Record<string, unknown>;
+    contextMetadata: string;
+    actionLog: string;
+    actorResult: AxAgentActorResultPayload;
+    actorFieldValues: Record<string, unknown>;
+  }> {
+    const rlm = this.rlmConfig;
+    const debug =
+      options?.debug ?? this.debug ?? ai?.getOptions()?.debug ?? false;
+    const maxTurns = rlm.maxTurns ?? DEFAULT_RLM_MAX_TURNS;
+
+    const inputState = this._createRuntimeInputState(values);
+    inputState.recomputeTurnInputs(false);
+
+    const completionState: AxAgentRuntimeCompletionState = {
+      payload: undefined,
+    };
+    const completionBindings = createCompletionBindings((type, args) => {
+      if (args.length === 0) {
+        throw new Error(`${type}() requires at least one argument`);
+      }
+      completionState.payload = { type, args };
+    });
+    const runtimeContext = this._createRuntimeExecutionContext({
+      ai,
+      inputState,
+      options,
+      effectiveAbortSignal,
+      debug,
+      completionState,
+      completionBindings,
+    });
+
+    const applyInputUpdateCallback = async () => {
+      if (!this.inputUpdateCallback) {
+        return;
+      }
+      const patch = await this.inputUpdateCallback({
+        ...(inputState.currentInputs as IN),
+      } as Readonly<IN>);
+      if (patch === undefined) {
+        return;
+      }
+      if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+        throw new Error(
+          'inputUpdateCallback must return an object patch or undefined'
+        );
+      }
+      for (const [key, value] of Object.entries(
+        patch as Record<string, unknown>
+      )) {
+        if (inputState.signatureInputFieldNames.has(key)) {
+          inputState.currentInputs[key] = value;
+        }
+      }
+    };
+
     const actionLogEntries: ActionLogEntry[] = [];
     let runtimeStateSummary: string | undefined;
 
@@ -2270,14 +2366,16 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     };
 
     const actorFieldValues: Record<string, unknown> = {};
-    const contextThreshold = effectiveContextConfig.stateInspection.enabled
-      ? effectiveContextConfig.stateInspection.contextThreshold
+    const contextThreshold = runtimeContext.effectiveContextConfig
+      .stateInspection.enabled
+      ? runtimeContext.effectiveContextConfig.stateInspection.contextThreshold
       : undefined;
     let checkpointState: CheckpointSummaryState | undefined;
 
     const getCheckpointCandidates = () => {
       const checkpointableCount = Math.max(
-        actionLogEntries.length - effectiveContextConfig.recentFullActions,
+        actionLogEntries.length -
+          runtimeContext.effectiveContextConfig.recentFullActions,
         0
       );
 
@@ -2288,26 +2386,29 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     const renderActionLog = () =>
       buildActionLogWithPolicy(actionLogEntries, {
-        actionReplay: effectiveContextConfig.actionReplay,
-        recentFullActions: effectiveContextConfig.recentFullActions,
+        actionReplay: runtimeContext.effectiveContextConfig.actionReplay,
+        recentFullActions:
+          runtimeContext.effectiveContextConfig.recentFullActions,
         stateSummary: runtimeStateSummary,
         checkpointSummary: checkpointState?.summary,
         checkpointTurns: checkpointState?.turns,
       }) || '(no actions yet)';
 
     const refreshCheckpointSummary = async () => {
-      if (!effectiveContextConfig.checkpoints.enabled) {
+      if (!runtimeContext.effectiveContextConfig.checkpoints.enabled) {
         checkpointState = undefined;
         return;
       }
 
       const rawActionLog = buildActionLogWithPolicy(actionLogEntries, {
-        actionReplay: effectiveContextConfig.actionReplay,
-        recentFullActions: effectiveContextConfig.recentFullActions,
+        actionReplay: runtimeContext.effectiveContextConfig.actionReplay,
+        recentFullActions:
+          runtimeContext.effectiveContextConfig.recentFullActions,
         stateSummary: runtimeStateSummary,
       });
 
-      const triggerChars = effectiveContextConfig.checkpoints.triggerChars;
+      const triggerChars =
+        runtimeContext.effectiveContextConfig.checkpoints.triggerChars;
       if (!triggerChars || rawActionLog.length <= triggerChars) {
         checkpointState = undefined;
         return;
@@ -2344,11 +2445,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     try {
       for (let turn = 0; turn < maxTurns; turn++) {
         await applyInputUpdateCallback();
-        recomputeTurnInputs(true);
-        runtimeStateSummary = await captureRuntimeStateSummary();
+        inputState.recomputeTurnInputs(true);
+        runtimeStateSummary = await runtimeContext.captureRuntimeStateSummary();
         await refreshCheckpointSummary();
 
-        // Build action log, adding inspect_runtime hint when it gets large
         let actionLogText = renderActionLog();
         if (contextThreshold && actionLogText.length > contextThreshold) {
           actionLogText +=
@@ -2358,25 +2458,22 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         const actorResult = await this.actorProgram.forward(
           ai,
           {
-            ...nonContextValues,
-            ...actorInlineContextValues,
-            contextMetadata,
+            ...inputState.getNonContextValues(),
+            ...inputState.getActorInlineContextValues(),
+            contextMetadata: inputState.getContextMetadata(),
             actionLog: actionLogText,
           },
           actorMergedOptions
         );
 
-        // After the first actor turn, hide the system prompt from debug logs
         if (turn === 0) {
           actorMergedOptions.debugHideSystemPrompt = true;
         }
 
-        // Call actorCallback if provided
         if (rlm.actorCallback) {
           await rlm.actorCallback(actorResult as Record<string, unknown>);
         }
 
-        // Capture actorField values from this turn
         for (const fieldName of this.actorFieldNames) {
           if (fieldName in actorResult) {
             actorFieldValues[fieldName] = actorResult[fieldName];
@@ -2390,7 +2487,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         }
         code = trimmedCode;
 
-        // Build actorFields output for actionLog
         let actorFieldsOutput = '';
         if (this.actorFieldNames.length > 0) {
           const fieldEntries = this.actorFieldNames
@@ -2402,8 +2498,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           }
         }
 
-        // Reset Actor completion payload before execution.
-        actorResultPayload = undefined;
+        completionState.payload = undefined;
 
         if (this.enforceIncrementalConsoleTurns) {
           const policyViolation = validateActorTurnCodePolicy(code);
@@ -2419,19 +2514,20 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
             await manageContext(
               actionLogEntries,
               actionLogEntries.length - 1,
-              effectiveContextConfig,
+              runtimeContext.effectiveContextConfig,
               ai
             );
-            runtimeStateSummary = await captureRuntimeStateSummary();
+            runtimeStateSummary =
+              await runtimeContext.captureRuntimeStateSummary();
             await refreshCheckpointSummary();
             continue;
           }
         }
 
         if (this.inputUpdateCallback) {
-          await syncRuntimeInputsToSession();
+          await runtimeContext.syncRuntimeInputsToSession();
         }
-        const { output, isError } = await executeInterpreterCode(code);
+        const { output, isError } = await runtimeContext.executeActorCode(code);
 
         actionLogEntries.push({
           turn: turn + 1,
@@ -2441,24 +2537,22 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           tags: isError ? ['error'] : [],
         });
 
-        // Semantic context management: hindsight eval, tombstoning, pruning
         await manageContext(
           actionLogEntries,
           actionLogEntries.length - 1,
-          effectiveContextConfig,
+          runtimeContext.effectiveContextConfig,
           ai
         );
-        runtimeStateSummary = await captureRuntimeStateSummary();
+        runtimeStateSummary = await runtimeContext.captureRuntimeStateSummary();
         await refreshCheckpointSummary();
 
-        // Exit when Actor signaled completion via final(...) or ask_clarification(...).
-        if (actorResultPayload) {
+        if (completionState.payload) {
           break;
         }
       }
     } finally {
       try {
-        session.close();
+        runtimeContext.close();
       } catch {
         // Ignore close errors
       }
@@ -2467,7 +2561,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     await refreshCheckpointSummary();
 
     const actorResult =
-      actorResultPayload ??
+      completionState.payload ??
       ({
         type: 'final',
         args: [
@@ -2480,8 +2574,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       } satisfies AxAgentActorResultPayload);
 
     return {
-      nonContextValues,
-      contextMetadata,
+      nonContextValues: inputState.getNonContextValues(),
+      contextMetadata: inputState.getContextMetadata(),
       actionLog: renderActionLog(),
       actorResult,
       actorFieldValues,
@@ -2923,6 +3017,108 @@ function truncateText(text: string, maxChars: number): string {
     return text;
   }
   return `${text.slice(0, maxChars)}\n...[truncated ${text.length - maxChars} chars]`;
+}
+
+function formatInterpreterOutput(
+  result: unknown,
+  maxRuntimeChars: number
+): string {
+  if (result === undefined) {
+    return '(no output)';
+  }
+  if (typeof result === 'string') {
+    return truncateText(result || '(no output)', maxRuntimeChars);
+  }
+  try {
+    return truncateText(JSON.stringify(result, null, 2), maxRuntimeChars);
+  } catch {
+    return truncateText(String(result), maxRuntimeChars);
+  }
+}
+
+function formatInterpreterError(err: unknown, maxRuntimeChars: number): string {
+  const typedErr = err as {
+    name?: string;
+    message?: string;
+    cause?: unknown;
+    data?: unknown;
+  };
+  const name = typedErr?.name ?? 'Error';
+  const message = typedErr?.message ?? String(err);
+  const parts: string[] = [`${name}: ${message}`];
+
+  if (typedErr?.data !== undefined) {
+    try {
+      parts.push(`Data: ${JSON.stringify(typedErr.data, null, 2)}`);
+    } catch {
+      parts.push(`Data: ${String(typedErr.data)}`);
+    }
+  }
+
+  if (typedErr?.cause !== undefined) {
+    const fmtCause = (cause: unknown, depth: number): string => {
+      if (depth > 4) {
+        return '[cause chain truncated]';
+      }
+      const c = cause as typeof typedErr;
+      const cName = c?.name ?? 'Error';
+      const cMsg = c?.message ?? String(cause);
+      const cParts: string[] = [`${cName}: ${cMsg}`];
+      if (c?.data !== undefined) {
+        try {
+          cParts.push(`Data: ${JSON.stringify(c.data, null, 2)}`);
+        } catch {
+          cParts.push(`Data: ${String(c.data)}`);
+        }
+      }
+      if (c?.cause !== undefined) {
+        cParts.push(`Caused by: ${fmtCause(c.cause, depth + 1)}`);
+      }
+      return cParts.join('\n');
+    };
+    parts.push(`Caused by: ${fmtCause(typedErr.cause, 1)}`);
+  }
+
+  return truncateText(parts.join('\n'), maxRuntimeChars);
+}
+
+function hasCompletionSignalCall(code: string): boolean {
+  const sanitized = stripJsStringsAndComments(code);
+  return (
+    /\bfinal\s*\(/.test(sanitized) || /\bask_clarification\s*\(/.test(sanitized)
+  );
+}
+
+function looksLikePromisePlaceholder(result: unknown): boolean {
+  if (
+    result &&
+    (typeof result === 'object' || typeof result === 'function') &&
+    'then' in result &&
+    typeof (result as { then?: unknown }).then === 'function'
+  ) {
+    return true;
+  }
+  return typeof result === 'string' && result.trim() === '[object Promise]';
+}
+
+function isSessionClosedError(err: unknown): boolean {
+  return err instanceof Error && err.message === 'Session is closed';
+}
+
+function isExecutionTimedOutError(err: unknown): boolean {
+  return err instanceof Error && err.message === 'Execution timed out';
+}
+
+function isLikelyRuntimeErrorOutput(output: string): boolean {
+  if (output.startsWith('[ERROR]')) {
+    return true;
+  }
+  if (output.startsWith(RUNTIME_RESTART_NOTICE)) {
+    return true;
+  }
+  return /^(AggregateError|Error|EvalError|RangeError|ReferenceError|SyntaxError|TypeError|URIError): /.test(
+    output
+  );
 }
 
 function buildContextFieldPromptInlineValue(

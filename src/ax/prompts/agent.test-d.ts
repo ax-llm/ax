@@ -39,6 +39,34 @@ import {
   const _ok: Result = { answer: 'x' };
 }
 
+// Agent test() helper returns formatted runtime output
+{
+  const runtime = {} as AxCodeRuntime;
+  const a = agent('query:string -> answer:string', {
+    contextFields: ['query'] as const,
+    runtime,
+  });
+
+  const result = a.test('console.log(query)', { query: 'hello' });
+  const _ok: Promise<string> = result;
+}
+
+// Agent test() should enforce typed inputs
+{
+  const runtime = {} as AxCodeRuntime;
+  const a = agent('query:string, count:number -> answer:string', {
+    contextFields: ['query'] as const,
+    runtime,
+  });
+
+  a.test('console.log(query)', { query: 'hello', count: 1 });
+
+  a.test('console.log("no values")');
+
+  // @ts-expect-error invalid input type
+  a.test('console.log(query)', { query: 123 });
+}
+
 // recursionOptions.maxDepth should be numeric
 {
   const runtime = {} as AxCodeRuntime;

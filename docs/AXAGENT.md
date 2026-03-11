@@ -923,6 +923,41 @@ Host-side function handlers can trigger the same completion flow through `extra.
 
 By default, `AxJSRuntime` uses `outputMode: 'stdout'`, where visible output comes from `console.log(...)`, `print(...)`, and other captured stdout lines.
 
+### Testing Runtime Snippets
+
+Use `agent.test(code, contextFieldValues?, options?)` to validate a JavaScript snippet against the same runtime globals the Actor would see, without running the full Actor/Responder loop.
+
+```typescript
+const analyzer = agent('query:string -> answer:string', {
+  contextFields: ['query'],
+  runtime: new AxJSRuntime(),
+  functions: {
+    local: [
+      {
+        name: 'uppercase',
+        namespace: 'tools',
+        description: 'Uppercase a string',
+        parameters: {
+          type: 'object',
+          properties: { value: { type: 'string' } },
+          required: ['value'],
+        },
+        func: async ({ value }) => String(value).toUpperCase(),
+      },
+    ],
+  },
+});
+
+const output = await analyzer.test(
+  'console.log(await tools.uppercase({ value: query }))',
+  { query: 'hello' }
+);
+
+console.log(output); // "HELLO"
+```
+
+`test(...)` creates a fresh runtime session per call. It seeds the runtime only with the optional values you provide for configured `contextFields`, returns captured runtime output as a string, and throws on runtime failures. It also throws if the snippet calls `final(...)` or `ask_clarification(...)`.
+
 ### Session State and `await`
 
 `AxJSRuntime` state is session-scoped. Values survive across `execute()` calls only while you keep using the same session.

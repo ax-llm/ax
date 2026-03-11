@@ -295,6 +295,53 @@ Use these rules when generating actor JavaScript for RLM in stdout mode:
 - Do not write a complete multi-step program in one actor turn.
 - Do not assume older successful turns remain fully replayed; adaptive or lean policies may collapse them into a `Checkpoint Summary` block or compact action summaries.
 
+## RLM Test Harness
+
+Use `agent.test(code, contextFieldValues?, options?)` when the user wants to validate JavaScript snippets against the actual AxAgent runtime environment without running the full Actor/Responder loop.
+
+```typescript
+import { AxJSRuntime, agent, f, fn } from '@ax-llm/ax';
+
+const runtime = new AxJSRuntime();
+
+const tools = [
+  fn('sum')
+    .description('Return the sum of the provided numeric values')
+    .namespace('math')
+    .arg('values', f.number('Value to add').array())
+    .returns(f.number('Sum of all values'))
+    .handler(async ({ values }) =>
+      values.reduce((total, value) => total + value, 0)
+    )
+    .build(),
+];
+
+const harness = agent('query:string -> answer:string', {
+  contextFields: ['query'],
+  runtime,
+  functions: { local: tools },
+  contextPolicy: { preset: 'adaptive' },
+});
+
+const output = await harness.test(
+  'console.log(await math.sum({ values: [3, 5, 8] }))',
+  { query: 'sum the values' }
+);
+
+console.log(output);
+```
+
+Rules:
+
+- `test(...)` creates a fresh runtime session per call.
+- It exposes the same runtime globals the actor would see for configured `contextFields`: `inputs`, non-colliding top-level aliases, namespaced functions, child agents, and `llmQuery`.
+- In `AxJSRuntime`, do not rely on calling `inspect_runtime()` from inside `test(...)` snippets yet; prefer checking runtime globals directly inside the snippet.
+- It returns the formatted runtime output string.
+- It throws on runtime failures instead of returning LLM-style error strings.
+- Do not call `final(...)` or `ask_clarification(...)` inside `test(...)` snippets.
+- Pass only `contextFields` values to `test(...)`; it is not a general way to inject arbitrary non-context inputs.
+- If the snippet uses `llmQuery(...)`, provide an AI service through the agent config or `options.ai`.
+
 ## RLM Adaptive Replay
 
 Prefer this configuration for long, multi-turn runtime analysis:
