@@ -602,7 +602,6 @@ const findReservedRuntimeNameViolation = (
         const prevIndex = previousNonWhitespaceIndex(wordStart - 1);
         const prev = prevIndex >= 0 ? sanitized[prevIndex] : undefined;
         const nextIndex = skipWhitespace(i);
-        const next = sanitized[nextIndex];
 
         const isMemberAccess =
           prev === '.' ||
