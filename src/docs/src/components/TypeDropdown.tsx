@@ -12,6 +12,10 @@ interface FieldTypeOption {
   requiresLanguage?: boolean;
 }
 
+/**
+ * Available field type options with their metadata and requirements.
+ * Each type includes display information and optional constraints for options or language specification.
+ */
 const FIELD_TYPES: FieldTypeOption[] = [
   {
     value: 'string',
@@ -86,6 +90,11 @@ interface TypeDropdownProps {
   isInputField?: boolean;
 }
 
+/**
+ * Dropdown component for selecting field types with optional modifiers.
+ * Displays available field types filtered by input/output context, allows toggling optional and array modifiers,
+ * handles click-outside and keyboard events for closing, and formats the selected type with appropriate syntax.
+ */
 export default function TypeDropdown({
   visible,
   position,
@@ -99,6 +108,9 @@ export default function TypeDropdown({
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    /**
+     * Closes the dropdown when a click occurs outside the dropdown element.
+     */
     function handleClickOutside(event: MouseEvent) {
       if (
         dropdownRef.current &&
@@ -116,6 +128,9 @@ export default function TypeDropdown({
   }, [visible, onClose]);
 
   useEffect(() => {
+    /**
+     * Closes the dropdown when the Escape key is pressed.
+     */
     function handleKeyDown(event: KeyboardEvent) {
       if (!visible) return;
 
@@ -130,6 +145,11 @@ export default function TypeDropdown({
 
   if (!visible) return null;
 
+  /**
+   * Processes the selected field type and formats it with modifiers.
+   * Adds special formatting for types requiring options, appends array notation if selected,
+   * prefixes with colon, and resets the modifier state after selection.
+   */
   const handleTypeSelect = (type: FieldTypeOption) => {
     let insertText = type.value;
 
