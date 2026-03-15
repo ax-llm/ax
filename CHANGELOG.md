@@ -1,5 +1,21 @@
 # Changelog
 
+## [19.0.17](///compare/19.0.15...19.0.16) (2026-03-15)
+
+### Features
+
+* major docs cleanup and nw website cc9adca
+* massive improvements to axagent context policy 4b9772f
+## [19.0.16](///compare/19.0.15...19.0.16) (2026-03-11)
+
+### Features
+
+* axagent test harness 413b590
+
+### Bug Fixes
+
+* build fix 617a48b
+
 ## [19.0.16](///compare/19.0.14...19.0.15) (2026-03-11)
 
 ### Features
