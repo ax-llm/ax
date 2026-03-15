@@ -79,7 +79,9 @@ async function main() {
   const agent = new AxLearn(gen, {
     name: 'support-bot-v2',
     teacher: teacherLlm,
+    runtimeAI: llm,
     storage: createStorage(),
+    mode: 'continuous',
     budget: 5,
     generateExamples: false, // Disable synthetic generation, use manual examples
     // Provide seed examples for optimization
@@ -111,6 +113,8 @@ async function main() {
     ],
   });
 
+  await agent.ready();
+
   // 1. Use in production (auto-tracing)
   console.log('--- Production Usage ---');
   const result1 = await agent.forward(llm, {
@@ -134,7 +138,39 @@ async function main() {
   console.log(`Training examples: ${optResult.stats.trainingExamples}`);
   console.log(`Versions saved: ${optResult.checkpointVersion}`);
 
-  // 3. Use improved version
+  // 3. Add bounded feedback-aware update for the latest interaction
+  console.log('\n--- Continuous Update ---');
+  const traces = await agent.getTraces({ limit: 1 });
+  const latestTrace = traces[0];
+  if (latestTrace) {
+    await agent.addFeedback(latestTrace.id, {
+      score: 0,
+      label: 'needs-empathy',
+      comment:
+        'Acknowledge the frustration more directly and offer the refund path sooner.',
+    });
+  }
+
+  const updateResult = await agent.applyUpdate({
+    example: {
+      customerName: 'John Doe',
+      query: 'Where is my order?',
+      history: 'Session started',
+    },
+    // `prediction` is the observed runtime output being critiqued.
+    prediction: result1,
+    feedback: {
+      score: 0,
+      label: 'needs-empathy',
+      comment:
+        'Acknowledge the frustration more directly and offer the refund path sooner.',
+    },
+  });
+
+  console.log(`Update Score: ${updateResult.score.toFixed(2)}`);
+  console.log(`Update Improvement: ${updateResult.improvement.toFixed(2)}`);
+
+  // 4. Use improved version
   console.log('\n--- Improved Agent Usage ---');
   const result2 = await agent.forward(llm, {
     customerName: 'John Doe',

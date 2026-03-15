@@ -810,6 +810,7 @@ export interface AxOptimizedProgram<OUT = any> {
 
   // Program configuration
   instruction?: string;
+  instructionMap?: Record<string, string>;
   demos?: AxProgramDemos<any, OUT>[];
 
   // Model configuration
@@ -845,6 +846,7 @@ export class AxOptimizedProgramImpl<OUT = any>
   public readonly bestScore: number;
   public readonly stats: AxOptimizationStats;
   public readonly instruction?: string;
+  public readonly instructionMap?: Record<string, string>;
   public readonly demos?: AxProgramDemos<any, OUT>[];
   public readonly examples?: AxExample[];
   public readonly modelConfig?: {
@@ -868,6 +870,7 @@ export class AxOptimizedProgramImpl<OUT = any>
     bestScore: number;
     stats: AxOptimizationStats;
     instruction?: string;
+    instructionMap?: Record<string, string>;
     demos?: AxProgramDemos<any, OUT>[];
     examples?: AxExample[];
     modelConfig?: AxOptimizedProgram<OUT>['modelConfig'];
@@ -881,6 +884,7 @@ export class AxOptimizedProgramImpl<OUT = any>
     this.bestScore = config.bestScore;
     this.stats = config.stats;
     this.instruction = config.instruction;
+    this.instructionMap = config.instructionMap;
     this.demos = config.demos;
     this.examples = config.examples;
     this.modelConfig = config.modelConfig;
@@ -893,14 +897,7 @@ export class AxOptimizedProgramImpl<OUT = any>
   }
 
   public applyTo<IN, T extends AxGenOut>(program: AxGen<IN, T>): void {
-    // Apply demos and modelConfig if available
-    if (this.demos && this.demos.length > 0) {
-      program.setDemos(this.demos as any, {
-        modelConfig: this.modelConfig,
-      });
-    } else if (this.modelConfig) {
-      program.setDemos([], { modelConfig: this.modelConfig });
-    }
+    (program as any).applyOptimization?.(this);
   }
 }
 

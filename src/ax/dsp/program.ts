@@ -4,6 +4,7 @@ import type { AxSignatureConfig } from './sig.js';
 import { AxSignature } from './sig.js';
 import type {
   AxFieldValue,
+  AxNamedProgramInstance,
   AxProgramDemos,
   AxProgramExamples,
   AxProgramOptions,
@@ -304,9 +305,68 @@ export class AxProgram<IN = any, OUT = any>
     return result;
   }
 
+  public namedProgramInstances(): AxNamedProgramInstance<IN, OUT>[] {
+    const result: AxNamedProgramInstance<IN, OUT>[] = [];
+
+    const fields = [
+      ...this.signature.getInputFields(),
+      ...this.signature.getOutputFields(),
+    ];
+    if (fields.length > 0) {
+      result.push({
+        id: this.key.id,
+        program: this,
+        signature: this.signature.toString(),
+      });
+    }
+
+    for (const child of Array.from(this.children)) {
+      if (
+        child &&
+        'namedProgramInstances' in child &&
+        typeof (child as any).namedProgramInstances === 'function'
+      ) {
+        result.push(...(child as any).namedProgramInstances());
+      } else if (child) {
+        result.push({
+          id: child.getId(),
+          program: child as AxTunable<IN, OUT>,
+        });
+      }
+    }
+
+    return result;
+  }
+
   public applyOptimization(optimizedProgram: AxOptimizedProgram<OUT>): void {
-    this.setDemos(optimizedProgram.demos ?? [], {
-      modelConfig: optimizedProgram.modelConfig,
-    });
+    const hasDemos = optimizedProgram.demos !== undefined;
+    const hasModelConfig = optimizedProgram.modelConfig !== undefined;
+    if (hasDemos || hasModelConfig) {
+      this.setDemos(optimizedProgram.demos ?? [], {
+        modelConfig: optimizedProgram.modelConfig,
+      });
+    }
+
+    const anySelf = this as any;
+    if (typeof anySelf.setInstruction === 'function') {
+      const mappedInstruction = optimizedProgram.instructionMap?.[this.key.id];
+      const nextInstruction =
+        typeof mappedInstruction === 'string'
+          ? mappedInstruction
+          : optimizedProgram.instruction;
+      if (typeof nextInstruction === 'string' && nextInstruction.length > 0) {
+        anySelf.setInstruction(nextInstruction);
+      }
+    }
+
+    const childOptimization = {
+      ...optimizedProgram,
+      ...(hasDemos ? { demos: undefined } : {}),
+      ...(hasModelConfig ? { modelConfig: undefined } : {}),
+    } as AxOptimizedProgram<OUT>;
+
+    for (const child of Array.from(this.children)) {
+      child?.applyOptimization(childOptimization as any);
+    }
   }
 }

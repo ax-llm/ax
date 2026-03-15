@@ -198,3 +198,5 @@ LLMQUERY
 failer
 checkpointable
 checkpointed
+tunables
+scorable

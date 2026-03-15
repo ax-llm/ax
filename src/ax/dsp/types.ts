@@ -295,12 +295,19 @@ export interface AxTunable<IN, OUT> {
   getId(): string;
   setId(id: string): void;
   getTraces(): AxProgramTrace<IN, OUT>[];
+  namedProgramInstances?(): AxNamedProgramInstance<any, any>[];
   setDemos(
     demos: readonly AxProgramDemos<IN, OUT>[],
     options?: { modelConfig?: Record<string, unknown> }
   ): void;
   applyOptimization(optimizedProgram: AxOptimizedProgram<OUT>): void;
 }
+
+export type AxNamedProgramInstance<IN = any, OUT = any> = {
+  id: string;
+  program: AxTunable<IN, OUT>;
+  signature?: string;
+};
 
 export interface AxUsable {
   getUsage(): AxProgramUsage[];

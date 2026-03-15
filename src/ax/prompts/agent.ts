@@ -15,6 +15,7 @@ import type {
   AxGenOut,
   AxGenStreamingOut,
   AxMessage,
+  AxNamedProgramInstance,
   AxProgramDemos,
   AxProgramForwardOptions,
   AxProgramForwardOptionsWithModels,
@@ -1359,6 +1360,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
   public namedPrograms(): Array<{ id: string; signature?: string }> {
     return this.program.namedPrograms();
+  }
+
+  public namedProgramInstances(): AxNamedProgramInstance<IN, OUT>[] {
+    return this.program.namedProgramInstances();
   }
 
   public getTraces() {

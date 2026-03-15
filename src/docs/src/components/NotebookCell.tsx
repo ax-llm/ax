@@ -2,6 +2,8 @@ import { ax, axCreateDefaultTextLogger, s } from '@ax-llm/ax';
 import {
   AlertCircle,
   CheckCircle,
+  ChevronDown,
+  ChevronRight,
   Copy,
   Eye,
   EyeOff,
@@ -15,7 +17,6 @@ import type React from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import CellOutputSelector from './CellOutputSelector';
 import TypeDropdown from './TypeDropdown';
-import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Textarea } from './ui/textarea';
@@ -71,99 +72,77 @@ export default function NotebookCell({
   const [showDebugLogs, setShowDebugLogs] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Parse signature with ax s() function whenever content changes
+  // Parse signature whenever content changes
   useEffect(() => {
-    const parseSignature = async () => {
-      try {
-        if (!content.trim()) {
-          setAxSignature(null);
-          setSignatureError(null);
-          onUpdateCellSignature?.(cellId, null);
-          return;
-        }
-
-        const signature = s(content);
-        setAxSignature(signature);
-        setSignatureError(null);
-
-        // Notify parent component of parsed signature
-        onUpdateCellSignature?.(cellId, signature);
-      } catch (error) {
-        console.error('Signature parsing error:', error);
+    try {
+      if (!content.trim()) {
         setAxSignature(null);
-        const message =
-          error && typeof error === 'object' && 'message' in error
-            ? String((error as any).message)
-            : 'Invalid signature';
-        const suggestion =
-          error && typeof error === 'object' && 'suggestion' in error
-            ? String((error as any).suggestion)
-            : '';
-        setSignatureError(suggestion ? `${message}\n${suggestion}` : message);
+        setSignatureError(null);
         onUpdateCellSignature?.(cellId, null);
+        return;
       }
-    };
 
-    parseSignature();
+      const signature = s(content);
+      setAxSignature(signature);
+      setSignatureError(null);
+      onUpdateCellSignature?.(cellId, signature);
+    } catch (error) {
+      setAxSignature(null);
+      const message =
+        error && typeof error === 'object' && 'message' in error
+          ? String((error as any).message)
+          : 'Invalid signature';
+      const suggestion =
+        error && typeof error === 'object' && 'suggestion' in error
+          ? String((error as any).suggestion)
+          : '';
+      setSignatureError(suggestion ? `${message}\n${suggestion}` : message);
+      onUpdateCellSignature?.(cellId, null);
+    }
   }, [content, cellId, onUpdateCellSignature]);
 
   const handleContentChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-      const newContent = e.target.value;
-      setContent(newContent);
+      setContent(e.target.value);
       setCursorPosition(e.target.selectionStart);
     },
     []
   );
 
-  const showTypeDropdown = useCallback(() => {
-    console.log('showTypeDropdown called');
-    if (!textareaRef.current) {
-      console.log('textareaRef.current is null');
-      return;
-    }
+  const showTypeDropdownFn = useCallback(() => {
+    if (!textareaRef.current) return;
 
     const textarea = textareaRef.current;
     const rect = textarea.getBoundingClientRect();
     const position = textarea.selectionStart;
 
-    // Calculate cursor position in textarea
     const lines = content.substring(0, position).split('\n');
     const currentLine = lines.length - 1;
     const currentColumn = lines[lines.length - 1].length;
 
-    // Approximate positioning
     const lineHeight = 24;
     const charWidth = 8.4;
 
     const x = rect.left + currentColumn * charWidth + 16;
     const y = rect.top + currentLine * lineHeight + lineHeight + 16;
 
-    console.log('Setting dropdown visible with position:', { x, y });
     setTypeDropdownVisible(true);
     setTypeDropdownPosition({ x, y });
   }, [content]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      const { key } = e;
-
-      // Hide dropdown on Escape
-      if (key === 'Escape') {
+      if (e.key === 'Escape') {
         setTypeDropdownVisible(false);
         return;
       }
-
-      // Show type dropdown when ":" is typed
-      if (key === ':') {
-        console.log('Colon key pressed, showing type dropdown');
-        // Use requestAnimationFrame instead of setTimeout for better timing
+      if (e.key === ':') {
         requestAnimationFrame(() => {
-          showTypeDropdown();
+          showTypeDropdownFn();
         });
       }
     },
-    [showTypeDropdown]
+    [showTypeDropdownFn]
   );
 
   const hideTypeDropdown = useCallback(() => {
@@ -171,7 +150,6 @@ export default function NotebookCell({
   }, []);
 
   const hideTypeDropdownDelayed = useCallback(() => {
-    // Add a small delay to allow click events on the dropdown to process first
     setTimeout(() => {
       setTypeDropdownVisible(false);
     }, 150);
@@ -185,15 +163,12 @@ export default function NotebookCell({
       const position = textarea.selectionStart;
       const beforeCursor = content.substring(0, position);
 
-      // The type already comes with : prefix, so we need to handle optional placement correctly
       let newContent = content;
       let newCursorPosition = position;
 
-      // Check if there's already a colon at the cursor position or just before
       const colonIndex = beforeCursor.lastIndexOf(':');
 
       if (colonIndex !== -1 && colonIndex === position - 1) {
-        // We're right after a colon, replace what comes after
         let currentPosition = position;
         const afterColon = content.substring(currentPosition);
         const typeEndMatch = afterColon.match(/[,\->"]/);
@@ -201,27 +176,24 @@ export default function NotebookCell({
           ? currentPosition + (typeEndMatch.index ?? 0)
           : content.length;
 
-        // Handle optional marker - place it before the colon
         if (isOptional) {
           const beforeColonChar = content.charAt(colonIndex - 1);
           if (beforeColonChar !== '?') {
             newContent = `${content.substring(0, colonIndex)}?${content.substring(colonIndex)}`;
-            currentPosition += 1; // Adjust position after adding ?
+            currentPosition += 1;
             typeEnd += 1;
           }
         } else {
-          // Remove existing ? if optional is not selected
           const beforeColonChar = content.charAt(colonIndex - 1);
           if (beforeColonChar === '?') {
             newContent =
               content.substring(0, colonIndex - 1) +
               content.substring(colonIndex);
-            currentPosition -= 1; // Adjust position after removing ?
+            currentPosition -= 1;
             typeEnd -= 1;
           }
         }
 
-        // Replace everything after the colon (remove the : from type since colon already exists)
         const typeWithoutColon = type.startsWith(':')
           ? type.substring(1)
           : type;
@@ -231,14 +203,10 @@ export default function NotebookCell({
           newContent.substring(typeEnd);
         newCursorPosition = currentPosition + typeWithoutColon.length;
       } else {
-        // No colon at cursor, insert the full type with optional handling
         let insertText = type;
-
         if (isOptional) {
-          // Insert ?:type format
           insertText = insertText.replace(':', '?:');
         }
-
         newContent =
           content.substring(0, position) +
           insertText +
@@ -260,15 +228,12 @@ export default function NotebookCell({
     [content]
   );
 
-  // Replace references in input values with actual values from previous cells
   const resolveReferences = useCallback(
     (inputData: Record<string, any>) => {
       const resolved = { ...inputData };
-
       Object.keys(resolved).forEach((key) => {
         const value = resolved[key];
         if (typeof value === 'string' && value.startsWith('@')) {
-          // Parse reference format: @cellId.fieldName
           const match = value.match(/^@([^.]+)\.(.+)$/);
           if (match) {
             const [, refCellId, refFieldName] = match;
@@ -282,27 +247,20 @@ export default function NotebookCell({
           }
         }
       });
-
       return resolved;
     },
     [availableOutputs]
   );
 
-  // Create debug logger using Ax built-in logger functions
   const createDebugLogger = async (logsArray: string[]) => {
     const logCapture = (message: string) => {
-      console.log(message);
       logsArray.push(message);
     };
-    const logger = axCreateDefaultTextLogger(logCapture);
-    return logger;
+    return axCreateDefaultTextLogger(logCapture);
   };
 
   const executeSignature = useCallback(async () => {
-    if (!loadedAI || modelStatus !== 'ready' || !axSignature) {
-      console.log('Cannot execute: AI not ready or signature invalid');
-      return;
-    }
+    if (!loadedAI || modelStatus !== 'ready' || !axSignature) return;
 
     setIsExecuting(true);
     setExecutionError(null);
@@ -310,35 +268,24 @@ export default function NotebookCell({
     setDebugLogs([]);
 
     try {
-      // Create a local array to capture debug logs
       const debugLogsArray: string[] = [];
-
-      // Create debug logger using Ax built-in logger
       const logger = await createDebugLogger(debugLogsArray);
-
-      // Create generator directly from the text signature
       const generator = ax(content);
 
-      // Prepare input data from the input fields with reference resolution
       const inputData: Record<string, any> = {};
       Object.keys(inputValues).forEach((key) => {
         inputData[key] = inputValues[key];
       });
 
-      // Resolve references to actual values
       const resolvedInputData = resolveReferences(inputData);
-
-      // Execute the generator with debug logger passed in options
       const result = await generator.forward(loadedAI, resolvedInputData, {
         debug: true,
-        logger: logger,
+        logger,
       });
 
-      // Update debug logs with captured messages
       setDebugLogs(debugLogsArray);
       setExecutionResult(result);
 
-      // Save outputs to global state
       if (onUpdateCellState && result) {
         onUpdateCellState(cellId, result);
       }
@@ -362,21 +309,21 @@ export default function NotebookCell({
     createDebugLogger,
   ]);
 
-  const renderStatusIndicator = () => {
+  const renderStatusBadge = () => {
     if (!axSignature && !signatureError) {
       return (
-        <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
-          <AlertCircle className="h-4 w-4" />
-          <span className="text-sm">Enter signature</span>
+        <div className="flex items-center gap-1.5 text-gray-400 dark:text-gray-500">
+          <AlertCircle className="h-3.5 w-3.5" />
+          <span className="text-xs">Enter signature</span>
         </div>
       );
     }
 
     if (signatureError) {
       return (
-        <div className="flex items-center gap-2 text-red-600 dark:text-red-400">
-          <XCircle className="h-4 w-4" />
-          <span className="text-sm">Invalid</span>
+        <div className="flex items-center gap-1.5 text-red-500 dark:text-red-400">
+          <XCircle className="h-3.5 w-3.5" />
+          <span className="text-xs">Invalid</span>
         </div>
       );
     }
@@ -385,56 +332,58 @@ export default function NotebookCell({
       try {
         const inputFields = axSignature.getInputFields();
         const outputFields = axSignature.getOutputFields();
-
         return (
-          <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
-            <CheckCircle className="h-4 w-4" />
-            <span className="text-sm">Valid</span>
-            <Badge variant="secondary" className="text-xs">
-              {inputFields.length}→{outputFields.length}
-            </Badge>
+          <div className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
+            <CheckCircle className="h-3.5 w-3.5" />
+            <span className="text-xs">Valid</span>
+            <span className="text-[10px] text-gray-400 dark:text-gray-500 font-mono">
+              {inputFields.length}&rarr;{outputFields.length}
+            </span>
           </div>
         );
       } catch (_error) {
         return (
-          <div className="flex items-center gap-2 text-red-600 dark:text-red-400">
-            <XCircle className="h-4 w-4" />
-            <span className="text-sm">Invalid</span>
+          <div className="flex items-center gap-1.5 text-red-500 dark:text-red-400">
+            <XCircle className="h-3.5 w-3.5" />
+            <span className="text-xs">Invalid</span>
           </div>
         );
       }
     }
-
     return null;
   };
 
   return (
-    <div className="border rounded-lg bg-card mb-4">
+    <div className="rounded-xl border border-gray-200 dark:border-white/20 overflow-hidden mb-5 shadow-sm dark:bg-white/[0.02]">
       {/* Cell Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 border-b bg-muted/30 gap-2 sm:gap-0">
-        <div className="flex items-center gap-3 flex-1">
+      <div className="flex items-center justify-between px-4 py-2.5 bg-gray-50 dark:bg-white/[0.06] border-b border-gray-200 dark:border-white/20">
+        <div className="flex items-center gap-3">
           <button
             onClick={() => setIsExpanded(!isExpanded)}
-            className="text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded border"
+            className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 font-mono"
           >
-            Cell [{cellId.slice(-4)}]
+            {isExpanded ? (
+              <ChevronDown className="h-3.5 w-3.5" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5" />
+            )}
+            [{cellId.slice(-4)}]
           </button>
-          {renderStatusIndicator()}
+          {renderStatusBadge()}
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="flex items-center gap-1.5">
           <Button
             onClick={executeSignature}
             disabled={isExecuting || !axSignature || modelStatus !== 'ready'}
             size="sm"
-            variant="outline"
-            className="h-10 md:h-8"
+            className="h-7 px-3 text-xs bg-emerald-600 hover:bg-emerald-700 text-white border-0"
           >
             {isExecuting ? (
               <Loader2 className="h-3 w-3 animate-spin" />
             ) : (
               <>
+                <Play className="h-3 w-3 mr-1.5" />
                 Run
-                <Play className="ml-2 h-3 w-3" />
               </>
             )}
           </Button>
@@ -443,9 +392,9 @@ export default function NotebookCell({
               onClick={() => onAddCell(cellId)}
               size="sm"
               variant="ghost"
-              className="h-10 md:h-8"
+              className="h-7 w-7 p-0 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
             >
-              <Plus className="h-3 w-3" />
+              <Plus className="h-3.5 w-3.5" />
             </Button>
           )}
           {onDelete && (
@@ -453,9 +402,9 @@ export default function NotebookCell({
               onClick={() => onDelete(cellId)}
               size="sm"
               variant="ghost"
-              className="h-10 md:h-8 text-destructive hover:text-destructive"
+              className="h-7 w-7 p-0 text-gray-400 hover:text-red-500 dark:text-gray-500 dark:hover:text-red-400"
             >
-              <Trash2 className="h-3 w-3" />
+              <Trash2 className="h-3.5 w-3.5" />
             </Button>
           )}
         </div>
@@ -463,19 +412,39 @@ export default function NotebookCell({
 
       {/* Cell Content */}
       {isExpanded && (
-        <div className="p-3 md:p-4 space-y-3 md:space-y-4">
-          {/* Prompt Editor */}
+        <div className="space-y-0">
+          {/* Signature Editor — dark code block */}
           <div className="relative">
-            <textarea
-              ref={textareaRef}
-              value={content}
-              onChange={handleContentChange}
-              onKeyDown={handleKeyDown}
-              onBlur={hideTypeDropdownDelayed}
-              className="w-full resize-none border rounded-md bg-background p-2 md:p-3 font-mono text-sm outline-none min-h-[100px] md:min-h-[120px] focus:ring-2 focus:ring-blue-500"
-              placeholder="Enter your signature here..."
-              spellCheck={false}
-            />
+            <div className="bg-[#1a1b26]">
+              {/* Terminal dots header */}
+              <div className="flex items-center gap-1.5 px-4 py-2 border-b border-white/5">
+                <div className="w-2 h-2 rounded-full bg-red-400/70" />
+                <div className="w-2 h-2 rounded-full bg-amber-400/70" />
+                <div className="w-2 h-2 rounded-full bg-green-400/70" />
+                <span className="ml-2 text-[11px] text-gray-500 font-mono">
+                  signature
+                </span>
+              </div>
+              <textarea
+                ref={textareaRef}
+                value={content}
+                onChange={handleContentChange}
+                onKeyDown={handleKeyDown}
+                onBlur={hideTypeDropdownDelayed}
+                className="w-full resize-none bg-transparent px-4 py-3 font-mono text-[13px] leading-relaxed text-gray-300 outline-none min-h-[80px] placeholder:text-gray-600 caret-emerald-400"
+                placeholder="name:type -> output:type"
+                spellCheck={false}
+              />
+            </div>
+
+            {/* Signature error */}
+            {signatureError && (
+              <div className="px-4 py-2 bg-red-50 dark:bg-red-500/10 border-t border-red-200 dark:border-red-500/20">
+                <p className="text-xs text-red-600 dark:text-red-400 font-mono whitespace-pre-wrap">
+                  {signatureError}
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Type dropdown */}
@@ -500,24 +469,25 @@ export default function NotebookCell({
                 const inputFields = axSignature.getInputFields();
                 return (
                   inputFields.length > 0 && (
-                    <div className="space-y-3">
-                      <h4 className="text-sm font-medium">Input Values</h4>
+                    <div className="p-4 border-t border-gray-200 dark:border-white/20 space-y-3">
+                      <h4 className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+                        Inputs
+                      </h4>
                       <div className="grid grid-cols-1 gap-3">
                         {inputFields.map((field: any) => (
-                          <div key={field.name} className="space-y-1">
-                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                          <div key={field.name} className="space-y-1.5">
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
                               <label
-                                className="text-xs font-medium"
+                                className="text-xs font-medium text-gray-700 dark:text-gray-300"
                                 htmlFor={`${cellId}-${field.name}`}
                               >
                                 {field.name}
                                 {field.optional && (
-                                  <span className="text-muted-foreground">
-                                    {' '}
+                                  <span className="text-gray-400 dark:text-gray-500 ml-1">
                                     (optional)
                                   </span>
                                 )}
-                                <span className="text-muted-foreground ml-2">
+                                <span className="text-gray-400 dark:text-gray-500 ml-1.5 font-mono text-[11px]">
                                   {field.type?.name || 'string'}
                                   {field.isArray && '[]'}
                                 </span>
@@ -526,7 +496,6 @@ export default function NotebookCell({
                                 <CellOutputSelector
                                   availableOutputs={availableOutputs}
                                   onSelect={(reference, _actualValue) => {
-                                    // Use reference so it updates when cell above changes
                                     setInputValues((prev) => ({
                                       ...prev,
                                       [field.name]: reference,
@@ -550,7 +519,7 @@ export default function NotebookCell({
                                     [field.name]: e.target.value,
                                   }))
                                 }
-                                className="min-h-[60px] md:min-h-[80px] text-sm"
+                                className="min-h-[60px] text-sm border-gray-200 dark:border-white/20 bg-white dark:bg-white/[0.07]"
                               />
                             ) : (
                               <Input
@@ -570,7 +539,7 @@ export default function NotebookCell({
                                     [field.name]: e.target.value,
                                   }))
                                 }
-                                className="text-sm"
+                                className="text-sm border-gray-200 dark:border-white/20 bg-white dark:bg-white/[0.07]"
                               />
                             )}
                           </div>
@@ -586,35 +555,36 @@ export default function NotebookCell({
 
           {/* Output Results */}
           {(executionResult || executionError) && (
-            <div className="space-y-3">
+            <div className="p-4 border-t border-gray-200 dark:border-white/20 space-y-3">
               <div className="flex items-center justify-between">
-                <h4 className="text-sm font-medium">
-                  {executionError ? 'Execution Error' : 'Results'}
+                <h4 className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+                  {executionError ? 'Error' : 'Output'}
                 </h4>
-                {(executionResult || executionError) && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setShowDebugLogs(!showDebugLogs)}
-                    className="h-8 md:h-6 px-2 text-xs"
-                  >
-                    {showDebugLogs ? (
-                      <>
-                        <EyeOff className="h-3 w-3 mr-1" />
-                        Hide Debug Logs
-                      </>
-                    ) : (
-                      <>
-                        <Eye className="h-3 w-3 mr-1" />
-                        Show Debug Logs ({debugLogs.length})
-                      </>
-                    )}
-                  </Button>
-                )}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowDebugLogs(!showDebugLogs)}
+                  className="h-6 px-2 text-[11px] text-gray-400 dark:text-gray-500"
+                >
+                  {showDebugLogs ? (
+                    <>
+                      <EyeOff className="h-3 w-3 mr-1" />
+                      Hide Logs
+                    </>
+                  ) : (
+                    <>
+                      <Eye className="h-3 w-3 mr-1" />
+                      Logs ({debugLogs.length})
+                    </>
+                  )}
+                </Button>
               </div>
+
               {executionError ? (
-                <div className="rounded-md bg-destructive/10 border border-destructive/20 p-3">
-                  <p className="text-destructive text-sm">{executionError}</p>
+                <div className="rounded-lg bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 p-3">
+                  <p className="text-red-600 dark:text-red-400 text-sm">
+                    {executionError}
+                  </p>
                 </div>
               ) : axSignature ? (
                 (() => {
@@ -624,12 +594,12 @@ export default function NotebookCell({
                       <div className="space-y-2">
                         {outputFields.map((field: any) => (
                           <div key={field.name} className="space-y-1">
-                            <div className="text-xs font-medium flex items-center gap-2">
-                              {field.name}
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-8 md:h-6 px-2"
+                            <div className="flex items-center gap-2 text-xs">
+                              <span className="font-medium text-gray-700 dark:text-gray-300">
+                                {field.name}
+                              </span>
+                              <button
+                                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
                                 onClick={() => {
                                   const value = executionResult?.[field.name];
                                   if (value) {
@@ -642,9 +612,9 @@ export default function NotebookCell({
                                 }}
                               >
                                 <Copy className="h-3 w-3" />
-                              </Button>
+                              </button>
                             </div>
-                            <div className="rounded-md border bg-muted/30 p-3 text-sm font-mono">
+                            <div className="rounded-lg bg-gray-50 dark:bg-white/[0.07] border border-gray-200 dark:border-white/20 p-3 text-sm font-mono text-gray-700 dark:text-gray-300">
                               {typeof executionResult?.[field.name] === 'object'
                                 ? JSON.stringify(
                                     executionResult[field.name],
@@ -652,7 +622,7 @@ export default function NotebookCell({
                                     2
                                   )
                                 : String(
-                                    executionResult?.[field.name] || 'No result'
+                                    executionResult?.[field.name] ?? 'No result'
                                   )}
                             </div>
                           </div>
@@ -661,7 +631,7 @@ export default function NotebookCell({
                     );
                   } catch (_error) {
                     return (
-                      <div className="rounded-md border bg-muted/30 p-3 text-sm font-mono">
+                      <div className="rounded-lg bg-gray-50 dark:bg-white/[0.07] border border-gray-200 dark:border-white/20 p-3 text-sm font-mono text-gray-700 dark:text-gray-300">
                         {JSON.stringify(executionResult, null, 2)}
                       </div>
                     );
@@ -669,36 +639,31 @@ export default function NotebookCell({
                 })()
               ) : null}
 
-              {/* Debug Logs Section */}
+              {/* Debug Logs */}
               {showDebugLogs && (
-                <div className="space-y-2 border-t pt-3">
+                <div className="space-y-2 border-t border-gray-200 dark:border-white/20 pt-3">
                   <div className="flex items-center justify-between">
-                    <h5 className="text-xs font-medium text-muted-foreground">
-                      Debug Logs ({debugLogs.length} entries)
+                    <h5 className="text-[11px] font-medium text-gray-400 dark:text-gray-500">
+                      Debug Logs ({debugLogs.length})
                     </h5>
                     {debugLogs.length > 0 && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 md:h-6 px-2"
+                      <button
+                        className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
                         onClick={() => {
                           navigator.clipboard.writeText(debugLogs.join('\n'));
                         }}
                       >
                         <Copy className="h-3 w-3" />
-                      </Button>
+                      </button>
                     )}
                   </div>
-                  <Textarea
-                    value={
-                      debugLogs.length > 0
+                  <div className="rounded-lg bg-[#1a1b26] p-3 max-h-48 overflow-y-auto">
+                    <pre className="text-[11px] font-mono text-gray-400 whitespace-pre-wrap">
+                      {debugLogs.length > 0
                         ? debugLogs.join('\n')
-                        : 'No debug logs captured yet. The logger may not be receiving data from the Ax framework.'
-                    }
-                    readOnly
-                    className="min-h-[100px] md:min-h-[120px] text-xs font-mono bg-muted/50 resize-none"
-                    placeholder="Debug logs will appear here..."
-                  />
+                        : 'No debug logs captured.'}
+                    </pre>
+                  </div>
                 </div>
               )}
             </div>

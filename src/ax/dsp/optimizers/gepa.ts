@@ -14,7 +14,11 @@ import {
   type AxParetoResult,
 } from '../optimizer.js';
 import { ax } from '../template.js';
-import type { AxGenOut } from '../types.js';
+import type {
+  AxGenOut,
+  AxNamedProgramInstance,
+  AxProgrammable,
+} from '../types.js';
 import type { AxGEPAAdapter } from './gepaAdapter.js';
 import {
   average,
@@ -111,6 +115,21 @@ export function displayGEPAReport(report: AxGEPAOptimizationReport): void {
 
   console.log(`\n${'═'.repeat(60)}\n`);
 }
+
+type AxGEPAInstructionTarget = AxNamedProgramInstance<any, any> & {
+  program: AxNamedProgramInstance<any, any>['program'] & {
+    getInstruction?: () => string | undefined;
+    setInstruction?: (instruction: string) => void;
+    getSignature?: () => { getDescription?: () => string | undefined };
+  };
+};
+
+type AxGEPABatchRow = {
+  input: AxExample;
+  prediction: unknown;
+  scores: Record<string, number>;
+  scalar: number;
+};
 
 /** Single-module GEPA (reflective prompt evolution with Pareto sampling) */
 export class AxGEPA extends AxBaseOptimizer {
@@ -231,14 +250,25 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
    * Multi-objective GEPA: reflective evolution with Pareto frontier
    */
   public async compile<IN, OUT extends AxGenOut>(
-    program: Readonly<AxGen<IN, OUT>>,
+    program: Readonly<AxProgrammable<IN, OUT>>,
     examples: readonly AxTypedExample<IN>[],
-    metricFn: AxMetricFn,
+    metricFn: AxMetricFn | AxMultiMetricFn,
     options?: AxCompileOptions
   ): Promise<AxParetoResult<OUT>> {
     const _startTime = Date.now();
     this.validateExamples(examples);
     if (options?.auto) this.configureAuto(options.auto);
+
+    const rolloutBudgetParetoRaw = (options as any)?.maxMetricCalls as number;
+    if (
+      !Number.isFinite(rolloutBudgetParetoRaw) ||
+      rolloutBudgetParetoRaw <= 0
+    ) {
+      throw new Error(
+        'AxGEPA: options.maxMetricCalls must be set to a positive integer'
+      );
+    }
+    const rolloutBudgetPareto = Math.floor(rolloutBudgetParetoRaw);
 
     const validationExamples = (options as any)?.validationExamples as
       | readonly AxTypedExample<IN>[]
@@ -253,61 +283,69 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
         : examples
     ).slice(0, this.paretoSetSize);
 
+    const exampleKey = (example: Readonly<Record<string, unknown>>): string => {
+      const ordered = Object.keys(example)
+        .sort()
+        .reduce<Record<string, unknown>>((acc, key) => {
+          acc[key] = example[key];
+          return acc;
+        }, {});
+      return JSON.stringify(ordered);
+    };
+
+    const scoredExampleKeys = new Set(
+      examples.map((example) =>
+        exampleKey(example as unknown as Record<string, unknown>)
+      )
+    );
+
     const feedbackSet =
       feedbackExamples && feedbackExamples.length > 0
-        ? feedbackExamples
+        ? feedbackExamples.filter((example) =>
+            scoredExampleKeys.has(
+              exampleKey(example as unknown as Record<string, unknown>)
+            )
+          )
         : examples;
+    const effectiveFeedbackSet =
+      feedbackSet.length > 0 ? feedbackSet : examples;
+    const targets = this.getInstructionTargets(program);
+    if (targets.length === 0) {
+      throw new Error(
+        'AxGEPA: program has no instruction-bearing nodes to optimize'
+      );
+    }
+    const targetIds = targets.map((target) => target.id);
 
-    // Evaluate one example -> objective vector
-    const evalOne = async (
-      instruction: string,
-      ex: Readonly<AxTypedExample<IN>>
-    ): Promise<Record<string, number>> => {
-      try {
-        (program as any).setInstruction?.(instruction);
-        const prediction = await program.forward(
-          this.studentAI,
-          ex as IN,
-          {
-            sampleCount: this.sampleCount,
-          } as any
-        );
-        this.stats.totalCalls += 1;
-        const scores = await (metricFn as unknown as AxMultiMetricFn)({
-          prediction,
-          example: ex as any,
-        });
-        return scores || {};
-      } catch {
-        return {};
+    const applyConfig = (cfg: Readonly<Record<string, string>>): void => {
+      for (const target of targets) {
+        const instruction = cfg[target.id];
+        if (typeof instruction === 'string') {
+          target.program.setInstruction?.(instruction);
+        }
       }
     };
 
-    // Evaluate on set -> average vector
-    const evalOnSet = async (
-      instruction: string,
-      set: readonly AxTypedExample<IN>[]
+    const normalizeScores = async (
+      prediction: unknown,
+      example: AxExample
     ): Promise<Record<string, number>> => {
-      const vecs: Record<string, number>[] = [];
-      for (const ex of set) vecs.push(await evalOne(instruction, ex));
-      return avgVec(vecs);
+      const raw = await (metricFn as any)({ prediction, example });
+      if (typeof raw === 'number') {
+        return Number.isFinite(raw) ? { score: raw } : {};
+      }
+      if (!raw || typeof raw !== 'object') {
+        return {};
+      }
+      const out: Record<string, number> = {};
+      for (const [key, value] of Object.entries(raw)) {
+        if (typeof value === 'number' && Number.isFinite(value)) {
+          out[key] = value;
+        }
+      }
+      return out;
     };
 
-    // Start with base instruction
-    const baseInstruction = await this.getBaseInstruction(program);
-    const candidates: {
-      instruction: string;
-      parent?: number;
-      scores: Record<string, number>;
-    }[] = [
-      {
-        instruction: baseInstruction,
-        parent: undefined,
-        scores: await evalOnSet(baseInstruction, paretoSet),
-      },
-    ];
-
-    // Scalarizer for multi-metric vectors
     const scalarize = (v: Readonly<Record<string, number>>): number => {
       const key = (options as any)?.paretoMetricKey as string | undefined;
       const fn = (options as any)?.paretoScalarize as
@@ -320,58 +358,82 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
       return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
     };
 
-    // Track per-instance scalar scores on the validation/Pareto set for Algorithm 2 selection
-    const perInstanceScores: number[][] = [];
-    const evalOnSetScalar = async (
-      instruction: string,
-      set: readonly AxTypedExample<IN>[]
-    ): Promise<number[]> => {
-      const out: number[] = [];
-      for (const ex of set) {
-        const vec = await evalOne(instruction, ex);
-        out.push(scalarize(vec));
-      }
-      return out;
-    };
-    perInstanceScores.push(await evalOnSetScalar(baseInstruction, paretoSet));
-
-    // Parent selection helper via instance-front frequency (source-style)
-    const _selectParentIdx = (): number => {
-      const nInst = perInstanceScores[0]?.length ?? 0;
-      const instanceFronts: Array<Set<number>> = [];
-      for (let i = 0; i < nInst; i++) {
-        let best = Number.NEGATIVE_INFINITY;
-        const front = new Set<number>();
-        for (let k = 0; k < perInstanceScores.length; k++) {
-          const v = perInstanceScores[k]![i]!;
-          if (v > best + this.tieEpsilon) {
-            best = v;
-            front.clear();
-            front.add(k);
-          } else if (Math.abs(v - best) <= this.tieEpsilon) {
-            front.add(k);
-          }
+    const evalBatch = async (
+      cfg: Readonly<Record<string, string>>,
+      set: readonly AxTypedExample<IN>[],
+      _phase: string,
+      throwIfInsufficient = false
+    ): Promise<
+      | {
+          rows: AxGEPABatchRow[];
+          avg: Record<string, number>;
+          scalars: number[];
+          sum: number;
         }
-        instanceFronts.push(front);
+      | undefined
+    > => {
+      const requiredCalls = set.length;
+      if (this.stats.totalCalls + requiredCalls > rolloutBudgetPareto) {
+        if (throwIfInsufficient) {
+          throw new Error(
+            `AxGEPA: options.maxMetricCalls=${rolloutBudgetPareto} is too small to evaluate the initial Pareto set; need at least ${requiredCalls} metric calls`
+          );
+        }
+        return undefined;
       }
-      const perProgScores = perInstanceScores.map((arr) => average(arr));
-      return selectProgramCandidateFromInstanceFronts(
-        instanceFronts,
-        perProgScores
-      );
+
+      const rows: AxGEPABatchRow[] = [];
+      for (const ex of set) {
+        applyConfig(cfg);
+        const prediction = await program.forward(
+          this.studentAI,
+          ex as IN,
+          {
+            sampleCount: this.sampleCount,
+          } as any
+        );
+        this.stats.totalCalls += 1;
+        const scores = await normalizeScores(prediction, ex as AxExample);
+        rows.push({
+          input: ex as AxExample,
+          prediction,
+          scores,
+          scalar: scalarize(scores),
+        });
+      }
+
+      return {
+        rows,
+        avg: avgVec(rows.map((row) => row.scores)),
+        scalars: rows.map((row) => row.scalar),
+        sum: rows.reduce((total, row) => total + row.scalar, 0),
+      };
     };
 
-    // Parse budget early for logging and validation
-    const rolloutBudgetParetoRaw = (options as any)?.maxMetricCalls as number;
-    if (
-      !Number.isFinite(rolloutBudgetParetoRaw) ||
-      rolloutBudgetParetoRaw <= 0
-    ) {
-      throw new Error(
-        'AxGEPA: options.maxMetricCalls must be set to a positive integer'
-      );
+    const baseCfg: Record<string, string> = {};
+    for (const target of targets) {
+      baseCfg[target.id] = await this.getBaseInstruction(target.program as any);
     }
-    const rolloutBudgetPareto = Math.floor(rolloutBudgetParetoRaw);
+
+    const baseEval = await evalBatch(
+      baseCfg,
+      paretoSet,
+      'initial Pareto evaluation',
+      true
+    );
+    const candidates: {
+      cfg: Record<string, string>;
+      parent?: number;
+      scores: Record<string, number>;
+    }[] = [
+      {
+        cfg: { ...baseCfg },
+        parent: undefined,
+        scores: baseEval!.avg,
+      },
+    ];
+
+    const perInstanceScores: number[][] = [baseEval!.scalars];
 
     const optLogger = this.getOptimizerLogger(options);
     const verboseLog =
@@ -389,6 +451,7 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
           numTrials: this.numTrials,
           minibatch: this.minibatch,
           mergeMax: this.mergeMax,
+          tunableCount: targets.length,
         },
       },
     });
@@ -398,6 +461,7 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
     );
 
     let stagnation = 0;
+    const triedMerges = new Set<string>();
 
     // Initialize Pareto archive (indices into candidates)
     let archive = buildParetoFront(
@@ -434,7 +498,7 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
       }
       const perProgScores = perInstanceScores.map((arr) => average(arr));
 
-      // Scheduled merge attempt (parity with source) before reflective
+      // Scheduled merge attempt before reflective mutation.
       if (
         this.mergeMax > 0 &&
         this.mergesDue > 0 &&
@@ -473,13 +537,39 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
           if (Ai.has(j) || Aj.has(i)) continue;
           const commons = [...Ai].filter((x) => Aj.has(x));
           if (commons.length === 0) continue;
-          // Choose ancestor weighted by valset agg score
-          const weights = commons.map((a) => Math.max(1e-9, perProgScores[a]!));
+
+          const desirables: number[] = [];
+          for (const ancestor of commons) {
+            const cfgA = candidates[ancestor]!.cfg;
+            const cfgI = candidates[i]!.cfg;
+            const cfgJ = candidates[j]!.cfg;
+            let ok = false;
+            const allKeys = new Set([
+              ...Object.keys(cfgA),
+              ...Object.keys(cfgI),
+              ...Object.keys(cfgJ),
+            ]);
+            for (const key of allKeys) {
+              const pa = cfgA[key];
+              const pi = cfgI[key];
+              const pj = cfgJ[key];
+              if ((pi === pa && pj !== pi) || (pj === pa && pi !== pj)) {
+                ok = true;
+                break;
+              }
+            }
+            if (ok) desirables.push(ancestor);
+          }
+          if (desirables.length === 0) continue;
+
+          const weights = desirables.map((ancestor) =>
+            Math.max(1e-9, perProgScores[ancestor]!)
+          );
           let r = this.rand() * weights.reduce((s, w) => s + w, 0);
-          let a = commons[commons.length - 1]!;
-          for (let idx = 0; idx < commons.length; idx++) {
+          let a = desirables[desirables.length - 1]!;
+          for (let idx = 0; idx < desirables.length; idx++) {
             if (r < weights[idx]!) {
-              a = commons[idx]!;
+              a = desirables[idx]!;
               break;
             }
             r -= weights[idx]!;
@@ -491,143 +581,112 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
         this.lastIterFoundNewProgram = false;
 
         if (picked) {
+          let mergeAccepted = false;
           const { i, j, a } = picked;
           // Ancestor guard + desirability filter for single-component merge
           const Sa = perProgScores[a]!;
           const Si = perProgScores[i]!;
           const Sj = perProgScores[j]!;
-          const instrA = candidates[a]!.instruction;
-          const instrI = candidates[i]!.instruction;
-          const instrJ = candidates[j]!.instruction;
-          const desirable =
-            (instrI === instrA && instrJ !== instrI) ||
-            (instrJ === instrA && instrI !== instrJ);
-          let allowed = Sa <= Math.min(Si, Sj) && desirable;
-          let childInstrMerged = '';
-          let descSig: 'i' | 'j' = 'i';
-          let attempted = false;
-          if (allowed) {
-            const triKey = `${i}|${j}|${a}`;
-            if (this.mergeAttemptKeys.has(triKey)) {
-              allowed = false;
-            } else {
-              if (instrI === instrA && instrJ !== instrI) {
-                childInstrMerged = instrJ;
-                descSig = 'j';
-              } else if (instrJ === instrA && instrI !== instrJ) {
-                childInstrMerged = instrI;
-                descSig = 'i';
-              } else if (
-                instrI !== instrA &&
-                instrJ !== instrA &&
-                instrI !== instrJ
-              ) {
-                if (Si > Sj || (Si === Sj && this.rand() < 0.5)) {
-                  childInstrMerged = instrI;
-                  descSig = 'i';
-                } else {
-                  childInstrMerged = instrJ;
-                  descSig = 'j';
-                }
-              } else {
-                childInstrMerged = instrI;
-                descSig = 'i';
-              }
-              const compKey = `${Math.min(i, j)}|${Math.max(i, j)}|${descSig}`;
-              if (this.mergeCompositionKeys.has(compKey)) {
-                allowed = false;
-              } else {
-                this.mergeAttemptKeys.add(triKey);
-                this.mergeCompositionKeys.add(compKey);
-                // Targeted subsample selection on validation set
-                const s1 = perInstanceScores[i]!;
-                const s2 = perInstanceScores[j]!;
-                const allIdx = Array.from({ length: s1.length }, (_, z) => z);
-                const p1 = allIdx.filter((z) => (s1[z] ?? 0) > (s2[z] ?? 0));
-                const p2 = allIdx.filter((z) => (s2[z] ?? 0) > (s1[z] ?? 0));
-                const p3 = allIdx.filter(
-                  (z) => !(p1.includes(z) || p2.includes(z))
-                );
-                const K = 5;
-                const nEach = Math.ceil(K / 3);
-                const pickSome = (arr: number[], k: number): number[] => {
-                  if (k <= 0 || arr.length === 0) return [];
-                  if (arr.length <= k) return [...arr];
-                  const out: number[] = [];
-                  const used = new Set<number>();
-                  while (out.length < k) {
-                    const idx = Math.floor(this.rand() * arr.length);
-                    if (!used.has(idx)) {
-                      used.add(idx);
-                      out.push(arr[idx]!);
-                    }
-                  }
-                  return out;
-                };
-                const chosen: number[] = [];
-                chosen.push(...pickSome(p1, Math.min(nEach, p1.length)));
-                chosen.push(...pickSome(p2, Math.min(nEach, p2.length)));
-                const rem = K - chosen.length;
-                chosen.push(...pickSome(p3, Math.max(0, rem)));
-                const remaining = K - chosen.length;
-                if (remaining > 0) {
-                  const unused = allIdx.filter((z) => !chosen.includes(z));
-                  chosen.push(
-                    ...pickSome(unused, Math.min(remaining, unused.length))
-                  );
-                }
-                const idxs = chosen.slice(0, Math.min(K, allIdx.length));
+          if (Sa > Math.min(Si, Sj)) continue;
+          const triKey = `${i}|${j}|${a}`;
+          if (this.mergeAttemptKeys.has(triKey)) continue;
+          this.mergeAttemptKeys.add(triKey);
+          if (triedMerges.has(triKey)) continue;
 
-                const subsample = idxs.map((z) => paretoSet[z]!);
-                attempted = true;
-                const newSubArr = await evalOnSetScalar(
-                  childInstrMerged,
-                  subsample
-                );
-                const newSum = newSubArr.reduce((a, b) => a + b, 0);
-                const id1Sum = idxs.reduce((a, z) => a + (s1[z] ?? 0), 0);
-                const id2Sum = idxs.reduce((a, z) => a + (s2[z] ?? 0), 0);
+          const { cfg: mergedCfg, descSig } = this.systemAwareMergeWithSig(
+            candidates,
+            i,
+            j,
+            (ia, ib) => (perProgScores[ia]! >= perProgScores[ib]! ? ia : ib)
+          );
+          const compKey = `${Math.min(i, j)}|${Math.max(i, j)}|${descSig}`;
+          if (this.mergeCompositionKeys.has(compKey)) continue;
+          this.mergeCompositionKeys.add(compKey);
 
-                if (newSum >= Math.max(id1Sum, id2Sum) + this.tieEpsilon) {
-                  verboseLog(
-                    `Iteration ${t + 1}: Merge accepted (programs ${i} + ${j} via ancestor ${a})`
-                  );
-                  const childVec = await evalOnSet(childInstrMerged, paretoSet);
-                  candidates.push({
-                    instruction: childInstrMerged,
-                    parent: a,
-                    scores: childVec,
-                  });
-                  perInstanceScores.push(
-                    await evalOnSetScalar(childInstrMerged, paretoSet)
-                  );
-                  const beforeSize = archive.length;
-                  const hvBefore =
-                    hypervolume2D(
-                      archive.map((idx) => candidates[idx]!.scores)
-                    ) ?? 0;
-                  archive = buildParetoFront(
-                    candidates.map((c, idx) => ({ idx, scores: c.scores })),
-                    this.tieEpsilon
-                  ).map((p) => p.idx);
-                  const hvAfter =
-                    hypervolume2D(
-                      archive.map((idx) => candidates[idx]!.scores)
-                    ) ?? 0;
-                  if (
-                    archive.length > beforeSize ||
-                    hvAfter > hvBefore + 1e-6
-                  ) {
-                    stagnation = 0;
-                  }
-                  this.mergesDue -= 1;
-                  this.totalMergesTested += 1;
-                }
+          const s1 = perInstanceScores[i]!;
+          const s2 = perInstanceScores[j]!;
+          const allIdx = Array.from({ length: s1.length }, (_, z) => z);
+          const p1 = allIdx.filter((z) => (s1[z] ?? 0) > (s2[z] ?? 0));
+          const p2 = allIdx.filter((z) => (s2[z] ?? 0) > (s1[z] ?? 0));
+          const p3 = allIdx.filter((z) => !(p1.includes(z) || p2.includes(z)));
+          const K = 5;
+          const nEach = Math.ceil(K / 3);
+          const pickSome = (arr: number[], k: number): number[] => {
+            if (k <= 0 || arr.length === 0) return [];
+            if (arr.length <= k) return [...arr];
+            const out: number[] = [];
+            const used = new Set<number>();
+            while (out.length < k) {
+              const idx = Math.floor(this.rand() * arr.length);
+              if (!used.has(idx)) {
+                used.add(idx);
+                out.push(arr[idx]!);
               }
             }
+            return out;
+          };
+          const chosen: number[] = [];
+          chosen.push(...pickSome(p1, Math.min(nEach, p1.length)));
+          chosen.push(...pickSome(p2, Math.min(nEach, p2.length)));
+          const rem = K - chosen.length;
+          chosen.push(...pickSome(p3, Math.max(0, rem)));
+          const remaining = K - chosen.length;
+          if (remaining > 0) {
+            const unused = allIdx.filter((z) => !chosen.includes(z));
+            chosen.push(
+              ...pickSome(unused, Math.min(remaining, unused.length))
+            );
           }
-          if (attempted) {
-            // Skip reflective this iteration
+          const idxs = chosen.slice(0, Math.min(K, allIdx.length));
+          const subsample = idxs.map((z) => paretoSet[z]!);
+          const mergeEval = await evalBatch(
+            mergedCfg,
+            subsample as readonly AxTypedExample<IN>[],
+            'merge subsample'
+          );
+          if (!mergeEval) break;
+
+          const newSum = mergeEval.sum;
+          const id1Sum = idxs.reduce((sum, z) => sum + (s1[z] ?? 0), 0);
+          const id2Sum = idxs.reduce((sum, z) => sum + (s2[z] ?? 0), 0);
+
+          if (
+            newSum >=
+            Math.max(id1Sum, id2Sum) + this.minImprovementThreshold
+          ) {
+            verboseLog(
+              `Iteration ${t + 1}: Merge accepted (programs ${i} + ${j} via ancestor ${a})`
+            );
+            const childEval = await evalBatch(
+              mergedCfg,
+              paretoSet,
+              'merge validation'
+            );
+            if (!childEval) break;
+            candidates.push({
+              cfg: { ...mergedCfg },
+              parent: a,
+              scores: childEval.avg,
+            });
+            perInstanceScores.push(childEval.scalars);
+            const beforeSize = archive.length;
+            const hvBefore =
+              hypervolume2D(archive.map((idx) => candidates[idx]!.scores)) ?? 0;
+            archive = buildParetoFront(
+              candidates.map((c, idx) => ({ idx, scores: c.scores })),
+              this.tieEpsilon
+            ).map((p) => p.idx);
+            const hvAfter =
+              hypervolume2D(archive.map((idx) => candidates[idx]!.scores)) ?? 0;
+            if (archive.length > beforeSize || hvAfter > hvBefore + 1e-6) {
+              stagnation = 0;
+            }
+            this.mergesDue -= 1;
+            this.totalMergesTested += 1;
+            triedMerges.add(triKey);
+            mergeAccepted = true;
+          }
+          if (mergeAccepted) {
             continue;
           }
         }
@@ -639,184 +698,156 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
         () => this.rand()
       );
 
-      const mini = this.minibatch
-        ? this.nextMinibatchIndices(feedbackSet.length, t).map(
-            (z: number) => feedbackSet[z]!
-          )
-        : feedbackSet;
+      this.lastIterFoundNewProgram = false;
 
-      // Skip reflection if all minibatch scores are perfect (default: true)
+      const mini = this.minibatch
+        ? this.nextMinibatchIndices(effectiveFeedbackSet.length, t).map(
+            (z: number) => effectiveFeedbackSet[z]!
+          )
+        : effectiveFeedbackSet;
+
+      const parentMiniEval = await evalBatch(
+        candidates[parentIdx]!.cfg,
+        mini as readonly AxTypedExample<IN>[],
+        'parent minibatch'
+      );
+      if (!parentMiniEval) break;
+
       if ((options as any)?.skipPerfectScore ?? true) {
         const perfect = Number((options as any)?.perfectScore ?? 1);
-        const parentMiniScores = await evalOnSetScalar(
-          candidates[parentIdx]!.instruction,
-          mini
-        );
         if (
-          parentMiniScores.length > 0 &&
-          parentMiniScores.every((s) => s >= perfect)
+          parentMiniEval.scalars.length > 0 &&
+          parentMiniEval.scalars.every((score) => score >= perfect)
         ) {
           continue;
         }
       }
 
-      const useMerge = false as const;
-
-      let childInstr = candidates[parentIdx]!.instruction;
-      let strategy: 'reflective_mutation' | 'merge' = 'reflective_mutation';
+      const proposedCfg: Record<string, string> = {
+        ...candidates[parentIdx]!.cfg,
+      };
+      const strategy: 'reflective_mutation' | 'system_merge' =
+        'reflective_mutation';
       // For adapter-based strict acceptance
       let adapterParentSum: number | undefined;
       let adapterChildSum: number | undefined;
+      const target = targets[t % targets.length]!;
+      const currentInstruction = candidates[parentIdx]!.cfg[target.id]!;
+      const adapter = (options as any)?.gepaAdapter as
+        | AxGEPAAdapter
+        | undefined;
+      let newInstruction: string | undefined;
 
-      if (useMerge) {
-        const second = (parentIdx + 1) % candidates.length;
-        childInstr = await this.mergeInstructions(
-          candidates[parentIdx]!.instruction,
-          candidates[second]!.instruction,
-          options
-        );
-        strategy = 'merge';
-        this.mergesUsed += 1;
-      } else {
-        const adapter = (options as any)?.gepaAdapter as
-          | AxGEPAAdapter
-          | undefined;
-        if (adapter) {
-          try {
-            const parentMap = {
-              instruction: candidates[parentIdx]!.instruction,
-            };
-            const evalParent = await adapter.evaluate(
-              mini as any,
-              parentMap,
-              true
-            );
-            adapterParentSum = Array.isArray(evalParent?.scores)
-              ? evalParent.scores.reduce((a, b) => a + (Number(b) || 0), 0)
-              : undefined;
-            const reflDs = adapter.make_reflective_dataset(
-              parentMap,
-              evalParent as any,
-              ['instruction']
-            );
-            const proposedMap = await (adapter.propose_new_texts?.(
-              parentMap,
-              reflDs,
-              ['instruction']
-            ) as any);
-            const proposedText =
-              proposedMap?.instruction ??
-              (proposedMap
-                ? (Object.values(proposedMap)[0] as any)
-                : undefined);
-            if (typeof proposedText === 'string' && proposedText.length > 0) {
-              childInstr = proposedText;
-            } else {
-              childInstr = await this.reflectInstruction(
-                candidates[parentIdx]!.instruction,
-                program,
-                mini,
-                async ({ prediction, example }) => {
-                  const scores = await (metricFn as unknown as AxMultiMetricFn)(
-                    {
-                      prediction,
-                      example,
-                    }
-                  );
-                  const vals = Object.values(scores || {});
-                  return vals.length
-                    ? vals.reduce((a, b) => a + b, 0) / vals.length
-                    : 0;
-                },
-                options
-              );
-            }
-          } catch {
-            childInstr = await this.reflectInstruction(
-              candidates[parentIdx]!.instruction,
-              program,
-              mini,
-              async ({ prediction, example }) => {
-                const scores = await (metricFn as unknown as AxMultiMetricFn)({
-                  prediction,
-                  example,
-                });
-                const vals = Object.values(scores || {});
-                return vals.length
-                  ? vals.reduce((a, b) => a + b, 0) / vals.length
-                  : 0;
-              },
-              options
-            );
-          }
-          if (adapterParentSum !== undefined) {
-            try {
-              const evalChild = await adapter.evaluate(
-                mini as any,
-                { instruction: childInstr },
-                false
-              );
-              adapterChildSum = Array.isArray(evalChild?.scores)
-                ? evalChild.scores.reduce((a, b) => a + (Number(b) || 0), 0)
-                : undefined;
-            } catch {}
-          }
-        } else {
-          childInstr = await this.reflectInstruction(
-            candidates[parentIdx]!.instruction,
-            program,
-            mini,
-            async ({ prediction, example }) => {
-              const scores = await (metricFn as unknown as AxMultiMetricFn)({
-                prediction,
-                example,
-              });
-              const vals = Object.values(scores || {});
-              return vals.length
-                ? vals.reduce((a, b) => a + b, 0) / vals.length
-                : 0;
-            },
-            options
+      const parentTuples = parentMiniEval.rows.map((row) => ({
+        input: row.input,
+        prediction: row.prediction,
+        score: row.scalar,
+      }));
+
+      if (adapter) {
+        try {
+          const evalParent = await adapter.evaluate(
+            mini as any,
+            { ...candidates[parentIdx]!.cfg },
+            true
           );
-        }
+          adapterParentSum = Array.isArray(evalParent?.scores)
+            ? evalParent.scores.reduce(
+                (sum, score) => sum + (Number(score) || 0),
+                0
+              )
+            : undefined;
+          const reflDs = adapter.make_reflective_dataset(
+            { ...candidates[parentIdx]!.cfg },
+            evalParent as any,
+            [target.id]
+          );
+          const proposedMap = await (adapter.propose_new_texts?.(
+            { ...candidates[parentIdx]!.cfg },
+            reflDs,
+            [target.id]
+          ) as any);
+          const proposedText =
+            proposedMap?.[target.id] ??
+            (proposedMap ? (Object.values(proposedMap)[0] as any) : undefined);
+          if (typeof proposedText === 'string' && proposedText.length > 0) {
+            newInstruction = proposedText;
+          }
+        } catch {}
       }
 
-      const parentMiniArr = await evalOnSetScalar(
-        candidates[parentIdx]!.instruction,
-        mini
+      if (!newInstruction) {
+        newInstruction = await this.reflectTargetInstruction(
+          target.id,
+          currentInstruction,
+          program,
+          applyConfig,
+          { ...candidates[parentIdx]!.cfg },
+          mini,
+          async ({ prediction, example }) =>
+            scalarize(await normalizeScores(prediction, example)),
+          options,
+          parentTuples
+        );
+      }
+      proposedCfg[target.id] = newInstruction;
+
+      if (adapter && adapterParentSum !== undefined) {
+        try {
+          const evalChild = await adapter.evaluate(
+            mini as any,
+            proposedCfg,
+            false
+          );
+          adapterChildSum = Array.isArray(evalChild?.scores)
+            ? evalChild.scores.reduce(
+                (sum, score) => sum + (Number(score) || 0),
+                0
+              )
+            : undefined;
+        } catch {}
+      }
+
+      const childMiniEval = await evalBatch(
+        proposedCfg,
+        mini as readonly AxTypedExample<IN>[],
+        'child minibatch'
       );
-      const childMiniArr = await evalOnSetScalar(childInstr, mini);
-      const parentMiniSum = parentMiniArr.reduce((a, b) => a + b, 0);
-      const childMiniSum = childMiniArr.reduce((a, b) => a + b, 0);
+      if (!childMiniEval) break;
 
       this.currentRound = t + 1;
       await this.updateOptimizationProgress(
         this.currentRound,
-        childMiniSum,
+        childMiniEval.sum,
         {
-          instructionLen: childInstr.length,
+          instructionLen: newInstruction.length,
+          target: target.id,
           parent: parentIdx,
           totalRounds: this.numTrials,
         },
         'GEPA',
-        { strategy, paretoSetSize: paretoSet.length },
-        childMiniSum,
         {
-          instructionLen: candidates[parentIdx]!.instruction.length,
+          strategy,
+          paretoSetSize: paretoSet.length,
+          tunableCount: targets.length,
+        },
+        childMiniEval.sum,
+        {
+          instructionLen: currentInstruction.length,
           idx: parentIdx,
         },
         { ...(options ?? {}), maxIterations: this.numTrials }
       );
 
       const accepted =
-        childMiniSum > parentMiniSum + this.tieEpsilon &&
+        childMiniEval.sum > parentMiniEval.sum + this.minImprovementThreshold &&
         (adapterParentSum === undefined ||
           adapterChildSum === undefined ||
-          adapterChildSum > adapterParentSum + this.tieEpsilon);
+          adapterChildSum > adapterParentSum + this.minImprovementThreshold);
 
       if (!accepted) {
         verboseLog(
-          `Iteration ${t + 1}: Rejected (child=${childMiniSum.toFixed(3)} <= parent=${parentMiniSum.toFixed(3)})`
+          `Iteration ${t + 1}: Rejected (child=${childMiniEval.sum.toFixed(3)} <= parent=${parentMiniEval.sum.toFixed(3)})`
         );
         if (++stagnation >= this.earlyStoppingTrials) {
           verboseLog(
@@ -828,18 +859,22 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
       }
 
       verboseLog(
-        `Iteration ${t + 1}: Accepted (child=${childMiniSum.toFixed(3)} > parent=${parentMiniSum.toFixed(3)})`
+        `Iteration ${t + 1}: Accepted (child=${childMiniEval.sum.toFixed(3)} > parent=${parentMiniEval.sum.toFixed(3)})`
       );
 
       // Full evaluation on validation set (vector) and archive update
-      const childVec = await evalOnSet(childInstr, paretoSet);
+      const childEval = await evalBatch(
+        proposedCfg,
+        paretoSet,
+        'validation evaluation'
+      );
+      if (!childEval) break;
       candidates.push({
-        instruction: childInstr,
+        cfg: { ...proposedCfg },
         parent: parentIdx,
-        scores: childVec,
+        scores: childEval.avg,
       });
-      // Store per-instance scalar scores for Algorithm 2 selection
-      perInstanceScores.push(await evalOnSetScalar(childInstr, paretoSet));
+      perInstanceScores.push(childEval.scalars);
 
       const beforeSize = archive.length;
       const hvBefore =
@@ -926,7 +961,11 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
         ? new AxOptimizedProgramImpl<OUT>({
             bestScore,
             stats: this.stats,
-            instruction: candidates[bestCandidateIdx]!.instruction,
+            instruction:
+              targets.length === 1
+                ? candidates[bestCandidateIdx]!.cfg[targetIds[0]!]
+                : undefined,
+            instructionMap: { ...candidates[bestCandidateIdx]!.cfg },
             demos: [],
             examples: examples as unknown as any[],
             modelConfig: undefined,
@@ -938,7 +977,12 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
         : undefined;
 
     // Generate optimization insights report
-    const report = this.generateOptimizationReport(pareto, hv, bestScore);
+    const report = this.generateOptimizationReport(
+      pareto,
+      hv,
+      bestScore,
+      candidates.length
+    );
 
     return {
       demos: [],
@@ -949,7 +993,10 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
         scores: p.scores,
         configuration: {
           candidate: p.idx,
-          instruction: candidates[p.idx]!.instruction,
+          instructionMap: { ...candidates[p.idx]!.cfg },
+          ...(targets.length === 1
+            ? { instruction: candidates[p.idx]!.cfg[targetIds[0]!] }
+            : {}),
         },
         dominatedSolutions: p.dominated,
       })),
@@ -958,6 +1005,7 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
       finalConfiguration: {
         strategy: 'gepa',
         candidates: candidates.length,
+        tunables: targets.length,
       },
       // Extra field (not part of AxParetoResult): unified optimized program for easy save/apply
       optimizedProgram,
@@ -1006,6 +1054,46 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
     }
 
     return 'Follow the task precisely. Be concise, correct, and consistent.';
+  }
+
+  private getInstructionTargets<IN, OUT extends AxGenOut>(
+    program: Readonly<AxProgrammable<IN, OUT>>
+  ): AxGEPAInstructionTarget[] {
+    const seen = new Set<string>();
+    const out: AxGEPAInstructionTarget[] = [];
+    const maybeAdd = (id: string | undefined, prog: unknown): void => {
+      const instructionProgram = prog as AxGEPAInstructionTarget['program'];
+      if (
+        !id ||
+        seen.has(id) ||
+        typeof instructionProgram?.setInstruction !== 'function'
+      ) {
+        return;
+      }
+      seen.add(id);
+      out.push({
+        id,
+        program: instructionProgram,
+        signature: instructionProgram.getSignature?.()?.toString?.(),
+      });
+    };
+
+    if (
+      'namedProgramInstances' in program &&
+      typeof (program as any).namedProgramInstances === 'function'
+    ) {
+      const namedProgramInstances =
+        ((program as any).namedProgramInstances() as
+          | AxNamedProgramInstance[]
+          | undefined
+          | null) ?? [];
+      for (const entry of namedProgramInstances) {
+        maybeAdd(entry?.id, entry?.program);
+      }
+    }
+
+    maybeAdd((program as any).getId?.(), program);
+    return out;
   }
 
   private async evaluateOnSet<IN, OUT extends AxGenOut>(
@@ -1071,6 +1159,112 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
     }
   }
 
+  private async reflectTargetInstruction<IN, OUT extends AxGenOut>(
+    targetId: string,
+    currentInstruction: string,
+    program: Readonly<AxProgrammable<IN, OUT>>,
+    applyConfig: (cfg: Readonly<Record<string, string>>) => void,
+    cfg: Record<string, string>,
+    minibatch: readonly AxTypedExample<IN>[],
+    metricFn: AxMetricFn,
+    options?: AxCompileOptions,
+    preEvaluatedTuples?: Array<{
+      input: AxExample;
+      prediction: unknown;
+      score: number;
+    }>
+  ): Promise<string> {
+    const tuples: Array<{
+      input: AxExample;
+      prediction: unknown;
+      score: number;
+    }> = preEvaluatedTuples ? [...preEvaluatedTuples] : [];
+
+    if (tuples.length === 0) {
+      for (const ex of minibatch) {
+        try {
+          cfg[targetId] = currentInstruction;
+          applyConfig(cfg);
+          const pred = await program.forward(
+            this.studentAI,
+            ex as IN,
+            {
+              sampleCount: this.sampleCount,
+            } as any
+          );
+          this.stats.totalCalls += 1;
+          const score = await metricFn({
+            prediction: pred,
+            example: ex as AxExample,
+          });
+          tuples.push({
+            input: ex as AxExample,
+            prediction: pred,
+            score: typeof score === 'number' ? score : 0,
+          });
+        } catch {
+          tuples.push({ input: ex as AxExample, prediction: {}, score: 0 });
+        }
+      }
+    }
+
+    const aiToUse: AxAIService =
+      options?.overrideTeacherAI ?? this.teacherAI ?? this.studentAI;
+    const critic = ax(
+      `targetId:string "Target program ID", minibatch:json "Array of {input,prediction,score}", evalFeedback?:string[] "Evaluator feedback when available" -> feedbackSummary:string "Concise program-focused feedback"`
+    );
+
+    const feedbackNotes = (
+      ((options as any)?.feedbackNotes as string[] | undefined) ?? []
+    ).filter((note) => typeof note === 'string' && note.trim().length > 0);
+    const external: string[] = [...feedbackNotes];
+    const feedbackFn = (options as any)?.feedbackFn as
+      | ((
+          arg: Readonly<{ prediction: any; example: AxExample }>
+        ) => string | string[] | undefined)
+      | undefined;
+    if (typeof feedbackFn === 'function') {
+      for (const tuple of tuples) {
+        const fb = feedbackFn({
+          prediction: tuple.prediction,
+          example: tuple.input,
+        });
+        if (fb) Array.isArray(fb) ? external.push(...fb) : external.push(fb);
+      }
+    }
+
+    let feedbackSummary = '';
+    try {
+      const out = (await critic.forward(aiToUse, {
+        targetId,
+        minibatch: tuples,
+        evalFeedback: external,
+      } as any)) as any;
+      feedbackSummary =
+        (out?.feedbackSummary as string | undefined)?.trim() || '';
+    } catch {}
+
+    const refl = ax(
+      `targetId:string "Target program ID", currentInstruction:string "Current instruction", feedbackSummary?:string "Summarized feedback", minibatch:json "Array of {input,prediction,score}" -> newInstruction:string "Improved instruction (1-6 sentences) for the target program"`
+    );
+
+    try {
+      const out = (await refl.forward(aiToUse, {
+        targetId,
+        currentInstruction,
+        feedbackSummary,
+        minibatch: tuples,
+      } as any)) as any;
+      const instr = (out?.newInstruction as string | undefined)?.trim();
+      if (instr && instr.length > 16) return instr;
+    } catch {}
+
+    return `${currentInstruction.trim()} Focus on step-by-step, target-specific reasoning and factual grounding.`.slice(
+      0,
+      2000
+    );
+  }
+
   private async reflectInstruction<IN, OUT extends AxGenOut>(
     currentInstruction: string,
     program: Readonly<AxGen<IN, OUT>>,
@@ -1127,6 +1321,9 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
           arg: Readonly<{ prediction: any; example: AxExample }>
         ) => string | string[] | undefined)
       | undefined = (options as any)?.feedbackFn;
+    const feedbackNotes = (
+      ((options as any)?.feedbackNotes as string[] | undefined) ?? []
+    ).filter((note) => typeof note === 'string' && note.trim().length > 0);
 
     // Build reflective dataset in GEPA format (aligned with reference)
     const formatReflectiveDataset = (): string => {
@@ -1167,7 +1364,10 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
         exampleStr += `${fb}\n`;
         examples.push(exampleStr);
       }
-      return examples.join('\n\n');
+      const extraNotes = feedbackNotes.map(
+        (note, index) => `# Additional Feedback ${index + 1}\n${note}`
+      );
+      return [...extraNotes, ...examples].join('\n\n');
     };
 
     // Use the GEPA-style reflection prompt (aligned with reference)
@@ -1313,10 +1513,66 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
     return ((this.rngState >>> 0) as number) / 4294967296;
   }
 
+  private systemAwareMergeWithSig(
+    candidates: ReadonlyArray<{ cfg: Record<string, string>; parent?: number }>,
+    i: number,
+    j: number,
+    pickBetter: (idxA: number, idxB: number) => number
+  ): { cfg: Record<string, string>; descSig: string } {
+    const ancestors = (idx: number): number[] => {
+      const path: number[] = [];
+      let cur: number | undefined = idx;
+      while (cur !== undefined) {
+        path.push(cur);
+        cur = candidates[cur]?.parent;
+      }
+      return path;
+    };
+    const Ai = ancestors(i);
+    const Aj = ancestors(j);
+    const common = Ai.find((x) => Aj.includes(x));
+    const a = common ?? i;
+
+    const cfgA = candidates[a]!.cfg;
+    const cfgI = candidates[i]!.cfg;
+    const cfgJ = candidates[j]!.cfg;
+
+    const merged: Record<string, string> = {};
+    const picks: ('i' | 'j')[] = [];
+    const allKeys = Array.from(
+      new Set([
+        ...Object.keys(cfgA),
+        ...Object.keys(cfgI),
+        ...Object.keys(cfgJ),
+      ])
+    ).sort();
+    for (const key of allKeys) {
+      const pa = cfgA[key];
+      const pi = cfgI[key];
+      const pj = cfgJ[key];
+      if (pi === pa && pj !== pi) {
+        merged[key] = pj!;
+        picks.push('j');
+      } else if (pj === pa && pi !== pj) {
+        merged[key] = pi!;
+        picks.push('i');
+      } else if (pi !== pj && pi !== pa && pj !== pa) {
+        const pick = pickBetter(i, j);
+        merged[key] = pick === i ? pi! : pj!;
+        picks.push(pick === i ? 'i' : 'j');
+      } else {
+        merged[key] = pi ?? pj ?? pa!;
+        picks.push('i');
+      }
+    }
+    return { cfg: merged, descSig: picks.join('|') };
+  }
+
   private generateOptimizationReport(
     paretoFront: Array<{ scores: Record<string, number>; dominated: number }>,
     hypervolume: number | undefined,
-    bestScore: number | undefined
+    bestScore: number | undefined,
+    candidateCount: number
   ): AxGEPAOptimizationReport {
     // Build best solution data
     const best =
@@ -1400,7 +1656,7 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
       },
       statistics: {
         totalEvaluations: this.stats.totalCalls,
-        candidatesExplored: paretoFront.length,
+        candidatesExplored: candidateCount,
         converged: this.stats.convergenceInfo?.converged ?? false,
       },
       recommendations: {

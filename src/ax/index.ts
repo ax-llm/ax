@@ -511,9 +511,19 @@ import {
 } from './dsp/judge.js';
 import {
   AxLearn,
+  type AxLearnArtifact,
+  type AxLearnContinuousOptions,
+  type AxLearnMode,
+  type AxLearnOptimizeOptions,
   type AxLearnOptions,
+  type AxLearnPlaybook,
+  type AxLearnPlaybookOptions,
+  type AxLearnPlaybookSummary,
   type AxLearnProgress,
   type AxLearnResult,
+  type AxLearnUpdateFeedback,
+  type AxLearnUpdateInput,
+  type AxLearnUpdateOptions,
 } from './dsp/learn.js';
 import { type AxDataRow, AxHFDataLoader } from './dsp/loader.js';
 import {
@@ -576,7 +586,6 @@ import type {
   AxGEPAAdapter,
   AxGEPAEvaluationBatch,
 } from './dsp/optimizers/gepaAdapter.js';
-import { AxGEPAFlow } from './dsp/optimizers/gepaFlow.js';
 import { AxMiPRO, type AxMiPROResult } from './dsp/optimizers/miproV2.js';
 import type {
   AxOptimizerLoggerData,
@@ -625,6 +634,7 @@ import type {
   AxGenOutput,
   AxGenStreamingOut,
   AxMessage,
+  AxNamedProgramInstance,
   AxProgramDemos,
   AxProgramExamples,
   AxProgramForwardOptions,
@@ -731,6 +741,8 @@ import type {
 import { AxMemory } from './mem/memory.js';
 import type {
   AxCheckpoint,
+  AxLearnCheckpointMode,
+  AxLearnCheckpointState,
   AxStorage,
   AxStorageQuery,
   AxTrace,
@@ -876,7 +888,6 @@ export { AxFluentFieldType };
 export { AxFunctionError };
 export { AxFunctionProcessor };
 export { AxGEPA };
-export { AxGEPAFlow };
 export { AxGen };
 export { AxGenerateError };
 export { AxHFDataLoader };
@@ -1343,9 +1354,21 @@ export type { AxJudgeMode };
 export type { AxJudgeOptions };
 export type { AxJudgeResult };
 export type { AxJudgeRubric };
+export type { AxLearnArtifact };
+export type { AxLearnCheckpointMode };
+export type { AxLearnCheckpointState };
+export type { AxLearnContinuousOptions };
+export type { AxLearnMode };
+export type { AxLearnOptimizeOptions };
 export type { AxLearnOptions };
+export type { AxLearnPlaybook };
+export type { AxLearnPlaybookOptions };
+export type { AxLearnPlaybookSummary };
 export type { AxLearnProgress };
 export type { AxLearnResult };
+export type { AxLearnUpdateFeedback };
+export type { AxLearnUpdateInput };
+export type { AxLearnUpdateOptions };
 export type { AxLoggerData };
 export type { AxLoggerFunction };
 export type { AxMCPBlobResourceContents };
@@ -1390,6 +1413,7 @@ export type { AxModelInfoWithProvider };
 export type { AxModelUsage };
 export type { AxMultiMetricFn };
 export type { AxMultiProviderConfig };
+export type { AxNamedProgramInstance };
 export type { AxOptimizationCheckpoint };
 export type { AxOptimizationProgress };
 export type { AxOptimizationStats };

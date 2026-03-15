@@ -1108,7 +1108,7 @@ Below is a comprehensive list of all available examples in [`src/examples/`](htt
 
 ## Next Steps
 
-- [Read the DSPy Concepts](https://github.com/ax-llm/ax/blob/main/../DSPY.md) to understand the theory
-- [Explore the API Reference](https://github.com/ax-llm/ax/blob/main/../API.md) for detailed documentation
+- [Read the DSPy Concepts](/dspy/) to understand the theory
+- [Explore the API Reference](https://github.com/ax-llm/ax/blob/main/docs/API.md) for detailed documentation
 - [Join our Discord](https://discord.gg/DSHg3dU7dW) for help and discussions
 - [Star us on GitHub](https://github.com/ax-llm/ax) if you find Ax useful!

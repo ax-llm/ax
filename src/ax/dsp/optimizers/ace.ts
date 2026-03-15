@@ -141,6 +141,7 @@ export class AxACE extends AxBaseOptimizer {
     initialPlaybook?: AxACEPlaybook;
   };
   private playbook: AxACEPlaybook;
+  private baseInstruction?: string;
   private generatorHistory: AxACEFeedbackEvent[] = [];
   private deltaHistory: AxACEOptimizationArtifact['history'] = [];
 
@@ -173,8 +174,63 @@ export class AxACE extends AxBaseOptimizer {
       this.aceConfig.initialPlaybook !== undefined
         ? clonePlaybook(this.aceConfig.initialPlaybook)
         : createEmptyPlaybook();
+    this.baseInstruction = undefined;
     this.generatorHistory = [];
     this.deltaHistory = [];
+  }
+
+  public hydrate<IN, OUT extends AxGenOut>(
+    program: Readonly<AxGen<IN, OUT>>,
+    state?: Readonly<{
+      baseInstruction?: string;
+      playbook?: AxACEPlaybook;
+      artifact?: Partial<AxACEOptimizationArtifact>;
+    }>
+  ): void {
+    this.program = program as Readonly<AxGen<any, any>>;
+    this.baseInstruction =
+      state?.baseInstruction ??
+      program.getSignature().getDescription() ??
+      undefined;
+    this.playbook =
+      state?.playbook !== undefined
+        ? clonePlaybook(state.playbook)
+        : this.aceConfig.initialPlaybook !== undefined
+          ? clonePlaybook(this.aceConfig.initialPlaybook)
+          : createEmptyPlaybook();
+    this.generatorHistory = [...(state?.artifact?.feedback ?? [])];
+    this.deltaHistory = [...(state?.artifact?.history ?? [])];
+  }
+
+  public getPlaybook(): AxACEPlaybook {
+    return clonePlaybook(this.playbook);
+  }
+
+  public getBaseInstruction(): string | undefined {
+    return this.baseInstruction;
+  }
+
+  public getArtifact(): AxACEOptimizationArtifact {
+    return {
+      playbook: clonePlaybook(this.playbook),
+      feedback: [...this.generatorHistory],
+      history: [...this.deltaHistory],
+    };
+  }
+
+  public applyCurrentState<IN, OUT extends AxGenOut>(
+    program?: AxGen<IN, OUT>
+  ): void {
+    const target = (program ?? this.program) as AxGen<IN, OUT> | undefined;
+    if (!target) {
+      throw new Error('AxACE: no program available to apply playbook state');
+    }
+
+    const baseInstruction =
+      this.baseInstruction ?? target.getSignature().getDescription() ?? '';
+    (target as any).setDescription?.(
+      this.composeInstruction(baseInstruction, this.playbook)
+    );
   }
 
   public configureAuto(level: 'light' | 'medium' | 'heavy'): void {
@@ -226,6 +282,7 @@ export class AxACE extends AxBaseOptimizer {
 
     const baseInstruction = await this.extractProgramInstruction(program);
     const originalDescription = program.getSignature().getDescription() ?? '';
+    this.baseInstruction = baseInstruction ?? originalDescription;
 
     this.generatorHistory = [];
     this.deltaHistory = [];

@@ -567,6 +567,22 @@ agentIdentity?: {
 }
 ```
 
+## Examples
+
+Fetch these for full working code:
+
+- [Agent](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/agent.ts) — basic agent
+- [Functions](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/function.ts) — function validation
+- [Food Search](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/food-search.ts) — API tools
+- [Smart Home](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/smart-home.ts) — state management
+- [RLM](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm.ts) — RLM basic
+- [RLM Long Task](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-long-task.ts) — RLM context policy
+- [RLM Discovery](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-discovery.ts) — discovery mode
+- [RLM Shared Fields](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-shared-fields.ts) — shared fields
+- [RLM Adaptive Replay](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-adaptive-replay.ts) — adaptive replay
+- [Customer Support](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/customer-support.ts) — classification agent
+- [Abort Patterns](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/abort-patterns.ts) — abort handling
+
 ## Do Not Generate
 
 - Do not use `new AxAgent(...)` for new code unless explicitly required.

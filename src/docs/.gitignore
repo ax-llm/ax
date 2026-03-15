@@ -20,6 +20,3 @@ pnpm-debug.log*
 
 # macOS-specific files
 .DS_Store
-
-# api docs
-src/content/docs/apidocs*
