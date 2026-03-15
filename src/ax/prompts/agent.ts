@@ -35,12 +35,17 @@ import {
 import type { ActionLogEntry } from './contextManager.js';
 import {
   buildActionEvidenceSummary,
+  buildActionLogReplayPlan,
   buildActionLogWithPolicy,
   buildInspectRuntimeBaselineCode,
   buildInspectRuntimeCode,
+  buildRuntimeStateProvenance,
   type CheckpointSummaryState,
   generateCheckpointSummaryAsync,
+  getPromptFacingActionLogEntries,
   manageContext,
+  type RuntimeStateSnapshotEntry,
+  type RuntimeStateVariableProvenance,
 } from './contextManager.js';
 import type {
   AxCodeRuntime,
@@ -95,6 +100,13 @@ export type AxAgentFunction = AxFunction & {
 export type AxAgentFunctionGroup = AxAgentFunctionModuleMeta & {
   functions: readonly Omit<AxAgentFunction, 'namespace'>[];
 };
+
+export type AxAgentTestCompletionPayload = {
+  type: 'final' | 'ask_clarification';
+  args: unknown[];
+};
+
+export type AxAgentTestResult = string | AxAgentTestCompletionPayload;
 
 type AxAgentFunctionCollection =
   | readonly AxAgentFunction[]
@@ -257,10 +269,9 @@ const DEFAULT_RLM_MAX_TURNS = 10;
 const DEFAULT_RLM_MAX_RECURSION_DEPTH = 2;
 const DEFAULT_CONTEXT_FIELD_PROMPT_MAX_CHARS = 1_200;
 const DEFAULT_AGENT_MODULE_NAMESPACE = 'agents';
+const DEFAULT_RANK_PRUNE_GRACE_TURNS = 2;
 const DISCOVERY_LIST_MODULE_FUNCTIONS_NAME = 'listModuleFunctions';
 const DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME = 'getFunctionDefinitions';
-const TEST_HARNESS_COMPLETION_ERROR =
-  'AxAgent.test() snippets must not call final(...) or ask_clarification(). Use this harness only to validate runtime code.';
 const TEST_HARNESS_LLM_QUERY_AI_REQUIRED_ERROR =
   'AI service is required to use llmQuery(...) in AxAgent.test(). Pass options.ai or configure ai on the agent.';
 const RUNTIME_RESTART_NOTICE =
@@ -268,24 +279,27 @@ const RUNTIME_RESTART_NOTICE =
 
 type AxResolvedContextPolicy = {
   preset: AxContextPolicyPreset;
+  summarizerOptions?: Omit<AxProgramForwardOptions<string>, 'functions'>;
+  pruneUsedDocs: boolean;
   actionReplay: 'full' | 'adaptive' | 'minimal';
   recentFullActions: number;
   errorPruning: boolean;
   hindsightEvaluation: boolean;
   pruneRank: number;
+  rankPruneGraceTurns: number;
   tombstoning:
     | boolean
     | Omit<AxProgramForwardOptions<string>, 'functions'>
     | undefined;
-  stateSummary: { enabled: boolean; maxEntries?: number };
+  stateSummary: { enabled: boolean; maxEntries?: number; maxChars?: number };
   stateInspection: { enabled: boolean; contextThreshold?: number };
-  checkpoints: { enabled: boolean; triggerChars?: number };
+  checkpoints: {
+    enabled: boolean;
+    triggerChars?: number;
+  };
 };
 
-type AxAgentActorResultPayload = {
-  type: 'final' | 'ask_clarification';
-  args: unknown[];
-};
+type AxAgentActorResultPayload = AxAgentTestCompletionPayload;
 
 type AxAgentRuntimeInputState = {
   currentInputs: Record<string, unknown>;
@@ -308,7 +322,7 @@ type AxAgentRuntimeExecutionContext = {
   executeActorCode: (
     code: string
   ) => Promise<{ output: string; isError: boolean }>;
-  executeTestCode: (code: string) => Promise<string>;
+  executeTestCode: (code: string) => Promise<AxAgentTestResult>;
   close: () => void;
 };
 
@@ -355,6 +369,38 @@ function createCompletionBindings(
   };
 }
 
+function buildInternalSummaryRequestOptions(
+  options: Readonly<AxProgramForwardOptions<string>> | undefined,
+  debug: boolean,
+  abortSignal: AbortSignal | undefined
+): Omit<AxProgramForwardOptions<string>, 'functions'> {
+  return {
+    model: options?.model,
+    modelConfig: options?.modelConfig,
+    debug,
+    verbose: options?.verbose,
+    rateLimiter: options?.rateLimiter,
+    fetch: options?.fetch,
+    tracer: options?.tracer,
+    meter: options?.meter,
+    timeout: options?.timeout,
+    excludeContentFromTrace: options?.excludeContentFromTrace,
+    abortSignal,
+    logger: options?.logger,
+    sessionId: options?.sessionId,
+    debugHideSystemPrompt: options?.debugHideSystemPrompt,
+    traceContext: options?.traceContext,
+    thinkingTokenBudget: options?.thinkingTokenBudget,
+    showThoughts: options?.showThoughts,
+    useExpensiveModel: options?.useExpensiveModel,
+    corsProxy: options?.corsProxy,
+    retry: options?.retry,
+    contextCache: options?.contextCache,
+    examplesInSystem: options?.examplesInSystem,
+    customLabels: options?.customLabels,
+  };
+}
+
 function resolveContextPolicy(
   contextPolicy: AxContextPolicyConfig | undefined
 ): AxResolvedContextPolicy {
@@ -379,6 +425,8 @@ function resolveContextPolicy(
 
   return {
     preset,
+    summarizerOptions: contextPolicy?.summarizerOptions,
+    pruneUsedDocs: contextPolicy?.pruneUsedDocs ?? presetDefaults.pruneUsedDocs,
     actionReplay: contextPolicy?.expert?.replay ?? presetDefaults.actionReplay,
     recentFullActions: Math.max(
       contextPolicy?.expert?.recentFullActions ??
@@ -389,10 +437,12 @@ function resolveContextPolicy(
       contextPolicy?.expert?.pruneErrors ?? presetDefaults.errorPruning,
     hindsightEvaluation: rankPruningEnabled,
     pruneRank: rankPruning?.minRank ?? presetDefaults.pruneRank,
+    rankPruneGraceTurns: DEFAULT_RANK_PRUNE_GRACE_TURNS,
     tombstoning: contextPolicy?.expert?.tombstones,
     stateSummary: {
       enabled: stateSummaryEnabled,
       maxEntries: contextPolicy?.state?.maxEntries ?? presetDefaults.maxEntries,
+      maxChars: contextPolicy?.state?.maxChars ?? presetDefaults.maxStateChars,
     },
     stateInspection: {
       enabled: stateInspectEnabled,
@@ -414,30 +464,34 @@ function getContextPolicyPresetDefaults(preset: AxContextPolicyPreset) {
     case 'adaptive':
       return {
         actionReplay: 'adaptive' as const,
-        recentFullActions: 1,
+        recentFullActions: 2,
         errorPruning: true,
         hindsight: false,
         pruneRank: 2,
+        pruneUsedDocs: true,
         stateSummary: true,
         inspect: true,
-        inspectThreshold: 2_000,
+        inspectThreshold: 8_000,
         maxEntries: 6,
+        maxStateChars: 1_200,
         checkpointsEnabled: true,
-        checkpointTriggerChars: 2_000,
+        checkpointTriggerChars: 12_000,
       };
     case 'lean':
       return {
         actionReplay: 'minimal' as const,
-        recentFullActions: 0,
+        recentFullActions: 1,
         errorPruning: true,
-        hindsight: true,
+        hindsight: false,
         pruneRank: 2,
+        pruneUsedDocs: true,
         stateSummary: true,
         inspect: true,
-        inspectThreshold: 1_500,
-        maxEntries: 6,
+        inspectThreshold: 6_000,
+        maxEntries: 4,
+        maxStateChars: 800,
         checkpointsEnabled: true,
-        checkpointTriggerChars: 1_500,
+        checkpointTriggerChars: 9_000,
       };
     default:
       return {
@@ -446,10 +500,12 @@ function getContextPolicyPresetDefaults(preset: AxContextPolicyPreset) {
         errorPruning: false,
         hindsight: false,
         pruneRank: 2,
+        pruneUsedDocs: false,
         stateSummary: false,
         inspect: false,
         inspectThreshold: undefined,
         maxEntries: undefined,
+        maxStateChars: undefined,
         checkpointsEnabled: false,
         checkpointTriggerChars: undefined,
       };
@@ -1028,6 +1084,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         selectionCriteria:
           this.agentFunctionModuleMetadata.get(namespace)?.selectionCriteria,
       }));
+    const effectiveContextPolicy = resolveContextPolicy(
+      this.rlmConfig.contextPolicy
+    );
 
     const actorDef = axBuildActorDefinition(
       this.actorDescription,
@@ -1037,8 +1096,15 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         runtimeUsageInstructions: this.runtimeUsageInstructions,
         maxSubAgentCalls: effectiveMaxSubAgentCalls,
         maxTurns: effectiveMaxTurns,
-        hasInspectRuntime: resolveContextPolicy(this.rlmConfig.contextPolicy)
-          .stateInspection.enabled,
+        hasInspectRuntime: effectiveContextPolicy.stateInspection.enabled,
+        hasLiveRuntimeState: effectiveContextPolicy.stateSummary.enabled,
+        hasCompressedActionReplay:
+          effectiveContextPolicy.actionReplay !== 'full' ||
+          effectiveContextPolicy.checkpoints.enabled ||
+          effectiveContextPolicy.errorPruning ||
+          Boolean(effectiveContextPolicy.tombstoning) ||
+          (this.functionDiscoveryEnabled &&
+            effectiveContextPolicy.pruneUsedDocs),
         enforceIncrementalConsoleTurns: this.enforceIncrementalConsoleTurns,
         agentModuleNamespace: this.agentModuleNamespace,
         discoveryMode: this.functionDiscoveryEnabled,
@@ -1595,6 +1661,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     debug,
     completionState,
     completionBindings,
+    actionLogEntries,
   }: Readonly<{
     ai?: AxAIService;
     inputState: AxAgentRuntimeInputState;
@@ -1605,6 +1672,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     debug: boolean;
     completionState: AxAgentRuntimeCompletionState;
     completionBindings: ReturnType<typeof createCompletionBindings>;
+    actionLogEntries?: ActionLogEntry[];
   }>): AxAgentRuntimeExecutionContext {
     const rlm = this.rlmConfig;
     const runtime = this.runtime;
@@ -1917,6 +1985,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       ...reservedTopLevelNames,
       ...runtimeAliasKeys,
     ];
+    const runtimeActionLogEntries = actionLogEntries ?? [];
     let session!: AxCodeSession;
     let inspectBaselineNames: string[] | undefined;
 
@@ -1965,8 +2034,27 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       }
     };
 
+    const renderRuntimeState = (
+      snapshot: string,
+      options?: Readonly<{ maxEntries?: number; maxChars?: number }>
+    ): string => {
+      const structuredEntries = parseRuntimeStateSnapshot(snapshot);
+
+      if (!structuredEntries) {
+        return formatLegacyRuntimeState(snapshot, options);
+      }
+
+      const provenance = buildRuntimeStateProvenance(runtimeActionLogEntries);
+      return formatStructuredRuntimeState(
+        structuredEntries,
+        provenance,
+        options
+      );
+    };
+
     const inspectRuntime = effectiveContextConfig.stateInspection.enabled
-      ? async (): Promise<string> => inspectRuntimeState()
+      ? async (): Promise<string> =>
+          renderRuntimeState(await inspectRuntimeState())
       : undefined;
 
     const createSession = () => {
@@ -1995,21 +2083,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       }
     };
 
-    const formatStateSummary = (snapshot: string): string => {
-      const maxEntries =
-        effectiveContextConfig.stateSummary.maxEntries &&
-        effectiveContextConfig.stateSummary.maxEntries > 0
-          ? effectiveContextConfig.stateSummary.maxEntries
-          : 8;
-
-      return snapshot
-        .split('\n')
-        .map((line) => line.trim())
-        .filter(Boolean)
-        .slice(0, maxEntries)
-        .join('\n');
-    };
-
     const captureRuntimeStateSummary = async (): Promise<
       string | undefined
     > => {
@@ -2018,7 +2091,18 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       }
 
       const snapshot = await inspectRuntimeState();
-      const formatted = formatStateSummary(snapshot);
+      const formatted = renderRuntimeState(snapshot, {
+        maxEntries:
+          effectiveContextConfig.stateSummary.maxEntries &&
+          effectiveContextConfig.stateSummary.maxEntries > 0
+            ? effectiveContextConfig.stateSummary.maxEntries
+            : 8,
+        maxChars:
+          effectiveContextConfig.stateSummary.maxChars &&
+          effectiveContextConfig.stateSummary.maxChars > 0
+            ? effectiveContextConfig.stateSummary.maxChars
+            : undefined,
+      });
       return formatted || '(no user variables)';
     };
 
@@ -2163,7 +2247,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       }
     };
 
-    const executeTestCode = async (code: string): Promise<string> => {
+    const executeTestCode = async (
+      code: string
+    ): Promise<AxAgentTestResult> => {
       try {
         const result = await session.execute(code, {
           signal: effectiveAbortSignal,
@@ -2176,7 +2262,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           await waitForCompletionSignal();
         }
         if (completionState.payload) {
-          throw new Error(TEST_HARNESS_COMPLETION_ERROR);
+          return completionState.payload;
         }
         const output = formatInterpreterOutput(result, maxRuntimeChars);
         if (isLikelyRuntimeErrorOutput(output)) {
@@ -2188,7 +2274,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           err instanceof AxAgentProtocolCompletionSignal ||
           completionState.payload
         ) {
-          throw new Error(TEST_HARNESS_COMPLETION_ERROR);
+          if (completionState.payload) {
+            return completionState.payload;
+          }
         }
         throw err;
       }
@@ -2226,7 +2314,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       abortSignal?: AbortSignal;
       debug?: boolean;
     }>
-  ): Promise<string> {
+  ): Promise<AxAgentTestResult> {
     const ai = this.ai ?? options?.ai;
     const debug =
       options?.debug ?? this.debug ?? ai?.getOptions()?.debug ?? false;
@@ -2254,6 +2342,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       debug,
       completionState,
       completionBindings,
+      actionLogEntries: [],
     });
 
     try {
@@ -2325,6 +2414,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       }
       completionState.payload = { type, args };
     });
+    const actionLogEntries: ActionLogEntry[] = [];
+    let runtimeStateSummary: string | undefined;
     const runtimeContext = this._createRuntimeExecutionContext({
       ai,
       inputState,
@@ -2333,6 +2424,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       debug,
       completionState,
       completionBindings,
+      actionLogEntries,
     });
 
     const applyInputUpdateCallback = async () => {
@@ -2359,9 +2451,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       }
     };
 
-    const actionLogEntries: ActionLogEntry[] = [];
-    let runtimeStateSummary: string | undefined;
-
     const actorMergedOptions = {
       ...this._genOptions,
       ...this.actorForwardOptions,
@@ -2375,22 +2464,23 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       .stateInspection.enabled
       ? runtimeContext.effectiveContextConfig.stateInspection.contextThreshold
       : undefined;
+    const summaryForwardOptions = buildInternalSummaryRequestOptions(
+      options,
+      debug,
+      effectiveAbortSignal
+    );
+    const shouldPruneUsedDocs =
+      this.functionDiscoveryEnabled &&
+      runtimeContext.effectiveContextConfig.pruneUsedDocs;
     let checkpointState: CheckpointSummaryState | undefined;
 
-    const getCheckpointCandidates = () => {
-      const checkpointableCount = Math.max(
-        actionLogEntries.length -
-          runtimeContext.effectiveContextConfig.recentFullActions,
-        0
-      );
-
-      return actionLogEntries
-        .slice(0, checkpointableCount)
-        .filter((entry) => !entry.tags.includes('error'));
-    };
+    const getPromptFacingEntries = () =>
+      getPromptFacingActionLogEntries(actionLogEntries, {
+        pruneUsedDocs: shouldPruneUsedDocs,
+      });
 
     const renderActionLog = () =>
-      buildActionLogWithPolicy(actionLogEntries, {
+      buildActionLogWithPolicy(getPromptFacingEntries(), {
         actionReplay: runtimeContext.effectiveContextConfig.actionReplay,
         recentFullActions:
           runtimeContext.effectiveContextConfig.recentFullActions,
@@ -2405,21 +2495,21 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         return;
       }
 
-      const rawActionLog = buildActionLogWithPolicy(actionLogEntries, {
+      const replayPlan = buildActionLogReplayPlan(actionLogEntries, {
         actionReplay: runtimeContext.effectiveContextConfig.actionReplay,
         recentFullActions:
           runtimeContext.effectiveContextConfig.recentFullActions,
-        stateSummary: runtimeStateSummary,
+        pruneUsedDocs: shouldPruneUsedDocs,
       });
 
       const triggerChars =
         runtimeContext.effectiveContextConfig.checkpoints.triggerChars;
-      if (!triggerChars || rawActionLog.length <= triggerChars) {
+      if (!triggerChars || replayPlan.historyChars <= triggerChars) {
         checkpointState = undefined;
         return;
       }
 
-      const checkpointEntries = getCheckpointCandidates();
+      const checkpointEntries = replayPlan.checkpointEntries;
       if (checkpointEntries.length === 0) {
         checkpointState = undefined;
         return;
@@ -2443,7 +2533,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       checkpointState = {
         fingerprint,
         turns: checkpointEntries.map((entry) => entry.turn),
-        summary: await generateCheckpointSummaryAsync(ai, checkpointEntries),
+        summary: await generateCheckpointSummaryAsync(
+          ai,
+          runtimeContext.effectiveContextConfig.summarizerOptions,
+          summaryForwardOptions,
+          checkpointEntries
+        ),
       };
     };
 
@@ -2455,7 +2550,14 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         await refreshCheckpointSummary();
 
         let actionLogText = renderActionLog();
-        if (contextThreshold && actionLogText.length > contextThreshold) {
+        const replayPlan = buildActionLogReplayPlan(actionLogEntries, {
+          actionReplay: runtimeContext.effectiveContextConfig.actionReplay,
+          recentFullActions:
+            runtimeContext.effectiveContextConfig.recentFullActions,
+          pruneUsedDocs: shouldPruneUsedDocs,
+          checkpointTurns: checkpointState?.turns,
+        });
+        if (contextThreshold && replayPlan.historyChars > contextThreshold) {
           actionLogText +=
             '\n\n[HINT: Action log is large. Call `const state = await inspect_runtime()` for a compact snapshot of current variables instead of re-reading old outputs.]';
         }
@@ -2520,7 +2622,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
               actionLogEntries,
               actionLogEntries.length - 1,
               runtimeContext.effectiveContextConfig,
-              ai
+              ai,
+              summaryForwardOptions
             );
             runtimeStateSummary =
               await runtimeContext.captureRuntimeStateSummary();
@@ -2546,7 +2649,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           actionLogEntries,
           actionLogEntries.length - 1,
           runtimeContext.effectiveContextConfig,
-          ai
+          ai,
+          summaryForwardOptions
         );
         runtimeStateSummary = await runtimeContext.captureRuntimeStateSummary();
         await refreshCheckpointSummary();
@@ -2574,6 +2678,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
             stateSummary: runtimeStateSummary,
             checkpointSummary: checkpointState?.summary,
             checkpointTurns: checkpointState?.turns,
+            pruneUsedDocs: shouldPruneUsedDocs,
           }),
         ],
       } satisfies AxAgentActorResultPayload);
@@ -3022,6 +3127,209 @@ function truncateText(text: string, maxChars: number): string {
     return text;
   }
   return `${text.slice(0, maxChars)}\n...[truncated ${text.length - maxChars} chars]`;
+}
+
+function truncateToCharBudget(text: string, maxChars: number): string {
+  if (maxChars <= 0) {
+    return '';
+  }
+  if (text.length <= maxChars) {
+    return text;
+  }
+  if (maxChars <= 3) {
+    return text.slice(0, maxChars);
+  }
+  return `${text.slice(0, maxChars - 3)}...`;
+}
+
+function isRuntimeStateSnapshotEntry(
+  value: unknown
+): value is RuntimeStateSnapshotEntry {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.name === 'string' &&
+    typeof candidate.type === 'string' &&
+    (candidate.ctor === undefined || typeof candidate.ctor === 'string') &&
+    (candidate.size === undefined || typeof candidate.size === 'string') &&
+    (candidate.preview === undefined || typeof candidate.preview === 'string')
+  );
+}
+
+function parseRuntimeStateSnapshot(
+  snapshot: string
+): RuntimeStateSnapshotEntry[] | undefined {
+  const trimmed = snapshot.trim();
+  if (!trimmed || (trimmed[0] !== '{' && trimmed[0] !== '[')) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed) as
+      | { entries?: unknown[] }
+      | unknown[]
+      | null;
+    const rawEntries = Array.isArray(parsed)
+      ? parsed
+      : parsed && typeof parsed === 'object' && Array.isArray(parsed.entries)
+        ? parsed.entries
+        : undefined;
+
+    if (!rawEntries) {
+      return undefined;
+    }
+
+    return rawEntries.filter(isRuntimeStateSnapshotEntry);
+  } catch {
+    return undefined;
+  }
+}
+
+function formatRuntimeStateLines(
+  lines: readonly string[],
+  options?: Readonly<{ maxEntries?: number; maxChars?: number }>
+): string {
+  const maxEntries =
+    options?.maxEntries && options.maxEntries > 0
+      ? options.maxEntries
+      : undefined;
+  const maxChars =
+    options?.maxChars && options.maxChars > 0 ? options.maxChars : undefined;
+  const boundedLines = maxEntries ? lines.slice(0, maxEntries) : [...lines];
+
+  if (!maxChars) {
+    return boundedLines.join('\n');
+  }
+
+  const result: string[] = [];
+  let usedChars = 0;
+  for (const line of boundedLines) {
+    const separatorChars = result.length > 0 ? 1 : 0;
+    const remainingChars = maxChars - usedChars - separatorChars;
+    if (remainingChars <= 0) {
+      break;
+    }
+    if (line.length <= remainingChars) {
+      result.push(line);
+      usedChars += separatorChars + line.length;
+      continue;
+    }
+    result.push(truncateToCharBudget(line, remainingChars));
+    usedChars = maxChars;
+    break;
+  }
+
+  return result.join('\n');
+}
+
+function formatLegacyRuntimeState(
+  snapshot: string,
+  options?: Readonly<{ maxEntries?: number; maxChars?: number }>
+): string {
+  const lines = snapshot
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  return formatRuntimeStateLines(lines, options);
+}
+
+function getRuntimeStateSalience(
+  entry: Readonly<RuntimeStateSnapshotEntry>,
+  provenance: Readonly<RuntimeStateVariableProvenance> | undefined
+): number {
+  let score = 0;
+
+  if (provenance) {
+    score += 1_000_000;
+    score += provenance.createdTurn * 100;
+    score += (provenance.lastReadTurn ?? provenance.createdTurn) * 10_000;
+    if (provenance.source) {
+      score += 25;
+    }
+  }
+
+  if (entry.type === 'accessor') {
+    score -= 100;
+  } else if (entry.type === 'function') {
+    score -= 10;
+  }
+
+  return score;
+}
+
+function formatRuntimeStateType(
+  entry: Readonly<RuntimeStateSnapshotEntry>
+): string {
+  let label = entry.type;
+
+  if (entry.type === 'object' && entry.ctor && entry.ctor !== 'Object') {
+    label = `object<${entry.ctor}>`;
+  } else if (entry.type === 'error' && entry.ctor && entry.ctor !== 'Error') {
+    label = `error<${entry.ctor}>`;
+  }
+
+  if (entry.size) {
+    label += ` (${entry.size})`;
+  }
+
+  return label;
+}
+
+function formatRuntimeStateProvenance(
+  provenance: Readonly<RuntimeStateVariableProvenance> | undefined
+): string {
+  if (!provenance) {
+    return '';
+  }
+
+  const details = [
+    `from t${provenance.createdTurn}${provenance.source ? ` via ${provenance.source}` : ''}`,
+  ];
+  if (
+    provenance.lastReadTurn !== undefined &&
+    provenance.lastReadTurn > provenance.createdTurn
+  ) {
+    details.push(`read t${provenance.lastReadTurn}`);
+  }
+
+  return ` [${details.join('; ')}]`;
+}
+
+function formatStructuredRuntimeState(
+  entries: readonly RuntimeStateSnapshotEntry[],
+  provenance: ReadonlyMap<string, RuntimeStateVariableProvenance>,
+  options?: Readonly<{ maxEntries?: number; maxChars?: number }>
+): string {
+  const lines = [...entries]
+    .sort((left, right) => {
+      const leftScore = getRuntimeStateSalience(
+        left,
+        provenance.get(left.name)
+      );
+      const rightScore = getRuntimeStateSalience(
+        right,
+        provenance.get(right.name)
+      );
+      return rightScore - leftScore || left.name.localeCompare(right.name);
+    })
+    .map((entry) => {
+      const preview = entry.preview ? ` = ${entry.preview}` : '';
+      const provenanceSuffix = formatRuntimeStateProvenance(
+        provenance.get(entry.name)
+      );
+
+      return `${entry.name}: ${formatRuntimeStateType(entry)}${preview}${provenanceSuffix}`;
+    });
+
+  if (lines.length === 0) {
+    return '(no user variables)';
+  }
+
+  return formatRuntimeStateLines(lines, options);
 }
 
 function formatInterpreterOutput(

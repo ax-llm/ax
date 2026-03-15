@@ -44,11 +44,16 @@ describe('template integration', () => {
       {
         runtimeUsageInstructions: 'Use return statements only.',
         hasInspectRuntime: false,
+        hasLiveRuntimeState: false,
+        hasCompressedActionReplay: false,
       }
     );
 
     expect(actorDefinition).toContain(
       'You are a code generation agent called the `actor`.'
+    );
+    expect(actorDefinition).toContain(
+      'Treat the JavaScript runtime as a long-running REPL session'
     );
     expect(actorDefinition).toContain(
       '- `contextText` -> `inputs.contextText` (string, required)'
@@ -61,6 +66,9 @@ describe('template integration', () => {
     );
     expect(actorDefinition).toContain('### Important guidance and guardrails');
     expect(actorDefinition).toContain(
+      'Reuse the existing runtime state instead of recreating it.'
+    );
+    expect(actorDefinition).toContain(
       'Treat any context field excerpt already shown in the prompt as first-pass evidence.'
     );
     expect(actorDefinition).toContain(
@@ -71,6 +79,38 @@ describe('template integration', () => {
     );
     expect(actorDefinition).toContain('Use return statements only.');
     expect(actorDefinition).not.toContain('await inspect_runtime()');
+    expect(actorDefinition).not.toContain(
+      'If a `Live Runtime State` block is present, trust it over older action log details.'
+    );
+    expect(actorDefinition).not.toContain(
+      'Prior actions may be summarized or omitted.'
+    );
+  });
+
+  it('includes state and replay guidance only when those features are enabled', () => {
+    const signature = AxSignature.create(
+      'contextText:string -> finalAnswer:string'
+    );
+
+    const actorDefinition = axBuildActorDefinition(
+      undefined,
+      signature.getInputFields(),
+      signature.getOutputFields(),
+      {
+        runtimeUsageInstructions: 'Use return statements only.',
+        hasInspectRuntime: true,
+        hasLiveRuntimeState: true,
+        hasCompressedActionReplay: true,
+      }
+    );
+
+    expect(actorDefinition).toContain('await inspect_runtime()');
+    expect(actorDefinition).toContain(
+      'If a `Live Runtime State` block is present, trust it over older action log details.'
+    );
+    expect(actorDefinition).toContain(
+      'Prior actions may be summarized or omitted.'
+    );
   });
 
   it('keeps responder prompt content aligned with prior prompt text', () => {

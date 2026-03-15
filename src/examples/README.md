@@ -30,6 +30,21 @@ npm run tsx src/examples/ace-train-inference.ts
 
 **Prerequisites:** OpenAI API key (`OPENAI_APIKEY` environment variable)
 
+## Live Runtime State Example
+
+A small runnable example focused on the AxAgent runtime-state pipeline. It enables `contextPolicy.state.summary` and `state.inspect`, then runs a mock two-turn agent loop and prints the captured `Live Runtime State` block so you can verify the structured runtime-state formatting locally without needing an LLM API key.
+
+**Quick Start:**
+```bash
+cd src/ax
+npm run tsx src/examples/rlm-live-runtime-state.ts
+```
+
+What to look for:
+- Variables are rendered with structured metadata like type and size.
+- Durable runtime values such as `rows`, `bestRow`, and `summary` appear as compact state lines in the second actor prompt.
+- This exercises the same structured collection path used by `Live Runtime State` in agent turns.
+
 ### Quick Start
 
 1. **Automated Setup** (Recommended):

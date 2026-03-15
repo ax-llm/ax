@@ -1135,28 +1135,23 @@ export class AxJSRuntime implements AxCodeRuntime {
       const id = ++nextId;
 
       return new Promise<unknown>((resolve, reject) => {
-        const timer = setTimeout(() => {
-          pendingRequests.delete(id);
-          resetWorker();
-          for (const pending of pendingRequests.values()) {
-            pending.reject(new Error('Worker terminated'));
-          }
-          pendingRequests.clear();
-          reject(new Error(options.timeoutMessage));
-        }, timeout);
-
         const originalResolve = resolve;
         const originalReject = reject;
+        let timer: ReturnType<typeof setTimeout> | undefined;
 
         let onCleanup = () => {};
         pendingRequests.set(id, {
           resolve: (value: unknown) => {
-            clearTimeout(timer);
+            if (timer) {
+              clearTimeout(timer);
+            }
             onCleanup();
             originalResolve(value);
           },
           reject: (error: Error) => {
-            clearTimeout(timer);
+            if (timer) {
+              clearTimeout(timer);
+            }
             onCleanup();
             originalReject(error);
           },
@@ -1182,6 +1177,15 @@ export class AxJSRuntime implements AxCodeRuntime {
             if (!worker) {
               throw new Error('Worker unavailable');
             }
+            timer = setTimeout(() => {
+              pendingRequests.delete(id);
+              resetWorker();
+              for (const pending of pendingRequests.values()) {
+                pending.reject(new Error('Worker terminated'));
+              }
+              pendingRequests.clear();
+              reject(new Error(options.timeoutMessage));
+            }, timeout);
             worker.postMessage({ ...payload, id });
           })
           .catch((error: Error) => {

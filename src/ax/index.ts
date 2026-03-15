@@ -763,6 +763,8 @@ import {
   type AxAgentic,
   type AxAgentOptions,
   type AxAgentRecursionOptions,
+  type AxAgentTestCompletionPayload,
+  type AxAgentTestResult,
   type AxContextFieldInput,
   agent,
 } from './prompts/agent.js';
@@ -1236,6 +1238,8 @@ export type { AxAgentFunctionGroup };
 export type { AxAgentInputUpdateCallback };
 export type { AxAgentOptions };
 export type { AxAgentRecursionOptions };
+export type { AxAgentTestCompletionPayload };
+export type { AxAgentTestResult };
 export type { AxAgentic };
 export type { AxApacheTikaArgs };
 export type { AxApacheTikaConvertOptions };

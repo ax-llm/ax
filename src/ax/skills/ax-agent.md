@@ -18,6 +18,15 @@ Use this skill to generate `AxAgent` code. Prefer short, modern, copyable patter
 - In stdout-mode RLM, use one observable `console.log(...)` step per non-final actor turn.
 - For long RLM tasks, prefer `contextPolicy: { preset: 'adaptive' }` so older successful turns collapse into checkpoint summaries while live runtime state stays visible.
 
+## Mental Model
+
+Treat `AxAgent` as a long-running JavaScript REPL that the actor steers over multiple turns, not as a fresh script generator on every turn.
+
+- Successful code leaves variables, functions, imports, and computed values available in the runtime session.
+- The actor should continue from existing runtime state instead of recreating prior work.
+- `Action Log`, `Live Runtime State`, and checkpoint summaries only control what the actor can see again in the prompt.
+- Rebuild state only after an explicit runtime restart notice or when you intentionally need to overwrite a value.
+
 ## Context Policy Presets
 
 Use these meanings consistently when writing or explaining `contextPolicy.preset`:
@@ -31,6 +40,13 @@ Practical rule:
 - Start with `adaptive` for most long RLM tasks.
 - Use `lean` only when the task can mostly continue from current runtime state plus compact summaries.
 - Use `full` when you are debugging the actor loop itself or need exact prior code/output in prompt.
+
+Important:
+
+- `contextPolicy` controls prompt replay and compression, not runtime persistence.
+- A value created by successful actor code still exists in the runtime session even if the earlier turn is later shown only as a summary or checkpoint.
+- Used discovery docs are replay artifacts too: `adaptive` and `lean` can hide old `listModuleFunctions(...)` / `getFunctionDefinitions(...)` output after the actor successfully uses the discovered callable.
+- Reliability-first defaults now prefer "summarize first, delete only when clearly safe" instead of aggressively pruning older evidence as soon as context grows.
 
 ## Critical Rules
 
@@ -280,20 +296,41 @@ Do not:
 - Do not dump large pre-known tool definitions into actor code when discovery mode is enabled.
 - Do not use `Promise.all(...)` to fan out discovery calls across modules or definitions.
 - Do not convert discovery markdown into JSON before logging or using it.
+- If used discovery docs disappear from later prompts under `adaptive` or `lean`, call `listModuleFunctions(...)` or `getFunctionDefinitions(...)` again when you need to re-open them.
 
 ## RLM Actor Code Rules
 
 Use these rules when generating actor JavaScript for RLM in stdout mode:
 
 - Treat each actor turn as exactly one observable step.
-- If you need to inspect a value, compute it, `console.log(...)` it, and stop immediately after that `console.log(...)`.
-- On the next turn, read the logged result from `Action Log` before writing more code that depends on it.
+- Inspect what already exists before recomputing it. If a prior turn successfully created a value, prefer reusing that runtime value.
+- If you need to inspect a value, compute it or read it, `console.log(...)` it, and stop immediately after that `console.log(...)`.
+- On the next turn, continue from the existing runtime state and use the logged result from `Action Log` only as evidence for what happened.
 - If the prompt contains `Live Runtime State`, treat it as the canonical view of current variables.
 - Errors from child-agent or tool calls appear in `Action Log`; inspect them and fix the code on the next turn.
 - Non-final turns should contain exactly one `console.log(...)`.
 - Final turns should call `final(...)` or `ask_clarification(...)` without `console.log(...)`.
 - Do not write a complete multi-step program in one actor turn.
+- Do not re-declare or recompute values just because older turns are summarized; only rebuild after an explicit runtime restart or when you intentionally want a new value.
 - Do not assume older successful turns remain fully replayed; adaptive or lean policies may collapse them into a `Checkpoint Summary` block or compact action summaries.
+
+Small reuse example:
+
+Turn 1:
+
+```javascript
+const customers = await kb.findCustomers({ segment: 'active' });
+console.log(customers.length);
+```
+
+Turn 2:
+
+```javascript
+const topCustomers = customers.slice(0, 3);
+console.log(topCustomers);
+```
+
+Reason: turn 2 reuses `customers` from the persistent runtime. `Live Runtime State` or summaries may change how turn 1 is shown in the prompt, but they do not remove the value from the runtime session.
 
 ## RLM Test Harness
 
@@ -355,19 +392,28 @@ const analyst = agent(
     maxTurns: 10,
     contextPolicy: {
       preset: 'adaptive',
+      summarizerOptions: {
+        model: 'summary-model',
+        modelConfig: { temperature: 0.2, maxTokens: 180 },
+      },
       state: {
         summary: true,
         inspect: true,
-        inspectThresholdChars: 2_000,
+        inspectThresholdChars: 8_000,
         maxEntries: 6,
+        maxChars: 1_200,
       },
       checkpoints: {
         enabled: true,
-        triggerChars: 2_000,
+        triggerChars: 12_000,
       },
       expert: {
         pruneErrors: true,
         rankPruning: { enabled: true, minRank: 2 },
+        tombstones: {
+          model: 'summary-model',
+          modelConfig: { maxTokens: 80 },
+        },
       },
     },
   }
@@ -379,8 +425,15 @@ Rules:
 - Use `preset: 'full'` when the actor should keep seeing raw prior code and outputs with minimal compression.
 - Use `preset: 'adaptive'` when the task needs runtime state across many turns but older successful work should collapse into checkpoint summaries while important recent steps can still stay fully replayed.
 - Use `preset: 'lean'` when you want more aggressive compression and can rely mostly on current runtime state plus checkpoint summaries and compact action summaries.
-- Use `state.summary` to inject a compact `Live Runtime State` block into the actor prompt.
-- Use `state.inspect` with `inspectThresholdChars` so the actor is reminded to call `inspect_runtime()` when context grows.
+- Use `state.summary` to inject a compact `Live Runtime State` block into the actor prompt. The block is structured and provenance-aware: variables are rendered with compact type/size/preview metadata, and when Ax can infer it, a short source suffix like `from t3 via db.search` is included. Combine `maxEntries` with `maxChars` so large runtime objects do not dominate the prompt.
+- Use `state.inspect` with `inspectThresholdChars` so the actor is reminded to call `inspect_runtime()` when replayed action history starts getting large.
+- `adaptive` and `lean` hide used discovery docs by default; set `contextPolicy.pruneUsedDocs: false` if you want to keep replaying them.
+- `full` keeps used discovery docs by default; set `contextPolicy.pruneUsedDocs: true` if you want the same cleanup there.
+- Use `summarizerOptions` to tune the internal checkpoint-summary AxGen program.
+- If you configure `expert.tombstones`, treat the object form as options for the internal tombstone-summary AxGen program.
+- Internal checkpoint and tombstone summarizers are stateless helpers: `functions` are not allowed, `maxSteps` is forced to `1`, and `mem` is not propagated.
+- Built-in `adaptive` and `lean` presets no longer enable destructive rank pruning by default. Opt in with `expert.rankPruning` only when you want lower-value successful turns deleted instead of summarized.
+- If you want a quick local demo of the rendered `Live Runtime State` block, run [`src/examples/rlm-live-runtime-state.ts`](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-live-runtime-state.ts).
 
 Good pattern:
 
@@ -580,6 +633,7 @@ Fetch these for full working code:
 - [RLM Discovery](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-discovery.ts) — discovery mode
 - [RLM Shared Fields](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-shared-fields.ts) — shared fields
 - [RLM Adaptive Replay](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-adaptive-replay.ts) — adaptive replay
+- [RLM Live Runtime State](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-live-runtime-state.ts) — structured runtime-state rendering
 - [Customer Support](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/customer-support.ts) — classification agent
 - [Abort Patterns](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/abort-patterns.ts) — abort handling
 

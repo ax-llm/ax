@@ -200,3 +200,4 @@ checkpointable
 checkpointed
 tunables
 scorable
+unranked

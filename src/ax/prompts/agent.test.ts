@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { AxMockAIService } from '../ai/mock/api.js';
 import type { AxFunction, AxFunctionJSONSchema } from '../ai/types.js';
@@ -47,6 +47,230 @@ const defaultRlmFields = {
   contextFields: [] as string[],
   runtime: defaultRuntime,
 };
+
+const DISCOVERY_MODULE_MARKDOWN = [
+  '### Module `db`',
+  '- `search`',
+  '',
+  '### Module `kb`',
+  '- `lookup`',
+].join('\n');
+
+const DISCOVERY_DEFINITION_MARKDOWN = [
+  '### `db.search`',
+  'Search database',
+  '- `db.search(args: { query: string })`',
+  '',
+  '### `kb.lookup`',
+  'Lookup docs',
+  '- `kb.lookup(args: { topic: string })`',
+].join('\n');
+
+const isInspectBaselineCode = (code: string) =>
+  code.includes(
+    'JSON.stringify(Object.getOwnPropertyNames(globalThis).sort())'
+  );
+
+const isStructuredInspectCode = (code: string) =>
+  code.includes('Object.getOwnPropertyDescriptor(globalThis, name)');
+
+function makeDiscoveryPromptRuntime(): AxCodeRuntime {
+  return {
+    getUsageInstructions: () => '',
+    createSession(globals) {
+      return {
+        execute: async (code: string) => {
+          if (isInspectBaselineCode(code)) {
+            return JSON.stringify(['setImmediate', 'clearImmediate']);
+          }
+          if (isStructuredInspectCode(code)) {
+            return '(no user variables)';
+          }
+          if (globals?.final && code.includes('final(')) {
+            (globals.final as (...args: unknown[]) => void)('done');
+            return 'done';
+          }
+          if (code.includes('listModuleFunctions')) {
+            return DISCOVERY_MODULE_MARKDOWN;
+          }
+          if (code.includes('getFunctionDefinitions')) {
+            return DISCOVERY_DEFINITION_MARKDOWN;
+          }
+          if (code.includes('await db.search(')) {
+            return '[{"id":1}]';
+          }
+          return 'ok';
+        },
+        patchGlobals: async () => {},
+        close: () => {},
+      };
+    },
+  };
+}
+
+function makeDiscoveryFunctionGroups() {
+  return [
+    {
+      namespace: 'db',
+      title: 'Database Tools',
+      selectionCriteria: 'Use for structured data lookups.',
+      description: 'Database lookup helpers.',
+      functions: [
+        {
+          name: 'search',
+          description: 'Search database',
+          parameters: {
+            type: 'object',
+            properties: {
+              query: { type: 'string', description: 'Search query' },
+            },
+            required: ['query'],
+          },
+          returns: {
+            type: 'array',
+            items: { type: 'object', additionalProperties: true },
+          },
+          func: async () => [{ id: 1 }],
+        },
+      ],
+    },
+    {
+      namespace: 'kb',
+      title: 'Knowledge Base',
+      selectionCriteria: 'Use for documentation lookup.',
+      description: 'Documentation helpers.',
+      functions: [
+        {
+          name: 'lookup',
+          description: 'Lookup docs',
+          parameters: {
+            type: 'object',
+            properties: {
+              topic: { type: 'string', description: 'Topic' },
+            },
+            required: ['topic'],
+          },
+          returns: { type: 'string' },
+          func: async () => 'doc',
+        },
+      ],
+    },
+  ] as const;
+}
+
+async function runDiscoveryPromptScenario(args: {
+  contextPolicy:
+    | {
+        preset?: 'full' | 'adaptive' | 'lean';
+        pruneUsedDocs?: boolean;
+        state?: {
+          summary?: boolean;
+          inspect?: boolean;
+          inspectThresholdChars?: number;
+          maxEntries?: number;
+          maxChars?: number;
+        };
+        checkpoints?: {
+          enabled?: boolean;
+          triggerChars?: number;
+        };
+      }
+    | undefined;
+}) {
+  let actorCallCount = 0;
+  let capturedActorPrompt = '';
+
+  const testMockAI = new AxMockAIService({
+    features: { functions: false, streaming: false },
+    chatResponse: async (req) => {
+      const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+      const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+      if (systemPrompt.includes('internal AxAgent checkpoint summarizer')) {
+        return {
+          results: [
+            {
+              index: 0,
+              content: [
+                'Checkpoint Summary: Objective: keep only active discovery evidence',
+                'Durable state: none',
+                'Evidence: keep the remaining docs and latest runtime state',
+                'Conclusions: continue from the current state',
+                'Actor fields: none',
+                'Next step: finalize the answer',
+              ].join('\n'),
+              finishReason: 'stop',
+            },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      }
+
+      if (systemPrompt.includes('Code Generation Agent')) {
+        actorCallCount++;
+        if (actorCallCount === 4) {
+          capturedActorPrompt = userPrompt;
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: final("done")',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        const actorCodeByTurn: Record<number, string> = {
+          1: "Javascript Code: const modules = await listModuleFunctions(['db', 'kb']); console.log(modules)",
+          2: "Javascript Code: const defs = await getFunctionDefinitions(['db.search', 'kb.lookup']); console.log(defs)",
+          3: 'Javascript Code: const rows = await db.search({ query: "widgets" }); console.log(rows)',
+        };
+
+        return {
+          results: [
+            {
+              index: 0,
+              content: actorCodeByTurn[actorCallCount]!,
+              finishReason: 'stop',
+            },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      }
+
+      return {
+        results: [{ index: 0, content: 'Answer: done', finishReason: 'stop' }],
+        modelUsage: makeModelUsage(),
+      };
+    },
+  });
+  const chatSpy = vi.spyOn(testMockAI, 'chat');
+
+  const testAgent = agent('context:string, query:string -> answer:string', {
+    ai: testMockAI,
+    contextFields: ['context'],
+    runtime: makeDiscoveryPromptRuntime(),
+    maxTurns: 4,
+    functions: {
+      discovery: true,
+      local: makeDiscoveryFunctionGroups(),
+    },
+    contextPolicy: args.contextPolicy,
+  });
+
+  const result = await testAgent.forward(testMockAI, {
+    context: 'ctx',
+    query: 'q',
+  });
+
+  return {
+    result,
+    actorPrompt: capturedActorPrompt,
+    chatSpy,
+  };
+}
 
 // ----- AxAgent basic tests -----
 
@@ -506,19 +730,21 @@ describe('AxAgent.test()', () => {
     await expect(testAgent.test('null.foo')).rejects.toThrow(/TypeError:/);
   });
 
-  it('throws when snippets call final(...) or ask_clarification(...)', async () => {
+  it('returns completion payloads when snippets call final(...) or ask_clarification(...)', async () => {
     const testAgent = agent('query:string -> answer:string', {
       contextFields: [],
       runtime: new AxJSRuntime(),
     });
 
-    await expect(testAgent.test('final("done")')).rejects.toThrow(
-      /must not call final/
-    );
+    await expect(testAgent.test('final("done")')).resolves.toEqual({
+      type: 'final',
+      args: ['done'],
+    });
 
-    await expect(testAgent.test('ask_clarification("more")')).rejects.toThrow(
-      /must not call final/
-    );
+    await expect(testAgent.test('ask_clarification("more")')).resolves.toEqual({
+      type: 'ask_clarification',
+      args: ['more'],
+    });
   });
 
   it('throws a clear error when llmQuery is used without an AI service', async () => {
@@ -1536,15 +1762,17 @@ describe('Actor/Responder execution loop', () => {
       query: 'unused',
     });
 
-    // The error from turn 1 should be pruned after the successful turn 2
-    expect(thirdActorPrompt).not.toContain('triggerError');
+    // The resolved error should survive as a compact tombstone instead of being dropped.
+    expect(thirdActorPrompt).toContain(
+      '[TOMBSTONE]: Resolved Error: Execution timed out in turn 2.'
+    );
     // The successful turn 2 should still be present
     expect(thirdActorPrompt).toContain('var x = 42');
-    // Action log should always use code block format
+    // Successful turns should still render with code blocks.
     expect(thirdActorPrompt).toContain('```javascript');
   });
 
-  it('should prune resolved error entries with the adaptive preset', async () => {
+  it('should keep resolved error entries as tombstones with the adaptive preset', async () => {
     let actorCallCount = 0;
     let thirdActorPrompt = '';
 
@@ -1640,10 +1868,245 @@ describe('Actor/Responder execution loop', () => {
       query: 'unused',
     });
 
-    // The error from turn 1 should be pruned after the successful turn 2
-    expect(thirdActorPrompt).not.toContain('triggerError');
+    expect(thirdActorPrompt).toContain(
+      '[TOMBSTONE]: Resolved Error: Execution timed out in turn 2.'
+    );
     // The successful turn 2 should still be present
     expect(thirdActorPrompt).toContain('var y = 99');
+  });
+
+  it('should keep resolved error entries as tombstones with the lean preset', async () => {
+    let actorCallCount = 0;
+    let thirdActorPrompt = '';
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCallCount++;
+          if (actorCallCount === 1) {
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: triggerError()',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          if (actorCallCount === 2) {
+            return {
+              results: [
+                {
+                  index: 0,
+                  content:
+                    'Javascript Code: const recovered = 7; console.log(recovered)',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+
+          thirdActorPrompt = String(req.chatPrompt[1]?.content ?? '');
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: final("done")',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testRuntime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (globals?.final && code.includes('final(')) {
+              (globals.final as (...args: unknown[]) => void)('done');
+              return 'done';
+            }
+            if (code.includes('triggerError')) {
+              throw new Error('Execution timed out');
+            }
+            return '7';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: ['context'],
+      runtime: testRuntime,
+      contextPolicy: { preset: 'lean' },
+    });
+
+    await testAgent.forward(testMockAI, {
+      context: 'unused',
+      query: 'unused',
+    });
+
+    expect(thirdActorPrompt).toContain(
+      '[TOMBSTONE]: Resolved Error: Execution timed out in turn 2.'
+    );
+    expect(thirdActorPrompt).toContain('const recovered = 7');
+  });
+
+  it('should forward request-level options into tombstone summarizer calls', async () => {
+    let actorCallCount = 0;
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('internal AxAgent tombstone summarizer')) {
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Tombstone: [TOMBSTONE]: Fixed the runtime error.',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCallCount++;
+          if (actorCallCount === 1) {
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: triggerError()',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          if (actorCallCount === 2) {
+            return {
+              results: [
+                {
+                  index: 0,
+                  content:
+                    'Javascript Code: const recovered = 1; console.log(recovered)',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: final("done")',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+    const chatSpy = vi.spyOn(testMockAI, 'chat');
+    const abortController = new AbortController();
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (globals?.final && code.includes('final(')) {
+              (globals.final as (...args: unknown[]) => void)('done');
+              return 'done';
+            }
+            if (code.includes('triggerError')) {
+              throw new Error('Execution timed out');
+            }
+            return '1';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: ['context'],
+      runtime,
+      maxTurns: 3,
+      contextPolicy: {
+        preset: 'adaptive',
+        expert: {
+          tombstones: {
+            model: 'summary-default',
+            modelConfig: { temperature: 0.1 },
+          },
+        },
+      },
+    });
+
+    const result = await testAgent.forward(
+      testMockAI,
+      {
+        context: 'ctx',
+        query: 'q',
+      },
+      {
+        model: 'request-model',
+        modelConfig: { temperature: 0.6, maxTokens: 120 },
+        abortSignal: abortController.signal,
+      }
+    );
+
+    expect(result.answer).toBe('done');
+
+    const tombstoneCall = chatSpy.mock.calls.find(([req]) =>
+      String(req.chatPrompt[0]?.content ?? '').includes(
+        'internal AxAgent tombstone summarizer'
+      )
+    );
+
+    expect(tombstoneCall?.[0].model).toBe('request-model');
+    expect(tombstoneCall?.[0].modelConfig).toEqual({
+      temperature: 0.6,
+      maxTokens: 120,
+    });
+    expect(tombstoneCall?.[1]?.abortSignal).toBeDefined();
+    abortController.abort('stop');
+    expect(tombstoneCall?.[1]?.abortSignal?.aborted).toBe(true);
   });
 
   it('should include inspect_runtime in actor definition when contextPolicy.state.inspect is enabled', () => {
@@ -1662,7 +2125,7 @@ describe('Actor/Responder execution loop', () => {
 
   it('should render a checkpoint summary for older successful turns after the trigger threshold', async () => {
     let actorCallCount = 0;
-    let thirdActorPrompt = '';
+    let fifthActorPrompt = '';
 
     const testMockAI = new AxMockAIService({
       features: { functions: false, streaming: false },
@@ -1670,16 +2133,16 @@ describe('Actor/Responder execution loop', () => {
         const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
         const userPrompt = String(req.chatPrompt[1]?.content ?? '');
 
-        if (systemPrompt.includes('checkpoint summaries')) {
+        if (systemPrompt.includes('internal AxAgent checkpoint summarizer')) {
           return {
             results: [
               {
                 index: 0,
                 content: [
-                  'Objective: refine the draft',
-                  'Durable state: firstPass',
-                  'Evidence: draft ready',
-                  'Conclusions: keep the first pass as prior work',
+                  'Checkpoint Summary: Objective: capture the side note',
+                  'Durable state: none',
+                  'Evidence: side-note observed',
+                  'Conclusions: keep focus on the live runtime state',
                   'Actor fields: none',
                   'Next step: finalize the answer',
                 ].join('\n'),
@@ -1692,13 +2155,13 @@ describe('Actor/Responder execution loop', () => {
 
         if (systemPrompt.includes('Code Generation Agent')) {
           actorCallCount++;
-          if (actorCallCount === 3) {
-            thirdActorPrompt = userPrompt;
+          if (actorCallCount === 5) {
+            fifthActorPrompt = userPrompt;
             return {
               results: [
                 {
                   index: 0,
-                  content: 'Javascript Code: final("done")',
+                  content: 'Javascript Code: final(finalValue)',
                   finishReason: 'stop',
                 },
               ],
@@ -1706,14 +2169,18 @@ describe('Actor/Responder execution loop', () => {
             };
           }
 
+          const actorCodeByTurn: Record<number, string> = {
+            1: 'Javascript Code: const firstPass = "draft"; console.log(firstPass)',
+            2: 'Javascript Code: const refined = firstPass.toUpperCase(); console.log(refined)',
+            3: 'Javascript Code: console.log("side-note")',
+            4: 'Javascript Code: const finalValue = refined + "!"; console.log(finalValue)',
+          };
+
           return {
             results: [
               {
                 index: 0,
-                content:
-                  actorCallCount === 1
-                    ? 'Javascript Code: const firstPass = "draft"; console.log(firstPass)'
-                    : 'Javascript Code: const secondPass = "final"; console.log(secondPass)',
+                content: actorCodeByTurn[actorCallCount]!,
                 finishReason: 'stop',
               },
             ],
@@ -1742,8 +2209,116 @@ describe('Actor/Responder execution loop', () => {
             if (code.includes('firstPass')) {
               return 'draft';
             }
-            if (code.includes('secondPass')) {
-              return 'final';
+            if (code.includes('refined')) {
+              return 'DRAFT';
+            }
+            if (code.includes('finalValue')) {
+              return 'DRAFT!';
+            }
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: ['context'],
+      runtime,
+      maxTurns: 5,
+      contextPolicy: {
+        preset: 'adaptive',
+        checkpoints: {
+          triggerChars: 1,
+        },
+        expert: {
+          recentFullActions: 1,
+        },
+      },
+    });
+
+    const result = await testAgent.forward(testMockAI, {
+      context: 'ctx',
+      query: 'q',
+    });
+
+    expect(result.answer).toBe('done');
+    expect(fifthActorPrompt).toContain('Checkpoint Summary:');
+    expect(fifthActorPrompt).toContain('Objective: capture the side note');
+    expect(fifthActorPrompt).toContain('const firstPass = "draft"');
+    expect(fifthActorPrompt).toContain(
+      'const refined = firstPass.toUpperCase()'
+    );
+    expect(fifthActorPrompt).toContain('const finalValue = refined + "!"');
+    expect(fifthActorPrompt).not.toContain('console.log("side-note")');
+  });
+
+  it('should forward request-level options into checkpoint summarizer calls', async () => {
+    let actorCallCount = 0;
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('internal AxAgent checkpoint summarizer')) {
+          return {
+            results: [
+              {
+                index: 0,
+                content: [
+                  'Checkpoint Summary: Objective: compress the draft',
+                  'Durable state: none',
+                  'Evidence: draft observed',
+                  'Conclusions: rely on the latest runtime state',
+                  'Actor fields: none',
+                  'Next step: finish the task',
+                ].join('\n'),
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCallCount++;
+          const content =
+            actorCallCount === 1
+              ? 'Javascript Code: const draft = "v1"; console.log(draft)'
+              : actorCallCount === 2
+                ? 'Javascript Code: console.log("note")'
+                : 'Javascript Code: final("done")';
+
+          return {
+            results: [{ index: 0, content, finishReason: 'stop' }],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+    const chatSpy = vi.spyOn(testMockAI, 'chat');
+    const abortController = new AbortController();
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (globals?.final && code.includes('final(')) {
+              (globals.final as (...args: unknown[]) => void)('done');
+              return 'done';
+            }
+            if (code.includes('draft')) {
+              return 'v1';
             }
             return 'ok';
           },
@@ -1759,8 +2334,220 @@ describe('Actor/Responder execution loop', () => {
       maxTurns: 3,
       contextPolicy: {
         preset: 'adaptive',
+        summarizerOptions: {
+          model: 'summary-default',
+          modelConfig: { temperature: 0.1 },
+        },
         checkpoints: {
           triggerChars: 1,
+        },
+      },
+    });
+
+    const result = await testAgent.forward(
+      testMockAI,
+      {
+        context: 'ctx',
+        query: 'q',
+      },
+      {
+        model: 'request-model',
+        modelConfig: { temperature: 0.5, maxTokens: 220 },
+        abortSignal: abortController.signal,
+      }
+    );
+
+    expect(result.answer).toBe('done');
+
+    const checkpointCall = [...chatSpy.mock.calls]
+      .reverse()
+      .find(([req]) =>
+        String(req.chatPrompt[0]?.content ?? '').includes(
+          'internal AxAgent checkpoint summarizer'
+        )
+      );
+
+    expect(checkpointCall?.[0].model).toBe('request-model');
+    expect(checkpointCall?.[0].modelConfig).toEqual({
+      temperature: 0.5,
+      maxTokens: 220,
+    });
+    expect(checkpointCall?.[1]?.abortSignal).toBeDefined();
+    abortController.abort('stop');
+    expect(checkpointCall?.[1]?.abortSignal?.aborted).toBe(true);
+  });
+
+  it('should hide used discovery docs by default in adaptive mode', async () => {
+    const { actorPrompt, result } = await runDiscoveryPromptScenario({
+      contextPolicy: { preset: 'adaptive' },
+    });
+
+    expect(result.answer).toBe('done');
+    expect(actorPrompt).not.toContain('### Module `db`');
+    expect(actorPrompt).toContain('### Module `kb`');
+    expect(actorPrompt).not.toContain('### `db.search`');
+    expect(actorPrompt).toContain('### `kb.lookup`');
+  });
+
+  it('should keep used discovery docs by default in full mode', async () => {
+    const { actorPrompt, result } = await runDiscoveryPromptScenario({
+      contextPolicy: { preset: 'full' },
+    });
+
+    expect(result.answer).toBe('done');
+    expect(actorPrompt).toContain('### Module `db`');
+    expect(actorPrompt).toContain('### Module `kb`');
+    expect(actorPrompt).toContain('### `db.search`');
+    expect(actorPrompt).toContain('### `kb.lookup`');
+  });
+
+  it('should allow adaptive mode to keep used discovery docs when pruneUsedDocs is false', async () => {
+    const { actorPrompt, result } = await runDiscoveryPromptScenario({
+      contextPolicy: {
+        preset: 'adaptive',
+        pruneUsedDocs: false,
+      },
+    });
+
+    expect(result.answer).toBe('done');
+    expect(actorPrompt).toContain('### Module `db`');
+    expect(actorPrompt).toContain('### `db.search`');
+  });
+
+  it('should allow full mode to prune used discovery docs when pruneUsedDocs is true', async () => {
+    const { actorPrompt, result } = await runDiscoveryPromptScenario({
+      contextPolicy: {
+        preset: 'full',
+        pruneUsedDocs: true,
+      },
+    });
+
+    expect(result.answer).toBe('done');
+    expect(actorPrompt).not.toContain('### Module `db`');
+    expect(actorPrompt).not.toContain('### `db.search`');
+    expect(actorPrompt).toContain('### Module `kb`');
+    expect(actorPrompt).toContain('### `kb.lookup`');
+  });
+
+  it('should not reintroduce pruned discovery docs through checkpoint summaries', async () => {
+    const { actorPrompt, chatSpy, result } = await runDiscoveryPromptScenario({
+      contextPolicy: {
+        preset: 'adaptive',
+        state: {
+          summary: true,
+          maxEntries: 2,
+        },
+        checkpoints: {
+          triggerChars: 1,
+        },
+      },
+    });
+
+    expect(result.answer).toBe('done');
+    expect(actorPrompt).toContain('Checkpoint Summary:');
+    expect(actorPrompt).not.toContain('### Module `db`');
+    expect(actorPrompt).not.toContain('### `db.search`');
+
+    const checkpointCalls = chatSpy.mock.calls.filter(([req]) =>
+      String(req.chatPrompt[0]?.content ?? '').includes(
+        'internal AxAgent checkpoint summarizer'
+      )
+    );
+
+    expect(checkpointCalls.length).toBeGreaterThan(0);
+  });
+
+  it('should not trigger checkpoint summaries from live runtime state alone', async () => {
+    let actorCallCount = 0;
+    let secondActorPrompt = '';
+    let hasLargeState = false;
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCallCount++;
+          if (actorCallCount === 2) {
+            secondActorPrompt = userPrompt;
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: final("done")',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: console.log(1)',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+    const chatSpy = vi.spyOn(testMockAI, 'chat');
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (isInspectBaselineCode(code)) {
+              return JSON.stringify(['setImmediate', 'clearImmediate']);
+            }
+            if (isStructuredInspectCode(code)) {
+              return hasLargeState
+                ? `bigState: string = "${'x'.repeat(400)}"`
+                : '(no user variables)';
+            }
+            if (globals?.final && code.includes('final(')) {
+              (globals.final as (...args: unknown[]) => void)('done');
+              return 'done';
+            }
+            if (code.includes('console.log(1)')) {
+              hasLargeState = true;
+              return '1';
+            }
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: ['context'],
+      runtime,
+      maxTurns: 2,
+      contextPolicy: {
+        preset: 'adaptive',
+        state: {
+          summary: true,
+          maxEntries: 2,
+          maxChars: 800,
+        },
+        checkpoints: {
+          triggerChars: 120,
         },
       },
     });
@@ -1771,10 +2558,121 @@ describe('Actor/Responder execution loop', () => {
     });
 
     expect(result.answer).toBe('done');
-    expect(thirdActorPrompt).toContain('Checkpoint Summary:');
-    expect(thirdActorPrompt).toContain('Objective: refine the draft');
-    expect(thirdActorPrompt).not.toContain('const firstPass = "draft"');
-    expect(thirdActorPrompt).toContain('const secondPass = "final"');
+    expect(secondActorPrompt).toContain('Live Runtime State:');
+    expect(secondActorPrompt).not.toContain('Checkpoint Summary:');
+
+    const checkpointCalls = chatSpy.mock.calls.filter(([req]) =>
+      String(req.chatPrompt[0]?.content ?? '').includes(
+        'internal AxAgent checkpoint summarizer'
+      )
+    );
+    expect(checkpointCalls).toHaveLength(0);
+  });
+
+  it('should not show the inspect hint when only live runtime state is large', async () => {
+    let actorCallCount = 0;
+    let secondActorPrompt = '';
+    let hasLargeState = false;
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCallCount++;
+          if (actorCallCount === 2) {
+            secondActorPrompt = userPrompt;
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: final("done")',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: console.log(1)',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (isInspectBaselineCode(code)) {
+              return JSON.stringify(['setImmediate', 'clearImmediate']);
+            }
+            if (isStructuredInspectCode(code)) {
+              return hasLargeState
+                ? `bigState: string = "${'x'.repeat(400)}"`
+                : '(no user variables)';
+            }
+            if (globals?.final && code.includes('final(')) {
+              (globals.final as (...args: unknown[]) => void)('done');
+              return 'done';
+            }
+            if (code.includes('console.log(1)')) {
+              hasLargeState = true;
+              return '1';
+            }
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: ['context'],
+      runtime,
+      maxTurns: 2,
+      contextPolicy: {
+        preset: 'adaptive',
+        state: {
+          summary: true,
+          inspect: true,
+          inspectThresholdChars: 120,
+          maxEntries: 2,
+          maxChars: 800,
+        },
+        checkpoints: {
+          enabled: false,
+        },
+      },
+    });
+
+    const result = await testAgent.forward(testMockAI, {
+      context: 'ctx',
+      query: 'q',
+    });
+
+    expect(result.answer).toBe('done');
+    expect(secondActorPrompt).toContain('Live Runtime State:');
+    expect(secondActorPrompt).not.toContain('[HINT: Action log is large.');
   });
 
   it('should include live runtime state in actor prompts when contextPolicy.state.summary is enabled', async () => {
@@ -1830,10 +2728,10 @@ describe('Actor/Responder execution loop', () => {
       createSession(globals) {
         return {
           execute: async (code: string) => {
-            if (code.includes('Object.getOwnPropertyNames(globalThis)')) {
+            if (isInspectBaselineCode(code)) {
               return JSON.stringify(['setImmediate', 'clearImmediate']);
             }
-            if (code.includes('Object.entries(globalThis)')) {
+            if (isStructuredInspectCode(code)) {
               return hasTotal ? 'total: number = 5' : '(no user variables)';
             }
             if (globals?.final && code.includes('final(')) {
@@ -1875,9 +2773,10 @@ describe('Actor/Responder execution loop', () => {
     expect(secondActorPrompt).toContain('total: number = 5');
   });
 
-  it('should preserve omitted stdout inspection results as summaries in lean actor prompts', async () => {
+  it('should render structured runtime state with provenance-aware ordering', async () => {
     let actorCallCount = 0;
     let secondActorPrompt = '';
+    let hasRows = false;
 
     const testMockAI = new AxMockAIService({
       features: { functions: false, streaming: false },
@@ -1906,7 +2805,248 @@ describe('Actor/Responder execution loop', () => {
               {
                 index: 0,
                 content:
-                  'Javascript Code: console.log("growth leader: East Widget-A")',
+                  'Javascript Code: const rows = await db.search({ query: "widgets" }); console.log(rows.length)',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (isInspectBaselineCode(code)) {
+              return JSON.stringify(['setImmediate', 'clearImmediate']);
+            }
+            if (isStructuredInspectCode(code)) {
+              return JSON.stringify({
+                version: 1,
+                entries: hasRows
+                  ? [
+                      {
+                        name: 'staleNote',
+                        type: 'string',
+                        size: '6 chars',
+                        preview: '"unused"',
+                      },
+                      {
+                        name: 'rows',
+                        type: 'array',
+                        size: '1 items',
+                        preview: '[{"id":1}]',
+                      },
+                    ]
+                  : [],
+              });
+            }
+            if (globals?.final && code.includes('final(')) {
+              (globals.final as (...args: unknown[]) => void)('done');
+              return 'done';
+            }
+            if (code.includes('await db.search(')) {
+              hasRows = true;
+              return '[{"id":1}]';
+            }
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: ['context'],
+      runtime,
+      maxTurns: 2,
+      contextPolicy: {
+        preset: 'adaptive',
+        state: {
+          summary: true,
+          maxEntries: 4,
+          maxChars: 800,
+        },
+        checkpoints: {
+          enabled: false,
+        },
+      },
+    });
+
+    const result = await testAgent.forward(testMockAI, {
+      context: 'ctx',
+      query: 'q',
+    });
+
+    expect(result.answer).toBe('done');
+    expect(secondActorPrompt).toContain(
+      'rows: array (1 items) = [{"id":1}] [from t1 via db.search]'
+    );
+    expect(secondActorPrompt).toContain(
+      'staleNote: string (6 chars) = "unused"'
+    );
+    expect(secondActorPrompt.indexOf('rows: array')).toBeLessThan(
+      secondActorPrompt.indexOf('staleNote: string')
+    );
+  });
+
+  it('should bound live runtime state by both maxEntries and maxChars', async () => {
+    let actorCallCount = 0;
+    let secondActorPrompt = '';
+    let hasSnapshot = false;
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCallCount++;
+          if (actorCallCount === 2) {
+            secondActorPrompt = userPrompt;
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: final("done")',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+
+          return {
+            results: [
+              {
+                index: 0,
+                content:
+                  'Javascript Code: const ready = true; console.log(ready)',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (isInspectBaselineCode(code)) {
+              return JSON.stringify(['setImmediate', 'clearImmediate']);
+            }
+            if (isStructuredInspectCode(code)) {
+              return hasSnapshot
+                ? [
+                    'alpha: string = "12345678901234567890"',
+                    'beta: number = 2',
+                    'gamma: number = 3',
+                  ].join('\n')
+                : '(no user variables)';
+            }
+            if (globals?.final && code.includes('final(')) {
+              (globals.final as (...args: unknown[]) => void)('done');
+              return 'done';
+            }
+            if (code.includes('const ready = true')) {
+              hasSnapshot = true;
+              return 'true';
+            }
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: ['context'],
+      runtime,
+      maxTurns: 2,
+      contextPolicy: {
+        preset: 'lean',
+        state: {
+          summary: true,
+          maxEntries: 3,
+          maxChars: 28,
+        },
+        checkpoints: {
+          enabled: false,
+        },
+      },
+    });
+
+    const result = await testAgent.forward(testMockAI, {
+      context: 'ctx',
+      query: 'q',
+    });
+
+    expect(result.answer).toBe('done');
+    expect(secondActorPrompt).toContain('Live Runtime State:');
+    expect(secondActorPrompt).toContain('alpha: string =');
+    expect(secondActorPrompt).toContain('...');
+    expect(secondActorPrompt).not.toContain('beta: number = 2');
+    expect(secondActorPrompt).not.toContain('gamma: number = 3');
+  });
+
+  it('should preserve omitted stdout inspection results as summaries in lean actor prompts', async () => {
+    let actorCallCount = 0;
+    let secondActorPrompt = '';
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCallCount++;
+          if (actorCallCount === 3) {
+            secondActorPrompt = userPrompt;
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: final("done")',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+
+          return {
+            results: [
+              {
+                index: 0,
+                content:
+                  actorCallCount === 1
+                    ? 'Javascript Code: console.log("growth leader: East Widget-A")'
+                    : 'Javascript Code: const note = "stable"; console.log(note)',
                 finishReason: 'stop',
               },
             ],
@@ -1932,10 +3072,10 @@ describe('Actor/Responder execution loop', () => {
       createSession(globals) {
         return {
           execute: async (code: string) => {
-            if (code.includes('Object.getOwnPropertyNames(globalThis)')) {
+            if (isInspectBaselineCode(code)) {
               return JSON.stringify(['setImmediate', 'clearImmediate']);
             }
-            if (code.includes('Object.entries(globalThis)')) {
+            if (isStructuredInspectCode(code)) {
               return '(no user variables)';
             }
             if (globals?.final && code.includes('final(')) {
@@ -1944,6 +3084,9 @@ describe('Actor/Responder execution loop', () => {
             }
             if (code.includes('console.log("growth leader: East Widget-A")')) {
               return 'growth leader: East Widget-A';
+            }
+            if (code.includes('const note = "stable"')) {
+              return 'stable';
             }
             return 'ok';
           },
@@ -1956,7 +3099,7 @@ describe('Actor/Responder execution loop', () => {
       ai: testMockAI,
       contextFields: ['context'],
       runtime,
-      maxTurns: 2,
+      maxTurns: 3,
       contextPolicy: {
         preset: 'lean',
         state: {
@@ -1977,7 +3120,202 @@ describe('Actor/Responder execution loop', () => {
     expect(secondActorPrompt).toContain('Action 1:');
     expect(secondActorPrompt).toContain('[SUMMARY]: Explore step.');
     expect(secondActorPrompt).toContain('growth leader: East Widget-A');
-    expect(secondActorPrompt).not.toContain('```javascript');
+    expect(secondActorPrompt).toContain('const note = "stable"');
+  });
+
+  it('should keep two recent actions fully rendered by default in adaptive mode', async () => {
+    let actorCallCount = 0;
+    let fifthActorPrompt = '';
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCallCount++;
+          if (actorCallCount === 5) {
+            fifthActorPrompt = userPrompt;
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: final("done")',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+
+          const actorCodeByTurn: Record<number, string> = {
+            1: 'Javascript Code: const step1 = "a"; console.log(step1)',
+            2: 'Javascript Code: const step2 = "b"; console.log(step2)',
+            3: 'Javascript Code: const step3 = "c"; console.log(step3)',
+            4: 'Javascript Code: const step4 = "d"; console.log(step4)',
+          };
+
+          return {
+            results: [
+              {
+                index: 0,
+                content: actorCodeByTurn[actorCallCount]!,
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (globals?.final && code.includes('final(')) {
+              (globals.final as (...args: unknown[]) => void)('done');
+              return 'done';
+            }
+            if (code.includes('step1')) return 'a';
+            if (code.includes('step2')) return 'b';
+            if (code.includes('step3')) return 'c';
+            if (code.includes('step4')) return 'd';
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: ['context'],
+      runtime,
+      maxTurns: 5,
+      contextPolicy: {
+        preset: 'adaptive',
+        state: { summary: false, inspect: false },
+        checkpoints: { enabled: false },
+      },
+    });
+
+    const result = await testAgent.forward(testMockAI, {
+      context: 'ctx',
+      query: 'q',
+    });
+
+    expect(result.answer).toBe('done');
+    expect(fifthActorPrompt).toContain('const step3 = "c"');
+    expect(fifthActorPrompt).toContain('const step4 = "d"');
+    expect(fifthActorPrompt).not.toContain('const step1 = "a"');
+    expect(fifthActorPrompt).not.toContain('const step2 = "b"');
+    expect(fifthActorPrompt).toContain('[SUMMARY]: Transform step.');
+  });
+
+  it('should keep one recent action fully rendered by default in lean mode', async () => {
+    let actorCallCount = 0;
+    let fourthActorPrompt = '';
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCallCount++;
+          if (actorCallCount === 4) {
+            fourthActorPrompt = userPrompt;
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: final("done")',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+
+          const actorCodeByTurn: Record<number, string> = {
+            1: 'Javascript Code: const step1 = "a"; console.log(step1)',
+            2: 'Javascript Code: const step2 = "b"; console.log(step2)',
+            3: 'Javascript Code: const step3 = "c"; console.log(step3)',
+          };
+
+          return {
+            results: [
+              {
+                index: 0,
+                content: actorCodeByTurn[actorCallCount]!,
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (globals?.final && code.includes('final(')) {
+              (globals.final as (...args: unknown[]) => void)('done');
+              return 'done';
+            }
+            if (code.includes('step1')) return 'a';
+            if (code.includes('step2')) return 'b';
+            if (code.includes('step3')) return 'c';
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: ['context'],
+      runtime,
+      maxTurns: 4,
+      contextPolicy: {
+        preset: 'lean',
+        state: { summary: false, inspect: false },
+        checkpoints: { enabled: false },
+      },
+    });
+
+    const result = await testAgent.forward(testMockAI, {
+      context: 'ctx',
+      query: 'q',
+    });
+
+    expect(result.answer).toBe('done');
+    expect(fourthActorPrompt).toContain('const step3 = "c"');
+    expect(fourthActorPrompt).not.toContain('const step1 = "a"');
+    expect(fourthActorPrompt).not.toContain('const step2 = "b"');
+    expect(fourthActorPrompt).toContain('[SUMMARY]: Transform step.');
   });
 
   it('should execute inspect_runtime at runtime and pass reserved names', async () => {
@@ -2029,7 +3367,7 @@ describe('Actor/Responder execution loop', () => {
             code: string,
             opts?: { signal?: AbortSignal; reservedNames?: readonly string[] }
           ) => {
-            if (code.includes('Object.getOwnPropertyNames(globalThis)')) {
+            if (isInspectBaselineCode(code)) {
               return JSON.stringify([
                 'setImmediate',
                 'clearImmediate',
@@ -2051,7 +3389,7 @@ describe('Actor/Responder execution loop', () => {
               return snapshot;
             }
 
-            if (code.includes('Object.entries(globalThis)')) {
+            if (isStructuredInspectCode(code)) {
               inspectExecuted = true;
               inspectReservedNames = opts?.reservedNames;
               return 'stateVar: number = 7';

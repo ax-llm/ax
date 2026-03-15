@@ -36,7 +36,7 @@ export default function HeroSection() {
   }, [cmdIndex]);
 
   return (
-    <section className="relative min-h-[85vh] flex items-center justify-center overflow-hidden">
+    <section className="relative min-h-[95vh] flex items-start justify-center overflow-hidden">
       {/* Background layers */}
       <div className="absolute inset-0">
         {/* Dot grid pattern */}
@@ -50,12 +50,21 @@ export default function HeroSection() {
         <div className="absolute bottom-1/4 -right-32 w-80 h-80 bg-purple-500/10 dark:bg-purple-500/[0.07] rounded-full blur-3xl pointer-events-none" />
         <div className="absolute top-2/3 left-1/3 w-64 h-64 bg-cyan-500/[0.06] dark:bg-cyan-500/[0.04] rounded-full blur-3xl pointer-events-none" />
 
+        {/* Background image — full brightness, sits behind the top fade */}
+        <div
+          className="absolute inset-0 bg-cover bg-center bg-no-repeat z-[1]"
+          style={{ backgroundImage: "url('/bg1.webp')" }}
+        />
+
+        {/* Top fade: page background covers the text zone, fades to reveal image below */}
+        <div className="absolute inset-x-0 top-0 h-[75%] bg-gradient-to-b from-white via-white to-transparent dark:from-gray-900 dark:via-gray-900 z-[2]" />
+
         {/* Bottom fade into next section */}
-        <div className="absolute bottom-0 left-0 right-0 h-40 bg-gradient-to-t from-white dark:from-gray-900 to-transparent z-[1]" />
+        <div className="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-white dark:from-gray-900 to-transparent z-[2]" />
       </div>
 
-      {/* Content */}
-      <div className="relative z-10 max-w-5xl mx-auto px-6 pt-28 pb-24 text-center">
+      {/* Content — sits in the clean top zone */}
+      <div className="relative z-10 max-w-5xl mx-auto px-6 pt-28 pb-16 text-center">
         {/* Tagline */}
         <motion.h1
           {...fadeUp(0)}
@@ -64,13 +73,23 @@ export default function HeroSection() {
           <span className="relative inline-block">
             {/* Glow layer (dark mode only) */}
             <span
-              className="absolute inset-0 bg-gradient-to-r from-blue-600 via-purple-600 to-cyan-600 bg-clip-text text-transparent animate-gradient blur-2xl opacity-0 dark:opacity-40 pointer-events-none select-none"
+              className="absolute inset-0 bg-clip-text text-transparent animate-gradient blur-2xl opacity-0 dark:opacity-40 pointer-events-none select-none"
+              style={{
+                backgroundImage:
+                  'linear-gradient(to right, #6366f1, #a855f7, #22d3ee, #10b981, #8b5cf6)',
+              }}
               aria-hidden="true"
             >
               DSPy for TypeScript
             </span>
             {/* Visible gradient text */}
-            <span className="relative bg-gradient-to-r from-blue-600 via-purple-600 to-cyan-600 bg-clip-text text-transparent animate-gradient">
+            <span
+              className="relative bg-clip-text text-transparent animate-gradient"
+              style={{
+                backgroundImage:
+                  'linear-gradient(to right, #818cf8, #a855f7, #22d3ee, #34d399, #8b5cf6)',
+              }}
+            >
               DSPy for TypeScript
             </span>
           </span>
@@ -79,15 +98,38 @@ export default function HeroSection() {
         {/* Subtitle */}
         <motion.p
           {...fadeUp(0.1)}
-          className="text-lg md:text-xl text-gray-600 dark:text-gray-300 max-w-2xl mx-auto mb-8 leading-relaxed"
+          className="text-lg md:text-xl text-gray-600 dark:text-gray-300 max-w-2xl mx-auto mb-6 leading-relaxed"
         >
           Declare signatures, not prompts. Ax compiles type-safe inputs and
           outputs into optimized LLM calls — then chains them into agents,
           flows, and self-improving pipelines.
         </motion.p>
 
+        {/* Feature pills */}
+        <motion.div
+          {...fadeUp(0.2)}
+          className="flex flex-wrap items-center justify-center gap-x-6 gap-y-3 mb-8"
+        >
+          {[
+            { label: '15+ LLM Providers', color: 'bg-blue-500' },
+            { label: 'End-to-end Streaming', color: 'bg-purple-500' },
+            { label: 'Auto Prompt Tuning', color: 'bg-cyan-500' },
+            {
+              label: 'Auto-installs Claude & Codex skills',
+              color: 'bg-emerald-500',
+            },
+          ].map((pill) => (
+            <div key={pill.label} className="flex items-center gap-2">
+              <div className={`w-2 h-2 ${pill.color} rounded-full`} />
+              <span className="text-sm text-gray-500 dark:text-gray-400">
+                {pill.label}
+              </span>
+            </div>
+          ))}
+        </motion.div>
+
         {/* Install command — glassmorphism, cycling */}
-        <motion.div {...fadeUp(0.2)} className="mb-8">
+        <motion.div {...fadeUp(0.3)} className="mb-6">
           <div className="inline-flex items-center gap-3 bg-white/60 dark:bg-white/[0.08] backdrop-blur-xl border border-gray-200/60 dark:border-white/10 rounded-xl px-5 py-3 font-mono text-sm shadow-lg shadow-gray-200/50 dark:shadow-none">
             <span className="text-gray-400 dark:text-gray-500 select-none">
               $
@@ -122,8 +164,8 @@ export default function HeroSection() {
 
         {/* CTA buttons */}
         <motion.div
-          {...fadeUp(0.3)}
-          className="flex flex-wrap items-center justify-center gap-4 mb-10"
+          {...fadeUp(0.4)}
+          className="flex flex-wrap items-center justify-center gap-4 mb-6"
         >
           <a
             href="#get-started"
@@ -148,29 +190,6 @@ export default function HeroSection() {
             </svg>
             GitHub
           </a>
-        </motion.div>
-
-        {/* Feature pills */}
-        <motion.div
-          {...fadeUp(0.4)}
-          className="flex flex-wrap items-center justify-center gap-x-6 gap-y-3 mb-8"
-        >
-          {[
-            { label: '15+ LLM Providers', color: 'bg-blue-500' },
-            { label: 'End-to-end Streaming', color: 'bg-purple-500' },
-            { label: 'Auto Prompt Tuning', color: 'bg-cyan-500' },
-            {
-              label: 'Auto-installs Claude & Codex skills',
-              color: 'bg-emerald-500',
-            },
-          ].map((pill) => (
-            <div key={pill.label} className="flex items-center gap-2">
-              <div className={`w-2 h-2 ${pill.color} rounded-full`} />
-              <span className="text-sm text-gray-500 dark:text-gray-400">
-                {pill.label}
-              </span>
-            </div>
-          ))}
         </motion.div>
 
         {/* Badges */}

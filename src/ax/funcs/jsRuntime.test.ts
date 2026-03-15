@@ -518,6 +518,7 @@ describe('AxJSRuntime', () => {
 
     // First execute: will time out
     const timeoutPromise = session.execute('while(true){}');
+    await vi.advanceTimersByTimeAsync(0);
     vi.advanceTimersByTime(101);
     await expect(timeoutPromise).rejects.toThrow('Execution timed out');
 

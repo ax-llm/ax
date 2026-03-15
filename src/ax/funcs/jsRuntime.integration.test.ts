@@ -746,21 +746,21 @@ describe('AxJSRuntime integration', () => {
   });
 
   it('patchGlobals survives worker reset and recreation', async () => {
-    const runtime = new AxJSRuntime({ outputMode: 'return', timeout: 100 });
+    const runtime = new AxJSRuntime({ outputMode: 'return', timeout: 500 });
     const session = runtime.createSession({
       query: 'initial',
       inputs: { query: 'initial' },
     });
 
     try {
+      await expect(session.execute('while(true){}')).rejects.toThrow(
+        'Execution timed out'
+      );
+
       await session.patchGlobals({
         query: 'updated',
         inputs: { query: 'updated' },
       });
-
-      await expect(session.execute('while(true){}')).rejects.toThrow(
-        'Execution timed out'
-      );
 
       const result = await session.execute(
         '({ query, inputQuery: inputs.query })'

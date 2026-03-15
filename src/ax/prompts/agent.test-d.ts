@@ -1,6 +1,7 @@
 import {
   type AxAgentFunction,
   type AxAgentFunctionGroup,
+  type AxAgentTestResult,
   type AxCodeRuntime,
   type AxFunction,
   agent,
@@ -48,7 +49,19 @@ import {
   });
 
   const result = a.test('console.log(query)', { query: 'hello' });
-  const _ok: Promise<string> = result;
+  const _ok: Promise<AxAgentTestResult> = result;
+}
+
+// Agent test() returns completion payloads for final()/ask_clarification()
+{
+  const runtime = {} as AxCodeRuntime;
+  const a = agent('query:string -> answer:string', {
+    contextFields: ['query'] as const,
+    runtime,
+  });
+
+  const result = a.test('final(query)', { query: 'hello' });
+  const _ok: Promise<AxAgentTestResult> = result;
 }
 
 // Agent test() should enforce typed inputs
@@ -139,11 +152,16 @@ import {
     runtime,
     contextPolicy: {
       preset: 'lean',
+      summarizerOptions: {
+        model: 'summary-model',
+        modelConfig: { temperature: 0.2 },
+      },
       state: {
         summary: true,
         inspect: true,
         inspectThresholdChars: 1000,
         maxEntries: 4,
+        maxChars: 600,
       },
       checkpoints: {
         enabled: true,
@@ -525,5 +543,26 @@ import {
     contextFields: [] as const,
     runtime,
     functions: { discovery: 'yes', local: [] },
+  });
+}
+
+// contextPolicy.pruneUsedDocs should accept boolean values
+{
+  const runtime = {} as AxCodeRuntime;
+  agent('query:string -> answer:string', {
+    contextFields: [] as const,
+    runtime,
+    contextPolicy: { pruneUsedDocs: true },
+  });
+}
+
+// contextPolicy.pruneUsedDocs should reject non-boolean values
+{
+  const runtime = {} as AxCodeRuntime;
+  // @ts-expect-error pruneUsedDocs must be a boolean
+  agent('query:string -> answer:string', {
+    contextFields: [] as const,
+    runtime,
+    contextPolicy: { pruneUsedDocs: 'yes' },
   });
 }

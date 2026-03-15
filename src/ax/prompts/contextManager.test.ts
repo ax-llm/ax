@@ -1,15 +1,19 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { AxMockAIService } from '../ai/mock/api.js';
 import type { ActionLogEntry } from './contextManager.js';
 import {
   buildActionEvidenceSummary,
   buildActionLog,
+  buildActionLogReplayPlan,
   buildActionLogWithPolicy,
   buildInspectRuntimeBaselineCode,
   buildInspectRuntimeCode,
+  buildRuntimeStateProvenance,
   evaluateHindsight,
   extractDeclaredVariables,
   extractErrorSignature,
+  extractReadIdentifiers,
   extractReferencedIdentifiers,
   generateCheckpointSummaryAsync,
   generateTombstoneAsync,
@@ -46,6 +50,12 @@ function makeSuccessEntry(
 ): ActionLogEntry {
   return makeEntry({ turn, code, output, tags: [] });
 }
+
+const makeModelUsage = () => ({
+  ai: 'mock-ai',
+  model: 'mock-model',
+  tokens: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+});
 
 // ---------------------------------------------------------------------------
 // extractErrorSignature
@@ -145,6 +155,59 @@ describe('extractReferencedIdentifiers', () => {
   });
 });
 
+describe('extractReadIdentifiers', () => {
+  it('should exclude identifiers declared in the current turn', () => {
+    const ids = extractReadIdentifiers(
+      'const data = computeFresh(); const next = prior + 1;'
+    );
+
+    expect(ids.has('data')).toBe(false);
+    expect(ids.has('next')).toBe(false);
+    expect(ids.has('prior')).toBe(true);
+  });
+});
+
+describe('buildRuntimeStateProvenance', () => {
+  it('should track the latest producing turn and callable source per variable', () => {
+    const provenance = buildRuntimeStateProvenance([
+      makeSuccessEntry(
+        1,
+        'const rows = await db.search({ query: "widgets" })',
+        '[{"id":1}]'
+      ),
+      makeSuccessEntry(2, 'console.log(rows.length)', '1'),
+      makeSuccessEntry(3, 'const draft = rows.map(row => row.id)', '[1]'),
+    ]);
+
+    expect(provenance.get('rows')).toEqual({
+      createdTurn: 1,
+      lastReadTurn: 3,
+      source: 'db.search',
+      stepKind: 'transform',
+    });
+    expect(provenance.get('draft')).toEqual({
+      createdTurn: 3,
+      source: 'rows.map',
+      stepKind: 'transform',
+    });
+  });
+
+  it('should reset provenance when a variable is overwritten in a later turn', () => {
+    const provenance = buildRuntimeStateProvenance([
+      makeSuccessEntry(1, 'const rows = await db.search({ query: "old" })'),
+      makeSuccessEntry(2, 'const rows = await db.search({ query: "new" })'),
+      makeSuccessEntry(3, 'console.log(rows.length)'),
+    ]);
+
+    expect(provenance.get('rows')).toEqual({
+      createdTurn: 2,
+      lastReadTurn: 3,
+      source: 'db.search',
+      stepKind: 'transform',
+    });
+  });
+});
+
 // ---------------------------------------------------------------------------
 // evaluateHindsight
 // ---------------------------------------------------------------------------
@@ -190,6 +253,23 @@ describe('evaluateHindsight', () => {
     expect(prev.tags).toContain('superseded');
   });
 
+  it('should not treat redeclarations in the current turn as foundational references', () => {
+    const prev = makeSuccessEntry(1, 'const data = [1,2,3]');
+    const curr = makeSuccessEntry(2, 'const data = [4,5,6]');
+    evaluateHindsight(prev, curr);
+    expect(prev.rank).toBe(1);
+    expect(prev.tags).toContain('superseded');
+    expect(prev.tags).not.toContain('foundational');
+  });
+
+  it('should leave output-only exploration turns unranked when no dependency is clear', () => {
+    const prev = makeSuccessEntry(1, 'console.log("preview")', 'preview');
+    const curr = makeSuccessEntry(2, 'const answer = 42');
+    evaluateHindsight(prev, curr);
+    expect(prev.rank).toBeUndefined();
+    expect(prev.tags).toEqual([]);
+  });
+
   it('should not tag success→error (regression)', () => {
     const prev = makeSuccessEntry(1, 'const x = 1');
     const curr = makeErrorEntry(2);
@@ -213,21 +293,25 @@ describe('evaluateHindsight', () => {
 // ---------------------------------------------------------------------------
 
 describe('manageContext', () => {
-  it('should prune error entries when errorPruning is enabled and new entry is success', async () => {
+  it('should keep resolved errors as deterministic tombstones when errorPruning is enabled', async () => {
     const entries: ActionLogEntry[] = [makeErrorEntry(1), makeSuccessEntry(2)];
     await manageContext(entries, 1, {
       errorPruning: true,
       hindsightEvaluation: false,
       tombstoning: undefined,
       pruneRank: 2,
+      rankPruneGraceTurns: 2,
       actionReplay: 'full',
       recentFullActions: 1,
       stateSummary: { enabled: false },
       stateInspection: { enabled: false },
       checkpoints: { enabled: false },
     });
-    expect(entries).toHaveLength(1);
-    expect(entries[0]!.turn).toBe(2);
+    expect(entries).toHaveLength(2);
+    expect(entries[0]!.turn).toBe(1);
+    expect(entries[0]!.tombstone).toBe(
+      '[TOMBSTONE]: Resolved TypeError: x is not a function in turn 2.'
+    );
   });
 
   it('should NOT prune error entries when new entry is also an error', async () => {
@@ -237,6 +321,7 @@ describe('manageContext', () => {
       hindsightEvaluation: false,
       tombstoning: undefined,
       pruneRank: 2,
+      rankPruneGraceTurns: 2,
       actionReplay: 'full',
       recentFullActions: 1,
       stateSummary: { enabled: false },
@@ -246,8 +331,7 @@ describe('manageContext', () => {
     expect(entries).toHaveLength(2);
   });
 
-  it('should evaluate hindsight and prune low-rank entries', async () => {
-    // Turn 1 succeeds with var approach1, Turn 2 succeeds with var approach2 (no reference)
+  it('should keep low-rank successful entries during the grace window', async () => {
     const entries: ActionLogEntry[] = [
       makeSuccessEntry(1, 'const approach1 = "a"'),
       makeSuccessEntry(2, 'const approach2 = "b"'),
@@ -257,15 +341,51 @@ describe('manageContext', () => {
       hindsightEvaluation: true,
       tombstoning: undefined,
       pruneRank: 2,
+      rankPruneGraceTurns: 2,
       actionReplay: 'full',
       recentFullActions: 1,
       stateSummary: { enabled: false },
       stateInspection: { enabled: false },
       checkpoints: { enabled: false },
     });
-    // Turn 1 gets rank 1 (superseded) < pruneRank 2 → pruned
-    expect(entries).toHaveLength(1);
+    expect(entries).toHaveLength(2);
+    expect(entries[0]!.rank).toBe(1);
+  });
+
+  it('should prune superseded transform entries after the grace window expires', async () => {
+    const entries: ActionLogEntry[] = [
+      makeSuccessEntry(1, 'const approach1 = "a"'),
+      makeSuccessEntry(2, 'const approach2 = "b"'),
+    ];
+    await manageContext(entries, 1, {
+      errorPruning: false,
+      hindsightEvaluation: true,
+      tombstoning: undefined,
+      pruneRank: 2,
+      rankPruneGraceTurns: 2,
+      actionReplay: 'full',
+      recentFullActions: 1,
+      stateSummary: { enabled: false },
+      stateInspection: { enabled: false },
+      checkpoints: { enabled: false },
+    });
+    entries.push(makeSuccessEntry(3, 'const approach3 = "c"'));
+    await manageContext(entries, 2, {
+      errorPruning: false,
+      hindsightEvaluation: true,
+      tombstoning: undefined,
+      pruneRank: 2,
+      rankPruneGraceTurns: 2,
+      actionReplay: 'full',
+      recentFullActions: 1,
+      stateSummary: { enabled: false },
+      stateInspection: { enabled: false },
+      checkpoints: { enabled: false },
+    });
+
+    expect(entries).toHaveLength(2);
     expect(entries[0]!.turn).toBe(2);
+    expect(entries[1]!.turn).toBe(3);
   });
 
   it('should keep foundational entries above pruneRank', async () => {
@@ -278,6 +398,7 @@ describe('manageContext', () => {
       hindsightEvaluation: true,
       tombstoning: undefined,
       pruneRank: 2,
+      rankPruneGraceTurns: 2,
       actionReplay: 'full',
       recentFullActions: 1,
       stateSummary: { enabled: false },
@@ -297,6 +418,7 @@ describe('manageContext', () => {
       hindsightEvaluation: true,
       tombstoning: undefined,
       pruneRank: 2,
+      rankPruneGraceTurns: 2,
       actionReplay: 'full',
       recentFullActions: 1,
       stateSummary: { enabled: false },
@@ -317,6 +439,7 @@ describe('manageContext', () => {
       hindsightEvaluation: false,
       tombstoning: undefined,
       pruneRank: 2,
+      rankPruneGraceTurns: 2,
       actionReplay: 'full',
       recentFullActions: 1,
       stateSummary: { enabled: false },
@@ -337,6 +460,7 @@ describe('manageContext', () => {
       hindsightEvaluation: false,
       tombstoning: undefined,
       pruneRank: 2,
+      rankPruneGraceTurns: 2,
       actionReplay: 'full',
       recentFullActions: 1,
       stateSummary: { enabled: false },
@@ -353,68 +477,120 @@ describe('manageContext', () => {
 // ---------------------------------------------------------------------------
 
 describe('generateTombstoneAsync', () => {
-  it('should call ai.chat and return the result', async () => {
-    const mockAi = {
-      chat: vi.fn().mockResolvedValue({
+  it('should call the internal summarizer and return the result', async () => {
+    const mockAi = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: {
         results: [
-          { content: '[TOMBSTONE]: Fixed TypeError. Avoid: bad call.' },
+          {
+            index: 0,
+            content:
+              'Tombstone: [TOMBSTONE]: Fixed TypeError. Avoid: bad call.',
+            finishReason: 'stop',
+          },
         ],
-      }),
-    };
+        modelUsage: makeModelUsage(),
+      },
+    });
+    const chatSpy = vi.spyOn(mockAi, 'chat');
+
     const result = await generateTombstoneAsync(
-      mockAi as any,
+      mockAi,
+      undefined,
       undefined,
       makeErrorEntry(1),
       makeSuccessEntry(2)
     );
+
     expect(result).toBe('[TOMBSTONE]: Fixed TypeError. Avoid: bad call.');
-    expect(mockAi.chat).toHaveBeenCalledTimes(1);
+    expect(chatSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('should pass model override when forwardOptions.model is specified', async () => {
-    const mockAi = {
-      chat: vi.fn().mockResolvedValue({
-        results: [{ content: '[TOMBSTONE]: Done.' }],
-      }),
-    };
+  it('should let request-level model options override tombstone defaults', async () => {
+    const mockAi = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: {
+        results: [
+          {
+            index: 0,
+            content: 'Tombstone: [TOMBSTONE]: Done.',
+            finishReason: 'stop',
+          },
+        ],
+        modelUsage: makeModelUsage(),
+      },
+    });
+    const chatSpy = vi.spyOn(mockAi, 'chat');
+
     await generateTombstoneAsync(
-      mockAi as any,
-      { model: 'claude-3-5-haiku' },
+      mockAi,
+      { model: 'summary-model', modelConfig: { temperature: 0.1 } },
+      {
+        model: 'request-model',
+        modelConfig: { temperature: 0.3, maxTokens: 60 },
+      },
       makeErrorEntry(1),
       makeSuccessEntry(2)
     );
-    const chatArg = mockAi.chat.mock.calls[0]![0];
-    expect(chatArg.model).toBe('claude-3-5-haiku');
+
+    const chatReq = chatSpy.mock.calls[0]?.[0];
+    expect(chatReq?.model).toBe('request-model');
+    expect(chatReq?.modelConfig).toEqual({
+      temperature: 0.3,
+      maxTokens: 60,
+    });
   });
 
-  it('should pass modelConfig override when forwardOptions.modelConfig is specified', async () => {
-    const mockAi = {
-      chat: vi.fn().mockResolvedValue({
-        results: [{ content: '[TOMBSTONE]: Done.' }],
-      }),
-    };
+  it('should forward abortSignal to the internal tombstone summarizer', async () => {
+    const mockAi = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: {
+        results: [
+          {
+            index: 0,
+            content: 'Tombstone: [TOMBSTONE]: Done.',
+            finishReason: 'stop',
+          },
+        ],
+        modelUsage: makeModelUsage(),
+      },
+    });
+    const chatSpy = vi.spyOn(mockAi, 'chat');
+    const abortController = new AbortController();
+    const logger = vi.fn();
+
     await generateTombstoneAsync(
-      mockAi as any,
-      { modelConfig: { temperature: 0.1, maxTokens: 50 } },
+      mockAi,
+      undefined,
+      { abortSignal: abortController.signal, debug: true, logger },
       makeErrorEntry(1),
       makeSuccessEntry(2)
     );
-    const chatArg = mockAi.chat.mock.calls[0]![0];
-    expect(chatArg.modelConfig).toEqual({ temperature: 0.1, maxTokens: 50 });
+
+    const chatOptions = chatSpy.mock.calls[0]?.[1];
+    expect(chatOptions?.abortSignal).toBeDefined();
+    abortController.abort('stop');
+    expect(chatOptions?.abortSignal?.aborted).toBe(true);
+    expect(chatOptions?.debug).toBe(true);
   });
 
   it('should return fallback on error', async () => {
-    const mockAi = {
-      chat: vi.fn().mockRejectedValue(new Error('network error')),
-    };
+    const mockAi = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      shouldError: true,
+      errorMessage: 'network error',
+    });
+
     const result = await generateTombstoneAsync(
-      mockAi as any,
+      mockAi,
+      undefined,
       undefined,
       makeErrorEntry(1),
       makeSuccessEntry(2)
     );
+
     expect(result).toContain('[TOMBSTONE]');
-    expect(result).toContain('resolved');
+    expect(result).toContain('Resolved');
   });
 });
 
@@ -491,6 +667,25 @@ describe('buildActionLog', () => {
     expect(log).toContain('const length = data.length');
   });
 
+  it('should not hide adaptive full-replay entries even when checkpoint turns include them', () => {
+    const entries = [
+      makeSuccessEntry(1, 'const data = [1,2,3]', 'data ready'),
+      makeSuccessEntry(2, 'const length = data.length', '3'),
+      makeSuccessEntry(3, 'final(length)', '(no output)'),
+    ];
+    const log = buildActionLogWithPolicy(entries, {
+      actionReplay: 'adaptive',
+      recentFullActions: 1,
+      checkpointSummary:
+        'Objective: use prior data\nDurable state: data, length',
+      checkpointTurns: [1, 2],
+    });
+
+    expect(log).toContain('const data = [1,2,3]');
+    expect(log).toContain('const length = data.length');
+    expect(log).toContain('Checkpoint Summary:');
+  });
+
   it('should include a live runtime state block in minimal mode', () => {
     const entries = [makeSuccessEntry(1, 'const total = 5', '5')];
     const log = buildActionLogWithPolicy(entries, {
@@ -541,6 +736,143 @@ describe('buildActionLog', () => {
     expect(log).toContain('north up 12%');
     expect(log).not.toContain('```javascript');
   });
+
+  it('should report replay-history chars without counting live runtime state', () => {
+    const entries = [
+      makeSuccessEntry(1, 'const total = 5', '5'),
+      makeSuccessEntry(2, 'console.log(total)', '5'),
+    ];
+    const replayPlan = buildActionLogReplayPlan(entries, {
+      actionReplay: 'adaptive',
+      recentFullActions: 1,
+    });
+    const renderedLog = buildActionLogWithPolicy(entries, {
+      actionReplay: 'adaptive',
+      recentFullActions: 1,
+      stateSummary:
+        'total: number = 5\nlongState: string = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"',
+    });
+
+    expect(replayPlan.historyChars).toBe(replayPlan.historyText.length);
+    expect(renderedLog.length).toBeGreaterThan(replayPlan.historyChars);
+  });
+
+  it('should prune used discovery docs while keeping unrelated sections visible', () => {
+    const entries = [
+      makeSuccessEntry(
+        1,
+        "const modules = await listModuleFunctions(['db', 'kb']); console.log(modules)",
+        [
+          '### Module `db`',
+          '- `search`',
+          '',
+          '### Module `kb`',
+          '- `lookup`',
+        ].join('\n')
+      ),
+      makeSuccessEntry(
+        2,
+        "const defs = await getFunctionDefinitions(['db.search', 'kb.lookup']); console.log(defs)",
+        [
+          '### `db.search`',
+          'Search database',
+          '- `db.search(args: { query: string })`',
+          '',
+          '### `kb.lookup`',
+          'Lookup docs',
+          '- `kb.lookup(args: { topic: string })`',
+        ].join('\n')
+      ),
+      makeSuccessEntry(
+        3,
+        'const rows = await db.search({ query: "widgets" }); console.log(rows)',
+        '[{"id":1}]'
+      ),
+    ];
+
+    const log = buildActionLogWithPolicy(entries, {
+      actionReplay: 'full',
+      recentFullActions: 3,
+      pruneUsedDocs: true,
+    });
+
+    expect(log).not.toContain('### Module `db`');
+    expect(log).toContain('### Module `kb`');
+    expect(log).not.toContain('### `db.search`');
+    expect(log).toContain('### `kb.lookup`');
+  });
+
+  it('should suppress fully consumed discovery entries from the rendered action log', () => {
+    const entries = [
+      makeSuccessEntry(
+        1,
+        "const modules = await listModuleFunctions('db'); console.log(modules)",
+        ['### Module `db`', '- `search`'].join('\n')
+      ),
+      makeSuccessEntry(
+        2,
+        "const defs = await getFunctionDefinitions('db.search'); console.log(defs)",
+        [
+          '### `db.search`',
+          'Search database',
+          '- `db.search(args: { query: string })`',
+        ].join('\n')
+      ),
+      makeSuccessEntry(
+        3,
+        'const rows = await db.search({ query: "widgets" }); console.log(rows)',
+        '[{"id":1}]'
+      ),
+    ];
+
+    const log = buildActionLogWithPolicy(entries, {
+      actionReplay: 'full',
+      recentFullActions: 3,
+      pruneUsedDocs: true,
+    });
+
+    expect(log).not.toContain(
+      "const modules = await listModuleFunctions('db')"
+    );
+    expect(log).not.toContain(
+      "const defs = await getFunctionDefinitions('db.search')"
+    );
+    expect(log).toContain('const rows = await db.search');
+  });
+
+  it('should keep discovery docs visible after failed callable attempts', () => {
+    const entries = [
+      makeSuccessEntry(
+        1,
+        "const modules = await listModuleFunctions('db'); console.log(modules)",
+        ['### Module `db`', '- `search`'].join('\n')
+      ),
+      makeSuccessEntry(
+        2,
+        "const defs = await getFunctionDefinitions('db.search'); console.log(defs)",
+        [
+          '### `db.search`',
+          'Search database',
+          '- `db.search(args: { query: string })`',
+        ].join('\n')
+      ),
+      makeEntry({
+        turn: 3,
+        code: 'const rows = await db.search({ query: "widgets" }); console.log(rows)',
+        output: 'TypeError: db.search failed',
+        tags: ['error'],
+      }),
+    ];
+
+    const log = buildActionLogWithPolicy(entries, {
+      actionReplay: 'full',
+      recentFullActions: 3,
+      pruneUsedDocs: true,
+    });
+
+    expect(log).toContain('### Module `db`');
+    expect(log).toContain('### `db.search`');
+  });
 });
 
 describe('buildActionEvidenceSummary', () => {
@@ -560,43 +892,166 @@ describe('buildActionEvidenceSummary', () => {
     expect(summary).not.toContain('```javascript');
     expect(summary).not.toContain('const draft = "v1"');
   });
+
+  it('should not reintroduce pruned discovery docs in evidence summaries', () => {
+    const entries = [
+      makeSuccessEntry(
+        1,
+        "const defs = await getFunctionDefinitions(['db.search', 'kb.lookup']); console.log(defs)",
+        [
+          '### `db.search`',
+          'Search database',
+          '- `db.search(args: { query: string })`',
+          '',
+          '### `kb.lookup`',
+          'Lookup docs',
+          '- `kb.lookup(args: { topic: string })`',
+        ].join('\n')
+      ),
+      makeSuccessEntry(
+        2,
+        'const rows = await db.search({ query: "widgets" }); console.log(rows)',
+        '[{"id":1}]'
+      ),
+    ];
+
+    const summary = buildActionEvidenceSummary(entries, {
+      pruneUsedDocs: true,
+    });
+
+    expect(summary).not.toContain('db.search(args');
+    expect(summary).toContain('kb.lookup(args');
+  });
 });
 
 describe('generateCheckpointSummaryAsync', () => {
-  it('should call ai.chat and return the checkpoint summary', async () => {
-    const mockAi = {
-      chat: vi.fn().mockResolvedValue({
+  it('should call the internal summarizer and return the checkpoint summary', async () => {
+    const mockAi = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: {
         results: [
           {
+            index: 0,
             content: [
-              'Objective: verify draft',
+              'Checkpoint Summary: Objective: verify draft',
               'Durable state: draft',
               'Evidence: draft ready',
               'Conclusions: use draft',
               'Actor fields: none',
               'Next step: finalize answer',
             ].join('\n'),
+            finishReason: 'stop',
           },
         ],
-      }),
-    };
+        modelUsage: makeModelUsage(),
+      },
+    });
+    const chatSpy = vi.spyOn(mockAi, 'chat');
 
-    const result = await generateCheckpointSummaryAsync(mockAi as any, [
-      makeSuccessEntry(1, 'const draft = "v1"', 'draft ready'),
-    ]);
+    const result = await generateCheckpointSummaryAsync(
+      mockAi,
+      undefined,
+      undefined,
+      [makeSuccessEntry(1, 'const draft = "v1"', 'draft ready')]
+    );
 
     expect(result).toContain('Objective: verify draft');
-    expect(mockAi.chat).toHaveBeenCalledTimes(1);
+    expect(chatSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('should let request-level model options override checkpoint defaults', async () => {
+    const mockAi = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: {
+        results: [
+          {
+            index: 0,
+            content: [
+              'Checkpoint Summary: Objective: verify draft',
+              'Durable state: draft',
+              'Evidence: draft ready',
+              'Conclusions: use draft',
+              'Actor fields: none',
+              'Next step: finalize answer',
+            ].join('\n'),
+            finishReason: 'stop',
+          },
+        ],
+        modelUsage: makeModelUsage(),
+      },
+    });
+    const chatSpy = vi.spyOn(mockAi, 'chat');
+
+    await generateCheckpointSummaryAsync(
+      mockAi,
+      { model: 'summary-model', modelConfig: { temperature: 0.1 } },
+      {
+        model: 'request-model',
+        modelConfig: { temperature: 0.4, maxTokens: 180 },
+      },
+      [makeSuccessEntry(1, 'const draft = "v1"', 'draft ready')]
+    );
+
+    const chatReq = chatSpy.mock.calls[0]?.[0];
+    expect(chatReq?.model).toBe('request-model');
+    expect(chatReq?.modelConfig).toEqual({
+      temperature: 0.4,
+      maxTokens: 180,
+    });
+  });
+
+  it('should forward abortSignal to the internal checkpoint summarizer', async () => {
+    const mockAi = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: {
+        results: [
+          {
+            index: 0,
+            content: [
+              'Checkpoint Summary: Objective: verify draft',
+              'Durable state: draft',
+              'Evidence: draft ready',
+              'Conclusions: use draft',
+              'Actor fields: none',
+              'Next step: finalize answer',
+            ].join('\n'),
+            finishReason: 'stop',
+          },
+        ],
+        modelUsage: makeModelUsage(),
+      },
+    });
+    const chatSpy = vi.spyOn(mockAi, 'chat');
+    const abortController = new AbortController();
+    const logger = vi.fn();
+
+    await generateCheckpointSummaryAsync(
+      mockAi,
+      undefined,
+      { abortSignal: abortController.signal, debug: true, logger },
+      [makeSuccessEntry(1, 'const draft = "v1"', 'draft ready')]
+    );
+
+    const chatOptions = chatSpy.mock.calls[0]?.[1];
+    expect(chatOptions?.abortSignal).toBeDefined();
+    abortController.abort('stop');
+    expect(chatOptions?.abortSignal?.aborted).toBe(true);
+    expect(chatOptions?.debug).toBe(true);
   });
 
   it('should return a deterministic fallback on error', async () => {
-    const mockAi = {
-      chat: vi.fn().mockRejectedValue(new Error('network error')),
-    };
+    const mockAi = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      shouldError: true,
+      errorMessage: 'network error',
+    });
 
-    const result = await generateCheckpointSummaryAsync(mockAi as any, [
-      makeSuccessEntry(1, 'const draft = "v1"', 'draft ready'),
-    ]);
+    const result = await generateCheckpointSummaryAsync(
+      mockAi,
+      undefined,
+      undefined,
+      [makeSuccessEntry(1, 'const draft = "v1"', 'draft ready')]
+    );
 
     expect(result).toContain('Objective:');
     expect(result).toContain('Durable state: draft');
@@ -613,6 +1068,8 @@ describe('buildInspectRuntimeCode', () => {
     expect(code).toContain('globalThis');
     expect(code).toContain("'llmQuery'");
     expect(code).toContain("'final'");
+    expect(code).toContain('Object.getOwnPropertyDescriptor(globalThis, name)');
+    expect(code).toContain('JSON.stringify({ version: 1, entries })');
   });
 
   it('should be a self-executing function', () => {
