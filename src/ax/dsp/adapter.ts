@@ -490,7 +490,7 @@ export class AxDefaultAdapter implements AxPromptAdapter {
       (examples && examples.length > 0) || (demos && demos.length > 0);
 
     const systemContent = hasExamplesOrDemos
-      ? this.getTaskText() + exampleDisclaimer
+      ? `${this.getTaskText()}\n\n${exampleDisclaimer}`
       : this.getTaskText();
 
     const systemPrompt = {
@@ -1342,7 +1342,7 @@ const renderInputFields = (
 
     const requiredMsg = field.isOptional
       ? `This optional ${type} field may be omitted`
-      : `A ${type} field`;
+      : `${indefiniteArticle(type)} ${type} field`;
 
     let description = '';
     if (field.description) {
@@ -1357,6 +1357,19 @@ const renderInputFields = (
   });
 
   return rows.join('\n');
+};
+
+const indefiniteArticle = (type: string) => {
+  const normalized = type.trim().toLowerCase();
+  if (
+    normalized.startsWith('url') ||
+    normalized.startsWith('json') ||
+    normalized.startsWith('one') ||
+    normalized.startsWith('user')
+  ) {
+    return 'A';
+  }
+  return /^[aeiou]/.test(normalized) ? 'An' : 'A';
 };
 
 const renderOutputFields = (
