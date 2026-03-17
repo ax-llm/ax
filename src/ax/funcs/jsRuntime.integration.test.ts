@@ -788,4 +788,132 @@ describe('AxJSRuntime integration', () => {
       session.close();
     }
   });
+
+  it('inspectGlobals returns structured snapshots and respects reserved names', async () => {
+    const runtime = new AxJSRuntime({ outputMode: 'return' });
+    const session = runtime.createSession();
+
+    try {
+      await session.execute(
+        'const reservedView = 7; const visibleItems = [1, 2, 3]'
+      );
+
+      const snapshot = await session.inspectGlobals!({
+        reservedNames: ['reservedView'],
+      });
+      const parsed = JSON.parse(snapshot ?? '');
+
+      expect(parsed).toMatchObject({ version: 1 });
+      expect(Array.isArray(parsed.entries)).toBe(true);
+      expect(
+        parsed.entries.some(
+          (entry: { name: string }) => entry.name === 'reservedView'
+        )
+      ).toBe(false);
+      expect(
+        parsed.entries.some(
+          (entry: { name: string; type: string }) =>
+            entry.name === 'visibleItems' && entry.type === 'array'
+        )
+      ).toBe(true);
+    } finally {
+      session.close();
+    }
+  });
+
+  it('inspectGlobals survives worker reset and recreation', async () => {
+    const runtime = new AxJSRuntime({ outputMode: 'return', timeout: 500 });
+    const session = runtime.createSession();
+
+    try {
+      await expect(session.execute('while(true){}')).rejects.toThrow(
+        'Execution timed out'
+      );
+
+      await session.execute('const afterReset = 2');
+      const snapshot = await session.inspectGlobals!();
+      const parsed = JSON.parse(snapshot ?? '');
+
+      expect(
+        parsed.entries.some(
+          (entry: { name: string; type: string }) =>
+            entry.name === 'afterReset' && entry.type === 'number'
+        )
+      ).toBe(true);
+    } finally {
+      session.close();
+    }
+  });
+
+  it('snapshotGlobals returns restorable bindings and marks snapshot-only values', async () => {
+    const runtime = new AxJSRuntime({ outputMode: 'return' });
+    const session = runtime.createSession();
+
+    try {
+      await session.execute(
+        [
+          'const rows = [{ id: 1 }, { id: 2 }];',
+          'globalThis.summary = { count: rows.length };',
+          'const helper = () => rows.length;',
+        ].join('\n')
+      );
+
+      const snapshot = await session.snapshotGlobals!({
+        reservedNames: ['summary'],
+      });
+
+      expect(snapshot).toMatchObject({ version: 1 });
+      expect(snapshot.bindings).toMatchObject({
+        rows: [{ id: 1 }, { id: 2 }],
+      });
+      expect(snapshot.bindings).not.toHaveProperty('summary');
+      expect(snapshot.bindings).not.toHaveProperty('helper');
+      expect(
+        snapshot.entries.find((entry) => entry.name === 'rows')
+      ).toMatchObject({
+        name: 'rows',
+        restorable: true,
+        type: 'array',
+      });
+      expect(
+        snapshot.entries.find((entry) => entry.name === 'helper')
+      ).toMatchObject({
+        name: 'helper',
+        restorable: false,
+        type: 'function',
+      });
+    } finally {
+      session.close();
+    }
+  });
+
+  it('snapshotGlobals respects abort signals', async () => {
+    const runtime = new AxJSRuntime({ outputMode: 'return' });
+    const session = runtime.createSession();
+    const controller = new AbortController();
+    controller.abort('stop snapshotting');
+
+    try {
+      await expect(
+        session.snapshotGlobals!({ signal: controller.signal })
+      ).rejects.toThrow('Aborted: stop snapshotting');
+    } finally {
+      session.close();
+    }
+  });
+
+  it('inspectGlobals respects abort signals', async () => {
+    const runtime = new AxJSRuntime({ outputMode: 'return' });
+    const session = runtime.createSession();
+    const controller = new AbortController();
+    controller.abort('stop inspecting');
+
+    try {
+      await expect(
+        session.inspectGlobals!({ signal: controller.signal })
+      ).rejects.toThrow('Aborted: stop inspecting');
+    } finally {
+      session.close();
+    }
+  });
 });

@@ -10,6 +10,7 @@ import {
   buildInspectRuntimeBaselineCode,
   buildInspectRuntimeCode,
   buildRuntimeStateProvenance,
+  extractDurableWriteTargets,
   evaluateHindsight,
   extractDeclaredVariables,
   extractErrorSignature,
@@ -167,6 +168,26 @@ describe('extractReadIdentifiers', () => {
   });
 });
 
+describe('extractDurableWriteTargets', () => {
+  it('should include bare top-level assignments to existing globals', () => {
+    expect(
+      extractDurableWriteTargets('rows = await db.search({ query })')
+    ).toEqual(['rows']);
+  });
+
+  it('should include globalThis writes and top-level overwrites', () => {
+    expect(
+      extractDurableWriteTargets(
+        [
+          'const seed = 1;',
+          'globalThis.summary = { count: seed };',
+          'seed = 2;',
+        ].join('\n')
+      )
+    ).toEqual(['seed', 'summary']);
+  });
+});
+
 describe('buildRuntimeStateProvenance', () => {
   it('should track the latest producing turn and callable source per variable', () => {
     const provenance = buildRuntimeStateProvenance([
@@ -180,12 +201,14 @@ describe('buildRuntimeStateProvenance', () => {
     ]);
 
     expect(provenance.get('rows')).toEqual({
+      code: 'const rows = await db.search({ query: "widgets" })',
       createdTurn: 1,
       lastReadTurn: 3,
       source: 'db.search',
       stepKind: 'transform',
     });
     expect(provenance.get('draft')).toEqual({
+      code: 'const draft = rows.map(row => row.id)',
       createdTurn: 3,
       source: 'rows.map',
       stepKind: 'transform',
@@ -200,9 +223,32 @@ describe('buildRuntimeStateProvenance', () => {
     ]);
 
     expect(provenance.get('rows')).toEqual({
+      code: 'const rows = await db.search({ query: "new" })',
       createdTurn: 2,
       lastReadTurn: 3,
       source: 'db.search',
+      stepKind: 'transform',
+    });
+  });
+
+  it('should capture provenance for bare assignments and globalThis writes', () => {
+    const provenance = buildRuntimeStateProvenance([
+      makeSuccessEntry(1, 'rows = await db.search({ query: "widgets" })'),
+      makeSuccessEntry(2, 'globalThis.bestRow = rows[0]'),
+      makeSuccessEntry(3, 'console.log(bestRow.id)'),
+    ]);
+
+    expect(provenance.get('rows')).toEqual({
+      code: 'rows = await db.search({ query: "widgets" })',
+      createdTurn: 1,
+      lastReadTurn: 2,
+      source: 'db.search',
+      stepKind: 'transform',
+    });
+    expect(provenance.get('bestRow')).toEqual({
+      code: 'globalThis.bestRow = rows[0]',
+      createdTurn: 2,
+      lastReadTurn: 3,
       stepKind: 'transform',
     });
   });

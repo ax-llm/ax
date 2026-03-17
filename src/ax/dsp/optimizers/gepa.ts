@@ -131,6 +131,16 @@ type AxGEPABatchRow = {
   scalar: number;
 };
 
+function zeroScoreVector(
+  knownKeys: ReadonlySet<string>
+): Record<string, number> {
+  if (knownKeys.size === 0) {
+    return { score: 0 };
+  }
+
+  return Object.fromEntries([...knownKeys].map((key) => [key, 0]));
+}
+
 /** Single-module GEPA (reflective prompt evolution with Pareto sampling) */
 export class AxGEPA extends AxBaseOptimizer {
   // Core knobs
@@ -358,6 +368,14 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
       return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
     };
 
+    const optLogger = this.getOptimizerLogger(options);
+    const verboseLog =
+      ((options as any)?.verbose ?? this.verbose)
+        ? (msg: string) => console.log(`[GEPA] ${msg}`)
+        : (_msg: string) => {};
+
+    const observedScoreKeys = new Set<string>();
+
     const evalBatch = async (
       cfg: Readonly<Record<string, string>>,
       set: readonly AxTypedExample<IN>[],
@@ -383,23 +401,48 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
       }
 
       const rows: AxGEPABatchRow[] = [];
-      for (const ex of set) {
+      verboseLog(
+        `${_phase}: evaluating ${set.length} example${set.length === 1 ? '' : 's'}`
+      );
+
+      for (const [index, ex] of set.entries()) {
         applyConfig(cfg);
-        const prediction = await program.forward(
-          this.studentAI,
-          ex as IN,
-          {
-            sampleCount: this.sampleCount,
-          } as any
-        );
+        let prediction: unknown;
+        let scores: Record<string, number>;
+
+        try {
+          prediction = await program.forward(
+            this.studentAI,
+            ex as IN,
+            {
+              sampleCount: this.sampleCount,
+            } as any
+          );
+          scores = await normalizeScores(prediction, ex as AxExample);
+          for (const key of Object.keys(scores)) {
+            observedScoreKeys.add(key);
+          }
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          prediction = { error: message };
+          scores = zeroScoreVector(observedScoreKeys);
+          verboseLog(
+            `Evaluation failed during ${_phase}; scoring this example as zero. Error: ${message}`
+          );
+        }
+
         this.stats.totalCalls += 1;
-        const scores = await normalizeScores(prediction, ex as AxExample);
+        const scalar = scalarize(scores);
         rows.push({
           input: ex as AxExample,
           prediction,
           scores,
-          scalar: scalarize(scores),
+          scalar,
         });
+        verboseLog(
+          `${_phase}: completed ${index + 1}/${set.length} (score=${scalar.toFixed(3)})`
+        );
       }
 
       return {
@@ -434,12 +477,6 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
     ];
 
     const perInstanceScores: number[][] = [baseEval!.scalars];
-
-    const optLogger = this.getOptimizerLogger(options);
-    const verboseLog =
-      ((options as any)?.verbose ?? this.verbose)
-        ? (msg: string) => console.log(`[GEPA] ${msg}`)
-        : (_msg: string) => {};
 
     optLogger?.({
       name: 'OptimizationStart',

@@ -1,5 +1,10 @@
 import type { AxFunction } from '../ai/types.js';
-import type { AxCodeRuntime, AxCodeSession } from '../prompts/rlm.js';
+import type {
+  AxCodeRuntime,
+  AxCodeSession,
+  AxCodeSessionSnapshot,
+  AxCodeSessionSnapshotEntry,
+} from '../prompts/rlm.js';
 import {
   extractTopLevelDeclaredNames,
   stripJsStringsAndComments,
@@ -758,6 +763,45 @@ function deserializeError(payload: string | SerializedError): Error {
   return err;
 }
 
+function isCodeSessionSnapshotEntry(
+  value: unknown
+): value is AxCodeSessionSnapshotEntry {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.name === 'string' &&
+    typeof candidate.type === 'string' &&
+    (candidate.ctor === undefined || typeof candidate.ctor === 'string') &&
+    (candidate.size === undefined || typeof candidate.size === 'string') &&
+    (candidate.preview === undefined ||
+      typeof candidate.preview === 'string') &&
+    (candidate.restorable === undefined ||
+      typeof candidate.restorable === 'boolean')
+  );
+}
+
+function normalizeCodeSessionSnapshot(value: unknown): AxCodeSessionSnapshot {
+  if (!value || typeof value !== 'object') {
+    return { version: 1, entries: [], bindings: {} };
+  }
+
+  const candidate = value as Record<string, unknown>;
+  const rawEntries = Array.isArray(candidate.entries) ? candidate.entries : [];
+  const bindings =
+    candidate.bindings && typeof candidate.bindings === 'object'
+      ? (candidate.bindings as Record<string, unknown>)
+      : {};
+
+  return {
+    version: 1,
+    entries: rawEntries.filter(isCodeSessionSnapshotEntry),
+    bindings,
+  };
+}
+
 /**
  * Permissions that can be granted to the RLM JS interpreter sandbox.
  * By default all dangerous globals are blocked; users opt in via this enum.
@@ -1375,6 +1419,56 @@ export class AxJSRuntime implements AxCodeRuntime {
               timeoutMessage: 'Execution timed out',
             }
           )
+        );
+      },
+
+      inspectGlobals(options?: {
+        signal?: AbortSignal;
+        reservedNames?: readonly string[];
+      }) {
+        if (isClosed) {
+          return Promise.reject(new Error('Session is closed'));
+        }
+
+        return enqueueSessionRequest(options?.signal, () =>
+          dispatchWorkerRequest(
+            {
+              type: 'inspect-globals',
+              reservedNames: options?.reservedNames,
+            },
+            {
+              signal: options?.signal,
+              timeoutMessage: 'Global inspection timed out',
+            }
+          ).then((value) =>
+            typeof value === 'string'
+              ? value
+              : value === undefined
+                ? ''
+                : JSON.stringify(value)
+          )
+        );
+      },
+
+      snapshotGlobals(options?: {
+        signal?: AbortSignal;
+        reservedNames?: readonly string[];
+      }) {
+        if (isClosed) {
+          return Promise.reject(new Error('Session is closed'));
+        }
+
+        return enqueueSessionRequest(options?.signal, () =>
+          dispatchWorkerRequest(
+            {
+              type: 'snapshot-globals',
+              reservedNames: options?.reservedNames,
+            },
+            {
+              signal: options?.signal,
+              timeoutMessage: 'Global snapshot timed out',
+            }
+          ).then(normalizeCodeSessionSnapshot)
         );
       },
 

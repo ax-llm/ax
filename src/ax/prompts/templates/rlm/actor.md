@@ -13,7 +13,9 @@ The responder is looking to produce the following output fields: {{ responderOut
 - `await llmQuery(query:string, context:any) : string` — Ask a sub-agent one semantic question.
 - `await llmQuery([{ query:string, context:any }, ...]) : string[]` — Batched parallel form.
 - `final(...args)` — Complete and pass payload to the responder.
-- `ask_clarification(...args)` — Request missing user input and pass clarification payload.
+- `ask_clarification(questionOrSpec)` — Stop and ask the user for clarification. Pass exactly one argument:
+  - a non-empty string for simple free-text clarification, or
+  - an object with a non-empty `question` plus optional fields like `type: 'date' | 'number' | 'single_choice' | 'multiple_choice'` and `choices`.
 {{ if hasInspectRuntime }}
 - `await inspect_runtime() : string` — Returns a compact snapshot of all user-defined variables in the runtime session (name, type, size, preview). Use this to re-ground yourself when the action log is large instead of re-reading previous outputs.
 {{ /if }}
@@ -25,6 +27,9 @@ The responder is looking to produce the following output fields: {{ responderOut
 - When you need multiple callable definitions, prefer one batched call to `getFunctionDefinitions([...])`.
 - Treat discovery results as markdown meant for direct `console.log(...)` inspection.
 - Do not split discovery into `Promise.all(...)` calls or reformat discovery results into JSON or custom objects.
+- Do not guess alternate callable names after invalid callable errors such as `TypeError: <namespace>.<name> is not a function` or discovery `Not found` results.
+- After an invalid callable guess, re-run discovery for the module or function you need: call `listModuleFunctions(...)`, then `getFunctionDefinitions(...)`, inspect the markdown, and call only the exact discovered qualified name.
+- If tool docs or tool error messages specify an exact literal, type, or query format, use that exact documented value instead of synonyms or inferred aliases.
 {{ /if }}
 
 {{ if discoveryMode }}
@@ -45,6 +50,7 @@ The responder is looking to produce the following output fields: {{ responderOut
 {{ include "./partials/important-guidance.md" }}
 - Reuse the existing runtime state instead of recreating it. Do not re-declare or recompute values that are already available unless you need to intentionally overwrite them or the runtime was reset.
 - Think in continuation steps: inspect what already exists, extend it with the next small piece of code, and keep building on prior executed work.
+- If a prompt includes `Runtime Restore`, the runtime state shown below has already been restored from a previous call. Continue from it instead of rebuilding it.
 {{ if hasLiveRuntimeState }}
 - The runtime session is the source of truth for current state. If a `Live Runtime State` block is present, trust it over older action log details.
 {{ /if }}

@@ -5,7 +5,17 @@ import type {
   AxFunctionHandler,
   AxFunctionJSONSchema,
 } from '../ai/types.js';
+import type {
+  AxMetricFn,
+  AxOptimizationProgress,
+  AxOptimizationStats,
+  AxTypedExample,
+} from '../dsp/common_types.js';
 import { AxGen } from '../dsp/generate.js';
+import { AxJudge, type AxJudgeOptions } from '../dsp/judge.js';
+import { AxGEPA } from '../dsp/optimizers/gepa.js';
+import type { AxParetoResult } from '../dsp/optimizer.js';
+import type { AxOptimizerLoggerFunction } from '../dsp/optimizerTypes.js';
 import type { AxIField, AxSignatureConfig } from '../dsp/sig.js';
 import { AxSignature, f } from '../dsp/sig.js';
 import type { ParseSignature } from '../dsp/sigtypes.js';
@@ -19,6 +29,8 @@ import type {
   AxProgramDemos,
   AxProgramForwardOptions,
   AxProgramForwardOptionsWithModels,
+  AxProgramTrace,
+  AxProgramUsage,
   AxProgrammable,
   AxProgramStreamingForwardOptionsWithModels,
   AxTunable,
@@ -50,6 +62,7 @@ import {
 import type {
   AxCodeRuntime,
   AxCodeSession,
+  AxCodeSessionSnapshotEntry,
   AxContextPolicyConfig,
   AxContextPolicyPreset,
   AxRLMConfig,
@@ -108,6 +121,92 @@ export type AxAgentTestCompletionPayload = {
 
 export type AxAgentTestResult = string | AxAgentTestCompletionPayload;
 
+export type AxAgentClarificationKind =
+  | 'text'
+  | 'number'
+  | 'date'
+  | 'single_choice'
+  | 'multiple_choice';
+
+export type AxAgentClarificationChoice =
+  | string
+  | {
+      label: string;
+      value?: string;
+    };
+
+export type AxAgentClarification = string | AxAgentStructuredClarification;
+
+export type AxAgentStructuredClarification = {
+  question: string;
+  type?: AxAgentClarificationKind;
+  choices?: AxAgentClarificationChoice[];
+  [key: string]: unknown;
+};
+
+export type AxAgentStateActionLogEntry = Pick<
+  ActionLogEntry,
+  | 'turn'
+  | 'code'
+  | 'output'
+  | 'actorFieldsOutput'
+  | 'tags'
+  | 'summary'
+  | 'producedVars'
+  | 'referencedVars'
+  | 'stateDelta'
+  | 'stepKind'
+  | 'replayMode'
+  | 'rank'
+  | 'tombstone'
+>;
+
+export type AxAgentStateCheckpointState = CheckpointSummaryState;
+
+export type AxAgentStateRuntimeEntry = AxCodeSessionSnapshotEntry;
+
+export type AxAgentState = {
+  version: 1;
+  runtimeBindings: Record<string, unknown>;
+  runtimeEntries: AxAgentStateRuntimeEntry[];
+  actionLogEntries: AxAgentStateActionLogEntry[];
+  checkpointState?: AxAgentStateCheckpointState;
+  provenance: Record<string, RuntimeStateVariableProvenance>;
+};
+
+export class AxAgentClarificationError extends Error {
+  public readonly question: string;
+  public readonly clarification: AxAgentStructuredClarification;
+  private readonly stateSnapshot: AxAgentState | undefined;
+  private readonly stateErrorMessage: string | undefined;
+
+  constructor(
+    clarification: AxAgentClarification,
+    options?: Readonly<{
+      state?: AxAgentState;
+      stateError?: string;
+    }>
+  ) {
+    const normalized = normalizeClarificationForError(clarification);
+    super(normalized.question);
+    this.name = 'AxAgentClarificationError';
+    this.question = normalized.question;
+    this.clarification = normalized;
+    this.stateSnapshot = options?.state
+      ? cloneAgentState(options.state)
+      : undefined;
+    this.stateErrorMessage = options?.stateError;
+  }
+
+  public getState(): AxAgentState | undefined {
+    if (this.stateErrorMessage) {
+      throw new Error(this.stateErrorMessage);
+    }
+
+    return this.stateSnapshot ? cloneAgentState(this.stateSnapshot) : undefined;
+  }
+}
+
 type AxAgentFunctionCollection =
   | readonly AxAgentFunction[]
   | readonly AxAgentFunctionGroup[];
@@ -159,6 +258,84 @@ export type AxAgentDemos<
 export type AxAgentInputUpdateCallback<IN extends AxGenIn> = (
   currentInputs: Readonly<IN>
 ) => Promise<Partial<IN> | undefined> | Partial<IN> | undefined;
+
+export type AxAgentJudgeOptions = Partial<Omit<AxJudgeOptions, 'ai'>>;
+
+export type AxAgentOptimizeTarget =
+  | 'actor'
+  | 'responder'
+  | 'all'
+  | readonly string[];
+
+export type AxAgentEvalFunctionCall = {
+  qualifiedName: string;
+  name: string;
+  arguments: AxFieldValue;
+  result?: AxFieldValue;
+  error?: string;
+};
+
+export type AxAgentEvalPrediction<OUT = any> =
+  | {
+      completionType: 'final';
+      output: OUT;
+      clarification?: undefined;
+      actionLog: string;
+      functionCalls: AxAgentEvalFunctionCall[];
+      toolErrors: string[];
+      turnCount: number;
+      usage?: AxProgramUsage[];
+    }
+  | {
+      completionType: 'ask_clarification';
+      output?: undefined;
+      clarification: AxAgentStructuredClarification;
+      actionLog: string;
+      functionCalls: AxAgentEvalFunctionCall[];
+      toolErrors: string[];
+      turnCount: number;
+      usage?: AxProgramUsage[];
+    };
+
+export type AxAgentEvalTask<IN = any> = {
+  input: IN;
+  criteria: string;
+  id?: string;
+  expectedOutput?: AxFieldValue;
+  expectedActions?: string[];
+  forbiddenActions?: string[];
+  weight?: number;
+  metadata?: AxFieldValue;
+};
+
+export type AxAgentEvalDataset<IN = any> =
+  | readonly AxAgentEvalTask<IN>[]
+  | {
+      train: readonly AxAgentEvalTask<IN>[];
+      validation?: readonly AxAgentEvalTask<IN>[];
+    };
+
+export type AxAgentOptimizeOptions<
+  _IN extends AxGenIn = AxGenIn,
+  _OUT extends AxGenOut = AxGenOut,
+> = {
+  studentAI?: Readonly<AxAIService>;
+  judgeAI?: Readonly<AxAIService>;
+  teacherAI?: Readonly<AxAIService>;
+  judgeOptions?: AxAgentJudgeOptions;
+  target?: AxAgentOptimizeTarget;
+  apply?: boolean;
+  maxMetricCalls?: number;
+  metric?: AxMetricFn;
+  verbose?: boolean;
+  debugOptimizer?: boolean;
+  optimizerLogger?: AxOptimizerLoggerFunction;
+  onProgress?: (progress: Readonly<AxOptimizationProgress>) => void;
+  onEarlyStop?: (reason: string, stats: Readonly<AxOptimizationStats>) => void;
+};
+
+export type AxAgentOptimizeResult<OUT extends AxGenOut = AxGenOut> =
+  AxParetoResult<OUT>;
 
 export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
   AxProgramForwardOptions<string>,
@@ -251,7 +428,36 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
       description?: string;
     }
   >;
+  /** Default options for the built-in judge used by optimize(). */
+  judgeOptions?: AxAgentJudgeOptions;
 };
+
+type AxAgentJudgeInput = {
+  taskInput: AxFieldValue;
+  criteria: string;
+  expectedOutput?: AxFieldValue;
+  expectedActions?: string[];
+  forbiddenActions?: string[];
+  metadata?: AxFieldValue;
+};
+
+type AxAgentJudgeOutput = {
+  completionType: 'final' | 'ask_clarification';
+  clarification?: AxFieldValue;
+  finalOutput?: AxFieldValue;
+  actionLog: string;
+  functionCalls: AxFieldValue;
+  toolErrors: string[];
+  turnCount: number;
+  usage: AxFieldValue;
+};
+
+type AxNormalizedAgentEvalDataset<IN = any> = {
+  train: readonly AxAgentEvalTask<IN>[];
+  validation?: readonly AxAgentEvalTask<IN>[];
+};
+
+type AxAgentFunctionCallRecorder = (call: AxAgentEvalFunctionCall) => void;
 
 export type AxAgentRecursionOptions = Partial<
   Omit<AxProgramForwardOptions<string>, 'functions'>
@@ -270,12 +476,199 @@ const DEFAULT_RLM_MAX_RECURSION_DEPTH = 2;
 const DEFAULT_CONTEXT_FIELD_PROMPT_MAX_CHARS = 1_200;
 const DEFAULT_AGENT_MODULE_NAMESPACE = 'agents';
 const DEFAULT_RANK_PRUNE_GRACE_TURNS = 2;
+const DEFAULT_AGENT_OPTIMIZE_MAX_METRIC_CALLS = 100;
 const DISCOVERY_LIST_MODULE_FUNCTIONS_NAME = 'listModuleFunctions';
 const DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME = 'getFunctionDefinitions';
 const TEST_HARNESS_LLM_QUERY_AI_REQUIRED_ERROR =
   'AI service is required to use llmQuery(...) in AxAgent.test(). Pass options.ai or configure ai on the agent.';
 const RUNTIME_RESTART_NOTICE =
   '[The JavaScript runtime was restarted; all global state was lost and must be recreated if needed.]';
+
+const AX_AGENT_OPTIMIZE_JUDGE_SIGNATURE = new AxSignature<
+  AxAgentJudgeInput,
+  AxAgentJudgeOutput
+>(`
+    taskInput:json "The structured task input passed to the agent",
+    criteria:string "Task-specific success criteria",
+    expectedOutput?:json "Optional expected final output",
+    expectedActions?:string[] "Optional function names that should appear in the run",
+    forbiddenActions?:string[] "Optional function names that should not appear in the run",
+    metadata?:json "Optional task metadata"
+    ->
+    completionType:class "final, ask_clarification" "How the agent completed the run",
+    clarification?:json "Structured clarification payload when the agent asked for more information",
+    finalOutput?:json "The final structured output returned by the agent when it completed normally",
+    actionLog:string "Chronological action log produced by the actor loop",
+    functionCalls:json "Ordered function call records with names, arguments, results, and errors",
+    toolErrors:string[] "Function-call errors observed during the run",
+    turnCount:number "Number of actor turns executed",
+    usage:json "Optional usage summary for the run"
+  `);
+
+const AX_AGENT_OPTIMIZE_PROGRAM_SIGNATURE = new AxSignature<
+  Record<'taskRecord', AxFieldValue>,
+  Record<'agentRunReport', AxFieldValue>
+>(`
+    taskRecord:json "Full optimization task record, including the agent input and evaluation criteria"
+    ->
+    agentRunReport:json "Agent run report containing completion type, clarification or final output, action log, function calls, errors, and turn count"
+  `);
+
+function normalizeAgentEvalDataset<IN>(
+  dataset: Readonly<AxAgentEvalDataset<IN>>
+): AxNormalizedAgentEvalDataset<IN> {
+  if ('train' in dataset) {
+    return {
+      train: dataset.train,
+      validation: dataset.validation,
+    };
+  }
+
+  return { train: dataset };
+}
+
+function serializeForEval(value: unknown): AxFieldValue {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === null) {
+    return null;
+  }
+  if (
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean'
+  ) {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    try {
+      return JSON.parse(JSON.stringify(value)) as AxFieldValue;
+    } catch {
+      return value.map((item) => serializeForEval(item));
+    }
+  }
+  if (typeof value === 'object') {
+    try {
+      return JSON.parse(JSON.stringify(value)) as AxFieldValue;
+    } catch {
+      return String(value) as AxFieldValue;
+    }
+  }
+
+  return String(value) as AxFieldValue;
+}
+
+function normalizeActorJavascriptCode(code: string): string {
+  let normalized = code.trim();
+
+  for (;;) {
+    const before = normalized;
+
+    normalized = normalized.replace(/^```(?:[A-Za-z0-9_-]+)?[ \t]*\r?\n/, '');
+    normalized = normalized.replace(/\r?\n?```[ \t]*$/, '');
+    normalized = normalized.trim();
+
+    if (normalized === before) {
+      return normalized;
+    }
+  }
+}
+
+function buildAgentJudgeCriteria(additionalCriteria?: string): string {
+  const builtInCriteria = `
+Use the input field named "criteria" as the task-specific rubric for success.
+- Reward actual task completion over polished wording.
+- Reward correct tool choice and correct arguments.
+- Penalize wrong tools, unnecessary retries, ignored tool errors, and contradictions between the final output and the function call trace.
+- If completionType is ask_clarification, judge whether the clarification was necessary, precise, and limited to the missing information.
+- Reward clarifications that identify the exact missing information instead of guessing.
+- Penalize clarifications that are vague, unnecessary, or ask for information the agent could have gathered from available tools or context.
+- If expectedOutput is present and completionType is final, compare the final output against it.
+- If expectedActions is present, confirm that the functionCalls align with them.
+- If forbiddenActions is present, strongly penalize any matching function calls.
+`.trim();
+
+  const extra = additionalCriteria?.trim();
+  if (!extra) {
+    return builtInCriteria;
+  }
+
+  return `${builtInCriteria}\n\nAdditional Evaluation Guidance:\n${extra}`;
+}
+
+function actionNameMatches(
+  expectedName: string,
+  call: Readonly<AxAgentEvalFunctionCall>
+): boolean {
+  return (
+    call.qualifiedName === expectedName ||
+    call.name === expectedName ||
+    call.qualifiedName.endsWith(`.${expectedName}`)
+  );
+}
+
+function adjustEvalScoreForActions(
+  score: number,
+  task: Readonly<AxAgentEvalTask>,
+  prediction: Readonly<AxAgentEvalPrediction>
+): number {
+  let adjusted = Math.max(0, Math.min(1, score));
+
+  const expectedActions = task.expectedActions ?? [];
+  if (expectedActions.length > 0) {
+    const matched = expectedActions.filter((expectedName) =>
+      prediction.functionCalls.some((call) =>
+        actionNameMatches(expectedName, call)
+      )
+    ).length;
+    adjusted *= 0.5 + 0.5 * (matched / expectedActions.length);
+  }
+
+  const forbiddenActions = task.forbiddenActions ?? [];
+  if (
+    forbiddenActions.some((expectedName) =>
+      prediction.functionCalls.some((call) =>
+        actionNameMatches(expectedName, call)
+      )
+    )
+  ) {
+    adjusted *= 0.2;
+  }
+
+  return Math.max(0, Math.min(1, adjusted));
+}
+
+function resolveAgentOptimizeTargetIds(
+  availablePrograms: readonly { id: string }[],
+  target: Readonly<AxAgentOptimizeTarget>
+): string[] {
+  const availableIds = new Set(availablePrograms.map((program) => program.id));
+
+  if (target === 'actor') {
+    if (!availableIds.has('root.actor')) {
+      throw new Error('AxAgent.optimize(): root.actor is not available');
+    }
+    return ['root.actor'];
+  }
+  if (target === 'responder') {
+    if (!availableIds.has('root.responder')) {
+      throw new Error('AxAgent.optimize(): root.responder is not available');
+    }
+    return ['root.responder'];
+  }
+  if (target === 'all') {
+    return [...availableIds];
+  }
+
+  const explicit = [...target];
+  for (const id of explicit) {
+    if (!availableIds.has(id)) {
+      throw new Error(`AxAgent.optimize(): unknown target program ID "${id}"`);
+    }
+  }
+  return explicit;
+}
 
 type AxResolvedContextPolicy = {
   preset: AxContextPolicyPreset;
@@ -315,9 +708,21 @@ type AxAgentRuntimeCompletionState = {
   payload: AxAgentActorResultPayload | undefined;
 };
 
+type AxPreparedRestoredState = {
+  runtimeBindings: Record<string, unknown>;
+  runtimeEntries: AxAgentStateRuntimeEntry[];
+  actionLogEntries: ActionLogEntry[];
+  checkpointState?: AxAgentStateCheckpointState;
+  provenance: Record<string, RuntimeStateVariableProvenance>;
+};
+
 type AxAgentRuntimeExecutionContext = {
   effectiveContextConfig: AxResolvedContextPolicy;
   captureRuntimeStateSummary: () => Promise<string | undefined>;
+  exportRuntimeState: () => Promise<AxAgentState>;
+  restoreRuntimeState: (
+    state: Readonly<AxAgentState>
+  ) => Promise<AxPreparedRestoredState>;
   syncRuntimeInputsToSession: () => Promise<void>;
   executeActorCode: (
     code: string
@@ -528,6 +933,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   implements AxAgentic<IN, OUT>
 {
   private ai?: AxAIService;
+  private judgeAI?: AxAIService;
   private program: AxGen<IN, OUT>;
   private actorProgram!: AxGen<any, any>;
   private responderProgram!: AxGen<any, OUT>;
@@ -550,6 +956,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private excludedAgentFunctions: string[];
   private actorDescription?: string;
   private responderDescription?: string;
+  private judgeOptions?: AxAgentJudgeOptions;
   private recursionForwardOptions?: AxAgentRecursionOptions;
   private actorForwardOptions?: Partial<AxProgramForwardOptions<string>>;
   private responderForwardOptions?: Partial<AxProgramForwardOptions<string>>;
@@ -563,6 +970,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
   private activeAbortControllers = new Set<AbortController>();
   private _stopRequested = false;
+  private state: AxAgentState | undefined;
+  private stateError: string | undefined;
 
   private func: AxFunction | undefined;
   // Field names injected by a parent agent via shared-field propagation.
@@ -681,11 +1090,13 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   constructor(
     {
       ai,
+      judgeAI,
       agentIdentity,
       agentModuleNamespace,
       signature,
     }: Readonly<{
       ai?: Readonly<AxAIService>;
+      judgeAI?: Readonly<AxAIService>;
       agentIdentity?: Readonly<AxAgentIdentity>;
       agentModuleNamespace?: string;
       signature:
@@ -710,10 +1121,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       recursionOptions,
       actorOptions,
       responderOptions,
+      judgeOptions,
       inputUpdateCallback,
     } = options;
 
     this.ai = ai;
+    this.judgeAI = judgeAI;
     this.agents = options.agents?.local;
     this.functionDiscoveryEnabled = options.functions?.discovery ?? false;
     this.debug = debug;
@@ -772,6 +1185,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       agents: _a,
       fields: _f,
       functions: _fn,
+      judgeOptions: _jo,
       inputUpdateCallback: _iuc,
       ...genOptions
     } = options;
@@ -810,6 +1224,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     this.responderDescription = responderDescription;
     this.responderForwardOptions = responderForwardOptions;
+    this.judgeOptions = judgeOptions ? { ...judgeOptions } : undefined;
     this.inputUpdateCallback = inputUpdateCallback;
 
     const agents = this.agents;
@@ -1451,6 +1866,302 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     this.program.resetUsage();
   }
 
+  public getState(): AxAgentState | undefined {
+    if (this.stateError) {
+      throw new Error(this.stateError);
+    }
+
+    return this.state ? cloneAgentState(this.state) : undefined;
+  }
+
+  public setState(state?: AxAgentState): void {
+    if (state && state.version !== 1) {
+      throw new Error(
+        `Unsupported AxAgentState version "${String((state as { version?: unknown }).version)}"`
+      );
+    }
+
+    if (state) {
+      const session = this.runtime.createSession();
+      try {
+        if (typeof session.patchGlobals !== 'function') {
+          throw new Error(
+            'AxCodeSession.patchGlobals() is required to restore AxAgent state'
+          );
+        }
+      } finally {
+        try {
+          session.close();
+        } catch {
+          // Ignore close errors from capability probing
+        }
+      }
+    }
+
+    this.state = state ? cloneAgentState(state) : undefined;
+    this.stateError = undefined;
+  }
+
+  public async optimize(
+    dataset: Readonly<AxAgentEvalDataset<IN>>,
+    options?: Readonly<AxAgentOptimizeOptions<IN, OUT>>
+  ): Promise<AxAgentOptimizeResult<OUT>> {
+    const normalizedDataset = normalizeAgentEvalDataset(dataset);
+    if (normalizedDataset.train.length === 0) {
+      throw new Error(
+        'AxAgent.optimize(): at least one training task is required.'
+      );
+    }
+
+    const studentAI = options?.studentAI ?? this.ai;
+    if (!studentAI) {
+      throw new Error(
+        'AxAgent.optimize(): studentAI is required when the agent has no default ai.'
+      );
+    }
+
+    const resolvedJudgeAI =
+      options?.judgeAI ??
+      this.judgeAI ??
+      options?.teacherAI ??
+      this.ai ??
+      studentAI;
+    const mergedJudgeOptions: AxAgentJudgeOptions = {
+      ...(this.judgeOptions ?? {}),
+      ...(options?.judgeOptions ?? {}),
+    };
+    const targetIds = resolveAgentOptimizeTargetIds(
+      this.namedPrograms(),
+      options?.target ?? 'actor'
+    );
+    const metric =
+      options?.metric ??
+      this._createAgentOptimizeMetric(resolvedJudgeAI, mergedJudgeOptions);
+    const optimizationProgram = this._createOptimizationProgram(targetIds);
+    const maxMetricCalls = Math.max(
+      1,
+      Math.floor(
+        options?.maxMetricCalls ??
+          Math.max(
+            DEFAULT_AGENT_OPTIMIZE_MAX_METRIC_CALLS,
+            normalizedDataset.train.length * 4
+          )
+      )
+    );
+
+    const optimizer = new AxGEPA({
+      studentAI,
+      teacherAI: options?.teacherAI ?? resolvedJudgeAI,
+      verbose: options?.verbose,
+      debugOptimizer: options?.debugOptimizer,
+      optimizerLogger: options?.optimizerLogger,
+      onProgress: options?.onProgress,
+      onEarlyStop: options?.onEarlyStop,
+    });
+
+    const result = await optimizer.compile(
+      optimizationProgram as AxProgrammable<
+        AxAgentEvalTask<IN>,
+        AxAgentEvalPrediction<OUT>
+      >,
+      normalizedDataset.train as readonly AxTypedExample<AxAgentEvalTask<IN>>[],
+      metric,
+      {
+        validationExamples: normalizedDataset.validation as
+          | readonly AxTypedExample<AxAgentEvalTask<IN>>[]
+          | undefined,
+        maxMetricCalls,
+        verbose: options?.verbose,
+      }
+    );
+
+    if (options?.apply !== false && result.optimizedProgram) {
+      this.applyOptimization(result.optimizedProgram);
+    }
+
+    return result as unknown as AxAgentOptimizeResult<OUT>;
+  }
+
+  private _createOptimizationProgram(
+    targetIds: readonly string[]
+  ): AxProgrammable<AxAgentEvalTask<IN>, AxAgentEvalPrediction<OUT>> {
+    return {
+      getId: () => this.getId(),
+      setId: (id: string) => this.setId(id),
+      getSignature: () => AX_AGENT_OPTIMIZE_PROGRAM_SIGNATURE,
+      forward: async (
+        ai: Readonly<AxAIService>,
+        task: AxAgentEvalTask<IN>,
+        options?: Readonly<AxProgramForwardOptions<string>>
+      ) => this._forwardForEvaluation(ai, task, options),
+      streamingForward: async function* (
+        ai: Readonly<AxAIService>,
+        task: AxAgentEvalTask<IN>,
+        options?: Readonly<
+          AxProgramStreamingForwardOptionsWithModels<AxAIService>
+        >
+      ): AxGenStreamingOut<AxAgentEvalPrediction<OUT>> {
+        yield {
+          version: 1,
+          index: 0,
+          delta: await this.forward(
+            ai,
+            task,
+            options as Readonly<AxProgramForwardOptions<string>> | undefined
+          ),
+        };
+      },
+      getTraces: () =>
+        this.getTraces() as unknown as AxProgramTrace<
+          AxAgentEvalTask<IN>,
+          AxAgentEvalPrediction<OUT>
+        >[],
+      namedProgramInstances: () =>
+        this.namedProgramInstances().filter((entry) =>
+          targetIds.includes(entry.id)
+        ) as AxNamedProgramInstance<any, any>[],
+      setDemos: (demos, demoOptions) =>
+        this.setDemos(
+          demos as unknown as readonly AxProgramDemos<IN, OUT>[],
+          demoOptions
+        ),
+      applyOptimization: (optimizedProgram) =>
+        this.applyOptimization(optimizedProgram as any),
+      getUsage: () => this.getUsage(),
+      resetUsage: () => this.resetUsage(),
+    };
+  }
+
+  private _createAgentOptimizeMetric(
+    judgeAI: Readonly<AxAIService>,
+    judgeOptions: Readonly<AxAgentJudgeOptions>
+  ): AxMetricFn {
+    const mergedJudgeCriteria = buildAgentJudgeCriteria(judgeOptions.criteria);
+    const judge = new AxJudge(AX_AGENT_OPTIMIZE_JUDGE_SIGNATURE, {
+      ai: judgeAI,
+      ...judgeOptions,
+      criteria: mergedJudgeCriteria,
+    });
+
+    return async ({ example, prediction }) => {
+      const task = example as AxAgentEvalTask<IN>;
+      const evalPrediction = prediction as AxAgentEvalPrediction<OUT>;
+      const judgeInput: AxAgentJudgeInput = {
+        taskInput: serializeForEval(task.input),
+        criteria: task.criteria,
+        expectedOutput: task.expectedOutput,
+        expectedActions: task.expectedActions,
+        forbiddenActions: task.forbiddenActions,
+        metadata: task.metadata,
+      };
+      const judgeOutput: AxAgentJudgeOutput = {
+        completionType: evalPrediction.completionType,
+        clarification: serializeForEval(evalPrediction.clarification),
+        finalOutput: serializeForEval(evalPrediction.output),
+        actionLog: evalPrediction.actionLog,
+        functionCalls: serializeForEval(evalPrediction.functionCalls),
+        toolErrors: evalPrediction.toolErrors,
+        turnCount: evalPrediction.turnCount,
+        usage: serializeForEval(evalPrediction.usage ?? []),
+      };
+
+      const result = await judge.evaluate(judgeInput, judgeOutput);
+      return adjustEvalScoreForActions(result.score, task, evalPrediction);
+    };
+  }
+
+  private async _forwardForEvaluation<T extends Readonly<AxAIService>>(
+    parentAi: T,
+    task: Readonly<AxAgentEvalTask<IN>>,
+    options?: Readonly<AxProgramForwardOptionsWithModels<T>>
+  ): Promise<AxAgentEvalPrediction<OUT>> {
+    const savedState = this.state ? cloneAgentState(this.state) : undefined;
+    const savedStateError = this.stateError;
+    this.state = undefined;
+    this.stateError = undefined;
+
+    const abortController = new AbortController();
+    if (this._stopRequested) {
+      abortController.abort('Stopped by user (pre-forward)');
+    }
+    const effectiveAbortSignal = mergeAbortSignals(
+      abortController.signal,
+      options?.abortSignal
+    );
+
+    this.activeAbortControllers.add(abortController);
+    try {
+      const ai = this.ai ?? parentAi;
+      const debug =
+        options?.debug ?? this.debug ?? ai?.getOptions()?.debug ?? false;
+      const functionCalls: AxAgentEvalFunctionCall[] = [];
+
+      const {
+        nonContextValues,
+        actorResult,
+        actorFieldValues,
+        actionLog,
+        turnCount,
+      } = await this._runActorLoop(
+        ai,
+        task.input,
+        options,
+        effectiveAbortSignal,
+        functionCalls
+      );
+      const toolErrors = functionCalls
+        .filter((call) => Boolean(call.error))
+        .map(
+          (call) => `${call.qualifiedName}: ${call.error ?? 'unknown error'}`
+        );
+
+      if (actorResult.type === 'ask_clarification') {
+        return {
+          completionType: 'ask_clarification',
+          clarification: normalizeClarificationForError(
+            actorResult.args[0] as AxAgentClarification
+          ),
+          actionLog,
+          functionCalls,
+          toolErrors,
+          turnCount,
+        };
+      }
+
+      const responderMergedOptions = {
+        ...this._genOptions,
+        ...this.responderForwardOptions,
+        ...options,
+        debug,
+        abortSignal: effectiveAbortSignal,
+        maxSteps: 1,
+      };
+
+      const responderResult = await this.responderProgram.forward(
+        ai,
+        {
+          ...nonContextValues,
+          contextData: actorResult,
+        },
+        responderMergedOptions
+      );
+
+      return {
+        completionType: 'final',
+        output: { ...responderResult, ...actorFieldValues } as OUT,
+        actionLog,
+        functionCalls,
+        toolErrors,
+        turnCount,
+      };
+    } finally {
+      this.state = savedState ? cloneAgentState(savedState) : undefined;
+      this.stateError = savedStateError;
+      this.activeAbortControllers.delete(abortController);
+      this._stopRequested = false;
+    }
+  }
+
   public getFunction(): AxFunction {
     if (!this.func) {
       throw new Error(
@@ -1662,6 +2373,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     completionState,
     completionBindings,
     actionLogEntries,
+    functionCallRecorder,
   }: Readonly<{
     ai?: AxAIService;
     inputState: AxAgentRuntimeInputState;
@@ -1673,6 +2385,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     completionState: AxAgentRuntimeCompletionState;
     completionBindings: ReturnType<typeof createCompletionBindings>;
     actionLogEntries?: ActionLogEntry[];
+    functionCallRecorder?: AxAgentFunctionCallRecorder;
   }>): AxAgentRuntimeExecutionContext {
     const rlm = this.rlmConfig;
     const runtime = this.runtime;
@@ -1937,7 +2650,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       effectiveAbortSignal,
       inputState.sharedFieldValues,
       ai,
-      completionBindings.protocol
+      completionBindings.protocol,
+      functionCallRecorder
     );
     const agentFunctionNamespaces = [
       ...new Set(this.agentFunctions.map((f) => f.namespace ?? 'utils')),
@@ -1988,6 +2702,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const runtimeActionLogEntries = actionLogEntries ?? [];
     let session!: AxCodeSession;
     let inspectBaselineNames: string[] | undefined;
+    const getInspectableSession = (runtimeSession: AxCodeSession) =>
+      typeof runtimeSession.inspectGlobals === 'function'
+        ? runtimeSession
+        : undefined;
 
     const loadInspectBaselineNames = async (): Promise<string[]> => {
       try {
@@ -2019,6 +2737,14 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     const inspectRuntimeState = async (): Promise<string> => {
       try {
+        const inspectableSession = getInspectableSession(session);
+        if (inspectableSession?.inspectGlobals) {
+          return await inspectableSession.inspectGlobals({
+            signal: effectiveAbortSignal,
+            reservedNames: inspectReservedNames,
+          });
+        }
+
         const baselineNames = await ensureInspectBaselineNames();
         const code = buildInspectRuntimeCode(
           inspectReservedNames,
@@ -2109,10 +2835,77 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const getPatchableSession = (runtimeSession: AxCodeSession) => {
       if (typeof runtimeSession.patchGlobals !== 'function') {
         throw new Error(
-          'AxCodeSession.patchGlobals() is required when using inputUpdateCallback'
+          'AxCodeSession.patchGlobals() is required when restoring AxAgent state or using inputUpdateCallback'
         );
       }
       return runtimeSession;
+    };
+
+    const getSnapshotableSession = (runtimeSession: AxCodeSession) => {
+      if (typeof runtimeSession.snapshotGlobals !== 'function') {
+        throw new Error(
+          'AxCodeSession.snapshotGlobals() is required to export AxAgent state'
+        );
+      }
+      return runtimeSession as AxCodeSession & {
+        snapshotGlobals: NonNullable<AxCodeSession['snapshotGlobals']>;
+      };
+    };
+
+    const prepareRestoredState = (
+      state: Readonly<AxAgentState>
+    ): AxPreparedRestoredState => {
+      const skippedNames = new Set(inspectReservedNames);
+      const runtimeBindings: Record<string, unknown> = {};
+      for (const [name, value] of Object.entries(state.runtimeBindings ?? {})) {
+        if (!skippedNames.has(name)) {
+          runtimeBindings[name] = value;
+        }
+      }
+
+      const runtimeEntries = (state.runtimeEntries ?? []).filter(
+        (entry) => !skippedNames.has(entry.name)
+      );
+
+      return {
+        runtimeBindings,
+        runtimeEntries,
+        actionLogEntries: deserializeAgentStateActionLogEntries(
+          state.actionLogEntries
+        ),
+        checkpointState: state.checkpointState,
+        provenance: { ...(state.provenance ?? {}) },
+      };
+    };
+
+    const restoreRuntimeState = async (
+      state: Readonly<AxAgentState>
+    ): Promise<AxPreparedRestoredState> => {
+      const preparedState = prepareRestoredState(state);
+      const patchableSession = getPatchableSession(session);
+      await patchableSession.patchGlobals(preparedState.runtimeBindings, {
+        signal: effectiveAbortSignal,
+      });
+      return preparedState;
+    };
+
+    const exportRuntimeState = async (): Promise<AxAgentState> => {
+      const snapshotableSession = getSnapshotableSession(session);
+      const snapshot = await snapshotableSession.snapshotGlobals({
+        signal: effectiveAbortSignal,
+        reservedNames: inspectReservedNames,
+      });
+      const provenance = buildRuntimeStateProvenance(runtimeActionLogEntries);
+
+      return {
+        version: 1,
+        runtimeBindings: snapshot.bindings,
+        runtimeEntries: snapshot.entries,
+        actionLogEntries: serializeAgentStateActionLogEntries(
+          runtimeActionLogEntries
+        ),
+        provenance: runtimeStateProvenanceToRecord(provenance),
+      };
     };
 
     const syncRuntimeInputsToSession = async (): Promise<void> => {
@@ -2285,6 +3078,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     return {
       effectiveContextConfig,
       captureRuntimeStateSummary,
+      exportRuntimeState,
+      restoreRuntimeState,
       syncRuntimeInputsToSession,
       executeActorCode,
       executeTestCode,
@@ -2328,10 +3123,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       payload: undefined,
     };
     const completionBindings = createCompletionBindings((type, args) => {
-      if (args.length === 0) {
-        throw new Error(`${type}() requires at least one argument`);
-      }
-      completionState.payload = { type, args };
+      completionState.payload = normalizeCompletionPayload(type, args);
     });
 
     const runtimeContext = this._createRuntimeExecutionContext({
@@ -2389,13 +3181,15 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     ai: AxAIService,
     values: IN | AxMessage<IN>[],
     options: Readonly<AxProgramForwardOptions<string>> | undefined,
-    effectiveAbortSignal: AbortSignal | undefined
+    effectiveAbortSignal: AbortSignal | undefined,
+    functionCallRecords?: AxAgentEvalFunctionCall[]
   ): Promise<{
     nonContextValues: Record<string, unknown>;
     contextMetadata: string;
     actionLog: string;
     actorResult: AxAgentActorResultPayload;
     actorFieldValues: Record<string, unknown>;
+    turnCount: number;
   }> {
     const rlm = this.rlmConfig;
     const debug =
@@ -2409,10 +3203,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       payload: undefined,
     };
     const completionBindings = createCompletionBindings((type, args) => {
-      if (args.length === 0) {
-        throw new Error(`${type}() requires at least one argument`);
-      }
-      completionState.payload = { type, args };
+      completionState.payload = normalizeCompletionPayload(type, args);
     });
     const actionLogEntries: ActionLogEntry[] = [];
     let runtimeStateSummary: string | undefined;
@@ -2425,6 +3216,11 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       completionState,
       completionBindings,
       actionLogEntries,
+      functionCallRecorder: functionCallRecords
+        ? (call) => {
+            functionCallRecords.push(call);
+          }
+        : undefined,
     });
 
     const applyInputUpdateCallback = async () => {
@@ -2473,6 +3269,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       this.functionDiscoveryEnabled &&
       runtimeContext.effectiveContextConfig.pruneUsedDocs;
     let checkpointState: CheckpointSummaryState | undefined;
+    let restoreNotice: string | undefined;
 
     const getPromptFacingEntries = () =>
       getPromptFacingActionLogEntries(actionLogEntries, {
@@ -2484,6 +3281,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         actionReplay: runtimeContext.effectiveContextConfig.actionReplay,
         recentFullActions:
           runtimeContext.effectiveContextConfig.recentFullActions,
+        restoreNotice,
         stateSummary: runtimeStateSummary,
         checkpointSummary: checkpointState?.summary,
         checkpointTurns: checkpointState?.turns,
@@ -2543,10 +3341,58 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     };
 
     try {
+      if (this.state) {
+        const restoredState = await runtimeContext.restoreRuntimeState(
+          this.state
+        );
+        const shouldRenderRestoredRuntimeState =
+          runtimeContext.effectiveContextConfig.stateSummary.enabled;
+        actionLogEntries.push(...restoredState.actionLogEntries);
+        checkpointState = restoredState.checkpointState
+          ? {
+              fingerprint: restoredState.checkpointState.fingerprint,
+              turns: [...restoredState.checkpointState.turns],
+              summary: restoredState.checkpointState.summary,
+            }
+          : undefined;
+        const restoredProvenance = mergeRuntimeStateProvenance(
+          buildRuntimeStateProvenance(actionLogEntries),
+          runtimeStateProvenanceFromRecord(restoredState.provenance)
+        );
+        runtimeStateSummary = shouldRenderRestoredRuntimeState
+          ? formatStructuredRuntimeState(
+              restoredState.runtimeEntries,
+              restoredProvenance,
+              {
+                maxEntries:
+                  runtimeContext.effectiveContextConfig.stateSummary
+                    .maxEntries &&
+                  runtimeContext.effectiveContextConfig.stateSummary
+                    .maxEntries > 0
+                    ? runtimeContext.effectiveContextConfig.stateSummary
+                        .maxEntries
+                    : 8,
+                maxChars:
+                  runtimeContext.effectiveContextConfig.stateSummary.maxChars &&
+                  runtimeContext.effectiveContextConfig.stateSummary.maxChars >
+                    0
+                    ? runtimeContext.effectiveContextConfig.stateSummary
+                        .maxChars
+                    : 1_200,
+              }
+            ) || '(no user variables)'
+          : undefined;
+        restoreNotice = buildRuntimeRestoreNotice(
+          restoredState.runtimeEntries,
+          {
+            includeLiveRuntimeState: shouldRenderRestoredRuntimeState,
+          }
+        );
+      }
+
       for (let turn = 0; turn < maxTurns; turn++) {
         await applyInputUpdateCallback();
         inputState.recomputeTurnInputs(true);
-        runtimeStateSummary = await runtimeContext.captureRuntimeStateSummary();
         await refreshCheckpointSummary();
 
         let actionLogText = renderActionLog();
@@ -2575,7 +3421,16 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
         if (turn === 0) {
           actorMergedOptions.debugHideSystemPrompt = true;
+          restoreNotice = undefined;
         }
+
+        let code = actorResult.javascriptCode as string | undefined;
+        const trimmedCode = code?.trim();
+        if (!code || !trimmedCode) {
+          break;
+        }
+        code = normalizeActorJavascriptCode(trimmedCode);
+        actorResult.javascriptCode = code;
 
         if (rlm.actorCallback) {
           await rlm.actorCallback(actorResult as Record<string, unknown>);
@@ -2586,13 +3441,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
             actorFieldValues[fieldName] = actorResult[fieldName];
           }
         }
-
-        let code = actorResult.javascriptCode as string | undefined;
-        const trimmedCode = code?.trim();
-        if (!code || !trimmedCode) {
-          break;
-        }
-        code = trimmedCode;
 
         let actorFieldsOutput = '';
         if (this.actorFieldNames.length > 0) {
@@ -2610,8 +3458,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         if (this.enforceIncrementalConsoleTurns) {
           const policyViolation = validateActorTurnCodePolicy(code);
           if (policyViolation) {
+            const entryTurn = actionLogEntries.length + 1;
             actionLogEntries.push({
-              turn: turn + 1,
+              turn: entryTurn,
               code,
               output: policyViolation,
               actorFieldsOutput,
@@ -2625,8 +3474,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
               ai,
               summaryForwardOptions
             );
-            runtimeStateSummary =
-              await runtimeContext.captureRuntimeStateSummary();
             await refreshCheckpointSummary();
             continue;
           }
@@ -2637,8 +3484,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         }
         const { output, isError } = await runtimeContext.executeActorCode(code);
 
+        const entryTurn = actionLogEntries.length + 1;
         actionLogEntries.push({
-          turn: turn + 1,
+          turn: entryTurn,
           code,
           output,
           actorFieldsOutput,
@@ -2652,12 +3500,35 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           ai,
           summaryForwardOptions
         );
-        runtimeStateSummary = await runtimeContext.captureRuntimeStateSummary();
+        if (!isError) {
+          runtimeStateSummary =
+            await runtimeContext.captureRuntimeStateSummary();
+        }
         await refreshCheckpointSummary();
 
         if (completionState.payload) {
           break;
         }
+      }
+      await refreshCheckpointSummary();
+
+      try {
+        const nextState = await runtimeContext.exportRuntimeState();
+        nextState.checkpointState = checkpointState
+          ? {
+              fingerprint: checkpointState.fingerprint,
+              turns: [...checkpointState.turns],
+              summary: checkpointState.summary,
+            }
+          : undefined;
+        this.state = nextState;
+        this.stateError = undefined;
+      } catch (err) {
+        this.state = undefined;
+        this.stateError =
+          err instanceof Error
+            ? err.message
+            : `Failed to export AxAgent state: ${String(err)}`;
       }
     } finally {
       try {
@@ -2666,8 +3537,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         // Ignore close errors
       }
     }
-
-    await refreshCheckpointSummary();
 
     const actorResult =
       completionState.payload ??
@@ -2689,6 +3558,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       actionLog: renderActionLog(),
       actorResult,
       actorFieldValues,
+      turnCount: actionLogEntries.length,
     };
   }
 
@@ -2715,6 +3585,16 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
       const { nonContextValues, actorResult, actorFieldValues } =
         await this._runActorLoop(ai, values, options, effectiveAbortSignal);
+
+      if (actorResult.type === 'ask_clarification') {
+        throw new AxAgentClarificationError(
+          actorResult.args[0] as AxAgentClarification,
+          {
+            state: this.state,
+            stateError: this.stateError,
+          }
+        );
+      }
 
       const responderMergedOptions = {
         ...this._genOptions,
@@ -2766,6 +3646,16 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       const { nonContextValues, actorResult, actorFieldValues } =
         await this._runActorLoop(ai, values, options, effectiveAbortSignal);
 
+      if (actorResult.type === 'ask_clarification') {
+        throw new AxAgentClarificationError(
+          actorResult.args[0] as AxAgentClarification,
+          {
+            state: this.state,
+            stateError: this.stateError,
+          }
+        );
+      }
+
       const responderMergedOptions = {
         ...this._genOptions,
         ...this.responderForwardOptions,
@@ -2809,7 +3699,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     fn: AxFunction,
     abortSignal?: AbortSignal,
     ai?: AxAIService,
-    protocol?: AxAgentCompletionProtocol
+    protocol?: AxAgentCompletionProtocol,
+    qualifiedName?: string,
+    functionCallRecorder?: AxAgentFunctionCallRecorder
   ): (...args: unknown[]) => Promise<unknown> {
     return async (...args: unknown[]) => {
       let callArgs: Record<string, unknown>;
@@ -2833,7 +3725,24 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         });
       }
 
-      return await fn.func(callArgs, { abortSignal, ai, protocol });
+      try {
+        const result = await fn.func(callArgs, { abortSignal, ai, protocol });
+        functionCallRecorder?.({
+          qualifiedName: qualifiedName ?? fn.name,
+          name: fn.name,
+          arguments: serializeForEval(callArgs),
+          result: serializeForEval(result),
+        });
+        return result;
+      } catch (err) {
+        functionCallRecorder?.({
+          qualifiedName: qualifiedName ?? fn.name,
+          name: fn.name,
+          arguments: serializeForEval(callArgs),
+          error: err instanceof Error ? err.message : String(err),
+        });
+        throw err;
+      }
     };
   }
 
@@ -2848,13 +3757,22 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       | Record<string, unknown>
       | (() => Record<string, unknown>),
     ai?: AxAIService,
-    protocol?: AxAgentCompletionProtocol
+    protocol?: AxAgentCompletionProtocol,
+    qualifiedName?: string,
+    functionCallRecorder?: AxAgentFunctionCallRecorder
   ): (...args: unknown[]) => Promise<unknown> {
     if (
       typeof sharedFieldValues !== 'function' &&
       (!sharedFieldValues || Object.keys(sharedFieldValues).length === 0)
     ) {
-      return AxAgent.wrapFunction(fn, abortSignal, ai, protocol);
+      return AxAgent.wrapFunction(
+        fn,
+        abortSignal,
+        ai,
+        protocol,
+        qualifiedName,
+        functionCallRecorder
+      );
     }
     return async (...args: unknown[]) => {
       let callArgs: Record<string, unknown>;
@@ -2887,7 +3805,24 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       const merged = currentSharedFieldValues
         ? { ...currentSharedFieldValues, ...callArgs }
         : callArgs;
-      return await fn.func(merged, { abortSignal, ai, protocol });
+      try {
+        const result = await fn.func(merged, { abortSignal, ai, protocol });
+        functionCallRecorder?.({
+          qualifiedName: qualifiedName ?? fn.name,
+          name: fn.name,
+          arguments: serializeForEval(merged),
+          result: serializeForEval(result),
+        });
+        return result;
+      } catch (err) {
+        functionCallRecorder?.({
+          qualifiedName: qualifiedName ?? fn.name,
+          name: fn.name,
+          arguments: serializeForEval(merged),
+          error: err instanceof Error ? err.message : String(err),
+        });
+        throw err;
+      }
     };
   }
 
@@ -2899,7 +3834,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     abortSignal?: AbortSignal,
     sharedFieldValues?: Record<string, unknown>,
     ai?: AxAIService,
-    protocol?: AxAgentCompletionProtocol
+    protocol?: AxAgentCompletionProtocol,
+    functionCallRecorder?: AxAgentFunctionCallRecorder
   ): Record<string, unknown> {
     const globals: Record<string, unknown> = {};
     const callableLookup = new Map<string, DiscoveryCallableMeta>();
@@ -2925,8 +3861,16 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       if (!globals[ns] || typeof globals[ns] !== 'object') {
         globals[ns] = {};
       }
+      const qualifiedName = `${ns}.${agentFn.name}`;
       (globals[ns] as Record<string, unknown>)[agentFn.name] =
-        AxAgent.wrapFunction(agentFn, abortSignal, ai, protocol);
+        AxAgent.wrapFunction(
+          agentFn,
+          abortSignal,
+          ai,
+          protocol,
+          qualifiedName,
+          functionCallRecorder
+        );
       registerCallable(
         {
           module: ns,
@@ -2936,7 +3880,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           returns: agentFn.returns,
           examples: agentFn.examples,
         },
-        `${ns}.${agentFn.name}`
+        qualifiedName
       );
     }
 
@@ -2960,12 +3904,15 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           return applicable;
         };
 
+        const qualifiedName = `${this.agentModuleNamespace}.${fn.name}`;
         agentsObj[fn.name] = AxAgent.wrapFunctionWithSharedFields(
           fn,
           abortSignal,
           getApplicableSharedFields,
           ai,
-          protocol
+          protocol,
+          qualifiedName,
+          functionCallRecorder
         );
         registerCallable(
           {
@@ -2974,7 +3921,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
             description: fn.description,
             parameters: fn.parameters,
           },
-          `${this.agentModuleNamespace}.${fn.name}`
+          qualifiedName
         );
       }
       globals[this.agentModuleNamespace] = agentsObj;
@@ -3018,6 +3965,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       agents: _a,
       fields: _f,
       functions: _fn,
+      judgeOptions: _jo,
       inputUpdateCallback: _iuc,
       ...rest
     } = this.options;
@@ -3038,12 +3986,299 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
 // ----- Factory Function -----
 
+function normalizeCompletionPayload(
+  type: AxAgentActorResultPayload['type'],
+  args: unknown[]
+): AxAgentActorResultPayload {
+  if (args.length === 0) {
+    throw new Error(`${type}() requires at least one argument`);
+  }
+
+  if (type === 'ask_clarification') {
+    if (args.length !== 1) {
+      throw new Error('ask_clarification() requires exactly one argument');
+    }
+
+    return {
+      type,
+      args: [normalizeClarificationPayload(args[0])],
+    };
+  }
+
+  return { type, args };
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    Object.getPrototypeOf(value) === Object.prototype
+  );
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function normalizeClarificationChoice(
+  choice: unknown
+): AxAgentClarificationChoice {
+  if (isNonEmptyString(choice)) {
+    return choice;
+  }
+
+  if (!isPlainObject(choice)) {
+    throw new Error(
+      'ask_clarification() choice entries must be non-empty strings or objects with a non-empty label'
+    );
+  }
+
+  if (!isNonEmptyString(choice.label)) {
+    throw new Error(
+      'ask_clarification() choice objects require a non-empty label'
+    );
+  }
+
+  if (choice.value !== undefined && !isNonEmptyString(choice.value)) {
+    throw new Error(
+      'ask_clarification() choice object values must be non-empty strings'
+    );
+  }
+
+  return {
+    label: choice.label,
+    ...(choice.value !== undefined ? { value: choice.value } : {}),
+  };
+}
+
+function normalizeClarificationPayload(payload: unknown): AxAgentClarification {
+  if (isNonEmptyString(payload)) {
+    return payload;
+  }
+
+  if (!isPlainObject(payload)) {
+    throw new Error(
+      'ask_clarification() requires a non-empty string or an object payload'
+    );
+  }
+
+  if (!isNonEmptyString(payload.question)) {
+    throw new Error(
+      'ask_clarification() object payload requires a non-empty question'
+    );
+  }
+
+  const allowedTypes = new Set<AxAgentClarificationKind>([
+    'text',
+    'number',
+    'date',
+    'single_choice',
+    'multiple_choice',
+  ]);
+
+  let normalizedType: AxAgentClarificationKind | undefined;
+  if (payload.type === undefined) {
+    normalizedType =
+      Array.isArray(payload.choices) && payload.choices.length > 0
+        ? 'single_choice'
+        : undefined;
+  } else {
+    if (
+      typeof payload.type !== 'string' ||
+      !allowedTypes.has(payload.type as AxAgentClarificationKind)
+    ) {
+      throw new Error(
+        'ask_clarification() object payload type must be one of: text, number, date, single_choice, multiple_choice'
+      );
+    }
+    normalizedType = payload.type as AxAgentClarificationKind;
+  }
+
+  const wantsChoices =
+    normalizedType === 'single_choice' || normalizedType === 'multiple_choice';
+  const rawChoices = payload.choices;
+  if (rawChoices !== undefined) {
+    if (!Array.isArray(rawChoices) || rawChoices.length === 0) {
+      throw new Error(
+        'ask_clarification() choices must be a non-empty array when provided'
+      );
+    }
+  } else if (wantsChoices) {
+    throw new Error(
+      'ask_clarification() choice payloads require a non-empty choices array'
+    );
+  }
+
+  return {
+    ...payload,
+    question: payload.question,
+    ...(normalizedType ? { type: normalizedType } : {}),
+    ...(rawChoices
+      ? {
+          choices: rawChoices.map(normalizeClarificationChoice),
+        }
+      : {}),
+  };
+}
+
+function normalizeClarificationForError(
+  clarification: AxAgentClarification
+): AxAgentStructuredClarification {
+  const normalized = normalizeClarificationPayload(clarification);
+  if (typeof normalized === 'string') {
+    return {
+      question: normalized,
+      type: 'text',
+    };
+  }
+
+  return {
+    ...normalized,
+    type:
+      normalized.type ??
+      (normalized.choices && normalized.choices.length > 0
+        ? 'single_choice'
+        : 'text'),
+  };
+}
+
+function cloneStructured<T>(value: T): T {
+  if (typeof structuredClone === 'function') {
+    return structuredClone(value);
+  }
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function cloneAgentState(state: Readonly<AxAgentState>): AxAgentState {
+  return cloneStructured(state);
+}
+
+function serializeAgentStateActionLogEntries(
+  entries: readonly ActionLogEntry[]
+): AxAgentStateActionLogEntry[] {
+  return entries.map((entry) => ({
+    turn: entry.turn,
+    code: entry.code,
+    output: entry.output,
+    actorFieldsOutput: entry.actorFieldsOutput,
+    tags: [...entry.tags],
+    ...(entry.summary ? { summary: entry.summary } : {}),
+    ...(entry.producedVars ? { producedVars: [...entry.producedVars] } : {}),
+    ...(entry.referencedVars
+      ? { referencedVars: [...entry.referencedVars] }
+      : {}),
+    ...(entry.stateDelta ? { stateDelta: entry.stateDelta } : {}),
+    ...(entry.stepKind ? { stepKind: entry.stepKind } : {}),
+    ...(entry.replayMode ? { replayMode: entry.replayMode } : {}),
+    ...(entry.rank !== undefined ? { rank: entry.rank } : {}),
+    ...(entry.tombstone ? { tombstone: entry.tombstone } : {}),
+  }));
+}
+
+function deserializeAgentStateActionLogEntries(
+  entries: readonly AxAgentStateActionLogEntry[] | undefined
+): ActionLogEntry[] {
+  return (entries ?? []).map((entry) => ({
+    turn: entry.turn,
+    code: entry.code,
+    output: entry.output,
+    actorFieldsOutput: entry.actorFieldsOutput,
+    tags: [...entry.tags],
+    ...(entry.summary ? { summary: entry.summary } : {}),
+    ...(entry.producedVars ? { producedVars: [...entry.producedVars] } : {}),
+    ...(entry.referencedVars
+      ? { referencedVars: [...entry.referencedVars] }
+      : {}),
+    ...(entry.stateDelta ? { stateDelta: entry.stateDelta } : {}),
+    ...(entry.stepKind ? { stepKind: entry.stepKind } : {}),
+    ...(entry.replayMode ? { replayMode: entry.replayMode } : {}),
+    ...(entry.rank !== undefined ? { rank: entry.rank } : {}),
+    ...(entry.tombstone ? { tombstone: entry.tombstone } : {}),
+  }));
+}
+
+function runtimeStateProvenanceToRecord(
+  provenance: ReadonlyMap<string, RuntimeStateVariableProvenance>
+): Record<string, RuntimeStateVariableProvenance> {
+  return Object.fromEntries(
+    [...provenance.entries()].map(([name, meta]) => [
+      name,
+      {
+        ...meta,
+      },
+    ])
+  );
+}
+
+function buildRuntimeRestoreNotice(
+  entries: readonly AxAgentStateRuntimeEntry[],
+  options?: Readonly<{
+    includeLiveRuntimeState?: boolean;
+  }>
+): string {
+  const snapshotOnlyCount = entries.filter(
+    (entry) => entry.restorable === false
+  ).length;
+  const lines = [
+    'Runtime Restore:',
+    '- Runtime state was restored from a previous call.',
+    '- Continue from restored values unless recomputation is actually needed.',
+  ];
+  if (options?.includeLiveRuntimeState !== false) {
+    lines.splice(
+      2,
+      0,
+      '- Live Runtime State below reflects the restored bindings.'
+    );
+  } else {
+    lines.splice(
+      2,
+      0,
+      '- Live Runtime State rendering is disabled for this run, but the restored bindings are available in the runtime session.'
+    );
+  }
+  if (snapshotOnlyCount > 0) {
+    lines.push(
+      `- ${snapshotOnlyCount} prior value${snapshotOnlyCount === 1 ? ' was' : 's were'} snapshot-only and could not be restored.`
+    );
+  }
+  return lines.join('\n');
+}
+
+function runtimeStateProvenanceFromRecord(
+  provenance:
+    | Readonly<Record<string, RuntimeStateVariableProvenance>>
+    | undefined
+): Map<string, RuntimeStateVariableProvenance> {
+  return new Map(
+    Object.entries(provenance ?? {}).map(([name, meta]) => [name, { ...meta }])
+  );
+}
+
+function mergeRuntimeStateProvenance(
+  primary: ReadonlyMap<string, RuntimeStateVariableProvenance>,
+  fallback: ReadonlyMap<string, RuntimeStateVariableProvenance>
+): Map<string, RuntimeStateVariableProvenance> {
+  const merged = new Map<string, RuntimeStateVariableProvenance>();
+
+  for (const [name, meta] of fallback.entries()) {
+    merged.set(name, { ...meta });
+  }
+  for (const [name, meta] of primary.entries()) {
+    merged.set(name, { ...meta });
+  }
+
+  return merged;
+}
+
 /**
  * Configuration options for creating an agent using the agent() factory function.
  */
 export interface AxAgentConfig<_IN extends AxGenIn, _OUT extends AxGenOut>
   extends AxAgentOptions<_IN> {
   ai?: AxAIService;
+  judgeAI?: AxAIService;
   agentIdentity?: AxAgentIdentity;
 }
 
@@ -3094,11 +4329,12 @@ export function agent(
 ): AxAgent<any, any> {
   const typedSignature =
     typeof signature === 'string' ? AxSignature.create(signature) : signature;
-  const { ai, agentIdentity, ...options } = config;
+  const { ai, judgeAI, agentIdentity, ...options } = config;
 
   return new AxAgent(
     {
       ai,
+      judgeAI,
       agentIdentity,
       signature: typedSignature,
     },
@@ -3155,7 +4391,10 @@ function isRuntimeStateSnapshotEntry(
     typeof candidate.type === 'string' &&
     (candidate.ctor === undefined || typeof candidate.ctor === 'string') &&
     (candidate.size === undefined || typeof candidate.size === 'string') &&
-    (candidate.preview === undefined || typeof candidate.preview === 'string')
+    (candidate.preview === undefined ||
+      typeof candidate.preview === 'string') &&
+    (candidate.restorable === undefined ||
+      typeof candidate.restorable === 'boolean')
   );
 }
 
@@ -3321,8 +4560,12 @@ function formatStructuredRuntimeState(
       const provenanceSuffix = formatRuntimeStateProvenance(
         provenance.get(entry.name)
       );
+      const restoreSuffix =
+        'restorable' in entry && entry.restorable === false
+          ? ' [snapshot only]'
+          : '';
 
-      return `${entry.name}: ${formatRuntimeStateType(entry)}${preview}${provenanceSuffix}`;
+      return `${entry.name}: ${formatRuntimeStateType(entry)}${preview}${provenanceSuffix}${restoreSuffix}`;
     });
 
   if (lines.length === 0) {

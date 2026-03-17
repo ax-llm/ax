@@ -10,6 +10,7 @@ import type { AxAIService } from '../ai/types.js';
 import { AxGen } from '../dsp/generate.js';
 import type { AxProgramForwardOptions } from '../dsp/types.js';
 import {
+  extractTopLevelDurableWriteTargets,
   extractTopLevelDeclaredNames,
   stripJsStringsAndComments,
 } from '../util/jsAnalysis.js';
@@ -96,6 +97,7 @@ export type ActionLogBuildPolicy = {
   actionReplay?: 'full' | 'adaptive' | 'minimal';
   recentFullActions?: number;
   pruneUsedDocs?: boolean;
+  restoreNotice?: string;
   stateSummary?: string;
   checkpointSummary?: string;
   checkpointTurns?: readonly number[];
@@ -120,6 +122,7 @@ export type RuntimeStateSnapshotEntry = {
   ctor?: string;
   size?: string;
   preview?: string;
+  restorable?: boolean;
 };
 
 export type RuntimeStateSnapshot = {
@@ -132,6 +135,7 @@ export type RuntimeStateVariableProvenance = {
   lastReadTurn?: number;
   stepKind?: ActionLogStepKind;
   source?: string;
+  code?: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -152,6 +156,10 @@ export function extractErrorSignature(output: string): string {
  */
 export function extractDeclaredVariables(code: string): string[] {
   return extractTopLevelDeclaredNames(code);
+}
+
+export function extractDurableWriteTargets(code: string): string[] {
+  return extractTopLevelDurableWriteTargets(code);
 }
 
 const JS_KEYWORDS = new Set([
@@ -265,7 +273,7 @@ function inferStepKind(entry: Readonly<ActionLogEntry>): ActionLogStepKind {
 function buildStateDelta(entry: Readonly<ActionLogEntry>): string {
   const producedVars = entry.producedVars ?? [];
   if (producedVars.length > 0) {
-    return `Created live runtime values: ${producedVars.join(', ')}`;
+    return `Updated live runtime values: ${producedVars.join(', ')}`;
   }
 
   switch (entry.stepKind) {
@@ -313,7 +321,7 @@ function clearHindsightEvaluation(entry: ActionLogEntry): void {
 
 function ensureEntryMetadata(entry: ActionLogEntry): void {
   if (!entry.producedVars) {
-    entry.producedVars = extractDeclaredVariables(entry.code);
+    entry.producedVars = extractDurableWriteTargets(entry.code);
   }
   if (!entry.referencedVars) {
     entry.referencedVars = [...extractReferencedIdentifiers(entry.code)];
@@ -441,6 +449,7 @@ export function buildRuntimeStateProvenance(
         createdTurn: mutableEntry.turn,
         stepKind: mutableEntry.stepKind,
         source,
+        code: mutableEntry.code,
       });
     }
 
@@ -884,7 +893,7 @@ function serializeCheckpointEntries(
         `Turn: ${entry.turn}`,
         `Step kind: ${entry.stepKind ?? 'explore'}`,
         `Referenced inputs: ${(entry.referencedVars ?? []).join(', ') || 'none'}`,
-        `Durable values created: ${(entry.producedVars ?? []).join(', ') || 'none'}`,
+        `Durable values written: ${(entry.producedVars ?? []).join(', ') || 'none'}`,
         `State delta: ${entry.stateDelta ?? 'none'}`,
         `Observed result: ${truncateInline(entry.output || '(no output)', 240)}`,
         `Actor fields: ${actorFields || 'none'}`,
@@ -1172,6 +1181,9 @@ export function buildActionLogWithPolicy(
   }
 
   const parts: string[] = [];
+  if (policy.restoreNotice) {
+    parts.push(policy.restoreNotice);
+  }
   if (policy.stateSummary) {
     parts.push(`Live Runtime State:\n${policy.stateSummary}`);
   }

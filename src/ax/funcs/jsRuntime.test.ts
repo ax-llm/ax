@@ -314,6 +314,87 @@ describe('AxJSRuntime', () => {
     await expect(patch).resolves.toBeUndefined();
   });
 
+  it('queues inspectGlobals behind an active execute and forwards reserved names', async () => {
+    const interp = new AxJSRuntime();
+    const session = interp.createSession();
+
+    const first = session.execute('1+1');
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const inspect = session.inspectGlobals!({
+      reservedNames: ['query'],
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const inspectCallsBeforeFirstResult = mockPostMessage.mock.calls.filter(
+      (call) => call[0]?.type === 'inspect-globals'
+    );
+    expect(inspectCallsBeforeFirstResult).toHaveLength(0);
+
+    const executeCall = mockPostMessage.mock.calls.find(
+      (call) => call[0]?.type === 'execute'
+    );
+    const executeMsg = executeCall![0] as { id: number };
+    mockWorkerInstance.onmessage?.({
+      data: { type: 'result', id: executeMsg.id, value: 2 },
+    } as MessageEvent);
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const inspectCall = mockPostMessage.mock.calls.find(
+      (call) => call[0]?.type === 'inspect-globals'
+    );
+    expect(inspectCall?.[0]).toMatchObject({
+      type: 'inspect-globals',
+      reservedNames: ['query'],
+    });
+
+    const inspectMsg = inspectCall![0] as { id: number };
+    mockWorkerInstance.onmessage?.({
+      data: {
+        type: 'result',
+        id: inspectMsg.id,
+        value: '{"version":1,"entries":[]}',
+      },
+    } as MessageEvent);
+
+    await expect(first).resolves.toBe(2);
+    await expect(inspect).resolves.toBe('{"version":1,"entries":[]}');
+  });
+
+  it('rejects queued inspectGlobals calls that are aborted before they start', async () => {
+    const interp = new AxJSRuntime();
+    const session = interp.createSession();
+    const controller = new AbortController();
+
+    const first = session.execute('1+1');
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const inspect = session.inspectGlobals!({ signal: controller.signal });
+    controller.abort('cancelled inspect');
+
+    await expect(inspect).rejects.toThrow('Aborted: cancelled inspect');
+
+    const inspectCallsBeforeFirstResult = mockPostMessage.mock.calls.filter(
+      (call) => call[0]?.type === 'inspect-globals'
+    );
+    expect(inspectCallsBeforeFirstResult).toHaveLength(0);
+
+    const executeCall = mockPostMessage.mock.calls.find(
+      (call) => call[0]?.type === 'execute'
+    );
+    const executeMsg = executeCall![0] as { id: number };
+    mockWorkerInstance.onmessage?.({
+      data: { type: 'result', id: executeMsg.id, value: 2 },
+    } as MessageEvent);
+
+    await expect(first).resolves.toBe(2);
+  });
+
   it('rejects queued execute calls that are aborted before they start', async () => {
     const interp = new AxJSRuntime();
     const session = interp.createSession();

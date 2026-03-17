@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { ax } from '../template.js';
 import type { AxAIService } from '../../ai/types.js';
+import { ax } from '../template.js';
 import { AxGEPA } from './gepa.js';
 
 const createSingleRootProgram = (
@@ -147,6 +147,41 @@ describe('AxGEPA Optimizer', () => {
       expect(result.bestScore).toBe(1);
       expect(result.paretoFront[0]?.scores).toEqual({ score: 1 });
       expect(result.optimizedProgram?.instruction).toBe('task');
+      expect(result.optimizedProgram?.instructionMap).toEqual({ root: 'task' });
+    });
+
+    it('treats forward failures as zero-score rows instead of aborting the optimization', async () => {
+      const optimizer = new AxGEPA({
+        studentAI: {} as AxAIService,
+        teacherAI: {} as AxAIService,
+        numTrials: 0,
+      });
+      const program = createSingleRootProgram(
+        'task',
+        async (_instruction, ex) => {
+          if (ex.question === 'q1') {
+            throw new Error('model repeated itself until token exhaustion');
+          }
+
+          return {
+            answer: ex.answer,
+          };
+        }
+      );
+
+      const result = await optimizer.compile(
+        program as any,
+        [
+          { question: 'q1', answer: 'a1' },
+          { question: 'q2', answer: 'a2' },
+        ],
+        async ({ prediction, example }) =>
+          (prediction as any).answer === example.answer ? 1 : 0,
+        { maxMetricCalls: 2 }
+      );
+
+      expect(result.bestScore).toBe(0.5);
+      expect(result.paretoFront[0]?.scores).toEqual({ score: 0.5 });
       expect(result.optimizedProgram?.instructionMap).toEqual({ root: 'task' });
     });
 

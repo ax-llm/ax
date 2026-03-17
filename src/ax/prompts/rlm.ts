@@ -142,6 +142,21 @@ export interface AxCodeRuntime {
  */
 export type AxCodeInterpreter = AxCodeRuntime;
 
+export type AxCodeSessionSnapshotEntry = {
+  name: string;
+  type: string;
+  ctor?: string;
+  size?: string;
+  preview?: string;
+  restorable?: boolean;
+};
+
+export type AxCodeSessionSnapshot = {
+  version: 1;
+  entries: AxCodeSessionSnapshotEntry[];
+  bindings: Record<string, unknown>;
+};
+
 /**
  * A persistent code execution session. Variables persist across `execute()` calls.
  */
@@ -150,6 +165,14 @@ export interface AxCodeSession {
     code: string,
     options?: { signal?: AbortSignal; reservedNames?: readonly string[] }
   ): Promise<unknown>;
+  inspectGlobals?(options?: {
+    signal?: AbortSignal;
+    reservedNames?: readonly string[];
+  }): Promise<string>;
+  snapshotGlobals?(options?: {
+    signal?: AbortSignal;
+    reservedNames?: readonly string[];
+  }): Promise<AxCodeSessionSnapshot>;
   patchGlobals(
     globals: Record<string, unknown>,
     options?: { signal?: AbortSignal }

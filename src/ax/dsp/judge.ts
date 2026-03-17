@@ -17,7 +17,7 @@ import type { AxAIService } from '../ai/types.js';
 import type { AxMetricFn, AxMetricFnArgs } from './common_types.js';
 import { AxGen } from './generate.js';
 import type { AxField, AxSignature } from './sig.js';
-import type { AxGenIn, AxGenOut } from './types.js';
+import type { AxGenIn, AxGenOut, AxProgramForwardOptions } from './types.js';
 
 /**
  * Evaluation mode used by the judge.
@@ -46,13 +46,20 @@ export interface AxJudgeResult {
 export interface AxJudgeOptions {
   /** AI service to use for judging (should be >= student model quality) */
   ai: AxAIService;
-  /** Model to use for judging (optional, uses ai's default) */
-  model?: string;
   /** Custom criteria for reference-free evaluation */
   criteria?: string;
+  /** Additional judge-specific guidance appended to the evaluation prompt */
+  description?: string;
   /** Whether to randomize A/B position in relativistic mode to reduce bias */
   randomizeOrder?: boolean;
 }
+
+export type AxJudgeForwardOptions = Omit<
+  AxProgramForwardOptions<string>,
+  'functions' | 'description'
+>;
+
+export interface AxJudgeOptions extends AxJudgeForwardOptions {}
 
 // Predefined rubrics for backward compatibility
 export type AxJudgeRubric =
@@ -147,17 +154,44 @@ function canUseAbsoluteComparison(expected: unknown): boolean {
  */
 export class AxJudge<IN extends AxGenIn, OUT extends AxGenOut> {
   private signature: AxSignature<IN, OUT>;
-  private options: Required<Pick<AxJudgeOptions, 'ai' | 'randomizeOrder'>> &
-    Pick<AxJudgeOptions, 'model' | 'criteria'>;
+  private options: Omit<AxJudgeOptions, 'randomizeOrder'> & {
+    randomizeOrder: boolean;
+  };
 
   constructor(signature: AxSignature<IN, OUT>, options: AxJudgeOptions) {
     this.signature = signature;
     this.options = {
-      ai: options.ai,
+      ...options,
       randomizeOrder: options.randomizeOrder ?? true,
-      model: options.model,
-      criteria: options.criteria,
     };
+  }
+
+  private buildForwardOptions(): AxJudgeForwardOptions {
+    const {
+      ai: _ai,
+      criteria: _criteria,
+      description: _description,
+      randomizeOrder: _randomizeOrder,
+      ...forwardOptions
+    } = this.options;
+
+    return {
+      ...forwardOptions,
+      maxSteps: 1,
+    };
+  }
+
+  private buildTaskDescription(): string {
+    const baseDescription =
+      this.signature.getDescription() ||
+      'Complete the task based on the input.';
+    const extraDescription = this.options.description?.trim();
+
+    if (!extraDescription) {
+      return baseDescription;
+    }
+
+    return `${baseDescription}\n\nAdditional Judge Guidance:\n${extraDescription}`;
   }
 
   /**
@@ -234,7 +268,6 @@ export class AxJudge<IN extends AxGenIn, OUT extends AxGenOut> {
     student: OUT,
     teacher: OUT
   ): Promise<AxJudgeResult> {
-    const description = this.signature.getDescription();
     const inputFields = this.signature.getInputFields();
     const outputFields = this.signature.getOutputFields();
 
@@ -244,9 +277,9 @@ export class AxJudge<IN extends AxGenIn, OUT extends AxGenOut> {
     const responseB = studentIsA ? teacher : student;
 
     const compareInstruction = `
-You are an impartial judge comparing two AI responses to the same input.
+You are an impartial judge comparing two AI system outputs for the same input.
 
-**Task Description:** ${description || 'Complete the task based on the input.'}
+**Task Description:** ${this.buildTaskDescription()}
 
 **Input Fields:**
 ${describeFields(inputFields)}
@@ -264,12 +297,12 @@ ${describeFields(outputFields)}
 `.trim();
 
     const compareGen = new AxGen<
-      { input: string; response_a: string; response_b: string },
+      { task_input: string; system_output_a: string; system_output_b: string },
       { winner: string; reasoning: string }
     >(`
-      input:string "The original input",
-      response_a:string "Response A",
-      response_b:string "Response B"
+      task_input:string "The original task input",
+      system_output_a:string "System Output A",
+      system_output_b:string "System Output B"
       ->
       winner:class "A, B, Tie" "Which response is better",
       reasoning:string "Detailed explanation for the decision"
@@ -279,11 +312,11 @@ ${describeFields(outputFields)}
     const result = await compareGen.forward(
       this.options.ai,
       {
-        input: JSON.stringify(input),
-        response_a: JSON.stringify(responseA),
-        response_b: JSON.stringify(responseB),
+        task_input: JSON.stringify(input),
+        system_output_a: JSON.stringify(responseA),
+        system_output_b: JSON.stringify(responseB),
       },
-      { model: this.options.model }
+      this.buildForwardOptions()
     );
 
     // Map winner back to student/teacher
@@ -327,7 +360,6 @@ ${describeFields(outputFields)}
     input: IN,
     output: OUT
   ): Promise<AxJudgeResult> {
-    const description = this.signature.getDescription();
     const inputFields = this.signature.getInputFields();
     const outputFields = this.signature.getOutputFields();
 
@@ -342,9 +374,9 @@ Based on the task description and output requirements:
 `.trim();
 
     const qualityInstruction = `
-You are evaluating the quality of an AI response.
+You are evaluating the quality of an AI system output.
 
-**Task Description:** ${description || 'Complete the task based on the input.'}
+**Task Description:** ${this.buildTaskDescription()}
 
 **Input Fields:**
 ${describeFields(inputFields)}
@@ -366,11 +398,11 @@ First explain your reasoning, then classify the response into one of the quality
 `.trim();
 
     const qualityGen = new AxGen<
-      { input: string; response: string },
+      { task_input: string; system_output: string },
       { reasoning: string; quality: string }
     >(`
-      input:string "The original input",
-      response:string "The AI response to evaluate"
+      task_input:string "The original task input",
+      system_output:string "The AI system output to evaluate"
       ->
       reasoning:string "Detailed explanation for the quality assessment",
       quality:class "excellent, good, acceptable, poor, unacceptable" "Quality tier"
@@ -380,10 +412,10 @@ First explain your reasoning, then classify the response into one of the quality
     const result = await qualityGen.forward(
       this.options.ai,
       {
-        input: JSON.stringify(input),
-        response: JSON.stringify(output),
+        task_input: JSON.stringify(input),
+        system_output: JSON.stringify(output),
       },
-      { model: this.options.model }
+      this.buildForwardOptions()
     );
 
     // Map discrete quality tiers to scores

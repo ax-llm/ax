@@ -1,6 +1,9 @@
 import {
+  AxAgentClarificationError,
+  type AxAgentEvalPrediction,
   type AxAgentFunction,
   type AxAgentFunctionGroup,
+  type AxAgentState,
   type AxAgentTestResult,
   type AxCodeRuntime,
   type AxFunction,
@@ -50,6 +53,57 @@ import {
 
   const result = a.test('console.log(query)', { query: 'hello' });
   const _ok: Promise<AxAgentTestResult> = result;
+}
+
+// Agent state round-tripping is part of the public surface
+{
+  const runtime = {} as AxCodeRuntime;
+  const a = agent('query:string -> answer:string', {
+    contextFields: [] as const,
+    runtime,
+  });
+
+  const state = a.getState();
+  const _ok: AxAgentState | undefined = state;
+  a.setState(state);
+}
+
+// Clarification errors expose both question and structured payload
+{
+  const err = new AxAgentClarificationError({
+    question: 'Which route should I use?',
+    type: 'multiple_choice',
+    choices: ['Fastest', 'Scenic'],
+  });
+
+  const _question: string = err.question;
+  const _payloadQuestion: string = err.clarification.question;
+  const _state: AxAgentState | undefined = err.getState();
+}
+
+// Agent runtimes may optionally provide native global inspection
+{
+  const runtime: AxCodeRuntime = {
+    getUsageInstructions: () => '',
+    createSession() {
+      return {
+        execute: async () => 'ok',
+        inspectGlobals: async () => '{"version":1,"entries":[]}',
+        snapshotGlobals: async () => ({
+          version: 1 as const,
+          entries: [],
+          bindings: {},
+        }),
+        patchGlobals: async () => {},
+        close: () => {},
+      };
+    },
+  };
+
+  agent('query:string -> answer:string', {
+    contextFields: [] as const,
+    runtime,
+  });
 }
 
 // Agent test() returns completion payloads for final()/ask_clarification()
@@ -106,6 +160,72 @@ import {
 
   type Result = Awaited<ReturnType<typeof a.forward>>;
   const _ok: Result = { answer: 'x' };
+}
+
+// Agent optimize() should accept built-in judge options and task datasets
+{
+  const runtime = {} as AxCodeRuntime;
+  const judgeAI = {} as any;
+  const a = agent('query:string -> answer:string', {
+    contextFields: [] as const,
+    runtime,
+    judgeAI,
+    judgeOptions: {
+      model: 'judge-model',
+      description: 'Be strict about tool use.',
+      randomizeOrder: false,
+    },
+  });
+
+  const optimizePromise = a.optimize([
+    {
+      input: { query: 'Send an email to Jim' },
+      criteria: 'Use the right email tool.',
+      expectedActions: ['email.sendEmail'],
+    },
+  ]);
+
+  const _ok: Promise<Awaited<ReturnType<typeof a.optimize>>> = optimizePromise;
+
+  a.optimize(
+    {
+      train: [
+        {
+          input: { query: 'Set up a meeting' },
+          criteria: 'Schedule the meeting correctly.',
+        },
+      ],
+      validation: [
+        {
+          input: { query: 'What is on my calendar today?' },
+          criteria: 'Use the calendar tool before answering.',
+          forbiddenActions: ['email.sendEmail'],
+        },
+      ],
+    },
+    {
+      target: ['root.actor'] as const,
+      apply: false,
+      verbose: true,
+      debugOptimizer: true,
+      optimizerLogger: () => {},
+      onProgress: () => {},
+      onEarlyStop: () => {},
+      judgeAI,
+      judgeOptions: { model: 'override-judge-model' },
+    }
+  );
+}
+
+// Agent optimize() eval predictions discriminate final vs clarification outcomes
+{
+  const prediction = {} as AxAgentEvalPrediction<{ answer: string }>;
+
+  if (prediction.completionType === 'final') {
+    const _answer: string = prediction.output.answer;
+  } else {
+    const _question: string = prediction.clarification.question;
+  }
 }
 
 // Agent with object context field config

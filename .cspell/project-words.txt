@@ -201,3 +201,7 @@ checkpointed
 tunables
 scorable
 unranked
+rollouts
+Inspectable
+Snapshotable
+snapshotable

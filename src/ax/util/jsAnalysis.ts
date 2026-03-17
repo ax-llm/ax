@@ -2,6 +2,10 @@ function isIdentifierChar(ch: string | undefined): boolean {
   return !!ch && /[A-Za-z0-9_$]/.test(ch);
 }
 
+function isIdentifierStart(ch: string | undefined): boolean {
+  return !!ch && /[A-Za-z_$]/.test(ch);
+}
+
 export function stripJsStringsAndComments(code: string): string {
   let out = '';
   let i = 0;
@@ -464,4 +468,167 @@ export function extractTopLevelDeclaredNames(code: string): string[] {
     }
   }
   return unique;
+}
+
+export function extractTopLevelDurableWriteTargets(code: string): string[] {
+  const names = new Set<string>(extractTopLevelDeclaredNames(code));
+  const sanitized = stripJsStringsAndComments(code);
+  const len = sanitized.length;
+  let i = 0;
+  let braceDepth = 0;
+  let parenDepth = 0;
+
+  const skipWhitespace = (index: number): number => {
+    let current = index;
+    while (current < len && /\s/.test(sanitized[current] ?? '')) {
+      current++;
+    }
+    return current;
+  };
+
+  const previousNonWhitespaceIndex = (index: number): number => {
+    let current = index;
+    while (current >= 0 && /\s/.test(sanitized[current] ?? '')) {
+      current--;
+    }
+    return current;
+  };
+
+  const isAssignmentOperatorAt = (index: number): boolean => {
+    const threeChars = sanitized.slice(index, index + 3);
+    const twoChars = sanitized.slice(index, index + 2);
+
+    if (threeChars === '===' || twoChars === '==' || twoChars === '=>') {
+      return false;
+    }
+
+    return (
+      sanitized[index] === '=' ||
+      [
+        '+=',
+        '-=',
+        '*=',
+        '/=',
+        '%=',
+        '&=',
+        '|=',
+        '^=',
+        '&&=',
+        '||=',
+        '??=',
+        '**=',
+        '<<=',
+        '>>=',
+        '>>>=',
+      ].some((op) => sanitized.startsWith(op, index))
+    );
+  };
+
+  const readWord = (start: number): { word: string; nextIndex: number } => {
+    let nextIndex = start;
+    while (nextIndex < len && isIdentifierChar(sanitized[nextIndex])) {
+      nextIndex++;
+    }
+    return { word: sanitized.slice(start, nextIndex), nextIndex };
+  };
+
+  const addIfBareAssignment = (word: string, start: number, end: number) => {
+    const prevIndex = previousNonWhitespaceIndex(start - 1);
+    const prev = prevIndex >= 0 ? sanitized[prevIndex] : undefined;
+    const nextIndex = skipWhitespace(end);
+    const isMemberAccess = prev === '.' || prev === '?';
+    if (isMemberAccess) {
+      return;
+    }
+
+    const hasPrefixUpdate =
+      sanitized.slice(Math.max(0, start - 2), start) === '++' ||
+      sanitized.slice(Math.max(0, start - 2), start) === '--';
+    const hasSuffixUpdate =
+      sanitized.startsWith('++', nextIndex) ||
+      sanitized.startsWith('--', nextIndex);
+
+    if (
+      hasPrefixUpdate ||
+      hasSuffixUpdate ||
+      isAssignmentOperatorAt(nextIndex)
+    ) {
+      names.add(word);
+    }
+  };
+
+  const addIfGlobalAssignment = (start: number, end: number) => {
+    const dotIndex = skipWhitespace(end);
+    if (sanitized[dotIndex] !== '.') {
+      return;
+    }
+
+    const nameStart = skipWhitespace(dotIndex + 1);
+    if (!isIdentifierStart(sanitized[nameStart])) {
+      return;
+    }
+
+    const { word: propertyName, nextIndex } = readWord(nameStart);
+    const operatorIndex = skipWhitespace(nextIndex);
+    const hasPrefixUpdate =
+      sanitized.slice(Math.max(0, start - 2), start) === '++' ||
+      sanitized.slice(Math.max(0, start - 2), start) === '--';
+    const hasSuffixUpdate =
+      sanitized.startsWith('++', operatorIndex) ||
+      sanitized.startsWith('--', operatorIndex);
+
+    if (
+      propertyName &&
+      (hasPrefixUpdate ||
+        hasSuffixUpdate ||
+        isAssignmentOperatorAt(operatorIndex))
+    ) {
+      names.add(propertyName);
+    }
+  };
+
+  while (i < len) {
+    const ch = sanitized[i]!;
+
+    if (ch === '{') {
+      braceDepth++;
+      i++;
+      continue;
+    }
+    if (ch === '}') {
+      braceDepth--;
+      i++;
+      continue;
+    }
+    if (ch === '(') {
+      parenDepth++;
+      i++;
+      continue;
+    }
+    if (ch === ')') {
+      parenDepth--;
+      i++;
+      continue;
+    }
+
+    if (braceDepth === 0 && parenDepth === 0 && isIdentifierStart(ch)) {
+      const start = i;
+      const { word, nextIndex } = readWord(i);
+      i = nextIndex;
+
+      if (!word) {
+        continue;
+      }
+      if (word === 'globalThis') {
+        addIfGlobalAssignment(start, nextIndex);
+        continue;
+      }
+      addIfBareAssignment(word, start, nextIndex);
+      continue;
+    }
+
+    i++;
+  }
+
+  return [...names];
 }
