@@ -45,8 +45,8 @@ const analyzer = agent(
         enabled: true,
         triggerChars: 3_000,
       },
+      pruneErrors: true,
       expert: {
-        pruneErrors: true,
         rankPruning: { enabled: true, minRank: 2 },
         tombstones: {
           model: AxAIGoogleGeminiModel.Gemini3Flash,

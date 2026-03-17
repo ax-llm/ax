@@ -218,6 +218,116 @@ for (const t of tests) {
     ).toBe(0);
   });
 
+  it.skipIf(!HAS_DENO)(
+    'round-trips snapshots in a real Deno Web Worker without restoring locked globals',
+    () => {
+      const harness = `
+const workerSourcePath = Deno.args[0];
+const workerSource = await Deno.readTextFile(workerSourcePath);
+const blob = new Blob([workerSource], { type: 'application/javascript' });
+const blobUrl = URL.createObjectURL(blob);
+const worker = new Worker(blobUrl, { type: 'module' });
+const timeout = setTimeout(() => {
+  console.error('TIMEOUT');
+  Deno.exit(1);
+}, 5000);
+
+let nextId = 1;
+const pending = new Map();
+
+const cleanup = (code) => {
+  clearTimeout(timeout);
+  worker.terminate();
+  URL.revokeObjectURL(blobUrl);
+  Deno.exit(code);
+};
+
+const fail = (message) => {
+  console.error(message);
+  cleanup(1);
+};
+
+const call = (payload) =>
+  new Promise((resolve, reject) => {
+    const id = payload.id ?? nextId++;
+    pending.set(id, { resolve, reject });
+    worker.postMessage({ ...payload, id });
+  });
+
+worker.onmessage = (event) => {
+  const msg = event.data;
+  if (msg.type !== 'result' || typeof msg.id !== 'number') {
+    return;
+  }
+  const pendingEntry = pending.get(msg.id);
+  if (!pendingEntry) {
+    return;
+  }
+  pending.delete(msg.id);
+  if (msg.error !== undefined) {
+    pendingEntry.reject(msg.error);
+  } else {
+    pendingEntry.resolve(msg.value);
+  }
+};
+
+worker.onerror = (err) => {
+  console.error('Worker error:', err.message || err);
+  cleanup(1);
+};
+
+worker.postMessage({ type: 'init', outputMode: 'return' });
+
+try {
+  await call({ type: 'execute', code: 'globalThis.answer = 42' });
+  const snapshot = await call({ type: 'snapshot-globals', reservedNames: [] });
+
+  if (!snapshot || typeof snapshot !== 'object') {
+    fail('FAIL: snapshot response missing');
+  }
+
+  const bindings =
+    snapshot && typeof snapshot === 'object' && snapshot.bindings &&
+    typeof snapshot.bindings === 'object'
+      ? snapshot.bindings
+      : null;
+  const entries = Array.isArray(snapshot?.entries) ? snapshot.entries : [];
+
+  if (!bindings || bindings.answer !== 42) {
+    fail('FAIL: user binding missing from snapshot');
+  }
+
+  for (const name of ['SharedWorker', 'XMLHttpRequest', 'indexedDB', 'importScripts', 'require']) {
+    if (Object.prototype.hasOwnProperty.call(bindings, name)) {
+      fail('FAIL: locked binding leaked into snapshot: ' + name);
+    }
+    if (entries.some((entry) => entry?.name === name)) {
+      fail('FAIL: locked entry leaked into snapshot: ' + name);
+    }
+  }
+
+  await call({ type: 'update-globals', globals: bindings });
+  cleanup(0);
+} catch (err) {
+  console.error('Harness failure:', JSON.stringify(err));
+  cleanup(1);
+}
+`;
+
+      const result = runHarness(
+        'deno',
+        ['run', '--allow-read'],
+        harness,
+        'deno-snapshot-harness.js',
+        tmpDir
+      );
+      expect(
+        result.exitCode,
+        `Deno snapshot harness failed.\nstdout: ${result.stdout}\nstderr: ${result.stderr}`
+      ).toBe(0);
+    }
+  );
+
   // -------------------------------------------------------------------------
   // Bun Web Worker
   // -------------------------------------------------------------------------

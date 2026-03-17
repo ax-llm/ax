@@ -287,10 +287,10 @@ import {
         enabled: true,
         triggerChars: 900,
       },
+      pruneErrors: true,
       expert: {
         replay: 'adaptive',
         recentFullActions: 2,
-        pruneErrors: true,
         rankPruning: { enabled: true, minRank: 3 },
         tombstones: { model: 'fast-model', modelConfig: { temperature: 0.1 } },
       },

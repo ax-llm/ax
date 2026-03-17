@@ -1851,9 +1851,11 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
       const allowUnsafeNodeHostAccess = msg.allowUnsafeNodeHostAccess === true;
 
       _setGlobalsAndFnProxies(msg);
-      _inspectBaselineGlobalNames = Object.getOwnPropertyNames(_scope).sort();
       _applyPermissionLockdown(msg.permissions);
       _applyNodeHostLockdown(allowUnsafeNodeHostAccess);
+      // Capture the baseline after lockdown so internally-hidden globals such as
+      // SharedWorker/require never leak into snapshots as restorable state.
+      _inspectBaselineGlobalNames = Object.getOwnPropertyNames(_scope).sort();
       return;
     }
 

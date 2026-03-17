@@ -509,8 +509,8 @@ const analyst = agent(
         enabled: true,
         triggerChars: 12_000,
       },
+      pruneErrors: true,
       expert: {
-        pruneErrors: true,
         rankPruning: { enabled: true, minRank: 2 },
         tombstones: {
           model: 'summary-model',

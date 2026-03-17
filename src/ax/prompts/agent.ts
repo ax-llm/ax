@@ -838,8 +838,7 @@ function resolveContextPolicy(
         presetDefaults.recentFullActions,
       0
     ),
-    errorPruning:
-      contextPolicy?.expert?.pruneErrors ?? presetDefaults.errorPruning,
+    errorPruning: contextPolicy?.pruneErrors ?? presetDefaults.errorPruning,
     hindsightEvaluation: rankPruningEnabled,
     pruneRank: rankPruning?.minRank ?? presetDefaults.pruneRank,
     rankPruneGraceTurns: DEFAULT_RANK_PRUNE_GRACE_TURNS,

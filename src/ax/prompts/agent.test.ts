@@ -2013,7 +2013,7 @@ describe('Actor/Responder execution loop', () => {
     expect(lastResponderPayload).toContain('"done"');
   });
 
-  it('should prune resolved error entries when contextPolicy expert.pruneErrors is enabled', async () => {
+  it('should prune resolved error entries when contextPolicy.pruneErrors is enabled', async () => {
     let actorCallCount = 0;
     let thirdActorPrompt = '';
 
@@ -2105,9 +2105,7 @@ describe('Actor/Responder execution loop', () => {
       contextFields: ['context'],
       runtime: testRuntime,
       contextPolicy: {
-        expert: {
-          pruneErrors: true,
-        },
+        pruneErrors: true,
       },
     });
 

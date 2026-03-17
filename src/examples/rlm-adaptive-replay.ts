@@ -42,8 +42,8 @@ const incidentAnalyst = agent(
         enabled: true,
         triggerChars: 2_000,
       },
+      pruneErrors: true,
       expert: {
-        pruneErrors: true,
         rankPruning: { enabled: true, minRank: 2 },
       },
     },

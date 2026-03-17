@@ -199,7 +199,8 @@ export type AxContextPolicyPreset = 'full' | 'adaptive' | 'lean';
 
 /**
  * Public context policy for the Actor loop.
- * Presets provide the common behavior; `state` and `expert` override specific pieces.
+ * Presets provide the common behavior; top-level toggles plus `state`,
+ * `checkpoints`, and `expert` override specific pieces.
  */
 export interface AxContextPolicyConfig {
   /**
@@ -227,6 +228,15 @@ export interface AxContextPolicyConfig {
    * - `lean`: true
    */
   pruneUsedDocs?: boolean;
+  /**
+   * Prune error entries after a successful (non-error) turn.
+   *
+   * Defaults by preset:
+   * - `full`: false
+   * - `adaptive`: true
+   * - `lean`: true
+   */
+  pruneErrors?: boolean;
   /** Runtime-state visibility controls. */
   state?: {
     /** Include a compact live runtime state block ahead of the action log. */
@@ -253,8 +263,6 @@ export interface AxContextPolicyConfig {
     replay?: 'full' | 'adaptive' | 'minimal';
     /** Number of most-recent actions that should always remain fully rendered. */
     recentFullActions?: number;
-    /** Prune error entries after a successful (non-error) turn. */
-    pruneErrors?: boolean;
     /** Rank-based pruning of low-value actions. Off by default for built-in presets. */
     rankPruning?: { enabled?: boolean; minRank?: number };
     /**

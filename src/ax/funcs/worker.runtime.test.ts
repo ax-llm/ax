@@ -2,8 +2,8 @@ import { runInNewContext } from 'node:vm';
 
 import { describe, expect, it } from 'vitest';
 
-import { axWorkerRuntime } from './worker.runtime.js';
 import { getWorkerSource } from './worker.js';
+import { axWorkerRuntime } from './worker.runtime.js';
 
 describe('axWorkerRuntime bootstrap', () => {
   it('throws when no postMessage transport is available', () => {
@@ -503,6 +503,76 @@ describe('axWorkerRuntime permission lockdown', () => {
     ) as Record<string, unknown> | undefined;
     expect(result).toBeDefined();
     expect(result!.value).toBe('function');
+  });
+
+  it('excludes lockdown-created inherited globals from snapshots', async () => {
+    const messages: unknown[] = [];
+    const inheritedGlobals = {
+      SharedWorker: class SharedWorker {},
+      XMLHttpRequest: class XMLHttpRequest {},
+      indexedDB: { open: () => undefined },
+      importScripts: () => undefined,
+    };
+    const sandbox = Object.create(inheritedGlobals) as Record<string, unknown>;
+    sandbox.self = sandbox;
+    sandbox.globalThis = sandbox;
+    sandbox.postMessage = (msg: unknown) => messages.push(msg);
+    sandbox.Promise = Promise;
+    sandbox.console = console;
+
+    runInNewContext(makeSource(), sandbox);
+    const onmessage = sandbox.onmessage as (event: { data: unknown }) => void;
+
+    const getResult = async (id: number): Promise<Record<string, unknown>> => {
+      await new Promise((r) => setTimeout(r, 20));
+      return messages.find(
+        (m) =>
+          (m as Record<string, unknown>).type === 'result' &&
+          (m as Record<string, unknown>).id === id
+      ) as Record<string, unknown>;
+    };
+
+    onmessage({
+      data: { type: 'init', permissions: [], outputMode: 'return' },
+    });
+
+    onmessage({
+      data: { type: 'execute', id: 1, code: 'globalThis.answer = 42' },
+    });
+    const executeResult = await getResult(1);
+    expect(executeResult.error).toBeUndefined();
+
+    onmessage({ data: { type: 'snapshot-globals', id: 2 } });
+    const snapshotResult = await getResult(2);
+    expect(snapshotResult.error).toBeUndefined();
+
+    const snapshot = snapshotResult.value as {
+      entries: Array<{ name: string }>;
+      bindings: Record<string, unknown>;
+    };
+    expect(snapshot.bindings).toMatchObject({ answer: 42 });
+    expect(snapshot.bindings).not.toHaveProperty('SharedWorker');
+    expect(snapshot.bindings).not.toHaveProperty('XMLHttpRequest');
+    expect(snapshot.bindings).not.toHaveProperty('indexedDB');
+    expect(snapshot.bindings).not.toHaveProperty('importScripts');
+    expect(snapshot.entries.map((entry) => entry.name)).not.toContain(
+      'SharedWorker'
+    );
+    expect(snapshot.entries.map((entry) => entry.name)).not.toContain(
+      'XMLHttpRequest'
+    );
+    expect(snapshot.entries.map((entry) => entry.name)).not.toContain(
+      'indexedDB'
+    );
+    expect(snapshot.entries.map((entry) => entry.name)).not.toContain(
+      'importScripts'
+    );
+
+    onmessage({
+      data: { type: 'update-globals', id: 3, globals: snapshot.bindings },
+    });
+    const patchResult = await getResult(3);
+    expect(patchResult.error).toBeUndefined();
   });
 });
 
