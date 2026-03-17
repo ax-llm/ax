@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 
 import { AxSignature } from '../dsp/sig.js';
 import { axBuildActorDefinition, axBuildResponderDefinition } from './rlm.js';
-import { renderPromptTemplate } from './templateEngine.js';
+import {
+  renderPromptTemplate,
+  renderTemplateContent,
+} from './templateEngine.js';
 
 describe('template integration', () => {
   it('keeps DSP template fragments aligned with prior prompt text', () => {
@@ -32,6 +35,23 @@ describe('template integration', () => {
     );
   });
 
+  it('supports simple string equality checks in template if conditions', () => {
+    const rendered = renderTemplateContent(
+      [
+        "{{ if promptLevel === 'basic' }}",
+        'Basic',
+        '{{ else }}',
+        'Detailed',
+        '{{ /if }}',
+      ].join('\n'),
+      {
+        promptLevel: 'basic',
+      }
+    );
+
+    expect(rendered.trim()).toBe('Basic');
+  });
+
   it('keeps actor prompt content aligned with prior prompt text', () => {
     const signature = AxSignature.create(
       'contextText:string -> finalAnswer:string'
@@ -59,28 +79,24 @@ describe('template integration', () => {
       '- `contextText` -> `inputs.contextText` (string, required)'
     );
     expect(actorDefinition).toContain(
-      'The responder is looking to produce the following output fields: `finalAnswer`'
+      'The responder is looking to produce these output fields: **`finalAnswer`**'
     );
     expect(actorDefinition).toContain(
-      '- `await llmQuery(query:string, context:any) : string` — Ask a sub-agent one semantic question.'
+      '- `await llmQuery(query: string, context: any): string` — Ask a sub-agent one semantic question.'
     );
-    expect(actorDefinition).toContain('### Important guidance and guardrails');
+    expect(actorDefinition).toContain('### Context Exploration Protocol');
+    expect(actorDefinition).toContain('### Runtime State Management');
     expect(actorDefinition).toContain(
-      'Reuse the existing runtime state instead of recreating it.'
+      '### Common Anti-Patterns — Do NOT Do These'
     );
+    expect(actorDefinition).toContain('**Enforcing the rhythm:**');
     expect(actorDefinition).toContain(
-      'Treat any context field excerpt already shown in the prompt as first-pass evidence.'
-    );
-    expect(actorDefinition).toContain(
-      'prefer targeted inspection such as `slice(...)`, regex extraction, or focused parsing'
-    );
-    expect(actorDefinition).toContain(
-      '## Javascript Runtime Usage Instructions'
+      '## JavaScript Runtime Usage Instructions'
     );
     expect(actorDefinition).toContain('Use return statements only.');
     expect(actorDefinition).not.toContain('await inspect_runtime()');
     expect(actorDefinition).not.toContain(
-      'If a `Live Runtime State` block is present, trust it over older action log details.'
+      'A `Live Runtime State` block reflects the current session and is the source of truth.'
     );
     expect(actorDefinition).not.toContain(
       'Prior actions may be summarized or omitted.'
@@ -106,7 +122,7 @@ describe('template integration', () => {
 
     expect(actorDefinition).toContain('await inspect_runtime()');
     expect(actorDefinition).toContain(
-      'If a `Live Runtime State` block is present, trust it over older action log details.'
+      'A `Live Runtime State` block reflects the current session and is the source of truth.'
     );
     expect(actorDefinition).toContain(
       'Prior actions may be summarized or omitted.'

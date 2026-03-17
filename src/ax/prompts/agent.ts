@@ -259,6 +259,26 @@ export type AxAgentInputUpdateCallback<IN extends AxGenIn> = (
   currentInputs: Readonly<IN>
 ) => Promise<Partial<IN> | undefined> | Partial<IN> | undefined;
 
+export type AxAgentTurnCallbackArgs = {
+  /** 1-based actor turn number. */
+  turn: number;
+  /** Full actor AxGen output for the turn, including javascriptCode and any actor fields. */
+  actorResult: Record<string, unknown>;
+  /** Normalized JavaScript that was executed for this turn. */
+  code: string;
+  /**
+   * Raw runtime execution result before formatting or truncation.
+   * For policy-violation turns and completion-signal turns, this is undefined.
+   */
+  result: unknown;
+  /** Action-log-safe runtime output string after formatting/truncation. */
+  output: string;
+  /** True when the turn recorded an error output. */
+  isError: boolean;
+  /** Thought text returned by the actor AxGen when available. */
+  thought?: string;
+};
+
 export type AxAgentJudgeOptions = Partial<Omit<AxJudgeOptions, 'ai'>>;
 
 export type AxAgentOptimizeTarget =
@@ -405,8 +425,11 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
   contextPolicy?: AxContextPolicyConfig;
   /** Output field names the Actor should produce (in addition to javascriptCode). */
   actorFields?: string[];
-  /** Called after each Actor turn with the full actor result. */
-  actorCallback?: (result: Record<string, unknown>) => void | Promise<void>;
+  /**
+   * Called after each Actor turn is recorded with both the raw runtime result
+   * and the formatted action-log output.
+   */
+  actorTurnCallback?: (args: AxAgentTurnCallbackArgs) => void | Promise<void>;
   /**
    * Called before each Actor turn with current input values. Return a partial patch
    * to update in-flight inputs for subsequent Actor/Responder steps.
@@ -420,6 +443,7 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
   actorOptions?: Partial<
     Omit<AxProgramForwardOptions<string>, 'functions'> & {
       description?: string;
+      promptLevel?: AxActorPromptLevel;
     }
   >;
   /** Default forward options for the Responder sub-program. */
@@ -465,6 +489,8 @@ export type AxAgentRecursionOptions = Partial<
   /** Maximum nested recursion depth for llmQuery sub-agent calls. */
   maxDepth?: number;
 };
+
+export type AxActorPromptLevel = 'detailed' | 'basic';
 
 // ----- Constants -----
 
@@ -726,7 +752,7 @@ type AxAgentRuntimeExecutionContext = {
   syncRuntimeInputsToSession: () => Promise<void>;
   executeActorCode: (
     code: string
-  ) => Promise<{ output: string; isError: boolean }>;
+  ) => Promise<{ result: unknown; output: string; isError: boolean }>;
   executeTestCode: (code: string) => Promise<AxAgentTestResult>;
   close: () => void;
 };
@@ -868,18 +894,18 @@ function getContextPolicyPresetDefaults(preset: AxContextPolicyPreset) {
     case 'adaptive':
       return {
         actionReplay: 'adaptive' as const,
-        recentFullActions: 2,
+        recentFullActions: 3,
         errorPruning: true,
         hindsight: false,
         pruneRank: 2,
-        pruneUsedDocs: true,
+        pruneUsedDocs: false,
         stateSummary: true,
         inspect: true,
-        inspectThreshold: 8_000,
-        maxEntries: 6,
-        maxStateChars: 1_200,
+        inspectThreshold: 10_000,
+        maxEntries: 8,
+        maxStateChars: 1_600,
         checkpointsEnabled: true,
-        checkpointTriggerChars: 12_000,
+        checkpointTriggerChars: 16_000,
       };
     case 'lean':
       return {
@@ -954,6 +980,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private excludedAgents: string[];
   private excludedAgentFunctions: string[];
   private actorDescription?: string;
+  private actorPromptLevel?: AxActorPromptLevel;
   private responderDescription?: string;
   private judgeOptions?: AxAgentJudgeOptions;
   private recursionForwardOptions?: AxAgentRecursionOptions;
@@ -1115,7 +1142,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       maxTurns,
       contextPolicy,
       actorFields,
-      actorCallback,
+      actorTurnCallback,
       mode,
       recursionOptions,
       actorOptions,
@@ -1208,17 +1235,21 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       maxTurns,
       contextPolicy,
       actorFields,
-      actorCallback,
+      actorTurnCallback,
       mode,
     };
     this.recursionForwardOptions = recursionOptions;
 
-    const { description: actorDescription, ...actorForwardOptions } =
-      actorOptions ?? {};
+    const {
+      description: actorDescription,
+      promptLevel: actorPromptLevel,
+      ...actorForwardOptions
+    } = actorOptions ?? {};
     const { description: responderDescription, ...responderForwardOptions } =
       responderOptions ?? {};
 
     this.actorDescription = actorDescription;
+    this.actorPromptLevel = actorPromptLevel ?? 'detailed';
     this.actorForwardOptions = actorForwardOptions;
 
     this.responderDescription = responderDescription;
@@ -1508,6 +1539,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       responderOutputFields,
       {
         runtimeUsageInstructions: this.runtimeUsageInstructions,
+        promptLevel: this.actorPromptLevel,
         maxSubAgentCalls: effectiveMaxSubAgentCalls,
         maxTurns: effectiveMaxTurns,
         hasInspectRuntime: effectiveContextPolicy.stateInspection.enabled,
@@ -2949,8 +2981,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     const executeActorCode = async (
       code: string
-    ): Promise<{ output: string; isError: boolean }> => {
+    ): Promise<{ result: unknown; output: string; isError: boolean }> => {
       const completionOutput = {
+        result: undefined,
         output: formatInterpreterOutput(undefined, maxRuntimeChars),
         isError: false,
       };
@@ -2973,6 +3006,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           }
         }
         return {
+          result,
           output: formatInterpreterOutput(result, maxRuntimeChars),
           isError: false,
         };
@@ -2997,6 +3031,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         }
         if (isExecutionTimedOutError(err)) {
           return {
+            result: undefined,
             output: truncateText(
               `${RUNTIME_RESTART_NOTICE}\n${formatInterpreterError(err, maxRuntimeChars)}`,
               maxRuntimeChars
@@ -3013,6 +3048,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
               reservedNames: protectedRuntimeNames,
             });
             return {
+              result: retryResult,
               output: truncateText(
                 `${RUNTIME_RESTART_NOTICE}\n${formatInterpreterOutput(retryResult, maxRuntimeChars)}`,
                 maxRuntimeChars
@@ -3021,6 +3057,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
             };
           } catch (retryErr) {
             return {
+              result: undefined,
               output: truncateText(
                 `${RUNTIME_RESTART_NOTICE}\n${formatInterpreterError(retryErr, maxRuntimeChars)}`,
                 maxRuntimeChars
@@ -3030,6 +3067,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           }
         }
         return {
+          result: undefined,
           output: truncateText(
             formatInterpreterError(err, maxRuntimeChars),
             maxRuntimeChars
@@ -3431,10 +3469,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         code = normalizeActorJavascriptCode(trimmedCode);
         actorResult.javascriptCode = code;
 
-        if (rlm.actorCallback) {
-          await rlm.actorCallback(actorResult as Record<string, unknown>);
-        }
-
         for (const fieldName of this.actorFieldNames) {
           if (fieldName in actorResult) {
             actorFieldValues[fieldName] = actorResult[fieldName];
@@ -3466,6 +3500,21 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
               tags: ['error'],
             });
 
+            if (rlm.actorTurnCallback) {
+              await rlm.actorTurnCallback({
+                turn: entryTurn,
+                actorResult: actorResult as Record<string, unknown>,
+                code,
+                result: undefined,
+                output: policyViolation,
+                isError: true,
+                thought:
+                  typeof actorResult.thought === 'string'
+                    ? actorResult.thought
+                    : undefined,
+              });
+            }
+
             await manageContext(
               actionLogEntries,
               actionLogEntries.length - 1,
@@ -3481,7 +3530,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         if (this.inputUpdateCallback) {
           await runtimeContext.syncRuntimeInputsToSession();
         }
-        const { output, isError } = await runtimeContext.executeActorCode(code);
+        const { result, output, isError } =
+          await runtimeContext.executeActorCode(code);
 
         const entryTurn = actionLogEntries.length + 1;
         actionLogEntries.push({
@@ -3491,6 +3541,21 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           actorFieldsOutput,
           tags: isError ? ['error'] : [],
         });
+
+        if (rlm.actorTurnCallback) {
+          await rlm.actorTurnCallback({
+            turn: entryTurn,
+            actorResult: actorResult as Record<string, unknown>,
+            code,
+            result,
+            output,
+            isError,
+            thought:
+              typeof actorResult.thought === 'string'
+                ? actorResult.thought
+                : undefined,
+          });
+        }
 
         await manageContext(
           actionLogEntries,

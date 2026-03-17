@@ -249,6 +249,36 @@ import {
   });
 }
 
+// Agent actorTurnCallback exposes raw result plus formatted output
+{
+  const runtime = {} as AxCodeRuntime;
+  agent('query:string -> answer:string', {
+    contextFields: [] as const,
+    runtime,
+    actorTurnCallback: async (turn) => {
+      const _turn: number = turn.turn;
+      const _code: string = turn.code;
+      const _result: unknown = turn.result;
+      const _output: string = turn.output;
+      const _isError: boolean = turn.isError;
+      const _thought: string | undefined = turn.thought;
+      const _actorResult: Record<string, unknown> = turn.actorResult;
+    },
+  });
+}
+
+// Agent actorOptions should accept promptLevel
+{
+  const runtime = {} as AxCodeRuntime;
+  agent('query:string -> answer:string', {
+    contextFields: [] as const,
+    runtime,
+    actorOptions: {
+      promptLevel: 'detailed',
+    },
+  });
+}
+
 // Agent with truncated prompt context config
 {
   const runtime = {} as AxCodeRuntime;

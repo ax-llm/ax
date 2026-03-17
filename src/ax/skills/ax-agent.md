@@ -18,6 +18,8 @@ Use this skill to generate `AxAgent` code. Prefer short, modern, copyable patter
 - If `functions.discovery` is `true`, discover callables from modules before using them.
 - In stdout-mode RLM, use one observable `console.log(...)` step per non-final actor turn.
 - For long RLM tasks, prefer `contextPolicy: { preset: 'adaptive' }` so older successful turns collapse into checkpoint summaries while live runtime state stays visible.
+- Default `actorOptions.promptLevel` to `'detailed'` and opt down to `'basic'` only when the user wants a shorter actor prompt.
+- Use `actorTurnCallback` when the user needs per-turn observability into generated code, raw runtime result, formatted output, or provider thoughts.
 
 ## Mental Model
 
@@ -46,8 +48,50 @@ Important:
 
 - `contextPolicy` controls prompt replay and compression, not runtime persistence.
 - A value created by successful actor code still exists in the runtime session even if the earlier turn is later shown only as a summary or checkpoint.
-- Used discovery docs are replay artifacts too: `adaptive` and `lean` can hide old `listModuleFunctions(...)` / `getFunctionDefinitions(...)` output after the actor successfully uses the discovered callable.
+- Used discovery docs are replay artifacts too: `lean` hides old `listModuleFunctions(...)` / `getFunctionDefinitions(...)` output by default after the actor successfully uses the discovered callable, while `adaptive` keeps them unless you opt into pruning.
 - Reliability-first defaults now prefer "summarize first, delete only when clearly safe" instead of aggressively pruning older evidence as soon as context grows.
+
+## Choosing Presets, Prompt Level, And Model Size
+
+Treat these three knobs as a bundle:
+
+- `contextPolicy.preset` decides how much raw history the actor keeps seeing.
+- `actorOptions.promptLevel` decides how prescriptive the actor prompt is.
+- Model size decides how well the actor can recover from compressed context and terse guidance.
+
+Recommended combinations:
+
+- Short task, debugging, or weaker/cheaper model: `preset: 'full'` with `promptLevel: 'detailed'`.
+- Long multi-turn task, general default, medium-to-strong model: `preset: 'adaptive'` with `promptLevel: 'detailed'`.
+- Long task where the actor keeps making avoidable exploration mistakes: `preset: 'adaptive'` with `promptLevel: 'detailed'`.
+- Very long task under token pressure, stronger model only: `preset: 'lean'` with `promptLevel: 'basic'`.
+- Discovery-heavy or schema-uncertain work with a capable model: `preset: 'adaptive'` with `promptLevel: 'detailed'`.
+
+Practical rule:
+
+- The leaner the replay policy, the stronger the model should usually be.
+- `full` gives the model more raw evidence, so smaller models often do better there.
+- `adaptive` is the default middle ground for real agent work.
+- `lean` should be reserved for models that can reason well from runtime state plus summaries instead of exact old code/output.
+- `detailed` is not automatically "better"; it is more controlling. Use it when the actor needs tighter exploration rhythm, not just because the task is hard.
+
+Prompt-level guidance:
+
+- `basic`: opt-down mode. Gives the actor concise exploration guidance and works best when the model is already reliable.
+- `detailed`: adds explicit exploration recipes, truncation recovery guidance, error-avoidance tips, and stronger one-step-per-turn discipline.
+
+Use `promptLevel: 'detailed'` when:
+
+- the actor is probing unfamiliar or messy data shapes
+- discovery mode is central to the task
+- the model keeps over-logging, combining too many steps, or guessing field/function names
+- you are optimizing for reliability over prompt compactness
+
+Use `promptLevel: 'basic'` when:
+
+- the model is already following the one-step rhythm well
+- you want a shorter actor prompt
+- the task is straightforward and the runtime/state carries most of the complexity
 
 ## Critical Rules
 
@@ -527,9 +571,11 @@ Rules:
 - Use `preset: 'full'` when the actor should keep seeing raw prior code and outputs with minimal compression.
 - Use `preset: 'adaptive'` when the task needs runtime state across many turns but older successful work should collapse into checkpoint summaries while important recent steps can still stay fully replayed.
 - Use `preset: 'lean'` when you want more aggressive compression and can rely mostly on current runtime state plus checkpoint summaries and compact action summaries.
+- `adaptive` now keeps used discovery docs by default and uses slightly richer live-state/checkpoint settings than `lean`; it should be the first choice unless you have a strong reason to prefer `full` or `lean`.
 - Use `state.summary` to inject a compact `Live Runtime State` block into the actor prompt. The block is structured and provenance-aware: variables are rendered with compact type/size/preview metadata, and when Ax can infer it, a short source suffix like `from t3 via db.search` is included. Combine `maxEntries` with `maxChars` so large runtime objects do not dominate the prompt.
 - Use `state.inspect` with `inspectThresholdChars` so the actor is reminded to call `inspect_runtime()` when replayed action history starts getting large.
-- `adaptive` and `lean` hide used discovery docs by default; set `contextPolicy.pruneUsedDocs: false` if you want to keep replaying them.
+- `adaptive` keeps used discovery docs by default; set `contextPolicy.pruneUsedDocs: true` only when you want more aggressive cleanup.
+- `lean` hides used discovery docs by default; set `contextPolicy.pruneUsedDocs: false` if you want to keep replaying them.
 - `full` keeps used discovery docs by default; set `contextPolicy.pruneUsedDocs: true` if you want the same cleanup there.
 - Use `summarizerOptions` to tune the internal checkpoint-summary AxGen program.
 - If you configure `expert.tombstones`, treat the object form as options for the internal tombstone-summary AxGen program.
@@ -558,6 +604,88 @@ Turn 3:
 ```javascript
 final({ answer: '...' });
 ```
+
+## Actor Turn Observability
+
+Use `actorTurnCallback` when the caller needs structured telemetry for each actor turn.
+
+What it gives you:
+
+- `code`: the normalized JavaScript code the actor produced
+- `result`: the raw untruncated runtime return value from executing that code
+- `output`: the formatted action-log output string after Ax normalizes and truncates it for prompt replay
+- `thought`: the actor model's `thought` field when `showThoughts` is enabled and the provider returns one
+- `actorResult`: the full actor payload, including actor-owned output fields when `actorFields` are configured
+- `isError`: whether the execution path for that turn was treated as an error
+
+Use it for:
+
+- debug UIs that want to show code plus raw runtime results
+- tracing and analytics
+- capturing `thought` for internal diagnostics when supported by the provider
+- storing per-turn execution artifacts without scraping the prompt/action log
+
+Important:
+
+- `output` is not raw stdout; it is the formatted replay string used in the action log.
+- `result` is the raw runtime result before Ax formats/truncates it.
+- `thought` is optional and only appears when the underlying `AxGen` call had `showThoughts` enabled and the provider actually returned a thought field.
+
+Good pattern:
+
+```typescript
+const supportAgent = agent('query:string -> answer:string', {
+  contextFields: ['query'],
+  runtime,
+  actorTurnCallback: ({ turn, code, result, output, thought, isError }) => {
+    console.log({
+      turn,
+      isError,
+      code,
+      rawResult: result,
+      replayOutput: output,
+      thought,
+    });
+  },
+  actorOptions: {
+    model: 'gpt-5.4-mini',
+    showThoughts: true,
+  },
+});
+```
+
+## Actor Prompt Controls
+
+Use `actorOptions` for actor-only model/prompt tuning and `responderOptions` for responder-only tuning.
+
+Key fields:
+
+- `actorOptions.description`: append extra actor-specific instructions without changing the responder prompt
+- `actorOptions.promptLevel`: choose `'basic'` or `'detailed'` guidance for the actor template
+- `actorOptions.model` / `responderOptions.model`: split model choice across actor and responder when needed
+
+Good split-model pattern:
+
+```typescript
+const researchAgent = agent('query:string -> answer:string', {
+  contextFields: ['query'],
+  runtime,
+  contextPolicy: { preset: 'adaptive' },
+  actorOptions: {
+    model: 'gpt-5.4',
+    promptLevel: 'detailed',
+  },
+  responderOptions: {
+    model: 'gpt-5.4-mini',
+  },
+});
+```
+
+Model guidance:
+
+- Put the stronger model on the actor when the task depends on multi-turn exploration, discovery, runtime state reuse, or compressed replay.
+- Put the stronger model on the responder only when the hard part is final synthesis/formatting rather than exploration.
+- For cost-sensitive setups, a common pattern is stronger actor + cheaper responder, not the other way around.
 
 Invalid pattern:
 
@@ -817,13 +945,21 @@ agentIdentity?: {
   maxTurns?: number;
   contextPolicy?: AxContextPolicyConfig;
   actorFields?: string[];
-  actorCallback?: (result: Record<string, unknown>) => void | Promise<void>;
+  actorTurnCallback?: (turn: {
+    turn: number;
+    actorResult: Record<string, unknown>;
+    code: string;
+    result: unknown;
+    output: string;
+    isError: boolean;
+    thought?: string;
+  }) => void | Promise<void>;
   inputUpdateCallback?: (currentInputs: Record<string, unknown>) => Promise<Record<string, unknown> | undefined> | Record<string, unknown> | undefined;
   mode?: 'simple' | 'advanced';
   recursionOptions?: Partial<Omit<AxProgramForwardOptions, 'functions'>> & {
     maxDepth?: number;
   };
-  actorOptions?: Partial<AxProgramForwardOptions & { description?: string }>;
+  actorOptions?: Partial<AxProgramForwardOptions & { description?: string; promptLevel?: 'detailed' | 'basic' }>;
   responderOptions?: Partial<AxProgramForwardOptions & { description?: string }>;
   judgeOptions?: Partial<AxJudgeOptions>;
 }

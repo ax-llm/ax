@@ -10,6 +10,7 @@ import { toFieldType } from '../dsp/prompt.js';
 import type { AxIField } from '../dsp/sig.js';
 import type { AxProgramForwardOptions } from '../dsp/types.js';
 import { renderPromptTemplate } from './templateEngine.js';
+import type { AxAgentTurnCallbackArgs } from './agent.js';
 
 // ----- Helpers for rendering function/agent signatures in the actor prompt -----
 
@@ -186,7 +187,7 @@ export interface AxCodeSession {
  * - `full`: Keep prior actions fully replayed with minimal compression.
  *   Best for debugging or short tasks where the actor should reread exact old code/output.
  * - `adaptive`: Keep live runtime state visible, preserve recent or dependency-relevant
- *   actions in full, hide used discovery docs, and collapse older successful work
+ *   actions in full, keep discovery docs available by default, and collapse older successful work
  *   into checkpoint summaries as context grows. Reliability-first defaults favor
  *   summaries before deletion. Best default for long multi-turn tasks.
  * - `lean`: Most aggressive compression. Keep live runtime state visible, checkpoint
@@ -207,7 +208,7 @@ export interface AxContextPolicyConfig {
    * Opinionated preset for how the agent should replay and compress context.
    *
    * - `full`: prefer raw replay of earlier actions
-   * - `adaptive`: balance replay detail with checkpoint compression
+   * - `adaptive`: balance replay detail with checkpoint compression while keeping more recent evidence visible
    * - `lean`: prefer live state + compact summaries over raw replay detail
    */
   preset?: AxContextPolicyPreset;
@@ -224,7 +225,7 @@ export interface AxContextPolicyConfig {
    *
    * Defaults by preset:
    * - `full`: false
-   * - `adaptive`: true
+   * - `adaptive`: false
    * - `lean`: true
    */
   pruneUsedDocs?: boolean;
@@ -300,8 +301,11 @@ export interface AxRLMConfig {
   contextPolicy?: AxContextPolicyConfig;
   /** Output field names the Actor should produce (in addition to javascriptCode). */
   actorFields?: string[];
-  /** Called after each Actor turn with the full actor result. */
-  actorCallback?: (result: Record<string, unknown>) => void | Promise<void>;
+  /**
+   * Called after each Actor turn is recorded with both raw runtime output and
+   * the formatted action-log output.
+   */
+  actorTurnCallback?: (args: AxAgentTurnCallbackArgs) => void | Promise<void>;
   /**
    * Sub-query execution mode (default: 'simple').
    * - 'simple': llmQuery delegates to a plain AxGen (direct LLM call, no code runtime).
@@ -321,6 +325,7 @@ export function axBuildActorDefinition(
   responderOutputFields: readonly AxIField[],
   options: Readonly<{
     runtimeUsageInstructions?: string;
+    promptLevel?: 'detailed' | 'basic';
     maxSubAgentCalls?: number;
     maxTurns?: number;
     hasInspectRuntime?: boolean;
@@ -354,6 +359,7 @@ export function axBuildActorDefinition(
   }>
 ): string {
   //   const maxSubAgentCalls = options.maxSubAgentCalls ?? 50;
+  const promptLevel = options.promptLevel ?? 'detailed';
   type AvailableModule = {
     namespace: string;
     selectionCriteria?: string;
@@ -404,6 +410,7 @@ export function axBuildActorDefinition(
   const actorBody = renderPromptTemplate('rlm/actor.md', {
     contextVarList,
     responderOutputFieldTitles,
+    promptLevel,
     discoveryMode,
     hasInspectRuntime: Boolean(options.hasInspectRuntime),
     hasAgentFunctions: !discoveryMode && sortedAgents.length > 0,

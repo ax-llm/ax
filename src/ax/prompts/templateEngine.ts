@@ -26,6 +26,8 @@ type ParseResult = {
 const TAG_PATTERN = /{{\s*([^}]+?)\s*}}/g;
 const IDENTIFIER_PATTERN =
   /^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$/;
+const STRING_EQUALITY_PATTERN =
+  /^([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*===\s*(?:'([^']*)'|"([^"]*)")$/;
 
 const parsedTemplates = new Map<TemplateId, readonly TemplateNode[]>();
 
@@ -108,7 +110,10 @@ function parseNodes(
 
     if (tag.startsWith('if ')) {
       const condition = tag.slice(3).trim();
-      if (!IDENTIFIER_PATTERN.test(condition)) {
+      if (
+        !IDENTIFIER_PATTERN.test(condition) &&
+        !STRING_EQUALITY_PATTERN.test(condition)
+      ) {
         throw new Error(
           formatError(
             context,
@@ -265,23 +270,35 @@ function renderNodes(
       continue;
     }
 
-    const conditionValue = resolveVar(
-      vars,
-      node.condition,
-      source,
-      context,
-      node.index
-    );
+    let conditionValue: boolean;
+    const equalityMatch = STRING_EQUALITY_PATTERN.exec(node.condition);
 
-    if (typeof conditionValue !== 'boolean') {
-      throw new Error(
-        formatError(
-          context,
-          source,
-          node.index,
-          `Condition '${node.condition}' must be boolean`
-        )
+    if (equalityMatch) {
+      const [, path, singleQuoted, doubleQuoted] = equalityMatch;
+      const expected = singleQuoted ?? doubleQuoted ?? '';
+      const actual = resolveVar(vars, path!, source, context, node.index);
+      conditionValue = actual === expected;
+    } else {
+      const resolved = resolveVar(
+        vars,
+        node.condition,
+        source,
+        context,
+        node.index
       );
+
+      if (typeof resolved !== 'boolean') {
+        throw new Error(
+          formatError(
+            context,
+            source,
+            node.index,
+            `Condition '${node.condition}' must be boolean`
+          )
+        );
+      }
+
+      conditionValue = resolved;
     }
 
     if (conditionValue) {

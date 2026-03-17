@@ -754,6 +754,7 @@ import type {
   AxMemoryMessageValue,
 } from './mem/types.js';
 import {
+  type AxActorPromptLevel,
   AxAgent,
   type AxAgentClarification,
   type AxAgentClarificationChoice,
@@ -783,6 +784,7 @@ import {
   type AxAgentStructuredClarification,
   type AxAgentTestCompletionPayload,
   type AxAgentTestResult,
+  type AxAgentTurnCallbackArgs,
   type AxContextFieldInput,
   agent,
 } from './prompts/agent.js';
@@ -1250,6 +1252,7 @@ export type { AxAIWebLLMEmbedRequest };
 export type { AxAIWebLLMEmbedResponse };
 export type { AxAPI };
 export type { AxAPIConfig };
+export type { AxActorPromptLevel };
 export type { AxAgentClarification };
 export type { AxAgentClarificationChoice };
 export type { AxAgentClarificationKind };
@@ -1277,6 +1280,7 @@ export type { AxAgentStateRuntimeEntry };
 export type { AxAgentStructuredClarification };
 export type { AxAgentTestCompletionPayload };
 export type { AxAgentTestResult };
+export type { AxAgentTurnCallbackArgs };
 export type { AxAgentic };
 export type { AxApacheTikaArgs };
 export type { AxApacheTikaConvertOptions };

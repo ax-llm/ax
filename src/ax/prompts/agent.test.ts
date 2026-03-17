@@ -518,13 +518,13 @@ async function runInvalidDiscoveryRecoveryScenario() {
         actorSystemPrompts.push(systemPrompt);
 
         const hasInvalidCallableGuidance = systemPrompt.includes(
-          'Do not guess alternate callable names after invalid callable errors'
+          'Do NOT guess an alternate name.'
         );
         const hasRediscoveryGuidance = systemPrompt.includes(
-          're-run discovery for the module or function you need'
+          'Re-run `listModuleFunctions(...)` for that module.'
         );
         const hasExactLiteralGuidance = systemPrompt.includes(
-          'If tool docs or tool error messages specify an exact literal, type, or query format'
+          'If tool docs or error messages specify an exact literal, type, or query format'
         );
 
         let content: string;
@@ -659,6 +659,82 @@ describe('AxAgent', () => {
     expect(actorDesc).toContain('Code Generation Agent');
     // Should also contain the appended text
     expect(actorDesc).toContain('Always prefer concise code.');
+  });
+
+  it('should default actor prompt guidance to detailed when promptLevel is omitted', () => {
+    const a = new AxAgent(
+      {
+        signature: 'query: string -> answer: string',
+      },
+      {
+        ...defaultRlmFields,
+      }
+    );
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const actorDesc = (a as any).actorProgram
+      .getSignature()
+      .getDescription() as string;
+
+    expect(actorDesc).toContain(
+      'Detailed exploration recipes — follow these exactly when encountering a new field'
+    );
+    expect(actorDesc).toContain('Enforcing the rhythm:');
+    expect(actorDesc).not.toContain(
+      'This is not a limitation — it is how you converge fastest.'
+    );
+  });
+
+  it('should render detailed actor prompt guidance when actorOptions.promptLevel is detailed', () => {
+    const a = new AxAgent(
+      {
+        signature: 'query: string -> answer: string',
+      },
+      {
+        ...defaultRlmFields,
+        actorOptions: { promptLevel: 'detailed' },
+      }
+    );
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const actorDesc = (a as any).actorProgram
+      .getSignature()
+      .getDescription() as string;
+
+    expect(actorDesc).toContain(
+      'Detailed exploration recipes — follow these exactly when encountering a new field'
+    );
+    expect(actorDesc).toContain('Enforcing the rhythm:');
+    expect(actorDesc).not.toContain(
+      'This is not a limitation — it is how you converge fastest.'
+    );
+  });
+
+  it('should render basic actor prompt guidance when actorOptions.promptLevel is basic', () => {
+    const a = new AxAgent(
+      {
+        signature: 'query: string -> answer: string',
+      },
+      {
+        ...defaultRlmFields,
+        actorOptions: { promptLevel: 'basic' },
+      }
+    );
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const actorDesc = (a as any).actorProgram
+      .getSignature()
+      .getDescription() as string;
+
+    expect(actorDesc).toContain(
+      'This is not a limitation — it is how you converge fastest.'
+    );
+    expect(actorDesc).toContain(
+      'Resist the urge to combine exploration steps.'
+    );
+    expect(actorDesc).not.toContain(
+      'Detailed exploration recipes — follow these exactly when encountering a new field'
+    );
   });
 
   it('should throw when signature has a description set', () => {
@@ -2693,6 +2769,9 @@ describe('Actor/Responder execution loop', () => {
         checkpoints: {
           triggerChars: 1,
         },
+        expert: {
+          recentFullActions: 1,
+        },
       },
     });
 
@@ -2729,15 +2808,15 @@ describe('Actor/Responder execution loop', () => {
     expect(checkpointCall?.[1]?.abortSignal?.aborted).toBe(true);
   });
 
-  it('should hide used discovery docs by default in adaptive mode', async () => {
+  it('should keep used discovery docs by default in adaptive mode', async () => {
     const { actorPrompt, result } = await runDiscoveryPromptScenario({
       contextPolicy: { preset: 'adaptive' },
     });
 
     expect(result.answer).toBe('done');
-    expect(actorPrompt).not.toContain('### Module `db`');
+    expect(actorPrompt).toContain('### Module `db`');
     expect(actorPrompt).toContain('### Module `kb`');
-    expect(actorPrompt).not.toContain('### `db.search`');
+    expect(actorPrompt).toContain('### `db.search`');
     expect(actorPrompt).toContain('### `kb.lookup`');
   });
 
@@ -2785,12 +2864,16 @@ describe('Actor/Responder execution loop', () => {
     const { actorPrompt, chatSpy, result } = await runDiscoveryPromptScenario({
       contextPolicy: {
         preset: 'adaptive',
+        pruneUsedDocs: true,
         state: {
           summary: true,
           maxEntries: 2,
         },
         checkpoints: {
           triggerChars: 1,
+        },
+        expert: {
+          recentFullActions: 1,
         },
       },
     });
@@ -2823,11 +2906,9 @@ describe('Actor/Responder execution loop', () => {
     expect(actorPrompts[1]).toContain(
       'TypeError: email.draft is not a function'
     );
+    expect(actorSystemPrompts[1]).toContain('Do NOT guess an alternate name.');
     expect(actorSystemPrompts[1]).toContain(
-      'Do not guess alternate callable names after invalid callable errors'
-    );
-    expect(actorSystemPrompts[1]).toContain(
-      're-run discovery for the module or function you need'
+      'Re-run `listModuleFunctions(...)` for that module.'
     );
     expect(actorCodes[1]).toContain("listModuleFunctions(['email', 'search'])");
     expect(actorCodes.some((code) => code.includes('email.createDraft'))).toBe(
@@ -2835,7 +2916,7 @@ describe('Actor/Responder execution loop', () => {
     );
     expect(actorPrompts[5]).toContain('type:communication');
     expect(actorSystemPrompts[5]).toContain(
-      'If tool docs or tool error messages specify an exact literal, type, or query format'
+      'If tool docs or error messages specify an exact literal, type, or query format'
     );
     expect(actorCodes[5]).toContain('type:communication');
   });
@@ -3506,7 +3587,7 @@ describe('Actor/Responder execution loop', () => {
     expect(secondActorPrompt).toContain('const note = "stable"');
   });
 
-  it('should keep two recent actions fully rendered by default in adaptive mode', async () => {
+  it('should keep three recent actions fully rendered by default in adaptive mode', async () => {
     let actorCallCount = 0;
     let fifthActorPrompt = '';
 
@@ -3598,10 +3679,10 @@ describe('Actor/Responder execution loop', () => {
     });
 
     expect(result.answer).toBe('done');
+    expect(fifthActorPrompt).toContain('const step2 = "b"');
     expect(fifthActorPrompt).toContain('const step3 = "c"');
     expect(fifthActorPrompt).toContain('const step4 = "d"');
     expect(fifthActorPrompt).not.toContain('const step1 = "a"');
-    expect(fifthActorPrompt).not.toContain('const step2 = "b"');
     expect(fifthActorPrompt).toContain('[SUMMARY]: Transform step.');
   });
 
@@ -4096,7 +4177,7 @@ describe('Actor/Responder execution loop', () => {
     const actorSig = (testAgent as any).actorProgram.getSignature();
     const definition = actorSig.getDescription();
 
-    expect(definition).not.toContain('inspect_runtime');
+    expect(definition).not.toContain('- `await inspect_runtime(): string`');
   });
 
   it('should throw AxAgentClarificationError when Actor returns ask_clarification(...)', async () => {
@@ -5735,10 +5816,10 @@ describe('axBuildActorDefinition', () => {
   it('should document canonical runtime input access', () => {
     const result = axBuildActorDefinition(undefined, [], [], {});
     expect(result).toContain(
-      'In JavaScript code, context fields map to `inputs.<fieldName>` as follows:'
+      'Context fields are available as globals on the `inputs` object:'
     );
-    expect(result).not.toContain('### Pre-loaded context variables');
-    expect(result).toContain('### Runtime Field Access');
+    expect(result).toContain('### Context Fields');
+    expect(result).not.toContain('### Runtime Field Access');
   });
 
   it('should not include contradictory legacy guidance', () => {
@@ -5753,12 +5834,10 @@ describe('axBuildActorDefinition', () => {
     const result = axBuildActorDefinition(undefined, [], [], {
       enforceIncrementalConsoleTurns: true,
     });
-    expect(result).toContain('Treat each turn as one observable step.');
+    expect(result).toContain('### One Step Per Turn');
+    expect(result).toContain('**Enforcing the rhythm:**');
     expect(result).toContain(
-      'your code must include exactly one `console.log(...)` and stop immediately after it.'
-    );
-    expect(result).toContain(
-      'Do not call `final(...)` or `ask_clarification(...)` in the same code snippet as `console.log(...)`.'
+      'your code must include exactly one `console.log(...)` and stop right after it.'
     );
   });
 
@@ -7029,7 +7108,7 @@ describe('actorFields', () => {
       .getSignature()
       .getDescription() as string;
 
-    expect(actorDesc).toContain('Responder output fields');
+    expect(actorDesc).toContain('### Responder Contract');
     expect(actorDesc).toContain('`answer`');
     expect(actorDesc).not.toContain('Output ONLY a `javascriptCode` field');
   });
@@ -7107,9 +7186,7 @@ describe('actorFields', () => {
   });
 });
 
-// ----- actorCallback tests -----
-
-describe('actorCallback', () => {
+describe('actorTurnCallback', () => {
   const runtime: AxCodeRuntime = {
     getUsageInstructions: () => '',
     createSession(globals) {
@@ -7118,6 +7195,9 @@ describe('actorCallback', () => {
           if (globals?.final && code.includes('final(')) {
             (globals.final as (...args: unknown[]) => void)('done');
           }
+          if (code.includes('console.log(')) {
+            return 'abcdefghijklmnopqrstuvwxyz';
+          }
           return 'ok';
         },
         close: () => {},
@@ -7125,9 +7205,9 @@ describe('actorCallback', () => {
     },
   };
 
-  it('should call actorCallback on every Actor turn including final()', async () => {
+  it('should expose raw runtime result, formatted output, code, and thought on each turn', async () => {
     let actorCallCount = 0;
-    const callbackResults: Record<string, unknown>[] = [];
+    const callbackResults: Array<Record<string, unknown>> = [];
 
     const testMockAI = new AxMockAIService({
       features: { functions: false, streaming: false },
@@ -7141,7 +7221,9 @@ describe('actorCallback', () => {
               results: [
                 {
                   index: 0,
-                  content: 'Javascript Code: var x = 1',
+                  thought: 'Inspect runtime state first.',
+                  content:
+                    'Javascript Code: console.log("abcdefghijklmnopqrstuvwxyz")',
                   finishReason: 'stop',
                 },
               ],
@@ -7173,17 +7255,35 @@ describe('actorCallback', () => {
       ai: testMockAI,
       contextFields: [],
       runtime,
-      actorCallback: async (result) => {
-        callbackResults.push(result);
+      maxRuntimeChars: 10,
+      actorTurnCallback: async (turn) => {
+        callbackResults.push(turn as unknown as Record<string, unknown>);
       },
     });
 
     await testAgent.forward(testMockAI, { query: 'test' });
 
-    // Callback should fire on both turns (code + submit)
     expect(callbackResults).toHaveLength(2);
-    expect(callbackResults[0]?.javascriptCode).toBe('var x = 1');
-    expect(callbackResults[1]?.javascriptCode).toBe('final("done")');
+    expect(callbackResults[0]).toMatchObject({
+      turn: 1,
+      code: 'console.log("abcdefghijklmnopqrstuvwxyz")',
+      result: 'abcdefghijklmnopqrstuvwxyz',
+      output: 'abcdefghij\n...[truncated 16 chars]',
+      isError: false,
+      thought: 'Inspect runtime state first.',
+    });
+    expect(callbackResults[1]).toMatchObject({
+      turn: 2,
+      code: 'final("done")',
+      result: undefined,
+      output: '(no output)',
+      isError: false,
+      thought: undefined,
+    });
+    expect(callbackResults[0]?.actorResult).toMatchObject({
+      javascriptCode: 'console.log("abcdefghijklmnopqrstuvwxyz")',
+      thought: 'Inspect runtime state first.',
+    });
   });
 });
 
@@ -10931,13 +11031,15 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
     const result = axBuildActorDefinition(undefined, [], [], {
       agentFunctions: [],
     });
-    expect(result).not.toContain('### Available Functions');
+    expect(result).toContain('### Available Functions');
+    expect(result).not.toContain('### Additional Functions');
   });
 
   it('should omit both sections when neither option is provided', () => {
     const result = axBuildActorDefinition(undefined, [], [], {});
     expect(result).not.toContain('### Available Agent Functions');
-    expect(result).not.toContain('### Available Functions');
+    expect(result).toContain('### Available Functions');
+    expect(result).not.toContain('### Additional Functions');
   });
 
   it('should render modules only in discovery mode', () => {
@@ -10963,7 +11065,8 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
     expect(result).toContain('- `team`');
     expect(result).toContain('- `utils` - Use for generic helpers');
     expect(result).not.toContain('### Available Agent Functions');
-    expect(result).not.toContain('### Available Functions');
+    expect(result).toContain('### Available Functions');
+    expect(result).not.toContain('### Additional Functions');
   });
 
   it('should render {} for agent with undefined parameters', () => {
@@ -12046,30 +12149,28 @@ describe('AxFunction', () => {
       '- `db` - Use when you need structured data lookups.'
     );
     expect(actorDesc).not.toContain('### Available Agent Functions');
-    expect(actorDesc).not.toContain('### Available Functions');
+    expect(actorDesc).toContain('### Available Functions');
     expect(actorDesc).toContain(
-      'await listModuleFunctions(modules:string | string[]) : string'
+      'await listModuleFunctions(modules: string | string[]): string'
     );
     expect(actorDesc).toContain(
-      'await getFunctionDefinitions(functions:string | string[]) : string'
+      'await getFunctionDefinitions(functions: string | string[]): string'
     );
     expect(actorDesc).toContain(
-      "prefer one batched call such as `await listModuleFunctions(['timeRange', 'schedulingOrganizer'])`"
+      "prefer one batched call: `await listModuleFunctions(['timeRange', 'schedulingOrganizer'])`"
     );
     expect(actorDesc).toContain(
-      'Treat discovery results as markdown meant for direct `console.log(...)` inspection.'
+      'Treat discovery results as markdown — `console.log(...)` them directly.'
     );
     expect(actorDesc).toContain(
-      'Do not split discovery into `Promise.all(...)` calls or reformat discovery results into JSON or custom objects.'
+      'Do NOT reformat into JSON or split into `Promise.all(...)` calls.'
+    );
+    expect(actorDesc).toContain('Do NOT guess an alternate name.');
+    expect(actorDesc).toContain(
+      'Re-run `listModuleFunctions(...)` for that module.'
     );
     expect(actorDesc).toContain(
-      'Do not guess alternate callable names after invalid callable errors'
-    );
-    expect(actorDesc).toContain(
-      're-run discovery for the module or function you need'
-    );
-    expect(actorDesc).toContain(
-      'If tool docs or tool error messages specify an exact literal, type, or query format'
+      'If tool docs or error messages specify an exact literal, type, or query format'
     );
   });
 

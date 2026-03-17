@@ -781,9 +781,11 @@ Next step:
 
 Rules:
 - Keep only information needed to continue the task.
+- Preserve exact function names, module names, ids, field names, literals, and query formats when they matter.
+- Keep enough evidence to avoid repeating invalid callable names, invalid query formats, or wrong assumptions.
 - Do not restate raw code or quote large outputs.
 - Use "none" when a section has nothing worth preserving.
-- Be concise and factual.`;
+- Be concise and factual, but prefer slightly more detail over losing task-critical specifics.`;
 
 function sanitizeInternalSummaryOptions(
   options: Readonly<InternalSummaryForwardOptions> | undefined
@@ -895,9 +897,9 @@ function serializeCheckpointEntries(
         `Referenced inputs: ${(entry.referencedVars ?? []).join(', ') || 'none'}`,
         `Durable values written: ${(entry.producedVars ?? []).join(', ') || 'none'}`,
         `State delta: ${entry.stateDelta ?? 'none'}`,
-        `Observed result: ${truncateInline(entry.output || '(no output)', 240)}`,
+        `Observed result: ${truncateInline(entry.output || '(no output)', 360)}`,
         `Actor fields: ${actorFields || 'none'}`,
-        `Code excerpt: ${truncateInline(entry.code || '(no code)', 240)}`,
+        `Code excerpt: ${truncateInline(entry.code || '(no code)', 360)}`,
       ].join('\n');
     })
     .join('\n\n');
@@ -918,7 +920,7 @@ function buildFallbackCheckpointSummary(
     for (const value of entry.producedVars ?? []) {
       durableValues.add(value);
     }
-    const observation = truncateInline(entry.output || '(no output)', 140);
+    const observation = truncateInline(entry.output || '(no output)', 200);
     evidence.push(`Turn ${entry.turn}: ${observation}`);
     const trimmedActorFields = entry.actorFieldsOutput
       .replace(/^Actor fields:\s*/i, '')
