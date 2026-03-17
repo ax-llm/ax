@@ -1,6 +1,10 @@
 import {
+  AxAgentClarificationError,
+  type AxAgentEvalPrediction,
   type AxAgentFunction,
-  type AxAgentNamespace,
+  type AxAgentFunctionGroup,
+  type AxAgentState,
+  type AxAgentTestResult,
   type AxCodeRuntime,
   type AxFunction,
   agent,
@@ -39,6 +43,97 @@ import {
   const _ok: Result = { answer: 'x' };
 }
 
+// Agent test() helper returns formatted runtime output
+{
+  const runtime = {} as AxCodeRuntime;
+  const a = agent('query:string -> answer:string', {
+    contextFields: ['query'] as const,
+    runtime,
+  });
+
+  const result = a.test('console.log(query)', { query: 'hello' });
+  const _ok: Promise<AxAgentTestResult> = result;
+}
+
+// Agent state round-tripping is part of the public surface
+{
+  const runtime = {} as AxCodeRuntime;
+  const a = agent('query:string -> answer:string', {
+    contextFields: [] as const,
+    runtime,
+  });
+
+  const state = a.getState();
+  const _ok: AxAgentState | undefined = state;
+  a.setState(state);
+}
+
+// Clarification errors expose both question and structured payload
+{
+  const err = new AxAgentClarificationError({
+    question: 'Which route should I use?',
+    type: 'multiple_choice',
+    choices: ['Fastest', 'Scenic'],
+  });
+
+  const _question: string = err.question;
+  const _payloadQuestion: string = err.clarification.question;
+  const _state: AxAgentState | undefined = err.getState();
+}
+
+// Agent runtimes may optionally provide native global inspection
+{
+  const runtime: AxCodeRuntime = {
+    getUsageInstructions: () => '',
+    createSession() {
+      return {
+        execute: async () => 'ok',
+        inspectGlobals: async () => '{"version":1,"entries":[]}',
+        snapshotGlobals: async () => ({
+          version: 1 as const,
+          entries: [],
+          bindings: {},
+        }),
+        patchGlobals: async () => {},
+        close: () => {},
+      };
+    },
+  };
+
+  agent('query:string -> answer:string', {
+    contextFields: [] as const,
+    runtime,
+  });
+}
+
+// Agent test() returns completion payloads for final()/ask_clarification()
+{
+  const runtime = {} as AxCodeRuntime;
+  const a = agent('query:string -> answer:string', {
+    contextFields: ['query'] as const,
+    runtime,
+  });
+
+  const result = a.test('final(query)', { query: 'hello' });
+  const _ok: Promise<AxAgentTestResult> = result;
+}
+
+// Agent test() should enforce typed inputs
+{
+  const runtime = {} as AxCodeRuntime;
+  const a = agent('query:string, count:number -> answer:string', {
+    contextFields: ['query'] as const,
+    runtime,
+  });
+
+  a.test('console.log(query)', { query: 'hello', count: 1 });
+
+  a.test('console.log("no values")');
+
+  // @ts-expect-error invalid input type
+  a.test('console.log(query)', { query: 123 });
+}
+
 // recursionOptions.maxDepth should be numeric
 {
   const runtime = {} as AxCodeRuntime;
@@ -52,32 +147,85 @@ import {
   });
 }
 
-// Agent with trajectoryPruning enabled (deprecated but still valid)
+// Agent with contextPolicy preset
 {
   const runtime = {} as AxCodeRuntime;
   const a = agent('context:string, query:string -> answer:string', {
     contextFields: ['context'] as const,
     runtime,
-    trajectoryPruning: true,
+    contextPolicy: {
+      preset: 'adaptive',
+    },
   });
 
   type Result = Awaited<ReturnType<typeof a.forward>>;
   const _ok: Result = { answer: 'x' };
 }
 
-// Agent with contextManagement — errorPruning
+// Agent optimize() should accept built-in judge options and task datasets
 {
   const runtime = {} as AxCodeRuntime;
-  const a = agent('context:string, query:string -> answer:string', {
-    contextFields: ['context'] as const,
+  const judgeAI = {} as any;
+  const a = agent('query:string -> answer:string', {
+    contextFields: [] as const,
     runtime,
-    contextManagement: {
-      errorPruning: true,
+    judgeAI,
+    judgeOptions: {
+      model: 'judge-model',
+      description: 'Be strict about tool use.',
+      randomizeOrder: false,
     },
   });
 
-  type Result = Awaited<ReturnType<typeof a.forward>>;
-  const _ok: Result = { answer: 'x' };
+  const optimizePromise = a.optimize([
+    {
+      input: { query: 'Send an email to Jim' },
+      criteria: 'Use the right email tool.',
+      expectedActions: ['email.sendEmail'],
+    },
+  ]);
+
+  const _ok: Promise<Awaited<ReturnType<typeof a.optimize>>> = optimizePromise;
+
+  a.optimize(
+    {
+      train: [
+        {
+          input: { query: 'Set up a meeting' },
+          criteria: 'Schedule the meeting correctly.',
+        },
+      ],
+      validation: [
+        {
+          input: { query: 'What is on my calendar today?' },
+          criteria: 'Use the calendar tool before answering.',
+          forbiddenActions: ['email.sendEmail'],
+        },
+      ],
+    },
+    {
+      target: ['root.actor'] as const,
+      apply: false,
+      verbose: true,
+      debugOptimizer: true,
+      optimizerLogger: () => {},
+      onProgress: () => {},
+      onEarlyStop: () => {},
+      judgeAI,
+      judgeOptions: { model: 'override-judge-model' },
+    }
+  );
+}
+
+// Agent optimize() eval predictions discriminate final vs clarification outcomes
+{
+  const prediction = {} as AxAgentEvalPrediction<{ answer: string }>;
+
+  if (prediction.completionType === 'final') {
+    const _answer: string = prediction.output.answer;
+  } else {
+    const _question: string = prediction.clarification.question;
+  }
 }
 
 // Agent with object context field config
@@ -116,31 +264,75 @@ import {
   });
 }
 
-// Agent with contextManagement — all options
+// Agent with contextPolicy — all options
 {
   const runtime = {} as AxCodeRuntime;
+  agent('context:string, query:string -> answer:string', {
+    contextFields: ['context'] as const,
+    runtime,
+    contextPolicy: {
+      preset: 'lean',
+      summarizerOptions: {
+        model: 'summary-model',
+        modelConfig: { temperature: 0.2 },
+      },
+      state: {
+        summary: true,
+        inspect: true,
+        inspectThresholdChars: 1000,
+        maxEntries: 4,
+        maxChars: 600,
+      },
+      checkpoints: {
+        enabled: true,
+        triggerChars: 900,
+      },
+      expert: {
+        replay: 'adaptive',
+        recentFullActions: 2,
+        pruneErrors: true,
+        rankPruning: { enabled: true, minRank: 3 },
+        tombstones: { model: 'fast-model', modelConfig: { temperature: 0.1 } },
+      },
+    },
+  });
+}
+
+// Agent with contextPolicy — tombstones as boolean
+{
+  const runtime = {} as AxCodeRuntime;
+  agent('context:string, query:string -> answer:string', {
+    contextFields: ['context'] as const,
+    runtime,
+    contextPolicy: {
+      expert: {
+        tombstones: true,
+      },
+    },
+  });
+}
+
+// Removed contextManagement API should fail
+{
+  const runtime = {} as AxCodeRuntime;
+  // @ts-expect-error contextManagement was removed
   agent('context:string, query:string -> answer:string', {
     contextFields: ['context'] as const,
     runtime,
     contextManagement: {
       errorPruning: true,
-      hindsightEvaluation: true,
-      tombstoning: { model: 'fast-model', modelConfig: { temperature: 0.1 } },
-      stateInspection: { contextThreshold: 1000 },
-      pruneRank: 3,
     },
   });
 }
 
-// Agent with contextManagement — tombstoning as boolean
+// Removed trajectoryPruning API should fail
 {
   const runtime = {} as AxCodeRuntime;
+  // @ts-expect-error trajectoryPruning was removed
   agent('context:string, query:string -> answer:string', {
     contextFields: ['context'] as const,
     runtime,
-    contextManagement: {
-      tombstoning: true,
-    },
+    trajectoryPruning: true,
   });
 }
 
@@ -264,20 +456,38 @@ import {
   void _ok;
 }
 
-// AxAgent-specific discovery metadata should be accepted without changing AxFunction
+// AxAgent grouped function modules should be accepted without changing AxFunction
 {
   const runtime = {} as AxCodeRuntime;
 
-  const namespaces: AxAgentNamespace[] = [
+  const groupedFns: AxAgentFunctionGroup[] = [
     {
-      name: 'db',
+      namespace: 'db',
       title: 'Database Tools',
+      selectionCriteria: 'Use for schedule or availability lookups',
       description: 'Schedule lookup helpers',
-    },
-    {
-      name: 'agents',
-      title: 'Child Agents',
-      description: 'Delegated specialists',
+      functions: [
+        {
+          name: 'lookupSchedule',
+          description: 'Lookup schedule data',
+          parameters: {
+            type: 'object',
+            properties: {
+              query: { type: 'string', description: 'Query text' },
+            },
+            required: ['query'],
+          },
+          examples: [
+            {
+              title: 'Simple lookup',
+              code: 'await db.lookupSchedule({ query: "alex" });',
+            },
+          ],
+          async func() {
+            return [];
+          },
+        },
+      ],
     },
   ];
 
@@ -308,12 +518,48 @@ import {
   agent('query:string -> answer:string', {
     contextFields: [] as const,
     runtime,
-    namespaces,
     functions: {
       discovery: true,
-      local: agentFns,
+      local: groupedFns,
       shared: [agentFns[0]!],
       globallyShared: [agentFns[0]!],
+    },
+  });
+}
+
+// grouped function modules should reject inner namespace declarations
+{
+  const runtime = {} as AxCodeRuntime;
+  agent('query:string -> answer:string', {
+    contextFields: [] as const,
+    runtime,
+    functions: {
+      local: [
+        {
+          namespace: 'db',
+          title: 'Database Tools',
+          selectionCriteria: 'Use for schedule lookups',
+          description: 'Schedule lookup helpers',
+          functions: [
+            {
+              name: 'lookupSchedule',
+              description: 'Lookup schedule data',
+              parameters: {
+                type: 'object',
+                properties: {
+                  query: { type: 'string', description: 'Query text' },
+                },
+                required: ['query'],
+              },
+              // @ts-expect-error grouped functions must not define namespace
+              namespace: 'db',
+              async func() {
+                return [];
+              },
+            },
+          ],
+        },
+      ],
     },
   });
 }
@@ -356,6 +602,17 @@ import {
     contextFields: [] as const,
     runtime,
     inputUpdateCallback: () => ({ unknownKey: 'x' }),
+  });
+}
+
+// namespaces should no longer be accepted
+{
+  const runtime = {} as AxCodeRuntime;
+  // @ts-expect-error namespaces was removed in favor of grouped function modules
+  agent('query:string -> answer:string', {
+    contextFields: [] as const,
+    runtime,
+    namespaces: [],
   });
 }
 
@@ -406,5 +663,26 @@ import {
     contextFields: [] as const,
     runtime,
     functions: { discovery: 'yes', local: [] },
+  });
+}
+
+// contextPolicy.pruneUsedDocs should accept boolean values
+{
+  const runtime = {} as AxCodeRuntime;
+  agent('query:string -> answer:string', {
+    contextFields: [] as const,
+    runtime,
+    contextPolicy: { pruneUsedDocs: true },
+  });
+}
+
+// contextPolicy.pruneUsedDocs should reject non-boolean values
+{
+  const runtime = {} as AxCodeRuntime;
+  // @ts-expect-error pruneUsedDocs must be a boolean
+  agent('query:string -> answer:string', {
+    contextFields: [] as const,
+    runtime,
+    contextPolicy: { pruneUsedDocs: 'yes' },
   });
 }

@@ -196,3 +196,12 @@ unscored
 teamnamespace
 LLMQUERY
 failer
+checkpointable
+checkpointed
+tunables
+scorable
+unranked
+rollouts
+Inspectable
+Snapshotable
+snapshotable

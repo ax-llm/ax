@@ -142,6 +142,21 @@ export interface AxCodeRuntime {
  */
 export type AxCodeInterpreter = AxCodeRuntime;
 
+export type AxCodeSessionSnapshotEntry = {
+  name: string;
+  type: string;
+  ctor?: string;
+  size?: string;
+  preview?: string;
+  restorable?: boolean;
+};
+
+export type AxCodeSessionSnapshot = {
+  version: 1;
+  entries: AxCodeSessionSnapshotEntry[];
+  bindings: Record<string, unknown>;
+};
+
 /**
  * A persistent code execution session. Variables persist across `execute()` calls.
  */
@@ -150,6 +165,14 @@ export interface AxCodeSession {
     code: string,
     options?: { signal?: AbortSignal; reservedNames?: readonly string[] }
   ): Promise<unknown>;
+  inspectGlobals?(options?: {
+    signal?: AbortSignal;
+    reservedNames?: readonly string[];
+  }): Promise<string>;
+  snapshotGlobals?(options?: {
+    signal?: AbortSignal;
+    reservedNames?: readonly string[];
+  }): Promise<AxCodeSessionSnapshot>;
   patchGlobals(
     globals: Record<string, unknown>,
     options?: { signal?: AbortSignal }
@@ -158,36 +181,90 @@ export interface AxCodeSession {
 }
 
 /**
- * Configuration for semantic context management in the Actor loop.
- * Controls how action log entries are evaluated, summarized, and pruned.
+ * Opinionated context replay presets for the Actor loop.
+ *
+ * - `full`: Keep prior actions fully replayed with minimal compression.
+ *   Best for debugging or short tasks where the actor should reread exact old code/output.
+ * - `adaptive`: Keep live runtime state visible, preserve recent or dependency-relevant
+ *   actions in full, hide used discovery docs, and collapse older successful work
+ *   into checkpoint summaries as context grows. Reliability-first defaults favor
+ *   summaries before deletion. Best default for long multi-turn tasks.
+ * - `lean`: Most aggressive compression. Keep live runtime state visible, checkpoint
+ *   older successful work, hide used discovery docs, and summarize replay-pruned
+ *   successful turns instead of replaying their full code blocks. Reliability-first
+ *   defaults still preserve recent evidence before deleting older low-value steps.
+ *   Best when token pressure matters more than raw replay detail.
  */
-export interface AxContextManagementConfig {
-  /** Prune error entries after a successful (non-error) turn. */
-  errorPruning?: boolean;
-  /** Enable tombstone generation for resolved errors.
-   *  When `true`, uses the main AI service with its default settings.
-   *  Pass an `AxProgramForwardOptions` object to control the model, temperature,
-   *  max tokens, etc. of the tombstone generation call (e.g. a cheaper/faster model). */
-  tombstoning?: boolean | Omit<AxProgramForwardOptions<string>, 'functions'>;
-  /** Enable heuristic-based importance scoring on entries. */
-  hindsightEvaluation?: boolean;
-  /** Controls how prior actor actions are replayed into the next prompt. */
-  actionReplay?: 'full' | 'adaptive' | 'minimal';
-  /** Number of most-recent actions that should always remain fully rendered. */
-  recentFullActions?: number;
-  /** Enable compact summaries for successful actions instead of raw code/output replay. */
-  successSummarization?:
-    | boolean
-    | Omit<AxProgramForwardOptions<string>, 'functions'>;
-  /** Enable runtime state inspection tool for the actor.
-   *  `contextThreshold` is the character count on the serialized actionLog
-   *  above which an `inspect_runtime()` hint is shown to the actor. */
-  stateInspection?: { contextThreshold?: number };
-  /** Include a compact live runtime state block ahead of the action log. */
-  stateSummary?: { enabled?: boolean; maxEntries?: number };
-  /** Entries ranked strictly below this value are purged from active context.
-   *  Range: 0-5. Default: 2. */
-  pruneRank?: number;
+export type AxContextPolicyPreset = 'full' | 'adaptive' | 'lean';
+
+/**
+ * Public context policy for the Actor loop.
+ * Presets provide the common behavior; `state` and `expert` override specific pieces.
+ */
+export interface AxContextPolicyConfig {
+  /**
+   * Opinionated preset for how the agent should replay and compress context.
+   *
+   * - `full`: prefer raw replay of earlier actions
+   * - `adaptive`: balance replay detail with checkpoint compression
+   * - `lean`: prefer live state + compact summaries over raw replay detail
+   */
+  preset?: AxContextPolicyPreset;
+  /**
+   * Default options for the internal checkpoint summarizer AxGen program.
+   * `functions` are not supported, `maxSteps` is forced to `1`, and `mem`
+   * is never propagated so the summarizer stays stateless.
+   */
+  summarizerOptions?: Omit<AxProgramForwardOptions<string>, 'functions'>;
+  /**
+   * Hide stale discovery docs from later actor prompts after a discovered
+   * callable is used successfully. This only affects prompt replay; it does
+   * not delete internal history or remove runtime values.
+   *
+   * Defaults by preset:
+   * - `full`: false
+   * - `adaptive`: true
+   * - `lean`: true
+   */
+  pruneUsedDocs?: boolean;
+  /** Runtime-state visibility controls. */
+  state?: {
+    /** Include a compact live runtime state block ahead of the action log. */
+    summary?: boolean;
+    /** Expose `inspect_runtime()` to the actor and show the large-context hint. */
+    inspect?: boolean;
+    /** Character count above which the actor is reminded to call `inspect_runtime()`. */
+    inspectThresholdChars?: number;
+    /** Maximum number of runtime state entries to render in the summary block. */
+    maxEntries?: number;
+    /** Maximum total characters to replay in the runtime state summary block. */
+    maxChars?: number;
+  };
+  /** Rolling checkpoint summary controls. */
+  checkpoints?: {
+    /** Enable checkpoint summaries for older successful turns. */
+    enabled?: boolean;
+    /** Character count above which a checkpoint summary is generated. */
+    triggerChars?: number;
+  };
+  /** Expert-level overrides for the preset-derived internal policy. */
+  expert?: {
+    /** Controls how prior actor actions are replayed before checkpoint compression. */
+    replay?: 'full' | 'adaptive' | 'minimal';
+    /** Number of most-recent actions that should always remain fully rendered. */
+    recentFullActions?: number;
+    /** Prune error entries after a successful (non-error) turn. */
+    pruneErrors?: boolean;
+    /** Rank-based pruning of low-value actions. Off by default for built-in presets. */
+    rankPruning?: { enabled?: boolean; minRank?: number };
+    /**
+     * Replace resolved errors with compact tombstones before pruning.
+     * When configured with options, they apply to the internal tombstone
+     * summarizer AxGen program. `functions` are not supported, `maxSteps`
+     * is forced to `1`, and `mem` is never propagated.
+     */
+    tombstones?: boolean | Omit<AxProgramForwardOptions<string>, 'functions'>;
+  };
 }
 
 /**
@@ -211,13 +288,8 @@ export interface AxRLMConfig {
   maxBatchedLlmQueryConcurrency?: number;
   /** Maximum Actor turns before forcing Responder (default: 10). */
   maxTurns?: number;
-  /**
-   * @deprecated Use `contextManagement.errorPruning` instead.
-   * If true, prune error entries from the action log after a successful turn.
-   */
-  trajectoryPruning?: boolean;
-  /** Semantic context management configuration. */
-  contextManagement?: AxContextManagementConfig;
+  /** Context replay, checkpointing, and runtime-state policy. */
+  contextPolicy?: AxContextPolicyConfig;
   /** Output field names the Actor should produce (in addition to javascriptCode). */
   actorFields?: string[];
   /** Called after each Actor turn with the full actor result. */
@@ -244,6 +316,8 @@ export function axBuildActorDefinition(
     maxSubAgentCalls?: number;
     maxTurns?: number;
     hasInspectRuntime?: boolean;
+    hasLiveRuntimeState?: boolean;
+    hasCompressedActionReplay?: boolean;
     /** When true, Actor must run one observable console step per non-final turn. */
     enforceIncrementalConsoleTurns?: boolean;
     /** Child agents available under the `<agentModuleNamespace>.*` namespace in the JS runtime. */
@@ -265,10 +339,17 @@ export function axBuildActorDefinition(
     /** Enables module-only discovery rendering in prompt. */
     discoveryMode?: boolean;
     /** Precomputed available modules for runtime discovery mode. */
-    availableModules?: readonly string[];
+    availableModules?: ReadonlyArray<{
+      namespace: string;
+      selectionCriteria?: string;
+    }>;
   }>
 ): string {
   //   const maxSubAgentCalls = options.maxSubAgentCalls ?? 50;
+  type AvailableModule = {
+    namespace: string;
+    selectionCriteria?: string;
+  };
 
   const contextVarList =
     contextFields.length > 0
@@ -299,14 +380,18 @@ export function axBuildActorDefinition(
   );
   const agentModuleNamespace = options.agentModuleNamespace ?? 'agents';
   const discoveryMode = Boolean(options.discoveryMode);
-  const availableModules = options.availableModules
-    ? [...new Set(options.availableModules)].sort((a, b) => a.localeCompare(b))
+  const availableModules: AvailableModule[] = options.availableModules
+    ? [...options.availableModules].sort((a, b) =>
+        a.namespace.localeCompare(b.namespace)
+      )
     : [
         ...new Set([
           ...sortedAgentFunctions.map((fn) => fn.namespace),
           ...(sortedAgents.length > 0 ? [agentModuleNamespace] : []),
         ]),
-      ].sort((a, b) => a.localeCompare(b));
+      ]
+        .sort((a, b) => a.localeCompare(b))
+        .map((namespace) => ({ namespace }));
 
   const actorBody = renderPromptTemplate('rlm/actor.md', {
     contextVarList,
@@ -334,11 +419,19 @@ export function axBuildActorDefinition(
       )
       .join('\n'),
     hasModules: discoveryMode && availableModules.length > 0,
-    modulesList: availableModules.map((module) => `- \`${module}\``).join('\n'),
+    modulesList: availableModules
+      .map((module) =>
+        module.selectionCriteria?.trim()
+          ? `- \`${module.namespace}\` - ${module.selectionCriteria.trim()}`
+          : `- \`${module.namespace}\``
+      )
+      .join('\n'),
     runtimeUsageInstructions: String(options.runtimeUsageInstructions),
     enforceIncrementalConsoleTurns: Boolean(
       options.enforceIncrementalConsoleTurns
     ),
+    hasLiveRuntimeState: Boolean(options.hasLiveRuntimeState),
+    hasCompressedActionReplay: Boolean(options.hasCompressedActionReplay),
   })
     .replace(/\n{3,}/g, '\n\n')
     .trim();

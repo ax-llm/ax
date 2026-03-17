@@ -1,4 +1,8 @@
-import type { AxFunctionJSONSchema } from '../ai/types.js';
+import type {
+  AxFunction,
+  AxFunctionHandler,
+  AxFunctionJSONSchema,
+} from '../ai/types.js';
 import { createHash } from '../util/crypto.js';
 
 import { axGlobals } from './globals.js';
@@ -1464,6 +1468,272 @@ function convertFieldTypeToAxField(
     isInternal: fieldType.isInternal,
   };
 }
+
+type AxFunctionBuilderExample = {
+  code: string;
+  title?: string;
+  description?: string;
+  language?: string;
+};
+
+type AxTypedFunctionHandler<TArgs, TReturn> = (
+  args: Readonly<TArgs>,
+  extra?: Parameters<AxFunctionHandler>[1]
+) => TReturn | Promise<TReturn>;
+
+type AxFunctionBuilderResult<
+  TArgs extends Record<string, any>,
+  TReturn,
+  THasExamples extends boolean,
+> = Omit<AxFunction, 'func' | 'parameters' | 'returns'> & {
+  func: AxTypedFunctionHandler<TArgs, TReturn>;
+  parameters: AxFunctionJSONSchema;
+  returns?: AxFunctionJSONSchema;
+} & (THasExamples extends true
+    ? {
+        examples: readonly AxFunctionBuilderExample[];
+      }
+    : {});
+
+function createAxFieldFromFluentField<
+  T extends
+    | AxFluentFieldInfo<any, any, any, any, any, any, any>
+    | AxFluentFieldType<any, any, any, any, any, any, any>,
+>(name: string, fieldInfo: T): AxField {
+  return {
+    name,
+    type: {
+      name: fieldInfo.type,
+      isArray: fieldInfo.isArray || undefined,
+      options: fieldInfo.options ? [...fieldInfo.options] : undefined,
+      minLength: fieldInfo.minLength,
+      maxLength: fieldInfo.maxLength,
+      minimum: fieldInfo.minimum,
+      maximum: fieldInfo.maximum,
+      pattern: fieldInfo.pattern,
+      patternDescription: fieldInfo.patternDescription,
+      format: fieldInfo.format,
+      description: fieldInfo.itemDescription,
+      fields: fieldInfo.fields
+        ? Object.fromEntries(
+            Object.entries(fieldInfo.fields).map(([key, value]) => [
+              key,
+              convertFluentToAxFieldType(
+                value as AxFluentFieldInfo | AxFluentFieldType
+              ),
+            ])
+          )
+        : undefined,
+    },
+    description: fieldInfo.description,
+    isOptional: fieldInfo.isOptional || undefined,
+    isInternal: fieldInfo.isInternal || undefined,
+    isCached: fieldInfo.isCached || undefined,
+  };
+}
+
+function buildFunctionObjectSchema(
+  fields: readonly AxField[]
+): AxFunctionJSONSchema {
+  if (fields.length === 0) {
+    return { type: 'object', properties: {} };
+  }
+
+  return toJsonSchema(fields, 'Schema');
+}
+
+function buildFunctionReturnSchema<
+  T extends
+    | AxFluentFieldInfo<any, any, any, any, any, any, any>
+    | AxFluentFieldType<any, any, any, any, any, any, any>,
+>(fieldInfo: T): AxFunctionJSONSchema {
+  const wrapperField = createAxFieldFromFluentField('__value', fieldInfo);
+  const schema = toJsonSchema([wrapperField], 'Schema');
+  return schema.properties?.__value ?? { type: 'json' };
+}
+
+class AxFunctionBuilder<
+  TArgs extends Record<string, any> = {},
+  TReturn = unknown,
+  THasExamples extends boolean = false,
+> {
+  private readonly name: string;
+  private desc?: string;
+  private ns?: string;
+  private argFields: AxField[] = [];
+  private returnFields: AxField[] = [];
+  private returnFieldType?:
+    | AxFluentFieldInfo<any, any, any, any, any, any, any>
+    | AxFluentFieldType<any, any, any, any, any, any, any>;
+  private returnMode?: 'single' | 'fields';
+  private fnHandler?: AxTypedFunctionHandler<TArgs, TReturn>;
+  private fnExamples: AxFunctionBuilderExample[] = [];
+
+  constructor(name: string) {
+    this.name = name;
+  }
+
+  public description(
+    text: string
+  ): AxFunctionBuilder<TArgs, TReturn, THasExamples> {
+    this.desc = text;
+    return this;
+  }
+
+  public namespace(
+    text: string
+  ): AxFunctionBuilder<TArgs, TReturn, THasExamples> {
+    this.ns = text;
+    return this;
+  }
+
+  public arg<
+    K extends string,
+    T extends
+      | AxFluentFieldInfo<any, any, any, any, any, any, any>
+      | AxFluentFieldType<any, any, any, any, any, any, any>,
+  >(
+    name: K,
+    fieldInfo: T
+  ): AxFunctionBuilder<AddFieldToShape<TArgs, K, T>, TReturn, THasExamples> {
+    this.argFields.push(createAxFieldFromFluentField(name, fieldInfo));
+    return this as any;
+  }
+
+  public args<
+    K extends string,
+    T extends
+      | AxFluentFieldInfo<any, any, any, any, any, any, any>
+      | AxFluentFieldType<any, any, any, any, any, any, any>,
+  >(
+    name: K,
+    fieldInfo: T
+  ): AxFunctionBuilder<AddFieldToShape<TArgs, K, T>, TReturn, THasExamples> {
+    return this.arg(name, fieldInfo);
+  }
+
+  public returns<
+    T extends
+      | AxFluentFieldInfo<any, any, any, any, any, any, any>
+      | AxFluentFieldType<any, any, any, any, any, any, any>,
+  >(fieldInfo: T): AxFunctionBuilder<TArgs, InferFluentType<T>, THasExamples> {
+    if (this.returnMode === 'fields') {
+      throw new Error(
+        'Cannot use fn().returns(...) after fn().returnsField(...); choose exactly one return schema style'
+      );
+    }
+
+    this.returnMode = 'single';
+    this.returnFieldType = fieldInfo;
+    return this as any;
+  }
+
+  public returnsField<
+    K extends string,
+    T extends
+      | AxFluentFieldInfo<any, any, any, any, any, any, any>
+      | AxFluentFieldType<any, any, any, any, any, any, any>,
+  >(
+    name: K,
+    fieldInfo: T
+  ): AxFunctionBuilder<
+    TArgs,
+    AddFieldToShape<TReturn extends Record<string, any> ? TReturn : {}, K, T>,
+    THasExamples
+  > {
+    if (this.returnMode === 'single') {
+      throw new Error(
+        'Cannot use fn().returnsField(...) after fn().returns(...); choose exactly one return schema style'
+      );
+    }
+
+    this.returnMode = 'fields';
+    this.returnFields.push(createAxFieldFromFluentField(name, fieldInfo));
+    return this as any;
+  }
+
+  public example(
+    example: AxFunctionBuilderExample
+  ): AxFunctionBuilder<TArgs, TReturn, true> {
+    this.fnExamples.push(example);
+    return this as any;
+  }
+
+  public examples(
+    examples: readonly AxFunctionBuilderExample[]
+  ): AxFunctionBuilder<TArgs, TReturn, true> {
+    this.fnExamples.push(...examples);
+    return this as any;
+  }
+
+  public handler(
+    handler: AxTypedFunctionHandler<TArgs, TReturn>
+  ): AxFunctionBuilder<TArgs, TReturn, THasExamples> {
+    this.fnHandler = handler;
+    return this;
+  }
+
+  public build(): AxFunctionBuilderResult<TArgs, TReturn, THasExamples> {
+    const name = this.name.trim();
+    const description = this.desc?.trim();
+    const namespace = this.ns?.trim();
+
+    if (!name) {
+      throw new Error('fn() requires a non-empty function name');
+    }
+    if (!description) {
+      throw new Error(`Function "${name}" must define a non-empty description`);
+    }
+    if (!this.fnHandler) {
+      throw new Error(`Function "${name}" must define a handler`);
+    }
+    if (this.fnExamples.some((example) => !example.code.trim())) {
+      throw new Error(`Function "${name}" examples must define non-empty code`);
+    }
+
+    const builtFunction: AxFunctionBuilderResult<TArgs, TReturn, THasExamples> =
+      {
+        name,
+        description,
+        ...(namespace ? { namespace } : {}),
+        parameters: buildFunctionObjectSchema(this.argFields),
+        ...(this.returnMode === 'single' && this.returnFieldType
+          ? { returns: buildFunctionReturnSchema(this.returnFieldType) }
+          : this.returnMode === 'fields'
+            ? { returns: buildFunctionObjectSchema(this.returnFields) }
+            : {}),
+        ...(this.fnExamples.length > 0
+          ? {
+              examples: this.fnExamples.map((example) => ({
+                ...example,
+              })),
+            }
+          : {}),
+        func: this.fnHandler,
+      } as AxFunctionBuilderResult<TArgs, TReturn, THasExamples>;
+
+    return builtFunction;
+  }
+}
+
+/**
+ * Creates a fluent builder for defining callable functions/tools with typed
+ * args, return schemas, namespaces, and optional AxAgent discovery examples.
+ *
+ * @example
+ * ```typescript
+ * const search = fn('search')
+ *   .description('Search the product catalog')
+ *   .namespace('db')
+ *   .arg('query', f.string('Search query'))
+ *   .arg('limit', f.number('Maximum results').optional())
+ *   .returnsField('results', f.string('Result item').array())
+ *   .handler(async ({ query, limit = 5 }) => ({ results: [`hit: ${query}:${limit}`] }))
+ *   .build();
+ * ```
+ */
+export const fn = <TName extends string>(name: TName) =>
+  new AxFunctionBuilder<{}, unknown, false>(name);
 
 class AxSignatureValidationError extends Error {
   constructor(

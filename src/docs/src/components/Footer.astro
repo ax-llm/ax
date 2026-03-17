@@ -2,56 +2,57 @@
 
 ---
 
-<!-- Footer inspired by Humming design -->
-<footer
-  class="footer-component"
-  style="margin-top: 120px; padding: 48px 0; border-top: 1px solid #f1f3f4; background: #fafbfc;"
->
-  <div
-    class="footer-content"
-    style="display: flex; justify-content: space-between; align-items: center; font-size: 14px; font-weight: 500; color: #6c757d; flex-wrap: wrap; gap: 16px;"
-  >
-    <div style="display: flex; gap: 32px; flex-wrap: wrap;">
-      <span>Based on Stanford DSPy</span>
-      <span>TypeScript First</span>
+<footer class="mt-24 border-t border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-950">
+  <div class="max-w-6xl mx-auto px-6 py-16">
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-10">
+      <!-- Brand -->
+      <div class="col-span-2 md:col-span-1">
+        <div class="text-2xl font-bold text-gray-900 dark:text-white mb-2">ax.</div>
+        <p class="text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
+          Build reliable AI apps in TypeScript with DSPy.
+        </p>
+      </div>
+
+      <!-- Product -->
+      <div>
+        <h4 class="text-sm font-semibold text-gray-900 dark:text-white uppercase tracking-wider mb-4">Product</h4>
+        <ul class="space-y-2.5">
+          <li><a href="/examples" class="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors">Examples</a></li>
+          <li><a href="/playground" class="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors">DSPy Notebook</a></li>
+        </ul>
+      </div>
+
+      <!-- Learn -->
+      <div>
+        <h4 class="text-sm font-semibold text-gray-900 dark:text-white uppercase tracking-wider mb-4">Learn</h4>
+        <ul class="space-y-2.5">
+          <li><a href="/dspy" class="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors">DSPy Concepts</a></li>
+          <li><a href="/optimize" class="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors">Optimization</a></li>
+          <li><a href="/telemetry" class="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors">Telemetry</a></li>
+          <li><a href="/migration" class="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors">Migration</a></li>
+        </ul>
+      </div>
+
+      <!-- Connect -->
+      <div>
+        <h4 class="text-sm font-semibold text-gray-900 dark:text-white uppercase tracking-wider mb-4">Connect</h4>
+        <ul class="space-y-2.5">
+          <li><a href="https://github.com/ax-llm/ax" target="_blank" rel="noopener noreferrer" class="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors">GitHub</a></li>
+          <li><a href="https://twitter.com/dosco" target="_blank" rel="noopener noreferrer" class="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors">Twitter</a></li>
+          <li><a href="https://www.npmjs.com/package/@ax-llm/ax" target="_blank" rel="noopener noreferrer" class="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors">NPM</a></li>
+        </ul>
+      </div>
     </div>
-    <span>Machines as Agents™</span>
+
+    <!-- Bottom bar -->
+    <div class="mt-12 pt-8 border-t border-gray-200 dark:border-gray-800">
+      <div class="flex flex-wrap items-center justify-between gap-4 text-sm text-gray-400 dark:text-gray-500">
+        <div class="flex flex-wrap gap-x-6 gap-y-2">
+          <span>Based on Stanford DSPy</span>
+          <span>TypeScript First</span>
+        </div>
+        <span>Machines as Agents&trade;</span>
+      </div>
+    </div>
   </div>
 </footer>
-
-<style>
-  @media (max-width: 768px) {
-    footer {
-      margin-top: 80px !important;
-      padding: 32px 0 !important;
-    }
-
-    footer div {
-      flex-direction: column !important;
-      align-items: flex-start !important;
-      gap: 16px !important;
-    }
-
-    footer div div {
-      flex-direction: row !important;
-      gap: 16px !important;
-    }
-  }
-
-  @media (max-width: 480px) {
-    footer div div {
-      flex-direction: column !important;
-      gap: 8px !important;
-    }
-  }
-
-  /* Dark mode styles */
-  :root.dark .footer-component {
-    border-top-color: #374151 !important;
-    background: #1f2937 !important;
-  }
-
-  :root.dark .footer-content {
-    color: #9ca3af !important;
-  }
-</style>

@@ -1,10 +1,21 @@
 import type {
+  AxAgentCompletionProtocol,
   AxAIService,
   AxFunction,
   AxFunctionHandler,
   AxFunctionJSONSchema,
 } from '../ai/types.js';
+import type {
+  AxMetricFn,
+  AxOptimizationProgress,
+  AxOptimizationStats,
+  AxTypedExample,
+} from '../dsp/common_types.js';
 import { AxGen } from '../dsp/generate.js';
+import { AxJudge, type AxJudgeOptions } from '../dsp/judge.js';
+import { AxGEPA } from '../dsp/optimizers/gepa.js';
+import type { AxParetoResult } from '../dsp/optimizer.js';
+import type { AxOptimizerLoggerFunction } from '../dsp/optimizerTypes.js';
 import type { AxIField, AxSignatureConfig } from '../dsp/sig.js';
 import { AxSignature, f } from '../dsp/sig.js';
 import type { ParseSignature } from '../dsp/sigtypes.js';
@@ -14,9 +25,12 @@ import type {
   AxGenOut,
   AxGenStreamingOut,
   AxMessage,
+  AxNamedProgramInstance,
   AxProgramDemos,
   AxProgramForwardOptions,
   AxProgramForwardOptionsWithModels,
+  AxProgramTrace,
+  AxProgramUsage,
   AxProgrammable,
   AxProgramStreamingForwardOptionsWithModels,
   AxTunable,
@@ -33,14 +47,24 @@ import {
 import type { ActionLogEntry } from './contextManager.js';
 import {
   buildActionEvidenceSummary,
+  buildActionLogReplayPlan,
   buildActionLogWithPolicy,
+  buildInspectRuntimeBaselineCode,
   buildInspectRuntimeCode,
+  buildRuntimeStateProvenance,
+  type CheckpointSummaryState,
+  generateCheckpointSummaryAsync,
+  getPromptFacingActionLogEntries,
   manageContext,
+  type RuntimeStateSnapshotEntry,
+  type RuntimeStateVariableProvenance,
 } from './contextManager.js';
 import type {
   AxCodeRuntime,
   AxCodeSession,
-  AxContextManagementConfig,
+  AxCodeSessionSnapshotEntry,
+  AxContextPolicyConfig,
+  AxContextPolicyPreset,
   AxRLMConfig,
 } from './rlm.js';
 import { axBuildActorDefinition, axBuildResponderDefinition } from './rlm.js';
@@ -68,9 +92,10 @@ type AxAgentIdentity = {
   namespace?: string;
 };
 
-export type AxAgentNamespace = {
-  name: string;
+type AxAgentFunctionModuleMeta = {
+  namespace: string;
   title: string;
+  selectionCriteria: string;
   description: string;
 };
 
@@ -83,6 +108,112 @@ export type AxAgentFunctionExample = {
 
 export type AxAgentFunction = AxFunction & {
   examples?: readonly AxAgentFunctionExample[];
+};
+
+export type AxAgentFunctionGroup = AxAgentFunctionModuleMeta & {
+  functions: readonly Omit<AxAgentFunction, 'namespace'>[];
+};
+
+export type AxAgentTestCompletionPayload = {
+  type: 'final' | 'ask_clarification';
+  args: unknown[];
+};
+
+export type AxAgentTestResult = string | AxAgentTestCompletionPayload;
+
+export type AxAgentClarificationKind =
+  | 'text'
+  | 'number'
+  | 'date'
+  | 'single_choice'
+  | 'multiple_choice';
+
+export type AxAgentClarificationChoice =
+  | string
+  | {
+      label: string;
+      value?: string;
+    };
+
+export type AxAgentClarification = string | AxAgentStructuredClarification;
+
+export type AxAgentStructuredClarification = {
+  question: string;
+  type?: AxAgentClarificationKind;
+  choices?: AxAgentClarificationChoice[];
+  [key: string]: unknown;
+};
+
+export type AxAgentStateActionLogEntry = Pick<
+  ActionLogEntry,
+  | 'turn'
+  | 'code'
+  | 'output'
+  | 'actorFieldsOutput'
+  | 'tags'
+  | 'summary'
+  | 'producedVars'
+  | 'referencedVars'
+  | 'stateDelta'
+  | 'stepKind'
+  | 'replayMode'
+  | 'rank'
+  | 'tombstone'
+>;
+
+export type AxAgentStateCheckpointState = CheckpointSummaryState;
+
+export type AxAgentStateRuntimeEntry = AxCodeSessionSnapshotEntry;
+
+export type AxAgentState = {
+  version: 1;
+  runtimeBindings: Record<string, unknown>;
+  runtimeEntries: AxAgentStateRuntimeEntry[];
+  actionLogEntries: AxAgentStateActionLogEntry[];
+  checkpointState?: AxAgentStateCheckpointState;
+  provenance: Record<string, RuntimeStateVariableProvenance>;
+};
+
+export class AxAgentClarificationError extends Error {
+  public readonly question: string;
+  public readonly clarification: AxAgentStructuredClarification;
+  private readonly stateSnapshot: AxAgentState | undefined;
+  private readonly stateErrorMessage: string | undefined;
+
+  constructor(
+    clarification: AxAgentClarification,
+    options?: Readonly<{
+      state?: AxAgentState;
+      stateError?: string;
+    }>
+  ) {
+    const normalized = normalizeClarificationForError(clarification);
+    super(normalized.question);
+    this.name = 'AxAgentClarificationError';
+    this.question = normalized.question;
+    this.clarification = normalized;
+    this.stateSnapshot = options?.state
+      ? cloneAgentState(options.state)
+      : undefined;
+    this.stateErrorMessage = options?.stateError;
+  }
+
+  public getState(): AxAgentState | undefined {
+    if (this.stateErrorMessage) {
+      throw new Error(this.stateErrorMessage);
+    }
+
+    return this.stateSnapshot ? cloneAgentState(this.stateSnapshot) : undefined;
+  }
+}
+
+type AxAgentFunctionCollection =
+  | readonly AxAgentFunction[]
+  | readonly AxAgentFunctionGroup[];
+
+type NormalizedAgentFunctionCollection = {
+  functions: AxAgentFunction[];
+  moduleMetadata: AxAgentFunctionModuleMeta[];
 };
 
 export type AxContextFieldInput =
@@ -128,6 +259,84 @@ export type AxAgentInputUpdateCallback<IN extends AxGenIn> = (
   currentInputs: Readonly<IN>
 ) => Promise<Partial<IN> | undefined> | Partial<IN> | undefined;
 
+export type AxAgentJudgeOptions = Partial<Omit<AxJudgeOptions, 'ai'>>;
+
+export type AxAgentOptimizeTarget =
+  | 'actor'
+  | 'responder'
+  | 'all'
+  | readonly string[];
+
+export type AxAgentEvalFunctionCall = {
+  qualifiedName: string;
+  name: string;
+  arguments: AxFieldValue;
+  result?: AxFieldValue;
+  error?: string;
+};
+
+export type AxAgentEvalPrediction<OUT = any> =
+  | {
+      completionType: 'final';
+      output: OUT;
+      clarification?: undefined;
+      actionLog: string;
+      functionCalls: AxAgentEvalFunctionCall[];
+      toolErrors: string[];
+      turnCount: number;
+      usage?: AxProgramUsage[];
+    }
+  | {
+      completionType: 'ask_clarification';
+      output?: undefined;
+      clarification: AxAgentStructuredClarification;
+      actionLog: string;
+      functionCalls: AxAgentEvalFunctionCall[];
+      toolErrors: string[];
+      turnCount: number;
+      usage?: AxProgramUsage[];
+    };
+
+export type AxAgentEvalTask<IN = any> = {
+  input: IN;
+  criteria: string;
+  id?: string;
+  expectedOutput?: AxFieldValue;
+  expectedActions?: string[];
+  forbiddenActions?: string[];
+  weight?: number;
+  metadata?: AxFieldValue;
+};
+
+export type AxAgentEvalDataset<IN = any> =
+  | readonly AxAgentEvalTask<IN>[]
+  | {
+      train: readonly AxAgentEvalTask<IN>[];
+      validation?: readonly AxAgentEvalTask<IN>[];
+    };
+
+export type AxAgentOptimizeOptions<
+  _IN extends AxGenIn = AxGenIn,
+  _OUT extends AxGenOut = AxGenOut,
+> = {
+  studentAI?: Readonly<AxAIService>;
+  judgeAI?: Readonly<AxAIService>;
+  teacherAI?: Readonly<AxAIService>;
+  judgeOptions?: AxAgentJudgeOptions;
+  target?: AxAgentOptimizeTarget;
+  apply?: boolean;
+  maxMetricCalls?: number;
+  metric?: AxMetricFn;
+  verbose?: boolean;
+  debugOptimizer?: boolean;
+  optimizerLogger?: AxOptimizerLoggerFunction;
+  onProgress?: (progress: Readonly<AxOptimizationProgress>) => void;
+  onEarlyStop?: (reason: string, stats: Readonly<AxOptimizationStats>) => void;
+};
+
+export type AxAgentOptimizeResult<OUT extends AxGenOut = AxGenOut> =
+  AxParetoResult<OUT>;
+
 export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
   AxProgramForwardOptions<string>,
   'functions' | 'description'
@@ -168,17 +377,14 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
     excluded?: string[];
   };
 
-  /** Optional metadata for discovery modules rendered by `listModuleFunctions(...)`. */
-  namespaces?: readonly AxAgentNamespace[];
-
   /** Agent function configuration. */
   functions?: {
     /** Agent functions local to this agent (registered under namespace globals). */
-    local?: AxAgentFunction[];
+    local?: AxAgentFunctionCollection;
     /** Agent functions to share with direct child agents (one level). */
-    shared?: AxAgentFunction[];
+    shared?: AxAgentFunctionCollection;
     /** Agent functions to share with ALL descendants recursively. */
-    globallyShared?: AxAgentFunction[];
+    globallyShared?: AxAgentFunctionCollection;
     /** Agent function names this agent should NOT receive from parents. */
     excluded?: string[];
     /** Enables runtime callable discovery (modules + on-demand definitions). */
@@ -195,10 +401,8 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
   maxBatchedLlmQueryConcurrency?: number;
   /** Maximum Actor turns before forcing Responder (default: 10). */
   maxTurns?: number;
-  /** @deprecated Use `contextManagement.errorPruning` instead. */
-  trajectoryPruning?: boolean;
-  /** Semantic context management configuration. */
-  contextManagement?: AxContextManagementConfig;
+  /** Context replay, checkpointing, and runtime-state policy. */
+  contextPolicy?: AxContextPolicyConfig;
   /** Output field names the Actor should produce (in addition to javascriptCode). */
   actorFields?: string[];
   /** Called after each Actor turn with the full actor result. */
@@ -224,7 +428,36 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
       description?: string;
     }
   >;
+  /** Default options for the built-in judge used by optimize(). */
+  judgeOptions?: AxAgentJudgeOptions;
 };
+
+type AxAgentJudgeInput = {
+  taskInput: AxFieldValue;
+  criteria: string;
+  expectedOutput?: AxFieldValue;
+  expectedActions?: string[];
+  forbiddenActions?: string[];
+  metadata?: AxFieldValue;
+};
+
+type AxAgentJudgeOutput = {
+  completionType: 'final' | 'ask_clarification';
+  clarification?: AxFieldValue;
+  finalOutput?: AxFieldValue;
+  actionLog: string;
+  functionCalls: AxFieldValue;
+  toolErrors: string[];
+  turnCount: number;
+  usage: AxFieldValue;
+};
+
+type AxNormalizedAgentEvalDataset<IN = any> = {
+  train: readonly AxAgentEvalTask<IN>[];
+  validation?: readonly AxAgentEvalTask<IN>[];
+};
+
+type AxAgentFunctionCallRecorder = (call: AxAgentEvalFunctionCall) => void;
 
 export type AxAgentRecursionOptions = Partial<
   Omit<AxProgramForwardOptions<string>, 'functions'>
@@ -242,13 +475,447 @@ const DEFAULT_RLM_MAX_TURNS = 10;
 const DEFAULT_RLM_MAX_RECURSION_DEPTH = 2;
 const DEFAULT_CONTEXT_FIELD_PROMPT_MAX_CHARS = 1_200;
 const DEFAULT_AGENT_MODULE_NAMESPACE = 'agents';
+const DEFAULT_RANK_PRUNE_GRACE_TURNS = 2;
+const DEFAULT_AGENT_OPTIMIZE_MAX_METRIC_CALLS = 100;
 const DISCOVERY_LIST_MODULE_FUNCTIONS_NAME = 'listModuleFunctions';
 const DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME = 'getFunctionDefinitions';
+const TEST_HARNESS_LLM_QUERY_AI_REQUIRED_ERROR =
+  'AI service is required to use llmQuery(...) in AxAgent.test(). Pass options.ai or configure ai on the agent.';
+const RUNTIME_RESTART_NOTICE =
+  '[The JavaScript runtime was restarted; all global state was lost and must be recreated if needed.]';
 
-type AxAgentActorResultPayload = {
-  type: 'final' | 'ask_clarification';
-  args: unknown[];
+const AX_AGENT_OPTIMIZE_JUDGE_SIGNATURE = new AxSignature<
+  AxAgentJudgeInput,
+  AxAgentJudgeOutput
+>(`
+    taskInput:json "The structured task input passed to the agent",
+    criteria:string "Task-specific success criteria",
+    expectedOutput?:json "Optional expected final output",
+    expectedActions?:string[] "Optional function names that should appear in the run",
+    forbiddenActions?:string[] "Optional function names that should not appear in the run",
+    metadata?:json "Optional task metadata"
+    ->
+    completionType:class "final, ask_clarification" "How the agent completed the run",
+    clarification?:json "Structured clarification payload when the agent asked for more information",
+    finalOutput?:json "The final structured output returned by the agent when it completed normally",
+    actionLog:string "Chronological action log produced by the actor loop",
+    functionCalls:json "Ordered function call records with names, arguments, results, and errors",
+    toolErrors:string[] "Function-call errors observed during the run",
+    turnCount:number "Number of actor turns executed",
+    usage:json "Optional usage summary for the run"
+  `);
+
+const AX_AGENT_OPTIMIZE_PROGRAM_SIGNATURE = new AxSignature<
+  Record<'taskRecord', AxFieldValue>,
+  Record<'agentRunReport', AxFieldValue>
+>(`
+    taskRecord:json "Full optimization task record, including the agent input and evaluation criteria"
+    ->
+    agentRunReport:json "Agent run report containing completion type, clarification or final output, action log, function calls, errors, and turn count"
+  `);
+
+function normalizeAgentEvalDataset<IN>(
+  dataset: Readonly<AxAgentEvalDataset<IN>>
+): AxNormalizedAgentEvalDataset<IN> {
+  if ('train' in dataset) {
+    return {
+      train: dataset.train,
+      validation: dataset.validation,
+    };
+  }
+
+  return { train: dataset };
+}
+
+function serializeForEval(value: unknown): AxFieldValue {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === null) {
+    return null;
+  }
+  if (
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean'
+  ) {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    try {
+      return JSON.parse(JSON.stringify(value)) as AxFieldValue;
+    } catch {
+      return value.map((item) => serializeForEval(item));
+    }
+  }
+  if (typeof value === 'object') {
+    try {
+      return JSON.parse(JSON.stringify(value)) as AxFieldValue;
+    } catch {
+      return String(value) as AxFieldValue;
+    }
+  }
+
+  return String(value) as AxFieldValue;
+}
+
+function normalizeActorJavascriptCode(code: string): string {
+  let normalized = code.trim();
+
+  for (;;) {
+    const before = normalized;
+
+    normalized = normalized.replace(/^```(?:[A-Za-z0-9_-]+)?[ \t]*\r?\n/, '');
+    normalized = normalized.replace(/\r?\n?```[ \t]*$/, '');
+    normalized = normalized.trim();
+
+    if (normalized === before) {
+      return normalized;
+    }
+  }
+}
+
+function buildAgentJudgeCriteria(additionalCriteria?: string): string {
+  const builtInCriteria = `
+Use the input field named "criteria" as the task-specific rubric for success.
+- Reward actual task completion over polished wording.
+- Reward correct tool choice and correct arguments.
+- Penalize wrong tools, unnecessary retries, ignored tool errors, and contradictions between the final output and the function call trace.
+- If completionType is ask_clarification, judge whether the clarification was necessary, precise, and limited to the missing information.
+- Reward clarifications that identify the exact missing information instead of guessing.
+- Penalize clarifications that are vague, unnecessary, or ask for information the agent could have gathered from available tools or context.
+- If expectedOutput is present and completionType is final, compare the final output against it.
+- If expectedActions is present, confirm that the functionCalls align with them.
+- If forbiddenActions is present, strongly penalize any matching function calls.
+`.trim();
+
+  const extra = additionalCriteria?.trim();
+  if (!extra) {
+    return builtInCriteria;
+  }
+
+  return `${builtInCriteria}\n\nAdditional Evaluation Guidance:\n${extra}`;
+}
+
+function actionNameMatches(
+  expectedName: string,
+  call: Readonly<AxAgentEvalFunctionCall>
+): boolean {
+  return (
+    call.qualifiedName === expectedName ||
+    call.name === expectedName ||
+    call.qualifiedName.endsWith(`.${expectedName}`)
+  );
+}
+
+function adjustEvalScoreForActions(
+  score: number,
+  task: Readonly<AxAgentEvalTask>,
+  prediction: Readonly<AxAgentEvalPrediction>
+): number {
+  let adjusted = Math.max(0, Math.min(1, score));
+
+  const expectedActions = task.expectedActions ?? [];
+  if (expectedActions.length > 0) {
+    const matched = expectedActions.filter((expectedName) =>
+      prediction.functionCalls.some((call) =>
+        actionNameMatches(expectedName, call)
+      )
+    ).length;
+    adjusted *= 0.5 + 0.5 * (matched / expectedActions.length);
+  }
+
+  const forbiddenActions = task.forbiddenActions ?? [];
+  if (
+    forbiddenActions.some((expectedName) =>
+      prediction.functionCalls.some((call) =>
+        actionNameMatches(expectedName, call)
+      )
+    )
+  ) {
+    adjusted *= 0.2;
+  }
+
+  return Math.max(0, Math.min(1, adjusted));
+}
+
+function resolveAgentOptimizeTargetIds(
+  availablePrograms: readonly { id: string }[],
+  target: Readonly<AxAgentOptimizeTarget>
+): string[] {
+  const availableIds = new Set(availablePrograms.map((program) => program.id));
+
+  if (target === 'actor') {
+    if (!availableIds.has('root.actor')) {
+      throw new Error('AxAgent.optimize(): root.actor is not available');
+    }
+    return ['root.actor'];
+  }
+  if (target === 'responder') {
+    if (!availableIds.has('root.responder')) {
+      throw new Error('AxAgent.optimize(): root.responder is not available');
+    }
+    return ['root.responder'];
+  }
+  if (target === 'all') {
+    return [...availableIds];
+  }
+
+  const explicit = [...target];
+  for (const id of explicit) {
+    if (!availableIds.has(id)) {
+      throw new Error(`AxAgent.optimize(): unknown target program ID "${id}"`);
+    }
+  }
+  return explicit;
+}
+
+type AxResolvedContextPolicy = {
+  preset: AxContextPolicyPreset;
+  summarizerOptions?: Omit<AxProgramForwardOptions<string>, 'functions'>;
+  pruneUsedDocs: boolean;
+  actionReplay: 'full' | 'adaptive' | 'minimal';
+  recentFullActions: number;
+  errorPruning: boolean;
+  hindsightEvaluation: boolean;
+  pruneRank: number;
+  rankPruneGraceTurns: number;
+  tombstoning:
+    | boolean
+    | Omit<AxProgramForwardOptions<string>, 'functions'>
+    | undefined;
+  stateSummary: { enabled: boolean; maxEntries?: number; maxChars?: number };
+  stateInspection: { enabled: boolean; contextThreshold?: number };
+  checkpoints: {
+    enabled: boolean;
+    triggerChars?: number;
+  };
 };
+
+type AxAgentActorResultPayload = AxAgentTestCompletionPayload;
+
+type AxAgentRuntimeInputState = {
+  currentInputs: Record<string, unknown>;
+  signatureInputFieldNames: Set<string>;
+  sharedFieldValues: Record<string, unknown>;
+  recomputeTurnInputs: (validateRequiredContext: boolean) => void;
+  getNonContextValues: () => Record<string, unknown>;
+  getActorInlineContextValues: () => Record<string, unknown>;
+  getContextMetadata: () => string;
+};
+
+type AxAgentRuntimeCompletionState = {
+  payload: AxAgentActorResultPayload | undefined;
+};
+
+type AxPreparedRestoredState = {
+  runtimeBindings: Record<string, unknown>;
+  runtimeEntries: AxAgentStateRuntimeEntry[];
+  actionLogEntries: ActionLogEntry[];
+  checkpointState?: AxAgentStateCheckpointState;
+  provenance: Record<string, RuntimeStateVariableProvenance>;
+};
+
+type AxAgentRuntimeExecutionContext = {
+  effectiveContextConfig: AxResolvedContextPolicy;
+  captureRuntimeStateSummary: () => Promise<string | undefined>;
+  exportRuntimeState: () => Promise<AxAgentState>;
+  restoreRuntimeState: (
+    state: Readonly<AxAgentState>
+  ) => Promise<AxPreparedRestoredState>;
+  syncRuntimeInputsToSession: () => Promise<void>;
+  executeActorCode: (
+    code: string
+  ) => Promise<{ output: string; isError: boolean }>;
+  executeTestCode: (code: string) => Promise<AxAgentTestResult>;
+  close: () => void;
+};
+
+class AxAgentProtocolCompletionSignal extends Error {
+  constructor(public readonly type: AxAgentActorResultPayload['type']) {
+    super(`AxAgent protocol completion: ${type}`);
+    this.name = 'AxAgentProtocolCompletionSignal';
+  }
+}
+
+function createCompletionBindings(
+  setActorResultPayload: (
+    type: AxAgentActorResultPayload['type'],
+    args: unknown[]
+  ) => void
+): {
+  finalFunction: (...args: unknown[]) => void;
+  askClarificationFunction: (...args: unknown[]) => void;
+  protocol: AxAgentCompletionProtocol;
+} {
+  const finalFunction = (...args: unknown[]) => {
+    setActorResultPayload('final', args);
+  };
+
+  const askClarificationFunction = (...args: unknown[]) => {
+    setActorResultPayload('ask_clarification', args);
+  };
+
+  const protocol: AxAgentCompletionProtocol = {
+    final: (...args: unknown[]): never => {
+      setActorResultPayload('final', args);
+      throw new AxAgentProtocolCompletionSignal('final');
+    },
+    askClarification: (...args: unknown[]): never => {
+      setActorResultPayload('ask_clarification', args);
+      throw new AxAgentProtocolCompletionSignal('ask_clarification');
+    },
+  };
+
+  return {
+    finalFunction,
+    askClarificationFunction,
+    protocol,
+  };
+}
+
+function buildInternalSummaryRequestOptions(
+  options: Readonly<AxProgramForwardOptions<string>> | undefined,
+  debug: boolean,
+  abortSignal: AbortSignal | undefined
+): Omit<AxProgramForwardOptions<string>, 'functions'> {
+  return {
+    model: options?.model,
+    modelConfig: options?.modelConfig,
+    debug,
+    verbose: options?.verbose,
+    rateLimiter: options?.rateLimiter,
+    fetch: options?.fetch,
+    tracer: options?.tracer,
+    meter: options?.meter,
+    timeout: options?.timeout,
+    excludeContentFromTrace: options?.excludeContentFromTrace,
+    abortSignal,
+    logger: options?.logger,
+    sessionId: options?.sessionId,
+    debugHideSystemPrompt: options?.debugHideSystemPrompt,
+    traceContext: options?.traceContext,
+    thinkingTokenBudget: options?.thinkingTokenBudget,
+    showThoughts: options?.showThoughts,
+    useExpensiveModel: options?.useExpensiveModel,
+    corsProxy: options?.corsProxy,
+    retry: options?.retry,
+    contextCache: options?.contextCache,
+    examplesInSystem: options?.examplesInSystem,
+    customLabels: options?.customLabels,
+  };
+}
+
+function resolveContextPolicy(
+  contextPolicy: AxContextPolicyConfig | undefined
+): AxResolvedContextPolicy {
+  const preset = contextPolicy?.preset ?? 'full';
+  const presetDefaults = getContextPolicyPresetDefaults(preset);
+  const rankPruning = contextPolicy?.expert?.rankPruning;
+  const rankPruningEnabled =
+    rankPruning?.enabled ??
+    (rankPruning?.minRank !== undefined ? true : presetDefaults.hindsight);
+  const stateSummaryEnabled =
+    contextPolicy?.state?.summary ?? presetDefaults.stateSummary;
+  const stateInspectEnabled =
+    contextPolicy?.state?.inspect ?? presetDefaults.inspect;
+  const checkpointsEnabled =
+    contextPolicy?.checkpoints?.enabled ?? presetDefaults.checkpointsEnabled;
+
+  if (checkpointsEnabled && !stateSummaryEnabled && !stateInspectEnabled) {
+    throw new Error(
+      'contextPolicy.checkpoints requires either state.summary or state.inspect to be enabled'
+    );
+  }
+
+  return {
+    preset,
+    summarizerOptions: contextPolicy?.summarizerOptions,
+    pruneUsedDocs: contextPolicy?.pruneUsedDocs ?? presetDefaults.pruneUsedDocs,
+    actionReplay: contextPolicy?.expert?.replay ?? presetDefaults.actionReplay,
+    recentFullActions: Math.max(
+      contextPolicy?.expert?.recentFullActions ??
+        presetDefaults.recentFullActions,
+      0
+    ),
+    errorPruning:
+      contextPolicy?.expert?.pruneErrors ?? presetDefaults.errorPruning,
+    hindsightEvaluation: rankPruningEnabled,
+    pruneRank: rankPruning?.minRank ?? presetDefaults.pruneRank,
+    rankPruneGraceTurns: DEFAULT_RANK_PRUNE_GRACE_TURNS,
+    tombstoning: contextPolicy?.expert?.tombstones,
+    stateSummary: {
+      enabled: stateSummaryEnabled,
+      maxEntries: contextPolicy?.state?.maxEntries ?? presetDefaults.maxEntries,
+      maxChars: contextPolicy?.state?.maxChars ?? presetDefaults.maxStateChars,
+    },
+    stateInspection: {
+      enabled: stateInspectEnabled,
+      contextThreshold:
+        contextPolicy?.state?.inspectThresholdChars ??
+        presetDefaults.inspectThreshold,
+    },
+    checkpoints: {
+      enabled: checkpointsEnabled,
+      triggerChars:
+        contextPolicy?.checkpoints?.triggerChars ??
+        presetDefaults.checkpointTriggerChars,
+    },
+  };
+}
+
+function getContextPolicyPresetDefaults(preset: AxContextPolicyPreset) {
+  switch (preset) {
+    case 'adaptive':
+      return {
+        actionReplay: 'adaptive' as const,
+        recentFullActions: 2,
+        errorPruning: true,
+        hindsight: false,
+        pruneRank: 2,
+        pruneUsedDocs: true,
+        stateSummary: true,
+        inspect: true,
+        inspectThreshold: 8_000,
+        maxEntries: 6,
+        maxStateChars: 1_200,
+        checkpointsEnabled: true,
+        checkpointTriggerChars: 12_000,
+      };
+    case 'lean':
+      return {
+        actionReplay: 'minimal' as const,
+        recentFullActions: 1,
+        errorPruning: true,
+        hindsight: false,
+        pruneRank: 2,
+        pruneUsedDocs: true,
+        stateSummary: true,
+        inspect: true,
+        inspectThreshold: 6_000,
+        maxEntries: 4,
+        maxStateChars: 800,
+        checkpointsEnabled: true,
+        checkpointTriggerChars: 9_000,
+      };
+    default:
+      return {
+        actionReplay: 'full' as const,
+        recentFullActions: 1,
+        errorPruning: false,
+        hindsight: false,
+        pruneRank: 2,
+        pruneUsedDocs: false,
+        stateSummary: false,
+        inspect: false,
+        inspectThreshold: undefined,
+        maxEntries: undefined,
+        maxStateChars: undefined,
+        checkpointsEnabled: false,
+        checkpointTriggerChars: undefined,
+      };
+  }
+}
 
 // ----- AxAgent Class -----
 
@@ -266,12 +933,16 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   implements AxAgentic<IN, OUT>
 {
   private ai?: AxAIService;
+  private judgeAI?: AxAIService;
   private program: AxGen<IN, OUT>;
   private actorProgram!: AxGen<any, any>;
   private responderProgram!: AxGen<any, OUT>;
   private agents?: AxAnyAgentic[];
   private agentFunctions: AxAgentFunction[];
-  private discoveryNamespaces: AxAgentNamespace[] = [];
+  private agentFunctionModuleMetadata = new Map<
+    string,
+    AxAgentFunctionModuleMeta
+  >();
   private debug?: boolean;
   private options?: Readonly<AxAgentOptions<IN>>;
   private rlmConfig: AxRLMConfig;
@@ -285,6 +956,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private excludedAgentFunctions: string[];
   private actorDescription?: string;
   private responderDescription?: string;
+  private judgeOptions?: AxAgentJudgeOptions;
   private recursionForwardOptions?: AxAgentRecursionOptions;
   private actorForwardOptions?: Partial<AxProgramForwardOptions<string>>;
   private responderForwardOptions?: Partial<AxProgramForwardOptions<string>>;
@@ -298,6 +970,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
   private activeAbortControllers = new Set<AbortController>();
   private _stopRequested = false;
+  private state: AxAgentState | undefined;
+  private stateError: string | undefined;
 
   private func: AxFunction | undefined;
   // Field names injected by a parent agent via shared-field propagation.
@@ -308,14 +982,121 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   // Agent function keys (namespace.name) injected by a parent.
   private _parentSharedAgentFunctions: Set<string> = new Set();
 
+  private _reservedAgentFunctionNamespaces(): Set<string> {
+    return new Set([
+      'inputs',
+      'llmQuery',
+      'final',
+      'ask_clarification',
+      'inspect_runtime',
+      DEFAULT_AGENT_MODULE_NAMESPACE,
+      this.agentModuleNamespace,
+      ...(this.functionDiscoveryEnabled
+        ? [
+            DISCOVERY_LIST_MODULE_FUNCTIONS_NAME,
+            DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME,
+          ]
+        : []),
+    ]);
+  }
+
+  private _mergeAgentFunctionModuleMetadata(
+    newMetadata: readonly AxAgentFunctionModuleMeta[]
+  ): boolean {
+    let changed = false;
+
+    for (const meta of newMetadata) {
+      const existing = this.agentFunctionModuleMetadata.get(meta.namespace);
+      if (!existing) {
+        this.agentFunctionModuleMetadata.set(meta.namespace, meta);
+        changed = true;
+        continue;
+      }
+
+      if (
+        existing.title !== meta.title ||
+        existing.selectionCriteria !== meta.selectionCriteria ||
+        existing.description !== meta.description
+      ) {
+        throw new Error(
+          `Conflicting agent function group metadata for namespace "${meta.namespace}"`
+        );
+      }
+    }
+
+    return changed;
+  }
+
+  private _validateConfiguredSignature(signature: Readonly<AxSignature>): void {
+    if (signature.getDescription()) {
+      throw new Error(
+        'AxAgent does not support signature-level descriptions. ' +
+          'Use setActorDescription() and/or setResponderDescription() to customize the actor and responder prompts independently.'
+      );
+    }
+
+    const inputFieldNames = new Set(
+      signature.getInputFields().map((field) => field.name)
+    );
+    const outputFieldNames = new Set(
+      signature.getOutputFields().map((field) => field.name)
+    );
+
+    for (const field of this.rlmConfig.contextFields) {
+      if (!inputFieldNames.has(field)) {
+        throw new Error(`RLM contextField "${field}" not found in signature`);
+      }
+    }
+
+    for (const field of this.sharedFieldNames) {
+      if (!inputFieldNames.has(field)) {
+        throw new Error(
+          `sharedField "${field}" not found in signature input fields`
+        );
+      }
+    }
+
+    for (const field of this.globalSharedFieldNames) {
+      if (!inputFieldNames.has(field)) {
+        throw new Error(
+          `globalSharedField "${field}" not found in signature input fields`
+        );
+      }
+    }
+
+    for (const field of this.actorFieldNames) {
+      if (!outputFieldNames.has(field)) {
+        throw new Error(
+          `RLM actorField "${field}" not found in output signature`
+        );
+      }
+    }
+  }
+
+  private _validateAgentFunctionNamespaces(
+    functions: readonly AxAgentFunction[]
+  ): void {
+    const reservedNamespaces = this._reservedAgentFunctionNamespaces();
+    for (const fn of functions) {
+      const ns = fn.namespace ?? 'utils';
+      if (reservedNamespaces.has(ns)) {
+        throw new Error(
+          `Agent function namespace "${ns}" conflicts with an AxAgent runtime global and is reserved`
+        );
+      }
+    }
+  }
+
   constructor(
     {
       ai,
+      judgeAI,
       agentIdentity,
       agentModuleNamespace,
       signature,
     }: Readonly<{
       ai?: Readonly<AxAIService>;
+      judgeAI?: Readonly<AxAIService>;
       agentIdentity?: Readonly<AxAgentIdentity>;
       agentModuleNamespace?: string;
       signature:
@@ -333,20 +1114,20 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       maxRuntimeChars,
       maxBatchedLlmQueryConcurrency,
       maxTurns,
-      trajectoryPruning,
-      contextManagement,
+      contextPolicy,
       actorFields,
       actorCallback,
       mode,
       recursionOptions,
       actorOptions,
       responderOptions,
+      judgeOptions,
       inputUpdateCallback,
     } = options;
 
     this.ai = ai;
+    this.judgeAI = judgeAI;
     this.agents = options.agents?.local;
-    this.agentFunctions = options.functions?.local ?? [];
     this.functionDiscoveryEnabled = options.functions?.discovery ?? false;
     this.debug = debug;
     this.options = options;
@@ -382,11 +1163,29 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       );
     }
 
+    const reservedAgentFunctionNamespaces =
+      this._reservedAgentFunctionNamespaces();
+    const localAgentFnBundle = normalizeAgentFunctionCollection(
+      options.functions?.local,
+      reservedAgentFunctionNamespaces
+    );
+    const sharedAgentFnBundle = normalizeAgentFunctionCollection(
+      options.functions?.shared,
+      reservedAgentFunctionNamespaces
+    );
+    const globalSharedAgentFnBundle = normalizeAgentFunctionCollection(
+      options.functions?.globallyShared,
+      reservedAgentFunctionNamespaces
+    );
+    this.agentFunctions = localAgentFnBundle.functions;
+    this._mergeAgentFunctionModuleMetadata(localAgentFnBundle.moduleMetadata);
+
     // Create the base program (used for signature/schema access)
     const {
       agents: _a,
       fields: _f,
       functions: _fn,
+      judgeOptions: _jo,
       inputUpdateCallback: _iuc,
       ...genOptions
     } = options;
@@ -408,8 +1207,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       maxRuntimeChars,
       maxBatchedLlmQueryConcurrency,
       maxTurns,
-      trajectoryPruning,
-      contextManagement,
+      contextPolicy,
       actorFields,
       actorCallback,
       mode,
@@ -426,19 +1224,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     this.responderDescription = responderDescription;
     this.responderForwardOptions = responderForwardOptions;
+    this.judgeOptions = judgeOptions ? { ...judgeOptions } : undefined;
     this.inputUpdateCallback = inputUpdateCallback;
-    this.discoveryNamespaces = normalizeAgentNamespaces(
-      options.namespaces,
-      new Set([
-        'inputs',
-        'llmQuery',
-        'final',
-        'ask_clarification',
-        'inspect_runtime',
-        DISCOVERY_LIST_MODULE_FUNCTIONS_NAME,
-        DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME,
-      ])
-    );
 
     const agents = this.agents;
     for (const agent of agents ?? []) {
@@ -464,46 +1251,17 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     // ----- Split architecture setup -----
 
-    if (this.program.getSignature().getDescription()) {
-      throw new Error(
-        'AxAgent does not support signature-level descriptions. ' +
-          'Use setActorDescription() and/or setResponderDescription() to customize the actor and responder prompts independently.'
-      );
-    }
-
-    // --- Validate and split output fields by actorFields ---
-    const originalOutputs = this.program.getSignature().getOutputFields();
     const actorFieldNames = actorFields ?? [];
     this.actorFieldNames = actorFieldNames;
-
-    for (const af of actorFieldNames) {
-      if (!originalOutputs.some((fld) => fld.name === af)) {
-        throw new Error(`RLM actorField "${af}" not found in output signature`);
-      }
-    }
 
     // --- Read grouped field options ---
     const sharedFieldNames = options.fields?.shared ?? [];
     this.sharedFieldNames = sharedFieldNames;
-    for (const sf of sharedFieldNames) {
-      if (!inputFields.some((fld) => fld.name === sf)) {
-        throw new Error(
-          `sharedField "${sf}" not found in signature input fields`
-        );
-      }
-    }
 
     this.excludedSharedFields = options.fields?.excluded ?? [];
 
     const globalSharedFieldNames = options.fields?.globallyShared ?? [];
     this.globalSharedFieldNames = globalSharedFieldNames;
-    for (const gsf of globalSharedFieldNames) {
-      if (!inputFields.some((fld) => fld.name === gsf)) {
-        throw new Error(
-          `globalSharedField "${gsf}" not found in signature input fields`
-        );
-      }
-    }
     this.localFieldNames = options.fields?.local ?? [];
 
     // --- Read grouped agent options ---
@@ -512,8 +1270,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     this.excludedAgents = options.agents?.excluded ?? [];
 
     // --- Read grouped function options ---
-    const sharedAgentFnList = options.functions?.shared ?? [];
-    const globalSharedAgentFnList = options.functions?.globallyShared ?? [];
+    const sharedAgentFnList = sharedAgentFnBundle.functions;
+    const globalSharedAgentFnList = globalSharedAgentFnBundle.functions;
     this.excludedAgentFunctions = options.functions?.excluded ?? [];
 
     const allAgentFns = [
@@ -539,26 +1297,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       }
     }
 
-    // Validate reserved namespaces for agent functions
-    const RESERVED_NS = new Set([
-      DEFAULT_AGENT_MODULE_NAMESPACE,
-      this.agentModuleNamespace,
-      'llmQuery',
-      'final',
-      'ask_clarification',
-      ...(this.functionDiscoveryEnabled
-        ? [
-            DISCOVERY_LIST_MODULE_FUNCTIONS_NAME,
-            DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME,
-          ]
-        : []),
-    ]);
-    for (const fn of allAgentFns) {
-      const ns = fn.namespace ?? 'utils';
-      if (RESERVED_NS.has(ns)) {
-        throw new Error(`Agent function namespace "${ns}" is reserved`);
-      }
-    }
+    this._validateConfiguredSignature(this.program.getSignature());
+    this._validateAgentFunctionNamespaces(allAgentFns);
 
     // Propagate shared fields to child agents (one level)
     if (sharedFieldNames.length > 0 && agents) {
@@ -623,7 +1363,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     if (sharedAgentFnList.length > 0 && agents) {
       for (const childAgent of agents) {
         if (!(childAgent instanceof AxAgent)) continue;
-        childAgent._extendForSharedAgentFunctions(sharedAgentFnList);
+        childAgent._extendForSharedAgentFunctions(sharedAgentFnBundle);
       }
     }
 
@@ -632,7 +1372,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       for (const childAgent of agents) {
         if (!(childAgent instanceof AxAgent)) continue;
         childAgent._extendForGlobalSharedAgentFunctions(
-          globalSharedAgentFnList
+          globalSharedAgentFnBundle
         );
       }
     }
@@ -752,7 +1492,16 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     if (agentMeta.length > 0) {
       moduleSet.add(this.agentModuleNamespace);
     }
-    const availableModules = [...moduleSet].sort((a, b) => a.localeCompare(b));
+    const availableModules = [...moduleSet]
+      .sort((a, b) => a.localeCompare(b))
+      .map((namespace) => ({
+        namespace,
+        selectionCriteria:
+          this.agentFunctionModuleMetadata.get(namespace)?.selectionCriteria,
+      }));
+    const effectiveContextPolicy = resolveContextPolicy(
+      this.rlmConfig.contextPolicy
+    );
 
     const actorDef = axBuildActorDefinition(
       this.actorDescription,
@@ -762,7 +1511,15 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         runtimeUsageInstructions: this.runtimeUsageInstructions,
         maxSubAgentCalls: effectiveMaxSubAgentCalls,
         maxTurns: effectiveMaxTurns,
-        hasInspectRuntime: !!this.rlmConfig.contextManagement?.stateInspection,
+        hasInspectRuntime: effectiveContextPolicy.stateInspection.enabled,
+        hasLiveRuntimeState: effectiveContextPolicy.stateSummary.enabled,
+        hasCompressedActionReplay:
+          effectiveContextPolicy.actionReplay !== 'full' ||
+          effectiveContextPolicy.checkpoints.enabled ||
+          effectiveContextPolicy.errorPruning ||
+          Boolean(effectiveContextPolicy.tombstoning) ||
+          (this.functionDiscoveryEnabled &&
+            effectiveContextPolicy.pruneUsedDocs),
         enforceIncrementalConsoleTurns: this.enforceIncrementalConsoleTurns,
         agentModuleNamespace: this.agentModuleNamespace,
         discoveryMode: this.functionDiscoveryEnabled,
@@ -777,15 +1534,25 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       contextFieldMeta
     );
 
-    this.actorProgram = new AxGen(actorSig, {
-      ...this._genOptions,
-      description: actorDef,
-    });
+    if (this.actorProgram) {
+      this.actorProgram.setSignature(actorSig);
+      this.actorProgram.setDescription(actorDef);
+    } else {
+      this.actorProgram = new AxGen(actorSig, {
+        ...this._genOptions,
+        description: actorDef,
+      });
+    }
 
-    this.responderProgram = new AxGen(responderSig, {
-      ...this._genOptions,
-      description: responderDef,
-    }) as unknown as AxGen<any, OUT>;
+    if (this.responderProgram) {
+      this.responderProgram.setSignature(responderSig);
+      this.responderProgram.setDescription(responderDef);
+    } else {
+      this.responderProgram = new AxGen(responderSig, {
+        ...this._genOptions,
+        description: responderDef,
+      }) as unknown as AxGen<any, OUT>;
+    }
   }
 
   /**
@@ -992,16 +1759,23 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
    * Extends this agent's agent functions list with shared agent functions
    * from a parent. Throws on duplicate propagation.
    */
-  private _extendForSharedAgentFunctions(newFns: readonly AxFunction[]): void {
-    if (newFns.length === 0) return;
+  private _extendForSharedAgentFunctions(
+    bundle: Readonly<NormalizedAgentFunctionCollection>
+  ): void {
+    if (bundle.functions.length === 0 && bundle.moduleMetadata.length === 0) {
+      return;
+    }
 
     const existingKeys = new Set(
       this.agentFunctions.map((f) => `${f.namespace ?? 'utils'}.${f.name}`)
     );
     const excluded = new Set(this.excludedAgentFunctions);
-    const toAdd: AxFunction[] = [];
+    const toAdd: AxAgentFunction[] = [];
+    const metadataChanged = this._mergeAgentFunctionModuleMetadata(
+      bundle.moduleMetadata
+    );
 
-    for (const fn of newFns) {
+    for (const fn of bundle.functions) {
       if (excluded.has(fn.name)) continue;
       const key = `${fn.namespace ?? 'utils'}.${fn.name}`;
       if (existingKeys.has(key)) {
@@ -1018,8 +1792,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       toAdd.push(fn);
     }
 
-    if (toAdd.length === 0) return;
-    this.agentFunctions = [...this.agentFunctions, ...toAdd];
+    if (toAdd.length === 0 && !metadataChanged) return;
+    if (toAdd.length > 0) {
+      this.agentFunctions = [...this.agentFunctions, ...toAdd];
+    }
     this._buildSplitPrograms();
   }
 
@@ -1027,17 +1803,17 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
    * Extends this agent and all its descendants with globally shared agent functions.
    */
   private _extendForGlobalSharedAgentFunctions(
-    newFns: readonly AxFunction[]
+    bundle: Readonly<NormalizedAgentFunctionCollection>
   ): void {
     // Collect children BEFORE extending to avoid recursing into newly added items
     const childrenToRecurse = this.agents
       ? this.agents.filter((a): a is AxAgent<any, any> => a instanceof AxAgent)
       : [];
 
-    this._extendForSharedAgentFunctions(newFns);
+    this._extendForSharedAgentFunctions(bundle);
 
     for (const childAgent of childrenToRecurse) {
-      childAgent._extendForGlobalSharedAgentFunctions(newFns);
+      childAgent._extendForGlobalSharedAgentFunctions(bundle);
     }
   }
 
@@ -1067,6 +1843,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     return this.program.namedPrograms();
   }
 
+  public namedProgramInstances(): AxNamedProgramInstance<IN, OUT>[] {
+    return this.program.namedProgramInstances();
+  }
+
   public getTraces() {
     return this.program.getTraces();
   }
@@ -1084,6 +1864,302 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
   public resetUsage() {
     this.program.resetUsage();
+  }
+
+  public getState(): AxAgentState | undefined {
+    if (this.stateError) {
+      throw new Error(this.stateError);
+    }
+
+    return this.state ? cloneAgentState(this.state) : undefined;
+  }
+
+  public setState(state?: AxAgentState): void {
+    if (state && state.version !== 1) {
+      throw new Error(
+        `Unsupported AxAgentState version "${String((state as { version?: unknown }).version)}"`
+      );
+    }
+
+    if (state) {
+      const session = this.runtime.createSession();
+      try {
+        if (typeof session.patchGlobals !== 'function') {
+          throw new Error(
+            'AxCodeSession.patchGlobals() is required to restore AxAgent state'
+          );
+        }
+      } finally {
+        try {
+          session.close();
+        } catch {
+          // Ignore close errors from capability probing
+        }
+      }
+    }
+
+    this.state = state ? cloneAgentState(state) : undefined;
+    this.stateError = undefined;
+  }
+
+  public async optimize(
+    dataset: Readonly<AxAgentEvalDataset<IN>>,
+    options?: Readonly<AxAgentOptimizeOptions<IN, OUT>>
+  ): Promise<AxAgentOptimizeResult<OUT>> {
+    const normalizedDataset = normalizeAgentEvalDataset(dataset);
+    if (normalizedDataset.train.length === 0) {
+      throw new Error(
+        'AxAgent.optimize(): at least one training task is required.'
+      );
+    }
+
+    const studentAI = options?.studentAI ?? this.ai;
+    if (!studentAI) {
+      throw new Error(
+        'AxAgent.optimize(): studentAI is required when the agent has no default ai.'
+      );
+    }
+
+    const resolvedJudgeAI =
+      options?.judgeAI ??
+      this.judgeAI ??
+      options?.teacherAI ??
+      this.ai ??
+      studentAI;
+    const mergedJudgeOptions: AxAgentJudgeOptions = {
+      ...(this.judgeOptions ?? {}),
+      ...(options?.judgeOptions ?? {}),
+    };
+    const targetIds = resolveAgentOptimizeTargetIds(
+      this.namedPrograms(),
+      options?.target ?? 'actor'
+    );
+    const metric =
+      options?.metric ??
+      this._createAgentOptimizeMetric(resolvedJudgeAI, mergedJudgeOptions);
+    const optimizationProgram = this._createOptimizationProgram(targetIds);
+    const maxMetricCalls = Math.max(
+      1,
+      Math.floor(
+        options?.maxMetricCalls ??
+          Math.max(
+            DEFAULT_AGENT_OPTIMIZE_MAX_METRIC_CALLS,
+            normalizedDataset.train.length * 4
+          )
+      )
+    );
+
+    const optimizer = new AxGEPA({
+      studentAI,
+      teacherAI: options?.teacherAI ?? resolvedJudgeAI,
+      verbose: options?.verbose,
+      debugOptimizer: options?.debugOptimizer,
+      optimizerLogger: options?.optimizerLogger,
+      onProgress: options?.onProgress,
+      onEarlyStop: options?.onEarlyStop,
+    });
+
+    const result = await optimizer.compile(
+      optimizationProgram as AxProgrammable<
+        AxAgentEvalTask<IN>,
+        AxAgentEvalPrediction<OUT>
+      >,
+      normalizedDataset.train as readonly AxTypedExample<AxAgentEvalTask<IN>>[],
+      metric,
+      {
+        validationExamples: normalizedDataset.validation as
+          | readonly AxTypedExample<AxAgentEvalTask<IN>>[]
+          | undefined,
+        maxMetricCalls,
+        verbose: options?.verbose,
+      }
+    );
+
+    if (options?.apply !== false && result.optimizedProgram) {
+      this.applyOptimization(result.optimizedProgram);
+    }
+
+    return result as unknown as AxAgentOptimizeResult<OUT>;
+  }
+
+  private _createOptimizationProgram(
+    targetIds: readonly string[]
+  ): AxProgrammable<AxAgentEvalTask<IN>, AxAgentEvalPrediction<OUT>> {
+    return {
+      getId: () => this.getId(),
+      setId: (id: string) => this.setId(id),
+      getSignature: () => AX_AGENT_OPTIMIZE_PROGRAM_SIGNATURE,
+      forward: async (
+        ai: Readonly<AxAIService>,
+        task: AxAgentEvalTask<IN>,
+        options?: Readonly<AxProgramForwardOptions<string>>
+      ) => this._forwardForEvaluation(ai, task, options),
+      streamingForward: async function* (
+        ai: Readonly<AxAIService>,
+        task: AxAgentEvalTask<IN>,
+        options?: Readonly<
+          AxProgramStreamingForwardOptionsWithModels<AxAIService>
+        >
+      ): AxGenStreamingOut<AxAgentEvalPrediction<OUT>> {
+        yield {
+          version: 1,
+          index: 0,
+          delta: await this.forward(
+            ai,
+            task,
+            options as Readonly<AxProgramForwardOptions<string>> | undefined
+          ),
+        };
+      },
+      getTraces: () =>
+        this.getTraces() as unknown as AxProgramTrace<
+          AxAgentEvalTask<IN>,
+          AxAgentEvalPrediction<OUT>
+        >[],
+      namedProgramInstances: () =>
+        this.namedProgramInstances().filter((entry) =>
+          targetIds.includes(entry.id)
+        ) as AxNamedProgramInstance<any, any>[],
+      setDemos: (demos, demoOptions) =>
+        this.setDemos(
+          demos as unknown as readonly AxProgramDemos<IN, OUT>[],
+          demoOptions
+        ),
+      applyOptimization: (optimizedProgram) =>
+        this.applyOptimization(optimizedProgram as any),
+      getUsage: () => this.getUsage(),
+      resetUsage: () => this.resetUsage(),
+    };
+  }
+
+  private _createAgentOptimizeMetric(
+    judgeAI: Readonly<AxAIService>,
+    judgeOptions: Readonly<AxAgentJudgeOptions>
+  ): AxMetricFn {
+    const mergedJudgeCriteria = buildAgentJudgeCriteria(judgeOptions.criteria);
+    const judge = new AxJudge(AX_AGENT_OPTIMIZE_JUDGE_SIGNATURE, {
+      ai: judgeAI,
+      ...judgeOptions,
+      criteria: mergedJudgeCriteria,
+    });
+
+    return async ({ example, prediction }) => {
+      const task = example as AxAgentEvalTask<IN>;
+      const evalPrediction = prediction as AxAgentEvalPrediction<OUT>;
+      const judgeInput: AxAgentJudgeInput = {
+        taskInput: serializeForEval(task.input),
+        criteria: task.criteria,
+        expectedOutput: task.expectedOutput,
+        expectedActions: task.expectedActions,
+        forbiddenActions: task.forbiddenActions,
+        metadata: task.metadata,
+      };
+      const judgeOutput: AxAgentJudgeOutput = {
+        completionType: evalPrediction.completionType,
+        clarification: serializeForEval(evalPrediction.clarification),
+        finalOutput: serializeForEval(evalPrediction.output),
+        actionLog: evalPrediction.actionLog,
+        functionCalls: serializeForEval(evalPrediction.functionCalls),
+        toolErrors: evalPrediction.toolErrors,
+        turnCount: evalPrediction.turnCount,
+        usage: serializeForEval(evalPrediction.usage ?? []),
+      };
+
+      const result = await judge.evaluate(judgeInput, judgeOutput);
+      return adjustEvalScoreForActions(result.score, task, evalPrediction);
+    };
+  }
+
+  private async _forwardForEvaluation<T extends Readonly<AxAIService>>(
+    parentAi: T,
+    task: Readonly<AxAgentEvalTask<IN>>,
+    options?: Readonly<AxProgramForwardOptionsWithModels<T>>
+  ): Promise<AxAgentEvalPrediction<OUT>> {
+    const savedState = this.state ? cloneAgentState(this.state) : undefined;
+    const savedStateError = this.stateError;
+    this.state = undefined;
+    this.stateError = undefined;
+
+    const abortController = new AbortController();
+    if (this._stopRequested) {
+      abortController.abort('Stopped by user (pre-forward)');
+    }
+    const effectiveAbortSignal = mergeAbortSignals(
+      abortController.signal,
+      options?.abortSignal
+    );
+
+    this.activeAbortControllers.add(abortController);
+    try {
+      const ai = this.ai ?? parentAi;
+      const debug =
+        options?.debug ?? this.debug ?? ai?.getOptions()?.debug ?? false;
+      const functionCalls: AxAgentEvalFunctionCall[] = [];
+
+      const {
+        nonContextValues,
+        actorResult,
+        actorFieldValues,
+        actionLog,
+        turnCount,
+      } = await this._runActorLoop(
+        ai,
+        task.input,
+        options,
+        effectiveAbortSignal,
+        functionCalls
+      );
+      const toolErrors = functionCalls
+        .filter((call) => Boolean(call.error))
+        .map(
+          (call) => `${call.qualifiedName}: ${call.error ?? 'unknown error'}`
+        );
+
+      if (actorResult.type === 'ask_clarification') {
+        return {
+          completionType: 'ask_clarification',
+          clarification: normalizeClarificationForError(
+            actorResult.args[0] as AxAgentClarification
+          ),
+          actionLog,
+          functionCalls,
+          toolErrors,
+          turnCount,
+        };
+      }
+
+      const responderMergedOptions = {
+        ...this._genOptions,
+        ...this.responderForwardOptions,
+        ...options,
+        debug,
+        abortSignal: effectiveAbortSignal,
+        maxSteps: 1,
+      };
+
+      const responderResult = await this.responderProgram.forward(
+        ai,
+        {
+          ...nonContextValues,
+          contextData: actorResult,
+        },
+        responderMergedOptions
+      );
+
+      return {
+        completionType: 'final',
+        output: { ...responderResult, ...actorFieldValues } as OUT,
+        actionLog,
+        functionCalls,
+        toolErrors,
+        turnCount,
+      };
+    } finally {
+      this.state = savedState ? cloneAgentState(savedState) : undefined;
+      this.stateError = savedStateError;
+      this.activeAbortControllers.delete(abortController);
+      this._stopRequested = false;
+    }
   }
 
   public getFunction(): AxFunction {
@@ -1142,53 +2218,13 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     return bypassed;
   }
 
-  public getExcludedAgents(): readonly string[] {
-    return this.excludedAgents;
-  }
-
-  public getExcludedAgentFunctions(): readonly string[] {
-    return this.excludedAgentFunctions;
-  }
-
-  public getSignature(): AxSignature {
-    return this.program.getSignature();
-  }
-
-  public setSignature(
-    signature: NonNullable<ConstructorParameters<typeof AxSignature>[0]>
-  ) {
-    this.program.setSignature(signature);
-  }
-
-  public applyOptimization(optimizedProgram: any): void {
-    (this.program as any).applyOptimization?.(optimizedProgram);
-  }
-
-  // ----- Forward (split architecture) -----
-
-  /**
-   * Runs the Actor loop: sets up the runtime session, executes code iteratively,
-   * and returns the state needed by the Responder. Closes the session before returning.
-   */
-  private async _runActorLoop(
-    ai: AxAIService,
-    values: IN | AxMessage<IN>[],
-    options: Readonly<AxProgramForwardOptions<string>> | undefined,
-    effectiveAbortSignal: AbortSignal | undefined
-  ): Promise<{
-    nonContextValues: Record<string, unknown>;
-    contextMetadata: string;
-    actionLog: string;
-    actorResult: AxAgentActorResultPayload;
-    actorFieldValues: Record<string, unknown>;
-  }> {
-    const rlm = this.rlmConfig;
-    const runtime = this.runtime;
-
-    const debug =
-      options?.debug ?? this.debug ?? ai?.getOptions()?.debug ?? false;
-
-    // 1. Build mutable in-flight input state
+  private _createRuntimeInputState(
+    values: IN | AxMessage<IN>[] | Partial<IN>,
+    options?: Readonly<{
+      allowedFieldNames?: readonly string[];
+      validateInputKeys?: boolean;
+    }>
+  ): AxAgentRuntimeInputState {
     let rawValues: Record<string, unknown>;
 
     if (Array.isArray(values)) {
@@ -1205,13 +2241,28 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       rawValues = values as Record<string, unknown>;
     }
 
+    const allowedFieldNames = options?.allowedFieldNames
+      ? new Set(options.allowedFieldNames)
+      : undefined;
+    if (allowedFieldNames && options?.validateInputKeys) {
+      for (const key of Object.keys(rawValues)) {
+        if (!allowedFieldNames.has(key)) {
+          throw new Error(
+            `AxAgent.test() only accepts context field values. "${key}" is not configured in contextFields.`
+          );
+        }
+      }
+    }
+
     const currentInputs: Record<string, unknown> = { ...rawValues };
-    const signatureInputFieldNames = new Set(
-      this.program
-        .getSignature()
-        .getInputFields()
-        .map((f) => f.name)
-    );
+    const signatureInputFieldNames = allowedFieldNames
+      ? new Set(allowedFieldNames)
+      : new Set(
+          this.program
+            .getSignature()
+            .getInputFields()
+            .map((f) => f.name)
+        );
 
     const sharedFieldNames = [
       ...this.sharedFieldNames,
@@ -1228,7 +2279,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       this.program
         .getSignature()
         .getInputFields()
-        .filter((f) => rlm.contextFields.includes(f.name) && f.isOptional)
+        .filter(
+          (f) => this.rlmConfig.contextFields.includes(f.name) && f.isOptional
+        )
         .map((f) => f.name)
     );
 
@@ -1237,17 +2290,15 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       const nextNonContextValues: Record<string, unknown> = {};
 
       for (const [k, v] of Object.entries(currentInputs)) {
-        if (rlm.contextFields.includes(k)) {
+        if (this.rlmConfig.contextFields.includes(k)) {
           nextContextValues[k] = v;
         } else if (!bypassedSharedFields.has(k)) {
           nextNonContextValues[k] = v;
         }
-        // Shared/global fields that are not marked local are excluded from
-        // nonContextValues (they bypass the LLM and go directly to subagents).
       }
 
       if (validateRequiredContext) {
-        for (const field of rlm.contextFields) {
+        for (const field of this.rlmConfig.contextFields) {
           if (optionalContextFields.has(field)) {
             continue;
           }
@@ -1283,16 +2334,15 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       nonContextValues = nextNonContextValues;
       actorInlineContextValues = nextInlineContextValues;
 
-      for (const k of Object.keys(sharedFieldValues)) {
-        delete sharedFieldValues[k];
+      for (const key of Object.keys(sharedFieldValues)) {
+        delete sharedFieldValues[key];
       }
-      for (const sf of sharedFieldNames) {
-        if (sf in currentInputs) {
-          sharedFieldValues[sf] = currentInputs[sf];
+      for (const field of sharedFieldNames) {
+        if (field in currentInputs) {
+          sharedFieldValues[field] = currentInputs[field];
         }
-        // Also include shared fields that are context fields
-        if (sf in contextValues) {
-          sharedFieldValues[sf] = contextValues[sf];
+        if (field in contextValues) {
+          sharedFieldValues[field] = contextValues[field];
         }
       }
 
@@ -1303,9 +2353,42 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         }) || '(none)';
     };
 
-    recomputeTurnInputs(false);
+    return {
+      currentInputs,
+      signatureInputFieldNames,
+      sharedFieldValues,
+      recomputeTurnInputs,
+      getNonContextValues: () => nonContextValues,
+      getActorInlineContextValues: () => actorInlineContextValues,
+      getContextMetadata: () => contextMetadata,
+    };
+  }
 
-    // 2. Build runtime globals (context + llmQuery + tool functions)
+  private _createRuntimeExecutionContext({
+    ai,
+    inputState,
+    options,
+    effectiveAbortSignal,
+    debug,
+    completionState,
+    completionBindings,
+    actionLogEntries,
+    functionCallRecorder,
+  }: Readonly<{
+    ai?: AxAIService;
+    inputState: AxAgentRuntimeInputState;
+    options?: Readonly<
+      Partial<Omit<AxProgramForwardOptions<string>, 'functions'>>
+    >;
+    effectiveAbortSignal?: AbortSignal;
+    debug: boolean;
+    completionState: AxAgentRuntimeCompletionState;
+    completionBindings: ReturnType<typeof createCompletionBindings>;
+    actionLogEntries?: ActionLogEntry[];
+    functionCallRecorder?: AxAgentFunctionCallRecorder;
+  }>): AxAgentRuntimeExecutionContext {
+    const rlm = this.rlmConfig;
+    const runtime = this.runtime;
     const maxSubAgentCalls = rlm.maxSubAgentCalls ?? DEFAULT_RLM_MAX_LLM_CALLS;
     const maxRuntimeChars =
       rlm.maxRuntimeChars ?? DEFAULT_RLM_MAX_RUNTIME_CHARS;
@@ -1313,18 +2396,17 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       1,
       rlm.maxBatchedLlmQueryConcurrency ?? DEFAULT_RLM_BATCH_CONCURRENCY
     );
-    const maxTurns = rlm.maxTurns ?? DEFAULT_RLM_MAX_TURNS;
-
-    let llmCallCount = 0;
-    const llmCallWarnThreshold = Math.floor(maxSubAgentCalls * 0.8);
     const configuredRecursionMaxDepth =
       this.recursionForwardOptions?.maxDepth ?? DEFAULT_RLM_MAX_RECURSION_DEPTH;
     const recursionMaxDepth = Math.max(0, configuredRecursionMaxDepth);
+    const effectiveContextConfig = resolveContextPolicy(rlm.contextPolicy);
+
+    let llmCallCount = 0;
+    const llmCallWarnThreshold = Math.floor(maxSubAgentCalls * 0.8);
 
     const { maxDepth: _, ...recursionForwardOptions } =
       this.recursionForwardOptions ?? {};
     const {
-      functions: __,
       description: ___,
       mem: ____,
       sessionId: _____,
@@ -1354,7 +2436,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     if (recursionMaxDepth > 0) {
       if (childRlmMode === 'advanced') {
-        const advancedAgent = new AxAgent<any, { answer: AxFieldValue }>(
+        recursiveSubAgent = new AxAgent<any, { answer: AxFieldValue }>(
           {
             agentModuleNamespace: this.agentModuleNamespace,
             signature: childSignature,
@@ -1374,8 +2456,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
             responderOptions: this.responderForwardOptions,
           }
         );
-
-        recursiveSubAgent = advancedAgent;
       } else {
         recursiveSubAgent = new AxGen<any, { answer: AxFieldValue }>(
           childSignature,
@@ -1384,20 +2464,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       }
     }
 
-    const normalizeSubAgentAnswer = (value: AxFieldValue): string => {
-      if (value === undefined || value === null) {
-        return '';
-      }
-      if (typeof value === 'string') {
-        return truncateText(value, maxRuntimeChars);
-      }
-      try {
-        return truncateText(JSON.stringify(value), maxRuntimeChars);
-      } catch {
-        return truncateText(String(value), maxRuntimeChars);
-      }
-    };
-
     const llmQuery = async (
       queryOrQueries:
         | string
@@ -1405,7 +2471,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         | readonly { query: string; context?: unknown }[],
       ctx?: unknown
     ): Promise<string | string[]> => {
-      // Normalize single-object form
       if (
         !Array.isArray(queryOrQueries) &&
         typeof queryOrQueries === 'object' &&
@@ -1441,7 +2506,24 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         );
       }
 
+      if (!ai) {
+        throw new Error(TEST_HARNESS_LLM_QUERY_AI_REQUIRED_ERROR);
+      }
+
       const query = queryOrQueries as string;
+      const normalizeSubAgentAnswer = (value: AxFieldValue): string => {
+        if (value === undefined || value === null) {
+          return '';
+        }
+        if (typeof value === 'string') {
+          return truncateText(value, maxRuntimeChars);
+        }
+        try {
+          return truncateText(JSON.stringify(value), maxRuntimeChars);
+        } catch {
+          return truncateText(String(value), maxRuntimeChars);
+        }
+      };
 
       const runSingleLlmQuery = async (
         singleQuery: string,
@@ -1512,7 +2594,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
               };
 
               const onResolve = () => {
-                if (settled) return;
+                if (settled) {
+                  return;
+                }
                 settled = true;
                 cleanup();
                 resolve();
@@ -1524,7 +2608,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
               }
 
               onAbort = () => {
-                if (settled) return;
+                if (settled) {
+                  return;
+                }
                 settled = true;
                 clearTimeout(timer);
                 cleanup();
@@ -1549,6 +2635,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
             });
           }
         }
+
         return formatSubAgentError(lastError);
       };
 
@@ -1559,43 +2646,17 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       return result;
     };
 
-    // Build tool function globals for the runtime
     const toolGlobals = this.buildRuntimeGlobals(
       effectiveAbortSignal,
-      sharedFieldValues,
-      ai
+      inputState.sharedFieldValues,
+      ai,
+      completionBindings.protocol,
+      functionCallRecorder
     );
-
-    let actorResultPayload: AxAgentActorResultPayload | undefined;
-    const setActorResultPayload = (
-      type: AxAgentActorResultPayload['type'],
-      args: unknown[]
-    ) => {
-      if (args.length === 0) {
-        throw new Error(`${type}() requires at least one argument`);
-      }
-      actorResultPayload = { type, args };
-    };
-    const finalFunction = (...args: unknown[]) =>
-      setActorResultPayload('final', args);
-    const askClarificationFunction = (...args: unknown[]) =>
-      setActorResultPayload('ask_clarification', args);
-    const contextMgmt = rlm.contextManagement;
-    const effectiveContextConfig = {
-      errorPruning: contextMgmt?.errorPruning ?? rlm.trajectoryPruning ?? false,
-      hindsightEvaluation: contextMgmt?.hindsightEvaluation ?? false,
-      tombstoning: contextMgmt?.tombstoning,
-      pruneRank: contextMgmt?.pruneRank ?? 2,
-      actionReplay: contextMgmt?.actionReplay ?? 'full',
-      recentFullActions: contextMgmt?.recentFullActions ?? 1,
-      successSummarization: contextMgmt?.successSummarization,
-      stateSummary: contextMgmt?.stateSummary,
-    };
-
     const agentFunctionNamespaces = [
       ...new Set(this.agentFunctions.map((f) => f.namespace ?? 'utils')),
     ];
-    const runtimeInputs = { ...currentInputs };
+    const runtimeInputs = { ...inputState.currentInputs };
     const reservedTopLevelNames = new Set([
       'inputs',
       'llmQuery',
@@ -1604,14 +2665,17 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       'final',
       'ask_clarification',
       ...agentFunctionNamespaces,
-      ...(contextMgmt?.stateInspection || contextMgmt?.stateSummary?.enabled
+      ...(effectiveContextConfig.stateInspection.enabled
         ? ['inspect_runtime']
         : []),
       ...Object.keys(toolGlobals),
     ]);
     const runtimeAliasKeys = [
-      ...new Set([...Object.keys(runtimeInputs), ...signatureInputFieldNames]),
-    ].filter((k) => !reservedTopLevelNames.has(k));
+      ...new Set([
+        ...Object.keys(runtimeInputs),
+        ...inputState.signatureInputFieldNames,
+      ]),
+    ].filter((key) => !reservedTopLevelNames.has(key));
     const runtimeTopLevelInputAliases: Record<string, unknown> = {};
     for (const key of runtimeAliasKeys) {
       runtimeTopLevelInputAliases[key] = runtimeInputs[key];
@@ -1621,12 +2685,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       for (const key of Object.keys(runtimeInputs)) {
         delete runtimeInputs[key];
       }
-      for (const [key, value] of Object.entries(currentInputs)) {
+      for (const [key, value] of Object.entries(inputState.currentInputs)) {
         runtimeInputs[key] = value;
       }
 
       for (const key of runtimeAliasKeys) {
-        runtimeTopLevelInputAliases[key] = currentInputs[key];
+        runtimeTopLevelInputAliases[key] = inputState.currentInputs[key];
       }
     };
 
@@ -1635,272 +2699,213 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       ...reservedTopLevelNames,
       ...runtimeAliasKeys,
     ];
-
-    // inspect_runtime: queries worker globalThis for current variable state
-    // Captures `session` by reference so it works after session restart.
-    const inspectRuntime =
-      contextMgmt?.stateInspection || contextMgmt?.stateSummary?.enabled
-        ? async (): Promise<string> => {
-            try {
-              const code = buildInspectRuntimeCode(inspectReservedNames);
-              const result = await session.execute(code, {
-                signal: effectiveAbortSignal,
-                reservedNames: inspectReservedNames,
-              });
-              return typeof result === 'string' ? result : String(result);
-            } catch (err) {
-              return `[inspect_runtime error: ${err instanceof Error ? err.message : String(err)}]`;
-            }
-          }
+    const runtimeActionLogEntries = actionLogEntries ?? [];
+    let session!: AxCodeSession;
+    let inspectBaselineNames: string[] | undefined;
+    const getInspectableSession = (runtimeSession: AxCodeSession) =>
+      typeof runtimeSession.inspectGlobals === 'function'
+        ? runtimeSession
         : undefined;
 
-    const formatStateSummary = (snapshot: string): string => {
-      const maxEntries =
-        effectiveContextConfig.stateSummary?.maxEntries &&
-        effectiveContextConfig.stateSummary.maxEntries > 0
-          ? effectiveContextConfig.stateSummary.maxEntries
-          : 8;
-
-      return snapshot
-        .split('\n')
-        .map((line) => line.trim())
-        .filter(Boolean)
-        .slice(0, maxEntries)
-        .join('\n');
+    const loadInspectBaselineNames = async (): Promise<string[]> => {
+      try {
+        const result = await session.execute(
+          buildInspectRuntimeBaselineCode(),
+          {
+            signal: effectiveAbortSignal,
+            reservedNames: inspectReservedNames,
+          }
+        );
+        if (typeof result !== 'string') {
+          return [];
+        }
+        const parsed = JSON.parse(result);
+        return Array.isArray(parsed)
+          ? parsed.filter((value): value is string => typeof value === 'string')
+          : [];
+      } catch {
+        return [];
+      }
     };
 
-    const captureRuntimeStateSummary = async (): Promise<
-      string | undefined
-    > => {
-      if (!effectiveContextConfig.stateSummary?.enabled || !inspectRuntime) {
-        return undefined;
+    const ensureInspectBaselineNames = async (): Promise<string[]> => {
+      if (!inspectBaselineNames) {
+        inspectBaselineNames = await loadInspectBaselineNames();
+      }
+      return inspectBaselineNames;
+    };
+
+    const inspectRuntimeState = async (): Promise<string> => {
+      try {
+        const inspectableSession = getInspectableSession(session);
+        if (inspectableSession?.inspectGlobals) {
+          return await inspectableSession.inspectGlobals({
+            signal: effectiveAbortSignal,
+            reservedNames: inspectReservedNames,
+          });
+        }
+
+        const baselineNames = await ensureInspectBaselineNames();
+        const code = buildInspectRuntimeCode(
+          inspectReservedNames,
+          baselineNames
+        );
+        const result = await session.execute(code, {
+          signal: effectiveAbortSignal,
+          reservedNames: inspectReservedNames,
+        });
+        return typeof result === 'string' ? result : String(result);
+      } catch (err) {
+        return `[inspect_runtime error: ${err instanceof Error ? err.message : String(err)}]`;
+      }
+    };
+
+    const renderRuntimeState = (
+      snapshot: string,
+      options?: Readonly<{ maxEntries?: number; maxChars?: number }>
+    ): string => {
+      const structuredEntries = parseRuntimeStateSnapshot(snapshot);
+
+      if (!structuredEntries) {
+        return formatLegacyRuntimeState(snapshot, options);
       }
 
-      const snapshot = await inspectRuntime();
-      const formatted = formatStateSummary(snapshot);
-      return formatted || '(no user variables)';
+      const provenance = buildRuntimeStateProvenance(runtimeActionLogEntries);
+      return formatStructuredRuntimeState(
+        structuredEntries,
+        provenance,
+        options
+      );
     };
 
+    const inspectRuntime = effectiveContextConfig.stateInspection.enabled
+      ? async (): Promise<string> =>
+          renderRuntimeState(await inspectRuntimeState())
+      : undefined;
+
     const createSession = () => {
+      inspectBaselineNames = undefined;
       return runtime.createSession({
         ...runtimeTopLevelInputAliases,
         inputs: runtimeInputs,
         llmQuery,
-        final: finalFunction,
-        ask_clarification: askClarificationFunction,
+        final: completionBindings.finalFunction,
+        ask_clarification: completionBindings.askClarificationFunction,
         ...(inspectRuntime ? { inspect_runtime: inspectRuntime } : {}),
         ...toolGlobals,
       });
     };
 
-    const timeoutRestartNotice = `[The JavaScript runtime was restarted; all global state was lost and must be recreated if needed.]`;
-    let session = createSession();
+    session = createSession();
 
-    const isSessionClosedError = (err: unknown): boolean => {
-      return err instanceof Error && err.message === 'Session is closed';
-    };
-
-    const isExecutionTimedOutError = (err: unknown): boolean => {
-      return err instanceof Error && err.message === 'Execution timed out';
-    };
-
-    const formatInterpreterOutput = (result: unknown) => {
-      if (result === undefined) {
-        return '(no output)';
-      }
-      if (typeof result === 'string') {
-        return truncateText(result || '(no output)', maxRuntimeChars);
-      }
-      try {
-        return truncateText(JSON.stringify(result, null, 2), maxRuntimeChars);
-      } catch {
-        return truncateText(String(result), maxRuntimeChars);
-      }
-    };
-
-    const formatInterpreterError = (err: unknown): string => {
-      const typedErr = err as {
-        name?: string;
-        message?: string;
-        cause?: unknown;
-        data?: unknown;
-      };
-      const name = typedErr?.name ?? 'Error';
-      const message = typedErr?.message ?? String(err);
-      const parts: string[] = [`${name}: ${message}`];
-
-      if (typedErr?.data !== undefined) {
-        try {
-          parts.push(`Data: ${JSON.stringify(typedErr.data, null, 2)}`);
-        } catch {
-          parts.push(`Data: ${String(typedErr.data)}`);
-        }
-      }
-
-      if (typedErr?.cause !== undefined) {
-        const fmtCause = (cause: unknown, depth: number): string => {
-          if (depth > 4) return '[cause chain truncated]';
-          const c = cause as typeof typedErr;
-          const cName = c?.name ?? 'Error';
-          const cMsg = c?.message ?? String(cause);
-          const cParts: string[] = [`${cName}: ${cMsg}`];
-          if (c?.data !== undefined) {
-            try {
-              cParts.push(`Data: ${JSON.stringify(c.data, null, 2)}`);
-            } catch {
-              cParts.push(`Data: ${String(c.data)}`);
-            }
-          }
-          if (c?.cause !== undefined) {
-            cParts.push(`Caused by: ${fmtCause(c.cause, depth + 1)}`);
-          }
-          return cParts.join('\n');
-        };
-        parts.push(`Caused by: ${fmtCause(typedErr.cause, 1)}`);
-      }
-
-      return truncateText(parts.join('\n'), maxRuntimeChars);
-    };
-
-    const hasCompletionSignalCall = (code: string): boolean => {
-      const sanitized = stripJsStringsAndComments(code);
-      return (
-        /\bfinal\s*\(/.test(sanitized) ||
-        /\bask_clarification\s*\(/.test(sanitized)
-      );
-    };
-
-    const looksLikePromisePlaceholder = (result: unknown): boolean => {
-      if (
-        result &&
-        (typeof result === 'object' || typeof result === 'function') &&
-        'then' in result &&
-        typeof (result as { then?: unknown }).then === 'function'
-      ) {
-        return true;
-      }
-      return typeof result === 'string' && result.trim() === '[object Promise]';
-    };
-
-    const waitForActorCompletionSignal = async (): Promise<void> => {
-      if (actorResultPayload) {
+    const waitForCompletionSignal = async (): Promise<void> => {
+      if (completionState.payload) {
         return;
       }
-      for (let i = 0; i < 3 && !actorResultPayload; i++) {
+      for (let i = 0; i < 3 && !completionState.payload; i++) {
         await new Promise<void>((resolve) => {
           setTimeout(resolve, 0);
         });
       }
     };
 
-    const executeInterpreterCode = async (
-      code: string
-    ): Promise<{ output: string; isError: boolean }> => {
-      try {
-        const result = await session.execute(code, {
-          signal: effectiveAbortSignal,
-          reservedNames: protectedRuntimeNames,
-        });
-        if (
-          hasCompletionSignalCall(code) &&
-          (actorResultPayload || looksLikePromisePlaceholder(result))
-        ) {
-          await waitForActorCompletionSignal();
-          if (actorResultPayload) {
-            return {
-              output: formatInterpreterOutput(undefined),
-              isError: false,
-            };
-          }
-        }
-        return { output: formatInterpreterOutput(result), isError: false };
-      } catch (err) {
-        if (effectiveAbortSignal?.aborted) {
-          throw new AxAIServiceAbortedError(
-            'rlm-session',
-            effectiveAbortSignal.reason ?? 'Aborted'
-          );
-        }
-        if (
-          err instanceof Error &&
-          (err.name === 'AbortError' || err.message.startsWith('Aborted'))
-        ) {
-          throw err;
-        }
-        // Timeout: worker was reset internally, next execute() auto-creates a new worker.
-        if (isExecutionTimedOutError(err)) {
-          return {
-            output: truncateText(
-              `${timeoutRestartNotice}\n${formatInterpreterError(err)}`,
-              maxRuntimeChars
-            ),
-            isError: true,
-          };
-        }
-        // Unexpected session close: restart with a new session and retry.
-        if (isSessionClosedError(err)) {
-          try {
-            session = createSession();
-            actorResultPayload = undefined;
-            const retryResult = await session.execute(code, {
-              signal: effectiveAbortSignal,
-              reservedNames: protectedRuntimeNames,
-            });
-            return {
-              output: truncateText(
-                `${timeoutRestartNotice}\n${formatInterpreterOutput(retryResult)}`,
-                maxRuntimeChars
-              ),
-              isError: false,
-            };
-          } catch (retryErr) {
-            return {
-              output: truncateText(
-                `${timeoutRestartNotice}\n${formatInterpreterError(retryErr)}`,
-                maxRuntimeChars
-              ),
-              isError: true,
-            };
-          }
-        }
-        return {
-          output: truncateText(formatInterpreterError(err), maxRuntimeChars),
-          isError: true,
-        };
+    const captureRuntimeStateSummary = async (): Promise<
+      string | undefined
+    > => {
+      if (!effectiveContextConfig.stateSummary.enabled) {
+        return undefined;
       }
-    };
 
-    const applyInputUpdateCallback = async () => {
-      if (!this.inputUpdateCallback) {
-        return;
-      }
-      const patch = await this.inputUpdateCallback({
-        ...(currentInputs as IN),
-      } as Readonly<IN>);
-      if (patch === undefined) {
-        return;
-      }
-      if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
-        throw new Error(
-          'inputUpdateCallback must return an object patch or undefined'
-        );
-      }
-      for (const [key, value] of Object.entries(
-        patch as Record<string, unknown>
-      )) {
-        if (signatureInputFieldNames.has(key)) {
-          currentInputs[key] = value;
-        }
-      }
+      const snapshot = await inspectRuntimeState();
+      const formatted = renderRuntimeState(snapshot, {
+        maxEntries:
+          effectiveContextConfig.stateSummary.maxEntries &&
+          effectiveContextConfig.stateSummary.maxEntries > 0
+            ? effectiveContextConfig.stateSummary.maxEntries
+            : 8,
+        maxChars:
+          effectiveContextConfig.stateSummary.maxChars &&
+          effectiveContextConfig.stateSummary.maxChars > 0
+            ? effectiveContextConfig.stateSummary.maxChars
+            : undefined,
+      });
+      return formatted || '(no user variables)';
     };
 
     const getPatchableSession = (runtimeSession: AxCodeSession) => {
       if (typeof runtimeSession.patchGlobals !== 'function') {
         throw new Error(
-          'AxCodeSession.patchGlobals() is required when using inputUpdateCallback'
+          'AxCodeSession.patchGlobals() is required when restoring AxAgent state or using inputUpdateCallback'
         );
       }
       return runtimeSession;
+    };
+
+    const getSnapshotableSession = (runtimeSession: AxCodeSession) => {
+      if (typeof runtimeSession.snapshotGlobals !== 'function') {
+        throw new Error(
+          'AxCodeSession.snapshotGlobals() is required to export AxAgent state'
+        );
+      }
+      return runtimeSession as AxCodeSession & {
+        snapshotGlobals: NonNullable<AxCodeSession['snapshotGlobals']>;
+      };
+    };
+
+    const prepareRestoredState = (
+      state: Readonly<AxAgentState>
+    ): AxPreparedRestoredState => {
+      const skippedNames = new Set(inspectReservedNames);
+      const runtimeBindings: Record<string, unknown> = {};
+      for (const [name, value] of Object.entries(state.runtimeBindings ?? {})) {
+        if (!skippedNames.has(name)) {
+          runtimeBindings[name] = value;
+        }
+      }
+
+      const runtimeEntries = (state.runtimeEntries ?? []).filter(
+        (entry) => !skippedNames.has(entry.name)
+      );
+
+      return {
+        runtimeBindings,
+        runtimeEntries,
+        actionLogEntries: deserializeAgentStateActionLogEntries(
+          state.actionLogEntries
+        ),
+        checkpointState: state.checkpointState,
+        provenance: { ...(state.provenance ?? {}) },
+      };
+    };
+
+    const restoreRuntimeState = async (
+      state: Readonly<AxAgentState>
+    ): Promise<AxPreparedRestoredState> => {
+      const preparedState = prepareRestoredState(state);
+      const patchableSession = getPatchableSession(session);
+      await patchableSession.patchGlobals(preparedState.runtimeBindings, {
+        signal: effectiveAbortSignal,
+      });
+      return preparedState;
+    };
+
+    const exportRuntimeState = async (): Promise<AxAgentState> => {
+      const snapshotableSession = getSnapshotableSession(session);
+      const snapshot = await snapshotableSession.snapshotGlobals({
+        signal: effectiveAbortSignal,
+        reservedNames: inspectReservedNames,
+      });
+      const provenance = buildRuntimeStateProvenance(runtimeActionLogEntries);
+
+      return {
+        version: 1,
+        runtimeBindings: snapshot.bindings,
+        runtimeEntries: snapshot.entries,
+        actionLogEntries: serializeAgentStateActionLogEntries(
+          runtimeActionLogEntries
+        ),
+        provenance: runtimeStateProvenanceToRecord(provenance),
+      };
     };
 
     const syncRuntimeInputsToSession = async (): Promise<void> => {
@@ -1938,14 +2943,309 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           return;
         }
         throw new Error(
-          `Failed to sync runtime inputs: ${formatInterpreterError(err)}`
+          `Failed to sync runtime inputs: ${formatInterpreterError(err, maxRuntimeChars)}`
         );
       }
     };
 
-    // 3. Actor loop (TypeScript-managed)
+    const executeActorCode = async (
+      code: string
+    ): Promise<{ output: string; isError: boolean }> => {
+      const completionOutput = {
+        output: formatInterpreterOutput(undefined, maxRuntimeChars),
+        isError: false,
+      };
+
+      try {
+        const result = await session.execute(code, {
+          signal: effectiveAbortSignal,
+          reservedNames: protectedRuntimeNames,
+        });
+        if (completionState.payload) {
+          return completionOutput;
+        }
+        if (
+          hasCompletionSignalCall(code) &&
+          looksLikePromisePlaceholder(result)
+        ) {
+          await waitForCompletionSignal();
+          if (completionState.payload) {
+            return completionOutput;
+          }
+        }
+        return {
+          output: formatInterpreterOutput(result, maxRuntimeChars),
+          isError: false,
+        };
+      } catch (err) {
+        if (
+          err instanceof AxAgentProtocolCompletionSignal ||
+          completionState.payload
+        ) {
+          return completionOutput;
+        }
+        if (effectiveAbortSignal?.aborted) {
+          throw new AxAIServiceAbortedError(
+            'rlm-session',
+            effectiveAbortSignal.reason ?? 'Aborted'
+          );
+        }
+        if (
+          err instanceof Error &&
+          (err.name === 'AbortError' || err.message.startsWith('Aborted'))
+        ) {
+          throw err;
+        }
+        if (isExecutionTimedOutError(err)) {
+          return {
+            output: truncateText(
+              `${RUNTIME_RESTART_NOTICE}\n${formatInterpreterError(err, maxRuntimeChars)}`,
+              maxRuntimeChars
+            ),
+            isError: true,
+          };
+        }
+        if (isSessionClosedError(err)) {
+          try {
+            session = createSession();
+            completionState.payload = undefined;
+            const retryResult = await session.execute(code, {
+              signal: effectiveAbortSignal,
+              reservedNames: protectedRuntimeNames,
+            });
+            return {
+              output: truncateText(
+                `${RUNTIME_RESTART_NOTICE}\n${formatInterpreterOutput(retryResult, maxRuntimeChars)}`,
+                maxRuntimeChars
+              ),
+              isError: false,
+            };
+          } catch (retryErr) {
+            return {
+              output: truncateText(
+                `${RUNTIME_RESTART_NOTICE}\n${formatInterpreterError(retryErr, maxRuntimeChars)}`,
+                maxRuntimeChars
+              ),
+              isError: true,
+            };
+          }
+        }
+        return {
+          output: truncateText(
+            formatInterpreterError(err, maxRuntimeChars),
+            maxRuntimeChars
+          ),
+          isError: true,
+        };
+      }
+    };
+
+    const executeTestCode = async (
+      code: string
+    ): Promise<AxAgentTestResult> => {
+      try {
+        const result = await session.execute(code, {
+          signal: effectiveAbortSignal,
+          reservedNames: protectedRuntimeNames,
+        });
+        if (
+          hasCompletionSignalCall(code) &&
+          looksLikePromisePlaceholder(result)
+        ) {
+          await waitForCompletionSignal();
+        }
+        if (completionState.payload) {
+          return completionState.payload;
+        }
+        const output = formatInterpreterOutput(result, maxRuntimeChars);
+        if (isLikelyRuntimeErrorOutput(output)) {
+          throw new Error(output);
+        }
+        return output;
+      } catch (err) {
+        if (
+          err instanceof AxAgentProtocolCompletionSignal ||
+          completionState.payload
+        ) {
+          if (completionState.payload) {
+            return completionState.payload;
+          }
+        }
+        throw err;
+      }
+    };
+
+    return {
+      effectiveContextConfig,
+      captureRuntimeStateSummary,
+      exportRuntimeState,
+      restoreRuntimeState,
+      syncRuntimeInputsToSession,
+      executeActorCode,
+      executeTestCode,
+      close: () => {
+        session.close();
+      },
+    };
+  }
+
+  public getExcludedAgents(): readonly string[] {
+    return this.excludedAgents;
+  }
+
+  public getExcludedAgentFunctions(): readonly string[] {
+    return this.excludedAgentFunctions;
+  }
+
+  public getSignature(): AxSignature {
+    return this.program.getSignature();
+  }
+
+  public async test(
+    code: string,
+    values?: Partial<IN>,
+    options?: Readonly<{
+      ai?: AxAIService;
+      abortSignal?: AbortSignal;
+      debug?: boolean;
+    }>
+  ): Promise<AxAgentTestResult> {
+    const ai = this.ai ?? options?.ai;
+    const debug =
+      options?.debug ?? this.debug ?? ai?.getOptions()?.debug ?? false;
+    const inputState = this._createRuntimeInputState(values ?? {}, {
+      allowedFieldNames: this.rlmConfig.contextFields,
+      validateInputKeys: true,
+    });
+    inputState.recomputeTurnInputs(false);
+
+    const completionState: AxAgentRuntimeCompletionState = {
+      payload: undefined,
+    };
+    const completionBindings = createCompletionBindings((type, args) => {
+      completionState.payload = normalizeCompletionPayload(type, args);
+    });
+
+    const runtimeContext = this._createRuntimeExecutionContext({
+      ai,
+      inputState,
+      options: undefined,
+      effectiveAbortSignal: options?.abortSignal,
+      debug,
+      completionState,
+      completionBindings,
+      actionLogEntries: [],
+    });
+
+    try {
+      return await runtimeContext.executeTestCode(code);
+    } finally {
+      runtimeContext.close();
+    }
+  }
+
+  public setSignature(
+    signature: NonNullable<ConstructorParameters<typeof AxSignature>[0]>
+  ) {
+    const nextSignature = new AxSignature(signature);
+    this._validateConfiguredSignature(nextSignature);
+
+    const previousSignature = this.program.getSignature();
+    try {
+      this.program.setSignature(nextSignature);
+      this._buildSplitPrograms();
+      if (this.func) {
+        this.func.parameters = this._buildFuncParameters();
+      }
+    } catch (err) {
+      this.program.setSignature(previousSignature);
+      this._buildSplitPrograms();
+      if (this.func) {
+        this.func.parameters = this._buildFuncParameters();
+      }
+      throw err;
+    }
+  }
+
+  public applyOptimization(optimizedProgram: any): void {
+    (this.program as any).applyOptimization?.(optimizedProgram);
+  }
+
+  // ----- Forward (split architecture) -----
+
+  /**
+   * Runs the Actor loop: sets up the runtime session, executes code iteratively,
+   * and returns the state needed by the Responder. Closes the session before returning.
+   */
+  private async _runActorLoop(
+    ai: AxAIService,
+    values: IN | AxMessage<IN>[],
+    options: Readonly<AxProgramForwardOptions<string>> | undefined,
+    effectiveAbortSignal: AbortSignal | undefined,
+    functionCallRecords?: AxAgentEvalFunctionCall[]
+  ): Promise<{
+    nonContextValues: Record<string, unknown>;
+    contextMetadata: string;
+    actionLog: string;
+    actorResult: AxAgentActorResultPayload;
+    actorFieldValues: Record<string, unknown>;
+    turnCount: number;
+  }> {
+    const rlm = this.rlmConfig;
+    const debug =
+      options?.debug ?? this.debug ?? ai?.getOptions()?.debug ?? false;
+    const maxTurns = rlm.maxTurns ?? DEFAULT_RLM_MAX_TURNS;
+
+    const inputState = this._createRuntimeInputState(values);
+    inputState.recomputeTurnInputs(false);
+
+    const completionState: AxAgentRuntimeCompletionState = {
+      payload: undefined,
+    };
+    const completionBindings = createCompletionBindings((type, args) => {
+      completionState.payload = normalizeCompletionPayload(type, args);
+    });
     const actionLogEntries: ActionLogEntry[] = [];
     let runtimeStateSummary: string | undefined;
+    const runtimeContext = this._createRuntimeExecutionContext({
+      ai,
+      inputState,
+      options,
+      effectiveAbortSignal,
+      debug,
+      completionState,
+      completionBindings,
+      actionLogEntries,
+      functionCallRecorder: functionCallRecords
+        ? (call) => {
+            functionCallRecords.push(call);
+          }
+        : undefined,
+    });
+
+    const applyInputUpdateCallback = async () => {
+      if (!this.inputUpdateCallback) {
+        return;
+      }
+      const patch = await this.inputUpdateCallback({
+        ...(inputState.currentInputs as IN),
+      } as Readonly<IN>);
+      if (patch === undefined) {
+        return;
+      }
+      if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+        throw new Error(
+          'inputUpdateCallback must return an object patch or undefined'
+        );
+      }
+      for (const [key, value] of Object.entries(
+        patch as Record<string, unknown>
+      )) {
+        if (inputState.signatureInputFieldNames.has(key)) {
+          inputState.currentInputs[key] = value;
+        }
+      }
+    };
 
     const actorMergedOptions = {
       ...this._genOptions,
@@ -1956,27 +3256,154 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     };
 
     const actorFieldValues: Record<string, unknown> = {};
+    const contextThreshold = runtimeContext.effectiveContextConfig
+      .stateInspection.enabled
+      ? runtimeContext.effectiveContextConfig.stateInspection.contextThreshold
+      : undefined;
+    const summaryForwardOptions = buildInternalSummaryRequestOptions(
+      options,
+      debug,
+      effectiveAbortSignal
+    );
+    const shouldPruneUsedDocs =
+      this.functionDiscoveryEnabled &&
+      runtimeContext.effectiveContextConfig.pruneUsedDocs;
+    let checkpointState: CheckpointSummaryState | undefined;
+    let restoreNotice: string | undefined;
 
-    const contextThreshold = contextMgmt?.stateInspection?.contextThreshold;
+    const getPromptFacingEntries = () =>
+      getPromptFacingActionLogEntries(actionLogEntries, {
+        pruneUsedDocs: shouldPruneUsedDocs,
+      });
+
+    const renderActionLog = () =>
+      buildActionLogWithPolicy(getPromptFacingEntries(), {
+        actionReplay: runtimeContext.effectiveContextConfig.actionReplay,
+        recentFullActions:
+          runtimeContext.effectiveContextConfig.recentFullActions,
+        restoreNotice,
+        stateSummary: runtimeStateSummary,
+        checkpointSummary: checkpointState?.summary,
+        checkpointTurns: checkpointState?.turns,
+      }) || '(no actions yet)';
+
+    const refreshCheckpointSummary = async () => {
+      if (!runtimeContext.effectiveContextConfig.checkpoints.enabled) {
+        checkpointState = undefined;
+        return;
+      }
+
+      const replayPlan = buildActionLogReplayPlan(actionLogEntries, {
+        actionReplay: runtimeContext.effectiveContextConfig.actionReplay,
+        recentFullActions:
+          runtimeContext.effectiveContextConfig.recentFullActions,
+        pruneUsedDocs: shouldPruneUsedDocs,
+      });
+
+      const triggerChars =
+        runtimeContext.effectiveContextConfig.checkpoints.triggerChars;
+      if (!triggerChars || replayPlan.historyChars <= triggerChars) {
+        checkpointState = undefined;
+        return;
+      }
+
+      const checkpointEntries = replayPlan.checkpointEntries;
+      if (checkpointEntries.length === 0) {
+        checkpointState = undefined;
+        return;
+      }
+
+      const fingerprint = JSON.stringify(
+        checkpointEntries.map((entry) => ({
+          turn: entry.turn,
+          code: entry.code,
+          output: entry.output,
+          actorFieldsOutput: entry.actorFieldsOutput,
+          tags: entry.tags,
+          tombstone: entry.tombstone,
+        }))
+      );
+
+      if (checkpointState?.fingerprint === fingerprint) {
+        return;
+      }
+
+      checkpointState = {
+        fingerprint,
+        turns: checkpointEntries.map((entry) => entry.turn),
+        summary: await generateCheckpointSummaryAsync(
+          ai,
+          runtimeContext.effectiveContextConfig.summarizerOptions,
+          summaryForwardOptions,
+          checkpointEntries
+        ),
+      };
+    };
 
     try {
+      if (this.state) {
+        const restoredState = await runtimeContext.restoreRuntimeState(
+          this.state
+        );
+        const shouldRenderRestoredRuntimeState =
+          runtimeContext.effectiveContextConfig.stateSummary.enabled;
+        actionLogEntries.push(...restoredState.actionLogEntries);
+        checkpointState = restoredState.checkpointState
+          ? {
+              fingerprint: restoredState.checkpointState.fingerprint,
+              turns: [...restoredState.checkpointState.turns],
+              summary: restoredState.checkpointState.summary,
+            }
+          : undefined;
+        const restoredProvenance = mergeRuntimeStateProvenance(
+          buildRuntimeStateProvenance(actionLogEntries),
+          runtimeStateProvenanceFromRecord(restoredState.provenance)
+        );
+        runtimeStateSummary = shouldRenderRestoredRuntimeState
+          ? formatStructuredRuntimeState(
+              restoredState.runtimeEntries,
+              restoredProvenance,
+              {
+                maxEntries:
+                  runtimeContext.effectiveContextConfig.stateSummary
+                    .maxEntries &&
+                  runtimeContext.effectiveContextConfig.stateSummary
+                    .maxEntries > 0
+                    ? runtimeContext.effectiveContextConfig.stateSummary
+                        .maxEntries
+                    : 8,
+                maxChars:
+                  runtimeContext.effectiveContextConfig.stateSummary.maxChars &&
+                  runtimeContext.effectiveContextConfig.stateSummary.maxChars >
+                    0
+                    ? runtimeContext.effectiveContextConfig.stateSummary
+                        .maxChars
+                    : 1_200,
+              }
+            ) || '(no user variables)'
+          : undefined;
+        restoreNotice = buildRuntimeRestoreNotice(
+          restoredState.runtimeEntries,
+          {
+            includeLiveRuntimeState: shouldRenderRestoredRuntimeState,
+          }
+        );
+      }
+
       for (let turn = 0; turn < maxTurns; turn++) {
         await applyInputUpdateCallback();
-        recomputeTurnInputs(true);
-        runtimeStateSummary = await captureRuntimeStateSummary();
+        inputState.recomputeTurnInputs(true);
+        await refreshCheckpointSummary();
 
-        // Build action log, adding inspect_runtime hint when it gets large
-        let actionLogText =
-          buildActionLogWithPolicy(actionLogEntries, {
-            actionReplay: effectiveContextConfig.actionReplay,
-            recentFullActions: effectiveContextConfig.recentFullActions,
-            stateSummary: runtimeStateSummary,
-            successSummarization:
-              effectiveContextConfig.successSummarization === undefined
-                ? effectiveContextConfig.actionReplay !== 'full'
-                : Boolean(effectiveContextConfig.successSummarization),
-          }) || '(no actions yet)';
-        if (contextThreshold && actionLogText.length > contextThreshold) {
+        let actionLogText = renderActionLog();
+        const replayPlan = buildActionLogReplayPlan(actionLogEntries, {
+          actionReplay: runtimeContext.effectiveContextConfig.actionReplay,
+          recentFullActions:
+            runtimeContext.effectiveContextConfig.recentFullActions,
+          pruneUsedDocs: shouldPruneUsedDocs,
+          checkpointTurns: checkpointState?.turns,
+        });
+        if (contextThreshold && replayPlan.historyChars > contextThreshold) {
           actionLogText +=
             '\n\n[HINT: Action log is large. Call `const state = await inspect_runtime()` for a compact snapshot of current variables instead of re-reading old outputs.]';
         }
@@ -1984,29 +3411,17 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         const actorResult = await this.actorProgram.forward(
           ai,
           {
-            ...nonContextValues,
-            ...actorInlineContextValues,
-            contextMetadata,
+            ...inputState.getNonContextValues(),
+            ...inputState.getActorInlineContextValues(),
+            contextMetadata: inputState.getContextMetadata(),
             actionLog: actionLogText,
           },
           actorMergedOptions
         );
 
-        // After the first actor turn, hide the system prompt from debug logs
         if (turn === 0) {
           actorMergedOptions.debugHideSystemPrompt = true;
-        }
-
-        // Call actorCallback if provided
-        if (rlm.actorCallback) {
-          await rlm.actorCallback(actorResult as Record<string, unknown>);
-        }
-
-        // Capture actorField values from this turn
-        for (const fieldName of this.actorFieldNames) {
-          if (fieldName in actorResult) {
-            actorFieldValues[fieldName] = actorResult[fieldName];
-          }
+          restoreNotice = undefined;
         }
 
         let code = actorResult.javascriptCode as string | undefined;
@@ -2014,9 +3429,19 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         if (!code || !trimmedCode) {
           break;
         }
-        code = trimmedCode;
+        code = normalizeActorJavascriptCode(trimmedCode);
+        actorResult.javascriptCode = code;
 
-        // Build actorFields output for actionLog
+        if (rlm.actorCallback) {
+          await rlm.actorCallback(actorResult as Record<string, unknown>);
+        }
+
+        for (const fieldName of this.actorFieldNames) {
+          if (fieldName in actorResult) {
+            actorFieldValues[fieldName] = actorResult[fieldName];
+          }
+        }
+
         let actorFieldsOutput = '';
         if (this.actorFieldNames.length > 0) {
           const fieldEntries = this.actorFieldNames
@@ -2028,14 +3453,14 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           }
         }
 
-        // Reset Actor completion payload before execution.
-        actorResultPayload = undefined;
+        completionState.payload = undefined;
 
         if (this.enforceIncrementalConsoleTurns) {
           const policyViolation = validateActorTurnCodePolicy(code);
           if (policyViolation) {
+            const entryTurn = actionLogEntries.length + 1;
             actionLogEntries.push({
-              turn: turn + 1,
+              turn: entryTurn,
               code,
               output: policyViolation,
               actorFieldsOutput,
@@ -2045,75 +3470,95 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
             await manageContext(
               actionLogEntries,
               actionLogEntries.length - 1,
-              effectiveContextConfig,
-              ai
+              runtimeContext.effectiveContextConfig,
+              ai,
+              summaryForwardOptions
             );
-            runtimeStateSummary = await captureRuntimeStateSummary();
+            await refreshCheckpointSummary();
             continue;
           }
         }
 
         if (this.inputUpdateCallback) {
-          await syncRuntimeInputsToSession();
+          await runtimeContext.syncRuntimeInputsToSession();
         }
-        const { output, isError } = await executeInterpreterCode(code);
+        const { output, isError } = await runtimeContext.executeActorCode(code);
 
+        const entryTurn = actionLogEntries.length + 1;
         actionLogEntries.push({
-          turn: turn + 1,
+          turn: entryTurn,
           code,
           output,
           actorFieldsOutput,
           tags: isError ? ['error'] : [],
         });
 
-        // Semantic context management: hindsight eval, tombstoning, pruning
         await manageContext(
           actionLogEntries,
           actionLogEntries.length - 1,
-          effectiveContextConfig,
-          ai
+          runtimeContext.effectiveContextConfig,
+          ai,
+          summaryForwardOptions
         );
-        runtimeStateSummary = await captureRuntimeStateSummary();
+        if (!isError) {
+          runtimeStateSummary =
+            await runtimeContext.captureRuntimeStateSummary();
+        }
+        await refreshCheckpointSummary();
 
-        // Exit when Actor signaled completion via final(...) or ask_clarification(...).
-        if (actorResultPayload) {
+        if (completionState.payload) {
           break;
         }
       }
+      await refreshCheckpointSummary();
+
+      try {
+        const nextState = await runtimeContext.exportRuntimeState();
+        nextState.checkpointState = checkpointState
+          ? {
+              fingerprint: checkpointState.fingerprint,
+              turns: [...checkpointState.turns],
+              summary: checkpointState.summary,
+            }
+          : undefined;
+        this.state = nextState;
+        this.stateError = undefined;
+      } catch (err) {
+        this.state = undefined;
+        this.stateError =
+          err instanceof Error
+            ? err.message
+            : `Failed to export AxAgent state: ${String(err)}`;
+      }
     } finally {
       try {
-        session.close();
+        runtimeContext.close();
       } catch {
         // Ignore close errors
       }
     }
 
     const actorResult =
-      actorResultPayload ??
+      completionState.payload ??
       ({
         type: 'final',
         args: [
           buildActionEvidenceSummary(actionLogEntries, {
             stateSummary: runtimeStateSummary,
+            checkpointSummary: checkpointState?.summary,
+            checkpointTurns: checkpointState?.turns,
+            pruneUsedDocs: shouldPruneUsedDocs,
           }),
         ],
       } satisfies AxAgentActorResultPayload);
 
     return {
-      nonContextValues,
-      contextMetadata,
-      actionLog:
-        buildActionLogWithPolicy(actionLogEntries, {
-          actionReplay: effectiveContextConfig.actionReplay,
-          recentFullActions: effectiveContextConfig.recentFullActions,
-          stateSummary: runtimeStateSummary,
-          successSummarization:
-            effectiveContextConfig.successSummarization === undefined
-              ? effectiveContextConfig.actionReplay !== 'full'
-              : Boolean(effectiveContextConfig.successSummarization),
-        }) || '(no actions yet)',
+      nonContextValues: inputState.getNonContextValues(),
+      contextMetadata: inputState.getContextMetadata(),
+      actionLog: renderActionLog(),
       actorResult,
       actorFieldValues,
+      turnCount: actionLogEntries.length,
     };
   }
 
@@ -2140,6 +3585,16 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
       const { nonContextValues, actorResult, actorFieldValues } =
         await this._runActorLoop(ai, values, options, effectiveAbortSignal);
+
+      if (actorResult.type === 'ask_clarification') {
+        throw new AxAgentClarificationError(
+          actorResult.args[0] as AxAgentClarification,
+          {
+            state: this.state,
+            stateError: this.stateError,
+          }
+        );
+      }
 
       const responderMergedOptions = {
         ...this._genOptions,
@@ -2188,12 +3643,18 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         options?.debug ?? this.debug ?? ai?.getOptions()?.debug ?? false;
 
       // Actor loop runs non-streaming
-      const {
-        nonContextValues,
-        contextMetadata,
-        actorResult,
-        actorFieldValues,
-      } = await this._runActorLoop(ai, values, options, effectiveAbortSignal);
+      const { nonContextValues, actorResult, actorFieldValues } =
+        await this._runActorLoop(ai, values, options, effectiveAbortSignal);
+
+      if (actorResult.type === 'ask_clarification') {
+        throw new AxAgentClarificationError(
+          actorResult.args[0] as AxAgentClarification,
+          {
+            state: this.state,
+            stateError: this.stateError,
+          }
+        );
+      }
 
       const responderMergedOptions = {
         ...this._genOptions,
@@ -2209,8 +3670,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         ai,
         {
           ...nonContextValues,
-          contextMetadata,
-          actorResult,
+          contextData: actorResult,
         },
         responderMergedOptions
       )) {
@@ -2238,7 +3698,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private static wrapFunction(
     fn: AxFunction,
     abortSignal?: AbortSignal,
-    ai?: AxAIService
+    ai?: AxAIService,
+    protocol?: AxAgentCompletionProtocol,
+    qualifiedName?: string,
+    functionCallRecorder?: AxAgentFunctionCallRecorder
   ): (...args: unknown[]) => Promise<unknown> {
     return async (...args: unknown[]) => {
       let callArgs: Record<string, unknown>;
@@ -2262,7 +3725,24 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         });
       }
 
-      return await fn.func(callArgs, { abortSignal, ai });
+      try {
+        const result = await fn.func(callArgs, { abortSignal, ai, protocol });
+        functionCallRecorder?.({
+          qualifiedName: qualifiedName ?? fn.name,
+          name: fn.name,
+          arguments: serializeForEval(callArgs),
+          result: serializeForEval(result),
+        });
+        return result;
+      } catch (err) {
+        functionCallRecorder?.({
+          qualifiedName: qualifiedName ?? fn.name,
+          name: fn.name,
+          arguments: serializeForEval(callArgs),
+          error: err instanceof Error ? err.message : String(err),
+        });
+        throw err;
+      }
     };
   }
 
@@ -2276,13 +3756,23 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     sharedFieldValues?:
       | Record<string, unknown>
       | (() => Record<string, unknown>),
-    ai?: AxAIService
+    ai?: AxAIService,
+    protocol?: AxAgentCompletionProtocol,
+    qualifiedName?: string,
+    functionCallRecorder?: AxAgentFunctionCallRecorder
   ): (...args: unknown[]) => Promise<unknown> {
     if (
       typeof sharedFieldValues !== 'function' &&
       (!sharedFieldValues || Object.keys(sharedFieldValues).length === 0)
     ) {
-      return AxAgent.wrapFunction(fn, abortSignal, ai);
+      return AxAgent.wrapFunction(
+        fn,
+        abortSignal,
+        ai,
+        protocol,
+        qualifiedName,
+        functionCallRecorder
+      );
     }
     return async (...args: unknown[]) => {
       let callArgs: Record<string, unknown>;
@@ -2315,7 +3805,24 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       const merged = currentSharedFieldValues
         ? { ...currentSharedFieldValues, ...callArgs }
         : callArgs;
-      return await fn.func(merged, { abortSignal, ai });
+      try {
+        const result = await fn.func(merged, { abortSignal, ai, protocol });
+        functionCallRecorder?.({
+          qualifiedName: qualifiedName ?? fn.name,
+          name: fn.name,
+          arguments: serializeForEval(merged),
+          result: serializeForEval(result),
+        });
+        return result;
+      } catch (err) {
+        functionCallRecorder?.({
+          qualifiedName: qualifiedName ?? fn.name,
+          name: fn.name,
+          arguments: serializeForEval(merged),
+          error: err instanceof Error ? err.message : String(err),
+        });
+        throw err;
+      }
     };
   }
 
@@ -2326,14 +3833,16 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private buildRuntimeGlobals(
     abortSignal?: AbortSignal,
     sharedFieldValues?: Record<string, unknown>,
-    ai?: AxAIService
+    ai?: AxAIService,
+    protocol?: AxAgentCompletionProtocol,
+    functionCallRecorder?: AxAgentFunctionCallRecorder
   ): Record<string, unknown> {
     const globals: Record<string, unknown> = {};
     const callableLookup = new Map<string, DiscoveryCallableMeta>();
     const moduleLookup = new Map<string, string[]>();
-    const moduleMetaLookup = new Map<string, AxAgentNamespace>();
-    for (const namespaceMeta of this.discoveryNamespaces) {
-      moduleMetaLookup.set(namespaceMeta.name, namespaceMeta);
+    const moduleMetaLookup = new Map<string, AxAgentFunctionModuleMeta>();
+    for (const [namespace, meta] of this.agentFunctionModuleMetadata) {
+      moduleMetaLookup.set(namespace, meta);
     }
     const registerCallable = (
       meta: DiscoveryCallableMeta,
@@ -2352,8 +3861,16 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       if (!globals[ns] || typeof globals[ns] !== 'object') {
         globals[ns] = {};
       }
+      const qualifiedName = `${ns}.${agentFn.name}`;
       (globals[ns] as Record<string, unknown>)[agentFn.name] =
-        AxAgent.wrapFunction(agentFn, abortSignal, ai);
+        AxAgent.wrapFunction(
+          agentFn,
+          abortSignal,
+          ai,
+          protocol,
+          qualifiedName,
+          functionCallRecorder
+        );
       registerCallable(
         {
           module: ns,
@@ -2363,7 +3880,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           returns: agentFn.returns,
           examples: agentFn.examples,
         },
-        `${ns}.${agentFn.name}`
+        qualifiedName
       );
     }
 
@@ -2387,11 +3904,15 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           return applicable;
         };
 
+        const qualifiedName = `${this.agentModuleNamespace}.${fn.name}`;
         agentsObj[fn.name] = AxAgent.wrapFunctionWithSharedFields(
           fn,
           abortSignal,
           getApplicableSharedFields,
-          ai
+          ai,
+          protocol,
+          qualifiedName,
+          functionCallRecorder
         );
         registerCallable(
           {
@@ -2400,7 +3921,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
             description: fn.description,
             parameters: fn.parameters,
           },
-          `${this.agentModuleNamespace}.${fn.name}`
+          qualifiedName
         );
       }
       globals[this.agentModuleNamespace] = agentsObj;
@@ -2444,6 +3965,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       agents: _a,
       fields: _f,
       functions: _fn,
+      judgeOptions: _jo,
       inputUpdateCallback: _iuc,
       ...rest
     } = this.options;
@@ -2464,12 +3986,299 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
 // ----- Factory Function -----
 
+function normalizeCompletionPayload(
+  type: AxAgentActorResultPayload['type'],
+  args: unknown[]
+): AxAgentActorResultPayload {
+  if (args.length === 0) {
+    throw new Error(`${type}() requires at least one argument`);
+  }
+
+  if (type === 'ask_clarification') {
+    if (args.length !== 1) {
+      throw new Error('ask_clarification() requires exactly one argument');
+    }
+
+    return {
+      type,
+      args: [normalizeClarificationPayload(args[0])],
+    };
+  }
+
+  return { type, args };
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    Object.getPrototypeOf(value) === Object.prototype
+  );
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function normalizeClarificationChoice(
+  choice: unknown
+): AxAgentClarificationChoice {
+  if (isNonEmptyString(choice)) {
+    return choice;
+  }
+
+  if (!isPlainObject(choice)) {
+    throw new Error(
+      'ask_clarification() choice entries must be non-empty strings or objects with a non-empty label'
+    );
+  }
+
+  if (!isNonEmptyString(choice.label)) {
+    throw new Error(
+      'ask_clarification() choice objects require a non-empty label'
+    );
+  }
+
+  if (choice.value !== undefined && !isNonEmptyString(choice.value)) {
+    throw new Error(
+      'ask_clarification() choice object values must be non-empty strings'
+    );
+  }
+
+  return {
+    label: choice.label,
+    ...(choice.value !== undefined ? { value: choice.value } : {}),
+  };
+}
+
+function normalizeClarificationPayload(payload: unknown): AxAgentClarification {
+  if (isNonEmptyString(payload)) {
+    return payload;
+  }
+
+  if (!isPlainObject(payload)) {
+    throw new Error(
+      'ask_clarification() requires a non-empty string or an object payload'
+    );
+  }
+
+  if (!isNonEmptyString(payload.question)) {
+    throw new Error(
+      'ask_clarification() object payload requires a non-empty question'
+    );
+  }
+
+  const allowedTypes = new Set<AxAgentClarificationKind>([
+    'text',
+    'number',
+    'date',
+    'single_choice',
+    'multiple_choice',
+  ]);
+
+  let normalizedType: AxAgentClarificationKind | undefined;
+  if (payload.type === undefined) {
+    normalizedType =
+      Array.isArray(payload.choices) && payload.choices.length > 0
+        ? 'single_choice'
+        : undefined;
+  } else {
+    if (
+      typeof payload.type !== 'string' ||
+      !allowedTypes.has(payload.type as AxAgentClarificationKind)
+    ) {
+      throw new Error(
+        'ask_clarification() object payload type must be one of: text, number, date, single_choice, multiple_choice'
+      );
+    }
+    normalizedType = payload.type as AxAgentClarificationKind;
+  }
+
+  const wantsChoices =
+    normalizedType === 'single_choice' || normalizedType === 'multiple_choice';
+  const rawChoices = payload.choices;
+  if (rawChoices !== undefined) {
+    if (!Array.isArray(rawChoices) || rawChoices.length === 0) {
+      throw new Error(
+        'ask_clarification() choices must be a non-empty array when provided'
+      );
+    }
+  } else if (wantsChoices) {
+    throw new Error(
+      'ask_clarification() choice payloads require a non-empty choices array'
+    );
+  }
+
+  return {
+    ...payload,
+    question: payload.question,
+    ...(normalizedType ? { type: normalizedType } : {}),
+    ...(rawChoices
+      ? {
+          choices: rawChoices.map(normalizeClarificationChoice),
+        }
+      : {}),
+  };
+}
+
+function normalizeClarificationForError(
+  clarification: AxAgentClarification
+): AxAgentStructuredClarification {
+  const normalized = normalizeClarificationPayload(clarification);
+  if (typeof normalized === 'string') {
+    return {
+      question: normalized,
+      type: 'text',
+    };
+  }
+
+  return {
+    ...normalized,
+    type:
+      normalized.type ??
+      (normalized.choices && normalized.choices.length > 0
+        ? 'single_choice'
+        : 'text'),
+  };
+}
+
+function cloneStructured<T>(value: T): T {
+  if (typeof structuredClone === 'function') {
+    return structuredClone(value);
+  }
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function cloneAgentState(state: Readonly<AxAgentState>): AxAgentState {
+  return cloneStructured(state);
+}
+
+function serializeAgentStateActionLogEntries(
+  entries: readonly ActionLogEntry[]
+): AxAgentStateActionLogEntry[] {
+  return entries.map((entry) => ({
+    turn: entry.turn,
+    code: entry.code,
+    output: entry.output,
+    actorFieldsOutput: entry.actorFieldsOutput,
+    tags: [...entry.tags],
+    ...(entry.summary ? { summary: entry.summary } : {}),
+    ...(entry.producedVars ? { producedVars: [...entry.producedVars] } : {}),
+    ...(entry.referencedVars
+      ? { referencedVars: [...entry.referencedVars] }
+      : {}),
+    ...(entry.stateDelta ? { stateDelta: entry.stateDelta } : {}),
+    ...(entry.stepKind ? { stepKind: entry.stepKind } : {}),
+    ...(entry.replayMode ? { replayMode: entry.replayMode } : {}),
+    ...(entry.rank !== undefined ? { rank: entry.rank } : {}),
+    ...(entry.tombstone ? { tombstone: entry.tombstone } : {}),
+  }));
+}
+
+function deserializeAgentStateActionLogEntries(
+  entries: readonly AxAgentStateActionLogEntry[] | undefined
+): ActionLogEntry[] {
+  return (entries ?? []).map((entry) => ({
+    turn: entry.turn,
+    code: entry.code,
+    output: entry.output,
+    actorFieldsOutput: entry.actorFieldsOutput,
+    tags: [...entry.tags],
+    ...(entry.summary ? { summary: entry.summary } : {}),
+    ...(entry.producedVars ? { producedVars: [...entry.producedVars] } : {}),
+    ...(entry.referencedVars
+      ? { referencedVars: [...entry.referencedVars] }
+      : {}),
+    ...(entry.stateDelta ? { stateDelta: entry.stateDelta } : {}),
+    ...(entry.stepKind ? { stepKind: entry.stepKind } : {}),
+    ...(entry.replayMode ? { replayMode: entry.replayMode } : {}),
+    ...(entry.rank !== undefined ? { rank: entry.rank } : {}),
+    ...(entry.tombstone ? { tombstone: entry.tombstone } : {}),
+  }));
+}
+
+function runtimeStateProvenanceToRecord(
+  provenance: ReadonlyMap<string, RuntimeStateVariableProvenance>
+): Record<string, RuntimeStateVariableProvenance> {
+  return Object.fromEntries(
+    [...provenance.entries()].map(([name, meta]) => [
+      name,
+      {
+        ...meta,
+      },
+    ])
+  );
+}
+
+function buildRuntimeRestoreNotice(
+  entries: readonly AxAgentStateRuntimeEntry[],
+  options?: Readonly<{
+    includeLiveRuntimeState?: boolean;
+  }>
+): string {
+  const snapshotOnlyCount = entries.filter(
+    (entry) => entry.restorable === false
+  ).length;
+  const lines = [
+    'Runtime Restore:',
+    '- Runtime state was restored from a previous call.',
+    '- Continue from restored values unless recomputation is actually needed.',
+  ];
+  if (options?.includeLiveRuntimeState !== false) {
+    lines.splice(
+      2,
+      0,
+      '- Live Runtime State below reflects the restored bindings.'
+    );
+  } else {
+    lines.splice(
+      2,
+      0,
+      '- Live Runtime State rendering is disabled for this run, but the restored bindings are available in the runtime session.'
+    );
+  }
+  if (snapshotOnlyCount > 0) {
+    lines.push(
+      `- ${snapshotOnlyCount} prior value${snapshotOnlyCount === 1 ? ' was' : 's were'} snapshot-only and could not be restored.`
+    );
+  }
+  return lines.join('\n');
+}
+
+function runtimeStateProvenanceFromRecord(
+  provenance:
+    | Readonly<Record<string, RuntimeStateVariableProvenance>>
+    | undefined
+): Map<string, RuntimeStateVariableProvenance> {
+  return new Map(
+    Object.entries(provenance ?? {}).map(([name, meta]) => [name, { ...meta }])
+  );
+}
+
+function mergeRuntimeStateProvenance(
+  primary: ReadonlyMap<string, RuntimeStateVariableProvenance>,
+  fallback: ReadonlyMap<string, RuntimeStateVariableProvenance>
+): Map<string, RuntimeStateVariableProvenance> {
+  const merged = new Map<string, RuntimeStateVariableProvenance>();
+
+  for (const [name, meta] of fallback.entries()) {
+    merged.set(name, { ...meta });
+  }
+  for (const [name, meta] of primary.entries()) {
+    merged.set(name, { ...meta });
+  }
+
+  return merged;
+}
+
 /**
  * Configuration options for creating an agent using the agent() factory function.
  */
 export interface AxAgentConfig<_IN extends AxGenIn, _OUT extends AxGenOut>
   extends AxAgentOptions<_IN> {
   ai?: AxAIService;
+  judgeAI?: AxAIService;
   agentIdentity?: AxAgentIdentity;
 }
 
@@ -2520,11 +4329,12 @@ export function agent(
 ): AxAgent<any, any> {
   const typedSignature =
     typeof signature === 'string' ? AxSignature.create(signature) : signature;
-  const { ai, agentIdentity, ...options } = config;
+  const { ai, judgeAI, agentIdentity, ...options } = config;
 
   return new AxAgent(
     {
       ai,
+      judgeAI,
       agentIdentity,
       signature: typedSignature,
     },
@@ -2553,6 +4363,318 @@ function truncateText(text: string, maxChars: number): string {
     return text;
   }
   return `${text.slice(0, maxChars)}\n...[truncated ${text.length - maxChars} chars]`;
+}
+
+function truncateToCharBudget(text: string, maxChars: number): string {
+  if (maxChars <= 0) {
+    return '';
+  }
+  if (text.length <= maxChars) {
+    return text;
+  }
+  if (maxChars <= 3) {
+    return text.slice(0, maxChars);
+  }
+  return `${text.slice(0, maxChars - 3)}...`;
+}
+
+function isRuntimeStateSnapshotEntry(
+  value: unknown
+): value is RuntimeStateSnapshotEntry {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.name === 'string' &&
+    typeof candidate.type === 'string' &&
+    (candidate.ctor === undefined || typeof candidate.ctor === 'string') &&
+    (candidate.size === undefined || typeof candidate.size === 'string') &&
+    (candidate.preview === undefined ||
+      typeof candidate.preview === 'string') &&
+    (candidate.restorable === undefined ||
+      typeof candidate.restorable === 'boolean')
+  );
+}
+
+function parseRuntimeStateSnapshot(
+  snapshot: string
+): RuntimeStateSnapshotEntry[] | undefined {
+  const trimmed = snapshot.trim();
+  if (!trimmed || (trimmed[0] !== '{' && trimmed[0] !== '[')) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed) as
+      | { entries?: unknown[] }
+      | unknown[]
+      | null;
+    const rawEntries = Array.isArray(parsed)
+      ? parsed
+      : parsed && typeof parsed === 'object' && Array.isArray(parsed.entries)
+        ? parsed.entries
+        : undefined;
+
+    if (!rawEntries) {
+      return undefined;
+    }
+
+    return rawEntries.filter(isRuntimeStateSnapshotEntry);
+  } catch {
+    return undefined;
+  }
+}
+
+function formatRuntimeStateLines(
+  lines: readonly string[],
+  options?: Readonly<{ maxEntries?: number; maxChars?: number }>
+): string {
+  const maxEntries =
+    options?.maxEntries && options.maxEntries > 0
+      ? options.maxEntries
+      : undefined;
+  const maxChars =
+    options?.maxChars && options.maxChars > 0 ? options.maxChars : undefined;
+  const boundedLines = maxEntries ? lines.slice(0, maxEntries) : [...lines];
+
+  if (!maxChars) {
+    return boundedLines.join('\n');
+  }
+
+  const result: string[] = [];
+  let usedChars = 0;
+  for (const line of boundedLines) {
+    const separatorChars = result.length > 0 ? 1 : 0;
+    const remainingChars = maxChars - usedChars - separatorChars;
+    if (remainingChars <= 0) {
+      break;
+    }
+    if (line.length <= remainingChars) {
+      result.push(line);
+      usedChars += separatorChars + line.length;
+      continue;
+    }
+    result.push(truncateToCharBudget(line, remainingChars));
+    usedChars = maxChars;
+    break;
+  }
+
+  return result.join('\n');
+}
+
+function formatLegacyRuntimeState(
+  snapshot: string,
+  options?: Readonly<{ maxEntries?: number; maxChars?: number }>
+): string {
+  const lines = snapshot
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  return formatRuntimeStateLines(lines, options);
+}
+
+function getRuntimeStateSalience(
+  entry: Readonly<RuntimeStateSnapshotEntry>,
+  provenance: Readonly<RuntimeStateVariableProvenance> | undefined
+): number {
+  let score = 0;
+
+  if (provenance) {
+    score += 1_000_000;
+    score += provenance.createdTurn * 100;
+    score += (provenance.lastReadTurn ?? provenance.createdTurn) * 10_000;
+    if (provenance.source) {
+      score += 25;
+    }
+  }
+
+  if (entry.type === 'accessor') {
+    score -= 100;
+  } else if (entry.type === 'function') {
+    score -= 10;
+  }
+
+  return score;
+}
+
+function formatRuntimeStateType(
+  entry: Readonly<RuntimeStateSnapshotEntry>
+): string {
+  let label = entry.type;
+
+  if (entry.type === 'object' && entry.ctor && entry.ctor !== 'Object') {
+    label = `object<${entry.ctor}>`;
+  } else if (entry.type === 'error' && entry.ctor && entry.ctor !== 'Error') {
+    label = `error<${entry.ctor}>`;
+  }
+
+  if (entry.size) {
+    label += ` (${entry.size})`;
+  }
+
+  return label;
+}
+
+function formatRuntimeStateProvenance(
+  provenance: Readonly<RuntimeStateVariableProvenance> | undefined
+): string {
+  if (!provenance) {
+    return '';
+  }
+
+  const details = [
+    `from t${provenance.createdTurn}${provenance.source ? ` via ${provenance.source}` : ''}`,
+  ];
+  if (
+    provenance.lastReadTurn !== undefined &&
+    provenance.lastReadTurn > provenance.createdTurn
+  ) {
+    details.push(`read t${provenance.lastReadTurn}`);
+  }
+
+  return ` [${details.join('; ')}]`;
+}
+
+function formatStructuredRuntimeState(
+  entries: readonly RuntimeStateSnapshotEntry[],
+  provenance: ReadonlyMap<string, RuntimeStateVariableProvenance>,
+  options?: Readonly<{ maxEntries?: number; maxChars?: number }>
+): string {
+  const lines = [...entries]
+    .sort((left, right) => {
+      const leftScore = getRuntimeStateSalience(
+        left,
+        provenance.get(left.name)
+      );
+      const rightScore = getRuntimeStateSalience(
+        right,
+        provenance.get(right.name)
+      );
+      return rightScore - leftScore || left.name.localeCompare(right.name);
+    })
+    .map((entry) => {
+      const preview = entry.preview ? ` = ${entry.preview}` : '';
+      const provenanceSuffix = formatRuntimeStateProvenance(
+        provenance.get(entry.name)
+      );
+      const restoreSuffix =
+        'restorable' in entry && entry.restorable === false
+          ? ' [snapshot only]'
+          : '';
+
+      return `${entry.name}: ${formatRuntimeStateType(entry)}${preview}${provenanceSuffix}${restoreSuffix}`;
+    });
+
+  if (lines.length === 0) {
+    return '(no user variables)';
+  }
+
+  return formatRuntimeStateLines(lines, options);
+}
+
+function formatInterpreterOutput(
+  result: unknown,
+  maxRuntimeChars: number
+): string {
+  if (result === undefined) {
+    return '(no output)';
+  }
+  if (typeof result === 'string') {
+    return truncateText(result || '(no output)', maxRuntimeChars);
+  }
+  try {
+    return truncateText(JSON.stringify(result, null, 2), maxRuntimeChars);
+  } catch {
+    return truncateText(String(result), maxRuntimeChars);
+  }
+}
+
+function formatInterpreterError(err: unknown, maxRuntimeChars: number): string {
+  const typedErr = err as {
+    name?: string;
+    message?: string;
+    cause?: unknown;
+    data?: unknown;
+  };
+  const name = typedErr?.name ?? 'Error';
+  const message = typedErr?.message ?? String(err);
+  const parts: string[] = [`${name}: ${message}`];
+
+  if (typedErr?.data !== undefined) {
+    try {
+      parts.push(`Data: ${JSON.stringify(typedErr.data, null, 2)}`);
+    } catch {
+      parts.push(`Data: ${String(typedErr.data)}`);
+    }
+  }
+
+  if (typedErr?.cause !== undefined) {
+    const fmtCause = (cause: unknown, depth: number): string => {
+      if (depth > 4) {
+        return '[cause chain truncated]';
+      }
+      const c = cause as typeof typedErr;
+      const cName = c?.name ?? 'Error';
+      const cMsg = c?.message ?? String(cause);
+      const cParts: string[] = [`${cName}: ${cMsg}`];
+      if (c?.data !== undefined) {
+        try {
+          cParts.push(`Data: ${JSON.stringify(c.data, null, 2)}`);
+        } catch {
+          cParts.push(`Data: ${String(c.data)}`);
+        }
+      }
+      if (c?.cause !== undefined) {
+        cParts.push(`Caused by: ${fmtCause(c.cause, depth + 1)}`);
+      }
+      return cParts.join('\n');
+    };
+    parts.push(`Caused by: ${fmtCause(typedErr.cause, 1)}`);
+  }
+
+  return truncateText(parts.join('\n'), maxRuntimeChars);
+}
+
+function hasCompletionSignalCall(code: string): boolean {
+  const sanitized = stripJsStringsAndComments(code);
+  return (
+    /\bfinal\s*\(/.test(sanitized) || /\bask_clarification\s*\(/.test(sanitized)
+  );
+}
+
+function looksLikePromisePlaceholder(result: unknown): boolean {
+  if (
+    result &&
+    (typeof result === 'object' || typeof result === 'function') &&
+    'then' in result &&
+    typeof (result as { then?: unknown }).then === 'function'
+  ) {
+    return true;
+  }
+  return typeof result === 'string' && result.trim() === '[object Promise]';
+}
+
+function isSessionClosedError(err: unknown): boolean {
+  return err instanceof Error && err.message === 'Session is closed';
+}
+
+function isExecutionTimedOutError(err: unknown): boolean {
+  return err instanceof Error && err.message === 'Execution timed out';
+}
+
+function isLikelyRuntimeErrorOutput(output: string): boolean {
+  if (output.startsWith('[ERROR]')) {
+    return true;
+  }
+  if (output.startsWith(RUNTIME_RESTART_NOTICE)) {
+    return true;
+  }
+  return /^(AggregateError|Error|EvalError|RangeError|ReferenceError|SyntaxError|TypeError|URIError): /.test(
+    output
+  );
 }
 
 function buildContextFieldPromptInlineValue(
@@ -3014,49 +5136,110 @@ function normalizeAgentModuleNamespace(
   return normalized;
 }
 
-function normalizeAgentNamespaces(
-  namespaces: readonly AxAgentNamespace[] | undefined,
+function isAgentFunctionGroup(
+  value: AxAgentFunction | AxAgentFunctionGroup
+): value is AxAgentFunctionGroup {
+  return Array.isArray((value as AxAgentFunctionGroup).functions);
+}
+
+function normalizeAgentFunctionCollection(
+  collection: AxAgentFunctionCollection | undefined,
   reservedNames: ReadonlySet<string>
-): AxAgentNamespace[] {
-  if (!namespaces || namespaces.length === 0) {
-    return [];
+): NormalizedAgentFunctionCollection {
+  if (!collection || collection.length === 0) {
+    return { functions: [], moduleMetadata: [] };
   }
 
-  const seen = new Set<string>();
-  return namespaces.map((namespaceMeta) => {
-    const name = namespaceMeta.name.trim();
-    const title = namespaceMeta.title.trim();
-    const description = namespaceMeta.description.trim();
+  const allGroups = collection.every((item) =>
+    isAgentFunctionGroup(item as AxAgentFunction | AxAgentFunctionGroup)
+  );
+  const allFunctions = collection.every(
+    (item) =>
+      !isAgentFunctionGroup(item as AxAgentFunction | AxAgentFunctionGroup)
+  );
 
-    if (!name) {
+  if (!allGroups && !allFunctions) {
+    throw new Error(
+      'Agent functions collections must contain either flat functions or grouped function modules, not both'
+    );
+  }
+
+  if (allFunctions) {
+    return {
+      functions: [...(collection as readonly AxAgentFunction[])],
+      moduleMetadata: [],
+    };
+  }
+
+  const seenNamespaces = new Set<string>();
+  const moduleMetadata: AxAgentFunctionModuleMeta[] = [];
+  const functions: AxAgentFunction[] = [];
+
+  for (const group of collection as readonly AxAgentFunctionGroup[]) {
+    const namespace = group.namespace.trim();
+    const title = group.title.trim();
+    const selectionCriteria = group.selectionCriteria.trim();
+    const description = group.description.trim();
+
+    if (!namespace) {
       throw new Error(
-        'Agent namespace metadata name must be a non-empty string'
+        'Agent function group namespace must be a non-empty string'
       );
     }
     if (!title) {
       throw new Error(
-        `Agent namespace "${name}" must define a non-empty title`
+        `Agent function group "${namespace}" must define a non-empty title`
+      );
+    }
+    if (!selectionCriteria) {
+      throw new Error(
+        `Agent function group "${namespace}" must define a non-empty selectionCriteria`
       );
     }
     if (!description) {
       throw new Error(
-        `Agent namespace "${name}" must define a non-empty description`
+        `Agent function group "${namespace}" must define a non-empty description`
       );
     }
-    if (reservedNames.has(name)) {
-      throw new Error(`Agent namespace "${name}" is reserved`);
+    if (reservedNames.has(namespace)) {
+      throw new Error(
+        `Agent function namespace "${namespace}" conflicts with an AxAgent runtime global and is reserved`
+      );
     }
-    if (seen.has(name)) {
-      throw new Error(`Duplicate agent namespace "${name}"`);
+    if (seenNamespaces.has(namespace)) {
+      throw new Error(
+        `Duplicate agent function group namespace "${namespace}"`
+      );
     }
-    seen.add(name);
+    if (group.functions.length === 0) {
+      throw new Error(
+        `Agent function group "${namespace}" must contain at least one function`
+      );
+    }
 
-    return {
-      name,
+    seenNamespaces.add(namespace);
+    moduleMetadata.push({
+      namespace,
       title,
+      selectionCriteria,
       description,
-    };
-  });
+    });
+
+    for (const fn of group.functions) {
+      if ('namespace' in fn && fn.namespace !== undefined) {
+        throw new Error(
+          `Grouped agent function "${namespace}.${fn.name}" must not define namespace; use the parent group namespace instead`
+        );
+      }
+
+      functions.push({
+        ...fn,
+        namespace,
+      });
+    }
+  }
+
+  return { functions, moduleMetadata };
 }
 
 function normalizeDiscoveryStringInput(
@@ -3303,13 +5486,13 @@ function renderDiscoveryExamplesMarkdown(
 function renderDiscoveryModuleListMarkdown(
   modules: readonly string[],
   moduleLookup: ReadonlyMap<string, readonly string[]>,
-  moduleMetaLookup: ReadonlyMap<string, AxAgentNamespace>
+  moduleMetaLookup: ReadonlyMap<string, AxAgentFunctionModuleMeta>
 ): string {
   return modules
     .map((module) => {
-      const functions = [...(moduleLookup.get(module) ?? [])].sort((a, b) =>
-        a.localeCompare(b)
-      );
+      const functions = [...(moduleLookup.get(module) ?? [])]
+        .map((qualifiedName) => qualifiedName.split('.').pop() ?? qualifiedName)
+        .sort((a, b) => a.localeCompare(b));
       const exists = functions.length > 0;
       const meta = exists ? moduleMetaLookup.get(module) : undefined;
       const body = exists

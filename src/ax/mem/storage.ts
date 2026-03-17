@@ -48,6 +48,21 @@ export interface AxTrace {
   metadata?: Record<string, unknown>;
 }
 
+export type AxLearnCheckpointMode = 'batch' | 'continuous' | 'playbook';
+
+export interface AxLearnCheckpointState {
+  mode: AxLearnCheckpointMode;
+  instruction?: string;
+  baseInstruction?: string;
+  score?: number;
+  continuous?: {
+    feedbackTraceCount?: number;
+    lastUpdateAt?: string;
+  };
+  playbook?: Record<string, unknown>;
+  artifactSummary?: Record<string, unknown>;
+}
+
 /**
  * Represents a serialized checkpoint of an AxGen configuration.
  */
@@ -70,6 +85,8 @@ export interface AxCheckpoint {
   score?: number;
   /** Optimization method used */
   optimizerType?: string;
+  /** Typed AxLearn state, when the checkpoint comes from AxLearn */
+  learnState?: AxLearnCheckpointState;
   /** Custom metadata */
   metadata?: Record<string, unknown>;
 }

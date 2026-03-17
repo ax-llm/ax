@@ -1,0 +1,78 @@
+{
+  "bestScore": 0.42500000000000004,
+  "stats": {
+    "totalCalls": 199,
+    "successfulDemos": 0,
+    "estimatedTokenUsage": 0,
+    "earlyStopped": false,
+    "resourceUsage": {
+      "totalTokens": 0,
+      "totalTime": 0,
+      "avgLatencyPerEval": 0,
+      "costByModel": {}
+    },
+    "convergenceInfo": {
+      "converged": true,
+      "finalImprovement": 0,
+      "stagnationRounds": 0,
+      "convergenceThreshold": -0.001
+    },
+    "bestScore": 0,
+    "bestConfiguration": {}
+  },
+  "instruction": "Follow the task precisely. Be concise, correct, and consistent.",
+  "instructionMap": {
+    "root": "Follow the task precisely. Be concise, correct, and consistent."
+  },
+  "demos": [],
+  "examples": [
+    {
+      "emailText": "URGENT: Server down!",
+      "priority": "high"
+    },
+    {
+      "emailText": "Meeting reminder for tomorrow",
+      "priority": "normal"
+    },
+    {
+      "emailText": "Weekly newsletter",
+      "priority": "low"
+    },
+    {
+      "emailText": "CRITICAL: Security breach",
+      "priority": "high"
+    },
+    {
+      "emailText": "Invoice overdue: please remit payment",
+      "priority": "high"
+    },
+    {
+      "emailText": "Lunch plans?",
+      "priority": "low"
+    },
+    {
+      "emailText": "New feature rollout announcement",
+      "priority": "normal"
+    },
+    {
+      "emailText": "Production bug impacting checkout",
+      "priority": "high"
+    },
+    {
+      "emailText": "Team offsite agenda attached",
+      "priority": "normal"
+    },
+    {
+      "emailText": "Discount code for loyal customers",
+      "priority": "low"
+    },
+    {
+      "emailText": "All-hands meeting cancelled",
+      "priority": "normal"
+    }
+  ],
+  "optimizerType": "GEPA",
+  "optimizationTime": 132031,
+  "totalRounds": 20,
+  "converged": true
+}

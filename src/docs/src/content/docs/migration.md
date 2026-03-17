@@ -368,7 +368,7 @@ const sig = s`input:${dynamicType} -> output:string`;
 
 // ✅ SOLUTION: Use fluent API for dynamic fields
 const sig = f()
-  .input("input", f[dynamicType as keyof typeof f](https://github.com/ax-llm/ax/blob/main/"Input field"))
+  .input("input", f[dynamicType as keyof typeof f]("Input field"))
   .output("output", f.string("Output field"))
   .build();
 ```

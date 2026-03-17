@@ -1,6 +1,7 @@
 import { context, trace } from '@opentelemetry/api';
 import { describe, expect, it, vi } from 'vitest';
 import type { AxAIService } from '../ai/types.js';
+import { ax } from '../dsp/template.js';
 import { AxSignature } from '../dsp/sig.js';
 import type {
   AxProgramForwardOptions,
@@ -106,6 +107,50 @@ describe('AxFlow propagation and instrumentation', () => {
     const opt = { applyTo: () => {} } as any;
     wf.applyOptimization(opt);
     expect(prog.optimizedApplied).toBe(true);
+  });
+
+  it('exposes live program instances for registered nodes', () => {
+    const classifier = ax('inputText:string -> outputText:string');
+    const wf = flow<{ inputText: string }>();
+    wf.node('classifier', classifier);
+    wf.setId('root');
+
+    const instances = wf.namedProgramInstances();
+    expect(instances.map((instance) => instance.id)).toContain(
+      'root.classifier'
+    );
+    expect(
+      instances.find((instance) => instance.id === 'root.classifier')?.program
+    ).toBe(classifier);
+  });
+
+  it('applyOptimization uses instructionMap for registered nodes', () => {
+    const classifier = ax('inputText:string -> outputText:string');
+    const rationale = ax('inputText:string -> outputText:string');
+    classifier.setInstruction('before-classifier');
+    rationale.setInstruction('before-rationale');
+
+    const wf = flow<{ inputText: string }>();
+    wf.node('classifier', classifier);
+    wf.node('rationale', rationale);
+    wf.setId('root');
+
+    wf.applyOptimization({
+      bestScore: 1,
+      stats: {} as any,
+      instructionMap: {
+        'root.classifier': 'after-classifier',
+        'root.rationale': 'after-rationale',
+      },
+      optimizerType: 'GEPA',
+      optimizationTime: 0,
+      totalRounds: 0,
+      converged: true,
+      applyTo: () => {},
+    } as any);
+
+    expect(classifier.getInstruction()).toBe('after-classifier');
+    expect(rationale.getInstruction()).toBe('after-rationale');
   });
 
   it('propagates tracer and parent traceContext to node forwards', async () => {

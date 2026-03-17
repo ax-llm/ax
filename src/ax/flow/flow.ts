@@ -24,6 +24,7 @@ import type {
   AxGenOut,
   AxGenStreamingOut,
   AxMessage,
+  AxNamedProgramInstance,
   AxProgramDemos,
   AxProgramForwardOptions,
   AxProgramForwardOptionsWithModels,
@@ -798,6 +799,11 @@ export class AxFlow<
   public namedPrograms(): Array<{ id: string; signature?: string }> {
     this.ensureProgram();
     return this.program!.namedPrograms();
+  }
+
+  public namedProgramInstances(): AxNamedProgramInstance<IN, OUT>[] {
+    this.ensureProgram();
+    return this.program!.namedProgramInstances();
   }
 
   public getTraces(): AxProgramTrace<IN, OUT>[] {
@@ -1947,20 +1953,8 @@ export class AxFlow<
    * Apply optimized configuration to this flow and all node programs.
    */
   public applyOptimization(optimizedProgram: AxOptimizedProgram<any>): void {
-    // Apply to underlying program if created
     if (this.program && 'applyOptimization' in this.program) {
       (this.program as any).applyOptimization(optimizedProgram);
-    }
-
-    // Propagate to all registered node generators
-    for (const [_nodeName, nodeProgram] of Array.from(this.nodeGenerators)) {
-      if (
-        nodeProgram &&
-        'applyOptimization' in nodeProgram &&
-        typeof (nodeProgram as any).applyOptimization === 'function'
-      ) {
-        (nodeProgram as any).applyOptimization(optimizedProgram);
-      }
     }
   }
 

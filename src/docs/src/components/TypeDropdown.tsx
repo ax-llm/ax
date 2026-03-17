@@ -56,6 +56,12 @@ const FIELD_TYPES: FieldTypeOption[] = [
     description: 'An audio field for audio file uploads (input fields only)',
   },
   {
+    value: 'url',
+    label: 'url',
+    detail: 'URL field',
+    description: 'A URL field for web addresses',
+  },
+  {
     value: 'json',
     label: 'json',
     detail: 'JSON object field',

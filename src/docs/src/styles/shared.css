@@ -4,6 +4,44 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Gradient text animation (used by HeroSection) */
+@keyframes gradient {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.animate-gradient {
+  background-size: 200% 200%;
+  animation: gradient 4s ease-in-out infinite;
+}
+
+/* Subtle scale pulse for stat numbers */
+@keyframes stat-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.03);
+  }
+}
+.animate-stat-pulse {
+  animation: stat-pulse 3s ease-in-out infinite;
+}
+
+/* Dot grid background pattern */
+.dot-grid {
+  background-image: radial-gradient(circle, currentColor 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
 @layer base {
   :root {
     --background: 0 0% 100%;
@@ -452,49 +490,6 @@ main.prose h1:first-of-type {
 
 :root.dark .prose hr {
   border-top-color: #4b5563;
-}
-
-/* API Documentation specific styles */
-.api-section {
-  border-radius: 12px;
-  padding: 32px;
-  margin: 32px 0;
-}
-
-.api-section h2 {
-  font-size: 24px;
-  font-weight: 600;
-  color: #000000;
-  margin: 0 0 16px 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.api-section h2::before {
-  content: ">";
-  color: #0066cc;
-  font-weight: 700;
-}
-
-.api-section .description {
-  color: #6c757d;
-  font-size: 14px;
-  margin-bottom: 24px;
-  font-style: italic;
-}
-
-/* Dark mode API section styles */
-:root.dark .api-section h2 {
-  color: #f9fafb;
-}
-
-:root.dark .api-section h2::before {
-  color: #60a5fa;
-}
-
-:root.dark .api-section .description {
-  color: #9ca3af;
 }
 
 /* Additional dark mode text improvements */

@@ -1,8 +1,17 @@
 // index.test-d.ts
-import { expectError, expectType } from 'tsd';
+import { expectAssignable, expectError, expectType } from 'tsd';
 
 // === Typesafe Signature Tests ===
 import { AxSignature } from './dsp/sig.js';
+import type { AxExamples } from './dsp/types.js';
+import {
+  ax,
+  f,
+  fn,
+  type AxAgentFunction,
+  type AxFunction,
+  type AxFunctionHandler,
+} from './index.js';
 
 // Test basic signature type inference
 const basicSig = AxSignature.create('question: string -> answer: string');
@@ -46,9 +55,6 @@ expectError(AxSignature.create('invalid format without arrow'));
 expectError(AxSignature.create(''));
 
 // Test type-safe field addition methods
-import { f } from './dsp/sig.js';
-import type { AxExamples } from './dsp/types.js';
-
 const testSig = AxSignature.create('userInput: string -> responseText: string');
 
 // Test appendInputField type inference
@@ -194,8 +200,6 @@ expectType<
 >(fluentPrimitives);
 
 // === AxGen (ax) Type Tests ===
-import { ax } from './index.js';
-
 // Test ax() creates generators that can be called with forward method
 const basicGenerator = ax('userInput:string -> responseText:string');
 // Basic test - should have forward method and be callable
@@ -218,6 +222,60 @@ const optionalGenerator = ax(`
   responseText:string,
   sentiment:class "positive, negative, neutral"
 `);
+
+// === fn() Function Builder Type Tests ===
+const calculatedTool = fn('calculate')
+  .description('Evaluate a math expression')
+  .arg('expression', f.string('Math expression'))
+  .arg('precision', f.number('Optional precision').optional())
+  .returns(f.number('Calculated result'))
+  .handler(({ expression, precision }, extra) => {
+    expectType<string>(expression);
+    expectType<number | undefined>(precision);
+    expectType<Parameters<AxFunctionHandler>[1] | undefined>(extra);
+    return Number(expression) + (precision ?? 0);
+  })
+  .build();
+
+expectAssignable<AxFunction>(calculatedTool);
+expectType<number | Promise<number>>(
+  calculatedTool.func({ expression: '2', precision: 3 })
+);
+
+const searchTool = fn('search')
+  .description('Search the product catalog')
+  .namespace('db')
+  .arg('query', f.string('Search query'))
+  .returnsField('results', f.string('Result item').array())
+  .returnsField('count', f.number('Result count').optional())
+  .handler(({ query }) => ({
+    results: [query],
+    count: 1,
+  }))
+  .build();
+
+expectAssignable<AxFunction>(searchTool);
+expectAssignable<
+  | { readonly results: string[]; readonly count?: number }
+  | Promise<{
+      readonly results: string[];
+      readonly count?: number;
+    }>
+>(searchTool.func({ query: 'ax' }));
+
+const agentTool = fn('lookupSchedule')
+  .description('Lookup schedule data')
+  .namespace('kb')
+  .arg('topic', f.string('Topic'))
+  .returns(f.string('Lookup result'))
+  .example({
+    title: 'Simple lookup',
+    code: 'await kb.lookupSchedule({ topic: "alex" });',
+  })
+  .handler(({ topic }) => topic)
+  .build();
+
+expectAssignable<AxAgentFunction>(agentTool);
 expectType<Function>(optionalGenerator.forward);
 
 // Test ax() accepts AxSignature input

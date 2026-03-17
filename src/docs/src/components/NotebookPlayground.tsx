@@ -1,6 +1,6 @@
 import { ai } from '@ax-llm/ax';
-import { Loader2, Menu, Plus, X } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { BookOpen, ChevronDown, Cpu, Loader2, Plus, X } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import NotebookCell from './NotebookCell';
 import { Button } from './ui/button';
 
@@ -18,13 +18,13 @@ interface CellState {
 const EXAMPLE_SIGNATURES = [
   {
     name: 'Sentiment Analysis',
-    description: 'Analyze text sentiment with confidence',
+    description: 'Classify text sentiment with confidence',
     signature:
       'inputText:string "Text to analyze" -> sentimentCategory:class "positive,negative,neutral" "Sentiment classification", confidenceScore:number "Confidence 0-1"',
   },
   {
     name: 'Code Generation',
-    description: 'Generate programming solutions',
+    description: 'Generate code from a problem description',
     signature:
       'problemDescription:string "Programming problem to solve" -> pythonSolution:code "Python code solution", solutionExplanation:string "Explanation of approach"',
   },
@@ -40,6 +40,30 @@ const EXAMPLE_SIGNATURES = [
     signature:
       'contextText:string "Context information", userQuestion:string "Question to answer" -> answerText:string "Answer based on context", confidenceLevel:number "Answer confidence 0-1"',
   },
+  {
+    name: 'Chain of Thought',
+    description: 'Reasoning before answering',
+    signature:
+      'problem:string "Problem to solve" -> reasoning!:string "Step by step thinking", answer:string "Final answer", confidence:number "0-1"',
+  },
+  {
+    name: 'Multi-Step Analysis',
+    description: 'Research with search queries',
+    signature:
+      'question:string "Research question" -> searchQueries:string[] "3-5 search queries", analysis:string "Detailed analysis", confidence:number "0-1"',
+  },
+  {
+    name: 'Customer Support',
+    description: 'Route and respond to tickets',
+    signature:
+      'customerMessage:string "Customer message" -> category:class "billing,technical,general" "Issue category", priority:class "high,medium,low" "Priority level", suggestedResponse:string "Draft response"',
+  },
+  {
+    name: 'Translation',
+    description: 'Translate with confidence score',
+    signature:
+      'text:string "Text to translate", targetLanguage:string "Target language" -> translation:string "Translated text", confidence:number "Translation confidence 0-1"',
+  },
 ];
 
 export default function NotebookPlayground() {
@@ -52,11 +76,8 @@ export default function NotebookPlayground() {
     },
   ]);
 
-  // Global state for cell outputs and execution order
   const [cellStates, setCellStates] = useState<Record<string, CellState>>({});
   const [executionCounter, setExecutionCounter] = useState(0);
-
-  // Track parsed signatures for all cells to get available output fields
   const [cellSignatures, setCellSignatures] = useState<Record<string, any>>({});
 
   const [isDarkMode, setIsDarkMode] = useState(false);
@@ -76,25 +97,49 @@ export default function NotebookPlayground() {
   const [loadingText, setLoadingText] = useState('');
   const [_loadedEngine, setLoadedEngine] = useState<any>(null);
   const [loadedAI, setLoadedAI] = useState<any>(null);
-  const [leftSidebarOpen, setLeftSidebarOpen] = useState(false);
-  const [rightSidebarOpen, setRightSidebarOpen] = useState(false);
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>(
     'idle'
   );
+
+  // Panel toggles
+  const [showModelPanel, setShowModelPanel] = useState(false);
+  const [showExamples, setShowExamples] = useState(false);
+  const [showSyntaxRef, setShowSyntaxRef] = useState(false);
+
+  const modelPanelRef = useRef<HTMLDivElement>(null);
+  const examplesPanelRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdowns on outside click
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (
+        modelPanelRef.current &&
+        !modelPanelRef.current.contains(e.target as Node)
+      ) {
+        setShowModelPanel(false);
+      }
+      if (
+        examplesPanelRef.current &&
+        !examplesPanelRef.current.contains(e.target as Node)
+      ) {
+        setShowExamples(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
 
   // Detect dark mode
   useEffect(() => {
     const checkDarkMode = () => {
       setIsDarkMode(document.documentElement.classList.contains('dark'));
     };
-
     checkDarkMode();
     const observer = new MutationObserver(checkDarkMode);
     observer.observe(document.documentElement, {
       attributes: true,
       attributeFilter: ['class'],
     });
-
     return () => observer.disconnect();
   }, []);
 
@@ -202,16 +247,14 @@ export default function NotebookPlayground() {
           'userQuestion:string "User input question" -> assistantResponse:string "AI assistant response"',
         createdAt: new Date(),
       };
-
       setCells((prev) => {
         if (afterCellId) {
           const index = prev.findIndex((cell) => cell.id === afterCellId);
           const newCells = [...prev];
           newCells.splice(index + 1, 0, newCell);
           return newCells;
-        } else {
-          return [...prev, newCell];
         }
+        return [...prev, newCell];
       });
     },
     [generateCellId]
@@ -219,7 +262,6 @@ export default function NotebookPlayground() {
 
   const deleteCell = useCallback((cellId: string) => {
     setCells((prev) => prev.filter((cell) => cell.id !== cellId));
-    // Clean up cell state when cell is deleted
     setCellStates((prev) => {
       const { [cellId]: _deleted, ...rest } = prev;
       return rest;
@@ -234,6 +276,7 @@ export default function NotebookPlayground() {
         createdAt: new Date(),
       };
       setCells((prev) => [...prev, newCell]);
+      setShowExamples(false);
     },
     [generateCellId]
   );
@@ -290,10 +333,7 @@ export default function NotebookPlayground() {
         setLoadingText('Connected');
       }
     } catch (error) {
-      console.error('Detailed error loading model:', error);
       setModelStatus('error');
-
-      // Provide more specific error messages
       let errorMessage = 'Failed to load model';
       if (error instanceof Error) {
         if (providerType === 'webllm' && error.message.includes('WebLLM')) {
@@ -309,35 +349,25 @@ export default function NotebookPlayground() {
           errorMessage = error.message;
         }
       }
-
       setLoadingText(errorMessage);
     }
   }, [selectedModel, providerType, openRouterApiKey, openRouterModel]);
 
-  // Update cell signature when parsed
   const updateCellSignature = useCallback((cellId: string, signature: any) => {
-    setCellSignatures((prev) => ({
-      ...prev,
-      [cellId]: signature,
-    }));
+    setCellSignatures((prev) => ({ ...prev, [cellId]: signature }));
   }, []);
 
-  // Update cell outputs when execution completes
   const updateCellState = useCallback(
     (cellId: string, outputs: Record<string, any>) => {
       setExecutionCounter((prev) => prev + 1);
       setCellStates((prev) => ({
         ...prev,
-        [cellId]: {
-          outputs,
-          executionOrder: executionCounter + 1,
-        },
+        [cellId]: { outputs, executionOrder: executionCounter + 1 },
       }));
     },
     [executionCounter]
   );
 
-  // Get available outputs from previous cells for input selection
   const getAvailableOutputs = useCallback(
     (currentCellId: string) => {
       const currentCellIndex = cells.findIndex(
@@ -350,13 +380,11 @@ export default function NotebookPlayground() {
         cellIndex: number;
       }> = [];
 
-      // Only look at cells above the current one
       for (let i = 0; i < currentCellIndex; i++) {
         const cell = cells[i];
         const cellState = cellStates[cell.id];
         const cellSignature = cellSignatures[cell.id];
 
-        // Use parsed signature to get output fields, whether executed or not
         if (cellSignature) {
           try {
             const outputFields = cellSignature.getOutputFields();
@@ -368,608 +396,435 @@ export default function NotebookPlayground() {
                 value:
                   actualValue !== undefined
                     ? actualValue
-                    : `<not yet executed>`,
+                    : '<not yet executed>',
                 cellIndex: i,
               });
             });
-          } catch (error) {
-            console.warn('Error getting output fields from signature:', error);
+          } catch (_error) {
+            // fallthrough
           }
-        } else {
-          // Fallback: if no parsed signature, use executed outputs if available
-          if (cellState?.outputs) {
-            Object.entries(cellState.outputs).forEach(([fieldName, value]) => {
-              availableOutputs.push({
-                cellId: cell.id,
-                fieldName,
-                value,
-                cellIndex: i,
-              });
+        } else if (cellState?.outputs) {
+          Object.entries(cellState.outputs).forEach(([fieldName, value]) => {
+            availableOutputs.push({
+              cellId: cell.id,
+              fieldName,
+              value,
+              cellIndex: i,
             });
-          }
+          });
         }
       }
-
       return availableOutputs.sort((a, b) => a.cellIndex - b.cellIndex);
     },
     [cells, cellStates, cellSignatures]
   );
 
+  const statusColor =
+    modelStatus === 'idle'
+      ? 'bg-gray-400'
+      : modelStatus === 'loading'
+        ? 'bg-yellow-400 animate-pulse'
+        : modelStatus === 'ready'
+          ? 'bg-emerald-400'
+          : 'bg-red-400';
+
+  const statusLabel =
+    modelStatus === 'idle'
+      ? 'No model'
+      : modelStatus === 'loading'
+        ? 'Loading...'
+        : modelStatus === 'ready'
+          ? 'Ready'
+          : 'Error';
+
   return (
-    <div className="flex flex-col md:flex-row h-screen bg-background">
-      {/* Mobile Header */}
-      <div className="md:hidden border-b p-4 flex justify-between items-center bg-background">
-        <button
-          onClick={() => setLeftSidebarOpen(!leftSidebarOpen)}
-          className="p-2 hover:bg-accent rounded-md"
-        >
-          <Menu className="h-5 w-5" />
-        </button>
-        <h1 className="text-lg font-semibold">DSPy Notebook</h1>
-        <button
-          onClick={() => setRightSidebarOpen(!rightSidebarOpen)}
-          className="flex items-center gap-2 px-3 py-2 hover:bg-accent rounded-md text-sm"
-        >
-          <div
-            className={`w-3 h-3 rounded-full transition-all duration-300 ${
-              modelStatus === 'idle'
-                ? 'bg-gray-400'
-                : modelStatus === 'loading'
-                  ? 'bg-yellow-400 animate-pulse'
-                  : modelStatus === 'ready'
-                    ? 'bg-green-400'
-                    : 'bg-red-400'
-            }`}
-          />
-          <span className="font-medium">
-            {modelStatus === 'idle'
-              ? 'Load Model'
-              : modelStatus === 'loading'
-                ? 'Loading...'
-                : modelStatus === 'ready'
-                  ? 'Model Ready'
-                  : 'Load Failed'}
-          </span>
-        </button>
-      </div>
-
-      {/* Mobile Overlay */}
-      {(leftSidebarOpen || rightSidebarOpen) && (
-        <div
-          className="md:hidden fixed inset-0 bg-black/50 z-40"
-          role="button"
-          tabIndex={0}
-          onClick={() => {
-            setLeftSidebarOpen(false);
-            setRightSidebarOpen(false);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              setLeftSidebarOpen(false);
-              setRightSidebarOpen(false);
-            }
-          }}
-        />
-      )}
-
-      {/* Left Sidebar - Examples */}
-      <div
-        className={`${leftSidebarOpen ? 'fixed inset-y-0 left-0 w-80 z-50' : 'hidden'} md:relative md:block md:w-80 border-r bg-background overflow-y-auto`}
-      >
-        {/* Mobile close button */}
-        <div className="md:hidden p-4 border-b flex justify-between items-center">
-          <h2 className="font-semibold">Examples</h2>
-          <button
-            onClick={() => setLeftSidebarOpen(false)}
-            className="p-2 hover:bg-accent rounded-md"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-        <div className="p-4 md:p-6">
-          <div className="space-y-6">
-            <div>
-              <h3 className="text-sm font-medium mb-3">Example Templates</h3>
-              <div className="space-y-2">
-                {EXAMPLE_SIGNATURES.map((example, index) => (
-                  <button
-                    key={index}
-                    onClick={() => {
-                      loadExample(example.signature);
-                      setLeftSidebarOpen(false);
-                    }}
-                    className="w-full text-left p-3 rounded-lg border bg-background hover:bg-accent text-sm transition-colors"
-                  >
-                    <div className="font-medium">{example.name}</div>
-                    <div className="text-muted-foreground text-xs mt-1">
-                      {example.description}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <h3 className="text-sm font-medium mb-3">Notebook Actions</h3>
-              <div className="space-y-2">
-                <Button
-                  onClick={() => {
-                    addCell();
-                    setLeftSidebarOpen(false);
-                  }}
-                  variant="outline"
-                  className="w-full justify-start"
-                  size="sm"
-                >
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add Cell
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col">
-        {/* Top Toolbar - Hidden on mobile */}
-        <div className="hidden md:flex items-center justify-between border-b px-6 py-4">
-          <div className="flex items-center gap-4">
-            <h1 className="text-xl font-semibold">DSPy Notebook</h1>
-            <span className="text-sm text-muted-foreground">
+    <div className="min-h-screen bg-white dark:bg-gray-900">
+      {/* Top bar */}
+      <div className="sticky top-[64px] z-30 border-b border-gray-200 dark:border-white/20 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-3">
+          {/* Left: title + cell count + save state */}
+          <div className="flex items-center gap-3 min-w-0">
+            <h1 className="text-lg font-semibold text-gray-900 dark:text-white whitespace-nowrap">
+              DSPy Notebook
+            </h1>
+            <span className="hidden sm:inline text-xs text-gray-500 dark:text-gray-400">
               {cells.length} {cells.length === 1 ? 'cell' : 'cells'}
             </span>
-            <span className="text-xs px-2 py-1 rounded border text-muted-foreground">
-              {saveState === 'saving'
-                ? 'Saving…'
-                : saveState === 'saved'
-                  ? 'Saved'
-                  : 'Autosave on'}
-            </span>
+            {saveState !== 'idle' && (
+              <span className="hidden sm:inline text-xs text-gray-400 dark:text-gray-500">
+                {saveState === 'saving' ? 'Saving...' : 'Saved'}
+              </span>
+            )}
           </div>
-          <div className="flex items-center gap-2">
-            <Button onClick={() => addCell()} variant="outline" size="sm">
-              <Plus className="h-4 w-4 mr-2" />
-              Add Cell
-            </Button>
-          </div>
-        </div>
 
-        {/* Notebook Content */}
-        <div className="flex-1 flex flex-col md:flex-row">
-          {/* Cells Area */}
-          <div className="flex-1 p-4 md:p-6 overflow-y-auto">
-            <div className="max-w-4xl mx-auto w-full">
-              {/* Show model loading component in mobile view when model is not ready */}
-              {modelStatus !== 'ready' && (
-                <div className="md:hidden mb-6 p-6 border rounded-lg bg-muted/50">
-                  <div className="text-center space-y-6">
-                    <div className="flex items-center justify-center gap-3">
-                      <div
-                        className={`w-4 h-4 rounded-full transition-all duration-300 ${
-                          modelStatus === 'idle'
-                            ? 'bg-gray-400'
-                            : modelStatus === 'loading'
-                              ? 'bg-yellow-400 animate-pulse'
-                              : 'bg-red-400'
-                        }`}
-                      />
-                      <h3 className="font-semibold text-lg">
-                        {modelStatus === 'idle'
-                          ? providerType === 'webllm'
-                            ? 'Model Not Loaded'
-                            : 'Not Connected'
-                          : modelStatus === 'loading'
-                            ? 'Loading Model...'
-                            : 'Model Load Failed'}
+          {/* Right: actions */}
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {/* Syntax reference toggle */}
+            <button
+              onClick={() => setShowSyntaxRef(!showSyntaxRef)}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md border border-gray-200 dark:border-white/20 bg-white dark:bg-white/[0.05] hover:bg-gray-50 dark:hover:bg-white/10 text-gray-600 dark:text-gray-300 transition-colors"
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Syntax</span>
+            </button>
+
+            {/* Examples dropdown */}
+            <div className="relative" ref={examplesPanelRef}>
+              <button
+                onClick={() => {
+                  setShowExamples(!showExamples);
+                  setShowModelPanel(false);
+                }}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md border border-gray-200 dark:border-white/20 bg-white dark:bg-white/[0.05] hover:bg-gray-50 dark:hover:bg-white/10 text-gray-600 dark:text-gray-300 transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Examples</span>
+              </button>
+              {showExamples && (
+                <div className="absolute right-0 mt-2 w-80 bg-white dark:bg-gray-800 border border-gray-200 dark:border-white/20 rounded-xl shadow-xl overflow-hidden z-50">
+                  <div className="p-3 border-b border-gray-100 dark:border-white/5">
+                    <div className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                      Add an example signature
+                    </div>
+                  </div>
+                  <div className="max-h-80 overflow-y-auto p-2">
+                    {EXAMPLE_SIGNATURES.map((example, index) => (
+                      <button
+                        key={index}
+                        onClick={() => loadExample(example.signature)}
+                        className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-gray-50 dark:hover:bg-white/10 transition-colors"
+                      >
+                        <div className="text-sm font-medium text-gray-900 dark:text-white">
+                          {example.name}
+                        </div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                          {example.description}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Model status / config dropdown */}
+            <div className="relative" ref={modelPanelRef}>
+              <button
+                onClick={() => {
+                  setShowModelPanel(!showModelPanel);
+                  setShowExamples(false);
+                }}
+                className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-md border border-gray-200 dark:border-white/20 bg-white dark:bg-white/[0.05] hover:bg-gray-50 dark:hover:bg-white/10 transition-colors"
+              >
+                <div className={`w-2 h-2 rounded-full ${statusColor}`} />
+                <Cpu className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
+                <span className="text-gray-700 dark:text-gray-300">
+                  {statusLabel}
+                </span>
+                <ChevronDown className="w-3 h-3 text-gray-400" />
+              </button>
+
+              {showModelPanel && (
+                <div className="absolute right-0 mt-2 w-80 bg-white dark:bg-gray-800 border border-gray-200 dark:border-white/20 rounded-xl shadow-xl z-50">
+                  <div className="p-4 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
+                        Model Settings
                       </h3>
+                      <button
+                        onClick={() => setShowModelPanel(false)}
+                        className="p-1 hover:bg-gray-100 dark:hover:bg-white/10 rounded"
+                      >
+                        <X className="w-3.5 h-3.5 text-gray-400" />
+                      </button>
                     </div>
 
-                    {modelStatus === 'idle' && (
-                      <div className="space-y-4">
-                        <div className="space-y-3 text-left">
-                          <div>
-                            <label className="text-sm font-medium block">
-                              Provider
-                            </label>
-                            <select
-                              className="w-full p-3 border rounded-md bg-background text-sm"
-                              value={providerType}
-                              onChange={(e) =>
-                                setProviderType(e.target.value as any)
-                              }
-                            >
-                              <option value="webllm">Local (WebLLM)</option>
-                              <option value="openrouter">
-                                OpenRouter (Cloud)
-                              </option>
-                            </select>
-                          </div>
-                          {providerType === 'webllm' ? (
-                            <div>
-                              <label className="text-sm font-medium block mb-3">
-                                Select Model
-                              </label>
-                              <select
-                                className="w-full p-3 border rounded-md bg-background text-sm"
-                                value={selectedModel}
-                                onChange={(e) =>
-                                  setSelectedModel(e.target.value)
-                                }
-                              >
-                                <option value="Llama-3.2-1B-Instruct-q4f32_1-MLC">
-                                  Llama 3.2 1B Instruct (Fastest)
-                                </option>
-                                <option value="Llama-3.2-3B-Instruct-q4f32_1-MLC">
-                                  Llama 3.2 3B Instruct
-                                </option>
-                                <option value="Llama-3.1-8B-Instruct-q4f32_1-MLC">
-                                  Llama 3.1 8B Instruct (Better Quality)
-                                </option>
-                                <option value="Phi-3.5-mini-instruct-q4f32_1-MLC">
-                                  Phi 3.5 Mini Instruct
-                                </option>
-                                <option value="gemma-2-2b-it-q4f32_1-MLC">
-                                  Gemma 2 2B Instruct
-                                </option>
-                              </select>
-                              <p className="text-xs text-muted-foreground mt-2">
-                                Running locally in your browser with WebLLM
-                              </p>
-                            </div>
-                          ) : (
-                            <div className="space-y-3">
-                              <div>
-                                <label className="text-sm font-medium block mb-2">
-                                  OpenRouter API Key
-                                </label>
-                                <input
-                                  className="w-full p-3 border rounded-md bg-background text-sm"
-                                  type="password"
-                                  placeholder="Enter your OpenRouter API key"
-                                  value={openRouterApiKey}
-                                  onChange={(e) =>
-                                    setOpenRouterApiKey(e.target.value)
-                                  }
-                                />
-                                <div className="flex items-center gap-2 mt-2">
-                                  <input
-                                    id="remember-key-mobile"
-                                    type="checkbox"
-                                    checked={rememberApiKey}
-                                    onChange={(e) =>
-                                      setRememberApiKey(e.target.checked)
-                                    }
-                                  />
-                                  <label
-                                    htmlFor="remember-key-mobile"
-                                    className="text-xs text-muted-foreground"
-                                  >
-                                    Remember key in this browser
-                                  </label>
-                                </div>
-                              </div>
-                              <div>
-                                <label className="text-sm font-medium block mb-2">
-                                  Model
-                                </label>
-                                <input
-                                  className="w-full p-3 border rounded-md bg-background text-sm"
-                                  type="text"
-                                  placeholder="e.g. openrouter/auto or anthropic/claude-3.5-sonnet"
-                                  value={openRouterModel}
-                                  onChange={(e) =>
-                                    setOpenRouterModel(e.target.value)
-                                  }
-                                />
-                              </div>
-                            </div>
-                          )}
-                          <Button
-                            onClick={loadModel}
-                            className="w-full bg-blue-600 hover:bg-blue-700 py-3"
-                          >
-                            {providerType === 'webllm'
-                              ? 'Load Model'
-                              : 'Connect'}
-                          </Button>
-                        </div>
+                    {/* Provider */}
+                    <div>
+                      <label className="text-xs font-medium text-gray-700 dark:text-gray-300 block mb-1.5">
+                        Provider
+                      </label>
+                      <select
+                        className="w-full px-3 py-2 border border-gray-200 dark:border-white/20 rounded-lg bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-white"
+                        value={providerType}
+                        onChange={(e) => setProviderType(e.target.value as any)}
+                        disabled={modelStatus === 'loading'}
+                      >
+                        <option value="webllm">Local (WebLLM)</option>
+                        <option value="openrouter">OpenRouter (Cloud)</option>
+                      </select>
+                    </div>
+
+                    {/* Model selection */}
+                    {providerType === 'webllm' ? (
+                      <div>
+                        <label className="text-xs font-medium text-gray-700 dark:text-gray-300 block mb-1.5">
+                          Model
+                        </label>
+                        <select
+                          className="w-full px-3 py-2 border border-gray-200 dark:border-white/20 rounded-lg bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-white"
+                          value={selectedModel}
+                          onChange={(e) => setSelectedModel(e.target.value)}
+                          disabled={modelStatus === 'loading'}
+                        >
+                          <option value="Llama-3.2-1B-Instruct-q4f32_1-MLC">
+                            Llama 3.2 1B (Fastest)
+                          </option>
+                          <option value="Llama-3.2-3B-Instruct-q4f32_1-MLC">
+                            Llama 3.2 3B
+                          </option>
+                          <option value="Llama-3.1-8B-Instruct-q4f32_1-MLC">
+                            Llama 3.1 8B (Better Quality)
+                          </option>
+                          <option value="Phi-3.5-mini-instruct-q4f32_1-MLC">
+                            Phi 3.5 Mini
+                          </option>
+                          <option value="gemma-2-2b-it-q4f32_1-MLC">
+                            Gemma 2 2B
+                          </option>
+                        </select>
+                        <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1.5">
+                          Runs locally in your browser via WebLLM
+                        </p>
                       </div>
+                    ) : (
+                      <>
+                        <div>
+                          <label className="text-xs font-medium text-gray-700 dark:text-gray-300 block mb-1.5">
+                            API Key
+                          </label>
+                          <input
+                            className="w-full px-3 py-2 border border-gray-200 dark:border-white/20 rounded-lg bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-white"
+                            type="password"
+                            placeholder="Enter OpenRouter API key"
+                            value={openRouterApiKey}
+                            onChange={(e) =>
+                              setOpenRouterApiKey(e.target.value)
+                            }
+                            disabled={modelStatus === 'loading'}
+                          />
+                          <label className="flex items-center gap-1.5 mt-1.5 text-[11px] text-gray-400 dark:text-gray-500">
+                            <input
+                              type="checkbox"
+                              checked={rememberApiKey}
+                              onChange={(e) =>
+                                setRememberApiKey(e.target.checked)
+                              }
+                              className="rounded"
+                            />
+                            Remember in this browser
+                          </label>
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-gray-700 dark:text-gray-300 block mb-1.5">
+                            Model
+                          </label>
+                          <input
+                            className="w-full px-3 py-2 border border-gray-200 dark:border-white/20 rounded-lg bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-white"
+                            type="text"
+                            placeholder="e.g. anthropic/claude-3.5-sonnet"
+                            value={openRouterModel}
+                            onChange={(e) => setOpenRouterModel(e.target.value)}
+                            disabled={modelStatus === 'loading'}
+                          />
+                        </div>
+                      </>
                     )}
 
+                    {/* Loading progress */}
                     {modelStatus === 'loading' && (
-                      <div className="space-y-4">
-                        <p className="text-sm text-muted-foreground">
-                          {loadingText}
-                        </p>
-                        <div className="w-full bg-gray-200 rounded-full h-3">
+                      <div className="space-y-2">
+                        <div className="w-full bg-gray-100 dark:bg-white/[0.07] rounded-full h-1.5">
                           <div
-                            className="bg-blue-500 h-3 rounded-full transition-all duration-300"
+                            className="bg-blue-500 h-1.5 rounded-full transition-all duration-300"
                             style={{ width: `${loadingProgress}%` }}
                           />
                         </div>
-                        <div className="text-sm text-muted-foreground font-medium">
-                          {loadingProgress}%
-                        </div>
-                      </div>
-                    )}
-
-                    {modelStatus === 'error' && (
-                      <div className="space-y-4">
-                        <p className="text-sm text-red-600 dark:text-red-400">
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">
                           {loadingText}
                         </p>
-                        <Button
-                          onClick={loadModel}
-                          variant="outline"
-                          className="w-full"
-                        >
-                          Try Again
-                        </Button>
                       </div>
                     )}
+
+                    {/* Error message */}
+                    {modelStatus === 'error' && (
+                      <p className="text-xs text-red-600 dark:text-red-400">
+                        {loadingText}
+                      </p>
+                    )}
+
+                    {/* Load button */}
+                    <Button
+                      onClick={loadModel}
+                      disabled={modelStatus === 'loading'}
+                      className="w-full"
+                      variant={modelStatus === 'ready' ? 'outline' : 'default'}
+                      size="sm"
+                    >
+                      {modelStatus === 'loading' ? (
+                        <>
+                          <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                          {providerType === 'webllm'
+                            ? 'Loading...'
+                            : 'Connecting...'}
+                        </>
+                      ) : modelStatus === 'ready' ? (
+                        providerType === 'webllm' ? (
+                          'Reload Model'
+                        ) : (
+                          'Reconnect'
+                        )
+                      ) : providerType === 'webllm' ? (
+                        'Load Model'
+                      ) : (
+                        'Connect'
+                      )}
+                    </Button>
                   </div>
                 </div>
               )}
-
-              {cells.map((cell) => (
-                <NotebookCell
-                  key={cell.id}
-                  cellId={cell.id}
-                  initialContent={cell.content}
-                  loadedAI={loadedAI}
-                  modelStatus={modelStatus}
-                  isDarkMode={isDarkMode}
-                  onDelete={cells.length > 1 ? deleteCell : undefined}
-                  onAddCell={addCell}
-                  onUpdateCellState={updateCellState}
-                  onUpdateCellSignature={updateCellSignature}
-                  availableOutputs={getAvailableOutputs(cell.id)}
-                />
-              ))}
-
-              {/* Add cell at end */}
-              <div className="flex justify-center py-4">
-                <Button
-                  onClick={() => addCell()}
-                  variant="outline"
-                  size="sm"
-                  className="text-muted-foreground hover:text-foreground h-10 md:h-8"
-                >
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add Cell
-                </Button>
-              </div>
             </div>
-          </div>
 
-          {/* Right Sidebar - Model Controls */}
-          <div
-            className={`${rightSidebarOpen ? 'fixed inset-y-0 right-0 w-80 z-50' : 'hidden'} md:relative md:block md:w-80 border-l bg-background overflow-y-auto`}
-          >
-            {/* Mobile close button */}
-            <div className="md:hidden p-4 border-b flex justify-between items-center">
-              <h2 className="font-semibold">Model Settings</h2>
+            {/* Add cell */}
+            <Button
+              onClick={() => addCell()}
+              variant="outline"
+              size="sm"
+              className="h-8"
+            >
+              <Plus className="h-3.5 w-3.5 sm:mr-1.5" />
+              <span className="hidden sm:inline">Add Cell</span>
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Syntax quick-reference (collapsible) */}
+      {showSyntaxRef && (
+        <div className="border-b border-gray-200 dark:border-white/20 bg-gray-50 dark:bg-white/[0.02]">
+          <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
+                Signature Syntax Reference
+              </h3>
               <button
-                onClick={() => setRightSidebarOpen(false)}
-                className="p-2 hover:bg-accent rounded-md"
+                onClick={() => setShowSyntaxRef(false)}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
               >
-                <X className="h-4 w-4" />
+                <X className="w-4 h-4" />
               </button>
             </div>
-            <div className="p-4 md:p-6 space-y-4 md:space-y-6">
-              {/* Provider & Model */}
-              <div className="space-y-3">
-                <label className="text-sm font-medium block">Provider</label>
-                <select
-                  className="w-full p-3 border rounded-md bg-background text-sm"
-                  value={providerType}
-                  onChange={(e) => setProviderType(e.target.value as any)}
-                  disabled={modelStatus === 'loading'}
-                >
-                  <option value="webllm">Local (WebLLM)</option>
-                  <option value="openrouter">OpenRouter (Cloud)</option>
-                </select>
-              </div>
-
-              {providerType === 'webllm' ? (
-                <div>
-                  <label className="text-sm font-medium block mb-3">
-                    Model
-                  </label>
-                  <select
-                    className="w-full p-3 border rounded-md bg-background text-sm"
-                    value={selectedModel}
-                    onChange={(e) => setSelectedModel(e.target.value)}
-                    disabled={modelStatus === 'loading'}
-                  >
-                    <option value="Llama-3.2-1B-Instruct-q4f32_1-MLC">
-                      Llama 3.2 1B Instruct (Fastest)
-                    </option>
-                    <option value="Llama-3.2-3B-Instruct-q4f32_1-MLC">
-                      Llama 3.2 3B Instruct
-                    </option>
-                    <option value="Llama-3.1-8B-Instruct-q4f32_1-MLC">
-                      Llama 3.1 8B Instruct (Better Quality)
-                    </option>
-                    <option value="Phi-3.5-mini-instruct-q4f32_1-MLC">
-                      Phi 3.5 Mini Instruct
-                    </option>
-                    <option value="gemma-2-2b-it-q4f32_1-MLC">
-                      Gemma 2 2B Instruct
-                    </option>
-                  </select>
-                  <p className="text-xs text-muted-foreground mt-2">
-                    Running locally in your browser with WebLLM
-                  </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+              <div>
+                <div className="font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                  Format
                 </div>
-              ) : (
-                <div className="space-y-3">
+                <code className="block bg-white dark:bg-white/[0.07] border border-gray-200 dark:border-white/20 rounded-lg px-3 py-2 text-gray-700 dark:text-gray-300 font-mono">
+                  input:type "desc" {'->'} output:type "desc"
+                </code>
+                <div className="mt-2 space-y-1 text-gray-500 dark:text-gray-400">
                   <div>
-                    <label className="text-sm font-medium block mb-2">
-                      OpenRouter API Key
-                    </label>
-                    <input
-                      className="w-full p-3 border rounded-md bg-background text-sm"
-                      type="password"
-                      placeholder="Enter your OpenRouter API key"
-                      value={openRouterApiKey}
-                      onChange={(e) => setOpenRouterApiKey(e.target.value)}
-                      disabled={modelStatus === 'loading'}
-                    />
-                    <div className="flex items-center gap-2 mt-2">
-                      <input
-                        id="remember-key"
-                        type="checkbox"
-                        checked={rememberApiKey}
-                        onChange={(e) => setRememberApiKey(e.target.checked)}
-                      />
-                      <label
-                        htmlFor="remember-key"
-                        className="text-xs text-muted-foreground"
-                      >
-                        Remember key in this browser
-                      </label>
-                    </div>
+                    <code className="text-emerald-600 dark:text-emerald-400">
+                      ?
+                    </code>{' '}
+                    optional &middot;{' '}
+                    <code className="text-emerald-600 dark:text-emerald-400">
+                      []
+                    </code>{' '}
+                    array &middot;{' '}
+                    <code className="text-emerald-600 dark:text-emerald-400">
+                      !
+                    </code>{' '}
+                    internal (hidden)
                   </div>
-                  <div>
-                    <label className="text-sm font-medium block mb-2">
-                      Model
-                    </label>
-                    <input
-                      className="w-full p-3 border rounded-md bg-background text-sm"
-                      type="text"
-                      placeholder="e.g. openrouter/auto or anthropic/claude-3.5-sonnet"
-                      value={openRouterModel}
-                      onChange={(e) => setOpenRouterModel(e.target.value)}
-                      disabled={modelStatus === 'loading'}
-                    />
-                    <p className="text-xs text-muted-foreground mt-2">
-                      Uses OpenAI-compatible API at openrouter.ai
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {/* Model Status */}
-              <div className="flex items-start gap-3">
-                <div
-                  className={`w-3 h-3 rounded-full transition-all duration-300 flex-shrink-0 mt-1 ${
-                    modelStatus === 'idle'
-                      ? 'bg-gray-400'
-                      : modelStatus === 'loading'
-                        ? 'bg-yellow-400 animate-pulse'
-                        : modelStatus === 'ready'
-                          ? 'bg-green-400'
-                          : 'bg-red-400'
-                  }`}
-                />
-                <div className="text-sm flex-1 leading-relaxed">
-                  {modelStatus === 'idle' ? (
-                    providerType === 'webllm' ? (
-                      'Ready to load model'
-                    ) : (
-                      'Ready to connect'
-                    )
-                  ) : modelStatus === 'loading' ? (
-                    <div className="space-y-1">
-                      <div className="font-medium">Loading Model...</div>
-                      <div className="text-muted-foreground text-xs whitespace-pre-wrap">
-                        {loadingText}
-                      </div>
-                    </div>
-                  ) : modelStatus === 'ready' ? (
-                    <div className="space-y-1">
-                      <div className="font-medium text-green-700 dark:text-green-300">
-                        {providerType === 'webllm'
-                          ? 'Model Ready'
-                          : 'Connected'}
-                      </div>
-                      <div className="text-muted-foreground text-xs">
-                        {providerType === 'webllm'
-                          ? `${selectedModel} loaded and ready to use`
-                          : `${openRouterModel} ready`}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="space-y-1">
-                      <div className="font-medium text-red-700 dark:text-red-300">
-                        Failed to load model
-                      </div>
-                      <div className="text-muted-foreground text-xs whitespace-pre-wrap">
-                        {loadingText}
-                      </div>
-                    </div>
-                  )}
                 </div>
               </div>
-
-              {/* Progress Bar */}
-              {modelStatus === 'loading' && (
-                <div className="space-y-2">
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div
-                      className="bg-blue-500 h-2 rounded-full transition-all duration-300"
-                      style={{ width: `${loadingProgress}%` }}
-                    />
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    {loadingProgress}%
-                  </div>
+              <div>
+                <div className="font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                  Field Types
                 </div>
-              )}
-
-              {/* Load/Connect Button */}
-              <div className="pt-4 border-t">
-                <Button
-                  onClick={loadModel}
-                  disabled={modelStatus === 'loading'}
-                  className="w-full bg-blue-600 hover:bg-blue-700 py-3"
-                  variant={modelStatus === 'ready' ? 'outline' : 'default'}
-                >
-                  {modelStatus === 'loading' ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      {providerType === 'webllm'
-                        ? 'Loading Model...'
-                        : 'Connecting...'}
-                    </>
-                  ) : modelStatus === 'ready' ? (
-                    providerType === 'webllm' ? (
-                      'Reload Model'
-                    ) : (
-                      'Reconnect'
-                    )
-                  ) : providerType === 'webllm' ? (
-                    'Load Model'
-                  ) : (
-                    'Connect'
-                  )}
-                </Button>
-              </div>
-
-              {/* About Section */}
-              <div className="pt-6 border-t space-y-4">
-                <h3 className="font-semibold text-lg leading-tight">
-                  Notebook-style prompt engineering
-                </h3>
-                <div className="text-sm text-muted-foreground space-y-3">
-                  <p>
-                    <span className="font-medium">
-                      Build and test signatures interactively.
-                    </span>{' '}
-                    Create multiple cells to experiment with different prompts
-                    and see results side by side.
-                  </p>
-                  <p>
-                    Each cell contains a complete signature with inputs,
-                    validation, execution, and results—just like a Jupyter
-                    notebook for LLM development.
-                  </p>
+                <div className="flex flex-wrap gap-1">
+                  {[
+                    'string',
+                    'number',
+                    'boolean',
+                    'date',
+                    'datetime',
+                    'json',
+                    'code',
+                    'class',
+                    'url',
+                    'image',
+                    'audio',
+                  ].map((t) => (
+                    <span
+                      key={t}
+                      className="px-2 py-0.5 rounded bg-white dark:bg-white/[0.07] border border-gray-200 dark:border-white/20 font-mono text-gray-600 dark:text-gray-400"
+                    >
+                      {t}
+                    </span>
+                  ))}
+                </div>
+                <div className="mt-2 text-gray-500 dark:text-gray-400">
+                  <code className="text-blue-600 dark:text-blue-400">
+                    class
+                  </code>{' '}
+                  requires options: <code>:class "opt1,opt2,opt3"</code>
                 </div>
               </div>
             </div>
+            <div className="mt-3 pt-3 border-t border-gray-200 dark:border-white/20">
+              <div className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                Examples
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <code className="block bg-white dark:bg-white/[0.07] border border-gray-200 dark:border-white/20 rounded px-2 py-1 text-gray-600 dark:text-gray-400 font-mono text-[11px]">
+                  question:string {'->'} answer:string
+                </code>
+                <code className="block bg-white dark:bg-white/[0.07] border border-gray-200 dark:border-white/20 rounded px-2 py-1 text-gray-600 dark:text-gray-400 font-mono text-[11px]">
+                  text:string {'->'} mood:class "happy,sad,neutral"
+                </code>
+                <code className="block bg-white dark:bg-white/[0.07] border border-gray-200 dark:border-white/20 rounded px-2 py-1 text-gray-600 dark:text-gray-400 font-mono text-[11px]">
+                  problem:string {'->'} reasoning!:string, answer:string
+                </code>
+                <code className="block bg-white dark:bg-white/[0.07] border border-gray-200 dark:border-white/20 rounded px-2 py-1 text-gray-600 dark:text-gray-400 font-mono text-[11px]">
+                  doc:string {'->'} tags:string[], summary:string
+                </code>
+              </div>
+            </div>
           </div>
+        </div>
+      )}
+
+      {/* Cells area */}
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6">
+        {cells.map((cell) => (
+          <NotebookCell
+            key={cell.id}
+            cellId={cell.id}
+            initialContent={cell.content}
+            loadedAI={loadedAI}
+            modelStatus={modelStatus}
+            isDarkMode={isDarkMode}
+            onDelete={cells.length > 1 ? deleteCell : undefined}
+            onAddCell={addCell}
+            onUpdateCellState={updateCellState}
+            onUpdateCellSignature={updateCellSignature}
+            availableOutputs={getAvailableOutputs(cell.id)}
+          />
+        ))}
+
+        {/* Add cell at end */}
+        <div className="flex justify-center py-4">
+          <Button
+            onClick={() => addCell()}
+            variant="outline"
+            size="sm"
+            className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 border-dashed"
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            Add Cell
+          </Button>
         </div>
       </div>
     </div>

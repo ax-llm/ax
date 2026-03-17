@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { f } from './sig.js';
+import { f, fn } from './sig.js';
 
 describe('AxSignatureBuilder fluent API', () => {
   it('should create signature with input and output fields', () => {
@@ -241,5 +241,145 @@ describe('AxSignatureBuilder fluent API', () => {
       const inputs = sig.getInputFields();
       expect(inputs.every((field) => field.isCached === true)).toBe(true);
     });
+  });
+});
+
+describe('fn() fluent function builder', () => {
+  it('should build parameter schemas from arg fields', () => {
+    const tool = fn('search')
+      .description('Search the product catalog')
+      .arg('query', f.string('Search query'))
+      .arg('limit', f.number('Maximum results').optional())
+      .handler(async ({ query, limit = 5 }) => `${query}:${limit}`)
+      .build();
+
+    expect(tool.name).toBe('search');
+    expect(tool.description).toBe('Search the product catalog');
+    expect(tool.parameters).toEqual({
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Search query',
+        },
+        limit: {
+          type: 'number',
+          description: 'Maximum results',
+        },
+      },
+      required: ['query'],
+      title: 'Schema',
+      additionalProperties: false,
+    });
+  });
+
+  it('should emit an empty object schema when no args are defined', () => {
+    const tool = fn('ping')
+      .description('Ping the current runtime')
+      .handler(async () => 'pong')
+      .build();
+
+    expect(tool.parameters).toEqual({
+      type: 'object',
+      properties: {},
+    });
+  });
+
+  it('should build primitive return schemas with returns(...)', () => {
+    const tool = fn('calculate')
+      .description('Calculate a score')
+      .arg('value', f.number('Input value'))
+      .returns(f.number('Calculated score'))
+      .handler(async ({ value }) => value * 2)
+      .build();
+
+    expect(tool.returns).toEqual({
+      type: 'number',
+      description: 'Calculated score',
+    });
+  });
+
+  it('should build object return schemas with returnsField(...)', () => {
+    const tool = fn('search')
+      .description('Search the product catalog')
+      .arg('query', f.string('Search query'))
+      .returnsField('results', f.string('Result item').array())
+      .returnsField('total', f.number('Total results').optional())
+      .handler(async ({ query }) => ({ results: [query], total: 1 }))
+      .build();
+
+    expect(tool.returns).toEqual({
+      type: 'object',
+      properties: {
+        results: {
+          type: 'array',
+          items: { type: 'string', description: 'Result item' },
+          description: 'Result item',
+        },
+        total: {
+          type: 'number',
+          description: 'Total results',
+        },
+      },
+      required: ['results'],
+      title: 'Schema',
+      additionalProperties: false,
+    });
+  });
+
+  it('should propagate namespace and examples to built functions', () => {
+    const tool = fn('lookupSchedule')
+      .description('Lookup schedule data')
+      .namespace('kb')
+      .arg('topic', f.string('Topic keyword'))
+      .returns(f.string('Lookup result'))
+      .example({
+        title: 'Simple lookup',
+        code: 'await kb.lookupSchedule({ topic: "alex" });',
+      })
+      .handler(async ({ topic }) => topic)
+      .build();
+
+    expect(tool.namespace).toBe('kb');
+    expect(tool.examples).toEqual([
+      {
+        title: 'Simple lookup',
+        code: 'await kb.lookupSchedule({ topic: "alex" });',
+      },
+    ]);
+  });
+
+  it('should require a non-empty description', () => {
+    expect(() => {
+      fn('search')
+        .handler(async () => 'ok')
+        .build();
+    }).toThrow('Function "search" must define a non-empty description');
+  });
+
+  it('should require a handler', () => {
+    expect(() => {
+      fn('search').description('Search the product catalog').build();
+    }).toThrow('Function "search" must define a handler');
+  });
+
+  it('should disallow mixing returns and returnsField', () => {
+    expect(() => {
+      fn('search')
+        .description('Search the product catalog')
+        .returns(f.number('Count'))
+        .returnsField('results', f.string('Result item').array());
+    }).toThrow(
+      'Cannot use fn().returnsField(...) after fn().returns(...); choose exactly one return schema style'
+    );
+
+    expect(() => {
+      fn('search')
+        .description('Search the product catalog')
+        .returnsField('results', f.string('Result item').array())
+        .returns(f.number('Count'));
+    }).toThrow(
+      'Cannot use fn().returns(...) after fn().returnsField(...); choose exactly one return schema style'
+    );
   });
 });

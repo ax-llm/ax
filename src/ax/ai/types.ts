@@ -199,8 +199,14 @@ export type AxFunctionHandler = (
     ai?: AxAIService;
     step?: import('../dsp/types.js').AxStepContext;
     abortSignal?: AbortSignal;
+    protocol?: AxAgentCompletionProtocol;
   }>
 ) => unknown;
+
+export type AxAgentCompletionProtocol = Readonly<{
+  final: (...args: unknown[]) => never;
+  askClarification: (...args: unknown[]) => never;
+}>;
 
 export type AxFunctionJSONSchema = {
   type: string | string[];

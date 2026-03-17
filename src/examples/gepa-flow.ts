@@ -1,4 +1,4 @@
-import { AxAI, AxAIOpenAIModel, AxGEPAFlow, flow } from '@ax-llm/ax';
+import { AxAI, AxAIOpenAIModel, AxGEPA, flow } from '@ax-llm/ax';
 
 // Two-objective flow: classify priority and produce a brief rationale
 const flowEmail = flow<{ emailText: string }>()
@@ -79,7 +79,7 @@ async function main() {
     config: { model: AxAIOpenAIModel.GPT4O },
   });
 
-  const optimizer = new AxGEPAFlow({
+  const optimizer = new AxGEPA({
     studentAI: student,
     teacherAI: teacher,
     numTrials: 16,
@@ -94,7 +94,7 @@ async function main() {
   });
 
   console.log(
-    '🚀 Running GEPA-Flow Pareto optimization (accuracy + brevity)...'
+    '🚀 Running GEPA Pareto optimization over the flow tree (accuracy + brevity)...'
   );
   const result = await optimizer.compile(
     flowEmail as any,
@@ -127,6 +127,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error('💥 GEPA-Flow Pareto example failed:', err);
+  console.error('💥 GEPA flow-tree Pareto example failed:', err);
   process.exit(1);
 });

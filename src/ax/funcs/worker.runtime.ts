@@ -80,6 +80,7 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
     print?: (...args: unknown[]) => void;
     console?: Record<string, unknown>;
   };
+  let _inspectBaselineGlobalNames: string[] = [];
   const _AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
   const _FUNCTION_REF_KEY = config.functionRefKey;
   const _OUTPUT_MODE_RETURN = 'return';
@@ -1167,16 +1168,204 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
   let _fnCallId = 0;
   let _outputMode = _OUTPUT_MODE_RETURN;
   let _captureConsole = false;
+  const _detachedFnErrors: unknown[] = [];
+
+  const _isPlainObject = (value: unknown): value is Record<string, unknown> => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return false;
+    }
+    const proto = Object.getPrototypeOf(value);
+    return proto === Object.prototype || proto === null;
+  };
+
+  const _isNonEmptyString = (value: unknown): value is string =>
+    typeof value === 'string' && value.trim().length > 0;
+
+  const _validateClarificationChoice = (choice: unknown): void => {
+    if (_isNonEmptyString(choice)) {
+      return;
+    }
+
+    if (!_isPlainObject(choice)) {
+      throw new Error(
+        'ask_clarification() choice entries must be non-empty strings or objects with a non-empty label'
+      );
+    }
+
+    if (!_isNonEmptyString(choice.label)) {
+      throw new Error(
+        'ask_clarification() choice objects require a non-empty label'
+      );
+    }
+
+    if (choice.value !== undefined && !_isNonEmptyString(choice.value)) {
+      throw new Error(
+        'ask_clarification() choice object values must be non-empty strings'
+      );
+    }
+  };
+
+  const _validateClarificationPayload = (payload: unknown): void => {
+    if (_isNonEmptyString(payload)) {
+      return;
+    }
+
+    if (!_isPlainObject(payload)) {
+      throw new Error(
+        'ask_clarification() requires a non-empty string or an object payload'
+      );
+    }
+
+    if (!_isNonEmptyString(payload.question)) {
+      throw new Error(
+        'ask_clarification() object payload requires a non-empty question'
+      );
+    }
+
+    const allowedTypes = new Set([
+      'text',
+      'number',
+      'date',
+      'single_choice',
+      'multiple_choice',
+    ]);
+    let normalizedType: string | undefined;
+    if (payload.type === undefined) {
+      normalizedType =
+        Array.isArray(payload.choices) && payload.choices.length > 0
+          ? 'single_choice'
+          : undefined;
+    } else {
+      if (typeof payload.type !== 'string' || !allowedTypes.has(payload.type)) {
+        throw new Error(
+          'ask_clarification() object payload type must be one of: text, number, date, single_choice, multiple_choice'
+        );
+      }
+      normalizedType = payload.type;
+    }
+
+    const wantsChoices =
+      normalizedType === 'single_choice' ||
+      normalizedType === 'multiple_choice';
+    const rawChoices = payload.choices;
+    if (rawChoices !== undefined) {
+      if (!Array.isArray(rawChoices) || rawChoices.length === 0) {
+        throw new Error(
+          'ask_clarification() choices must be a non-empty array when provided'
+        );
+      }
+      for (const choice of rawChoices) {
+        _validateClarificationChoice(choice);
+      }
+    } else if (wantsChoices) {
+      throw new Error(
+        'ask_clarification() choice payloads require a non-empty choices array'
+      );
+    }
+  };
+
+  const _validateCompletionCall = (
+    name: string,
+    args: readonly unknown[]
+  ): void => {
+    if (name === 'final') {
+      if (args.length === 0) {
+        throw new Error('final() requires at least one argument');
+      }
+      return;
+    }
+
+    if (name === 'ask_clarification') {
+      if (args.length !== 1) {
+        throw new Error('ask_clarification() requires exactly one argument');
+      }
+      _validateClarificationPayload(args[0]);
+    }
+  };
+
+  const _getCompletionCallType = (
+    name: string
+  ): 'final' | 'ask_clarification' | undefined => {
+    if (name === 'final' || name === 'ask_clarification') {
+      return name;
+    }
+
+    const refMatch = /^fn_\d+_(.+)$/.exec(name);
+    const refPath = refMatch?.[1];
+    if (refPath === 'final' || refPath === 'ask_clarification') {
+      return refPath;
+    }
+
+    return undefined;
+  };
 
   const _createFnProxy =
     (name: string) =>
     (...args: unknown[]) => {
+      const completionType = _getCompletionCallType(name);
+      if (completionType) {
+        _validateCompletionCall(completionType, args);
+      }
+
       const id = ++_fnCallId;
-      return new Promise((resolve, reject) => {
+      let observed = false;
+      const basePromise = new Promise((resolve, reject) => {
         _fnPending.set(id, { resolve, reject });
         _send({ type: 'fn-call', id, name, args });
       });
+
+      const originalThen = basePromise.then.bind(basePromise);
+      const originalCatch = basePromise.catch.bind(basePromise);
+      const originalFinally = basePromise.finally.bind(basePromise);
+      const markObserved = () => {
+        observed = true;
+      };
+
+      const trackedPromise = new Proxy(basePromise, {
+        get(target, prop, receiver) {
+          if (prop === 'then') {
+            return (...thenArgs: Parameters<Promise<unknown>['then']>) => {
+              markObserved();
+              return originalThen(...thenArgs);
+            };
+          }
+
+          if (prop === 'catch') {
+            return (...catchArgs: Parameters<Promise<unknown>['catch']>) => {
+              markObserved();
+              return originalCatch(...catchArgs);
+            };
+          }
+
+          if (prop === 'finally') {
+            return (
+              ...finallyArgs: Parameters<Promise<unknown>['finally']>
+            ) => {
+              markObserved();
+              return originalFinally(...finallyArgs);
+            };
+          }
+
+          return Reflect.get(target, prop, receiver);
+        },
+      }) as Promise<unknown>;
+
+      void basePromise.catch((error) => {
+        if (!observed) {
+          _detachedFnErrors.push(error);
+        }
+      });
+
+      return trackedPromise;
     };
+
+  const _waitForPendingFnCalls = async (): Promise<void> => {
+    for (let i = 0; i < 50 && _fnPending.size > 0; i += 1) {
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 0);
+      });
+    }
+  };
 
   const _rehydrateFnRefs = (value: unknown): unknown => {
     if (!value || typeof value !== 'object') {
@@ -1204,14 +1393,6 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
     }
 
     return value;
-  };
-
-  const _isPlainObject = (value: unknown): value is Record<string, unknown> => {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) {
-      return false;
-    }
-    const proto = Object.getPrototypeOf(value);
-    return proto === Object.prototype || proto === null;
   };
 
   const _patchGlobals = (globals: Record<string, unknown>): void => {
@@ -1323,6 +1504,334 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
     return stdout ? stdout : result;
   };
 
+  const _truncateInspectText = (text: string, maxChars: number): string =>
+    text.length <= maxChars ? text : `${text.slice(0, maxChars - 3)}...`;
+
+  const _previewInspectAtom = (value: unknown): string => {
+    if (value === null) {
+      return 'null';
+    }
+    if (value === undefined) {
+      return 'undefined';
+    }
+
+    const valueType = typeof value;
+    if (typeof value === 'string') {
+      return JSON.stringify(_truncateInspectText(value, 40));
+    }
+    if (
+      valueType === 'number' ||
+      valueType === 'boolean' ||
+      valueType === 'bigint'
+    ) {
+      return String(value);
+    }
+    if (valueType === 'symbol') {
+      return String(value);
+    }
+    if (valueType === 'function') {
+      const fnName =
+        (value as { name?: unknown }).name &&
+        typeof (value as { name?: unknown }).name === 'string'
+          ? ((value as { name?: string }).name ?? '')
+          : '';
+      return `[function ${fnName || 'anonymous'}]`;
+    }
+    if (Array.isArray(value)) {
+      return `[array(${value.length})]`;
+    }
+    if (value instanceof Date) {
+      return Number.isFinite(value.getTime())
+        ? value.toISOString()
+        : String(value);
+    }
+    if (value instanceof Error) {
+      return `${value.name || 'Error'}: ${value.message || ''}`;
+    }
+    if (value instanceof Map) {
+      return `[map(${value.size})]`;
+    }
+    if (value instanceof Set) {
+      return `[set(${value.size})]`;
+    }
+
+    const ctorName =
+      value &&
+      typeof value === 'object' &&
+      'constructor' in value &&
+      value.constructor &&
+      typeof (value.constructor as { name?: unknown }).name === 'string'
+        ? ((value.constructor as { name: string }).name ?? '')
+        : '';
+    return ctorName && ctorName !== 'Object' ? `[${ctorName}]` : '[object]';
+  };
+
+  const _describeInspectType = (
+    value: unknown
+  ): { type: string; ctor?: string } => {
+    if (value === null) {
+      return { type: 'null' };
+    }
+    if (Array.isArray(value)) {
+      return { type: 'array', ctor: 'Array' };
+    }
+    if (value instanceof Map) {
+      return { type: 'map', ctor: 'Map' };
+    }
+    if (value instanceof Set) {
+      return { type: 'set', ctor: 'Set' };
+    }
+    if (value instanceof Date) {
+      return { type: 'date', ctor: 'Date' };
+    }
+    if (value instanceof Error) {
+      return {
+        type: 'error',
+        ctor:
+          typeof value.name === 'string' && value.name.trim()
+            ? value.name
+            : 'Error',
+      };
+    }
+
+    const valueType = typeof value;
+    if (valueType !== 'object') {
+      return { type: valueType };
+    }
+
+    const ctor =
+      value &&
+      typeof value === 'object' &&
+      'constructor' in value &&
+      value.constructor &&
+      typeof (value.constructor as { name?: unknown }).name === 'string'
+        ? ((value.constructor as { name: string }).name ?? undefined)
+        : undefined;
+    return { type: 'object', ctor };
+  };
+
+  const _describeInspectSize = (
+    value: unknown,
+    type: string
+  ): string | undefined => {
+    if (type === 'string') {
+      return `${(value as string).length} chars`;
+    }
+    if (type === 'array') {
+      return `${(value as unknown[]).length} items`;
+    }
+    if (type === 'map' || type === 'set') {
+      return `${(value as Map<unknown, unknown> | Set<unknown>).size} items`;
+    }
+    if (type === 'object' && value && typeof value === 'object') {
+      return `${Object.keys(value as Record<string, unknown>).length} keys`;
+    }
+    return undefined;
+  };
+
+  const _previewInspectValue = (
+    value: unknown,
+    type: string,
+    ctor?: string
+  ): string => {
+    if (type === 'array') {
+      const items = (value as unknown[])
+        .slice(0, 3)
+        .map((item) => _previewInspectAtom(item));
+      return (
+        '[' +
+        items.join(', ') +
+        ((value as unknown[]).length > 3 ? ', ...' : '') +
+        ']'
+      );
+    }
+    if (type === 'map') {
+      const mapValue = value as Map<unknown, unknown>;
+      const items = Array.from(mapValue.entries())
+        .slice(0, 3)
+        .map(
+          ([key, item]) =>
+            `${_previewInspectAtom(key)} => ${_previewInspectAtom(item)}`
+        );
+      return (
+        'Map(' +
+        mapValue.size +
+        ') {' +
+        items.join(', ') +
+        (mapValue.size > 3 ? ', ...' : '') +
+        '}'
+      );
+    }
+    if (type === 'set') {
+      const setValue = value as Set<unknown>;
+      const items = Array.from(setValue.values())
+        .slice(0, 5)
+        .map((item) => _previewInspectAtom(item));
+      return (
+        'Set(' +
+        setValue.size +
+        ') {' +
+        items.join(', ') +
+        (setValue.size > 5 ? ', ...' : '') +
+        '}'
+      );
+    }
+    if (type === 'date' || type === 'error' || type === 'function') {
+      return _previewInspectAtom(value);
+    }
+    if (type === 'object' && value && typeof value === 'object') {
+      const keys = Object.keys(value as Record<string, unknown>);
+      const shown = keys.slice(0, 4);
+      const prefix = ctor && ctor !== 'Object' ? `${ctor} ` : '';
+      return (
+        prefix +
+        '{' +
+        shown.join(', ') +
+        (keys.length > shown.length ? ', ...' : '') +
+        '}'
+      );
+    }
+    return _previewInspectAtom(value);
+  };
+
+  const _buildInspectGlobalsSnapshot = (
+    reservedNames?: readonly string[]
+  ): string => {
+    const skip = new Set([
+      ..._inspectBaselineGlobalNames,
+      ...(reservedNames ?? []),
+    ]);
+    const entries = Object.getOwnPropertyNames(_scope)
+      .filter((name) => !skip.has(name) && !name.startsWith('_'))
+      .sort()
+      .flatMap((name) => {
+        try {
+          const descriptor = Object.getOwnPropertyDescriptor(_scope, name);
+          if (!descriptor) {
+            return [];
+          }
+          if (
+            'get' in descriptor &&
+            typeof descriptor.get === 'function' &&
+            !('value' in descriptor)
+          ) {
+            return [{ name, type: 'accessor', preview: '[getter omitted]' }];
+          }
+
+          const value = 'value' in descriptor ? descriptor.value : _scope[name];
+          const meta = _describeInspectType(value);
+          const size = _describeInspectSize(value, meta.type);
+          const preview = _previewInspectValue(value, meta.type, meta.ctor);
+
+          return [
+            {
+              name,
+              type: meta.type,
+              ...(meta.ctor ? { ctor: meta.ctor } : {}),
+              ...(size ? { size } : {}),
+              ...(preview
+                ? { preview: _truncateInspectText(preview, 96) }
+                : {}),
+            },
+          ];
+        } catch {
+          return [{ name, type: 'unknown', preview: '[unavailable]' }];
+        }
+      });
+
+    return JSON.stringify({ version: 1, entries });
+  };
+
+  const _canStructuredCloneValue = (value: unknown): boolean => {
+    if (typeof structuredClone === 'function') {
+      try {
+        structuredClone(value);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+    try {
+      JSON.stringify(value);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const _buildStructuredGlobalsSnapshot = (
+    reservedNames?: readonly string[]
+  ) => {
+    const skip = new Set([
+      ..._inspectBaselineGlobalNames,
+      ...(reservedNames ?? []),
+    ]);
+    const bindings: Record<string, unknown> = {};
+    const entries = Object.getOwnPropertyNames(_scope)
+      .filter((name) => !skip.has(name) && !name.startsWith('_'))
+      .sort()
+      .flatMap((name) => {
+        try {
+          const descriptor = Object.getOwnPropertyDescriptor(_scope, name);
+          if (!descriptor) {
+            return [];
+          }
+          if (
+            'get' in descriptor &&
+            typeof descriptor.get === 'function' &&
+            !('value' in descriptor)
+          ) {
+            return [
+              {
+                name,
+                type: 'accessor',
+                preview: '[getter omitted]',
+                restorable: false,
+              },
+            ];
+          }
+
+          const value = 'value' in descriptor ? descriptor.value : _scope[name];
+          const meta = _describeInspectType(value);
+          const size = _describeInspectSize(value, meta.type);
+          const preview = _previewInspectValue(value, meta.type, meta.ctor);
+          const restorable = _canStructuredCloneValue(value);
+
+          if (restorable) {
+            bindings[name] =
+              typeof structuredClone === 'function'
+                ? structuredClone(value)
+                : value;
+          }
+
+          return [
+            {
+              name,
+              type: meta.type,
+              ...(meta.ctor ? { ctor: meta.ctor } : {}),
+              ...(size ? { size } : {}),
+              ...(preview
+                ? { preview: _truncateInspectText(preview, 96) }
+                : {}),
+              restorable,
+            },
+          ];
+        } catch {
+          return [
+            {
+              name,
+              type: 'unknown',
+              preview: '[unavailable]',
+              restorable: false,
+            },
+          ];
+        }
+      });
+
+    return { version: 1 as const, entries, bindings };
+  };
+
   _setOnMessage(async (event) => {
     const msg = event.data as Record<string, unknown>;
 
@@ -1342,6 +1851,7 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
       const allowUnsafeNodeHostAccess = msg.allowUnsafeNodeHostAccess === true;
 
       _setGlobalsAndFnProxies(msg);
+      _inspectBaselineGlobalNames = Object.getOwnPropertyNames(_scope).sort();
       _applyPermissionLockdown(msg.permissions);
       _applyNodeHostLockdown(allowUnsafeNodeHostAccess);
       return;
@@ -1380,6 +1890,50 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
       return;
     }
 
+    if (msg.type === 'inspect-globals') {
+      if (typeof msg.id !== 'number') {
+        return;
+      }
+
+      try {
+        const reservedNames = Array.isArray(msg.reservedNames)
+          ? msg.reservedNames.filter(
+              (value): value is string => typeof value === 'string'
+            )
+          : undefined;
+        _send({
+          type: 'result',
+          id: msg.id,
+          value: _buildInspectGlobalsSnapshot(reservedNames),
+        });
+      } catch (err) {
+        _send({ type: 'result', id: msg.id, error: _serializeError(err) });
+      }
+      return;
+    }
+
+    if (msg.type === 'snapshot-globals') {
+      if (typeof msg.id !== 'number') {
+        return;
+      }
+
+      try {
+        const reservedNames = Array.isArray(msg.reservedNames)
+          ? msg.reservedNames.filter(
+              (value): value is string => typeof value === 'string'
+            )
+          : undefined;
+        _send({
+          type: 'result',
+          id: msg.id,
+          value: _buildStructuredGlobalsSnapshot(reservedNames),
+        });
+      } catch (err) {
+        _send({ type: 'result', id: msg.id, error: _serializeError(err) });
+      }
+      return;
+    }
+
     if (msg.type !== 'execute') {
       return;
     }
@@ -1394,9 +1948,17 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
     const { output, cleanup } = _setupOutputCapture();
 
     try {
+      _detachedFnErrors.length = 0;
       const result = isAsync
         ? await _executeAsyncSnippet(code)
         : _executeSyncSnippet(code);
+      if (_fnPending.size > 0) {
+        await _waitForPendingFnCalls();
+      }
+      await Promise.resolve();
+      if (_detachedFnErrors.length > 0) {
+        throw _detachedFnErrors[0];
+      }
       const value = _toOutputValue(result, output);
 
       try {

@@ -327,6 +327,7 @@ import {
   AxAITogetherModel,
 } from './ai/together/types.js';
 import type {
+  AxAgentCompletionProtocol,
   AxAIInputModelList,
   AxAIModelList,
   AxAIModelListBase,
@@ -508,6 +509,7 @@ import {
 import { type AxFunctionResultFormatter, axGlobals } from './dsp/globals.js';
 import {
   AxJudge,
+  type AxJudgeForwardOptions,
   type AxJudgeMode,
   type AxJudgeOptions,
   type AxJudgeResult,
@@ -515,9 +517,19 @@ import {
 } from './dsp/judge.js';
 import {
   AxLearn,
+  type AxLearnArtifact,
+  type AxLearnContinuousOptions,
+  type AxLearnMode,
+  type AxLearnOptimizeOptions,
   type AxLearnOptions,
+  type AxLearnPlaybook,
+  type AxLearnPlaybookOptions,
+  type AxLearnPlaybookSummary,
   type AxLearnProgress,
   type AxLearnResult,
+  type AxLearnUpdateFeedback,
+  type AxLearnUpdateInput,
+  type AxLearnUpdateOptions,
 } from './dsp/learn.js';
 import { type AxDataRow, AxHFDataLoader } from './dsp/loader.js';
 import {
@@ -580,7 +592,6 @@ import type {
   AxGEPAAdapter,
   AxGEPAEvaluationBatch,
 } from './dsp/optimizers/gepaAdapter.js';
-import { AxGEPAFlow } from './dsp/optimizers/gepaFlow.js';
 import { AxMiPRO, type AxMiPROResult } from './dsp/optimizers/miproV2.js';
 import type {
   AxOptimizerLoggerData,
@@ -604,6 +615,7 @@ import {
   AxSignatureBuilder,
   type AxSignatureConfig,
   f,
+  fn,
 } from './dsp/sig.js';
 import { AxStepContextImpl } from './dsp/stepContext.js';
 import { AxStringUtil } from './dsp/strutil.js';
@@ -628,6 +640,7 @@ import type {
   AxGenOutput,
   AxGenStreamingOut,
   AxMessage,
+  AxNamedProgramInstance,
   AxProgramDemos,
   AxProgramExamples,
   AxProgramForwardOptions,
@@ -734,6 +747,8 @@ import type {
 import { AxMemory } from './mem/memory.js';
 import type {
   AxCheckpoint,
+  AxLearnCheckpointMode,
+  AxLearnCheckpointState,
   AxStorage,
   AxStorageQuery,
   AxTrace,
@@ -745,15 +760,34 @@ import type {
 } from './mem/types.js';
 import {
   AxAgent,
+  type AxAgentClarification,
+  type AxAgentClarificationChoice,
+  AxAgentClarificationError,
+  type AxAgentClarificationKind,
   type AxAgentConfig,
   type AxAgentDemos,
+  type AxAgentEvalDataset,
+  type AxAgentEvalFunctionCall,
+  type AxAgentEvalPrediction,
+  type AxAgentEvalTask,
   type AxAgentFunction,
   type AxAgentFunctionExample,
+  type AxAgentFunctionGroup,
   type AxAgentInputUpdateCallback,
   type AxAgentic,
-  type AxAgentNamespace,
+  type AxAgentJudgeOptions,
+  type AxAgentOptimizeOptions,
+  type AxAgentOptimizeResult,
+  type AxAgentOptimizeTarget,
   type AxAgentOptions,
   type AxAgentRecursionOptions,
+  type AxAgentState,
+  type AxAgentStateActionLogEntry,
+  type AxAgentStateCheckpointState,
+  type AxAgentStateRuntimeEntry,
+  type AxAgentStructuredClarification,
+  type AxAgentTestCompletionPayload,
+  type AxAgentTestResult,
   type AxContextFieldInput,
   agent,
 } from './prompts/agent.js';
@@ -762,7 +796,10 @@ import {
   type AxCodeInterpreter,
   type AxCodeRuntime,
   type AxCodeSession,
-  type AxContextManagementConfig,
+  type AxCodeSessionSnapshot,
+  type AxCodeSessionSnapshotEntry,
+  type AxContextPolicyConfig,
+  type AxContextPolicyPreset,
   type AxRLMConfig,
   axBuildActorDefinition,
   axBuildResponderDefinition,
@@ -850,6 +887,7 @@ export { AxAITogetherModel };
 export { AxAIWebLLM };
 export { AxAIWebLLMModel };
 export { AxAgent };
+export { AxAgentClarificationError };
 export { AxApacheTika };
 export { AxAssertionError };
 export { AxBalancer };
@@ -879,7 +917,6 @@ export { AxFluentFieldType };
 export { AxFunctionError };
 export { AxFunctionProcessor };
 export { AxGEPA };
-export { AxGEPAFlow };
 export { AxGen };
 export { AxGenerateError };
 export { AxHFDataLoader };
@@ -1003,6 +1040,7 @@ export { axValidateProviderCapabilities };
 export { axWorkerRuntime };
 export { f };
 export { flow };
+export { fn };
 export { s };
 
 // Type exports
@@ -1218,14 +1256,33 @@ export type { AxAIWebLLMEmbedRequest };
 export type { AxAIWebLLMEmbedResponse };
 export type { AxAPI };
 export type { AxAPIConfig };
+export type { AxAgentClarification };
+export type { AxAgentClarificationChoice };
+export type { AxAgentClarificationKind };
+export type { AxAgentCompletionProtocol };
 export type { AxAgentConfig };
 export type { AxAgentDemos };
+export type { AxAgentEvalDataset };
+export type { AxAgentEvalFunctionCall };
+export type { AxAgentEvalPrediction };
+export type { AxAgentEvalTask };
 export type { AxAgentFunction };
 export type { AxAgentFunctionExample };
+export type { AxAgentFunctionGroup };
 export type { AxAgentInputUpdateCallback };
-export type { AxAgentNamespace };
+export type { AxAgentJudgeOptions };
+export type { AxAgentOptimizeOptions };
+export type { AxAgentOptimizeResult };
+export type { AxAgentOptimizeTarget };
 export type { AxAgentOptions };
 export type { AxAgentRecursionOptions };
+export type { AxAgentState };
+export type { AxAgentStateActionLogEntry };
+export type { AxAgentStateCheckpointState };
+export type { AxAgentStateRuntimeEntry };
+export type { AxAgentStructuredClarification };
+export type { AxAgentTestCompletionPayload };
+export type { AxAgentTestResult };
 export type { AxAgentic };
 export type { AxApacheTikaArgs };
 export type { AxApacheTikaConvertOptions };
@@ -1245,6 +1302,8 @@ export type { AxCitation };
 export type { AxCodeInterpreter };
 export type { AxCodeRuntime };
 export type { AxCodeSession };
+export type { AxCodeSessionSnapshot };
+export type { AxCodeSessionSnapshotEntry };
 export type { AxCompileOptions };
 export type { AxContentProcessingServices };
 export type { AxContextCacheInfo };
@@ -1253,7 +1312,8 @@ export type { AxContextCacheOptions };
 export type { AxContextCacheRegistry };
 export type { AxContextCacheRegistryEntry };
 export type { AxContextFieldInput };
-export type { AxContextManagementConfig };
+export type { AxContextPolicyConfig };
+export type { AxContextPolicyPreset };
 export type { AxCostTracker };
 export type { AxCostTrackerOptions };
 export type { AxDBArgs };
@@ -1340,13 +1400,26 @@ export type { AxInputFunctionType };
 export type { AxInternalChatRequest };
 export type { AxInternalEmbedRequest };
 export type { AxJSRuntimeOutputMode };
+export type { AxJudgeForwardOptions };
 export type { AxJudgeMode };
 export type { AxJudgeOptions };
 export type { AxJudgeResult };
 export type { AxJudgeRubric };
+export type { AxLearnArtifact };
+export type { AxLearnCheckpointMode };
+export type { AxLearnCheckpointState };
+export type { AxLearnContinuousOptions };
+export type { AxLearnMode };
+export type { AxLearnOptimizeOptions };
 export type { AxLearnOptions };
+export type { AxLearnPlaybook };
+export type { AxLearnPlaybookOptions };
+export type { AxLearnPlaybookSummary };
 export type { AxLearnProgress };
 export type { AxLearnResult };
+export type { AxLearnUpdateFeedback };
+export type { AxLearnUpdateInput };
+export type { AxLearnUpdateOptions };
 export type { AxLoggerData };
 export type { AxLoggerFunction };
 export type { AxMCPBlobResourceContents };
@@ -1391,6 +1464,7 @@ export type { AxModelInfoWithProvider };
 export type { AxModelUsage };
 export type { AxMultiMetricFn };
 export type { AxMultiProviderConfig };
+export type { AxNamedProgramInstance };
 export type { AxOptimizationCheckpoint };
 export type { AxOptimizationProgress };
 export type { AxOptimizationStats };

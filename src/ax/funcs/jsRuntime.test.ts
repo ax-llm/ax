@@ -218,6 +218,246 @@ describe('AxJSRuntime', () => {
     await expect(promise).rejects.toThrow('Worker terminated');
   });
 
+  it('queues overlapping execute calls in FIFO order', async () => {
+    const interp = new AxJSRuntime();
+    const session = interp.createSession();
+
+    const first = session.execute('1+1');
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const second = session.execute('2+2');
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const executeCallsBeforeFirstResult = mockPostMessage.mock.calls.filter(
+      (call) => call[0]?.type === 'execute'
+    );
+    expect(executeCallsBeforeFirstResult).toHaveLength(1);
+    expect(executeCallsBeforeFirstResult[0]?.[0]).toMatchObject({
+      type: 'execute',
+      code: '1+1',
+    });
+
+    const firstExecuteMsg = executeCallsBeforeFirstResult[0]![0] as {
+      id: number;
+    };
+    mockWorkerInstance.onmessage?.({
+      data: { type: 'result', id: firstExecuteMsg.id, value: 2 },
+    } as MessageEvent);
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const executeCallsAfterFirstResult = mockPostMessage.mock.calls.filter(
+      (call) => call[0]?.type === 'execute'
+    );
+    expect(executeCallsAfterFirstResult).toHaveLength(2);
+    expect(executeCallsAfterFirstResult[1]?.[0]).toMatchObject({
+      type: 'execute',
+      code: '2+2',
+    });
+
+    const secondExecuteMsg = executeCallsAfterFirstResult[1]![0] as {
+      id: number;
+    };
+    mockWorkerInstance.onmessage?.({
+      data: { type: 'result', id: secondExecuteMsg.id, value: 4 },
+    } as MessageEvent);
+
+    await expect(first).resolves.toBe(2);
+    await expect(second).resolves.toBe(4);
+  });
+
+  it('queues patchGlobals behind an active execute', async () => {
+    const interp = new AxJSRuntime();
+    const session = interp.createSession();
+
+    const first = session.execute('1+1');
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const patch = session.patchGlobals({ query: 'updated' });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const patchCallsBeforeFirstResult = mockPostMessage.mock.calls.filter(
+      (call) => call[0]?.type === 'update-globals'
+    );
+    expect(patchCallsBeforeFirstResult).toHaveLength(0);
+
+    const executeCall = mockPostMessage.mock.calls.find(
+      (call) => call[0]?.type === 'execute'
+    );
+    const executeMsg = executeCall![0] as { id: number };
+    mockWorkerInstance.onmessage?.({
+      data: { type: 'result', id: executeMsg.id, value: 2 },
+    } as MessageEvent);
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const patchCall = mockPostMessage.mock.calls.find(
+      (call) => call[0]?.type === 'update-globals'
+    );
+    expect(patchCall?.[0]).toMatchObject({
+      type: 'update-globals',
+      globals: { query: 'updated' },
+    });
+
+    const patchMsg = patchCall![0] as { id: number };
+    mockWorkerInstance.onmessage?.({
+      data: { type: 'result', id: patchMsg.id, value: undefined },
+    } as MessageEvent);
+
+    await expect(first).resolves.toBe(2);
+    await expect(patch).resolves.toBeUndefined();
+  });
+
+  it('queues inspectGlobals behind an active execute and forwards reserved names', async () => {
+    const interp = new AxJSRuntime();
+    const session = interp.createSession();
+
+    const first = session.execute('1+1');
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const inspect = session.inspectGlobals!({
+      reservedNames: ['query'],
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const inspectCallsBeforeFirstResult = mockPostMessage.mock.calls.filter(
+      (call) => call[0]?.type === 'inspect-globals'
+    );
+    expect(inspectCallsBeforeFirstResult).toHaveLength(0);
+
+    const executeCall = mockPostMessage.mock.calls.find(
+      (call) => call[0]?.type === 'execute'
+    );
+    const executeMsg = executeCall![0] as { id: number };
+    mockWorkerInstance.onmessage?.({
+      data: { type: 'result', id: executeMsg.id, value: 2 },
+    } as MessageEvent);
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const inspectCall = mockPostMessage.mock.calls.find(
+      (call) => call[0]?.type === 'inspect-globals'
+    );
+    expect(inspectCall?.[0]).toMatchObject({
+      type: 'inspect-globals',
+      reservedNames: ['query'],
+    });
+
+    const inspectMsg = inspectCall![0] as { id: number };
+    mockWorkerInstance.onmessage?.({
+      data: {
+        type: 'result',
+        id: inspectMsg.id,
+        value: '{"version":1,"entries":[]}',
+      },
+    } as MessageEvent);
+
+    await expect(first).resolves.toBe(2);
+    await expect(inspect).resolves.toBe('{"version":1,"entries":[]}');
+  });
+
+  it('rejects queued inspectGlobals calls that are aborted before they start', async () => {
+    const interp = new AxJSRuntime();
+    const session = interp.createSession();
+    const controller = new AbortController();
+
+    const first = session.execute('1+1');
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const inspect = session.inspectGlobals!({ signal: controller.signal });
+    controller.abort('cancelled inspect');
+
+    await expect(inspect).rejects.toThrow('Aborted: cancelled inspect');
+
+    const inspectCallsBeforeFirstResult = mockPostMessage.mock.calls.filter(
+      (call) => call[0]?.type === 'inspect-globals'
+    );
+    expect(inspectCallsBeforeFirstResult).toHaveLength(0);
+
+    const executeCall = mockPostMessage.mock.calls.find(
+      (call) => call[0]?.type === 'execute'
+    );
+    const executeMsg = executeCall![0] as { id: number };
+    mockWorkerInstance.onmessage?.({
+      data: { type: 'result', id: executeMsg.id, value: 2 },
+    } as MessageEvent);
+
+    await expect(first).resolves.toBe(2);
+  });
+
+  it('rejects queued execute calls that are aborted before they start', async () => {
+    const interp = new AxJSRuntime();
+    const session = interp.createSession();
+    const controller = new AbortController();
+
+    const first = session.execute('1+1');
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const second = session.execute('2+2', { signal: controller.signal });
+    controller.abort('cancelled before start');
+
+    await expect(second).rejects.toThrow('Aborted: cancelled before start');
+
+    const executeCallsBeforeFirstResult = mockPostMessage.mock.calls.filter(
+      (call) => call[0]?.type === 'execute'
+    );
+    expect(executeCallsBeforeFirstResult).toHaveLength(1);
+    expect(executeCallsBeforeFirstResult[0]?.[0]).toMatchObject({
+      type: 'execute',
+      code: '1+1',
+    });
+
+    const firstExecuteMsg = executeCallsBeforeFirstResult[0]![0] as {
+      id: number;
+    };
+    mockWorkerInstance.onmessage?.({
+      data: { type: 'result', id: firstExecuteMsg.id, value: 2 },
+    } as MessageEvent);
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const executeCallsAfterFirstResult = mockPostMessage.mock.calls.filter(
+      (call) => call[0]?.type === 'execute'
+    );
+    expect(executeCallsAfterFirstResult).toHaveLength(1);
+
+    await expect(first).resolves.toBe(2);
+  });
+
+  it('blocks broader reserved runtime name shadowing before dispatching to the worker', async () => {
+    const interp = new AxJSRuntime();
+    const session = interp.createSession();
+
+    for (const code of [
+      'function inputs() {}',
+      'class inputs {}',
+      'inputs++',
+    ]) {
+      await expect(
+        session.execute(code, { reservedNames: ['inputs'] })
+      ).resolves.toContain(
+        "Cannot assign to, redeclare, or shadow reserved runtime variable 'inputs'"
+      );
+    }
+
+    const executeCalls = mockPostMessage.mock.calls.filter(
+      (call) => call[0]?.type === 'execute'
+    );
+    expect(executeCalls).toHaveLength(0);
+  });
+
   it('result with legacy string error rejects with Error with that message', async () => {
     const interp = new AxJSRuntime();
     const session = interp.createSession();
@@ -359,6 +599,7 @@ describe('AxJSRuntime', () => {
 
     // First execute: will time out
     const timeoutPromise = session.execute('while(true){}');
+    await vi.advanceTimersByTimeAsync(0);
     vi.advanceTimersByTime(101);
     await expect(timeoutPromise).rejects.toThrow('Execution timed out');
 
