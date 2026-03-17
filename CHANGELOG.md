@@ -1,5 +1,16 @@
 # Changelog
 
+## [19.0.19](///compare/19.0.17...19.0.18) (2026-03-17)
+
+### Bug Fixes
+
+* deno webworker fixes b4f9538
+## [19.0.18](///compare/19.0.17...19.0.18) (2026-03-17)
+
+### Features
+
+* state management and gepa optimization for axagent 48fb04b
+
 ## [19.0.18](///compare/19.0.16...19.0.17) (2026-03-17)
 
 ### Features
