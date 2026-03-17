@@ -1,5 +1,17 @@
 # Changelog
 
+## [19.0.18](///compare/19.0.16...19.0.17) (2026-03-17)
+
+### Features
+
+* state management and gepa optimization for axagent 48fb04b
+## [19.0.17](///compare/19.0.16...19.0.17) (2026-03-15)
+
+### Features
+
+* major docs cleanup and nw website cc9adca
+* massive improvements to axagent context policy 4b9772f
+
 ## [19.0.17](///compare/19.0.15...19.0.16) (2026-03-15)
 
 ### Features
