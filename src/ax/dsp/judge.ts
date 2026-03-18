@@ -391,7 +391,7 @@ ${criteria}
 - excellent: Exceptional response that fully addresses all criteria with high quality
 - good: Solid response that addresses most criteria well
 - acceptable: Adequate response that meets minimum requirements
-- poor: Response has significant issues or missing elements
+- poor: Response contains fabricated, incorrect, or contradictory information
 - unacceptable: Response is wrong, harmful, or completely off-topic
 
 First explain your reasoning, then classify the response into one of the quality tiers.
