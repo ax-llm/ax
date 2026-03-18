@@ -488,9 +488,16 @@ export type AxAgentRecursionOptions = Partial<
 > & {
   /** Maximum nested recursion depth for llmQuery sub-agent calls. */
   maxDepth?: number;
+  /** Prompt detail level for recursive child agents (default: inherits parent). */
+  promptLevel?: AxActorPromptLevel;
 };
 
 export type AxActorPromptLevel = 'detailed' | 'basic';
+
+type AxLlmQueryPromptMode =
+  | 'simple'
+  | 'advanced-recursive'
+  | 'simple-at-terminal-depth';
 
 // ----- Constants -----
 
@@ -503,6 +510,107 @@ const DEFAULT_CONTEXT_FIELD_PROMPT_MAX_CHARS = 1_200;
 const DEFAULT_AGENT_MODULE_NAMESPACE = 'agents';
 const DEFAULT_RANK_PRUNE_GRACE_TURNS = 2;
 const DEFAULT_AGENT_OPTIMIZE_MAX_METRIC_CALLS = 100;
+const SAFE_BOOTSTRAP_GLOBAL_IDENTIFIER = /^[$A-Z_a-z][$0-9A-Z_a-z]*$/;
+const UNSAFE_BOOTSTRAP_GLOBAL_NAMES = new Set([
+  'context',
+  '__proto__',
+  'prototype',
+  'constructor',
+  'globalThis',
+  'global',
+  'self',
+  'window',
+  'console',
+  'JSON',
+  'Math',
+  'Reflect',
+  'Atomics',
+  'Array',
+  'Object',
+  'String',
+  'Number',
+  'Boolean',
+  'BigInt',
+  'Symbol',
+  'Date',
+  'RegExp',
+  'Error',
+  'EvalError',
+  'RangeError',
+  'ReferenceError',
+  'SyntaxError',
+  'TypeError',
+  'URIError',
+  'AggregateError',
+  'Map',
+  'Set',
+  'WeakMap',
+  'WeakSet',
+  'Promise',
+  'Proxy',
+  'Function',
+  'Intl',
+  'URL',
+  'URLSearchParams',
+  'TextEncoder',
+  'TextDecoder',
+  'AbortController',
+  'AbortSignal',
+  'parseInt',
+  'parseFloat',
+  'isNaN',
+  'isFinite',
+  'eval',
+  'undefined',
+  'Infinity',
+  'NaN',
+  'await',
+  'break',
+  'case',
+  'catch',
+  'class',
+  'const',
+  'continue',
+  'debugger',
+  'default',
+  'delete',
+  'do',
+  'else',
+  'enum',
+  'export',
+  'extends',
+  'false',
+  'finally',
+  'for',
+  'function',
+  'if',
+  'import',
+  'in',
+  'instanceof',
+  'new',
+  'null',
+  'return',
+  'super',
+  'switch',
+  'this',
+  'throw',
+  'true',
+  'try',
+  'typeof',
+  'var',
+  'void',
+  'while',
+  'with',
+  'yield',
+  'let',
+  'static',
+  'implements',
+  'interface',
+  'package',
+  'private',
+  'protected',
+  'public',
+]);
 const DISCOVERY_LIST_MODULE_FUNCTIONS_NAME = 'listModuleFunctions';
 const DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME = 'getFunctionDefinitions';
 const TEST_HARNESS_LLM_QUERY_AI_REQUIRED_ERROR =
@@ -744,6 +852,8 @@ type AxPreparedRestoredState = {
 
 type AxAgentRuntimeExecutionContext = {
   effectiveContextConfig: AxResolvedContextPolicy;
+  bootstrapContextSummary?: string;
+  applyBootstrapRuntimeContext: () => Promise<string | undefined>;
   captureRuntimeStateSummary: () => Promise<string | undefined>;
   exportRuntimeState: () => Promise<AxAgentState>;
   restoreRuntimeState: (
@@ -998,6 +1108,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private _stopRequested = false;
   private state: AxAgentState | undefined;
   private stateError: string | undefined;
+  private runtimeBootstrapContext: unknown = undefined;
+  private llmQueryBudgetState: { used: number } | undefined;
 
   private func: AxFunction | undefined;
   // Field names injected by a parent agent via shared-field propagation.
@@ -1496,6 +1608,14 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const effectiveMaxSubAgentCalls =
       this.rlmConfig.maxSubAgentCalls ?? DEFAULT_RLM_MAX_LLM_CALLS;
     const effectiveMaxTurns = this.rlmConfig.maxTurns ?? DEFAULT_RLM_MAX_TURNS;
+    const configuredRecursionMaxDepth =
+      this.recursionForwardOptions?.maxDepth ?? DEFAULT_RLM_MAX_RECURSION_DEPTH;
+    const effectiveLlmQueryPromptMode: AxLlmQueryPromptMode =
+      (this.rlmConfig.mode ?? 'simple') === 'advanced'
+        ? Math.max(0, configuredRecursionMaxDepth) > 0
+          ? 'advanced-recursive'
+          : 'simple-at-terminal-depth'
+        : 'simple';
 
     // Collect metadata from child agents and tool functions so the actor prompt
     // describes what's available in the JS runtime session.
@@ -1551,6 +1671,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           Boolean(effectiveContextPolicy.tombstoning) ||
           (this.functionDiscoveryEnabled &&
             effectiveContextPolicy.pruneUsedDocs),
+        llmQueryPromptMode: effectiveLlmQueryPromptMode,
         enforceIncrementalConsoleTurns: this.enforceIncrementalConsoleTurns,
         agentModuleNamespace: this.agentModuleNamespace,
         discoveryMode: this.functionDiscoveryEnabled,
@@ -2121,6 +2242,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     );
 
     this.activeAbortControllers.add(abortController);
+    const createdBudgetState = this._ensureLlmQueryBudgetState();
     try {
       const ai = this.ai ?? parentAi;
       const debug =
@@ -2188,6 +2310,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     } finally {
       this.state = savedState ? cloneAgentState(savedState) : undefined;
       this.stateError = savedStateError;
+      if (createdBudgetState) {
+        this.llmQueryBudgetState = undefined;
+      }
       this.activeAbortControllers.delete(abortController);
       this._stopRequested = false;
     }
@@ -2395,6 +2520,15 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     };
   }
 
+  private _ensureLlmQueryBudgetState(): boolean {
+    if (this.llmQueryBudgetState) {
+      return false;
+    }
+
+    this.llmQueryBudgetState = { used: 0 };
+    return true;
+  }
+
   private _createRuntimeExecutionContext({
     ai,
     inputState,
@@ -2431,8 +2565,11 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       this.recursionForwardOptions?.maxDepth ?? DEFAULT_RLM_MAX_RECURSION_DEPTH;
     const recursionMaxDepth = Math.max(0, configuredRecursionMaxDepth);
     const effectiveContextConfig = resolveContextPolicy(rlm.contextPolicy);
+    const llmQueryBudgetState = this.llmQueryBudgetState ?? { used: 0 };
+    const activeRecursiveSubAgents = new Set<
+      AxAgent<any, { answer: AxFieldValue }>
+    >();
 
-    let llmCallCount = 0;
     const llmCallWarnThreshold = Math.floor(maxSubAgentCalls * 0.8);
 
     const { maxDepth: _, ...recursionForwardOptions } =
@@ -2447,53 +2584,65 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       ...(this.recursionForwardOptions ?? {}),
       maxDepth: Math.max(0, recursionMaxDepth - 1),
     };
-    const childContextFields = ['context'];
-    const childSignature = f()
+    const recursiveChildSignature = f()
+      .input('task', f.string('Task for recursive analysis'))
+      .output('answer', f.string('Answer from recursive analysis'))
+      .build();
+    const simpleChildSignature = f()
       .input('task', f.string('Task for recursive analysis'))
       .input('context', f.json('Optional context for the recursive task'))
       .output('answer', f.string('Answer from recursive analysis'))
       .build();
 
     const rlmMode = rlm.mode ?? 'simple';
-    const childRlmMode =
-      rlmMode === 'advanced' && (childRecursionOptions.maxDepth ?? 0) > 0
-        ? 'advanced'
-        : 'simple';
+    const useAdvancedLlmQuery = rlmMode === 'advanced' && recursionMaxDepth > 0;
 
-    let recursiveSubAgent:
-      | AxGen<any, { answer: AxFieldValue }>
-      | AxAgent<any, { answer: AxFieldValue }>
-      | undefined;
+    const childPromptLevel =
+      this.recursionForwardOptions?.promptLevel ?? this.actorPromptLevel;
 
-    if (recursionMaxDepth > 0) {
-      if (childRlmMode === 'advanced') {
-        recursiveSubAgent = new AxAgent<any, { answer: AxFieldValue }>(
-          {
-            agentModuleNamespace: this.agentModuleNamespace,
-            signature: childSignature,
+    const createRecursiveSubAgent = () =>
+      new AxAgent<any, { answer: AxFieldValue }>(
+        {
+          agentModuleNamespace: this.agentModuleNamespace,
+          signature: recursiveChildSignature,
+        },
+        {
+          debug,
+          ...rlm,
+          agents: { local: this.agents },
+          functions: {
+            local: this.agentFunctions,
+            discovery: this.functionDiscoveryEnabled,
           },
-          {
-            debug,
-            ...rlm,
-            agents: { local: this.agents },
-            functions: {
-              local: this.agentFunctions,
-              discovery: this.functionDiscoveryEnabled,
-            },
-            contextFields: childContextFields,
-            actorFields: undefined,
-            recursionOptions: childRecursionOptions,
-            actorOptions: this.actorForwardOptions,
-            responderOptions: this.responderForwardOptions,
-          }
-        );
-      } else {
-        recursiveSubAgent = new AxGen<any, { answer: AxFieldValue }>(
-          childSignature,
-          childRecursionOptions
-        );
+          contextFields: [],
+          actorFields: undefined,
+          recursionOptions: childRecursionOptions,
+          actorOptions: {
+            ...this.actorForwardOptions,
+            promptLevel: childPromptLevel,
+          },
+          responderOptions: this.responderForwardOptions,
+        }
+      );
+
+    const wireRecursiveSubAgent = (
+      recursiveSubAgent: AxAgent<any, { answer: AxFieldValue }>
+    ) => {
+      recursiveSubAgent.llmQueryBudgetState = llmQueryBudgetState;
+      return recursiveSubAgent;
+    };
+
+    const stopActiveRecursiveSubAgents = () => {
+      for (const recursiveSubAgent of [...activeRecursiveSubAgents]) {
+        recursiveSubAgent.stop();
       }
-    }
+    };
+
+    const createSimpleSubAgent = () =>
+      new AxGen<any, { answer: AxFieldValue }>(
+        simpleChildSignature,
+        childRecursionOptions
+      );
 
     const llmQuery = async (
       queryOrQueries:
@@ -2520,23 +2669,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         );
       }
 
-      if (Array.isArray(queryOrQueries)) {
-        return runWithConcurrency(
-          queryOrQueries,
-          maxBatchedLlmQueryConcurrency,
-          async (q) => {
-            try {
-              return (await llmQuery(q.query, q.context)) as string;
-            } catch (err) {
-              if (err instanceof AxAIServiceAbortedError) {
-                throw err;
-              }
-              return `[ERROR] ${err instanceof Error ? err.message : String(err)}`;
-            }
-          }
-        );
-      }
-
       if (!ai) {
         throw new Error(TEST_HARNESS_LLM_QUERY_AI_REQUIRED_ERROR);
       }
@@ -2558,8 +2690,16 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
       const runSingleLlmQuery = async (
         singleQuery: string,
-        singleCtx?: unknown
+        singleCtx?: unknown,
+        abortSignal: AbortSignal | undefined = effectiveAbortSignal
       ): Promise<string> => {
+        if (abortSignal?.aborted) {
+          throw new AxAIServiceAbortedError(
+            'rlm-llm-query',
+            abortSignal.reason ? String(abortSignal.reason) : 'Aborted'
+          );
+        }
+
         const normalizedCtx =
           singleCtx === undefined
             ? undefined
@@ -2567,46 +2707,71 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
               ? truncateText(singleCtx, maxRuntimeChars)
               : singleCtx;
 
-        llmCallCount++;
-        if (llmCallCount > maxSubAgentCalls) {
-          return `[ERROR] Sub-query budget exhausted (${maxSubAgentCalls}/${maxSubAgentCalls}). Use the data you have already accumulated to produce your final answer.`;
+        if (llmQueryBudgetState.used >= maxSubAgentCalls) {
+          return `[ERROR] Sub-query budget exhausted (${maxSubAgentCalls}/${maxSubAgentCalls}). Complete the task using data already gathered or handle remaining work directly in JS.`;
         }
-
-        if (recursionMaxDepth <= 0 || !recursiveSubAgent) {
-          return `[ERROR] Recursion depth limit reached (${configuredRecursionMaxDepth}).`;
-        }
+        llmQueryBudgetState.used++;
 
         const maxAttempts = 3;
         let lastError: unknown;
         const formatSubAgentError = (error: unknown) =>
-          `[ERROR] ${error instanceof Error ? error.message : String(error)}`;
+          `[ERROR] ${error instanceof Error ? error.message : String(error)}. Retry with a simpler query, handle in JS, or proceed with data already gathered.`;
 
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
           try {
-            const recursiveResult = await recursiveSubAgent.forward(
-              ai,
-              {
-                task: singleQuery,
-                ...(normalizedCtx !== undefined
-                  ? { context: normalizedCtx }
-                  : childRlmMode === 'advanced'
-                    ? { context: '' }
-                    : {}),
-              },
-              {
-                ...(parentForwardOptions as Partial<
-                  Omit<AxProgramForwardOptions<string>, 'functions'>
-                >),
-                ...(recursionForwardOptions as Partial<
-                  Omit<AxProgramForwardOptions<string>, 'functions'>
-                >),
-                abortSignal: effectiveAbortSignal,
-                debug,
-              }
-            );
+            const recursiveResult = useAdvancedLlmQuery
+              ? await (() => {
+                  const recursiveSubAgent = wireRecursiveSubAgent(
+                    createRecursiveSubAgent()
+                  );
+                  activeRecursiveSubAgents.add(recursiveSubAgent);
+                  recursiveSubAgent.runtimeBootstrapContext = normalizedCtx;
+                  return recursiveSubAgent
+                    .forward(
+                      ai,
+                      {
+                        task: singleQuery,
+                      },
+                      {
+                        ...(parentForwardOptions as Partial<
+                          Omit<AxProgramForwardOptions<string>, 'functions'>
+                        >),
+                        ...(recursionForwardOptions as Partial<
+                          Omit<AxProgramForwardOptions<string>, 'functions'>
+                        >),
+                        abortSignal,
+                        debug,
+                      }
+                    )
+                    .finally(() => {
+                      activeRecursiveSubAgents.delete(recursiveSubAgent);
+                    });
+                })()
+              : await createSimpleSubAgent().forward(
+                  ai,
+                  {
+                    task: singleQuery,
+                    ...(normalizedCtx !== undefined
+                      ? { context: normalizedCtx }
+                      : {}),
+                  },
+                  {
+                    ...(parentForwardOptions as Partial<
+                      Omit<AxProgramForwardOptions<string>, 'functions'>
+                    >),
+                    ...(recursionForwardOptions as Partial<
+                      Omit<AxProgramForwardOptions<string>, 'functions'>
+                    >),
+                    abortSignal,
+                    debug,
+                  }
+                );
             return normalizeSubAgentAnswer(recursiveResult.answer);
           } catch (err) {
-            if (err instanceof AxAIServiceAbortedError) {
+            if (
+              err instanceof AxAIServiceAbortedError ||
+              err instanceof AxAgentClarificationError
+            ) {
               throw err;
             }
             lastError = err;
@@ -2619,8 +2784,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
               let onAbort: (() => void) | undefined;
 
               const cleanup = () => {
-                if (effectiveAbortSignal && onAbort) {
-                  effectiveAbortSignal.removeEventListener('abort', onAbort);
+                if (abortSignal && onAbort) {
+                  abortSignal.removeEventListener('abort', onAbort);
                 }
               };
 
@@ -2634,7 +2799,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
               };
 
               const timer = setTimeout(onResolve, delay);
-              if (!effectiveAbortSignal) {
+              if (!abortSignal) {
                 return;
               }
 
@@ -2648,19 +2813,19 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
                 reject(
                   new AxAIServiceAbortedError(
                     'rlm-llm-query-retry-backoff',
-                    effectiveAbortSignal.reason
-                      ? String(effectiveAbortSignal.reason)
+                    abortSignal.reason
+                      ? String(abortSignal.reason)
                       : 'Aborted during retry backoff'
                   )
                 );
               };
 
-              if (effectiveAbortSignal.aborted) {
+              if (abortSignal.aborted) {
                 onAbort();
                 return;
               }
 
-              effectiveAbortSignal.addEventListener('abort', onAbort, {
+              abortSignal.addEventListener('abort', onAbort, {
                 once: true,
               });
             });
@@ -2670,9 +2835,68 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         return formatSubAgentError(lastError);
       };
 
+      if (Array.isArray(queryOrQueries)) {
+        const batchAbortController = new AbortController();
+        const batchAbortSignal =
+          mergeAbortSignals(
+            effectiveAbortSignal,
+            batchAbortController.signal
+          ) ?? batchAbortController.signal;
+        let terminalBatchError:
+          | AxAgentClarificationError
+          | AxAIServiceAbortedError
+          | undefined;
+        const onBatchAbort = () => {
+          stopActiveRecursiveSubAgents();
+        };
+        batchAbortSignal.addEventListener('abort', onBatchAbort, {
+          once: true,
+        });
+
+        try {
+          return await runWithConcurrency(
+            queryOrQueries,
+            maxBatchedLlmQueryConcurrency,
+            async (q) => {
+              try {
+                return await runSingleLlmQuery(
+                  q.query,
+                  q.context,
+                  batchAbortSignal
+                );
+              } catch (err) {
+                if (
+                  err instanceof AxAIServiceAbortedError ||
+                  err instanceof AxAgentClarificationError
+                ) {
+                  if (
+                    err instanceof AxAgentClarificationError ||
+                    !terminalBatchError
+                  ) {
+                    terminalBatchError = err;
+                  }
+                  if (!batchAbortController.signal.aborted) {
+                    batchAbortController.abort(
+                      err instanceof AxAgentClarificationError
+                        ? 'Child clarification'
+                        : err.message
+                    );
+                  }
+                  throw terminalBatchError;
+                }
+                return `[ERROR] ${err instanceof Error ? err.message : String(err)}`;
+              }
+            },
+            batchAbortSignal
+          );
+        } finally {
+          batchAbortSignal.removeEventListener('abort', onBatchAbort);
+        }
+      }
+
       const result = await runSingleLlmQuery(query, ctx);
-      if (llmCallCount === llmCallWarnThreshold) {
-        return `${result}\n[WARNING] ${llmCallCount}/${maxSubAgentCalls} sub-queries used. Plan to wrap up soon.`;
+      if (llmQueryBudgetState.used === llmCallWarnThreshold) {
+        return `${result}\n[WARNING] ${llmQueryBudgetState.used}/${maxSubAgentCalls} sub-queries used (${maxSubAgentCalls - llmQueryBudgetState.used} remaining). Consolidate remaining work.`;
       }
       return result;
     };
@@ -2730,6 +2954,14 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       ...reservedTopLevelNames,
       ...runtimeAliasKeys,
     ];
+    const bootstrapReservedNames = new Set(inspectReservedNames);
+    const bootstrapContext = this.runtimeBootstrapContext;
+    this.runtimeBootstrapContext = undefined;
+    const bootstrapGlobals = buildBootstrapRuntimeGlobals(
+      bootstrapContext,
+      bootstrapReservedNames
+    );
+    const bootstrapGlobalNames = new Set(Object.keys(bootstrapGlobals));
     const runtimeActionLogEntries = actionLogEntries ?? [];
     let session!: AxCodeSession;
     let inspectBaselineNames: string[] | undefined;
@@ -2752,7 +2984,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         }
         const parsed = JSON.parse(result);
         return Array.isArray(parsed)
-          ? parsed.filter((value): value is string => typeof value === 'string')
+          ? parsed.filter(
+              (value): value is string =>
+                typeof value === 'string' && !bootstrapGlobalNames.has(value)
+            )
           : [];
       } catch {
         return [];
@@ -2819,6 +3054,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       return runtime.createSession({
         ...runtimeTopLevelInputAliases,
         inputs: runtimeInputs,
+        ...bootstrapGlobals,
         llmQuery,
         final: completionBindings.finalFunction,
         ask_clarification: completionBindings.askClarificationFunction,
@@ -2828,6 +3064,42 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     };
 
     session = createSession();
+
+    const getRuntimeStateSummaryOptions = () => ({
+      maxEntries:
+        effectiveContextConfig.stateSummary.maxEntries &&
+        effectiveContextConfig.stateSummary.maxEntries > 0
+          ? effectiveContextConfig.stateSummary.maxEntries
+          : 8,
+      maxChars:
+        effectiveContextConfig.stateSummary.maxChars &&
+        effectiveContextConfig.stateSummary.maxChars > 0
+          ? effectiveContextConfig.stateSummary.maxChars
+          : undefined,
+    });
+    const getBootstrapContextSummaryOptions = () => ({
+      maxEntries:
+        effectiveContextConfig.stateSummary.maxEntries &&
+        effectiveContextConfig.stateSummary.maxEntries > 0
+          ? effectiveContextConfig.stateSummary.maxEntries
+          : 6,
+      maxChars:
+        effectiveContextConfig.stateSummary.maxChars &&
+        effectiveContextConfig.stateSummary.maxChars > 0
+          ? effectiveContextConfig.stateSummary.maxChars
+          : Math.min(maxRuntimeChars, 1_200),
+    });
+    const bootstrapContextSummary =
+      Object.keys(bootstrapGlobals).length > 0
+        ? formatBootstrapContextSummary(bootstrapGlobals, {
+            ...getBootstrapContextSummaryOptions(),
+            budgetRemaining: Math.max(
+              0,
+              maxSubAgentCalls - llmQueryBudgetState.used
+            ),
+            budgetTotal: maxSubAgentCalls,
+          })
+        : undefined;
 
     const waitForCompletionSignal = async (): Promise<void> => {
       if (completionState.payload) {
@@ -2848,18 +3120,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       }
 
       const snapshot = await inspectRuntimeState();
-      const formatted = renderRuntimeState(snapshot, {
-        maxEntries:
-          effectiveContextConfig.stateSummary.maxEntries &&
-          effectiveContextConfig.stateSummary.maxEntries > 0
-            ? effectiveContextConfig.stateSummary.maxEntries
-            : 8,
-        maxChars:
-          effectiveContextConfig.stateSummary.maxChars &&
-          effectiveContextConfig.stateSummary.maxChars > 0
-            ? effectiveContextConfig.stateSummary.maxChars
-            : undefined,
-      });
+      const formatted = renderRuntimeState(
+        snapshot,
+        getRuntimeStateSummaryOptions()
+      );
       return formatted || '(no user variables)';
     };
 
@@ -2979,6 +3243,25 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       }
     };
 
+    const applyBootstrapRuntimeContext = async (): Promise<
+      string | undefined
+    > => {
+      if (Object.keys(bootstrapGlobals).length === 0) {
+        return undefined;
+      }
+
+      if (!effectiveContextConfig.stateSummary.enabled) {
+        return undefined;
+      }
+
+      const snapshot = await inspectRuntimeState();
+      const formatted = renderRuntimeState(
+        snapshot,
+        getRuntimeStateSummaryOptions()
+      );
+      return formatted || '(no user variables)';
+    };
+
     const executeActorCode = async (
       code: string
     ): Promise<{ result: unknown; output: string; isError: boolean }> => {
@@ -3016,6 +3299,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           completionState.payload
         ) {
           return completionOutput;
+        }
+        if (
+          err instanceof AxAgentClarificationError ||
+          err instanceof AxAIServiceAbortedError
+        ) {
+          throw err;
         }
         if (effectiveAbortSignal?.aborted) {
           throw new AxAIServiceAbortedError(
@@ -3056,6 +3345,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
               isError: false,
             };
           } catch (retryErr) {
+            if (
+              retryErr instanceof AxAgentClarificationError ||
+              retryErr instanceof AxAIServiceAbortedError
+            ) {
+              throw retryErr;
+            }
             return {
               result: undefined,
               output: truncateText(
@@ -3114,6 +3409,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     return {
       effectiveContextConfig,
+      bootstrapContextSummary,
+      applyBootstrapRuntimeContext,
       captureRuntimeStateSummary,
       exportRuntimeState,
       restoreRuntimeState,
@@ -3162,6 +3459,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const completionBindings = createCompletionBindings((type, args) => {
       completionState.payload = normalizeCompletionPayload(type, args);
     });
+    const createdBudgetState = this._ensureLlmQueryBudgetState();
 
     const runtimeContext = this._createRuntimeExecutionContext({
       ai,
@@ -3177,6 +3475,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     try {
       return await runtimeContext.executeTestCode(code);
     } finally {
+      if (createdBudgetState) {
+        this.llmQueryBudgetState = undefined;
+      }
       runtimeContext.close();
     }
   }
@@ -3259,6 +3560,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           }
         : undefined,
     });
+    const delegatedContextSummary = runtimeContext.effectiveContextConfig
+      .stateSummary.enabled
+      ? undefined
+      : runtimeContext.bootstrapContextSummary;
 
     const applyInputUpdateCallback = async () => {
       if (!this.inputUpdateCallback) {
@@ -3319,6 +3624,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         recentFullActions:
           runtimeContext.effectiveContextConfig.recentFullActions,
         restoreNotice,
+        delegatedContextSummary,
         stateSummary: runtimeStateSummary,
         checkpointSummary: checkpointState?.summary,
         checkpointTurns: checkpointState?.turns,
@@ -3427,6 +3733,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         );
       }
 
+      const bootstrappedRuntimeState =
+        await runtimeContext.applyBootstrapRuntimeContext();
+      if (bootstrappedRuntimeState !== undefined) {
+        runtimeStateSummary = bootstrappedRuntimeState;
+      }
+
       for (let turn = 0; turn < maxTurns; turn++) {
         await applyInputUpdateCallback();
         inputState.recomputeTurnInputs(true);
@@ -3530,8 +3842,40 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         if (this.inputUpdateCallback) {
           await runtimeContext.syncRuntimeInputsToSession();
         }
-        const { result, output, isError } =
-          await runtimeContext.executeActorCode(code);
+        let result: unknown;
+        let output: string;
+        let isError: boolean;
+
+        try {
+          const executionResult = await runtimeContext.executeActorCode(code);
+          result = executionResult.result;
+          output = executionResult.output;
+          isError = executionResult.isError;
+        } catch (err) {
+          if (
+            err instanceof AxAgentClarificationError ||
+            err instanceof AxAIServiceAbortedError
+          ) {
+            if (rlm.actorTurnCallback) {
+              await rlm.actorTurnCallback({
+                turn: actionLogEntries.length + 1,
+                actorResult: actorResult as Record<string, unknown>,
+                code,
+                result: undefined,
+                output: formatBubbledActorTurnOutput(
+                  err,
+                  rlm.maxRuntimeChars ?? DEFAULT_RLM_MAX_RUNTIME_CHARS
+                ),
+                isError: err instanceof AxAIServiceAbortedError,
+                thought:
+                  typeof actorResult.thought === 'string'
+                    ? actorResult.thought
+                    : undefined,
+              });
+            }
+          }
+          throw err;
+        }
 
         const entryTurn = actionLogEntries.length + 1;
         actionLogEntries.push({
@@ -3641,6 +3985,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     );
 
     this.activeAbortControllers.add(abortController);
+    const createdBudgetState = this._ensureLlmQueryBudgetState();
     try {
       const ai = this.ai ?? parentAi;
 
@@ -3680,6 +4025,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
       return { ...responderResult, ...actorFieldValues } as OUT;
     } finally {
+      if (createdBudgetState) {
+        this.llmQueryBudgetState = undefined;
+      }
       this.activeAbortControllers.delete(abortController);
       this._stopRequested = false;
     }
@@ -3700,6 +4048,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     );
 
     this.activeAbortControllers.add(abortController);
+    const createdBudgetState = this._ensureLlmQueryBudgetState();
     try {
       const ai = this.ai ?? parentAi;
 
@@ -3750,6 +4099,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         };
       }
     } finally {
+      if (createdBudgetState) {
+        this.llmQueryBudgetState = undefined;
+      }
       this.activeAbortControllers.delete(abortController);
       this._stopRequested = false;
     }
@@ -4212,6 +4564,283 @@ function cloneStructured<T>(value: T): T {
     return structuredClone(value);
   }
   return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function isSafeBootstrapGlobalName(
+  name: string,
+  reservedNames: ReadonlySet<string>
+): boolean {
+  return (
+    !reservedNames.has(name) &&
+    !UNSAFE_BOOTSTRAP_GLOBAL_NAMES.has(name) &&
+    SAFE_BOOTSTRAP_GLOBAL_IDENTIFIER.test(name)
+  );
+}
+
+function buildBootstrapRuntimeGlobals(
+  context: unknown,
+  reservedNames: ReadonlySet<string>
+): Record<string, unknown> {
+  if (context === undefined) {
+    return {};
+  }
+
+  const globals: Record<string, unknown> = {
+    context,
+  };
+
+  if (!isPlainObject(context)) {
+    return globals;
+  }
+
+  for (const [key, value] of Object.entries(context)) {
+    if (!isSafeBootstrapGlobalName(key, reservedNames)) {
+      continue;
+    }
+    globals[key] = value;
+  }
+
+  return globals;
+}
+
+function describeBootstrapRuntimeValue(value: unknown): {
+  type: string;
+  ctor?: string;
+} {
+  if (value === null) {
+    return { type: 'null' };
+  }
+  if (Array.isArray(value)) {
+    return { type: 'array', ctor: 'Array' };
+  }
+  if (value instanceof Map) {
+    return { type: 'map', ctor: 'Map' };
+  }
+  if (value instanceof Set) {
+    return { type: 'set', ctor: 'Set' };
+  }
+  if (value instanceof Date) {
+    return { type: 'date', ctor: 'Date' };
+  }
+  if (value instanceof Error) {
+    return {
+      type: 'error',
+      ctor:
+        typeof value.name === 'string' && value.name.trim()
+          ? value.name
+          : 'Error',
+    };
+  }
+
+  const type = typeof value;
+  if (type !== 'object') {
+    return { type };
+  }
+
+  const ctor =
+    value &&
+    (value as { constructor?: { name?: unknown } }).constructor &&
+    typeof (value as { constructor?: { name?: unknown } }).constructor?.name ===
+      'string'
+      ? (value as { constructor?: { name: string } }).constructor?.name
+      : undefined;
+
+  return { type: 'object', ctor };
+}
+
+function previewBootstrapRuntimeAtom(value: unknown): string {
+  if (value === null) {
+    return 'null';
+  }
+  if (value === undefined) {
+    return 'undefined';
+  }
+
+  const valueType = typeof value;
+  if (valueType === 'string') {
+    return JSON.stringify(truncateToCharBudget(value as string, 40));
+  }
+  if (
+    valueType === 'number' ||
+    valueType === 'boolean' ||
+    valueType === 'bigint'
+  ) {
+    return String(value);
+  }
+  if (valueType === 'symbol') {
+    return String(value);
+  }
+  if (valueType === 'function') {
+    return `[function ${(value as { name?: string }).name || 'anonymous'}]`;
+  }
+  if (Array.isArray(value)) {
+    return `[array(${value.length})]`;
+  }
+  if (value instanceof Date) {
+    return Number.isFinite(value.getTime())
+      ? value.toISOString()
+      : String(value);
+  }
+  if (value instanceof Error) {
+    return `${value.name || 'Error'}: ${value.message || ''}`;
+  }
+  if (value instanceof Map) {
+    return `[map(${value.size})]`;
+  }
+  if (value instanceof Set) {
+    return `[set(${value.size})]`;
+  }
+
+  const ctorName =
+    value &&
+    (value as { constructor?: { name?: unknown } }).constructor &&
+    typeof (value as { constructor?: { name?: unknown } }).constructor?.name ===
+      'string'
+      ? (value as { constructor?: { name: string } }).constructor?.name
+      : '';
+  return ctorName && ctorName !== 'Object' ? `[${ctorName}]` : '[object]';
+}
+
+function previewBootstrapRuntimeValue(
+  value: unknown,
+  type: string,
+  ctor?: string
+): string {
+  if (type === 'array' && Array.isArray(value)) {
+    const items = value
+      .slice(0, 3)
+      .map((item) => previewBootstrapRuntimeAtom(item));
+    return `[${items.join(', ')}${value.length > 3 ? ', ...' : ''}]`;
+  }
+  if (type === 'map' && value instanceof Map) {
+    const items = [...value.entries()]
+      .slice(0, 3)
+      .map(
+        ([key, item]) =>
+          `${previewBootstrapRuntimeAtom(key)} => ${previewBootstrapRuntimeAtom(item)}`
+      );
+    return `Map(${value.size}) {${items.join(', ')}${value.size > 3 ? ', ...' : ''}}`;
+  }
+  if (type === 'set' && value instanceof Set) {
+    const items = [...value.values()]
+      .slice(0, 5)
+      .map((item) => previewBootstrapRuntimeAtom(item));
+    return `Set(${value.size}) {${items.join(', ')}${value.size > 5 ? ', ...' : ''}}`;
+  }
+  if (type === 'object' && value && typeof value === 'object') {
+    const keys = Object.keys(value);
+    const shown = keys.slice(0, 4);
+    const prefix = ctor && ctor !== 'Object' ? `${ctor} ` : '';
+    return `${prefix}{${shown.join(', ')}${keys.length > shown.length ? ', ...' : ''}}`;
+  }
+
+  return previewBootstrapRuntimeAtom(value);
+}
+
+function describeBootstrapRuntimeSize(
+  value: unknown,
+  type: string
+): string | undefined {
+  if (type === 'string' && typeof value === 'string') {
+    return `${value.length} chars`;
+  }
+  if (type === 'array' && Array.isArray(value)) {
+    return `${value.length} items`;
+  }
+  if ((type === 'map' || type === 'set') && value instanceof Map) {
+    return `${value.size} items`;
+  }
+  if ((type === 'map' || type === 'set') && value instanceof Set) {
+    return `${value.size} items`;
+  }
+  if (type === 'object' && value && typeof value === 'object') {
+    return `${Object.keys(value).length} keys`;
+  }
+  return undefined;
+}
+
+function describeArrayElementKeys(value: unknown[]): string | undefined {
+  if (value.length === 0) {
+    return undefined;
+  }
+  const first = value[0];
+  if (first && typeof first === 'object' && !Array.isArray(first)) {
+    const keys = Object.keys(first).slice(0, 8);
+    if (keys.length > 0) {
+      return keys.join(', ');
+    }
+  }
+  return undefined;
+}
+
+function createBootstrapRuntimeSnapshotEntries(
+  bindings: Readonly<Record<string, unknown>>
+): RuntimeStateSnapshotEntry[] {
+  return Object.entries(bindings).map(([name, value]) => {
+    try {
+      const meta = describeBootstrapRuntimeValue(value);
+      const size = describeBootstrapRuntimeSize(value, meta.type);
+      const preview = previewBootstrapRuntimeValue(value, meta.type, meta.ctor);
+
+      // For arrays of objects, show element schema keys as a compact structural hint
+      let elementKeysHint: string | undefined;
+      if (meta.type === 'array' && Array.isArray(value)) {
+        elementKeysHint = describeArrayElementKeys(value);
+      }
+
+      const compactPreview = preview
+        ? truncateToCharBudget(preview, 40)
+        : undefined;
+      const fullPreview = elementKeysHint
+        ? compactPreview
+          ? `${compactPreview} — element keys: ${elementKeysHint}`
+          : `element keys: ${elementKeysHint}`
+        : compactPreview;
+
+      return {
+        name,
+        type: meta.type,
+        ...(meta.ctor ? { ctor: meta.ctor } : {}),
+        ...(size ? { size } : {}),
+        ...(fullPreview ? { preview: fullPreview } : {}),
+      };
+    } catch {
+      return {
+        name,
+        type: 'unknown',
+        preview: '[unavailable]',
+      };
+    }
+  });
+}
+
+function formatBootstrapContextSummary(
+  bindings: Readonly<Record<string, unknown>>,
+  options?: Readonly<{
+    maxEntries?: number;
+    maxChars?: number;
+    budgetRemaining?: number;
+    budgetTotal?: number;
+  }>
+): string {
+  const entries = createBootstrapRuntimeSnapshotEntries(bindings);
+  const state = formatStructuredRuntimeState(entries, new Map(), options);
+  const budgetLine =
+    options?.budgetRemaining !== undefined && options?.budgetTotal !== undefined
+      ? `\nSub-query budget: ${options.budgetRemaining}/${options.budgetTotal} remaining`
+      : '';
+  return `Explore with code — do not assume values from these previews.\n${state}${budgetLine}`;
+}
+
+function formatBubbledActorTurnOutput(
+  error: AxAgentClarificationError | AxAIServiceAbortedError,
+  maxRuntimeChars: number
+): string {
+  if (error instanceof AxAgentClarificationError) {
+    return truncateText(`[CLARIFICATION] ${error.question}`, maxRuntimeChars);
+  }
+
+  return truncateText(`[ABORTED] ${error.message}`, maxRuntimeChars);
 }
 
 function cloneAgentState(state: Readonly<AxAgentState>): AxAgentState {
@@ -4922,7 +5551,8 @@ function buildRLMVariablesInfo(
 async function runWithConcurrency<TIn, TOut>(
   items: readonly TIn[],
   concurrency: number,
-  worker: (item: TIn, index: number) => Promise<TOut>
+  worker: (item: TIn, index: number) => Promise<TOut>,
+  stopSignal?: AbortSignal
 ): Promise<TOut[]> {
   if (items.length === 0) {
     return [];
@@ -4934,6 +5564,9 @@ async function runWithConcurrency<TIn, TOut>(
 
   const workers = Array.from({ length: limit }, async () => {
     for (;;) {
+      if (stopSignal?.aborted) {
+        return;
+      }
       const current = cursor++;
       if (current >= items.length) {
         return;

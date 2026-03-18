@@ -98,6 +98,7 @@ export type ActionLogBuildPolicy = {
   recentFullActions?: number;
   pruneUsedDocs?: boolean;
   restoreNotice?: string;
+  delegatedContextSummary?: string;
   stateSummary?: string;
   checkpointSummary?: string;
   checkpointTurns?: readonly number[];
@@ -1176,6 +1177,7 @@ export function buildActionLogWithPolicy(
 
   if (
     replayPlan.promptFacingEntries.length === 0 &&
+    !policy.delegatedContextSummary &&
     !policy.stateSummary &&
     !policy.checkpointSummary
   ) {
@@ -1185,6 +1187,11 @@ export function buildActionLogWithPolicy(
   const parts: string[] = [];
   if (policy.restoreNotice) {
     parts.push(policy.restoreNotice);
+  }
+  if (policy.delegatedContextSummary) {
+    parts.push(
+      `Delegated Context (runtime-only — explore with code):\n${policy.delegatedContextSummary}`
+    );
   }
   if (policy.stateSummary) {
     parts.push(`Live Runtime State:\n${policy.stateSummary}`);

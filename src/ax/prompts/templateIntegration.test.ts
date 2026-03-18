@@ -82,7 +82,7 @@ describe('template integration', () => {
       'The responder is looking to produce these output fields: **`finalAnswer`**'
     );
     expect(actorDefinition).toContain(
-      '- `await llmQuery(query: string, context: any): string` — Ask a sub-agent one semantic question.'
+      '- `await llmQuery(query: string, context: any): string` — Ask one focused semantic question.'
     );
     expect(actorDefinition).toContain('### Context Exploration Protocol');
     expect(actorDefinition).toContain('### Runtime State Management');
@@ -94,6 +94,9 @@ describe('template integration', () => {
       '## JavaScript Runtime Usage Instructions'
     );
     expect(actorDefinition).toContain('Use return statements only.');
+    expect(actorDefinition).toContain(
+      'If a `Delegated Context` block appears, the data has been injected into your JS runtime as named globals.'
+    );
     expect(actorDefinition).not.toContain('await inspect_runtime()');
     expect(actorDefinition).not.toContain(
       'A `Live Runtime State` block reflects the current session and is the source of truth.'
@@ -121,6 +124,9 @@ describe('template integration', () => {
     );
 
     expect(actorDefinition).toContain('await inspect_runtime()');
+    expect(actorDefinition).toContain(
+      'If a `Delegated Context` block appears, the data has been injected into your JS runtime as named globals.'
+    );
     expect(actorDefinition).toContain(
       'A `Live Runtime State` block reflects the current session and is the source of truth.'
     );

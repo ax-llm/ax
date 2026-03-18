@@ -880,11 +880,25 @@ Rules:
 
 - `llmQuery(...)` forwards only the explicit `context` argument.
 - Parent inputs are not automatically available to `llmQuery(...)` children.
+- In `mode: 'simple'`, `llmQuery(...)` is a direct semantic helper.
+- In `mode: 'advanced'`, `llmQuery(...)` delegates a focused subtask to a child `AxAgent` with its own runtime and action log while recursion depth remains.
+- In advanced mode, no parent `contextFields` are auto-inserted into recursive children. Only explicit `llmQuery(..., context)` payload is available there.
+- If `context` is a plain object, safe keys are exposed as child runtime globals and the full payload is also available as `context`.
+- In advanced mode, use `llmQuery(...)` to offload discovery-heavy, tool-heavy, or multi-turn semantic branches so the parent action log stays smaller and more focused.
+- In advanced mode, use batched `llmQuery([...])` only for independent subtasks. Use serial calls when later work depends on earlier results.
+- In advanced mode, a good pattern is: parent does coarse discovery and JS narrowing, child `llmQuery(...)` calls handle focused branch analysis, then parent merges child outputs and finishes.
+- In advanced mode with `functions.discovery: true`, prefer putting noisy tool discovery, `getFunctionDefinitions(...)`, and branch-specific tool chatter inside delegated child calls when those branches are independent or semantically distinct.
+- In advanced mode, pass compact named object context to children instead of huge raw parent payloads. This makes the delegated prompt easier to follow and gives the child useful top-level globals.
+- In advanced mode, do not assume child-created variables, discovered docs, or action-log history come back to the parent. Only the child return value comes back.
+- In advanced mode, if a child calls `ask_clarification(...)`, that clarification bubbles up and ends the top-level run.
+- In advanced mode, recursion is depth-limited: `maxDepth: 0` makes top-level `llmQuery(...)` simple, `maxDepth: 1` makes top-level `llmQuery(...)` advanced and child `llmQuery(...)` simple.
+- In advanced mode, batched delegated children are cancelled when a sibling child asks for clarification or aborts, so use batched form only when those branches are truly independent.
+- `maxSubAgentCalls` is a shared budget across the whole top-level run, including recursive children.
 - Single-call `llmQuery(...)` may return `[ERROR] ...` on non-abort failures.
 - Batched `llmQuery([...])` returns per-item `[ERROR] ...`.
 - If a result starts with `[ERROR]`, inspect or branch on it instead of assuming success.
 
-Example:
+Minimal example:
 
 ```javascript
 const summary = await llmQuery('Summarize this incident', inputs.context);
@@ -894,6 +908,70 @@ if (summary.startsWith('[ERROR]')) {
   console.log(summary);
 }
 ```
+
+Advanced recursive discovery example:
+
+```javascript
+const narrowedIncidents = incidents.map((incident) => ({
+  id: incident.id,
+  timeline: incident.timeline,
+  notes: incident.notes.slice(0, 1200),
+}));
+
+const [severityReview, followupReview] = await llmQuery([
+  {
+    query:
+      'Use discovery and available tools to review severity policy alignment. Return compact findings.',
+    context: {
+      incidents: narrowedIncidents,
+      rubric: 'severity-policy',
+    },
+  },
+  {
+    query:
+      'Use discovery and available tools to review postmortem and follow-up obligations. Return compact findings.',
+    context: {
+      incidents: narrowedIncidents,
+      rubric: 'postmortem-followup',
+    },
+  },
+]);
+
+const merged = await llmQuery(
+  'Merge these delegated reviews into one manager-ready summary with next steps.',
+  {
+    severityReview,
+    followupReview,
+    audience: inputs.audience,
+  }
+);
+```
+
+Delegation decision guide:
+
+- **JS-only** — deterministic logic (filter, sort, count, regex, date math) → do it inline, don't delegate.
+- **Single-shot semantic** — needs LLM reasoning but no tools or multi-step exploration → single `llmQuery` with narrow context.
+- **Full delegation** — needs its own discovery, tool calls, or >2 turns of exploratory work → `llmQuery` as child agent.
+- **Parallel fan-out** — 2+ independent subtasks each qualifying for delegation → batched `llmQuery([...])`.
+
+Context handling:
+
+- In advanced mode, the `context` object is injected into the child's JS runtime as named globals — it does NOT go into the child's LLM prompt. The child's prompt sees only a compact metadata summary (types, sizes, element keys) of the delegated context.
+- The child actor explores the delegated context with code, the same way the parent explores `inputs.*`.
+- Always narrow with JS before delegating — never pass raw `inputs.*`. Name context keys semantically (e.g. `{ emails: filtered, rubric: 'classify-urgency' }`).
+- Estimate total sub-agent calls before fanning out. `maxSubAgentCalls` is a shared budget across all recursion levels.
+
+Divide-and-conquer patterns:
+
+- **Fan-Out / Fan-In**: JS narrows into categories → `llmQuery([...])` fans out per category → JS or one more `llmQuery` merges results.
+- **Pipeline**: serial `llmQuery` calls where each depends on the prior result.
+- **Scout-then-Execute**: first child explores (e.g. check availability) → parent processes with JS → second child acts (e.g. draft invite).
+
+Notes:
+
+- Use these patterns when one task naturally splits into focused semantic branches with their own discovery or tool usage.
+- Keep the parent responsible for orchestration, cheap JS narrowing, and final assembly.
+- See `src/examples/rlm-discovery.ts` for the full recursive discovery demo.
 
 ## Short API Reference
 
@@ -958,12 +1036,15 @@ agentIdentity?: {
   mode?: 'simple' | 'advanced';
   recursionOptions?: Partial<Omit<AxProgramForwardOptions, 'functions'>> & {
     maxDepth?: number;
+    promptLevel?: 'detailed' | 'basic';
   };
   actorOptions?: Partial<AxProgramForwardOptions & { description?: string; promptLevel?: 'detailed' | 'basic' }>;
   responderOptions?: Partial<AxProgramForwardOptions & { description?: string }>;
   judgeOptions?: Partial<AxJudgeOptions>;
 }
 ```
+
+- `actorTurnCallback` fires for the root agent and for recursive child agents that run actor turns.
 
 ## Examples
 
@@ -975,7 +1056,7 @@ Fetch these for full working code:
 - [Smart Home](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/smart-home.ts) — state management
 - [RLM](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm.ts) — RLM basic
 - [RLM Long Task](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-long-task.ts) — RLM context policy
-- [RLM Discovery](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-discovery.ts) — discovery mode
+- [RLM Discovery](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-discovery.ts) — advanced recursive `llmQuery` plus discovery-heavy delegated subtasks
 - [RLM Shared Fields](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-shared-fields.ts) — shared fields
 - [RLM Adaptive Replay](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-adaptive-replay.ts) — adaptive replay
 - [RLM Live Runtime State](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-live-runtime-state.ts) — structured runtime-state rendering

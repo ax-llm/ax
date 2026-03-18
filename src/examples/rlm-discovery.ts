@@ -181,33 +181,58 @@ const analyst = agent(
         'Mandatory execution order for this demo:',
         '1) Call listModuleFunctions(["team","kb","metrics","utils"]) and log the output.',
         '2) Call getFunctionDefinitions(...) for every callable you will use and log the output.',
-        '3) Call kb.findSnippets at least twice using { topic: "severity" } and { topic: "postmortem" }.',
-        '4) Call metrics.scoreCoverage and use THAT numeric result for coverageScore. Preferred form: metrics.scoreCoverage({ matched: <n>, total: <n> }).',
-        '5) Call team.writingCoach with { draft: <summary> } to produce polishedSummary (audience is shared from parent inputs).',
-        '6) Use utils.toBulletList with an array of evidence lines for formatting.',
-        'Do not call final(...) before completing all six steps.',
+        '3) Use ONE batched llmQuery([...]) call to delegate exactly three focused child analyses: severity policy review, mitigation/recovery review, and postmortem/follow-up review.',
+        '4) Each delegated child analysis must work only from explicit llmQuery context, rediscover any APIs it needs, and return compact structured findings plus evidence lines.',
+        '5) After the three delegated reviews complete, use ONE serial llmQuery(...) call to merge them into a manager-ready draft and a matched-policy-count summary.',
+        '6) Call metrics.scoreCoverage and use THAT numeric result for coverageScore. Preferred form: metrics.scoreCoverage({ matched: <n>, total: <n> }).',
+        '7) Call team.writingCoach with { draft: <summary> } to produce polishedSummary (audience is shared from parent inputs).',
+        '8) Use utils.toBulletList with an array of evidence lines for formatting.',
+        'This demo is specifically meant to exercise advanced recursive llmQuery with discovery-heavy subtasks. Keep the discovery and tool chatter inside the delegated child calls whenever possible.',
+        'Do not call final(...) before completing all eight steps.',
       ].join('\n'),
       thinkingTokenBudget: 'minimal',
     },
-    mode: 'simple',
+    mode: 'advanced',
+    recursionOptions: {
+      maxDepth: 2,
+    },
     maxSubAgentCalls: 20,
+    maxBatchedLlmQueryConcurrency: 3,
     maxTurns: 8,
     debug: true,
   }
 );
 
 const incidentContext = `
+Incident: checkout-api / payment gateway degradation
+
+Customer impact:
+- 18% of checkout attempts failed for 15 minutes.
+- Two enterprise tenants reported duplicate retry emails and delayed confirmations.
+- Support tagged the incident as "high urgency" but no formal severity label was recorded.
+
+Timeline:
 09:03 - elevated error rate for checkout start.
 09:07 - on-call confirmed payment gateway latency spike.
+09:09 - retry queue growth observed across three regions.
 09:12 - mitigation flag enabled to bypass retry storm.
 09:18 - error rate dropped, checkout recovery confirmed.
+09:26 - support confirmed new purchases were succeeding again.
 09:35 - follow-up item opened for retry backoff tuning.
+09:41 - incident channel noted that a postmortem owner was still unassigned.
+
+Operational notes:
+- Internal handbook says severity depends on customer impact and duration.
+- A mitigation is only complete once user-facing actions recover.
+- Postmortems must include a timeline, root cause, and follow-up owners.
+- Escalate to the on-call lead if mitigation takes longer than 20 minutes.
+- The draft incident note mentions recovery and retry-backoff tuning, but does not name a postmortem owner.
 `.trim();
 
 const result = await analyst.forward(llm, {
   context: incidentContext,
   query:
-    'Produce an incident summary with policy-aligned next steps. You must use discovered APIs (not guessed names), and coverageScore must come from metrics.scoreCoverage.',
+    'Create a manager-ready incident brief. You must run three separate delegated policy reviews for severity, mitigation/recovery, and postmortem/follow-up, then merge those findings into the final summary. Use discovered APIs only (no guessed names), and coverageScore must come from metrics.scoreCoverage.',
   audience: 'engineering managers',
 });
 

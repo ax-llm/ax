@@ -6023,6 +6023,146 @@ describe('RLM llmQuery runtime behavior', () => {
     expect(budgetResult[1]).toContain('Sub-query budget exhausted (1/1)');
   });
 
+  it('should share maxSubAgentCalls budget across recursive child agents', async () => {
+    let rootChildAnswer = '';
+    let childResponderSawBudgetExhausted = false;
+    let grandchildActorCalls = 0;
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code === 'ROOT_STEP') {
+              const llmQueryFn = globals?.llmQuery as (
+                query: string,
+                context?: string
+              ) => Promise<string>;
+              rootChildAnswer = await llmQueryFn('child query', 'ctx1');
+              if (globals?.final) {
+                (globals.final as (...args: unknown[]) => void)(
+                  rootChildAnswer
+                );
+              }
+              return rootChildAnswer;
+            }
+
+            if (code === 'CHILD_STEP') {
+              const llmQueryFn = globals?.llmQuery as (
+                query: string,
+                context?: string
+              ) => Promise<string>;
+              const nested = await llmQueryFn('grandchild query', 'ctx2');
+              if (globals?.final) {
+                (globals.final as (...args: unknown[]) => void)(nested);
+              }
+              return nested;
+            }
+
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          if (userPrompt.includes('Task: child query')) {
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: CHILD_STEP',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          if (userPrompt.includes('Task: grandchild query')) {
+            grandchildActorCalls++;
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: final("grandchild")',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: ROOT_STEP',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Answer Synthesis Agent')) {
+          if (userPrompt.includes('Task: child query')) {
+            childResponderSawBudgetExhausted = userPrompt.includes(
+              'Sub-query budget exhausted (1/1)'
+            );
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: `Answer: ${childResponderSawBudgetExhausted ? 'budget-shared' : 'budget-missed'}`,
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          return {
+            results: [
+              { index: 0, content: 'Answer: done', finishReason: 'stop' },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: ['context'],
+      runtime,
+      maxTurns: 1,
+      maxSubAgentCalls: 1,
+      mode: 'advanced',
+      recursionOptions: {
+        maxDepth: 2,
+      },
+    });
+
+    await testAgent.forward(testMockAI, {
+      context: 'unused',
+      query: 'unused',
+    });
+
+    expect(rootChildAnswer).toBe('budget-shared');
+    expect(childResponderSawBudgetExhausted).toBe(true);
+    expect(grandchildActorCalls).toBe(0);
+  });
+
   it('should return per-item errors for batched llmQuery calls', async () => {
     const testMockAI = new AxMockAIService({
       features: { functions: false, streaming: false },
@@ -6156,6 +6296,166 @@ describe('RLM llmQuery runtime behavior', () => {
 
     expect(batchResult[0]).toBe('ok');
     expect(batchResult[1]).toContain('boom');
+  });
+
+  it('should abort sibling recursive children when batched llmQuery bubbles clarification', async () => {
+    let slowChildStarted = false;
+    let slowChildAborted = false;
+    let slowChildCompleted = false;
+    let resolveSlowChild: (() => void) | undefined;
+    const slowChildSettled = new Promise<void>((resolve) => {
+      resolveSlowChild = resolve;
+    });
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string, options?: { signal?: AbortSignal }) => {
+            if (code === 'ROOT_BATCH_CLARIFY') {
+              const llmQueryFn = globals?.llmQuery as (
+                q: readonly { query: string; context?: string }[]
+              ) => Promise<string[]>;
+              return await llmQueryFn([
+                { query: 'clarify', context: 'ctx1' },
+                { query: 'slow', context: 'ctx2' },
+              ]);
+            }
+
+            if (code === 'SLOW_CHILD_STEP') {
+              slowChildStarted = true;
+              return await new Promise<string>((resolve, reject) => {
+                const timer = setTimeout(() => {
+                  slowChildCompleted = true;
+                  resolveSlowChild?.();
+                  resolve('slow child finished');
+                }, 80);
+
+                const onAbort = () => {
+                  clearTimeout(timer);
+                  slowChildAborted = true;
+                  resolveSlowChild?.();
+                  const err = new Error('Slow child aborted');
+                  err.name = 'AbortError';
+                  reject(err);
+                };
+
+                if (options?.signal?.aborted) {
+                  onAbort();
+                  return;
+                }
+
+                options?.signal?.addEventListener('abort', onAbort, {
+                  once: true,
+                });
+              });
+            }
+
+            if (
+              globals?.ask_clarification &&
+              code.includes('ask_clarification(')
+            ) {
+              (globals.ask_clarification as (...args: unknown[]) => void)(
+                'Need more detail'
+              );
+              return 'clarify child';
+            }
+
+            if (globals?.final && code.includes('final(')) {
+              (globals.final as (...args: unknown[]) => void)('done');
+              return 'done';
+            }
+
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          if (userPrompt.includes('Task: clarify')) {
+            await new Promise<void>((resolve) => {
+              setTimeout(resolve, 20);
+            });
+            return {
+              results: [
+                {
+                  index: 0,
+                  content:
+                    'Javascript Code: ask_clarification("Need more detail")',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          if (userPrompt.includes('Task: slow')) {
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: SLOW_CHILD_STEP',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: ROOT_BATCH_CLARIFY',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: ['context'],
+      runtime,
+      maxTurns: 1,
+      mode: 'advanced',
+      maxBatchedLlmQueryConcurrency: 2,
+      recursionOptions: {
+        maxDepth: 2,
+      },
+    });
+
+    await expect(
+      testAgent.forward(testMockAI, {
+        context: 'unused',
+        query: 'unused',
+      })
+    ).rejects.toMatchObject({
+      name: 'AxAgentClarificationError',
+      question: 'Need more detail',
+    });
+
+    await slowChildSettled;
+
+    expect(slowChildStarted).toBe(true);
+    expect(slowChildAborted).toBe(true);
+    expect(slowChildCompleted).toBe(false);
   });
 
   it('should return [ERROR] for single-call llmQuery failures', async () => {
@@ -7283,6 +7583,205 @@ describe('actorTurnCallback', () => {
     expect(callbackResults[0]?.actorResult).toMatchObject({
       javascriptCode: 'console.log("abcdefghijklmnopqrstuvwxyz")',
       thought: 'Inspect runtime state first.',
+    });
+  });
+
+  it('should fire actorTurnCallback for recursive child agents as well', async () => {
+    const callbackCodes: string[] = [];
+
+    const recursiveRuntime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code === 'ROOT_STEP') {
+              const llmQueryFn = globals?.llmQuery as (
+                q: string,
+                context?: string
+              ) => Promise<string>;
+              const childAnswer = await llmQueryFn('child query', 'ctx');
+              if (globals?.final) {
+                (globals.final as (...args: unknown[]) => void)(childAnswer);
+              }
+              return childAnswer;
+            }
+            if (globals?.final && code.includes('final(')) {
+              (globals.final as (...args: unknown[]) => void)('child done');
+              return 'child done';
+            }
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          if (userPrompt.includes('Task: child query')) {
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: final("child done")',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: ROOT_STEP',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: [],
+      runtime: recursiveRuntime,
+      mode: 'advanced',
+      recursionOptions: {
+        maxDepth: 2,
+      },
+      actorTurnCallback: async ({ code }) => {
+        callbackCodes.push(code);
+      },
+    });
+
+    await testAgent.forward(testMockAI, { query: 'test' });
+
+    expect(callbackCodes).toContain('ROOT_STEP');
+    expect(callbackCodes).toContain('final("child done")');
+    expect(callbackCodes).toHaveLength(2);
+  });
+
+  it('should fire actorTurnCallback for the parent turn when child clarification bubbles', async () => {
+    const callbackEvents: Array<{
+      code: string;
+      output: string;
+      isError: boolean;
+    }> = [];
+
+    const recursiveRuntime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code === 'ROOT_STEP') {
+              const llmQueryFn = globals?.llmQuery as (
+                q: string,
+                context?: string
+              ) => Promise<string>;
+              await llmQueryFn('child query', 'ctx');
+              return 'root done';
+            }
+            if (
+              globals?.ask_clarification &&
+              code.includes('ask_clarification(')
+            ) {
+              (globals.ask_clarification as (...args: unknown[]) => void)(
+                'child clarification'
+              );
+              return 'child clarification';
+            }
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          if (userPrompt.includes('Task: child query')) {
+            return {
+              results: [
+                {
+                  index: 0,
+                  content:
+                    'Javascript Code: ask_clarification("child clarification")',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: ROOT_STEP',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: [],
+      runtime: recursiveRuntime,
+      mode: 'advanced',
+      recursionOptions: {
+        maxDepth: 2,
+      },
+      actorTurnCallback: async ({ code, output, isError }) => {
+        callbackEvents.push({ code, output, isError });
+      },
+    });
+
+    await expect(
+      testAgent.forward(testMockAI, { query: 'test' })
+    ).rejects.toMatchObject({
+      name: 'AxAgentClarificationError',
+      question: 'child clarification',
+    });
+
+    expect(callbackEvents).toContainEqual({
+      code: 'ask_clarification("child clarification")',
+      output: '(no output)',
+      isError: false,
+    });
+    expect(callbackEvents).toContainEqual({
+      code: 'ROOT_STEP',
+      output: '[CLARIFICATION] child clarification',
+      isError: false,
     });
   });
 });
@@ -9108,11 +9607,722 @@ describe('recursionOptions and recursive parity', () => {
 
     // Child should NOT inherit parent's 'knowledge' context field
     expect(childResponderPrompt).toContain('"parentKnowledge": ""');
-    // In advanced mode, context defaults to empty string when not provided
-    expect(childResponderPrompt).toContain('"contextType": "string"');
+    // No explicit llmQuery context means recursive child gets no default context binding
+    expect(childResponderPrompt).toContain('"contextType": "undefined"');
   });
 
-  it('should keep child final()/ask_clarification() signals isolated from parent state', async () => {
+  it('should expose explicit llmQuery context object as child runtime globals', async () => {
+    let childResponderPrompt = '';
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code === 'ROOT_STEP') {
+              const llmQueryFn = globals?.llmQuery as (
+                q: string,
+                context?: Record<string, unknown>
+              ) => Promise<string>;
+              const childResult = await llmQueryFn('child query', {
+                taskId: 'case-17',
+                incident: { severity: 'high' },
+                rubric: 'refund-or-not',
+              });
+              if (globals?.final) {
+                (globals.final as (...args: unknown[]) => void)(childResult);
+              }
+              return childResult;
+            }
+
+            if (code === 'CHILD_CHECK') {
+              const payload = {
+                taskId: (globals?.taskId as string | undefined) ?? '',
+                rubric: (globals?.rubric as string | undefined) ?? '',
+                incidentType: typeof globals?.incident,
+                contextType: typeof globals?.context,
+                contextTaskId:
+                  (globals?.context as Record<string, unknown> | undefined)
+                    ?.taskId ?? '',
+                parentKnowledge:
+                  (globals?.knowledge as string | undefined) ?? '',
+              };
+              if (globals?.final) {
+                (globals.final as (...args: unknown[]) => void)(payload);
+              }
+              return payload;
+            }
+
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          if (userPrompt.includes('Task: child query')) {
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: CHILD_CHECK',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: ROOT_STEP',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Answer Synthesis Agent')) {
+          if (userPrompt.includes('Task: child query')) {
+            childResponderPrompt = userPrompt;
+          }
+          return {
+            results: [
+              { index: 0, content: 'Answer: done', finishReason: 'stop' },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('knowledge:string, query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: ['knowledge'],
+      runtime,
+      maxTurns: 1,
+      mode: 'advanced',
+      recursionOptions: {
+        maxDepth: 2,
+      },
+    });
+
+    await testAgent.forward(testMockAI, {
+      knowledge: 'root-knowledge',
+      query: 'root query',
+    });
+
+    expect(childResponderPrompt).toContain('"taskId": "case-17"');
+    expect(childResponderPrompt).toContain('"rubric": "refund-or-not"');
+    expect(childResponderPrompt).toContain('"incidentType": "object"');
+    expect(childResponderPrompt).toContain('"contextType": "object"');
+    expect(childResponderPrompt).toContain('"contextTaskId": "case-17"');
+    expect(childResponderPrompt).toContain('"parentKnowledge": ""');
+  });
+
+  it('should show bootstrapped child context in the initial live runtime state on fallback runtimes', async () => {
+    let childActorPrompt = '';
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code === 'ROOT_STEP') {
+              const llmQueryFn = globals?.llmQuery as (
+                q: string,
+                context?: Record<string, unknown>
+              ) => Promise<string>;
+              const childResult = await llmQueryFn('child query', {
+                taskId: 'case-17',
+                rubric: 'refund-or-not',
+              });
+              if (globals?.final) {
+                (globals.final as (...args: unknown[]) => void)(childResult);
+              }
+              return childResult;
+            }
+
+            if (isInspectBaselineCode(code)) {
+              return JSON.stringify(
+                Object.keys(globals ?? {})
+                  .concat(['setImmediate', 'clearImmediate'])
+                  .sort()
+              );
+            }
+
+            if (isStructuredInspectCode(code)) {
+              const skipFilteredBootstrap =
+                !code.includes("'context'") &&
+                !code.includes("'taskId'") &&
+                !code.includes("'rubric'");
+              return skipFilteredBootstrap
+                ? JSON.stringify({
+                    version: 1,
+                    entries: [
+                      {
+                        name: 'taskId',
+                        type: 'string',
+                        size: '7 chars',
+                        preview: '"case-17"',
+                      },
+                      {
+                        name: 'rubric',
+                        type: 'string',
+                        size: '13 chars',
+                        preview: '"refund-or-not"',
+                      },
+                      {
+                        name: 'context',
+                        type: 'object',
+                        size: '2 keys',
+                        preview: '{taskId, rubric}',
+                      },
+                    ],
+                  })
+                : JSON.stringify({ version: 1, entries: [] });
+            }
+
+            if (globals?.final && code.includes('final(')) {
+              (globals.final as (...args: unknown[]) => void)('child done');
+              return 'child done';
+            }
+
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          if (userPrompt.includes('Task: child query')) {
+            childActorPrompt = userPrompt;
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: final("child done")',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: ROOT_STEP',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: [],
+      runtime,
+      maxTurns: 1,
+      mode: 'advanced',
+      recursionOptions: {
+        maxDepth: 2,
+      },
+      contextPolicy: {
+        preset: 'adaptive',
+        state: {
+          summary: true,
+          maxEntries: 4,
+        },
+      },
+    });
+
+    await testAgent.forward(testMockAI, {
+      query: 'root query',
+    });
+
+    expect(childActorPrompt).toContain('Live Runtime State:');
+    expect(childActorPrompt).toContain('taskId');
+    expect(childActorPrompt).toContain('case-17');
+    expect(childActorPrompt).toContain('refund-or-not');
+  });
+
+  it('should show delegated child context when live runtime state is disabled', async () => {
+    let childActorPrompt = '';
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code === 'ROOT_STEP') {
+              const llmQueryFn = globals?.llmQuery as (
+                q: string,
+                context?: Record<string, unknown>
+              ) => Promise<string>;
+              const childResult = await llmQueryFn('child query', {
+                taskId: 'case-17',
+                rubric: 'refund-or-not',
+                priority: 'high',
+              });
+              if (globals?.final) {
+                (globals.final as (...args: unknown[]) => void)(childResult);
+              }
+              return childResult;
+            }
+
+            if (globals?.final && code.includes('final(')) {
+              (globals.final as (...args: unknown[]) => void)('child done');
+              return 'child done';
+            }
+
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          if (userPrompt.includes('Task: child query')) {
+            childActorPrompt = userPrompt;
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: final("child done")',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: ROOT_STEP',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: [],
+      runtime,
+      maxTurns: 1,
+      mode: 'advanced',
+      recursionOptions: {
+        maxDepth: 2,
+      },
+      contextPolicy: {
+        preset: 'full',
+      },
+    });
+
+    await testAgent.forward(testMockAI, {
+      query: 'root query',
+    });
+
+    expect(childActorPrompt).toContain('Delegated Context (runtime-only');
+    expect(childActorPrompt).toContain('taskId');
+    expect(childActorPrompt).toContain('case-17');
+    expect(childActorPrompt).toContain('refund-or-not');
+    expect(childActorPrompt).not.toContain('Live Runtime State:');
+  });
+
+  it('should show element keys for array-of-objects in delegated context summary', async () => {
+    let childActorPrompt = '';
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code === 'ROOT_STEP') {
+              const llmQueryFn = globals?.llmQuery as (
+                q: string,
+                context?: unknown
+              ) => Promise<string>;
+              const childResult = await llmQueryFn('child query', {
+                emails: [
+                  { from: 'alice', subject: 'hello', date: '2025-01-01' },
+                  { from: 'bob', subject: 'hi', date: '2025-01-02' },
+                ],
+                tag: 'urgent',
+              });
+              if (globals?.final) {
+                (globals.final as (...args: unknown[]) => void)(childResult);
+              }
+              return childResult;
+            }
+
+            if (globals?.final && code.includes('final(')) {
+              (globals.final as (...args: unknown[]) => void)('child done');
+              return 'child done';
+            }
+
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          if (userPrompt.includes('Task: child query')) {
+            childActorPrompt = userPrompt;
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: final("child done")',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: ROOT_STEP',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: [],
+      runtime,
+      maxTurns: 1,
+      mode: 'advanced',
+      recursionOptions: {
+        maxDepth: 2,
+      },
+      contextPolicy: {
+        preset: 'full',
+      },
+    });
+
+    await testAgent.forward(testMockAI, {
+      query: 'root query',
+    });
+
+    // Element keys should appear for array-of-objects
+    expect(childActorPrompt).toContain('element keys: from, subject, date');
+    // Budget info should be visible
+    expect(childActorPrompt).toContain('Sub-query budget:');
+    expect(childActorPrompt).toContain('remaining');
+    // Explore-with-code preamble
+    expect(childActorPrompt).toContain('Explore with code');
+  });
+
+  it('should apply recursionOptions.promptLevel to child agents', async () => {
+    let childActorSystemPrompt = '';
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code === 'ROOT_STEP') {
+              const llmQueryFn = globals?.llmQuery as (
+                q: string,
+                context?: unknown
+              ) => Promise<string>;
+              const childResult = await llmQueryFn('child query', {
+                data: 'test',
+              });
+              if (globals?.final) {
+                (globals.final as (...args: unknown[]) => void)(childResult);
+              }
+              return childResult;
+            }
+
+            if (globals?.final && code.includes('final(')) {
+              (globals.final as (...args: unknown[]) => void)('child done');
+              return 'child done';
+            }
+
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          // Capture the child actor's system prompt (the one handling 'child query')
+          if (userPrompt.includes('Task: child query')) {
+            childActorSystemPrompt = systemPrompt;
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: final("child done")',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: ROOT_STEP',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: [],
+      runtime,
+      maxTurns: 1,
+      mode: 'advanced',
+      recursionOptions: {
+        maxDepth: 2,
+        promptLevel: 'basic',
+      },
+      contextPolicy: {
+        preset: 'full',
+      },
+    });
+
+    await testAgent.forward(testMockAI, {
+      query: 'root query',
+    });
+
+    // Child should use 'basic' promptLevel
+    expect(childActorSystemPrompt).toContain('Efficiency Guidance');
+    // 'basic' should NOT have the detailed anti-patterns section
+    expect(childActorSystemPrompt).not.toContain('Common Anti-Patterns');
+  });
+
+  it('should keep conflicting or invalid child context keys under context only', async () => {
+    let childResponderPrompt = '';
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code === 'ROOT_STEP') {
+              const llmQueryFn = globals?.llmQuery as (
+                q: string,
+                context?: Record<string, unknown>
+              ) => Promise<string>;
+              const childResult = await llmQueryFn('child query', {
+                rubric: 'refund-or-not',
+                console: 'shadowed-console',
+                'task-id': 'case-17',
+                context: { nested: true },
+              });
+              if (globals?.final) {
+                (globals.final as (...args: unknown[]) => void)(childResult);
+              }
+              return childResult;
+            }
+
+            if (code === 'CHILD_CHECK_CONFLICTS') {
+              const childContext = (globals?.context ?? {}) as Record<
+                string,
+                unknown
+              >;
+              const payload = {
+                rubric: (globals?.rubric as string | undefined) ?? '',
+                promotedConsole:
+                  (globals as Record<string, unknown> | undefined)?.console ??
+                  '',
+                promotedTaskId:
+                  (globals as Record<string, unknown> | undefined)?.[
+                    'task-id'
+                  ] ?? '',
+                contextConsole:
+                  (childContext.console as string | undefined) ?? '',
+                contextTaskId:
+                  (childContext['task-id'] as string | undefined) ?? '',
+                contextHasNested:
+                  typeof childContext.context === 'object' &&
+                  childContext.context !== null,
+              };
+              if (globals?.final) {
+                (globals.final as (...args: unknown[]) => void)(payload);
+              }
+              return payload;
+            }
+
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          if (userPrompt.includes('Task: child query')) {
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: CHILD_CHECK_CONFLICTS',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: ROOT_STEP',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Answer Synthesis Agent')) {
+          if (userPrompt.includes('Task: child query')) {
+            childResponderPrompt = userPrompt;
+          }
+          return {
+            results: [
+              { index: 0, content: 'Answer: done', finishReason: 'stop' },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: [],
+      runtime,
+      maxTurns: 1,
+      mode: 'advanced',
+      recursionOptions: {
+        maxDepth: 2,
+      },
+    });
+
+    await testAgent.forward(testMockAI, {
+      query: 'root query',
+    });
+
+    expect(childResponderPrompt).toContain('"rubric": "refund-or-not"');
+    expect(childResponderPrompt).toContain('"promotedConsole": ""');
+    expect(childResponderPrompt).toContain('"promotedTaskId": ""');
+    expect(childResponderPrompt).toContain(
+      '"contextConsole": "shadowed-console"'
+    );
+    expect(childResponderPrompt).toContain('"contextTaskId": "case-17"');
+    expect(childResponderPrompt).toContain('"contextHasNested": true');
+  });
+
+  it('should bubble child ask_clarification instead of isolating it in parent state', async () => {
     let childSubmitActorCalls = 0;
     let childAskActorCalls = 0;
     let rootResponderPrompt = '';
@@ -9130,6 +10340,19 @@ describe('recursionOptions and recursive parity', () => {
               await llmQueryFn('child-submit', 'ctx');
               await llmQueryFn('child-ask', 'ctx');
               return 'root-finished';
+            }
+            if (globals?.final && code.includes('final(')) {
+              (globals.final as (...args: unknown[]) => void)('child submit');
+              return 'child submit';
+            }
+            if (
+              globals?.ask_clarification &&
+              code.includes('ask_clarification(')
+            ) {
+              (globals.ask_clarification as (...args: unknown[]) => void)(
+                'child ask'
+              );
+              return 'child ask';
             }
             return 'ok';
           },
@@ -9213,17 +10436,19 @@ describe('recursionOptions and recursive parity', () => {
       },
     });
 
-    await testAgent.forward(testMockAI, {
-      context: 'root context',
-      query: 'root query',
+    await expect(
+      testAgent.forward(testMockAI, {
+        context: 'root context',
+        query: 'root query',
+      })
+    ).rejects.toMatchObject({
+      name: 'AxAgentClarificationError',
+      question: 'child ask',
     });
 
     expect(childSubmitActorCalls).toBe(1);
     expect(childAskActorCalls).toBe(1);
-    expect(rootResponderPrompt).toContain('"type": "final"');
-    expect(rootResponderPrompt).toContain('Evidence summary');
-    expect(rootResponderPrompt).not.toContain('```javascript');
-    expect(rootResponderPrompt).not.toContain('ROOT_NO_SIGNAL');
+    expect(rootResponderPrompt).toBe('');
   });
 
   it('should not carry actor/responder description options into recursive child prompts', async () => {
@@ -9334,7 +10559,7 @@ describe('recursionOptions and recursive parity', () => {
     expect(sawResponderOverrideInChild).toBe(false);
   });
 
-  it('should return depth-limit error from llmQuery when recursionOptions.maxDepth is 0', async () => {
+  it('should use simple llmQuery at the top level when recursionOptions.maxDepth is 0', async () => {
     let llmQueryResult = '';
 
     const runtime: AxCodeRuntime = {
@@ -9378,7 +10603,11 @@ describe('recursionOptions and recursive parity', () => {
         }
         return {
           results: [
-            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+            {
+              index: 0,
+              content: 'answer: child simple result',
+              finishReason: 'stop',
+            },
           ],
           modelUsage: makeModelUsage(),
         };
@@ -9390,6 +10619,7 @@ describe('recursionOptions and recursive parity', () => {
       contextFields: ['context'],
       runtime,
       maxTurns: 1,
+      mode: 'advanced',
       recursionOptions: {
         maxDepth: 0,
       },
@@ -9400,7 +10630,120 @@ describe('recursionOptions and recursive parity', () => {
       query: 'root query',
     });
 
-    expect(llmQueryResult).toContain('Recursion depth limit reached');
+    expect(llmQueryResult).toBe('answer: child simple result');
+  });
+
+  it('should use simple llmQuery inside recursive children when recursionOptions.maxDepth is 1', async () => {
+    let childSimpleAnswer = '';
+    let actorCalls = 0;
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code === 'ROOT_STEP') {
+              const llmQueryFn = globals?.llmQuery as (
+                q: string,
+                context?: string
+              ) => Promise<string>;
+              childSimpleAnswer = await llmQueryFn(
+                'child query',
+                'child context'
+              );
+              if (globals?.final) {
+                (globals.final as (...args: unknown[]) => void)(
+                  childSimpleAnswer
+                );
+              }
+              return childSimpleAnswer;
+            }
+
+            if (code === 'CHILD_STEP') {
+              const llmQueryFn = globals?.llmQuery as (
+                q: string,
+                context?: string
+              ) => Promise<string>;
+              const nested = await llmQueryFn(
+                'grandchild query',
+                'grandchild context'
+              );
+              if (globals?.final) {
+                (globals.final as (...args: unknown[]) => void)(nested);
+              }
+              return nested;
+            }
+
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCalls++;
+          if (userPrompt.includes('Task: child query')) {
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: CHILD_STEP',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: ROOT_STEP',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            {
+              index: 0,
+              content: 'answer: nested simple result',
+              finishReason: 'stop',
+            },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: ['context'],
+      runtime,
+      maxTurns: 1,
+      mode: 'advanced',
+      recursionOptions: {
+        maxDepth: 1,
+      },
+    });
+
+    await testAgent.forward(testMockAI, {
+      context: 'root context',
+      query: 'root query',
+    });
+
+    expect(actorCalls).toBe(2);
+    expect(childSimpleAnswer).toBe('answer: nested simple result');
   });
 
   it('should surface child-agent execution errors in action log instead of throwing', async () => {
@@ -11040,6 +12383,41 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
     expect(result).not.toContain('### Available Agent Functions');
     expect(result).toContain('### Available Functions');
     expect(result).not.toContain('### Additional Functions');
+  });
+
+  it('should render advanced llmQuery delegation guidance when prompt mode is recursive', () => {
+    const result = axBuildActorDefinition(undefined, [], [], {
+      llmQueryPromptMode: 'advanced-recursive',
+    });
+
+    expect(result).toContain(
+      'In this run, `llmQuery` is an advanced delegation primitive'
+    );
+    expect(result).toContain(
+      'Parent runtime variables are NOT visible to the child unless you pass them explicitly in the `context` argument'
+    );
+    expect(result).toContain(
+      'child asks for clarification, that clarification bubbles up and ends the whole run'
+    );
+    expect(result).toContain(
+      'Delegate one focused subtask to a child agent with its own runtime and action log.'
+    );
+  });
+
+  it('should render terminal-depth simple llmQuery guidance when recursion is exhausted', () => {
+    const result = axBuildActorDefinition(undefined, [], [], {
+      llmQueryPromptMode: 'simple-at-terminal-depth',
+    });
+
+    expect(result).toContain(
+      'In this run, `llmQuery` is in terminal simple mode.'
+    );
+    expect(result).not.toContain(
+      'In this run, `llmQuery` is an advanced delegation primitive'
+    );
+    expect(result).toContain(
+      '- `await llmQuery(query: string, context: any): string` — Ask one focused semantic question.'
+    );
   });
 
   it('should render modules only in discovery mode', () => {

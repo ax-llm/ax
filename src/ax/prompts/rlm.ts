@@ -331,6 +331,10 @@ export function axBuildActorDefinition(
     hasInspectRuntime?: boolean;
     hasLiveRuntimeState?: boolean;
     hasCompressedActionReplay?: boolean;
+    llmQueryPromptMode?:
+      | 'simple'
+      | 'advanced-recursive'
+      | 'simple-at-terminal-depth';
     /** When true, Actor must run one observable console step per non-final turn. */
     enforceIncrementalConsoleTurns?: boolean;
     /** Child agents available under the `<agentModuleNamespace>.*` namespace in the JS runtime. */
@@ -411,6 +415,7 @@ export function axBuildActorDefinition(
     contextVarList,
     responderOutputFieldTitles,
     promptLevel,
+    llmQueryPromptMode: options.llmQueryPromptMode ?? 'simple',
     discoveryMode,
     hasInspectRuntime: Boolean(options.hasInspectRuntime),
     hasAgentFunctions: !discoveryMode && sortedAgents.length > 0,
