@@ -1,5 +1,16 @@
 # Changelog
 
+## [19.0.22](///compare/19.0.20...19.0.21) (2026-03-18)
+
+### Features
+
+* gepa optimizer for axagent and other features 12e0644
+## [19.0.21](///compare/19.0.20...19.0.21) (2026-03-18)
+
+### Features
+
+* redesign of axagent advanced mode (true recursion) e8c075e
+
 ## [19.0.21](///compare/19.0.19...19.0.20) (2026-03-18)
 
 ### Features
