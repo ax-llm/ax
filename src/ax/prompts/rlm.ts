@@ -195,8 +195,16 @@ export interface AxCodeSession {
  *   successful turns instead of replaying their full code blocks. Reliability-first
  *   defaults still preserve recent evidence before deleting older low-value steps.
  *   Best when token pressure matters more than raw replay detail.
+ * - `checkpointed`: Keep full replay until the action log crosses a threshold, then
+ *   replace older successful history with a checkpoint summary while keeping recent
+ *   actions and unresolved errors fully visible. Best when you want conservative,
+ *   debugging-friendly replay until prompt pressure becomes real.
  */
-export type AxContextPolicyPreset = 'full' | 'adaptive' | 'lean';
+export type AxContextPolicyPreset =
+  | 'full'
+  | 'adaptive'
+  | 'lean'
+  | 'checkpointed';
 
 /**
  * Public context policy for the Actor loop.
@@ -210,6 +218,7 @@ export interface AxContextPolicyConfig {
    * - `full`: prefer raw replay of earlier actions
    * - `adaptive`: balance replay detail with checkpoint compression while keeping more recent evidence visible
    * - `lean`: prefer live state + compact summaries over raw replay detail
+   * - `checkpointed`: keep full replay until a threshold, then replace older successful turns with a checkpoint summary
    */
   preset?: AxContextPolicyPreset;
   /**
@@ -227,6 +236,7 @@ export interface AxContextPolicyConfig {
    * - `full`: false
    * - `adaptive`: false
    * - `lean`: true
+   * - `checkpointed`: false
    */
   pruneUsedDocs?: boolean;
   /**
@@ -236,6 +246,7 @@ export interface AxContextPolicyConfig {
    * - `full`: false
    * - `adaptive`: true
    * - `lean`: true
+   * - `checkpointed`: false
    */
   pruneErrors?: boolean;
   /** Runtime-state visibility controls. */
@@ -261,7 +272,7 @@ export interface AxContextPolicyConfig {
   /** Expert-level overrides for the preset-derived internal policy. */
   expert?: {
     /** Controls how prior actor actions are replayed before checkpoint compression. */
-    replay?: 'full' | 'adaptive' | 'minimal';
+    replay?: 'full' | 'adaptive' | 'minimal' | 'checkpointed';
     /** Number of most-recent actions that should always remain fully rendered. */
     recentFullActions?: number;
     /** Rank-based pruning of low-value actions. Off by default for built-in presets. */
@@ -346,7 +357,7 @@ export function axBuildActorDefinition(
     /** Agent functions available under namespaced globals in the JS runtime. */
     agentFunctions?: ReadonlyArray<{
       name: string;
-      description: string;
+      description?: string;
       parameters: AxFunctionJSONSchema;
       returns?: AxFunctionJSONSchema;
       namespace: string;

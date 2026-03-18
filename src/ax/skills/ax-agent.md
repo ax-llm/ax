@@ -1,6 +1,6 @@
 ---
 name: ax-agent
-description: This skill helps an LLM generate correct AxAgent code using @ax-llm/ax. Use when the user asks about agent(), child agents, namespaced functions, discovery mode, shared fields, llmQuery(...), RLM code execution, or offline tuning with agent.optimize(...).
+description: This skill helps an LLM generate correct AxAgent code using @ax-llm/ax. Use when the user asks about agent(), child agents, namespaced functions, discovery mode, shared fields, llmQuery(...), RLM code execution, promptLevel, recursionOptions, or agent runtime behavior. For tuning and eval with agent.optimize(...), use ax-agent-optimize.
 version: "__VERSION__"
 ---
 
@@ -8,18 +8,48 @@ version: "__VERSION__"
 
 Use this skill to generate `AxAgent` code. Prefer short, modern, copyable patterns. Do not write tutorial prose unless the user explicitly asks for explanation.
 
+Your job is not just to write valid code. Your job is to choose the smallest correct `AxAgent` shape for the user's needs:
+
+- If the user wants a normal tool-using assistant, keep the config minimal.
+- If the user wants long-running code execution, use RLM features deliberately.
+- If the user wants delegated subtasks, decide whether they need plain `llmQuery(...)` or recursive advanced mode.
+- If the user wants observability, add only the specific hooks or debug options that support that need.
+- If the user is unsure, choose conservative defaults and avoid exotic options.
+
 ## Use These Defaults
 
 - Use `agent(...)`, not `new AxAgent(...)`.
 - Prefer `fn(...)` for host-side function definitions instead of hand-writing JSON Schema objects.
 - Prefer namespaced functions such as `utils.search(...)` or `kb.find(...)`.
 - Assume the child-agent module is `agents` unless `agentIdentity.namespace` is set.
-- Use `agent.optimize(...)` when the user wants to tune a fully configured agent against task datasets.
 - If `functions.discovery` is `true`, discover callables from modules before using them.
 - In stdout-mode RLM, use one observable `console.log(...)` step per non-final actor turn.
 - For long RLM tasks, prefer `contextPolicy: { preset: 'adaptive' }` so older successful turns collapse into checkpoint summaries while live runtime state stays visible.
-- Default `actorOptions.promptLevel` to `'detailed'` and opt down to `'basic'` only when the user wants a shorter actor prompt.
+- Prefer `contextPolicy: { preset: 'checkpointed' }` when you want debugging-friendly full replay first and only want summaries after prompt pressure becomes real.
+- Default top-level `promptLevel` to `'detailed'` and opt down to `'basic'` only when the user wants a shorter root actor prompt.
+- Prefer `actorModelPolicy` when the actor may need to upgrade under prompt pressure, repeated tool errors, or discovery churn without also upgrading the responder.
 - Use `actorTurnCallback` when the user needs per-turn observability into generated code, raw runtime result, formatted output, or provider thoughts.
+
+## Decision Guide
+
+Map user intent to agent shape before writing code:
+
+- "Use tools and answer" -> plain `agent(...)` with local functions, no recursion, no extra observability.
+- "Inspect large context with code" -> add `runtime`, `contextFields`, and usually `contextPolicy: { preset: 'adaptive' }`.
+- "Delegate focused semantic subtasks" -> use `llmQuery(...)`; add `mode: 'advanced'` only when child tasks need their own runtime, tools, or discovery loop.
+- "Need child agents with distinct responsibilities" -> use `agents.local`, and add `fields.shared` only when parent inputs truly need to flow into children.
+- "Need tool discovery because names/schemas are not stable" -> use `functions.discovery: true` and generate discovery-first code.
+- "Need a stronger actor only when the run gets noisy or large" -> use `actorModelPolicy` and keep the responder model separate.
+- "Need debugging or traceability" -> start with `debug: true` or `actorTurnCallback`; do not add both unless the user clearly wants both prompt/runtime visibility and structured telemetry.
+
+Choose options based on user needs, not feature completeness:
+
+- Prefer `mode: 'simple'` unless recursive child agents materially improve the task.
+- Prefer `promptLevel: 'detailed'` when reliability matters more than prompt size.
+- Prefer `promptLevel: 'basic'` when the user wants a leaner prompt and the workflow is already well constrained.
+- Prefer `recursionOptions.promptLevel: 'basic'` for narrow delegated children unless the child is also discovery-heavy or schema-uncertain.
+- Prefer `maxSubAgentCalls` only when advanced recursion is enabled or the user needs explicit delegation limits.
+- Prefer `contextPolicy.preset: 'adaptive'` for long RLM tasks, `checkpointed` when you want "full first, summarize later", `full` for debugging, and `lean` only under real token pressure.
 
 ## Mental Model
 
@@ -36,11 +66,13 @@ Use these meanings consistently when writing or explaining `contextPolicy.preset
 
 - `full`: Keep prior actions fully replayed. Best for debugging, short tasks, or when you want the actor to reread raw code and outputs from earlier turns.
 - `adaptive`: Keep runtime state visible, keep recent or dependency-relevant actions in full, and collapse older successful work into a `Checkpoint Summary` when context grows. This is the default recommendation for long multi-turn tasks.
+- `checkpointed`: Keep full replay until the action log crosses the checkpoint threshold, then replace older successful history with a `Checkpoint Summary` while keeping recent actions and unresolved errors fully visible.
 - `lean`: Most aggressive compression. Keep `Live Runtime State`, checkpoint older successful work, and summarize replay-pruned successful turns instead of showing their full code blocks. Use when token pressure matters more than raw replay detail.
 
 Practical rule:
 
 - Start with `adaptive` for most long RLM tasks.
+- Use `checkpointed` when you want conservative replay until there is actual pressure to summarize.
 - Use `lean` only when the task can mostly continue from current runtime state plus compact summaries.
 - Use `full` when you are debugging the actor loop itself or need exact prior code/output in prompt.
 
@@ -49,31 +81,38 @@ Important:
 - `contextPolicy` controls prompt replay and compression, not runtime persistence.
 - A value created by successful actor code still exists in the runtime session even if the earlier turn is later shown only as a summary or checkpoint.
 - Used discovery docs are replay artifacts too: `lean` hides old `listModuleFunctions(...)` / `getFunctionDefinitions(...)` output by default after the actor successfully uses the discovered callable, while `adaptive` keeps them unless you opt into pruning.
+- `checkpointed` keeps used discovery docs by default and avoids destructive cleanup unless you explicitly opt into it.
 - Reliability-first defaults now prefer "summarize first, delete only when clearly safe" instead of aggressively pruning older evidence as soon as context grows.
 
 ## Choosing Presets, Prompt Level, And Model Size
 
-Treat these three knobs as a bundle:
+Treat these knobs as a bundle:
 
 - `contextPolicy.preset` decides how much raw history the actor keeps seeing.
-- `actorOptions.promptLevel` decides how prescriptive the actor prompt is.
+- Top-level `promptLevel` decides how prescriptive the root actor prompt is.
+- `recursionOptions.promptLevel` overrides prompt detail for recursive `llmQuery(...)` child agents.
+- `actorModelPolicy` decides when the actor upgrades to a stronger model without changing the responder.
 - Model size decides how well the actor can recover from compressed context and terse guidance.
 
 Recommended combinations:
 
 - Short task, debugging, or weaker/cheaper model: `preset: 'full'` with `promptLevel: 'detailed'`.
 - Long multi-turn task, general default, medium-to-strong model: `preset: 'adaptive'` with `promptLevel: 'detailed'`.
+- Long task where you want raw replay until the log is actually large: `preset: 'checkpointed'` with `promptLevel: 'detailed'`.
 - Long task where the actor keeps making avoidable exploration mistakes: `preset: 'adaptive'` with `promptLevel: 'detailed'`.
 - Very long task under token pressure, stronger model only: `preset: 'lean'` with `promptLevel: 'basic'`.
 - Discovery-heavy or schema-uncertain work with a capable model: `preset: 'adaptive'` with `promptLevel: 'detailed'`.
+- Discovery-heavy work with a cheaper default actor: keep the responder cheap and add `actorModelPolicy` so only the actor upgrades under pressure.
 
 Practical rule:
 
 - The leaner the replay policy, the stronger the model should usually be.
 - `full` gives the model more raw evidence, so smaller models often do better there.
 - `adaptive` is the default middle ground for real agent work.
+- `checkpointed` is the conservative middle ground when you want full replay first and summarization only after a threshold.
 - `lean` should be reserved for models that can reason well from runtime state plus summaries instead of exact old code/output.
 - `detailed` is not automatically "better"; it is more controlling. Use it when the actor needs tighter exploration rhythm, not just because the task is hard.
+- `actorModelPolicy` is usually better than globally upgrading the whole agent when the bottleneck is actor exploration rather than responder synthesis.
 
 Prompt-level guidance:
 
@@ -104,10 +143,10 @@ Use `promptLevel: 'basic'` when:
 - If a child agent needs parent inputs such as `audience`, use `fields.shared` or `fields.globallyShared`.
 - `llmQuery(...)` failures may come back as `[ERROR] ...`; do not assume success.
 - If `contextPolicy.state.summary` is on, rely on the `Live Runtime State` block for current variables instead of re-reading old action log code.
-- If `contextPolicy.preset` is `'adaptive'` or `'lean'`, assume older successful turns may be replaced by a `Checkpoint Summary` and that replay-pruned successful turns may appear as compact summaries instead of full code blocks.
+- If `contextPolicy.preset` is `'adaptive'`, `'checkpointed'`, or `'lean'`, assume older successful turns may be replaced by a `Checkpoint Summary` and that replay-pruned successful turns may appear as compact summaries instead of full code blocks.
 - In public `forward()` and `streamingForward()` flows, `ask_clarification(...)` does not go through the responder; it throws `AxAgentClarificationError`.
 - When resuming after clarification, prefer `error.getState()` from the thrown `AxAgentClarificationError`, then call `agent.setState(savedState)` before the next `forward(...)`.
-- For offline tuning, prefer eval-safe tools or in-memory mocks because `agent.optimize(...)` will replay tasks many times.
+- For offline tuning, hand off to the `ax-agent-optimize` skill and prefer eval-safe tools or in-memory mocks because `agent.optimize(...)` will replay tasks many times.
 
 ## Canonical Pattern
 
@@ -570,13 +609,18 @@ Rules:
 
 - Use `preset: 'full'` when the actor should keep seeing raw prior code and outputs with minimal compression.
 - Use `preset: 'adaptive'` when the task needs runtime state across many turns but older successful work should collapse into checkpoint summaries while important recent steps can still stay fully replayed.
+- Use `preset: 'checkpointed'` when you want full replay first, then only older successful history checkpointed after the log crosses `checkpoints.triggerChars`.
 - Use `preset: 'lean'` when you want more aggressive compression and can rely mostly on current runtime state plus checkpoint summaries and compact action summaries.
 - `adaptive` now keeps used discovery docs by default and uses slightly richer live-state/checkpoint settings than `lean`; it should be the first choice unless you have a strong reason to prefer `full` or `lean`.
+- `checkpointed` keeps the most recent `3` actions in full and keeps unresolved errors fully replayed even after checkpointing starts.
 - Use `state.summary` to inject a compact `Live Runtime State` block into the actor prompt. The block is structured and provenance-aware: variables are rendered with compact type/size/preview metadata, and when Ax can infer it, a short source suffix like `from t3 via db.search` is included. Combine `maxEntries` with `maxChars` so large runtime objects do not dominate the prompt.
 - Use `state.inspect` with `inspectThresholdChars` so the actor is reminded to call `inspect_runtime()` when replayed action history starts getting large.
 - `adaptive` keeps used discovery docs by default; set `contextPolicy.pruneUsedDocs: true` only when you want more aggressive cleanup.
+- `checkpointed` keeps used discovery docs by default; set `contextPolicy.pruneUsedDocs: true` only when you want the same cleanup there.
 - `lean` hides used discovery docs by default; set `contextPolicy.pruneUsedDocs: false` if you want to keep replaying them.
 - `full` keeps used discovery docs by default; set `contextPolicy.pruneUsedDocs: true` if you want the same cleanup there.
+- `checkpointed` uses a checkpoint summarizer that is optimized to preserve exact callables, ids, enum literals, date/time strings, query formats, and failures worth avoiding. Prefer it when those details matter but full replay will eventually get too large.
+- Lower `checkpoints.triggerChars` when you want checkpointing to begin sooner; raise it when you want longer raw replay before summarization starts.
 - Use `summarizerOptions` to tune the internal checkpoint-summary AxGen program.
 - If you configure `expert.tombstones`, treat the object form as options for the internal tombstone-summary AxGen program.
 - Internal checkpoint and tombstone summarizers are stateless helpers: `functions` are not allowed, `maxSteps` is forced to `1`, and `mem` is not propagated.
@@ -654,15 +698,79 @@ const supportAgent = agent('query:string -> answer:string', {
 });
 ```
 
+## Option Layout
+
+Use these top-level controls consistently:
+
+- `mode`: controls whether `llmQuery(...)` stays simple or delegates to recursive child agents in advanced mode
+- `promptLevel`: controls the root actor prompt guidance
+- `recursionOptions.maxDepth`: limits recursive `llmQuery(...)` depth
+- `recursionOptions.promptLevel`: overrides prompt guidance for recursive `llmQuery(...)` child agents
+- `maxSubAgentCalls`: shared delegated-call budget across the whole run, including recursive children
+- `actorOptions`: actor-only forward options such as `description`, `model`, `modelConfig`, `thinkingTokenBudget`, and `showThoughts`
+- `actorModelPolicy`: actor-only model escalation rules based on prompt-facing size, recent errors, and discovery stall turns
+- `responderOptions`: responder-only forward options
+- `judgeOptions`: built-in judge options for `agent.optimize(...)`; for tuning workflows use the `ax-agent-optimize` skill
+
+Canonical shape:
+
+```typescript
+const researchAgent = agent('query:string -> answer:string', {
+  contextFields: ['query'],
+  runtime,
+  mode: 'advanced',
+  promptLevel: 'detailed',
+  recursionOptions: {
+    maxDepth: 2,
+    promptLevel: 'basic',
+  },
+  contextPolicy: {
+    preset: 'checkpointed',
+  },
+  actorOptions: {
+    description: 'Use tools first and keep JS steps small.',
+    model: 'gpt-5.4-mini',
+  },
+  actorModelPolicy: {
+    escalatedModel: 'gpt-5.4',
+    escalateAtPromptChars: 14_000,
+    escalateAtPromptCharsWhenCheckpointed: 10_000,
+  },
+  responderOptions: {
+    model: 'gpt-5.4-mini',
+  },
+});
+```
+
+Semantics:
+
+- Top-level `promptLevel` applies to the root actor.
+- `recursionOptions.promptLevel` applies only to recursive `llmQuery(...)` child agents in advanced mode.
+- If `recursionOptions.promptLevel` is omitted, recursive children inherit the root top-level `promptLevel`.
+- `mode` stays top-level; there is no `recursionOptions.mode`.
+- If `actorModelPolicy.baseModel` is omitted, Ax uses the current actor model as the base model.
+- `actorModelPolicy` only switches the actor model. It does not change `responderOptions.model`.
+- Recursive child agents can inherit `actorModelPolicy`; use a child override only when that child needs different escalation behavior.
+
+When choosing these options for a user:
+
+- Do not add `mode: 'advanced'` just because recursion exists as a feature. Add it only when delegated children need their own tool/discovery/runtime loop.
+- Do not add `recursionOptions` at all if the user does not need recursive delegation.
+- Do not add `judgeOptions` in normal agent examples; reserve that for optimize/eval workflows.
+- Keep `actorOptions` focused on actor-only forward concerns such as `description`, `model`, `modelConfig`, `thinkingTokenBudget`, and `showThoughts`.
+- Use `actorModelPolicy` when the actor is the bottleneck and you want the responder to stay fixed.
+
 ## Actor Prompt Controls
 
-Use `actorOptions` for actor-only model/prompt tuning and `responderOptions` for responder-only tuning.
+Use top-level `promptLevel` for root actor guidance, `recursionOptions.promptLevel` for recursive child guidance, `actorOptions` for actor-only forward options, and `responderOptions` for responder-only tuning.
 
 Key fields:
 
+- `promptLevel`: choose `'basic'` or `'detailed'` guidance for the root actor template
+- `recursionOptions.promptLevel`: choose `'basic'` or `'detailed'` guidance for recursive child agents
 - `actorOptions.description`: append extra actor-specific instructions without changing the responder prompt
-- `actorOptions.promptLevel`: choose `'basic'` or `'detailed'` guidance for the actor template
 - `actorOptions.model` / `responderOptions.model`: split model choice across actor and responder when needed
+- `actorModelPolicy`: auto-upgrade only the actor when prompt-facing context, recent errors, or discovery churn indicate the current actor model is struggling
 
 Good split-model pattern:
 
@@ -671,9 +779,9 @@ const researchAgent = agent('query:string -> answer:string', {
   contextFields: ['query'],
   runtime,
   contextPolicy: { preset: 'adaptive' },
+  promptLevel: 'detailed',
   actorOptions: {
     model: 'gpt-5.4',
-    promptLevel: 'detailed',
   },
   responderOptions: {
     model: 'gpt-5.4-mini',
@@ -686,6 +794,9 @@ Model guidance:
 - Put the stronger model on the actor when the task depends on multi-turn exploration, discovery, runtime state reuse, or compressed replay.
 - Put the stronger model on the responder only when the hard part is final synthesis/formatting rather than exploration.
 - For cost-sensitive setups, a common pattern is stronger actor + cheaper responder, not the other way around.
+- Prefer `actorModelPolicy` over globally upgrading the whole agent when the actor only needs help after context grows or the run starts thrashing.
+- `actorModelPolicy` uses prompt-facing pressure, not raw `actionLog.length`. That pressure includes replayed actions, live runtime state, delegated context summaries, context metadata, and actor-definition size.
+- Pair `contextPolicy: { preset: 'checkpointed' }` with `actorModelPolicy` when you want "full first, then summarize and upgrade the actor only if needed."
 
 Invalid pattern:
 
@@ -762,111 +873,16 @@ Rules:
 - `agents.globallyShared` and `functions.globallyShared` propagate to all descendants.
 - Use `excluded` when a child should not receive a propagated field, agent, or function.
 
-## Offline Tuning With `agent.optimize(...)`
+## Tuning Hand-off
 
-Use `agent.optimize(...)` when the user already has a configured `AxAgent` and wants to tune it against focused tasks such as emailing, scheduling, or office-assistant workflows.
+When the user wants `agent.optimize(...)`, judge configuration, eval datasets, saved optimization artifacts, or recursive optimization guidance, use the `ax-agent-optimize` skill.
 
-Canonical pattern:
+Keep this skill focused on building and running agents. For tuning work:
 
-```typescript
-import {
-  AxAIGoogleGeminiModel,
-  AxJSRuntime,
-  AxOptimizedProgramImpl,
-  axDefaultOptimizerLogger,
-  agent,
-  ai,
-  f,
-  fn,
-} from '@ax-llm/ax';
-
-const tools = [
-  fn('sendEmail')
-    .namespace('email')
-    .description('Send an email message')
-    .arg('to', f.string('Recipient email address'))
-    .arg('body', f.string('Email body text'))
-    .returns(
-      f.object({
-        sent: f.boolean('Whether the email was sent'),
-        to: f.string('Recipient email address'),
-      })
-    )
-    .handler(async ({ to }) => ({ sent: true, to }))
-    .build(),
-];
-
-const studentAI = ai({
-  name: 'google-gemini',
-  apiKey: process.env.GOOGLE_APIKEY!,
-  config: { model: AxAIGoogleGeminiModel.Gemini25FlashLite, temperature: 0.2 },
-});
-
-const judgeAI = ai({
-  name: 'google-gemini',
-  apiKey: process.env.GOOGLE_APIKEY!,
-  config: { model: AxAIGoogleGeminiModel.Gemini3Pro, temperature: 1.0 },
-});
-
-const assistant = agent('query:string -> answer:string', {
-  ai: studentAI,
-  judgeAI,
-  judgeOptions: {
-    description: 'Prefer correct tool use over polished wording.',
-    model: 'judge-model',
-  },
-  contextFields: [],
-  runtime: new AxJSRuntime(),
-  functions: { local: tools },
-  contextPolicy: { preset: 'adaptive' },
-});
-
-const tasks = [
-  {
-    input: { query: 'Send an email to Jim saying good morning.' },
-    criteria: 'Use the email tool and send the message to Jim.',
-    expectedActions: ['email.sendEmail'],
-  },
-];
-
-const result = await assistant.optimize(tasks, {
-  target: 'actor',
-  maxMetricCalls: 12,
-  verbose: true,
-  optimizerLogger: axDefaultOptimizerLogger,
-  onProgress: (progress) => {
-    console.log(
-      `round ${progress.round}/${progress.totalRounds} current=${progress.currentScore} best=${progress.bestScore}`
-    );
-  },
-});
-
-const saved = JSON.stringify(result.optimizedProgram, null, 2);
-const restored = new AxOptimizedProgramImpl(JSON.parse(saved));
-assistant.applyOptimization(restored);
-```
-
-Rules:
-
-- Pass already-loaded tasks. Do not invent a benchmark loader unless the user asks for one.
-- Default optimize target is `root.actor`; use `target: 'responder'` or explicit program IDs only when the user clearly wants that.
-- Prefer the built-in judge path. Use `judgeAI` plus `judgeOptions` instead of forcing the user to author a metric for open-ended assistant tasks.
-- `judgeOptions` mirrors normal forward options and supports extra judge guidance through `description`.
-- The built-in judge scores from the full agent run, not just the final reply. It can see the completion type, clarification payload when present, final output when present, action log, normalized function calls, tool errors, and turn count.
-- `agent.optimize(...)` runs each evaluation rollout from a clean continuation state. Saved runtime state from `getState()` / `setState(...)` is not used during evaluation rollouts, and optimization does not overwrite the caller's existing saved state.
-- During optimize/eval, `ask_clarification(...)` is treated as a scored evaluation outcome instead of going through the responder. Custom metrics and the built-in judge should branch on `prediction.completionType`.
-- For clarification outcomes in custom metrics, expect `prediction.completionType === 'ask_clarification'`, `prediction.clarification` to be populated, and `prediction.output` to be absent.
-- For final outcomes in custom metrics, expect `prediction.completionType === 'final'` and `prediction.output` to be populated.
-- Use `expectedActions` and `forbiddenActions` in tasks when tool correctness matters.
-- Use `verbose`, `optimizerLogger`, and `onProgress` when the user wants live optimization status.
-- Treat `debugOptimizer` as an advanced override that forces logging even when normal verbosity is off.
-- If the user provides a custom `metric`, that overrides the built-in judge path.
-- `target: 'responder'` still works, but clarification-heavy tasks are low-signal for responder optimization because clarification rollouts do not invoke the responder.
-- Save `result.optimizedProgram` and later restore it with `new AxOptimizedProgramImpl(...)` plus `agent.applyOptimization(...)`.
-- For real examples, use fresh eval-safe tool state for the baseline run, the optimization run, and the restored replay so side effects do not leak across phases.
-- If the user wants to demonstrate improvement, run a held-out task before optimization, save and reload the artifact, then replay the same task on a fresh restored agent and print the concrete side effects.
-- A good office-assistant optimization example should push the weaker model into multi-step tool use it may barely handle zero-shot, such as relative-date scheduling plus correct recipient selection and “draft only” constraints.
-- Remind the user that `agent.optimize(...)` replays tasks many times, so real side-effecting tools should be replaced with eval-safe mocks or in-memory state during tuning.
+- use eval-safe tools or in-memory mocks
+- treat `judgeOptions` as part of the optimize workflow
+- choose a deterministic `metric` when scoring is objective; use the built-in judge only when run quality needs qualitative review
+- keep runtime authoring guidance here and optimization guidance in `ax-agent-optimize`
 
 ## `llmQuery(...)` Rules
 
@@ -1034,17 +1050,34 @@ agentIdentity?: {
   }) => void | Promise<void>;
   inputUpdateCallback?: (currentInputs: Record<string, unknown>) => Promise<Record<string, unknown> | undefined> | Record<string, unknown> | undefined;
   mode?: 'simple' | 'advanced';
+  promptLevel?: 'detailed' | 'basic';
+  actorModelPolicy?: {
+    escalatedModel: string;
+    baseModel?: string;
+    escalateAtPromptChars?: number;
+    escalateAtPromptCharsWhenCheckpointed?: number;
+    recentErrorWindowTurns?: number;
+    recentErrorThreshold?: number;
+    discoveryStallTurns?: number;
+    deescalateBelowPromptChars?: number;
+    stableTurnsBeforeDeescalate?: number;
+    minEscalatedTurns?: number;
+  };
   recursionOptions?: Partial<Omit<AxProgramForwardOptions, 'functions'>> & {
     maxDepth?: number;
     promptLevel?: 'detailed' | 'basic';
   };
-  actorOptions?: Partial<AxProgramForwardOptions & { description?: string; promptLevel?: 'detailed' | 'basic' }>;
+  actorOptions?: Partial<AxProgramForwardOptions & { description?: string }>;
   responderOptions?: Partial<AxProgramForwardOptions & { description?: string }>;
   judgeOptions?: Partial<AxJudgeOptions>;
 }
 ```
 
 - `actorTurnCallback` fires for the root agent and for recursive child agents that run actor turns.
+- `promptLevel` controls the root actor prompt.
+- `actorModelPolicy` applies to the actor loop and can be inherited by recursive child agents unless you override it there.
+- `recursionOptions.promptLevel` controls recursive child prompt guidance and falls back to the top-level `promptLevel`.
+- `maxSubAgentCalls` is a shared delegated-call budget across the entire run.
 
 ## Examples
 
@@ -1061,7 +1094,6 @@ Fetch these for full working code:
 - [RLM Adaptive Replay](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-adaptive-replay.ts) — adaptive replay
 - [RLM Live Runtime State](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-live-runtime-state.ts) — structured runtime-state rendering
 - [RLM Clarification Resume](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-clarification-resume.ts) — clarification exception plus `getState()` / `setState(...)`
-- [RLM Agent Optimize](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-agent-optimize.ts) — Gemini office-assistant tuning with save/load
 - [Customer Support](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/customer-support.ts) — classification agent
 - [Abort Patterns](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/abort-patterns.ts) — abort handling
 
@@ -1073,4 +1105,4 @@ Fetch these for full working code:
 - Do not write a full multi-step RLM actor program in one turn.
 - Do not combine `console.log(...)` with `final(...)`.
 - Do not forget `fields.shared` when child agents depend on parent inputs.
-- Do not run `agent.optimize(...)` against production tools with real side effects unless the user explicitly wants that.
+- Do not put `promptLevel` under `actorOptions`; use top-level `promptLevel` for the root actor and `recursionOptions.promptLevel` for recursive child agents.

@@ -267,13 +267,36 @@ import {
   });
 }
 
-// Agent actorOptions should accept promptLevel
+// Agent should accept top-level promptLevel
+{
+  const runtime = {} as AxCodeRuntime;
+  agent('query:string -> answer:string', {
+    contextFields: [] as const,
+    runtime,
+    promptLevel: 'detailed',
+  });
+}
+
+// Agent recursionOptions should accept promptLevel
+{
+  const runtime = {} as AxCodeRuntime;
+  agent('query:string -> answer:string', {
+    contextFields: [] as const,
+    runtime,
+    recursionOptions: {
+      promptLevel: 'basic',
+    },
+  });
+}
+
+// Agent actorOptions should not accept promptLevel
 {
   const runtime = {} as AxCodeRuntime;
   agent('query:string -> answer:string', {
     contextFields: [] as const,
     runtime,
     actorOptions: {
+      // @ts-expect-error promptLevel moved to top-level agent options
       promptLevel: 'detailed',
     },
   });
@@ -543,6 +566,42 @@ import {
         return [];
       },
     },
+    {
+      name: 'lookupOpenSlots',
+      namespace: 'db',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Query text' },
+        },
+        required: ['query'],
+      },
+      async func() {
+        return [];
+      },
+    },
+  ];
+
+  const optionalGroupedFns: AxAgentFunctionGroup[] = [
+    {
+      namespace: 'kb',
+      title: 'Knowledge Base',
+      functions: [
+        {
+          name: 'lookupDocs',
+          parameters: {
+            type: 'object',
+            properties: {
+              topic: { type: 'string', description: 'Topic text' },
+            },
+            required: ['topic'],
+          },
+          async func() {
+            return [];
+          },
+        },
+      ],
+    },
   ];
 
   agent('query:string -> answer:string', {
@@ -550,9 +609,9 @@ import {
     runtime,
     functions: {
       discovery: true,
-      local: groupedFns,
+      local: [...groupedFns, ...optionalGroupedFns],
       shared: [agentFns[0]!],
-      globallyShared: [agentFns[0]!],
+      globallyShared: [agentFns[1]!],
     },
   });
 }

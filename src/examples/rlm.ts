@@ -26,6 +26,7 @@ const analyzer = agent(
     actorOptions: {
       thinkingTokenBudget: 'minimal',
     },
+    promptLevel: 'detailed',
     maxSubAgentCalls: 30,
     mode: 'simple',
     // Additional RLM guardrails are also supported:

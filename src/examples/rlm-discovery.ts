@@ -176,6 +176,7 @@ const analyst = agent(
     agents: { local: [writingCoach] },
     fields: { shared: ['audience'] },
     functions: { discovery: true, local: tools } as any,
+    promptLevel: 'detailed',
     actorOptions: {
       description: [
         'Mandatory execution order for this demo:',
@@ -195,6 +196,7 @@ const analyst = agent(
     mode: 'advanced',
     recursionOptions: {
       maxDepth: 2,
+      promptLevel: 'basic',
     },
     maxSubAgentCalls: 20,
     maxBatchedLlmQueryConcurrency: 3,

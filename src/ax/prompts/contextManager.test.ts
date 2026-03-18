@@ -732,6 +732,78 @@ describe('buildActionLog', () => {
     expect(log).toContain('Checkpoint Summary:');
   });
 
+  it('should keep full replay before checkpoint activation in checkpointed mode', () => {
+    const entries = [
+      makeSuccessEntry(1, 'const draft = "v1"', 'draft ready'),
+      makeSuccessEntry(2, 'const finalDraft = "v2"', 'final ready'),
+    ];
+    const log = buildActionLogWithPolicy(entries, {
+      actionReplay: 'checkpointed',
+      recentFullActions: 1,
+    });
+
+    expect(log).toContain('const draft = "v1"');
+    expect(log).toContain('const finalDraft = "v2"');
+    expect(log).not.toContain('Checkpoint Summary:');
+  });
+
+  it('should replace older successful history with a checkpoint summary in checkpointed mode', () => {
+    const entries = [
+      makeSuccessEntry(1, 'const draft = "v1"', 'draft ready'),
+      makeSuccessEntry(2, 'const finalDraft = "v2"', 'final ready'),
+    ];
+    const log = buildActionLogWithPolicy(entries, {
+      actionReplay: 'checkpointed',
+      recentFullActions: 1,
+      checkpointSummary: [
+        'Objective: refine the draft',
+        'Durable state: draft, finalDraft',
+        'Exact callables and formats: none',
+        'Evidence: draft ready',
+        'Conclusions: use the latest draft',
+        'Actor fields: none',
+        'Failures to avoid: none',
+        'Next step: finalize answer',
+      ].join('\n'),
+      checkpointTurns: [1],
+    });
+
+    expect(log).toContain('Checkpoint Summary:');
+    expect(log).toContain('Objective: refine the draft');
+    expect(log).not.toContain('const draft = "v1"');
+    expect(log).toContain('const finalDraft = "v2"');
+  });
+
+  it('should keep unresolved errors fully rendered in checkpointed mode', () => {
+    const entries = [
+      makeEntry({
+        turn: 1,
+        code: 'db.search({ query: "widgets" })',
+        output: 'TypeError: bad query',
+        tags: ['error'],
+      }),
+      makeSuccessEntry(2, 'const finalDraft = "v2"', 'final ready'),
+    ];
+    const log = buildActionLogWithPolicy(entries, {
+      actionReplay: 'checkpointed',
+      recentFullActions: 1,
+      checkpointSummary: [
+        'Objective: refine the draft',
+        'Durable state: finalDraft',
+        'Exact callables and formats: none',
+        'Evidence: final ready',
+        'Conclusions: use finalDraft',
+        'Actor fields: none',
+        'Failures to avoid: db.search({ query: "widgets" })',
+        'Next step: finalize answer',
+      ].join('\n'),
+      checkpointTurns: [2],
+    });
+
+    expect(log).toContain('db.search({ query: "widgets" })');
+    expect(log).toContain('TypeError: bad query');
+  });
+
   it('should include a live runtime state block in minimal mode', () => {
     const entries = [makeSuccessEntry(1, 'const total = 5', '5')];
     const log = buildActionLogWithPolicy(entries, {
@@ -981,9 +1053,11 @@ describe('generateCheckpointSummaryAsync', () => {
             content: [
               'Checkpoint Summary: Objective: verify draft',
               'Durable state: draft',
+              'Exact callables and formats: draft',
               'Evidence: draft ready',
               'Conclusions: use draft',
               'Actor fields: none',
+              'Failures to avoid: none',
               'Next step: finalize answer',
             ].join('\n'),
             finishReason: 'stop',
@@ -1003,6 +1077,12 @@ describe('generateCheckpointSummaryAsync', () => {
 
     expect(result).toContain('Objective: verify draft');
     expect(chatSpy).toHaveBeenCalledTimes(1);
+    expect(
+      String(chatSpy.mock.calls[0]?.[0]?.chatPrompt[0]?.content ?? '')
+    ).toContain('Exact callables and formats:');
+    expect(
+      String(chatSpy.mock.calls[0]?.[0]?.chatPrompt[0]?.content ?? '')
+    ).toContain('Failures to avoid:');
   });
 
   it('should let request-level model options override checkpoint defaults', async () => {
@@ -1015,9 +1095,11 @@ describe('generateCheckpointSummaryAsync', () => {
             content: [
               'Checkpoint Summary: Objective: verify draft',
               'Durable state: draft',
+              'Exact callables and formats: draft',
               'Evidence: draft ready',
               'Conclusions: use draft',
               'Actor fields: none',
+              'Failures to avoid: none',
               'Next step: finalize answer',
             ].join('\n'),
             finishReason: 'stop',
@@ -1056,9 +1138,11 @@ describe('generateCheckpointSummaryAsync', () => {
             content: [
               'Checkpoint Summary: Objective: verify draft',
               'Durable state: draft',
+              'Exact callables and formats: draft',
               'Evidence: draft ready',
               'Conclusions: use draft',
               'Actor fields: none',
+              'Failures to avoid: none',
               'Next step: finalize answer',
             ].join('\n'),
             finishReason: 'stop',
@@ -1101,6 +1185,8 @@ describe('generateCheckpointSummaryAsync', () => {
 
     expect(result).toContain('Objective:');
     expect(result).toContain('Durable state: draft');
+    expect(result).toContain('Exact callables and formats:');
+    expect(result).toContain('Failures to avoid:');
   });
 });
 

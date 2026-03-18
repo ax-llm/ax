@@ -17,6 +17,11 @@ import {
   type AxAgentState,
   agent,
 } from './agent.js';
+import {
+  AX_AGENT_RECURSIVE_ARTIFACT_FORMAT_VERSION,
+  AX_AGENT_RECURSIVE_INSTRUCTION_SCHEMA,
+  AX_AGENT_RECURSIVE_TARGET_IDS,
+} from './agentRecursiveOptimize.js';
 import type { AxCodeRuntime } from './rlm.js';
 import { axBuildActorDefinition, axBuildResponderDefinition } from './rlm.js';
 
@@ -388,7 +393,7 @@ function makeEmailSearchDiscoveryFunctionGroups() {
 async function runDiscoveryPromptScenario(args: {
   contextPolicy:
     | {
-        preset?: 'full' | 'adaptive' | 'lean';
+        preset?: 'full' | 'adaptive' | 'lean' | 'checkpointed';
         pruneUsedDocs?: boolean;
         state?: {
           summary?: boolean;
@@ -421,9 +426,11 @@ async function runDiscoveryPromptScenario(args: {
               content: [
                 'Checkpoint Summary: Objective: keep only active discovery evidence',
                 'Durable state: none',
+                'Exact callables and formats: none',
                 'Evidence: keep the remaining docs and latest runtime state',
                 'Conclusions: continue from the current state',
                 'Actor fields: none',
+                'Failures to avoid: none',
                 'Next step: finalize the answer',
               ].join('\n'),
               finishReason: 'stop',
@@ -685,14 +692,14 @@ describe('AxAgent', () => {
     );
   });
 
-  it('should render detailed actor prompt guidance when actorOptions.promptLevel is detailed', () => {
+  it('should render detailed actor prompt guidance when top-level promptLevel is detailed', () => {
     const a = new AxAgent(
       {
         signature: 'query: string -> answer: string',
       },
       {
         ...defaultRlmFields,
-        actorOptions: { promptLevel: 'detailed' },
+        promptLevel: 'detailed',
       }
     );
 
@@ -710,14 +717,14 @@ describe('AxAgent', () => {
     );
   });
 
-  it('should render basic actor prompt guidance when actorOptions.promptLevel is basic', () => {
+  it('should render basic actor prompt guidance when top-level promptLevel is basic', () => {
     const a = new AxAgent(
       {
         signature: 'query: string -> answer: string',
       },
       {
         ...defaultRlmFields,
-        actorOptions: { promptLevel: 'basic' },
+        promptLevel: 'basic',
       }
     );
 
@@ -2569,9 +2576,11 @@ describe('Actor/Responder execution loop', () => {
                 content: [
                   'Checkpoint Summary: Objective: capture the side note',
                   'Durable state: none',
+                  'Exact callables and formats: none',
                   'Evidence: side-note observed',
                   'Conclusions: keep focus on the live runtime state',
                   'Actor fields: none',
+                  'Failures to avoid: none',
                   'Next step: finalize the answer',
                 ].join('\n'),
                 finishReason: 'stop',
@@ -2698,9 +2707,11 @@ describe('Actor/Responder execution loop', () => {
                 content: [
                   'Checkpoint Summary: Objective: compress the draft',
                   'Durable state: none',
+                  'Exact callables and formats: none',
                   'Evidence: draft observed',
                   'Conclusions: rely on the latest runtime state',
                   'Actor fields: none',
+                  'Failures to avoid: none',
                   'Next step: finish the task',
                 ].join('\n'),
                 finishReason: 'stop',
@@ -8587,6 +8598,479 @@ describe('actorOptions / responderOptions', () => {
   });
 });
 
+describe('actorModelPolicy', () => {
+  it('should escalate on prompt-facing size when checkpoint summaries are active', async () => {
+    let actorCallCount = 0;
+    const actorModels: Array<string | undefined> = [];
+    let secondActorPrompt = '';
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+        if (systemPrompt.includes('internal AxAgent checkpoint summarizer')) {
+          return {
+            results: [
+              {
+                index: 0,
+                content: [
+                  'Checkpoint Summary: Objective: compress early turns',
+                  'Durable state: hugeState',
+                  'Exact callables and formats: hugeState',
+                  'Evidence: state captured',
+                  'Conclusions: rely on live runtime state',
+                  'Actor fields: none',
+                  'Failures to avoid: none',
+                  'Next step: continue from the latest state',
+                ].join('\n'),
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCallCount += 1;
+          actorModels.push(req.model as string | undefined);
+          if (actorCallCount === 2) {
+            secondActorPrompt = userPrompt;
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: final("done")',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+
+          return {
+            results: [
+              {
+                index: 0,
+                content:
+                  'Javascript Code: const hugeState = "x".repeat(320); console.log("state captured")',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: [],
+      runtime: new AxJSRuntime(),
+      maxTurns: 2,
+      contextPolicy: {
+        preset: 'checkpointed',
+        state: {
+          summary: true,
+          maxEntries: 2,
+          maxChars: 800,
+        },
+        checkpoints: {
+          triggerChars: 1,
+        },
+        expert: {
+          recentFullActions: 0,
+        },
+      },
+      actorModelPolicy: {
+        escalatedModel: 'actor-large',
+        escalateAtPromptChars: 100_000,
+        escalateAtPromptCharsWhenCheckpointed: 200,
+      },
+    });
+
+    const result = await testAgent.forward(testMockAI, { query: 'test' });
+
+    expect(result.answer).toBe('done');
+    expect(actorModels).toEqual([undefined, 'actor-large']);
+    expect(secondActorPrompt).toContain('Checkpoint Summary:');
+    expect(secondActorPrompt).toContain('Live Runtime State:');
+  });
+
+  it('should escalate after repeated recent errors without changing responder model', async () => {
+    let actorCallCount = 0;
+    const actorModels: Array<string | undefined> = [];
+    let responderModel: string | undefined;
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code === 'BAD_1' || code === 'BAD_2') {
+              throw new Error(`runtime failure for ${code}`);
+            }
+            if (code === 'DONE' && globals?.final) {
+              (globals.final as (...args: unknown[]) => void)('done');
+              return 'done';
+            }
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCallCount += 1;
+          actorModels.push(req.model as string | undefined);
+          const actorCodeByTurn: Record<number, string> = {
+            1: 'Javascript Code: BAD_1',
+            2: 'Javascript Code: BAD_2',
+            3: 'Javascript Code: DONE',
+          };
+          return {
+            results: [
+              {
+                index: 0,
+                content:
+                  actorCodeByTurn[actorCallCount] ?? 'Javascript Code: DONE',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Answer Synthesis Agent')) {
+          responderModel = req.model as string | undefined;
+          return {
+            results: [
+              { index: 0, content: 'Answer: done', finishReason: 'stop' },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: [],
+      runtime,
+      maxTurns: 3,
+      actorModelPolicy: {
+        escalatedModel: 'actor-large',
+        escalateAtPromptChars: 100_000,
+        recentErrorWindowTurns: 4,
+        recentErrorThreshold: 2,
+      },
+      responderOptions: { model: 'responder-fixed' },
+    });
+
+    const result = await testAgent.forward(testMockAI, { query: 'test' });
+
+    expect(result.answer).toBe('done');
+    expect(actorModels).toEqual([undefined, undefined, 'actor-large']);
+    expect(responderModel).toBe('responder-fixed');
+  });
+
+  it('should escalate after repeated discovery-only turns', async () => {
+    let actorCallCount = 0;
+    const actorModels: Array<string | undefined> = [];
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCallCount += 1;
+          actorModels.push(req.model as string | undefined);
+          const actorCodeByTurn: Record<number, string> = {
+            1: 'Javascript Code: const modules = await listModuleFunctions("db"); console.log(modules)',
+            2: 'Javascript Code: const defs = await getFunctionDefinitions("db.search"); console.log(defs)',
+            3: 'Javascript Code: const modules = await listModuleFunctions("db"); console.log(modules)',
+            4: 'Javascript Code: final("done")',
+          };
+          return {
+            results: [
+              {
+                index: 0,
+                content:
+                  actorCodeByTurn[actorCallCount] ??
+                  'Javascript Code: final("done")',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: [],
+      runtime: new AxJSRuntime(),
+      maxTurns: 4,
+      functions: {
+        discovery: true,
+        local: [
+          {
+            namespace: 'db',
+            title: 'Database Tools',
+            functions: [
+              {
+                name: 'search',
+                description: 'Search database',
+                parameters: {
+                  type: 'object',
+                  properties: {
+                    query: { type: 'string' },
+                  },
+                  required: ['query'],
+                },
+                func: async () => [],
+              },
+            ],
+          },
+        ],
+      },
+      actorModelPolicy: {
+        escalatedModel: 'actor-large',
+        escalateAtPromptChars: 100_000,
+        recentErrorThreshold: 99,
+        discoveryStallTurns: 3,
+      },
+    });
+
+    const result = await testAgent.forward(testMockAI, { query: 'test' });
+
+    expect(result.answer).toBe('done');
+    expect(actorModels).toEqual([
+      undefined,
+      undefined,
+      undefined,
+      'actor-large',
+    ]);
+  });
+
+  it('should deescalate only after enough stable turns', async () => {
+    let actorCallCount = 0;
+    const actorModels: Array<string | undefined> = [];
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code === 'BAD_1') {
+              throw new Error('runtime failure for BAD_1');
+            }
+            if (code === 'DONE' && globals?.final) {
+              (globals.final as (...args: unknown[]) => void)('done');
+              return 'done';
+            }
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCallCount += 1;
+          actorModels.push(req.model as string | undefined);
+          const actorCodeByTurn: Record<number, string> = {
+            1: 'Javascript Code: BAD_1',
+            2: 'Javascript Code: console.log("recovered-1")',
+            3: 'Javascript Code: console.log("recovered-2")',
+            4: 'Javascript Code: console.log("recovered-3")',
+            5: 'Javascript Code: DONE',
+          };
+          return {
+            results: [
+              {
+                index: 0,
+                content:
+                  actorCodeByTurn[actorCallCount] ?? 'Javascript Code: DONE',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: [],
+      runtime,
+      maxTurns: 5,
+      actorModelPolicy: {
+        escalatedModel: 'actor-large',
+        escalateAtPromptChars: 100_000,
+        recentErrorWindowTurns: 1,
+        recentErrorThreshold: 1,
+        deescalateBelowPromptChars: 100_000,
+        stableTurnsBeforeDeescalate: 2,
+        minEscalatedTurns: 2,
+      },
+    });
+
+    const result = await testAgent.forward(testMockAI, { query: 'test' });
+
+    expect(result.answer).toBe('done');
+    expect(actorModels).toEqual([
+      undefined,
+      'actor-large',
+      'actor-large',
+      'actor-large',
+      undefined,
+    ]);
+  });
+
+  it('should evaluate recursive child actors independently', async () => {
+    let childActorCallCount = 0;
+    const childModels: Array<string | undefined> = [];
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code === 'ROOT_STEP') {
+              const llmQueryFn = globals?.llmQuery as (
+                query: string,
+                context?: string
+              ) => Promise<string>;
+              await llmQueryFn('child query', 'child context');
+              if (globals?.final) {
+                (globals.final as (...args: unknown[]) => void)('root done');
+              }
+              return 'root done';
+            }
+            if (code === 'CHILD_BAD') {
+              throw new Error('child failure');
+            }
+            if (code === 'CHILD_DONE' && globals?.final) {
+              (globals.final as (...args: unknown[]) => void)('child done');
+              return 'child done';
+            }
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          if (userPrompt.includes('Task: child query')) {
+            childActorCallCount += 1;
+            childModels.push(req.model as string | undefined);
+            return {
+              results: [
+                {
+                  index: 0,
+                  content:
+                    childActorCallCount === 1
+                      ? 'Javascript Code: CHILD_BAD'
+                      : 'Javascript Code: CHILD_DONE',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: ROOT_STEP',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: [],
+      runtime,
+      mode: 'advanced',
+      recursionOptions: { maxDepth: 1 },
+      maxTurns: 2,
+      actorModelPolicy: {
+        escalatedModel: 'actor-large',
+        escalateAtPromptChars: 100_000,
+        recentErrorWindowTurns: 1,
+        recentErrorThreshold: 1,
+      },
+    });
+
+    const result = await testAgent.forward(testMockAI, { query: 'test' });
+
+    expect(result.answer).toBe('done');
+    expect(childModels).toEqual([undefined, 'actor-large']);
+  });
+});
+
 describe('judgeOptions / optimize', () => {
   const optimizeRuntime = new AxJSRuntime();
 
@@ -8678,6 +9162,96 @@ describe('judgeOptions / optimize', () => {
       ...overrides,
     }) as any;
 
+  const recursiveRuntime = new AxJSRuntime();
+
+  const makeRecursiveOptimizedProgram = (
+    instructionMap: Record<string, string> = {
+      [AX_AGENT_RECURSIVE_TARGET_IDS.shared]: 'shared recursive guidance',
+      [AX_AGENT_RECURSIVE_TARGET_IDS.root]: 'root decomposition guidance',
+      [AX_AGENT_RECURSIVE_TARGET_IDS.recursive]: 'recursive branch guidance',
+      [AX_AGENT_RECURSIVE_TARGET_IDS.terminal]:
+        'terminal direct-answer guidance',
+      [AX_AGENT_RECURSIVE_TARGET_IDS.responder]: 'responder answer guidance',
+    },
+    overrides?: Partial<{
+      artifactFormatVersion: number;
+      instructionSchema: string;
+    }>
+  ) =>
+    new AxOptimizedProgramImpl({
+      bestScore: 0.95,
+      stats: makeOptimizationStats(),
+      instructionMap,
+      demos: [],
+      optimizerType: 'GEPA',
+      optimizationTime: 1,
+      totalRounds: 1,
+      converged: true,
+      artifactFormatVersion:
+        overrides?.artifactFormatVersion ??
+        AX_AGENT_RECURSIVE_ARTIFACT_FORMAT_VERSION,
+      instructionSchema:
+        overrides?.instructionSchema ?? AX_AGENT_RECURSIVE_INSTRUCTION_SCHEMA,
+    });
+
+  const makeRecursiveStudentAI = (options?: {
+    rootCode?: string;
+    childCode?: string;
+    onActorPrompt?: (prompt: string, actorCallCount: number) => void;
+  }) => {
+    let actorCallCount = 0;
+    let responderCallCount = 0;
+
+    return new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const fullPrompt = req.chatPrompt
+          .map((message) => String(message.content ?? ''))
+          .join('\n');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCallCount += 1;
+          options?.onActorPrompt?.(fullPrompt, actorCallCount);
+
+          const code =
+            actorCallCount === 1
+              ? (options?.rootCode ??
+                'const child = await llmQuery("child task"); final(`root saw ' +
+                  '${' +
+                  'child}`)')
+              : (options?.childCode ?? 'final("child detail")');
+
+          return {
+            results: [
+              {
+                index: 0,
+                content: `Javascript Code: ${code}`,
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        responderCallCount += 1;
+        return {
+          results: [
+            {
+              index: 0,
+              content:
+                responderCallCount === 1
+                  ? 'Answer: child detail'
+                  : 'Answer: root answer',
+              finishReason: 'stop',
+            },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+  };
+
   it('should pass merged judgeOptions to the built-in judge during optimize()', async () => {
     const studentAI = makeStudentAI();
     const judgeCapture: { prompt?: string; model?: string } = {};
@@ -8736,7 +9310,8 @@ describe('judgeOptions / optimize', () => {
 
     expect(compileSpy).toHaveBeenCalledOnce();
     expect(judgeCapture.model).toBe('override-judge-model');
-    expect(judgeCapture.prompt).toContain('AI system output');
+    expect(judgeCapture.prompt).toContain('Function Calls:');
+    expect(judgeCapture.prompt).toContain('Completion Type:');
     expect(
       capturedJudgeInstructions.some((instruction) =>
         instruction.includes('Override judge guidance.')
@@ -8804,6 +9379,13 @@ describe('judgeOptions / optimize', () => {
         expect(this.optimizerLogger).toBe(optimizerLogger);
         expect(this.onProgress).toBe(onProgress);
         expect(this.onEarlyStop).toBe(onEarlyStop);
+        expect(this.numTrials).toBe(4);
+        expect(this.minibatch).toBe(false);
+        expect(this.minibatchSize).toBe(2);
+        expect(this.earlyStoppingTrials).toBe(1);
+        expect(this.minImprovementThreshold).toBe(0.05);
+        expect(this.sampleCount).toBe(1);
+        expect(this.rngState).toBe(7);
         expect(compileOptions?.verbose).toBe(true);
 
         return {
@@ -8831,6 +9413,13 @@ describe('judgeOptions / optimize', () => {
       optimizerLogger,
       onProgress,
       onEarlyStop,
+      numTrials: 4,
+      minibatch: false,
+      minibatchSize: 2,
+      earlyStoppingTrials: 1,
+      minImprovementThreshold: 0.05,
+      sampleCount: 1,
+      seed: 7,
     });
 
     expect(compileSpy).toHaveBeenCalledOnce();
@@ -9353,6 +9942,202 @@ describe('judgeOptions / optimize', () => {
       .find((entry) => entry.id === 'root.actor')?.program as any;
 
     expect(actorProgram?.getInstruction?.()).toBe('optimized actor');
+  });
+
+  it('should expand recursive optimize targets for advanced agents and wrap recursive artifacts', async () => {
+    const studentAI = makeRecursiveStudentAI();
+    const seenTargets: string[][] = [];
+
+    vi.spyOn(AxGEPA.prototype, 'compile').mockImplementation(
+      async (program, _examples, _metric) => {
+        seenTargets.push(
+          (program.namedProgramInstances?.() ?? []).map((entry) => entry.id)
+        );
+
+        return {
+          demos: [],
+          stats: makeOptimizationStats(),
+          bestScore: 0.95,
+          paretoFront: [],
+          paretoFrontSize: 0,
+          finalConfiguration: {},
+          optimizedProgram: makeRecursiveOptimizedProgram(),
+        } as any;
+      }
+    );
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: studentAI,
+      contextFields: [],
+      runtime: recursiveRuntime,
+      mode: 'advanced',
+      recursionOptions: { maxDepth: 2 },
+    });
+
+    const actorOnlyResult = await testAgent.optimize([makeTask()], {
+      metric: async () => 1,
+      apply: false,
+    });
+    await testAgent.optimize([makeTask()], {
+      metric: async () => 1,
+      target: 'all',
+      apply: false,
+    });
+
+    expect(seenTargets[0]).toEqual([
+      AX_AGENT_RECURSIVE_TARGET_IDS.shared,
+      AX_AGENT_RECURSIVE_TARGET_IDS.root,
+      AX_AGENT_RECURSIVE_TARGET_IDS.recursive,
+      AX_AGENT_RECURSIVE_TARGET_IDS.terminal,
+    ]);
+    expect(seenTargets[1]).toEqual([
+      AX_AGENT_RECURSIVE_TARGET_IDS.shared,
+      AX_AGENT_RECURSIVE_TARGET_IDS.root,
+      AX_AGENT_RECURSIVE_TARGET_IDS.recursive,
+      AX_AGENT_RECURSIVE_TARGET_IDS.terminal,
+      AX_AGENT_RECURSIVE_TARGET_IDS.responder,
+    ]);
+    expect(actorOnlyResult.optimizedProgram?.instructionSchema).toBe(
+      AX_AGENT_RECURSIVE_INSTRUCTION_SCHEMA
+    );
+    expect(actorOnlyResult.optimizedProgram?.artifactFormatVersion).toBe(
+      AX_AGENT_RECURSIVE_ARTIFACT_FORMAT_VERSION
+    );
+  });
+
+  it('should attach recursive traces and use terminal-slot instructions at max depth', async () => {
+    const seenActorPrompts: string[] = [];
+    const studentAI = makeRecursiveStudentAI({
+      onActorPrompt: (prompt) => {
+        seenActorPrompts.push(prompt);
+      },
+    });
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: studentAI,
+      contextFields: [],
+      runtime: recursiveRuntime,
+      mode: 'advanced',
+      recursionOptions: { maxDepth: 1 },
+      maxTurns: 4,
+      maxSubAgentCalls: 4,
+    });
+
+    testAgent.applyOptimization(
+      makeRecursiveOptimizedProgram({
+        [AX_AGENT_RECURSIVE_TARGET_IDS.shared]: 'shared-slot-marker',
+        [AX_AGENT_RECURSIVE_TARGET_IDS.root]: 'root-slot-marker',
+        [AX_AGENT_RECURSIVE_TARGET_IDS.recursive]: 'recursive-slot-marker',
+        [AX_AGENT_RECURSIVE_TARGET_IDS.terminal]: 'terminal-slot-marker',
+        [AX_AGENT_RECURSIVE_TARGET_IDS.responder]: 'responder-slot-marker',
+      })
+    );
+
+    const prediction = await (testAgent as any)._forwardForEvaluation(
+      studentAI,
+      makeTask({
+        input: { query: 'Use one recursive subtask, then answer.' },
+        criteria: 'Delegate exactly one child task and return the result.',
+      })
+    );
+
+    expect(seenActorPrompts).toHaveLength(2);
+    expect(seenActorPrompts[0]).toContain('shared-slot-marker');
+    expect(seenActorPrompts[0]).toContain('root-slot-marker');
+    expect(seenActorPrompts[0]).not.toContain('terminal-slot-marker');
+    expect(seenActorPrompts[1]).toContain('shared-slot-marker');
+    expect(seenActorPrompts[1]).toContain('terminal-slot-marker');
+    expect(seenActorPrompts[1]).not.toContain('root-slot-marker');
+    expect(prediction.recursiveTrace?.children[0]?.role).toBe('terminal');
+    expect(prediction.recursiveStats?.rootLocalUsage.totalTokens).toBe(4);
+    expect(prediction.recursiveStats?.rootCumulativeUsage.totalTokens).toBe(8);
+    expect(prediction.recursiveSummary).toContain('recursiveCalls=1');
+  });
+
+  it('should allow advanced recursive agents to apply legacy optimized artifacts', async () => {
+    const studentAI = makeRecursiveStudentAI();
+    const testAgent = agent('query:string -> answer:string', {
+      ai: studentAI,
+      contextFields: [],
+      runtime: recursiveRuntime,
+      mode: 'advanced',
+      recursionOptions: { maxDepth: 2 },
+    });
+
+    testAgent.applyOptimization(
+      makeOptimizedProgram({
+        'root.actor': 'legacy actor instruction',
+        'root.responder': 'legacy responder instruction',
+      })
+    );
+
+    const actorProgram = testAgent
+      .namedProgramInstances()
+      .find((entry) => entry.id === 'root.actor')?.program as any;
+    const responderProgram = testAgent
+      .namedProgramInstances()
+      .find((entry) => entry.id === 'root.responder')?.program as any;
+
+    expect(actorProgram?.getInstruction?.()).toContain(
+      'legacy actor instruction'
+    );
+    expect(responderProgram?.getInstruction?.()).toBe(
+      'legacy responder instruction'
+    );
+  });
+
+  it('should fail loudly on unsupported recursive optimization schemas', () => {
+    const studentAI = makeRecursiveStudentAI();
+    const testAgent = agent('query:string -> answer:string', {
+      ai: studentAI,
+      contextFields: [],
+      runtime: recursiveRuntime,
+      mode: 'advanced',
+      recursionOptions: { maxDepth: 2 },
+    });
+
+    expect(() =>
+      testAgent.applyOptimization(
+        makeRecursiveOptimizedProgram(undefined, {
+          instructionSchema: 'ax-agent-recursive-slots-v2',
+        })
+      )
+    ).toThrow(/unsupported instruction schema/);
+
+    expect(() =>
+      testAgent.applyOptimization(
+        makeRecursiveOptimizedProgram(undefined, {
+          artifactFormatVersion: AX_AGENT_RECURSIVE_ARTIFACT_FORMAT_VERSION + 1,
+        })
+      )
+    ).toThrow(/unsupported recursive artifact format version/);
+  });
+
+  it('should capture a no-recursion evaluation trace when the root answers directly', async () => {
+    const studentAI = makeRecursiveStudentAI({
+      rootCode: 'final("direct answer")',
+    });
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: studentAI,
+      contextFields: [],
+      runtime: recursiveRuntime,
+      mode: 'advanced',
+      recursionOptions: { maxDepth: 2 },
+      maxTurns: 2,
+    });
+
+    const prediction = await (testAgent as any)._forwardForEvaluation(
+      studentAI,
+      makeTask({
+        input: { query: 'Simple question: answer directly.' },
+        criteria: 'Answer directly without recursion.',
+      })
+    );
+
+    expect(prediction.recursiveTrace?.childCount).toBe(0);
+    expect(prediction.recursiveStats?.recursiveCallCount).toBe(0);
+    expect(prediction.recursiveStats?.directAnswerCount).toBe(1);
   });
 });
 
@@ -10187,6 +10972,104 @@ describe('recursionOptions and recursive parity', () => {
     expect(childActorSystemPrompt).not.toContain('Common Anti-Patterns');
   });
 
+  it('should let recursive child agents inherit the top-level promptLevel when recursionOptions.promptLevel is omitted', async () => {
+    let childActorSystemPrompt = '';
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code === 'ROOT_STEP') {
+              const llmQueryFn = globals?.llmQuery as (
+                q: string,
+                context?: unknown
+              ) => Promise<string>;
+              const childResult = await llmQueryFn('child query', {
+                data: 'test',
+              });
+              if (globals?.final) {
+                (globals.final as (...args: unknown[]) => void)(childResult);
+              }
+              return childResult;
+            }
+
+            if (globals?.final && code.includes('final(')) {
+              (globals.final as (...args: unknown[]) => void)('child done');
+              return 'child done';
+            }
+
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          if (userPrompt.includes('Task: child query')) {
+            childActorSystemPrompt = systemPrompt;
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: final("child done")',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: ROOT_STEP',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: [],
+      runtime,
+      maxTurns: 1,
+      mode: 'advanced',
+      promptLevel: 'basic',
+      recursionOptions: {
+        maxDepth: 2,
+      },
+      contextPolicy: {
+        preset: 'full',
+      },
+    });
+
+    await testAgent.forward(testMockAI, {
+      query: 'root query',
+    });
+
+    expect(childActorSystemPrompt).toContain('Efficiency Guidance');
+    expect(childActorSystemPrompt).not.toContain('Common Anti-Patterns');
+  });
+
   it('should keep conflicting or invalid child context keys under context only', async () => {
     let childResponderPrompt = '';
 
@@ -10451,7 +11334,7 @@ describe('recursionOptions and recursive parity', () => {
     expect(rootResponderPrompt).toBe('');
   });
 
-  it('should not carry actor/responder description options into recursive child prompts', async () => {
+  it('should carry shared actor guidance but keep responder descriptions out of recursive child prompts', async () => {
     let sawActorOverrideInChild = false;
     let sawResponderOverrideInChild = false;
 
@@ -10555,7 +11438,7 @@ describe('recursionOptions and recursive parity', () => {
       query: 'root query',
     });
 
-    expect(sawActorOverrideInChild).toBe(false);
+    expect(sawActorOverrideInChild).toBe(true);
     expect(sawResponderOverrideInChild).toBe(false);
   });
 
@@ -13550,6 +14433,48 @@ describe('AxFunction', () => {
     expect(actorDesc).toContain(
       'If tool docs or error messages specify an exact literal, type, or query format'
     );
+  });
+
+  it('should allow discovery metadata and function descriptions to be omitted', async () => {
+    const myAgent = agent('query:string -> answer:string', {
+      contextFields: [],
+      runtime,
+      functions: {
+        discovery: true,
+        local: [
+          {
+            namespace: 'db',
+            title: 'Database Tools',
+            functions: [
+              {
+                name: 'searchDB',
+                parameters: {
+                  type: 'object',
+                  properties: {
+                    query: { type: 'string', description: 'Search query' },
+                  },
+                  required: ['query'],
+                },
+                func: async () => [],
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const globals = (myAgent as any).buildRuntimeGlobals();
+    const modulesMarkdown = await globals.listModuleFunctions('db');
+    const definitionsMarkdown =
+      await globals.getFunctionDefinitions('db.searchDB');
+
+    expect(modulesMarkdown).toContain('### Module `db`');
+    expect(modulesMarkdown).toContain('**Database Tools**');
+    expect(modulesMarkdown).toContain('- `searchDB`');
+    expect(modulesMarkdown).not.toContain('undefined');
+    expect(definitionsMarkdown).toContain('### `db.searchDB`');
+    expect(definitionsMarkdown).not.toContain('undefined');
   });
 
   it('should keep flat legacy discovery modules without selection criteria', () => {

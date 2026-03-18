@@ -60,6 +60,21 @@ What to look for:
 - The saved state contains runtime bindings and prior action-log history.
 - The resumed call succeeds after `setState(savedState)` and reuses values created before the clarification.
 
+## Recursive GEPA Agent Example
+
+A runnable advanced-mode `AxAgent` example that optimizes recursive `llmQuery(...)` behavior with GEPA, saves the resulting recursive-slot artifact, reloads it, and applies it on a fresh agent instance.
+
+**Quick Start:**
+```bash
+cd src/ax
+npm run tsx src/examples/rlm-agent-recursive-optimize.ts
+```
+
+What to look for:
+- Direct tasks are part of the eval set, so the optimizer can learn when not to recurse.
+- The saved artifact contains recursive slot IDs such as `root.actor.shared` and `root.actor.terminal`.
+- Recursive-slot artifacts are forward-only across versions. Older Ax builds will not understand these slot IDs.
+
 ### Quick Start
 
 1. **Automated Setup** (Recommended):

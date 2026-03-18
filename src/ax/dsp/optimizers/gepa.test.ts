@@ -336,5 +336,88 @@ describe('AxGEPA Optimizer', () => {
         'root.rationale': 'better-rationale',
       });
     });
+
+    it('passes componentId to feedback functions during target reflection', async () => {
+      const seenComponentIds: string[] = [];
+      const optimizer = new AxGEPA({
+        studentAI: {} as AxAIService,
+        teacherAI: {} as AxAIService,
+        numTrials: 0,
+      });
+      const program = createSingleRootProgram(
+        'task',
+        async (_instruction, ex) => ({
+          answer: ex.answer ?? 'answer',
+        })
+      );
+
+      await (optimizer as any).reflectTargetInstruction(
+        'root.actor.root',
+        'current instruction',
+        program,
+        () => {},
+        { 'root.actor.root': 'current instruction' },
+        [{ question: 'q1', answer: 'a1' }],
+        async () => 0.5,
+        {
+          feedbackFn: ({ componentId }: { componentId?: string }) => {
+            if (componentId) {
+              seenComponentIds.push(componentId);
+            }
+            return 'Prefer direct answers when recursion is unnecessary.';
+          },
+        }
+      );
+
+      expect(seenComponentIds).toEqual(['root.actor.root']);
+    });
+
+    it('renders nested trace values as JSON in reflective datasets', async () => {
+      let capturedPrompt = '';
+      const reflectionAI = {
+        chat: async (request: { chatPrompt: { content?: unknown }[] }) => {
+          capturedPrompt = String(request.chatPrompt[0]?.content ?? '');
+          return {
+            results: [
+              {
+                index: 0,
+                content: '```improved instruction```',
+                finishReason: 'stop',
+              },
+            ],
+          };
+        },
+      } as AxAIService;
+
+      const optimizer = new AxGEPA({
+        studentAI: reflectionAI,
+        teacherAI: reflectionAI,
+        numTrials: 0,
+      });
+      const program = createSingleRootProgram('task', async () => ({
+        answer: 'ok',
+        recursiveTrace: {
+          root: {
+            children: [{ taskDigest: 'branch-a' }],
+          },
+        },
+      }));
+
+      await (optimizer as any).reflectInstruction(
+        'current instruction',
+        program,
+        [{ question: 'q1', extra: { nested: ['value'] } }],
+        async () => 0.25,
+        {
+          feedbackFn: ({ componentId }: { componentId?: string }) =>
+            componentId ? `component=${componentId}` : undefined,
+        }
+      );
+
+      expect(capturedPrompt).toContain('"taskDigest": "branch-a"');
+      expect(capturedPrompt).toContain('"nested": [');
+      expect(capturedPrompt).toContain('component=root');
+      expect(capturedPrompt).not.toContain('[object Object]');
+    });
   });
 });

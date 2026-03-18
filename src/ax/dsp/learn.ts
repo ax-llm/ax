@@ -21,8 +21,8 @@ import type {
   AxOptimizationProgress,
   AxTypedExample,
 } from './common_types.js';
-import type { AxGen } from './generate.js';
-import { AxJudge, type AxJudgeOptions } from './judge.js';
+import { AxGen } from './generate.js';
+import type { AxJudgeOptions } from './judgeTypes.js';
 import { AxACE } from './optimizers/ace.js';
 import { renderPlaybook } from './optimizers/acePlaybook.js';
 import type {
@@ -44,6 +44,237 @@ import type {
   AxProgramUsage,
   AxUsable,
 } from './types.js';
+
+type AxReferenceFreeJudgeInput = {
+  task_input: string;
+  task_description?: string;
+  criteria?: string;
+  system_output: string;
+};
+
+type AxReferenceFreeJudgeOutput = {
+  reasoning: string;
+  quality: string;
+};
+
+type AxCompareJudgeInput = {
+  task_input: string;
+  task_description?: string;
+  criteria?: string;
+  system_output_a: string;
+  system_output_b: string;
+};
+
+type AxCompareJudgeOutput = {
+  reasoning: string;
+  winner: string;
+};
+
+const qualityToScore: Record<string, number> = {
+  excellent: 1,
+  good: 0.8,
+  acceptable: 0.5,
+  poor: 0.2,
+  unacceptable: 0,
+};
+
+function buildJudgeForwardOptions(
+  options: Readonly<AxJudgeOptions>
+): AxProgramForwardOptions<string> {
+  const {
+    ai: _ai,
+    criteria: _criteria,
+    description: _description,
+    randomizeOrder: _randomizeOrder,
+    ...forwardOptions
+  } = options;
+
+  return {
+    ...forwardOptions,
+    maxSteps: 1,
+  };
+}
+
+function canUseAbsoluteComparison(expected: unknown): boolean {
+  if (expected === null || expected === undefined) return false;
+
+  if (
+    typeof expected === 'string' ||
+    typeof expected === 'number' ||
+    typeof expected === 'boolean'
+  ) {
+    return true;
+  }
+
+  if (Array.isArray(expected) && expected.every((v) => typeof v !== 'object')) {
+    return true;
+  }
+
+  if (typeof expected === 'object') {
+    const values = Object.values(expected as Record<string, unknown>);
+    return (
+      values.length > 0 &&
+      values.every((value) => {
+        if (value === null || value === undefined) {
+          return false;
+        }
+        if (
+          typeof value === 'string' ||
+          typeof value === 'number' ||
+          typeof value === 'boolean'
+        ) {
+          return true;
+        }
+        if (Array.isArray(value)) {
+          return value.every((item) => typeof item !== 'object');
+        }
+
+        return false;
+      })
+    );
+  }
+
+  return false;
+}
+
+function isEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== typeof b) return false;
+
+  if (typeof a === 'object' && a !== null && b !== null) {
+    return JSON.stringify(a) === JSON.stringify(b);
+  }
+
+  return false;
+}
+
+function scoreAbsolutePrediction<OUT extends AxGenOut>(
+  signature: Readonly<AxSignature<any, OUT>>,
+  prediction: OUT,
+  expected: OUT
+): number {
+  const outputFields = signature.getOutputFields();
+  let matchCount = 0;
+  let totalFields = 0;
+
+  for (const field of outputFields) {
+    const actualValue = (prediction as Record<string, unknown>)[field.name];
+    const expectedValue = (expected as Record<string, unknown>)[field.name];
+
+    if (expectedValue !== undefined) {
+      totalFields += 1;
+      if (isEqual(actualValue, expectedValue)) {
+        matchCount += 1;
+      }
+    }
+  }
+
+  return totalFields > 0 ? matchCount / totalFields : 0;
+}
+
+function createAutoJudgeMetric<IN extends AxGenIn, OUT extends AxGenOut>(
+  signature: Readonly<AxSignature<IN, OUT>>,
+  options: Readonly<AxJudgeOptions>
+): AxMetricFn {
+  const referenceFreeGen = new AxGen<
+    AxReferenceFreeJudgeInput,
+    AxReferenceFreeJudgeOutput
+  >(`
+    task_input:string "The original task input encoded as JSON",
+    task_description?:string "Optional task description from the program signature",
+    criteria?:string "Optional evaluation guidance",
+    system_output:string "The candidate system output encoded as JSON"
+    ->
+    reasoning:string "Short explanation of the quality assessment",
+    quality:class "excellent, good, acceptable, poor, unacceptable" "Overall quality tier"
+  `);
+
+  const compareGen = new AxGen<AxCompareJudgeInput, AxCompareJudgeOutput>(`
+    task_input:string "The original task input encoded as JSON",
+    task_description?:string "Optional task description from the program signature",
+    criteria?:string "Optional evaluation guidance",
+    system_output_a:string "Candidate output A encoded as JSON",
+    system_output_b:string "Candidate output B encoded as JSON"
+    ->
+    reasoning:string "Short explanation of which output is better",
+    winner:class "A, B, Tie" "Which output is better overall"
+  `);
+
+  const extraGuidance = options.description?.trim();
+  if (extraGuidance) {
+    referenceFreeGen.setInstruction(extraGuidance);
+    compareGen.setInstruction(extraGuidance);
+  }
+
+  const forwardOptions = buildJudgeForwardOptions(options);
+  const taskDescription = signature.getDescription();
+
+  return async ({ example, prediction }) => {
+    const input = {} as IN;
+    for (const field of signature.getInputFields()) {
+      if (field.name in example) {
+        (input as AxGenIn)[field.name] = example[field.name];
+      }
+    }
+
+    const expected = {} as OUT;
+    let hasExpected = false;
+    for (const field of signature.getOutputFields()) {
+      if (field.name in example) {
+        (expected as AxGenOut)[field.name] = example[field.name];
+        hasExpected = true;
+      }
+    }
+
+    const actual = prediction as unknown as OUT;
+
+    if (hasExpected && canUseAbsoluteComparison(expected)) {
+      return scoreAbsolutePrediction(signature, actual, expected);
+    }
+
+    if (hasExpected) {
+      const shouldRandomizeOrder = options.randomizeOrder ?? true;
+      const studentIsA = shouldRandomizeOrder ? Math.random() > 0.5 : true;
+      const result = await compareGen.forward(
+        options.ai,
+        {
+          task_input: JSON.stringify(input),
+          task_description: taskDescription,
+          criteria: options.criteria,
+          system_output_a: JSON.stringify(studentIsA ? actual : expected),
+          system_output_b: JSON.stringify(studentIsA ? expected : actual),
+        },
+        forwardOptions
+      );
+
+      const winner = result.winner.toUpperCase();
+      if (winner === 'TIE') {
+        return 0.5;
+      }
+      if (winner === 'A') {
+        return studentIsA ? 1 : 0;
+      }
+      if (winner === 'B') {
+        return studentIsA ? 0 : 1;
+      }
+
+      return 0.5;
+    }
+
+    const result = await referenceFreeGen.forward(
+      options.ai,
+      {
+        task_input: JSON.stringify(input),
+        task_description: taskDescription,
+        criteria: options.criteria,
+        system_output: JSON.stringify(actual),
+      },
+      forwardOptions
+    );
+
+    return qualityToScore[result.quality.toLowerCase()] ?? 0.5;
+  };
+}
 
 const DEFAULT_MODE: AxLearnCheckpointMode = 'batch';
 const DEFAULT_CONTINUOUS_OPTIONS = {
@@ -94,7 +325,7 @@ export interface AxLearnOptions {
   /** Maximum optimization rounds (default: 20) */
   budget?: number;
 
-  /** Custom metric function (if not provided, auto-generates using AxJudge) */
+  /** Custom metric function (if not provided, auto-generates using typed AxGen evaluation) */
   metric?: AxMetricFn;
 
   /** Judge options when auto-generating metric */
@@ -623,8 +854,7 @@ export class AxLearn<IN extends AxGenIn, OUT extends AxGenOut>
       ...config.judgeOptions,
     };
 
-    const judge = new AxJudge(this.gen.getSignature(), judgeOptions);
-    return judge.toMetricFn();
+    return createAutoJudgeMetric(this.gen.getSignature(), judgeOptions);
   }
 
   private async runPromptOptimization(

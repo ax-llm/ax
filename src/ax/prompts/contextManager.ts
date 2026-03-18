@@ -82,7 +82,7 @@ export type ContextManagementEffectiveConfig = {
   pruneRank: number;
   rankPruneGraceTurns: number;
   pruneUsedDocs: boolean;
-  actionReplay: 'full' | 'adaptive' | 'minimal';
+  actionReplay: 'full' | 'adaptive' | 'minimal' | 'checkpointed';
   recentFullActions: number;
   stateSummary: { enabled: boolean; maxEntries?: number; maxChars?: number };
   stateInspection: { enabled: boolean; contextThreshold?: number };
@@ -94,7 +94,7 @@ export type ContextManagementEffectiveConfig = {
 };
 
 export type ActionLogBuildPolicy = {
-  actionReplay?: 'full' | 'adaptive' | 'minimal';
+  actionReplay?: 'full' | 'adaptive' | 'minimal' | 'checkpointed';
   recentFullActions?: number;
   pruneUsedDocs?: boolean;
   restoreNotice?: string;
@@ -598,6 +598,10 @@ function assignReplayModes(
 ): void {
   const actionReplay = policy.actionReplay ?? 'full';
   const recentFullActions = Math.max(policy.recentFullActions ?? 1, 0);
+  const checkpointReplayActive =
+    actionReplay === 'checkpointed' &&
+    ((policy.checkpointTurns?.length ?? 0) > 0 ||
+      Boolean(policy.checkpointSummary));
 
   for (const entry of entries) {
     ensureEntryMetadata(entry);
@@ -613,6 +617,11 @@ function assignReplayModes(
     }
 
     if (actionReplay === 'full') {
+      entry.replayMode = 'full';
+      return;
+    }
+
+    if (actionReplay === 'checkpointed' && !checkpointReplayActive) {
       entry.replayMode = 'full';
       return;
     }
@@ -775,15 +784,20 @@ const CHECKPOINT_SUMMARIZER_DESCRIPTION = `You are an internal AxAgent checkpoin
 Write the output field \`checkpointSummary\` as plain text with exactly these labels in this order:
 Objective:
 Durable state:
+Exact callables and formats:
 Evidence:
 Conclusions:
 Actor fields:
+Failures to avoid:
 Next step:
 
 Rules:
 - Keep only information needed to continue the task.
-- Preserve exact function names, module names, ids, field names, literals, and query formats when they matter.
-- Keep enough evidence to avoid repeating invalid callable names, invalid query formats, or wrong assumptions.
+- Distinguish confirmed execution facts from inferred conclusions.
+- Preserve exact qualified function names, module names, ids, field names, enum literals, date/time strings, literals, and query formats when they matter.
+- Put those exact details under \`Exact callables and formats:\` when possible.
+- Keep enough evidence to avoid repeating invalid callable names, invalid query formats, rejected literals, or wrong assumptions.
+- Use \`Failures to avoid:\` for exact retry hazards. Use \`none\` if there are no important failure patterns in the provided turns.
 - Do not restate raw code or quote large outputs.
 - Use "none" when a section has nothing worth preserving.
 - Be concise and factual, but prefer slightly more detail over losing task-critical specifics.`;
@@ -888,18 +902,26 @@ function serializeCheckpointEntries(
   return entries
     .map((entry) => {
       ensureEntryMetadata(entry);
+      ensureDiscoveryMetadata(entry as ActionLogEntry);
       const actorFields = entry.actorFieldsOutput
         .replace(/^Actor fields:\s*/i, '')
         .trim();
+      const directCallables =
+        (entry._directQualifiedCalls ?? []).join(', ') || 'none';
+      const failureCues = entry.tags.includes('error')
+        ? truncateInline(entry.output || '(no output)', 200)
+        : 'none';
 
       return [
         `Turn: ${entry.turn}`,
         `Step kind: ${entry.stepKind ?? 'explore'}`,
         `Referenced inputs: ${(entry.referencedVars ?? []).join(', ') || 'none'}`,
         `Durable values written: ${(entry.producedVars ?? []).join(', ') || 'none'}`,
+        `Direct callables: ${directCallables}`,
         `State delta: ${entry.stateDelta ?? 'none'}`,
         `Observed result: ${truncateInline(entry.output || '(no output)', 360)}`,
         `Actor fields: ${actorFields || 'none'}`,
+        `Failure cues: ${failureCues}`,
         `Code excerpt: ${truncateInline(entry.code || '(no code)', 360)}`,
       ].join('\n');
     })
@@ -911,15 +933,30 @@ function buildFallbackCheckpointSummary(
 ): string {
   const objectives = new Set<string>();
   const durableValues = new Set<string>();
+  const exactCallablesAndFormats: string[] = [];
   const evidence: string[] = [];
   const actorFields: string[] = [];
+  const failuresToAvoid: string[] = [];
   let nextStep = 'Continue from the latest live runtime state.';
 
   for (const entry of entries) {
     ensureEntryMetadata(entry);
+    ensureDiscoveryMetadata(entry as ActionLogEntry);
     objectives.add(entry.stepKind ?? 'explore');
     for (const value of entry.producedVars ?? []) {
       durableValues.add(value);
+    }
+    const directCallables = entry._directQualifiedCalls ?? [];
+    if (directCallables.length > 0) {
+      exactCallablesAndFormats.push(
+        `Turn ${entry.turn}: ${directCallables.join(', ')} via ${truncateInline(entry.code || '(no code)', 140)}`
+      );
+    } else if (
+      /\b(listModuleFunctions|getFunctionDefinitions)\s*\(/.test(entry.code)
+    ) {
+      exactCallablesAndFormats.push(
+        `Turn ${entry.turn}: ${truncateInline(entry.code || '(no code)', 140)}`
+      );
     }
     const observation = truncateInline(entry.output || '(no output)', 200);
     evidence.push(`Turn ${entry.turn}: ${observation}`);
@@ -928,6 +965,11 @@ function buildFallbackCheckpointSummary(
       .trim();
     if (trimmedActorFields) {
       actorFields.push(`Turn ${entry.turn}: ${trimmedActorFields}`);
+    }
+    if (entry.tags.includes('error')) {
+      failuresToAvoid.push(
+        `Turn ${entry.turn}: ${truncateInline(entry.output || '(no output)', 160)}`
+      );
     }
     nextStep =
       entry.stepKind === 'finalize'
@@ -938,9 +980,11 @@ function buildFallbackCheckpointSummary(
   return [
     `Objective: ${[...objectives].join(', ') || 'none'}`,
     `Durable state: ${[...durableValues].join(', ') || 'none'}`,
+    `Exact callables and formats: ${exactCallablesAndFormats.join(' | ') || 'none'}`,
     `Evidence: ${evidence.join(' | ') || 'none'}`,
-    `Conclusions: Preserve the durable state and evidence above.`,
+    `Conclusions: Preserve the durable state, exact callable usage, and evidence above. Confirmed execution facts should override inference.`,
     `Actor fields: ${actorFields.join(' | ') || 'none'}`,
+    `Failures to avoid: ${failuresToAvoid.join(' | ') || 'none'}`,
     `Next step: ${nextStep}`,
   ].join('\n');
 }

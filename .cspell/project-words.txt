@@ -205,3 +205,4 @@ rollouts
 Inspectable
 Snapshotable
 snapshotable
+Renderable

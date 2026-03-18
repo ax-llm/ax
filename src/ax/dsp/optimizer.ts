@@ -834,6 +834,8 @@ export interface AxOptimizedProgram<OUT = any> {
   // Historical data for analysis
   scoreHistory?: number[];
   configurationHistory?: Record<string, unknown>[];
+  artifactFormatVersion?: number;
+  instructionSchema?: string;
 
   // Apply this optimization to a program
   applyTo<IN, T extends AxGenOut>(program: AxGen<IN, T>): void;
@@ -865,6 +867,8 @@ export class AxOptimizedProgramImpl<OUT = any>
   public readonly converged: boolean;
   public readonly scoreHistory?: number[];
   public readonly configurationHistory?: Record<string, unknown>[];
+  public readonly artifactFormatVersion?: number;
+  public readonly instructionSchema?: string;
 
   constructor(config: {
     bestScore: number;
@@ -880,6 +884,8 @@ export class AxOptimizedProgramImpl<OUT = any>
     converged: boolean;
     scoreHistory?: number[];
     configurationHistory?: Record<string, unknown>[];
+    artifactFormatVersion?: number;
+    instructionSchema?: string;
   }) {
     this.bestScore = config.bestScore;
     this.stats = config.stats;
@@ -894,6 +900,8 @@ export class AxOptimizedProgramImpl<OUT = any>
     this.converged = config.converged;
     this.scoreHistory = config.scoreHistory;
     this.configurationHistory = config.configurationHistory;
+    this.artifactFormatVersion = config.artifactFormatVersion;
+    this.instructionSchema = config.instructionSchema;
   }
 
   public applyTo<IN, T extends AxGenOut>(program: AxGen<IN, T>): void {

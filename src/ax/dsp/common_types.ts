@@ -179,7 +179,11 @@ export interface AxCompileOptions {
   validationExamples?: readonly AxTypedExample<any>[];
   feedbackExamples?: readonly AxTypedExample<any>[];
   feedbackFn?: (
-    args: Readonly<{ prediction: unknown; example: AxExample }>
+    args: Readonly<{
+      prediction: unknown;
+      example: AxExample;
+      componentId?: string;
+    }>
   ) => string | string[] | undefined;
   skipPerfectScore?: boolean;
   perfectScore?: number;

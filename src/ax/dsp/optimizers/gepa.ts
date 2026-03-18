@@ -141,6 +141,27 @@ function zeroScoreVector(
   return Object.fromEntries([...knownKeys].map((key) => [key, 0]));
 }
 
+function renderReflectiveValue(value: unknown, maxChars = 800): string {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed.length <= maxChars
+      ? trimmed
+      : `${trimmed.slice(0, Math.max(0, maxChars - 3))}...`;
+  }
+
+  try {
+    const rendered = JSON.stringify(value, null, 2).trim();
+    return rendered.length <= maxChars
+      ? rendered
+      : `${rendered.slice(0, Math.max(0, maxChars - 3))}...`;
+  } catch {
+    const fallback = String(value).trim();
+    return fallback.length <= maxChars
+      ? fallback
+      : `${fallback.slice(0, Math.max(0, maxChars - 3))}...`;
+  }
+}
+
 /** Single-module GEPA (reflective prompt evolution with Pareto sampling) */
 export class AxGEPA extends AxBaseOptimizer {
   // Core knobs
@@ -1257,7 +1278,11 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
     const external: string[] = [...feedbackNotes];
     const feedbackFn = (options as any)?.feedbackFn as
       | ((
-          arg: Readonly<{ prediction: any; example: AxExample }>
+          arg: Readonly<{
+            prediction: any;
+            example: AxExample;
+            componentId?: string;
+          }>
         ) => string | string[] | undefined)
       | undefined;
     if (typeof feedbackFn === 'function') {
@@ -1265,6 +1290,7 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
         const fb = feedbackFn({
           prediction: tuple.prediction,
           example: tuple.input,
+          componentId: targetId,
         });
         if (fb) Array.isArray(fb) ? external.push(...fb) : external.push(fb);
       }
@@ -1351,11 +1377,19 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
 
     const aiToUse: AxAIService =
       (options as any)?.overrideTeacherAI ?? this.teacherAI ?? this.studentAI;
+    const componentId =
+      typeof (program as any)?.getId === 'function'
+        ? ((program as any).getId() as string | undefined)
+        : undefined;
 
     // Optional: external feedback function
     const feedbackFn:
       | ((
-          arg: Readonly<{ prediction: any; example: AxExample }>
+          arg: Readonly<{
+            prediction: any;
+            example: AxExample;
+            componentId?: string;
+          }>
         ) => string | string[] | undefined)
       | undefined = (options as any)?.feedbackFn;
     const feedbackNotes = (
@@ -1371,18 +1405,18 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
         exampleStr += `## Inputs\n`;
         if (typeof t.input === 'object' && t.input !== null) {
           for (const [k, v] of Object.entries(t.input)) {
-            exampleStr += `### ${k}\n${String(v).trim()}\n\n`;
+            exampleStr += `### ${k}\n${renderReflectiveValue(v)}\n\n`;
           }
         } else {
-          exampleStr += `${String(t.input).trim()}\n\n`;
+          exampleStr += `${renderReflectiveValue(t.input)}\n\n`;
         }
         exampleStr += `## Generated Outputs\n`;
         if (typeof t.prediction === 'object' && t.prediction !== null) {
           for (const [k, v] of Object.entries(t.prediction)) {
-            exampleStr += `### ${k}\n${String(v).trim()}\n\n`;
+            exampleStr += `### ${k}\n${renderReflectiveValue(v)}\n\n`;
           }
         } else {
-          exampleStr += `${String(t.prediction).trim()}\n\n`;
+          exampleStr += `${renderReflectiveValue(t.prediction)}\n\n`;
         }
         exampleStr += `## Feedback\n`;
         // Get feedback from feedbackFn if available
@@ -1392,6 +1426,7 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
             const customFb = feedbackFn({
               prediction: t.prediction,
               example: t.input,
+              componentId,
             });
             if (customFb) {
               fb = Array.isArray(customFb) ? customFb.join('\n') : customFb;

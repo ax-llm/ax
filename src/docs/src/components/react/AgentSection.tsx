@@ -594,6 +594,15 @@ export default function AgentSection() {
             className="inline-flex items-center gap-2 text-sm font-medium text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 transition-colors"
           >
             Read the AxAgent Guide
+          </a>
+          <span className="mx-3 text-slate-300 dark:text-slate-600">|</span>
+          <a
+            href="https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-agent-optimize.md"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 text-sm font-medium text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 transition-colors"
+          >
+            Read the AxAgent Optimize Guide
             <svg
               className="w-4 h-4"
               fill="none"

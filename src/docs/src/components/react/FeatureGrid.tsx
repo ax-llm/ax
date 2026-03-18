@@ -66,6 +66,18 @@ const features: Feature[] = [
     external: true,
   },
   {
+    name: 'AxAgent Optimize',
+    description:
+      'Tune agents with judges, eval datasets, and reusable optimized artifacts.',
+    icon: Bot,
+    glowColor: 'rgba(16, 185, 129, 0.1)',
+    iconBg: 'bg-emerald-50 dark:bg-emerald-500/10',
+    iconColor: 'text-emerald-700 dark:text-emerald-300',
+    span: 'md:col-span-2',
+    href: `${GITHUB_SKILL}/ax-agent-optimize.md`,
+    external: true,
+  },
+  {
     name: 'AxFlow',
     description:
       'Pipeline orchestration with auto-parallelism and DAG execution.',

@@ -24,11 +24,27 @@ Use this skill to generate direct `AxGEPA` optimization code. Prefer short, mode
 - `AxGEPA.compile()` works for a single generator and for tree-aware roots such as flows or agents with registered instruction-bearing descendants.
 - There is no separate flow-only GEPA optimizer. Use `AxGEPA` for flows too.
 - The metric may return either `number` or `Record<string, number>`.
-- Keep metrics deterministic and cheap. Avoid extra LLM calls inside the metric unless the user explicitly wants judge-based evaluation.
+- Keep metrics deterministic and cheap by default.
+- Avoid extra LLM calls inside the metric unless the user explicitly wants judge-based evaluation.
+- If the user needs LLM-as-judge scoring for a non-agent GEPA run, prefer a plain typed `AxGen` evaluator instead of writing a custom judge abstraction.
 - `maxMetricCalls` must be large enough to cover the initial validation pass over `validationExamples`.
 - GEPA optimizes instructions. If a tree has no instruction-bearing nodes, optimization will fail.
 - Use held-out validation examples for selection. Do not reuse the training set as `validationExamples`.
 - `result.optimizedProgram` is the easy-to-apply best candidate. `result.paretoFront` is the full trade-off set for multi-objective runs.
+
+## Metric Selection
+
+Choose the evaluation path deliberately:
+
+- Prefer a deterministic metric when correctness can be read directly from `prediction` and `example`.
+- Prefer a deterministic metric when cost, latency, recursion depth, or tool count matters.
+- Use a plain typed `AxGen` evaluator only when the task is genuinely qualitative and hard to score exactly.
+- For `agent.optimize(...)`, prefer the built-in judge path instead of manually wrapping a judge metric.
+
+Rule of thumb:
+
+- `AxGEPA` on `AxGen` or flow: use a metric first, optionally a plain typed `AxGen` evaluator if needed.
+- `agent.optimize(...)`: use custom `metric` for crisp scoring, otherwise `judgeAI` plus `judgeOptions`.
 
 ## Canonical Scalar Pattern
 

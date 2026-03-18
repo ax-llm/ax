@@ -9,12 +9,17 @@ import type {
   AxMetricFn,
   AxOptimizationProgress,
   AxOptimizationStats,
+  AxOptimizerArgs,
   AxTypedExample,
 } from '../dsp/common_types.js';
 import { AxGen } from '../dsp/generate.js';
-import { AxJudge, type AxJudgeOptions } from '../dsp/judge.js';
+import type { AxJudgeOptions } from '../dsp/judgeTypes.js';
 import { AxGEPA } from '../dsp/optimizers/gepa.js';
-import type { AxParetoResult } from '../dsp/optimizer.js';
+import {
+  AxOptimizedProgramImpl,
+  type AxOptimizedProgram,
+  type AxParetoResult,
+} from '../dsp/optimizer.js';
 import type { AxOptimizerLoggerFunction } from '../dsp/optimizerTypes.js';
 import type { AxIField, AxSignatureConfig } from '../dsp/sig.js';
 import { AxSignature, f } from '../dsp/sig.js';
@@ -44,6 +49,7 @@ import {
   AxAIServiceStatusError,
   AxAIServiceTimeoutError,
 } from '../util/apicall.js';
+import { stripJsStringsAndComments } from '../util/jsAnalysis.js';
 import type { ActionLogEntry } from './contextManager.js';
 import {
   buildActionEvidenceSummary,
@@ -68,6 +74,27 @@ import type {
   AxRLMConfig,
 } from './rlm.js';
 import { axBuildActorDefinition, axBuildResponderDefinition } from './rlm.js';
+import {
+  AX_AGENT_RECURSIVE_ARTIFACT_FORMAT_VERSION,
+  AX_AGENT_RECURSIVE_INSTRUCTION_SCHEMA,
+  AX_AGENT_RECURSIVE_TARGET_IDS,
+  addRecursiveUsage,
+  buildRecursiveActorInstruction,
+  buildRecursiveFeedback,
+  buildRecursiveValueDigest,
+  createRecursiveSlotSeedInstructions,
+  deriveRecursiveStats,
+  diffRecursiveUsage,
+  projectRecursiveTraceForEval,
+  renderRecursiveSummary,
+  usageFromProgramUsages,
+  type AxAgentRecursiveNodeRole,
+  type AxAgentRecursiveStats,
+  type AxAgentRecursiveTargetId,
+  type AxAgentRecursiveTraceNode,
+  type AxAgentRecursiveTurn,
+  type AxAgentRecursiveUsage,
+} from './agentRecursiveOptimize.js';
 
 /**
  * Interface for agents that can be used as child agents.
@@ -95,8 +122,8 @@ type AxAgentIdentity = {
 type AxAgentFunctionModuleMeta = {
   namespace: string;
   title: string;
-  selectionCriteria: string;
-  description: string;
+  selectionCriteria?: string;
+  description?: string;
 };
 
 export type AxAgentFunctionExample = {
@@ -106,7 +133,8 @@ export type AxAgentFunctionExample = {
   language?: string;
 };
 
-export type AxAgentFunction = AxFunction & {
+export type AxAgentFunction = Omit<AxFunction, 'description'> & {
+  description?: string;
   examples?: readonly AxAgentFunctionExample[];
 };
 
@@ -165,6 +193,25 @@ export type AxAgentStateCheckpointState = CheckpointSummaryState;
 
 export type AxAgentStateRuntimeEntry = AxCodeSessionSnapshotEntry;
 
+export type AxActorModelPolicy = {
+  escalatedModel: string;
+  baseModel?: string;
+  escalateAtPromptChars?: number;
+  escalateAtPromptCharsWhenCheckpointed?: number;
+  recentErrorWindowTurns?: number;
+  recentErrorThreshold?: number;
+  discoveryStallTurns?: number;
+  deescalateBelowPromptChars?: number;
+  stableTurnsBeforeDeescalate?: number;
+  minEscalatedTurns?: number;
+};
+
+export type AxAgentStateActorModelState = {
+  escalated: boolean;
+  escalatedTurns: number;
+  stableBelowThresholdTurns: number;
+};
+
 export type AxAgentState = {
   version: 1;
   runtimeBindings: Record<string, unknown>;
@@ -172,6 +219,7 @@ export type AxAgentState = {
   actionLogEntries: AxAgentStateActionLogEntry[];
   checkpointState?: AxAgentStateCheckpointState;
   provenance: Record<string, RuntimeStateVariableProvenance>;
+  actorModelState?: AxAgentStateActorModelState;
 };
 
 export class AxAgentClarificationError extends Error {
@@ -295,27 +343,28 @@ export type AxAgentEvalFunctionCall = {
   error?: string;
 };
 
+type AxAgentEvalPredictionShared = {
+  actionLog: string;
+  functionCalls: AxAgentEvalFunctionCall[];
+  toolErrors: string[];
+  turnCount: number;
+  usage?: AxProgramUsage[];
+  recursiveTrace?: AxAgentRecursiveTraceNode;
+  recursiveStats?: AxAgentRecursiveStats;
+  recursiveSummary?: string;
+};
+
 export type AxAgentEvalPrediction<OUT = any> =
-  | {
+  | (AxAgentEvalPredictionShared & {
       completionType: 'final';
       output: OUT;
       clarification?: undefined;
-      actionLog: string;
-      functionCalls: AxAgentEvalFunctionCall[];
-      toolErrors: string[];
-      turnCount: number;
-      usage?: AxProgramUsage[];
-    }
-  | {
+    })
+  | (AxAgentEvalPredictionShared & {
       completionType: 'ask_clarification';
       output?: undefined;
       clarification: AxAgentStructuredClarification;
-      actionLog: string;
-      functionCalls: AxAgentEvalFunctionCall[];
-      toolErrors: string[];
-      turnCount: number;
-      usage?: AxProgramUsage[];
-    };
+    });
 
 export type AxAgentEvalTask<IN = any> = {
   input: IN;
@@ -352,7 +401,16 @@ export type AxAgentOptimizeOptions<
   optimizerLogger?: AxOptimizerLoggerFunction;
   onProgress?: (progress: Readonly<AxOptimizationProgress>) => void;
   onEarlyStop?: (reason: string, stats: Readonly<AxOptimizationStats>) => void;
-};
+} & Pick<
+  AxOptimizerArgs,
+  | 'numTrials'
+  | 'minibatch'
+  | 'minibatchSize'
+  | 'earlyStoppingTrials'
+  | 'minImprovementThreshold'
+  | 'sampleCount'
+  | 'seed'
+>;
 
 export type AxAgentOptimizeResult<OUT extends AxGenOut = AxGenOut> =
   AxParetoResult<OUT>;
@@ -437,13 +495,16 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
   inputUpdateCallback?: AxAgentInputUpdateCallback<IN>;
   /** Sub-query execution mode (default: 'simple'). */
   mode?: 'simple' | 'advanced';
+  /** Prompt detail level for the root Actor (default: 'detailed'). */
+  promptLevel?: AxActorPromptLevel;
+  /** Actor-only model escalation policy for prompt pressure or execution churn. */
+  actorModelPolicy?: AxActorModelPolicy;
   /** Default forward options for recursive llmQuery sub-agent calls. */
   recursionOptions?: AxAgentRecursionOptions;
   /** Default forward options for the Actor sub-program. */
   actorOptions?: Partial<
     Omit<AxProgramForwardOptions<string>, 'functions'> & {
       description?: string;
-      promptLevel?: AxActorPromptLevel;
     }
   >;
   /** Default forward options for the Responder sub-program. */
@@ -474,6 +535,15 @@ type AxAgentJudgeOutput = {
   toolErrors: string[];
   turnCount: number;
   usage: AxFieldValue;
+  recursiveTrace?: AxFieldValue;
+  recursiveStats?: AxFieldValue;
+};
+
+type AxAgentJudgeEvalInput = AxAgentJudgeInput & AxAgentJudgeOutput;
+
+type AxAgentJudgeEvalOutput = {
+  reasoning: string;
+  quality: string;
 };
 
 type AxNormalizedAgentEvalDataset<IN = any> = {
@@ -501,15 +571,44 @@ type AxLlmQueryPromptMode =
 
 // ----- Constants -----
 
-const DEFAULT_RLM_MAX_LLM_CALLS = 50;
+const DEFAULT_RLM_MAX_LLM_CALLS = 8;
 const DEFAULT_RLM_MAX_RUNTIME_CHARS = 5_000;
 const DEFAULT_RLM_BATCH_CONCURRENCY = 8;
-const DEFAULT_RLM_MAX_TURNS = 10;
+const DEFAULT_RLM_MAX_TURNS = 8;
 const DEFAULT_RLM_MAX_RECURSION_DEPTH = 2;
 const DEFAULT_CONTEXT_FIELD_PROMPT_MAX_CHARS = 1_200;
 const DEFAULT_AGENT_MODULE_NAMESPACE = 'agents';
 const DEFAULT_RANK_PRUNE_GRACE_TURNS = 2;
+const DEFAULT_ACTOR_MODEL_ESCALATE_AT_PROMPT_CHARS = 14_000;
+const DEFAULT_ACTOR_MODEL_ESCALATE_AT_PROMPT_CHARS_WHEN_CHECKPOINTED = 10_000;
+const DEFAULT_ACTOR_MODEL_RECENT_ERROR_WINDOW_TURNS = 4;
+const DEFAULT_ACTOR_MODEL_RECENT_ERROR_THRESHOLD = 2;
+const DEFAULT_ACTOR_MODEL_DISCOVERY_STALL_TURNS = 3;
+const DEFAULT_ACTOR_MODEL_DEESCALATE_BELOW_PROMPT_CHARS = 8_000;
+const DEFAULT_ACTOR_MODEL_STABLE_TURNS_BEFORE_DEESCALATE = 3;
+const DEFAULT_ACTOR_MODEL_MIN_ESCALATED_TURNS = 3;
 const DEFAULT_AGENT_OPTIMIZE_MAX_METRIC_CALLS = 100;
+const NON_ACTIONABLE_QUALIFIED_CALL_NAMESPACES = new Set([
+  'console',
+  'Math',
+  'JSON',
+  'Object',
+  'Array',
+  'String',
+  'Number',
+  'Boolean',
+  'Date',
+  'Promise',
+  'Reflect',
+  'Map',
+  'Set',
+  'WeakMap',
+  'WeakSet',
+  'Symbol',
+  'Intl',
+  'URL',
+  'URLSearchParams',
+]);
 const SAFE_BOOTSTRAP_GLOBAL_IDENTIFIER = /^[$A-Z_a-z][$0-9A-Z_a-z]*$/;
 const UNSAFE_BOOTSTRAP_GLOBAL_NAMES = new Set([
   'context',
@@ -618,7 +717,7 @@ const TEST_HARNESS_LLM_QUERY_AI_REQUIRED_ERROR =
 const RUNTIME_RESTART_NOTICE =
   '[The JavaScript runtime was restarted; all global state was lost and must be recreated if needed.]';
 
-const AX_AGENT_OPTIMIZE_JUDGE_SIGNATURE = new AxSignature<
+const _AX_AGENT_OPTIMIZE_JUDGE_SIGNATURE = new AxSignature<
   AxAgentJudgeInput,
   AxAgentJudgeOutput
 >(`
@@ -629,14 +728,41 @@ const AX_AGENT_OPTIMIZE_JUDGE_SIGNATURE = new AxSignature<
     forbiddenActions?:string[] "Optional function names that should not appear in the run",
     metadata?:json "Optional task metadata"
     ->
-    completionType:class "final, ask_clarification" "How the agent completed the run",
+    completionType:string "How the agent completed the run",
     clarification?:json "Structured clarification payload when the agent asked for more information",
     finalOutput?:json "The final structured output returned by the agent when it completed normally",
     actionLog:string "Chronological action log produced by the actor loop",
-    functionCalls:json "Ordered function call records with names, arguments, results, and errors",
-    toolErrors:string[] "Function-call errors observed during the run",
+    functionCalls?:json "Ordered function call records with names, arguments, results, and errors",
+    toolErrors?:string[] "Function-call errors observed during the run",
     turnCount:number "Number of actor turns executed",
-    usage:json "Optional usage summary for the run"
+    usage?:json "Optional usage summary for the run",
+    recursiveTrace?:json "Optional structured recursive trace projection for advanced recursive llmQuery runs",
+    recursiveStats?:json "Optional deterministic recursive trace statistics for advanced recursive llmQuery runs"
+  `);
+
+const AX_AGENT_OPTIMIZE_JUDGE_EVAL_SIGNATURE = new AxSignature<
+  AxAgentJudgeEvalInput,
+  AxAgentJudgeEvalOutput
+>(`
+    taskInput:json "The structured task input passed to the agent",
+    criteria:string "Task-specific success criteria",
+    expectedOutput?:json "Optional expected final output",
+    expectedActions?:string[] "Optional function names that should appear in the run",
+    forbiddenActions?:string[] "Optional function names that should not appear in the run",
+    metadata?:json "Optional task metadata",
+    completionType:string "How the agent completed the run",
+    clarification?:json "Structured clarification payload when the agent asked for more information",
+    finalOutput?:json "The final structured output returned by the agent when it completed normally",
+    actionLog:string "Chronological action log produced by the actor loop",
+    functionCalls?:json "Ordered function call records with names, arguments, results, and errors",
+    toolErrors?:string[] "Function-call errors observed during the run",
+    turnCount:number "Number of actor turns executed",
+    usage?:json "Optional usage summary for the run",
+    recursiveTrace?:json "Optional structured recursive trace projection for advanced recursive llmQuery runs",
+    recursiveStats?:json "Optional deterministic recursive trace statistics for advanced recursive llmQuery runs"
+    ->
+    reasoning:string "Short explanation of the run quality",
+    quality:class "excellent, good, acceptable, poor, unacceptable" "Overall run quality tier"
   `);
 
 const AX_AGENT_OPTIMIZE_PROGRAM_SIGNATURE = new AxSignature<
@@ -721,6 +847,7 @@ Use the input field named "criteria" as the task-specific rubric for success.
 - If expectedOutput is present and completionType is final, compare the final output against it.
 - If expectedActions is present, confirm that the functionCalls align with them.
 - If forbiddenActions is present, strongly penalize any matching function calls.
+- If recursiveTrace or recursiveStats are present, use them to judge decomposition quality, unnecessary fan-out, missed direct-answer opportunities, and cost efficiency.
 `.trim();
 
   const extra = additionalCriteria?.trim();
@@ -729,6 +856,32 @@ Use the input field named "criteria" as the task-specific rubric for success.
   }
 
   return `${builtInCriteria}\n\nAdditional Evaluation Guidance:\n${extra}`;
+}
+
+function buildAgentJudgeForwardOptions(
+  options: Readonly<AxAgentJudgeOptions>
+): AxProgramForwardOptions<string> {
+  const {
+    criteria: _criteria,
+    description: _description,
+    randomizeOrder: _randomizeOrder,
+    ...forwardOptions
+  } = options;
+
+  return {
+    ...forwardOptions,
+    maxSteps: 1,
+  };
+}
+
+function mapAgentJudgeQualityToScore(quality: string): number {
+  const normalized = quality.toLowerCase();
+  if (normalized === 'excellent') return 1;
+  if (normalized === 'good') return 0.8;
+  if (normalized === 'acceptable') return 0.5;
+  if (normalized === 'poor') return 0.2;
+  if (normalized === 'unacceptable') return 0;
+  return 0.5;
 }
 
 function actionNameMatches(
@@ -778,8 +931,25 @@ function resolveAgentOptimizeTargetIds(
   target: Readonly<AxAgentOptimizeTarget>
 ): string[] {
   const availableIds = new Set(availablePrograms.map((program) => program.id));
+  const hasRecursiveSlots = availableIds.has(
+    AX_AGENT_RECURSIVE_TARGET_IDS.shared
+  );
+  const recursiveActorIds = [
+    AX_AGENT_RECURSIVE_TARGET_IDS.shared,
+    AX_AGENT_RECURSIVE_TARGET_IDS.root,
+    AX_AGENT_RECURSIVE_TARGET_IDS.recursive,
+    AX_AGENT_RECURSIVE_TARGET_IDS.terminal,
+  ].filter((id) => availableIds.has(id));
 
   if (target === 'actor') {
+    if (hasRecursiveSlots) {
+      if (recursiveActorIds.length === 0) {
+        throw new Error(
+          'AxAgent.optimize(): recursive actor targets are not available'
+        );
+      }
+      return recursiveActorIds;
+    }
     if (!availableIds.has('root.actor')) {
       throw new Error('AxAgent.optimize(): root.actor is not available');
     }
@@ -792,6 +962,14 @@ function resolveAgentOptimizeTargetIds(
     return ['root.responder'];
   }
   if (target === 'all') {
+    if (hasRecursiveSlots) {
+      return [
+        ...recursiveActorIds,
+        ...(availableIds.has(AX_AGENT_RECURSIVE_TARGET_IDS.responder)
+          ? [AX_AGENT_RECURSIVE_TARGET_IDS.responder]
+          : []),
+      ];
+    }
     return [...availableIds];
   }
 
@@ -808,7 +986,7 @@ type AxResolvedContextPolicy = {
   preset: AxContextPolicyPreset;
   summarizerOptions?: Omit<AxProgramForwardOptions<string>, 'functions'>;
   pruneUsedDocs: boolean;
-  actionReplay: 'full' | 'adaptive' | 'minimal';
+  actionReplay: 'full' | 'adaptive' | 'minimal' | 'checkpointed';
   recentFullActions: number;
   errorPruning: boolean;
   hindsightEvaluation: boolean;
@@ -824,6 +1002,26 @@ type AxResolvedContextPolicy = {
     enabled: boolean;
     triggerChars?: number;
   };
+};
+
+type AxResolvedActorModelPolicy = {
+  escalatedModel: string;
+  baseModel?: string;
+  escalateAtPromptChars: number;
+  escalateAtPromptCharsWhenCheckpointed: number;
+  recentErrorWindowTurns: number;
+  recentErrorThreshold: number;
+  discoveryStallTurns: number;
+  deescalateBelowPromptChars: number;
+  stableTurnsBeforeDeescalate: number;
+  minEscalatedTurns: number;
+};
+
+type AxActorModelPolicyEvaluation = {
+  promptFacingChars: number;
+  checkpointActive: boolean;
+  recentErrorTrigger: boolean;
+  discoveryStallTrigger: boolean;
 };
 
 type AxAgentActorResultPayload = AxAgentTestCompletionPayload;
@@ -848,6 +1046,7 @@ type AxPreparedRestoredState = {
   actionLogEntries: ActionLogEntry[];
   checkpointState?: AxAgentStateCheckpointState;
   provenance: Record<string, RuntimeStateVariableProvenance>;
+  actorModelState?: AxAgentStateActorModelState;
 };
 
 type AxAgentRuntimeExecutionContext = {
@@ -865,6 +1064,55 @@ type AxAgentRuntimeExecutionContext = {
   ) => Promise<{ result: unknown; output: string; isError: boolean }>;
   executeTestCode: (code: string) => Promise<AxAgentTestResult>;
   close: () => void;
+};
+
+type AxMutableRecursiveTraceNode = {
+  nodeId: string;
+  parentId?: string;
+  depth: number;
+  role: AxAgentRecursiveNodeRole;
+  taskDigest?: string;
+  contextDigest?: string;
+  completionType?: 'final' | 'ask_clarification';
+  turnCount: number;
+  actorTurns: AxAgentRecursiveTurn[];
+  functionCalls: {
+    qualifiedName: string;
+    name?: string;
+    error?: string;
+  }[];
+  toolErrors: string[];
+  localUsage: AxAgentRecursiveUsage;
+  children: AxMutableRecursiveTraceNode[];
+};
+
+type AxAgentRecursiveTraceCollector = {
+  nextNodeOrdinal: number;
+  rootNode?: AxMutableRecursiveTraceNode;
+  nodesById: Map<string, AxMutableRecursiveTraceNode>;
+  createNode: (args: {
+    parentId?: string;
+    depth: number;
+    role: AxAgentRecursiveNodeRole;
+    taskDigest?: string;
+    contextDigest?: string;
+  }) => AxMutableRecursiveTraceNode;
+};
+
+type AxAgentRecursiveEvalContext = {
+  collector: AxAgentRecursiveTraceCollector;
+  parentNodeId?: string;
+  depth: number;
+};
+
+type AxAgentOptimizationTargetDescriptor = {
+  id: string;
+  signature?: string;
+  program: AxNamedProgramInstance<any, any>['program'] & {
+    getInstruction?: () => string | undefined;
+    setInstruction?: (instruction: string) => void;
+    getSignature?: () => { getDescription?: () => string | undefined };
+  };
 };
 
 class AxAgentProtocolCompletionSignal extends Error {
@@ -939,6 +1187,74 @@ function buildInternalSummaryRequestOptions(
     contextCache: options?.contextCache,
     examplesInSystem: options?.examplesInSystem,
     customLabels: options?.customLabels,
+  };
+}
+
+function normalizeOptionalModelName(value: unknown, fieldName: string): string {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new Error(`${fieldName} must be a non-empty string`);
+  }
+
+  return value.trim();
+}
+
+function resolveActorModelPolicy(
+  policy: Readonly<AxActorModelPolicy> | undefined
+): AxResolvedActorModelPolicy | undefined {
+  if (!policy) {
+    return undefined;
+  }
+
+  return {
+    escalatedModel: normalizeOptionalModelName(
+      policy.escalatedModel,
+      'actorModelPolicy.escalatedModel'
+    ),
+    ...(policy.baseModel !== undefined
+      ? {
+          baseModel: normalizeOptionalModelName(
+            policy.baseModel,
+            'actorModelPolicy.baseModel'
+          ),
+        }
+      : {}),
+    escalateAtPromptChars: Math.max(
+      1,
+      policy.escalateAtPromptChars ??
+        DEFAULT_ACTOR_MODEL_ESCALATE_AT_PROMPT_CHARS
+    ),
+    escalateAtPromptCharsWhenCheckpointed: Math.max(
+      1,
+      policy.escalateAtPromptCharsWhenCheckpointed ??
+        DEFAULT_ACTOR_MODEL_ESCALATE_AT_PROMPT_CHARS_WHEN_CHECKPOINTED
+    ),
+    recentErrorWindowTurns: Math.max(
+      1,
+      policy.recentErrorWindowTurns ??
+        DEFAULT_ACTOR_MODEL_RECENT_ERROR_WINDOW_TURNS
+    ),
+    recentErrorThreshold: Math.max(
+      1,
+      policy.recentErrorThreshold ?? DEFAULT_ACTOR_MODEL_RECENT_ERROR_THRESHOLD
+    ),
+    discoveryStallTurns: Math.max(
+      1,
+      policy.discoveryStallTurns ?? DEFAULT_ACTOR_MODEL_DISCOVERY_STALL_TURNS
+    ),
+    deescalateBelowPromptChars: Math.max(
+      0,
+      policy.deescalateBelowPromptChars ??
+        DEFAULT_ACTOR_MODEL_DEESCALATE_BELOW_PROMPT_CHARS
+    ),
+    stableTurnsBeforeDeescalate: Math.max(
+      1,
+      policy.stableTurnsBeforeDeescalate ??
+        DEFAULT_ACTOR_MODEL_STABLE_TURNS_BEFORE_DEESCALATE
+    ),
+    minEscalatedTurns: Math.max(
+      0,
+      policy.minEscalatedTurns ?? DEFAULT_ACTOR_MODEL_MIN_ESCALATED_TURNS
+    ),
   };
 }
 
@@ -1033,6 +1349,22 @@ function getContextPolicyPresetDefaults(preset: AxContextPolicyPreset) {
         checkpointsEnabled: true,
         checkpointTriggerChars: 9_000,
       };
+    case 'checkpointed':
+      return {
+        actionReplay: 'checkpointed' as const,
+        recentFullActions: 3,
+        errorPruning: false,
+        hindsight: false,
+        pruneRank: 2,
+        pruneUsedDocs: false,
+        stateSummary: true,
+        inspect: true,
+        inspectThreshold: 10_000,
+        maxEntries: 8,
+        maxStateChars: 1_600,
+        checkpointsEnabled: true,
+        checkpointTriggerChars: 12_000,
+      };
     default:
       return {
         actionReplay: 'full' as const,
@@ -1050,6 +1382,256 @@ function getContextPolicyPresetDefaults(preset: AxContextPolicyPreset) {
         checkpointTriggerChars: undefined,
       };
   }
+}
+
+function extractQualifiedCallableUsagesForActorPolicy(code: string): string[] {
+  const sanitized = stripJsStringsAndComments(code);
+  const usages = new Set<string>();
+  const callPattern =
+    /\b([a-zA-Z_$][a-zA-Z0-9_$]*)\.([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\(/g;
+  let match = callPattern.exec(sanitized);
+
+  while (match) {
+    const namespace = match[1];
+    const name = match[2];
+    if (
+      namespace &&
+      name &&
+      !NON_ACTIONABLE_QUALIFIED_CALL_NAMESPACES.has(namespace)
+    ) {
+      usages.add(`${namespace}.${name}`);
+    }
+    match = callPattern.exec(sanitized);
+  }
+
+  return [...usages];
+}
+
+function isDiscoveryOnlySuccessEntry(entry: Readonly<ActionLogEntry>): boolean {
+  if (entry.tags.includes('error')) {
+    return false;
+  }
+
+  const hasDiscoveryCall =
+    /\b(listModuleFunctions|getFunctionDefinitions)\s*\(/.test(entry.code);
+  if (!hasDiscoveryCall) {
+    return false;
+  }
+
+  return extractQualifiedCallableUsagesForActorPolicy(entry.code).length === 0;
+}
+
+function hasRecentErrorTrigger(
+  entries: readonly ActionLogEntry[],
+  policy: Readonly<AxResolvedActorModelPolicy>
+): boolean {
+  const recentEntries = entries.slice(-policy.recentErrorWindowTurns);
+  const errorCount = recentEntries.filter((entry) =>
+    entry.tags.includes('error')
+  ).length;
+  return errorCount >= policy.recentErrorThreshold;
+}
+
+function hasDiscoveryStallTrigger(
+  entries: readonly ActionLogEntry[],
+  policy: Readonly<AxResolvedActorModelPolicy>
+): boolean {
+  if (entries.length < policy.discoveryStallTurns) {
+    return false;
+  }
+
+  let consecutiveDiscoveryTurns = 0;
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const entry = entries[i];
+    if (!entry) {
+      break;
+    }
+
+    if (entry.tags.includes('error')) {
+      break;
+    }
+
+    if (extractQualifiedCallableUsagesForActorPolicy(entry.code).length > 0) {
+      break;
+    }
+
+    if (!isDiscoveryOnlySuccessEntry(entry)) {
+      break;
+    }
+
+    consecutiveDiscoveryTurns += 1;
+    if (consecutiveDiscoveryTurns >= policy.discoveryStallTurns) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function evaluateActorModelPolicy(
+  policy: Readonly<AxResolvedActorModelPolicy>,
+  entries: readonly ActionLogEntry[],
+  promptFacingChars: number,
+  checkpointActive: boolean
+): AxActorModelPolicyEvaluation {
+  return {
+    promptFacingChars,
+    checkpointActive,
+    recentErrorTrigger: hasRecentErrorTrigger(entries, policy),
+    discoveryStallTrigger: hasDiscoveryStallTrigger(entries, policy),
+  };
+}
+
+function updateActorModelState(
+  currentState: Readonly<AxAgentStateActorModelState> | undefined,
+  policy: Readonly<AxResolvedActorModelPolicy>,
+  evaluation: Readonly<AxActorModelPolicyEvaluation>
+): AxAgentStateActorModelState {
+  const sizeThreshold = evaluation.checkpointActive
+    ? policy.escalateAtPromptCharsWhenCheckpointed
+    : policy.escalateAtPromptChars;
+  const sizeTrigger = evaluation.promptFacingChars >= sizeThreshold;
+  const shouldEscalate =
+    sizeTrigger ||
+    evaluation.recentErrorTrigger ||
+    evaluation.discoveryStallTrigger;
+  const state: AxAgentStateActorModelState = currentState
+    ? { ...currentState }
+    : {
+        escalated: false,
+        escalatedTurns: 0,
+        stableBelowThresholdTurns: 0,
+      };
+
+  if (!state.escalated) {
+    if (!shouldEscalate) {
+      state.escalatedTurns = 0;
+      state.stableBelowThresholdTurns = 0;
+      return state;
+    }
+
+    return {
+      escalated: true,
+      escalatedTurns: 1,
+      stableBelowThresholdTurns: 0,
+    };
+  }
+
+  if (shouldEscalate) {
+    return {
+      escalated: true,
+      escalatedTurns: state.escalatedTurns + 1,
+      stableBelowThresholdTurns: 0,
+    };
+  }
+
+  const canConsiderDeescalate =
+    evaluation.promptFacingChars < policy.deescalateBelowPromptChars &&
+    !evaluation.recentErrorTrigger &&
+    !evaluation.discoveryStallTrigger &&
+    state.escalatedTurns >= policy.minEscalatedTurns;
+
+  if (!canConsiderDeescalate) {
+    return {
+      escalated: true,
+      escalatedTurns: state.escalatedTurns + 1,
+      stableBelowThresholdTurns: 0,
+    };
+  }
+
+  const stableTurns = state.stableBelowThresholdTurns + 1;
+  if (stableTurns >= policy.stableTurnsBeforeDeescalate) {
+    return {
+      escalated: false,
+      escalatedTurns: 0,
+      stableBelowThresholdTurns: 0,
+    };
+  }
+
+  return {
+    escalated: true,
+    escalatedTurns: state.escalatedTurns + 1,
+    stableBelowThresholdTurns: stableTurns,
+  };
+}
+
+function createRecursiveTraceCollector(): AxAgentRecursiveTraceCollector {
+  const nodesById = new Map<string, AxMutableRecursiveTraceNode>();
+  const collector: AxAgentRecursiveTraceCollector = {
+    nextNodeOrdinal: 1,
+    nodesById,
+    rootNode: undefined,
+    createNode: ({ parentId, depth, role, taskDigest, contextDigest }) => {
+      const nodeId = `trace_${collector.nextNodeOrdinal++}`;
+      const node: AxMutableRecursiveTraceNode = {
+        nodeId,
+        parentId,
+        depth,
+        role,
+        taskDigest,
+        contextDigest,
+        completionType: undefined,
+        turnCount: 0,
+        actorTurns: [],
+        functionCalls: [],
+        toolErrors: [],
+        localUsage: {
+          promptTokens: 0,
+          completionTokens: 0,
+          totalTokens: 0,
+        },
+        children: [],
+      };
+
+      nodesById.set(nodeId, node);
+      if (parentId) {
+        nodesById.get(parentId)?.children.push(node);
+      } else {
+        collector.rootNode = node;
+      }
+
+      return node;
+    },
+  };
+
+  return collector;
+}
+
+function materializeRecursiveTraceNode(
+  node: Readonly<AxMutableRecursiveTraceNode>
+): AxAgentRecursiveTraceNode {
+  const children = node.children.map((child) =>
+    materializeRecursiveTraceNode(child)
+  );
+  const localUsage = node.localUsage;
+  const cumulativeUsage = children.reduce(
+    (acc, child) =>
+      ({
+        promptTokens: acc.promptTokens + child.cumulativeUsage.promptTokens,
+        completionTokens:
+          acc.completionTokens + child.cumulativeUsage.completionTokens,
+        totalTokens: acc.totalTokens + child.cumulativeUsage.totalTokens,
+      }) satisfies AxAgentRecursiveUsage,
+    { ...localUsage }
+  );
+
+  return {
+    nodeId: node.nodeId,
+    parentId: node.parentId,
+    depth: node.depth,
+    role: node.role,
+    taskDigest: node.taskDigest,
+    contextDigest: node.contextDigest,
+    completionType: node.completionType,
+    turnCount: node.turnCount,
+    childCount: children.length,
+    actorTurns: [...node.actorTurns],
+    functionCalls: [...node.functionCalls],
+    toolErrors: [...node.toolErrors],
+    localUsage: { ...localUsage },
+    cumulativeUsage,
+    children,
+  };
 }
 
 // ----- AxAgent Class -----
@@ -1091,6 +1673,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private excludedAgentFunctions: string[];
   private actorDescription?: string;
   private actorPromptLevel?: AxActorPromptLevel;
+  private actorModelPolicy?: AxResolvedActorModelPolicy;
   private responderDescription?: string;
   private judgeOptions?: AxAgentJudgeOptions;
   private recursionForwardOptions?: AxAgentRecursionOptions;
@@ -1110,6 +1693,14 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private stateError: string | undefined;
   private runtimeBootstrapContext: unknown = undefined;
   private llmQueryBudgetState: { used: number } | undefined;
+  private recursiveInstructionSlots: Record<string, string> =
+    createRecursiveSlotSeedInstructions();
+  private baseActorDefinition = '';
+  private recursiveEvalContext: AxAgentRecursiveEvalContext | undefined;
+  private currentRecursiveTraceNodeId: string | undefined;
+  private recursiveInstructionRoleOverride:
+    | AxAgentRecursiveNodeRole
+    | undefined;
 
   private func: AxFunction | undefined;
   // Field names injected by a parent agent via shared-field propagation.
@@ -1225,6 +1816,77 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     }
   }
 
+  private _supportsRecursiveActorSlotOptimization(): boolean {
+    if ((this.rlmConfig.mode ?? 'simple') !== 'advanced') {
+      return false;
+    }
+
+    const configuredRecursionMaxDepth =
+      this.recursionForwardOptions?.maxDepth ?? DEFAULT_RLM_MAX_RECURSION_DEPTH;
+    return (
+      Boolean(this.recursiveInstructionRoleOverride) ||
+      Math.max(0, configuredRecursionMaxDepth) > 0
+    );
+  }
+
+  private _getRecursiveActorRole(): AxAgentRecursiveNodeRole | undefined {
+    if ((this.rlmConfig.mode ?? 'simple') !== 'advanced') {
+      return undefined;
+    }
+
+    if (this.recursiveInstructionRoleOverride) {
+      return this.recursiveInstructionRoleOverride;
+    }
+
+    const configuredRecursionMaxDepth =
+      this.recursionForwardOptions?.maxDepth ?? DEFAULT_RLM_MAX_RECURSION_DEPTH;
+    return Math.max(0, configuredRecursionMaxDepth) > 0 ? 'root' : undefined;
+  }
+
+  private _applyRecursiveActorInstruction(): void {
+    const role = this._getRecursiveActorRole();
+    if (!role || !this.actorProgram) {
+      return;
+    }
+
+    const addendum = buildRecursiveActorInstruction(
+      role,
+      this.recursiveInstructionSlots
+    );
+    const instruction = [this.baseActorDefinition.trim(), addendum?.trim()]
+      .filter((piece): piece is string => Boolean(piece))
+      .join('\n\n');
+
+    this.actorProgram.setDescription(instruction);
+    this.actorProgram.setInstruction(instruction);
+  }
+
+  private _setRecursiveInstructionSlot(
+    slotId: AxAgentRecursiveTargetId,
+    instruction: string | undefined
+  ): void {
+    if (slotId === AX_AGENT_RECURSIVE_TARGET_IDS.responder) {
+      this.responderProgram.setInstruction(instruction ?? '');
+      return;
+    }
+
+    this.recursiveInstructionSlots[slotId] = instruction ?? '';
+    this._applyRecursiveActorInstruction();
+  }
+
+  private _copyRecursiveOptimizationStateTo(
+    target: AxAgent<any, { answer: AxFieldValue }>
+  ): void {
+    target.recursiveInstructionSlots = {
+      ...this.recursiveInstructionSlots,
+    };
+    target.recursiveInstructionRoleOverride =
+      target._supportsRecursiveActorSlotOptimization()
+        ? target.recursiveInstructionRoleOverride
+        : undefined;
+    target._applyRecursiveActorInstruction();
+  }
+
   constructor(
     {
       ai,
@@ -1256,6 +1918,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       actorFields,
       actorTurnCallback,
       mode,
+      promptLevel,
+      actorModelPolicy,
       recursionOptions,
       actorOptions,
       responderOptions,
@@ -1325,6 +1989,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       functions: _fn,
       judgeOptions: _jo,
       inputUpdateCallback: _iuc,
+      promptLevel: _pl,
+      actorModelPolicy: _amp,
       ...genOptions
     } = options;
     this.program = new AxGen<IN, OUT>(signature, genOptions);
@@ -1352,17 +2018,17 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     };
     this.recursionForwardOptions = recursionOptions;
 
-    const {
-      description: actorDescription,
-      promptLevel: actorPromptLevel,
-      ...actorForwardOptions
-    } = actorOptions ?? {};
+    const { description: actorDescription, ...actorForwardOptions } =
+      actorOptions ?? {};
     const { description: responderDescription, ...responderForwardOptions } =
       responderOptions ?? {};
 
     this.actorDescription = actorDescription;
-    this.actorPromptLevel = actorPromptLevel ?? 'detailed';
+    this.actorPromptLevel = promptLevel ?? 'detailed';
+    this.actorModelPolicy = resolveActorModelPolicy(actorModelPolicy);
     this.actorForwardOptions = actorForwardOptions;
+    this.recursiveInstructionSlots =
+      createRecursiveSlotSeedInstructions(actorDescription);
 
     this.responderDescription = responderDescription;
     this.responderForwardOptions = responderForwardOptions;
@@ -1654,7 +2320,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     );
 
     const actorDef = axBuildActorDefinition(
-      this.actorDescription,
+      this._supportsRecursiveActorSlotOptimization()
+        ? undefined
+        : this.actorDescription,
       contextFieldMeta,
       responderOutputFields,
       {
@@ -1680,6 +2348,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         agentFunctions: agentFunctionMeta,
       }
     );
+    this.baseActorDefinition = actorDef;
 
     const responderDef = axBuildResponderDefinition(
       this.responderDescription,
@@ -1705,6 +2374,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         description: responderDef,
       }) as unknown as AxGen<any, OUT>;
     }
+
+    this._applyRecursiveActorInstruction();
   }
 
   /**
@@ -2054,6 +2725,151 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     this.stateError = undefined;
   }
 
+  private _createRecursiveOptimizationProxy(
+    id: AxAgentRecursiveTargetId,
+    description: string
+  ): AxAgentOptimizationTargetDescriptor {
+    return {
+      id,
+      signature: description,
+      program: {
+        getId: () => id,
+        setId: () => {},
+        getTraces: () => [],
+        setDemos: () => {},
+        applyOptimization: (optimizedProgram: AxOptimizedProgram<any>) => {
+          this.applyOptimization(optimizedProgram);
+        },
+        getInstruction: () =>
+          id === AX_AGENT_RECURSIVE_TARGET_IDS.responder
+            ? this.responderProgram.getInstruction()
+            : this.recursiveInstructionSlots[id],
+        setInstruction: (instruction: string) => {
+          this._setRecursiveInstructionSlot(id, instruction);
+        },
+        getSignature: () => ({
+          getDescription: () => description,
+        }),
+      },
+    };
+  }
+
+  private _listOptimizationTargetDescriptors(): AxAgentOptimizationTargetDescriptor[] {
+    if (!this._supportsRecursiveActorSlotOptimization()) {
+      return this.namedProgramInstances().map((entry) => ({
+        id: entry.id,
+        signature: entry.signature,
+        program:
+          entry.program as AxAgentOptimizationTargetDescriptor['program'],
+      }));
+    }
+
+    return [
+      this._createRecursiveOptimizationProxy(
+        AX_AGENT_RECURSIVE_TARGET_IDS.shared,
+        'Shared recursive-actor guidance applied to every advanced recursive AxAgent actor invocation.'
+      ),
+      this._createRecursiveOptimizationProxy(
+        AX_AGENT_RECURSIVE_TARGET_IDS.root,
+        'Root-only recursive-actor guidance for deciding whether to answer directly or decompose into subtasks.'
+      ),
+      this._createRecursiveOptimizationProxy(
+        AX_AGENT_RECURSIVE_TARGET_IDS.recursive,
+        'Mid-tree recursive-actor guidance for branch orchestration, selective delegation, and efficient synthesis.'
+      ),
+      this._createRecursiveOptimizationProxy(
+        AX_AGENT_RECURSIVE_TARGET_IDS.terminal,
+        'Terminal-depth recursive-actor guidance for direct answers when deeper recursion is no longer available.'
+      ),
+      {
+        id: AX_AGENT_RECURSIVE_TARGET_IDS.responder,
+        signature: this.responderProgram.getSignature().toString(),
+        program: this
+          .responderProgram as AxAgentOptimizationTargetDescriptor['program'],
+      },
+    ];
+  }
+
+  private _beginRecursiveTraceCapture(values: IN | AxMessage<IN>[]): {
+    node: AxMutableRecursiveTraceNode | undefined;
+    usageBefore: AxAgentRecursiveUsage;
+  } {
+    const usageBefore = usageFromProgramUsages(this.getUsage());
+    const role = this._getRecursiveActorRole();
+    if (!this.recursiveEvalContext || !role) {
+      return { node: undefined, usageBefore };
+    }
+
+    const node = this.recursiveEvalContext.collector.createNode({
+      parentId: this.recursiveEvalContext.parentNodeId,
+      depth: this.recursiveEvalContext.depth,
+      role,
+      taskDigest: buildRecursiveValueDigest(
+        Array.isArray(values)
+          ? values
+              .filter((message) => message.role === 'user')
+              .map((message) => message.values)
+          : values
+      ),
+      contextDigest: buildRecursiveValueDigest(this.runtimeBootstrapContext),
+    });
+    this.currentRecursiveTraceNodeId = node.nodeId;
+
+    return { node, usageBefore };
+  }
+
+  private _finalizeRecursiveTraceCapture(
+    node: AxMutableRecursiveTraceNode | undefined,
+    usageBefore: Readonly<AxAgentRecursiveUsage>,
+    actorTurnRecords: readonly AxAgentRecursiveTurn[],
+    functionCallRecords: readonly AxAgentEvalFunctionCall[],
+    actorResult: Readonly<AxAgentActorResultPayload>
+  ): void {
+    if (!node) {
+      this.currentRecursiveTraceNodeId = undefined;
+      return;
+    }
+
+    const usageAfter = usageFromProgramUsages(this.getUsage());
+    node.localUsage = addRecursiveUsage(
+      node.localUsage,
+      diffRecursiveUsage(usageAfter, usageBefore)
+    );
+    node.turnCount = actorTurnRecords.length;
+    node.completionType = actorResult.type;
+    node.actorTurns = [...actorTurnRecords];
+    node.functionCalls = functionCallRecords.map((call) => ({
+      qualifiedName: call.qualifiedName,
+      name: call.name,
+      error: call.error,
+    }));
+    node.toolErrors = functionCallRecords
+      .filter((call) => Boolean(call.error))
+      .map((call) => `${call.qualifiedName}: ${call.error ?? 'unknown error'}`);
+    this.currentRecursiveTraceNodeId = undefined;
+  }
+
+  private _recordEphemeralRecursiveUsage(
+    usage: Readonly<AxAgentRecursiveUsage>
+  ): void {
+    if (
+      !this.recursiveEvalContext ||
+      !this.currentRecursiveTraceNodeId ||
+      usage.totalTokens <= 0
+    ) {
+      return;
+    }
+
+    const node = this.recursiveEvalContext.collector.nodesById.get(
+      this.currentRecursiveTraceNodeId
+    );
+    if (!node) {
+      return;
+    }
+
+    node.localUsage = addRecursiveUsage(node.localUsage, usage);
+  }
+
   public async optimize(
     dataset: Readonly<AxAgentEvalDataset<IN>>,
     options?: Readonly<AxAgentOptimizeOptions<IN, OUT>>
@@ -2082,14 +2898,18 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       ...(this.judgeOptions ?? {}),
       ...(options?.judgeOptions ?? {}),
     };
+    const optimizationTargets = this._listOptimizationTargetDescriptors();
     const targetIds = resolveAgentOptimizeTargetIds(
-      this.namedPrograms(),
+      optimizationTargets,
       options?.target ?? 'actor'
     );
     const metric =
       options?.metric ??
       this._createAgentOptimizeMetric(resolvedJudgeAI, mergedJudgeOptions);
-    const optimizationProgram = this._createOptimizationProgram(targetIds);
+    const optimizationProgram = this._createOptimizationProgram(
+      targetIds,
+      optimizationTargets
+    );
     const maxMetricCalls = Math.max(
       1,
       Math.floor(
@@ -2104,6 +2924,13 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const optimizer = new AxGEPA({
       studentAI,
       teacherAI: options?.teacherAI ?? resolvedJudgeAI,
+      numTrials: options?.numTrials,
+      minibatch: options?.minibatch,
+      minibatchSize: options?.minibatchSize,
+      earlyStoppingTrials: options?.earlyStoppingTrials,
+      minImprovementThreshold: options?.minImprovementThreshold,
+      sampleCount: options?.sampleCount,
+      seed: options?.seed,
       verbose: options?.verbose,
       debugOptimizer: options?.debugOptimizer,
       optimizerLogger: options?.optimizerLogger,
@@ -2124,18 +2951,45 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           | undefined,
         maxMetricCalls,
         verbose: options?.verbose,
+        feedbackFn: options?.metric
+          ? undefined
+          : ({ prediction, example, componentId }) =>
+              buildRecursiveFeedback({
+                componentId,
+                prediction: prediction as {
+                  recursiveTrace?: AxAgentRecursiveTraceNode;
+                  recursiveStats?: AxAgentRecursiveStats;
+                },
+                example,
+              }),
       }
     );
 
-    if (options?.apply !== false && result.optimizedProgram) {
-      this.applyOptimization(result.optimizedProgram);
+    let wrappedOptimizedProgram = result.optimizedProgram as
+      | AxOptimizedProgram<OUT>
+      | undefined;
+    if (
+      result.optimizedProgram &&
+      this._supportsRecursiveActorSlotOptimization()
+    ) {
+      wrappedOptimizedProgram = new AxOptimizedProgramImpl<any>({
+        ...result.optimizedProgram,
+        artifactFormatVersion: AX_AGENT_RECURSIVE_ARTIFACT_FORMAT_VERSION,
+        instructionSchema: AX_AGENT_RECURSIVE_INSTRUCTION_SCHEMA,
+      }) as unknown as AxOptimizedProgram<OUT>;
+      (result as any).optimizedProgram = wrappedOptimizedProgram;
+    }
+
+    if (options?.apply !== false && wrappedOptimizedProgram) {
+      this.applyOptimization(wrappedOptimizedProgram);
     }
 
     return result as unknown as AxAgentOptimizeResult<OUT>;
   }
 
   private _createOptimizationProgram(
-    targetIds: readonly string[]
+    targetIds: readonly string[],
+    descriptors: readonly AxAgentOptimizationTargetDescriptor[]
   ): AxProgrammable<AxAgentEvalTask<IN>, AxAgentEvalPrediction<OUT>> {
     return {
       getId: () => this.getId(),
@@ -2169,9 +3023,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           AxAgentEvalPrediction<OUT>
         >[],
       namedProgramInstances: () =>
-        this.namedProgramInstances().filter((entry) =>
-          targetIds.includes(entry.id)
-        ) as AxNamedProgramInstance<any, any>[],
+        descriptors.filter((entry) => targetIds.includes(entry.id)) as
+          | AxNamedProgramInstance<any, any>[]
+          | any,
       setDemos: (demos, demoOptions) =>
         this.setDemos(
           demos as unknown as readonly AxProgramDemos<IN, OUT>[],
@@ -2189,11 +3043,16 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     judgeOptions: Readonly<AxAgentJudgeOptions>
   ): AxMetricFn {
     const mergedJudgeCriteria = buildAgentJudgeCriteria(judgeOptions.criteria);
-    const judge = new AxJudge(AX_AGENT_OPTIMIZE_JUDGE_SIGNATURE, {
-      ai: judgeAI,
-      ...judgeOptions,
-      criteria: mergedJudgeCriteria,
-    });
+    const judgeGen = new AxGen<AxAgentJudgeEvalInput, AxAgentJudgeEvalOutput>(
+      AX_AGENT_OPTIMIZE_JUDGE_EVAL_SIGNATURE
+    );
+    const judgeDescription = judgeOptions.description?.trim();
+    judgeGen.setInstruction(
+      judgeDescription
+        ? `${mergedJudgeCriteria}\n\nAdditional Judge Guidance:\n${judgeDescription}`
+        : mergedJudgeCriteria
+    );
+    const judgeForwardOptions = buildAgentJudgeForwardOptions(judgeOptions);
 
     return async ({ example, prediction }) => {
       const task = example as AxAgentEvalTask<IN>;
@@ -2215,10 +3074,22 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         toolErrors: evalPrediction.toolErrors,
         turnCount: evalPrediction.turnCount,
         usage: serializeForEval(evalPrediction.usage ?? []),
+        recursiveTrace: serializeForEval(evalPrediction.recursiveTrace),
+        recursiveStats: serializeForEval(evalPrediction.recursiveStats),
       };
-
-      const result = await judge.evaluate(judgeInput, judgeOutput);
-      return adjustEvalScoreForActions(result.score, task, evalPrediction);
+      const result = await judgeGen.forward(
+        judgeAI,
+        {
+          ...judgeInput,
+          ...judgeOutput,
+        },
+        judgeForwardOptions
+      );
+      return adjustEvalScoreForActions(
+        mapAgentJudgeQualityToScore(result.quality),
+        task,
+        evalPrediction
+      );
     };
   }
 
@@ -2243,11 +3114,26 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     this.activeAbortControllers.add(abortController);
     const createdBudgetState = this._ensureLlmQueryBudgetState();
+    const savedRecursiveEvalContext = this.recursiveEvalContext;
+    const savedRecursiveTraceNodeId = this.currentRecursiveTraceNodeId;
+    const recursiveCollector = this._supportsRecursiveActorSlotOptimization()
+      ? createRecursiveTraceCollector()
+      : undefined;
+    this.recursiveEvalContext = recursiveCollector
+      ? {
+          collector: recursiveCollector,
+          depth: 0,
+        }
+      : undefined;
+    this.currentRecursiveTraceNodeId = undefined;
     try {
       const ai = this.ai ?? parentAi;
       const debug =
         options?.debug ?? this.debug ?? ai?.getOptions()?.debug ?? false;
       const functionCalls: AxAgentEvalFunctionCall[] = [];
+      const actorTurnRecords: AxAgentRecursiveTurn[] = [];
+      const { node: recursiveTraceNode, usageBefore } =
+        this._beginRecursiveTraceCapture(task.input);
 
       const {
         nonContextValues,
@@ -2260,7 +3146,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         task.input,
         options,
         effectiveAbortSignal,
-        functionCalls
+        functionCalls,
+        actorTurnRecords
       );
       const toolErrors = functionCalls
         .filter((call) => Boolean(call.error))
@@ -2269,6 +3156,25 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         );
 
       if (actorResult.type === 'ask_clarification') {
+        this._finalizeRecursiveTraceCapture(
+          recursiveTraceNode,
+          usageBefore,
+          actorTurnRecords,
+          functionCalls,
+          actorResult
+        );
+        const projectedRecursiveTrace = recursiveCollector?.rootNode
+          ? projectRecursiveTraceForEval(
+              materializeRecursiveTraceNode(recursiveCollector.rootNode)
+            )
+          : undefined;
+        const recursiveStats = projectedRecursiveTrace
+          ? deriveRecursiveStats(projectedRecursiveTrace)
+          : undefined;
+        const recursiveSummary =
+          projectedRecursiveTrace && recursiveStats
+            ? renderRecursiveSummary(projectedRecursiveTrace, recursiveStats)
+            : undefined;
         return {
           completionType: 'ask_clarification',
           clarification: normalizeClarificationForError(
@@ -2278,6 +3184,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           functionCalls,
           toolErrors,
           turnCount,
+          recursiveTrace: projectedRecursiveTrace,
+          recursiveStats,
+          recursiveSummary,
         };
       }
 
@@ -2298,6 +3207,25 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         },
         responderMergedOptions
       );
+      this._finalizeRecursiveTraceCapture(
+        recursiveTraceNode,
+        usageBefore,
+        actorTurnRecords,
+        functionCalls,
+        actorResult
+      );
+      const projectedRecursiveTrace = recursiveCollector?.rootNode
+        ? projectRecursiveTraceForEval(
+            materializeRecursiveTraceNode(recursiveCollector.rootNode)
+          )
+        : undefined;
+      const recursiveStats = projectedRecursiveTrace
+        ? deriveRecursiveStats(projectedRecursiveTrace)
+        : undefined;
+      const recursiveSummary =
+        projectedRecursiveTrace && recursiveStats
+          ? renderRecursiveSummary(projectedRecursiveTrace, recursiveStats)
+          : undefined;
 
       return {
         completionType: 'final',
@@ -2306,10 +3234,15 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         functionCalls,
         toolErrors,
         turnCount,
+        recursiveTrace: projectedRecursiveTrace,
+        recursiveStats,
+        recursiveSummary,
       };
     } finally {
       this.state = savedState ? cloneAgentState(savedState) : undefined;
       this.stateError = savedStateError;
+      this.recursiveEvalContext = savedRecursiveEvalContext;
+      this.currentRecursiveTraceNodeId = savedRecursiveTraceNodeId;
       if (createdBudgetState) {
         this.llmQueryBudgetState = undefined;
       }
@@ -2601,34 +3534,50 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       this.recursionForwardOptions?.promptLevel ?? this.actorPromptLevel;
 
     const createRecursiveSubAgent = () =>
-      new AxAgent<any, { answer: AxFieldValue }>(
-        {
-          agentModuleNamespace: this.agentModuleNamespace,
-          signature: recursiveChildSignature,
-        },
-        {
-          debug,
-          ...rlm,
-          agents: { local: this.agents },
-          functions: {
-            local: this.agentFunctions,
-            discovery: this.functionDiscoveryEnabled,
+      (() => {
+        const recursiveSubAgent = new AxAgent<any, { answer: AxFieldValue }>(
+          {
+            agentModuleNamespace: this.agentModuleNamespace,
+            signature: recursiveChildSignature,
           },
-          contextFields: [],
-          actorFields: undefined,
-          recursionOptions: childRecursionOptions,
-          actorOptions: {
-            ...this.actorForwardOptions,
+          {
+            debug,
+            ...rlm,
+            agents: { local: this.agents },
+            functions: {
+              local: this.agentFunctions,
+              discovery: this.functionDiscoveryEnabled,
+            },
+            contextFields: [],
+            actorFields: undefined,
             promptLevel: childPromptLevel,
-          },
-          responderOptions: this.responderForwardOptions,
-        }
-      );
+            actorModelPolicy: this.options?.actorModelPolicy,
+            recursionOptions: childRecursionOptions,
+            actorOptions: {
+              ...this.actorForwardOptions,
+            },
+            responderOptions: this.responderForwardOptions,
+          }
+        );
+        recursiveSubAgent.recursiveInstructionRoleOverride =
+          childRecursionOptions.maxDepth && childRecursionOptions.maxDepth > 0
+            ? 'recursive'
+            : 'terminal';
+        this._copyRecursiveOptimizationStateTo(recursiveSubAgent);
+        return recursiveSubAgent;
+      })();
 
     const wireRecursiveSubAgent = (
       recursiveSubAgent: AxAgent<any, { answer: AxFieldValue }>
     ) => {
       recursiveSubAgent.llmQueryBudgetState = llmQueryBudgetState;
+      if (this.recursiveEvalContext) {
+        recursiveSubAgent.recursiveEvalContext = {
+          collector: this.recursiveEvalContext.collector,
+          parentNodeId: this.currentRecursiveTraceNodeId,
+          depth: this.recursiveEvalContext.depth + 1,
+        };
+      }
       return recursiveSubAgent;
     };
 
@@ -2719,41 +3668,44 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
           try {
-            const recursiveResult = useAdvancedLlmQuery
-              ? await (() => {
-                  const recursiveSubAgent = wireRecursiveSubAgent(
-                    createRecursiveSubAgent()
-                  );
-                  activeRecursiveSubAgents.add(recursiveSubAgent);
-                  recursiveSubAgent.runtimeBootstrapContext = normalizedCtx;
-                  return recursiveSubAgent
-                    .forward(
-                      ai,
-                      {
-                        task: singleQuery,
-                      },
-                      {
-                        ...(parentForwardOptions as Partial<
-                          Omit<AxProgramForwardOptions<string>, 'functions'>
-                        >),
-                        ...(recursionForwardOptions as Partial<
-                          Omit<AxProgramForwardOptions<string>, 'functions'>
-                        >),
-                        abortSignal,
-                        debug,
-                      }
-                    )
-                    .finally(() => {
-                      activeRecursiveSubAgents.delete(recursiveSubAgent);
-                    });
-                })()
-              : await createSimpleSubAgent().forward(
+            if (!useAdvancedLlmQuery) {
+              const simpleSubAgent = createSimpleSubAgent();
+              const simpleResult = await simpleSubAgent.forward(
+                ai,
+                {
+                  task: singleQuery,
+                  ...(normalizedCtx !== undefined
+                    ? { context: normalizedCtx }
+                    : {}),
+                },
+                {
+                  ...(parentForwardOptions as Partial<
+                    Omit<AxProgramForwardOptions<string>, 'functions'>
+                  >),
+                  ...(recursionForwardOptions as Partial<
+                    Omit<AxProgramForwardOptions<string>, 'functions'>
+                  >),
+                  abortSignal,
+                  debug,
+                }
+              );
+              this._recordEphemeralRecursiveUsage(
+                usageFromProgramUsages(simpleSubAgent.getUsage())
+              );
+              return normalizeSubAgentAnswer(simpleResult.answer);
+            }
+
+            const recursiveResult = await (() => {
+              const recursiveSubAgent = wireRecursiveSubAgent(
+                createRecursiveSubAgent()
+              );
+              activeRecursiveSubAgents.add(recursiveSubAgent);
+              recursiveSubAgent.runtimeBootstrapContext = normalizedCtx;
+              return recursiveSubAgent
+                .forward(
                   ai,
                   {
                     task: singleQuery,
-                    ...(normalizedCtx !== undefined
-                      ? { context: normalizedCtx }
-                      : {}),
                   },
                   {
                     ...(parentForwardOptions as Partial<
@@ -2765,7 +3717,11 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
                     abortSignal,
                     debug,
                   }
-                );
+                )
+                .finally(() => {
+                  activeRecursiveSubAgents.delete(recursiveSubAgent);
+                });
+            })();
             return normalizeSubAgentAnswer(recursiveResult.answer);
           } catch (err) {
             if (
@@ -3170,6 +4126,14 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         ),
         checkpointState: state.checkpointState,
         provenance: { ...(state.provenance ?? {}) },
+        actorModelState: state.actorModelState
+          ? {
+              escalated: state.actorModelState.escalated,
+              escalatedTurns: state.actorModelState.escalatedTurns,
+              stableBelowThresholdTurns:
+                state.actorModelState.stableBelowThresholdTurns,
+            }
+          : undefined,
       };
     };
 
@@ -3475,6 +4439,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     try {
       return await runtimeContext.executeTestCode(code);
     } finally {
+      this.currentRecursiveTraceNodeId = undefined;
       if (createdBudgetState) {
         this.llmQueryBudgetState = undefined;
       }
@@ -3506,6 +4471,142 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   }
 
   public applyOptimization(optimizedProgram: any): void {
+    const artifactSchema = optimizedProgram?.instructionSchema as
+      | string
+      | undefined;
+    const artifactFormatVersion = optimizedProgram?.artifactFormatVersion as
+      | number
+      | undefined;
+
+    if (
+      artifactSchema &&
+      artifactSchema !== AX_AGENT_RECURSIVE_INSTRUCTION_SCHEMA
+    ) {
+      throw new Error(
+        `AxAgent.applyOptimization(): unsupported instruction schema "${artifactSchema}".`
+      );
+    }
+    if (
+      artifactSchema === AX_AGENT_RECURSIVE_INSTRUCTION_SCHEMA &&
+      artifactFormatVersion !== undefined &&
+      artifactFormatVersion !== AX_AGENT_RECURSIVE_ARTIFACT_FORMAT_VERSION
+    ) {
+      throw new Error(
+        `AxAgent.applyOptimization(): unsupported recursive artifact format version "${String(artifactFormatVersion)}".`
+      );
+    }
+
+    const instructionMap = (optimizedProgram?.instructionMap ?? {}) as Record<
+      string,
+      string | undefined
+    >;
+    const hasRecursiveSlotKeys = [
+      AX_AGENT_RECURSIVE_TARGET_IDS.shared,
+      AX_AGENT_RECURSIVE_TARGET_IDS.root,
+      AX_AGENT_RECURSIVE_TARGET_IDS.recursive,
+      AX_AGENT_RECURSIVE_TARGET_IDS.terminal,
+    ].some((id) => typeof instructionMap[id] === 'string');
+
+    if (artifactSchema === AX_AGENT_RECURSIVE_INSTRUCTION_SCHEMA) {
+      if (!this._supportsRecursiveActorSlotOptimization()) {
+        throw new Error(
+          'AxAgent.applyOptimization(): recursive-slot artifacts require mode "advanced" with recursion enabled.'
+        );
+      }
+
+      if (optimizedProgram?.demos || optimizedProgram?.modelConfig) {
+        this.program.setDemos(optimizedProgram.demos ?? [], {
+          modelConfig: optimizedProgram.modelConfig,
+        });
+      }
+
+      this.recursiveInstructionSlots = createRecursiveSlotSeedInstructions(
+        this.actorDescription
+      );
+      for (const slotId of [
+        AX_AGENT_RECURSIVE_TARGET_IDS.shared,
+        AX_AGENT_RECURSIVE_TARGET_IDS.root,
+        AX_AGENT_RECURSIVE_TARGET_IDS.recursive,
+        AX_AGENT_RECURSIVE_TARGET_IDS.terminal,
+      ] as const) {
+        if (typeof instructionMap[slotId] === 'string') {
+          this.recursiveInstructionSlots[slotId] = instructionMap[slotId] ?? '';
+        }
+      }
+      this._applyRecursiveActorInstruction();
+
+      const responderInstruction =
+        instructionMap[AX_AGENT_RECURSIVE_TARGET_IDS.responder];
+      if (typeof responderInstruction === 'string') {
+        this.responderProgram.setInstruction(responderInstruction);
+      }
+      return;
+    }
+
+    if (
+      this._supportsRecursiveActorSlotOptimization() &&
+      !hasRecursiveSlotKeys
+    ) {
+      if (optimizedProgram?.demos || optimizedProgram?.modelConfig) {
+        this.program.setDemos(optimizedProgram.demos ?? [], {
+          modelConfig: optimizedProgram.modelConfig,
+        });
+      }
+
+      this.recursiveInstructionSlots = createRecursiveSlotSeedInstructions(
+        this.actorDescription
+      );
+      const legacyActorInstruction =
+        instructionMap['root.actor'] ?? optimizedProgram?.instruction;
+      if (typeof legacyActorInstruction === 'string') {
+        this.recursiveInstructionSlots[AX_AGENT_RECURSIVE_TARGET_IDS.shared] =
+          legacyActorInstruction;
+      }
+      this._applyRecursiveActorInstruction();
+
+      const legacyResponderInstruction = instructionMap['root.responder'];
+      if (typeof legacyResponderInstruction === 'string') {
+        this.responderProgram.setInstruction(legacyResponderInstruction);
+      } else if (typeof optimizedProgram?.instruction === 'string') {
+        this.responderProgram.setInstruction(optimizedProgram.instruction);
+      }
+      return;
+    }
+
+    if (hasRecursiveSlotKeys) {
+      if (!this._supportsRecursiveActorSlotOptimization()) {
+        throw new Error(
+          'AxAgent.applyOptimization(): recursive-slot instruction maps require mode "advanced" with recursion enabled.'
+        );
+      }
+
+      this.recursiveInstructionSlots = createRecursiveSlotSeedInstructions(
+        this.actorDescription
+      );
+      for (const slotId of [
+        AX_AGENT_RECURSIVE_TARGET_IDS.shared,
+        AX_AGENT_RECURSIVE_TARGET_IDS.root,
+        AX_AGENT_RECURSIVE_TARGET_IDS.recursive,
+        AX_AGENT_RECURSIVE_TARGET_IDS.terminal,
+      ] as const) {
+        if (typeof instructionMap[slotId] === 'string') {
+          this.recursiveInstructionSlots[slotId] = instructionMap[slotId] ?? '';
+        }
+      }
+      this._applyRecursiveActorInstruction();
+      const responderInstruction =
+        instructionMap[AX_AGENT_RECURSIVE_TARGET_IDS.responder];
+      if (typeof responderInstruction === 'string') {
+        this.responderProgram.setInstruction(responderInstruction);
+      }
+      if (optimizedProgram?.demos || optimizedProgram?.modelConfig) {
+        this.program.setDemos(optimizedProgram.demos ?? [], {
+          modelConfig: optimizedProgram.modelConfig,
+        });
+      }
+      return;
+    }
+
     (this.program as any).applyOptimization?.(optimizedProgram);
   }
 
@@ -3520,7 +4621,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     values: IN | AxMessage<IN>[],
     options: Readonly<AxProgramForwardOptions<string>> | undefined,
     effectiveAbortSignal: AbortSignal | undefined,
-    functionCallRecords?: AxAgentEvalFunctionCall[]
+    functionCallRecords?: AxAgentEvalFunctionCall[],
+    actorTurnRecords?: AxAgentRecursiveTurn[]
   ): Promise<{
     nonContextValues: Record<string, unknown>;
     contextMetadata: string;
@@ -3611,7 +4713,16 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       this.functionDiscoveryEnabled &&
       runtimeContext.effectiveContextConfig.pruneUsedDocs;
     let checkpointState: CheckpointSummaryState | undefined;
+    let actorModelState: AxAgentStateActorModelState | undefined;
     let restoreNotice: string | undefined;
+    const checkpointReplayMode =
+      runtimeContext.effectiveContextConfig.actionReplay === 'checkpointed'
+        ? 'minimal'
+        : runtimeContext.effectiveContextConfig.actionReplay;
+    const checkpointThresholdReplayMode =
+      runtimeContext.effectiveContextConfig.actionReplay === 'checkpointed'
+        ? 'full'
+        : runtimeContext.effectiveContextConfig.actionReplay;
 
     const getPromptFacingEntries = () =>
       getPromptFacingActionLogEntries(actionLogEntries, {
@@ -3636,8 +4747,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         return;
       }
 
-      const replayPlan = buildActionLogReplayPlan(actionLogEntries, {
-        actionReplay: runtimeContext.effectiveContextConfig.actionReplay,
+      const thresholdReplayPlan = buildActionLogReplayPlan(actionLogEntries, {
+        actionReplay: checkpointThresholdReplayMode,
         recentFullActions:
           runtimeContext.effectiveContextConfig.recentFullActions,
         pruneUsedDocs: shouldPruneUsedDocs,
@@ -3645,12 +4756,18 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
       const triggerChars =
         runtimeContext.effectiveContextConfig.checkpoints.triggerChars;
-      if (!triggerChars || replayPlan.historyChars <= triggerChars) {
+      if (!triggerChars || thresholdReplayPlan.historyChars <= triggerChars) {
         checkpointState = undefined;
         return;
       }
 
-      const checkpointEntries = replayPlan.checkpointEntries;
+      const checkpointReplayPlan = buildActionLogReplayPlan(actionLogEntries, {
+        actionReplay: checkpointReplayMode,
+        recentFullActions:
+          runtimeContext.effectiveContextConfig.recentFullActions,
+        pruneUsedDocs: shouldPruneUsedDocs,
+      });
+      const checkpointEntries = checkpointReplayPlan.checkpointEntries;
       if (checkpointEntries.length === 0) {
         checkpointState = undefined;
         return;
@@ -3696,6 +4813,14 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
               fingerprint: restoredState.checkpointState.fingerprint,
               turns: [...restoredState.checkpointState.turns],
               summary: restoredState.checkpointState.summary,
+            }
+          : undefined;
+        actorModelState = restoredState.actorModelState
+          ? {
+              escalated: restoredState.actorModelState.escalated,
+              escalatedTurns: restoredState.actorModelState.escalatedTurns,
+              stableBelowThresholdTurns:
+                restoredState.actorModelState.stableBelowThresholdTurns,
             }
           : undefined;
         const restoredProvenance = mergeRuntimeStateProvenance(
@@ -3757,6 +4882,37 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
             '\n\n[HINT: Action log is large. Call `const state = await inspect_runtime()` for a compact snapshot of current variables instead of re-reading old outputs.]';
         }
 
+        let actorCallOptions = actorMergedOptions;
+        if (this.actorModelPolicy) {
+          const actorDefinitionLength =
+            this.actorProgram.getSignature().getDescription()?.length ?? 0;
+          const promptFacingChars =
+            actorDefinitionLength +
+            inputState.getContextMetadata().length +
+            actionLogText.length;
+          const evaluation = evaluateActorModelPolicy(
+            this.actorModelPolicy,
+            actionLogEntries,
+            promptFacingChars,
+            Boolean(checkpointState?.summary)
+          );
+          actorModelState = updateActorModelState(
+            actorModelState,
+            this.actorModelPolicy,
+            evaluation
+          );
+          const selectedModel = actorModelState.escalated
+            ? this.actorModelPolicy.escalatedModel
+            : (this.actorModelPolicy.baseModel ?? actorMergedOptions.model);
+          actorCallOptions =
+            selectedModel !== undefined
+              ? {
+                  ...actorMergedOptions,
+                  model: selectedModel,
+                }
+              : { ...actorMergedOptions };
+        }
+
         const actorResult = await this.actorProgram.forward(
           ai,
           {
@@ -3765,7 +4921,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
             contextMetadata: inputState.getContextMetadata(),
             actionLog: actionLogText,
           },
-          actorMergedOptions
+          actorCallOptions
         );
 
         if (turn === 0) {
@@ -3810,6 +4966,16 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
               output: policyViolation,
               actorFieldsOutput,
               tags: ['error'],
+            });
+            actorTurnRecords?.push({
+              turn: entryTurn,
+              code,
+              output: policyViolation,
+              isError: true,
+              thought:
+                typeof actorResult.thought === 'string'
+                  ? actorResult.thought
+                  : undefined,
             });
 
             if (rlm.actorTurnCallback) {
@@ -3856,6 +5022,19 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
             err instanceof AxAgentClarificationError ||
             err instanceof AxAIServiceAbortedError
           ) {
+            actorTurnRecords?.push({
+              turn: actionLogEntries.length + 1,
+              code,
+              output: formatBubbledActorTurnOutput(
+                err,
+                rlm.maxRuntimeChars ?? DEFAULT_RLM_MAX_RUNTIME_CHARS
+              ),
+              isError: err instanceof AxAIServiceAbortedError,
+              thought:
+                typeof actorResult.thought === 'string'
+                  ? actorResult.thought
+                  : undefined,
+            });
             if (rlm.actorTurnCallback) {
               await rlm.actorTurnCallback({
                 turn: actionLogEntries.length + 1,
@@ -3884,6 +5063,16 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           output,
           actorFieldsOutput,
           tags: isError ? ['error'] : [],
+        });
+        actorTurnRecords?.push({
+          turn: entryTurn,
+          code,
+          output,
+          isError,
+          thought:
+            typeof actorResult.thought === 'string'
+              ? actorResult.thought
+              : undefined,
         });
 
         if (rlm.actorTurnCallback) {
@@ -3927,6 +5116,14 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
               fingerprint: checkpointState.fingerprint,
               turns: [...checkpointState.turns],
               summary: checkpointState.summary,
+            }
+          : undefined;
+        nextState.actorModelState = actorModelState
+          ? {
+              escalated: actorModelState.escalated,
+              escalatedTurns: actorModelState.escalatedTurns,
+              stableBelowThresholdTurns:
+                actorModelState.stableBelowThresholdTurns,
             }
           : undefined;
         this.state = nextState;
@@ -3991,11 +5188,29 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
       const debug =
         options?.debug ?? this.debug ?? ai?.getOptions()?.debug ?? false;
+      const functionCallRecords: AxAgentEvalFunctionCall[] = [];
+      const actorTurnRecords: AxAgentRecursiveTurn[] = [];
+      const { node: recursiveTraceNode, usageBefore } =
+        this._beginRecursiveTraceCapture(values);
 
       const { nonContextValues, actorResult, actorFieldValues } =
-        await this._runActorLoop(ai, values, options, effectiveAbortSignal);
+        await this._runActorLoop(
+          ai,
+          values,
+          options,
+          effectiveAbortSignal,
+          functionCallRecords,
+          actorTurnRecords
+        );
 
       if (actorResult.type === 'ask_clarification') {
+        this._finalizeRecursiveTraceCapture(
+          recursiveTraceNode,
+          usageBefore,
+          actorTurnRecords,
+          functionCallRecords,
+          actorResult
+        );
         throw new AxAgentClarificationError(
           actorResult.args[0] as AxAgentClarification,
           {
@@ -4021,6 +5236,13 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           contextData: actorResult,
         },
         responderMergedOptions
+      );
+      this._finalizeRecursiveTraceCapture(
+        recursiveTraceNode,
+        usageBefore,
+        actorTurnRecords,
+        functionCallRecords,
+        actorResult
       );
 
       return { ...responderResult, ...actorFieldValues } as OUT;
@@ -4112,7 +5334,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
    * named ({ key: val }) and positional (val1, val2) argument styles.
    */
   private static wrapFunction(
-    fn: AxFunction,
+    fn: AxFunction | AxAgentFunction,
     abortSignal?: AbortSignal,
     ai?: AxAIService,
     protocol?: AxAgentCompletionProtocol,
@@ -4167,7 +5389,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
    * Shared field values are merged into call args (caller-provided args take precedence).
    */
   private static wrapFunctionWithSharedFields(
-    fn: AxFunction,
+    fn: AxFunction | AxAgentFunction,
     abortSignal?: AbortSignal,
     sharedFieldValues?:
       | Record<string, unknown>
@@ -5633,112 +6855,6 @@ function validateActorTurnCodePolicy(code: string): string | undefined {
   return undefined;
 }
 
-function stripJsStringsAndComments(code: string): string {
-  let out = '';
-  let i = 0;
-  let state:
-    | 'normal'
-    | 'single'
-    | 'double'
-    | 'template'
-    | 'lineComment'
-    | 'blockComment' = 'normal';
-  let escaped = false;
-
-  while (i < code.length) {
-    const ch = code[i] ?? '';
-    const next = code[i + 1] ?? '';
-
-    if (state === 'lineComment') {
-      if (ch === '\n') {
-        out += '\n';
-        state = 'normal';
-      } else {
-        out += ' ';
-      }
-      i++;
-      continue;
-    }
-
-    if (state === 'blockComment') {
-      if (ch === '*' && next === '/') {
-        out += '  ';
-        i += 2;
-        state = 'normal';
-      } else {
-        out += ch === '\n' ? '\n' : ' ';
-        i++;
-      }
-      continue;
-    }
-
-    if (state === 'single' || state === 'double' || state === 'template') {
-      const quote = state === 'single' ? "'" : state === 'double' ? '"' : '`';
-      if (escaped) {
-        out += ch === '\n' ? '\n' : ' ';
-        escaped = false;
-        i++;
-        continue;
-      }
-      if (ch === '\\') {
-        out += ' ';
-        escaped = true;
-        i++;
-        continue;
-      }
-      if (ch === quote) {
-        out += ' ';
-        state = 'normal';
-        i++;
-        continue;
-      }
-      out += ch === '\n' ? '\n' : ' ';
-      i++;
-      continue;
-    }
-
-    if (ch === '/' && next === '/') {
-      out += '  ';
-      i += 2;
-      state = 'lineComment';
-      continue;
-    }
-
-    if (ch === '/' && next === '*') {
-      out += '  ';
-      i += 2;
-      state = 'blockComment';
-      continue;
-    }
-
-    if (ch === "'") {
-      out += ' ';
-      i++;
-      state = 'single';
-      continue;
-    }
-
-    if (ch === '"') {
-      out += ' ';
-      i++;
-      state = 'double';
-      continue;
-    }
-
-    if (ch === '`') {
-      out += ' ';
-      i++;
-      state = 'template';
-      continue;
-    }
-
-    out += ch;
-    i++;
-  }
-
-  return out;
-}
-
 function findConsoleLogCalls(
   sanitizedCode: string
 ): Array<{ closeParenIndex?: number }> {
@@ -5814,7 +6930,7 @@ function stripSchemaProperties(
 type DiscoveryCallableMeta = {
   module: string;
   name: string;
-  description: string;
+  description?: string;
   parameters?: AxFunctionJSONSchema;
   returns?: AxFunctionJSONSchema;
   examples?: readonly AxAgentFunctionExample[];
@@ -5875,8 +6991,8 @@ function normalizeAgentFunctionCollection(
   for (const group of collection as readonly AxAgentFunctionGroup[]) {
     const namespace = group.namespace.trim();
     const title = group.title.trim();
-    const selectionCriteria = group.selectionCriteria.trim();
-    const description = group.description.trim();
+    const selectionCriteria = group.selectionCriteria?.trim() || undefined;
+    const description = group.description?.trim() || undefined;
 
     if (!namespace) {
       throw new Error(
@@ -5886,16 +7002,6 @@ function normalizeAgentFunctionCollection(
     if (!title) {
       throw new Error(
         `Agent function group "${namespace}" must define a non-empty title`
-      );
-    }
-    if (!selectionCriteria) {
-      throw new Error(
-        `Agent function group "${namespace}" must define a non-empty selectionCriteria`
-      );
-    }
-    if (!description) {
-      throw new Error(
-        `Agent function group "${namespace}" must define a non-empty description`
       );
     }
     if (reservedNames.has(namespace)) {
@@ -6198,7 +7304,9 @@ function renderDiscoveryModuleListMarkdown(
       const parts = [`### Module \`${module}\``];
       if (meta) {
         parts.push(`**${meta.title}**`);
-        parts.push(meta.description);
+        if (meta.description) {
+          parts.push(meta.description);
+        }
       }
       parts.push(body);
       return parts.join('\n');

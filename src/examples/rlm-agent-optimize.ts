@@ -4,8 +4,8 @@ import {
   type AxAgentEvalTask,
   type AxAgentFunction,
   AxAIGoogleGeminiModel,
+  AxGen,
   AxJSRuntime,
-  AxJudge,
   type AxOptimizationProgress,
   type AxOptimizationStats,
   AxOptimizedProgramImpl,
@@ -200,26 +200,19 @@ const showcaseTask: AxAgentEvalTask<OfficeInput> = {
   forbiddenActions: ['email.saveDraft'],
 };
 
-const comparisonJudge = new AxJudge(
+const comparisonGen = new AxGen(
   s(`
     task:string "Office assistant task to complete",
-    criteria:string "Success criteria for the task"
+    criteria:string "Success criteria for the task",
+    candidateRun:json "Candidate run snapshot to review",
+    baselineRun:json "Baseline run snapshot to compare against"
     ->
-    answer:string "Final user-facing answer",
-    functionCalls:json "Normalized function call trace",
-    sentEmails:json "Emails that were sent",
-    drafts:json "Drafts that were saved",
-    calendarEvents:json "Calendar state after the run",
-    toolErrors:string[] "Tool errors raised during the run"
-  `),
-  {
-    ai: teacherAI,
-    model: AxAIGoogleGeminiModel.Gemini3Pro,
-    modelConfig: { temperature: 0.2 },
-    description:
-      'Prefer runs that actually completed the office task through correct tools and side effects. Heavily penalize wrong recipients, missing project details, skipped scheduling, or claiming an action that was not performed.',
-    randomizeOrder: true,
-  }
+    reasoning:string "Short explanation of which run is better",
+    winner:class "candidate, baseline, tie" "Which run is better overall"
+  `)
+);
+comparisonGen.setInstruction(
+  'Prefer runs that actually completed the office task through correct tools and side effects. Heavily penalize wrong recipients, missing project details, skipped scheduling, or claiming an action that was not performed.'
 );
 
 function pad(value: number) {
@@ -803,18 +796,23 @@ printRun(
   optimizedEnv
 );
 
-const comparison = await comparisonJudge.evaluate(
+const comparison = await comparisonGen.forward(
+  teacherAI,
   {
     task: showcaseTask.input.query,
     criteria: showcaseTask.criteria,
+    candidateRun: buildRunSnapshot(optimizedRun.answer, optimizedEnv),
+    baselineRun: buildRunSnapshot(baselineRun.answer, baselineEnv),
   },
-  buildRunSnapshot(optimizedRun.answer, optimizedEnv),
-  buildRunSnapshot(baselineRun.answer, baselineEnv)
+  {
+    model: AxAIGoogleGeminiModel.Gemini3Pro,
+    modelConfig: { temperature: 0.2 },
+    maxSteps: 1,
+  }
 );
 
 console.log('\nJudge comparison on the held-out task:');
-console.log(`Winner: ${comparison.winner ?? comparison.qualityTier ?? 'n/a'}`);
-console.log(`Score: ${comparison.score.toFixed(3)}`);
+console.log(`Winner: ${comparison.winner}`);
 console.log(comparison.reasoning);
 
 const replayEnv = createOfficeEnvironment();

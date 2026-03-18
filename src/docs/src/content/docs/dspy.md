@@ -244,6 +244,7 @@ Streaming works with assertions and validation — Ax validates fields as they c
 - [Signatures Guide](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-signature.md) — Full field type reference
 - [AxGen Guide](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-gen.md) — Generation options, retries, hooks
 - [AxAgent Guide](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-agent.md) — Autonomous agents with ReAct loops
+- [AxAgent Optimize](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-agent-optimize.md) — Agent tuning, judges, and reusable optimization artifacts
 - [Optimization Guide](/optimize/) — MiPRO, GEPA, and ACE optimizers
 - [Telemetry](/telemetry/) — OpenTelemetry tracing and metrics
 - [Try it live](/playground) — DSPy Notebook playground

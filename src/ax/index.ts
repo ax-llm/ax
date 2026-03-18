@@ -502,14 +502,10 @@ import {
   type AxStreamingEvent,
 } from './dsp/generate.js';
 import { type AxFunctionResultFormatter, axGlobals } from './dsp/globals.js';
-import {
-  AxJudge,
-  type AxJudgeForwardOptions,
-  type AxJudgeMode,
-  type AxJudgeOptions,
-  type AxJudgeResult,
-  type AxJudgeRubric,
-} from './dsp/judge.js';
+import type {
+  AxJudgeForwardOptions,
+  AxJudgeOptions,
+} from './dsp/judgeTypes.js';
 import {
   AxLearn,
   type AxLearnArtifact,
@@ -754,6 +750,7 @@ import type {
   AxMemoryMessageValue,
 } from './mem/types.js';
 import {
+  type AxActorModelPolicy,
   type AxActorPromptLevel,
   AxAgent,
   type AxAgentClarification,
@@ -779,6 +776,7 @@ import {
   type AxAgentRecursionOptions,
   type AxAgentState,
   type AxAgentStateActionLogEntry,
+  type AxAgentStateActorModelState,
   type AxAgentStateCheckpointState,
   type AxAgentStateRuntimeEntry,
   type AxAgentStructuredClarification,
@@ -788,6 +786,16 @@ import {
   type AxContextFieldInput,
   agent,
 } from './prompts/agent.js';
+import type {
+  AxAgentRecursiveExpensiveNode,
+  AxAgentRecursiveFunctionCall,
+  AxAgentRecursiveNodeRole,
+  AxAgentRecursiveStats,
+  AxAgentRecursiveTargetId,
+  AxAgentRecursiveTraceNode,
+  AxAgentRecursiveTurn,
+  AxAgentRecursiveUsage,
+} from './prompts/agentRecursiveOptimize.js';
 import { axRAG } from './prompts/rag.js';
 import {
   type AxCodeInterpreter,
@@ -919,7 +927,6 @@ export { AxHFDataLoader };
 export { AxInstanceRegistry };
 export { AxJSRuntime };
 export { AxJSRuntimePermission };
-export { AxJudge };
 export { AxLLMRequestTypeValues };
 export { AxLearn };
 export { AxMCPClient };
@@ -1252,6 +1259,7 @@ export type { AxAIWebLLMEmbedRequest };
 export type { AxAIWebLLMEmbedResponse };
 export type { AxAPI };
 export type { AxAPIConfig };
+export type { AxActorModelPolicy };
 export type { AxActorPromptLevel };
 export type { AxAgentClarification };
 export type { AxAgentClarificationChoice };
@@ -1273,8 +1281,17 @@ export type { AxAgentOptimizeResult };
 export type { AxAgentOptimizeTarget };
 export type { AxAgentOptions };
 export type { AxAgentRecursionOptions };
+export type { AxAgentRecursiveExpensiveNode };
+export type { AxAgentRecursiveFunctionCall };
+export type { AxAgentRecursiveNodeRole };
+export type { AxAgentRecursiveStats };
+export type { AxAgentRecursiveTargetId };
+export type { AxAgentRecursiveTraceNode };
+export type { AxAgentRecursiveTurn };
+export type { AxAgentRecursiveUsage };
 export type { AxAgentState };
 export type { AxAgentStateActionLogEntry };
+export type { AxAgentStateActorModelState };
 export type { AxAgentStateCheckpointState };
 export type { AxAgentStateRuntimeEntry };
 export type { AxAgentStructuredClarification };
@@ -1398,10 +1415,7 @@ export type { AxInternalChatRequest };
 export type { AxInternalEmbedRequest };
 export type { AxJSRuntimeOutputMode };
 export type { AxJudgeForwardOptions };
-export type { AxJudgeMode };
 export type { AxJudgeOptions };
-export type { AxJudgeResult };
-export type { AxJudgeRubric };
 export type { AxLearnArtifact };
 export type { AxLearnCheckpointMode };
 export type { AxLearnCheckpointState };
