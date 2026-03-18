@@ -1,5 +1,16 @@
 # Changelog
 
+## [19.0.21](///compare/19.0.19...19.0.20) (2026-03-18)
+
+### Features
+
+* redesign of axagent advanced mode (true recursion) e8c075e
+## [19.0.20](///compare/19.0.19...19.0.20) (2026-03-17)
+
+### Features
+
+* better agent prompt, more contex policy presets and new callbacks 7a36501
+
 ## [19.0.20](///compare/19.0.18...19.0.19) (2026-03-17)
 
 ### Features
