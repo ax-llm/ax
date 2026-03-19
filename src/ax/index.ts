@@ -754,6 +754,7 @@ import {
   type AxActorModelPolicyEntry,
   type AxActorPromptLevel,
   AxAgent,
+  type AxAgentActorResultPayload,
   type AxAgentClarification,
   type AxAgentClarificationChoice,
   AxAgentClarificationError,
@@ -765,16 +766,24 @@ import {
   type AxAgentEvalPrediction,
   type AxAgentEvalTask,
   type AxAgentFunction,
+  type AxAgentFunctionCollection,
   type AxAgentFunctionExample,
   type AxAgentFunctionGroup,
+  type AxAgentFunctionModuleMeta,
+  type AxAgentIdentity,
   type AxAgentInputUpdateCallback,
   type AxAgentic,
+  type AxAgentJudgeEvalInput,
+  type AxAgentJudgeEvalOutput,
+  type AxAgentJudgeInput,
   type AxAgentJudgeOptions,
+  type AxAgentJudgeOutput,
   type AxAgentOptimizeOptions,
   type AxAgentOptimizeResult,
   type AxAgentOptimizeTarget,
   type AxAgentOptions,
   type AxAgentRecursionOptions,
+  type AxAgentRuntimeExecutionContext,
   type AxAgentState,
   type AxAgentStateActionLogEntry,
   type AxAgentStateActorModelState,
@@ -784,9 +793,16 @@ import {
   type AxAgentTestCompletionPayload,
   type AxAgentTestResult,
   type AxAgentTurnCallbackArgs,
+  type AxAnyAgentic,
   type AxContextFieldInput,
+  type AxContextFieldPromptConfig,
+  type AxNormalizedAgentEvalDataset,
+  type AxPreparedRestoredState,
+  type AxResolvedActorModelPolicy,
+  type AxResolvedActorModelPolicyEntry,
+  type AxResolvedContextPolicy,
   agent,
-} from './prompts/agent.js';
+} from './prompts/agent/AxAgent.js';
 import type {
   AxAgentRecursiveExpensiveNode,
   AxAgentRecursiveFunctionCall,
@@ -796,8 +812,8 @@ import type {
   AxAgentRecursiveTraceNode,
   AxAgentRecursiveTurn,
   AxAgentRecursiveUsage,
-} from './prompts/agentRecursiveOptimize.js';
-import { axRAG } from './prompts/rag.js';
+} from './prompts/agent/agentRecursiveOptimize.js';
+import { AxAgentProtocolCompletionSignal } from './prompts/agent/completion.js';
 import {
   type AxCodeInterpreter,
   type AxCodeRuntime,
@@ -809,7 +825,8 @@ import {
   type AxRLMConfig,
   axBuildActorDefinition,
   axBuildResponderDefinition,
-} from './prompts/rlm.js';
+} from './prompts/agent/rlm.js';
+import { axRAG } from './prompts/rag.js';
 import { AxTraceLogger, type AxTraceLoggerOptions } from './trace/logger.js';
 import {
   AxLLMRequestTypeValues,
@@ -894,6 +911,7 @@ export { AxAIWebLLM };
 export { AxAIWebLLMModel };
 export { AxAgent };
 export { AxAgentClarificationError };
+export { AxAgentProtocolCompletionSignal };
 export { AxApacheTika };
 export { AxAssertionError };
 export { AxBalancer };
@@ -1263,6 +1281,7 @@ export type { AxAPIConfig };
 export type { AxActorModelPolicy };
 export type { AxActorModelPolicyEntry };
 export type { AxActorPromptLevel };
+export type { AxAgentActorResultPayload };
 export type { AxAgentClarification };
 export type { AxAgentClarificationChoice };
 export type { AxAgentClarificationKind };
@@ -1274,10 +1293,17 @@ export type { AxAgentEvalFunctionCall };
 export type { AxAgentEvalPrediction };
 export type { AxAgentEvalTask };
 export type { AxAgentFunction };
+export type { AxAgentFunctionCollection };
 export type { AxAgentFunctionExample };
 export type { AxAgentFunctionGroup };
+export type { AxAgentFunctionModuleMeta };
+export type { AxAgentIdentity };
 export type { AxAgentInputUpdateCallback };
+export type { AxAgentJudgeEvalInput };
+export type { AxAgentJudgeEvalOutput };
+export type { AxAgentJudgeInput };
 export type { AxAgentJudgeOptions };
+export type { AxAgentJudgeOutput };
 export type { AxAgentOptimizeOptions };
 export type { AxAgentOptimizeResult };
 export type { AxAgentOptimizeTarget };
@@ -1291,6 +1317,7 @@ export type { AxAgentRecursiveTargetId };
 export type { AxAgentRecursiveTraceNode };
 export type { AxAgentRecursiveTurn };
 export type { AxAgentRecursiveUsage };
+export type { AxAgentRuntimeExecutionContext };
 export type { AxAgentState };
 export type { AxAgentStateActionLogEntry };
 export type { AxAgentStateActorModelState };
@@ -1301,6 +1328,7 @@ export type { AxAgentTestCompletionPayload };
 export type { AxAgentTestResult };
 export type { AxAgentTurnCallbackArgs };
 export type { AxAgentic };
+export type { AxAnyAgentic };
 export type { AxApacheTikaArgs };
 export type { AxApacheTikaConvertOptions };
 export type { AxAssertion };
@@ -1328,6 +1356,7 @@ export type { AxContextCacheOptions };
 export type { AxContextCacheRegistry };
 export type { AxContextCacheRegistryEntry };
 export type { AxContextFieldInput };
+export type { AxContextFieldPromptConfig };
 export type { AxContextPolicyConfig };
 export type { AxContextPolicyPreset };
 export type { AxCostTracker };
@@ -1478,6 +1507,7 @@ export type { AxModelUsage };
 export type { AxMultiMetricFn };
 export type { AxMultiProviderConfig };
 export type { AxNamedProgramInstance };
+export type { AxNormalizedAgentEvalDataset };
 export type { AxOptimizationCheckpoint };
 export type { AxOptimizationProgress };
 export type { AxOptimizationStats };
@@ -1491,6 +1521,7 @@ export type { AxOptimizerMetricsInstruments };
 export type { AxOptimizerResult };
 export type { AxParetoResult };
 export type { AxPreparedChatRequest };
+export type { AxPreparedRestoredState };
 export type { AxProgramDemos };
 export type { AxProgramExamples };
 export type { AxProgramForwardOptions };
@@ -1507,6 +1538,9 @@ export type { AxRateLimiterFunction };
 export type { AxRateLimiterTokenUsageOptions };
 export type { AxRerankerIn };
 export type { AxRerankerOut };
+export type { AxResolvedActorModelPolicy };
+export type { AxResolvedActorModelPolicyEntry };
+export type { AxResolvedContextPolicy };
 export type { AxResponseHandlerArgs };
 export type { AxResultPickerFunction };
 export type { AxResultPickerFunctionFieldResults };

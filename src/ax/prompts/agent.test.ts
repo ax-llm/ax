@@ -14387,11 +14387,16 @@ describe('AxFunction', () => {
     expect(moduleMarkdown).toContain('- `childAgent`');
     expect(moduleMarkdown).toContain('### Module `db`');
     expect(moduleMarkdown).toContain('**Scheduling Database**');
+    expect(moduleMarkdown).toContain('- `search`');
+    expect(moduleMarkdown).toContain('- `resolveWindow`');
     expect(moduleMarkdown).toContain(
       'Database accessors for schedule lookups and availability.'
     );
-    expect(moduleMarkdown).toContain('- `search`');
-    expect(moduleMarkdown).toContain('- `resolveWindow`');
+    expect(moduleMarkdown.indexOf('- `search`')).toBeLessThan(
+      moduleMarkdown.indexOf(
+        'Database accessors for schedule lookups and availability.'
+      )
+    );
     expect(moduleMarkdown).toContain('### Module `missing`');
     expect(moduleMarkdown).toContain(
       '- Error: module `missing` does not exist.'
