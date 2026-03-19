@@ -11,6 +11,7 @@ import {
 
 import { validateAxMessageArray } from '../ai/base.js';
 import { logResultPickerUsed } from '../ai/debug.js';
+import { countChatPromptContentChars } from '../ai/promptMetrics.js';
 import type {
   AxAIService,
   AxChatRequest,
@@ -81,7 +82,7 @@ import type { AxSelfTuningConfig } from './types.js';
 import { AxProgram } from './program.js';
 import { AxPromptTemplate } from './prompt.js';
 import { selectFromSamples, selectFromSamplesInMemory } from './samples.js';
-import type { AxIField, AxSignature, AxSignatureConfig } from './sig.js';
+import { type AxIField, AxSignature, type AxSignatureConfig } from './sig.js';
 import { AxStepContextImpl } from './stepContext.js';
 import { SignatureToolCallingManager } from './signatureToolCalling.js';
 import type {
@@ -216,6 +217,107 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
   public getInstruction(): string | undefined {
     return this.promptTemplate.getInstruction();
+  }
+
+  private async renderPromptForInternalUse(
+    ai: Readonly<AxAIService>,
+    values: IN | AxMessage<IN>[],
+    options?: Readonly<Partial<Omit<AxProgramForwardOptions<any>, 'functions'>>>
+  ): Promise<AxChatRequest['chatPrompt']> {
+    const promptTemplateClass =
+      options?.promptTemplate ??
+      this.options?.promptTemplate ??
+      AxPromptTemplate;
+    const mutableFunctions = [...this.functions];
+    const functionCallMode =
+      options?.functionCallMode ?? this.options?.functionCallMode ?? 'auto';
+    const hasFunctions = mutableFunctions.length > 0;
+    let signatureToolCallingManager: SignatureToolCallingManager | undefined;
+
+    if (hasFunctions && functionCallMode === 'prompt') {
+      signatureToolCallingManager = new SignatureToolCallingManager(
+        mutableFunctions
+      );
+    }
+
+    if (
+      hasFunctions &&
+      functionCallMode === 'auto' &&
+      !ai.getFeatures(options?.model).functions
+    ) {
+      signatureToolCallingManager = new SignatureToolCallingManager(
+        mutableFunctions
+      );
+    }
+
+    let signature = new AxSignature(this.signature);
+    if (signatureToolCallingManager) {
+      signature = signatureToolCallingManager.processSignature(signature);
+    }
+
+    const hasComplexFields = signature.hasComplexFields();
+    const features = ai.getFeatures?.(options?.model);
+    const structuredOutputMode =
+      options?.structuredOutputMode ??
+      this.options?.structuredOutputMode ??
+      'auto';
+    const structuredOutputFunctionFallback =
+      hasComplexFields &&
+      (structuredOutputMode === 'function' ||
+        (structuredOutputMode === 'auto' && !features?.structuredOutputs));
+    const providerIgnoreBreakpoints =
+      ai.getFeatures?.(options?.model)?.caching?.cacheBreakpoints === false;
+    const promptTemplate = new promptTemplateClass(signature, {
+      functions: signatureToolCallingManager ? [] : mutableFunctions,
+      thoughtFieldName: this.thoughtFieldName,
+      contextCache: options?.contextCache,
+      examplesInSystem: options?.examplesInSystem,
+      ignoreBreakpoints: providerIgnoreBreakpoints,
+      structuredOutputFunctionName: structuredOutputFunctionFallback
+        ? STRUCTURED_OUTPUT_FUNCTION_NAME
+        : undefined,
+    });
+    const instruction = this.getInstruction();
+    if (instruction !== undefined) {
+      promptTemplate.setInstruction(instruction);
+    }
+
+    if (Array.isArray(values)) {
+      validateAxMessageArray<IN>(values as AxMessage<IN>[]);
+    }
+
+    const prompt = promptTemplate.render(values as any, {
+      examples: this.examples as any,
+      demos: this.demos as any,
+    });
+
+    const mem = options?.mem ?? this.options?.mem;
+    if (!mem) {
+      return prompt;
+    }
+
+    const selectedIndex = await selectFromSamplesInMemory(
+      mem,
+      options?.sessionId,
+      {
+        resultPicker: options?.resultPicker as
+          | AxResultPickerFunction<OUT>
+          | undefined,
+      }
+    );
+
+    return [...mem.history(selectedIndex, options?.sessionId), ...prompt];
+  }
+
+  /** @internal */
+  public async _measurePromptCharsForInternalUse(
+    ai: Readonly<AxAIService>,
+    values: IN | AxMessage<IN>[],
+    options?: Readonly<Partial<Omit<AxProgramForwardOptions<any>, 'functions'>>>
+  ): Promise<number> {
+    return countChatPromptContentChars(
+      await this.renderPromptForInternalUse(ai, values, options)
+    );
   }
 
   private getSignatureName(): string {

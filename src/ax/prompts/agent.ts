@@ -193,24 +193,26 @@ export type AxAgentStateCheckpointState = CheckpointSummaryState;
 
 export type AxAgentStateRuntimeEntry = AxCodeSessionSnapshotEntry;
 
-export type AxActorModelPolicy = {
-  escalatedModel: string;
-  baseModel?: string;
-  escalateAtPromptChars?: number;
-  escalateAtPromptCharsWhenCheckpointed?: number;
-  recentErrorWindowTurns?: number;
-  recentErrorThreshold?: number;
-  discoveryStallTurns?: number;
-  deescalateBelowPromptChars?: number;
-  stableTurnsBeforeDeescalate?: number;
-  minEscalatedTurns?: number;
-};
+export type AxActorModelPolicyEntry =
+  | {
+      model: string;
+      abovePromptChars: number;
+      aboveErrorTurns?: number;
+    }
+  | {
+      model: string;
+      abovePromptChars?: number;
+      aboveErrorTurns: number;
+    };
 
 export type AxAgentStateActorModelState = {
-  escalated: boolean;
-  escalatedTurns: number;
-  stableBelowThresholdTurns: number;
+  consecutiveErrorTurns: number;
 };
+
+export type AxActorModelPolicy = readonly [
+  AxActorModelPolicyEntry,
+  ...AxActorModelPolicyEntry[],
+];
 
 export type AxAgentState = {
   version: 1;
@@ -497,7 +499,10 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
   mode?: 'simple' | 'advanced';
   /** Prompt detail level for the root Actor (default: 'detailed'). */
   promptLevel?: AxActorPromptLevel;
-  /** Actor-only model escalation policy for prompt pressure or execution churn. */
+  /**
+   * Ordered Actor-model overrides keyed by rendered prompt size or consecutive
+   * error turns. Later entries take precedence over earlier ones.
+   */
   actorModelPolicy?: AxActorModelPolicy;
   /** Default forward options for recursive llmQuery sub-agent calls. */
   recursionOptions?: AxAgentRecursionOptions;
@@ -579,36 +584,9 @@ const DEFAULT_RLM_MAX_RECURSION_DEPTH = 2;
 const DEFAULT_CONTEXT_FIELD_PROMPT_MAX_CHARS = 1_200;
 const DEFAULT_AGENT_MODULE_NAMESPACE = 'agents';
 const DEFAULT_RANK_PRUNE_GRACE_TURNS = 2;
-const DEFAULT_ACTOR_MODEL_ESCALATE_AT_PROMPT_CHARS = 14_000;
-const DEFAULT_ACTOR_MODEL_ESCALATE_AT_PROMPT_CHARS_WHEN_CHECKPOINTED = 10_000;
-const DEFAULT_ACTOR_MODEL_RECENT_ERROR_WINDOW_TURNS = 4;
-const DEFAULT_ACTOR_MODEL_RECENT_ERROR_THRESHOLD = 2;
-const DEFAULT_ACTOR_MODEL_DISCOVERY_STALL_TURNS = 3;
-const DEFAULT_ACTOR_MODEL_DEESCALATE_BELOW_PROMPT_CHARS = 8_000;
-const DEFAULT_ACTOR_MODEL_STABLE_TURNS_BEFORE_DEESCALATE = 3;
-const DEFAULT_ACTOR_MODEL_MIN_ESCALATED_TURNS = 3;
 const DEFAULT_AGENT_OPTIMIZE_MAX_METRIC_CALLS = 100;
-const NON_ACTIONABLE_QUALIFIED_CALL_NAMESPACES = new Set([
-  'console',
-  'Math',
-  'JSON',
-  'Object',
-  'Array',
-  'String',
-  'Number',
-  'Boolean',
-  'Date',
-  'Promise',
-  'Reflect',
-  'Map',
-  'Set',
-  'WeakMap',
-  'WeakSet',
-  'Symbol',
-  'Intl',
-  'URL',
-  'URLSearchParams',
-]);
+const ACTOR_MODEL_POLICY_MIGRATION_ERROR =
+  'actorModelPolicy now expects an ordered array of { model, abovePromptChars?, aboveErrorTurns? } entries. Example: actorModelPolicy: [{ model: "gpt-5.4-mini", abovePromptChars: 16000 }, { model: "gpt-5.4", aboveErrorTurns: 2 }]';
 const SAFE_BOOTSTRAP_GLOBAL_IDENTIFIER = /^[$A-Z_a-z][$0-9A-Z_a-z]*$/;
 const UNSAFE_BOOTSTRAP_GLOBAL_NAMES = new Set([
   'context',
@@ -1004,25 +982,13 @@ type AxResolvedContextPolicy = {
   };
 };
 
-type AxResolvedActorModelPolicy = {
-  escalatedModel: string;
-  baseModel?: string;
-  escalateAtPromptChars: number;
-  escalateAtPromptCharsWhenCheckpointed: number;
-  recentErrorWindowTurns: number;
-  recentErrorThreshold: number;
-  discoveryStallTurns: number;
-  deescalateBelowPromptChars: number;
-  stableTurnsBeforeDeescalate: number;
-  minEscalatedTurns: number;
+type AxResolvedActorModelPolicyEntry = {
+  model: string;
+  abovePromptChars?: number;
+  aboveErrorTurns?: number;
 };
 
-type AxActorModelPolicyEvaluation = {
-  promptFacingChars: number;
-  checkpointActive: boolean;
-  recentErrorTrigger: boolean;
-  discoveryStallTrigger: boolean;
-};
+type AxResolvedActorModelPolicy = readonly AxResolvedActorModelPolicyEntry[];
 
 type AxAgentActorResultPayload = AxAgentTestCompletionPayload;
 
@@ -1198,64 +1164,86 @@ function normalizeOptionalModelName(value: unknown, fieldName: string): string {
   return value.trim();
 }
 
-function resolveActorModelPolicy(
-  policy: Readonly<AxActorModelPolicy> | undefined
-): AxResolvedActorModelPolicy | undefined {
-  if (!policy) {
+function normalizeOptionalThreshold(
+  value: unknown,
+  fieldName: string
+): number | undefined {
+  if (value === undefined) {
     return undefined;
   }
 
-  return {
-    escalatedModel: normalizeOptionalModelName(
-      policy.escalatedModel,
-      'actorModelPolicy.escalatedModel'
-    ),
-    ...(policy.baseModel !== undefined
-      ? {
-          baseModel: normalizeOptionalModelName(
-            policy.baseModel,
-            'actorModelPolicy.baseModel'
-          ),
-        }
-      : {}),
-    escalateAtPromptChars: Math.max(
-      1,
-      policy.escalateAtPromptChars ??
-        DEFAULT_ACTOR_MODEL_ESCALATE_AT_PROMPT_CHARS
-    ),
-    escalateAtPromptCharsWhenCheckpointed: Math.max(
-      1,
-      policy.escalateAtPromptCharsWhenCheckpointed ??
-        DEFAULT_ACTOR_MODEL_ESCALATE_AT_PROMPT_CHARS_WHEN_CHECKPOINTED
-    ),
-    recentErrorWindowTurns: Math.max(
-      1,
-      policy.recentErrorWindowTurns ??
-        DEFAULT_ACTOR_MODEL_RECENT_ERROR_WINDOW_TURNS
-    ),
-    recentErrorThreshold: Math.max(
-      1,
-      policy.recentErrorThreshold ?? DEFAULT_ACTOR_MODEL_RECENT_ERROR_THRESHOLD
-    ),
-    discoveryStallTurns: Math.max(
-      1,
-      policy.discoveryStallTurns ?? DEFAULT_ACTOR_MODEL_DISCOVERY_STALL_TURNS
-    ),
-    deescalateBelowPromptChars: Math.max(
-      0,
-      policy.deescalateBelowPromptChars ??
-        DEFAULT_ACTOR_MODEL_DEESCALATE_BELOW_PROMPT_CHARS
-    ),
-    stableTurnsBeforeDeescalate: Math.max(
-      1,
-      policy.stableTurnsBeforeDeescalate ??
-        DEFAULT_ACTOR_MODEL_STABLE_TURNS_BEFORE_DEESCALATE
-    ),
-    minEscalatedTurns: Math.max(
-      0,
-      policy.minEscalatedTurns ?? DEFAULT_ACTOR_MODEL_MIN_ESCALATED_TURNS
-    ),
-  };
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new Error(`${fieldName} must be a finite number >= 0`);
+  }
+
+  return value;
+}
+
+function resolveActorModelPolicy(
+  policy: Readonly<AxActorModelPolicy> | undefined
+): AxResolvedActorModelPolicy | undefined {
+  if (policy === undefined) {
+    return undefined;
+  }
+
+  if (!Array.isArray(policy)) {
+    throw new Error(ACTOR_MODEL_POLICY_MIGRATION_ERROR);
+  }
+
+  if (policy.length === 0) {
+    throw new Error('actorModelPolicy must contain at least one entry');
+  }
+
+  return policy.map((entry, index) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      throw new Error(`actorModelPolicy[${index}] must be an object`);
+    }
+
+    const rawEntry = entry as Record<string, unknown>;
+    if (
+      'escalatedModel' in rawEntry ||
+      'baseModel' in rawEntry ||
+      'escalateAtPromptChars' in rawEntry ||
+      'escalateAtPromptCharsWhenCheckpointed' in rawEntry ||
+      'recentErrorWindowTurns' in rawEntry ||
+      'recentErrorThreshold' in rawEntry ||
+      'discoveryStallTurns' in rawEntry ||
+      'deescalateBelowPromptChars' in rawEntry ||
+      'stableTurnsBeforeDeescalate' in rawEntry ||
+      'minEscalatedTurns' in rawEntry
+    ) {
+      throw new Error(ACTOR_MODEL_POLICY_MIGRATION_ERROR);
+    }
+
+    const abovePromptChars = normalizeOptionalThreshold(
+      rawEntry.abovePromptChars,
+      `actorModelPolicy[${index}].abovePromptChars`
+    );
+    const aboveErrorTurns = normalizeOptionalThreshold(
+      rawEntry.aboveErrorTurns,
+      `actorModelPolicy[${index}].aboveErrorTurns`
+    );
+    if (aboveErrorTurns !== undefined && !Number.isInteger(aboveErrorTurns)) {
+      throw new Error(
+        `actorModelPolicy[${index}].aboveErrorTurns must be an integer >= 0`
+      );
+    }
+
+    if (abovePromptChars === undefined && aboveErrorTurns === undefined) {
+      throw new Error(
+        `actorModelPolicy[${index}] must define at least one of abovePromptChars or aboveErrorTurns`
+      );
+    }
+
+    return {
+      model: normalizeOptionalModelName(
+        rawEntry.model,
+        `actorModelPolicy[${index}].model`
+      ),
+      ...(abovePromptChars !== undefined ? { abovePromptChars } : {}),
+      ...(aboveErrorTurns !== undefined ? { aboveErrorTurns } : {}),
+    };
+  });
 }
 
 function resolveContextPolicy(
@@ -1327,11 +1315,11 @@ function getContextPolicyPresetDefaults(preset: AxContextPolicyPreset) {
         pruneUsedDocs: false,
         stateSummary: true,
         inspect: true,
-        inspectThreshold: 10_000,
+        inspectThreshold: 16_000,
         maxEntries: 8,
         maxStateChars: 1_600,
         checkpointsEnabled: true,
-        checkpointTriggerChars: 16_000,
+        checkpointTriggerChars: 22_000,
       };
     case 'lean':
       return {
@@ -1343,11 +1331,11 @@ function getContextPolicyPresetDefaults(preset: AxContextPolicyPreset) {
         pruneUsedDocs: true,
         stateSummary: true,
         inspect: true,
-        inspectThreshold: 6_000,
+        inspectThreshold: 12_000,
         maxEntries: 4,
         maxStateChars: 800,
         checkpointsEnabled: true,
-        checkpointTriggerChars: 9_000,
+        checkpointTriggerChars: 15_000,
       };
     case 'checkpointed':
       return {
@@ -1359,11 +1347,11 @@ function getContextPolicyPresetDefaults(preset: AxContextPolicyPreset) {
         pruneUsedDocs: false,
         stateSummary: true,
         inspect: true,
-        inspectThreshold: 10_000,
+        inspectThreshold: 16_000,
         maxEntries: 8,
         maxStateChars: 1_600,
         checkpointsEnabled: true,
-        checkpointTriggerChars: 12_000,
+        checkpointTriggerChars: 18_000,
       };
     default:
       return {
@@ -1384,175 +1372,80 @@ function getContextPolicyPresetDefaults(preset: AxContextPolicyPreset) {
   }
 }
 
-function extractQualifiedCallableUsagesForActorPolicy(code: string): string[] {
-  const sanitized = stripJsStringsAndComments(code);
-  const usages = new Set<string>();
-  const callPattern =
-    /\b([a-zA-Z_$][a-zA-Z0-9_$]*)\.([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\(/g;
-  let match = callPattern.exec(sanitized);
-
-  while (match) {
-    const namespace = match[1];
-    const name = match[2];
-    if (
-      namespace &&
-      name &&
-      !NON_ACTIONABLE_QUALIFIED_CALL_NAMESPACES.has(namespace)
-    ) {
-      usages.add(`${namespace}.${name}`);
-    }
-    match = callPattern.exec(sanitized);
-  }
-
-  return [...usages];
+function getActorModelConsecutiveErrorTurns(
+  state: Readonly<AxAgentStateActorModelState> | undefined
+): number {
+  return state?.consecutiveErrorTurns ?? 0;
 }
 
-function isDiscoveryOnlySuccessEntry(entry: Readonly<ActionLogEntry>): boolean {
-  if (entry.tags.includes('error')) {
-    return false;
-  }
-
-  const hasDiscoveryCall =
-    /\b(listModuleFunctions|getFunctionDefinitions)\s*\(/.test(entry.code);
-  if (!hasDiscoveryCall) {
-    return false;
-  }
-
-  return extractQualifiedCallableUsagesForActorPolicy(entry.code).length === 0;
-}
-
-function hasRecentErrorTrigger(
-  entries: readonly ActionLogEntry[],
-  policy: Readonly<AxResolvedActorModelPolicy>
-): boolean {
-  const recentEntries = entries.slice(-policy.recentErrorWindowTurns);
-  const errorCount = recentEntries.filter((entry) =>
-    entry.tags.includes('error')
-  ).length;
-  return errorCount >= policy.recentErrorThreshold;
-}
-
-function hasDiscoveryStallTrigger(
-  entries: readonly ActionLogEntry[],
-  policy: Readonly<AxResolvedActorModelPolicy>
-): boolean {
-  if (entries.length < policy.discoveryStallTurns) {
-    return false;
-  }
-
-  let consecutiveDiscoveryTurns = 0;
-  for (let i = entries.length - 1; i >= 0; i--) {
-    const entry = entries[i];
-    if (!entry) {
-      break;
-    }
-
-    if (entry.tags.includes('error')) {
-      break;
-    }
-
-    if (extractQualifiedCallableUsagesForActorPolicy(entry.code).length > 0) {
-      break;
-    }
-
-    if (!isDiscoveryOnlySuccessEntry(entry)) {
-      break;
-    }
-
-    consecutiveDiscoveryTurns += 1;
-    if (consecutiveDiscoveryTurns >= policy.discoveryStallTurns) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-function evaluateActorModelPolicy(
-  policy: Readonly<AxResolvedActorModelPolicy>,
-  entries: readonly ActionLogEntry[],
-  promptFacingChars: number,
-  checkpointActive: boolean
-): AxActorModelPolicyEvaluation {
+function resetActorModelErrorTurns(): AxAgentStateActorModelState {
   return {
-    promptFacingChars,
-    checkpointActive,
-    recentErrorTrigger: hasRecentErrorTrigger(entries, policy),
-    discoveryStallTrigger: hasDiscoveryStallTrigger(entries, policy),
+    consecutiveErrorTurns: 0,
   };
 }
 
-function updateActorModelState(
-  currentState: Readonly<AxAgentStateActorModelState> | undefined,
-  policy: Readonly<AxResolvedActorModelPolicy>,
-  evaluation: Readonly<AxActorModelPolicyEvaluation>
+function normalizeRestoredActorModelState(
+  state: unknown
+): AxAgentStateActorModelState | undefined {
+  if (!state || typeof state !== 'object' || Array.isArray(state)) {
+    return undefined;
+  }
+
+  const rawState = state as Record<string, unknown>;
+  const consecutiveErrorTurns = rawState.consecutiveErrorTurns;
+  if (
+    typeof consecutiveErrorTurns === 'number' &&
+    Number.isFinite(consecutiveErrorTurns) &&
+    consecutiveErrorTurns >= 0
+  ) {
+    return {
+      consecutiveErrorTurns: Math.floor(consecutiveErrorTurns),
+    };
+  }
+
+  if (
+    'escalated' in rawState ||
+    'escalatedTurns' in rawState ||
+    'stableBelowThresholdTurns' in rawState
+  ) {
+    return resetActorModelErrorTurns();
+  }
+
+  return undefined;
+}
+
+function updateActorModelErrorTurns(
+  state: Readonly<AxAgentStateActorModelState> | undefined,
+  isError: boolean
 ): AxAgentStateActorModelState {
-  const sizeThreshold = evaluation.checkpointActive
-    ? policy.escalateAtPromptCharsWhenCheckpointed
-    : policy.escalateAtPromptChars;
-  const sizeTrigger = evaluation.promptFacingChars >= sizeThreshold;
-  const shouldEscalate =
-    sizeTrigger ||
-    evaluation.recentErrorTrigger ||
-    evaluation.discoveryStallTrigger;
-  const state: AxAgentStateActorModelState = currentState
-    ? { ...currentState }
-    : {
-        escalated: false,
-        escalatedTurns: 0,
-        stableBelowThresholdTurns: 0,
-      };
-
-  if (!state.escalated) {
-    if (!shouldEscalate) {
-      state.escalatedTurns = 0;
-      state.stableBelowThresholdTurns = 0;
-      return state;
-    }
-
-    return {
-      escalated: true,
-      escalatedTurns: 1,
-      stableBelowThresholdTurns: 0,
-    };
-  }
-
-  if (shouldEscalate) {
-    return {
-      escalated: true,
-      escalatedTurns: state.escalatedTurns + 1,
-      stableBelowThresholdTurns: 0,
-    };
-  }
-
-  const canConsiderDeescalate =
-    evaluation.promptFacingChars < policy.deescalateBelowPromptChars &&
-    !evaluation.recentErrorTrigger &&
-    !evaluation.discoveryStallTrigger &&
-    state.escalatedTurns >= policy.minEscalatedTurns;
-
-  if (!canConsiderDeescalate) {
-    return {
-      escalated: true,
-      escalatedTurns: state.escalatedTurns + 1,
-      stableBelowThresholdTurns: 0,
-    };
-  }
-
-  const stableTurns = state.stableBelowThresholdTurns + 1;
-  if (stableTurns >= policy.stableTurnsBeforeDeescalate) {
-    return {
-      escalated: false,
-      escalatedTurns: 0,
-      stableBelowThresholdTurns: 0,
-    };
-  }
-
   return {
-    escalated: true,
-    escalatedTurns: state.escalatedTurns + 1,
-    stableBelowThresholdTurns: stableTurns,
+    consecutiveErrorTurns: isError
+      ? getActorModelConsecutiveErrorTurns(state) + 1
+      : 0,
   };
+}
+
+function selectActorModelFromPolicy(
+  policy: Readonly<AxResolvedActorModelPolicy>,
+  promptFacingChars: number,
+  consecutiveErrorTurns: number
+): string | undefined {
+  let selectedModel: string | undefined;
+
+  for (const entry of policy) {
+    const promptTrigger =
+      entry.abovePromptChars !== undefined &&
+      promptFacingChars >= entry.abovePromptChars;
+    const errorTrigger =
+      entry.aboveErrorTurns !== undefined &&
+      consecutiveErrorTurns >= entry.aboveErrorTurns;
+
+    if (promptTrigger || errorTrigger) {
+      selectedModel = entry.model;
+    }
+  }
+
+  return selectedModel;
 }
 
 function createRecursiveTraceCollector(): AxAgentRecursiveTraceCollector {
@@ -4126,14 +4019,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         ),
         checkpointState: state.checkpointState,
         provenance: { ...(state.provenance ?? {}) },
-        actorModelState: state.actorModelState
-          ? {
-              escalated: state.actorModelState.escalated,
-              escalatedTurns: state.actorModelState.escalatedTurns,
-              stableBelowThresholdTurns:
-                state.actorModelState.stableBelowThresholdTurns,
-            }
-          : undefined,
+        actorModelState: normalizeRestoredActorModelState(
+          state.actorModelState
+        ),
       };
     };
 
@@ -4729,36 +4617,84 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         pruneUsedDocs: shouldPruneUsedDocs,
       });
 
-    const renderActionLog = () =>
+    const buildActorPromptValues = (actionLog: string) => ({
+      ...inputState.getNonContextValues(),
+      ...inputState.getActorInlineContextValues(),
+      contextMetadata: inputState.getContextMetadata(),
+      actionLog,
+    });
+
+    const measureActorPromptChars = (actionLog: string) =>
+      this.actorProgram._measurePromptCharsForInternalUse(
+        ai,
+        buildActorPromptValues(actionLog),
+        actorMergedOptions
+      );
+
+    const renderActionLogWithReplayMode = (
+      actionReplay: AxResolvedContextPolicy['actionReplay'],
+      checkpointSummary?: string,
+      checkpointTurns?: readonly number[]
+    ) =>
       buildActionLogWithPolicy(getPromptFacingEntries(), {
-        actionReplay: runtimeContext.effectiveContextConfig.actionReplay,
+        actionReplay,
         recentFullActions:
           runtimeContext.effectiveContextConfig.recentFullActions,
         restoreNotice,
         delegatedContextSummary,
         stateSummary: runtimeStateSummary,
-        checkpointSummary: checkpointState?.summary,
-        checkpointTurns: checkpointState?.turns,
+        checkpointSummary,
+        checkpointTurns,
       }) || '(no actions yet)';
 
-    const refreshCheckpointSummary = async () => {
-      if (!runtimeContext.effectiveContextConfig.checkpoints.enabled) {
-        checkpointState = undefined;
+    const renderActionLog = () =>
+      renderActionLogWithReplayMode(
+        runtimeContext.effectiveContextConfig.actionReplay,
+        checkpointState?.summary,
+        checkpointState?.turns
+      );
+
+    const resetActorModelErrorState = () => {
+      if (!this.actorModelPolicy && !actorModelState) {
         return;
       }
 
-      const thresholdReplayPlan = buildActionLogReplayPlan(actionLogEntries, {
-        actionReplay: checkpointThresholdReplayMode,
-        recentFullActions:
-          runtimeContext.effectiveContextConfig.recentFullActions,
-        pruneUsedDocs: shouldPruneUsedDocs,
-      });
+      actorModelState = resetActorModelErrorTurns();
+    };
+
+    const noteActorTurnErrorState = (isError: boolean) => {
+      if (!this.actorModelPolicy && !actorModelState) {
+        return;
+      }
+
+      actorModelState = updateActorModelErrorTurns(actorModelState, isError);
+    };
+
+    const refreshCheckpointSummary = async (): Promise<boolean> => {
+      const setCheckpointState = (
+        nextState: CheckpointSummaryState | undefined
+      ) => {
+        const changed =
+          (checkpointState?.fingerprint ?? null) !==
+          (nextState?.fingerprint ?? null);
+        checkpointState = nextState;
+        return changed;
+      };
+
+      if (!runtimeContext.effectiveContextConfig.checkpoints.enabled) {
+        return setCheckpointState(undefined);
+      }
 
       const triggerChars =
         runtimeContext.effectiveContextConfig.checkpoints.triggerChars;
-      if (!triggerChars || thresholdReplayPlan.historyChars <= triggerChars) {
-        checkpointState = undefined;
-        return;
+      const thresholdActionLogText = renderActionLogWithReplayMode(
+        checkpointThresholdReplayMode
+      );
+      const thresholdPromptChars = await measureActorPromptChars(
+        thresholdActionLogText
+      );
+      if (!triggerChars || thresholdPromptChars <= triggerChars) {
+        return setCheckpointState(undefined);
       }
 
       const checkpointReplayPlan = buildActionLogReplayPlan(actionLogEntries, {
@@ -4769,8 +4705,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       });
       const checkpointEntries = checkpointReplayPlan.checkpointEntries;
       if (checkpointEntries.length === 0) {
-        checkpointState = undefined;
-        return;
+        return setCheckpointState(undefined);
       }
 
       const fingerprint = JSON.stringify(
@@ -4785,10 +4720,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       );
 
       if (checkpointState?.fingerprint === fingerprint) {
-        return;
+        return false;
       }
 
-      checkpointState = {
+      return setCheckpointState({
         fingerprint,
         turns: checkpointEntries.map((entry) => entry.turn),
         summary: await generateCheckpointSummaryAsync(
@@ -4797,7 +4732,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           summaryForwardOptions,
           checkpointEntries
         ),
-      };
+      });
     };
 
     try {
@@ -4817,10 +4752,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           : undefined;
         actorModelState = restoredState.actorModelState
           ? {
-              escalated: restoredState.actorModelState.escalated,
-              escalatedTurns: restoredState.actorModelState.escalatedTurns,
-              stableBelowThresholdTurns:
-                restoredState.actorModelState.stableBelowThresholdTurns,
+              consecutiveErrorTurns:
+                restoredState.actorModelState.consecutiveErrorTurns,
             }
           : undefined;
         const restoredProvenance = mergeRuntimeStateProvenance(
@@ -4867,60 +4800,46 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       for (let turn = 0; turn < maxTurns; turn++) {
         await applyInputUpdateCallback();
         inputState.recomputeTurnInputs(true);
-        await refreshCheckpointSummary();
-
-        let actionLogText = renderActionLog();
-        const replayPlan = buildActionLogReplayPlan(actionLogEntries, {
-          actionReplay: runtimeContext.effectiveContextConfig.actionReplay,
-          recentFullActions:
-            runtimeContext.effectiveContextConfig.recentFullActions,
-          pruneUsedDocs: shouldPruneUsedDocs,
-          checkpointTurns: checkpointState?.turns,
-        });
-        if (contextThreshold && replayPlan.historyChars > contextThreshold) {
-          actionLogText +=
-            '\n\n[HINT: Action log is large. Call `const state = await inspect_runtime()` for a compact snapshot of current variables instead of re-reading old outputs.]';
+        if (await refreshCheckpointSummary()) {
+          resetActorModelErrorState();
         }
+
+        const baseActionLogText = renderActionLog();
+        let actionLogText = baseActionLogText;
+        const promptCharsWithoutInspectHint =
+          await measureActorPromptChars(actionLogText);
+        let addedInspectHint = false;
+        if (
+          contextThreshold &&
+          promptCharsWithoutInspectHint > contextThreshold
+        ) {
+          addedInspectHint = true;
+          actionLogText +=
+            '\n\n[HINT: Actor prompt is large. Call `const state = await inspect_runtime()` for a compact snapshot of current variables instead of re-reading old outputs.]';
+        }
+        const finalPromptFacingChars = !addedInspectHint
+          ? promptCharsWithoutInspectHint
+          : await measureActorPromptChars(actionLogText);
 
         let actorCallOptions = actorMergedOptions;
         if (this.actorModelPolicy) {
-          const actorDefinitionLength =
-            this.actorProgram.getSignature().getDescription()?.length ?? 0;
-          const promptFacingChars =
-            actorDefinitionLength +
-            inputState.getContextMetadata().length +
-            actionLogText.length;
-          const evaluation = evaluateActorModelPolicy(
+          const selectedModel = selectActorModelFromPolicy(
             this.actorModelPolicy,
-            actionLogEntries,
-            promptFacingChars,
-            Boolean(checkpointState?.summary)
+            finalPromptFacingChars,
+            getActorModelConsecutiveErrorTurns(actorModelState)
           );
-          actorModelState = updateActorModelState(
-            actorModelState,
-            this.actorModelPolicy,
-            evaluation
-          );
-          const selectedModel = actorModelState.escalated
-            ? this.actorModelPolicy.escalatedModel
-            : (this.actorModelPolicy.baseModel ?? actorMergedOptions.model);
           actorCallOptions =
             selectedModel !== undefined
               ? {
                   ...actorMergedOptions,
                   model: selectedModel,
                 }
-              : { ...actorMergedOptions };
+              : actorMergedOptions;
         }
 
         const actorResult = await this.actorProgram.forward(
           ai,
-          {
-            ...inputState.getNonContextValues(),
-            ...inputState.getActorInlineContextValues(),
-            contextMetadata: inputState.getContextMetadata(),
-            actionLog: actionLogText,
-          },
+          buildActorPromptValues(actionLogText),
           actorCallOptions
         );
 
@@ -5000,7 +4919,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
               ai,
               summaryForwardOptions
             );
-            await refreshCheckpointSummary();
+            noteActorTurnErrorState(true);
+            if (await refreshCheckpointSummary()) {
+              resetActorModelErrorState();
+            }
             continue;
           }
         }
@@ -5101,13 +5023,18 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           runtimeStateSummary =
             await runtimeContext.captureRuntimeStateSummary();
         }
-        await refreshCheckpointSummary();
+        noteActorTurnErrorState(isError);
+        if (await refreshCheckpointSummary()) {
+          resetActorModelErrorState();
+        }
 
         if (completionState.payload) {
           break;
         }
       }
-      await refreshCheckpointSummary();
+      if (await refreshCheckpointSummary()) {
+        resetActorModelErrorState();
+      }
 
       try {
         const nextState = await runtimeContext.exportRuntimeState();
@@ -5120,10 +5047,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           : undefined;
         nextState.actorModelState = actorModelState
           ? {
-              escalated: actorModelState.escalated,
-              escalatedTurns: actorModelState.escalatedTurns,
-              stableBelowThresholdTurns:
-                actorModelState.stableBelowThresholdTurns,
+              consecutiveErrorTurns: actorModelState.consecutiveErrorTurns,
             }
           : undefined;
         this.state = nextState;

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { AxMockAIService } from '../ai/mock/api.js';
+import { countChatPromptContentChars } from '../ai/promptMetrics.js';
 import { AxGen } from '../dsp/generate.js';
 import { AxOptimizedProgramImpl } from '../dsp/optimizer.js';
 import { AxGEPA } from '../dsp/optimizers/gepa.js';
@@ -2932,7 +2933,7 @@ describe('Actor/Responder execution loop', () => {
     expect(actorCodes[5]).toContain('type:communication');
   });
 
-  it('should not trigger checkpoint summaries from live runtime state alone', async () => {
+  it('should trigger checkpoint summaries when live runtime state makes the actor prompt large', async () => {
     let actorCallCount = 0;
     let secondActorPrompt = '';
     let hasLargeState = false;
@@ -2942,6 +2943,28 @@ describe('Actor/Responder execution loop', () => {
       chatResponse: async (req) => {
         const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
         const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+        if (systemPrompt.includes('internal AxAgent checkpoint summarizer')) {
+          return {
+            results: [
+              {
+                index: 0,
+                content: [
+                  'Checkpoint Summary: Objective: compress the older action log',
+                  'Durable state: hugeState captured in runtime',
+                  'Exact callables and formats: none',
+                  'Evidence: console captured state successfully',
+                  'Conclusions: rely on live runtime state for details',
+                  'Actor fields: none',
+                  'Failures to avoid: none',
+                  'Next step: continue from the current runtime state',
+                ].join('\n'),
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
 
         if (systemPrompt.includes('Code Generation Agent')) {
           actorCallCount++;
@@ -2991,7 +3014,7 @@ describe('Actor/Responder execution loop', () => {
             }
             if (isStructuredInspectCode(code)) {
               return hasLargeState
-                ? `bigState: string = "${'x'.repeat(400)}"`
+                ? `bigState: string = "${'x'.repeat(25_000)}"`
                 : '(no user variables)';
             }
             if (globals?.final && code.includes('final(')) {
@@ -3019,10 +3042,13 @@ describe('Actor/Responder execution loop', () => {
         state: {
           summary: true,
           maxEntries: 2,
-          maxChars: 800,
+          maxChars: 30_000,
         },
         checkpoints: {
-          triggerChars: 120,
+          triggerChars: 20_000,
+        },
+        expert: {
+          recentFullActions: 0,
         },
       },
     });
@@ -3034,17 +3060,17 @@ describe('Actor/Responder execution loop', () => {
 
     expect(result.answer).toBe('done');
     expect(secondActorPrompt).toContain('Live Runtime State:');
-    expect(secondActorPrompt).not.toContain('Checkpoint Summary:');
+    expect(secondActorPrompt).toContain('Checkpoint Summary:');
 
     const checkpointCalls = chatSpy.mock.calls.filter(([req]) =>
       String(req.chatPrompt[0]?.content ?? '').includes(
         'internal AxAgent checkpoint summarizer'
       )
     );
-    expect(checkpointCalls).toHaveLength(0);
+    expect(checkpointCalls.length).toBeGreaterThan(0);
   });
 
-  it('should not show the inspect hint when only live runtime state is large', async () => {
+  it('should show the inspect hint when live runtime state makes the actor prompt large', async () => {
     let actorCallCount = 0;
     let secondActorPrompt = '';
     let hasLargeState = false;
@@ -3102,7 +3128,7 @@ describe('Actor/Responder execution loop', () => {
             }
             if (isStructuredInspectCode(code)) {
               return hasLargeState
-                ? `bigState: string = "${'x'.repeat(400)}"`
+                ? `bigState: string = "${'x'.repeat(25_000)}"`
                 : '(no user variables)';
             }
             if (globals?.final && code.includes('final(')) {
@@ -3130,9 +3156,9 @@ describe('Actor/Responder execution loop', () => {
         state: {
           summary: true,
           inspect: true,
-          inspectThresholdChars: 120,
+          inspectThresholdChars: 20_000,
           maxEntries: 2,
-          maxChars: 800,
+          maxChars: 30_000,
         },
         checkpoints: {
           enabled: false,
@@ -3147,7 +3173,7 @@ describe('Actor/Responder execution loop', () => {
 
     expect(result.answer).toBe('done');
     expect(secondActorPrompt).toContain('Live Runtime State:');
-    expect(secondActorPrompt).not.toContain('[HINT: Action log is large.');
+    expect(secondActorPrompt).toContain('[HINT: Actor prompt is large.');
   });
 
   it('should include live runtime state in actor prompts when contextPolicy.state.summary is enabled', async () => {
@@ -8599,62 +8625,21 @@ describe('actorOptions / responderOptions', () => {
 });
 
 describe('actorModelPolicy', () => {
-  it('should escalate on prompt-facing size when checkpoint summaries are active', async () => {
-    let actorCallCount = 0;
+  it('should use the default actor model when no policy entry matches', async () => {
     const actorModels: Array<string | undefined> = [];
-    let secondActorPrompt = '';
 
     const testMockAI = new AxMockAIService({
       features: { functions: false, streaming: false },
       chatResponse: async (req) => {
         const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
-        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
-
-        if (systemPrompt.includes('internal AxAgent checkpoint summarizer')) {
-          return {
-            results: [
-              {
-                index: 0,
-                content: [
-                  'Checkpoint Summary: Objective: compress early turns',
-                  'Durable state: hugeState',
-                  'Exact callables and formats: hugeState',
-                  'Evidence: state captured',
-                  'Conclusions: rely on live runtime state',
-                  'Actor fields: none',
-                  'Failures to avoid: none',
-                  'Next step: continue from the latest state',
-                ].join('\n'),
-                finishReason: 'stop',
-              },
-            ],
-            modelUsage: makeModelUsage(),
-          };
-        }
 
         if (systemPrompt.includes('Code Generation Agent')) {
-          actorCallCount += 1;
           actorModels.push(req.model as string | undefined);
-          if (actorCallCount === 2) {
-            secondActorPrompt = userPrompt;
-            return {
-              results: [
-                {
-                  index: 0,
-                  content: 'Javascript Code: final("done")',
-                  finishReason: 'stop',
-                },
-              ],
-              modelUsage: makeModelUsage(),
-            };
-          }
-
           return {
             results: [
               {
                 index: 0,
-                content:
-                  'Javascript Code: const hugeState = "x".repeat(320); console.log("state captured")',
+                content: 'Javascript Code: final("done")',
                 finishReason: 'stop',
               },
             ],
@@ -8675,37 +8660,190 @@ describe('actorModelPolicy', () => {
       ai: testMockAI,
       contextFields: [],
       runtime: new AxJSRuntime(),
-      maxTurns: 2,
-      contextPolicy: {
-        preset: 'checkpointed',
-        state: {
-          summary: true,
-          maxEntries: 2,
-          maxChars: 800,
+      actorOptions: { model: 'actor-default' },
+      actorModelPolicy: [
+        {
+          model: 'actor-large',
+          abovePromptChars: 100_000,
         },
-        checkpoints: {
-          triggerChars: 1,
-        },
-        expert: {
-          recentFullActions: 0,
-        },
-      },
-      actorModelPolicy: {
-        escalatedModel: 'actor-large',
-        escalateAtPromptChars: 100_000,
-        escalateAtPromptCharsWhenCheckpointed: 200,
+      ],
+    });
+
+    const result = await testAgent.forward(testMockAI, { query: 'short' });
+
+    expect(result.answer).toBe('done');
+    expect(actorModels).toEqual(['actor-default']);
+  });
+
+  it('should pick the strongest matching prompt rule by array order', async () => {
+    const actorModels: Array<string | undefined> = [];
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorModels.push(req.model as string | undefined);
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: final("done")',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
       },
     });
 
-    const result = await testAgent.forward(testMockAI, { query: 'test' });
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: [],
+      runtime: new AxJSRuntime(),
+      actorOptions: { model: 'actor-default' },
+      actorModelPolicy: [
+        {
+          model: 'actor-mid',
+          abovePromptChars: 10_000,
+        },
+        {
+          model: 'actor-large',
+          abovePromptChars: 20_000,
+        },
+      ],
+    });
+
+    const result = await testAgent.forward(testMockAI, {
+      query: 'x'.repeat(25_000),
+    });
 
     expect(result.answer).toBe('done');
-    expect(actorModels).toEqual([undefined, 'actor-large']);
-    expect(secondActorPrompt).toContain('Checkpoint Summary:');
-    expect(secondActorPrompt).toContain('Live Runtime State:');
+    expect(actorModels).toEqual(['actor-large']);
   });
 
-  it('should escalate after repeated recent errors without changing responder model', async () => {
+  it('should use whole-prompt thresholds when complex actorFields force structured-output fallback', async () => {
+    const createMockAI = (
+      capture: {
+        promptChars: number[];
+        actorModels: Array<string | undefined>;
+      },
+      options?: { includeDetails?: boolean }
+    ) =>
+      new AxMockAIService({
+        features: {
+          functions: false,
+          streaming: false,
+          structuredOutputs: false,
+        },
+        chatResponse: async (req) => {
+          const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+          if (systemPrompt.includes('Code Generation Agent')) {
+            capture.promptChars.push(
+              countChatPromptContentChars(req.chatPrompt)
+            );
+            capture.actorModels.push(req.model as string | undefined);
+
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: options?.includeDetails
+                    ? 'Javascript Code: final("done")\nDetails: {"source":"fallback","confidence":0.9}'
+                    : 'Javascript Code: final("done")',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+
+          return {
+            results: [
+              { index: 0, content: 'Answer: done', finishReason: 'stop' },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        },
+      });
+
+    const simpleCapture = {
+      promptChars: [] as number[],
+      actorModels: [] as Array<string | undefined>,
+    };
+    const simpleAI = createMockAI(simpleCapture);
+    const simpleAgent = agent('query:string -> answer:string', {
+      ai: simpleAI,
+      contextFields: [],
+      runtime: new AxJSRuntime(),
+      actorOptions: { model: 'actor-default' },
+    });
+
+    await simpleAgent.forward(simpleAI, { query: 'test' });
+
+    const complexCapture = {
+      promptChars: [] as number[],
+      actorModels: [] as Array<string | undefined>,
+    };
+    const complexAI = createMockAI(complexCapture, { includeDetails: true });
+    const complexAgent = agent('query:string -> answer:string, details:json', {
+      ai: complexAI,
+      contextFields: [],
+      runtime: new AxJSRuntime(),
+      actorFields: ['details'],
+      actorOptions: { model: 'actor-default' },
+    });
+
+    await complexAgent.forward(complexAI, { query: 'test' });
+
+    const simplePromptChars = simpleCapture.promptChars[0] ?? 0;
+    const complexPromptChars = complexCapture.promptChars[0] ?? 0;
+
+    expect(complexPromptChars).toBeGreaterThan(simplePromptChars);
+
+    const threshold = Math.floor((simplePromptChars + complexPromptChars) / 2);
+    const thresholdCapture = {
+      promptChars: [] as number[],
+      actorModels: [] as Array<string | undefined>,
+    };
+    const thresholdAI = createMockAI(thresholdCapture, {
+      includeDetails: true,
+    });
+    const thresholdAgent = agent(
+      'query:string -> answer:string, details:json',
+      {
+        ai: thresholdAI,
+        contextFields: [],
+        runtime: new AxJSRuntime(),
+        actorFields: ['details'],
+        actorOptions: { model: 'actor-default' },
+        actorModelPolicy: [
+          {
+            model: 'actor-large',
+            abovePromptChars: threshold,
+          },
+        ],
+      }
+    );
+
+    const result = await thresholdAgent.forward(thresholdAI, { query: 'test' });
+
+    expect(result.answer).toBe('done');
+    expect(result.details).toEqual({ source: 'fallback', confidence: 0.9 });
+    expect(thresholdCapture.actorModels).toEqual(['actor-large']);
+  });
+
+  it('should switch on consecutive errors and reset back to the default model after a successful turn', async () => {
     let actorCallCount = 0;
     const actorModels: Array<string | undefined> = [];
     let responderModel: string | undefined;
@@ -8733,21 +8871,22 @@ describe('actorModelPolicy', () => {
       features: { functions: false, streaming: false },
       chatResponse: async (req) => {
         const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
-
         if (systemPrompt.includes('Code Generation Agent')) {
           actorCallCount += 1;
           actorModels.push(req.model as string | undefined);
           const actorCodeByTurn: Record<number, string> = {
             1: 'Javascript Code: BAD_1',
             2: 'Javascript Code: BAD_2',
-            3: 'Javascript Code: DONE',
+            3: 'Javascript Code: console.log("recovered")',
+            4: 'Javascript Code: DONE',
           };
           return {
             results: [
               {
                 index: 0,
                 content:
-                  actorCodeByTurn[actorCallCount] ?? 'Javascript Code: DONE',
+                  actorCodeByTurn[actorCallCount] ??
+                  'Javascript Code: final("done")',
                 finishReason: 'stop',
               },
             ],
@@ -8776,113 +8915,31 @@ describe('actorModelPolicy', () => {
       ai: testMockAI,
       contextFields: [],
       runtime,
-      maxTurns: 3,
-      actorModelPolicy: {
-        escalatedModel: 'actor-large',
-        escalateAtPromptChars: 100_000,
-        recentErrorWindowTurns: 4,
-        recentErrorThreshold: 2,
-      },
-      responderOptions: { model: 'responder-fixed' },
-    });
-
-    const result = await testAgent.forward(testMockAI, { query: 'test' });
-
-    expect(result.answer).toBe('done');
-    expect(actorModels).toEqual([undefined, undefined, 'actor-large']);
-    expect(responderModel).toBe('responder-fixed');
-  });
-
-  it('should escalate after repeated discovery-only turns', async () => {
-    let actorCallCount = 0;
-    const actorModels: Array<string | undefined> = [];
-
-    const testMockAI = new AxMockAIService({
-      features: { functions: false, streaming: false },
-      chatResponse: async (req) => {
-        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
-
-        if (systemPrompt.includes('Code Generation Agent')) {
-          actorCallCount += 1;
-          actorModels.push(req.model as string | undefined);
-          const actorCodeByTurn: Record<number, string> = {
-            1: 'Javascript Code: const modules = await listModuleFunctions("db"); console.log(modules)',
-            2: 'Javascript Code: const defs = await getFunctionDefinitions("db.search"); console.log(defs)',
-            3: 'Javascript Code: const modules = await listModuleFunctions("db"); console.log(modules)',
-            4: 'Javascript Code: final("done")',
-          };
-          return {
-            results: [
-              {
-                index: 0,
-                content:
-                  actorCodeByTurn[actorCallCount] ??
-                  'Javascript Code: final("done")',
-                finishReason: 'stop',
-              },
-            ],
-            modelUsage: makeModelUsage(),
-          };
-        }
-
-        return {
-          results: [
-            { index: 0, content: 'Answer: done', finishReason: 'stop' },
-          ],
-          modelUsage: makeModelUsage(),
-        };
-      },
-    });
-
-    const testAgent = agent('query:string -> answer:string', {
-      ai: testMockAI,
-      contextFields: [],
-      runtime: new AxJSRuntime(),
       maxTurns: 4,
-      functions: {
-        discovery: true,
-        local: [
-          {
-            namespace: 'db',
-            title: 'Database Tools',
-            functions: [
-              {
-                name: 'search',
-                description: 'Search database',
-                parameters: {
-                  type: 'object',
-                  properties: {
-                    query: { type: 'string' },
-                  },
-                  required: ['query'],
-                },
-                func: async () => [],
-              },
-            ],
-          },
-        ],
-      },
-      actorModelPolicy: {
-        escalatedModel: 'actor-large',
-        escalateAtPromptChars: 100_000,
-        recentErrorThreshold: 99,
-        discoveryStallTurns: 3,
-      },
+      actorOptions: { model: 'actor-default' },
+      responderOptions: { model: 'responder-fixed' },
+      actorModelPolicy: [
+        {
+          model: 'actor-retry',
+          abovePromptChars: 100_000,
+          aboveErrorTurns: 2,
+        },
+      ],
     });
 
     const result = await testAgent.forward(testMockAI, { query: 'test' });
 
     expect(result.answer).toBe('done');
     expect(actorModels).toEqual([
-      undefined,
-      undefined,
-      undefined,
-      'actor-large',
+      'actor-default',
+      'actor-default',
+      'actor-retry',
+      'actor-default',
     ]);
+    expect(responderModel).toBe('responder-fixed');
   });
 
-  it('should deescalate only after enough stable turns', async () => {
-    let actorCallCount = 0;
+  it('should reset the error streak when checkpoint fingerprint changes', async () => {
     const actorModels: Array<string | undefined> = [];
 
     const runtime: AxCodeRuntime = {
@@ -8890,15 +8947,23 @@ describe('actorModelPolicy', () => {
       createSession(globals) {
         return {
           execute: async (code: string) => {
-            if (code === 'BAD_1') {
-              throw new Error('runtime failure for BAD_1');
+            if (isInspectBaselineCode(code)) {
+              return JSON.stringify(['setImmediate', 'clearImmediate']);
             }
-            if (code === 'DONE' && globals?.final) {
+            if (isStructuredInspectCode(code)) {
+              return '(no user variables)';
+            }
+            if (globals?.final && code.includes('final(')) {
               (globals.final as (...args: unknown[]) => void)('done');
               return 'done';
             }
             return 'ok';
           },
+          patchGlobals: async () => {},
+          snapshotGlobals: async () => ({
+            bindings: {},
+            entries: [],
+          }),
           close: () => {},
         };
       },
@@ -8909,22 +8974,35 @@ describe('actorModelPolicy', () => {
       chatResponse: async (req) => {
         const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
 
-        if (systemPrompt.includes('Code Generation Agent')) {
-          actorCallCount += 1;
-          actorModels.push(req.model as string | undefined);
-          const actorCodeByTurn: Record<number, string> = {
-            1: 'Javascript Code: BAD_1',
-            2: 'Javascript Code: console.log("recovered-1")',
-            3: 'Javascript Code: console.log("recovered-2")',
-            4: 'Javascript Code: console.log("recovered-3")',
-            5: 'Javascript Code: DONE',
-          };
+        if (systemPrompt.includes('internal AxAgent checkpoint summarizer')) {
           return {
             results: [
               {
                 index: 0,
-                content:
-                  actorCodeByTurn[actorCallCount] ?? 'Javascript Code: DONE',
+                content: [
+                  'Checkpoint Summary: Objective: compress restored history',
+                  'Durable state: none',
+                  'Exact callables and formats: none',
+                  'Evidence: restored action log entry was summarized',
+                  'Conclusions: continue from the latest turn',
+                  'Actor fields: none',
+                  'Failures to avoid: none',
+                  'Next step: finish the task',
+                ].join('\n'),
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorModels.push(req.model as string | undefined);
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: final("done")',
                 finishReason: 'stop',
               },
             ],
@@ -8945,28 +9023,58 @@ describe('actorModelPolicy', () => {
       ai: testMockAI,
       contextFields: [],
       runtime,
-      maxTurns: 5,
-      actorModelPolicy: {
-        escalatedModel: 'actor-large',
-        escalateAtPromptChars: 100_000,
-        recentErrorWindowTurns: 1,
-        recentErrorThreshold: 1,
-        deescalateBelowPromptChars: 100_000,
-        stableTurnsBeforeDeescalate: 2,
-        minEscalatedTurns: 2,
+      maxTurns: 1,
+      actorOptions: { model: 'actor-default' },
+      contextPolicy: {
+        preset: 'checkpointed',
+        state: {
+          summary: true,
+          maxEntries: 2,
+          maxChars: 800,
+        },
+        checkpoints: {
+          triggerChars: 1,
+        },
+        expert: {
+          recentFullActions: 0,
+        },
+      },
+      actorModelPolicy: [
+        {
+          model: 'actor-retry',
+          aboveErrorTurns: 1,
+        },
+      ],
+    });
+
+    testAgent.setState({
+      version: 1,
+      runtimeBindings: {},
+      runtimeEntries: [],
+      actionLogEntries: [
+        {
+          turn: 1,
+          code: 'console.log("restored")',
+          output: 'restored',
+          actorFieldsOutput: '',
+          tags: [],
+        },
+      ],
+      checkpointState: {
+        fingerprint: 'stale-fingerprint',
+        turns: [1],
+        summary: 'stale summary',
+      },
+      provenance: {},
+      actorModelState: {
+        consecutiveErrorTurns: 1,
       },
     });
 
     const result = await testAgent.forward(testMockAI, { query: 'test' });
 
     expect(result.answer).toBe('done');
-    expect(actorModels).toEqual([
-      undefined,
-      'actor-large',
-      'actor-large',
-      'actor-large',
-      undefined,
-    ]);
+    expect(actorModels).toEqual(['actor-default']);
   });
 
   it('should evaluate recursive child actors independently', async () => {
@@ -9056,18 +9164,67 @@ describe('actorModelPolicy', () => {
       mode: 'advanced',
       recursionOptions: { maxDepth: 1 },
       maxTurns: 2,
-      actorModelPolicy: {
-        escalatedModel: 'actor-large',
-        escalateAtPromptChars: 100_000,
-        recentErrorWindowTurns: 1,
-        recentErrorThreshold: 1,
-      },
+      actorOptions: { model: 'actor-default' },
+      actorModelPolicy: [
+        {
+          model: 'actor-large',
+          aboveErrorTurns: 1,
+        },
+      ],
     });
 
     const result = await testAgent.forward(testMockAI, { query: 'test' });
 
     expect(result.answer).toBe('done');
-    expect(childModels).toEqual([undefined, 'actor-large']);
+    expect(childModels).toEqual(['actor-default', 'actor-large']);
+  });
+
+  it('should reject the legacy scalar actorModelPolicy shape with a migration error', () => {
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async () => ({
+        results: [{ index: 0, content: 'Answer: done', finishReason: 'stop' }],
+        modelUsage: makeModelUsage(),
+      }),
+    });
+
+    expect(() =>
+      agent('query:string -> answer:string', {
+        ai: testMockAI,
+        contextFields: [],
+        runtime: new AxJSRuntime(),
+        actorModelPolicy: {
+          escalatedModel: 'actor-large',
+          escalateAtPromptChars: 10_000,
+        } as any,
+      })
+    ).toThrow(
+      'actorModelPolicy now expects an ordered array of { model, abovePromptChars?, aboveErrorTurns? } entries'
+    );
+  });
+
+  it('should reject fractional aboveErrorTurns values', () => {
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async () => ({
+        results: [{ index: 0, content: 'Answer: done', finishReason: 'stop' }],
+        modelUsage: makeModelUsage(),
+      }),
+    });
+
+    expect(() =>
+      agent('query:string -> answer:string', {
+        ai: testMockAI,
+        contextFields: [],
+        runtime: new AxJSRuntime(),
+        actorModelPolicy: [
+          {
+            model: 'actor-large',
+            aboveErrorTurns: 1.5,
+          },
+        ],
+      })
+    ).toThrow('actorModelPolicy[0].aboveErrorTurns must be an integer >= 0');
   });
 });
 

@@ -56,6 +56,7 @@ import type {
   AxModelUsage,
 } from './types.js';
 import { axValidateChatRequestMessage } from './validate.js';
+import { countChatPromptContentChars } from './promptMetrics.js';
 
 /**
  * Entry in the context cache registry.
@@ -758,39 +759,6 @@ export class AxBaseAI<
     return { hasImages, hasAudio };
   }
 
-  // Helper method to calculate prompt length
-  private calculatePromptLength(
-    req: Readonly<AxChatRequest<TModel | TModelKey>>
-  ): number {
-    let totalLength = 0;
-
-    if (req.chatPrompt && Array.isArray(req.chatPrompt)) {
-      for (const message of req.chatPrompt) {
-        if (message.role === 'system' || message.role === 'assistant') {
-          if (message.content) {
-            totalLength += message.content.length;
-          }
-        } else if (message.role === 'user') {
-          if (typeof message.content === 'string') {
-            totalLength += message.content.length;
-          } else if (Array.isArray(message.content)) {
-            for (const part of message.content) {
-              if (part.type === 'text') {
-                totalLength += part.text.length;
-              }
-            }
-          }
-        } else if (message.role === 'function') {
-          if (message.result) {
-            totalLength += message.result.length;
-          }
-        }
-      }
-    }
-
-    return totalLength;
-  }
-
   // Helper method to calculate context window usage
   private calculateContextWindowUsage(
     model: TModel,
@@ -964,7 +932,7 @@ export class AxBaseAI<
     );
 
     // Record prompt length metric
-    const promptLength = this.calculatePromptLength(req);
+    const promptLength = countChatPromptContentChars(req.chatPrompt);
     recordPromptLengthMetric(
       metricsInstruments,
       promptLength,

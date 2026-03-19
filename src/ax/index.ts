@@ -751,6 +751,7 @@ import type {
 } from './mem/types.js';
 import {
   type AxActorModelPolicy,
+  type AxActorModelPolicyEntry,
   type AxActorPromptLevel,
   AxAgent,
   type AxAgentClarification,
@@ -1260,6 +1261,7 @@ export type { AxAIWebLLMEmbedResponse };
 export type { AxAPI };
 export type { AxAPIConfig };
 export type { AxActorModelPolicy };
+export type { AxActorModelPolicyEntry };
 export type { AxActorPromptLevel };
 export type { AxAgentClarification };
 export type { AxAgentClarificationChoice };

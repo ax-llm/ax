@@ -195,7 +195,7 @@ export interface AxCodeSession {
  *   successful turns instead of replaying their full code blocks. Reliability-first
  *   defaults still preserve recent evidence before deleting older low-value steps.
  *   Best when token pressure matters more than raw replay detail.
- * - `checkpointed`: Keep full replay until the action log crosses a threshold, then
+ * - `checkpointed`: Keep full replay until the rendered actor prompt crosses a threshold, then
  *   replace older successful history with a checkpoint summary while keeping recent
  *   actions and unresolved errors fully visible. Best when you want conservative,
  *   debugging-friendly replay until prompt pressure becomes real.
@@ -218,7 +218,7 @@ export interface AxContextPolicyConfig {
    * - `full`: prefer raw replay of earlier actions
    * - `adaptive`: balance replay detail with checkpoint compression while keeping more recent evidence visible
    * - `lean`: prefer live state + compact summaries over raw replay detail
-   * - `checkpointed`: keep full replay until a threshold, then replace older successful turns with a checkpoint summary
+   * - `checkpointed`: keep full replay until the rendered actor prompt crosses a threshold, then replace older successful turns with a checkpoint summary
    */
   preset?: AxContextPolicyPreset;
   /**
@@ -253,9 +253,9 @@ export interface AxContextPolicyConfig {
   state?: {
     /** Include a compact live runtime state block ahead of the action log. */
     summary?: boolean;
-    /** Expose `inspect_runtime()` to the actor and show the large-context hint. */
+    /** Expose `inspect_runtime()` to the actor and show the large-prompt hint. */
     inspect?: boolean;
-    /** Character count above which the actor is reminded to call `inspect_runtime()`. */
+    /** Full rendered actor-prompt char count above which the actor is reminded to call `inspect_runtime()`. */
     inspectThresholdChars?: number;
     /** Maximum number of runtime state entries to render in the summary block. */
     maxEntries?: number;
@@ -266,7 +266,7 @@ export interface AxContextPolicyConfig {
   checkpoints?: {
     /** Enable checkpoint summaries for older successful turns. */
     enabled?: boolean;
-    /** Character count above which a checkpoint summary is generated. */
+    /** Full rendered actor-prompt char count above which a checkpoint summary is generated. */
     triggerChars?: number;
   };
   /** Expert-level overrides for the preset-derived internal policy. */
