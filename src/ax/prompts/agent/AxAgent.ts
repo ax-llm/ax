@@ -97,11 +97,13 @@ import {
   DEFAULT_RLM_MAX_RUNTIME_CHARS,
   DEFAULT_RLM_MAX_TURNS,
   getActorModelConsecutiveErrorTurns,
+  getActorModelMatchedNamespaces,
   normalizeRestoredActorModelState,
   resetActorModelErrorTurns,
   resolveActorModelPolicy,
   resolveContextPolicy,
   selectActorModelFromPolicy,
+  updateActorModelMatchedNamespaces,
   updateActorModelErrorTurns,
 } from './config.js';
 import {
@@ -147,6 +149,7 @@ import {
   normalizeAgentModuleNamespace,
   normalizeContextFields,
   normalizeDiscoveryStringInput,
+  resolveDiscoveryCallableNamespaces,
   parseRuntimeStateSnapshot,
   renderDiscoveryFunctionDefinitionsMarkdown,
   renderDiscoveryModuleListMarkdown,
@@ -266,20 +269,27 @@ export type AxAgentStateCheckpointState = CheckpointSummaryState;
 
 export type AxAgentStateRuntimeEntry = AxCodeSessionSnapshotEntry;
 
+type AxActorModelPolicyEntryBase = {
+  model: string;
+  namespaces?: readonly string[];
+  abovePromptChars?: number;
+  aboveErrorTurns?: number;
+};
+
 export type AxActorModelPolicyEntry =
-  | {
-      model: string;
+  | (AxActorModelPolicyEntryBase & {
       abovePromptChars: number;
-      aboveErrorTurns?: number;
-    }
-  | {
-      model: string;
-      abovePromptChars?: number;
+    })
+  | (AxActorModelPolicyEntryBase & {
       aboveErrorTurns: number;
-    };
+    })
+  | (AxActorModelPolicyEntryBase & {
+      namespaces: readonly string[];
+    });
 
 export type AxAgentStateActorModelState = {
   consecutiveErrorTurns: number;
+  matchedNamespaces?: string[];
 };
 
 export type AxActorModelPolicy = readonly [
@@ -675,6 +685,7 @@ export type AxResolvedActorModelPolicyEntry = {
   model: string;
   abovePromptChars?: number;
   aboveErrorTurns?: number;
+  namespaces?: string[];
 };
 
 export type AxResolvedActorModelPolicy =
@@ -710,6 +721,7 @@ export type AxAgentRuntimeExecutionContext = {
   bootstrapContextSummary?: string;
   applyBootstrapRuntimeContext: () => Promise<string | undefined>;
   captureRuntimeStateSummary: () => Promise<string | undefined>;
+  getActorModelMatchedNamespaces: () => readonly string[];
   exportRuntimeState: () => Promise<AxAgentState>;
   restoreRuntimeState: (
     state: Readonly<AxAgentState>
@@ -3073,12 +3085,25 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       return result;
     };
 
+    const discoveredActorModelNamespaces = new Set<string>();
+    const noteDiscoveredActorModelNamespaces = (
+      namespaces: readonly string[]
+    ) => {
+      for (const namespace of namespaces) {
+        const trimmed = namespace.trim();
+        if (trimmed) {
+          discoveredActorModelNamespaces.add(trimmed);
+        }
+      }
+    };
+
     const toolGlobals = this.buildRuntimeGlobals(
       effectiveAbortSignal,
       inputState.sharedFieldValues,
       ai,
       completionBindings.protocol,
-      functionCallRecorder
+      functionCallRecorder,
+      noteDiscoveredActorModelNamespaces
     );
     const agentFunctionNamespaces = [
       ...new Set(this.agentFunctions.map((f) => f.namespace ?? 'utils')),
@@ -3587,6 +3612,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       bootstrapContextSummary,
       applyBootstrapRuntimeContext,
       captureRuntimeStateSummary,
+      getActorModelMatchedNamespaces: () => [...discoveredActorModelNamespaces],
       exportRuntimeState,
       restoreRuntimeState,
       syncRuntimeInputsToSession,
@@ -3982,7 +4008,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         return;
       }
 
-      actorModelState = resetActorModelErrorTurns();
+      actorModelState = resetActorModelErrorTurns(actorModelState);
     };
 
     const noteActorTurnErrorState = (isError: boolean) => {
@@ -3991,6 +4017,18 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       }
 
       actorModelState = updateActorModelErrorTurns(actorModelState, isError);
+    };
+
+    const syncDiscoveredActorModelNamespaces = () => {
+      const matchedNamespaces = runtimeContext.getActorModelMatchedNamespaces();
+      if (matchedNamespaces.length === 0) {
+        return;
+      }
+
+      actorModelState = updateActorModelMatchedNamespaces(
+        actorModelState,
+        matchedNamespaces
+      );
     };
 
     const refreshCheckpointSummary = async (): Promise<boolean> => {
@@ -4077,6 +4115,14 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           ? {
               consecutiveErrorTurns:
                 restoredState.actorModelState.consecutiveErrorTurns,
+              ...(getActorModelMatchedNamespaces(restoredState.actorModelState)
+                .length > 0
+                ? {
+                    matchedNamespaces: getActorModelMatchedNamespaces(
+                      restoredState.actorModelState
+                    ),
+                  }
+                : {}),
             }
           : undefined;
         const restoredProvenance = mergeRuntimeStateProvenance(
@@ -4146,10 +4192,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
         let actorCallOptions = actorMergedOptions;
         if (this.actorModelPolicy) {
+          syncDiscoveredActorModelNamespaces();
           const selectedModel = selectActorModelFromPolicy(
             this.actorModelPolicy,
             finalPromptFacingChars,
-            getActorModelConsecutiveErrorTurns(actorModelState)
+            getActorModelConsecutiveErrorTurns(actorModelState),
+            getActorModelMatchedNamespaces(actorModelState)
           );
           actorCallOptions =
             selectedModel !== undefined
@@ -4360,6 +4408,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       }
 
       try {
+        syncDiscoveredActorModelNamespaces();
         const nextState = await runtimeContext.exportRuntimeState();
         nextState.checkpointState = checkpointState
           ? {
@@ -4371,6 +4420,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         nextState.actorModelState = actorModelState
           ? {
               consecutiveErrorTurns: actorModelState.consecutiveErrorTurns,
+              ...(getActorModelMatchedNamespaces(actorModelState).length > 0
+                ? {
+                    matchedNamespaces:
+                      getActorModelMatchedNamespaces(actorModelState),
+                  }
+                : {}),
             }
           : undefined;
         this.state = nextState;
@@ -4720,7 +4775,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     sharedFieldValues?: Record<string, unknown>,
     ai?: AxAIService,
     protocol?: AxAgentCompletionProtocol,
-    functionCallRecorder?: AxAgentFunctionCallRecorder
+    functionCallRecorder?: AxAgentFunctionCallRecorder,
+    onDiscoveredNamespaces?: (namespaces: readonly string[]) => void
   ): Record<string, unknown> {
     const globals: Record<string, unknown> = {};
     const callableLookup = new Map<string, DiscoveryCallableMeta>();
@@ -4831,6 +4887,13 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           functionsInput,
           'functions'
         );
+        const matchedNamespaces = resolveDiscoveryCallableNamespaces(
+          items,
+          callableLookup
+        );
+        if (matchedNamespaces.length > 0) {
+          onDiscoveredNamespaces?.(matchedNamespaces);
+        }
         return renderDiscoveryFunctionDefinitionsMarkdown(
           items,
           callableLookup

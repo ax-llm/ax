@@ -1271,6 +1271,30 @@ export function normalizeDiscoveryStringInput(
   return [...new Set(normalized)];
 }
 
+export function normalizeDiscoveryCallableIdentifier(
+  identifier: string
+): string {
+  const trimmed = identifier.trim();
+  return trimmed.includes('.') ? trimmed : `utils.${trimmed}`;
+}
+
+export function resolveDiscoveryCallableNamespaces(
+  identifiers: readonly string[],
+  callableLookup: ReadonlyMap<string, DiscoveryCallableMeta>
+): string[] {
+  const namespaces = new Set<string>();
+
+  for (const rawIdentifier of identifiers) {
+    const qualifiedName = normalizeDiscoveryCallableIdentifier(rawIdentifier);
+    const meta = callableLookup.get(qualifiedName);
+    if (meta) {
+      namespaces.add(meta.module);
+    }
+  }
+
+  return [...namespaces];
+}
+
 function normalizeSchemaTypesForDiscovery(
   schema: AxFunctionJSONSchema
 ): string[] {
@@ -1514,9 +1538,7 @@ export function renderDiscoveryFunctionDefinitionsMarkdown(
 ): string {
   return identifiers
     .map((rawIdentifier) => {
-      const qualifiedName = rawIdentifier.includes('.')
-        ? rawIdentifier
-        : `utils.${rawIdentifier}`;
+      const qualifiedName = normalizeDiscoveryCallableIdentifier(rawIdentifier);
       const meta = callableLookup.get(qualifiedName);
       if (!meta) {
         return `### \`${qualifiedName}\`\n- Not found.`;

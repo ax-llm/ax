@@ -40,6 +40,33 @@ function normalizeOptionalThreshold(
   return value;
 }
 
+function normalizeOptionalNamespaces(
+  value: unknown,
+  fieldName: string
+): string[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!Array.isArray(value)) {
+    throw new Error(`${fieldName} must be a string[]`);
+  }
+
+  if (!value.every((item) => typeof item === 'string')) {
+    throw new Error(`${fieldName} must contain only strings`);
+  }
+
+  const normalized = value
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+
+  if (normalized.length === 0) {
+    throw new Error(`${fieldName} must contain at least one non-empty string`);
+  }
+
+  return [...new Set(normalized)];
+}
+
 export function resolveActorModelPolicy(
   policy: Readonly<AxActorModelPolicy> | undefined
 ): AxResolvedActorModelPolicy | undefined {
@@ -84,15 +111,23 @@ export function resolveActorModelPolicy(
       rawEntry.aboveErrorTurns,
       `actorModelPolicy[${index}].aboveErrorTurns`
     );
+    const namespaces = normalizeOptionalNamespaces(
+      rawEntry.namespaces,
+      `actorModelPolicy[${index}].namespaces`
+    );
     if (aboveErrorTurns !== undefined && !Number.isInteger(aboveErrorTurns)) {
       throw new Error(
         `actorModelPolicy[${index}].aboveErrorTurns must be an integer >= 0`
       );
     }
 
-    if (abovePromptChars === undefined && aboveErrorTurns === undefined) {
+    if (
+      abovePromptChars === undefined &&
+      aboveErrorTurns === undefined &&
+      namespaces === undefined
+    ) {
       throw new Error(
-        `actorModelPolicy[${index}] must define at least one of abovePromptChars or aboveErrorTurns`
+        `actorModelPolicy[${index}] must define at least one of abovePromptChars, aboveErrorTurns, or namespaces`
       );
     }
 
@@ -103,6 +138,7 @@ export function resolveActorModelPolicy(
       ),
       ...(abovePromptChars !== undefined ? { abovePromptChars } : {}),
       ...(aboveErrorTurns !== undefined ? { aboveErrorTurns } : {}),
+      ...(namespaces !== undefined ? { namespaces } : {}),
     };
   });
 }
@@ -239,9 +275,32 @@ export function getActorModelConsecutiveErrorTurns(
   return state?.consecutiveErrorTurns ?? 0;
 }
 
-export function resetActorModelErrorTurns(): AxAgentStateActorModelState {
+export function getActorModelMatchedNamespaces(
+  state: Readonly<AxAgentStateActorModelState> | undefined
+): string[] {
+  const matchedNamespaces = state?.matchedNamespaces;
+  if (!Array.isArray(matchedNamespaces)) {
+    return [];
+  }
+
+  return [
+    ...new Set(
+      matchedNamespaces
+        .filter((item): item is string => typeof item === 'string')
+        .map((item) => item.trim())
+        .filter(Boolean)
+    ),
+  ];
+}
+
+export function resetActorModelErrorTurns(
+  state?: Readonly<AxAgentStateActorModelState>
+): AxAgentStateActorModelState {
+  const matchedNamespaces = getActorModelMatchedNamespaces(state);
+
   return {
     consecutiveErrorTurns: 0,
+    ...(matchedNamespaces.length > 0 ? { matchedNamespaces } : {}),
   };
 }
 
@@ -254,6 +313,11 @@ export function normalizeRestoredActorModelState(
 
   const rawState = state as Record<string, unknown>;
   const consecutiveErrorTurns = rawState.consecutiveErrorTurns;
+  const matchedNamespaces =
+    normalizeOptionalNamespaces(
+      rawState.matchedNamespaces,
+      'actorModelState.matchedNamespaces'
+    ) ?? [];
   if (
     typeof consecutiveErrorTurns === 'number' &&
     Number.isFinite(consecutiveErrorTurns) &&
@@ -261,6 +325,7 @@ export function normalizeRestoredActorModelState(
   ) {
     return {
       consecutiveErrorTurns: Math.floor(consecutiveErrorTurns),
+      ...(matchedNamespaces.length > 0 ? { matchedNamespaces } : {}),
     };
   }
 
@@ -269,7 +334,10 @@ export function normalizeRestoredActorModelState(
     'escalatedTurns' in rawState ||
     'stableBelowThresholdTurns' in rawState
   ) {
-    return resetActorModelErrorTurns();
+    return resetActorModelErrorTurns({
+      consecutiveErrorTurns: 0,
+      ...(matchedNamespaces.length > 0 ? { matchedNamespaces } : {}),
+    });
   }
 
   return undefined;
@@ -279,19 +347,44 @@ export function updateActorModelErrorTurns(
   state: Readonly<AxAgentStateActorModelState> | undefined,
   isError: boolean
 ): AxAgentStateActorModelState {
+  const matchedNamespaces = getActorModelMatchedNamespaces(state);
+
   return {
     consecutiveErrorTurns: isError
       ? getActorModelConsecutiveErrorTurns(state) + 1
       : 0,
+    ...(matchedNamespaces.length > 0 ? { matchedNamespaces } : {}),
+  };
+}
+
+export function updateActorModelMatchedNamespaces(
+  state: Readonly<AxAgentStateActorModelState> | undefined,
+  namespaces: readonly string[]
+): AxAgentStateActorModelState {
+  const matchedNamespaces = [
+    ...new Set([
+      ...getActorModelMatchedNamespaces(state),
+      ...namespaces
+        .filter((item): item is string => typeof item === 'string')
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ]),
+  ];
+
+  return {
+    consecutiveErrorTurns: getActorModelConsecutiveErrorTurns(state),
+    ...(matchedNamespaces.length > 0 ? { matchedNamespaces } : {}),
   };
 }
 
 export function selectActorModelFromPolicy(
   policy: Readonly<AxResolvedActorModelPolicy>,
   promptFacingChars: number,
-  consecutiveErrorTurns: number
+  consecutiveErrorTurns: number,
+  matchedNamespaces: readonly string[] = []
 ): string | undefined {
   let selectedModel: string | undefined;
+  const matchedNamespaceSet = new Set(matchedNamespaces);
 
   for (const entry of policy) {
     const promptTrigger =
@@ -300,8 +393,11 @@ export function selectActorModelFromPolicy(
     const errorTrigger =
       entry.aboveErrorTurns !== undefined &&
       consecutiveErrorTurns >= entry.aboveErrorTurns;
+    const namespaceTrigger =
+      entry.namespaces !== undefined &&
+      entry.namespaces.some((namespace) => matchedNamespaceSet.has(namespace));
 
-    if (promptTrigger || errorTrigger) {
+    if (promptTrigger || errorTrigger || namespaceTrigger) {
       selectedModel = entry.model;
     }
   }

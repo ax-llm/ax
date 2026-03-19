@@ -8625,6 +8625,47 @@ describe('actorOptions / responderOptions', () => {
 });
 
 describe('actorModelPolicy', () => {
+  const dbSearchFunction = {
+    name: 'search',
+    namespace: 'db',
+    description: 'Search the database',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string' },
+      },
+      required: ['query'],
+    },
+    func: async () => [],
+  } as const;
+
+  const kbLookupFunction = {
+    name: 'lookup',
+    namespace: 'kb',
+    description: 'Lookup knowledge base entries',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string' },
+      },
+      required: ['query'],
+    },
+    func: async () => [],
+  } as const;
+
+  const utilsLookupFunction = {
+    name: 'lookup',
+    description: 'Lookup utility function',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string' },
+      },
+      required: ['query'],
+    },
+    func: async () => [],
+  } as const;
+
   it('should use the default actor model when no policy entry matches', async () => {
     const actorModels: Array<string | undefined> = [];
 
@@ -8673,6 +8714,127 @@ describe('actorModelPolicy', () => {
 
     expect(result.answer).toBe('done');
     expect(actorModels).toEqual(['actor-default']);
+  });
+
+  it('should switch on the next turn after fetching matching namespace definitions', async () => {
+    let actorCallCount = 0;
+    const actorModels: Array<string | undefined> = [];
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCallCount += 1;
+          actorModels.push(req.model as string | undefined);
+          return {
+            results: [
+              {
+                index: 0,
+                content:
+                  actorCallCount === 1
+                    ? 'Javascript Code: const defs = await getFunctionDefinitions("db.search"); console.log(defs)'
+                    : 'Javascript Code: final("done")',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: [],
+      runtime: new AxJSRuntime(),
+      maxTurns: 2,
+      actorOptions: { model: 'actor-default' },
+      functions: {
+        discovery: true,
+        local: [dbSearchFunction],
+      },
+      actorModelPolicy: [
+        {
+          model: 'actor-db',
+          namespaces: ['db'],
+          aboveErrorTurns: 99,
+        },
+      ],
+    });
+
+    const result = await testAgent.forward(testMockAI, { query: 'test' });
+
+    expect(result.answer).toBe('done');
+    expect(actorModels).toEqual(['actor-default', 'actor-db']);
+  });
+
+  it('should treat bare discovery names as utils namespace matches', async () => {
+    let actorCallCount = 0;
+    const actorModels: Array<string | undefined> = [];
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCallCount += 1;
+          actorModels.push(req.model as string | undefined);
+          return {
+            results: [
+              {
+                index: 0,
+                content:
+                  actorCallCount === 1
+                    ? 'Javascript Code: const defs = await getFunctionDefinitions("lookup"); console.log(defs)'
+                    : 'Javascript Code: final("done")',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: [],
+      runtime: new AxJSRuntime(),
+      maxTurns: 2,
+      actorOptions: { model: 'actor-default' },
+      functions: {
+        discovery: true,
+        local: [utilsLookupFunction],
+      },
+      actorModelPolicy: [
+        {
+          model: 'actor-utils',
+          namespaces: ['utils'],
+        },
+      ],
+    });
+
+    const result = await testAgent.forward(testMockAI, { query: 'test' });
+
+    expect(result.answer).toBe('done');
+    expect(actorModels).toEqual(['actor-default', 'actor-utils']);
   });
 
   it('should pick the strongest matching prompt rule by array order', async () => {
@@ -8729,6 +8891,190 @@ describe('actorModelPolicy', () => {
 
     expect(result.answer).toBe('done');
     expect(actorModels).toEqual(['actor-large']);
+  });
+
+  it('should pick the last matching namespace rule by array order', async () => {
+    let actorCallCount = 0;
+    const actorModels: Array<string | undefined> = [];
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCallCount += 1;
+          actorModels.push(req.model as string | undefined);
+          return {
+            results: [
+              {
+                index: 0,
+                content:
+                  actorCallCount === 1
+                    ? 'Javascript Code: const defs = await getFunctionDefinitions(["db.search", "kb.lookup"]); console.log(defs)'
+                    : 'Javascript Code: final("done")',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: [],
+      runtime: new AxJSRuntime(),
+      maxTurns: 2,
+      actorOptions: { model: 'actor-default' },
+      functions: {
+        discovery: true,
+        local: [dbSearchFunction, kbLookupFunction],
+      },
+      actorModelPolicy: [
+        {
+          model: 'actor-db',
+          namespaces: ['db'],
+        },
+        {
+          model: 'actor-kb',
+          namespaces: ['kb'],
+        },
+      ],
+    });
+
+    const result = await testAgent.forward(testMockAI, { query: 'test' });
+
+    expect(result.answer).toBe('done');
+    expect(actorModels).toEqual(['actor-default', 'actor-kb']);
+  });
+
+  it('should ignore non-matching discovery namespaces', async () => {
+    let actorCallCount = 0;
+    const actorModels: Array<string | undefined> = [];
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCallCount += 1;
+          actorModels.push(req.model as string | undefined);
+          return {
+            results: [
+              {
+                index: 0,
+                content:
+                  actorCallCount === 1
+                    ? 'Javascript Code: const defs = await getFunctionDefinitions("kb.lookup"); console.log(defs)'
+                    : 'Javascript Code: final("done")',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: [],
+      runtime: new AxJSRuntime(),
+      maxTurns: 2,
+      actorOptions: { model: 'actor-default' },
+      functions: {
+        discovery: true,
+        local: [kbLookupFunction],
+      },
+      actorModelPolicy: [
+        {
+          model: 'actor-db',
+          namespaces: ['db'],
+        },
+      ],
+    });
+
+    const result = await testAgent.forward(testMockAI, { query: 'test' });
+
+    expect(result.answer).toBe('done');
+    expect(actorModels).toEqual(['actor-default', 'actor-default']);
+  });
+
+  it('should not mark a namespace when requested discovery definitions are missing', async () => {
+    let actorCallCount = 0;
+    const actorModels: Array<string | undefined> = [];
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCallCount += 1;
+          actorModels.push(req.model as string | undefined);
+          return {
+            results: [
+              {
+                index: 0,
+                content:
+                  actorCallCount === 1
+                    ? 'Javascript Code: const defs = await getFunctionDefinitions("db.missing"); console.log(defs)'
+                    : 'Javascript Code: final("done")',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: [],
+      runtime: new AxJSRuntime(),
+      maxTurns: 2,
+      actorOptions: { model: 'actor-default' },
+      functions: {
+        discovery: true,
+        local: [dbSearchFunction],
+      },
+      actorModelPolicy: [
+        {
+          model: 'actor-db',
+          namespaces: ['db'],
+        },
+      ],
+    });
+
+    const result = await testAgent.forward(testMockAI, { query: 'test' });
+
+    expect(result.answer).toBe('done');
+    expect(actorModels).toEqual(['actor-default', 'actor-default']);
   });
 
   it('should use whole-prompt thresholds when complex actorFields force structured-output fallback', async () => {
@@ -9077,6 +9423,96 @@ describe('actorModelPolicy', () => {
     expect(actorModels).toEqual(['actor-default']);
   });
 
+  it('should persist matched namespaces through getState and setState', async () => {
+    let phase = 'initial';
+    let actorCallCount = 0;
+    const actorModels: Array<string | undefined> = [];
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCallCount += 1;
+          actorModels.push(req.model as string | undefined);
+          if (phase === 'initial') {
+            return {
+              results: [
+                {
+                  index: 0,
+                  content:
+                    actorCallCount === 1
+                      ? 'Javascript Code: const defs = await getFunctionDefinitions("db.search"); console.log(defs)'
+                      : 'Javascript Code: final("initial done")',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: final("resumed done")',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const createTestAgent = () =>
+      agent('query:string -> answer:string', {
+        ai: testMockAI,
+        contextFields: [],
+        runtime: new AxJSRuntime(),
+        maxTurns: 2,
+        actorOptions: { model: 'actor-default' },
+        functions: {
+          discovery: true,
+          local: [dbSearchFunction],
+        },
+        actorModelPolicy: [
+          {
+            model: 'actor-db',
+            namespaces: ['db'],
+          },
+        ],
+      });
+
+    const initialAgent = createTestAgent();
+    const initialResult = await initialAgent.forward(testMockAI, {
+      query: 'test',
+    });
+    const savedState = initialAgent.getState();
+
+    expect(initialResult.answer).toBe('done');
+    expect(savedState?.actorModelState?.matchedNamespaces).toEqual(['db']);
+
+    phase = 'resumed';
+    const resumedAgent = createTestAgent();
+    resumedAgent.setState(savedState);
+
+    const resumedResult = await resumedAgent.forward(testMockAI, {
+      query: 'resume',
+    });
+
+    expect(resumedResult.answer).toBe('done');
+    expect(actorModels).toEqual(['actor-default', 'actor-db', 'actor-db']);
+  });
+
   it('should evaluate recursive child actors independently', async () => {
     let childActorCallCount = 0;
     const childModels: Array<string | undefined> = [];
@@ -9179,6 +9615,86 @@ describe('actorModelPolicy', () => {
     expect(childModels).toEqual(['actor-default', 'actor-large']);
   });
 
+  it('should evaluate namespace discovery matches independently in recursive child actors', async () => {
+    const rootModels: Array<string | undefined> = [];
+    const childModels: Array<string | undefined> = [];
+    let childActorCallCount = 0;
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          if (userPrompt.includes('Task: child query')) {
+            childActorCallCount += 1;
+            childModels.push(req.model as string | undefined);
+            return {
+              results: [
+                {
+                  index: 0,
+                  content:
+                    childActorCallCount === 1
+                      ? 'Javascript Code: const defs = await getFunctionDefinitions("db.search"); console.log(defs)'
+                      : 'Javascript Code: final("child done")',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+
+          rootModels.push(req.model as string | undefined);
+          return {
+            results: [
+              {
+                index: 0,
+                content:
+                  'Javascript Code: const result = await llmQuery("child query", "child context"); final(result)',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: [],
+      runtime: new AxJSRuntime(),
+      mode: 'advanced',
+      recursionOptions: { maxDepth: 1 },
+      maxTurns: 2,
+      actorOptions: { model: 'actor-default' },
+      functions: {
+        discovery: true,
+        local: [dbSearchFunction],
+      },
+      actorModelPolicy: [
+        {
+          model: 'actor-db',
+          namespaces: ['db'],
+        },
+      ],
+    });
+
+    const result = await testAgent.forward(testMockAI, { query: 'test' });
+
+    expect(result.answer).toBe('done');
+    expect(rootModels).toEqual(['actor-default']);
+    expect(childModels).toEqual(['actor-default', 'actor-db']);
+  });
+
   it('should reject the legacy scalar actorModelPolicy shape with a migration error', () => {
     const testMockAI = new AxMockAIService({
       features: { functions: false, streaming: false },
@@ -9225,6 +9741,32 @@ describe('actorModelPolicy', () => {
         ],
       })
     ).toThrow('actorModelPolicy[0].aboveErrorTurns must be an integer >= 0');
+  });
+
+  it('should reject empty namespaces after trimming', () => {
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async () => ({
+        results: [{ index: 0, content: 'Answer: done', finishReason: 'stop' }],
+        modelUsage: makeModelUsage(),
+      }),
+    });
+
+    expect(() =>
+      agent('query:string -> answer:string', {
+        ai: testMockAI,
+        contextFields: [],
+        runtime: new AxJSRuntime(),
+        actorModelPolicy: [
+          {
+            model: 'actor-db',
+            namespaces: ['   '],
+          },
+        ],
+      })
+    ).toThrow(
+      'actorModelPolicy[0].namespaces must contain at least one non-empty string'
+    );
   });
 });
 

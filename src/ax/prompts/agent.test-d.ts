@@ -249,6 +249,21 @@ import {
   });
 }
 
+// actorModelPolicy should accept namespace-triggered routing
+{
+  const runtime = {} as AxCodeRuntime;
+  agent('query:string -> answer:string', {
+    contextFields: [] as const,
+    runtime,
+    actorModelPolicy: [
+      {
+        model: 'actor-db',
+        namespaces: ['db'],
+      },
+    ],
+  });
+}
+
 // Agent actorTurnCallback exposes raw result plus formatted output
 {
   const runtime = {} as AxCodeRuntime;

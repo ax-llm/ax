@@ -708,7 +708,7 @@ Use these top-level controls consistently:
 - `recursionOptions.promptLevel`: overrides prompt guidance for recursive `llmQuery(...)` child agents
 - `maxSubAgentCalls`: shared delegated-call budget across the whole run, including recursive children
 - `actorOptions`: actor-only forward options such as `description`, `model`, `modelConfig`, `thinkingTokenBudget`, and `showThoughts`
-- `actorModelPolicy`: actor-only model override rules based on full rendered prompt size or consecutive error turns
+- `actorModelPolicy`: actor-only model override rules based on full rendered prompt size, consecutive error turns, or discovery fetches from listed namespaces
 - `responderOptions`: responder-only forward options
 - `judgeOptions`: built-in judge options for `agent.optimize(...)`; for tuning workflows use the `ax-agent-optimize` skill
 
@@ -736,6 +736,7 @@ const researchAgent = agent('query:string -> answer:string', {
       model: 'gpt-5.4',
       abovePromptChars: 16_000,
       aboveErrorTurns: 2,
+      namespaces: ['db', 'kb'],
     },
   ],
   responderOptions: {
@@ -755,6 +756,7 @@ Semantics:
 - Recursive child agents can inherit `actorModelPolicy`; use a child override only when that child needs different routing behavior.
 - `actorModelPolicy` entries are ordered from weaker to stronger. If multiple rules match, the last matching entry wins.
 - If one entry defines both `abovePromptChars` and `aboveErrorTurns`, it matches when either threshold is crossed.
+- If one entry also defines `namespaces`, any successful `getFunctionDefinitions(...)` fetch from one of those namespaces marks the rule as matched starting on the next actor turn.
 
 When choosing these options for a user:
 
@@ -774,7 +776,7 @@ Key fields:
 - `recursionOptions.promptLevel`: choose `'basic'` or `'detailed'` guidance for recursive child agents
 - `actorOptions.description`: append extra actor-specific instructions without changing the responder prompt
 - `actorOptions.model` / `responderOptions.model`: split model choice across actor and responder when needed
-- `actorModelPolicy`: auto-switch only the actor when the rendered actor prompt is large or the run is on a consecutive error streak
+- `actorModelPolicy`: auto-switch only the actor when the rendered actor prompt is large, the run is on a consecutive error streak, or discovery fetches land in specific namespaces
 
 Good split-model pattern:
 
@@ -1060,22 +1062,38 @@ agentIdentity?: {
         model: string;
         abovePromptChars: number;
         aboveErrorTurns?: number;
+        namespaces?: string[];
       }
     | {
         model: string;
         abovePromptChars?: number;
         aboveErrorTurns: number;
+        namespaces?: string[];
+      }
+    | {
+        model: string;
+        abovePromptChars?: number;
+        aboveErrorTurns?: number;
+        namespaces: string[];
       },
     ...Array<
       | {
           model: string;
           abovePromptChars: number;
           aboveErrorTurns?: number;
+          namespaces?: string[];
         }
       | {
           model: string;
           abovePromptChars?: number;
           aboveErrorTurns: number;
+          namespaces?: string[];
+        }
+      | {
+          model: string;
+          abovePromptChars?: number;
+          aboveErrorTurns?: number;
+          namespaces: string[];
         }
     >,
   ];
@@ -1093,6 +1111,7 @@ agentIdentity?: {
 - `promptLevel` controls the root actor prompt.
 - `actorModelPolicy` applies to the actor loop and can be inherited by recursive child agents unless you override it there.
 - `abovePromptChars` is measured from the full rendered actor prompt, not just replayed action log text.
+- `namespaces` matches exact discovery namespaces from successful `getFunctionDefinitions(...)` lookups and starts affecting model choice on the next actor turn.
 - Consecutive error turns reset after a successful non-error turn and when checkpoint summarization refreshes to a new fingerprint.
 - `recursionOptions.promptLevel` controls recursive child prompt guidance and falls back to the top-level `promptLevel`.
 - `maxSubAgentCalls` is a shared delegated-call budget across the entire run.
