@@ -1,5 +1,16 @@
 # Changelog
 
+## [19.0.24](///compare/19.0.22...19.0.23) (2026-03-19)
+
+### Bug Fixes
+
+* agent refactor and other fixes 2018ddc
+## [19.0.23](///compare/19.0.22...19.0.23) (2026-03-19)
+
+### Features
+
+* automatic model upgrade in axagent d841ed6
+
 ## [19.0.23](///compare/19.0.21...19.0.22) (2026-03-19)
 
 ### Features
