@@ -60,6 +60,21 @@ What to look for:
 - The saved state contains runtime bindings and prior action-log history.
 - The resumed call succeeds after `setState(savedState)` and reuses values created before the clarification.
 
+## Host-Controlled RLM Example
+
+`rlm-agent-controlled.ts` demonstrates host-side workflow control for `AxAgent`, with the default runnable path focused on `extra.protocol.guideAgent(...)` and `extra.protocol.askClarification(...)` while successful actor turns complete with direct `final(...)`.
+
+**Quick Start:**
+```bash
+cd src/ax
+npm run tsx src/examples/rlm-agent-controlled.ts
+```
+
+What to look for:
+- The default runnable path stays on the authenticated guidance flow, so it demonstrates `workflow.reviewReplyDraft(...)` interrupting the actor and forcing a revised draft before direct `final(...)`.
+- The host can still stop and ask the user for missing information with `workflow.askForOrderId(...)`, but that path is kept out of the default run so the example stays focused on `guideAgent(...)`.
+- Each sample run uses a fresh agent instance so restored runtime state from the first message does not contaminate the second one.
+
 ## Recursive GEPA Agent Example
 
 A runnable advanced-mode `AxAgent` example that optimizes recursive `llmQuery(...)` behavior with GEPA, saves the resulting recursive-slot artifact, reloads it, and applies it on a fresh agent instance.

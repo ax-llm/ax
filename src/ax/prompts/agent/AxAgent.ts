@@ -44,6 +44,7 @@ import type {
 import { AxJSRuntime } from '../../funcs/jsRuntime.js';
 import { mergeAbortSignals } from '../../util/abort.js';
 import { AxAIServiceAbortedError } from '../../util/apicall.js';
+import { getCrypto } from '../../util/crypto.js';
 import type { ActionLogEntry } from './contextManager.js';
 import {
   buildActionEvidenceSummary,
@@ -108,9 +109,10 @@ import {
 } from './config.js';
 import {
   AxAgentProtocolCompletionSignal,
+  type AxAgentGuidancePayload,
+  type AxAgentInternalCompletionPayload,
   createCompletionBindings,
   normalizeClarificationForError,
-  normalizeCompletionPayload,
 } from './completion.js';
 import {
   AX_AGENT_OPTIMIZE_JUDGE_EVAL_SIGNATURE,
@@ -305,6 +307,7 @@ export type AxAgentState = {
   checkpointState?: AxAgentStateCheckpointState;
   provenance: Record<string, RuntimeStateVariableProvenance>;
   actorModelState?: AxAgentStateActorModelState;
+  guidanceToken?: string;
 };
 
 export class AxAgentClarificationError extends Error {
@@ -704,8 +707,10 @@ type AxAgentRuntimeInputState = {
 };
 
 type AxAgentRuntimeCompletionState = {
-  payload: AxAgentActorResultPayload | undefined;
+  payload: AxAgentInternalCompletionPayload | undefined;
 };
+
+type AxActorDefinitionBuildOptions = Parameters<typeof axBuildActorDefinition>[3];
 
 export type AxPreparedRestoredState = {
   runtimeBindings: Record<string, unknown>;
@@ -714,6 +719,11 @@ export type AxPreparedRestoredState = {
   checkpointState?: AxAgentStateCheckpointState;
   provenance: Record<string, RuntimeStateVariableProvenance>;
   actorModelState?: AxAgentStateActorModelState;
+  guidanceToken?: string;
+};
+
+type AxAgentGuidanceState = {
+  token?: string;
 };
 
 export type AxAgentRuntimeExecutionContext = {
@@ -772,6 +782,25 @@ type AxAgentRecursiveEvalContext = {
   parentNodeId?: string;
   depth: number;
 };
+
+function generateGuidanceToken(): string {
+  const digits = new Uint16Array(1);
+  getCrypto().getRandomValues(digits);
+  return String(digits[0]! % 10_000).padStart(4, '0');
+}
+
+function buildAuthenticatedGuidancePrefix(token: string): string {
+  return `[GUIDANCE:${token}]`;
+}
+
+function formatAuthenticatedGuidanceOutput(
+  payload: Readonly<AxAgentGuidancePayload>,
+  token: string
+): string {
+  const prefix = buildAuthenticatedGuidancePrefix(token);
+  const functionName = payload.triggeredBy ?? '(unknown function)';
+  return `${prefix} Execution stopped at \`${functionName}\`. Host-issued guidance for the next actor turn: ${payload.guidance}\n`;
+}
 
 type AxAgentOptimizationTargetDescriptor = {
   id: string;
@@ -924,6 +953,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private recursiveInstructionSlots: Record<string, string> =
     createRecursiveSlotSeedInstructions();
   private baseActorDefinition = '';
+  private actorDefinitionBaseDescription: string | undefined;
+  private actorDefinitionContextFields: readonly AxIField[] = [];
+  private actorDefinitionResponderOutputFields: readonly AxIField[] = [];
+  private actorDefinitionBuildOptions: AxActorDefinitionBuildOptions | undefined;
   private recursiveEvalContext: AxAgentRecursiveEvalContext | undefined;
   private currentRecursiveTraceNodeId: string | undefined;
   private recursiveInstructionRoleOverride:
@@ -1077,16 +1110,53 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       return;
     }
 
-    const addendum = buildRecursiveActorInstruction(
-      role,
-      this.recursiveInstructionSlots
-    );
-    const instruction = [this.baseActorDefinition.trim(), addendum?.trim()]
-      .filter((piece): piece is string => Boolean(piece))
-      .join('\n\n');
-
+    const instruction = this._buildActorInstruction();
     this.actorProgram.setDescription(instruction);
     this.actorProgram.setInstruction(instruction);
+  }
+
+  private _renderActorDefinition(
+    authenticatedGuidancePrefix?: string
+  ): string {
+    if (!this.actorDefinitionBuildOptions) {
+      return this.baseActorDefinition;
+    }
+
+    return axBuildActorDefinition(
+      this.actorDefinitionBaseDescription,
+      this.actorDefinitionContextFields,
+      this.actorDefinitionResponderOutputFields,
+      {
+        ...this.actorDefinitionBuildOptions,
+        hasAuthenticatedGuidance: Boolean(authenticatedGuidancePrefix),
+        authenticatedGuidancePrefix,
+      }
+    );
+  }
+
+  private _buildActorInstruction(authenticatedGuidancePrefix?: string): string {
+    const role = this._getRecursiveActorRole();
+    const recursiveAddendum = role
+      ? buildRecursiveActorInstruction(role, this.recursiveInstructionSlots)
+      : undefined;
+    const actorDefinition = authenticatedGuidancePrefix
+      ? this._renderActorDefinition(authenticatedGuidancePrefix)
+      : this.baseActorDefinition;
+
+    return [actorDefinition.trim(), recursiveAddendum?.trim()]
+      .filter((piece): piece is string => Boolean(piece))
+      .join('\n\n');
+  }
+
+  private _applyActorInstruction(authenticatedGuidancePrefix: string): void {
+    if (!this.actorProgram) {
+      return;
+    }
+
+    const instruction = this._buildActorInstruction(
+      authenticatedGuidancePrefix
+    );
+    this.actorProgram.setDescription(instruction);
   }
 
   private _setRecursiveInstructionSlot(
@@ -1546,37 +1616,44 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const effectiveContextPolicy = resolveContextPolicy(
       this.rlmConfig.contextPolicy
     );
-
-    const actorDef = axBuildActorDefinition(
+    const actorDefinitionBaseDescription =
       this._supportsRecursiveActorSlotOptimization()
         ? undefined
-        : this.actorDescription,
+        : this.actorDescription;
+    const actorDefinitionBuildOptions: AxActorDefinitionBuildOptions = {
+      runtimeUsageInstructions: this.runtimeUsageInstructions,
+      promptLevel: this.actorPromptLevel,
+      maxSubAgentCalls: effectiveMaxSubAgentCalls,
+      maxTurns: effectiveMaxTurns,
+      hasInspectRuntime: effectiveContextPolicy.stateInspection.enabled,
+      hasLiveRuntimeState: effectiveContextPolicy.stateSummary.enabled,
+      hasCompressedActionReplay:
+        effectiveContextPolicy.actionReplay !== 'full' ||
+        effectiveContextPolicy.checkpoints.enabled ||
+        effectiveContextPolicy.errorPruning ||
+        Boolean(effectiveContextPolicy.tombstoning) ||
+        (this.functionDiscoveryEnabled &&
+          effectiveContextPolicy.pruneUsedDocs),
+      llmQueryPromptMode: effectiveLlmQueryPromptMode,
+      enforceIncrementalConsoleTurns: this.enforceIncrementalConsoleTurns,
+      agentModuleNamespace: this.agentModuleNamespace,
+      discoveryMode: this.functionDiscoveryEnabled,
+      availableModules,
+      agents: agentMeta,
+      agentFunctions: agentFunctionMeta,
+    };
+
+    const actorDef = axBuildActorDefinition(
+      actorDefinitionBaseDescription,
       contextFieldMeta,
       responderOutputFields,
-      {
-        runtimeUsageInstructions: this.runtimeUsageInstructions,
-        promptLevel: this.actorPromptLevel,
-        maxSubAgentCalls: effectiveMaxSubAgentCalls,
-        maxTurns: effectiveMaxTurns,
-        hasInspectRuntime: effectiveContextPolicy.stateInspection.enabled,
-        hasLiveRuntimeState: effectiveContextPolicy.stateSummary.enabled,
-        hasCompressedActionReplay:
-          effectiveContextPolicy.actionReplay !== 'full' ||
-          effectiveContextPolicy.checkpoints.enabled ||
-          effectiveContextPolicy.errorPruning ||
-          Boolean(effectiveContextPolicy.tombstoning) ||
-          (this.functionDiscoveryEnabled &&
-            effectiveContextPolicy.pruneUsedDocs),
-        llmQueryPromptMode: effectiveLlmQueryPromptMode,
-        enforceIncrementalConsoleTurns: this.enforceIncrementalConsoleTurns,
-        agentModuleNamespace: this.agentModuleNamespace,
-        discoveryMode: this.functionDiscoveryEnabled,
-        availableModules,
-        agents: agentMeta,
-        agentFunctions: agentFunctionMeta,
-      }
+      actorDefinitionBuildOptions
     );
     this.baseActorDefinition = actorDef;
+    this.actorDefinitionBaseDescription = actorDefinitionBaseDescription;
+    this.actorDefinitionContextFields = contextFieldMeta;
+    this.actorDefinitionResponderOutputFields = responderOutputFields;
+    this.actorDefinitionBuildOptions = actorDefinitionBuildOptions;
 
     const responderDef = axBuildResponderDefinition(
       this.responderDescription,
@@ -2697,6 +2774,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     effectiveAbortSignal,
     debug,
     completionState,
+    guidanceState,
     completionBindings,
     actionLogEntries,
     functionCallRecorder,
@@ -2709,6 +2787,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     effectiveAbortSignal?: AbortSignal;
     debug: boolean;
     completionState: AxAgentRuntimeCompletionState;
+    guidanceState: AxAgentGuidanceState;
     completionBindings: ReturnType<typeof createCompletionBindings>;
     actionLogEntries?: ActionLogEntry[];
     functionCallRecorder?: AxAgentFunctionCallRecorder;
@@ -3101,7 +3180,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       effectiveAbortSignal,
       inputState.sharedFieldValues,
       ai,
-      completionBindings.protocol,
+      completionBindings.protocolForTrigger,
       functionCallRecorder,
       noteDiscoveredActorModelNamespaces
     );
@@ -3370,6 +3449,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         actorModelState: normalizeRestoredActorModelState(
           state.actorModelState
         ),
+        guidanceToken: state.guidanceToken,
       };
     };
 
@@ -3400,6 +3480,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           runtimeActionLogEntries
         ),
         provenance: runtimeStateProvenanceToRecord(provenance),
+        ...(guidanceState.token ? { guidanceToken: guidanceState.token } : {}),
       };
     };
 
@@ -3575,6 +3656,22 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const executeTestCode = async (
       code: string
     ): Promise<AxAgentTestResult> => {
+      const normalizeTestCompletionResult = (): AxAgentTestResult => {
+        if (!completionState.payload) {
+          throw new Error('Expected completion payload');
+        }
+
+        if (completionState.payload.type === 'guide_agent') {
+          guidanceState.token ??= generateGuidanceToken();
+          return formatAuthenticatedGuidanceOutput(
+            completionState.payload,
+            guidanceState.token
+          );
+        }
+
+        return completionState.payload;
+      };
+
       try {
         const result = await session.execute(code, {
           signal: effectiveAbortSignal,
@@ -3587,7 +3684,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           await waitForCompletionSignal();
         }
         if (completionState.payload) {
-          return completionState.payload;
+          return normalizeTestCompletionResult();
         }
         const output = formatInterpreterOutput(result, maxRuntimeChars);
         if (isLikelyRuntimeErrorOutput(output)) {
@@ -3600,7 +3697,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           completionState.payload
         ) {
           if (completionState.payload) {
-            return completionState.payload;
+            return normalizeTestCompletionResult();
           }
         }
         throw err;
@@ -3657,8 +3754,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const completionState: AxAgentRuntimeCompletionState = {
       payload: undefined,
     };
-    const completionBindings = createCompletionBindings((type, args) => {
-      completionState.payload = normalizeCompletionPayload(type, args);
+    const guidanceState: AxAgentGuidanceState = {};
+    const completionBindings = createCompletionBindings((payload) => {
+      completionState.payload = payload;
     });
     const createdBudgetState = this._ensureLlmQueryBudgetState();
 
@@ -3669,6 +3767,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       effectiveAbortSignal: options?.abortSignal,
       debug,
       completionState,
+      guidanceState,
       completionBindings,
       actionLogEntries: [],
     });
@@ -3879,8 +3978,11 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const completionState: AxAgentRuntimeCompletionState = {
       payload: undefined,
     };
-    const completionBindings = createCompletionBindings((type, args) => {
-      completionState.payload = normalizeCompletionPayload(type, args);
+    const guidanceState: AxAgentGuidanceState = {
+      token: this.state?.guidanceToken,
+    };
+    const completionBindings = createCompletionBindings((payload) => {
+      completionState.payload = payload;
     });
     const actionLogEntries: ActionLogEntry[] = [];
     let runtimeStateSummary: string | undefined;
@@ -3891,6 +3993,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       effectiveAbortSignal,
       debug,
       completionState,
+      guidanceState,
       completionBindings,
       actionLogEntries,
       functionCallRecorder: functionCallRecords
@@ -3966,6 +4069,16 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         pruneUsedDocs: shouldPruneUsedDocs,
       });
 
+    const refreshActorInstruction = () => {
+      if (!guidanceState.token) {
+        return;
+      }
+
+      this._applyActorInstruction(
+        buildAuthenticatedGuidancePrefix(guidanceState.token)
+      );
+    };
+
     const buildActorPromptValues = (actionLog: string) => ({
       ...inputState.getNonContextValues(),
       ...inputState.getActorInlineContextValues(),
@@ -3973,12 +4086,14 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       actionLog,
     });
 
-    const measureActorPromptChars = (actionLog: string) =>
-      this.actorProgram._measurePromptCharsForInternalUse(
+    const measureActorPromptChars = (actionLog: string) => {
+      refreshActorInstruction();
+      return this.actorProgram._measurePromptCharsForInternalUse(
         ai,
         buildActorPromptValues(actionLog),
         actorMergedOptions
       );
+    };
 
     const renderActionLogWithReplayMode = (
       actionReplay: AxResolvedContextPolicy['actionReplay'],
@@ -4125,6 +4240,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
                 : {}),
             }
           : undefined;
+        guidanceState.token =
+          restoredState.guidanceToken ?? guidanceState.token;
         const restoredProvenance = mergeRuntimeStateProvenance(
           buildRuntimeStateProvenance(actionLogEntries),
           runtimeStateProvenanceFromRecord(restoredState.provenance)
@@ -4167,6 +4284,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       }
 
       for (let turn = 0; turn < maxTurns; turn++) {
+        refreshActorInstruction();
         await applyInputUpdateCallback();
         inputState.recomputeTurnInputs(true);
         if (await refreshCheckpointSummary()) {
@@ -4349,6 +4467,20 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           throw err;
         }
 
+        const guidancePayload =
+          completionState.payload && 'guidance' in completionState.payload
+            ? completionState.payload
+            : undefined;
+        if (guidancePayload) {
+          guidanceState.token ??= generateGuidanceToken();
+          result = undefined;
+          output = formatAuthenticatedGuidanceOutput(
+            guidancePayload,
+            guidanceState.token
+          );
+          isError = false;
+        }
+
         const entryTurn = actionLogEntries.length + 1;
         actionLogEntries.push({
           turn: entryTurn,
@@ -4399,6 +4531,11 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           resetActorModelErrorState();
         }
 
+        if (completionState.payload && 'guidance' in completionState.payload) {
+          completionState.payload = undefined;
+          continue;
+        }
+
         if (completionState.payload) {
           break;
         }
@@ -4446,18 +4583,19 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     }
 
     const actorResult =
-      completionState.payload ??
-      ({
-        type: 'final',
-        args: [
-          buildActionEvidenceSummary(actionLogEntries, {
-            stateSummary: runtimeStateSummary,
-            checkpointSummary: checkpointState?.summary,
-            checkpointTurns: checkpointState?.turns,
-            pruneUsedDocs: shouldPruneUsedDocs,
-          }),
-        ],
-      } satisfies AxAgentActorResultPayload);
+      completionState.payload && 'args' in completionState.payload
+        ? completionState.payload
+        : ({
+            type: 'final',
+            args: [
+              buildActionEvidenceSummary(actionLogEntries, {
+                stateSummary: runtimeStateSummary,
+                checkpointSummary: checkpointState?.summary,
+                checkpointTurns: checkpointState?.turns,
+                pruneUsedDocs: shouldPruneUsedDocs,
+              }),
+            ],
+          } satisfies AxAgentActorResultPayload);
 
     return {
       nonContextValues: inputState.getNonContextValues(),
@@ -4639,7 +4777,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     fn: AxFunction | AxAgentFunction,
     abortSignal?: AbortSignal,
     ai?: AxAIService,
-    protocol?: AxAgentCompletionProtocol,
+    protocolForTrigger?: (triggeredBy?: string) => AxAgentCompletionProtocol,
     qualifiedName?: string,
     functionCallRecorder?: AxAgentFunctionCallRecorder
   ): (...args: unknown[]) => Promise<unknown> {
@@ -4665,18 +4803,28 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         });
       }
 
+      const normalizedQualifiedName = qualifiedName ?? fn.name;
+      const protocol = protocolForTrigger?.(normalizedQualifiedName);
       try {
         const result = await fn.func(callArgs, { abortSignal, ai, protocol });
         functionCallRecorder?.({
-          qualifiedName: qualifiedName ?? fn.name,
+          qualifiedName: normalizedQualifiedName,
           name: fn.name,
           arguments: serializeForEval(callArgs),
           result: serializeForEval(result),
         });
         return result;
       } catch (err) {
+        if (err instanceof AxAgentProtocolCompletionSignal) {
+          functionCallRecorder?.({
+            qualifiedName: normalizedQualifiedName,
+            name: fn.name,
+            arguments: serializeForEval(callArgs),
+          });
+          throw err;
+        }
         functionCallRecorder?.({
-          qualifiedName: qualifiedName ?? fn.name,
+          qualifiedName: normalizedQualifiedName,
           name: fn.name,
           arguments: serializeForEval(callArgs),
           error: err instanceof Error ? err.message : String(err),
@@ -4697,7 +4845,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       | Record<string, unknown>
       | (() => Record<string, unknown>),
     ai?: AxAIService,
-    protocol?: AxAgentCompletionProtocol,
+    protocolForTrigger?: (triggeredBy?: string) => AxAgentCompletionProtocol,
     qualifiedName?: string,
     functionCallRecorder?: AxAgentFunctionCallRecorder
   ): (...args: unknown[]) => Promise<unknown> {
@@ -4709,7 +4857,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         fn,
         abortSignal,
         ai,
-        protocol,
+        protocolForTrigger,
         qualifiedName,
         functionCallRecorder
       );
@@ -4745,18 +4893,28 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       const merged = currentSharedFieldValues
         ? { ...currentSharedFieldValues, ...callArgs }
         : callArgs;
+      const normalizedQualifiedName = qualifiedName ?? fn.name;
+      const protocol = protocolForTrigger?.(normalizedQualifiedName);
       try {
         const result = await fn.func(merged, { abortSignal, ai, protocol });
         functionCallRecorder?.({
-          qualifiedName: qualifiedName ?? fn.name,
+          qualifiedName: normalizedQualifiedName,
           name: fn.name,
           arguments: serializeForEval(merged),
           result: serializeForEval(result),
         });
         return result;
       } catch (err) {
+        if (err instanceof AxAgentProtocolCompletionSignal) {
+          functionCallRecorder?.({
+            qualifiedName: normalizedQualifiedName,
+            name: fn.name,
+            arguments: serializeForEval(merged),
+          });
+          throw err;
+        }
         functionCallRecorder?.({
-          qualifiedName: qualifiedName ?? fn.name,
+          qualifiedName: normalizedQualifiedName,
           name: fn.name,
           arguments: serializeForEval(merged),
           error: err instanceof Error ? err.message : String(err),
@@ -4774,7 +4932,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     abortSignal?: AbortSignal,
     sharedFieldValues?: Record<string, unknown>,
     ai?: AxAIService,
-    protocol?: AxAgentCompletionProtocol,
+    protocolForTrigger?: (triggeredBy?: string) => AxAgentCompletionProtocol,
     functionCallRecorder?: AxAgentFunctionCallRecorder,
     onDiscoveredNamespaces?: (namespaces: readonly string[]) => void
   ): Record<string, unknown> {
@@ -4808,7 +4966,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           agentFn,
           abortSignal,
           ai,
-          protocol,
+          protocolForTrigger,
           qualifiedName,
           functionCallRecorder
         );
@@ -4851,7 +5009,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           abortSignal,
           getApplicableSharedFields,
           ai,
-          protocol,
+          protocolForTrigger,
           qualifiedName,
           functionCallRecorder
         );

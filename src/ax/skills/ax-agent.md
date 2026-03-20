@@ -316,8 +316,9 @@ const workflowTools = [
 Rules:
 
 - `extra.protocol` is only available when the function call comes from an active AxAgent actor runtime session.
-- Use `extra.protocol.final(...)` or `extra.protocol.askClarification(...)` only inside host-side function handlers.
+- Use `extra.protocol.final(...)`, `extra.protocol.askClarification(...)`, or `extra.protocol.guideAgent(...)` only inside host-side function handlers.
 - Inside actor-authored JavaScript, keep using the runtime globals `final(...)` and `ask_clarification(...)`.
+- `extra.protocol.guideAgent(...)` is handler-only internal control flow. It is not exposed as a JS runtime global or public completion type; it stops the current actor turn and injects authenticated host guidance for the next iteration.
 - `ask_clarification(...)` accepts either a simple string or a structured object with `question` plus optional UI hints such as `type: 'date' | 'number' | 'single_choice' | 'multiple_choice'` and `choices`.
 - Do not model these protocol completions as normal registered tool functions or discovery entries.
 

@@ -393,9 +393,9 @@ export function selectActorModelFromPolicy(
     const errorTrigger =
       entry.aboveErrorTurns !== undefined &&
       consecutiveErrorTurns >= entry.aboveErrorTurns;
-    const namespaceTrigger =
-      entry.namespaces !== undefined &&
-      entry.namespaces.some((namespace) => matchedNamespaceSet.has(namespace));
+    const namespaceTrigger = entry.namespaces?.some((namespace) =>
+      matchedNamespaceSet.has(namespace)
+    );
 
     if (promptTrigger || errorTrigger || namespaceTrigger) {
       selectedModel = entry.model;

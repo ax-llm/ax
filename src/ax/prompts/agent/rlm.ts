@@ -371,6 +371,10 @@ export function axBuildActorDefinition(
       namespace: string;
       selectionCriteria?: string;
     }>;
+    /** When true, render authenticated host-guidance rules in the actor template. */
+    hasAuthenticatedGuidance?: boolean;
+    /** Exact authenticated guidance prefix the actor should trust. */
+    authenticatedGuidancePrefix?: string;
   }>
 ): string {
   //   const maxSubAgentCalls = options.maxSubAgentCalls ?? 50;
@@ -463,6 +467,10 @@ export function axBuildActorDefinition(
     ),
     hasLiveRuntimeState: Boolean(options.hasLiveRuntimeState),
     hasCompressedActionReplay: Boolean(options.hasCompressedActionReplay),
+    hasAuthenticatedGuidance: Boolean(options.hasAuthenticatedGuidance),
+    authenticatedGuidancePrefix: String(
+      options.authenticatedGuidancePrefix ?? ''
+    ),
   })
     .replace(/\n{3,}/g, '\n\n')
     .trim();

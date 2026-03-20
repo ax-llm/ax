@@ -184,6 +184,11 @@ function parseNodes(
       );
     }
 
+    if (tag.startsWith('!')) {
+      i++;
+      continue;
+    }
+
     if (tag.startsWith('include ')) {
       throw new Error(
         formatError(

@@ -206,6 +206,7 @@ export type AxFunctionHandler = (
 export type AxAgentCompletionProtocol = Readonly<{
   final: (...args: unknown[]) => never;
   askClarification: (...args: unknown[]) => never;
+  guideAgent: (guidance: string) => never;
 }>;
 
 export type AxFunctionJSONSchema = {

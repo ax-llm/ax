@@ -813,7 +813,11 @@ import type {
   AxAgentRecursiveTurn,
   AxAgentRecursiveUsage,
 } from './prompts/agent/agentRecursiveOptimize.js';
-import { AxAgentProtocolCompletionSignal } from './prompts/agent/completion.js';
+import {
+  type AxAgentGuidancePayload,
+  type AxAgentInternalCompletionPayload,
+  AxAgentProtocolCompletionSignal,
+} from './prompts/agent/completion.js';
 import {
   type AxCodeInterpreter,
   type AxCodeRuntime,
@@ -1297,8 +1301,10 @@ export type { AxAgentFunctionCollection };
 export type { AxAgentFunctionExample };
 export type { AxAgentFunctionGroup };
 export type { AxAgentFunctionModuleMeta };
+export type { AxAgentGuidancePayload };
 export type { AxAgentIdentity };
 export type { AxAgentInputUpdateCallback };
+export type { AxAgentInternalCompletionPayload };
 export type { AxAgentJudgeEvalInput };
 export type { AxAgentJudgeEvalOutput };
 export type { AxAgentJudgeInput };

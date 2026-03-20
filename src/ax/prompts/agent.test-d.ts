@@ -118,6 +118,12 @@ import {
   const _ok: Promise<AxAgentTestResult> = result;
 }
 
+// Host-side protocol includes internal guideAgent() for handler-only redirects
+{
+  const protocol = {} as import('../ai/types.js').AxAgentCompletionProtocol;
+  protocol.guideAgent('Use the safer path');
+}
+
 // Agent test() should enforce typed inputs
 {
   const runtime = {} as AxCodeRuntime;

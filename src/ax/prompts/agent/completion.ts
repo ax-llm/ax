@@ -7,46 +7,63 @@ import type {
   AxAgentStructuredClarification,
 } from './AxAgent.js';
 
+export type AxAgentGuidancePayload = {
+  type: 'guide_agent';
+  guidance: string;
+  triggeredBy?: string;
+};
+
+export type AxAgentInternalCompletionPayload =
+  | AxAgentActorResultPayload
+  | AxAgentGuidancePayload;
+
 export class AxAgentProtocolCompletionSignal extends Error {
-  constructor(public readonly type: AxAgentActorResultPayload['type']) {
+  constructor(public readonly type: AxAgentInternalCompletionPayload['type']) {
     super(`AxAgent protocol completion: ${type}`);
     this.name = 'AxAgentProtocolCompletionSignal';
   }
 }
 
 export function createCompletionBindings(
-  setActorResultPayload: (
-    type: AxAgentActorResultPayload['type'],
-    args: unknown[]
-  ) => void
+  setCompletionPayload: (payload: AxAgentInternalCompletionPayload) => void
 ): {
   finalFunction: (...args: unknown[]) => void;
   askClarificationFunction: (...args: unknown[]) => void;
   protocol: AxAgentCompletionProtocol;
+  protocolForTrigger: (triggeredBy?: string) => AxAgentCompletionProtocol;
 } {
   const finalFunction = (...args: unknown[]) => {
-    setActorResultPayload('final', args);
+    setCompletionPayload(normalizeCompletionPayload('final', args));
   };
 
   const askClarificationFunction = (...args: unknown[]) => {
-    setActorResultPayload('ask_clarification', args);
+    setCompletionPayload(normalizeCompletionPayload('ask_clarification', args));
   };
 
-  const protocol: AxAgentCompletionProtocol = {
+  const protocolForTrigger = (
+    triggeredBy?: string
+  ): AxAgentCompletionProtocol => ({
     final: (...args: unknown[]): never => {
-      setActorResultPayload('final', args);
+      setCompletionPayload(normalizeCompletionPayload('final', args));
       throw new AxAgentProtocolCompletionSignal('final');
     },
     askClarification: (...args: unknown[]): never => {
-      setActorResultPayload('ask_clarification', args);
+      setCompletionPayload(
+        normalizeCompletionPayload('ask_clarification', args)
+      );
       throw new AxAgentProtocolCompletionSignal('ask_clarification');
     },
-  };
+    guideAgent: (...args: unknown[]): never => {
+      setCompletionPayload(normalizeGuidancePayload(args, triggeredBy));
+      throw new AxAgentProtocolCompletionSignal('guide_agent');
+    },
+  });
 
   return {
     finalFunction,
     askClarificationFunction,
-    protocol,
+    protocol: protocolForTrigger(),
+    protocolForTrigger,
   };
 }
 
@@ -70,6 +87,25 @@ export function normalizeCompletionPayload(
   }
 
   return { type, args };
+}
+
+export function normalizeGuidancePayload(
+  args: readonly unknown[],
+  triggeredBy?: string
+): AxAgentGuidancePayload {
+  if (args.length !== 1) {
+    throw new Error('guideAgent() requires exactly one argument');
+  }
+
+  if (!isNonEmptyString(args[0])) {
+    throw new Error('guideAgent() requires a non-empty string guidance');
+  }
+
+  return {
+    type: 'guide_agent',
+    guidance: args[0],
+    ...(triggeredBy ? { triggeredBy } : {}),
+  };
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
