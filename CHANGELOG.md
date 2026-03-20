@@ -1,5 +1,12 @@
 # Changelog
 
+## [19.0.25](///compare/19.0.23...19.0.24) (2026-03-20)
+## [19.0.24](///compare/19.0.23...19.0.24) (2026-03-19)
+
+### Bug Fixes
+
+* agent refactor and other fixes 2018ddc
+
 ## [19.0.24](///compare/19.0.22...19.0.23) (2026-03-19)
 
 ### Bug Fixes
