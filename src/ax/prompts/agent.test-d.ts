@@ -106,7 +106,7 @@ import {
   });
 }
 
-// Agent test() returns completion payloads for final()/ask_clarification()
+// Agent test() returns completion payloads for final()/askClarification()
 {
   const runtime = {} as AxCodeRuntime;
   const a = agent('query:string -> answer:string', {

@@ -44,7 +44,7 @@ export type AxAgentRecursiveTraceNode = {
   role: AxAgentRecursiveNodeRole;
   taskDigest?: string;
   contextDigest?: string;
-  completionType?: 'final' | 'ask_clarification';
+  completionType?: 'final' | 'askClarification';
   turnCount: number;
   childCount: number;
   actorTurns: AxAgentRecursiveTurn[];
@@ -333,7 +333,7 @@ export const deriveRecursiveStats = (
     if (node.children.length > 1) {
       batchedFanOutCount++;
     }
-    if (node.completionType === 'ask_clarification') {
+    if (node.completionType === 'askClarification') {
       clarificationCount++;
     }
 

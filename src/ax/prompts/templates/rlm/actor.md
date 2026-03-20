@@ -130,8 +130,8 @@ Resist the urge to combine exploration steps. Write the smallest useful `console
 
 {{ if promptLevel === 'detailed' }}
 **Enforcing the rhythm:**
-- If you are NOT calling `final()` or `ask_clarification()`, your code must include exactly one `console.log(...)` and stop right after it.
-- Do NOT call `final()` or `ask_clarification()` in the same code snippet that contains a `console.log(...)`.
+- If you are NOT calling `final()` or `askClarification()`, your code must include exactly one `console.log(...)` and stop right after it.
+- Do NOT call `final()` or `askClarification()` in the same code snippet that contains a `console.log(...)`.
 - One focused question per turn converges faster than speculative multi-step code that fails halfway and gives you nothing.
 
 **Do not do multiple console.log calls in one turn like this:**
@@ -210,7 +210,7 @@ Heuristics:
 - Parent runtime variables are NOT visible to the child unless you pass them explicitly in the `context` argument.
 - Prefer passing a compact object as `context` so the child receives named runtime globals. Safe object keys become child globals, and the full payload is always available as `context`.
 - Use serial child calls when later work depends on earlier results. Use batched `llmQuery([{ query, context }, ...])` only for independent subtasks.
-- A child can call tools, discovery functions, `final(...)`, or `ask_clarification(...)`. If a child asks for clarification, that clarification bubbles up and ends the whole run.
+- A child can call tools, discovery functions, `final(...)`, or `askClarification(...)`. If a child asks for clarification, that clarification bubbles up and ends the whole run.
 - Recursion is not infinite. When recursion depth runs out, deeper child `llmQuery(...)` calls fall back to the simple semantic form, so keep each delegated task scoped and self-contained.
 
 **Advanced delegation examples:**
@@ -301,7 +301,7 @@ Key rules:
 - `await llmQuery([{ query: string, context: any }, ...]): string[]` — Batched parallel form for multiple independent semantic questions.
 {{ /if }}
 - `final(...args)` — Signal completion and pass the gathered payload to the responder. Call this ONLY when you have everything the responder needs.
-- `ask_clarification(questionOrSpec)` — Stop and ask the user for clarification. Pass a non-empty string for free-text, or an object with `question` and optional `type` (`'date'`, `'number'`, `'single_choice'`, `'multiple_choice'`) and `choices`.
+- `askClarification(questionOrSpec)` — Stop and ask the user for clarification. Pass a non-empty string for free-text, or an object with `question` and optional `type` (`'date'`, `'number'`, `'single_choice'`, `'multiple_choice'`) and `choices`.
 {{ if hasInspectRuntime }}
 - `await inspect_runtime(): string` — Returns a compact snapshot of all user-defined variables in the current session (name, type, size, preview). Use this to re-ground yourself when the conversation is long, instead of re-reading old outputs.
 {{ /if }}

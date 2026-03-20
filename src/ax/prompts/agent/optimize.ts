@@ -141,7 +141,7 @@ Use the input field named "criteria" as the task-specific rubric for success.
 - Reward actual task completion over polished wording.
 - Reward correct tool choice and correct arguments.
 - Penalize wrong tools, unnecessary retries, ignored tool errors, and contradictions between the final output and the function call trace.
-- If completionType is ask_clarification, judge whether the clarification was necessary, precise, and limited to the missing information.
+- If completionType is askClarification, judge whether the clarification was necessary, precise, and limited to the missing information.
 - Reward clarifications that identify the exact missing information instead of guessing.
 - Penalize clarifications that are vague, unnecessary, or ask for information the agent could have gathered from available tools or context.
 - If expectedOutput is present and completionType is final, compare the final output against it.

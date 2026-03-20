@@ -37,7 +37,7 @@ export function createCompletionBindings(
   };
 
   const askClarificationFunction = (...args: unknown[]) => {
-    setCompletionPayload(normalizeCompletionPayload('ask_clarification', args));
+    setCompletionPayload(normalizeCompletionPayload('askClarification', args));
   };
 
   const protocolForTrigger = (
@@ -49,9 +49,9 @@ export function createCompletionBindings(
     },
     askClarification: (...args: unknown[]): never => {
       setCompletionPayload(
-        normalizeCompletionPayload('ask_clarification', args)
+        normalizeCompletionPayload('askClarification', args)
       );
-      throw new AxAgentProtocolCompletionSignal('ask_clarification');
+      throw new AxAgentProtocolCompletionSignal('askClarification');
     },
     guideAgent: (...args: unknown[]): never => {
       setCompletionPayload(normalizeGuidancePayload(args, triggeredBy));
@@ -75,9 +75,9 @@ export function normalizeCompletionPayload(
     throw new Error(`${type}() requires at least one argument`);
   }
 
-  if (type === 'ask_clarification') {
+  if (type === 'askClarification') {
     if (args.length !== 1) {
-      throw new Error('ask_clarification() requires exactly one argument');
+      throw new Error('askClarification() requires exactly one argument');
     }
 
     return {
@@ -130,19 +130,19 @@ function normalizeClarificationChoice(
 
   if (!isPlainObject(choice)) {
     throw new Error(
-      'ask_clarification() choice entries must be non-empty strings or objects with a non-empty label'
+      'askClarification() choice entries must be non-empty strings or objects with a non-empty label'
     );
   }
 
   if (!isNonEmptyString(choice.label)) {
     throw new Error(
-      'ask_clarification() choice objects require a non-empty label'
+      'askClarification() choice objects require a non-empty label'
     );
   }
 
   if (choice.value !== undefined && !isNonEmptyString(choice.value)) {
     throw new Error(
-      'ask_clarification() choice object values must be non-empty strings'
+      'askClarification() choice object values must be non-empty strings'
     );
   }
 
@@ -159,13 +159,13 @@ function normalizeClarificationPayload(payload: unknown): AxAgentClarification {
 
   if (!isPlainObject(payload)) {
     throw new Error(
-      'ask_clarification() requires a non-empty string or an object payload'
+      'askClarification() requires a non-empty string or an object payload'
     );
   }
 
   if (!isNonEmptyString(payload.question)) {
     throw new Error(
-      'ask_clarification() object payload requires a non-empty question'
+      'askClarification() object payload requires a non-empty question'
     );
   }
 
@@ -189,7 +189,7 @@ function normalizeClarificationPayload(payload: unknown): AxAgentClarification {
       !allowedTypes.has(payload.type as AxAgentClarificationKind)
     ) {
       throw new Error(
-        'ask_clarification() object payload type must be one of: text, number, date, single_choice, multiple_choice'
+        'askClarification() object payload type must be one of: text, number, date, single_choice, multiple_choice'
       );
     }
     normalizedType = payload.type as AxAgentClarificationKind;
@@ -201,12 +201,12 @@ function normalizeClarificationPayload(payload: unknown): AxAgentClarification {
   if (rawChoices !== undefined) {
     if (!Array.isArray(rawChoices) || rawChoices.length === 0) {
       throw new Error(
-        'ask_clarification() choices must be a non-empty array when provided'
+        'askClarification() choices must be a non-empty array when provided'
       );
     }
   } else if (wantsChoices) {
     throw new Error(
-      'ask_clarification() choice payloads require a non-empty choices array'
+      'askClarification() choice payloads require a non-empty choices array'
     );
   }
 

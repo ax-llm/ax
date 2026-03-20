@@ -254,7 +254,7 @@ function truncateInline(text: string, maxChars = 120): string {
 }
 
 function hasCompletionSignal(code: string): boolean {
-  return /\b(final|ask_clarification)\s*\(/.test(code);
+  return /\b(final|askClarification)\s*\(/.test(code);
 }
 
 function inferStepKind(entry: Readonly<ActionLogEntry>): ActionLogStepKind {

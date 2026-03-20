@@ -1188,19 +1188,19 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
 
     if (!_isPlainObject(choice)) {
       throw new Error(
-        'ask_clarification() choice entries must be non-empty strings or objects with a non-empty label'
+        'askClarification() choice entries must be non-empty strings or objects with a non-empty label'
       );
     }
 
     if (!_isNonEmptyString(choice.label)) {
       throw new Error(
-        'ask_clarification() choice objects require a non-empty label'
+        'askClarification() choice objects require a non-empty label'
       );
     }
 
     if (choice.value !== undefined && !_isNonEmptyString(choice.value)) {
       throw new Error(
-        'ask_clarification() choice object values must be non-empty strings'
+        'askClarification() choice object values must be non-empty strings'
       );
     }
   };
@@ -1212,13 +1212,13 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
 
     if (!_isPlainObject(payload)) {
       throw new Error(
-        'ask_clarification() requires a non-empty string or an object payload'
+        'askClarification() requires a non-empty string or an object payload'
       );
     }
 
     if (!_isNonEmptyString(payload.question)) {
       throw new Error(
-        'ask_clarification() object payload requires a non-empty question'
+        'askClarification() object payload requires a non-empty question'
       );
     }
 
@@ -1238,7 +1238,7 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
     } else {
       if (typeof payload.type !== 'string' || !allowedTypes.has(payload.type)) {
         throw new Error(
-          'ask_clarification() object payload type must be one of: text, number, date, single_choice, multiple_choice'
+          'askClarification() object payload type must be one of: text, number, date, single_choice, multiple_choice'
         );
       }
       normalizedType = payload.type;
@@ -1251,7 +1251,7 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
     if (rawChoices !== undefined) {
       if (!Array.isArray(rawChoices) || rawChoices.length === 0) {
         throw new Error(
-          'ask_clarification() choices must be a non-empty array when provided'
+          'askClarification() choices must be a non-empty array when provided'
         );
       }
       for (const choice of rawChoices) {
@@ -1259,7 +1259,7 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
       }
     } else if (wantsChoices) {
       throw new Error(
-        'ask_clarification() choice payloads require a non-empty choices array'
+        'askClarification() choice payloads require a non-empty choices array'
       );
     }
   };
@@ -1275,9 +1275,9 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
       return;
     }
 
-    if (name === 'ask_clarification') {
+    if (name === 'askClarification') {
       if (args.length !== 1) {
-        throw new Error('ask_clarification() requires exactly one argument');
+        throw new Error('askClarification() requires exactly one argument');
       }
       _validateClarificationPayload(args[0]);
     }
@@ -1285,14 +1285,14 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
 
   const _getCompletionCallType = (
     name: string
-  ): 'final' | 'ask_clarification' | undefined => {
-    if (name === 'final' || name === 'ask_clarification') {
+  ): 'final' | 'askClarification' | undefined => {
+    if (name === 'final' || name === 'askClarification') {
       return name;
     }
 
     const refMatch = /^fn_\d+_(.+)$/.exec(name);
     const refPath = refMatch?.[1];
-    if (refPath === 'final' || refPath === 'ask_clarification') {
+    if (refPath === 'final' || refPath === 'askClarification') {
       return refPath;
     }
 

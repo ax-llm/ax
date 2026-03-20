@@ -298,8 +298,8 @@ Decision rules:
 
 - `agent.optimize(...)` runs each evaluation rollout from a clean continuation state.
 - Saved runtime state from `getState()` and `setState(...)` is not used during eval rollouts.
-- During optimize/eval, `ask_clarification(...)` is treated as a scored evaluation outcome instead of going through the responder.
-- For clarification outcomes in custom metrics, expect `prediction.completionType === 'ask_clarification'`, populated `prediction.clarification`, and absent `prediction.output`.
+- During optimize/eval, `askClarification(...)` is treated as a scored evaluation outcome instead of going through the responder.
+- For clarification outcomes in custom metrics, expect `prediction.completionType === 'askClarification'`, populated `prediction.clarification`, and absent `prediction.output`.
 - For final outcomes in custom metrics, expect `prediction.completionType === 'final'` and populated `prediction.output`.
 - `target: 'responder'` still works, but clarification-heavy tasks are usually low-signal for responder optimization.
 

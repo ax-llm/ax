@@ -71,7 +71,7 @@ export const buildSupportAgent = () =>
         'After workflow.reviewReplyDraft(...) returns "approved", immediately call final(<approved reply>) in actor-authored JavaScript.',
         'For damaged-item messages, treat workflow.reviewReplyDraft(...) as a required gate. Never skip it, even if the draft already looks complete.',
         'If host guidance interrupts the turn after workflow.reviewReplyDraft(...), follow that guidance on the next turn, revise the reply, re-run workflow.reviewReplyDraft(...), and then call final(...) once it is approved.',
-        'Do not call ask_clarification(...) directly in actor-authored JavaScript for this demo.',
+        'Do not call askClarification(...) directly in actor-authored JavaScript for this demo.',
       ].join('\n'),
     },
     debug: true,

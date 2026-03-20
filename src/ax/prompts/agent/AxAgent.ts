@@ -221,7 +221,7 @@ export type AxAgentFunctionGroup = AxAgentFunctionModuleMeta & {
 };
 
 export type AxAgentTestCompletionPayload = {
-  type: 'final' | 'ask_clarification';
+  type: 'final' | 'askClarification';
   args: unknown[];
 };
 
@@ -449,7 +449,7 @@ export type AxAgentEvalPrediction<OUT = any> =
       clarification?: undefined;
     })
   | (AxAgentEvalPredictionShared & {
-      completionType: 'ask_clarification';
+      completionType: 'askClarification';
       output?: undefined;
       clarification: AxAgentStructuredClarification;
     });
@@ -618,7 +618,7 @@ export type AxAgentJudgeInput = {
 };
 
 export type AxAgentJudgeOutput = {
-  completionType: 'final' | 'ask_clarification';
+  completionType: 'final' | 'askClarification';
   clarification?: AxFieldValue;
   finalOutput?: AxFieldValue;
   actionLog: string;
@@ -751,7 +751,7 @@ type AxMutableRecursiveTraceNode = {
   role: AxAgentRecursiveNodeRole;
   taskDigest?: string;
   contextDigest?: string;
-  completionType?: 'final' | 'ask_clarification';
+  completionType?: 'final' | 'askClarification';
   turnCount: number;
   actorTurns: AxAgentRecursiveTurn[];
   functionCalls: {
@@ -900,7 +900,7 @@ function materializeRecursiveTraceNode(
  *
  * The execution loop is managed by TypeScript, not the LLM:
  * 1. Actor generates code → executed in runtime → result appended to actionLog
- * 2. Loop until Actor calls final(...) / ask_clarification(...) or maxTurns reached
+ * 2. Loop until Actor calls final(...) / askClarification(...) or maxTurns reached
  * 3. Responder synthesizes final answer from actorResult payload
  */
 export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
@@ -977,7 +977,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       'inputs',
       'llmQuery',
       'final',
-      'ask_clarification',
+      'askClarification',
       'inspect_runtime',
       DEFAULT_AGENT_MODULE_NAMESPACE,
       this.agentModuleNamespace,
@@ -1252,7 +1252,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       'inputs',
       'llmQuery',
       'final',
-      'ask_clarification',
+      'askClarification',
       'inspect_runtime',
       DISCOVERY_LIST_MODULE_FUNCTIONS_NAME,
       DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME,
@@ -2460,7 +2460,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           (call) => `${call.qualifiedName}: ${call.error ?? 'unknown error'}`
         );
 
-      if (actorResult.type === 'ask_clarification') {
+      if (actorResult.type === 'askClarification') {
         this._finalizeRecursiveTraceCapture(
           recursiveTraceNode,
           usageBefore,
@@ -2481,7 +2481,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
             ? renderRecursiveSummary(projectedRecursiveTrace, recursiveStats)
             : undefined;
         return {
-          completionType: 'ask_clarification',
+          completionType: 'askClarification',
           clarification: normalizeClarificationForError(
             actorResult.args[0] as AxAgentClarification
           ),
@@ -3194,7 +3194,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       DEFAULT_AGENT_MODULE_NAMESPACE,
       this.agentModuleNamespace,
       'final',
-      'ask_clarification',
+      'askClarification',
       ...agentFunctionNamespaces,
       ...(effectiveContextConfig.stateInspection.enabled
         ? ['inspect_runtime']
@@ -3333,7 +3333,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         ...bootstrapGlobals,
         llmQuery,
         final: completionBindings.finalFunction,
-        ask_clarification: completionBindings.askClarificationFunction,
+        askClarification: completionBindings.askClarificationFunction,
         ...(inspectRuntime ? { inspect_runtime: inspectRuntime } : {}),
         ...toolGlobals,
       });
@@ -4643,7 +4643,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           actorTurnRecords
         );
 
-      if (actorResult.type === 'ask_clarification') {
+      if (actorResult.type === 'askClarification') {
         this._finalizeRecursiveTraceCapture(
           recursiveTraceNode,
           usageBefore,
@@ -4721,7 +4721,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       const { nonContextValues, actorResult, actorFieldValues } =
         await this._runActorLoop(ai, values, options, effectiveAbortSignal);
 
-      if (actorResult.type === 'ask_clarification') {
+      if (actorResult.type === 'askClarification') {
         throw new AxAgentClarificationError(
           actorResult.args[0] as AxAgentClarification,
           {

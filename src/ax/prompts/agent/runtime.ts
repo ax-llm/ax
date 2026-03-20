@@ -750,7 +750,7 @@ export function formatInterpreterError(
 export function hasCompletionSignalCall(code: string): boolean {
   const sanitized = stripJsStringsAndComments(code);
   return (
-    /\bfinal\s*\(/.test(sanitized) || /\bask_clarification\s*\(/.test(sanitized)
+    /\bfinal\s*\(/.test(sanitized) || /\baskClarification\s*\(/.test(sanitized)
   );
 }
 
@@ -1008,17 +1008,17 @@ export function shouldEnforceIncrementalConsoleTurns(
 export function validateActorTurnCodePolicy(code: string): string | undefined {
   const sanitized = stripJsStringsAndComments(code);
   const hasFinal = /\bfinal\s*\(/.test(sanitized);
-  const hasAskClarification = /\bask_clarification\s*\(/.test(sanitized);
+  const hasAskClarification = /\baskClarification\s*\(/.test(sanitized);
   const completionSignalCount = Number(hasFinal) + Number(hasAskClarification);
   const consoleLogCalls = findConsoleLogCalls(sanitized);
 
   if (completionSignalCount > 1) {
-    return '[POLICY] Use exactly one completion signal per turn: either final(...) or ask_clarification(...), not both.';
+    return '[POLICY] Use exactly one completion signal per turn: either final(...) or askClarification(...), not both.';
   }
 
   if (completionSignalCount === 1) {
     if (consoleLogCalls.length > 0) {
-      return '[POLICY] Do not combine console.log(...) with final(...)/ask_clarification(...) in the same turn. Inspect in one turn, then complete in the next turn.';
+      return '[POLICY] Do not combine console.log(...) with final(...)/askClarification(...) in the same turn. Inspect in one turn, then complete in the next turn.';
     }
     return undefined;
   }

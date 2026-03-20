@@ -138,13 +138,13 @@ Use `promptLevel: 'basic'` when:
 - If `agentIdentity.namespace` is set, call child agents through that module, not `agents`.
 - If `functions.discovery` is `true`, call `listModuleFunctions(...)` first, then `getFunctionDefinitions(...)`, then call only discovered functions.
 - In stdout-mode RLM, non-final turns must emit exactly one `console.log(...)` and stop immediately after it.
-- Never combine `console.log(...)` with `final(...)` or `ask_clarification(...)` in the same actor turn.
+- Never combine `console.log(...)` with `final(...)` or `askClarification(...)` in the same actor turn.
 - If a host-side `AxAgentFunction` needs to end the current actor turn, use `extra.protocol.final(...)` or `extra.protocol.askClarification(...)`.
 - If a child agent needs parent inputs such as `audience`, use `fields.shared` or `fields.globallyShared`.
 - `llmQuery(...)` failures may come back as `[ERROR] ...`; do not assume success.
 - If `contextPolicy.state.summary` is on, rely on the `Live Runtime State` block for current variables instead of re-reading old action log code.
 - If `contextPolicy.preset` is `'adaptive'`, `'checkpointed'`, or `'lean'`, assume older successful turns may be replaced by a `Checkpoint Summary` and that replay-pruned successful turns may appear as compact summaries instead of full code blocks.
-- In public `forward()` and `streamingForward()` flows, `ask_clarification(...)` does not go through the responder; it throws `AxAgentClarificationError`.
+- In public `forward()` and `streamingForward()` flows, `askClarification(...)` does not go through the responder; it throws `AxAgentClarificationError`.
 - When resuming after clarification, prefer `error.getState()` from the thrown `AxAgentClarificationError`, then call `agent.setState(savedState)` before the next `forward(...)`.
 - For offline tuning, hand off to the `ax-agent-optimize` skill and prefer eval-safe tools or in-memory mocks because `agent.optimize(...)` will replay tasks many times.
 
@@ -317,9 +317,9 @@ Rules:
 
 - `extra.protocol` is only available when the function call comes from an active AxAgent actor runtime session.
 - Use `extra.protocol.final(...)`, `extra.protocol.askClarification(...)`, or `extra.protocol.guideAgent(...)` only inside host-side function handlers.
-- Inside actor-authored JavaScript, keep using the runtime globals `final(...)` and `ask_clarification(...)`.
+- Inside actor-authored JavaScript, keep using the runtime globals `final(...)` and `askClarification(...)`.
 - `extra.protocol.guideAgent(...)` is handler-only internal control flow. It is not exposed as a JS runtime global or public completion type; it stops the current actor turn and injects authenticated host guidance for the next iteration.
-- `ask_clarification(...)` accepts either a simple string or a structured object with `question` plus optional UI hints such as `type: 'date' | 'number' | 'single_choice' | 'multiple_choice'` and `choices`.
+- `askClarification(...)` accepts either a simple string or a structured object with `question` plus optional UI hints such as `type: 'date' | 'number' | 'single_choice' | 'multiple_choice'` and `choices`.
 - Do not model these protocol completions as normal registered tool functions or discovery entries.
 
 ## Clarification And Resume State
@@ -371,7 +371,7 @@ if (savedState) {
 
 Public flow rules:
 
-- `forward()` and `streamingForward()` throw `AxAgentClarificationError` when the actor calls `ask_clarification(...)`.
+- `forward()` and `streamingForward()` throw `AxAgentClarificationError` when the actor calls `askClarification(...)`.
 - The responder is skipped for clarification in those public flows.
 - `AxAgentClarificationError.question` is the user-facing question text.
 - `AxAgentClarificationError.clarification` is the normalized structured payload.
@@ -381,11 +381,11 @@ Public flow rules:
 
 Structured clarification payloads:
 
-- String shorthand is allowed: `ask_clarification("What dates should I use?")`.
+- String shorthand is allowed: `askClarification("What dates should I use?")`.
 - Structured form is preferred for richer chat UIs:
 
 ```javascript
-ask_clarification({
+askClarification({
   question: 'Which route should I use?',
   type: 'single_choice',
   choices: ['Fastest', 'Scenic'],
@@ -495,7 +495,7 @@ Use these rules when generating actor JavaScript for RLM in stdout mode:
 - If the prompt contains `Live Runtime State`, treat it as the canonical view of current variables.
 - Errors from child-agent or tool calls appear in `Action Log`; inspect them and fix the code on the next turn.
 - Non-final turns should contain exactly one `console.log(...)`.
-- Final turns should call `final(...)` or `ask_clarification(...)` without `console.log(...)`.
+- Final turns should call `final(...)` or `askClarification(...)` without `console.log(...)`.
 - Do not write a complete multi-step program in one actor turn.
 - Do not re-declare or recompute values just because older turns are summarized; only rebuild after an explicit runtime restart or when you intentionally want a new value.
 - Do not assume older successful turns remain fully replayed; adaptive or lean policies may collapse them into a `Checkpoint Summary` block or compact action summaries.
@@ -561,7 +561,7 @@ Rules:
 - In `AxJSRuntime`, do not rely on calling `inspect_runtime()` from inside `test(...)` snippets yet; prefer checking runtime globals directly inside the snippet.
 - It returns the formatted runtime output string.
 - It throws on runtime failures instead of returning LLM-style error strings.
-- Do not call `final(...)` or `ask_clarification(...)` inside `test(...)` snippets.
+- Do not call `final(...)` or `askClarification(...)` inside `test(...)` snippets.
 - Pass only `contextFields` values to `test(...)`; it is not a general way to inject arbitrary non-context inputs.
 - If the snippet uses `llmQuery(...)`, provide an AI service through the agent config or `options.ai`.
 
@@ -913,7 +913,7 @@ Rules:
 - In advanced mode with `functions.discovery: true`, prefer putting noisy tool discovery, `getFunctionDefinitions(...)`, and branch-specific tool chatter inside delegated child calls when those branches are independent or semantically distinct.
 - In advanced mode, pass compact named object context to children instead of huge raw parent payloads. This makes the delegated prompt easier to follow and gives the child useful top-level globals.
 - In advanced mode, do not assume child-created variables, discovered docs, or action-log history come back to the parent. Only the child return value comes back.
-- In advanced mode, if a child calls `ask_clarification(...)`, that clarification bubbles up and ends the top-level run.
+- In advanced mode, if a child calls `askClarification(...)`, that clarification bubbles up and ends the top-level run.
 - In advanced mode, recursion is depth-limited: `maxDepth: 0` makes top-level `llmQuery(...)` simple, `maxDepth: 1` makes top-level `llmQuery(...)` advanced and child `llmQuery(...)` simple.
 - In advanced mode, batched delegated children are cancelled when a sibling child asks for clarification or aborts, so use batched form only when those branches are truly independent.
 - `maxSubAgentCalls` is a shared budget across the whole top-level run, including recursive children.

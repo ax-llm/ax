@@ -55,7 +55,7 @@ const mockAI = new AxMockAIService<string>({
               content: [
                 'Javascript Code: const tripPlan = { city: "Lisbon" };',
                 `globalThis.tripDraft = \`Trip to \${tripPlan.city}\`;`,
-                'ask_clarification({ question: "Which dates should I use?", type: "date" })',
+                'askClarification({ question: "Which dates should I use?", type: "date" })',
               ].join('\n'),
               finishReason: 'stop',
             },

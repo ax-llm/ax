@@ -86,8 +86,8 @@ const defaultRuntime: AxCodeRuntime = {
         if (globals?.final && code.includes('final(')) {
           (globals.final as (...args: unknown[]) => void)('done');
         }
-        if (globals?.ask_clarification && code.includes('ask_clarification(')) {
-          (globals.ask_clarification as (...args: unknown[]) => void)(
+        if (globals?.askClarification && code.includes('askClarification(')) {
+          (globals.askClarification as (...args: unknown[]) => void)(
             'clarification'
           );
         }
@@ -1172,7 +1172,7 @@ describe('AxAgent.test()', () => {
     await expect(testAgent.test('null.foo')).rejects.toThrow(/TypeError:/);
   });
 
-  it('returns completion payloads when snippets call final(...) or ask_clarification(...)', async () => {
+  it('returns completion payloads when snippets call final(...) or askClarification(...)', async () => {
     const testAgent = agent('query:string -> answer:string', {
       contextFields: [],
       runtime: new AxJSRuntime(),
@@ -1183,8 +1183,8 @@ describe('AxAgent.test()', () => {
       args: ['done'],
     });
 
-    await expect(testAgent.test('ask_clarification("more")')).resolves.toEqual({
-      type: 'ask_clarification',
+    await expect(testAgent.test('askClarification("more")')).resolves.toEqual({
+      type: 'askClarification',
       args: ['more'],
     });
   });
@@ -1954,7 +1954,7 @@ describe('Actor/Responder execution loop', () => {
     expect(result.answer).toBe('forced answer after max turns');
   });
 
-  it('should send fallback contextData payload when no final()/ask_clarification() is called', async () => {
+  it('should send fallback contextData payload when no final()/askClarification() is called', async () => {
     let responderPrompt = '';
 
     const testMockAI = new AxMockAIService({
@@ -4221,7 +4221,7 @@ describe('Actor/Responder execution loop', () => {
     expect(definition).not.toContain('- `await inspect_runtime(): string`');
   });
 
-  it('should throw AxAgentClarificationError when Actor returns ask_clarification(...)', async () => {
+  it('should throw AxAgentClarificationError when Actor returns askClarification(...)', async () => {
     let actorCallCount = 0;
     let responderCalled = false;
 
@@ -4238,7 +4238,7 @@ describe('Actor/Responder execution loop', () => {
               {
                 index: 0,
                 content:
-                  'Javascript Code: ask_clarification("Need additional context")',
+                  'Javascript Code: askClarification("Need additional context")',
                 finishReason: 'stop',
               },
             ],
@@ -4387,9 +4387,9 @@ describe('Functions as runtime globals', () => {
   });
 });
 
-// ----- final()/ask_clarification() as runtime globals -----
+// ----- final()/askClarification() as runtime globals -----
 
-describe('final()/ask_clarification() as runtime globals', () => {
+describe('final()/askClarification() as runtime globals', () => {
   it('should exit actor loop when final() is called inline with code', async () => {
     let actorCallCount = 0;
     let responderCalled = false;
@@ -4467,7 +4467,7 @@ describe('final()/ask_clarification() as runtime globals', () => {
     expect(executedCode).toContain('final("inline")');
   });
 
-  it('should pass final and ask_clarification functions in session globals', async () => {
+  it('should pass final and askClarification functions in session globals', async () => {
     let receivedGlobals: Record<string, unknown> = {};
 
     const testMockAI = new AxMockAIService({
@@ -4534,8 +4534,8 @@ describe('final()/ask_clarification() as runtime globals', () => {
 
     expect(receivedGlobals).toHaveProperty('final');
     expect(typeof receivedGlobals.final).toBe('function');
-    expect(receivedGlobals).toHaveProperty('ask_clarification');
-    expect(typeof receivedGlobals.ask_clarification).toBe('function');
+    expect(receivedGlobals).toHaveProperty('askClarification');
+    expect(typeof receivedGlobals.askClarification).toBe('function');
     expect(receivedGlobals).not.toHaveProperty('guideAgent');
     expect(receivedGlobals).not.toHaveProperty('guide_agent');
   });
@@ -4614,7 +4614,7 @@ describe('final()/ask_clarification() as runtime globals', () => {
     expect(result.answer).toBe('recovered final');
   });
 
-  it('should surface missing ask_clarification() args as an action-log error', async () => {
+  it('should surface missing askClarification() args as an action-log error', async () => {
     let sawMissingAskArgsError = false;
 
     const testMockAI = new AxMockAIService({
@@ -4626,7 +4626,7 @@ describe('final()/ask_clarification() as runtime globals', () => {
         if (systemPrompt.includes('Code Generation Agent')) {
           if (
             userPrompt.includes(
-              'ask_clarification() requires at least one argument'
+              'askClarification() requires at least one argument'
             )
           ) {
             sawMissingAskArgsError = true;
@@ -4645,7 +4645,7 @@ describe('final()/ask_clarification() as runtime globals', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: ask_clarification()',
+                content: 'Javascript Code: askClarification()',
                 finishReason: 'stop',
               },
             ],
@@ -4671,7 +4671,7 @@ describe('final()/ask_clarification() as runtime globals', () => {
       createSession(globals) {
         return {
           execute: async () => {
-            (globals?.ask_clarification as (...args: unknown[]) => void)();
+            (globals?.askClarification as (...args: unknown[]) => void)();
             return 'unreachable';
           },
           close: () => {},
@@ -4692,7 +4692,7 @@ describe('final()/ask_clarification() as runtime globals', () => {
     expect(result.answer).toBe('recovered clarification');
   });
 
-  it('should preserve structured ask_clarification payloads with AxJSRuntime', async () => {
+  it('should preserve structured askClarification payloads with AxJSRuntime', async () => {
     let actorCallCount = 0;
 
     const testMockAI = new AxMockAIService({
@@ -4707,7 +4707,7 @@ describe('final()/ask_clarification() as runtime globals', () => {
               {
                 index: 0,
                 content:
-                  'Javascript Code: ask_clarification({ question: "What is the duration?", type: "single_choice", choices: ["1 day", "1 week"] })',
+                  'Javascript Code: askClarification({ question: "What is the duration?", type: "single_choice", choices: ["1 day", "1 week"] })',
                 finishReason: 'stop',
               },
             ],
@@ -4750,7 +4750,7 @@ describe('final()/ask_clarification() as runtime globals', () => {
 
     expect(actorCallCount).toBe(1);
     expect(loopResult.actionLog).not.toContain('[object Promise]');
-    expect(loopResult.actorResult.type).toBe('ask_clarification');
+    expect(loopResult.actorResult.type).toBe('askClarification');
     expect(loopResult.actorResult.args[0]).toEqual({
       question: 'What is the duration?',
       type: 'single_choice',
@@ -4777,7 +4777,7 @@ describe('final()/ask_clarification() as runtime globals', () => {
       return actorCallCount === 1
         ? {
             javascriptCode:
-              'ask_clarification({ type: "single_choice", choices: ["1 day"] })',
+              'askClarification({ type: "single_choice", choices: ["1 day"] })',
           }
         : {
             javascriptCode: 'final("Recovered")',
@@ -4805,7 +4805,7 @@ describe('final()/ask_clarification() as runtime globals', () => {
 
     expect(actorCallCount).toBe(2);
     expect(loopResult.actionLog).toContain(
-      'ask_clarification() object payload requires a non-empty question'
+      'askClarification() object payload requires a non-empty question'
     );
     expect(loopResult.actorResult).toEqual({
       type: 'final',
@@ -4826,7 +4826,7 @@ describe('final()/ask_clarification() as runtime globals', () => {
     const anyAgent = testAgent as any;
     anyAgent.actorProgram.forward = async () => ({
       javascriptCode:
-        'const draft = "Lisbon itinerary"; ask_clarification({ question: "Which route should I use?", type: "multiple_choice", choices: ["Fastest", "Scenic"] })',
+        'const draft = "Lisbon itinerary"; askClarification({ question: "Which route should I use?", type: "multiple_choice", choices: ["Fastest", "Scenic"] })',
     });
     anyAgent.responderProgram.forward = async () => {
       throw new Error('Responder should not run for clarification');
@@ -4869,7 +4869,7 @@ describe('final()/ask_clarification() as runtime globals', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const anyAgent = testAgent as any;
     anyAgent.actorProgram.forward = async () => ({
-      javascriptCode: 'ask_clarification("What dates should I use?")',
+      javascriptCode: 'askClarification("What dates should I use?")',
     });
     anyAgent.responderProgram.streamingForward = async function* () {
       responderCalled = true;
@@ -4930,7 +4930,7 @@ describe('final()/ask_clarification() as runtime globals', () => {
             'const tripPlan = { city: "Lisbon" };',
             'globalThis.budget = 1200;',
             `globalThis.draftReply = \`Trip to \${tripPlan.city}\`;`,
-            'ask_clarification("What dates should I use?")',
+            'askClarification("What dates should I use?")',
           ].join('\n'),
         };
       }
@@ -4982,7 +4982,7 @@ describe('final()/ask_clarification() as runtime globals', () => {
     expect(actorActionLogs[1]).toContain('budget: number = 1200');
     expect(actorActionLogs[1]).toContain('draftReply');
     expect(actorActionLogs[1]).toContain(
-      'ask_clarification("What dates should I use?")'
+      'askClarification("What dates should I use?")'
     );
   });
 
@@ -5237,7 +5237,7 @@ describe('final()/ask_clarification() as runtime globals', () => {
             javascriptCode: [
               'const draftReply = "Trip to Lisbon";',
               'globalThis.budget = 1200;',
-              'ask_clarification("What dates should I use?")',
+              'askClarification("What dates should I use?")',
             ].join('\n'),
           }
         : {
@@ -5769,7 +5769,7 @@ describe('incremental console-turn policy', () => {
     expect(executedCode).toHaveLength(1);
     expect(executedCode[0]).toContain('final("done")');
     expect(secondTurnUserPrompt).toContain(
-      '[POLICY] Do not combine console.log(...) with final(...)/ask_clarification(...) in the same turn.'
+      '[POLICY] Do not combine console.log(...) with final(...)/askClarification(...) in the same turn.'
     );
   });
 
@@ -6065,10 +6065,10 @@ describe('axBuildActorDefinition', () => {
     expect(result).toContain('- `query` -> `inputs.query` (string, optional)');
   });
 
-  it('should document final()/ask_clarification() exit signals', () => {
+  it('should document final()/askClarification() exit signals', () => {
     const result = axBuildActorDefinition(undefined, [], [], {});
     expect(result).toContain('final(...args)');
-    expect(result).toContain('ask_clarification(questionOrSpec)');
+    expect(result).toContain('askClarification(questionOrSpec)');
     expect(result).not.toContain('guideAgent(');
   });
 
@@ -6611,10 +6611,10 @@ describe('RLM llmQuery runtime behavior', () => {
             }
 
             if (
-              globals?.ask_clarification &&
-              code.includes('ask_clarification(')
+              globals?.askClarification &&
+              code.includes('askClarification(')
             ) {
-              (globals.ask_clarification as (...args: unknown[]) => void)(
+              (globals.askClarification as (...args: unknown[]) => void)(
                 'Need more detail'
               );
               return 'clarify child';
@@ -6648,7 +6648,7 @@ describe('RLM llmQuery runtime behavior', () => {
                 {
                   index: 0,
                   content:
-                    'Javascript Code: ask_clarification("Need more detail")',
+                    'Javascript Code: askClarification("Need more detail")',
                   finishReason: 'stop',
                 },
               ],
@@ -7956,10 +7956,10 @@ describe('actorTurnCallback', () => {
               return 'root done';
             }
             if (
-              globals?.ask_clarification &&
-              code.includes('ask_clarification(')
+              globals?.askClarification &&
+              code.includes('askClarification(')
             ) {
-              (globals.ask_clarification as (...args: unknown[]) => void)(
+              (globals.askClarification as (...args: unknown[]) => void)(
                 'child clarification'
               );
               return 'child clarification';
@@ -7984,7 +7984,7 @@ describe('actorTurnCallback', () => {
                 {
                   index: 0,
                   content:
-                    'Javascript Code: ask_clarification("child clarification")',
+                    'Javascript Code: askClarification("child clarification")',
                   finishReason: 'stop',
                 },
               ],
@@ -8033,7 +8033,7 @@ describe('actorTurnCallback', () => {
     });
 
     expect(callbackEvents).toContainEqual({
-      code: 'ask_clarification("child clarification")',
+      code: 'askClarification("child clarification")',
       output: '(no output)',
       isError: false,
     });
@@ -10489,7 +10489,7 @@ describe('judgeOptions / optimize', () => {
     const anyAgent = testAgent as any;
     anyAgent.actorProgram.forward = async () => ({
       javascriptCode:
-        'ask_clarification({ question: "Which date should I use?", type: "date" })',
+        'askClarification({ question: "Which date should I use?", type: "date" })',
     });
     anyAgent.responderProgram.forward = async () => {
       responderCalled = true;
@@ -10498,8 +10498,8 @@ describe('judgeOptions / optimize', () => {
 
     await testAgent.optimize([makeTask()], {
       metric: async ({ prediction }) => {
-        expect(prediction.completionType).toBe('ask_clarification');
-        if (prediction.completionType !== 'ask_clarification') {
+        expect(prediction.completionType).toBe('askClarification');
+        if (prediction.completionType !== 'askClarification') {
           return 0;
         }
         expect(prediction.output).toBeUndefined();
@@ -10507,7 +10507,7 @@ describe('judgeOptions / optimize', () => {
           question: 'Which date should I use?',
           type: 'date',
         });
-        expect(prediction.actionLog).toContain('ask_clarification');
+        expect(prediction.actionLog).toContain('askClarification');
         return 1;
       },
     });
@@ -10596,7 +10596,7 @@ describe('judgeOptions / optimize', () => {
       if (values.query === 'need clarification') {
         return {
           javascriptCode:
-            'globalThis.temp = "carry"; ask_clarification("Need a date")',
+            'globalThis.temp = "carry"; askClarification("Need a date")',
         };
       }
 
@@ -10627,8 +10627,8 @@ describe('judgeOptions / optimize', () => {
         metric: async ({ prediction, example }) => {
           const query = (example as { input: { query: string } }).input.query;
           if (query === 'need clarification') {
-            expect(prediction.completionType).toBe('ask_clarification');
-            if (prediction.completionType !== 'ask_clarification') {
+            expect(prediction.completionType).toBe('askClarification');
+            if (prediction.completionType !== 'askClarification') {
               return 0;
             }
             expect(prediction.clarification.question).toBe('Need a date');
@@ -10688,7 +10688,7 @@ describe('judgeOptions / optimize', () => {
     const anyAgent = testAgent as any;
     anyAgent.actorProgram.forward = async () => ({
       javascriptCode:
-        'ask_clarification({ question: "Which date should I use?", type: "date" })',
+        'askClarification({ question: "Which date should I use?", type: "date" })',
     });
     anyAgent.responderProgram.forward = async () => {
       throw new Error('Responder should not run for clarification');
@@ -10700,7 +10700,7 @@ describe('judgeOptions / optimize', () => {
       },
     });
 
-    expect(judgeCapture.prompt).toContain('ask_clarification');
+    expect(judgeCapture.prompt).toContain('askClarification');
     expect(judgeCapture.prompt).toContain('Which date should I use?');
   });
 
@@ -10744,7 +10744,7 @@ describe('judgeOptions / optimize', () => {
       return actorCallCount === 1
         ? {
             javascriptCode:
-              'ask_clarification({ type: "single_choice", choices: ["1 day"] })',
+              'askClarification({ type: "single_choice", choices: ["1 day"] })',
           }
         : {
             javascriptCode: 'final("Recovered")',
@@ -10765,7 +10765,7 @@ describe('judgeOptions / optimize', () => {
         }
         expect(prediction.output.answer).toBe('Recovered');
         expect(prediction.actionLog).toContain(
-          'ask_clarification() object payload requires a non-empty question'
+          'askClarification() object payload requires a non-empty question'
         );
         return 1;
       },
@@ -12126,7 +12126,7 @@ describe('recursionOptions and recursive parity', () => {
     expect(childResponderPrompt).toContain('"contextHasNested": true');
   });
 
-  it('should bubble child ask_clarification instead of isolating it in parent state', async () => {
+  it('should bubble child askClarification instead of isolating it in parent state', async () => {
     let childSubmitActorCalls = 0;
     let childAskActorCalls = 0;
     let rootResponderPrompt = '';
@@ -12150,10 +12150,10 @@ describe('recursionOptions and recursive parity', () => {
               return 'child submit';
             }
             if (
-              globals?.ask_clarification &&
-              code.includes('ask_clarification(')
+              globals?.askClarification &&
+              code.includes('askClarification(')
             ) {
-              (globals.ask_clarification as (...args: unknown[]) => void)(
+              (globals.askClarification as (...args: unknown[]) => void)(
                 'child ask'
               );
               return 'child ask';
@@ -12191,7 +12191,7 @@ describe('recursionOptions and recursive parity', () => {
               results: [
                 {
                   index: 0,
-                  content: 'Javascript Code: ask_clarification("child ask")',
+                  content: 'Javascript Code: askClarification("child ask")',
                   finishReason: 'stop',
                 },
               ],
@@ -14803,7 +14803,7 @@ describe('AxFunction', () => {
       'inputs',
       'llmQuery',
       'final',
-      'ask_clarification',
+      'askClarification',
       'inspect_runtime',
     ]) {
       expect(
@@ -14866,7 +14866,7 @@ describe('AxFunction', () => {
   });
 
   it('should throw on reserved grouped function namespaces', () => {
-    for (const ns of ['llmQuery', 'final', 'ask_clarification']) {
+    for (const ns of ['llmQuery', 'final', 'askClarification']) {
       expect(
         () =>
           new AxAgent(
@@ -15932,7 +15932,7 @@ describe('AxFunction', () => {
     expect(sawProtocolInHostFunction).toBe(true);
     expect(continuedAfterClarification).toBe(false);
     expect(actorState.actorResult).toEqual({
-      type: 'ask_clarification',
+      type: 'askClarification',
       args: ['Need more details'],
     });
     expect(actorState.actionLog).not.toContain('Error:');
