@@ -4296,6 +4296,14 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       debug,
       abortSignal: effectiveAbortSignal,
     };
+    const explicitActorDebugHideSystemPrompt = [
+      options,
+      this.actorForwardOptions,
+      this._genOptions,
+    ].find(
+      (source): source is Readonly<{ debugHideSystemPrompt?: boolean }> =>
+        source !== undefined && Object.hasOwn(source, 'debugHideSystemPrompt')
+    )?.debugHideSystemPrompt;
 
     const actorFieldValues: Record<string, unknown> = {};
     const contextThreshold = runtimeContext.effectiveContextConfig
@@ -4310,6 +4318,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     let checkpointState: CheckpointSummaryState | undefined;
     let actorModelState: AxAgentStateActorModelState | undefined;
     let restoreNotice: string | undefined;
+    let lastDebugLoggedActorInstruction: string | undefined;
     const checkpointReplayMode =
       runtimeContext.effectiveContextConfig.actionReplay === 'checkpointed'
         ? 'minimal'
@@ -4330,6 +4339,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       );
       this.actorProgram.setDescription(instruction);
       this.actorProgram.clearInstruction();
+      return instruction;
     };
 
     const buildActorPromptValues = (actionLog: string) => ({
@@ -4536,7 +4546,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       }
 
       for (let turn = 0; turn < maxTurns; turn++) {
-        refreshActorInstruction();
+        const actorInstruction = refreshActorInstruction();
         await applyInputUpdateCallback();
         inputState.recomputeTurnInputs(true);
         if (await refreshCheckpointSummary()) {
@@ -4578,14 +4588,24 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
               : actorMergedOptions;
         }
 
+        const debugHideSystemPrompt =
+          explicitActorDebugHideSystemPrompt ??
+          (turn > 0 && actorInstruction === lastDebugLoggedActorInstruction);
+        actorCallOptions = {
+          ...actorCallOptions,
+          debugHideSystemPrompt,
+        };
+
         const actorResult = await this.actorProgram.forward(
           ai,
           buildActorPromptValues(actionLogText),
           actorCallOptions
         );
+        if (!debugHideSystemPrompt) {
+          lastDebugLoggedActorInstruction = actorInstruction;
+        }
 
         if (turn === 0) {
-          actorMergedOptions.debugHideSystemPrompt = true;
           restoreNotice = undefined;
         }
 
