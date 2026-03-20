@@ -191,8 +191,8 @@ export interface AxCodeSession {
  *   into checkpoint summaries as context grows. Reliability-first defaults favor
  *   summaries before deletion. Best default for long multi-turn tasks.
  * - `lean`: Most aggressive compression. Keep live runtime state visible, checkpoint
- *   older successful work, hide used discovery docs, and summarize replay-pruned
- *   successful turns instead of replaying their full code blocks. Reliability-first
+ *   older successful work, and summarize replay-pruned successful turns instead of
+ *   replaying their full code blocks. Reliability-first
  *   defaults still preserve recent evidence before deleting older low-value steps.
  *   Best when token pressure matters more than raw replay detail.
  * - `checkpointed`: Keep full replay until the rendered actor prompt crosses a threshold, then
@@ -227,18 +227,6 @@ export interface AxContextPolicyConfig {
    * is never propagated so the summarizer stays stateless.
    */
   summarizerOptions?: Omit<AxProgramForwardOptions<string>, 'functions'>;
-  /**
-   * Hide stale discovery docs from later actor prompts after a discovered
-   * callable is used successfully. This only affects prompt replay; it does
-   * not delete internal history or remove runtime values.
-   *
-   * Defaults by preset:
-   * - `full`: false
-   * - `adaptive`: false
-   * - `lean`: true
-   * - `checkpointed`: false
-   */
-  pruneUsedDocs?: boolean;
   /**
    * Prune error entries after a successful (non-error) turn.
    *
@@ -375,6 +363,8 @@ export function axBuildActorDefinition(
     hasAuthenticatedGuidance?: boolean;
     /** Exact authenticated guidance prefix the actor should trust. */
     authenticatedGuidancePrefix?: string;
+    /** Discovery docs accumulated during the current run. */
+    discoveredDocsMarkdown?: string;
   }>
 ): string {
   //   const maxSubAgentCalls = options.maxSubAgentCalls ?? 50;
@@ -462,6 +452,8 @@ export function axBuildActorDefinition(
       )
       .join('\n'),
     runtimeUsageInstructions: String(options.runtimeUsageInstructions),
+    hasDiscoveredDocs: Boolean(options.discoveredDocsMarkdown),
+    discoveredDocsMarkdown: String(options.discoveredDocsMarkdown ?? ''),
     enforceIncrementalConsoleTurns: Boolean(
       options.enforceIncrementalConsoleTurns
     ),

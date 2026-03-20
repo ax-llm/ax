@@ -1271,11 +1271,38 @@ export function normalizeDiscoveryStringInput(
   return [...new Set(normalized)];
 }
 
+export function compareCanonicalDiscoveryStrings(
+  left: string,
+  right: string
+): number {
+  if (left === right) {
+    return 0;
+  }
+
+  return left < right ? -1 : 1;
+}
+
+export function sortDiscoveryModules(modules: readonly string[]): string[] {
+  return [...modules].sort(compareCanonicalDiscoveryStrings);
+}
+
 export function normalizeDiscoveryCallableIdentifier(
   identifier: string
 ): string {
   const trimmed = identifier.trim();
   return trimmed.includes('.') ? trimmed : `utils.${trimmed}`;
+}
+
+export function normalizeAndSortDiscoveryFunctionIdentifiers(
+  identifiers: readonly string[]
+): string[] {
+  return [
+    ...new Set(
+      identifiers.map((identifier) =>
+        normalizeDiscoveryCallableIdentifier(identifier)
+      )
+    ),
+  ].sort(compareCanonicalDiscoveryStrings);
 }
 
 export function resolveDiscoveryCallableNamespaces(
@@ -1509,11 +1536,11 @@ export function renderDiscoveryModuleListMarkdown(
   moduleLookup: ReadonlyMap<string, readonly string[]>,
   moduleMetaLookup: ReadonlyMap<string, AxAgentFunctionModuleMeta>
 ): string {
-  return modules
+  return sortDiscoveryModules(modules)
     .map((module) => {
       const functions = [...(moduleLookup.get(module) ?? [])]
         .map((qualifiedName) => qualifiedName.split('.').pop() ?? qualifiedName)
-        .sort((a, b) => a.localeCompare(b));
+        .sort(compareCanonicalDiscoveryStrings);
       const exists = functions.length > 0;
       const meta = exists ? moduleMetaLookup.get(module) : undefined;
       const body = exists
@@ -1536,9 +1563,8 @@ export function renderDiscoveryFunctionDefinitionsMarkdown(
   identifiers: readonly string[],
   callableLookup: ReadonlyMap<string, DiscoveryCallableMeta>
 ): string {
-  return identifiers
-    .map((rawIdentifier) => {
-      const qualifiedName = normalizeDiscoveryCallableIdentifier(rawIdentifier);
+  return normalizeAndSortDiscoveryFunctionIdentifiers(identifiers)
+    .map((qualifiedName) => {
       const meta = callableLookup.get(qualifiedName);
       if (!meta) {
         return `### \`${qualifiedName}\`\n- Not found.`;

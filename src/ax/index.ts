@@ -761,6 +761,7 @@ import {
   type AxAgentClarificationKind,
   type AxAgentConfig,
   type AxAgentDemos,
+  type AxAgentDiscoveryPromptState,
   type AxAgentEvalDataset,
   type AxAgentEvalFunctionCall,
   type AxAgentEvalPrediction,
@@ -1292,6 +1293,7 @@ export type { AxAgentClarificationKind };
 export type { AxAgentCompletionProtocol };
 export type { AxAgentConfig };
 export type { AxAgentDemos };
+export type { AxAgentDiscoveryPromptState };
 export type { AxAgentEvalDataset };
 export type { AxAgentEvalFunctionCall };
 export type { AxAgentEvalPrediction };

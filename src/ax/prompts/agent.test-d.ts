@@ -776,23 +776,13 @@ import {
   });
 }
 
-// contextPolicy.pruneUsedDocs should accept boolean values
+// contextPolicy.pruneUsedDocs was removed
 {
   const runtime = {} as AxCodeRuntime;
+  // @ts-expect-error pruneUsedDocs no longer exists
   agent('query:string -> answer:string', {
     contextFields: [] as const,
     runtime,
     contextPolicy: { pruneUsedDocs: true },
-  });
-}
-
-// contextPolicy.pruneUsedDocs should reject non-boolean values
-{
-  const runtime = {} as AxCodeRuntime;
-  // @ts-expect-error pruneUsedDocs must be a boolean
-  agent('query:string -> answer:string', {
-    contextFields: [] as const,
-    runtime,
-    contextPolicy: { pruneUsedDocs: 'yes' },
   });
 }

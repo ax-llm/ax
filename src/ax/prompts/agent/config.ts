@@ -168,7 +168,6 @@ export function resolveContextPolicy(
   return {
     preset,
     summarizerOptions: contextPolicy?.summarizerOptions,
-    pruneUsedDocs: contextPolicy?.pruneUsedDocs ?? presetDefaults.pruneUsedDocs,
     actionReplay: contextPolicy?.expert?.replay ?? presetDefaults.actionReplay,
     recentFullActions: Math.max(
       contextPolicy?.expert?.recentFullActions ??
@@ -209,7 +208,6 @@ function getContextPolicyPresetDefaults(preset: AxContextPolicyPreset) {
         errorPruning: true,
         hindsight: false,
         pruneRank: 2,
-        pruneUsedDocs: false,
         stateSummary: true,
         inspect: true,
         inspectThreshold: 16_000,
@@ -225,7 +223,6 @@ function getContextPolicyPresetDefaults(preset: AxContextPolicyPreset) {
         errorPruning: true,
         hindsight: false,
         pruneRank: 2,
-        pruneUsedDocs: true,
         stateSummary: true,
         inspect: true,
         inspectThreshold: 12_000,
@@ -241,7 +238,6 @@ function getContextPolicyPresetDefaults(preset: AxContextPolicyPreset) {
         errorPruning: false,
         hindsight: false,
         pruneRank: 2,
-        pruneUsedDocs: false,
         stateSummary: true,
         inspect: true,
         inspectThreshold: 16_000,
@@ -257,7 +253,6 @@ function getContextPolicyPresetDefaults(preset: AxContextPolicyPreset) {
         errorPruning: false,
         hindsight: false,
         pruneRank: 2,
-        pruneUsedDocs: false,
         stateSummary: false,
         inspect: false,
         inspectThreshold: undefined,

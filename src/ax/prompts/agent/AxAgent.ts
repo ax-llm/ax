@@ -150,15 +150,19 @@ import {
   normalizeAgentFunctionCollection,
   normalizeAgentModuleNamespace,
   normalizeContextFields,
+  normalizeDiscoveryCallableIdentifier,
   normalizeDiscoveryStringInput,
   resolveDiscoveryCallableNamespaces,
   parseRuntimeStateSnapshot,
+  compareCanonicalDiscoveryStrings,
   renderDiscoveryFunctionDefinitionsMarkdown,
   renderDiscoveryModuleListMarkdown,
   RUNTIME_RESTART_NOTICE,
   runWithConcurrency,
+  sortDiscoveryModules,
   shouldEnforceIncrementalConsoleTurns,
   stripSchemaProperties,
+  normalizeAndSortDiscoveryFunctionIdentifiers,
   TEST_HARNESS_LLM_QUERY_AI_REQUIRED_ERROR,
   toCamelCase,
   truncateText,
@@ -294,6 +298,17 @@ export type AxAgentStateActorModelState = {
   matchedNamespaces?: string[];
 };
 
+export type AxAgentDiscoveryPromptState = {
+  modules?: Array<{
+    module: string;
+    text: string;
+  }>;
+  functions?: Array<{
+    qualifiedName: string;
+    text: string;
+  }>;
+};
+
 export type AxActorModelPolicy = readonly [
   AxActorModelPolicyEntry,
   ...AxActorModelPolicyEntry[],
@@ -304,6 +319,7 @@ export type AxAgentState = {
   runtimeBindings: Record<string, unknown>;
   runtimeEntries: AxAgentStateRuntimeEntry[];
   actionLogEntries: AxAgentStateActionLogEntry[];
+  discoveryPromptState?: AxAgentDiscoveryPromptState;
   checkpointState?: AxAgentStateCheckpointState;
   provenance: Record<string, RuntimeStateVariableProvenance>;
   actorModelState?: AxAgentStateActorModelState;
@@ -665,7 +681,6 @@ type AxLlmQueryPromptMode =
 export type AxResolvedContextPolicy = {
   preset: AxContextPolicyPreset;
   summarizerOptions?: Omit<AxProgramForwardOptions<string>, 'functions'>;
-  pruneUsedDocs: boolean;
   actionReplay: 'full' | 'adaptive' | 'minimal' | 'checkpointed';
   recentFullActions: number;
   errorPruning: boolean;
@@ -710,12 +725,15 @@ type AxAgentRuntimeCompletionState = {
   payload: AxAgentInternalCompletionPayload | undefined;
 };
 
-type AxActorDefinitionBuildOptions = Parameters<typeof axBuildActorDefinition>[3];
+type AxActorDefinitionBuildOptions = Parameters<
+  typeof axBuildActorDefinition
+>[3];
 
 export type AxPreparedRestoredState = {
   runtimeBindings: Record<string, unknown>;
   runtimeEntries: AxAgentStateRuntimeEntry[];
   actionLogEntries: ActionLogEntry[];
+  discoveryPromptState?: AxAgentDiscoveryPromptState;
   checkpointState?: AxAgentStateCheckpointState;
   provenance: Record<string, RuntimeStateVariableProvenance>;
   actorModelState?: AxAgentStateActorModelState;
@@ -731,6 +749,10 @@ export type AxAgentRuntimeExecutionContext = {
   bootstrapContextSummary?: string;
   applyBootstrapRuntimeContext: () => Promise<string | undefined>;
   captureRuntimeStateSummary: () => Promise<string | undefined>;
+  consumeDiscoveryTurnArtifacts: () => {
+    summary?: string;
+    texts: string[];
+  };
   getActorModelMatchedNamespaces: () => readonly string[];
   exportRuntimeState: () => Promise<AxAgentState>;
   restoreRuntimeState: (
@@ -800,6 +822,164 @@ function formatAuthenticatedGuidanceOutput(
   const prefix = buildAuthenticatedGuidancePrefix(token);
   const functionName = payload.triggeredBy ?? '(unknown function)';
   return `${prefix} Execution stopped at \`${functionName}\`. Host-issued guidance for the next actor turn: ${payload.guidance}\n`;
+}
+
+type AxMutableDiscoveryPromptState = {
+  modules: Map<string, string>;
+  functions: Map<string, string>;
+};
+
+type AxDiscoveryTurnSummary = {
+  modules: Set<string>;
+  functions: Set<string>;
+  texts: Set<string>;
+};
+
+function createMutableDiscoveryPromptState(): AxMutableDiscoveryPromptState {
+  return {
+    modules: new Map<string, string>(),
+    functions: new Map<string, string>(),
+  };
+}
+
+function restoreDiscoveryPromptState(
+  state?: Readonly<AxAgentDiscoveryPromptState>
+): AxMutableDiscoveryPromptState {
+  const restored = createMutableDiscoveryPromptState();
+
+  for (const entry of state?.modules ?? []) {
+    if (
+      entry &&
+      typeof entry.module === 'string' &&
+      entry.module.trim() &&
+      typeof entry.text === 'string' &&
+      entry.text.trim()
+    ) {
+      restored.modules.set(entry.module.trim(), entry.text.trim());
+    }
+  }
+
+  for (const entry of state?.functions ?? []) {
+    if (
+      entry &&
+      typeof entry.qualifiedName === 'string' &&
+      entry.qualifiedName.trim() &&
+      typeof entry.text === 'string' &&
+      entry.text.trim()
+    ) {
+      restored.functions.set(
+        normalizeDiscoveryCallableIdentifier(entry.qualifiedName),
+        entry.text.trim()
+      );
+    }
+  }
+
+  return restored;
+}
+
+function serializeDiscoveryPromptState(
+  state: Readonly<AxMutableDiscoveryPromptState>
+): AxAgentDiscoveryPromptState | undefined {
+  const modules = [...state.modules.entries()]
+    .sort(([left], [right]) => compareCanonicalDiscoveryStrings(left, right))
+    .map(([module, text]) => ({ module, text }));
+  const functions = [...state.functions.entries()]
+    .sort(([left], [right]) => compareCanonicalDiscoveryStrings(left, right))
+    .map(([qualifiedName, text]) => ({ qualifiedName, text }));
+
+  if (modules.length === 0 && functions.length === 0) {
+    return undefined;
+  }
+
+  return {
+    ...(modules.length > 0 ? { modules } : {}),
+    ...(functions.length > 0 ? { functions } : {}),
+  };
+}
+
+function renderDiscoveryPromptMarkdown(
+  state: Readonly<AxMutableDiscoveryPromptState>
+): string | undefined {
+  const modules = [...state.modules.entries()]
+    .sort(([left], [right]) => compareCanonicalDiscoveryStrings(left, right))
+    .map(([, text]) => text);
+  const functions = [...state.functions.entries()]
+    .sort(([left], [right]) => compareCanonicalDiscoveryStrings(left, right))
+    .map(([, text]) => text);
+  const rendered = [...modules, ...functions].filter(Boolean).join('\n\n');
+
+  return rendered || undefined;
+}
+
+function createDiscoveryTurnSummary(): AxDiscoveryTurnSummary {
+  return {
+    modules: new Set<string>(),
+    functions: new Set<string>(),
+    texts: new Set<string>(),
+  };
+}
+
+function formatDiscoveryTurnSummary(
+  summary: Readonly<AxDiscoveryTurnSummary>
+): string | undefined {
+  const parts: string[] = [];
+  const modules = [...summary.modules].sort(compareCanonicalDiscoveryStrings);
+  const functions = [...summary.functions].sort(
+    compareCanonicalDiscoveryStrings
+  );
+
+  if (modules.length > 0) {
+    parts.push(
+      `Discovery docs now available for modules: ${modules.join(', ')}`
+    );
+  }
+  if (functions.length > 0) {
+    parts.push(
+      `Discovery docs now available for functions: ${functions.join(', ')}`
+    );
+  }
+
+  return parts.join('\n') || undefined;
+}
+
+function stripDiscoveryTurnOutput(
+  output: string,
+  discoveryTexts: readonly string[]
+): string {
+  if (discoveryTexts.length === 0) {
+    return output;
+  }
+
+  let sanitized = output;
+  const orderedTexts = [...new Set(discoveryTexts)]
+    .filter((text) => text.trim().length > 0)
+    .sort((left, right) => {
+      if (left.length !== right.length) {
+        return right.length - left.length;
+      }
+      return compareCanonicalDiscoveryStrings(left, right);
+    });
+
+  for (const text of orderedTexts) {
+    sanitized = sanitized.split(text).join('');
+  }
+
+  sanitized = sanitized.replace(/\n{3,}/g, '\n\n').trim();
+  return sanitized || '(no output)';
+}
+
+function appendDiscoveryTurnSummary(
+  output: string,
+  discoveryTurnSummary: string | undefined
+): string {
+  if (!discoveryTurnSummary) {
+    return output;
+  }
+
+  const trimmedOutput = output.trimEnd();
+  return trimmedOutput && trimmedOutput !== '(no output)'
+    ? `${trimmedOutput}\n\n${discoveryTurnSummary}`
+    : discoveryTurnSummary;
 }
 
 type AxAgentOptimizationTargetDescriptor = {
@@ -953,10 +1133,13 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private recursiveInstructionSlots: Record<string, string> =
     createRecursiveSlotSeedInstructions();
   private baseActorDefinition = '';
+  private currentDiscoveryPromptState = createMutableDiscoveryPromptState();
   private actorDefinitionBaseDescription: string | undefined;
   private actorDefinitionContextFields: readonly AxIField[] = [];
   private actorDefinitionResponderOutputFields: readonly AxIField[] = [];
-  private actorDefinitionBuildOptions: AxActorDefinitionBuildOptions | undefined;
+  private actorDefinitionBuildOptions:
+    | AxActorDefinitionBuildOptions
+    | undefined;
   private recursiveEvalContext: AxAgentRecursiveEvalContext | undefined;
   private currentRecursiveTraceNodeId: string | undefined;
   private recursiveInstructionRoleOverride:
@@ -1115,9 +1298,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     this.actorProgram.setInstruction(instruction);
   }
 
-  private _renderActorDefinition(
-    authenticatedGuidancePrefix?: string
-  ): string {
+  private _renderActorDefinition(authenticatedGuidancePrefix?: string): string {
     if (!this.actorDefinitionBuildOptions) {
       return this.baseActorDefinition;
     }
@@ -1128,6 +1309,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       this.actorDefinitionResponderOutputFields,
       {
         ...this.actorDefinitionBuildOptions,
+        discoveredDocsMarkdown: renderDiscoveryPromptMarkdown(
+          this.currentDiscoveryPromptState
+        ),
         hasAuthenticatedGuidance: Boolean(authenticatedGuidancePrefix),
         authenticatedGuidancePrefix,
       }
@@ -1139,9 +1323,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const recursiveAddendum = role
       ? buildRecursiveActorInstruction(role, this.recursiveInstructionSlots)
       : undefined;
-    const actorDefinition = authenticatedGuidancePrefix
-      ? this._renderActorDefinition(authenticatedGuidancePrefix)
-      : this.baseActorDefinition;
+    const actorDefinition = this._renderActorDefinition(
+      authenticatedGuidancePrefix
+    );
 
     return [actorDefinition.trim(), recursiveAddendum?.trim()]
       .filter((piece): piece is string => Boolean(piece))
@@ -1607,7 +1791,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       moduleSet.add(this.agentModuleNamespace);
     }
     const availableModules = [...moduleSet]
-      .sort((a, b) => a.localeCompare(b))
+      .sort(compareCanonicalDiscoveryStrings)
       .map((namespace) => ({
         namespace,
         selectionCriteria:
@@ -1631,9 +1815,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         effectiveContextPolicy.actionReplay !== 'full' ||
         effectiveContextPolicy.checkpoints.enabled ||
         effectiveContextPolicy.errorPruning ||
-        Boolean(effectiveContextPolicy.tombstoning) ||
-        (this.functionDiscoveryEnabled &&
-          effectiveContextPolicy.pruneUsedDocs),
+        Boolean(effectiveContextPolicy.tombstoning),
       llmQueryPromptMode: effectiveLlmQueryPromptMode,
       enforceIncrementalConsoleTurns: this.enforceIncrementalConsoleTurns,
       agentModuleNamespace: this.agentModuleNamespace,
@@ -2027,7 +2209,15 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     }
 
     this.state = state ? cloneAgentState(state) : undefined;
+    this.currentDiscoveryPromptState = restoreDiscoveryPromptState(
+      this.state?.discoveryPromptState
+    );
     this.stateError = undefined;
+    if (this.actorProgram) {
+      const instruction = this._buildActorInstruction();
+      this.actorProgram.setDescription(instruction);
+      this.actorProgram.clearInstruction();
+    }
   }
 
   private _createRecursiveOptimizationProxy(
@@ -2405,8 +2595,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   ): Promise<AxAgentEvalPrediction<OUT>> {
     const savedState = this.state ? cloneAgentState(this.state) : undefined;
     const savedStateError = this.stateError;
+    const savedDiscoveryPromptState = serializeDiscoveryPromptState(
+      this.currentDiscoveryPromptState
+    );
     this.state = undefined;
     this.stateError = undefined;
+    this.currentDiscoveryPromptState = createMutableDiscoveryPromptState();
 
     const abortController = new AbortController();
     if (this._stopRequested) {
@@ -2546,6 +2740,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     } finally {
       this.state = savedState ? cloneAgentState(savedState) : undefined;
       this.stateError = savedStateError;
+      this.currentDiscoveryPromptState = restoreDiscoveryPromptState(
+        savedDiscoveryPromptState
+      );
       this.recursiveEvalContext = savedRecursiveEvalContext;
       this.currentRecursiveTraceNodeId = savedRecursiveTraceNodeId;
       if (createdBudgetState) {
@@ -3165,6 +3362,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     };
 
     const discoveredActorModelNamespaces = new Set<string>();
+    let pendingDiscoveryTurnSummary = createDiscoveryTurnSummary();
     const noteDiscoveredActorModelNamespaces = (
       namespaces: readonly string[]
     ) => {
@@ -3175,6 +3373,49 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         }
       }
     };
+    const noteDiscoveredModules = (
+      modules: readonly string[],
+      docs: Readonly<Record<string, string>>
+    ) => {
+      for (const module of modules) {
+        const normalizedModule = module.trim();
+        const text = docs[module] ?? docs[normalizedModule];
+        if (!text) {
+          continue;
+        }
+        this.currentDiscoveryPromptState.modules.set(normalizedModule, text);
+        pendingDiscoveryTurnSummary.modules.add(normalizedModule);
+        pendingDiscoveryTurnSummary.texts.add(text);
+      }
+    };
+    const noteDiscoveredFunctions = (
+      qualifiedNames: readonly string[],
+      docs: Readonly<Record<string, string>>
+    ) => {
+      for (const qualifiedName of qualifiedNames) {
+        const normalizedQualifiedName =
+          normalizeDiscoveryCallableIdentifier(qualifiedName);
+        const text = docs[qualifiedName] ?? docs[normalizedQualifiedName];
+        if (!text) {
+          continue;
+        }
+        this.currentDiscoveryPromptState.functions.set(
+          normalizedQualifiedName,
+          text
+        );
+        pendingDiscoveryTurnSummary.functions.add(normalizedQualifiedName);
+        pendingDiscoveryTurnSummary.texts.add(text);
+      }
+    };
+    const consumeDiscoveryTurnArtifacts = () => {
+      const summary = formatDiscoveryTurnSummary(pendingDiscoveryTurnSummary);
+      const texts = [...pendingDiscoveryTurnSummary.texts];
+      pendingDiscoveryTurnSummary = createDiscoveryTurnSummary();
+      return {
+        ...(summary ? { summary } : {}),
+        texts,
+      };
+    };
 
     const toolGlobals = this.buildRuntimeGlobals(
       effectiveAbortSignal,
@@ -3182,7 +3423,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       ai,
       completionBindings.protocolForTrigger,
       functionCallRecorder,
-      noteDiscoveredActorModelNamespaces
+      noteDiscoveredActorModelNamespaces,
+      noteDiscoveredModules,
+      noteDiscoveredFunctions
     );
     const agentFunctionNamespaces = [
       ...new Set(this.agentFunctions.map((f) => f.namespace ?? 'utils')),
@@ -3445,6 +3688,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           state.actionLogEntries
         ),
         checkpointState: state.checkpointState,
+        discoveryPromptState: state.discoveryPromptState,
         provenance: { ...(state.provenance ?? {}) },
         actorModelState: normalizeRestoredActorModelState(
           state.actorModelState
@@ -3461,6 +3705,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       await patchableSession.patchGlobals(preparedState.runtimeBindings, {
         signal: effectiveAbortSignal,
       });
+      this.currentDiscoveryPromptState = restoreDiscoveryPromptState(
+        preparedState.discoveryPromptState
+      );
       return preparedState;
     };
 
@@ -3479,6 +3726,13 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         actionLogEntries: serializeAgentStateActionLogEntries(
           runtimeActionLogEntries
         ),
+        ...(serializeDiscoveryPromptState(this.currentDiscoveryPromptState)
+          ? {
+              discoveryPromptState: serializeDiscoveryPromptState(
+                this.currentDiscoveryPromptState
+              ),
+            }
+          : {}),
         provenance: runtimeStateProvenanceToRecord(provenance),
         ...(guidanceState.token ? { guidanceToken: guidanceState.token } : {}),
       };
@@ -3709,6 +3963,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       bootstrapContextSummary,
       applyBootstrapRuntimeContext,
       captureRuntimeStateSummary,
+      consumeDiscoveryTurnArtifacts,
       getActorModelMatchedNamespaces: () => [...discoveredActorModelNamespaces],
       exportRuntimeState,
       restoreRuntimeState,
@@ -3750,6 +4005,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       validateInputKeys: true,
     });
     inputState.recomputeTurnInputs(false);
+    this.currentDiscoveryPromptState = restoreDiscoveryPromptState(
+      this.state?.discoveryPromptState
+    );
 
     const completionState: AxAgentRuntimeCompletionState = {
       payload: undefined,
@@ -4049,9 +4307,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       debug,
       effectiveAbortSignal
     );
-    const shouldPruneUsedDocs =
-      this.functionDiscoveryEnabled &&
-      runtimeContext.effectiveContextConfig.pruneUsedDocs;
     let checkpointState: CheckpointSummaryState | undefined;
     let actorModelState: AxAgentStateActorModelState | undefined;
     let restoreNotice: string | undefined;
@@ -4065,18 +4320,16 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         : runtimeContext.effectiveContextConfig.actionReplay;
 
     const getPromptFacingEntries = () =>
-      getPromptFacingActionLogEntries(actionLogEntries, {
-        pruneUsedDocs: shouldPruneUsedDocs,
-      });
+      getPromptFacingActionLogEntries(actionLogEntries);
 
     const refreshActorInstruction = () => {
-      if (!guidanceState.token) {
-        return;
-      }
-
-      this._applyActorInstruction(
-        buildAuthenticatedGuidancePrefix(guidanceState.token)
+      const instruction = this._buildActorInstruction(
+        guidanceState.token
+          ? buildAuthenticatedGuidancePrefix(guidanceState.token)
+          : undefined
       );
+      this.actorProgram.setDescription(instruction);
+      this.actorProgram.clearInstruction();
     };
 
     const buildActorPromptValues = (actionLog: string) => ({
@@ -4177,7 +4430,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         actionReplay: checkpointReplayMode,
         recentFullActions:
           runtimeContext.effectiveContextConfig.recentFullActions,
-        pruneUsedDocs: shouldPruneUsedDocs,
       });
       const checkpointEntries = checkpointReplayPlan.checkpointEntries;
       if (checkpointEntries.length === 0) {
@@ -4481,6 +4733,19 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           isError = false;
         }
 
+        const discoveryTurnArtifacts =
+          runtimeContext.consumeDiscoveryTurnArtifacts();
+        if (!isError) {
+          output = stripDiscoveryTurnOutput(
+            output,
+            discoveryTurnArtifacts.texts
+          );
+          output = appendDiscoveryTurnSummary(
+            output,
+            discoveryTurnArtifacts.summary
+          );
+        }
+
         const entryTurn = actionLogEntries.length + 1;
         actionLogEntries.push({
           turn: entryTurn,
@@ -4592,7 +4857,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
                 stateSummary: runtimeStateSummary,
                 checkpointSummary: checkpointState?.summary,
                 checkpointTurns: checkpointState?.turns,
-                pruneUsedDocs: shouldPruneUsedDocs,
               }),
             ],
           } satisfies AxAgentActorResultPayload);
@@ -4934,7 +5198,15 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     ai?: AxAIService,
     protocolForTrigger?: (triggeredBy?: string) => AxAgentCompletionProtocol,
     functionCallRecorder?: AxAgentFunctionCallRecorder,
-    onDiscoveredNamespaces?: (namespaces: readonly string[]) => void
+    onDiscoveredNamespaces?: (namespaces: readonly string[]) => void,
+    onDiscoveredModules?: (
+      modules: readonly string[],
+      docs: Readonly<Record<string, string>>
+    ) => void,
+    onDiscoveredFunctions?: (
+      qualifiedNames: readonly string[],
+      docs: Readonly<Record<string, string>>
+    ) => void
   ): Record<string, unknown> {
     const globals: Record<string, unknown> = {};
     const callableLookup = new Map<string, DiscoveryCallableMeta>();
@@ -5030,20 +5302,33 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       globals[DISCOVERY_LIST_MODULE_FUNCTIONS_NAME] = async (
         modulesInput: unknown
       ): Promise<string> => {
-        const modules = normalizeDiscoveryStringInput(modulesInput, 'modules');
-        return renderDiscoveryModuleListMarkdown(
+        const modules = sortDiscoveryModules(
+          normalizeDiscoveryStringInput(modulesInput, 'modules')
+        );
+        const markdown = renderDiscoveryModuleListMarkdown(
           modules,
           moduleLookup,
           moduleMetaLookup
         );
+        const docs = Object.fromEntries(
+          modules.map((module) => [
+            module,
+            renderDiscoveryModuleListMarkdown(
+              [module],
+              moduleLookup,
+              moduleMetaLookup
+            ),
+          ])
+        );
+        onDiscoveredModules?.(modules, docs);
+        return markdown;
       };
 
       globals[DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME] = async (
         functionsInput: unknown
       ): Promise<string> => {
-        const items = normalizeDiscoveryStringInput(
-          functionsInput,
-          'functions'
+        const items = normalizeAndSortDiscoveryFunctionIdentifiers(
+          normalizeDiscoveryStringInput(functionsInput, 'functions')
         );
         const matchedNamespaces = resolveDiscoveryCallableNamespaces(
           items,
@@ -5052,10 +5337,21 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         if (matchedNamespaces.length > 0) {
           onDiscoveredNamespaces?.(matchedNamespaces);
         }
-        return renderDiscoveryFunctionDefinitionsMarkdown(
+        const markdown = renderDiscoveryFunctionDefinitionsMarkdown(
           items,
           callableLookup
         );
+        const docs = Object.fromEntries(
+          items.map((qualifiedName) => [
+            qualifiedName,
+            renderDiscoveryFunctionDefinitionsMarkdown(
+              [qualifiedName],
+              callableLookup
+            ),
+          ])
+        );
+        onDiscoveredFunctions?.(items, docs);
+        return markdown;
       };
     }
 

@@ -35,16 +35,6 @@ export type ActionLogStepKind =
 
 export type ActionReplayMode = 'full' | 'omit';
 
-type DiscoveryModuleSection = {
-  module: string;
-  text: string;
-};
-
-type DiscoveryFunctionSection = {
-  qualifiedName: string;
-  text: string;
-};
-
 export type ActionLogEntry = {
   turn: number;
   code: string;
@@ -63,10 +53,6 @@ export type ActionLogEntry = {
   tombstone?: string;
   /** @internal Pending tombstone generation. */
   _tombstonePromise?: Promise<string>;
-  /** @internal Parsed discovery module sections for prompt-facing filtering. */
-  _discoveryModuleSections?: readonly DiscoveryModuleSection[];
-  /** @internal Parsed discovery callable sections for prompt-facing filtering. */
-  _discoveryFunctionSections?: readonly DiscoveryFunctionSection[];
   /** @internal Direct qualified callable usages like `db.search(...)`. */
   _directQualifiedCalls?: readonly string[];
 };
@@ -81,7 +67,6 @@ export type ContextManagementEffectiveConfig = {
     | undefined;
   pruneRank: number;
   rankPruneGraceTurns: number;
-  pruneUsedDocs: boolean;
   actionReplay: 'full' | 'adaptive' | 'minimal' | 'checkpointed';
   recentFullActions: number;
   stateSummary: { enabled: boolean; maxEntries?: number; maxChars?: number };
@@ -96,7 +81,6 @@ export type ContextManagementEffectiveConfig = {
 export type ActionLogBuildPolicy = {
   actionReplay?: 'full' | 'adaptive' | 'minimal' | 'checkpointed';
   recentFullActions?: number;
-  pruneUsedDocs?: boolean;
   restoreNotice?: string;
   delegatedContextSummary?: string;
   stateSummary?: string;
@@ -338,64 +322,6 @@ function ensureEntryMetadata(entry: ActionLogEntry): void {
   }
 }
 
-function splitMarkdownSections(
-  text: string,
-  headerPattern: RegExp
-): Array<{ key: string; text: string }> {
-  const matches = [...text.matchAll(headerPattern)];
-  if (matches.length === 0) {
-    return [];
-  }
-
-  return matches
-    .map((match, index) => {
-      const key = match[1]?.trim();
-      const start = match.index ?? 0;
-      const end = matches[index + 1]?.index ?? text.length;
-      if (!key) {
-        return undefined;
-      }
-
-      return {
-        key,
-        text: text.slice(start, end).trim(),
-      };
-    })
-    .filter((section): section is { key: string; text: string } =>
-      Boolean(section)
-    );
-}
-
-function extractDiscoveryModuleSections(
-  entry: Readonly<ActionLogEntry>
-): readonly DiscoveryModuleSection[] {
-  if (!/\blistModuleFunctions\s*\(/.test(entry.code)) {
-    return [];
-  }
-
-  return splitMarkdownSections(entry.output, /^### Module `([^`]+)`/gm).map(
-    (section) => ({
-      module: section.key,
-      text: section.text,
-    })
-  );
-}
-
-function extractDiscoveryFunctionSections(
-  entry: Readonly<ActionLogEntry>
-): readonly DiscoveryFunctionSection[] {
-  if (!/\bgetFunctionDefinitions\s*\(/.test(entry.code)) {
-    return [];
-  }
-
-  return splitMarkdownSections(entry.output, /^### `([^`]+)`/gm).map(
-    (section) => ({
-      qualifiedName: section.key,
-      text: section.text,
-    })
-  );
-}
-
 function extractDirectQualifiedCallableUsages(code: string): string[] {
   const sanitized = stripJsStringsAndComments(code);
   const usages = new Set<string>();
@@ -416,12 +342,6 @@ function extractDirectQualifiedCallableUsages(code: string): string[] {
 }
 
 function ensureDiscoveryMetadata(entry: ActionLogEntry): void {
-  if (!entry._discoveryModuleSections) {
-    entry._discoveryModuleSections = extractDiscoveryModuleSections(entry);
-  }
-  if (!entry._discoveryFunctionSections) {
-    entry._discoveryFunctionSections = extractDiscoveryFunctionSections(entry);
-  }
   if (!entry._directQualifiedCalls) {
     entry._directQualifiedCalls = extractDirectQualifiedCallableUsages(
       entry.code
@@ -471,106 +391,10 @@ export function buildRuntimeStateProvenance(
   return provenance;
 }
 
-function buildFutureSuccessfulQualifiedCallSets(
-  entries: readonly ActionLogEntry[]
-): Array<Set<string>> {
-  const futureCalls: Array<Set<string>> = Array.from(
-    { length: entries.length },
-    () => new Set<string>()
-  );
-  const seen = new Set<string>();
-
-  for (let i = entries.length - 1; i >= 0; i--) {
-    futureCalls[i] = new Set(seen);
-    const entry = entries[i];
-    if (!entry || entry.tags.includes('error')) {
-      continue;
-    }
-    ensureDiscoveryMetadata(entry);
-    for (const qualifiedName of entry._directQualifiedCalls ?? []) {
-      seen.add(qualifiedName);
-    }
-  }
-
-  return futureCalls;
-}
-
-function applyDiscoveryDocPruning(
-  entry: Readonly<ActionLogEntry>,
-  laterSuccessfulCalls: ReadonlySet<string>
-): ActionLogEntry | undefined {
-  const mutableEntry = entry as ActionLogEntry;
-  ensureDiscoveryMetadata(mutableEntry);
-
-  const functionSections = mutableEntry._discoveryFunctionSections ?? [];
-  if (functionSections.length > 0) {
-    const keptSections = functionSections.filter(
-      (section) => !laterSuccessfulCalls.has(section.qualifiedName)
-    );
-
-    if (keptSections.length === functionSections.length) {
-      return mutableEntry;
-    }
-    if (keptSections.length === 0) {
-      return undefined;
-    }
-
-    return {
-      ...mutableEntry,
-      output: keptSections.map((section) => section.text).join('\n\n'),
-      summary: undefined,
-      _discoveryFunctionSections: keptSections,
-    };
-  }
-
-  const moduleSections = mutableEntry._discoveryModuleSections ?? [];
-  if (moduleSections.length > 0) {
-    const usedModules = new Set(
-      [...laterSuccessfulCalls].map(
-        (qualifiedName) => qualifiedName.split('.')[0]!
-      )
-    );
-    const keptSections = moduleSections.filter(
-      (section) => !usedModules.has(section.module)
-    );
-
-    if (keptSections.length === moduleSections.length) {
-      return mutableEntry;
-    }
-    if (keptSections.length === 0) {
-      return undefined;
-    }
-
-    return {
-      ...mutableEntry,
-      output: keptSections.map((section) => section.text).join('\n\n'),
-      summary: undefined,
-      _discoveryModuleSections: keptSections,
-    };
-  }
-
-  return mutableEntry;
-}
-
 export function getPromptFacingActionLogEntries(
-  entries: readonly ActionLogEntry[],
-  options?: Readonly<{
-    pruneUsedDocs?: boolean;
-  }>
+  entries: readonly ActionLogEntry[]
 ): ActionLogEntry[] {
-  if (!options?.pruneUsedDocs || entries.length === 0) {
-    return [...entries];
-  }
-
-  const futureSuccessfulCalls = buildFutureSuccessfulQualifiedCallSets(entries);
-
-  return entries.flatMap((entry, index) => {
-    const promptFacingEntry = applyDiscoveryDocPruning(
-      entry,
-      futureSuccessfulCalls[index] ?? new Set<string>()
-    );
-    return promptFacingEntry ? [promptFacingEntry] : [];
-  });
+  return [...entries];
 }
 
 function buildFutureReferenceSets(
@@ -1181,9 +1005,7 @@ export function buildActionLogReplayPlan(
   entries: readonly ActionLogEntry[],
   policy: Readonly<ActionLogBuildPolicy>
 ): ActionLogReplayPlan {
-  const promptFacingEntries = getPromptFacingActionLogEntries(entries, {
-    pruneUsedDocs: policy.pruneUsedDocs,
-  });
+  const promptFacingEntries = getPromptFacingActionLogEntries(entries);
 
   if (promptFacingEntries.length === 0) {
     return {
@@ -1256,12 +1078,9 @@ export function buildActionEvidenceSummary(
     stateSummary?: string;
     checkpointSummary?: string;
     checkpointTurns?: readonly number[];
-    pruneUsedDocs?: boolean;
   }>
 ): string {
-  const promptFacingEntries = getPromptFacingActionLogEntries(entries, {
-    pruneUsedDocs: options?.pruneUsedDocs,
-  });
+  const promptFacingEntries = getPromptFacingActionLogEntries(entries);
   const checkpointTurns = new Set(options?.checkpointTurns ?? []);
   const summaries = promptFacingEntries
     .map((entry) => {

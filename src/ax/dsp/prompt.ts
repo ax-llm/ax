@@ -70,8 +70,14 @@ export type AxFieldTemplateFn = (
 export class AxPromptTemplate {
   private sig: Readonly<AxSignature>;
   private fieldTemplates?: Record<string, AxFieldTemplateFn>;
-  private task: { type: 'text'; text: string };
+  private task!: { type: 'text'; text: string };
   private customInstruction?: string;
+
+  private rebuildTask(): void {
+    this.task = axGlobals.useStructuredPrompt
+      ? this.buildStructuredPrompt()
+      : this.buildLegacyPrompt();
+  }
 
   public setInstruction(instruction: string): void {
     this.customInstruction = instruction;
@@ -80,6 +86,11 @@ export class AxPromptTemplate {
 
   public getInstruction(): string | undefined {
     return this.customInstruction;
+  }
+
+  public clearInstruction(): void {
+    this.customInstruction = undefined;
+    this.rebuildTask();
   }
   private readonly thoughtFieldName: string;
   private readonly functions?: Readonly<AxInputFunctionType>;
@@ -102,13 +113,7 @@ export class AxPromptTemplate {
     this.ignoreBreakpoints = options?.ignoreBreakpoints ?? false;
     this.structuredOutputFunctionName = options?.structuredOutputFunctionName;
 
-    // Use structured prompt format based on global setting
-    if (axGlobals.useStructuredPrompt) {
-      this.task = this.buildStructuredPrompt();
-    } else {
-      // Legacy prompt format
-      this.task = this.buildLegacyPrompt();
-    }
+    this.rebuildTask();
   }
 
   /**

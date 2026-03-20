@@ -219,6 +219,10 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     return this.promptTemplate.getInstruction();
   }
 
+  public clearInstruction(): void {
+    this.promptTemplate.clearInstruction();
+  }
+
   private async renderPromptForInternalUse(
     ai: Readonly<AxAIService>,
     values: IN | AxMessage<IN>[],
@@ -265,6 +269,16 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       hasComplexFields &&
       (structuredOutputMode === 'function' ||
         (structuredOutputMode === 'auto' && !features?.structuredOutputs));
+    if (structuredOutputFunctionFallback) {
+      const syntheticFunction: AxFunction = {
+        name: STRUCTURED_OUTPUT_FUNCTION_NAME,
+        description:
+          'Return the final result. Call this function with the complete output data.',
+        parameters: toJsonSchema(signature.getOutputFields()),
+        func: async () => 'done',
+      };
+      mutableFunctions.push(syntheticFunction);
+    }
     const providerIgnoreBreakpoints =
       ai.getFeatures?.(options?.model)?.caching?.cacheBreakpoints === false;
     const promptTemplate = new promptTemplateClass(signature, {

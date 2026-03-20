@@ -17,21 +17,32 @@ export const workflowTools = [
     .arg('draft', f.string('Draft reply to review'))
     .arg('message', f.string('Original customer message'))
     .returns(f.string('Review status when the draft is approved'))
-    .handler(async ({ draft, message }, extra) => {
-      const reviewSource = [message, draft]
-        .filter((value): value is string => typeof value === 'string')
-        .join('\n');
-      const needsPackagingInstruction = /damaged/i.test(reviewSource);
-      const mentionsPackaging = /packaging|box/i.test(draft);
+    .handler(
+      async (
+        { draft, message },
+        extra?: {
+          protocol?: {
+            final?: (...args: unknown[]) => never;
+            askClarification?: (...args: unknown[]) => never;
+            guideAgent?: (guidance: string) => never;
+          };
+        }
+      ) => {
+        const reviewSource = [message, draft]
+          .filter((value): value is string => typeof value === 'string')
+          .join('\n');
+        const needsPackagingInstruction = /damaged/i.test(reviewSource);
+        const mentionsPackaging = /packaging|box/i.test(draft);
 
-      if (needsPackagingInstruction && !mentionsPackaging) {
-        extra?.protocol?.guideAgent(
-          'Revise the draft to tell the customer to keep the damaged item and its packaging for inspection, then run workflow.reviewReplyDraft again before calling final(...) with the approved reply.'
-        );
+        if (needsPackagingInstruction && !mentionsPackaging) {
+          extra?.protocol?.guideAgent?.(
+            'Revise the draft to tell the customer to keep the damaged item and its packaging for inspection, then run workflow.reviewReplyDraft again before calling final(...) with the approved reply.'
+          );
+        }
+
+        return 'approved';
       }
-
-      return 'approved';
-    })
+    )
     .build(),
   fn('askForOrderId')
     .description(
