@@ -344,6 +344,7 @@ import type {
   AxContextCacheOptions,
   AxContextCacheRegistry,
   AxContextCacheRegistryEntry,
+  AxDebugChatResponseUsage,
   AxEmbedRequest,
   AxEmbedResponse,
   AxFunction,
@@ -752,7 +753,6 @@ import type {
 import {
   type AxActorModelPolicy,
   type AxActorModelPolicyEntry,
-  type AxActorPromptLevel,
   AxAgent,
   type AxAgentActorResultPayload,
   type AxAgentClarification,
@@ -1285,7 +1285,6 @@ export type { AxAPI };
 export type { AxAPIConfig };
 export type { AxActorModelPolicy };
 export type { AxActorModelPolicyEntry };
-export type { AxActorPromptLevel };
 export type { AxAgentActorResultPayload };
 export type { AxAgentClarification };
 export type { AxAgentClarificationChoice };
@@ -1391,6 +1390,7 @@ export type { AxDBUpsertResponse };
 export type { AxDBWeaviateArgs };
 export type { AxDBWeaviateOpOptions };
 export type { AxDataRow };
+export type { AxDebugChatResponseUsage };
 export type { AxDockerContainer };
 export type { AxEmbedRequest };
 export type { AxEmbedResponse };

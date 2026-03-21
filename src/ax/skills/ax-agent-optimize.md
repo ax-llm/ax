@@ -307,10 +307,9 @@ Decision rules:
 
 - Recursive-slot artifacts require an agent configured for recursive advanced mode.
 - Keep `mode: 'advanced'` top-level; child recursion behavior still follows `recursionOptions`.
-- When recursive behavior matters, tune against the same `maxDepth`, `promptLevel`, and tool/discovery structure you expect in production.
+- When recursive behavior matters, tune against the same `maxDepth` and tool/discovery structure you expect in production.
 - Use recursive traces and recursive stats when the user wants to diagnose where token or delegation cost is coming from.
 - For recursion-efficiency tuning, prefer a deterministic metric unless the user specifically needs a qualitative LLM review of decomposition quality.
-- Prefer `recursionOptions.promptLevel: 'detailed'` in examples when child agents need to respect strict JS/runtime policy.
 - Tell the actor that recursive children only see passed context, not parent globals or prior tool results.
 - For synthesis-style recursive tasks, specify the desired delegation pattern explicitly, for example "use at most one focused delegated child analysis after narrowing the tool output in JS."
 - Penalize over-decomposition directly in the metric or judge prompt.

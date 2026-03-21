@@ -1,11 +1,15 @@
 // ReadableStream is available globally in modern browsers and Node.js 16+
 
-import type { AxChatResponse, AxModelUsage } from '../ai/types.js';
+import type {
+  AxChatResponse,
+  AxDebugChatResponseUsage,
+  AxModelUsage,
+} from '../ai/types.js';
 import { mergeFunctionCalls } from '../ai/util.js';
 import type { AxAIMemory } from '../mem/types.js';
 import {
-  parsePartialJson,
   type JsonRepairMarker,
+  parsePartialJson,
 } from '../util/partialJson.js';
 
 import {
@@ -156,8 +160,15 @@ export async function* processStreamingResponse<OUT extends AxGenOut>({
     // Emit usage log event when debug is enabled and logger is available
     if (debug && args.logger) {
       // Create a copy without citations for the usage event
-      const usageWithoutCitations = structuredClone(lastChunkUsage);
+      const usageWithoutCitations: AxDebugChatResponseUsage =
+        structuredClone(lastChunkUsage);
       delete usageWithoutCitations.citations;
+      if (args.debugPromptMetrics) {
+        usageWithoutCitations.systemPromptCharacters =
+          args.debugPromptMetrics.systemPromptCharacters;
+        usageWithoutCitations.chatContextCharacters =
+          args.debugPromptMetrics.chatContextCharacters;
+      }
 
       args.logger({
         name: 'ChatResponseUsage',
@@ -702,6 +713,7 @@ export async function* processResponse<OUT>({
   fieldProcessors,
   thoughtFieldName,
   signature,
+  debugPromptMetrics,
   functionResultFormatter,
   logger,
   debug,
@@ -772,10 +784,17 @@ export async function* processResponse<OUT>({
         // Create a copy without citations for the usage event
         const usageWithoutCitations = structuredClone(modelUsage);
         delete usageWithoutCitations.citations;
+        const debugUsage: AxDebugChatResponseUsage = usageWithoutCitations;
+        if (debugPromptMetrics) {
+          debugUsage.systemPromptCharacters =
+            debugPromptMetrics.systemPromptCharacters;
+          debugUsage.chatContextCharacters =
+            debugPromptMetrics.chatContextCharacters;
+        }
 
         logger({
           name: 'ChatResponseUsage',
-          value: usageWithoutCitations,
+          value: debugUsage,
         });
 
         // Emit separate citations event if they exist

@@ -281,6 +281,8 @@ export interface AxContextPolicyConfig {
 export interface AxRLMConfig {
   /** Input fields holding long context (will be removed from the LLM prompt). */
   contextFields: string[];
+  /** Actor prompt verbosity and scaffolding level (default: 'default'). */
+  promptLevel?: 'default' | 'detailed';
   /** Input fields to pass directly to subagents, bypassing the top-level LLM. */
   sharedFields?: string[];
   /** Code runtime for the REPL loop (default: AxJSRuntime). */
@@ -324,7 +326,7 @@ export function axBuildActorDefinition(
   responderOutputFields: readonly AxIField[],
   options: Readonly<{
     runtimeUsageInstructions?: string;
-    promptLevel?: 'detailed' | 'basic';
+    promptLevel?: 'default' | 'detailed';
     maxSubAgentCalls?: number;
     maxTurns?: number;
     hasInspectRuntime?: boolean;
@@ -368,7 +370,6 @@ export function axBuildActorDefinition(
   }>
 ): string {
   //   const maxSubAgentCalls = options.maxSubAgentCalls ?? 50;
-  const promptLevel = options.promptLevel ?? 'detailed';
   type AvailableModule = {
     namespace: string;
     selectionCriteria?: string;
@@ -419,7 +420,7 @@ export function axBuildActorDefinition(
   const actorBody = renderPromptTemplate('rlm/actor.md', {
     contextVarList,
     responderOutputFieldTitles,
-    promptLevel,
+    promptLevel: options.promptLevel ?? 'default',
     llmQueryPromptMode: options.llmQueryPromptMode ?? 'simple',
     discoveryMode,
     hasInspectRuntime: Boolean(options.hasInspectRuntime),

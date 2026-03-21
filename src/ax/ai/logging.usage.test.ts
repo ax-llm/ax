@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { AxGen } from '../dsp/generate.js';
 import { AxMockAIService } from './mock/api.js';
+import { countChatPromptContentChars } from './promptMetrics.js';
 import type { AxLoggerData } from './types.js';
 
 describe('Logging includes usage with citations', () => {
@@ -42,8 +43,23 @@ describe('Logging includes usage with citations', () => {
     const usageLogs = logs.filter((l) => l.name === 'ChatResponseUsage');
     expect(usageLogs.length).toBeGreaterThan(0);
     const lastUsage = usageLogs.at(-1)!;
+    const chatPrompt = await (gen as any).renderPromptForInternalUse(
+      ai as any,
+      {
+        userQuestion: 'hi',
+      }
+    );
+    const expectedSystemChars = countChatPromptContentChars(
+      chatPrompt.filter((msg) => msg.role === 'system')
+    );
+    const expectedContextChars = countChatPromptContentChars(
+      chatPrompt.filter((msg) => msg.role !== 'system')
+    );
+
     expect(lastUsage.value.tokens?.totalTokens).toBe(5);
     expect(lastUsage.value.citations).toBeUndefined();
+    expect(lastUsage.value.systemPromptCharacters).toBe(expectedSystemChars);
+    expect(lastUsage.value.chatContextCharacters).toBe(expectedContextChars);
 
     // Check ChatResponseCitations event
     const citationLogs = logs.filter((l) => l.name === 'ChatResponseCitations');

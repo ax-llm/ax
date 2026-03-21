@@ -1011,15 +1011,24 @@ export function validateActorTurnCodePolicy(code: string): string | undefined {
   const hasAskClarification = /\baskClarification\s*\(/.test(sanitized);
   const completionSignalCount = Number(hasFinal) + Number(hasAskClarification);
   const consoleLogCalls = findConsoleLogCalls(sanitized);
+  const discoveryAnalysis = analyzeDiscoveryTurnPolicy(sanitized);
 
   if (completionSignalCount > 1) {
     return '[POLICY] Use exactly one completion signal per turn: either final(...) or askClarification(...), not both.';
+  }
+
+  if (discoveryAnalysis.violation) {
+    return discoveryAnalysis.violation;
   }
 
   if (completionSignalCount === 1) {
     if (consoleLogCalls.length > 0) {
       return '[POLICY] Do not combine console.log(...) with final(...)/askClarification(...) in the same turn. Inspect in one turn, then complete in the next turn.';
     }
+    return undefined;
+  }
+
+  if (discoveryAnalysis.isDiscoveryOnly && consoleLogCalls.length === 0) {
     return undefined;
   }
 
@@ -1049,6 +1058,185 @@ export function validateActorTurnCodePolicy(code: string): string | undefined {
   return undefined;
 }
 
+type NamedCallMatch = {
+  name: string;
+  startIndex: number;
+  openParenIndex: number;
+  closeParenIndex?: number;
+};
+
+type DiscoveryTurnPolicyAnalysis = {
+  isDiscoveryOnly: boolean;
+  violation?: string;
+};
+
+function analyzeDiscoveryTurnPolicy(
+  sanitizedCode: string
+): DiscoveryTurnPolicyAnalysis {
+  const listCalls = findNamedCalls(sanitizedCode, [
+    DISCOVERY_LIST_MODULE_FUNCTIONS_NAME,
+  ]);
+  const definitionCalls = findNamedCalls(sanitizedCode, [
+    DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME,
+  ]);
+  const discoveryCalls = [...listCalls, ...definitionCalls].sort(
+    (left, right) => left.startIndex - right.startIndex
+  );
+
+  if (discoveryCalls.length === 0) {
+    return { isDiscoveryOnly: false };
+  }
+
+  const promiseAllCalls = findNamedCalls(sanitizedCode, ['Promise.all']);
+  for (const promiseAllCall of promiseAllCalls) {
+    if (promiseAllCall.closeParenIndex === undefined) {
+      continue;
+    }
+    const promiseAllBody = sanitizedCode.slice(
+      promiseAllCall.openParenIndex + 1,
+      promiseAllCall.closeParenIndex
+    );
+    if (promiseAllBody.includes(DISCOVERY_LIST_MODULE_FUNCTIONS_NAME)) {
+      return {
+        isDiscoveryOnly: false,
+        violation:
+          "[POLICY] Batch module discovery into one array call: use `await listModuleFunctions(['tasks', 'contact'])`, not repeated `listModuleFunctions(...)` calls or `Promise.all(...)`.",
+      };
+    }
+    if (promiseAllBody.includes(DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME)) {
+      return {
+        isDiscoveryOnly: false,
+        violation:
+          "[POLICY] Batch function-definition discovery into one array call: use `await getFunctionDefinitions(['mod.funcA', 'mod.funcB'])`, not repeated `getFunctionDefinitions(...)` calls or `Promise.all(...)`.",
+      };
+    }
+  }
+
+  if (listCalls.length > 1) {
+    return {
+      isDiscoveryOnly: false,
+      violation:
+        "[POLICY] Batch module discovery into one array call: use `await listModuleFunctions(['tasks', 'contact'])`, not repeated `listModuleFunctions(...)` calls or `Promise.all(...)`.",
+    };
+  }
+
+  if (definitionCalls.length > 1) {
+    return {
+      isDiscoveryOnly: false,
+      violation:
+        "[POLICY] Batch function-definition discovery into one array call: use `await getFunctionDefinitions(['mod.funcA', 'mod.funcB'])`, not repeated `getFunctionDefinitions(...)` calls or `Promise.all(...)`.",
+    };
+  }
+
+  const statements = splitTopLevelStatements(sanitizedCode);
+  if (
+    statements.length === 0 ||
+    !statements.every((statement) => isAllowedDiscoveryOnlyStatement(statement))
+  ) {
+    return { isDiscoveryOnly: false };
+  }
+
+  return { isDiscoveryOnly: true };
+}
+
+function findNamedCalls(
+  sanitizedCode: string,
+  names: readonly string[]
+): NamedCallMatch[] {
+  const calls: NamedCallMatch[] = [];
+
+  for (const name of names) {
+    const escapedName = escapeRegExp(name).replace(/\\\./g, '\\s*\\.\\s*');
+    const pattern = new RegExp(`\\b${escapedName}\\s*\\(`, 'g');
+
+    for (const match of sanitizedCode.matchAll(pattern)) {
+      const fullMatch = match[0];
+      if (fullMatch === undefined) {
+        continue;
+      }
+      const matchIndex = match.index ?? -1;
+      if (matchIndex < 0) {
+        continue;
+      }
+      const openParenOffset = fullMatch.lastIndexOf('(');
+      const openParenIndex = matchIndex + openParenOffset;
+      calls.push({
+        name,
+        startIndex: matchIndex,
+        openParenIndex,
+        closeParenIndex: findMatchingParenIndex(sanitizedCode, openParenIndex),
+      });
+    }
+  }
+
+  return calls.sort((left, right) => left.startIndex - right.startIndex);
+}
+
+function splitTopLevelStatements(code: string): string[] {
+  const statements: string[] = [];
+  let start = 0;
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let braceDepth = 0;
+
+  for (let i = 0; i < code.length; i++) {
+    const ch = code[i];
+    if (ch === '(') {
+      parenDepth++;
+      continue;
+    }
+    if (ch === ')') {
+      parenDepth = Math.max(0, parenDepth - 1);
+      continue;
+    }
+    if (ch === '[') {
+      bracketDepth++;
+      continue;
+    }
+    if (ch === ']') {
+      bracketDepth = Math.max(0, bracketDepth - 1);
+      continue;
+    }
+    if (ch === '{') {
+      braceDepth++;
+      continue;
+    }
+    if (ch === '}') {
+      braceDepth = Math.max(0, braceDepth - 1);
+      continue;
+    }
+
+    const isBoundary = ch === ';' || ch === '\n';
+    if (!isBoundary || parenDepth > 0 || bracketDepth > 0 || braceDepth > 0) {
+      continue;
+    }
+
+    const statement = code.slice(start, i).trim();
+    if (statement) {
+      statements.push(statement);
+    }
+    start = i + 1;
+  }
+
+  const trailing = code.slice(start).trim();
+  if (trailing) {
+    statements.push(trailing);
+  }
+
+  return statements;
+}
+
+function isAllowedDiscoveryOnlyStatement(statement: string): boolean {
+  return (
+    /^(?:await\s+)?(?:listModuleFunctions|getFunctionDefinitions)\s*\([\s\S]*\)$/.test(
+      statement
+    ) ||
+    /^(?:const|let|var)\s+[\s\S]+?=\s*(?:await\s+)?(?:listModuleFunctions|getFunctionDefinitions)\s*\([\s\S]*\)$/.test(
+      statement
+    )
+  );
+}
+
 function findConsoleLogCalls(
   sanitizedCode: string
 ): Array<{ closeParenIndex?: number }> {
@@ -1074,6 +1262,10 @@ function findConsoleLogCalls(
   }
 
   return calls;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function findMatchingParenIndex(

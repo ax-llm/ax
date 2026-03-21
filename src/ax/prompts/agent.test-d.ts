@@ -288,41 +288,6 @@ import {
   });
 }
 
-// Agent should accept top-level promptLevel
-{
-  const runtime = {} as AxCodeRuntime;
-  agent('query:string -> answer:string', {
-    contextFields: [] as const,
-    runtime,
-    promptLevel: 'detailed',
-  });
-}
-
-// Agent recursionOptions should accept promptLevel
-{
-  const runtime = {} as AxCodeRuntime;
-  agent('query:string -> answer:string', {
-    contextFields: [] as const,
-    runtime,
-    recursionOptions: {
-      promptLevel: 'basic',
-    },
-  });
-}
-
-// Agent actorOptions should not accept promptLevel
-{
-  const runtime = {} as AxCodeRuntime;
-  agent('query:string -> answer:string', {
-    contextFields: [] as const,
-    runtime,
-    actorOptions: {
-      // @ts-expect-error promptLevel moved to top-level agent options
-      promptLevel: 'detailed',
-    },
-  });
-}
-
 // Agent with truncated prompt context config
 {
   const runtime = {} as AxCodeRuntime;

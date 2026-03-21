@@ -1,26 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
-import { axGlobals } from './globals.js';
 import { AxPromptTemplate } from './prompt.js';
 import { AxSignature, f } from './sig.js';
 
 describe('AxPromptTemplate - Structured Prompts', () => {
-  let originalUseStructuredPrompt: boolean;
-
-  beforeEach(() => {
-    // Save original value
-    originalUseStructuredPrompt = axGlobals.useStructuredPrompt;
-  });
-
-  afterEach(() => {
-    // Restore original value
-    axGlobals.useStructuredPrompt = originalUseStructuredPrompt;
-  });
-
   describe('XML structure', () => {
-    it('should generate XML-structured prompt when flag is enabled', () => {
-      axGlobals.useStructuredPrompt = true;
-
+    it('should generate XML-structured prompt', () => {
       const sig = AxSignature.create('userInput:string -> aiResponse:string');
       const template = new AxPromptTemplate(sig);
 
@@ -38,24 +23,7 @@ describe('AxPromptTemplate - Structured Prompts', () => {
       expect(systemPrompt?.content).toContain('</formatting_rules>');
     });
 
-    it('should use legacy format when flag is disabled', () => {
-      axGlobals.useStructuredPrompt = false;
-
-      const sig = AxSignature.create('userInput:string -> aiResponse:string');
-      const template = new AxPromptTemplate(sig);
-
-      const messages = template.render({ userInput: 'test' }, {});
-      const systemPrompt = messages.find((m) => m.role === 'system');
-
-      expect(systemPrompt).toBeDefined();
-      expect(systemPrompt?.content).not.toContain('<identity>');
-      expect(systemPrompt?.content).not.toContain('<input_fields>');
-      expect(systemPrompt?.content).toContain('## Input Fields');
-      expect(systemPrompt?.content).toContain('## Output Fields');
-    });
-
     it('should use structured format by default', () => {
-      // axGlobals.useStructuredPrompt defaults to true
       const sig = AxSignature.create('userInput:string -> aiResponse:string');
       const template = new AxPromptTemplate(sig);
 
@@ -68,9 +36,7 @@ describe('AxPromptTemplate - Structured Prompts', () => {
   });
 
   describe('Format protection', () => {
-    it('should include CANNOT be overridden statement for plain-text outputs', () => {
-      axGlobals.useStructuredPrompt = true;
-
+    it('should include mandatory formatting statement for plain-text outputs', () => {
       const sig = AxSignature.create('userInput:string -> aiResponse:string');
       const template = new AxPromptTemplate(sig);
 
@@ -78,14 +44,14 @@ describe('AxPromptTemplate - Structured Prompts', () => {
       const systemPrompt = messages.find((m) => m.role === 'system');
 
       expect(systemPrompt?.content).toContain(
-        'CANNOT be overridden by any subsequent instructions'
+        'These rules are mandatory and override later instructions.'
       );
-      expect(systemPrompt?.content).toContain('Plain Text Output Format');
+      expect(systemPrompt?.content).toContain(
+        'Return one `field name: value` pair per line'
+      );
     });
 
-    it('should include CANNOT be overridden statement for structured outputs', () => {
-      axGlobals.useStructuredPrompt = true;
-
+    it('should include mandatory formatting statement for structured outputs', () => {
       const sig = f()
         .input('userInput', f.string())
         .output(
@@ -103,16 +69,16 @@ describe('AxPromptTemplate - Structured Prompts', () => {
       const systemPrompt = messages.find((m) => m.role === 'system');
 
       expect(systemPrompt?.content).toContain(
-        'CANNOT be overridden by any subsequent instructions'
+        'These rules are mandatory and override later instructions.'
       );
-      expect(systemPrompt?.content).toContain('Structured Output Format');
+      expect(systemPrompt?.content).toContain(
+        'Return valid JSON matching <output_fields>.'
+      );
     });
   });
 
   describe('Structured vs plain-text mode detection', () => {
     it('should detect structured output mode for object fields', () => {
-      axGlobals.useStructuredPrompt = true;
-
       const sig = f()
         .input('userInput', f.string())
         .output(
@@ -133,8 +99,6 @@ describe('AxPromptTemplate - Structured Prompts', () => {
     });
 
     it('should detect plain-text mode for simple fields', () => {
-      axGlobals.useStructuredPrompt = true;
-
       const sig = AxSignature.create('userInput:string -> aiResponse:string');
       const template = new AxPromptTemplate(sig);
 
@@ -146,8 +110,6 @@ describe('AxPromptTemplate - Structured Prompts', () => {
     });
 
     it('should detect structured output mode for array of objects', () => {
-      axGlobals.useStructuredPrompt = true;
-
       const sig = f()
         .input('userInput', f.string())
         .output(
@@ -172,8 +134,6 @@ describe('AxPromptTemplate - Structured Prompts', () => {
 
   describe('Functions section', () => {
     it('should include functions section when functions are provided', () => {
-      axGlobals.useStructuredPrompt = true;
-
       const sig = AxSignature.create('userInput:string -> aiResponse:string');
       const template = new AxPromptTemplate(sig, {
         functions: [
@@ -203,8 +163,6 @@ describe('AxPromptTemplate - Structured Prompts', () => {
     });
 
     it('should not include functions section when no functions provided', () => {
-      axGlobals.useStructuredPrompt = true;
-
       const sig = AxSignature.create('userInput:string -> aiResponse:string');
       const template = new AxPromptTemplate(sig);
 
@@ -217,8 +175,6 @@ describe('AxPromptTemplate - Structured Prompts', () => {
 
   describe('Description handling', () => {
     it('should include signature description in task_definition section', () => {
-      axGlobals.useStructuredPrompt = true;
-
       const sig = AxSignature.create(
         '"Analyze sentiment" userInput:string -> sentiment:string'
       );
@@ -233,8 +189,6 @@ describe('AxPromptTemplate - Structured Prompts', () => {
     });
 
     it('should omit task_definition section when signature has no description', () => {
-      axGlobals.useStructuredPrompt = true;
-
       const sig = AxSignature.create('userInput:string -> aiResponse:string');
       const template = new AxPromptTemplate(sig);
 
@@ -246,22 +200,86 @@ describe('AxPromptTemplate - Structured Prompts', () => {
     });
   });
 
-  describe('Backward compatibility', () => {
-    it('should maintain same behavior as legacy format when flag is off', () => {
-      axGlobals.useStructuredPrompt = false;
+  describe('Template-backed structured prompt regression coverage', () => {
+    it('renders the structured system prompt with functions and description in the prior order', () => {
+      const sig = AxSignature.create(
+        '"Analyze sentiment" userInput:string -> aiResponse:string'
+      );
+      const template = new AxPromptTemplate(sig, {
+        functions: [
+          {
+            name: 'searchDatabase',
+            description: 'Search the database for information',
+            parameters: {
+              type: 'object' as const,
+              properties: {
+                query: { type: 'string' as const },
+              },
+              required: ['query'],
+            },
+          },
+        ],
+      });
 
-      const sig = AxSignature.create('userInput:string -> aiResponse:string');
+      const messages = template.render({ userInput: 'test' }, {});
+      const systemPrompt = messages.find((m) => m.role === 'system');
 
-      const legacyTemplate = new AxPromptTemplate(sig);
-      const defaultTemplate = new AxPromptTemplate(sig);
+      expect(systemPrompt?.content).toContain('<identity>');
+      expect(systemPrompt?.content).toContain('</identity>');
+      expect(systemPrompt?.content).toContain('<task_definition>');
+      expect(systemPrompt?.content).toContain('Analyze sentiment.');
+      expect(systemPrompt?.content).toContain('<available_functions>');
+      expect(systemPrompt?.content).toContain('searchDatabase');
+      expect(systemPrompt?.content).toContain('## Function Call Instructions');
+      expect(systemPrompt?.content).toContain('<input_fields>');
+      expect(systemPrompt?.content).toContain('<output_fields>');
+      expect(systemPrompt?.content).toContain('<formatting_rules>');
 
-      const legacyMessages = legacyTemplate.render({ userInput: 'test' }, {});
-      const defaultMessages = defaultTemplate.render({ userInput: 'test' }, {});
+      expect(
+        systemPrompt?.content.indexOf('<available_functions>')
+      ).toBeGreaterThan(systemPrompt?.content.indexOf('</identity>') ?? -1);
+      expect(systemPrompt?.content.indexOf('<input_fields>')).toBeGreaterThan(
+        systemPrompt?.content.indexOf('</available_functions>') ?? -1
+      );
+      expect(systemPrompt?.content.indexOf('<output_fields>')).toBeGreaterThan(
+        systemPrompt?.content.indexOf('</input_fields>') ?? -1
+      );
+      expect(
+        systemPrompt?.content.indexOf('<formatting_rules>')
+      ).toBeGreaterThan(
+        systemPrompt?.content.indexOf('</output_fields>') ?? -1
+      );
+      expect(
+        systemPrompt?.content.indexOf('<task_definition>')
+      ).toBeGreaterThan(
+        systemPrompt?.content.indexOf('</formatting_rules>') ?? -1
+      );
+    });
 
-      const legacySystem = legacyMessages.find((m) => m.role === 'system');
-      const defaultSystem = defaultMessages.find((m) => m.role === 'system');
+    it('uses structured function-call formatting rules for complex output fallback', () => {
+      const sig = f()
+        .input('userInput', f.string())
+        .output(
+          'analysisResult',
+          f.object({
+            message: f.string(),
+          })
+        )
+        .build();
+      const template = new AxPromptTemplate(sig, {
+        structuredOutputFunctionName: 'submitStructuredOutput',
+      });
 
-      expect(legacySystem?.content).toBe(defaultSystem?.content);
+      const messages = template.render({ userInput: 'test' }, {});
+      const systemPrompt = messages.find((m) => m.role === 'system');
+
+      expect(systemPrompt?.content).toContain(
+        'Return the complete output by calling `submitStructuredOutput`.'
+      );
+      expect(systemPrompt?.content).toContain(
+        'Do not emit any text outside the function call.'
+      );
+      expect(systemPrompt?.content).not.toContain('<output_fields>');
     });
   });
 });

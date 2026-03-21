@@ -234,10 +234,8 @@ const trainingAgent = agent(
     contextFields: [],
     runtime,
     mode: 'advanced',
-    promptLevel: 'detailed',
     recursionOptions: {
       maxDepth: 2,
-      promptLevel: 'detailed',
     },
     maxTurns: 6,
     maxSubAgentCalls: 2,
@@ -356,10 +354,8 @@ const optimizedAgent = agent(
     contextFields: [],
     runtime,
     mode: 'advanced',
-    promptLevel: 'detailed',
     recursionOptions: {
       maxDepth: 2,
-      promptLevel: 'detailed',
     },
     maxTurns: 6,
     maxSubAgentCalls: 2,

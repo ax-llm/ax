@@ -30,6 +30,7 @@ import {
   AX_AGENT_RECURSIVE_INSTRUCTION_SCHEMA,
   AX_AGENT_RECURSIVE_TARGET_IDS,
 } from './agentRecursiveOptimize.js';
+import { validateActorTurnCodePolicy } from './agent/runtime.js';
 import {
   AxAgentProtocolCompletionSignal,
   createCompletionBindings,
@@ -178,7 +179,7 @@ function makeDiscoveryPromptRuntime(): AxCodeRuntime {
             globals?.listModuleFunctions
           ) {
             return await (
-              globals.listModuleFunctions as (value: unknown) => Promise<string>
+              globals.listModuleFunctions as (value: unknown) => Promise<void>
             )(['kb', 'db']);
           }
           if (
@@ -188,7 +189,7 @@ function makeDiscoveryPromptRuntime(): AxCodeRuntime {
             return await (
               globals.getFunctionDefinitions as (
                 value: unknown
-              ) => Promise<string>
+              ) => Promise<void>
             )(['kb.lookup', 'db.search']);
           }
           if (code.includes('await db.search(')) {
@@ -279,7 +280,7 @@ function makeEmailSearchDiscoveryPromptRuntime(): AxCodeRuntime {
             globals?.listModuleFunctions
           ) {
             return await (
-              globals.listModuleFunctions as (value: unknown) => Promise<string>
+              globals.listModuleFunctions as (value: unknown) => Promise<void>
             )(['email', 'search']);
           }
           if (
@@ -289,7 +290,7 @@ function makeEmailSearchDiscoveryPromptRuntime(): AxCodeRuntime {
             return await (
               globals.getFunctionDefinitions as (
                 value: unknown
-              ) => Promise<string>
+              ) => Promise<void>
             )(['email.newEmail', 'email.saveEmail', 'search.search']);
           }
           if (
@@ -493,8 +494,8 @@ async function runDiscoveryPromptScenario(args: {
         }
 
         const actorCodeByTurn: Record<number, string> = {
-          1: "Javascript Code: const modules = await listModuleFunctions(['kb', 'db']); console.log(modules)",
-          2: "Javascript Code: const defs = await getFunctionDefinitions(['kb.lookup', 'db.search']); console.log(defs)",
+          1: "Javascript Code: await listModuleFunctions(['kb', 'db'])",
+          2: "Javascript Code: await getFunctionDefinitions(['kb.lookup', 'db.search'])",
           3: 'Javascript Code: const rows = await db.search({ query: "widgets" }); console.log(rows)',
         };
 
@@ -706,7 +707,7 @@ describe('AxAgent', () => {
     expect(actorDesc).toContain('Always prefer concise code.');
   });
 
-  it('should default actor prompt guidance to detailed when promptLevel is omitted', () => {
+  it('should render the default actor prompt with key sections', () => {
     const a = new AxAgent(
       {
         signature: 'query: string -> answer: string',
@@ -721,16 +722,13 @@ describe('AxAgent', () => {
       .getSignature()
       .getDescription() as string;
 
-    expect(actorDesc).toContain(
-      'Detailed exploration recipes — follow these exactly when encountering a new field'
-    );
-    expect(actorDesc).toContain('Enforcing the rhythm:');
-    expect(actorDesc).not.toContain(
-      'This is not a limitation — it is how you converge fastest.'
-    );
+    expect(actorDesc).toContain('Exploration & Truncation');
+    expect(actorDesc).toContain('One Step Per Turn');
+    expect(actorDesc).toContain('Error Recovery');
+    expect(actorDesc).not.toContain('### Common Anti-Patterns');
   });
 
-  it('should render detailed actor prompt guidance when top-level promptLevel is detailed', () => {
+  it('should render detailed-only anti-pattern scaffolding when promptLevel is detailed', () => {
     const a = new AxAgent(
       {
         signature: 'query: string -> answer: string',
@@ -746,39 +744,10 @@ describe('AxAgent', () => {
       .getSignature()
       .getDescription() as string;
 
+    expect(actorDesc).toContain('### Common Anti-Patterns');
+    expect(actorDesc).toContain('console.log(inputs.emails);');
     expect(actorDesc).toContain(
-      'Detailed exploration recipes — follow these exactly when encountering a new field'
-    );
-    expect(actorDesc).toContain('Enforcing the rhythm:');
-    expect(actorDesc).not.toContain(
-      'This is not a limitation — it is how you converge fastest.'
-    );
-  });
-
-  it('should render basic actor prompt guidance when top-level promptLevel is basic', () => {
-    const a = new AxAgent(
-      {
-        signature: 'query: string -> answer: string',
-      },
-      {
-        ...defaultRlmFields,
-        promptLevel: 'basic',
-      }
-    );
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorDesc = (a as any).actorProgram
-      .getSignature()
-      .getDescription() as string;
-
-    expect(actorDesc).toContain(
-      'This is not a limitation — it is how you converge fastest.'
-    );
-    expect(actorDesc).toContain(
-      'Resist the urge to combine exploration steps.'
-    );
-    expect(actorDesc).not.toContain(
-      'Detailed exploration recipes — follow these exactly when encountering a new field'
+      "const answer = await llmQuery('Summarize these emails.', inputs.emails);"
     );
   });
 
@@ -2919,7 +2888,7 @@ describe('Actor/Responder execution loop', () => {
           execute: async (code: string) => {
             if (code === 'DISCOVER_AND_LOG') {
               const listModuleFunctions = globals?.listModuleFunctions as
-                | ((value: unknown) => Promise<string>)
+                | ((value: unknown) => Promise<void>)
                 | undefined;
               await listModuleFunctions?.(['kb', 'db']);
               return 'plain evidence';
@@ -3913,9 +3882,6 @@ describe('Actor/Responder execution loop', () => {
     expect(result.answer).toBe('done');
     expect(secondActorPrompt).toContain('Live Runtime State:');
     expect(secondActorPrompt).toContain('(no user variables)');
-    expect(secondActorPrompt).toContain('Action 1:');
-    expect(secondActorPrompt).toContain('[SUMMARY]: Explore step.');
-    expect(secondActorPrompt).toContain('growth leader: East Widget-A');
     expect(secondActorPrompt).toContain('const note = "stable"');
   });
 
@@ -5734,6 +5700,151 @@ describe('incremental console-turn policy', () => {
     },
   };
 
+  it('should allow discovery-only turns without console.log', () => {
+    expect(
+      validateActorTurnCodePolicy(
+        "await listModuleFunctions(['tasks', 'contact'])"
+      )
+    ).toBeUndefined();
+    expect(
+      validateActorTurnCodePolicy(
+        "const defs = await getFunctionDefinitions(['tasks.lookup', 'contact.find'])"
+      )
+    ).toBeUndefined();
+  });
+
+  it('should reject split discovery calls and require a single batched array call', () => {
+    expect(
+      validateActorTurnCodePolicy(
+        "await Promise.all([listModuleFunctions('tasks'), listModuleFunctions('contact')])"
+      )
+    ).toContain(
+      "Batch module discovery into one array call: use `await listModuleFunctions(['tasks', 'contact'])`"
+    );
+    expect(
+      validateActorTurnCodePolicy(
+        "await getFunctionDefinitions('tasks.lookup'); await getFunctionDefinitions('contact.find')"
+      )
+    ).toContain(
+      "Batch function-definition discovery into one array call: use `await getFunctionDefinitions(['mod.funcA', 'mod.funcB'])`"
+    );
+  });
+
+  it('should still require console.log for mixed non-final turns that are not discovery-only', () => {
+    expect(
+      validateActorTurnCodePolicy(
+        "await listModuleFunctions(['tasks']); const unrelated = 1"
+      )
+    ).toContain(
+      '[POLICY] Non-final turns must include exactly one console.log(...)'
+    );
+  });
+
+  it('should allow discovery-only actor turns without console.log and continue normally', async () => {
+    let actorCallCount = 0;
+    const actorUserPrompts: string[] = [];
+    const executedCode: string[] = [];
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorUserPrompts.push(userPrompt);
+          actorCallCount++;
+          const codeByTurn: Record<number, string> = {
+            1: "Javascript Code: await listModuleFunctions(['kb', 'db'])",
+            2: "Javascript Code: await getFunctionDefinitions(['kb.lookup', 'db.search'])",
+            3: 'Javascript Code: final("done")',
+          };
+          return {
+            results: [
+              {
+                index: 0,
+                content: codeByTurn[actorCallCount]!,
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Answer Synthesis Agent')) {
+          return {
+            results: [
+              { index: 0, content: 'Answer: done', finishReason: 'stop' },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const runtime: AxCodeRuntime = {
+      ...runtimeWithConsoleMode,
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            executedCode.push(code);
+            if (code.includes('listModuleFunctions')) {
+              const listModuleFunctions = globals?.listModuleFunctions as
+                | ((value: unknown) => Promise<void>)
+                | undefined;
+              await listModuleFunctions?.(['kb', 'db']);
+              return 'ok';
+            }
+            if (code.includes('getFunctionDefinitions')) {
+              const getFunctionDefinitions = globals?.getFunctionDefinitions as
+                | ((value: unknown) => Promise<void>)
+                | undefined;
+              await getFunctionDefinitions?.(['kb.lookup', 'db.search']);
+              return 'ok';
+            }
+            if (globals?.final && code.includes('final(')) {
+              (globals.final as (...args: unknown[]) => void)('done');
+            }
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: [],
+      runtime,
+      maxTurns: 4,
+      functions: {
+        discovery: true,
+        local: makeDiscoveryFunctionGroups(),
+      },
+    });
+
+    const result = await testAgent.forward(testMockAI, { query: 'test' });
+
+    expect(result.answer).toBe('done');
+    expect(actorCallCount).toBe(3);
+    expect(executedCode).toEqual([
+      "await listModuleFunctions(['kb', 'db'])",
+      "await getFunctionDefinitions(['kb.lookup', 'db.search'])",
+      'final("done")',
+    ]);
+    expect(actorUserPrompts[1]).not.toContain(
+      '[POLICY] Non-final turns must include exactly one console.log(...)'
+    );
+    expect(actorUserPrompts[2]).not.toContain(
+      '[POLICY] Non-final turns must include exactly one console.log(...)'
+    );
+  });
+
   it('should reject non-final turns without console.log and retry next turn', async () => {
     let actorCallCount = 0;
     let secondTurnUserPrompt = '';
@@ -6385,9 +6496,23 @@ describe('axBuildActorDefinition', () => {
       enforceIncrementalConsoleTurns: true,
     });
     expect(result).toContain('### One Step Per Turn');
-    expect(result).toContain('**Enforcing the rhythm:**');
     expect(result).toContain(
-      'your code must include exactly one `console.log(...)` and stop right after it.'
+      'one `console.log` answering one question, then stop'
+    );
+    expect(result).toContain(
+      'Discovery-only turns (`listModuleFunctions`/`getFunctionDefinitions`) need no `console.log`'
+    );
+  });
+
+  it('should render detailed-only anti-pattern examples when promptLevel is detailed', () => {
+    const result = axBuildActorDefinition(undefined, [], [], {
+      promptLevel: 'detailed',
+    });
+
+    expect(result).toContain('### Common Anti-Patterns');
+    expect(result).toContain('console.log(inputs.emails);');
+    expect(result).toContain(
+      "const answer = await llmQuery('Summarize these emails.', inputs.emails);"
     );
   });
 
@@ -12083,205 +12208,6 @@ describe('recursionOptions and recursive parity', () => {
     expect(childActorPrompt).toContain('Explore with code');
   });
 
-  it('should apply recursionOptions.promptLevel to child agents', async () => {
-    let childActorSystemPrompt = '';
-
-    const runtime: AxCodeRuntime = {
-      getUsageInstructions: () => '',
-      createSession(globals) {
-        return {
-          execute: async (code: string) => {
-            if (code === 'ROOT_STEP') {
-              const llmQueryFn = globals?.llmQuery as (
-                q: string,
-                context?: unknown
-              ) => Promise<string>;
-              const childResult = await llmQueryFn('child query', {
-                data: 'test',
-              });
-              if (globals?.final) {
-                (globals.final as (...args: unknown[]) => void)(childResult);
-              }
-              return childResult;
-            }
-
-            if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)('child done');
-              return 'child done';
-            }
-
-            return 'ok';
-          },
-          close: () => {},
-        };
-      },
-    };
-
-    const testMockAI = new AxMockAIService({
-      features: { functions: false, streaming: false },
-      chatResponse: async (req) => {
-        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
-        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
-
-        if (systemPrompt.includes('Code Generation Agent')) {
-          // Capture the child actor's system prompt (the one handling 'child query')
-          if (userPrompt.includes('Task: child query')) {
-            childActorSystemPrompt = systemPrompt;
-            return {
-              results: [
-                {
-                  index: 0,
-                  content: 'Javascript Code: final("child done")',
-                  finishReason: 'stop',
-                },
-              ],
-              modelUsage: makeModelUsage(),
-            };
-          }
-          return {
-            results: [
-              {
-                index: 0,
-                content: 'Javascript Code: ROOT_STEP',
-                finishReason: 'stop',
-              },
-            ],
-            modelUsage: makeModelUsage(),
-          };
-        }
-
-        return {
-          results: [
-            { index: 0, content: 'Answer: done', finishReason: 'stop' },
-          ],
-          modelUsage: makeModelUsage(),
-        };
-      },
-    });
-
-    const testAgent = agent('query:string -> answer:string', {
-      ai: testMockAI,
-      contextFields: [],
-      runtime,
-      maxTurns: 1,
-      mode: 'advanced',
-      recursionOptions: {
-        maxDepth: 2,
-        promptLevel: 'basic',
-      },
-      contextPolicy: {
-        preset: 'full',
-      },
-    });
-
-    await testAgent.forward(testMockAI, {
-      query: 'root query',
-    });
-
-    // Child should use 'basic' promptLevel
-    expect(childActorSystemPrompt).toContain('Efficiency Guidance');
-    // 'basic' should NOT have the detailed anti-patterns section
-    expect(childActorSystemPrompt).not.toContain('Common Anti-Patterns');
-  });
-
-  it('should let recursive child agents inherit the top-level promptLevel when recursionOptions.promptLevel is omitted', async () => {
-    let childActorSystemPrompt = '';
-
-    const runtime: AxCodeRuntime = {
-      getUsageInstructions: () => '',
-      createSession(globals) {
-        return {
-          execute: async (code: string) => {
-            if (code === 'ROOT_STEP') {
-              const llmQueryFn = globals?.llmQuery as (
-                q: string,
-                context?: unknown
-              ) => Promise<string>;
-              const childResult = await llmQueryFn('child query', {
-                data: 'test',
-              });
-              if (globals?.final) {
-                (globals.final as (...args: unknown[]) => void)(childResult);
-              }
-              return childResult;
-            }
-
-            if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)('child done');
-              return 'child done';
-            }
-
-            return 'ok';
-          },
-          close: () => {},
-        };
-      },
-    };
-
-    const testMockAI = new AxMockAIService({
-      features: { functions: false, streaming: false },
-      chatResponse: async (req) => {
-        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
-        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
-
-        if (systemPrompt.includes('Code Generation Agent')) {
-          if (userPrompt.includes('Task: child query')) {
-            childActorSystemPrompt = systemPrompt;
-            return {
-              results: [
-                {
-                  index: 0,
-                  content: 'Javascript Code: final("child done")',
-                  finishReason: 'stop',
-                },
-              ],
-              modelUsage: makeModelUsage(),
-            };
-          }
-          return {
-            results: [
-              {
-                index: 0,
-                content: 'Javascript Code: ROOT_STEP',
-                finishReason: 'stop',
-              },
-            ],
-            modelUsage: makeModelUsage(),
-          };
-        }
-
-        return {
-          results: [
-            { index: 0, content: 'Answer: done', finishReason: 'stop' },
-          ],
-          modelUsage: makeModelUsage(),
-        };
-      },
-    });
-
-    const testAgent = agent('query:string -> answer:string', {
-      ai: testMockAI,
-      contextFields: [],
-      runtime,
-      maxTurns: 1,
-      mode: 'advanced',
-      promptLevel: 'basic',
-      recursionOptions: {
-        maxDepth: 2,
-      },
-      contextPolicy: {
-        preset: 'full',
-      },
-    });
-
-    await testAgent.forward(testMockAI, {
-      query: 'root query',
-    });
-
-    expect(childActorSystemPrompt).toContain('Efficiency Guidance');
-    expect(childActorSystemPrompt).not.toContain('Common Anti-Patterns');
-  });
-
   it('should keep conflicting or invalid child context keys under context only', async () => {
     let childResponderPrompt = '';
 
@@ -14486,13 +14412,13 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
     });
 
     expect(result).toContain(
-      'In this run, `llmQuery` is an advanced delegation primitive'
+      '`llmQuery` is an advanced delegation primitive in this run'
     );
     expect(result).toContain(
-      'Parent runtime variables are NOT visible to the child unless you pass them explicitly in the `context` argument'
+      'Parent runtime variables are NOT visible to the child unless passed explicitly in the `context` argument'
     );
     expect(result).toContain(
-      'child asks for clarification, that clarification bubbles up and ends the whole run'
+      'child asks for clarification, it bubbles up and ends the whole run'
     );
     expect(result).toContain(
       'Delegate one focused subtask to a child agent with its own runtime and action log.'
@@ -15290,7 +15216,7 @@ describe('AxFunction', () => {
     ).toThrow('Agent module namespace must contain letters or numbers');
   });
 
-  it('should expose discovery runtime APIs and return markdown for functions and sub-agents', async () => {
+  it('should expose discovery runtime APIs and update discovery docs for functions and sub-agents', async () => {
     const child = agent('question:string -> answer:string', {
       agentIdentity: { name: 'Child Agent', description: 'Child agent helper' },
       contextFields: [],
@@ -15427,81 +15353,110 @@ describe('AxFunction', () => {
     expect(typeof globals.listModuleFunctions).toBe('function');
     expect(typeof globals.getFunctionDefinitions).toBe('function');
 
-    const listModuleFunctions = globals.listModuleFunctions as (
-      modules: string | string[]
-    ) => Promise<string>;
-    const getFunctionDefinitions = globals.getFunctionDefinitions as (
-      functions: string | string[]
-    ) => Promise<string>;
+    const discoveredModules: Record<string, string> = {};
+    const discoveredFunctions: Record<string, string> = {};
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const globalsWithCallbacks = (parent as any).buildRuntimeGlobals(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      (_modules: readonly string[], docs: Readonly<Record<string, string>>) =>
+        Object.assign(discoveredModules, docs),
+      (_functions: readonly string[], docs: Readonly<Record<string, string>>) =>
+        Object.assign(discoveredFunctions, docs)
+    ) as Record<string, unknown>;
 
-    const moduleMarkdown = await listModuleFunctions(['team', 'db', 'missing']);
-    const singleModuleMarkdown = await listModuleFunctions('team');
-    expect(singleModuleMarkdown).toContain('### Module `team`');
-    expect(singleModuleMarkdown).not.toContain('#### Callables');
-    expect(moduleMarkdown).toContain('### Module `team`');
-    expect(moduleMarkdown).toContain('- `childAgent`');
-    expect(moduleMarkdown).toContain('### Module `db`');
-    expect(moduleMarkdown).toContain('**Scheduling Database**');
-    expect(moduleMarkdown).toContain('- `search`');
-    expect(moduleMarkdown).toContain('- `resolveWindow`');
-    expect(moduleMarkdown).toContain(
+    const listModuleFunctions = globalsWithCallbacks.listModuleFunctions as (
+      modules: string | string[]
+    ) => Promise<void>;
+    const getFunctionDefinitions =
+      globalsWithCallbacks.getFunctionDefinitions as (
+        functions: string | string[]
+      ) => Promise<void>;
+
+    await expect(listModuleFunctions(['team', 'db', 'missing'])).resolves.toBe(
+      undefined
+    );
+    await expect(listModuleFunctions('team')).resolves.toBeUndefined();
+    expect(discoveredModules.team).toContain('### Module `team`');
+    expect(discoveredModules.team).not.toContain('#### Callables');
+    expect(discoveredModules.team).toContain('- `childAgent`');
+    expect(discoveredModules.db).toContain('### Module `db`');
+    expect(discoveredModules.db).toContain('**Scheduling Database**');
+    expect(discoveredModules.db).toContain('- `search`');
+    expect(discoveredModules.db).toContain('- `resolveWindow`');
+    expect(discoveredModules.db).toContain(
       'Database accessors for schedule lookups and availability.'
     );
-    expect(moduleMarkdown.indexOf('- `search`')).toBeLessThan(
-      moduleMarkdown.indexOf(
+    expect(discoveredModules.db.indexOf('- `search`')).toBeLessThan(
+      discoveredModules.db.indexOf(
         'Database accessors for schedule lookups and availability.'
       )
     );
-    expect(moduleMarkdown).toContain('### Module `missing`');
-    expect(moduleMarkdown).toContain(
+    expect(discoveredModules.missing).toContain('### Module `missing`');
+    expect(discoveredModules.missing).toContain(
       '- Error: module `missing` does not exist.'
     );
 
-    const definitionMarkdown = await getFunctionDefinitions([
-      'team.childAgent',
-      'db.search',
-      'db.resolveWindow',
-      'lookup',
-      'unknownFn',
-    ]);
-    const singleDefinitionMarkdown = await getFunctionDefinitions('lookup');
-    expect(singleDefinitionMarkdown).toContain('### `utils.lookup`');
-    expect(definitionMarkdown).toContain('### `team.childAgent`');
-    expect(definitionMarkdown).toContain('Child agent helper');
-    expect(definitionMarkdown).toContain(
+    await expect(
+      getFunctionDefinitions([
+        'team.childAgent',
+        'db.search',
+        'db.resolveWindow',
+        'lookup',
+        'unknownFn',
+      ])
+    ).resolves.toBeUndefined();
+    await expect(getFunctionDefinitions('lookup')).resolves.toBeUndefined();
+    expect(discoveredFunctions['utils.lookup']).toContain('### `utils.lookup`');
+    expect(discoveredFunctions['team.childAgent']).toContain(
+      '### `team.childAgent`'
+    );
+    expect(discoveredFunctions['team.childAgent']).toContain(
+      'Child agent helper'
+    );
+    expect(discoveredFunctions['team.childAgent']).toContain(
       '- `team.childAgent(args: { question: string })`'
     );
-    expect(definitionMarkdown).toContain('### `db.search`');
-    expect(definitionMarkdown).toContain('Search in database');
-    expect(definitionMarkdown).toContain(
+    expect(discoveredFunctions['db.search']).toContain('### `db.search`');
+    expect(discoveredFunctions['db.search']).toContain('Search in database');
+    expect(discoveredFunctions['db.search']).toContain(
       '- `db.search(args: { query: string, limit?: number }): Promise<number>`'
     );
-    expect(definitionMarkdown).toContain('#### Arguments');
-    expect(definitionMarkdown).toContain(
+    expect(discoveredFunctions['db.search']).toContain('#### Arguments');
+    expect(discoveredFunctions['db.search']).toContain(
       '- `query` (`string`, required): Query'
     );
-    expect(definitionMarkdown).toContain(
+    expect(discoveredFunctions['db.search']).toContain(
       '- `limit` (`number`, optional): Limit'
     );
-    expect(definitionMarkdown).toContain('#### Examples');
-    expect(definitionMarkdown).toContain('##### Find open slots');
-    expect(definitionMarkdown).toContain(
+    expect(discoveredFunctions['db.search']).toContain('#### Examples');
+    expect(discoveredFunctions['db.search']).toContain('##### Find open slots');
+    expect(discoveredFunctions['db.search']).toContain(
       'await db.search({ query: "availability for Alex", limit: 5 });'
     );
-    expect(definitionMarkdown).toContain('### `db.resolveWindow`');
-    expect(definitionMarkdown).toContain(
+    expect(discoveredFunctions['db.resolveWindow']).toContain(
+      '### `db.resolveWindow`'
+    );
+    expect(discoveredFunctions['db.resolveWindow']).toContain(
       '- `options.timezone` (`string`): IANA timezone for resolving the request'
     );
-    expect(definitionMarkdown).toContain(
+    expect(discoveredFunctions['db.resolveWindow']).toContain(
       '- `options.participants` (`string[]`): Participants included in the scheduling search'
     );
-    expect(definitionMarkdown).toContain(
+    expect(discoveredFunctions['db.resolveWindow']).toContain(
       '- `options.participants[]` (`string`): Participant identifier'
     );
-    expect(definitionMarkdown).toContain('### `utils.lookup`');
-    expect(definitionMarkdown).toContain('Lookup utility function');
-    expect(definitionMarkdown).toContain('### `utils.unknownFn`');
-    expect(definitionMarkdown).toContain('- Not found.');
+    expect(discoveredFunctions['utils.lookup']).toContain(
+      'Lookup utility function'
+    );
+    expect(discoveredFunctions['utils.unknownFn']).toContain(
+      '### `utils.unknownFn`'
+    );
+    expect(discoveredFunctions['utils.unknownFn']).toContain('- Not found.');
   });
 
   it('should require parameters for functions used in agent runtime', () => {
@@ -15629,19 +15584,22 @@ describe('AxFunction', () => {
     expect(actorDesc).not.toContain('### Available Agent Functions');
     expect(actorDesc).toContain('### Available Functions');
     expect(actorDesc).toContain(
-      'await listModuleFunctions(modules: string | string[]): string'
+      'await listModuleFunctions(modules: string | string[]): void'
     );
     expect(actorDesc).toContain(
-      'await getFunctionDefinitions(functions: string | string[]): string'
+      'await getFunctionDefinitions(functions: string | string[]): void'
     );
     expect(actorDesc).toContain(
-      "prefer one batched call: `await listModuleFunctions(['timeRange', 'schedulingOrganizer'])`"
+      "use exactly one batched array call: `await listModuleFunctions(['timeRange', 'schedulingOrganizer'])`"
     );
     expect(actorDesc).toContain(
-      'Treat discovery results as markdown — `console.log(...)` them directly.'
+      'Discovery helpers update prompt state. They do not return useful markdown for same-turn JS inspection.'
     );
     expect(actorDesc).toContain(
-      'Do NOT reformat into JSON or split into `Promise.all(...)` calls.'
+      'Discovery-only turns do not need `console.log(...)`.'
+    );
+    expect(actorDesc).toContain(
+      'Do NOT split discovery across repeated helper calls or `Promise.all(...)`.'
     );
     expect(actorDesc).toContain('Do NOT guess an alternate name.');
     expect(actorDesc).toContain(
@@ -15681,17 +15639,31 @@ describe('AxFunction', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const globals = (myAgent as any).buildRuntimeGlobals();
-    const modulesMarkdown = await globals.listModuleFunctions('db');
-    const definitionsMarkdown =
-      await globals.getFunctionDefinitions('db.searchDB');
+    const discoveredModules: Record<string, string> = {};
+    const discoveredFunctions: Record<string, string> = {};
+    const globals = (myAgent as any).buildRuntimeGlobals(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      (_modules: readonly string[], docs: Readonly<Record<string, string>>) =>
+        Object.assign(discoveredModules, docs),
+      (_functions: readonly string[], docs: Readonly<Record<string, string>>) =>
+        Object.assign(discoveredFunctions, docs)
+    );
+    await expect(globals.listModuleFunctions('db')).resolves.toBeUndefined();
+    await expect(
+      globals.getFunctionDefinitions('db.searchDB')
+    ).resolves.toBeUndefined();
 
-    expect(modulesMarkdown).toContain('### Module `db`');
-    expect(modulesMarkdown).toContain('**Database Tools**');
-    expect(modulesMarkdown).toContain('- `searchDB`');
-    expect(modulesMarkdown).not.toContain('undefined');
-    expect(definitionsMarkdown).toContain('### `db.searchDB`');
-    expect(definitionsMarkdown).not.toContain('undefined');
+    expect(discoveredModules.db).toContain('### Module `db`');
+    expect(discoveredModules.db).toContain('**Database Tools**');
+    expect(discoveredModules.db).toContain('- `searchDB`');
+    expect(discoveredModules.db).not.toContain('undefined');
+    expect(discoveredFunctions['db.searchDB']).toContain('### `db.searchDB`');
+    expect(discoveredFunctions['db.searchDB']).not.toContain('undefined');
   });
 
   it('should keep flat legacy discovery modules without selection criteria', () => {
@@ -16659,10 +16631,10 @@ describe('AxFunction', () => {
           execute: async (code: string) => {
             if (code === 'DISCOVER') {
               const listModuleFunctions = globals?.listModuleFunctions as
-                | ((value: unknown) => Promise<string>)
+                | ((value: unknown) => Promise<void>)
                 | undefined;
               const getFunctionDefinitions = globals?.getFunctionDefinitions as
-                | ((value: unknown) => Promise<string>)
+                | ((value: unknown) => Promise<void>)
                 | undefined;
               await listModuleFunctions?.(['kb', 'db']);
               await getFunctionDefinitions?.(['kb.lookup', 'db.search']);
@@ -16902,10 +16874,10 @@ describe('AxFunction', () => {
           execute: async (code: string) => {
             if (code === 'DISCOVER_AND_GUIDE') {
               const listModuleFunctions = globals?.listModuleFunctions as
-                | ((value: unknown) => Promise<string>)
+                | ((value: unknown) => Promise<void>)
                 | undefined;
               const getFunctionDefinitions = globals?.getFunctionDefinitions as
-                | ((value: unknown) => Promise<string>)
+                | ((value: unknown) => Promise<void>)
                 | undefined;
               const utils = globals?.utils as Record<
                 string,

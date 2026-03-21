@@ -575,6 +575,8 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
 
   /** Code runtime for the REPL loop (default: AxJSRuntime). */
   runtime?: AxCodeRuntime;
+  /** Actor prompt verbosity and scaffolding level (default: 'default'). */
+  promptLevel?: 'default' | 'detailed';
   /** Cap on recursive sub-agent calls (default: 50). */
   maxSubAgentCalls?: number;
   /** Maximum characters for RLM runtime payloads (default: 5000). */
@@ -599,8 +601,6 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
   inputUpdateCallback?: AxAgentInputUpdateCallback<IN>;
   /** Sub-query execution mode (default: 'simple'). */
   mode?: 'simple' | 'advanced';
-  /** Prompt detail level for the root Actor (default: 'detailed'). */
-  promptLevel?: AxActorPromptLevel;
   /**
    * Ordered Actor-model overrides keyed by rendered prompt size or consecutive
    * error turns. Later entries take precedence over earlier ones.
@@ -665,11 +665,7 @@ export type AxAgentRecursionOptions = Partial<
 > & {
   /** Maximum nested recursion depth for llmQuery sub-agent calls. */
   maxDepth?: number;
-  /** Prompt detail level for recursive child agents (default: inherits parent). */
-  promptLevel?: AxActorPromptLevel;
 };
-
-export type AxActorPromptLevel = 'detailed' | 'basic';
 
 type AxLlmQueryPromptMode =
   | 'simple'
@@ -1109,7 +1105,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private excludedAgents: string[];
   private excludedAgentFunctions: string[];
   private actorDescription?: string;
-  private actorPromptLevel?: AxActorPromptLevel;
   private actorModelPolicy?: AxResolvedActorModelPolicy;
   private responderDescription?: string;
   private judgeOptions?: AxAgentJudgeOptions;
@@ -1400,7 +1395,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       actorFields,
       actorTurnCallback,
       mode,
-      promptLevel,
       actorModelPolicy,
       recursionOptions,
       actorOptions,
@@ -1471,7 +1465,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       functions: _fn,
       judgeOptions: _jo,
       inputUpdateCallback: _iuc,
-      promptLevel: _pl,
       actorModelPolicy: _amp,
       ...genOptions
     } = options;
@@ -1487,6 +1480,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     this.rlmConfig = {
       contextFields: normalizedContext.contextFieldNames,
+      promptLevel: options.promptLevel,
       sharedFields: options.fields?.shared,
       runtime: this.runtime,
       maxSubAgentCalls,
@@ -1506,7 +1500,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       responderOptions ?? {};
 
     this.actorDescription = actorDescription;
-    this.actorPromptLevel = promptLevel ?? 'detailed';
     this.actorModelPolicy = resolveActorModelPolicy(actorModelPolicy);
     this.actorForwardOptions = actorForwardOptions;
     this.recursiveInstructionSlots =
@@ -1806,7 +1799,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         : this.actorDescription;
     const actorDefinitionBuildOptions: AxActorDefinitionBuildOptions = {
       runtimeUsageInstructions: this.runtimeUsageInstructions,
-      promptLevel: this.actorPromptLevel,
+      promptLevel: this.rlmConfig.promptLevel,
       maxSubAgentCalls: effectiveMaxSubAgentCalls,
       maxTurns: effectiveMaxTurns,
       hasInspectRuntime: effectiveContextPolicy.stateInspection.enabled,
@@ -3034,9 +3027,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const rlmMode = rlm.mode ?? 'simple';
     const useAdvancedLlmQuery = rlmMode === 'advanced' && recursionMaxDepth > 0;
 
-    const childPromptLevel =
-      this.recursionForwardOptions?.promptLevel ?? this.actorPromptLevel;
-
     const createRecursiveSubAgent = () =>
       (() => {
         const recursiveSubAgent = new AxAgent<any, { answer: AxFieldValue }>(
@@ -3054,7 +3044,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
             },
             contextFields: [],
             actorFields: undefined,
-            promptLevel: childPromptLevel,
             actorModelPolicy: this.options?.actorModelPolicy,
             recursionOptions: childRecursionOptions,
             actorOptions: {
@@ -5321,14 +5310,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     if (this.functionDiscoveryEnabled) {
       globals[DISCOVERY_LIST_MODULE_FUNCTIONS_NAME] = async (
         modulesInput: unknown
-      ): Promise<string> => {
+      ): Promise<void> => {
         const modules = sortDiscoveryModules(
           normalizeDiscoveryStringInput(modulesInput, 'modules')
-        );
-        const markdown = renderDiscoveryModuleListMarkdown(
-          modules,
-          moduleLookup,
-          moduleMetaLookup
         );
         const docs = Object.fromEntries(
           modules.map((module) => [
@@ -5341,12 +5325,11 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           ])
         );
         onDiscoveredModules?.(modules, docs);
-        return markdown;
       };
 
       globals[DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME] = async (
         functionsInput: unknown
-      ): Promise<string> => {
+      ): Promise<void> => {
         const items = normalizeAndSortDiscoveryFunctionIdentifiers(
           normalizeDiscoveryStringInput(functionsInput, 'functions')
         );
@@ -5357,10 +5340,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         if (matchedNamespaces.length > 0) {
           onDiscoveredNamespaces?.(matchedNamespaces);
         }
-        const markdown = renderDiscoveryFunctionDefinitionsMarkdown(
-          items,
-          callableLookup
-        );
         const docs = Object.fromEntries(
           items.map((qualifiedName) => [
             qualifiedName,
@@ -5371,7 +5350,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           ])
         );
         onDiscoveredFunctions?.(items, docs);
-        return markdown;
       };
     }
 

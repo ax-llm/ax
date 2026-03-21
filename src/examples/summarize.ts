@@ -55,7 +55,7 @@ gen.setExamples([
 const ai = new AxAI({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY as string,
-  config: { maxTokens: 1000, model: AxAIGoogleGeminiModel.Gemini25Flash },
+  config: { model: AxAIGoogleGeminiModel.Gemini25Flash },
 });
 
 const updates = [
@@ -69,23 +69,23 @@ Summary: The National Feline Agility Competition (NFAC) is hosting its champions
 Summary: Open cat social hour at the Westwood Animal Shelter on Sunday, February 2, 2025 from 2:00 PM to 3:30 PM. A $5 donation is requested (cash donations preferred).`,
 ];
 
-console.log('## Streaming');
+// console.log('## Streaming');
 
-const generator = gen.streamingForward(
-  ai,
-  { updates },
-  { showThoughts: true, thinkingTokenBudget: 'minimal' }
-);
+// const generator = gen.streamingForward(
+//   ai,
+//   { updates },
+//   { showThoughts: true, thinkingTokenBudget: 'minimal' }
+// );
 
-for await (const res of generator) {
-  console.log(res);
-}
+// for await (const res of generator) {
+//   console.log(res);
+// }
 
 console.log('\n\n## Not Streaming');
 
 const res = await gen.forward(
   ai,
   { updates },
-  { showThoughts: true, thinkingTokenBudget: 'low' }
+  { showThoughts: true, thinkingTokenBudget: 'low', debug: true }
 );
 console.log(res);

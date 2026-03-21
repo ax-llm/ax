@@ -1,6 +1,6 @@
 ---
 name: ax-agent
-description: This skill helps an LLM generate correct AxAgent code using @ax-llm/ax. Use when the user asks about agent(), child agents, namespaced functions, discovery mode, shared fields, llmQuery(...), RLM code execution, promptLevel, recursionOptions, or agent runtime behavior. For tuning and eval with agent.optimize(...), use ax-agent-optimize.
+description: This skill helps an LLM generate correct AxAgent code using @ax-llm/ax. Use when the user asks about agent(), child agents, namespaced functions, discovery mode, shared fields, llmQuery(...), RLM code execution, recursionOptions, or agent runtime behavior. For tuning and eval with agent.optimize(...), use ax-agent-optimize.
 version: "__VERSION__"
 ---
 
@@ -24,9 +24,9 @@ Your job is not just to write valid code. Your job is to choose the smallest cor
 - Assume the child-agent module is `agents` unless `agentIdentity.namespace` is set.
 - If `functions.discovery` is `true`, discover callables from modules before using them.
 - In stdout-mode RLM, use one observable `console.log(...)` step per non-final actor turn.
+- Prefer `promptLevel: 'default'` for normal use; use `promptLevel: 'detailed'` when you want extra anti-pattern examples and tighter teaching scaffolding in the actor prompt.
 - For long RLM tasks, prefer `contextPolicy: { preset: 'adaptive' }` so older successful turns collapse into checkpoint summaries while live runtime state stays visible.
 - Prefer `contextPolicy: { preset: 'checkpointed' }` when you want debugging-friendly full replay first and only want summaries after prompt pressure becomes real.
-- Default top-level `promptLevel` to `'detailed'` and opt down to `'basic'` only when the user wants a shorter root actor prompt.
 - Prefer `actorModelPolicy` when the actor may need to upgrade under whole-prompt pressure or repeated error turns without also upgrading the responder.
 - Use `actorTurnCallback` when the user needs per-turn observability into generated code, raw runtime result, formatted output, or provider thoughts.
 
@@ -45,9 +45,6 @@ Map user intent to agent shape before writing code:
 Choose options based on user needs, not feature completeness:
 
 - Prefer `mode: 'simple'` unless recursive child agents materially improve the task.
-- Prefer `promptLevel: 'detailed'` when reliability matters more than prompt size.
-- Prefer `promptLevel: 'basic'` when the user wants a leaner prompt and the workflow is already well constrained.
-- Prefer `recursionOptions.promptLevel: 'basic'` for narrow delegated children unless the child is also discovery-heavy or schema-uncertain.
 - Prefer `maxSubAgentCalls` only when advanced recursion is enabled or the user needs explicit delegation limits.
 - Prefer `contextPolicy.preset: 'adaptive'` for long RLM tasks, `checkpointed` when you want "full first, summarize later", `full` for debugging, and `lean` only under real token pressure.
 
@@ -89,19 +86,16 @@ Important:
 Treat these knobs as a bundle:
 
 - `contextPolicy.preset` decides how much raw history the actor keeps seeing.
-- Top-level `promptLevel` decides how prescriptive the root actor prompt is.
-- `recursionOptions.promptLevel` overrides prompt detail for recursive `llmQuery(...)` child agents.
+- `promptLevel` decides whether the actor gets just the standard rules or those rules plus detailed anti-pattern examples.
 - `actorModelPolicy` decides when the actor switches to an override model without changing the responder.
 - Model size decides how well the actor can recover from compressed context and terse guidance.
 
 Recommended combinations:
 
-- Short task, debugging, or weaker/cheaper model: `preset: 'full'` with `promptLevel: 'detailed'`.
-- Long multi-turn task, general default, medium-to-strong model: `preset: 'adaptive'` with `promptLevel: 'detailed'`.
-- Long task where you want raw replay until the log is actually large: `preset: 'checkpointed'` with `promptLevel: 'detailed'`.
-- Long task where the actor keeps making avoidable exploration mistakes: `preset: 'adaptive'` with `promptLevel: 'detailed'`.
-- Very long task under token pressure, stronger model only: `preset: 'lean'` with `promptLevel: 'basic'`.
-- Discovery-heavy or schema-uncertain work with a capable model: `preset: 'adaptive'` with `promptLevel: 'detailed'`.
+- Short task, debugging, or weaker/cheaper model: `preset: 'full'`.
+- Long multi-turn task, general default, medium-to-strong model: `preset: 'adaptive'`.
+- Long task where you want raw replay until the log is actually large: `preset: 'checkpointed'`.
+- Very long task under token pressure, stronger model only: `preset: 'lean'`.
 - Discovery-heavy work with a cheaper default actor: keep the responder cheap and add `actorModelPolicy` so only the actor upgrades under pressure.
 
 Practical rule:
@@ -111,26 +105,7 @@ Practical rule:
 - `adaptive` is the default middle ground for real agent work.
 - `checkpointed` is the conservative middle ground when you want full replay first and summarization only after a threshold.
 - `lean` should be reserved for models that can reason well from runtime state plus summaries instead of exact old code/output.
-- `detailed` is not automatically "better"; it is more controlling. Use it when the actor needs tighter exploration rhythm, not just because the task is hard.
 - `actorModelPolicy` is usually better than globally upgrading the whole agent when the bottleneck is actor exploration rather than responder synthesis.
-
-Prompt-level guidance:
-
-- `basic`: opt-down mode. Gives the actor concise exploration guidance and works best when the model is already reliable.
-- `detailed`: adds explicit exploration recipes, truncation recovery guidance, error-avoidance tips, and stronger one-step-per-turn discipline.
-
-Use `promptLevel: 'detailed'` when:
-
-- the actor is probing unfamiliar or messy data shapes
-- discovery mode is central to the task
-- the model keeps over-logging, combining too many steps, or guessing field/function names
-- you are optimizing for reliability over prompt compactness
-
-Use `promptLevel: 'basic'` when:
-
-- the model is already following the one-step rhythm well
-- you want a shorter actor prompt
-- the task is straightforward and the runtime/state carries most of the complexity
 
 ## Critical Rules
 
@@ -701,9 +676,7 @@ const supportAgent = agent('query:string -> answer:string', {
 Use these top-level controls consistently:
 
 - `mode`: controls whether `llmQuery(...)` stays simple or delegates to recursive child agents in advanced mode
-- `promptLevel`: controls the root actor prompt guidance
 - `recursionOptions.maxDepth`: limits recursive `llmQuery(...)` depth
-- `recursionOptions.promptLevel`: overrides prompt guidance for recursive `llmQuery(...)` child agents
 - `maxSubAgentCalls`: shared delegated-call budget across the whole run, including recursive children
 - `actorOptions`: actor-only forward options such as `description`, `model`, `modelConfig`, `thinkingTokenBudget`, and `showThoughts`
 - `actorModelPolicy`: actor-only model override rules based on full rendered prompt size, consecutive error turns, or discovery fetches from listed namespaces
@@ -717,10 +690,8 @@ const researchAgent = agent('query:string -> answer:string', {
   contextFields: ['query'],
   runtime,
   mode: 'advanced',
-  promptLevel: 'detailed',
   recursionOptions: {
     maxDepth: 2,
-    promptLevel: 'basic',
   },
   contextPolicy: {
     preset: 'checkpointed',
@@ -745,9 +716,6 @@ const researchAgent = agent('query:string -> answer:string', {
 
 Semantics:
 
-- Top-level `promptLevel` applies to the root actor.
-- `recursionOptions.promptLevel` applies only to recursive `llmQuery(...)` child agents in advanced mode.
-- If `recursionOptions.promptLevel` is omitted, recursive children inherit the root top-level `promptLevel`.
 - `mode` stays top-level; there is no `recursionOptions.mode`.
 - The current merged actor model stays the default base model. `actorModelPolicy` only overrides it when a rule matches.
 - `actorModelPolicy` only switches the actor model. It does not change `responderOptions.model`.
@@ -766,12 +734,10 @@ When choosing these options for a user:
 
 ## Actor Prompt Controls
 
-Use top-level `promptLevel` for root actor guidance, `recursionOptions.promptLevel` for recursive child guidance, `actorOptions` for actor-only forward options, and `responderOptions` for responder-only tuning.
+Use `actorOptions` for actor-only forward options and `responderOptions` for responder-only tuning.
 
 Key fields:
 
-- `promptLevel`: choose `'basic'` or `'detailed'` guidance for the root actor template
-- `recursionOptions.promptLevel`: choose `'basic'` or `'detailed'` guidance for recursive child agents
 - `actorOptions.description`: append extra actor-specific instructions without changing the responder prompt
 - `actorOptions.model` / `responderOptions.model`: split model choice across actor and responder when needed
 - `actorModelPolicy`: auto-switch only the actor when the rendered actor prompt is large, the run is on a consecutive error streak, or discovery fetches land in specific namespaces
@@ -783,7 +749,6 @@ const researchAgent = agent('query:string -> answer:string', {
   contextFields: ['query'],
   runtime,
   contextPolicy: { preset: 'adaptive' },
-  promptLevel: 'detailed',
   actorOptions: {
     model: 'gpt-5.4',
   },
@@ -1037,6 +1002,7 @@ agentIdentity?: {
   };
 
   runtime?: AxCodeRuntime;
+  promptLevel?: 'default' | 'detailed';
   maxSubAgentCalls?: number;
   maxRuntimeChars?: number;
   maxBatchedLlmQueryConcurrency?: number;
@@ -1054,7 +1020,6 @@ agentIdentity?: {
   }) => void | Promise<void>;
   inputUpdateCallback?: (currentInputs: Record<string, unknown>) => Promise<Record<string, unknown> | undefined> | Record<string, unknown> | undefined;
   mode?: 'simple' | 'advanced';
-  promptLevel?: 'detailed' | 'basic';
   actorModelPolicy?: readonly [
     | {
         model: string;
@@ -1097,7 +1062,6 @@ agentIdentity?: {
   ];
   recursionOptions?: Partial<Omit<AxProgramForwardOptions, 'functions'>> & {
     maxDepth?: number;
-    promptLevel?: 'detailed' | 'basic';
   };
   actorOptions?: Partial<AxProgramForwardOptions & { description?: string }>;
   responderOptions?: Partial<AxProgramForwardOptions & { description?: string }>;
@@ -1106,12 +1070,10 @@ agentIdentity?: {
 ```
 
 - `actorTurnCallback` fires for the root agent and for recursive child agents that run actor turns.
-- `promptLevel` controls the root actor prompt.
 - `actorModelPolicy` applies to the actor loop and can be inherited by recursive child agents unless you override it there.
 - `abovePromptChars` is measured from the full rendered actor prompt, not just replayed action log text.
 - `namespaces` matches exact discovery namespaces from successful `getFunctionDefinitions(...)` lookups and starts affecting model choice on the next actor turn.
 - Consecutive error turns reset after a successful non-error turn and when checkpoint summarization refreshes to a new fingerprint.
-- `recursionOptions.promptLevel` controls recursive child prompt guidance and falls back to the top-level `promptLevel`.
 - `maxSubAgentCalls` is a shared delegated-call budget across the entire run.
 
 ## Examples
@@ -1140,4 +1102,3 @@ Fetch these for full working code:
 - Do not write a full multi-step RLM actor program in one turn.
 - Do not combine `console.log(...)` with `final(...)`.
 - Do not forget `fields.shared` when child agents depend on parent inputs.
-- Do not put `promptLevel` under `actorOptions`; use top-level `promptLevel` for the root actor and `recursionOptions.promptLevel` for recursive child agents.

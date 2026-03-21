@@ -3,7 +3,6 @@ import type { AxChatRequest, AxContextCacheOptions } from '../ai/types.js';
 import { renderPromptTemplate } from '../prompts/templateEngine.js';
 import { formatDateWithTimezone } from './datetime.js';
 import type { AxInputFunctionType } from './functions.js';
-import { axGlobals } from './globals.js';
 import type { AxField, AxFieldType, AxIField, AxSignature } from './sig.js';
 import type { AxFieldValue, AxMessage } from './types.js';
 import { validateValue } from './util.js';
@@ -50,17 +49,8 @@ type DemoMessagePair = {
   };
 };
 
-const functionCallInstructions = renderPromptTemplate(
-  'dsp/function-call-instructions.md'
-);
-
-const formattingRules = renderPromptTemplate(
-  'dsp/strict-output-formatting-rules.md'
-);
-
-const exampleDisclaimer = renderPromptTemplate('dsp/example-disclaimer.md');
-
 const exampleSeparator = renderPromptTemplate('dsp/example-separator.md');
+const exampleDisclaimer = '## Example Demonstrations';
 
 export type AxFieldTemplateFn = (
   field: Readonly<AxField>,
@@ -74,9 +64,7 @@ export class AxPromptTemplate {
   private customInstruction?: string;
 
   private rebuildTask(): void {
-    this.task = axGlobals.useStructuredPrompt
-      ? this.buildStructuredPrompt()
-      : this.buildLegacyPrompt();
+    this.task = this.buildStructuredPrompt();
   }
 
   public setInstruction(instruction: string): void {
@@ -145,130 +133,45 @@ export class AxPromptTemplate {
     });
   };
 
-  /**
-   * Build legacy prompt format (backward compatible)
-   */
-  private buildLegacyPrompt(): { type: 'text'; text: string } {
-    const task = [];
-    const hasComplexFields = this.sig.hasComplexFields();
-
-    const inArgs = renderDescFields(this.sig.getInputFields());
-    const outArgs = renderDescFields(this.sig.getOutputFields());
-    task.push(
-      `You will be provided with the following fields: ${inArgs}. Your task is to generate new fields: ${outArgs}.`
-    );
-
-    // biome-ignore lint/complexity/useFlatMap: you cannot use flatMap here
-    const funcs = this.functions
-      ?.map((f) => ('toFunction' in f ? f.toFunction() : f))
-      ?.flat();
-
-    const funcList = funcs
-      ?.map((fn) => `- \`${fn.name}\`: ${formatDescription(fn.description)}`)
-      .join('\n');
-
-    if (funcList && funcList.length > 0) {
-      task.push(`## Available Functions\n${funcList}`);
-    }
-
-    const fieldMap = this.getFieldNameToTitleMap();
-    const inputFields = renderInputFields(this.sig.getInputFields(), fieldMap);
-    task.push(`## Input Fields\n${inputFields}`);
-
-    // Output fields section - skip for complex fields with native structured output
-    // since the JSON schema is already sent via responseFormat and handled by the provider's system.
-    // When using function-call fallback, skip as well since the function parameters describe the schema.
-    if (!hasComplexFields) {
-      const outputFields = renderOutputFields(
-        this.sig.getOutputFields(),
-        fieldMap
-      );
-      task.push(`## Output Fields\n${outputFields}`);
-    }
-
-    if (funcList && funcList.length > 0) {
-      task.push(functionCallInstructions.trim());
-    }
-
-    if (hasComplexFields && this.structuredOutputFunctionName) {
-      task.push(
-        renderPromptTemplate(
-          'dsp/legacy-formatting-rules-structured-function.md',
-          {
-            structuredOutputFunctionName: this.structuredOutputFunctionName,
-          }
-        ).trim()
-      );
-    } else if (!hasComplexFields) {
-      task.push(formattingRules.trim());
-    }
-
-    const desc = this.sig.getDescription();
-    if (desc) {
-      let text = formatDescription(desc);
-      text = formatFieldReferences(text, fieldMap);
-      task.push(text);
-    }
-
-    return {
-      type: 'text' as const,
-      text: task.join('\n\n'),
-    };
-  }
+  private getFunctions = (): readonly {
+    name: string;
+    description?: string;
+  }[] =>
+    this.functions?.flatMap((f) => ('toFunction' in f ? f.toFunction() : f)) ??
+    [];
 
   /**
    * Build XML-structured prompt with format protection
    */
-  private buildStructuredPrompt(): { type: 'text'; text: string } {
-    const sections: string[] = [];
+  private buildStructuredPrompt(hasExampleDemonstrations = false): {
+    type: 'text';
+    text: string;
+  } {
     const hasComplexFields = this.sig.hasComplexFields();
-
-    // Identity section (stable role: input/output summary only)
-    sections.push('<identity>');
-    sections.push(this.buildIdentitySection());
-    sections.push('</identity>');
-
-    // Task definition section (signature description / user-added prompt)
     const taskDefinition = this.buildTaskDefinitionSection();
-    if (taskDefinition) {
-      sections.push('\n<task_definition>');
-      sections.push(taskDefinition);
-      sections.push('</task_definition>');
-    }
-
-    // Functions section (if present)
-    const funcs = this.functions?.flatMap((f) =>
-      'toFunction' in f ? f.toFunction() : f
-    );
-
-    if (funcs && funcs.length > 0) {
-      sections.push('\n<available_functions>');
-      sections.push(this.buildFunctionsSection(funcs));
-      sections.push('</available_functions>');
-    }
-
-    // Input fields section
-    sections.push('\n<input_fields>');
-    sections.push(this.buildInputFieldsSection());
-    sections.push('</input_fields>');
-
-    // Output fields section - skip for complex fields since the JSON schema
-    // is already sent via responseFormat and handled by the provider's system.
-    // Also skip when using function-call fallback since the function parameters describe the schema.
-    if (!hasComplexFields) {
-      sections.push('\n<output_fields>');
-      sections.push(this.buildOutputFieldsSection());
-      sections.push('</output_fields>');
-    }
-
-    // Formatting rules section (protected)
-    sections.push('\n<formatting_rules>');
-    sections.push(this.buildFormattingRulesSection());
-    sections.push('</formatting_rules>');
+    const funcs = this.getFunctions();
+    const hasFunctions = funcs.length > 0;
 
     return {
       type: 'text' as const,
-      text: sections.join('\n'),
+      text: renderPromptTemplate('dsp/dspy.md', {
+        hasFunctions,
+        hasTaskDefinition: Boolean(taskDefinition),
+        hasExampleDemonstrations,
+        hasOutputFields: !hasComplexFields,
+        hasComplexFields,
+        hasStructuredOutputFunction: Boolean(
+          hasComplexFields && this.structuredOutputFunctionName
+        ),
+        identityText: this.buildIdentitySection(),
+        taskDefinitionText: taskDefinition,
+        functionsList: hasFunctions ? this.buildFunctionsSection(funcs) : '',
+        inputFieldsSection: this.buildInputFieldsSection(),
+        outputFieldsSection: !hasComplexFields
+          ? this.buildOutputFieldsSection()
+          : '',
+        structuredOutputFunctionName: this.structuredOutputFunctionName ?? '',
+      }).trim(),
     };
   }
 
@@ -282,7 +185,7 @@ export class AxPromptTemplate {
   }
 
   /**
-   * Build task definition section: signature description / user-added prompt.
+   * Build task definition section from the signature description.
    * Returns empty string if no description is set.
    */
   private buildTaskDefinitionSection(): string {
@@ -300,22 +203,11 @@ export class AxPromptTemplate {
   private buildFunctionsSection(
     funcs: readonly { name: string; description?: string }[]
   ): string {
-    const parts: string[] = [];
-
-    parts.push(
-      '**Available Functions**: You can call the following functions to complete the task:\n'
-    );
-
-    const funcList = funcs
+    return funcs
       .map(
         (fn) => `- \`${fn.name}\`: ${formatDescription(fn.description ?? '')}`
       )
       .join('\n');
-
-    parts.push(funcList);
-    parts.push(`\n${functionCallInstructions.trim()}`);
-
-    return parts.join('\n');
   }
 
   /**
@@ -337,30 +229,6 @@ export class AxPromptTemplate {
       fieldMap
     );
     return `**Output Fields**: You must generate the following fields:\n\n${outputFields}`;
-  }
-
-  /**
-   * Build formatting rules section with protection
-   */
-  private buildFormattingRulesSection(): string {
-    const hasComplexFields = this.sig.hasComplexFields();
-
-    if (hasComplexFields && this.structuredOutputFunctionName) {
-      return renderPromptTemplate(
-        'dsp/formatting-rules-structured-function.md',
-        {
-          structuredOutputFunctionName: this.structuredOutputFunctionName,
-        }
-      ).trim();
-    }
-
-    if (hasComplexFields) {
-      return renderPromptTemplate(
-        'dsp/formatting-rules-structured-json.md'
-      ).trim();
-    }
-
-    return renderPromptTemplate('dsp/formatting-rules-plain-text.md').trim();
   }
 
   private renderSingleValueUserContent = <T = any>(
@@ -539,9 +407,11 @@ export class AxPromptTemplate {
 
     // System prompt contains only instructions (no examples)
     // Add disclaimer if examples/demos will follow
-    const systemContent = hasExamplesOrDemos
-      ? `${this.task.text}\n${exampleDisclaimer}`
-      : this.task.text;
+    const systemContent = this.customInstruction
+      ? hasExamplesOrDemos
+        ? `${this.task.text}\n${exampleDisclaimer}`
+        : this.task.text
+      : this.buildStructuredPrompt(hasExamplesOrDemos).text;
 
     const systemPrompt = {
       role: 'system' as const,

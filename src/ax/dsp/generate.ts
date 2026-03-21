@@ -44,8 +44,8 @@ import {
   handleValidationErrorForGenerate,
   ValidationError,
 } from './errors.js';
-import { validateStructuredOutputValues } from './extract.js';
 import type { extractionState } from './extract.js';
+import { validateStructuredOutputValues } from './extract.js';
 import {
   type AxFieldProcessor,
   processFieldProcessors,
@@ -77,14 +77,13 @@ import {
   processStreamingResponse,
   shouldContinueSteps,
 } from './processResponse.js';
-import { createSelfTuningFunction } from './selfTuning.js';
-import type { AxSelfTuningConfig } from './types.js';
 import { AxProgram } from './program.js';
 import { AxPromptTemplate } from './prompt.js';
 import { selectFromSamples, selectFromSamplesInMemory } from './samples.js';
+import { createSelfTuningFunction } from './selfTuning.js';
 import { type AxIField, AxSignature, type AxSignatureConfig } from './sig.js';
-import { AxStepContextImpl } from './stepContext.js';
 import { SignatureToolCallingManager } from './signatureToolCalling.js';
+import { AxStepContextImpl } from './stepContext.js';
 import type {
   AsyncGenDeltaOut,
   AxGenDeltaOut,
@@ -97,6 +96,7 @@ import type {
   AxProgrammable,
   AxProgramStreamingForwardOptionsWithModels,
   AxResultPickerFunction,
+  AxSelfTuningConfig,
   AxSetExamplesOptions,
 } from './types.js';
 import { mergeDeltas } from './util.js';
@@ -123,6 +123,10 @@ export interface AxResponseHandlerArgs<T> {
   strictMode?: boolean;
   span?: Span;
   logger: AxLoggerFunction;
+  debugPromptMetrics?: Readonly<{
+    systemPromptCharacters: number;
+    chatContextCharacters: number;
+  }>;
 }
 
 export interface AxStreamingEvent<T> {
@@ -514,6 +518,16 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     const debug = this.isDebug(ai, options);
     const firstStep = stepIndex === 0;
     const logger = this.getLogger(ai, options);
+    const debugPromptMetrics = debug
+      ? {
+          systemPromptCharacters: countChatPromptContentChars(
+            chatPrompt.filter((msg) => msg.role === 'system')
+          ),
+          chatContextCharacters: countChatPromptContentChars(
+            chatPrompt.filter((msg) => msg.role !== 'system')
+          ),
+        }
+      : undefined;
 
     // Do not send native functions to the provider when emulating via prompt mode
     functions = this.signatureToolCallingManager ? [] : functions;
@@ -603,7 +617,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       }
     );
 
-    return res;
+    return { res, debugPromptMetrics };
   }
 
   private async *forwardCore({
@@ -668,7 +682,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       }
     }
 
-    const res = await this.forwardSendRequest({
+    const { res, debugPromptMetrics } = await this.forwardSendRequest({
       ai,
       mem,
       options,
@@ -699,6 +713,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         excludeContentFromTrace: this.excludeContentFromTrace,
         signature: this.signature,
         logger,
+        debugPromptMetrics,
         debug,
         functionResultFormatter,
         signatureToolCallingManager,
@@ -726,6 +741,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         excludeContentFromTrace: this.excludeContentFromTrace,
         signature: this.signature,
         logger,
+        debugPromptMetrics,
         debug,
         functionResultFormatter,
         signatureToolCallingManager,

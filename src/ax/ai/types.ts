@@ -292,6 +292,11 @@ export type AxModelUsage = {
   citations?: AxCitation[];
 };
 
+export type AxDebugChatResponseUsage = AxModelUsage & {
+  systemPromptCharacters?: number;
+  chatContextCharacters?: number;
+};
+
 export type AxChatResponse = {
   sessionId?: string;
   remoteId?: string;
@@ -578,7 +583,7 @@ export type AxLoggerData =
     }
   | {
       name: 'ChatResponseUsage';
-      value: AxModelUsage;
+      value: AxDebugChatResponseUsage;
     }
   | {
       name: 'ChatResponseCitations';

@@ -878,10 +878,6 @@ describe('AxPromptTemplate.render', () => {
 
       const systemMessage = result[0] as { role: 'system'; content: string };
       expect(systemMessage.content).toContain('## Example Demonstrations');
-      expect(systemMessage.content).toContain('few-shot examples');
-      expect(systemMessage.content).toContain(
-        'The actual task begins with the final User message.'
-      );
     });
 
     it('should add separator before final user message when examples exist', () => {
