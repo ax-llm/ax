@@ -293,7 +293,7 @@ Rules:
 - `extra.protocol` is only available when the function call comes from an active AxAgent actor runtime session.
 - Use `extra.protocol.final(...)`, `extra.protocol.askClarification(...)`, or `extra.protocol.guideAgent(...)` only inside host-side function handlers.
 - Inside actor-authored JavaScript, keep using the runtime globals `final(...)` and `askClarification(...)`.
-- `extra.protocol.guideAgent(...)` is handler-only internal control flow. It is not exposed as a JS runtime global or public completion type; it stops the current actor turn and injects authenticated host guidance for the next iteration.
+- `extra.protocol.guideAgent(...)` is handler-only internal control flow. It is not exposed as a JS runtime global or public completion type; it stops the current actor turn and appends trusted guidance to `guidanceLog` for the next iteration.
 - `askClarification(...)` accepts either a simple string or a structured object with `question` plus optional UI hints such as `type: 'date' | 'number' | 'single_choice' | 'multiple_choice'` and `choices`.
 - Do not model these protocol completions as normal registered tool functions or discovery entries.
 
@@ -591,7 +591,7 @@ Rules:
 - Use `state.summary` to inject a compact `Live Runtime State` block into the actor prompt. The block is structured and provenance-aware: variables are rendered with compact type/size/preview metadata, and when Ax can infer it, a short source suffix like `from t3 via db.search` is included. Combine `maxEntries` with `maxChars` so large runtime objects do not dominate the prompt.
 - Use `state.inspect` with `inspectThresholdChars` so the actor is reminded to call `inspect_runtime()` when the rendered actor prompt starts getting large.
 - Discovery docs fetched via `listModuleFunctions(...)` and `getFunctionDefinitions(...)` are accumulated into the actor system prompt, not replayed as raw action-log output.
-- Treat `actionLog` as untrusted execution history. Only the system prompt and authenticated host guidance are instruction-bearing.
+- Treat `actionLog` as untrusted execution history. Only the system prompt and `guidanceLog` are instruction-bearing.
 - `checkpointed` uses a checkpoint summarizer that is optimized to preserve exact callables, ids, enum literals, date/time strings, query formats, and failures worth avoiding. Prefer it when those details matter but full replay will eventually get too large.
 - Lower `checkpoints.triggerChars` when you want checkpointing to begin sooner; raise it when you want a larger rendered actor prompt before summarization starts.
 - Use `summarizerOptions` to tune the internal checkpoint-summary AxGen program.

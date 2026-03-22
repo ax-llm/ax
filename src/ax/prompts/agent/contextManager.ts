@@ -989,15 +989,15 @@ function renderActionReplayEntry(
   }
 
   if (entry.tombstone) {
-    return `Action ${entry.turn}:\n${entry.tombstone}`;
+    return entry.tombstone;
   }
 
   switch (entry.replayMode) {
     case 'omit':
       ensureEntryMetadata(entry as ActionLogEntry);
-      return `Action ${entry.turn}:\n${entry.summary ?? buildEntrySummary(entry)}`;
+      return entry.summary ?? buildEntrySummary(entry);
     default:
-      return `Action ${entry.turn}:\n\`\`\`javascript\n${entry.code}\n\`\`\`\nResult:\n${entry.output}${entry.actorFieldsOutput}`;
+      return `\`\`\`javascript\n${entry.code}\n\`\`\`\nResult:\n${entry.output}${entry.actorFieldsOutput}`;
   }
 }
 

@@ -1,4 +1,4 @@
-import { AxSignature } from '../../dsp/sig.js';
+import { type AxSignature, f } from '../../dsp/sig.js';
 import type { AxFieldValue, AxProgramForwardOptions } from '../../dsp/types.js';
 import type {
   AxAgentEvalDataset,
@@ -17,62 +17,197 @@ import { AX_AGENT_RECURSIVE_TARGET_IDS } from './agentRecursiveOptimize.js';
 
 export const DEFAULT_AGENT_OPTIMIZE_MAX_METRIC_CALLS = 100;
 
-export const _AX_AGENT_OPTIMIZE_JUDGE_SIGNATURE = new AxSignature<
+export const _AX_AGENT_OPTIMIZE_JUDGE_SIGNATURE: AxSignature<
   AxAgentJudgeInput,
   AxAgentJudgeOutput
->(`
-    taskInput:json "The structured task input passed to the agent",
-    criteria:string "Task-specific success criteria",
-    expectedOutput?:json "Optional expected final output",
-    expectedActions?:string[] "Optional function names that should appear in the run",
-    forbiddenActions?:string[] "Optional function names that should not appear in the run",
-    metadata?:json "Optional task metadata"
-    ->
-    completionType:string "How the agent completed the run",
-    clarification?:json "Structured clarification payload when the agent asked for more information",
-    finalOutput?:json "The final structured output returned by the agent when it completed normally",
-    actionLog:string "Chronological action log produced by the actor loop",
-    functionCalls?:json "Ordered function call records with names, arguments, results, and errors",
-    toolErrors?:string[] "Function-call errors observed during the run",
-    turnCount:number "Number of actor turns executed",
-    usage?:json "Optional usage summary for the run",
-    recursiveTrace?:json "Optional structured recursive trace projection for advanced recursive llmQuery runs",
-    recursiveStats?:json "Optional deterministic recursive trace statistics for advanced recursive llmQuery runs"
-  `);
+> = f()
+  .input('taskInput', f.json('The structured task input passed to the agent'))
+  .input('criteria', f.string('Task-specific success criteria'))
+  .input('expectedOutput', f.json('Optional expected final output').optional())
+  .input(
+    'expectedActions',
+    f
+      .string('Optional function names that should appear in the run')
+      .array()
+      .optional()
+  )
+  .input(
+    'forbiddenActions',
+    f
+      .string('Optional function names that should not appear in the run')
+      .array()
+      .optional()
+  )
+  .input('metadata', f.json('Optional task metadata').optional())
+  .output('completionType', f.string('How the agent completed the run'))
+  .output(
+    'clarification',
+    f
+      .json(
+        'Structured clarification payload when the agent asked for more information'
+      )
+      .optional()
+  )
+  .output(
+    'finalOutput',
+    f
+      .json(
+        'The final structured output returned by the agent when it completed normally'
+      )
+      .optional()
+  )
+  .output(
+    'guidanceLog',
+    f
+      .string(
+        'Chronological guidance log shown to the actor loop when runtime guidance was issued'
+      )
+      .optional()
+  )
+  .output(
+    'actionLog',
+    f.string('Chronological action log produced by the actor loop')
+  )
+  .output(
+    'functionCalls',
+    f
+      .json(
+        'Ordered function call records with names, arguments, results, and errors'
+      )
+      .optional()
+  )
+  .output(
+    'toolErrors',
+    f.string('Function-call errors observed during the run').array().optional()
+  )
+  .output('turnCount', f.number('Number of actor turns executed'))
+  .output('usage', f.json('Optional usage summary for the run').optional())
+  .output(
+    'recursiveTrace',
+    f
+      .json(
+        'Optional structured recursive trace projection for advanced recursive llmQuery runs'
+      )
+      .optional()
+  )
+  .output(
+    'recursiveStats',
+    f
+      .json(
+        'Optional deterministic recursive trace statistics for advanced recursive llmQuery runs'
+      )
+      .optional()
+  )
+  .build();
 
-export const AX_AGENT_OPTIMIZE_JUDGE_EVAL_SIGNATURE = new AxSignature<
+export const AX_AGENT_OPTIMIZE_JUDGE_EVAL_SIGNATURE: AxSignature<
   AxAgentJudgeEvalInput,
   AxAgentJudgeEvalOutput
->(`
-    taskInput:json "The structured task input passed to the agent",
-    criteria:string "Task-specific success criteria",
-    expectedOutput?:json "Optional expected final output",
-    expectedActions?:string[] "Optional function names that should appear in the run",
-    forbiddenActions?:string[] "Optional function names that should not appear in the run",
-    metadata?:json "Optional task metadata",
-    completionType:string "How the agent completed the run",
-    clarification?:json "Structured clarification payload when the agent asked for more information",
-    finalOutput?:json "The final structured output returned by the agent when it completed normally",
-    actionLog:string "Chronological action log produced by the actor loop",
-    functionCalls?:json "Ordered function call records with names, arguments, results, and errors",
-    toolErrors?:string[] "Function-call errors observed during the run",
-    turnCount:number "Number of actor turns executed",
-    usage?:json "Optional usage summary for the run",
-    recursiveTrace?:json "Optional structured recursive trace projection for advanced recursive llmQuery runs",
-    recursiveStats?:json "Optional deterministic recursive trace statistics for advanced recursive llmQuery runs"
-    ->
-    reasoning:string "Short explanation of the run quality",
-    quality:class "excellent, good, acceptable, poor, unacceptable" "Overall run quality tier"
-  `);
+> = f()
+  .input('taskInput', f.json('The structured task input passed to the agent'))
+  .input('criteria', f.string('Task-specific success criteria'))
+  .input('expectedOutput', f.json('Optional expected final output').optional())
+  .input(
+    'expectedActions',
+    f
+      .string('Optional function names that should appear in the run')
+      .array()
+      .optional()
+  )
+  .input(
+    'forbiddenActions',
+    f
+      .string('Optional function names that should not appear in the run')
+      .array()
+      .optional()
+  )
+  .input('metadata', f.json('Optional task metadata').optional())
+  .input('completionType', f.string('How the agent completed the run'))
+  .input(
+    'clarification',
+    f
+      .json(
+        'Structured clarification payload when the agent asked for more information'
+      )
+      .optional()
+  )
+  .input(
+    'finalOutput',
+    f
+      .json(
+        'The final structured output returned by the agent when it completed normally'
+      )
+      .optional()
+  )
+  .input(
+    'guidanceLog',
+    f
+      .string(
+        'Chronological guidance log shown to the actor loop when runtime guidance was issued'
+      )
+      .optional()
+  )
+  .input(
+    'actionLog',
+    f.string('Chronological action log produced by the actor loop')
+  )
+  .input(
+    'functionCalls',
+    f
+      .json(
+        'Ordered function call records with names, arguments, results, and errors'
+      )
+      .optional()
+  )
+  .input(
+    'toolErrors',
+    f.string('Function-call errors observed during the run').array().optional()
+  )
+  .input('turnCount', f.number('Number of actor turns executed'))
+  .input('usage', f.json('Optional usage summary for the run').optional())
+  .input(
+    'recursiveTrace',
+    f
+      .json(
+        'Optional structured recursive trace projection for advanced recursive llmQuery runs'
+      )
+      .optional()
+  )
+  .input(
+    'recursiveStats',
+    f
+      .json(
+        'Optional deterministic recursive trace statistics for advanced recursive llmQuery runs'
+      )
+      .optional()
+  )
+  .output('reasoning', f.string('Short explanation of the run quality'))
+  .output(
+    'quality',
+    f.class(
+      ['excellent', 'good', 'acceptable', 'poor', 'unacceptable'] as const,
+      'Overall run quality tier'
+    )
+  )
+  .build();
 
-export const AX_AGENT_OPTIMIZE_PROGRAM_SIGNATURE = new AxSignature<
+export const AX_AGENT_OPTIMIZE_PROGRAM_SIGNATURE: AxSignature<
   Record<'taskRecord', AxFieldValue>,
   Record<'agentRunReport', AxFieldValue>
->(`
-    taskRecord:json "Full optimization task record, including the agent input and evaluation criteria"
-    ->
-    agentRunReport:json "Agent run report containing completion type, clarification or final output, action log, function calls, errors, and turn count"
-  `);
+> = f()
+  .input(
+    'taskRecord',
+    f.json(
+      'Full optimization task record, including the agent input and evaluation criteria'
+    )
+  )
+  .output(
+    'agentRunReport',
+    f.json(
+      'Agent run report containing completion type, clarification or final output, guidance log, action log, function calls, errors, and turn count'
+    )
+  )
+  .build();
 
 export function normalizeAgentEvalDataset<IN>(
   dataset: Readonly<AxAgentEvalDataset<IN>>

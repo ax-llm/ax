@@ -652,7 +652,6 @@ describe('buildActionLog', () => {
   it('should render normal entries with code blocks', () => {
     const entries = [makeSuccessEntry(1, 'var x = 1', 'ok')];
     const log = buildActionLog(entries);
-    expect(log).toContain('Action 1:');
     expect(log).toContain('```javascript');
     expect(log).toContain('var x = 1');
     expect(log).toContain('Result:\nok');
@@ -663,7 +662,6 @@ describe('buildActionLog', () => {
       { ...makeErrorEntry(1), tombstone: '[TOMBSTONE]: Fixed it.' },
     ];
     const log = buildActionLog(entries);
-    expect(log).toContain('Action 1:');
     expect(log).toContain('[TOMBSTONE]: Fixed it.');
     expect(log).not.toContain('```javascript');
   });
@@ -832,7 +830,6 @@ describe('buildActionLog', () => {
       stateSummary: '(no user variables)',
     });
 
-    expect(log).toContain('Action 1:');
     expect(log).toContain('[SUMMARY]: Explore step.');
     expect(log).toContain('Result: [{"id":1},{"id":2}]');
     expect(log).not.toContain('```javascript');
@@ -849,7 +846,6 @@ describe('buildActionLog', () => {
     });
 
     expect(log).toContain('[TOMBSTONE]: Fixed it.');
-    expect(log).toContain('Action 2:');
     expect(log).toContain('[SUMMARY]: Explore step.');
     expect(log).toContain('north up 12%');
     expect(log).not.toContain('```javascript');

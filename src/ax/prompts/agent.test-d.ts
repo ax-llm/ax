@@ -3,6 +3,7 @@ import {
   type AxAgentEvalPrediction,
   type AxAgentFunction,
   type AxAgentFunctionGroup,
+  type AxAgentJudgeOutput,
   type AxAgentState,
   type AxAgentTestResult,
   type AxCodeRuntime,
@@ -232,6 +233,32 @@ import {
   } else {
     const _question: string = prediction.clarification.question;
   }
+}
+
+// Agent eval/judge fixtures may omit guidanceLog for compatibility
+{
+  const finalPrediction: AxAgentEvalPrediction<{ answer: string }> = {
+    completionType: 'final',
+    output: { answer: 'ok' },
+    actionLog: 'ran actions',
+    functionCalls: [],
+    toolErrors: [],
+    turnCount: 1,
+  };
+
+  const judgeOutput: AxAgentJudgeOutput = {
+    completionType: 'final',
+    finalOutput: { answer: 'ok' },
+    actionLog: 'ran actions',
+    functionCalls: [],
+    toolErrors: [],
+    turnCount: 1,
+    usage: [],
+  };
+
+  const _okPrediction: AxAgentEvalPrediction<{ answer: string }> =
+    finalPrediction;
+  const _okJudgeOutput: AxAgentJudgeOutput = judgeOutput;
 }
 
 // Agent with object context field config

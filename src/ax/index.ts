@@ -771,6 +771,7 @@ import {
   type AxAgentFunctionExample,
   type AxAgentFunctionGroup,
   type AxAgentFunctionModuleMeta,
+  type AxAgentGuidanceLogEntry,
   type AxAgentIdentity,
   type AxAgentInputUpdateCallback,
   type AxAgentic,
@@ -1302,6 +1303,7 @@ export type { AxAgentFunctionCollection };
 export type { AxAgentFunctionExample };
 export type { AxAgentFunctionGroup };
 export type { AxAgentFunctionModuleMeta };
+export type { AxAgentGuidanceLogEntry };
 export type { AxAgentGuidancePayload };
 export type { AxAgentIdentity };
 export type { AxAgentInputUpdateCallback };
