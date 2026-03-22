@@ -80,6 +80,7 @@ type ContextCacheEntry = {
  */
 type ContextCacheKey = {
   providerName: string;
+  model: string;
   contentHash: string;
 };
 
@@ -94,7 +95,62 @@ const contextCacheRegistry = new Map<string, ContextCacheEntry>();
  * Build a composite key string for the cache registry.
  */
 function buildCacheKey(key: ContextCacheKey): string {
-  return `${key.providerName}:${key.contentHash}`;
+  return `${key.providerName}:${key.model}:${key.contentHash}`;
+}
+
+function normalizeForStableStringify(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => normalizeForStableStringify(item));
+  }
+
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, nestedValue]) => [
+          key,
+          normalizeForStableStringify(nestedValue),
+        ])
+    );
+  }
+
+  return value;
+}
+
+function stableStringify(value: unknown): string {
+  return JSON.stringify(normalizeForStableStringify(value));
+}
+
+function stringifyFunctionParams(params: unknown): string {
+  if (typeof params === 'string') {
+    return params;
+  }
+
+  return stableStringify(params);
+}
+
+function hasCacheableToolState<TModel>(
+  req: Readonly<AxInternalChatRequest<TModel>>
+): boolean {
+  return req.functions?.some((fn) => fn.cache) ?? false;
+}
+
+function getCacheableToolState<TModel>(
+  req: Readonly<AxInternalChatRequest<TModel>>
+):
+  | {
+      functions?: AxChatRequest['functions'];
+      functionCall?: AxChatRequest['functionCall'];
+    }
+  | undefined {
+  if (!hasCacheableToolState(req)) {
+    return undefined;
+  }
+
+  return {
+    functions: req.functions?.map(({ cache: _cache, ...fn }) => fn),
+    functionCall: req.functionCall,
+  };
 }
 
 /**
@@ -131,10 +187,15 @@ function hashContentPart(
  * Uses breakpoint semantics: includes all content from the start up to and
  * including the last message with cache: true. System prompts are always included.
  */
-function computeCacheableContentHash(
-  chatPrompt: AxChatRequest['chatPrompt']
+function computeCacheableContentHash<TModel>(
+  req: Readonly<AxInternalChatRequest<TModel>>,
+  cacheableToolState?: {
+    functions?: AxChatRequest['functions'];
+    functionCall?: AxChatRequest['functionCall'];
+  }
 ): string {
   const hasher = createHash('sha256');
+  const { chatPrompt } = req;
 
   // Find the last message with cache: true (the breakpoint)
   let breakpointIndex = -1;
@@ -166,10 +227,27 @@ function computeCacheableContentHash(
             hashContentPart(hasher, part);
           }
         }
-      } else if (msg.role === 'assistant' && msg.content) {
-        hasher.update(`assistant:${msg.content}`);
+      } else if (msg.role === 'assistant') {
+        if (msg.content) {
+          hasher.update(`assistant:${msg.content}`);
+        }
+        if (msg.functionCalls) {
+          for (const call of msg.functionCalls) {
+            hasher.update(
+              `assistant_function:${call.function.name}:${stringifyFunctionParams(
+                call.function.params
+              )}`
+            );
+          }
+        }
+      } else if (msg.role === 'function') {
+        hasher.update(`function:${msg.functionId}:${msg.result}`);
       }
     }
+  }
+
+  if (cacheableToolState) {
+    hasher.update(`tools:${stableStringify(cacheableToolState)}`);
   }
 
   return hasher.digest('hex');
@@ -289,6 +367,7 @@ export class AxBaseAI<
   private corsProxy?: AxAIServiceOptions['corsProxy'];
   private retry?: AxAIServiceOptions['retry'];
   private customLabels?: Record<string, string>;
+  private contextCache?: AxAIServiceOptions['contextCache'];
 
   private modelInfo: readonly AxModelInfo[];
   private modelUsage?: AxModelUsage;
@@ -427,6 +506,7 @@ export class AxBaseAI<
     this.corsProxy = options.corsProxy;
     this.retry = options.retry;
     this.customLabels = options.customLabels;
+    this.contextCache = options.contextCache;
   }
 
   getOptions(): Readonly<AxAIServiceOptions> {
@@ -444,6 +524,7 @@ export class AxBaseAI<
       corsProxy: this.corsProxy,
       retry: this.retry,
       customLabels: this.customLabels,
+      contextCache: this.contextCache,
     };
   }
 
@@ -1922,7 +2003,8 @@ export class AxBaseAI<
     }
 
     // Compute content hash for cache lookup/validation
-    const contentHash = computeCacheableContentHash(req.chatPrompt);
+    const cacheableToolState = this.getContextCacheToolState(req, cacheOptions);
+    const contentHash = computeCacheableContentHash(req, cacheableToolState);
 
     // Check if there's no cacheable content
     if (!contentHash || contentHash === createHash('sha256').digest('hex')) {
@@ -1931,6 +2013,7 @@ export class AxBaseAI<
 
     const cacheKey: ContextCacheKey = {
       providerName: this.getName(),
+      model: String(model),
       contentHash,
     };
 
@@ -1991,7 +2074,10 @@ export class AxBaseAI<
 
     // Cache miss or expired - create a new cache
     // Check minimum token threshold (heuristic: ~4 chars per token)
-    const estimatedTokens = this.estimateCacheableTokens(req.chatPrompt);
+    const estimatedTokens = this.estimateCacheableTokens(
+      req,
+      cacheableToolState
+    );
     if (estimatedTokens < minTokens) {
       // Below threshold, don't create explicit cache
       return null;
@@ -2067,6 +2153,21 @@ export class AxBaseAI<
     return null;
   }
 
+  private getContextCacheToolState(
+    req: Readonly<AxInternalChatRequest<TModel>>,
+    cacheOptions: Readonly<AxAIServiceOptions['contextCache']>
+  ) {
+    if (!cacheOptions) {
+      return undefined;
+    }
+
+    return (
+      this.aiImpl.getContextCacheToolState?.(req, {
+        contextCache: cacheOptions,
+      }) ?? getCacheableToolState(req)
+    );
+  }
+
   /**
    * Execute a context cache operation (create/update/delete).
    */
@@ -2117,9 +2218,14 @@ export class AxBaseAI<
    * Uses a simple heuristic of ~4 characters per token.
    * Includes: system prompts (always) + messages/parts marked with cache: true.
    */
-  private estimateCacheableTokens(
-    chatPrompt: AxChatRequest['chatPrompt']
+  private estimateCacheableTokens<TModel>(
+    req: Readonly<AxInternalChatRequest<TModel>>,
+    cacheableToolState?: {
+      functions?: AxChatRequest['functions'];
+      functionCall?: AxChatRequest['functionCall'];
+    }
   ): number {
+    const { chatPrompt } = req;
     let charCount = 0;
 
     for (const msg of chatPrompt) {
@@ -2151,10 +2257,25 @@ export class AxBaseAI<
               }
             }
           }
-        } else if (msg.role === 'assistant' && msg.content) {
-          charCount += msg.content.length;
+        } else if (msg.role === 'assistant') {
+          if (msg.content) {
+            charCount += msg.content.length;
+          }
+          if (msg.functionCalls) {
+            for (const call of msg.functionCalls) {
+              charCount += call.function.name.length;
+              charCount += stringifyFunctionParams(call.function.params).length;
+            }
+          }
+        } else if (msg.role === 'function') {
+          charCount += msg.functionId.length;
+          charCount += msg.result.length;
         }
       }
+    }
+
+    if (cacheableToolState) {
+      charCount += stableStringify(cacheableToolState).length;
     }
 
     // Heuristic: ~4 characters per token

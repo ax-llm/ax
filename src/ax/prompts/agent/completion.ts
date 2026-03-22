@@ -27,17 +27,19 @@ export class AxAgentProtocolCompletionSignal extends Error {
 export function createCompletionBindings(
   setCompletionPayload: (payload: AxAgentInternalCompletionPayload) => void
 ): {
-  finalFunction: (...args: unknown[]) => void;
-  askClarificationFunction: (...args: unknown[]) => void;
+  finalFunction: (...args: unknown[]) => never;
+  askClarificationFunction: (...args: unknown[]) => never;
   protocol: AxAgentCompletionProtocol;
   protocolForTrigger: (triggeredBy?: string) => AxAgentCompletionProtocol;
 } {
-  const finalFunction = (...args: unknown[]) => {
+  const finalFunction = (...args: unknown[]): never => {
     setCompletionPayload(normalizeCompletionPayload('final', args));
+    throw new AxAgentProtocolCompletionSignal('final');
   };
 
-  const askClarificationFunction = (...args: unknown[]) => {
+  const askClarificationFunction = (...args: unknown[]): never => {
     setCompletionPayload(normalizeCompletionPayload('askClarification', args));
+    throw new AxAgentProtocolCompletionSignal('askClarification');
   };
 
   const protocolForTrigger = (
@@ -152,6 +154,34 @@ function normalizeClarificationChoice(
   };
 }
 
+function createMultipleChoiceClarificationError(detail?: string): Error {
+  const suffix = detail ? ` ${detail}` : '';
+  return new Error(
+    'askClarification() with type "multiple_choice" must include at least two valid choices. Use a non-empty string question plus choices like ["Option A", "Option B"], or switch to "single_choice" / a plain question if there is only one option.' +
+      suffix
+  );
+}
+
+function stripChoiceMetadata(
+  payload: Record<string, unknown>,
+  options?: Readonly<{ dropType?: boolean }>
+): AxAgentStructuredClarification {
+  const { choices: _choices, ...restWithType } = payload;
+
+  if (options?.dropType) {
+    const { type: _type, ...rest } = restWithType;
+    return {
+      ...rest,
+      question: payload.question as string,
+    };
+  }
+
+  return {
+    ...restWithType,
+    question: payload.question as string,
+  };
+}
+
 function normalizeClarificationPayload(payload: unknown): AxAgentClarification {
   if (isNonEmptyString(payload)) {
     return payload;
@@ -198,25 +228,55 @@ function normalizeClarificationPayload(payload: unknown): AxAgentClarification {
   const wantsChoices =
     normalizedType === 'single_choice' || normalizedType === 'multiple_choice';
   const rawChoices = payload.choices;
+  let normalizedChoices: AxAgentClarificationChoice[] | undefined;
+
   if (rawChoices !== undefined) {
     if (!Array.isArray(rawChoices) || rawChoices.length === 0) {
-      throw new Error(
-        'askClarification() choices must be a non-empty array when provided'
-      );
+      if (normalizedType === 'multiple_choice') {
+        throw createMultipleChoiceClarificationError();
+      }
+
+      return stripChoiceMetadata(payload, {
+        dropType: normalizedType === 'single_choice',
+      });
+    }
+
+    try {
+      normalizedChoices = rawChoices.map(normalizeClarificationChoice);
+    } catch (error) {
+      if (normalizedType === 'multiple_choice') {
+        const detail =
+          error instanceof Error
+            ? `Fix the choices so each option is a non-empty string or an object with a non-empty label. ${error.message}`
+            : undefined;
+        throw createMultipleChoiceClarificationError(detail);
+      }
+
+      return stripChoiceMetadata(payload, {
+        dropType: normalizedType === 'single_choice',
+      });
     }
   } else if (wantsChoices) {
-    throw new Error(
-      'askClarification() choice payloads require a non-empty choices array'
-    );
+    if (normalizedType === 'multiple_choice') {
+      throw createMultipleChoiceClarificationError();
+    }
+
+    return stripChoiceMetadata(payload, { dropType: true });
+  }
+
+  if (normalizedType === 'multiple_choice') {
+    if (!normalizedChoices || normalizedChoices.length < 2) {
+      throw createMultipleChoiceClarificationError();
+    }
   }
 
   return {
     ...payload,
     question: payload.question,
     ...(normalizedType ? { type: normalizedType } : {}),
-    ...(rawChoices
+    ...(normalizedChoices
       ? {
-          choices: rawChoices.map(normalizeClarificationChoice),
+          choices: normalizedChoices,
         }
       : {}),
   };

@@ -1004,6 +1004,24 @@ export interface AxAIServiceImpl<
   ): Promise<AxPreparedChatRequest<TChatRequest>>;
 
   /**
+   * Optional: Return tool/function-call state that becomes part of the
+   * provider's immutable explicit-cache prefix.
+   *
+   * This is used for cache identity and token estimation when a provider
+   * treats tool state as cached prefix state even if the generic request does
+   * not mark functions with `cache: true`.
+   */
+  getContextCacheToolState?(
+    req: Readonly<AxInternalChatRequest<TModel>>,
+    options: Readonly<AxAIServiceOptions>
+  ):
+    | {
+        functions?: AxChatRequest['functions'];
+        functionCall?: AxChatRequest['functionCall'];
+      }
+    | undefined;
+
+  /**
    * Optional: Build a context cache creation operation.
    * Called when a new cache needs to be created from the request.
    */

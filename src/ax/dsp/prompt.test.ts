@@ -1126,7 +1126,188 @@ describe('AxPromptTemplate.render', () => {
     });
   });
 
+  describe('Legacy multimodal cache boundaries', () => {
+    it('renders multimodal legacy examples as a separate cached user message', () => {
+      const signature = new AxSignature(
+        'imageInput:image -> description:string'
+      );
+      const template = new AxPromptTemplate(signature, {
+        examplesInSystem: true,
+        contextCache: { ttlSeconds: 3600 },
+      });
+
+      const examples = [
+        {
+          imageInput: { mimeType: 'image/png', data: 'base64ImageData' },
+          description: 'A beautiful sunset',
+        },
+      ];
+
+      const result = template.render(
+        { imageInput: { mimeType: 'image/png', data: 'testImage' } },
+        { examples }
+      );
+
+      expect(result).toHaveLength(3);
+      expect(result[0]?.role).toBe('system');
+      expect(result[1]?.role).toBe('user');
+      expect(result[2]?.role).toBe('user');
+
+      const exampleMsg = result[1] as {
+        role: 'user';
+        cache?: boolean;
+        content: unknown[];
+      };
+      expect(exampleMsg.cache).toBe(true);
+      expect(Array.isArray(exampleMsg.content)).toBe(true);
+      expect(exampleMsg.content.some((c: any) => c.type === 'image')).toBe(
+        true
+      );
+      expect(
+        exampleMsg.content.some(
+          (c: any) =>
+            c.type === 'text' &&
+            String(c.text).includes('Description: A beautiful sunset')
+        )
+      ).toBe(true);
+
+      const liveInputMsg = result[2] as {
+        role: 'user';
+        cache?: boolean;
+        content: unknown[];
+      };
+      expect(liveInputMsg.cache).toBeUndefined();
+      expect(Array.isArray(liveInputMsg.content)).toBe(true);
+      expect(liveInputMsg.content.some((c: any) => c.type === 'image')).toBe(
+        true
+      );
+    });
+
+    it('keeps the first real history turn separate from the cached example message', () => {
+      const signature = new AxSignature(
+        'imageInput:image -> description:string'
+      );
+      const template = new AxPromptTemplate(signature, {
+        examplesInSystem: true,
+        contextCache: { ttlSeconds: 3600 },
+      });
+
+      const examples = [
+        {
+          imageInput: { mimeType: 'image/png', data: 'base64ImageData' },
+          description: 'A beautiful sunset',
+        },
+      ];
+      const history: ReadonlyArray<
+        AxMessage<{ imageInput: { mimeType: string; data: string } }>
+      > = [
+        {
+          role: 'user',
+          values: {
+            imageInput: { mimeType: 'image/png', data: 'historyImage' },
+          },
+        },
+      ];
+
+      const result = template.render(history, { examples });
+
+      expect(result).toHaveLength(3);
+      expect(result[0]?.role).toBe('system');
+      expect(result[1]?.role).toBe('user');
+      expect(result[2]?.role).toBe('user');
+
+      const exampleMsg = result[1] as {
+        role: 'user';
+        cache?: boolean;
+        content: unknown[];
+      };
+      expect(exampleMsg.cache).toBe(true);
+
+      const historyMsg = result[2] as {
+        role: 'user';
+        cache?: boolean;
+        content: unknown[];
+      };
+      expect(historyMsg.cache).toBeUndefined();
+      expect(Array.isArray(historyMsg.content)).toBe(true);
+      expect(historyMsg.content.some((c: any) => c.type === 'image')).toBe(
+        true
+      );
+    });
+
+    it('still splits the boundary at the message level when examples are not cached', () => {
+      const signature = new AxSignature(
+        'imageInput:image -> description:string'
+      );
+      const template = new AxPromptTemplate(signature, {
+        examplesInSystem: true,
+        contextCache: { ttlSeconds: 3600, cacheBreakpoint: 'system' },
+      });
+
+      const examples = [
+        {
+          imageInput: { mimeType: 'image/png', data: 'base64ImageData' },
+          description: 'A beautiful sunset',
+        },
+      ];
+
+      const result = template.render(
+        { imageInput: { mimeType: 'image/png', data: 'testImage' } },
+        { examples }
+      );
+
+      expect(result).toHaveLength(3);
+      expect(result[1]?.role).toBe('user');
+      expect(result[2]?.role).toBe('user');
+      expect((result[1] as { cache?: boolean }).cache).toBeUndefined();
+      expect((result[2] as { cache?: boolean }).cache).toBeUndefined();
+    });
+  });
+
   describe('Context caching breakpoint options', () => {
+    it('should set cache:true on the trailing function result for structured-output examples', () => {
+      const signature = f()
+        .input('question', f.string())
+        .output(
+          'routingDecision',
+          f.object({
+            answer: f.string(),
+          })
+        )
+        .build();
+
+      const template = new AxPromptTemplate(signature, {
+        contextCache: { ttlSeconds: 3600 },
+        structuredOutputFunctionName: '__finalResult',
+      });
+
+      const examples = [
+        {
+          question: 'How should I search?',
+          routingDecision: { answer: 'Use searchWeb' },
+        },
+      ];
+
+      const result = template.render(
+        { question: 'Where should I route this?' },
+        { examples }
+      );
+
+      expect(result.map((msg) => msg.role)).toEqual([
+        'system',
+        'user',
+        'assistant',
+        'function',
+        'user',
+      ]);
+
+      const functionMsg = result[3] as {
+        role: 'function';
+        cache?: boolean;
+      };
+      expect(functionMsg.cache).toBe(true);
+    });
+
     it('should set cache:true on last example by default (after-examples)', () => {
       const signature = new AxSignature(
         'userQuery:string -> aiResponse:string'
@@ -1389,6 +1570,29 @@ describe('AxPromptTemplate.render', () => {
       expect(result.length).toBe(2);
       const userMsg = result[1] as { role: 'user'; cache?: boolean };
       expect(userMsg.cache).toBeUndefined();
+    });
+
+    it('preserves part-level cache metadata when adjacent text parts are merged', () => {
+      const sig = new AxSignature('note:string -> answer:string');
+      const template = new AxPromptTemplate(sig, undefined, {
+        note: () => [
+          { type: 'text', text: 'Cached prefix', cache: true },
+          { type: 'text', text: 'Dynamic suffix' },
+          { type: 'image', mimeType: 'image/png', image: 'abc123' },
+        ],
+      });
+
+      const result = template.render({ note: 'ignored' }, {});
+      const userMsg = result[1] as {
+        role: 'user';
+        content: Array<{ type: string; text?: string; cache?: boolean }>;
+      };
+
+      expect(Array.isArray(userMsg.content)).toBe(true);
+      expect(userMsg.content[0]?.type).toBe('text');
+      expect(userMsg.content[0]?.cache).toBe(true);
+      expect(userMsg.content[0]?.text).toContain('Cached prefix');
+      expect(userMsg.content[0]?.text).toContain('Dynamic suffix');
     });
   });
 

@@ -111,6 +111,28 @@ const cleanSchemaForGemini = (schema: any): any => {
   return cleaned;
 };
 
+const resolveFunctionResponseName = (
+  chatPrompt: AxInternalChatRequest<AxAIGoogleGeminiModel>['chatPrompt'],
+  currentIndex: number,
+  functionId: string
+): string => {
+  for (let i = currentIndex - 1; i >= 0; i--) {
+    const msg = chatPrompt[i];
+    if (msg?.role !== 'assistant' || !msg.functionCalls) {
+      continue;
+    }
+
+    const matchingCall = msg.functionCalls.find(
+      (call) => call.id === functionId
+    );
+    if (matchingCall?.function?.name) {
+      return matchingCall.function.name;
+    }
+  }
+
+  return functionId;
+};
+
 const safetySettings: AxAIGoogleGeminiSafetySettings = [
   {
     category: AxAIGoogleGeminiSafetyCategory.HarmCategoryHarassment,
@@ -327,6 +349,189 @@ class AxAIGoogleGeminiImpl
     } as AxModelConfig;
   }
 
+  private hasProviderDeclaredTools(): boolean {
+    return Boolean(
+      this.options?.codeExecution ||
+        this.options?.googleSearchRetrieval ||
+        this.options?.googleSearch ||
+        this.options?.googleMaps ||
+        this.options?.urlContext
+    );
+  }
+
+  /**
+   * Gemini tools/toolConfig are prefix state rather than ordinary dynamic prompt
+   * content. Whether they belong in explicit cached content depends on the
+   * cache breakpoint: breakpoints at or after "functions" cache them, while the
+   * "system" breakpoint keeps them request-time.
+   */
+  private buildToolState(
+    req: Readonly<AxInternalChatRequest<AxAIGoogleGeminiModel>>,
+    config?: Readonly<AxAIServiceOptions>
+  ): {
+    tools?: AxAIGoogleGeminiChatRequest['tools'];
+    toolConfig?: AxAIGoogleGeminiChatRequest['toolConfig'];
+    cacheableTools: boolean;
+  } {
+    let tools: AxAIGoogleGeminiChatRequest['tools'] | undefined = [];
+
+    if (req.functions && req.functions.length > 0) {
+      // Clean function schemas for Gemini compatibility
+      const cleanedFunctions = req.functions.map((fn) => {
+        const dummyParameters = {
+          type: 'object',
+          properties: {
+            dummy: {
+              type: 'string',
+              description: 'An optional dummy parameter, do not use',
+            },
+          },
+          required: [],
+        } as const;
+
+        let parameters = fn.parameters
+          ? cleanSchemaForGemini(fn.parameters)
+          : undefined;
+
+        // If parameters are missing or an empty object, supply a dummy parameter
+        if (
+          parameters === undefined ||
+          (parameters &&
+            typeof parameters === 'object' &&
+            Object.keys(parameters).length === 0)
+        ) {
+          parameters = { ...dummyParameters } as any;
+        } else if (
+          parameters &&
+          typeof parameters === 'object' &&
+          (parameters as any).type === 'object' &&
+          (!('properties' in (parameters as any)) ||
+            !(parameters as any).properties ||
+            Object.keys((parameters as any).properties).length === 0)
+        ) {
+          // If parameters exist but have empty properties, add a dummy property
+          parameters = {
+            ...(parameters as any),
+            properties: {
+              dummy: {
+                type: 'string',
+                description: 'An optional dummy parameter, do not use',
+              },
+            },
+            required: [],
+          } as any;
+        }
+
+        // Only include supported fields for Gemini function declarations
+        // Exclude 'cache' and other unsupported fields
+        return {
+          name: fn.name,
+          description: fn.description,
+          parameters,
+        };
+      });
+      tools.push({ function_declarations: cleanedFunctions });
+    }
+
+    if (this.options?.codeExecution) {
+      tools.push({ code_execution: {} });
+    }
+
+    if (this.options?.googleSearchRetrieval) {
+      tools.push({
+        google_search_retrieval: {
+          dynamic_retrieval_config: this.options.googleSearchRetrieval,
+        },
+      });
+    }
+
+    if (this.options?.googleSearch) {
+      tools.push({ google_search: {} });
+    }
+
+    if (this.options?.googleMaps) {
+      const gm = this.options.googleMaps;
+      const mapsToolCfg =
+        gm?.enableWidget !== undefined ? { enableWidget: gm.enableWidget } : {};
+      tools.push({ google_maps: mapsToolCfg } as any);
+    }
+
+    if (this.options?.urlContext) {
+      tools.push({ url_context: {} });
+    }
+
+    if (tools.length === 0) {
+      tools = undefined;
+    }
+
+    let toolConfig: AxAIGoogleGeminiChatRequest['toolConfig'];
+
+    // Detect if we declared any functions for Gemini (function_declarations tool)
+    const hasFunctionDeclarations = Array.isArray(tools)
+      ? tools.some(
+          (t: any) =>
+            t &&
+            Array.isArray(t.function_declarations) &&
+            t.function_declarations.length > 0
+        )
+      : false;
+
+    if (req.functionCall) {
+      if (req.functionCall === 'none') {
+        toolConfig = { function_calling_config: { mode: 'NONE' as const } };
+      } else if (req.functionCall === 'auto') {
+        toolConfig = { function_calling_config: { mode: 'AUTO' as const } };
+      } else if (req.functionCall === 'required') {
+        toolConfig = {
+          function_calling_config: { mode: 'ANY' as const },
+        };
+      } else {
+        const allowedFunctionNames = req.functionCall.function?.name
+          ? {
+              allowedFunctionNames: [req.functionCall.function.name],
+            }
+          : {};
+        toolConfig = {
+          function_calling_config: { mode: 'ANY' as const },
+          ...allowedFunctionNames,
+        } as AxAIGoogleGeminiChatRequest['toolConfig'];
+      }
+    } else if (hasFunctionDeclarations) {
+      // Only set default function_calling_config when we actually provide function_declarations
+      toolConfig = {
+        function_calling_config: { mode: 'AUTO' as const },
+      } as AxAIGoogleGeminiChatRequest['toolConfig'];
+    }
+
+    // Merge retrievalConfig if provided
+    if (this.options?.retrievalConfig) {
+      toolConfig = {
+        ...(toolConfig ?? {}),
+        retrievalConfig: {
+          ...(this.options.retrievalConfig.latLng
+            ? { latLng: this.options.retrievalConfig.latLng }
+            : {}),
+        },
+      } as AxAIGoogleGeminiChatRequest['toolConfig'];
+    }
+
+    const hasCacheMarkedFunctions =
+      req.functions?.some((fn) => fn.cache) ?? false;
+    const hasToolState =
+      Boolean(tools && tools.length > 0) || Boolean(toolConfig);
+    // Gemini explicit cache treats tools/toolConfig as immutable prefix state.
+    // If they are present while explicit caching is enabled, they must be part
+    // of the cached resource rather than re-declared on generateContent.
+    const cacheableProviderTools =
+      Boolean(config?.contextCache) && hasToolState;
+
+    return {
+      tools,
+      toolConfig,
+      cacheableTools: hasCacheMarkedFunctions || cacheableProviderTools,
+    };
+  }
+
   createChatReq = async (
     req: Readonly<AxInternalChatRequest<AxAIGoogleGeminiModel>>,
     config: Readonly<AxAIServiceOptions>
@@ -524,7 +729,11 @@ class AxAIGoogleGeminiImpl
 
             parts.push({
               functionResponse: {
-                name: currentMsg.functionId,
+                name: resolveFunctionResponseName(
+                  chatPrompt,
+                  currentIndex,
+                  currentMsg.functionId
+                ),
                 response: { result: currentMsg.result },
               },
             });
@@ -556,158 +765,7 @@ class AxAIGoogleGeminiImpl
       }
     }
 
-    let tools: AxAIGoogleGeminiChatRequest['tools'] | undefined = [];
-
-    if (req.functions && req.functions.length > 0) {
-      // Clean function schemas for Gemini compatibility
-      const cleanedFunctions = req.functions.map((fn) => {
-        const dummyParameters = {
-          type: 'object',
-          properties: {
-            dummy: {
-              type: 'string',
-              description: 'An optional dummy parameter, do not use',
-            },
-          },
-          required: [],
-        } as const;
-
-        let parameters = fn.parameters
-          ? cleanSchemaForGemini(fn.parameters)
-          : undefined;
-
-        // If parameters are missing or an empty object, supply a dummy parameter
-        if (
-          parameters === undefined ||
-          (parameters &&
-            typeof parameters === 'object' &&
-            Object.keys(parameters).length === 0)
-        ) {
-          parameters = { ...dummyParameters } as any;
-        } else if (
-          parameters &&
-          typeof parameters === 'object' &&
-          (parameters as any).type === 'object' &&
-          (!('properties' in (parameters as any)) ||
-            !(parameters as any).properties ||
-            Object.keys((parameters as any).properties).length === 0)
-        ) {
-          // If parameters exist but have empty properties, add a dummy property
-          parameters = {
-            ...(parameters as any),
-            properties: {
-              dummy: {
-                type: 'string',
-                description: 'An optional dummy parameter, do not use',
-              },
-            },
-            required: [],
-          } as any;
-        }
-
-        // Only include supported fields for Gemini function declarations
-        // Exclude 'cache' and other unsupported fields
-        return {
-          name: fn.name,
-          description: fn.description,
-          parameters,
-        };
-      });
-      tools.push({ function_declarations: cleanedFunctions });
-    }
-
-    if (this.options?.codeExecution) {
-      tools.push({ code_execution: {} });
-    }
-
-    if (this.options?.googleSearchRetrieval) {
-      tools.push({
-        google_search_retrieval: {
-          dynamic_retrieval_config: this.options.googleSearchRetrieval,
-        },
-      });
-    }
-
-    if (this.options?.googleSearch) {
-      tools.push({ google_search: {} });
-    }
-
-    if (this.options?.googleMaps) {
-      const gm = this.options.googleMaps;
-      const mapsToolCfg =
-        gm?.enableWidget !== undefined ? { enableWidget: gm.enableWidget } : {};
-      tools.push({ google_maps: mapsToolCfg } as any);
-    }
-
-    if (this.options?.urlContext) {
-      tools.push({ url_context: {} });
-    }
-
-    if (tools.length === 0) {
-      tools = undefined;
-    }
-
-    let toolConfig:
-      | {
-          function_calling_config: {
-            mode: 'NONE' | 'AUTO' | 'ANY';
-            allowedFunctionNames?: string[];
-          };
-          retrieval_config?: {
-            lat_lng?: { latitude: number; longitude: number };
-            enable_widget?: boolean;
-          };
-        }
-      | undefined;
-
-    // Detect if we declared any functions for Gemini (function_declarations tool)
-    const hasFunctionDeclarations = Array.isArray(tools)
-      ? tools.some(
-          (t: any) =>
-            t &&
-            Array.isArray(t.function_declarations) &&
-            t.function_declarations.length > 0
-        )
-      : false;
-
-    if (req.functionCall) {
-      if (req.functionCall === 'none') {
-        toolConfig = { function_calling_config: { mode: 'NONE' as const } };
-      } else if (req.functionCall === 'auto') {
-        toolConfig = { function_calling_config: { mode: 'AUTO' as const } };
-      } else if (req.functionCall === 'required') {
-        toolConfig = {
-          function_calling_config: { mode: 'ANY' as const },
-        };
-      } else {
-        const allowedFunctionNames = req.functionCall.function?.name
-          ? {
-              allowedFunctionNames: [req.functionCall.function.name],
-            }
-          : {};
-        toolConfig = {
-          function_calling_config: { mode: 'ANY' as const },
-          ...allowedFunctionNames,
-        };
-      }
-    } else if (hasFunctionDeclarations) {
-      // Only set default function_calling_config when we actually provide function_declarations
-      toolConfig = {
-        function_calling_config: { mode: 'AUTO' as const },
-      } as any;
-    }
-
-    // Merge retrievalConfig if provided
-    if (this.options?.retrievalConfig) {
-      toolConfig = {
-        ...(toolConfig ?? {}),
-        retrievalConfig: {
-          ...(this.options.retrievalConfig.latLng
-            ? { latLng: this.options.retrievalConfig.latLng }
-            : {}),
-        },
-      } as any;
-    }
+    const { tools, toolConfig } = this.buildToolState(req, config);
 
     const thinkingConfig: AxAIGoogleGeminiGenerationConfig['thinkingConfig'] =
       {};
@@ -1207,6 +1265,10 @@ class AxAIGoogleGeminiImpl
   ): AxContextCacheOperation | undefined => {
     const model = req.model;
     const ttlSeconds = options.contextCache?.ttlSeconds ?? 3600;
+    const { tools, toolConfig, cacheableTools } = this.buildToolState(
+      req,
+      options
+    );
 
     // Extract cacheable content from the request (system prompt + marked content)
     const { systemInstruction, contents } = this.extractCacheableContent(
@@ -1214,7 +1276,11 @@ class AxAIGoogleGeminiImpl
     );
 
     // If no cacheable content, return undefined
-    if (!systemInstruction && (!contents || contents.length === 0)) {
+    if (
+      !systemInstruction &&
+      (!contents || contents.length === 0) &&
+      !cacheableTools
+    ) {
       return undefined;
     }
 
@@ -1231,6 +1297,15 @@ class AxAIGoogleGeminiImpl
 
     if (contents && contents.length > 0) {
       cacheRequest.contents = contents;
+    }
+
+    if (cacheableTools) {
+      if (tools && tools.length > 0) {
+        cacheRequest.tools = tools;
+      }
+      if (toolConfig) {
+        cacheRequest.toolConfig = toolConfig;
+      }
     }
 
     // Build API endpoint
@@ -1259,6 +1334,50 @@ class AxAIGoogleGeminiImpl
         };
       },
     };
+  };
+
+  getContextCacheToolState = (
+    req: Readonly<AxInternalChatRequest<AxAIGoogleGeminiModel>>,
+    options: Readonly<AxAIServiceOptions>
+  ) => {
+    const { tools, toolConfig, cacheableTools } = this.buildToolState(
+      req,
+      options
+    );
+
+    if (!cacheableTools) {
+      return undefined;
+    }
+
+    const cacheableFunctions = req.functions?.map(
+      ({ cache: _cache, ...fn }) => fn
+    );
+    const hasFunctionState =
+      Boolean(cacheableFunctions && cacheableFunctions.length > 0) ||
+      Boolean(req.functionCall);
+
+    if (hasFunctionState) {
+      return {
+        functions: cacheableFunctions,
+        functionCall: req.functionCall,
+      };
+    }
+
+    if (tools || toolConfig) {
+      return {
+        functions: [
+          {
+            name: '__gemini_tool_state__',
+            description: JSON.stringify({
+              tools,
+              toolConfig,
+            }),
+          },
+        ],
+      };
+    }
+
+    return undefined;
   };
 
   /**
@@ -1326,11 +1445,18 @@ class AxAIGoogleGeminiImpl
    */
   prepareCachedChatReq = async (
     req: Readonly<AxInternalChatRequest<AxAIGoogleGeminiModel>>,
-    _options: Readonly<AxAIServiceOptions>,
+    options: Readonly<AxAIServiceOptions>,
     existingCacheName: string
   ): Promise<AxPreparedChatRequest<AxAIGoogleGeminiChatRequest>> => {
     const model = req.model;
     const stream = req.modelConfig?.stream ?? this.config.stream;
+    const { tools, toolConfig, cacheableTools } = this.buildToolState(
+      req,
+      options
+    );
+    // Gemini explicit caches lock systemInstruction, tools, and toolConfig
+    // into the cached prefix. When we reference a named cache here, we assume
+    // that cached resource was created with compatible tool state already.
 
     // Build the base request but only with non-cached content
     const { dynamicContents, dynamicSystemInstruction } =
@@ -1393,6 +1519,15 @@ class AxAIGoogleGeminiImpl
       generationConfig,
       safetySettings,
     };
+
+    if (!cacheableTools) {
+      if (tools && tools.length > 0) {
+        chatRequest.tools = tools;
+      }
+      if (toolConfig) {
+        chatRequest.toolConfig = toolConfig;
+      }
+    }
 
     // Only include systemInstruction if there's dynamic system content
     if (dynamicSystemInstruction) {
@@ -1484,10 +1619,50 @@ class AxAIGoogleGeminiImpl
           if (parts.length > 0) {
             contents.push({ role: 'user' as const, parts });
           }
-        } else if (msg.role === 'assistant' && msg.content) {
+        } else if (msg.role === 'assistant') {
+          const parts: AxAIGoogleGeminiContentPart[] = [];
+
+          if (msg.content) {
+            parts.push({ text: msg.content });
+          }
+
+          if (msg.functionCalls) {
+            for (const f of msg.functionCalls) {
+              let args: object;
+              if (typeof f.function.params === 'string') {
+                try {
+                  args = JSON.parse(f.function.params);
+                } catch {
+                  args = {};
+                }
+              } else {
+                args = f.function.params ?? {};
+              }
+              parts.push({ functionCall: { name: f.function.name, args } });
+            }
+          }
+
+          if (parts.length > 0) {
+            contents.push({
+              role: 'model' as const,
+              parts,
+            });
+          }
+        } else if (msg.role === 'function') {
           contents.push({
-            role: 'model' as const,
-            parts: [{ text: msg.content }],
+            role: 'user' as const,
+            parts: [
+              {
+                functionResponse: {
+                  name: resolveFunctionResponseName(
+                    chatPrompt,
+                    i,
+                    msg.functionId
+                  ),
+                  response: { result: msg.result },
+                },
+              },
+            ],
           });
         }
       }
@@ -1509,15 +1684,25 @@ class AxAIGoogleGeminiImpl
     const dynamicSystemInstruction: AxAIGoogleGeminiContent | undefined =
       undefined;
     const dynamicContents: AxAIGoogleGeminiContent[] = [];
+    let breakpointIndex = -1;
 
-    for (const msg of chatPrompt) {
+    for (let i = chatPrompt.length - 1; i >= 0; i--) {
+      const msg = chatPrompt[i];
+      if ('cache' in msg && msg.cache) {
+        breakpointIndex = i;
+        break;
+      }
+    }
+
+    for (let i = 0; i < chatPrompt.length; i++) {
+      const msg = chatPrompt[i];
       // System prompts are always cached, so skip them
       if (msg.role === 'system') {
         continue;
       }
 
-      // Skip messages marked with cache: true (they're in the cache)
-      if ('cache' in msg && msg.cache) {
+      // Skip the cached prefix up to and including the breakpoint.
+      if (breakpointIndex >= 0 && i <= breakpointIndex) {
         continue;
       }
 
@@ -1595,7 +1780,11 @@ class AxAIGoogleGeminiImpl
           parts: [
             {
               functionResponse: {
-                name: msg.functionId,
+                name: resolveFunctionResponseName(
+                  chatPrompt,
+                  i,
+                  msg.functionId
+                ),
                 response: { result: msg.result },
               },
             },

@@ -5079,7 +5079,84 @@ describe('final()/askClarification() as runtime globals', () => {
     });
   });
 
-  it('should surface invalid structured clarification payloads as actor-loop errors', async () => {
+  it('should downgrade broken single_choice clarification payloads to plain questions', async () => {
+    let actorCallCount = 0;
+
+    const ai = new AxMockAIService({
+      features: { functions: false, streaming: false },
+    });
+    const testAgent = agent('query:string -> answer:string', {
+      contextFields: [],
+      runtime: new AxJSRuntime(),
+      maxTurns: 2,
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const anyAgent = testAgent as any;
+    anyAgent.actorProgram.forward = async () => {
+      actorCallCount++;
+      return {
+        javascriptCode: `askClarification({ question: "Who is the friend you'd like to email? I couldn't find a contact named 'friend' in your address book.", type: "single_choice" })`,
+      };
+    };
+
+    const loopResult = await (
+      testAgent as unknown as {
+        _runActorLoop: (
+          ai: unknown,
+          values: { query: string },
+          options: undefined,
+          signal: AbortSignal
+        ) => Promise<{
+          actionLog: string;
+          actorResult: { type: string; args: unknown[] };
+        }>;
+      }
+    )._runActorLoop(
+      ai,
+      { query: 'test' },
+      undefined,
+      new AbortController().signal
+    );
+
+    expect(actorCallCount).toBe(1);
+    expect(loopResult.actorResult).toEqual({
+      type: 'askClarification',
+      args: [
+        {
+          question:
+            "Who is the friend you'd like to email? I couldn't find a contact named 'friend' in your address book.",
+        },
+      ],
+    });
+  });
+
+  it('should downgrade empty or malformed single_choice choices to plain questions', async () => {
+    const testAgent = agent('query:string -> answer:string', {
+      contextFields: [],
+      runtime: new AxJSRuntime(),
+    });
+
+    await expect(
+      testAgent.test(
+        'askClarification({ question: "Which route should I use?", type: "single_choice", choices: [] })'
+      )
+    ).resolves.toEqual({
+      type: 'askClarification',
+      args: [{ question: 'Which route should I use?' }],
+    });
+
+    await expect(
+      testAgent.test(
+        'askClarification({ question: "Which route should I use?", type: "single_choice", choices: [""] })'
+      )
+    ).resolves.toEqual({
+      type: 'askClarification',
+      args: [{ question: 'Which route should I use?' }],
+    });
+  });
+
+  it('should surface broken multiple_choice clarification payloads as helpful actor-loop errors', async () => {
     let actorCallCount = 0;
 
     const ai = new AxMockAIService({
@@ -5098,7 +5175,7 @@ describe('final()/askClarification() as runtime globals', () => {
       return actorCallCount === 1
         ? {
             javascriptCode:
-              'askClarification({ type: "single_choice", choices: ["1 day"] })',
+              'askClarification({ question: "Which routes should I use?", type: "multiple_choice" })',
           }
         : {
             javascriptCode: 'final("Recovered")',
@@ -5126,7 +5203,10 @@ describe('final()/askClarification() as runtime globals', () => {
 
     expect(actorCallCount).toBe(2);
     expect(loopResult.actionLog).toContain(
-      'askClarification() object payload requires a non-empty question'
+      'askClarification() with type "multiple_choice" must include at least two valid choices'
+    );
+    expect(loopResult.actionLog).toContain(
+      'switch to "single_choice" / a plain question if there is only one option'
     );
     expect(loopResult.actorResult).toEqual({
       type: 'final',
@@ -5908,6 +5988,30 @@ describe('incremental console-turn policy', () => {
     expect(actorUserPrompts[2]).not.toContain(
       '[POLICY] Non-final turns must include exactly one console.log(...)'
     );
+  });
+
+  it('should allow completion turns with dead code after askClarification without requiring console.log', () => {
+    expect(
+      validateActorTurnCodePolicy(`
+        await askClarification({
+          question: "Who is the friend you'd like to email? I couldn't find a contact named 'friend' in your address book.",
+          type: "single_choice",
+          choices: []
+        })
+        // Wait, the previous turn failed because choices was empty for "single_choice".
+        await askClarification("Who is the friend you'd like to email? (Please provide their name or email address)")
+      `)
+    ).toBeUndefined();
+  });
+
+  it('should allow completion turns with dead code after final without requiring console.log', () => {
+    expect(
+      validateActorTurnCodePolicy(`
+        final("done")
+        // dead code after completion should be ignored
+        const shouldNotMatter = true
+      `)
+    ).toBeUndefined();
   });
 
   it('should reject non-final turns without console.log and retry next turn', async () => {
@@ -11053,7 +11157,7 @@ describe('judgeOptions / optimize', () => {
     expect(judgeCapture.prompt).toContain('Which date should I use?');
   });
 
-  it('should treat invalid clarification payloads as actor errors during optimize evaluation', async () => {
+  it('should downgrade broken single_choice clarification payloads during optimize evaluation', async () => {
     const studentAI = makeStudentAI();
     let actorCallCount = 0;
 
@@ -11090,14 +11194,9 @@ describe('judgeOptions / optimize', () => {
     const anyAgent = testAgent as any;
     anyAgent.actorProgram.forward = async () => {
       actorCallCount += 1;
-      return actorCallCount === 1
-        ? {
-            javascriptCode:
-              'askClarification({ type: "single_choice", choices: ["1 day"] })',
-          }
-        : {
-            javascriptCode: 'final("Recovered")',
-          };
+      return {
+        javascriptCode: `askClarification({ question: "Who is the friend you'd like to email? I couldn't find a contact named 'friend' in your address book.", type: "single_choice" })`,
+      };
     };
     anyAgent.responderProgram.forward = async (
       _ai: unknown,
@@ -11108,19 +11207,19 @@ describe('judgeOptions / optimize', () => {
 
     await testAgent.optimize([makeTask()], {
       metric: async ({ prediction }) => {
-        expect(prediction.completionType).toBe('final');
-        if (prediction.completionType !== 'final') {
+        expect(prediction.completionType).toBe('askClarification');
+        if (prediction.completionType !== 'askClarification') {
           return 0;
         }
-        expect(prediction.output.answer).toBe('Recovered');
-        expect(prediction.actionLog).toContain(
-          'askClarification() object payload requires a non-empty question'
-        );
+        expect(prediction.clarification).toEqual({
+          question:
+            "Who is the friend you'd like to email? I couldn't find a contact named 'friend' in your address book.",
+        });
         return 1;
       },
     });
 
-    expect(actorCallCount).toBe(2);
+    expect(actorCallCount).toBe(1);
   });
 
   it('should adjust built-in judge scores using expectedActions and forbiddenActions', async () => {
@@ -15941,6 +16040,24 @@ describe('AxFunction', () => {
     ).toThrow('guideAgent() requires exactly one argument');
   });
 
+  it('should make actor-runtime completion globals unwind with an internal signal', () => {
+    const payloads: unknown[] = [];
+    const bindings = createCompletionBindings((payload) => {
+      payloads.push(payload);
+    });
+
+    expect(() => bindings.finalFunction('done')).toThrowError(
+      AxAgentProtocolCompletionSignal
+    );
+    expect(() =>
+      bindings.askClarificationFunction('Need more detail')
+    ).toThrowError(AxAgentProtocolCompletionSignal);
+    expect(payloads).toEqual([
+      { type: 'final', args: ['done'] },
+      { type: 'askClarification', args: ['Need more detail'] },
+    ]);
+  });
+
   it('should let host-side agent functions call extra.protocol.final and unwind the current actor turn', async () => {
     let continuedAfterCompletion = false;
     let sawProtocolInHostFunction = false;
@@ -16031,6 +16148,60 @@ describe('AxFunction', () => {
       args: ['done'],
     });
     expect(actorState.actionLog).not.toContain('Error:');
+    expect(actorState.actionLog).not.toContain(
+      'AxAgentProtocolCompletionSignal'
+    );
+  });
+
+  it('should let actor-runtime final unwind the current actor turn immediately', async () => {
+    let continuedAfterCompletion = false;
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code === 'RUNTIME_FINAL') {
+              (globals?.final as (...args: unknown[]) => never)('done');
+              continuedAfterCompletion = true;
+              return 'after final';
+            }
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('query:string -> answer:string', {
+      contextFields: [],
+      runtime,
+    });
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const anyAgent = testAgent as any;
+    anyAgent.actorProgram.forward = async () => ({
+      javascriptCode: 'RUNTIME_FINAL',
+    });
+    anyAgent.responderProgram.forward = async () => {
+      throw new Error('Responder should not run in _runActorLoop test');
+    };
+
+    const actorState = await anyAgent._runActorLoop(
+      testMockAI,
+      { query: 'root' },
+      undefined,
+      undefined
+    );
+
+    expect(continuedAfterCompletion).toBe(false);
+    expect(actorState.actorResult).toEqual({
+      type: 'final',
+      args: ['done'],
+    });
     expect(actorState.actionLog).not.toContain(
       'AxAgentProtocolCompletionSignal'
     );
@@ -16128,6 +16299,62 @@ describe('AxFunction', () => {
       args: ['Need more details'],
     });
     expect(actorState.actionLog).not.toContain('Error:');
+    expect(actorState.actionLog).not.toContain(
+      'AxAgentProtocolCompletionSignal'
+    );
+  });
+
+  it('should let actor-runtime askClarification unwind the current actor turn immediately', async () => {
+    let continuedAfterClarification = false;
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code === 'RUNTIME_ASK') {
+              (globals?.askClarification as (...args: unknown[]) => never)(
+                'Need more details'
+              );
+              continuedAfterClarification = true;
+              return 'after clarification';
+            }
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('query:string -> answer:string', {
+      contextFields: [],
+      runtime,
+    });
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const anyAgent = testAgent as any;
+    anyAgent.actorProgram.forward = async () => ({
+      javascriptCode: 'RUNTIME_ASK',
+    });
+    anyAgent.responderProgram.forward = async () => {
+      throw new Error('Responder should not run in _runActorLoop test');
+    };
+
+    const actorState = await anyAgent._runActorLoop(
+      testMockAI,
+      { query: 'root' },
+      undefined,
+      undefined
+    );
+
+    expect(continuedAfterClarification).toBe(false);
+    expect(actorState.actorResult).toEqual({
+      type: 'askClarification',
+      args: ['Need more details'],
+    });
     expect(actorState.actionLog).not.toContain(
       'AxAgentProtocolCompletionSignal'
     );

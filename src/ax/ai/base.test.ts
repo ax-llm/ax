@@ -75,6 +75,33 @@ const createMockFetch = (responseFactory: () => Response) => {
   });
 };
 
+const createCapturingFetch = (
+  capture: { calls: Array<{ url: string; body?: any }> },
+  responses: unknown[]
+) => {
+  let index = 0;
+
+  return vi
+    .fn()
+    .mockImplementation(async (url: RequestInfo | URL, init?: RequestInit) => {
+      let body: unknown;
+      try {
+        if (init?.body && typeof init.body === 'string') {
+          body = JSON.parse(init.body);
+        }
+      } catch {}
+
+      capture.calls.push({ url: String(url), body });
+      const responseBody = responses[Math.min(index, responses.length - 1)];
+      index++;
+
+      return new Response(JSON.stringify(responseBody), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+};
+
 // Create a function that returns a fresh mock response for each call
 const createDefaultMockResponse = () => {
   const responseBody = JSON.stringify({ results: [] });
@@ -1506,5 +1533,527 @@ describe('AxBaseAI Tracing with Token Usage', () => {
         serviceProvidedUsage.totalTokens,
     });
     expect(mockSpan.addEvent).toHaveBeenCalledTimes(1);
+  });
+
+  describe('explicit context cache identity', () => {
+    const createCacheAwareImpl = () =>
+      ({
+        createChatReq: vi.fn(() => [{ name: '/chat', headers: {} }, {}]),
+        createChatResp: vi.fn(() => ({
+          results: [{ content: 'ok' }],
+        })),
+        createChatStreamResp: vi.fn(() => ({ results: [] })),
+        getModelConfig: vi.fn(() => ({
+          maxTokens: 100,
+          temperature: 0,
+          stream: false,
+        })),
+        getTokenUsage: vi.fn(() => ({
+          totalTokens: 0,
+          promptTokens: 0,
+          completionTokens: 0,
+        })),
+        supportsContextCache: vi.fn(() => true),
+        buildCacheCreateOp: vi.fn((req) => ({
+          type: 'create' as const,
+          apiConfig: { name: '/cached', headers: {} },
+          request: {
+            functions: req.functions,
+            functionCall: req.functionCall,
+          },
+          parseResponse: () => ({
+            name: `cache-${Math.random()}`,
+            expiresAt: '2099-01-01T00:00:00Z',
+            tokenCount: 4096,
+          }),
+        })),
+        prepareCachedChatReq: vi.fn((_req, _options, cacheName) => ({
+          apiConfig: { name: '/chat', headers: {} },
+          request: { cachedContent: cacheName },
+        })),
+      }) satisfies AxAIServiceImpl<
+        string,
+        string,
+        unknown,
+        unknown,
+        unknown,
+        unknown,
+        unknown
+      >;
+
+    const createCacheAwareAI = (
+      impl: ReturnType<typeof createCacheAwareImpl>,
+      fetch: ReturnType<typeof createCapturingFetch>
+    ) => {
+      const ai = new AxBaseAI(impl, {
+        name: 'test-ai',
+        apiURL: 'http://test.com',
+        headers: async () => ({}),
+        modelInfo: [
+          {
+            name: 'test-model',
+            promptTokenCostPer1M: 100,
+            completionTokenCostPer1M: 100,
+          } as AxModelInfo,
+        ],
+        defaults: {
+          model: 'test-model',
+        },
+        models: [
+          { key: 'model1', model: 'test-model-1', description: 'Test Model 1' },
+        ],
+        supportFor: {
+          functions: true,
+          streaming: false,
+          media: {
+            images: { supported: false, formats: [] },
+            audio: { supported: false, formats: [] },
+            files: { supported: false, formats: [], uploadMethod: 'none' },
+            urls: {
+              supported: false,
+              webSearch: false,
+              contextFetching: false,
+            },
+          },
+          caching: {
+            supported: true,
+            types: ['persistent'],
+          },
+          thinking: false,
+          multiTurn: true,
+        },
+      });
+      ai.setOptions({ fetch, tracer: mockTracer as any });
+      return ai;
+    };
+
+    it('reuses the same cache when cached tools and function config match', async () => {
+      const capture = { calls: [] as Array<{ url: string; body?: any }> };
+      const fetch = createCapturingFetch(capture, [
+        { name: 'cache-1', expireTime: '2099-01-01T00:00:00Z' },
+        {},
+        {},
+      ]);
+      const impl = createCacheAwareImpl();
+      const ai = createCacheAwareAI(impl, fetch);
+
+      const registryData = new Map<string, any>();
+      const registry = {
+        get: vi.fn(async (key: string) => registryData.get(key)),
+        set: vi.fn(async (key: string, value: unknown) => {
+          registryData.set(key, value);
+        }),
+      };
+
+      const req = {
+        chatPrompt: [
+          { role: 'system' as const, content: 'system', cache: true },
+          { role: 'user' as const, content: 'hello' },
+        ],
+        functions: [
+          { name: 'search', description: 'search', cache: true },
+          { name: 'route', description: 'route' },
+        ],
+        functionCall: {
+          type: 'function' as const,
+          function: { name: 'route' },
+        },
+      };
+
+      await ai.chat(req, {
+        stream: false,
+        contextCache: { minTokens: 0, registry },
+      });
+      await ai.chat(req, {
+        stream: false,
+        contextCache: { minTokens: 0, registry },
+      });
+
+      expect(impl.buildCacheCreateOp).toHaveBeenCalledTimes(1);
+      expect(impl.prepareCachedChatReq).toHaveBeenCalledTimes(2);
+      expect(registry.set).toHaveBeenCalledTimes(1);
+      expect(capture.calls).toHaveLength(3);
+    });
+
+    it('creates distinct caches when cached tool state differs', async () => {
+      const capture = { calls: [] as Array<{ url: string; body?: any }> };
+      const fetch = createCapturingFetch(capture, [
+        { name: 'cache-1', expireTime: '2099-01-01T00:00:00Z' },
+        {},
+        { name: 'cache-2', expireTime: '2099-01-01T00:00:00Z' },
+        {},
+      ]);
+      const impl = createCacheAwareImpl();
+      const ai = createCacheAwareAI(impl, fetch);
+
+      const registryData = new Map<string, any>();
+      const registry = {
+        get: vi.fn(async (key: string) => registryData.get(key)),
+        set: vi.fn(async (key: string, value: unknown) => {
+          registryData.set(key, value);
+        }),
+      };
+
+      const baseReq = {
+        chatPrompt: [
+          { role: 'system' as const, content: 'system', cache: true },
+          { role: 'user' as const, content: 'hello' },
+        ],
+      };
+
+      await ai.chat(
+        {
+          ...baseReq,
+          functions: [
+            { name: 'search', description: 'search', cache: true },
+            { name: 'route', description: 'route' },
+          ],
+          functionCall: {
+            type: 'function' as const,
+            function: { name: 'route' },
+          },
+        },
+        {
+          stream: false,
+          contextCache: { minTokens: 0, registry },
+        }
+      );
+
+      await ai.chat(
+        {
+          ...baseReq,
+          functions: [
+            { name: 'searchV2', description: 'search', cache: true },
+            { name: 'route', description: 'route' },
+          ],
+          functionCall: {
+            type: 'function' as const,
+            function: { name: 'route' },
+          },
+        },
+        {
+          stream: false,
+          contextCache: { minTokens: 0, registry },
+        }
+      );
+
+      expect(impl.buildCacheCreateOp).toHaveBeenCalledTimes(2);
+      expect(registry.set).toHaveBeenCalledTimes(2);
+      expect(capture.calls).toHaveLength(4);
+    });
+
+    it('reuses the same system-only cache when only request-time tools differ', async () => {
+      const capture = { calls: [] as Array<{ url: string; body?: any }> };
+      const fetch = createCapturingFetch(capture, [
+        { name: 'cache-1', expireTime: '2099-01-01T00:00:00Z' },
+        {},
+        {},
+      ]);
+      const impl = createCacheAwareImpl();
+      const ai = createCacheAwareAI(impl, fetch);
+
+      const registryData = new Map<string, any>();
+      const registry = {
+        get: vi.fn(async (key: string) => registryData.get(key)),
+        set: vi.fn(async (key: string, value: unknown) => {
+          registryData.set(key, value);
+        }),
+      };
+
+      const baseReq = {
+        chatPrompt: [
+          { role: 'system' as const, content: 'system', cache: true },
+          { role: 'user' as const, content: 'hello' },
+        ],
+      };
+
+      await ai.chat(
+        {
+          ...baseReq,
+          functions: [
+            { name: 'search', description: 'search' },
+            { name: 'route', description: 'route' },
+          ],
+          functionCall: {
+            type: 'function' as const,
+            function: { name: 'route' },
+          },
+        },
+        {
+          stream: false,
+          contextCache: {
+            minTokens: 0,
+            cacheBreakpoint: 'system',
+            registry,
+          },
+        }
+      );
+
+      await ai.chat(
+        {
+          ...baseReq,
+          functions: [
+            { name: 'searchV2', description: 'search' },
+            { name: 'route', description: 'route' },
+          ],
+          functionCall: {
+            type: 'function' as const,
+            function: { name: 'route' },
+          },
+        },
+        {
+          stream: false,
+          contextCache: {
+            minTokens: 0,
+            cacheBreakpoint: 'system',
+            registry,
+          },
+        }
+      );
+
+      expect(impl.buildCacheCreateOp).toHaveBeenCalledTimes(1);
+      expect(impl.prepareCachedChatReq).toHaveBeenCalledTimes(2);
+      expect(registry.set).toHaveBeenCalledTimes(1);
+      expect(capture.calls).toHaveLength(3);
+    });
+
+    it('creates distinct system caches when provider-declared cached tool state differs', async () => {
+      const capture = { calls: [] as Array<{ url: string; body?: any }> };
+      const fetch = createCapturingFetch(capture, [
+        { name: 'cache-1', expireTime: '2099-01-01T00:00:00Z' },
+        {},
+        { name: 'cache-2', expireTime: '2099-01-01T00:00:00Z' },
+        {},
+      ]);
+      const impl = {
+        ...createCacheAwareImpl(),
+        getContextCacheToolState: vi.fn((req) => ({
+          functions: req.functions,
+          functionCall: req.functionCall,
+        })),
+      };
+      const ai = createCacheAwareAI(impl, fetch);
+
+      const registryData = new Map<string, any>();
+      const registry = {
+        get: vi.fn(async (key: string) => registryData.get(key)),
+        set: vi.fn(async (key: string, value: unknown) => {
+          registryData.set(key, value);
+        }),
+      };
+
+      const baseReq = {
+        chatPrompt: [
+          { role: 'system' as const, content: 'system', cache: true },
+          { role: 'user' as const, content: 'hello' },
+        ],
+      };
+
+      await ai.chat(
+        {
+          ...baseReq,
+          functions: [
+            { name: 'search', description: 'search' },
+            { name: 'route', description: 'route' },
+          ],
+          functionCall: {
+            type: 'function' as const,
+            function: { name: 'route' },
+          },
+        },
+        {
+          stream: false,
+          contextCache: {
+            minTokens: 0,
+            cacheBreakpoint: 'system',
+            registry,
+          },
+        }
+      );
+
+      await ai.chat(
+        {
+          ...baseReq,
+          functions: [
+            { name: 'searchV2', description: 'search' },
+            { name: 'route', description: 'route' },
+          ],
+          functionCall: {
+            type: 'function' as const,
+            function: { name: 'route' },
+          },
+        },
+        {
+          stream: false,
+          contextCache: {
+            minTokens: 0,
+            cacheBreakpoint: 'system',
+            registry,
+          },
+        }
+      );
+
+      expect(impl.buildCacheCreateOp).toHaveBeenCalledTimes(2);
+      expect(registry.set).toHaveBeenCalledTimes(2);
+      expect(capture.calls).toHaveLength(4);
+    });
+
+    it('creates distinct system caches when provider-declared function-call config differs', async () => {
+      const capture = { calls: [] as Array<{ url: string; body?: any }> };
+      const fetch = createCapturingFetch(capture, [
+        { name: 'cache-1', expireTime: '2099-01-01T00:00:00Z' },
+        {},
+        { name: 'cache-2', expireTime: '2099-01-01T00:00:00Z' },
+        {},
+      ]);
+      const impl = {
+        ...createCacheAwareImpl(),
+        getContextCacheToolState: vi.fn((req) => ({
+          functions: req.functions,
+          functionCall: req.functionCall,
+        })),
+      };
+      const ai = createCacheAwareAI(impl, fetch);
+
+      const registryData = new Map<string, any>();
+      const registry = {
+        get: vi.fn(async (key: string) => registryData.get(key)),
+        set: vi.fn(async (key: string, value: unknown) => {
+          registryData.set(key, value);
+        }),
+      };
+
+      const baseReq = {
+        chatPrompt: [
+          { role: 'system' as const, content: 'system', cache: true },
+          { role: 'user' as const, content: 'hello' },
+        ],
+        functions: [
+          { name: 'search', description: 'search' },
+          { name: 'route', description: 'route' },
+        ],
+      };
+
+      await ai.chat(
+        {
+          ...baseReq,
+          functionCall: {
+            type: 'function' as const,
+            function: { name: 'route' },
+          },
+        },
+        {
+          stream: false,
+          contextCache: {
+            minTokens: 0,
+            cacheBreakpoint: 'system',
+            registry,
+          },
+        }
+      );
+
+      await ai.chat(
+        {
+          ...baseReq,
+          functionCall: 'auto' as const,
+        },
+        {
+          stream: false,
+          contextCache: {
+            minTokens: 0,
+            cacheBreakpoint: 'system',
+            registry,
+          },
+        }
+      );
+
+      expect(impl.buildCacheCreateOp).toHaveBeenCalledTimes(2);
+      expect(registry.set).toHaveBeenCalledTimes(2);
+      expect(capture.calls).toHaveLength(4);
+    });
+
+    it('creates distinct caches when cached function-style example content differs', async () => {
+      const capture = { calls: [] as Array<{ url: string; body?: any }> };
+      const fetch = createCapturingFetch(capture, [
+        { name: 'cache-1', expireTime: '2099-01-01T00:00:00Z' },
+        {},
+        { name: 'cache-2', expireTime: '2099-01-01T00:00:00Z' },
+        {},
+      ]);
+      const impl = createCacheAwareImpl();
+      const ai = createCacheAwareAI(impl, fetch);
+
+      const registryData = new Map<string, any>();
+      const registry = {
+        get: vi.fn(async (key: string) => registryData.get(key)),
+        set: vi.fn(async (key: string, value: unknown) => {
+          registryData.set(key, value);
+        }),
+      };
+
+      const baseReq = {
+        chatPrompt: [
+          { role: 'system' as const, content: 'system', cache: true },
+          { role: 'user' as const, content: 'Example question' },
+          {
+            role: 'assistant' as const,
+            functionCalls: [
+              {
+                id: 'example-0',
+                type: 'function' as const,
+                function: {
+                  name: '__finalResult',
+                  params: { answer: 'Use search' },
+                },
+              },
+            ],
+          },
+          {
+            role: 'function' as const,
+            functionId: 'example-0',
+            result: 'done',
+            cache: true,
+          },
+          { role: 'user' as const, content: 'Live question' },
+        ],
+      };
+
+      await ai.chat(baseReq, {
+        stream: false,
+        contextCache: { minTokens: 0, registry },
+      });
+
+      await ai.chat(
+        {
+          chatPrompt: [
+            baseReq.chatPrompt[0]!,
+            baseReq.chatPrompt[1]!,
+            {
+              role: 'assistant' as const,
+              functionCalls: [
+                {
+                  id: 'example-0',
+                  type: 'function' as const,
+                  function: {
+                    name: '__finalResult',
+                    params: { answer: 'Use database lookup' },
+                  },
+                },
+              ],
+            },
+            baseReq.chatPrompt[3]!,
+            baseReq.chatPrompt[4]!,
+          ],
+        },
+        {
+          stream: false,
+          contextCache: { minTokens: 0, registry },
+        }
+      );
+
+      expect(impl.buildCacheCreateOp).toHaveBeenCalledTimes(2);
+      expect(registry.set).toHaveBeenCalledTimes(2);
+      expect(capture.calls).toHaveLength(4);
+    });
   });
 });

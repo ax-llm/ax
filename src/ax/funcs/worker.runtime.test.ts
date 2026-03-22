@@ -757,6 +757,109 @@ describe('axWorkerRuntime fn-call proxy', () => {
     expect(result!.id).toBe(1);
     expect(result!.value).toBe('resolved-value');
   });
+
+  it('normalizes forgiving askClarification payloads before sending fn-call', async () => {
+    const messages: unknown[] = [];
+    const sandbox: Record<string, unknown> = {
+      self: undefined as unknown,
+      postMessage: (msg: unknown) => messages.push(msg),
+      Promise,
+      console,
+    };
+    sandbox.self = sandbox;
+    sandbox.globalThis = sandbox;
+
+    runInNewContext(makeSource(), sandbox);
+    const onmessage = sandbox.onmessage as (event: { data: unknown }) => void;
+
+    onmessage({
+      data: {
+        type: 'init',
+        outputMode: 'return',
+        globals: {
+          askClarification: { __ax_fn_ref__: 'askClarification' },
+        },
+      },
+    });
+
+    onmessage({
+      data: {
+        type: 'execute',
+        id: 1,
+        code: `await askClarification({
+          question: "Who is the friend you'd like to email? I couldn't find a contact named 'friend' in your address book.",
+          type: "single_choice"
+        })`,
+      },
+    });
+
+    await new Promise((r) => setTimeout(r, 10));
+
+    const fnCall = messages.find(
+      (m) => (m as Record<string, unknown>).type === 'fn-call'
+    ) as Record<string, unknown> | undefined;
+    expect(fnCall).toBeDefined();
+    expect(fnCall!.name).toBe('askClarification');
+    expect(fnCall!.args).toEqual([
+      {
+        question:
+          "Who is the friend you'd like to email? I couldn't find a contact named 'friend' in your address book.",
+      },
+    ]);
+  });
+
+  it('returns a helpful error for broken multiple_choice askClarification payloads', async () => {
+    const messages: unknown[] = [];
+    const sandbox: Record<string, unknown> = {
+      self: undefined as unknown,
+      postMessage: (msg: unknown) => messages.push(msg),
+      Promise,
+      console,
+    };
+    sandbox.self = sandbox;
+    sandbox.globalThis = sandbox;
+
+    runInNewContext(makeSource(), sandbox);
+    const onmessage = sandbox.onmessage as (event: { data: unknown }) => void;
+
+    onmessage({
+      data: {
+        type: 'init',
+        outputMode: 'return',
+        globals: {
+          askClarification: { __ax_fn_ref__: 'askClarification' },
+        },
+      },
+    });
+
+    onmessage({
+      data: {
+        type: 'execute',
+        id: 1,
+        code: `await askClarification({
+          question: "Which routes should I use?",
+          type: "multiple_choice"
+        })`,
+      },
+    });
+
+    await new Promise((r) => setTimeout(r, 20));
+
+    const result = messages.find(
+      (m) => (m as Record<string, unknown>).type === 'result'
+    ) as Record<string, unknown> | undefined;
+    expect(result).toBeDefined();
+    const errorMessage =
+      typeof result!.error === 'string'
+        ? result!.error
+        : String((result!.error as { message?: unknown })?.message ?? '');
+    expect(errorMessage).toContain(
+      'askClarification() with type "multiple_choice" must include at least two valid choices'
+    );
+    expect(errorMessage).toContain(
+      'switch to "single_choice" / a plain question if there is only one option'
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------

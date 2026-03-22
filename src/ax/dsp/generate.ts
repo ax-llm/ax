@@ -227,6 +227,17 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     this.promptTemplate.clearInstruction();
   }
 
+  private getEffectiveContextCache(
+    ai: Readonly<AxAIService>,
+    options?: Readonly<Partial<AxProgramForwardOptions<any>>>
+  ): AxProgramForwardOptions<any>['contextCache'] | undefined {
+    return (
+      options?.contextCache ??
+      this.options?.contextCache ??
+      ai.getOptions().contextCache
+    );
+  }
+
   private async renderPromptWithMetricsForInternalUse(
     ai: Readonly<AxAIService>,
     values: IN | AxMessage<IN>[],
@@ -288,10 +299,11 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     }
     const providerIgnoreBreakpoints =
       ai.getFeatures?.(options?.model)?.caching?.cacheBreakpoints === false;
+    const contextCache = this.getEffectiveContextCache(ai, options);
     const promptTemplate = new promptTemplateClass(signature, {
       functions: signatureToolCallingManager ? [] : mutableFunctions,
       thoughtFieldName: this.thoughtFieldName,
-      contextCache: options?.contextCache,
+      contextCache,
       examplesInSystem: options?.examplesInSystem,
       ignoreBreakpoints: providerIgnoreBreakpoints,
       structuredOutputFunctionName: structuredOutputFunctionFallback
@@ -677,13 +689,18 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
     // Mark last function for caching (creates breakpoint after tools)
     // Cache if cacheBreakpoint is 'after-functions' or 'after-examples', or ignoreBreakpoints is true
-    const cacheBreakpoint =
-      options?.contextCache?.cacheBreakpoint ?? 'after-examples';
+    const contextCache = this.getEffectiveContextCache(ai, options);
+    const cacheBreakpoint = contextCache?.cacheBreakpoint ?? 'after-examples';
     const ignoreBreakpoints =
       ai.getFeatures?.(model)?.caching?.cacheBreakpoints === false;
+    const shouldAlwaysCacheGeminiTools =
+      Boolean(contextCache) &&
+      ai.getName() === 'GoogleGeminiAI' &&
+      ai.getFeatures?.(model)?.caching?.supported === true;
     const shouldCacheFunctions =
-      options?.contextCache &&
-      (ignoreBreakpoints ||
+      contextCache &&
+      (shouldAlwaysCacheGeminiTools ||
+        ignoreBreakpoints ||
         cacheBreakpoint === 'after-functions' ||
         cacheBreakpoint === 'after-examples');
     const functionsWithCache =
@@ -722,6 +739,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         logger,
         functionCallMode:
           options?.functionCallMode ?? this.options?.functionCallMode ?? 'auto',
+        contextCache,
         retry: options?.retry ?? this.options?.retry,
         customLabels: options?.customLabels,
       }
@@ -999,12 +1017,13 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     // Check if provider has automatic cache lookback (e.g., Anthropic)
     const providerIgnoreBreakpoints =
       ai.getFeatures?.(options.model)?.caching?.cacheBreakpoints === false;
+    const contextCache = this.getEffectiveContextCache(ai, options);
 
     const currentPromptTemplateOptions = {
       // Prefer per-call functions; fall back to parsed functions from constructor
       functions: this.signatureToolCallingManager ? [] : mutableFunctions,
       thoughtFieldName: this.thoughtFieldName,
-      contextCache: options.contextCache, // Pass through for system prompt caching
+      contextCache, // Pass through for system prompt caching
       examplesInSystem: options.examplesInSystem,
       ignoreBreakpoints: providerIgnoreBreakpoints,
       structuredOutputFunctionName: this.structuredOutputFunctionFallback

@@ -20,6 +20,34 @@ function createMockFetch(body: unknown, capture: { lastBody?: any }) {
     });
 }
 
+function createSequencedMockFetch(
+  bodies: unknown[],
+  capture: { calls: Array<{ url: string; body?: any }> }
+) {
+  let index = 0;
+
+  return vi
+    .fn()
+    .mockImplementation(async (url: RequestInfo | URL, init?: RequestInit) => {
+      let body: unknown;
+      try {
+        if (init?.body && typeof init.body === 'string') {
+          body = JSON.parse(init.body);
+        }
+      } catch {}
+
+      capture.calls.push({ url: String(url), body });
+
+      const responseBody = bodies[Math.min(index, bodies.length - 1)];
+      index++;
+
+      return new Response(JSON.stringify(responseBody), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+}
+
 describe('AxAIGoogleGemini model key preset merging', () => {
   it('merges model list item modelConfig into effective config', async () => {
     const defaultCfg = axAIGoogleGeminiDefaultConfig();
@@ -884,5 +912,447 @@ describe('AxAIGoogleGemini model key preset merging', () => {
     // Part 1: Function Call - Should have signature
     expect(assistantMsg.parts[1].functionCall.name).toBe('f1');
     expect(assistantMsg.parts[1].thought_signature).toBe('sig1');
+  });
+
+  describe('context caching tool semantics', () => {
+    const cacheCreateResponse = {
+      name: 'cachedContents/test-cache',
+      expireTime: '2099-01-01T00:00:00Z',
+      usageMetadata: { totalTokenCount: 4096 },
+    };
+
+    const generateResponse = {
+      candidates: [
+        {
+          content: { parts: [{ text: 'ok' }] },
+          finishReason: 'STOP',
+        },
+      ],
+      usageMetadata: {
+        promptTokenCount: 16,
+        candidatesTokenCount: 4,
+        totalTokenCount: 20,
+        cachedContentTokenCount: 8,
+        thoughtsTokenCount: 0,
+      },
+    };
+
+    const createRegistry = () => {
+      const map = new Map<string, any>();
+      return {
+        keys: [] as string[],
+        registry: {
+          get: vi.fn(async (key: string) => map.get(key)),
+          set: vi.fn(async (key: string, value: unknown) => {
+            map.set(key, value);
+          }),
+        },
+      };
+    };
+
+    it('caches tools and toolConfig when breakpoint is after-examples', async () => {
+      const ai = new AxAIGoogleGemini({
+        apiKey: 'key',
+        config: { model: AxAIGoogleGeminiModel.Gemini25Flash },
+        models: [],
+      });
+
+      const capture = { calls: [] as Array<{ url: string; body?: any }> };
+      const fetch = createSequencedMockFetch(
+        [cacheCreateResponse, generateResponse],
+        capture
+      );
+      const { registry } = createRegistry();
+
+      ai.setOptions({ fetch });
+
+      await ai.chat(
+        {
+          chatPrompt: [
+            { role: 'system', content: 'You are a router', cache: true },
+            { role: 'user', content: 'route this request' },
+          ],
+          functions: [
+            {
+              name: 'search',
+              description: 'Searches the web',
+              parameters: {
+                type: 'object',
+                properties: { query: { type: 'string', description: 'query' } },
+                required: ['query'],
+              },
+            },
+            {
+              name: 'spawnSearchAgent',
+              description: 'Returns the final structured output',
+              parameters: {
+                type: 'object',
+                properties: {
+                  query: { type: 'string', description: 'query' },
+                },
+                required: ['query'],
+              },
+              cache: true,
+            },
+          ],
+          functionCall: {
+            type: 'function',
+            function: { name: 'spawnSearchAgent' },
+          },
+        },
+        {
+          stream: false,
+          contextCache: {
+            minTokens: 0,
+            cacheBreakpoint: 'after-examples',
+            registry,
+          },
+        }
+      );
+
+      expect(capture.calls).toHaveLength(2);
+
+      const cacheCreateReq = capture.calls[0]?.body;
+      expect(cacheCreateReq.tools?.[0]?.function_declarations).toHaveLength(2);
+      expect(
+        cacheCreateReq.tools[0].function_declarations.map((fn: any) => fn.name)
+      ).toEqual(['search', 'spawnSearchAgent']);
+      expect(cacheCreateReq.toolConfig?.function_calling_config?.mode).toBe(
+        'ANY'
+      );
+      expect(
+        cacheCreateReq.toolConfig?.allowedFunctionNames ??
+          cacheCreateReq.toolConfig?.function_calling_config
+            ?.allowedFunctionNames
+      ).toContain('spawnSearchAgent');
+
+      const generateReq = capture.calls[1]?.body;
+      expect(generateReq.cachedContent).toBe('cachedContents/test-cache');
+      expect(generateReq.tools).toBeUndefined();
+      expect(generateReq.toolConfig).toBeUndefined();
+    });
+
+    it('caches tools and toolConfig when breakpoint is after-functions', async () => {
+      const ai = new AxAIGoogleGemini({
+        apiKey: 'key',
+        config: { model: AxAIGoogleGeminiModel.Gemini25Flash },
+        models: [],
+      });
+
+      const capture = { calls: [] as Array<{ url: string; body?: any }> };
+      const fetch = createSequencedMockFetch(
+        [cacheCreateResponse, generateResponse],
+        capture
+      );
+      const { registry } = createRegistry();
+
+      ai.setOptions({ fetch });
+
+      await ai.chat(
+        {
+          chatPrompt: [
+            { role: 'system', content: 'You are a router', cache: true },
+            { role: 'user', content: 'route this request' },
+          ],
+          functions: [
+            {
+              name: 'search',
+              description: 'Searches the web',
+              parameters: {
+                type: 'object',
+                properties: { query: { type: 'string', description: 'query' } },
+                required: ['query'],
+              },
+            },
+            {
+              name: 'spawnSearchAgent',
+              description: 'Returns the final structured output',
+              parameters: {
+                type: 'object',
+                properties: {
+                  query: { type: 'string', description: 'query' },
+                },
+                required: ['query'],
+              },
+              cache: true,
+            },
+          ],
+          functionCall: {
+            type: 'function',
+            function: { name: 'spawnSearchAgent' },
+          },
+        },
+        {
+          stream: false,
+          contextCache: {
+            minTokens: 0,
+            cacheBreakpoint: 'after-functions',
+            registry,
+          },
+        }
+      );
+
+      const cacheCreateReq = capture.calls[0]?.body;
+      expect(cacheCreateReq.tools?.[0]?.function_declarations).toHaveLength(2);
+      expect(cacheCreateReq.toolConfig?.function_calling_config?.mode).toBe(
+        'ANY'
+      );
+
+      const generateReq = capture.calls[1]?.body;
+      expect(generateReq.tools).toBeUndefined();
+      expect(generateReq.toolConfig).toBeUndefined();
+    });
+
+    it('caches tools and toolConfig when breakpoint is system', async () => {
+      const ai = new AxAIGoogleGemini({
+        apiKey: 'key',
+        config: { model: AxAIGoogleGeminiModel.Gemini25Flash },
+        models: [],
+      });
+
+      const capture = { calls: [] as Array<{ url: string; body?: any }> };
+      const fetch = createSequencedMockFetch(
+        [cacheCreateResponse, generateResponse],
+        capture
+      );
+      const { registry } = createRegistry();
+
+      ai.setOptions({ fetch });
+
+      await ai.chat(
+        {
+          chatPrompt: [
+            { role: 'system', content: 'You are a router', cache: true },
+            { role: 'user', content: 'route this request' },
+          ],
+          functions: [
+            {
+              name: 'search',
+              description: 'Searches the web',
+              parameters: {
+                type: 'object',
+                properties: { query: { type: 'string', description: 'query' } },
+                required: ['query'],
+              },
+            },
+            {
+              name: 'spawnSearchAgent',
+              description: 'Returns the final structured output',
+              parameters: {
+                type: 'object',
+                properties: {
+                  query: { type: 'string', description: 'query' },
+                },
+                required: ['query'],
+              },
+            },
+          ],
+          functionCall: {
+            type: 'function',
+            function: { name: 'spawnSearchAgent' },
+          },
+        },
+        {
+          stream: false,
+          contextCache: {
+            minTokens: 0,
+            cacheBreakpoint: 'system',
+            registry,
+          },
+        }
+      );
+
+      const cacheCreateReq = capture.calls[0]?.body;
+      expect(cacheCreateReq.tools?.[0]?.function_declarations).toHaveLength(2);
+      expect(cacheCreateReq.toolConfig?.function_calling_config?.mode).toBe(
+        'ANY'
+      );
+      expect(
+        cacheCreateReq.toolConfig?.allowedFunctionNames ??
+          cacheCreateReq.toolConfig?.function_calling_config
+            ?.allowedFunctionNames
+      ).toContain('spawnSearchAgent');
+
+      const generateReq = capture.calls[1]?.body;
+      expect(generateReq.cachedContent).toBe('cachedContents/test-cache');
+      expect(generateReq.tools).toBeUndefined();
+      expect(generateReq.toolConfig).toBeUndefined();
+    });
+
+    it('includes cached function-style example messages in cache creation payloads', async () => {
+      const ai = new AxAIGoogleGemini({
+        apiKey: 'key',
+        config: { model: AxAIGoogleGeminiModel.Gemini25Flash },
+        models: [],
+      });
+
+      const capture = { calls: [] as Array<{ url: string; body?: any }> };
+      const fetch = createSequencedMockFetch(
+        [cacheCreateResponse, generateResponse],
+        capture
+      );
+      const { registry } = createRegistry();
+
+      ai.setOptions({ fetch });
+
+      await ai.chat(
+        {
+          chatPrompt: [
+            { role: 'system', content: 'You are a router', cache: true },
+            { role: 'user', content: 'Example question' },
+            {
+              role: 'assistant',
+              functionCalls: [
+                {
+                  id: 'example-0',
+                  type: 'function',
+                  function: {
+                    name: '__finalResult',
+                    params: { routingDecision: { answer: 'Use searchWeb' } },
+                  },
+                },
+              ],
+            },
+            {
+              role: 'function',
+              functionId: 'example-0',
+              result: 'done',
+              cache: true,
+            },
+            { role: 'user', content: 'Live question' },
+          ],
+        },
+        {
+          stream: false,
+          contextCache: {
+            minTokens: 0,
+            registry,
+          },
+        }
+      );
+
+      const cacheCreateReq = capture.calls[0]?.body;
+      expect(cacheCreateReq.contents).toHaveLength(3);
+      expect(cacheCreateReq.contents[0]?.role).toBe('user');
+      expect(cacheCreateReq.contents[0]?.parts?.[0]?.text).toBe(
+        'Example question'
+      );
+      expect(cacheCreateReq.contents[1]?.parts?.[0]?.functionCall?.name).toBe(
+        '__finalResult'
+      );
+      expect(
+        cacheCreateReq.contents[2]?.parts?.[0]?.functionResponse?.name
+      ).toBe('__finalResult');
+
+      const generateReq = capture.calls[1]?.body;
+      expect(generateReq.contents).toHaveLength(1);
+      expect(generateReq.contents[0]?.parts?.[0]?.text).toBe('Live question');
+    });
+
+    it('keeps function-style examples dynamic while caching tool state for system breakpoint', async () => {
+      const ai = new AxAIGoogleGemini({
+        apiKey: 'key',
+        config: { model: AxAIGoogleGeminiModel.Gemini25Flash },
+        models: [],
+      });
+
+      const capture = { calls: [] as Array<{ url: string; body?: any }> };
+      const fetch = createSequencedMockFetch(
+        [cacheCreateResponse, generateResponse],
+        capture
+      );
+      const { registry } = createRegistry();
+
+      ai.setOptions({ fetch });
+
+      await ai.chat(
+        {
+          chatPrompt: [
+            { role: 'system', content: 'You are a router', cache: true },
+            { role: 'user', content: 'Example question' },
+            {
+              role: 'assistant',
+              functionCalls: [
+                {
+                  id: 'example-0',
+                  type: 'function',
+                  function: {
+                    name: '__finalResult',
+                    params: { routingDecision: { answer: 'Use searchWeb' } },
+                  },
+                },
+              ],
+            },
+            {
+              role: 'function',
+              functionId: 'example-0',
+              result: 'done',
+            },
+            { role: 'user', content: 'Live question' },
+          ],
+          functions: [
+            {
+              name: 'searchWeb',
+              description: 'Searches the web',
+              parameters: {
+                type: 'object',
+                properties: { query: { type: 'string', description: 'query' } },
+                required: ['query'],
+              },
+            },
+            {
+              name: '__finalResult',
+              description: 'Returns the final structured output',
+              parameters: {
+                type: 'object',
+                properties: {
+                  routingDecision: {
+                    type: 'object',
+                    properties: {
+                      answer: { type: 'string' },
+                    },
+                    required: ['answer'],
+                  },
+                },
+                required: ['routingDecision'],
+              },
+            },
+          ],
+          functionCall: 'auto',
+        },
+        {
+          stream: false,
+          contextCache: {
+            minTokens: 0,
+            cacheBreakpoint: 'system',
+            registry,
+          },
+        }
+      );
+
+      const cacheCreateReq = capture.calls[0]?.body;
+      expect(
+        cacheCreateReq.tools?.[0]?.function_declarations.map(
+          (fn: any) => fn.name
+        )
+      ).toEqual(['searchWeb', '__finalResult']);
+      expect(cacheCreateReq.contents).toBeUndefined();
+
+      const generateReq = capture.calls[1]?.body;
+      expect(generateReq.cachedContent).toBe('cachedContents/test-cache');
+      expect(generateReq.tools).toBeUndefined();
+      expect(generateReq.toolConfig).toBeUndefined();
+      expect(generateReq.contents).toHaveLength(4);
+      expect(generateReq.contents[0]?.parts?.[0]?.text).toBe(
+        'Example question'
+      );
+      expect(generateReq.contents[1]?.parts?.[0]?.functionCall?.name).toBe(
+        '__finalResult'
+      );
+      expect(generateReq.contents[2]?.parts?.[0]?.functionResponse?.name).toBe(
+        '__finalResult'
+      );
+      expect(generateReq.contents[3]?.parts?.[0]?.text).toBe('Live question');
+    });
   });
 });

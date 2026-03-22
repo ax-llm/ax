@@ -1205,9 +1205,37 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
     }
   };
 
-  const _validateClarificationPayload = (payload: unknown): void => {
+  const _createMultipleChoiceClarificationError = (detail?: string): Error => {
+    const suffix = detail ? ` ${detail}` : '';
+    return new Error(
+      'askClarification() with type "multiple_choice" must include at least two valid choices. Use a non-empty string question plus choices like ["Option A", "Option B"], or switch to "single_choice" / a plain question if there is only one option.' +
+        suffix
+    );
+  };
+
+  const _stripChoiceMetadata = (
+    payload: Record<string, unknown>,
+    options?: { dropType?: boolean }
+  ): Record<string, unknown> => {
+    const { choices: _choices, ...restWithType } = payload;
+
+    if (options?.dropType) {
+      const { type: _type, ...rest } = restWithType;
+      return {
+        ...rest,
+        question: payload.question,
+      };
+    }
+
+    return {
+      ...restWithType,
+      question: payload.question,
+    };
+  };
+
+  const _normalizeClarificationPayload = (payload: unknown): unknown => {
     if (_isNonEmptyString(payload)) {
-      return;
+      return payload;
     }
 
     if (!_isPlainObject(payload)) {
@@ -1248,39 +1276,79 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
       normalizedType === 'single_choice' ||
       normalizedType === 'multiple_choice';
     const rawChoices = payload.choices;
+    let normalizedChoices: unknown[] | undefined;
+
     if (rawChoices !== undefined) {
       if (!Array.isArray(rawChoices) || rawChoices.length === 0) {
-        throw new Error(
-          'askClarification() choices must be a non-empty array when provided'
-        );
+        if (normalizedType === 'multiple_choice') {
+          throw _createMultipleChoiceClarificationError();
+        }
+
+        return _stripChoiceMetadata(payload, {
+          dropType: normalizedType === 'single_choice',
+        });
       }
-      for (const choice of rawChoices) {
-        _validateClarificationChoice(choice);
+
+      try {
+        normalizedChoices = rawChoices.map((choice) => {
+          _validateClarificationChoice(choice);
+          return choice;
+        });
+      } catch (error) {
+        if (normalizedType === 'multiple_choice') {
+          const detail =
+            error instanceof Error
+              ? `Fix the choices so each option is a non-empty string or an object with a non-empty label. ${error.message}`
+              : undefined;
+          throw _createMultipleChoiceClarificationError(detail);
+        }
+
+        return _stripChoiceMetadata(payload, {
+          dropType: normalizedType === 'single_choice',
+        });
       }
     } else if (wantsChoices) {
-      throw new Error(
-        'askClarification() choice payloads require a non-empty choices array'
-      );
+      if (normalizedType === 'multiple_choice') {
+        throw _createMultipleChoiceClarificationError();
+      }
+
+      return _stripChoiceMetadata(payload, { dropType: true });
     }
+
+    if (
+      normalizedType === 'multiple_choice' &&
+      (!normalizedChoices || normalizedChoices.length < 2)
+    ) {
+      throw _createMultipleChoiceClarificationError();
+    }
+
+    return {
+      ...payload,
+      question: payload.question,
+      ...(normalizedType ? { type: normalizedType } : {}),
+      ...(normalizedChoices ? { choices: normalizedChoices } : {}),
+    };
   };
 
-  const _validateCompletionCall = (
+  const _normalizeCompletionCall = (
     name: string,
     args: readonly unknown[]
-  ): void => {
+  ): unknown[] => {
     if (name === 'final') {
       if (args.length === 0) {
         throw new Error('final() requires at least one argument');
       }
-      return;
+      return [...args];
     }
 
     if (name === 'askClarification') {
       if (args.length !== 1) {
         throw new Error('askClarification() requires exactly one argument');
       }
-      _validateClarificationPayload(args[0]);
+      return [_normalizeClarificationPayload(args[0])];
     }
+
+    return [...args];
   };
 
   const _getCompletionCallType = (
@@ -1303,15 +1371,16 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
     (name: string) =>
     (...args: unknown[]) => {
       const completionType = _getCompletionCallType(name);
+      let normalizedArgs = args;
       if (completionType) {
-        _validateCompletionCall(completionType, args);
+        normalizedArgs = _normalizeCompletionCall(completionType, args);
       }
 
       const id = ++_fnCallId;
       let observed = false;
       const basePromise = new Promise((resolve, reject) => {
         _fnPending.set(id, { resolve, reject });
-        _send({ type: 'fn-call', id, name, args });
+        _send({ type: 'fn-call', id, name, args: normalizedArgs });
       });
 
       const originalThen = basePromise.then.bind(basePromise);

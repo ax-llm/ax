@@ -306,9 +306,45 @@ export class AxPromptTemplate {
 
     const prompt = promptList.filter((v) => v !== undefined);
 
-    return prompt.every((v) => v.type === 'text')
+    return this.formatUserContent(prompt);
+  };
+
+  private formatUserContent = (
+    prompt: ChatRequestUserMessage
+  ): string | ChatRequestUserMessage =>
+    prompt.every((v) => v.type === 'text')
       ? prompt.map((v) => v.text).join('\n')
       : prompt.reduce(combineConsecutiveStrings('\n'), []);
+
+  private buildLegacyMultimodalExampleMessage = (
+    renderedExamples: ChatRequestUserMessage,
+    renderedDemos: ChatRequestUserMessage
+  ):
+    | {
+        role: 'user';
+        content: string | ChatRequestUserMessage;
+        cache?: boolean;
+      }
+    | undefined => {
+    const examplesAndDemos = [...renderedExamples, ...renderedDemos].filter(
+      (v) => v !== undefined
+    );
+
+    if (examplesAndDemos.length === 0) {
+      return undefined;
+    }
+
+    const cacheBreakpoint =
+      this.contextCache?.cacheBreakpoint ?? 'after-examples';
+    const shouldCacheExamples =
+      !!this.contextCache &&
+      (this.ignoreBreakpoints || cacheBreakpoint === 'after-examples');
+
+    return {
+      role: 'user' as const,
+      content: this.formatUserContent(examplesAndDemos),
+      ...(shouldCacheExamples ? { cache: true } : {}),
+    };
   };
 
   private renderInternal = <T = any>(
@@ -366,6 +402,19 @@ export class AxPromptTemplate {
       cache: !!this.contextCache,
     };
     const systemPromptCharacters = this.task.text.length;
+    // In the legacy multimodal fallback, cached examples must be their own
+    // top-level message so provider adapters can cache them without pulling
+    // live input into the same boundary.
+    const useLegacyMultimodalCacheBoundary =
+      !examplesInSystemPrompt &&
+      !!this.contextCache &&
+      (renderedExamples.length > 0 || renderedDemos.length > 0);
+    const legacyExampleMessage = useLegacyMultimodalCacheBoundary
+      ? this.buildLegacyMultimodalExampleMessage(
+          renderedExamples,
+          renderedDemos
+        )
+      : undefined;
 
     if (Array.isArray(values)) {
       const messages: Extract<
@@ -380,12 +429,14 @@ export class AxPromptTemplate {
         let content: string | ChatRequestUserMessage;
 
         if (firstItem) {
-          content = this.renderSingleValueUserContent(
-            message.values,
-            renderedExamples,
-            renderedDemos,
-            examplesInSystemPrompt
-          );
+          content = useLegacyMultimodalCacheBoundary
+            ? this.renderSingleValueUserContent(message.values, [], [], false)
+            : this.renderSingleValueUserContent(
+                message.values,
+                renderedExamples,
+                renderedDemos,
+                examplesInSystemPrompt
+              );
           firstItem = false;
         } else {
           content = this.renderSingleValueUserContent(
@@ -414,28 +465,34 @@ export class AxPromptTemplate {
         messages.push({ role: 'assistant', content });
       }
 
-      const renderedPrompt = [systemPrompt, ...messages];
       const renderedMutableChars = countChatPromptContentChars(messages as any);
       const mutableChatContextCharacters = examplesInSystemPrompt
         ? renderedMutableChars
         : Math.max(0, renderedMutableChars - exampleChatContextCharacters);
+      const renderedPrompt = legacyExampleMessage
+        ? [systemPrompt, legacyExampleMessage, ...messages]
+        : [systemPrompt, ...messages];
 
       return {
         chatPrompt: renderedPrompt,
         promptMetrics: buildPromptMetrics(
           systemPromptCharacters,
           exampleChatContextCharacters,
-          mutableChatContextCharacters
+          legacyExampleMessage
+            ? renderedMutableChars
+            : mutableChatContextCharacters
         ),
       };
     }
 
-    const userContent = this.renderSingleValueUserContent(
-      values as T,
-      renderedExamples,
-      renderedDemos,
-      examplesInSystemPrompt
-    );
+    const userContent = useLegacyMultimodalCacheBoundary
+      ? this.renderSingleValueUserContent(values as T, [], [], false)
+      : this.renderSingleValueUserContent(
+          values as T,
+          renderedExamples,
+          renderedDemos,
+          examplesInSystemPrompt
+        );
     const renderedMutableChars = countUserContentChars(userContent);
     const mutableChatContextCharacters = examplesInSystemPrompt
       ? renderedMutableChars
@@ -444,12 +501,15 @@ export class AxPromptTemplate {
     return {
       chatPrompt: [
         systemPrompt,
+        ...(legacyExampleMessage ? [legacyExampleMessage] : []),
         { role: 'user' as const, content: userContent },
       ],
       promptMetrics: buildPromptMetrics(
         systemPromptCharacters,
         exampleChatContextCharacters,
-        mutableChatContextCharacters
+        legacyExampleMessage
+          ? renderedMutableChars
+          : mutableChatContextCharacters
       ),
     };
   };
@@ -527,7 +587,7 @@ export class AxPromptTemplate {
       }
     }
 
-    // Apply cache to last assistant message (creates breakpoint after demos)
+    // Apply cache to the tail of the few-shot block (creates breakpoint after demos)
     // Cache if cacheBreakpoint is 'after-examples' (default) or ignoreBreakpoints is true
     const cacheBreakpoint =
       this.contextCache?.cacheBreakpoint ?? 'after-examples';
@@ -540,7 +600,7 @@ export class AxPromptTemplate {
     ) {
       const lastIdx = fewShotMessages.length - 1;
       const lastMsg = fewShotMessages[lastIdx];
-      if (lastMsg?.role === 'assistant') {
+      if (lastMsg) {
         fewShotMessages[lastIdx] = { ...lastMsg, cache: true };
       }
     }
@@ -1569,6 +1629,9 @@ function combineConsecutiveStrings(separator: string) {
       const previous = acc.length > 0 ? acc[acc.length - 1] : null;
       if (previous && previous.type === 'text') {
         previous.text += separator + current.text;
+        if (current.cache) {
+          previous.cache = true;
+        }
       } else {
         acc.push(current);
       }

@@ -114,6 +114,7 @@ Practical rule:
 - If `functions.discovery` is `true`, call `listModuleFunctions(...)` first, then `getFunctionDefinitions(...)`, then call only discovered functions.
 - In stdout-mode RLM, non-final turns must emit exactly one `console.log(...)` and stop immediately after it.
 - Never combine `console.log(...)` with `final(...)` or `askClarification(...)` in the same actor turn.
+- Inside actor-authored JavaScript, `final(...)` and `askClarification(...)` end the current turn immediately; code after them is dead code.
 - If a host-side `AxAgentFunction` needs to end the current actor turn, use `extra.protocol.final(...)` or `extra.protocol.askClarification(...)`.
 - If a child agent needs parent inputs such as `audience`, use `fields.shared` or `fields.globallyShared`.
 - `llmQuery(...)` failures may come back as `[ERROR] ...`; do not assume success.
@@ -368,9 +369,10 @@ askClarification({
 ```
 
 - Supported `type` values are `text`, `number`, `date`, `single_choice`, and `multiple_choice`.
-- Choice payloads require a non-empty `choices` array.
+- `single_choice` payloads with missing, empty, or malformed `choices` are downgraded to a plain clarification question instead of failing the turn.
+- `multiple_choice` payloads must include at least two valid choices; otherwise the actor turn fails with a corrective runtime error that tells the model how to fix the call.
 - Choice entries may be strings or `{ label, value? }` objects.
-- Invalid clarification payloads are treated as actor-turn runtime errors, not as successful clarification completions.
+- Invalid clarification payloads such as a missing `question` are still treated as actor-turn runtime errors, not as successful clarification completions.
 
 What `AxAgentState` contains:
 

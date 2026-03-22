@@ -1007,21 +1007,27 @@ export function shouldEnforceIncrementalConsoleTurns(
 
 export function validateActorTurnCodePolicy(code: string): string | undefined {
   const sanitized = stripJsStringsAndComments(code);
-  const hasFinal = /\bfinal\s*\(/.test(sanitized);
-  const hasAskClarification = /\baskClarification\s*\(/.test(sanitized);
-  const completionSignalCount = Number(hasFinal) + Number(hasAskClarification);
-  const consoleLogCalls = findConsoleLogCalls(sanitized);
-  const discoveryAnalysis = analyzeDiscoveryTurnPolicy(sanitized);
-
-  if (completionSignalCount > 1) {
-    return '[POLICY] Use exactly one completion signal per turn: either final(...) or askClarification(...), not both.';
-  }
+  const statements = splitTopLevelStatements(sanitized);
+  const completionStatementIndex = statements.findIndex((statement) =>
+    hasCompletionSignalCall(statement)
+  );
+  const reachableStatements =
+    completionStatementIndex >= 0
+      ? statements.slice(0, completionStatementIndex + 1)
+      : statements;
+  const reachableCode = reachableStatements.join(';\n');
+  const consoleLogCalls = findConsoleLogCalls(reachableCode);
+  const discoveryCode =
+    completionStatementIndex >= 0
+      ? statements.slice(0, completionStatementIndex).join(';\n')
+      : sanitized;
+  const discoveryAnalysis = analyzeDiscoveryTurnPolicy(discoveryCode);
 
   if (discoveryAnalysis.violation) {
     return discoveryAnalysis.violation;
   }
 
-  if (completionSignalCount === 1) {
+  if (completionStatementIndex >= 0) {
     if (consoleLogCalls.length > 0) {
       return '[POLICY] Do not combine console.log(...) with final(...)/askClarification(...) in the same turn. Inspect in one turn, then complete in the next turn.';
     }
