@@ -550,16 +550,8 @@ function buildCoordinator(env: OfficeEnvironment) {
     functions: { local: env.tools },
     maxTurns: 8,
     contextPolicy: {
-      preset: 'adaptive',
-      state: {
-        summary: true,
-        inspect: true,
-        maxEntries: 8,
-      },
-      checkpoints: {
-        enabled: true,
-        triggerChars: 10_000,
-      },
+      preset: 'checkpointed',
+      budget: 'balanced',
     },
     actorOptions: {
       description:

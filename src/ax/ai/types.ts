@@ -294,7 +294,10 @@ export type AxModelUsage = {
 
 export type AxDebugChatResponseUsage = AxModelUsage & {
   systemPromptCharacters?: number;
+  exampleChatContextCharacters?: number;
+  mutableChatContextCharacters?: number;
   chatContextCharacters?: number;
+  totalPromptCharacters?: number;
 };
 
 export type AxChatResponse = {

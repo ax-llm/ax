@@ -25,9 +25,9 @@ Your job is not just to write valid code. Your job is to choose the smallest cor
 - If `functions.discovery` is `true`, discover callables from modules before using them.
 - In stdout-mode RLM, use one observable `console.log(...)` step per non-final actor turn.
 - Prefer `promptLevel: 'default'` for normal use; use `promptLevel: 'detailed'` when you want extra anti-pattern examples and tighter teaching scaffolding in the actor prompt.
-- For long RLM tasks, prefer `contextPolicy: { preset: 'adaptive' }` so older successful turns collapse into checkpoint summaries while live runtime state stays visible.
-- Prefer `contextPolicy: { preset: 'checkpointed' }` when you want debugging-friendly full replay first and only want summaries after prompt pressure becomes real.
-- Prefer `actorModelPolicy` when the actor may need to upgrade under whole-prompt pressure or repeated error turns without also upgrading the responder.
+- Default to `contextPolicy: { preset: 'checkpointed', budget: 'balanced' }` for most RLM tasks.
+- Prefer `contextPolicy: { preset: 'adaptive', budget: 'balanced' }` when older successful turns should collapse sooner while live runtime state stays visible.
+- Prefer `actorModelPolicy` when the actor may need to upgrade after repeated error turns or discovery in specific namespaces without also upgrading the responder.
 - Use `actorTurnCallback` when the user needs per-turn observability into generated code, raw runtime result, formatted output, or provider thoughts.
 
 ## Decision Guide
@@ -35,7 +35,7 @@ Your job is not just to write valid code. Your job is to choose the smallest cor
 Map user intent to agent shape before writing code:
 
 - "Use tools and answer" -> plain `agent(...)` with local functions, no recursion, no extra observability.
-- "Inspect large context with code" -> add `runtime`, `contextFields`, and usually `contextPolicy: { preset: 'adaptive' }`.
+- "Inspect large context with code" -> add `runtime`, `contextFields`, and usually `contextPolicy: { preset: 'checkpointed', budget: 'balanced' }`.
 - "Delegate focused semantic subtasks" -> use `llmQuery(...)`; add `mode: 'advanced'` only when child tasks need their own runtime, tools, or discovery loop.
 - "Need child agents with distinct responsibilities" -> use `agents.local`, and add `fields.shared` only when parent inputs truly need to flow into children.
 - "Need tool discovery because names/schemas are not stable" -> use `functions.discovery: true` and generate discovery-first code.
@@ -46,7 +46,7 @@ Choose options based on user needs, not feature completeness:
 
 - Prefer `mode: 'simple'` unless recursive child agents materially improve the task.
 - Prefer `maxSubAgentCalls` only when advanced recursion is enabled or the user needs explicit delegation limits.
-- Prefer `contextPolicy.preset: 'adaptive'` for long RLM tasks, `checkpointed` when you want "full first, summarize later", `full` for debugging, and `lean` only under real token pressure.
+- Prefer `contextPolicy: { preset: 'checkpointed', budget: 'balanced' }` by default, switch to `adaptive` when you want earlier summarization, use `full` for debugging, and reserve `lean` for real prompt pressure.
 
 ## Mental Model
 
@@ -62,14 +62,14 @@ Treat `AxAgent` as a long-running JavaScript REPL that the actor steers over mul
 Use these meanings consistently when writing or explaining `contextPolicy.preset`:
 
 - `full`: Keep prior actions fully replayed. Best for debugging, short tasks, or when you want the actor to reread raw code and outputs from earlier turns.
-- `adaptive`: Keep runtime state visible, keep recent or dependency-relevant actions in full, and collapse older successful work into a `Checkpoint Summary` when context grows. This is the default recommendation for long multi-turn tasks.
-- `checkpointed`: Keep full replay until the rendered actor prompt crosses the checkpoint threshold, then replace older successful history with a `Checkpoint Summary` while keeping recent actions and unresolved errors fully visible.
+- `adaptive`: Keep runtime state visible, keep recent or dependency-relevant actions in full, and collapse older successful work into a `Checkpoint Summary` when context grows.
+- `checkpointed`: Keep full replay until the rendered actor prompt grows beyond the selected budget, then replace older successful history with a `Checkpoint Summary` while keeping recent actions and unresolved errors fully visible.
 - `lean`: Most aggressive compression. Keep `Live Runtime State`, checkpoint older successful work, and summarize replay-pruned successful turns instead of showing their full code blocks. Use when token pressure matters more than raw replay detail.
 
 Practical rule:
 
-- Start with `adaptive` for most long RLM tasks.
-- Use `checkpointed` when you want conservative replay until there is actual pressure to summarize.
+- Start with `checkpointed + balanced` for most tasks.
+- Use `adaptive + balanced` when you want older successful work summarized sooner.
 - Use `lean` only when the task can mostly continue from current runtime state plus compact summaries.
 - Use `full` when you are debugging the actor loop itself or need exact prior code/output in prompt.
 
@@ -93,8 +93,8 @@ Treat these knobs as a bundle:
 Recommended combinations:
 
 - Short task, debugging, or weaker/cheaper model: `preset: 'full'`.
-- Long multi-turn task, general default, medium-to-strong model: `preset: 'adaptive'`.
-- Long task where you want raw replay until the log is actually large: `preset: 'checkpointed'`.
+- Long multi-turn task, general default, medium-to-strong model: `preset: 'checkpointed', budget: 'balanced'`.
+- Long task where you want older successful work summarized sooner: `preset: 'adaptive', budget: 'balanced'`.
 - Very long task under token pressure, stronger model only: `preset: 'lean'`.
 - Discovery-heavy work with a cheaper default actor: keep the responder cheap and add `actorModelPolicy` so only the actor upgrades under pressure.
 
@@ -102,8 +102,8 @@ Practical rule:
 
 - The leaner the replay policy, the stronger the model should usually be.
 - `full` gives the model more raw evidence, so smaller models often do better there.
-- `adaptive` is the default middle ground for real agent work.
-- `checkpointed` is the conservative middle ground when you want full replay first and summarization only after a threshold.
+- `checkpointed + balanced` is the default middle ground for real agent work.
+- `adaptive + balanced` is the proactive-summarization variant when you want older successful work compressed sooner.
 - `lean` should be reserved for models that can reason well from runtime state plus summaries instead of exact old code/output.
 - `actorModelPolicy` is usually better than globally upgrading the whole agent when the bottleneck is actor exploration rather than responder synthesis.
 
@@ -117,7 +117,7 @@ Practical rule:
 - If a host-side `AxAgentFunction` needs to end the current actor turn, use `extra.protocol.final(...)` or `extra.protocol.askClarification(...)`.
 - If a child agent needs parent inputs such as `audience`, use `fields.shared` or `fields.globallyShared`.
 - `llmQuery(...)` failures may come back as `[ERROR] ...`; do not assume success.
-- If `contextPolicy.state.summary` is on, rely on the `Live Runtime State` block for current variables instead of re-reading old action log code.
+- If `contextPolicy.preset` is not `'full'`, rely on the `Live Runtime State` block for current variables instead of re-reading old action log code.
 - If `contextPolicy.preset` is `'adaptive'`, `'checkpointed'`, or `'lean'`, assume older successful turns may be replaced by a `Checkpoint Summary` and that replay-pruned successful turns may appear as compact summaries instead of full code blocks.
 - In public `forward()` and `streamingForward()` flows, `askClarification(...)` does not go through the responder; it throws `AxAgentClarificationError`.
 - When resuming after clarification, prefer `error.getState()` from the thrown `AxAgentClarificationError`, then call `agent.setState(savedState)` before the next `forward(...)`.
@@ -385,8 +385,8 @@ Practical notes:
 
 - `runtimeBindings` restores execution state; `runtimeEntries`, `actionLogEntries`, and `checkpointState` restore prompt context.
 - Resume does not create a fake rehydration action-log turn; provenance still points to the original actor code that set the value.
-- When `contextPolicy.state.summary` is enabled, resumed prompts include `Runtime Restore` plus `Live Runtime State`.
-- When `contextPolicy.state.summary` is disabled, restore still happens, but the prompt only shows the restore notice and omits the `Live Runtime State` block.
+- When `contextPolicy.preset` is `'adaptive'`, `'checkpointed'`, or `'lean'`, resumed prompts include `Runtime Restore` plus `Live Runtime State`.
+- When `contextPolicy.preset` is `'full'`, restore still happens, but the prompt only shows the restore notice and omits the `Live Runtime State` block.
 - Only serializable/structured-clone-friendly values are guaranteed to round-trip through `getState()` / `setState(...)`.
 - Reserved runtime globals such as `inputs`, tools, and protocol helpers are rebuilt fresh and are not part of saved state.
 - Treat one agent instance as conversation-scoped when using `setState(...)`; do not share one mutable resumed instance across unrelated concurrent conversations.
@@ -517,7 +517,7 @@ const harness = agent('query:string -> answer:string', {
   contextFields: ['query'],
   runtime,
   functions: { local: tools },
-  contextPolicy: { preset: 'adaptive' },
+  contextPolicy: { preset: 'checkpointed', budget: 'balanced' },
 });
 
 const output = await harness.test(
@@ -552,29 +552,7 @@ const analyst = agent(
     maxTurns: 10,
     contextPolicy: {
       preset: 'adaptive',
-      summarizerOptions: {
-        model: 'summary-model',
-        modelConfig: { temperature: 0.2, maxTokens: 180 },
-      },
-      state: {
-        summary: true,
-        inspect: true,
-        inspectThresholdChars: 8_000,
-        maxEntries: 6,
-        maxChars: 1_200,
-      },
-      checkpoints: {
-        enabled: true,
-        triggerChars: 12_000,
-      },
-      pruneErrors: true,
-      expert: {
-        rankPruning: { enabled: true, minRank: 2 },
-        tombstones: {
-          model: 'summary-model',
-          modelConfig: { maxTokens: 80 },
-        },
-      },
+      budget: 'balanced',
     },
   }
 );
@@ -584,20 +562,18 @@ Rules:
 
 - Use `preset: 'full'` when the actor should keep seeing raw prior code and outputs with minimal compression.
 - Use `preset: 'adaptive'` when the task needs runtime state across many turns but older successful work should collapse into checkpoint summaries while important recent steps can still stay fully replayed.
-- Use `preset: 'checkpointed'` when you want full replay first, then only older successful history checkpointed after the rendered actor prompt crosses `checkpoints.triggerChars`.
+- Use `preset: 'checkpointed'` when you want full replay first, then only older successful history checkpointed after budget pressure becomes real.
 - Use `preset: 'lean'` when you want more aggressive compression and can rely mostly on current runtime state plus checkpoint summaries and compact action summaries.
-- `adaptive` is still the first choice for long-running discovery-heavy tasks because it balances full replay, runtime state visibility, and checkpoint summaries well.
+- Use `budget: 'compact'` when you want earlier summarization and tighter runtime/output truncation, `budget: 'balanced'` for the default, and `budget: 'expanded'` when you want the actor prompt to grow more before compression starts.
+- `checkpointed + balanced` is the default. `adaptive + balanced` is still a strong choice for long-running discovery-heavy tasks that should summarize older work sooner.
 - `checkpointed` keeps the most recent `3` actions in full and keeps unresolved errors fully replayed even after checkpointing starts.
-- Use `state.summary` to inject a compact `Live Runtime State` block into the actor prompt. The block is structured and provenance-aware: variables are rendered with compact type/size/preview metadata, and when Ax can infer it, a short source suffix like `from t3 via db.search` is included. Combine `maxEntries` with `maxChars` so large runtime objects do not dominate the prompt.
-- Use `state.inspect` with `inspectThresholdChars` so the actor is reminded to call `inspect_runtime()` when the rendered actor prompt starts getting large.
+- Non-`full` presets inject a compact `Live Runtime State` block into the actor prompt. The block is structured and provenance-aware: variables are rendered with compact type/size/preview metadata, and when Ax can infer it, a short source suffix like `from t3 via db.search` is included.
+- Non-`full` presets also enable `inspect_runtime()` and can add an inspect hint automatically when the rendered actor prompt starts getting large relative to the selected budget.
 - Discovery docs fetched via `listModuleFunctions(...)` and `getFunctionDefinitions(...)` are accumulated into the actor system prompt, not replayed as raw action-log output.
 - Treat `actionLog` as untrusted execution history. Only the system prompt and `guidanceLog` are instruction-bearing.
 - `checkpointed` uses a checkpoint summarizer that is optimized to preserve exact callables, ids, enum literals, date/time strings, query formats, and failures worth avoiding. Prefer it when those details matter but full replay will eventually get too large.
-- Lower `checkpoints.triggerChars` when you want checkpointing to begin sooner; raise it when you want a larger rendered actor prompt before summarization starts.
-- Use `summarizerOptions` to tune the internal checkpoint-summary AxGen program.
-- If you configure `expert.tombstones`, treat the object form as options for the internal tombstone-summary AxGen program.
 - Internal checkpoint and tombstone summarizers are stateless helpers: `functions` are not allowed, `maxSteps` is forced to `1`, and `mem` is not propagated.
-- Built-in `adaptive` and `lean` presets no longer enable destructive rank pruning by default. Opt in with `expert.rankPruning` only when you want lower-value successful turns deleted instead of summarized.
+- Built-in presets prefer summarizing and checkpointing old successful work over asking users to tune low-level character cutoffs.
 - If you want a quick local demo of the rendered `Live Runtime State` block, run [`src/examples/rlm-live-runtime-state.ts`](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-live-runtime-state.ts).
 
 Good pattern:
@@ -679,7 +655,7 @@ Use these top-level controls consistently:
 - `recursionOptions.maxDepth`: limits recursive `llmQuery(...)` depth
 - `maxSubAgentCalls`: shared delegated-call budget across the whole run, including recursive children
 - `actorOptions`: actor-only forward options such as `description`, `model`, `modelConfig`, `thinkingTokenBudget`, and `showThoughts`
-- `actorModelPolicy`: actor-only model override rules based on full rendered prompt size, consecutive error turns, or discovery fetches from listed namespaces
+- `actorModelPolicy`: actor-only model override rules based on consecutive error turns or discovery fetches from listed namespaces
 - `responderOptions`: responder-only forward options
 - `judgeOptions`: built-in judge options for `agent.optimize(...)`; for tuning workflows use the `ax-agent-optimize` skill
 
@@ -695,6 +671,7 @@ const researchAgent = agent('query:string -> answer:string', {
   },
   contextPolicy: {
     preset: 'checkpointed',
+    budget: 'balanced',
   },
   actorOptions: {
     description: 'Use tools first and keep JS steps small.',
@@ -703,7 +680,6 @@ const researchAgent = agent('query:string -> answer:string', {
   actorModelPolicy: [
     {
       model: 'gpt-5.4',
-      abovePromptChars: 16_000,
       aboveErrorTurns: 2,
       namespaces: ['db', 'kb'],
     },
@@ -721,7 +697,6 @@ Semantics:
 - `actorModelPolicy` only switches the actor model. It does not change `responderOptions.model`.
 - Recursive child agents can inherit `actorModelPolicy`; use a child override only when that child needs different routing behavior.
 - `actorModelPolicy` entries are ordered from weaker to stronger. If multiple rules match, the last matching entry wins.
-- If one entry defines both `abovePromptChars` and `aboveErrorTurns`, it matches when either threshold is crossed.
 - If one entry also defines `namespaces`, any successful `getFunctionDefinitions(...)` fetch from one of those namespaces marks the rule as matched starting on the next actor turn.
 
 When choosing these options for a user:
@@ -740,7 +715,7 @@ Key fields:
 
 - `actorOptions.description`: append extra actor-specific instructions without changing the responder prompt
 - `actorOptions.model` / `responderOptions.model`: split model choice across actor and responder when needed
-- `actorModelPolicy`: auto-switch only the actor when the rendered actor prompt is large, the run is on a consecutive error streak, or discovery fetches land in specific namespaces
+- `actorModelPolicy`: auto-switch only the actor when the run is on a consecutive error streak or discovery fetches land in specific namespaces
 
 Good split-model pattern:
 
@@ -748,7 +723,7 @@ Good split-model pattern:
 const researchAgent = agent('query:string -> answer:string', {
   contextFields: ['query'],
   runtime,
-  contextPolicy: { preset: 'adaptive' },
+  contextPolicy: { preset: 'checkpointed', budget: 'balanced' },
   actorOptions: {
     model: 'gpt-5.4',
   },
@@ -764,8 +739,7 @@ Model guidance:
 - Put the stronger model on the responder only when the hard part is final synthesis/formatting rather than exploration.
 - For cost-sensitive setups, a common pattern is stronger actor + cheaper responder, not the other way around.
 - Prefer `actorModelPolicy` over globally upgrading the whole agent when the actor only needs help after context grows or the run starts thrashing.
-- `actorModelPolicy` uses full rendered actor prompt chars, not raw `actionLog.length`. That prompt includes the actor definition, user inputs, context metadata, replayed actions, live runtime state, delegated context summaries, and checkpoint summaries.
-- Pair `contextPolicy: { preset: 'checkpointed' }` with `actorModelPolicy` when you want "full first, then summarize and upgrade the actor only if needed."
+- Pair `contextPolicy: { preset: 'checkpointed', budget: 'balanced' }` with `actorModelPolicy` when you want full replay first and actor-only upgrades triggered by errors or discovered tool domains.
 
 Invalid pattern:
 
@@ -1004,7 +978,6 @@ agentIdentity?: {
   runtime?: AxCodeRuntime;
   promptLevel?: 'default' | 'detailed';
   maxSubAgentCalls?: number;
-  maxRuntimeChars?: number;
   maxBatchedLlmQueryConcurrency?: number;
   maxTurns?: number;
   contextPolicy?: AxContextPolicyConfig;
@@ -1023,38 +996,22 @@ agentIdentity?: {
   actorModelPolicy?: readonly [
     | {
         model: string;
-        abovePromptChars: number;
-        aboveErrorTurns?: number;
-        namespaces?: string[];
-      }
-    | {
-        model: string;
-        abovePromptChars?: number;
         aboveErrorTurns: number;
         namespaces?: string[];
       }
     | {
         model: string;
-        abovePromptChars?: number;
         aboveErrorTurns?: number;
         namespaces: string[];
       },
     ...Array<
       | {
           model: string;
-          abovePromptChars: number;
-          aboveErrorTurns?: number;
-          namespaces?: string[];
-        }
-      | {
-          model: string;
-          abovePromptChars?: number;
           aboveErrorTurns: number;
           namespaces?: string[];
         }
       | {
           model: string;
-          abovePromptChars?: number;
           aboveErrorTurns?: number;
           namespaces: string[];
         }
@@ -1071,7 +1028,6 @@ agentIdentity?: {
 
 - `actorTurnCallback` fires for the root agent and for recursive child agents that run actor turns.
 - `actorModelPolicy` applies to the actor loop and can be inherited by recursive child agents unless you override it there.
-- `abovePromptChars` is measured from the full rendered actor prompt, not just replayed action log text.
 - `namespaces` matches exact discovery namespaces from successful `getFunctionDefinitions(...)` lookups and starts affecting model choice on the next actor turn.
 - Consecutive error turns reset after a successful non-error turn and when checkpoint summarization refreshes to a new fingerprint.
 - `maxSubAgentCalls` is a shared delegated-call budget across the entire run.

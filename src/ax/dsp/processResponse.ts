@@ -166,8 +166,14 @@ export async function* processStreamingResponse<OUT extends AxGenOut>({
       if (args.debugPromptMetrics) {
         usageWithoutCitations.systemPromptCharacters =
           args.debugPromptMetrics.systemPromptCharacters;
+        usageWithoutCitations.exampleChatContextCharacters =
+          args.debugPromptMetrics.exampleChatContextCharacters;
+        usageWithoutCitations.mutableChatContextCharacters =
+          args.debugPromptMetrics.mutableChatContextCharacters;
         usageWithoutCitations.chatContextCharacters =
           args.debugPromptMetrics.chatContextCharacters;
+        usageWithoutCitations.totalPromptCharacters =
+          args.debugPromptMetrics.totalPromptCharacters;
       }
 
       args.logger({
@@ -788,8 +794,14 @@ export async function* processResponse<OUT>({
         if (debugPromptMetrics) {
           debugUsage.systemPromptCharacters =
             debugPromptMetrics.systemPromptCharacters;
+          debugUsage.exampleChatContextCharacters =
+            debugPromptMetrics.exampleChatContextCharacters;
+          debugUsage.mutableChatContextCharacters =
+            debugPromptMetrics.mutableChatContextCharacters;
           debugUsage.chatContextCharacters =
             debugPromptMetrics.chatContextCharacters;
+          debugUsage.totalPromptCharacters =
+            debugPromptMetrics.totalPromptCharacters;
         }
 
         logger({

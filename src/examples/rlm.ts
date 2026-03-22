@@ -28,8 +28,12 @@ const analyzer = agent(
     },
     maxSubAgentCalls: 30,
     mode: 'simple',
+    contextPolicy: {
+      preset: 'checkpointed',
+      budget: 'balanced',
+    },
     // Additional RLM guardrails are also supported:
-    // - maxRuntimeChars (shared cap for llmQuery context + interpreter output)
+    // - alternate contextPolicy presets/budgets for earlier or stronger summarization
     // - maxBatchedLlmQueryConcurrency
     debug: true,
   }

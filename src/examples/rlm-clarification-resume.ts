@@ -100,15 +100,8 @@ const buildResumeAgent = () =>
     contextFields: [],
     runtime: new AxJSRuntime(),
     contextPolicy: {
-      preset: 'adaptive',
-      state: {
-        summary: true,
-        inspect: true,
-        maxEntries: 6,
-      },
-      checkpoints: {
-        enabled: false,
-      },
+      preset: 'checkpointed',
+      budget: 'balanced',
     },
   });
 

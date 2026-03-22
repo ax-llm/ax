@@ -35,24 +35,7 @@ const analyzer = agent(
 
     contextPolicy: {
       preset: 'lean',
-      state: {
-        summary: true,
-        inspect: true,
-        inspectThresholdChars: 3_000,
-        maxEntries: 6,
-      },
-      checkpoints: {
-        enabled: true,
-        triggerChars: 3_000,
-      },
-      pruneErrors: true,
-      expert: {
-        rankPruning: { enabled: true, minRank: 2 },
-        tombstones: {
-          model: AxAIGoogleGeminiModel.Gemini3Flash,
-          modelConfig: { maxTokens: 60 },
-        },
-      },
+      budget: 'compact',
     },
 
     debug: true,

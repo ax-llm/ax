@@ -1,5 +1,13 @@
 import type { AxChatRequest } from './types.js';
 
+export type AxPromptMetrics = {
+  systemPromptCharacters: number;
+  exampleChatContextCharacters: number;
+  mutableChatContextCharacters: number;
+  chatContextCharacters: number;
+  totalPromptCharacters: number;
+};
+
 /** @internal Count only prompt-visible text content across chat messages. */
 export function countChatPromptContentChars(
   chatPrompt: Readonly<AxChatRequest['chatPrompt']> | undefined
@@ -43,4 +51,22 @@ export function countChatPromptContentChars(
   }
 
   return totalLength;
+}
+
+/** @internal */
+export function buildPromptMetrics(
+  systemPromptCharacters: number,
+  exampleChatContextCharacters: number,
+  mutableChatContextCharacters: number
+): AxPromptMetrics {
+  const chatContextCharacters =
+    exampleChatContextCharacters + mutableChatContextCharacters;
+
+  return {
+    systemPromptCharacters,
+    exampleChatContextCharacters,
+    mutableChatContextCharacters,
+    chatContextCharacters,
+    totalPromptCharacters: systemPromptCharacters + chatContextCharacters,
+  };
 }

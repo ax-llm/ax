@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { countChatPromptContentChars } from '../ai/promptMetrics.js';
 import { AxPromptTemplate } from './prompt.js';
 import { AxSignature, f } from './sig.js';
 import type { AxMessage } from './types.js';
@@ -96,6 +97,129 @@ describe('AxPromptTemplate.render', () => {
       // Final user message should contain actual query
       const actualUser = result[3] as { role: 'user'; content: string };
       expect(actualUser.content).toContain('User Query: test');
+    });
+  });
+
+  describe('renderWithMetrics', () => {
+    it('should report only mutable chat context when no examples are present', () => {
+      const signature = new AxSignature(
+        'userQuery:string -> aiResponse:string "the result"'
+      );
+      const template = new AxPromptTemplate(signature);
+
+      const rendered = template.renderWithMetrics({ userQuery: 'test' }, {});
+
+      expect(rendered.promptMetrics.exampleChatContextCharacters).toBe(0);
+      expect(rendered.promptMetrics.mutableChatContextCharacters).toBe(
+        countChatPromptContentChars(rendered.chatPrompt.slice(1) as any)
+      );
+      expect(rendered.promptMetrics.totalPromptCharacters).toBe(
+        countChatPromptContentChars(rendered.chatPrompt as any)
+      );
+    });
+
+    it('should separate example and mutable chars for message-pair examples', () => {
+      const signature = new AxSignature(
+        'userQuery:string -> aiResponse:string "the result"'
+      );
+      const template = new AxPromptTemplate(signature);
+
+      const rendered = template.renderWithMetrics(
+        { userQuery: 'test' },
+        {
+          examples: [{ userQuery: 'hello', aiResponse: 'world' }],
+        }
+      );
+
+      expect(rendered.promptMetrics.exampleChatContextCharacters).toBe(
+        countChatPromptContentChars(rendered.chatPrompt.slice(1, 3) as any)
+      );
+      expect(rendered.promptMetrics.mutableChatContextCharacters).toBe(
+        countChatPromptContentChars(rendered.chatPrompt.slice(3) as any)
+      );
+      expect(
+        rendered.promptMetrics.exampleChatContextCharacters
+      ).toBeGreaterThan(0);
+      expect(rendered.promptMetrics.totalPromptCharacters).toBe(
+        countChatPromptContentChars(rendered.chatPrompt as any)
+      );
+    });
+
+    it('should keep examples separate in metrics when examples are embedded into the system prompt', () => {
+      const signature = new AxSignature(
+        'userQuery:string -> aiResponse:string "the result"'
+      );
+      const template = new AxPromptTemplate(signature, {
+        examplesInSystem: true,
+      });
+
+      const rendered = template.renderWithMetrics(
+        { userQuery: 'test' },
+        {
+          examples: [{ userQuery: 'hello', aiResponse: 'world' }],
+        }
+      );
+
+      expect(
+        rendered.promptMetrics.exampleChatContextCharacters
+      ).toBeGreaterThan(0);
+      expect(rendered.promptMetrics.mutableChatContextCharacters).toBe(
+        countChatPromptContentChars(rendered.chatPrompt.slice(1) as any)
+      );
+      expect(
+        rendered.promptMetrics.systemPromptCharacters +
+          rendered.promptMetrics.exampleChatContextCharacters +
+          rendered.promptMetrics.mutableChatContextCharacters
+      ).toBe(rendered.promptMetrics.totalPromptCharacters);
+      expect(rendered.promptMetrics.totalPromptCharacters).toBe(
+        countChatPromptContentChars(rendered.chatPrompt as any)
+      );
+    });
+
+    it('should separate example chars from mutable multi-turn history', () => {
+      const signature = new AxSignature(
+        'userQuery:string -> aiResponse:string "the result"'
+      );
+      const template = new AxPromptTemplate(signature);
+      const history: AxMessage<{ userQuery: string }>[] = [
+        { role: 'user', values: { userQuery: 'first question' } },
+        { role: 'assistant', values: { userQuery: 'first answer' } },
+        { role: 'user', values: { userQuery: 'follow-up' } },
+      ];
+
+      const rendered = template.renderWithMetrics(history, {
+        examples: [{ userQuery: 'hello', aiResponse: 'world' }],
+      });
+
+      expect(rendered.promptMetrics.exampleChatContextCharacters).toBe(
+        countChatPromptContentChars(rendered.chatPrompt.slice(1, 3) as any)
+      );
+      expect(rendered.promptMetrics.mutableChatContextCharacters).toBe(
+        countChatPromptContentChars(rendered.chatPrompt.slice(3) as any)
+      );
+      expect(rendered.promptMetrics.totalPromptCharacters).toBe(
+        countChatPromptContentChars(rendered.chatPrompt as any)
+      );
+    });
+
+    it('should count only text parts for multimodal mutable user content', () => {
+      const signature = new AxSignature('note:string -> answer:string');
+      const template = new AxPromptTemplate(signature, undefined, {
+        note: (_field, value) => [
+          { type: 'text', text: `Note: ${String(value)}` },
+          { type: 'image', image: 'data:image/png;base64,abc' },
+        ],
+      });
+
+      const rendered = template.renderWithMetrics({ note: 'look here' }, {});
+
+      expect(rendered.promptMetrics.exampleChatContextCharacters).toBe(0);
+      expect(rendered.promptMetrics.mutableChatContextCharacters).toBe(
+        'Note: look here\n'.length
+      );
+      expect(rendered.promptMetrics.totalPromptCharacters).toBe(
+        countChatPromptContentChars(rendered.chatPrompt as any)
+      );
     });
   });
 

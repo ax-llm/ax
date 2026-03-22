@@ -63,6 +63,7 @@ import type {
   AxCodeSession,
   AxCodeSessionSnapshotEntry,
   AxContextPolicyConfig,
+  AxContextPolicyBudget,
   AxContextPolicyPreset,
   AxRLMConfig,
 } from './rlm.js';
@@ -94,10 +95,10 @@ import {
   DEFAULT_RLM_BATCH_CONCURRENCY,
   DEFAULT_RLM_MAX_LLM_CALLS,
   DEFAULT_RLM_MAX_RECURSION_DEPTH,
-  DEFAULT_RLM_MAX_RUNTIME_CHARS,
   DEFAULT_RLM_MAX_TURNS,
   getActorModelConsecutiveErrorTurns,
   getActorModelMatchedNamespaces,
+  MAX_RUNTIME_CHARS_MIGRATION_ERROR,
   normalizeRestoredActorModelState,
   resetActorModelErrorTurns,
   resolveActorModelPolicy,
@@ -283,17 +284,11 @@ export type AxAgentStateRuntimeEntry = AxCodeSessionSnapshotEntry;
 type AxActorModelPolicyEntryBase = {
   model: string;
   namespaces?: readonly string[];
-  abovePromptChars?: number;
   aboveErrorTurns?: number;
 };
 
 export type AxActorModelPolicyEntry =
-  | (AxActorModelPolicyEntryBase & {
-      abovePromptChars: number;
-    })
-  | (AxActorModelPolicyEntryBase & {
-      aboveErrorTurns: number;
-    })
+  | (AxActorModelPolicyEntryBase & { aboveErrorTurns: number })
   | (AxActorModelPolicyEntryBase & {
       namespaces: readonly string[];
     });
@@ -585,8 +580,6 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
   promptLevel?: 'default' | 'detailed';
   /** Cap on recursive sub-agent calls (default: 50). */
   maxSubAgentCalls?: number;
-  /** Maximum characters for RLM runtime payloads (default: 5000). */
-  maxRuntimeChars?: number;
   /** Maximum parallel llmQuery calls in batched mode (default: 8). */
   maxBatchedLlmQueryConcurrency?: number;
   /** Maximum Actor turns before forcing Responder (default: 10). */
@@ -608,8 +601,8 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
   /** Sub-query execution mode (default: 'simple'). */
   mode?: 'simple' | 'advanced';
   /**
-   * Ordered Actor-model overrides keyed by rendered prompt size or consecutive
-   * error turns. Later entries take precedence over earlier ones.
+   * Ordered Actor-model overrides keyed by consecutive error turns or namespace matches.
+   * Later entries take precedence over earlier ones.
    */
   actorModelPolicy?: AxActorModelPolicy;
   /** Default forward options for recursive llmQuery sub-agent calls. */
@@ -683,6 +676,7 @@ type AxLlmQueryPromptMode =
 
 export type AxResolvedContextPolicy = {
   preset: AxContextPolicyPreset;
+  budget: AxContextPolicyBudget;
   summarizerOptions?: Omit<AxProgramForwardOptions<string>, 'functions'>;
   actionReplay: 'full' | 'adaptive' | 'minimal' | 'checkpointed';
   recentFullActions: number;
@@ -700,11 +694,12 @@ export type AxResolvedContextPolicy = {
     enabled: boolean;
     triggerChars?: number;
   };
+  targetPromptChars: number;
+  maxRuntimeChars: number;
 };
 
 export type AxResolvedActorModelPolicyEntry = {
   model: string;
-  abovePromptChars?: number;
   aboveErrorTurns?: number;
   namespaces?: string[];
 };
@@ -1413,7 +1408,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       contextFields = [],
       runtime,
       maxSubAgentCalls,
-      maxRuntimeChars,
       maxBatchedLlmQueryConcurrency,
       maxTurns,
       contextPolicy,
@@ -1439,6 +1433,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     this.enforceIncrementalConsoleTurns = shouldEnforceIncrementalConsoleTurns(
       this.runtimeUsageInstructions
     );
+
+    if ('maxRuntimeChars' in options) {
+      throw new Error(MAX_RUNTIME_CHARS_MIGRATION_ERROR);
+    }
 
     const resolvedAgentModuleNamespace =
       agentModuleNamespace ??
@@ -1509,7 +1507,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       sharedFields: options.fields?.shared,
       runtime: this.runtime,
       maxSubAgentCalls,
-      maxRuntimeChars,
       maxBatchedLlmQueryConcurrency,
       maxTurns,
       contextPolicy,
@@ -3020,8 +3017,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const rlm = this.rlmConfig;
     const runtime = this.runtime;
     const maxSubAgentCalls = rlm.maxSubAgentCalls ?? DEFAULT_RLM_MAX_LLM_CALLS;
-    const maxRuntimeChars =
-      rlm.maxRuntimeChars ?? DEFAULT_RLM_MAX_RUNTIME_CHARS;
     const maxBatchedLlmQueryConcurrency = Math.max(
       1,
       rlm.maxBatchedLlmQueryConcurrency ?? DEFAULT_RLM_BATCH_CONCURRENCY
@@ -3030,6 +3025,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       this.recursionForwardOptions?.maxDepth ?? DEFAULT_RLM_MAX_RECURSION_DEPTH;
     const recursionMaxDepth = Math.max(0, configuredRecursionMaxDepth);
     const effectiveContextConfig = resolveContextPolicy(rlm.contextPolicy);
+    const maxRuntimeChars = effectiveContextConfig.maxRuntimeChars;
     const llmQueryBudgetState = this.llmQueryBudgetState ?? { used: 0 };
     const activeRecursiveSubAgents = new Set<
       AxAgent<any, { answer: AxFieldValue }>
@@ -4610,25 +4606,19 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           actionLogText,
           guidanceLogText
         );
-        let addedInspectHint = false;
         if (
           contextThreshold &&
           promptCharsWithoutInspectHint > contextThreshold
         ) {
-          addedInspectHint = true;
           actionLogText +=
             '\n\n[HINT: Actor prompt is large. Call `const state = await inspect_runtime()` for a compact snapshot of current variables instead of re-reading old outputs.]';
         }
-        const finalPromptFacingChars = !addedInspectHint
-          ? promptCharsWithoutInspectHint
-          : await measureActorPromptChars(actionLogText, guidanceLogText);
 
         let actorCallOptions = actorMergedOptions;
         if (this.actorModelPolicy) {
           syncDiscoveredActorModelNamespaces();
           const selectedModel = selectActorModelFromPolicy(
             this.actorModelPolicy,
-            finalPromptFacingChars,
             getActorModelConsecutiveErrorTurns(actorModelState),
             getActorModelMatchedNamespaces(actorModelState)
           );
@@ -4763,7 +4753,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
               code,
               output: formatBubbledActorTurnOutput(
                 err,
-                rlm.maxRuntimeChars ?? DEFAULT_RLM_MAX_RUNTIME_CHARS
+                runtimeContext.effectiveContextConfig.maxRuntimeChars
               ),
               isError: err instanceof AxAIServiceAbortedError,
               thought:
@@ -4779,7 +4769,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
                 result: undefined,
                 output: formatBubbledActorTurnOutput(
                   err,
-                  rlm.maxRuntimeChars ?? DEFAULT_RLM_MAX_RUNTIME_CHARS
+                  runtimeContext.effectiveContextConfig.maxRuntimeChars
                 ),
                 isError: err instanceof AxAIServiceAbortedError,
                 thought:

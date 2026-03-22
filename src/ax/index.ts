@@ -293,6 +293,7 @@ import {
   axAnalyzeChatPromptRequirements,
   axProcessContentForProvider,
 } from './ai/processor.js';
+import type { AxPromptMetrics } from './ai/promptMetrics.js';
 import {
   AxAIReka,
   type AxAIRekaArgs,
@@ -594,6 +595,7 @@ import {
   type AxFieldTemplateFn,
   AxPromptTemplate,
   type AxPromptTemplateOptions,
+  type AxRenderedPrompt,
 } from './dsp/prompt.js';
 import { AxInstanceRegistry } from './dsp/registry.js';
 import type { AxSamplePickerOptions } from './dsp/samples.js';
@@ -826,6 +828,7 @@ import {
   type AxCodeSession,
   type AxCodeSessionSnapshot,
   type AxCodeSessionSnapshotEntry,
+  type AxContextPolicyBudget,
   type AxContextPolicyConfig,
   type AxContextPolicyPreset,
   type AxRLMConfig,
@@ -1366,6 +1369,7 @@ export type { AxContextCacheRegistry };
 export type { AxContextCacheRegistryEntry };
 export type { AxContextFieldInput };
 export type { AxContextFieldPromptConfig };
+export type { AxContextPolicyBudget };
 export type { AxContextPolicyConfig };
 export type { AxContextPolicyPreset };
 export type { AxCostTracker };
@@ -1542,10 +1546,12 @@ export type { AxProgramStreamingForwardOptionsWithModels };
 export type { AxProgramTrace };
 export type { AxProgramUsage };
 export type { AxProgrammable };
+export type { AxPromptMetrics };
 export type { AxPromptTemplateOptions };
 export type { AxRLMConfig };
 export type { AxRateLimiterFunction };
 export type { AxRateLimiterTokenUsageOptions };
+export type { AxRenderedPrompt };
 export type { AxRerankerIn };
 export type { AxRerankerOut };
 export type { AxResolvedActorModelPolicy };

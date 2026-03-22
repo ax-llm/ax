@@ -143,7 +143,7 @@ const assistant = agent('query:string -> answer:string', {
   contextFields: [],
   runtime: new AxJSRuntime(),
   functions: { local: tools },
-  contextPolicy: { preset: 'adaptive' },
+  contextPolicy: { preset: 'checkpointed', budget: 'balanced' },
   judgeOptions: {
     description: 'Prefer correct tool use over polished wording.',
     model: 'judge-model',

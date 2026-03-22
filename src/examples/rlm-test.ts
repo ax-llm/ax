@@ -21,7 +21,8 @@ export const rlmTestAgent = agent(
     runtime,
     functions: { local: testTools },
     contextPolicy: {
-      preset: 'adaptive',
+      preset: 'checkpointed',
+      budget: 'balanced',
     },
   }
 );

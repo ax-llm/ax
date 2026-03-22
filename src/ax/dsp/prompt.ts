@@ -1,3 +1,8 @@
+import {
+  buildPromptMetrics,
+  countChatPromptContentChars,
+  type AxPromptMetrics,
+} from '../ai/promptMetrics.js';
 import type { AxChatRequest, AxContextCacheOptions } from '../ai/types.js';
 
 import { renderPromptTemplate } from '../prompts/templateEngine.js';
@@ -49,6 +54,14 @@ type DemoMessagePair = {
   };
 };
 
+export type AxRenderedPrompt = {
+  chatPrompt: Extract<
+    AxChatRequest['chatPrompt'][number],
+    { role: 'user' | 'system' | 'assistant' | 'function' }
+  >[];
+  promptMetrics: AxPromptMetrics;
+};
+
 const exampleSeparator = renderPromptTemplate('dsp/example-separator.md');
 const exampleDisclaimer = '## Example Demonstrations';
 
@@ -56,6 +69,36 @@ export type AxFieldTemplateFn = (
   field: Readonly<AxField>,
   value: Readonly<AxFieldValue>
 ) => ChatRequestUserMessage;
+
+function countUserContentChars(
+  content: string | ChatRequestUserMessage
+): number {
+  if (typeof content === 'string') {
+    return content.length;
+  }
+
+  let total = 0;
+  for (const part of content) {
+    if (part.type === 'text') {
+      total += part.text.length;
+    }
+  }
+
+  return total;
+}
+
+function countPromptPartsChars(
+  parts: Readonly<ChatRequestUserMessage>
+): number {
+  let total = 0;
+  for (const part of parts) {
+    if (part.type === 'text') {
+      total += part.text.length;
+    }
+  }
+
+  return total;
+}
 
 export class AxPromptTemplate {
   private sig: Readonly<AxSignature>;
@@ -268,20 +311,17 @@ export class AxPromptTemplate {
       : prompt.reduce(combineConsecutiveStrings('\n'), []);
   };
 
-  public render = <T = any>(
-    values: T | ReadonlyArray<AxMessage<T>>, // Allow T or array of AxMessages
+  private renderInternal = <T = any>(
+    values: T | ReadonlyArray<AxMessage<T>>,
     {
       examples,
       demos,
     }: Readonly<{
       skipSystemPrompt?: boolean;
-      examples?: Record<string, AxFieldValue>[]; // Keep as is, examples are specific structures
-      demos?: Record<string, AxFieldValue>[]; // Keep as is
+      examples?: Record<string, AxFieldValue>[];
+      demos?: Record<string, AxFieldValue>[];
     }>
-  ): Extract<
-    AxChatRequest['chatPrompt'][number],
-    { role: 'user' | 'system' | 'assistant' | 'function' }
-  >[] => {
+  ): AxRenderedPrompt => {
     // New behavior: render examples/demos as alternating user/assistant message pairs
     if (!this.examplesInSystem) {
       return this.renderWithMessagePairs(values, { examples, demos });
@@ -296,6 +336,9 @@ export class AxPromptTemplate {
       : [];
 
     const renderedDemos = demos ? this.renderDemos(demos) : [];
+    const exampleChatContextCharacters =
+      countPromptPartsChars(renderedExamples) +
+      countPromptPartsChars(renderedDemos);
 
     // Check if demos and examples are all text type
     const allTextExamples = renderedExamples.every((v) => v.type === 'text');
@@ -312,7 +355,7 @@ export class AxPromptTemplate {
       ];
       combinedItems.reduce(combineConsecutiveStrings(''), []);
 
-      if (combinedItems?.[0]) {
+      if (combinedItems[0]) {
         systemContent = combinedItems[0].text;
       }
     }
@@ -320,8 +363,9 @@ export class AxPromptTemplate {
     const systemPrompt = {
       role: 'system' as const,
       content: systemContent,
-      cache: !!this.contextCache, // Auto-enable cache flag if contextCache is present
+      cache: !!this.contextCache,
     };
+    const systemPromptCharacters = this.task.text.length;
 
     if (Array.isArray(values)) {
       const messages: Extract<
@@ -370,19 +414,66 @@ export class AxPromptTemplate {
         messages.push({ role: 'assistant', content });
       }
 
-      return [systemPrompt, ...messages];
+      const renderedPrompt = [systemPrompt, ...messages];
+      const renderedMutableChars = countChatPromptContentChars(messages as any);
+      const mutableChatContextCharacters = examplesInSystemPrompt
+        ? renderedMutableChars
+        : Math.max(0, renderedMutableChars - exampleChatContextCharacters);
+
+      return {
+        chatPrompt: renderedPrompt,
+        promptMetrics: buildPromptMetrics(
+          systemPromptCharacters,
+          exampleChatContextCharacters,
+          mutableChatContextCharacters
+        ),
+      };
     }
 
-    // values is T - existing logic path
     const userContent = this.renderSingleValueUserContent(
       values as T,
       renderedExamples,
       renderedDemos,
       examplesInSystemPrompt
     );
+    const renderedMutableChars = countUserContentChars(userContent);
+    const mutableChatContextCharacters = examplesInSystemPrompt
+      ? renderedMutableChars
+      : Math.max(0, renderedMutableChars - exampleChatContextCharacters);
 
-    return [systemPrompt, { role: 'user' as const, content: userContent }];
+    return {
+      chatPrompt: [
+        systemPrompt,
+        { role: 'user' as const, content: userContent },
+      ],
+      promptMetrics: buildPromptMetrics(
+        systemPromptCharacters,
+        exampleChatContextCharacters,
+        mutableChatContextCharacters
+      ),
+    };
   };
+
+  public render = <T = any>(
+    values: T | ReadonlyArray<AxMessage<T>>,
+    options: Readonly<{
+      skipSystemPrompt?: boolean;
+      examples?: Record<string, AxFieldValue>[];
+      demos?: Record<string, AxFieldValue>[];
+    }>
+  ): Extract<
+    AxChatRequest['chatPrompt'][number],
+    { role: 'user' | 'system' | 'assistant' | 'function' }
+  >[] => this.renderInternal(values, options).chatPrompt;
+
+  public renderWithMetrics = <T = any>(
+    values: T | ReadonlyArray<AxMessage<T>>,
+    options: Readonly<{
+      skipSystemPrompt?: boolean;
+      examples?: Record<string, AxFieldValue>[];
+      demos?: Record<string, AxFieldValue>[];
+    }>
+  ): AxRenderedPrompt => this.renderInternal(values, options);
 
   /**
    * Render prompt with examples/demos as alternating user/assistant message pairs.
@@ -397,10 +488,7 @@ export class AxPromptTemplate {
       examples?: Record<string, AxFieldValue>[];
       demos?: Record<string, AxFieldValue>[];
     }>
-  ): Extract<
-    AxChatRequest['chatPrompt'][number],
-    { role: 'user' | 'system' | 'assistant' | 'function' }
-  >[] => {
+  ): AxRenderedPrompt => {
     // Check if we have examples or demos
     const hasExamplesOrDemos =
       (examples && examples.length > 0) || (demos && demos.length > 0);
@@ -505,7 +593,14 @@ export class AxPromptTemplate {
         historyMessages.push({ role: 'assistant', content });
       }
 
-      return [systemPrompt, ...fewShotMessages, ...historyMessages];
+      return {
+        chatPrompt: [systemPrompt, ...fewShotMessages, ...historyMessages],
+        promptMetrics: buildPromptMetrics(
+          countChatPromptContentChars([systemPrompt] as any),
+          countChatPromptContentChars(fewShotMessages as any),
+          countChatPromptContentChars(historyMessages as any)
+        ),
+      };
     }
 
     // Single-turn: separate cached and non-cached fields
@@ -568,9 +663,7 @@ export class AxPromptTemplate {
           ? nonCachedContent.map((v) => v.text).join('\n')
           : nonCachedContent.reduce(combineConsecutiveStrings('\n'), []);
 
-      return [
-        systemPrompt,
-        ...fewShotMessages,
+      const mutableMessages = [
         {
           role: 'user' as const,
           content: formattedCachedContent,
@@ -578,6 +671,15 @@ export class AxPromptTemplate {
         },
         { role: 'user' as const, content: formattedNonCachedContent },
       ];
+
+      return {
+        chatPrompt: [systemPrompt, ...fewShotMessages, ...mutableMessages],
+        promptMetrics: buildPromptMetrics(
+          countChatPromptContentChars([systemPrompt] as any),
+          countChatPromptContentChars(fewShotMessages as any),
+          countChatPromptContentChars(mutableMessages as any)
+        ),
+      };
     }
 
     // Handle case: all fields cached, only cached fields, or no caching - render together
@@ -614,15 +716,22 @@ export class AxPromptTemplate {
     const allFieldsCached =
       hasCachedFields && nonCachedFields.length === 0 && this.contextCache;
 
-    return [
-      systemPrompt,
-      ...fewShotMessages,
+    const mutableMessages = [
       {
         role: 'user' as const,
         content: formattedUserContent,
         ...(allFieldsCached ? { cache: true } : {}),
       },
     ];
+
+    return {
+      chatPrompt: [systemPrompt, ...fewShotMessages, ...mutableMessages],
+      promptMetrics: buildPromptMetrics(
+        countChatPromptContentChars([systemPrompt] as any),
+        countChatPromptContentChars(fewShotMessages as any),
+        countChatPromptContentChars(mutableMessages as any)
+      ),
+    };
   };
 
   public renderExtraFields = (extraFields: readonly AxIField[]) => {

@@ -32,20 +32,7 @@ const incidentAnalyst = agent(
     mode: 'simple',
     contextPolicy: {
       preset: 'adaptive',
-      state: {
-        summary: true,
-        inspect: true,
-        inspectThresholdChars: 2_000,
-        maxEntries: 6,
-      },
-      checkpoints: {
-        enabled: true,
-        triggerChars: 2_000,
-      },
-      pruneErrors: true,
-      expert: {
-        rankPruning: { enabled: true, minRank: 2 },
-      },
+      budget: 'compact',
     },
     actorOptions: {
       thinkingTokenBudget: 'minimal',

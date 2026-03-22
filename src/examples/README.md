@@ -32,7 +32,7 @@ npm run tsx src/examples/ace-train-inference.ts
 
 ## Live Runtime State Example
 
-A small runnable example focused on the AxAgent runtime-state pipeline. It enables `contextPolicy.state.summary` and `state.inspect`, then runs a mock two-turn agent loop and prints the captured `Live Runtime State` block so you can verify the structured runtime-state formatting locally without needing an LLM API key.
+A small runnable example focused on the AxAgent runtime-state pipeline. It uses a non-`full` context preset so the agent keeps a compact `Live Runtime State` block available, then runs a mock two-turn agent loop and prints the captured state block so you can verify the structured runtime-state formatting locally without needing an LLM API key.
 
 **Quick Start:**
 ```bash

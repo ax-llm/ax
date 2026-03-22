@@ -1,4 +1,8 @@
-import type { AxContextPolicyConfig, AxContextPolicyPreset } from './rlm.js';
+import type {
+  AxContextPolicyBudget,
+  AxContextPolicyConfig,
+  AxContextPolicyPreset,
+} from './rlm.js';
 import type {
   AxActorModelPolicy,
   AxAgentStateActorModelState,
@@ -15,7 +19,11 @@ export const DEFAULT_CONTEXT_FIELD_PROMPT_MAX_CHARS = 1_200;
 export const DEFAULT_AGENT_MODULE_NAMESPACE = 'agents';
 export const DEFAULT_RANK_PRUNE_GRACE_TURNS = 2;
 export const ACTOR_MODEL_POLICY_MIGRATION_ERROR =
-  'actorModelPolicy now expects an ordered array of { model, abovePromptChars?, aboveErrorTurns? } entries. Example: actorModelPolicy: [{ model: "gpt-5.4-mini", abovePromptChars: 16000 }, { model: "gpt-5.4", aboveErrorTurns: 2 }]';
+  'actorModelPolicy now expects an ordered array of { model, namespaces?, aboveErrorTurns? } entries. Manage prompt pressure with contextPolicy.budget instead of abovePromptChars.';
+const CONTEXT_POLICY_MIGRATION_ERROR =
+  'contextPolicy now only supports { preset?, budget? }. Use contextPolicy.budget instead of contextPolicy.state.*, contextPolicy.checkpoints.*, or other manual cutoff options.';
+export const MAX_RUNTIME_CHARS_MIGRATION_ERROR =
+  'maxRuntimeChars has been removed. Use contextPolicy.budget to control runtime output truncation and prompt pressure.';
 
 function normalizeOptionalModelName(value: unknown, fieldName: string): string {
   if (typeof value !== 'string' || value.trim().length === 0) {
@@ -91,6 +99,7 @@ export function resolveActorModelPolicy(
     if (
       'escalatedModel' in rawEntry ||
       'baseModel' in rawEntry ||
+      'abovePromptChars' in rawEntry ||
       'escalateAtPromptChars' in rawEntry ||
       'escalateAtPromptCharsWhenCheckpointed' in rawEntry ||
       'recentErrorWindowTurns' in rawEntry ||
@@ -103,10 +112,6 @@ export function resolveActorModelPolicy(
       throw new Error(ACTOR_MODEL_POLICY_MIGRATION_ERROR);
     }
 
-    const abovePromptChars = normalizeOptionalThreshold(
-      rawEntry.abovePromptChars,
-      `actorModelPolicy[${index}].abovePromptChars`
-    );
     const aboveErrorTurns = normalizeOptionalThreshold(
       rawEntry.aboveErrorTurns,
       `actorModelPolicy[${index}].aboveErrorTurns`
@@ -121,13 +126,9 @@ export function resolveActorModelPolicy(
       );
     }
 
-    if (
-      abovePromptChars === undefined &&
-      aboveErrorTurns === undefined &&
-      namespaces === undefined
-    ) {
+    if (aboveErrorTurns === undefined && namespaces === undefined) {
       throw new Error(
-        `actorModelPolicy[${index}] must define at least one of abovePromptChars, aboveErrorTurns, or namespaces`
+        `actorModelPolicy[${index}] must define at least one of aboveErrorTurns or namespaces`
       );
     }
 
@@ -136,7 +137,6 @@ export function resolveActorModelPolicy(
         rawEntry.model,
         `actorModelPolicy[${index}].model`
       ),
-      ...(abovePromptChars !== undefined ? { abovePromptChars } : {}),
       ...(aboveErrorTurns !== undefined ? { aboveErrorTurns } : {}),
       ...(namespaces !== undefined ? { namespaces } : {}),
     };
@@ -146,105 +146,149 @@ export function resolveActorModelPolicy(
 export function resolveContextPolicy(
   contextPolicy: AxContextPolicyConfig | undefined
 ): AxResolvedContextPolicy {
-  const preset = contextPolicy?.preset ?? 'full';
-  const presetDefaults = getContextPolicyPresetDefaults(preset);
-  const rankPruning = contextPolicy?.expert?.rankPruning;
-  const rankPruningEnabled =
-    rankPruning?.enabled ??
-    (rankPruning?.minRank !== undefined ? true : presetDefaults.hindsight);
-  const stateSummaryEnabled =
-    contextPolicy?.state?.summary ?? presetDefaults.stateSummary;
-  const stateInspectEnabled =
-    contextPolicy?.state?.inspect ?? presetDefaults.inspect;
-  const checkpointsEnabled =
-    contextPolicy?.checkpoints?.enabled ?? presetDefaults.checkpointsEnabled;
-
-  if (checkpointsEnabled && !stateSummaryEnabled && !stateInspectEnabled) {
-    throw new Error(
-      'contextPolicy.checkpoints requires either state.summary or state.inspect to be enabled'
+  const rawPolicy = contextPolicy as Record<string, unknown> | undefined;
+  if (rawPolicy) {
+    const allowedKeys = new Set(['preset', 'budget']);
+    const disallowedKey = Object.keys(rawPolicy).find(
+      (key) => !allowedKeys.has(key)
     );
+    if (disallowedKey) {
+      if (disallowedKey === 'state') {
+        throw new Error(
+          'contextPolicy.state.* has been removed. Use contextPolicy.budget instead.'
+        );
+      }
+      if (disallowedKey === 'checkpoints') {
+        throw new Error(
+          'contextPolicy.checkpoints.* has been removed. Use contextPolicy.budget instead.'
+        );
+      }
+      throw new Error(CONTEXT_POLICY_MIGRATION_ERROR);
+    }
   }
+
+  const preset = contextPolicy?.preset ?? 'checkpointed';
+  const budget = contextPolicy?.budget ?? 'balanced';
+  const budgetDefaults = getContextPolicyBudgetDefaults(budget);
+  const presetDefaults = getContextPolicyPresetDefaults(preset, budgetDefaults);
 
   return {
     preset,
-    summarizerOptions: contextPolicy?.summarizerOptions,
-    actionReplay: contextPolicy?.expert?.replay ?? presetDefaults.actionReplay,
-    recentFullActions: Math.max(
-      contextPolicy?.expert?.recentFullActions ??
-        presetDefaults.recentFullActions,
-      0
-    ),
-    errorPruning: contextPolicy?.pruneErrors ?? presetDefaults.errorPruning,
-    hindsightEvaluation: rankPruningEnabled,
-    pruneRank: rankPruning?.minRank ?? presetDefaults.pruneRank,
+    budget,
+    summarizerOptions: undefined,
+    actionReplay: presetDefaults.actionReplay,
+    recentFullActions: Math.max(presetDefaults.recentFullActions, 0),
+    errorPruning: presetDefaults.errorPruning,
+    hindsightEvaluation: presetDefaults.hindsight,
+    pruneRank: presetDefaults.pruneRank,
     rankPruneGraceTurns: DEFAULT_RANK_PRUNE_GRACE_TURNS,
-    tombstoning: contextPolicy?.expert?.tombstones,
+    tombstoning: undefined,
     stateSummary: {
-      enabled: stateSummaryEnabled,
-      maxEntries: contextPolicy?.state?.maxEntries ?? presetDefaults.maxEntries,
-      maxChars: contextPolicy?.state?.maxChars ?? presetDefaults.maxStateChars,
+      enabled: presetDefaults.stateSummary,
+      maxEntries: presetDefaults.maxEntries,
+      maxChars: budgetDefaults.maxStateChars,
     },
     stateInspection: {
-      enabled: stateInspectEnabled,
-      contextThreshold:
-        contextPolicy?.state?.inspectThresholdChars ??
-        presetDefaults.inspectThreshold,
+      enabled: presetDefaults.inspect,
+      contextThreshold: budgetDefaults.inspectThreshold,
     },
     checkpoints: {
-      enabled: checkpointsEnabled,
-      triggerChars:
-        contextPolicy?.checkpoints?.triggerChars ??
-        presetDefaults.checkpointTriggerChars,
+      enabled: presetDefaults.checkpointsEnabled,
+      triggerChars: presetDefaults.checkpointTriggerChars,
     },
+    targetPromptChars: budgetDefaults.targetPromptChars,
+    maxRuntimeChars: budgetDefaults.maxRuntimeChars,
   };
 }
 
-function getContextPolicyPresetDefaults(preset: AxContextPolicyPreset) {
+function getContextPolicyBudgetDefaults(budget: AxContextPolicyBudget) {
+  switch (budget) {
+    case 'compact':
+      return {
+        targetPromptChars: 12_000,
+        inspectThreshold: 10_200,
+        maxStateChars: 800,
+        maxRuntimeChars: 3_000,
+      };
+    case 'expanded':
+      return {
+        targetPromptChars: 20_000,
+        inspectThreshold: 17_000,
+        maxStateChars: 1_600,
+        maxRuntimeChars: 8_000,
+      };
+    default:
+      return {
+        targetPromptChars: 16_000,
+        inspectThreshold: 13_600,
+        maxStateChars: 1_200,
+        maxRuntimeChars: DEFAULT_RLM_MAX_RUNTIME_CHARS,
+      };
+  }
+}
+
+function getContextPolicyPresetDefaults(
+  preset: AxContextPolicyPreset,
+  budgetDefaults: Readonly<{
+    targetPromptChars: number;
+    inspectThreshold: number;
+    maxStateChars: number;
+    maxRuntimeChars: number;
+  }>
+) {
   switch (preset) {
     case 'adaptive':
       return {
         actionReplay: 'adaptive' as const,
-        recentFullActions: 3,
+        recentFullActions:
+          budgetDefaults.targetPromptChars >= 20_000
+            ? 3
+            : budgetDefaults.targetPromptChars >= 16_000
+              ? 2
+              : 1,
         errorPruning: true,
         hindsight: false,
         pruneRank: 2,
         stateSummary: true,
         inspect: true,
-        inspectThreshold: 16_000,
         maxEntries: 8,
-        maxStateChars: 1_600,
         checkpointsEnabled: true,
-        checkpointTriggerChars: 22_000,
+        checkpointTriggerChars: Math.floor(
+          budgetDefaults.targetPromptChars * 0.75
+        ),
       };
     case 'lean':
       return {
         actionReplay: 'minimal' as const,
-        recentFullActions: 1,
+        recentFullActions: budgetDefaults.targetPromptChars >= 20_000 ? 2 : 1,
         errorPruning: true,
         hindsight: false,
         pruneRank: 2,
         stateSummary: true,
         inspect: true,
-        inspectThreshold: 12_000,
         maxEntries: 4,
-        maxStateChars: 800,
         checkpointsEnabled: true,
-        checkpointTriggerChars: 15_000,
+        checkpointTriggerChars: Math.floor(
+          budgetDefaults.targetPromptChars * 0.6
+        ),
       };
     case 'checkpointed':
       return {
         actionReplay: 'checkpointed' as const,
-        recentFullActions: 3,
+        recentFullActions:
+          budgetDefaults.targetPromptChars >= 20_000
+            ? 4
+            : budgetDefaults.targetPromptChars >= 16_000
+              ? 3
+              : 2,
         errorPruning: false,
         hindsight: false,
         pruneRank: 2,
         stateSummary: true,
         inspect: true,
-        inspectThreshold: 16_000,
         maxEntries: 8,
-        maxStateChars: 1_600,
         checkpointsEnabled: true,
-        checkpointTriggerChars: 18_000,
+        checkpointTriggerChars: budgetDefaults.targetPromptChars,
       };
     default:
       return {
@@ -255,9 +299,7 @@ function getContextPolicyPresetDefaults(preset: AxContextPolicyPreset) {
         pruneRank: 2,
         stateSummary: false,
         inspect: false,
-        inspectThreshold: undefined,
         maxEntries: undefined,
-        maxStateChars: undefined,
         checkpointsEnabled: false,
         checkpointTriggerChars: undefined,
       };
@@ -374,7 +416,6 @@ export function updateActorModelMatchedNamespaces(
 
 export function selectActorModelFromPolicy(
   policy: Readonly<AxResolvedActorModelPolicy>,
-  promptFacingChars: number,
   consecutiveErrorTurns: number,
   matchedNamespaces: readonly string[] = []
 ): string | undefined {
@@ -382,9 +423,6 @@ export function selectActorModelFromPolicy(
   const matchedNamespaceSet = new Set(matchedNamespaces);
 
   for (const entry of policy) {
-    const promptTrigger =
-      entry.abovePromptChars !== undefined &&
-      promptFacingChars >= entry.abovePromptChars;
     const errorTrigger =
       entry.aboveErrorTurns !== undefined &&
       consecutiveErrorTurns >= entry.aboveErrorTurns;
@@ -392,7 +430,7 @@ export function selectActorModelFromPolicy(
       matchedNamespaceSet.has(namespace)
     );
 
-    if (promptTrigger || errorTrigger || namespaceTrigger) {
+    if (errorTrigger || namespaceTrigger) {
       selectedModel = entry.model;
     }
   }

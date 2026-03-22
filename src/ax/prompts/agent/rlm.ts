@@ -8,7 +8,6 @@
 import type { AxFunctionJSONSchema } from '../../ai/types.js';
 import { toFieldType } from '../../dsp/prompt.js';
 import type { AxIField } from '../../dsp/sig.js';
-import type { AxProgramForwardOptions } from '../../dsp/types.js';
 import { renderPromptTemplate } from '../templateEngine.js';
 import type { AxAgentTurnCallbackArgs } from './AxAgent.js';
 
@@ -206,10 +205,11 @@ export type AxContextPolicyPreset =
   | 'lean'
   | 'checkpointed';
 
+export type AxContextPolicyBudget = 'compact' | 'balanced' | 'expanded';
+
 /**
  * Public context policy for the Actor loop.
- * Presets provide the common behavior; top-level toggles plus `state`,
- * `checkpoints`, and `expert` override specific pieces.
+ * Users choose replay style via `preset` and overall prompt budget via `budget`.
  */
 export interface AxContextPolicyConfig {
   /**
@@ -221,58 +221,8 @@ export interface AxContextPolicyConfig {
    * - `checkpointed`: keep full replay until the rendered actor prompt crosses a threshold, then replace older successful turns with a checkpoint summary
    */
   preset?: AxContextPolicyPreset;
-  /**
-   * Default options for the internal checkpoint summarizer AxGen program.
-   * `functions` are not supported, `maxSteps` is forced to `1`, and `mem`
-   * is never propagated so the summarizer stays stateless.
-   */
-  summarizerOptions?: Omit<AxProgramForwardOptions<string>, 'functions'>;
-  /**
-   * Prune error entries after a successful (non-error) turn.
-   *
-   * Defaults by preset:
-   * - `full`: false
-   * - `adaptive`: true
-   * - `lean`: true
-   * - `checkpointed`: false
-   */
-  pruneErrors?: boolean;
-  /** Runtime-state visibility controls. */
-  state?: {
-    /** Include a compact live runtime state block ahead of the action log. */
-    summary?: boolean;
-    /** Expose `inspect_runtime()` to the actor and show the large-prompt hint. */
-    inspect?: boolean;
-    /** Full rendered actor-prompt char count above which the actor is reminded to call `inspect_runtime()`. */
-    inspectThresholdChars?: number;
-    /** Maximum number of runtime state entries to render in the summary block. */
-    maxEntries?: number;
-    /** Maximum total characters to replay in the runtime state summary block. */
-    maxChars?: number;
-  };
-  /** Rolling checkpoint summary controls. */
-  checkpoints?: {
-    /** Enable checkpoint summaries for older successful turns. */
-    enabled?: boolean;
-    /** Full rendered actor-prompt char count above which a checkpoint summary is generated. */
-    triggerChars?: number;
-  };
-  /** Expert-level overrides for the preset-derived internal policy. */
-  expert?: {
-    /** Controls how prior actor actions are replayed before checkpoint compression. */
-    replay?: 'full' | 'adaptive' | 'minimal' | 'checkpointed';
-    /** Number of most-recent actions that should always remain fully rendered. */
-    recentFullActions?: number;
-    /** Rank-based pruning of low-value actions. Off by default for built-in presets. */
-    rankPruning?: { enabled?: boolean; minRank?: number };
-    /**
-     * Replace resolved errors with compact tombstones before pruning.
-     * When configured with options, they apply to the internal tombstone
-     * summarizer AxGen program. `functions` are not supported, `maxSteps`
-     * is forced to `1`, and `mem` is never propagated.
-     */
-    tombstones?: boolean | Omit<AxProgramForwardOptions<string>, 'functions'>;
-  };
+  /** Overall prompt budget and compression aggressiveness. */
+  budget?: AxContextPolicyBudget;
 }
 
 /**
@@ -289,11 +239,6 @@ export interface AxRLMConfig {
   runtime?: AxCodeRuntime;
   /** Cap on recursive sub-agent calls (default: 50). */
   maxSubAgentCalls?: number;
-  /**
-   * Maximum characters for RLM runtime payloads (default: 5000).
-   * Applies to llmQuery context and code execution output.
-   */
-  maxRuntimeChars?: number;
   /** Maximum parallel llmQuery calls in batched mode (default: 8). */
   maxBatchedLlmQueryConcurrency?: number;
   /** Maximum Actor turns before forcing Responder (default: 10). */

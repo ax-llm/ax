@@ -182,15 +182,8 @@ const runtimeStateAgent = agent('question:string -> answer:string', {
   runtime,
   maxTurns: 2,
   contextPolicy: {
-    preset: 'adaptive',
-    state: {
-      summary: true,
-      inspect: true,
-      maxEntries: 6,
-    },
-    checkpoints: {
-      enabled: false,
-    },
+    preset: 'checkpointed',
+    budget: 'balanced',
   },
 });
 

@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { countChatPromptContentChars } from './promptMetrics.js';
+import {
+  buildPromptMetrics,
+  countChatPromptContentChars,
+} from './promptMetrics.js';
 
 describe('countChatPromptContentChars', () => {
   it('should count only text-bearing prompt content', () => {
@@ -38,5 +41,19 @@ describe('countChatPromptContentChars', () => {
     ] as any);
 
     expect(chars).toBe('plain user text'.length);
+  });
+});
+
+describe('buildPromptMetrics', () => {
+  it('should keep segmented prompt counts in sync with totals', () => {
+    const metrics = buildPromptMetrics(100, 200, 300);
+
+    expect(metrics).toEqual({
+      systemPromptCharacters: 100,
+      exampleChatContextCharacters: 200,
+      mutableChatContextCharacters: 300,
+      chatContextCharacters: 500,
+      totalPromptCharacters: 600,
+    });
   });
 });

@@ -11,7 +11,10 @@ import {
 
 import { validateAxMessageArray } from '../ai/base.js';
 import { logResultPickerUsed } from '../ai/debug.js';
-import { countChatPromptContentChars } from '../ai/promptMetrics.js';
+import {
+  countChatPromptContentChars,
+  type AxPromptMetrics,
+} from '../ai/promptMetrics.js';
 import type {
   AxAIService,
   AxChatRequest,
@@ -78,7 +81,7 @@ import {
   shouldContinueSteps,
 } from './processResponse.js';
 import { AxProgram } from './program.js';
-import { AxPromptTemplate } from './prompt.js';
+import { AxPromptTemplate, type AxRenderedPrompt } from './prompt.js';
 import { selectFromSamples, selectFromSamplesInMemory } from './samples.js';
 import { createSelfTuningFunction } from './selfTuning.js';
 import { type AxIField, AxSignature, type AxSignatureConfig } from './sig.js';
@@ -123,10 +126,7 @@ export interface AxResponseHandlerArgs<T> {
   strictMode?: boolean;
   span?: Span;
   logger: AxLoggerFunction;
-  debugPromptMetrics?: Readonly<{
-    systemPromptCharacters: number;
-    chatContextCharacters: number;
-  }>;
+  debugPromptMetrics?: Readonly<AxPromptMetrics>;
 }
 
 export interface AxStreamingEvent<T> {
@@ -227,11 +227,14 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     this.promptTemplate.clearInstruction();
   }
 
-  private async renderPromptForInternalUse(
+  private async renderPromptWithMetricsForInternalUse(
     ai: Readonly<AxAIService>,
     values: IN | AxMessage<IN>[],
     options?: Readonly<Partial<Omit<AxProgramForwardOptions<any>, 'functions'>>>
-  ): Promise<AxChatRequest['chatPrompt']> {
+  ): Promise<{
+    prompt: AxChatRequest['chatPrompt'];
+    promptMetrics?: AxPromptMetrics;
+  }> {
     const promptTemplateClass =
       options?.promptTemplate ??
       this.options?.promptTemplate ??
@@ -304,14 +307,46 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       validateAxMessageArray<IN>(values as AxMessage<IN>[]);
     }
 
-    const prompt = promptTemplate.render(values as any, {
-      examples: this.examples as any,
-      demos: this.demos as any,
-    });
+    const renderedPrompt:
+      | AxRenderedPrompt
+      | { chatPrompt: AxChatRequest['chatPrompt'] } =
+      'renderWithMetrics' in promptTemplate &&
+      typeof promptTemplate.renderWithMetrics === 'function'
+        ? promptTemplate.renderWithMetrics(values as any, {
+            examples: this.examples as any,
+            demos: this.demos as any,
+          })
+        : {
+            chatPrompt: promptTemplate.render(values as any, {
+              examples: this.examples as any,
+              demos: this.demos as any,
+            }),
+          };
+
+    const prompt = renderedPrompt.chatPrompt;
+    const renderedPromptMetrics =
+      'promptMetrics' in renderedPrompt
+        ? renderedPrompt.promptMetrics
+        : undefined;
 
     const mem = options?.mem ?? this.options?.mem;
     if (!mem) {
-      return prompt;
+      return {
+        prompt,
+        promptMetrics: renderedPromptMetrics ?? {
+          systemPromptCharacters: countChatPromptContentChars(
+            prompt.filter((msg) => msg.role === 'system')
+          ),
+          exampleChatContextCharacters: 0,
+          mutableChatContextCharacters: countChatPromptContentChars(
+            prompt.filter((msg) => msg.role !== 'system')
+          ),
+          chatContextCharacters: countChatPromptContentChars(
+            prompt.filter((msg) => msg.role !== 'system')
+          ),
+          totalPromptCharacters: countChatPromptContentChars(prompt),
+        },
+      };
     }
 
     const selectedIndex = await selectFromSamplesInMemory(
@@ -324,7 +359,47 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       }
     );
 
-    return [...mem.history(selectedIndex, options?.sessionId), ...prompt];
+    const memHistory = mem.history(selectedIndex, options?.sessionId);
+    const memPrompt = [...memHistory, ...prompt];
+    const memoryChars = countChatPromptContentChars(memHistory);
+    return {
+      prompt: memPrompt,
+      promptMetrics:
+        renderedPromptMetrics !== undefined
+          ? {
+              ...renderedPromptMetrics,
+              mutableChatContextCharacters:
+                renderedPromptMetrics.mutableChatContextCharacters +
+                memoryChars,
+              chatContextCharacters:
+                renderedPromptMetrics.chatContextCharacters + memoryChars,
+              totalPromptCharacters:
+                renderedPromptMetrics.totalPromptCharacters + memoryChars,
+            }
+          : {
+              systemPromptCharacters: countChatPromptContentChars(
+                memPrompt.filter((msg) => msg.role === 'system')
+              ),
+              exampleChatContextCharacters: 0,
+              mutableChatContextCharacters: countChatPromptContentChars(
+                memPrompt.filter((msg) => msg.role !== 'system')
+              ),
+              chatContextCharacters: countChatPromptContentChars(
+                memPrompt.filter((msg) => msg.role !== 'system')
+              ),
+              totalPromptCharacters: countChatPromptContentChars(memPrompt),
+            },
+    };
+  }
+
+  private async renderPromptForInternalUse(
+    ai: Readonly<AxAIService>,
+    values: IN | AxMessage<IN>[],
+    options?: Readonly<Partial<Omit<AxProgramForwardOptions<any>, 'functions'>>>
+  ): Promise<AxChatRequest['chatPrompt']> {
+    return (
+      await this.renderPromptWithMetricsForInternalUse(ai, values, options)
+    ).prompt;
   }
 
   /** @internal */
@@ -469,6 +544,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
   private async forwardSendRequest({
     ai,
+    values,
     mem,
     options,
     traceContext,
@@ -477,6 +553,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     stepIndex,
   }: Readonly<{
     ai: Readonly<AxAIService>;
+    values: IN | AxMessage<IN>[];
     mem: AxAIMemory;
     options?: Omit<AxProgramForwardOptions<any>, 'ai' | 'mem'>;
     traceContext?: Context;
@@ -500,7 +577,12 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         | undefined,
     });
 
-    const chatPrompt = mem?.history(selectedIndex, sessionId) ?? [];
+    const { prompt: basePrompt, promptMetrics: basePromptMetrics } =
+      await this.renderPromptWithMetricsForInternalUse(ai, values as any, {
+        ...options,
+        sessionId,
+      });
+    const chatPrompt = mem?.history(selectedIndex, sessionId) ?? basePrompt;
 
     // History transformation for prompt-mode is handled centrally in base.ts
 
@@ -519,14 +601,42 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     const firstStep = stepIndex === 0;
     const logger = this.getLogger(ai, options);
     const debugPromptMetrics = debug
-      ? {
-          systemPromptCharacters: countChatPromptContentChars(
-            chatPrompt.filter((msg) => msg.role === 'system')
-          ),
-          chatContextCharacters: countChatPromptContentChars(
-            chatPrompt.filter((msg) => msg.role !== 'system')
-          ),
-        }
+      ? (() => {
+          if (!basePromptMetrics) {
+            const chatContextCharacters = countChatPromptContentChars(
+              chatPrompt.filter((msg) => msg.role !== 'system')
+            );
+            return {
+              systemPromptCharacters: countChatPromptContentChars(
+                chatPrompt.filter((msg) => msg.role === 'system')
+              ),
+              exampleChatContextCharacters: 0,
+              mutableChatContextCharacters: chatContextCharacters,
+              chatContextCharacters,
+              totalPromptCharacters: countChatPromptContentChars(chatPrompt),
+            };
+          }
+
+          const extraHistoryMessages = chatPrompt.slice(basePrompt.length);
+          const extraHistoryCharacters =
+            countChatPromptContentChars(extraHistoryMessages);
+          const mutableChatContextCharacters =
+            basePromptMetrics.mutableChatContextCharacters +
+            extraHistoryCharacters;
+          const chatContextCharacters =
+            basePromptMetrics.exampleChatContextCharacters +
+            mutableChatContextCharacters;
+
+          return {
+            systemPromptCharacters: basePromptMetrics.systemPromptCharacters,
+            exampleChatContextCharacters:
+              basePromptMetrics.exampleChatContextCharacters,
+            mutableChatContextCharacters,
+            chatContextCharacters,
+            totalPromptCharacters:
+              basePromptMetrics.systemPromptCharacters + chatContextCharacters,
+          };
+        })()
       : undefined;
 
     // Do not send native functions to the provider when emulating via prompt mode
@@ -622,6 +732,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
   private async *forwardCore({
     ai,
+    values,
     mem,
     options,
     stepIndex,
@@ -632,6 +743,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     stepContext,
   }: Readonly<{
     ai: Readonly<AxAIService>;
+    values: IN | AxMessage<IN>[];
     mem: AxAIMemory;
     options: Omit<AxProgramForwardOptions<any>, 'ai' | 'mem'>;
     stepIndex?: number;
@@ -684,6 +796,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
     const { res, debugPromptMetrics } = await this.forwardSendRequest({
       ai,
+      values,
       mem,
       options,
       traceContext,
@@ -1097,6 +1210,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
               const generator = this.forwardCore({
                 options: { ...mutableOptions, functions: mutableFunctions },
                 ai,
+                values,
                 mem,
                 stepIndex: n,
                 span,

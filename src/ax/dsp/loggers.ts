@@ -218,8 +218,17 @@ export const axCreateDefaultColorLogger = (
         if (usage.systemPromptCharacters !== undefined) {
           formattedMessage += `${cl.white('System Prompt Characters:')} ${usage.systemPromptCharacters}\n`;
         }
+        if (usage.exampleChatContextCharacters !== undefined) {
+          formattedMessage += `${cl.white('Example Chat Context Characters:')} ${usage.exampleChatContextCharacters}\n`;
+        }
+        if (usage.mutableChatContextCharacters !== undefined) {
+          formattedMessage += `${cl.white('Mutable Chat Context Characters:')} ${usage.mutableChatContextCharacters}\n`;
+        }
         if (usage.chatContextCharacters !== undefined) {
           formattedMessage += `${cl.white('Chat Context Characters:')} ${usage.chatContextCharacters}\n`;
+        }
+        if (usage.totalPromptCharacters !== undefined) {
+          formattedMessage += `${cl.white('Total Prompt Characters:')} ${usage.totalPromptCharacters}\n`;
         }
         if (usage.tokens) {
           formattedMessage += `${cl.white('Total Tokens:')} ${usage.tokens.totalTokens}\n`;
@@ -384,8 +393,17 @@ export const axCreateDefaultTextLogger = (
         if (textUsage.systemPromptCharacters !== undefined) {
           formattedMessage += `System Prompt Characters: ${textUsage.systemPromptCharacters}\n`;
         }
+        if (textUsage.exampleChatContextCharacters !== undefined) {
+          formattedMessage += `Example Chat Context Characters: ${textUsage.exampleChatContextCharacters}\n`;
+        }
+        if (textUsage.mutableChatContextCharacters !== undefined) {
+          formattedMessage += `Mutable Chat Context Characters: ${textUsage.mutableChatContextCharacters}\n`;
+        }
         if (textUsage.chatContextCharacters !== undefined) {
           formattedMessage += `Chat Context Characters: ${textUsage.chatContextCharacters}\n`;
+        }
+        if (textUsage.totalPromptCharacters !== undefined) {
+          formattedMessage += `Total Prompt Characters: ${textUsage.totalPromptCharacters}\n`;
         }
         if (textUsage.tokens) {
           formattedMessage += `Total Tokens: ${textUsage.tokens.totalTokens}\n`;
