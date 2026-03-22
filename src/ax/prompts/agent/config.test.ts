@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 
 import {
   ACTOR_MODEL_POLICY_MIGRATION_ERROR,
-  MAX_RUNTIME_CHARS_MIGRATION_ERROR,
+  CONTEXT_POLICY_SUMMARIZER_OPTIONS_MIGRATION_ERROR,
+  DEFAULT_RLM_MAX_RUNTIME_CHARS,
+  DEFAULT_RLM_STATE_SUMMARY_MAX_CHARS,
   resolveActorModelPolicy,
   resolveContextPolicy,
   selectActorModelFromPolicy,
@@ -14,10 +16,10 @@ describe('resolveContextPolicy', () => {
       preset: 'checkpointed',
       budget: 'balanced',
       targetPromptChars: 16_000,
-      maxRuntimeChars: 5_000,
+      maxRuntimeChars: DEFAULT_RLM_MAX_RUNTIME_CHARS,
       stateSummary: {
         enabled: true,
-        maxChars: 1_200,
+        maxChars: DEFAULT_RLM_STATE_SUMMARY_MAX_CHARS,
       },
       stateInspection: {
         enabled: true,
@@ -41,10 +43,10 @@ describe('resolveContextPolicy', () => {
       budget: 'compact',
       recentFullActions: 1,
       targetPromptChars: 12_000,
-      maxRuntimeChars: 3_000,
+      maxRuntimeChars: DEFAULT_RLM_MAX_RUNTIME_CHARS,
       stateSummary: {
         enabled: true,
-        maxChars: 800,
+        maxChars: DEFAULT_RLM_STATE_SUMMARY_MAX_CHARS,
       },
       stateInspection: {
         enabled: true,
@@ -54,6 +56,42 @@ describe('resolveContextPolicy', () => {
         enabled: true,
         triggerChars: 9_000,
       },
+    });
+  });
+
+  it('should accept top-level summarizer options', () => {
+    expect(
+      resolveContextPolicy(
+        {
+          preset: 'checkpointed',
+          budget: 'balanced',
+        },
+        {
+          model: 'summary-model',
+          modelConfig: { temperature: 0.2 },
+        }
+      )
+    ).toMatchObject({
+      summarizerOptions: {
+        model: 'summary-model',
+        modelConfig: { temperature: 0.2 },
+      },
+    });
+  });
+
+  it('should accept a separate top-level maxRuntimeChars override', () => {
+    expect(
+      resolveContextPolicy(
+        {
+          preset: 'checkpointed',
+          budget: 'expanded',
+        },
+        undefined,
+        4_200
+      )
+    ).toMatchObject({
+      targetPromptChars: 20_000,
+      maxRuntimeChars: 4_200,
     });
   });
 
@@ -79,10 +117,43 @@ describe('resolveContextPolicy', () => {
     );
   });
 
-  it('should reject removed runtime truncation control', () => {
-    expect(() => {
-      throw new Error(MAX_RUNTIME_CHARS_MIGRATION_ERROR);
-    }).toThrow(MAX_RUNTIME_CHARS_MIGRATION_ERROR);
+  it('should reject nested summarizer options', () => {
+    expect(() =>
+      resolveContextPolicy({
+        preset: 'checkpointed',
+        summarizerOptions: { model: 'summary-model' },
+      } as never)
+    ).toThrow(CONTEXT_POLICY_SUMMARIZER_OPTIONS_MIGRATION_ERROR);
+  });
+
+  it('should default runtime truncation independently from budget', () => {
+    expect(
+      resolveContextPolicy({
+        preset: 'checkpointed',
+        budget: 'compact',
+      }).maxRuntimeChars
+    ).toBe(DEFAULT_RLM_MAX_RUNTIME_CHARS);
+    expect(
+      resolveContextPolicy({
+        preset: 'checkpointed',
+        budget: 'expanded',
+      }).maxRuntimeChars
+    ).toBe(DEFAULT_RLM_MAX_RUNTIME_CHARS);
+  });
+
+  it('should keep state summary maxChars independent from budget', () => {
+    expect(
+      resolveContextPolicy({
+        preset: 'checkpointed',
+        budget: 'compact',
+      }).stateSummary.maxChars
+    ).toBe(DEFAULT_RLM_STATE_SUMMARY_MAX_CHARS);
+    expect(
+      resolveContextPolicy({
+        preset: 'checkpointed',
+        budget: 'expanded',
+      }).stateSummary.maxChars
+    ).toBe(DEFAULT_RLM_STATE_SUMMARY_MAX_CHARS);
   });
 });
 

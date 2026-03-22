@@ -34,6 +34,7 @@ const analyzer = agent(
     },
     // Additional RLM guardrails are also supported:
     // - alternate contextPolicy presets/budgets for earlier or stronger summarization
+    // - maxRuntimeChars (runtime/output truncation cap, separate from budget)
     // - maxBatchedLlmQueryConcurrency
     debug: true,
   }

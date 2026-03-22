@@ -8,6 +8,7 @@
 import type { AxFunctionJSONSchema } from '../../ai/types.js';
 import { toFieldType } from '../../dsp/prompt.js';
 import type { AxIField } from '../../dsp/sig.js';
+import type { AxProgramForwardOptions } from '../../dsp/types.js';
 import { renderPromptTemplate } from '../templateEngine.js';
 import type { AxAgentTurnCallbackArgs } from './AxAgent.js';
 
@@ -194,7 +195,7 @@ export interface AxCodeSession {
  *   replaying their full code blocks. Reliability-first
  *   defaults still preserve recent evidence before deleting older low-value steps.
  *   Best when token pressure matters more than raw replay detail.
- * - `checkpointed`: Keep full replay until the rendered actor prompt crosses a threshold, then
+ * - `checkpointed`: Keep full replay until the rendered actor prompt grows beyond the selected budget, then
  *   replace older successful history with a checkpoint summary while keeping recent
  *   actions and unresolved errors fully visible. Best when you want conservative,
  *   debugging-friendly replay until prompt pressure becomes real.
@@ -218,7 +219,7 @@ export interface AxContextPolicyConfig {
    * - `full`: prefer raw replay of earlier actions
    * - `adaptive`: balance replay detail with checkpoint compression while keeping more recent evidence visible
    * - `lean`: prefer live state + compact summaries over raw replay detail
-   * - `checkpointed`: keep full replay until the rendered actor prompt crosses a threshold, then replace older successful turns with a checkpoint summary
+   * - `checkpointed`: keep full replay until the rendered actor prompt grows beyond the selected budget, then replace older successful turns with a checkpoint summary
    */
   preset?: AxContextPolicyPreset;
   /** Overall prompt budget and compression aggressiveness. */
@@ -243,8 +244,12 @@ export interface AxRLMConfig {
   maxBatchedLlmQueryConcurrency?: number;
   /** Maximum Actor turns before forcing Responder (default: 10). */
   maxTurns?: number;
+  /** Maximum characters to keep from runtime output and console/log replay (default: 3000). */
+  maxRuntimeChars?: number;
   /** Context replay, checkpointing, and runtime-state policy. */
   contextPolicy?: AxContextPolicyConfig;
+  /** Default options for the internal checkpoint summarizer. */
+  summarizerOptions?: Omit<AxProgramForwardOptions<string>, 'functions'>;
   /** Output field names the Actor should produce (in addition to javascriptCode). */
   actorFields?: string[];
   /**

@@ -564,7 +564,7 @@ Rules:
 - Use `preset: 'adaptive'` when the task needs runtime state across many turns but older successful work should collapse into checkpoint summaries while important recent steps can still stay fully replayed.
 - Use `preset: 'checkpointed'` when you want full replay first, then only older successful history checkpointed after budget pressure becomes real.
 - Use `preset: 'lean'` when you want more aggressive compression and can rely mostly on current runtime state plus checkpoint summaries and compact action summaries.
-- Use `budget: 'compact'` when you want earlier summarization and tighter runtime/output truncation, `budget: 'balanced'` for the default, and `budget: 'expanded'` when you want the actor prompt to grow more before compression starts.
+- Use `budget: 'compact'` when you want earlier summarization and tighter prompt-pressure thresholds, `budget: 'balanced'` for the default, and `budget: 'expanded'` when you want the actor prompt to grow more before compression starts.
 - `checkpointed + balanced` is the default. `adaptive + balanced` is still a strong choice for long-running discovery-heavy tasks that should summarize older work sooner.
 - `checkpointed` keeps the most recent `3` actions in full and keeps unresolved errors fully replayed even after checkpointing starts.
 - Non-`full` presets inject a compact `Live Runtime State` block into the actor prompt. The block is structured and provenance-aware: variables are rendered with compact type/size/preview metadata, and when Ax can infer it, a short source suffix like `from t3 via db.search` is included.
@@ -654,6 +654,8 @@ Use these top-level controls consistently:
 - `mode`: controls whether `llmQuery(...)` stays simple or delegates to recursive child agents in advanced mode
 - `recursionOptions.maxDepth`: limits recursive `llmQuery(...)` depth
 - `maxSubAgentCalls`: shared delegated-call budget across the whole run, including recursive children
+- `maxRuntimeChars`: runtime/output truncation cap for console logs, tool results, and interpreter output replay
+- `summarizerOptions`: default model/options for the internal checkpoint summarizer
 - `actorOptions`: actor-only forward options such as `description`, `model`, `modelConfig`, `thinkingTokenBudget`, and `showThoughts`
 - `actorModelPolicy`: actor-only model override rules based on consecutive error turns or discovery fetches from listed namespaces
 - `responderOptions`: responder-only forward options
@@ -668,6 +670,11 @@ const researchAgent = agent('query:string -> answer:string', {
   mode: 'advanced',
   recursionOptions: {
     maxDepth: 2,
+  },
+  maxRuntimeChars: 3000,
+  summarizerOptions: {
+    model: 'gpt-5.4-mini',
+    modelConfig: { temperature: 0.1, maxTokens: 180 },
   },
   contextPolicy: {
     preset: 'checkpointed',
@@ -693,6 +700,8 @@ const researchAgent = agent('query:string -> answer:string', {
 Semantics:
 
 - `mode` stays top-level; there is no `recursionOptions.mode`.
+- `maxRuntimeChars` controls runtime/output truncation only. It is separate from `contextPolicy.budget`.
+- `summarizerOptions` tunes only the internal checkpoint summarizer. It does not change actor or responder model selection.
 - The current merged actor model stays the default base model. `actorModelPolicy` only overrides it when a rule matches.
 - `actorModelPolicy` only switches the actor model. It does not change `responderOptions.model`.
 - Recursive child agents can inherit `actorModelPolicy`; use a child override only when that child needs different routing behavior.
@@ -980,7 +989,9 @@ agentIdentity?: {
   maxSubAgentCalls?: number;
   maxBatchedLlmQueryConcurrency?: number;
   maxTurns?: number;
+  maxRuntimeChars?: number;
   contextPolicy?: AxContextPolicyConfig;
+  summarizerOptions?: Omit<AxProgramForwardOptions<string>, 'functions'>;
   actorFields?: string[];
   actorTurnCallback?: (turn: {
     turn: number;

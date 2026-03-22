@@ -3,6 +3,7 @@ import type {
   AxContextPolicyConfig,
   AxContextPolicyPreset,
 } from './rlm.js';
+import type { AxProgramForwardOptions } from '../../dsp/types.js';
 import type {
   AxActorModelPolicy,
   AxAgentStateActorModelState,
@@ -11,7 +12,8 @@ import type {
 } from './AxAgent.js';
 
 export const DEFAULT_RLM_MAX_LLM_CALLS = 8;
-export const DEFAULT_RLM_MAX_RUNTIME_CHARS = 5_000;
+export const DEFAULT_RLM_MAX_RUNTIME_CHARS = 3_000;
+export const DEFAULT_RLM_STATE_SUMMARY_MAX_CHARS = 1_200;
 export const DEFAULT_RLM_BATCH_CONCURRENCY = 8;
 export const DEFAULT_RLM_MAX_TURNS = 8;
 export const DEFAULT_RLM_MAX_RECURSION_DEPTH = 2;
@@ -22,8 +24,8 @@ export const ACTOR_MODEL_POLICY_MIGRATION_ERROR =
   'actorModelPolicy now expects an ordered array of { model, namespaces?, aboveErrorTurns? } entries. Manage prompt pressure with contextPolicy.budget instead of abovePromptChars.';
 const CONTEXT_POLICY_MIGRATION_ERROR =
   'contextPolicy now only supports { preset?, budget? }. Use contextPolicy.budget instead of contextPolicy.state.*, contextPolicy.checkpoints.*, or other manual cutoff options.';
-export const MAX_RUNTIME_CHARS_MIGRATION_ERROR =
-  'maxRuntimeChars has been removed. Use contextPolicy.budget to control runtime output truncation and prompt pressure.';
+export const CONTEXT_POLICY_SUMMARIZER_OPTIONS_MIGRATION_ERROR =
+  'contextPolicy.summarizerOptions has moved to top-level summarizerOptions.';
 
 function normalizeOptionalModelName(value: unknown, fieldName: string): string {
   if (typeof value !== 'string' || value.trim().length === 0) {
@@ -144,7 +146,11 @@ export function resolveActorModelPolicy(
 }
 
 export function resolveContextPolicy(
-  contextPolicy: AxContextPolicyConfig | undefined
+  contextPolicy: AxContextPolicyConfig | undefined,
+  summarizerOptions:
+    | Omit<AxProgramForwardOptions<string>, 'functions'>
+    | undefined = undefined,
+  maxRuntimeChars: number | undefined = undefined
 ): AxResolvedContextPolicy {
   const rawPolicy = contextPolicy as Record<string, unknown> | undefined;
   if (rawPolicy) {
@@ -163,6 +169,9 @@ export function resolveContextPolicy(
           'contextPolicy.checkpoints.* has been removed. Use contextPolicy.budget instead.'
         );
       }
+      if (disallowedKey === 'summarizerOptions') {
+        throw new Error(CONTEXT_POLICY_SUMMARIZER_OPTIONS_MIGRATION_ERROR);
+      }
       throw new Error(CONTEXT_POLICY_MIGRATION_ERROR);
     }
   }
@@ -171,11 +180,14 @@ export function resolveContextPolicy(
   const budget = contextPolicy?.budget ?? 'balanced';
   const budgetDefaults = getContextPolicyBudgetDefaults(budget);
   const presetDefaults = getContextPolicyPresetDefaults(preset, budgetDefaults);
+  const resolvedMaxRuntimeChars =
+    normalizeOptionalThreshold(maxRuntimeChars, 'maxRuntimeChars') ??
+    DEFAULT_RLM_MAX_RUNTIME_CHARS;
 
   return {
     preset,
     budget,
-    summarizerOptions: undefined,
+    summarizerOptions,
     actionReplay: presetDefaults.actionReplay,
     recentFullActions: Math.max(presetDefaults.recentFullActions, 0),
     errorPruning: presetDefaults.errorPruning,
@@ -186,7 +198,7 @@ export function resolveContextPolicy(
     stateSummary: {
       enabled: presetDefaults.stateSummary,
       maxEntries: presetDefaults.maxEntries,
-      maxChars: budgetDefaults.maxStateChars,
+      maxChars: DEFAULT_RLM_STATE_SUMMARY_MAX_CHARS,
     },
     stateInspection: {
       enabled: presetDefaults.inspect,
@@ -197,7 +209,7 @@ export function resolveContextPolicy(
       triggerChars: presetDefaults.checkpointTriggerChars,
     },
     targetPromptChars: budgetDefaults.targetPromptChars,
-    maxRuntimeChars: budgetDefaults.maxRuntimeChars,
+    maxRuntimeChars: resolvedMaxRuntimeChars,
   };
 }
 
@@ -207,22 +219,16 @@ function getContextPolicyBudgetDefaults(budget: AxContextPolicyBudget) {
       return {
         targetPromptChars: 12_000,
         inspectThreshold: 10_200,
-        maxStateChars: 800,
-        maxRuntimeChars: 3_000,
       };
     case 'expanded':
       return {
         targetPromptChars: 20_000,
         inspectThreshold: 17_000,
-        maxStateChars: 1_600,
-        maxRuntimeChars: 8_000,
       };
     default:
       return {
         targetPromptChars: 16_000,
         inspectThreshold: 13_600,
-        maxStateChars: 1_200,
-        maxRuntimeChars: DEFAULT_RLM_MAX_RUNTIME_CHARS,
       };
   }
 }
@@ -232,8 +238,6 @@ function getContextPolicyPresetDefaults(
   budgetDefaults: Readonly<{
     targetPromptChars: number;
     inspectThreshold: number;
-    maxStateChars: number;
-    maxRuntimeChars: number;
   }>
 ) {
   switch (preset) {

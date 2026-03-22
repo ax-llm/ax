@@ -98,7 +98,6 @@ import {
   DEFAULT_RLM_MAX_TURNS,
   getActorModelConsecutiveErrorTurns,
   getActorModelMatchedNamespaces,
-  MAX_RUNTIME_CHARS_MIGRATION_ERROR,
   normalizeRestoredActorModelState,
   resetActorModelErrorTurns,
   resolveActorModelPolicy,
@@ -584,8 +583,12 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
   maxBatchedLlmQueryConcurrency?: number;
   /** Maximum Actor turns before forcing Responder (default: 10). */
   maxTurns?: number;
+  /** Maximum characters to keep from runtime output and console/log replay. */
+  maxRuntimeChars?: number;
   /** Context replay, checkpointing, and runtime-state policy. */
   contextPolicy?: AxContextPolicyConfig;
+  /** Default options for the internal checkpoint summarizer. */
+  summarizerOptions?: Omit<AxProgramForwardOptions<string>, 'functions'>;
   /** Output field names the Actor should produce (in addition to javascriptCode). */
   actorFields?: string[];
   /**
@@ -1410,7 +1413,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       maxSubAgentCalls,
       maxBatchedLlmQueryConcurrency,
       maxTurns,
+      maxRuntimeChars,
       contextPolicy,
+      summarizerOptions,
       actorFields,
       actorTurnCallback,
       mode,
@@ -1433,10 +1438,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     this.enforceIncrementalConsoleTurns = shouldEnforceIncrementalConsoleTurns(
       this.runtimeUsageInstructions
     );
-
-    if ('maxRuntimeChars' in options) {
-      throw new Error(MAX_RUNTIME_CHARS_MIGRATION_ERROR);
-    }
 
     const resolvedAgentModuleNamespace =
       agentModuleNamespace ??
@@ -1489,6 +1490,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       judgeOptions: _jo,
       inputUpdateCallback: _iuc,
       actorModelPolicy: _amp,
+      maxRuntimeChars: _mrc,
+      summarizerOptions: _so,
       ...genOptions
     } = options;
     this.program = new AxGen<IN, OUT>(signature, genOptions);
@@ -1509,7 +1512,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       maxSubAgentCalls,
       maxBatchedLlmQueryConcurrency,
       maxTurns,
+      maxRuntimeChars,
       contextPolicy,
+      summarizerOptions,
       actorFields,
       actorTurnCallback,
       mode,
@@ -1819,7 +1824,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           this.agentFunctionModuleMetadata.get(namespace)?.selectionCriteria,
       }));
     const effectiveContextPolicy = resolveContextPolicy(
-      this.rlmConfig.contextPolicy
+      this.rlmConfig.contextPolicy,
+      this.rlmConfig.summarizerOptions,
+      this.rlmConfig.maxRuntimeChars
     );
     const actorDefinitionBaseDescription =
       this._supportsRecursiveActorSlotOptimization()
@@ -3024,7 +3031,11 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const configuredRecursionMaxDepth =
       this.recursionForwardOptions?.maxDepth ?? DEFAULT_RLM_MAX_RECURSION_DEPTH;
     const recursionMaxDepth = Math.max(0, configuredRecursionMaxDepth);
-    const effectiveContextConfig = resolveContextPolicy(rlm.contextPolicy);
+    const effectiveContextConfig = resolveContextPolicy(
+      rlm.contextPolicy,
+      rlm.summarizerOptions,
+      rlm.maxRuntimeChars
+    );
     const maxRuntimeChars = effectiveContextConfig.maxRuntimeChars;
     const llmQueryBudgetState = this.llmQueryBudgetState ?? { used: 0 };
     const activeRecursiveSubAgents = new Set<

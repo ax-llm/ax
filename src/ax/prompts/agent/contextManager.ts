@@ -636,7 +636,9 @@ function sanitizeInternalSummaryOptions(
     ...rest
   } = options ?? {};
 
-  return rest;
+  return Object.fromEntries(
+    Object.entries(rest).filter(([, value]) => value !== undefined)
+  ) as Omit<InternalSummaryForwardOptions, 'mem' | 'description' | 'maxSteps'>;
 }
 
 function buildInternalSummaryProgramOptions(
@@ -655,9 +657,11 @@ function buildInternalSummaryProgramOptions(
 }
 
 function buildInternalSummaryCallOptions(
-  options: Readonly<InternalSummaryForwardOptions> | undefined
+  options: Readonly<InternalSummaryForwardOptions> | undefined,
+  defaults: Readonly<InternalSummaryForwardOptions> | undefined = undefined
 ): InternalSummaryForwardOptions {
   return {
+    ...sanitizeInternalSummaryOptions(defaults),
     ...sanitizeInternalSummaryOptions(options),
     maxSteps: 1,
   };
@@ -836,7 +840,7 @@ export async function generateCheckpointSummaryAsync(
     const result = await summarizer.forward(
       ai,
       { turns: serializeCheckpointEntries(entries) },
-      buildInternalSummaryCallOptions(requestForwardOptions)
+      buildInternalSummaryCallOptions(requestForwardOptions, summarizerOptions)
     );
     const text =
       typeof result.checkpointSummary === 'string'

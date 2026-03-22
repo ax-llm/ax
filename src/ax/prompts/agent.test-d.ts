@@ -330,49 +330,35 @@ import {
   });
 }
 
-// Agent with contextPolicy — all options
+// Agent with top-level summarizerOptions
 {
   const runtime = {} as AxCodeRuntime;
   agent('context:string, query:string -> answer:string', {
     contextFields: ['context'] as const,
     runtime,
+    maxRuntimeChars: 3000,
+    summarizerOptions: {
+      model: 'summary-model',
+      modelConfig: { temperature: 0.2 },
+    },
     contextPolicy: {
       preset: 'lean',
-      summarizerOptions: {
-        model: 'summary-model',
-        modelConfig: { temperature: 0.2 },
-      },
-      state: {
-        summary: true,
-        inspect: true,
-        inspectThresholdChars: 1000,
-        maxEntries: 4,
-        maxChars: 600,
-      },
-      checkpoints: {
-        enabled: true,
-        triggerChars: 900,
-      },
-      pruneErrors: true,
-      expert: {
-        replay: 'adaptive',
-        recentFullActions: 2,
-        rankPruning: { enabled: true, minRank: 3 },
-        tombstones: { model: 'fast-model', modelConfig: { temperature: 0.1 } },
-      },
+      budget: 'compact',
     },
   });
 }
 
-// Agent with contextPolicy — tombstones as boolean
+// Nested contextPolicy.summarizerOptions should fail
 {
   const runtime = {} as AxCodeRuntime;
+  // @ts-expect-error contextPolicy.summarizerOptions moved to top-level summarizerOptions
   agent('context:string, query:string -> answer:string', {
     contextFields: ['context'] as const,
     runtime,
     contextPolicy: {
-      expert: {
-        tombstones: true,
+      preset: 'checkpointed',
+      summarizerOptions: {
+        model: 'summary-model',
       },
     },
   });

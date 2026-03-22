@@ -2173,6 +2173,92 @@ describe('Actor/Responder execution loop', () => {
     expect(lastResponderPayload).toContain('"done"');
   });
 
+  it('should apply top-level maxRuntimeChars independently from budget', async () => {
+    let actorCallCount = 0;
+    let secondActorPrompt = '';
+    const longOutput = 'x'.repeat(80);
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCallCount++;
+          if (actorCallCount === 2) {
+            secondActorPrompt = userPrompt;
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: final("done")',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: console.log("payload")',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (globals?.final && code.includes('final(')) {
+              (globals.final as (...args: unknown[]) => void)('done');
+              return 'done';
+            }
+            return code.includes('payload') ? longOutput : 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: ['context'],
+      runtime,
+      maxTurns: 2,
+      maxRuntimeChars: 20,
+      contextPolicy: {
+        preset: 'checkpointed',
+        budget: 'expanded',
+      },
+    });
+
+    const result = await testAgent.forward(testMockAI, {
+      context: 'unused',
+      query: 'unused',
+    });
+
+    expect(result.answer).toBe('done');
+    expect(secondActorPrompt).toContain(truncateText(longOutput, 20));
+    expect(secondActorPrompt).not.toContain(longOutput);
+  });
+
   it('should reject removed pruneErrors controls', () => {
     expect(() =>
       agent('context:string, query:string -> answer:string', {
@@ -2727,6 +2813,10 @@ describe('Actor/Responder execution loop', () => {
         preset: 'adaptive',
         budget: 'compact',
       },
+      summarizerOptions: {
+        model: 'summary-model',
+        modelConfig: { temperature: 0.1 },
+      },
     });
 
     const result = await testAgent.forward(
@@ -2760,6 +2850,119 @@ describe('Actor/Responder execution loop', () => {
     expect(checkpointCall?.[1]?.abortSignal).toBeDefined();
     abortController.abort('stop');
     expect(checkpointCall?.[1]?.abortSignal?.aborted).toBe(true);
+  });
+
+  it('should forward top-level summarizerOptions into checkpoint summarizer calls', async () => {
+    let actorCallCount = 0;
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('internal AxAgent checkpoint summarizer')) {
+          return {
+            results: [
+              {
+                index: 0,
+                content: [
+                  'Checkpoint Summary: Objective: compress the draft',
+                  'Durable state: none',
+                  'Exact callables and formats: none',
+                  'Evidence: draft observed',
+                  'Conclusions: rely on the latest runtime state',
+                  'Actor fields: none',
+                  'Failures to avoid: none',
+                  'Next step: finish the task',
+                ].join('\n'),
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCallCount++;
+          const content =
+            actorCallCount === 1
+              ? 'Javascript Code: const draft = "v1"; console.log(draft)'
+              : actorCallCount === 2
+                ? 'Javascript Code: console.log("note")'
+                : actorCallCount === 3
+                  ? 'Javascript Code: console.log("more")'
+                  : 'Javascript Code: final("done")';
+
+          return {
+            results: [{ index: 0, content, finishReason: 'stop' }],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+    const chatSpy = vi.spyOn(testMockAI, 'chat');
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (globals?.final && code.includes('final(')) {
+              (globals.final as (...args: unknown[]) => void)('done');
+              return 'done';
+            }
+            if (code.includes('draft')) {
+              return 'v1';
+            }
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: ['context'],
+      runtime,
+      maxTurns: 4,
+      contextPolicy: {
+        preset: 'adaptive',
+        budget: 'compact',
+      },
+      summarizerOptions: {
+        model: 'summary-model',
+        modelConfig: { temperature: 0.1, maxTokens: 90 },
+      },
+    });
+
+    const result = await testAgent.forward(testMockAI, {
+      context: 'ctx',
+      query: 'q'.repeat(13_000),
+    });
+
+    expect(result.answer).toBe('done');
+
+    const checkpointCall = [...chatSpy.mock.calls]
+      .reverse()
+      .find(([req]) =>
+        String(req.chatPrompt[0]?.content ?? '').includes(
+          'internal AxAgent checkpoint summarizer'
+        )
+      );
+
+    expect(checkpointCall?.[0].model).toBe('summary-model');
+    expect(checkpointCall?.[0].modelConfig).toEqual({
+      temperature: 0.1,
+      maxTokens: 90,
+    });
   });
 
   it('should render discovery docs in the actor system prompt and keep actionLog non-instructional', async () => {
