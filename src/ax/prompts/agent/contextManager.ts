@@ -10,8 +10,8 @@ import type { AxAIService } from '../../ai/types.js';
 import { AxGen } from '../../dsp/generate.js';
 import type { AxProgramForwardOptions } from '../../dsp/types.js';
 import {
-  extractTopLevelDurableWriteTargets,
   extractTopLevelDeclaredNames,
+  extractTopLevelDurableWriteTargets,
   stripJsStringsAndComments,
 } from '../../util/jsAnalysis.js';
 
@@ -603,20 +603,22 @@ Write the output field \`tombstone\` as exactly one concise line.
 - Do not include code fences, bullet points, or extra prose.
 - Keep it roughly 20-40 tokens.`;
 
-const CHECKPOINT_SUMMARIZER_DESCRIPTION = `You are an internal AxAgent checkpoint summarizer.
+const CHECKPOINT_SUMMARIZER_DESCRIPTION = `You are an internal AxAgent trajectory summarizer.
+
+You are given the OLDER trajectory entries (the journey of attempts, errors, and fixes).
+Recent working code state is preserved separately and is NOT included here.
+Your job is to compress this execution history into a concise ledger.
 
 Write the output field \`checkpointSummary\` as plain text with exactly these labels in this order:
 Objective:
-Durable state:
 Exact callables and formats:
 Evidence:
 Conclusions:
-Actor fields:
 Failures to avoid:
 Next step:
 
 Rules:
-- Keep only information needed to continue the task.
+- Compress the execution trajectory aggressively — only keep what is needed to avoid repeating mistakes and to understand the path taken.
 - Distinguish confirmed execution facts from inferred conclusions.
 - Preserve exact qualified function names, module names, ids, field names, enum literals, date/time strings, literals, and query formats when they matter.
 - Put those exact details under \`Exact callables and formats:\` when possible.
@@ -624,7 +626,7 @@ Rules:
 - Use \`Failures to avoid:\` for exact retry hazards. Use \`none\` if there are no important failure patterns in the provided turns.
 - Do not restate raw code or quote large outputs.
 - Use "none" when a section has nothing worth preserving.
-- Be concise and factual, but prefer slightly more detail over losing task-critical specifics.`;
+- Be concise and factual.`;
 
 function sanitizeInternalSummaryOptions(
   options: Readonly<InternalSummaryForwardOptions> | undefined
@@ -724,7 +726,132 @@ export async function generateTombstoneAsync(
   }
 }
 
-function serializeCheckpointEntries(
+/** Maximum chars to preserve per code block in working state. */
+const WORKING_STATE_CODE_CAP = 2000;
+/** Maximum chars to preserve per output block in working state. */
+const WORKING_STATE_OUTPUT_CAP = 800;
+/** Number of recent non-error entries to keep as verbatim working state. */
+const WORKING_STATE_ENTRY_COUNT = 2;
+
+/**
+ * Split checkpoint entries into two groups:
+ * - **working**: last N non-error, non-tombstoned entries (preserved verbatim)
+ * - **trajectory**: everything else (compressed by the LLM)
+ */
+/** @internal Exported for testing only. */
+export function splitCheckpointEntries(entries: readonly ActionLogEntry[]): {
+  working: ActionLogEntry[];
+  trajectory: ActionLogEntry[];
+} {
+  const working: ActionLogEntry[] = [];
+
+  // Walk backwards, collect last N non-error entries as working state
+  for (
+    let i = entries.length - 1;
+    i >= 0 && working.length < WORKING_STATE_ENTRY_COUNT;
+    i--
+  ) {
+    const e = entries[i]!;
+    if (!e.tags.includes('error') && !e.tombstone) {
+      working.unshift(e);
+    }
+  }
+
+  const workingTurns = new Set(working.map((e) => e.turn));
+  const trajectory: ActionLogEntry[] = [];
+  for (const e of entries) {
+    if (!workingTurns.has(e.turn)) trajectory.push(e);
+  }
+
+  return { working, trajectory };
+}
+
+/**
+ * Deterministically extract verbatim working code state from recent entries.
+ * This bypasses the LLM entirely to guarantee no lossy compression of the
+ * code the agent is currently working with.
+ */
+/** @internal Exported for testing only. */
+export function extractWorkingCodeState(
+  entries: readonly ActionLogEntry[]
+): string {
+  if (entries.length === 0) return '';
+
+  const blocks = entries.map((entry) => {
+    ensureEntryMetadata(entry as ActionLogEntry);
+    ensureDiscoveryMetadata(entry as ActionLogEntry);
+
+    const code = entry.code
+      ? entry.code.length > WORKING_STATE_CODE_CAP
+        ? `${entry.code.slice(0, WORKING_STATE_CODE_CAP)}\n// ... (truncated)`
+        : entry.code
+      : '(no code)';
+    const output = entry.output
+      ? truncateInline(entry.output, WORKING_STATE_OUTPUT_CAP)
+      : '(no output)';
+    const directCallables =
+      (entry._directQualifiedCalls ?? []).join(', ') || 'none';
+    const actorFields = entry.actorFieldsOutput
+      .replace(/^Actor fields:\s*/i, '')
+      .trim();
+
+    const lines = [
+      `Code:\n${code}`,
+      `Produced: ${(entry.producedVars ?? []).join(', ') || 'none'}`,
+      `Direct callables: ${directCallables}`,
+      `State delta: ${entry.stateDelta ?? 'none'}`,
+      `Output: ${output}`,
+    ];
+    if (actorFields) {
+      lines.push(`Actor fields: ${actorFields}`);
+    }
+    return lines.join('\n');
+  });
+
+  return `=== Working Code State (verbatim) ===\n${blocks.join('\n\n')}`;
+}
+
+/**
+ * Serialize trajectory entries (older entries) with aggressive compression.
+ * These are sent to the LLM for summarization.
+ */
+/** @internal Exported for testing only. */
+export function serializeTrajectoryEntries(
+  entries: readonly ActionLogEntry[]
+): string {
+  return entries
+    .map((entry) => {
+      // Tombstoned entries are already compact
+      if (entry.tombstone) {
+        return `Turn: ${entry.turn}\n${entry.tombstone}`;
+      }
+
+      ensureEntryMetadata(entry as ActionLogEntry);
+      ensureDiscoveryMetadata(entry as ActionLogEntry);
+      const directCallables =
+        (entry._directQualifiedCalls ?? []).join(', ') || 'none';
+      const failureCues = entry.tags.includes('error')
+        ? truncateInline(entry.output || '(no output)', 160)
+        : 'none';
+
+      return [
+        `Turn: ${entry.turn}`,
+        `Step kind: ${entry.stepKind ?? 'explore'}`,
+        `Direct callables: ${directCallables}`,
+        `State delta: ${entry.stateDelta ?? 'none'}`,
+        `Observed result: ${truncateInline(entry.output || '(no output)', 200)}`,
+        `Failure cues: ${failureCues}`,
+        `Code excerpt: ${truncateInline(entry.code || '(no code)', 180)}`,
+      ].join('\n');
+    })
+    .join('\n\n');
+}
+
+/**
+ * Legacy full serialization — used only for backward-compatible contexts
+ * where the split approach is not applicable.
+ */
+function _serializeCheckpointEntries(
   entries: readonly ActionLogEntry[]
 ): string {
   return entries
@@ -756,14 +883,17 @@ function serializeCheckpointEntries(
     .join('\n\n');
 }
 
-function buildFallbackCheckpointSummary(
+/**
+ * Deterministic fallback for trajectory summarization (no LLM).
+ */
+function buildFallbackTrajectorySummary(
   entries: readonly ActionLogEntry[]
 ): string {
+  if (entries.length === 0) return '';
+
   const objectives = new Set<string>();
-  const durableValues = new Set<string>();
   const exactCallablesAndFormats: string[] = [];
   const evidence: string[] = [];
-  const actorFields: string[] = [];
   const failuresToAvoid: string[] = [];
   let nextStep = 'Continue from the latest live runtime state.';
 
@@ -771,9 +901,6 @@ function buildFallbackCheckpointSummary(
     ensureEntryMetadata(entry);
     ensureDiscoveryMetadata(entry as ActionLogEntry);
     objectives.add(entry.stepKind ?? 'explore');
-    for (const value of entry.producedVars ?? []) {
-      durableValues.add(value);
-    }
     const directCallables = entry._directQualifiedCalls ?? [];
     if (directCallables.length > 0) {
       exactCallablesAndFormats.push(
@@ -788,12 +915,6 @@ function buildFallbackCheckpointSummary(
     }
     const observation = truncateInline(entry.output || '(no output)', 200);
     evidence.push(`Turn ${entry.turn}: ${observation}`);
-    const trimmedActorFields = entry.actorFieldsOutput
-      .replace(/^Actor fields:\s*/i, '')
-      .trim();
-    if (trimmedActorFields) {
-      actorFields.push(`Turn ${entry.turn}: ${trimmedActorFields}`);
-    }
     if (entry.tags.includes('error')) {
       failuresToAvoid.push(
         `Turn ${entry.turn}: ${truncateInline(entry.output || '(no output)', 160)}`
@@ -807,16 +928,34 @@ function buildFallbackCheckpointSummary(
 
   return [
     `Objective: ${[...objectives].join(', ') || 'none'}`,
-    `Durable state: ${[...durableValues].join(', ') || 'none'}`,
     `Exact callables and formats: ${exactCallablesAndFormats.join(' | ') || 'none'}`,
     `Evidence: ${evidence.join(' | ') || 'none'}`,
-    `Conclusions: Preserve the durable state, exact callable usage, and evidence above. Confirmed execution facts should override inference.`,
-    `Actor fields: ${actorFields.join(' | ') || 'none'}`,
+    `Conclusions: Confirmed execution facts should override inference.`,
     `Failures to avoid: ${failuresToAvoid.join(' | ') || 'none'}`,
     `Next step: ${nextStep}`,
   ].join('\n');
 }
 
+/**
+ * Legacy fallback used when the full entry set is provided without splitting.
+ * Kept for backward-compatible code paths.
+ */
+function _buildFallbackCheckpointSummary(
+  entries: readonly ActionLogEntry[]
+): string {
+  const { working, trajectory } = splitCheckpointEntries(entries);
+  const workingBlock = extractWorkingCodeState(working);
+  const trajectoryBlock = buildFallbackTrajectorySummary(trajectory);
+  return [workingBlock, trajectoryBlock].filter(Boolean).join('\n\n');
+}
+
+/**
+ * Generates a checkpoint summary using hybrid state separation:
+ * 1. Working code state (last N non-error entries) is extracted deterministically —
+ *    preserved verbatim, never passed through the LLM.
+ * 2. Trajectory (older entries) is compressed by the LLM into a concise execution ledger.
+ * 3. The final summary concatenates both parts.
+ */
 export async function generateCheckpointSummaryAsync(
   ai: AxAIService,
   summarizerOptions:
@@ -825,31 +964,44 @@ export async function generateCheckpointSummaryAsync(
   requestForwardOptions: Readonly<InternalSummaryForwardOptions> | undefined,
   entries: readonly ActionLogEntry[]
 ): Promise<string> {
-  const summarizer = new AxGen<
-    { turns: string },
-    { checkpointSummary: string }
-  >('turns:string -> checkpointSummary:string', {
-    ...buildInternalSummaryProgramOptions(
-      CHECKPOINT_SUMMARIZER_DESCRIPTION,
-      'ax-agent-checkpoint-summary',
-      summarizerOptions
-    ),
-  });
+  const { working, trajectory } = splitCheckpointEntries(entries);
+  const workingCodeBlock = extractWorkingCodeState(working);
 
-  try {
-    const result = await summarizer.forward(
-      ai,
-      { turns: serializeCheckpointEntries(entries) },
-      buildInternalSummaryCallOptions(requestForwardOptions, summarizerOptions)
-    );
-    const text =
-      typeof result.checkpointSummary === 'string'
-        ? result.checkpointSummary.trim()
-        : String(result.checkpointSummary).trim();
-    return text || buildFallbackCheckpointSummary(entries);
-  } catch {
-    return buildFallbackCheckpointSummary(entries);
+  let trajectorySummary: string;
+  if (trajectory.length > 0) {
+    const summarizer = new AxGen<
+      { turns: string },
+      { checkpointSummary: string }
+    >('turns:string -> checkpointSummary:string', {
+      ...buildInternalSummaryProgramOptions(
+        CHECKPOINT_SUMMARIZER_DESCRIPTION,
+        'ax-agent-checkpoint-summary',
+        summarizerOptions
+      ),
+    });
+
+    try {
+      const result = await summarizer.forward(
+        ai,
+        { turns: serializeTrajectoryEntries(trajectory) },
+        buildInternalSummaryCallOptions(
+          requestForwardOptions,
+          summarizerOptions
+        )
+      );
+      const text =
+        typeof result.checkpointSummary === 'string'
+          ? result.checkpointSummary.trim()
+          : String(result.checkpointSummary).trim();
+      trajectorySummary = text || buildFallbackTrajectorySummary(trajectory);
+    } catch {
+      trajectorySummary = buildFallbackTrajectorySummary(trajectory);
+    }
+  } else {
+    trajectorySummary = '';
   }
+
+  return [workingCodeBlock, trajectorySummary].filter(Boolean).join('\n\n');
 }
 
 // ---------------------------------------------------------------------------

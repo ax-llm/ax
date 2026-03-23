@@ -206,3 +206,5 @@ Inspectable
 Snapshotable
 snapshotable
 Renderable
+corge
+grault

@@ -623,7 +623,7 @@ Use it for:
 Important:
 
 - `output` is not raw stdout; it is the formatted replay string used in the action log.
-- `result` is the raw runtime result before Ax formats/truncates it.
+- `result` is the raw runtime result before Ax applies type-aware serialization and budget-proportional truncation.
 - `thought` is optional and only appears when the underlying `AxGen` call had `showThoughts` enabled and the provider actually returned a thought field.
 
 Good pattern:
@@ -656,7 +656,7 @@ Use these top-level controls consistently:
 - `mode`: controls whether `llmQuery(...)` stays simple or delegates to recursive child agents in advanced mode
 - `recursionOptions.maxDepth`: limits recursive `llmQuery(...)` depth
 - `maxSubAgentCalls`: shared delegated-call budget across the whole run, including recursive children
-- `maxRuntimeChars`: runtime/output truncation cap for console logs, tool results, and interpreter output replay
+- `maxRuntimeChars`: runtime/output truncation ceiling for console logs, tool results, and interpreter output replay. The actual limit is computed dynamically each turn based on remaining context budget (see **Dynamic Output Truncation** below)
 - `summarizerOptions`: default model/options for the internal checkpoint summarizer
 - `actorOptions`: actor-only forward options such as `description`, `model`, `modelConfig`, `thinkingTokenBudget`, and `showThoughts`
 - `actorModelPolicy`: actor-only model override rules based on consecutive error turns or discovery fetches from listed namespaces
@@ -702,7 +702,7 @@ const researchAgent = agent('query:string -> answer:string', {
 Semantics:
 
 - `mode` stays top-level; there is no `recursionOptions.mode`.
-- `maxRuntimeChars` controls runtime/output truncation only. It is separate from `contextPolicy.budget`.
+- `maxRuntimeChars` sets the truncation ceiling and is separate from `contextPolicy.budget`. The effective limit per turn is computed dynamically (see below).
 - `summarizerOptions` tunes only the internal checkpoint summarizer. It does not change actor or responder model selection.
 - The current merged actor model stays the default base model. `actorModelPolicy` only overrides it when a rule matches.
 - `actorModelPolicy` only switches the actor model. It does not change `responderOptions.model`.
@@ -717,6 +717,23 @@ When choosing these options for a user:
 - Do not add `judgeOptions` in normal agent examples; reserve that for optimize/eval workflows.
 - Keep `actorOptions` focused on actor-only forward concerns such as `description`, `model`, `modelConfig`, `thinkingTokenBudget`, and `showThoughts`.
 - Use `actorModelPolicy` when the actor is the bottleneck and you want the responder to stay fixed.
+
+## Dynamic Output Truncation
+
+Runtime output truncation is **budget-proportional** and **type-aware**:
+
+**Budget-proportional sizing**: The effective truncation limit scales with remaining context budget. Early turns (empty action log) use the full `maxRuntimeChars` ceiling. As the action log fills toward `targetPromptChars`, the limit decays linearly down to 15% of the ceiling, hard-floored at 400 chars. This means early turns preserve more output detail while later turns conserve context for reasoning.
+
+**Type-aware serialization**: Non-string runtime output is serialized with structural awareness before the char-budget truncation pass:
+
+- **Large arrays** (>10 items): first 3 + last 2 items are kept; middle items replaced with `... [N hidden items]`.
+- **Deep objects** (>3 levels): nested values beyond depth 3 replaced with `[Object]` or `[Array(N)]`.
+- **Error stack traces**: first 3 + last 1 stack frames kept; middle frames replaced with `... [N frames hidden]`.
+- **Simple values**: standard `JSON.stringify` passthrough.
+
+This means the actor sees structurally informative output even when the char budget is tight, rather than a blindly head-truncated string.
+
+Users do not need to configure this behavior — it is automatic. `maxRuntimeChars` sets the upper bound; the dynamic system only ever reduces, never exceeds it.
 
 ## Actor Prompt Controls
 

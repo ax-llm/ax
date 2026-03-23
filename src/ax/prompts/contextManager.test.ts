@@ -16,9 +16,12 @@ import {
   extractErrorSignature,
   extractReadIdentifiers,
   extractReferencedIdentifiers,
+  extractWorkingCodeState,
   generateCheckpointSummaryAsync,
   generateTombstoneAsync,
   manageContext,
+  serializeTrajectoryEntries,
+  splitCheckpointEntries,
 } from './contextManager.js';
 
 // ---------------------------------------------------------------------------
@@ -891,8 +894,216 @@ describe('buildActionEvidenceSummary', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// splitCheckpointEntries
+// ---------------------------------------------------------------------------
+
+describe('splitCheckpointEntries', () => {
+  it('should put the last N non-error entries into working and the rest into trajectory', () => {
+    const entries = [
+      makeSuccessEntry(1, 'const a = 1', '1'),
+      makeSuccessEntry(2, 'const b = 2', '2'),
+      makeSuccessEntry(3, 'const c = 3', '3'),
+    ];
+    const { working, trajectory } = splitCheckpointEntries(entries);
+    expect(working.map((e) => e.turn)).toEqual([2, 3]);
+    expect(trajectory.map((e) => e.turn)).toEqual([1]);
+  });
+
+  it('should put all entries in working when count <= WORKING_STATE_ENTRY_COUNT', () => {
+    const entries = [
+      makeSuccessEntry(1, 'const a = 1', '1'),
+      makeSuccessEntry(2, 'const b = 2', '2'),
+    ];
+    const { working, trajectory } = splitCheckpointEntries(entries);
+    expect(working.map((e) => e.turn)).toEqual([1, 2]);
+    expect(trajectory).toHaveLength(0);
+  });
+
+  it('should skip error entries when selecting working state', () => {
+    const entries = [
+      makeSuccessEntry(1, 'const a = 1', '1'),
+      makeSuccessEntry(2, 'const b = 2', '2'),
+      makeErrorEntry(3, 'TypeError: oops'),
+      makeSuccessEntry(4, 'const c = 3', '3'),
+    ];
+    const { working, trajectory } = splitCheckpointEntries(entries);
+    // Working = turns 2 and 4 (skipping error turn 3)
+    expect(working.map((e) => e.turn)).toEqual([2, 4]);
+    // Trajectory = turn 1; error turn 3 is excluded from working but kept in trajectory
+    expect(trajectory.map((e) => e.turn)).toEqual([1, 3]);
+  });
+
+  it('should skip tombstoned entries when selecting working state', () => {
+    const entries = [
+      makeSuccessEntry(1, 'const a = 1', '1'),
+      makeEntry({
+        turn: 2,
+        code: 'bad()',
+        output: 'err',
+        tags: ['error'],
+        tombstone: '[TOMBSTONE]: fixed',
+      }),
+      makeSuccessEntry(3, 'const c = 3', '3'),
+    ];
+    const { working, trajectory } = splitCheckpointEntries(entries);
+    // Tombstoned entry excluded from working state
+    expect(working.map((e) => e.turn)).toEqual([1, 3]);
+    expect(trajectory.map((e) => e.turn)).toEqual([2]);
+  });
+
+  it('should return empty working and trajectory for empty input', () => {
+    const { working, trajectory } = splitCheckpointEntries([]);
+    expect(working).toHaveLength(0);
+    expect(trajectory).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// extractWorkingCodeState
+// ---------------------------------------------------------------------------
+
+describe('extractWorkingCodeState', () => {
+  it('should return empty string for no entries', () => {
+    expect(extractWorkingCodeState([])).toBe('');
+  });
+
+  it('should start with the section header', () => {
+    const result = extractWorkingCodeState([
+      makeSuccessEntry(1, 'const x = 1', '1'),
+    ]);
+    expect(result).toMatch(/^=== Working Code State \(verbatim\) ===/);
+  });
+
+  it('should NOT include turn number prefixes', () => {
+    const result = extractWorkingCodeState([
+      makeSuccessEntry(1, 'const a = 1', '1'),
+      makeSuccessEntry(2, 'const b = 2', '2'),
+    ]);
+    expect(result).not.toMatch(/Turn \d+:/);
+  });
+
+  it('should start each entry block with "Code:"', () => {
+    const result = extractWorkingCodeState([
+      makeSuccessEntry(1, 'const x = fetch()', 'ok'),
+      makeSuccessEntry(2, 'const y = parse(x)', 'parsed'),
+    ]);
+    const codeMatches = [...result.matchAll(/^Code:/gm)];
+    expect(codeMatches).toHaveLength(2);
+  });
+
+  it('should preserve full code verbatim', () => {
+    const code =
+      'const result = items\n  .filter(x => x.active)\n  .map(x => x.id)';
+    const result = extractWorkingCodeState([makeSuccessEntry(1, code, '[]')]);
+    expect(result).toContain(code);
+  });
+
+  it('should include Produced, Direct callables, State delta, and Output fields', () => {
+    const result = extractWorkingCodeState([
+      makeSuccessEntry(1, 'const x = 1', 'output here'),
+    ]);
+    expect(result).toContain('Produced:');
+    expect(result).toContain('Direct callables:');
+    expect(result).toContain('State delta:');
+    expect(result).toContain('Output: output here');
+  });
+
+  it('should truncate code at 2000 chars and append truncation marker', () => {
+    const longCode = 'x'.repeat(2100);
+    const result = extractWorkingCodeState([
+      makeSuccessEntry(1, longCode, 'ok'),
+    ]);
+    expect(result).toContain('// ... (truncated)');
+    // Should not contain the full code
+    expect(result).not.toContain('x'.repeat(2001));
+  });
+
+  it('should separate multiple entries with a blank line', () => {
+    const result = extractWorkingCodeState([
+      makeSuccessEntry(1, 'const a = 1', '1'),
+      makeSuccessEntry(2, 'const b = 2', '2'),
+    ]);
+    // Two Code: blocks separated by blank line
+    expect(result).toContain('Output: 1\n\nCode:');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// serializeTrajectoryEntries
+// ---------------------------------------------------------------------------
+
+describe('serializeTrajectoryEntries', () => {
+  it('should return empty string for no entries', () => {
+    expect(serializeTrajectoryEntries([])).toBe('');
+  });
+
+  it('should include Turn, Step kind, Direct callables, and Code excerpt fields', () => {
+    const result = serializeTrajectoryEntries([
+      makeSuccessEntry(1, 'const x = db.query()', 'rows'),
+    ]);
+    expect(result).toContain('Turn: 1');
+    expect(result).toContain('Step kind:');
+    expect(result).toContain('Direct callables:');
+    expect(result).toContain('Code excerpt:');
+  });
+
+  it('should use tombstone text for tombstoned entries instead of full fields', () => {
+    const entry = makeEntry({
+      turn: 1,
+      code: 'bad()',
+      output: 'TypeError: bad is not a function',
+      tags: ['error'],
+      tombstone: '[TOMBSTONE]: fixed by using good() instead',
+    });
+    const result = serializeTrajectoryEntries([entry]);
+    expect(result).toContain('[TOMBSTONE]: fixed by using good() instead');
+    expect(result).not.toContain('Code excerpt:');
+  });
+
+  it('should truncate code excerpts more aggressively than working state', () => {
+    const longCode = 'a'.repeat(500);
+    const result = serializeTrajectoryEntries([
+      makeSuccessEntry(1, longCode, 'ok'),
+    ]);
+    // Trajectory cap is 180 chars
+    expect(result).toContain('...');
+    expect(result).not.toContain('a'.repeat(200));
+  });
+
+  it('should show failure cues for error entries', () => {
+    const result = serializeTrajectoryEntries([
+      makeErrorEntry(1, 'ReferenceError: x is not defined'),
+    ]);
+    expect(result).toContain('Failure cues:');
+    expect(result).toContain('ReferenceError: x is not defined');
+  });
+
+  it('should show "none" for failure cues on success entries', () => {
+    const result = serializeTrajectoryEntries([
+      makeSuccessEntry(1, 'const x = 1', '1'),
+    ]);
+    expect(result).toContain('Failure cues: none');
+  });
+
+  it('should separate multiple entries with a blank line', () => {
+    const result = serializeTrajectoryEntries([
+      makeSuccessEntry(1, 'const a = 1', '1'),
+      makeSuccessEntry(2, 'const b = 2', '2'),
+    ]);
+    expect(result).toContain('Turn: 1');
+    expect(result).toContain('Turn: 2');
+    // Separated by blank line
+    expect(result).toMatch(/Turn: 1[\s\S]+?\n\nTurn: 2/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// generateCheckpointSummaryAsync
+// ---------------------------------------------------------------------------
+
 describe('generateCheckpointSummaryAsync', () => {
-  it('should call the internal summarizer and return the checkpoint summary', async () => {
+  it('should use LLM for trajectory and preserve working state verbatim', async () => {
     const mockAi = new AxMockAIService({
       features: { functions: false, streaming: false },
       chatResponse: {
@@ -900,15 +1111,59 @@ describe('generateCheckpointSummaryAsync', () => {
           {
             index: 0,
             content: [
-              'Checkpoint Summary: Objective: verify draft',
-              'Durable state: draft',
-              'Exact callables and formats: draft',
-              'Evidence: draft ready',
-              'Conclusions: use draft',
-              'Actor fields: none',
+              'Objective: explore data',
+              'Exact callables and formats: db.query("SELECT *")',
+              'Evidence: query returned 5 rows',
+              'Conclusions: schema confirmed',
               'Failures to avoid: none',
-              'Next step: finalize answer',
+              'Next step: transform data',
             ].join('\n'),
+            finishReason: 'stop',
+          },
+        ],
+        modelUsage: makeModelUsage(),
+      },
+    });
+    const chatSpy = vi.spyOn(mockAi, 'chat');
+
+    // 3 entries: first goes to trajectory, last 2 go to working state
+    const result = await generateCheckpointSummaryAsync(
+      mockAi,
+      undefined,
+      undefined,
+      [
+        makeSuccessEntry(1, 'const data = db.query("SELECT *")', '5 rows'),
+        makeSuccessEntry(
+          2,
+          'const filtered = data.filter(x => x.active)',
+          '3 rows'
+        ),
+        makeSuccessEntry(
+          3,
+          'const report = buildReport(filtered)',
+          'report ready'
+        ),
+      ]
+    );
+
+    // Working state should preserve verbatim code from turns 2 and 3
+    expect(result).toContain('=== Working Code State (verbatim) ===');
+    expect(result).toContain('const filtered = data.filter(x => x.active)');
+    expect(result).toContain('const report = buildReport(filtered)');
+    // Trajectory should be LLM-summarized
+    expect(result).toContain('Objective: explore data');
+    // LLM should have been called for the trajectory (turn 1)
+    expect(chatSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('should not call LLM when all entries fit in working state', async () => {
+    const mockAi = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: {
+        results: [
+          {
+            index: 0,
+            content: 'Objective: test',
             finishReason: 'stop',
           },
         ],
@@ -924,14 +1179,10 @@ describe('generateCheckpointSummaryAsync', () => {
       [makeSuccessEntry(1, 'const draft = "v1"', 'draft ready')]
     );
 
-    expect(result).toContain('Objective: verify draft');
-    expect(chatSpy).toHaveBeenCalledTimes(1);
-    expect(
-      String(chatSpy.mock.calls[0]?.[0]?.chatPrompt[0]?.content ?? '')
-    ).toContain('Exact callables and formats:');
-    expect(
-      String(chatSpy.mock.calls[0]?.[0]?.chatPrompt[0]?.content ?? '')
-    ).toContain('Failures to avoid:');
+    // Only 1 entry → all in working state, no trajectory → no LLM call
+    expect(chatSpy).not.toHaveBeenCalled();
+    expect(result).toContain('=== Working Code State (verbatim) ===');
+    expect(result).toContain('const draft = "v1"');
   });
 
   it('should let request-level model options override checkpoint defaults', async () => {
@@ -941,16 +1192,8 @@ describe('generateCheckpointSummaryAsync', () => {
         results: [
           {
             index: 0,
-            content: [
-              'Checkpoint Summary: Objective: verify draft',
-              'Durable state: draft',
-              'Exact callables and formats: draft',
-              'Evidence: draft ready',
-              'Conclusions: use draft',
-              'Actor fields: none',
-              'Failures to avoid: none',
-              'Next step: finalize answer',
-            ].join('\n'),
+            content:
+              'Objective: verify draft\nExact callables and formats: none\nEvidence: done\nConclusions: ok\nFailures to avoid: none\nNext step: finalize',
             finishReason: 'stop',
           },
         ],
@@ -959,6 +1202,7 @@ describe('generateCheckpointSummaryAsync', () => {
     });
     const chatSpy = vi.spyOn(mockAi, 'chat');
 
+    // Need 3+ entries so at least 1 goes to trajectory and triggers LLM
     await generateCheckpointSummaryAsync(
       mockAi,
       { model: 'summary-model', modelConfig: { temperature: 0.1 } },
@@ -966,7 +1210,11 @@ describe('generateCheckpointSummaryAsync', () => {
         model: 'request-model',
         modelConfig: { temperature: 0.4, maxTokens: 180 },
       },
-      [makeSuccessEntry(1, 'const draft = "v1"', 'draft ready')]
+      [
+        makeSuccessEntry(1, 'const a = 1', '1'),
+        makeSuccessEntry(2, 'const b = 2', '2'),
+        makeSuccessEntry(3, 'const c = 3', '3'),
+      ]
     );
 
     const chatReq = chatSpy.mock.calls[0]?.[0];
@@ -984,16 +1232,8 @@ describe('generateCheckpointSummaryAsync', () => {
         results: [
           {
             index: 0,
-            content: [
-              'Checkpoint Summary: Objective: verify draft',
-              'Durable state: draft',
-              'Exact callables and formats: draft',
-              'Evidence: draft ready',
-              'Conclusions: use draft',
-              'Actor fields: none',
-              'Failures to avoid: none',
-              'Next step: finalize answer',
-            ].join('\n'),
+            content:
+              'Objective: verify\nExact callables and formats: none\nEvidence: done\nConclusions: ok\nFailures to avoid: none\nNext step: finalize',
             finishReason: 'stop',
           },
         ],
@@ -1004,11 +1244,16 @@ describe('generateCheckpointSummaryAsync', () => {
     const abortController = new AbortController();
     const logger = vi.fn();
 
+    // Need 3+ entries to trigger LLM
     await generateCheckpointSummaryAsync(
       mockAi,
       undefined,
       { abortSignal: abortController.signal, debug: true, logger },
-      [makeSuccessEntry(1, 'const draft = "v1"', 'draft ready')]
+      [
+        makeSuccessEntry(1, 'const a = 1', '1'),
+        makeSuccessEntry(2, 'const b = 2', '2'),
+        makeSuccessEntry(3, 'const c = 3', '3'),
+      ]
     );
 
     const chatOptions = chatSpy.mock.calls[0]?.[1];
@@ -1018,7 +1263,7 @@ describe('generateCheckpointSummaryAsync', () => {
     expect(chatOptions?.debug).toBe(true);
   });
 
-  it('should return a deterministic fallback on error', async () => {
+  it('should return a deterministic fallback on LLM error', async () => {
     const mockAi = new AxMockAIService({
       features: { functions: false, streaming: false },
       shouldError: true,
@@ -1029,13 +1274,55 @@ describe('generateCheckpointSummaryAsync', () => {
       mockAi,
       undefined,
       undefined,
-      [makeSuccessEntry(1, 'const draft = "v1"', 'draft ready')]
+      [
+        makeSuccessEntry(1, 'const data = fetch()', 'fetched'),
+        makeSuccessEntry(2, 'const parsed = parse(data)', 'parsed ok'),
+        makeSuccessEntry(3, 'const draft = "v1"', 'draft ready'),
+      ]
     );
 
+    // Working state (verbatim) should still be present
+    expect(result).toContain('=== Working Code State (verbatim) ===');
+    expect(result).toContain('const parsed = parse(data)');
+    expect(result).toContain('const draft = "v1"');
+    // Trajectory fallback should also be present
     expect(result).toContain('Objective:');
-    expect(result).toContain('Durable state: draft');
-    expect(result).toContain('Exact callables and formats:');
     expect(result).toContain('Failures to avoid:');
+  });
+
+  it('should skip error entries when selecting working state', async () => {
+    const mockAi = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: {
+        results: [
+          {
+            index: 0,
+            content:
+              'Objective: debug\nExact callables and formats: none\nEvidence: error resolved\nConclusions: fixed\nFailures to avoid: bad syntax\nNext step: continue',
+            finishReason: 'stop',
+          },
+        ],
+        modelUsage: makeModelUsage(),
+      },
+    });
+
+    const result = await generateCheckpointSummaryAsync(
+      mockAi,
+      undefined,
+      undefined,
+      [
+        makeSuccessEntry(1, 'const a = setup()', 'ready'),
+        makeSuccessEntry(2, 'const b = process(a)', 'processed'),
+        makeErrorEntry(3, 'SyntaxError: unexpected token'),
+        makeSuccessEntry(4, 'const c = fixedProcess(a)', 'fixed and processed'),
+      ]
+    );
+
+    // Working state should have turns 2 and 4 (skipping error turn 3)
+    expect(result).toContain('const b = process(a)');
+    expect(result).toContain('const c = fixedProcess(a)');
+    // Error should NOT be in working state
+    expect(result).not.toContain('SyntaxError: unexpected token');
   });
 });
 

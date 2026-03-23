@@ -92,6 +92,7 @@ import {
 import {
   DEFAULT_AGENT_MODULE_NAMESPACE,
   DEFAULT_CONTEXT_FIELD_PROMPT_MAX_CHARS,
+  computeEffectiveChatBudget,
   DEFAULT_RLM_BATCH_CONCURRENCY,
   DEFAULT_RLM_MAX_LLM_CALLS,
   DEFAULT_RLM_MAX_RECURSION_DEPTH,
@@ -176,6 +177,7 @@ import {
   runtimeStateProvenanceToRecord,
   serializeAgentStateActionLogEntries,
 } from './state.js';
+import { computeDynamicRuntimeChars } from './truncate.js';
 
 /**
  * Interface for agents that can be used as child agents.
@@ -3036,7 +3038,13 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       rlm.summarizerOptions,
       rlm.maxRuntimeChars
     );
-    const maxRuntimeChars = effectiveContextConfig.maxRuntimeChars;
+    const baseMaxRuntimeChars = effectiveContextConfig.maxRuntimeChars;
+    const getMaxRuntimeChars = (): number =>
+      computeDynamicRuntimeChars(
+        actionLogEntries ?? [],
+        effectiveContextConfig.targetPromptChars,
+        baseMaxRuntimeChars
+      );
     const llmQueryBudgetState = this.llmQueryBudgetState ?? { used: 0 };
     const activeRecursiveSubAgents = new Set<
       AxAgent<any, { answer: AxFieldValue }>
@@ -3162,13 +3170,14 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         if (value === undefined || value === null) {
           return '';
         }
+        const limit = getMaxRuntimeChars();
         if (typeof value === 'string') {
-          return truncateText(value, maxRuntimeChars);
+          return truncateText(value, limit);
         }
         try {
-          return truncateText(JSON.stringify(value), maxRuntimeChars);
+          return truncateText(JSON.stringify(value), limit);
         } catch {
-          return truncateText(String(value), maxRuntimeChars);
+          return truncateText(String(value), limit);
         }
       };
 
@@ -3188,7 +3197,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           singleCtx === undefined
             ? undefined
             : typeof singleCtx === 'string'
-              ? truncateText(singleCtx, maxRuntimeChars)
+              ? truncateText(singleCtx, getMaxRuntimeChars())
               : singleCtx;
 
         if (llmQueryBudgetState.used >= maxSubAgentCalls) {
@@ -3637,7 +3646,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         effectiveContextConfig.stateSummary.maxChars &&
         effectiveContextConfig.stateSummary.maxChars > 0
           ? effectiveContextConfig.stateSummary.maxChars
-          : Math.min(maxRuntimeChars, 1_200),
+          : Math.min(baseMaxRuntimeChars, 1_200),
     });
     const bootstrapContextSummary =
       Object.keys(bootstrapGlobals).length > 0
@@ -3818,7 +3827,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           return;
         }
         throw new Error(
-          `Failed to sync runtime inputs: ${formatInterpreterError(err, maxRuntimeChars)}`
+          `Failed to sync runtime inputs: ${formatInterpreterError(err, getMaxRuntimeChars())}`
         );
       }
     };
@@ -3847,7 +3856,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     ): Promise<{ result: unknown; output: string; isError: boolean }> => {
       const completionOutput = {
         result: undefined,
-        output: formatInterpreterOutput(undefined, maxRuntimeChars),
+        output: formatInterpreterOutput(undefined, getMaxRuntimeChars()),
         isError: false,
       };
 
@@ -3870,7 +3879,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         }
         return {
           result,
-          output: formatInterpreterOutput(result, maxRuntimeChars),
+          output: formatInterpreterOutput(result, getMaxRuntimeChars()),
           isError: false,
         };
       } catch (err) {
@@ -3899,11 +3908,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           throw err;
         }
         if (isExecutionTimedOutError(err)) {
+          const limit = getMaxRuntimeChars();
           return {
             result: undefined,
             output: truncateText(
-              `${RUNTIME_RESTART_NOTICE}\n${formatInterpreterError(err, maxRuntimeChars)}`,
-              maxRuntimeChars
+              `${RUNTIME_RESTART_NOTICE}\n${formatInterpreterError(err, limit)}`,
+              limit
             ),
             isError: true,
           };
@@ -3916,11 +3926,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
               signal: effectiveAbortSignal,
               reservedNames: protectedRuntimeNames,
             });
+            const retryLimit = getMaxRuntimeChars();
             return {
               result: retryResult,
               output: truncateText(
-                `${RUNTIME_RESTART_NOTICE}\n${formatInterpreterOutput(retryResult, maxRuntimeChars)}`,
-                maxRuntimeChars
+                `${RUNTIME_RESTART_NOTICE}\n${formatInterpreterOutput(retryResult, retryLimit)}`,
+                retryLimit
               ),
               isError: false,
             };
@@ -3931,22 +3942,21 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
             ) {
               throw retryErr;
             }
+            const retryErrLimit = getMaxRuntimeChars();
             return {
               result: undefined,
               output: truncateText(
-                `${RUNTIME_RESTART_NOTICE}\n${formatInterpreterError(retryErr, maxRuntimeChars)}`,
-                maxRuntimeChars
+                `${RUNTIME_RESTART_NOTICE}\n${formatInterpreterError(retryErr, retryErrLimit)}`,
+                retryErrLimit
               ),
               isError: true,
             };
           }
         }
+        const errLimit = getMaxRuntimeChars();
         return {
           result: undefined,
-          output: truncateText(
-            formatInterpreterError(err, maxRuntimeChars),
-            maxRuntimeChars
-          ),
+          output: truncateText(formatInterpreterError(err, errLimit), errLimit),
           isError: true,
         };
       }
@@ -3981,7 +3991,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         if (completionState.payload) {
           return normalizeTestCompletionResult();
         }
-        const output = formatInterpreterOutput(result, maxRuntimeChars);
+        const output = formatInterpreterOutput(result, getMaxRuntimeChars());
         if (isLikelyRuntimeErrorOutput(output)) {
           throw new Error(output);
         }
@@ -4480,11 +4490,18 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       const thresholdActionLogText = renderActionLogWithReplayMode(
         checkpointThresholdReplayMode
       );
-      const thresholdPromptChars = await measureActorPromptChars(
+      const thresholdMetrics = await measureActorPromptChars(
         thresholdActionLogText,
         renderGuidanceLog(guidanceState.entries)
       );
-      if (!triggerChars || thresholdPromptChars <= triggerChars) {
+      const thresholdFixedOverhead =
+        thresholdMetrics.systemPromptCharacters +
+        thresholdMetrics.exampleChatContextCharacters;
+      if (
+        !triggerChars ||
+        thresholdMetrics.mutableChatContextCharacters <=
+          computeEffectiveChatBudget(triggerChars, thresholdFixedOverhead)
+      ) {
         return setCheckpointState(undefined);
       }
 
@@ -4613,13 +4630,17 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         const baseActionLogText = renderActionLog();
         let actionLogText = baseActionLogText;
         const guidanceLogText = renderGuidanceLog(guidanceState.entries);
-        const promptCharsWithoutInspectHint = await measureActorPromptChars(
+        const inspectMetrics = await measureActorPromptChars(
           actionLogText,
           guidanceLogText
         );
+        const inspectFixedOverhead =
+          inspectMetrics.systemPromptCharacters +
+          inspectMetrics.exampleChatContextCharacters;
         if (
           contextThreshold &&
-          promptCharsWithoutInspectHint > contextThreshold
+          inspectMetrics.mutableChatContextCharacters >
+            computeEffectiveChatBudget(contextThreshold, inspectFixedOverhead)
         ) {
           actionLogText +=
             '\n\n[HINT: Actor prompt is large. Call `const state = await inspect_runtime()` for a compact snapshot of current variables instead of re-reading old outputs.]';

@@ -23,6 +23,7 @@ import type {
   RuntimeStateSnapshotEntry,
   RuntimeStateVariableProvenance,
 } from './contextManager.js';
+import { smartStringify } from './truncate.js';
 
 const SAFE_BOOTSTRAP_GLOBAL_IDENTIFIER = /^[$A-Z_a-z][$0-9A-Z_a-z]*$/;
 const UNSAFE_BOOTSTRAP_GLOBAL_NAMES = new Set([
@@ -692,7 +693,10 @@ export function formatInterpreterOutput(
     return truncateText(result || '(no output)', maxRuntimeChars);
   }
   try {
-    return truncateText(JSON.stringify(result, null, 2), maxRuntimeChars);
+    return truncateText(
+      smartStringify(result, maxRuntimeChars),
+      maxRuntimeChars
+    );
   } catch {
     return truncateText(String(result), maxRuntimeChars);
   }
@@ -705,6 +709,7 @@ export function formatInterpreterError(
   const typedErr = err as {
     name?: string;
     message?: string;
+    stack?: string;
     cause?: unknown;
     data?: unknown;
   };

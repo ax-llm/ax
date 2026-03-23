@@ -450,7 +450,7 @@ async function runDiscoveryPromptScenario(args: {
       const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
       const userPrompt = String(req.chatPrompt[1]?.content ?? '');
 
-      if (systemPrompt.includes('internal AxAgent checkpoint summarizer')) {
+      if (systemPrompt.includes('internal AxAgent trajectory summarizer')) {
         return {
           results: [
             {
@@ -2611,7 +2611,7 @@ describe('Actor/Responder execution loop', () => {
         const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
         const userPrompt = String(req.chatPrompt[1]?.content ?? '');
 
-        if (systemPrompt.includes('internal AxAgent checkpoint summarizer')) {
+        if (systemPrompt.includes('internal AxAgent trajectory summarizer')) {
           return {
             results: [
               {
@@ -2720,13 +2720,16 @@ describe('Actor/Responder execution loop', () => {
 
     expect(result.answer).toBe('done');
     expect(fifthActorPrompt).toContain('Checkpoint Summary:');
-    expect(fifthActorPrompt).toContain('Objective: capture the side note');
+    // Working code state preserves verbatim code from checkpointed non-error turns
+    // In adaptive mode, turns with referenced vars stay as full replay, so only
+    // turn 3 (console.log("side-note")) gets checkpointed and placed in working state.
+    expect(fifthActorPrompt).toContain('=== Working Code State (verbatim) ===');
+    // Turns 1, 2, 4 stay as full replay entries because their vars are referenced later
     expect(fifthActorPrompt).toContain('const firstPass = "draft"');
     expect(fifthActorPrompt).toContain(
       'const refined = firstPass.toUpperCase()'
     );
     expect(fifthActorPrompt).toContain('const finalValue = refined + "!"');
-    expect(fifthActorPrompt).not.toContain('console.log("side-note")');
   });
 
   it('should forward request-level options into checkpoint summarizer calls', async () => {
@@ -2737,18 +2740,16 @@ describe('Actor/Responder execution loop', () => {
       chatResponse: async (req) => {
         const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
 
-        if (systemPrompt.includes('internal AxAgent checkpoint summarizer')) {
+        if (systemPrompt.includes('internal AxAgent trajectory summarizer')) {
           return {
             results: [
               {
                 index: 0,
                 content: [
-                  'Checkpoint Summary: Objective: compress the draft',
-                  'Durable state: none',
+                  'Objective: compress the draft',
                   'Exact callables and formats: none',
                   'Evidence: draft observed',
                   'Conclusions: rely on the latest runtime state',
-                  'Actor fields: none',
                   'Failures to avoid: none',
                   'Next step: finish the task',
                 ].join('\n'),
@@ -2761,15 +2762,21 @@ describe('Actor/Responder execution loop', () => {
 
         if (systemPrompt.includes('Code Generation Agent')) {
           actorCallCount++;
-          const content =
-            actorCallCount === 1
-              ? 'Javascript Code: const draft = "v1"; console.log(draft)'
-              : actorCallCount === 2
-                ? 'Javascript Code: console.log("note")'
-                : 'Javascript Code: final("done")';
+          const actorCodeByTurn: Record<number, string> = {
+            1: 'Javascript Code: const draft = "v1"; console.log(draft)',
+            2: 'Javascript Code: console.log("note")',
+            3: 'Javascript Code: console.log("more")',
+            4: 'Javascript Code: final("done")',
+          };
 
           return {
-            results: [{ index: 0, content, finishReason: 'stop' }],
+            results: [
+              {
+                index: 0,
+                content: actorCodeByTurn[actorCallCount]!,
+                finishReason: 'stop',
+              },
+            ],
             modelUsage: makeModelUsage(),
           };
         }
@@ -2808,7 +2815,7 @@ describe('Actor/Responder execution loop', () => {
       ai: testMockAI,
       contextFields: ['context'],
       runtime,
-      maxTurns: 3,
+      maxTurns: 4,
       contextPolicy: {
         preset: 'adaptive',
         budget: 'compact',
@@ -2838,7 +2845,7 @@ describe('Actor/Responder execution loop', () => {
       .reverse()
       .find(([req]) =>
         String(req.chatPrompt[0]?.content ?? '').includes(
-          'internal AxAgent checkpoint summarizer'
+          'internal AxAgent trajectory summarizer'
         )
       );
 
@@ -2860,18 +2867,16 @@ describe('Actor/Responder execution loop', () => {
       chatResponse: async (req) => {
         const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
 
-        if (systemPrompt.includes('internal AxAgent checkpoint summarizer')) {
+        if (systemPrompt.includes('internal AxAgent trajectory summarizer')) {
           return {
             results: [
               {
                 index: 0,
                 content: [
-                  'Checkpoint Summary: Objective: compress the draft',
-                  'Durable state: none',
+                  'Objective: compress the draft',
                   'Exact callables and formats: none',
                   'Evidence: draft observed',
                   'Conclusions: rely on the latest runtime state',
-                  'Actor fields: none',
                   'Failures to avoid: none',
                   'Next step: finish the task',
                 ].join('\n'),
@@ -2884,17 +2889,22 @@ describe('Actor/Responder execution loop', () => {
 
         if (systemPrompt.includes('Code Generation Agent')) {
           actorCallCount++;
-          const content =
-            actorCallCount === 1
-              ? 'Javascript Code: const draft = "v1"; console.log(draft)'
-              : actorCallCount === 2
-                ? 'Javascript Code: console.log("note")'
-                : actorCallCount === 3
-                  ? 'Javascript Code: console.log("more")'
-                  : 'Javascript Code: final("done")';
+          const actorCodeByTurn: Record<number, string> = {
+            1: 'Javascript Code: const draft = "v1"; console.log(draft)',
+            2: 'Javascript Code: console.log("note")',
+            3: 'Javascript Code: console.log("more")',
+            4: 'Javascript Code: console.log("extra")',
+            5: 'Javascript Code: final("done")',
+          };
 
           return {
-            results: [{ index: 0, content, finishReason: 'stop' }],
+            results: [
+              {
+                index: 0,
+                content: actorCodeByTurn[actorCallCount]!,
+                finishReason: 'stop',
+              },
+            ],
             modelUsage: makeModelUsage(),
           };
         }
@@ -2932,7 +2942,7 @@ describe('Actor/Responder execution loop', () => {
       ai: testMockAI,
       contextFields: ['context'],
       runtime,
-      maxTurns: 4,
+      maxTurns: 5,
       contextPolicy: {
         preset: 'adaptive',
         budget: 'compact',
@@ -2954,7 +2964,7 @@ describe('Actor/Responder execution loop', () => {
       .reverse()
       .find(([req]) =>
         String(req.chatPrompt[0]?.content ?? '').includes(
-          'internal AxAgent checkpoint summarizer'
+          'internal AxAgent trajectory summarizer'
         )
       );
 
@@ -3268,13 +3278,18 @@ describe('Actor/Responder execution loop', () => {
     expect(actorSystemPrompt).toContain('### Module `db`');
     expect(actorSystemPrompt).toContain('### `db.search`');
 
-    const checkpointCalls = chatSpy.mock.calls.filter(([req]) =>
-      String(req.chatPrompt[0]?.content ?? '').includes(
-        'internal AxAgent checkpoint summarizer'
-      )
-    );
-
-    expect(checkpointCalls.length).toBeGreaterThan(0);
+    // With state separation, if all checkpoint entries fit in working state
+    // (<=2 non-error entries), the LLM is not called — only working code
+    // state is produced deterministically. The trajectory summarizer is only
+    // called when there are >2 checkpoint entries.
+    const checkpointSummaryPresent =
+      actorActionLogPrompt.includes('Working Code State (verbatim)') ||
+      chatSpy.mock.calls.some(([req]) =>
+        String(req.chatPrompt[0]?.content ?? '').includes(
+          'internal AxAgent trajectory summarizer'
+        )
+      );
+    expect(checkpointSummaryPresent).toBe(true);
   });
 
   it('should recover from invalid callable guesses by re-running discovery and reusing exact documented literals', async () => {
@@ -3317,7 +3332,7 @@ describe('Actor/Responder execution loop', () => {
         const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
         const userPrompt = String(req.chatPrompt[1]?.content ?? '');
 
-        if (systemPrompt.includes('internal AxAgent checkpoint summarizer')) {
+        if (systemPrompt.includes('internal AxAgent trajectory summarizer')) {
           return {
             results: [
               {
@@ -3430,12 +3445,17 @@ describe('Actor/Responder execution loop', () => {
     expect(fourthActorPrompt).toContain('Live Runtime State:');
     expect(fourthActorPrompt).toContain('Checkpoint Summary:');
 
-    const checkpointCalls = chatSpy.mock.calls.filter(([req]) =>
-      String(req.chatPrompt[0]?.content ?? '').includes(
-        'internal AxAgent checkpoint summarizer'
-      )
-    );
-    expect(checkpointCalls.length).toBeGreaterThan(0);
+    // With state separation, when there are few checkpoint entries (<=2),
+    // all fit in working state and no LLM call is needed. Verify that
+    // the checkpoint summary is present (either via LLM or deterministic).
+    const checkpointSummaryPresent =
+      fourthActorPrompt.includes('Working Code State (verbatim)') ||
+      chatSpy.mock.calls.some(([req]) =>
+        String(req.chatPrompt[0]?.content ?? '').includes(
+          'internal AxAgent trajectory summarizer'
+        )
+      );
+    expect(checkpointSummaryPresent).toBe(true);
   });
 
   it('should show the inspect hint when live runtime state makes the actor prompt large', async () => {
@@ -4233,7 +4253,7 @@ describe('Actor/Responder execution loop', () => {
       ai: testMockAI,
       contextFields: ['context'],
       runtime,
-      contextPolicy: { preset: 'checkpointed' },
+      contextPolicy: { preset: 'adaptive' },
     });
 
     const result = await testAgent.forward(testMockAI, {
@@ -10005,7 +10025,7 @@ describe('actorModelPolicy', () => {
       chatResponse: async (req) => {
         const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
 
-        if (systemPrompt.includes('internal AxAgent checkpoint summarizer')) {
+        if (systemPrompt.includes('internal AxAgent trajectory summarizer')) {
           return {
             results: [
               {

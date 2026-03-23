@@ -419,10 +419,13 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     ai: Readonly<AxAIService>,
     values: IN | AxMessage<IN>[],
     options?: Readonly<Partial<Omit<AxProgramForwardOptions<any>, 'functions'>>>
-  ): Promise<number> {
-    return countChatPromptContentChars(
-      await this.renderPromptForInternalUse(ai, values, options)
+  ): Promise<AxPromptMetrics> {
+    const { promptMetrics } = await this.renderPromptWithMetricsForInternalUse(
+      ai,
+      values,
+      options
     );
+    return promptMetrics!;
   }
 
   private getSignatureName(): string {

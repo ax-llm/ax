@@ -20,6 +20,34 @@ export const DEFAULT_RLM_MAX_RECURSION_DEPTH = 2;
 export const DEFAULT_CONTEXT_FIELD_PROMPT_MAX_CHARS = 1_200;
 export const DEFAULT_AGENT_MODULE_NAMESPACE = 'agents';
 export const DEFAULT_RANK_PRUNE_GRACE_TURNS = 2;
+
+/** System prompt size at which the chat budget hits the floor ratio. */
+const BUDGET_CURVE_MAX_SYSTEM_CHARS = 30_000;
+/** Minimum fraction of targetPromptChars always reserved for chat context. */
+const BUDGET_CURVE_MIN_RATIO = 0.25;
+
+/**
+ * Compute an effective chat-context budget by scaling down the base target
+ * as the fixed overhead (system prompt + examples) grows.
+ *
+ * Formula: effectiveBudget = baseBudget * clamp(1 - fixedChars / maxSystemChars, minRatio, 1.0)
+ */
+export function computeEffectiveChatBudget(
+  baseBudget: number,
+  fixedOverheadChars: number,
+  maxSystemChars = BUDGET_CURVE_MAX_SYSTEM_CHARS,
+  minRatio = BUDGET_CURVE_MIN_RATIO
+): number {
+  if (maxSystemChars <= 0) {
+    return Math.floor(baseBudget * minRatio);
+  }
+  const ratio = Math.max(
+    minRatio,
+    Math.min(1, 1 - fixedOverheadChars / maxSystemChars)
+  );
+  return Math.floor(baseBudget * ratio);
+}
+
 export const ACTOR_MODEL_POLICY_MIGRATION_ERROR =
   'actorModelPolicy now expects an ordered array of { model, namespaces?, aboveErrorTurns? } entries. Manage prompt pressure with contextPolicy.budget instead of abovePromptChars.';
 const CONTEXT_POLICY_MIGRATION_ERROR =
@@ -289,7 +317,7 @@ function getContextPolicyPresetDefaults(
         hindsight: false,
         pruneRank: 2,
         stateSummary: true,
-        inspect: true,
+        inspect: false,
         maxEntries: 8,
         checkpointsEnabled: true,
         checkpointTriggerChars: budgetDefaults.targetPromptChars,
