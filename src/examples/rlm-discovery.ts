@@ -13,7 +13,7 @@ const llm = ai({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY!,
   config: {
-    model: AxAIGoogleGeminiModel.Gemini3FlashLite,
+    model: AxAIGoogleGeminiModel.Gemini3Flash,
   },
 });
 
