@@ -1,5 +1,13 @@
 # Changelog
 
+## [19.0.31](///compare/19.0.29...19.0.30) (2026-03-23)
+
+### Bug Fixes
+
+* Bubble up AxAgentClarificationError instead of logging in actorLog 7eb3739
+* test failures c8e5cae
+## [19.0.30](///compare/19.0.29...19.0.30) (2026-03-23)
+
 ## [19.0.30](///compare/19.0.28...19.0.29) (2026-03-23)
 ## [19.0.29](///compare/19.0.28...19.0.29) (2026-03-22)
 
