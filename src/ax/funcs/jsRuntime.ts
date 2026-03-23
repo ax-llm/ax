@@ -915,7 +915,10 @@ export class AxJSRuntime implements AxCodeRuntime {
    * - abort signal,
    * - worker error.
    */
-  createSession(globals?: Record<string, unknown>): AxCodeSession {
+  createSession(
+    globals?: Record<string, unknown>,
+    options?: { shouldBubbleError?: (err: unknown) => boolean }
+  ): AxCodeSession {
     const source = getWorkerSource();
     const nodeWorkerPool = isNodeRuntime()
       ? getNodeWorkerPool(source, this.nodeWorkerPoolSize)
@@ -934,6 +937,8 @@ export class AxJSRuntime implements AxCodeRuntime {
 
     const timeout = this.timeout;
     let nextFnRefId = 0;
+    const shouldBubbleError = options?.shouldBubbleError;
+    let bubbleError: unknown = null;
 
     // Convert nested function values into worker-callable references.
     const { serializableGlobals, fnMap } = splitGlobalsForWorker(globals, {
@@ -990,7 +995,13 @@ export class AxJSRuntime implements AxCodeRuntime {
         if (pending) {
           pendingRequests.delete(typedMsg.id);
           if (typedMsg.error !== undefined) {
-            pending.reject(deserializeError(typedMsg.error));
+            if (bubbleError) {
+              const original = bubbleError as Error;
+              bubbleError = null;
+              pending.reject(original);
+            } else {
+              pending.reject(deserializeError(typedMsg.error));
+            }
           } else {
             pending.resolve(typedMsg.value);
           }
@@ -1021,6 +1032,9 @@ export class AxJSRuntime implements AxCodeRuntime {
             worker?.postMessage({ type: 'fn-result', id: typedMsg.id, value });
           })
           .catch((err: Error) => {
+            if (shouldBubbleError?.(err)) {
+              bubbleError = err;
+            }
             worker?.postMessage({
               type: 'fn-result',
               id: typedMsg.id,

@@ -3610,16 +3610,23 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     const createSession = () => {
       inspectBaselineNames = undefined;
-      return runtime.createSession({
-        ...runtimeTopLevelInputAliases,
-        inputs: runtimeInputs,
-        ...bootstrapGlobals,
-        llmQuery,
-        final: completionBindings.finalFunction,
-        askClarification: completionBindings.askClarificationFunction,
-        ...(inspectRuntime ? { inspect_runtime: inspectRuntime } : {}),
-        ...toolGlobals,
-      });
+      return runtime.createSession(
+        {
+          ...runtimeTopLevelInputAliases,
+          inputs: runtimeInputs,
+          ...bootstrapGlobals,
+          llmQuery,
+          final: completionBindings.finalFunction,
+          askClarification: completionBindings.askClarificationFunction,
+          ...(inspectRuntime ? { inspect_runtime: inspectRuntime } : {}),
+          ...toolGlobals,
+        },
+        {
+          shouldBubbleError: (err: unknown) =>
+            err instanceof AxAgentClarificationError ||
+            err instanceof AxAIServiceAbortedError,
+        }
+      );
     };
 
     session = createSession();

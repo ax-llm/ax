@@ -130,7 +130,10 @@ function renderCallableEntry(args: {
  * Implement this interface for your target runtime (Node.js, browser, WASM, etc.).
  */
 export interface AxCodeRuntime {
-  createSession(globals?: Record<string, unknown>): AxCodeSession;
+  createSession(
+    globals?: Record<string, unknown>,
+    options?: { shouldBubbleError?: (err: unknown) => boolean }
+  ): AxCodeSession;
   /**
    * Optional runtime-specific usage guidance injected into the RLM system prompt.
    * Use this for execution semantics that differ by runtime/language.
