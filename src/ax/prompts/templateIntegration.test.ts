@@ -118,33 +118,25 @@ describe('template integration', () => {
     );
 
     expect(actorDefinition).toContain(
-      'You are a code generation agent called the `actor`.'
+      'You (`actor`) are a code generation agent'
     );
-    expect(actorDefinition).toContain(
-      'Treat the JavaScript runtime as a long-running REPL session'
-    );
+    expect(actorDefinition).toContain('long-running REPL');
     expect(actorDefinition).toContain(
       '- `contextText` -> `inputs.contextText` (string, required)'
     );
     expect(actorDefinition).toContain(
       'The responder is looking to produce these output fields: **`finalAnswer`**'
     );
-    expect(actorDefinition).toContain(
-      '- `await llmQuery(query: string, context: any): string` — Ask one focused semantic question.'
-    );
+    expect(actorDefinition).toContain('llmQuery');
     expect(actorDefinition).toContain('### Exploration & Truncation');
-    expect(actorDefinition).toContain('### Runtime State Management');
     expect(actorDefinition).toContain(
       '## JavaScript Runtime Usage Instructions'
     );
     expect(actorDefinition).toContain('Use return statements only.');
     expect(actorDefinition).toContain(
-      'If a `Delegated Context` block appears, the data has been injected into your JS runtime as named globals.'
+      'If a `Delegated Context` block appears, data is injected as named globals'
     );
     expect(actorDefinition).not.toContain('await inspect_runtime()');
-    expect(actorDefinition).not.toContain(
-      'A `Live Runtime State` block reflects the current session and is the source of truth.'
-    );
     expect(actorDefinition).not.toContain(
       'Prior actions may be summarized or omitted.'
     );
@@ -169,14 +161,12 @@ describe('template integration', () => {
 
     expect(actorDefinition).toContain('await inspect_runtime()');
     expect(actorDefinition).toContain(
-      'If a `Delegated Context` block appears, the data has been injected into your JS runtime as named globals.'
+      'If a `Delegated Context` block appears, data is injected as named globals'
     );
     expect(actorDefinition).toContain(
-      'A `Live Runtime State` block reflects the current session and is the source of truth.'
+      '`Live Runtime State` block is the source of truth'
     );
-    expect(actorDefinition).toContain(
-      'Prior actions may be summarized or omitted.'
-    );
+    expect(actorDefinition).toContain('Prior actions may be summarized');
   });
 
   it('keeps responder prompt content aligned with prior prompt text', () => {

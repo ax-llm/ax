@@ -190,7 +190,6 @@ const analyst = agent(
         'This demo is specifically meant to exercise advanced recursive llmQuery with discovery-heavy subtasks. Keep the discovery and tool chatter inside the delegated child calls whenever possible.',
         'Do not call final(...) before completing all eight steps.',
       ].join('\n'),
-      thinkingTokenBudget: 'minimal',
     },
     mode: 'advanced',
     recursionOptions: {
