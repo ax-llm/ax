@@ -225,17 +225,17 @@ npm install @ax-llm/ax-tools
 ## Documentation
 
 **Get Started**
-- [Quick Start Guide](https://github.com/ax-llm/ax/blob/main/docs/QUICKSTART.md) – Set up in 5 minutes
-- [Examples Guide](https://github.com/ax-llm/ax/blob/main/docs/EXAMPLES.md) – Comprehensive examples
-- [DSPy Concepts](https://github.com/ax-llm/ax/blob/main/docs/DSPY.md) – Understanding the approach
-- [Signatures Guide](https://github.com/ax-llm/ax/blob/main/docs/SIGNATURES.md) – Type-safe signature design
+- [Quick Start Guide](https://github.com/ax-llm/ax/blob/main/src/ax/README.md) – Set up in 5 minutes
+- [Examples Guide](https://github.com/ax-llm/ax/blob/main/src/docs/src/content/docs/examples.md) – Comprehensive examples
+- [DSPy Concepts](https://github.com/ax-llm/ax/blob/main/src/docs/src/content/docs/dspy.md) – Understanding the approach
+- [Signatures Guide](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-signature.md) – Type-safe signature design
 
 **Deep Dives**
-- [AI Providers](https://github.com/ax-llm/ax/blob/main/docs/AI.md) – All providers, AWS Bedrock, Vercel AI SDK
-- [AxFlow Workflows](https://github.com/ax-llm/ax/blob/main/docs/AXFLOW.md) – Build complex AI systems
-- [Optimization (MiPRO, ACE, GEPA)](https://github.com/ax-llm/ax/blob/main/docs/OPTIMIZE.md) – Make programs smarter
-- [AxAgent & RLM](https://github.com/ax-llm/ax/blob/main/docs/AXAGENT.md) – Agents, child agents, tools, and RLM for long contexts
-- [Advanced RAG](https://github.com/ax-llm/ax/blob/main/docs/AXRAG.md) – Production search and retrieval
+- [AI Providers](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-ai.md) – All providers, AWS Bedrock, Vercel AI SDK
+- [AxFlow Workflows](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-flow.md) – Build complex AI systems
+- [Optimization (MiPRO, ACE, GEPA)](https://github.com/ax-llm/ax/blob/main/src/docs/src/content/docs/optimize.md) – Make programs smarter
+- [AxAgent & RLM](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-agent.md) – Agents, child agents, tools, and RLM for long contexts
+- [Advanced RAG](https://github.com/ax-llm/ax/blob/main/src/docs/src/content/docs/axrag.md) – Production search and retrieval
 
 ## Run Examples
 
