@@ -3,12 +3,20 @@ import {
   axBaseAIDefaultCreativeConfig,
 } from '../base.js';
 import { type AxAIOpenAIArgs, AxAIOpenAIBase } from '../openai/api.js';
-import type { AxAIOpenAIConfig } from '../openai/chat_types.js';
+import type {
+  AxAIOpenAIChatRequest,
+  AxAIOpenAIConfig,
+} from '../openai/chat_types.js';
+import type { AxAIServiceOptions } from '../types.js';
 
 /**
  * Configuration type for Ollama AI service
  */
 export type AxAIOllamaAIConfig = AxAIOpenAIConfig<string, string>;
+
+type AxAIOllamaChatRequest = AxAIOpenAIChatRequest<string> & {
+  think?: boolean;
+};
 
 /**
  * Creates default configuration for Ollama AI service
@@ -55,7 +63,8 @@ export type AxAIOllamaArgs<TModelKey> = AxAIOpenAIArgs<
 export class AxAIOllama<TModelKey> extends AxAIOpenAIBase<
   string,
   string,
-  TModelKey
+  TModelKey,
+  AxAIOllamaChatRequest
 > {
   /**
    * Creates a new Ollama AI service instance
@@ -77,6 +86,21 @@ export class AxAIOllama<TModelKey> extends AxAIOpenAIBase<
       ...axAIOllamaDefaultConfig(),
       ...config,
     };
+
+    const chatReqUpdater = (
+      req: Readonly<AxAIOllamaChatRequest>,
+      serviceOptions: Readonly<AxAIServiceOptions>
+    ): AxAIOllamaChatRequest => {
+      if (!serviceOptions.thinkingTokenBudget) {
+        return req;
+      }
+
+      return {
+        ...req,
+        think: serviceOptions.thinkingTokenBudget !== 'none',
+      };
+    };
+
     super({
       apiKey,
       options,
@@ -84,10 +108,11 @@ export class AxAIOllama<TModelKey> extends AxAIOpenAIBase<
       apiURL: url,
       models,
       modelInfo: [],
+      chatReqUpdater,
       supportFor: {
         functions: true,
         streaming: true,
-        hasThinkingBudget: false,
+        hasThinkingBudget: true,
         hasShowThoughts: false,
         media: {
           images: {
@@ -113,7 +138,7 @@ export class AxAIOllama<TModelKey> extends AxAIOpenAIBase<
           supported: false,
           types: [],
         },
-        thinking: false,
+        thinking: true,
         multiTurn: true,
       },
     });

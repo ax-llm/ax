@@ -109,7 +109,8 @@ export interface AxAIOpenAIArgs<
 }
 
 type ChatReqUpdater<TModel, TChatReq extends AxAIOpenAIChatRequest<TModel>> = (
-  req: Readonly<TChatReq>
+  req: Readonly<TChatReq>,
+  config: Readonly<AxAIServiceOptions>
 ) => TChatReq;
 
 export interface AxAIOpenAIBaseArgs<
@@ -359,7 +360,7 @@ class AxAIOpenAIImpl<
     }
 
     if (this.chatReqUpdater) {
-      reqValue = this.chatReqUpdater(reqValue as TChatReq);
+      reqValue = this.chatReqUpdater(reqValue as TChatReq, config);
     }
 
     return [apiConfig, reqValue];

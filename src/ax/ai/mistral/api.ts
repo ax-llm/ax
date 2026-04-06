@@ -134,7 +134,8 @@ export class AxAIMistral<TModelKey> extends AxAIOpenAIBase<
 
     // Chat request updater to add Grok's search parameters
     const chatReqUpdater = (
-      req: Readonly<AxAIOpenAIChatRequest<AxAIMistralModel>>
+      req: Readonly<AxAIOpenAIChatRequest<AxAIMistralModel>>,
+      _options: Readonly<AxAIServiceOptions>
     ): AxAIMistralChatRequest => {
       // eslint-disable-next-line @typescript-eslint/naming-convention
       const { max_completion_tokens, messages, ...result } =

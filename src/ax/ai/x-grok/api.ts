@@ -137,7 +137,10 @@ export class AxAIGrok<TModelKey> extends AxAIOpenAIBase<
     };
 
     // Chat request updater to add Grok's search parameters
-    const chatReqUpdater = (req: AxAIGrokChatRequest): AxAIGrokChatRequest => {
+    const chatReqUpdater = (
+      req: AxAIGrokChatRequest,
+      _options: Readonly<AxAIServiceOptions>
+    ): AxAIGrokChatRequest => {
       if (options?.searchParameters) {
         const searchParams = options.searchParameters;
         return {
