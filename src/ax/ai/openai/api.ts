@@ -113,6 +113,12 @@ type ChatReqUpdater<TModel, TChatReq extends AxAIOpenAIChatRequest<TModel>> = (
   config: Readonly<AxAIServiceOptions>
 ) => TChatReq;
 
+type ChatRespProcessor = (resp: AxChatResponse) => AxChatResponse;
+type ChatStreamRespProcessor = (
+  resp: AxChatResponse,
+  state: object
+) => AxChatResponse;
+
 export interface AxAIOpenAIBaseArgs<
   TModel,
   TEmbedModel,
@@ -126,6 +132,8 @@ export interface AxAIOpenAIBaseArgs<
   modelInfo: Readonly<AxModelInfo[]>;
   models?: AxAIInputModelList<TModel, TEmbedModel, TModelKey>;
   chatReqUpdater?: ChatReqUpdater<TModel, TChatReq>;
+  chatRespProcessor?: ChatRespProcessor;
+  chatStreamRespProcessor?: ChatStreamRespProcessor;
   supportFor: AxAIFeatures | ((model: TModel) => AxAIFeatures);
 }
 
@@ -149,7 +157,9 @@ class AxAIOpenAIImpl<
   constructor(
     private readonly config: Readonly<AxAIOpenAIConfig<TModel, TEmbedModel>>,
     private streamingUsage: boolean,
-    private readonly chatReqUpdater?: ChatReqUpdater<TModel, TChatReq>
+    private readonly chatReqUpdater?: ChatReqUpdater<TModel, TChatReq>,
+    private readonly chatRespProcessor?: ChatRespProcessor,
+    private readonly chatStreamRespProcessor?: ChatStreamRespProcessor
   ) {}
 
   getTokenUsage(): AxTokenUsage | undefined {
@@ -439,10 +449,8 @@ class AxAIOpenAIImpl<
       };
     });
 
-    return {
-      results,
-      remoteId: id,
-    };
+    const chatResp: AxChatResponse = { results, remoteId: id };
+    return this.chatRespProcessor ? this.chatRespProcessor(chatResp) : chatResp;
   }
 
   createChatStreamResp = (
@@ -531,7 +539,10 @@ class AxAIOpenAIImpl<
       }
     );
 
-    return { results };
+    const chatStreamResp: AxChatResponse = { results };
+    return this.chatStreamRespProcessor
+      ? this.chatStreamRespProcessor(chatStreamResp, state)
+      : chatStreamResp;
   };
 
   createEmbedResp(resp: Readonly<AxAIOpenAIEmbedResponse>): AxEmbedResponse {
@@ -684,6 +695,8 @@ export class AxAIOpenAIBase<
     modelInfo,
     models,
     chatReqUpdater,
+    chatRespProcessor,
+    chatStreamRespProcessor,
     supportFor,
   }: Readonly<
     Omit<AxAIOpenAIBaseArgs<TModel, TEmbedModel, TModelKey, TChatReq>, 'name'>
@@ -695,7 +708,9 @@ export class AxAIOpenAIBase<
     const aiImpl = new AxAIOpenAIImpl<TModel, TEmbedModel, TChatReq>(
       config,
       options?.streamingUsage ?? true,
-      chatReqUpdater
+      chatReqUpdater,
+      chatRespProcessor,
+      chatStreamRespProcessor
     );
 
     super(aiImpl, {
