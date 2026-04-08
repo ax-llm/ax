@@ -257,6 +257,26 @@ export function serializeForEval(value: unknown): AxFieldValue {
 export function normalizeActorJavascriptCode(code: string): string {
   let normalized = code.trim();
 
+  // Strip <think>...</think> reasoning blocks (some models leak them into
+  // structured output fields).
+  normalized = normalized.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+  // And orphan </think> closers, dropping any prose preceding them on the
+  // same line — that prose is the reasoning that wasn't wrapped in a
+  // matching opener.
+  normalized = normalized.replace(/[^\n]*<\/think>/g, '').trim();
+
+  // If the value contains a fenced code block anywhere (not necessarily at the
+  // exact start/end), extract the *first* fenced block's contents. This handles
+  // models that prefix their javascriptCode with prose / reasoning before the
+  // ```javascript fence (e.g. GLM-5).
+  const fencedBlock = normalized.match(
+    /```(?:[A-Za-z0-9_-]+)?[ \t]*\r?\n([\s\S]*?)\r?\n?```/
+  );
+  if (fencedBlock?.[1] !== undefined) {
+    normalized = fencedBlock[1].trim();
+  }
+
+  // Then run the original loop to clean up any remaining edge fences.
   for (;;) {
     const before = normalized;
 

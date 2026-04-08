@@ -1863,7 +1863,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     actorSigBuilder = actorSigBuilder.output(
       'javascriptCode',
-      f.code('JavaScript code to execute in runtime session')
+      f.code(
+        'Pure raw JavaScript code only. No markdown backticks, no code fences, no prose, no <think> tags. Single statement ending in console.log().'
+      )
     ) as any;
 
     if (actorOutputFields.length > 0) {
