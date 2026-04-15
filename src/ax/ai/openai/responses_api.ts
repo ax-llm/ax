@@ -535,9 +535,12 @@ export class AxAIOpenAIResponsesImpl<
 
     if (usage) {
       this.tokensUsed = {
-        promptTokens: usage.prompt_tokens,
+        promptTokens: usage.prompt_tokens ?? usage.input_tokens ?? 0,
         completionTokens: usage.completion_tokens ?? usage.output_tokens ?? 0,
         totalTokens: usage.total_tokens,
+        cacheReadTokens:
+          usage.prompt_tokens_details?.cached_tokens ??
+          usage.input_tokens_details?.cached_tokens,
       };
     }
 
@@ -1106,12 +1109,18 @@ export class AxAIOpenAIResponsesImpl<
         // Response completion - handle usage
         if (event.response.usage) {
           this.tokensUsed = {
-            promptTokens: event.response.usage.prompt_tokens,
+            promptTokens:
+              event.response.usage.prompt_tokens ??
+              event.response.usage.input_tokens ??
+              0,
             completionTokens:
               event.response.usage.completion_tokens ??
               event.response.usage.output_tokens ??
               0,
             totalTokens: event.response.usage.total_tokens,
+            cacheReadTokens:
+              event.response.usage.prompt_tokens_details?.cached_tokens ??
+              event.response.usage.input_tokens_details?.cached_tokens,
           };
         }
         remoteId = event.response.id;
