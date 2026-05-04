@@ -100,6 +100,98 @@ describe('AxPromptTemplate.render', () => {
     });
   });
 
+  describe('Value-aware input field metadata', () => {
+    const getSystemContent = (
+      messages: ReturnType<AxPromptTemplate['render']>
+    ) => (messages[0] as { role: 'system'; content: string }).content;
+
+    const getUserContent = (messages: ReturnType<AxPromptTemplate['render']>) =>
+      (messages[messages.length - 1] as { role: 'user'; content: string })
+        .content;
+
+    it('omits optional input fields that are not provided', () => {
+      const sig = f()
+        .input('userRequest', f.string('Latest user request'))
+        .input(
+          'conversationHistory',
+          f.json('Prior user and assistant messages').optional()
+        )
+        .output('answer', f.string())
+        .build();
+      const template = new AxPromptTemplate(sig);
+
+      const messages = template.render({ userRequest: 'hello' }, {});
+      const systemContent = getSystemContent(messages);
+      const userContent = getUserContent(messages);
+
+      expect(systemContent).toContain('User Request: Latest user request');
+      expect(systemContent).not.toContain('Conversation History:');
+      expect(systemContent).not.toContain(
+        'This optional JSON object field may be omitted'
+      );
+      expect(userContent).toContain('User Request: hello');
+      expect(userContent).not.toContain('Conversation History:');
+    });
+
+    it('includes provided optional input fields without optional wording', () => {
+      const sig = f()
+        .input('userRequest', f.string('Latest user request'))
+        .input(
+          'conversationHistory',
+          f.json('Prior user and assistant messages').optional()
+        )
+        .output('answer', f.string())
+        .build();
+      const template = new AxPromptTemplate(sig);
+
+      const messages = template.render(
+        {
+          userRequest: 'hello',
+          conversationHistory: { messages: ['previous turn'] },
+        },
+        {}
+      );
+      const systemContent = getSystemContent(messages);
+      const userContent = getUserContent(messages);
+
+      expect(systemContent).toContain(
+        'Conversation History: Prior user and assistant messages'
+      );
+      expect(systemContent).not.toContain(
+        'This optional JSON object field may be omitted'
+      );
+      expect(userContent).toContain('Conversation History:');
+      expect(userContent).toContain('previous turn');
+    });
+
+    it('treats optional false and zero values as provided', () => {
+      const sig = f()
+        .input('userRequest', f.string('Latest user request'))
+        .input(
+          'enabled',
+          f.boolean('Whether the feature is enabled').optional()
+        )
+        .input('limit', f.number('Maximum result count').optional())
+        .output('answer', f.string())
+        .build();
+      const template = new AxPromptTemplate(sig);
+
+      const messages = template.render(
+        { userRequest: 'hello', enabled: false, limit: 0 },
+        {}
+      );
+      const systemContent = getSystemContent(messages);
+      const userContent = getUserContent(messages);
+
+      expect(systemContent).toContain(
+        'Enabled: Whether the feature is enabled'
+      );
+      expect(systemContent).toContain('Limit: Maximum result count');
+      expect(userContent).toContain('Enabled: false');
+      expect(userContent).toContain('Limit: 0');
+    });
+  });
+
   describe('renderWithMetrics', () => {
     it('should report only mutable chat context when no examples are present', () => {
       const signature = new AxSignature(

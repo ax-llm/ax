@@ -1,7 +1,6 @@
 /* eslint import/order: 0 sort-imports: 0 */
 // Auto-generated index file - Do not edit
 
-import { AxAgentInternal } from './agent/AxAgent.js';
 import type {
   AxActorDefinitionBuildOptions,
   AxAgentActorResultPayload,
@@ -74,10 +73,6 @@ import {
   agent,
 } from './agent/agentInternal/coordinator.js';
 import type {
-  AxAgentActorRun,
-  AxAgentInternalRunner,
-} from './agent/agentInternal/forwardMethods.js';
-import type {
   AxAgentRecursiveExpensiveNode,
   AxAgentRecursiveFunctionCall,
   AxAgentRecursiveNodeRole,
@@ -112,6 +107,11 @@ import {
   type AxRuntimePrimitiveStage,
   axRuntimePrimitives,
 } from './agent/runtimePrimitives.js';
+import type {
+  AxSynthesizerInit,
+  AxSynthesizerOptions,
+  AxSynthesizerRole,
+} from './agent/synthesizer.js';
 import {
   AxAIAnthropic,
   type AxAIAnthropicArgs,
@@ -978,7 +978,6 @@ export { AxAIWebLLM };
 export { AxAIWebLLMModel };
 export { AxAgent };
 export { AxAgentClarificationError };
-export { AxAgentInternal };
 export { AxAgentProtocolCompletionSignal };
 export { AxApacheTika };
 export { AxAssertionError };
@@ -1356,7 +1355,6 @@ export type { AxActorDefinitionBuildOptions };
 export type { AxActorModelPolicy };
 export type { AxActorModelPolicyEntry };
 export type { AxAgentActorResultPayload };
-export type { AxAgentActorRun };
 export type { AxAgentClarification };
 export type { AxAgentClarificationChoice };
 export type { AxAgentClarificationKind };
@@ -1380,7 +1378,6 @@ export type { AxAgentGuidanceState };
 export type { AxAgentIdentity };
 export type { AxAgentInputUpdateCallback };
 export type { AxAgentInternalCompletionPayload };
-export type { AxAgentInternalRunner };
 export type { AxAgentJudgeEvalInput };
 export type { AxAgentJudgeEvalOutput };
 export type { AxAgentJudgeInput };
@@ -1677,6 +1674,9 @@ export type { AxStreamingFieldProcessorProcess };
 export type { AxSynthExample };
 export type { AxSynthOptions };
 export type { AxSynthResult };
+export type { AxSynthesizerInit };
+export type { AxSynthesizerOptions };
+export type { AxSynthesizerRole };
 export type { AxThoughtBlockItem };
 export type { AxTokenUsage };
 export type { AxTrace };

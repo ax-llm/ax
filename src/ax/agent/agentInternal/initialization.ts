@@ -52,6 +52,7 @@ export function initializeAgentInternal(
 
   s.ai = ai;
   s.judgeAI = judgeAI;
+  s.agentIdentity = agentIdentity ? { ...agentIdentity } : undefined;
   s.agents = options.agents ?? [];
   s.functionDiscoveryEnabled = options.functionDiscovery ?? false;
   s.debug = debug;
@@ -141,15 +142,14 @@ export function initializeAgentInternal(
 
   const { description: actorDescription, ...actorForwardOptions } =
     actorOptions ?? {};
-  const { description: responderDescription, ...responderForwardOptions } =
-    responderOptions ?? {};
+  // The responder description and forward options now belong to the
+  // pipeline's Synthesizer stages — the actor agent itself is responder-free.
+  void responderOptions;
 
   s.actorDescription = actorDescription;
   s.actorModelPolicy = resolveActorModelPolicy(actorModelPolicy);
   s.actorForwardOptions = actorForwardOptions;
 
-  s.responderDescription = responderDescription;
-  s.responderForwardOptions = responderForwardOptions;
   s.judgeOptions = judgeOptions ? { ...judgeOptions } : undefined;
   s.inputUpdateCallback = inputUpdateCallback;
   s.agentStatusCallback = agentStatusCallback;
@@ -203,17 +203,14 @@ export function initializeAgentInternal(
   s._validateConfiguredSignature(s.program.getSignature());
   s._validateAgentFunctionNamespaces(allAgentFns);
 
-  // Build Actor/Responder programs from current signature and config
+  // Build the Actor program from the current signature and config. The
+  // Synthesizer (responder) is owned by the pipeline, not by this agent.
   s._buildSplitPrograms();
 
-  // Register Actor/Responder with DSPy-compatible names so optimizers
-  // can discover them via getTraces(), and setDemos()/applyOptimization() propagate.
+  // Register the Actor with a DSPy-compatible name so optimizers can discover
+  // it via getTraces() and so setDemos()/applyOptimization() propagate.
   s.program.register(
     s.actorProgram as unknown as Readonly<AxTunable<any, any> & AxUsable>,
     'actor'
-  );
-  s.program.register(
-    s.responderProgram as unknown as Readonly<AxTunable<any, any> & AxUsable>,
-    'responder'
   );
 }

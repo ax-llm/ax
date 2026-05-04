@@ -69,7 +69,7 @@ describe('ctx-vs-task prompt shrink ratio', () => {
   it('task-actor in Case A omits Exploration & Turn Discipline paragraph', async () => {
     let taskActorSystemPrompt = '';
     let ctxActorSystemPrompt = '';
-    let responderCallCount = 0;
+    let _responderCallCount = 0;
 
     const mockAI = new AxMockAIService({
       features: { functions: false, streaming: false },
@@ -85,7 +85,7 @@ describe('ctx-vs-task prompt shrink ratio', () => {
               {
                 index: 0,
                 content:
-                  'Javascript Code: final("distilled", {evidence:"summary"})',
+                  'Javascript Code: final("distilled", {"evidence":"summary"})',
                 finishReason: 'stop',
               },
             ],
@@ -98,26 +98,14 @@ describe('ctx-vs-task prompt shrink ratio', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: final("done", {answer:"42"})',
+                content: 'Javascript Code: final("done", {"answer":"42"})',
                 finishReason: 'stop',
               },
             ],
             modelUsage: makeModelUsage(),
           };
         }
-        responderCallCount++;
-        if (responderCallCount === 1) {
-          return {
-            results: [
-              {
-                index: 0,
-                content: 'Distilled Context: {"evidence":"summary"}',
-                finishReason: 'stop',
-              },
-            ],
-            modelUsage: makeModelUsage(),
-          };
-        }
+        _responderCallCount++;
         return {
           results: [{ index: 0, content: 'Answer: 42', finishReason: 'stop' }],
           modelUsage: makeModelUsage(),
@@ -143,13 +131,17 @@ describe('ctx-vs-task prompt shrink ratio', () => {
     expect(taskActorSystemPrompt).not.toContain(
       'Exploration & Turn Discipline'
     );
-    expect(taskActorSystemPrompt).toContain('Pre-Distilled Context');
+    expect(taskActorSystemPrompt).toContain(
+      'Executor Request & Distilled Context'
+    );
   });
 
   it('task-actor in Case A does not include raw context field docText in its prompt', async () => {
+    let caseACtxActorUserPrompt = '';
     let caseATaskActorSystemPrompt = '';
+    let caseATaskActorUserPrompt = '';
     let caseCActorSystemPrompt = '';
-    let responderCallCount = 0;
+    let _responderCallCount = 0;
 
     const mockAICaseA = new AxMockAIService({
       features: { functions: false, streaming: false },
@@ -157,14 +149,16 @@ describe('ctx-vs-task prompt shrink ratio', () => {
         const systemPrompt = getSystemPrompt(
           req.chatPrompt as { role: string; content?: unknown }[]
         );
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
 
         if (systemPrompt.includes('Context Understanding Agent')) {
+          caseACtxActorUserPrompt = userPrompt;
           return {
             results: [
               {
                 index: 0,
                 content:
-                  'Javascript Code: final("distilled", {evidence:"summary"})',
+                  'Javascript Code: final("distilled", {"evidence":"summary"})',
                 finishReason: 'stop',
               },
             ],
@@ -173,30 +167,19 @@ describe('ctx-vs-task prompt shrink ratio', () => {
         }
         if (systemPrompt.includes('Code Generation Agent')) {
           caseATaskActorSystemPrompt = systemPrompt;
+          caseATaskActorUserPrompt = userPrompt;
           return {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: final("done", {answer:"42"})',
+                content: 'Javascript Code: final("done", {"answer":"42"})',
                 finishReason: 'stop',
               },
             ],
             modelUsage: makeModelUsage(),
           };
         }
-        responderCallCount++;
-        if (responderCallCount === 1) {
-          return {
-            results: [
-              {
-                index: 0,
-                content: 'Distilled Context: {"evidence":"summary"}',
-                finishReason: 'stop',
-              },
-            ],
-            modelUsage: makeModelUsage(),
-          };
-        }
+        _responderCallCount++;
         return {
           results: [{ index: 0, content: 'Answer: 42', finishReason: 'stop' }],
           modelUsage: makeModelUsage(),
@@ -230,7 +213,7 @@ describe('ctx-vs-task prompt shrink ratio', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: final("done", {answer:"ok"})',
+                content: 'Javascript Code: final("done", {"answer":"ok"})',
                 finishReason: 'stop',
               },
             ],
@@ -258,14 +241,22 @@ describe('ctx-vs-task prompt shrink ratio', () => {
     });
 
     expect(caseCResponderCalled).toBe(true);
+    expect(caseACtxActorUserPrompt).toContain('Query: what?');
+    expect(caseACtxActorUserPrompt).toContain('Context Metadata:');
+    expect(caseACtxActorUserPrompt).toContain('docText');
     expect(caseATaskActorSystemPrompt).toBeTruthy();
+    expect(caseATaskActorUserPrompt).toContain('Executor Request: distilled');
+    expect(caseATaskActorUserPrompt).toContain('Distilled Context:');
+    expect(caseATaskActorUserPrompt).not.toContain('Context Metadata:');
     expect(caseCActorSystemPrompt).toBeTruthy();
 
-    // The key distillation benefit: `docText` is a context field routed to the
-    // ctx stage only. The task-actor never sees it — distillation was already done.
-    // In Case C (no split), `docText` is part of the actor's own signature and
-    // appears in its system prompt as 'Doc Text' (the title-cased field label).
+    // The key distillation benefit: in Case A `docText` is isolated to the
+    // context actor. The task actor receives only executorRequest and
+    // distilledContext, while Case C has no separate context actor.
     expect(caseATaskActorSystemPrompt).not.toContain('Doc Text');
+    expect(caseATaskActorUserPrompt).not.toContain('Doc Text');
+    expect(caseATaskActorSystemPrompt).not.toContain('long document');
+    expect(caseATaskActorUserPrompt).not.toContain('long document');
     expect(caseCActorSystemPrompt).toContain('Doc Text');
   });
 });

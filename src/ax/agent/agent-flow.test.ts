@@ -193,24 +193,6 @@ describe('Agent Split Architecture Flow', () => {
           };
         }
 
-        // Responder — discriminate ctx vs task by which output field appears in
-        // the **Output Fields** section of the system prompt.
-        // ctx responder: outputs `distilledContext` (title "Distilled Context")
-        // task responder: outputs `answer` (title "Answer")
-        const outputSection = systemPrompt.split('**Output Fields**')[1] ?? '';
-        if (outputSection.includes('Distilled Context')) {
-          return {
-            results: [
-              {
-                index: 0,
-                content: 'Distilled Context: {}',
-                finishReason: 'stop' as const,
-              },
-            ],
-            modelUsage: makeModelUsage(),
-          };
-        }
-
         return {
           results: [
             {
@@ -278,15 +260,12 @@ describe('Agent Split Architecture Flow', () => {
     expect(taskActorCalls).toBeGreaterThan(0);
   });
 
-  it('Case B: ctx-only single-stage (contextFields, no tools)', async () => {
+  it('contextFields without tools still run ctx then task', async () => {
     const mockAI = new AxMockAIService({
       features: { functions: false, streaming: false },
       chatResponse: async (req) => {
         const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
 
-        // Case B uses a single internal agent with combined actor template
-        // (no split), so the actor system prompt will be "Code Generation Agent"
-        // or "Context Understanding Agent" depending on variant selection.
         if (
           systemPrompt.includes('Code Generation Agent') ||
           systemPrompt.includes('Context Understanding Agent')
@@ -347,7 +326,6 @@ describe('Agent Split Architecture Flow', () => {
       },
     };
 
-    // Case B: contextFields present but NO functions/agents/functionDiscovery
     const gen = agent('docText:string -> answer:string', {
       contextFields: ['docText'],
       runtime,

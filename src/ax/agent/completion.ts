@@ -32,7 +32,6 @@ export function createCompletionBindings(
   ) => void | Promise<void>
 ): {
   finalFunction: (...args: unknown[]) => never;
-  finalForUserFunction: (...args: unknown[]) => never;
   askClarificationFunction: (...args: unknown[]) => never;
   protocol: AxAgentCompletionProtocol;
   protocolForTrigger: (triggeredBy?: string) => AxAgentCompletionProtocol;
@@ -83,35 +82,6 @@ export function createCompletionBindings(
     );
   };
 
-  const FINAL_FOR_USER_USAGE =
-    'Usage: finalForUser(outputGenerationTask: string, context: object). Call this from the context stage to short-circuit the downstream task-execution stage when the answer is already known.';
-
-  const finalForUserFunction = (...args: unknown[]): never => {
-    if (args.length !== 2) {
-      throw new Error(
-        `finalForUser() requires exactly 2 arguments, got ${args.length}. ${FINAL_FOR_USER_USAGE}`
-      );
-    }
-    if (typeof args[0] !== 'string' || args[0].trim().length === 0) {
-      throw new Error(
-        `finalForUser() first argument must be a non-empty string. ${FINAL_FOR_USER_USAGE}`
-      );
-    }
-    if (
-      args[1] === null ||
-      typeof args[1] !== 'object' ||
-      Array.isArray(args[1])
-    ) {
-      throw new Error(
-        `finalForUser() second argument must be a context object. ${FINAL_FOR_USER_USAGE}`
-      );
-    }
-    const payload = normalizeCompletionPayload('final', args);
-    payload.shortCircuit = true;
-    setCompletionPayload(payload);
-    throw new AxAgentProtocolCompletionSignal('final');
-  };
-
   const askClarificationFunction = (...args: unknown[]): never => {
     if (args.length === 0) {
       throw new Error(
@@ -158,7 +128,6 @@ export function createCompletionBindings(
 
   return {
     finalFunction,
-    finalForUserFunction,
     askClarificationFunction,
     protocol: protocolForTrigger(),
     protocolForTrigger,

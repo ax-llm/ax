@@ -117,9 +117,10 @@ export function getFunction(self: any): AxFunction {
     );
   }
 
-  const boundFunc = s.forward.bind(s);
+  // ActorAgentRLM no longer owns a `forward()` — synthesis lives in the
+  // pipeline. Return the function metadata with a callable that delegates
+  // to the actor loop and serializes its `final(task, evidence)` payload.
   const funcMeta = s.func;
-
   const wrappedFunc: AxFunctionHandler = async (
     values: any,
     options?
@@ -128,21 +129,25 @@ export function getFunction(self: any): AxFunction {
     if (!ai) {
       throw new Error('AI service is required to run the agent');
     }
-    const ret = await boundFunc(ai, values, options);
-
-    const sig = s.program.getSignature();
-    const outFields = sig.getOutputFields();
-    const result = Object.keys(ret)
-      .map((k) => {
-        const field = outFields.find((f: any) => f.name === k);
-        if (field) {
-          return `${field.title}: ${ret[k]}`;
-        }
-        return `${k}: ${ret[k]}`;
-      })
-      .join('\n');
-
-    return result;
+    const run = await s.run(ai, values, options);
+    const result = run.actorResult;
+    if (result?.type === 'askClarification') {
+      const q = result.args?.[0];
+      return typeof q === 'string'
+        ? q
+        : (q?.question ?? 'Clarification requested');
+    }
+    const task = result?.args?.[0];
+    const evidence = result?.args?.[1];
+    return [
+      typeof task === 'string' ? task : JSON.stringify(task ?? ''),
+      evidence !== undefined
+        ? `\n${typeof evidence === 'string' ? evidence : JSON.stringify(evidence)}`
+        : '',
+      Object.keys(run.actorFieldValues ?? {}).length > 0
+        ? `\n${JSON.stringify(run.actorFieldValues)}`
+        : '',
+    ].join('');
   };
 
   return {

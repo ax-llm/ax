@@ -16,7 +16,39 @@ const noopRuntime: AxCodeRuntime = {
 const defaults = { contextFields: [] as string[], runtime: noopRuntime };
 
 function getInternal(a: any): any {
-  return a.primaryAgent ?? a;
+  // Wraps the actor stage with a Proxy so test access patterns that touch the
+  // legacy responder surface (`responderProgram`, the responder-tpl entry in
+  // getOptimizableComponents) continue to resolve through the pipeline's
+  // finalResponder synthesizer.
+  const actor = a.primaryAgent ?? a;
+  const finalResponder = a.finalResponder;
+  if (!finalResponder) return actor;
+  return new Proxy(actor, {
+    get(target, prop, receiver) {
+      if (prop === 'responderProgram') return finalResponder.getProgram();
+      if (prop === 'getOptimizableComponents') {
+        return () => {
+          const baseId = target.getId();
+          const responderEntries = finalResponder
+            .getOptimizableComponents()
+            .map((c: any) =>
+              c.kind === 'actor-tpl'
+                ? { ...c, key: `${baseId}::actor-tpl:rlm/responder.md` }
+                : c
+            );
+          return [...target.getOptimizableComponents(), ...responderEntries];
+        };
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+    set(target, prop, value) {
+      if (prop === 'responderProgram') {
+        (finalResponder as any).program = value;
+        return true;
+      }
+      return Reflect.set(target, prop, value);
+    },
+  });
 }
 
 describe('AxAgent — optimizable components', () => {
@@ -41,7 +73,7 @@ describe('AxAgent — optimizable components', () => {
       .map((c: any) => c.key);
     expect(tplKeys).toEqual(
       expect.arrayContaining([
-        'agent::actor-tpl:rlm/ctx-actor.md',
+        'agent::actor-tpl:rlm/single-stage-actor.md',
         'agent::actor-tpl:rlm/responder.md',
       ])
     );
@@ -68,13 +100,13 @@ describe('AxAgent — optimizable components', () => {
 
     const tpl = internal
       .getOptimizableComponents()
-      .find((c: any) => c.key === 'agent::actor-tpl:rlm/ctx-actor.md');
+      .find((c: any) => c.key === 'agent::actor-tpl:rlm/single-stage-actor.md');
     const customTpl = String(tpl.current).replace(
       '## Code Generation Agent',
       '## CUSTOM ACTOR HEADER'
     );
     internal.applyOptimizedComponents({
-      'agent::actor-tpl:rlm/ctx-actor.md': customTpl,
+      'agent::actor-tpl:rlm/single-stage-actor.md': customTpl,
     });
 
     const actorDesc = internal.actorProgram
@@ -87,7 +119,7 @@ describe('AxAgent — optimizable components', () => {
     // After querying components again, the override is reflected as `current`
     const after = internal.getOptimizableComponents();
     const updatedTpl = after.find(
-      (c: any) => c.key === 'agent::actor-tpl:rlm/ctx-actor.md'
+      (c: any) => c.key === 'agent::actor-tpl:rlm/single-stage-actor.md'
     );
     expect(updatedTpl?.current).toBe(customTpl);
   });
@@ -124,7 +156,8 @@ describe('AxAgent — optimizable components', () => {
       .getDescription() as string;
     internal.applyOptimizedComponents({
       // Unclosed `if` — should be rejected by validatePromptTemplateSyntax
-      'agent::actor-tpl:rlm/ctx-actor.md': 'broken {{ if hasInspectRuntime }}',
+      'agent::actor-tpl:rlm/single-stage-actor.md':
+        'broken {{ if hasInspectRuntime }}',
     });
 
     const after = internal.actorProgram
@@ -145,7 +178,8 @@ describe('AxAgent — optimizable components', () => {
       .getSignature()
       .getDescription() as string;
     internal.applyOptimizedComponents({
-      'agent::actor-tpl:rlm/ctx-actor.md': 'valid syntax but no placeholders',
+      'agent::actor-tpl:rlm/single-stage-actor.md':
+        'valid syntax but no placeholders',
     });
 
     const after = internal.actorProgram

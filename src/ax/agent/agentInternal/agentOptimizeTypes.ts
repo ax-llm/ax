@@ -225,29 +225,24 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
   bubbleErrors?: ReadonlyArray<new (...args: any[]) => Error>;
   /**
    * Selects which actor prompt template this internal agent uses.
-   * - `'combined'` (default): monolithic actor.md — context exploration + task execution.
-   * - `'context'`: context-actor.md — Y-RLM distiller; no tools, no discovery.
-   * - `'task'`: task-actor.md — tool executor; optionally consumes pre-distilled contextData.
-   * Set automatically by the AxAgent coordinator; external callers can set it on AxAgentInternal directly.
+   * - `'combined'`: single-stage-actor.md — default one-stage actor.
+   * - `'context'`: context-actor.md — context-understanding stage; no tools, no discovery.
+   * - `'task'`: task-actor.md — tool executor; optionally consumes executorRequest/distilledContext.
+   * Set automatically by the AxAgent pipeline; external callers can set it on ActorAgentRLM directly.
    */
   actorTemplateVariant?: 'combined' | 'context' | 'task';
   /**
-   * When true, a prior context-understanding stage has produced `inputs.contextData`.
-   * The task-actor template surfaces a hint telling the actor to consume it instead of
-   * re-probing raw context fields. Only meaningful when `actorTemplateVariant === 'task'`.
+   * When true, a prior context-understanding stage has produced
+   * `inputs.executorRequest` and `inputs.distilledContext`. The task-actor
+   * template surfaces a hint telling the actor to consume them instead of
+   * re-probing raw context fields. Only meaningful when
+   * `actorTemplateVariant === 'task'`.
    */
   hasDistilledContext?: boolean;
   /**
-   * When true, the context actor advertises `finalForUser(task, context)` in its
-   * prompt and the runtime binds the primitive. Set by the coordinator in Case A
-   * so ctx can short-circuit the downstream task stage when the answer is already
-   * known. Only meaningful when `actorTemplateVariant === 'context'`.
-   */
-  hasFinalForUser?: boolean;
-  /**
-   * Options forwarded exclusively to the context-distillation stage (ctxAgent) when
-   * both `contextFields` and tools are configured. Use this to cap the ctx stage
-   * independently — e.g. `contextOptions: { maxTurns: 3 }`.
+   * Options forwarded exclusively to the context-distillation stage when
+   * `contextFields` are configured. Use this to cap the context stage
+   * independently, e.g. `contextOptions: { maxTurns: 3 }`.
    */
   contextOptions?: Partial<
     Pick<

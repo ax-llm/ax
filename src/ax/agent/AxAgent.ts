@@ -4,7 +4,6 @@ import type {
   AxFunction,
   AxFunctionJSONSchema,
 } from '../ai/types.js';
-import type { AxMetricFn } from '../dsp/common_types.js';
 import type { AxGen } from '../dsp/generate.js';
 import {
   type AxOptimizableComponent,
@@ -13,18 +12,13 @@ import {
 import type { AxIField, AxSignatureConfig } from '../dsp/sig.js';
 import { AxSignature } from '../dsp/sig.js';
 import type {
-  AxAgentUsage,
   AxChatLogEntry,
   AxGenIn,
   AxGenOut,
-  AxGenStreamingOut,
   AxMessage,
   AxNamedProgramInstance,
   AxProgramDemos,
   AxProgramForwardOptions,
-  AxProgramForwardOptionsWithModels,
-  AxProgrammable,
-  AxProgramStreamingForwardOptionsWithModels,
   AxProgramUsage,
 } from '../dsp/types.js';
 import type { createCompletionBindings } from './completion.js';
@@ -42,10 +36,6 @@ import {
 } from './templateEngine.js';
 import { promptTemplates, type TemplateId } from './templates.generated.js';
 
-/**
- * Interface for agents that can be used as child agents.
- * Provides methods to get the agent's function definition and features.
- */
 export * from './agentInternal/types.js';
 
 import { runActorLoop } from './agentInternal/actorLoop.js';
@@ -56,21 +46,8 @@ import {
   testAgent,
 } from './agentInternal/agentPublicMethods.js';
 import { createMutableDiscoveryPromptState } from './agentInternal/discoveryHelpers.js';
-import {
-  type AxAgentActorRun,
-  type AxAgentInternalRunner,
-  forwardAgent,
-  runActorOnly,
-  runResponderOnly,
-  streamingForwardAgent,
-} from './agentInternal/forwardMethods.js';
 import { initializeAgentInternal } from './agentInternal/initialization.js';
-import {
-  createAgentOptimizeMetric,
-  createOptimizationProgram,
-  forwardForEvaluation,
-  optimizeAgent,
-} from './agentInternal/optimizer.js';
+// optimizer helpers live on the pipeline AxAgent (coordinator.ts).
 import {
   buildActorInstruction,
   renderActorDefinition,
@@ -94,21 +71,15 @@ import type {
   AxActorDefinitionBuildOptions,
   AxAgentActorResultPayload,
   AxAgentDemos,
-  AxAgentEvalDataset,
   AxAgentEvalFunctionCall,
-  AxAgentEvalPrediction,
-  AxAgentEvalTask,
   AxAgentFunction,
   AxAgentFunctionCallRecorder,
   AxAgentFunctionModuleMeta,
   AxAgentGuidanceState,
   AxAgentIdentity,
   AxAgentInputUpdateCallback,
-  AxAgentic,
   AxAgentJudgeOptions,
   AxAgentOptimizationTargetDescriptor,
-  AxAgentOptimizeOptions,
-  AxAgentOptimizeResult,
   AxAgentOptions,
   AxAgentRecursionOptions,
   AxAgentRuntimeCompletionState,
@@ -128,30 +99,37 @@ import {
   validateConfiguredSignature,
 } from './agentInternal/validation.js';
 
-// ----- AxAgentInternal Class -----
+// ----- ActorAgentRLM Class -----
 
 /**
- * Reusable building block: a split-architecture AI agent with two AxGen programs:
- * - **Actor**: generates code to gather information (inputs, guidanceLog, actionLog -> code)
- * - **Responder**: synthesizes the final answer from actorResult payload (inputs, actorResult -> outputs)
+ * RLM actor stage: a single AxGen program driven in a JS-runtime loop.
  *
- * The execution loop is managed by TypeScript, not the LLM:
- * 1. Actor generates code → executed in runtime → result appended to actionLog
- * 2. Loop until Actor calls final(...) / askClarification(...) or maxTurns reached
- * 3. Responder synthesizes final answer from actorResult payload
+ * The actor generates JavaScript, the TypeScript loop executes it in a
+ * pluggable `AxCodeRuntime`, the result is appended to an action log, and the
+ * loop continues until the actor terminates with `final(...)` /
+ * `askClarification(...)` (or hits `maxTurns`).
  *
- * The outer `AxAgent` coordinator wires one or two `AxAgentInternal` instances.
- * Use `AxAgentInternal` directly when you need precise per-instance configuration.
+ * Synthesis (turning the actor's `{task, evidence}` payload into structured
+ * output fields) is **not** done here — it lives in a `Synthesizer` stage
+ * that the pipeline (`AxAgent`) composes after the actor loop.
+ *
+ * The pipeline owns up to two of these (one for context distillation, one
+ * for task execution). Use `ActorAgentRLM` directly only when you need
+ * precise per-instance configuration outside the standard pipeline.
  */
-
-export class AxAgentInternal<IN extends AxGenIn, OUT extends AxGenOut>
-  implements AxAgentic<IN, OUT>, AxAgentInternalRunner
-{
+/**
+ * Note: this no longer implements `AxAgentic` because synthesis (responder)
+ * is owned by the pipeline `AxAgent`. Use `AxAgent` (or the `agent()` factory)
+ * for the user-facing surface; `ActorAgentRLM` is the building block.
+ */
+export class ActorAgentRLM<
+  IN extends AxGenIn = AxGenIn,
+  OUT extends AxGenOut = AxGenOut,
+> {
   private ai?: AxAIService;
   private judgeAI?: AxAIService;
   private program!: AxGen<IN, OUT>;
   private actorProgram!: AxGen<any, any>;
-  private responderProgram!: AxGen<any, OUT>;
   private agents?: AxAnyAgentic[];
   private agentFunctions!: AxAgentFunction[];
   private agentFunctionModuleMetadata = new Map<
@@ -165,11 +143,9 @@ export class AxAgentInternal<IN extends AxGenIn, OUT extends AxGenOut>
   private actorFieldNames!: string[];
   private actorDescription?: string;
   private actorModelPolicy?: AxResolvedActorModelPolicy;
-  private responderDescription?: string;
   private judgeOptions?: AxAgentJudgeOptions;
   private recursionForwardOptions?: AxAgentRecursionOptions;
   private actorForwardOptions?: Partial<AxProgramForwardOptions<string>>;
-  private responderForwardOptions?: Partial<AxProgramForwardOptions<string>>;
   private inputUpdateCallback?: AxAgentInputUpdateCallback<IN>;
   private agentStatusCallback?: (
     message: string,
@@ -182,6 +158,7 @@ export class AxAgentInternal<IN extends AxGenIn, OUT extends AxGenOut>
   private runtimeUsageInstructions = '';
   private enforceIncrementalConsoleTurns = false;
   private bubbleErrors?: ReadonlyArray<new (...args: any[]) => Error>;
+  private agentIdentity?: AxAgentIdentity;
 
   private activeAbortControllers = new Set<AbortController>();
   private _stopRequested = false;
@@ -209,7 +186,7 @@ export class AxAgentInternal<IN extends AxGenIn, OUT extends AxGenOut>
     const variant = (this as any).options?.actorTemplateVariant ?? 'combined';
     if (variant === 'context') return 'rlm/context-actor.md';
     if (variant === 'task') return 'rlm/task-actor.md';
-    return 'rlm/ctx-actor.md';
+    return 'rlm/single-stage-actor.md';
   }
 
   private _actorPrimitiveStage(): AxRuntimePrimitiveStage {
@@ -225,43 +202,37 @@ export class AxAgentInternal<IN extends AxGenIn, OUT extends AxGenOut>
       hasInspectRuntime: Boolean(opts?.hasInspectRuntime),
       hasAgentStatusCallback: Boolean(opts?.hasAgentStatusCallback),
       discoveryMode: Boolean(opts?.discoveryMode),
-      hasFinalForUser: Boolean((this as any).options?.hasFinalForUser),
     };
   }
 
   /**
-   * Components owned by this agent (not by its sub-programs): the RLM actor
-   * template, the responder template, and each runtime primitive that would
-   * be rendered for the current variant + flag set.
+   * Components owned by this actor agent: the actor template plus each
+   * runtime primitive that would be rendered for the current variant + flag
+   * set. The Synthesizer stage owns the responder template separately.
    */
   private _localOptimizableComponents(): readonly AxOptimizableComponent[] {
     const id = this.getId();
     const out: AxOptimizableComponent[] = [];
 
     const actorTplId = this._actorTemplateId();
-    const responderTplId: TemplateId = 'rlm/responder.md';
-
-    for (const tplId of [actorTplId, responderTplId] as const) {
-      const current =
-        this._actorTemplateOverrides?.get(tplId) ?? promptTemplates[tplId];
-      const requiredVariables = requiredTemplateVariables(tplId);
-      out.push({
-        key: `${id}::actor-tpl:${tplId}`,
-        kind: 'actor-tpl',
-        current,
-        description: `RLM template '${tplId}' rendered as the ${
-          tplId === responderTplId ? 'responder' : 'actor'
-        } system prompt.`,
-        constraints:
-          'Preserve the full set of `{{var}}` placeholders the renderer expects; the result must be a valid template that parses cleanly.',
-        validate: (value) =>
-          validatePromptTemplateSyntax(
-            value,
-            `template-validate:${tplId}`,
-            requiredVariables
-          ),
-      });
-    }
+    const current =
+      this._actorTemplateOverrides?.get(actorTplId) ??
+      promptTemplates[actorTplId];
+    const requiredVariables = requiredTemplateVariables(actorTplId);
+    out.push({
+      key: `${id}::actor-tpl:${actorTplId}`,
+      kind: 'actor-tpl',
+      current,
+      description: `RLM template '${actorTplId}' rendered as the actor system prompt.`,
+      constraints:
+        'Preserve the full set of `{{var}}` placeholders the renderer expects; the result must be a valid template that parses cleanly.',
+      validate: (value) =>
+        validatePromptTemplateSyntax(
+          value,
+          `template-validate:${actorTplId}`,
+          requiredVariables
+        ),
+    });
 
     const stage = this._actorPrimitiveStage();
     const flags = this._primitiveFlags();
@@ -270,10 +241,10 @@ export class AxAgentInternal<IN extends AxGenIn, OUT extends AxGenOut>
       out.push({
         key: `${id}::primitive:${p.id}`,
         kind: 'primitive',
-        current: lines.join('\n'),
-        description: `Runtime primitive \`${p.id}\` advertised in the actor prompt. Each newline-separated line becomes a markdown bullet.`,
+        current: lines.join('\n\n'),
+        description: `Runtime primitive \`${p.id}\` advertised in the actor prompt. Each blank-line-separated entry is a description-then-signature block.`,
         constraints:
-          'Newline-separated bullets; each line should start with a backtick-wrapped signature followed by a short purpose statement.',
+          'Blank-line-separated entries; each entry is a short purpose statement followed by a backtick-wrapped signature on the next line.',
         validate: axOptimizableValidators.nonEmpty(),
       });
     }
@@ -319,8 +290,8 @@ export class AxAgentInternal<IN extends AxGenIn, OUT extends AxGenOut>
           this._primitiveOverrides = new Map();
         }
         const lines = value
-          .split('\n')
-          .map((s) => s.replace(/^[-*]\s+/, '').trim())
+          .split(/\n{2,}/)
+          .map((s) => s.trim())
           .filter((s) => s.length > 0);
         if (lines.length === 0) continue;
         this._primitiveOverrides.set(pid, lines);
@@ -384,17 +355,14 @@ export class AxAgentInternal<IN extends AxGenIn, OUT extends AxGenOut>
     initializeAgentInternal(this, init, options);
   }
 
-  /**
-   * Builds (or rebuilds) Actor and Responder programs from the current
-   * base signature, contextFields, and actorFieldNames.
-   */
+  /** Builds (or rebuilds) the Actor program from the current base signature. */
   private _buildSplitPrograms(): void {
     buildSplitPrograms(this);
   }
 
   /**
-   * Stops an in-flight forward/streamingForward call. Causes the call
-   * to throw `AxAIServiceAbortedError`.
+   * Stops an in-flight forward call. Causes the call to throw
+   * `AxAIServiceAbortedError`.
    */
   public stop(): void {
     this._stopRequested = true;
@@ -403,7 +371,6 @@ export class AxAgentInternal<IN extends AxGenIn, OUT extends AxGenOut>
     }
     this.program.stop();
     this.actorProgram.stop();
-    this.responderProgram.stop();
   }
 
   public getId(): string {
@@ -433,26 +400,16 @@ export class AxAgentInternal<IN extends AxGenIn, OUT extends AxGenOut>
     this.program.setDemos(demos as readonly AxProgramDemos<IN, OUT>[], options);
   }
 
-  public getUsage(): AxAgentUsage {
-    return {
-      actor: (this.actorProgram?.getUsage() as AxProgramUsage[]) ?? [],
-      responder: (this.responderProgram?.getUsage() as AxProgramUsage[]) ?? [],
-    };
+  public getUsage(): readonly AxProgramUsage[] {
+    return (this.actorProgram?.getUsage() as AxProgramUsage[]) ?? [];
   }
 
-  public getChatLog(): {
-    actor: readonly AxChatLogEntry[];
-    responder: readonly AxChatLogEntry[];
-  } {
-    return {
-      actor: this.actorProgram?.getChatLog() ?? [],
-      responder: this.responderProgram?.getChatLog() ?? [],
-    };
+  public getChatLog(): readonly AxChatLogEntry[] {
+    return this.actorProgram?.getChatLog() ?? [];
   }
 
   public resetUsage() {
     this.actorProgram?.resetUsage();
-    this.responderProgram?.resetUsage();
   }
 
   public getState(): AxAgentState | undefined {
@@ -467,37 +424,13 @@ export class AxAgentInternal<IN extends AxGenIn, OUT extends AxGenOut>
     setStateImpl(this, state);
   }
 
-  private _listOptimizationTargetDescriptors(): AxAgentOptimizationTargetDescriptor[] {
+  /**
+   * Provided for the optimizer's `createOptimizationProgram` so the
+   * pipeline can iterate every named program (actor + synthesizer) when
+   * scoring component edits.
+   */
+  public _listOptimizationTargetDescriptors(): AxAgentOptimizationTargetDescriptor[] {
     return listOptimizationTargetDescriptors(this);
-  }
-
-  public async optimize(
-    dataset: Readonly<AxAgentEvalDataset<IN>>,
-    options?: Readonly<AxAgentOptimizeOptions<IN, OUT>>
-  ): Promise<AxAgentOptimizeResult<OUT>> {
-    return optimizeAgent<IN, OUT>(this, dataset, options);
-  }
-
-  private _createOptimizationProgram(
-    targetIds: readonly string[],
-    descriptors: readonly AxAgentOptimizationTargetDescriptor[]
-  ): AxProgrammable<AxAgentEvalTask<IN>, AxAgentEvalPrediction<OUT>> {
-    return createOptimizationProgram<IN, OUT>(this, targetIds, descriptors);
-  }
-
-  private _createAgentOptimizeMetric(
-    judgeAI: Readonly<AxAIService>,
-    judgeOptions: Readonly<AxAgentJudgeOptions>
-  ): AxMetricFn {
-    return createAgentOptimizeMetric<IN, OUT>(this, judgeAI, judgeOptions);
-  }
-
-  private async _forwardForEvaluation<T extends Readonly<AxAIService>>(
-    parentAi: T,
-    task: Readonly<AxAgentEvalTask<IN>>,
-    options?: Readonly<AxProgramForwardOptionsWithModels<T>>
-  ): Promise<AxAgentEvalPrediction<OUT>> {
-    return forwardForEvaluation<IN, OUT, T>(this, parentAi, task, options);
   }
 
   public getFunction(): AxFunction {
@@ -585,8 +518,6 @@ export class AxAgentInternal<IN extends AxGenIn, OUT extends AxGenOut>
     if (this.program) out.push(...this.program.getOptimizableComponents());
     if (this.actorProgram)
       out.push(...this.actorProgram.getOptimizableComponents());
-    if (this.responderProgram)
-      out.push(...this.responderProgram.getOptimizableComponents());
     if (this.agents) {
       for (const a of this.agents) {
         const fn = (a as any).getOptimizableComponents;
@@ -602,8 +533,6 @@ export class AxAgentInternal<IN extends AxGenIn, OUT extends AxGenOut>
   ): void {
     if (this.program) this.program.applyOptimizedComponents(updates);
     if (this.actorProgram) this.actorProgram.applyOptimizedComponents(updates);
-    if (this.responderProgram)
-      this.responderProgram.applyOptimizedComponents(updates);
     if (this.agents) {
       for (const a of this.agents) {
         const fn = (a as any).applyOptimizedComponents;
@@ -616,17 +545,21 @@ export class AxAgentInternal<IN extends AxGenIn, OUT extends AxGenOut>
     }
   }
 
-  // ----- Forward (split architecture) -----
+  // ----- Actor loop -----
 
   /**
    * Runs the Actor loop: sets up the runtime session, executes code iteratively,
-   * and returns the state needed by the Responder. Closes the session before returning.
+   * and returns the actor result + non-context input values + any actor-produced
+   * field values. The pipeline (or external callers) feed this into a
+   * `Synthesizer` stage to produce structured output.
+   *
+   * Closes the runtime session before returning.
    */
-  private async _runActorLoop(
-    ai: AxAIService,
+  public async _runActorLoop(
+    parentAi: Readonly<AxAIService>,
     values: IN | AxMessage<IN>[],
-    options: Readonly<AxProgramForwardOptions<string>> | undefined,
-    effectiveAbortSignal: AbortSignal | undefined,
+    options?: Readonly<AxProgramForwardOptions<string>>,
+    effectiveAbortSignal?: AbortSignal,
     functionCallRecords?: AxAgentEvalFunctionCall[]
   ): Promise<{
     nonContextValues: Record<string, unknown>;
@@ -637,6 +570,7 @@ export class AxAgentInternal<IN extends AxGenIn, OUT extends AxGenOut>
     actorFieldValues: Record<string, unknown>;
     turnCount: number;
   }> {
+    const ai = this.ai ?? parentAi;
     return runActorLoop(
       this,
       ai,
@@ -647,45 +581,47 @@ export class AxAgentInternal<IN extends AxGenIn, OUT extends AxGenOut>
     );
   }
 
-  public async forward<T extends Readonly<AxAIService>>(
+  /**
+   * Public alias for `_runActorLoop` — preferred name in new code.
+   * Manages its own AbortController and budget state.
+   */
+  public async run<T extends Readonly<AxAIService>>(
     parentAi: T,
     values: IN | AxMessage<IN>[],
-    options?: Readonly<AxProgramForwardOptionsWithModels<T>>
-  ): Promise<OUT> {
-    return forwardAgent(this, parentAi, values, options);
-  }
-
-  public async *streamingForward<T extends Readonly<AxAIService>>(
-    parentAi: T,
-    values: IN | AxMessage<IN>[],
-    options?: Readonly<AxProgramStreamingForwardOptionsWithModels<T>>
-  ): AxGenStreamingOut<OUT> {
-    yield* streamingForwardAgent(this, parentAi, values, options);
-  }
-
-  /** @internal Coordinator short-circuit: run actor loop without responder. */
-  public async _runActorOnly<T extends Readonly<AxAIService>>(
-    parentAi: T,
-    values: unknown,
-    options?: unknown
-  ): Promise<AxAgentActorRun> {
-    return runActorOnly(this, parentAi, values, options);
-  }
-
-  /** @internal Coordinator short-circuit: run responder with a pre-computed actor result. */
-  public async _runResponderOnly<T extends Readonly<AxAIService>>(
-    parentAi: T,
-    nonContextValues: Record<string, unknown>,
-    actorResult: AxAgentActorResultPayload,
-    options?: unknown
-  ): Promise<unknown> {
-    return runResponderOnly(
-      this,
-      parentAi,
-      nonContextValues,
-      actorResult,
-      options
+    options?: Readonly<AxProgramForwardOptions<string>>
+  ): Promise<{
+    nonContextValues: Record<string, unknown>;
+    actorResult: AxAgentActorResultPayload;
+    actorFieldValues: Record<string, unknown>;
+    turnCount: number;
+    guidanceLog: string | undefined;
+    actionLog: string;
+  }> {
+    const { mergeAbortSignals } = await import('../util/abort.js');
+    const abortController = new AbortController();
+    if (this._stopRequested) {
+      abortController.abort('Stopped by user (pre-forward)');
+    }
+    const effectiveAbortSignal = mergeAbortSignals(
+      abortController.signal,
+      options?.abortSignal
     );
+    this.activeAbortControllers.add(abortController);
+    const createdBudgetState = this._ensureLlmQueryBudgetState();
+    try {
+      return await this._runActorLoop(
+        parentAi,
+        values,
+        options,
+        effectiveAbortSignal
+      );
+    } finally {
+      if (createdBudgetState) {
+        this.llmQueryBudgetState = undefined;
+      }
+      this.activeAbortControllers.delete(abortController);
+      this._stopRequested = false;
+    }
   }
 
   /**
@@ -746,8 +682,6 @@ export class AxAgentInternal<IN extends AxGenIn, OUT extends AxGenOut>
 }
 
 // Re-export the coordinator class and factory from coordinator.ts.
-// The coordinator imports `AxAgentInternal` from this file, so we keep the
-// re-export here to preserve the public API surface.
 export {
   AxAgent,
   type AxAgentConfig,

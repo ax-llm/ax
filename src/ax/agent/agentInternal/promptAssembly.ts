@@ -24,10 +24,7 @@ export function renderActorDefinition(self: any): string {
     return axBuildContextActorDefinition(
       s.actorDefinitionBaseDescription,
       s.actorDefinitionContextFields,
-      {
-        ...buildOptions,
-        hasFinalForUser: Boolean(s.options?.hasFinalForUser),
-      }
+      buildOptions
     );
   }
   if (variant === 'task') {

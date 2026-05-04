@@ -53,7 +53,17 @@ Choose options based on user needs, not feature completeness:
 
 ## Mental Model
 
-Treat `AxAgent` as a long-running JavaScript REPL that the actor steers over multiple turns, not as a fresh script generator on every turn.
+`AxAgent` is a three-stage pipeline. Each `forward()` call walks (some subset of) the stages in order:
+
+```
+contextExplorer (RLM actor)  →  taskExecutor (RLM actor)  →  finalResponder (synthesizer)
+```
+
+- **contextExplorer** runs only when `contextFields` are configured. It sees all original inputs so it can understand the task, while declared context fields stay runtime-only. It distils long-context inputs into evidence by writing JS code in a multi-turn loop, then calls `final(request, evidence)`. In the staged context flow, the request becomes the task executor's `inputs.executorRequest`; the explorer should expand the original user task with facts found in context, including follow-ups like "yes, do it".
+- **taskExecutor** always runs. With `contextFields`, it receives non-context task inputs plus `inputs.executorRequest` and `inputs.distilledContext` from the explorer's `final(request, evidence)` payload. Raw context fields are not present in the task stage. Without `contextFields`, it consumes the raw inputs directly. The executor owns tool use and decides whether to call its available functions or finish directly from the distilled evidence.
+- **finalResponder** always runs last. It synthesizes the user's output signature from whichever upstream actor finished the run.
+
+Treat the actor stages (explorer, executor) as long-running JavaScript REPLs that the actor steers over multiple turns, not as fresh script generators on every turn.
 
 - Successful code leaves variables, functions, imports, and computed values available in the runtime session.
 - The actor should continue from existing runtime state instead of recreating prior work.
@@ -115,6 +125,7 @@ Practical rule:
 - Use `agent(...)` factory syntax for new code.
 - If `agentIdentity.namespace` is set, call child agents through that module, not `agents`.
 - If `functions.discovery` is `true`, call `discoverModules(...)` first, then `discoverFunctions(...)`, then call only discovered functions.
+- The `Javascript Code` output field uses Ax's normal field-pair response shape, but its value must be executable JavaScript only; do not emit plain `task:` / `evidence:` labels, prose, markdown fences, or `<think>` tags as the value.
 - In stdout-mode RLM, non-final turns must emit exactly one `console.log(...)` and stop immediately after it.
 - Never combine `console.log(...)` with `await final(...)` or `await askClarification(...)` in the same actor turn.
 - Inside actor-authored JavaScript, `await final(...)` and `await askClarification(...)` end the current turn immediately; code after them is dead code.
@@ -1197,6 +1208,7 @@ agentIdentity?: {
 ```
 
 - `name` is normalized to camelCase for child-agent function names.
+- `name` and `description` are included in the Actor and Responder prompts as the user-facing agent identity.
 - `namespace` changes the child-agent module from default `agents` to a custom module such as `team`.
 
 ### `AxAgentOptions`

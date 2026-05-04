@@ -33,10 +33,10 @@ describe('AxAgent coordinator optimization routing (Case A)', () => {
   });
 
   it('Case A namedPrograms() aggregates ctx and task programs with prefixes', () => {
-    // namedPrograms() in Case A returns programs from BOTH ctxAgent and taskAgent,
-    // each prefixed with 'ctx.' or 'task.'. The user's output field 'answer' lives
-    // in the task.responder signature, not the ctx.responder signature
-    // (ctx.responder outputs 'distilledContext').
+    // namedPrograms() in Case A returns programs from BOTH the contextExplorer
+    // and taskExecutor + finalResponder, each prefixed with 'ctx.' or 'task.'.
+    // The user's output field 'answer' lives in the task.responder signature.
+    // The ctx side has only the explorer actor; there is no ctx.responder.
     const caseAAgent = agent('document:string, query:string -> answer:string', {
       contextFields: ['document'],
       functions: [
@@ -54,14 +54,9 @@ describe('AxAgent coordinator optimization routing (Case A)', () => {
     // Both stages present — IDs are prefixed ctx.<uid>.actor etc.
     expect(programs.some((p) => p.id.startsWith('ctx.'))).toBe(true);
     expect(programs.some((p) => p.id.startsWith('task.'))).toBe(true);
-    // Actor and responder in both stages (IDs include the stage keyword)
+    // Ctx side has only the actor (explorer); task side has actor + responder.
     expect(
       programs.some((p) => p.id.startsWith('ctx.') && p.id.includes('actor'))
-    ).toBe(true);
-    expect(
-      programs.some(
-        (p) => p.id.startsWith('ctx.') && p.id.includes('responder')
-      )
     ).toBe(true);
     expect(
       programs.some((p) => p.id.startsWith('task.') && p.id.includes('actor'))
@@ -71,18 +66,19 @@ describe('AxAgent coordinator optimization routing (Case A)', () => {
         (p) => p.id.startsWith('task.') && p.id.includes('responder')
       )
     ).toBe(true);
-    // The user's output field 'answer' is in the task.responder signature;
-    // the ctx.responder outputs 'distilledContext' instead.
+    // No ctx.responder anymore — the explorer's evidence flows directly into
+    // the task executor.
+    expect(
+      programs.some(
+        (p) => p.id.startsWith('ctx.') && p.id.includes('responder')
+      )
+    ).toBe(false);
+    // The user's output field 'answer' is in the task.responder signature.
     const taskResponderSig =
       programs.find(
         (p) => p.id.startsWith('task.') && p.id.includes('responder')
       )?.signature ?? '';
     expect(taskResponderSig).toContain('answer');
-    const ctxResponderSig =
-      programs.find(
-        (p) => p.id.startsWith('ctx.') && p.id.includes('responder')
-      )?.signature ?? '';
-    expect(ctxResponderSig).toContain('distilledContext');
   });
 
   it('Case C namedPrograms() match pre-split baseline (no ctxAgent, no prefixes)', () => {

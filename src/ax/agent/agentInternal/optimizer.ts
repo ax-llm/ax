@@ -10,13 +10,10 @@ import type {
   AxNamedProgramInstance,
   AxProgramDemos,
   AxProgramForwardOptions,
-  AxProgramForwardOptionsWithModels,
   AxProgrammable,
   AxProgramStreamingForwardOptionsWithModels,
   AxProgramTrace,
 } from '../../dsp/types.js';
-import { mergeAbortSignals } from '../../util/abort.js';
-import { normalizeClarificationForError } from '../completion.js';
 import {
   AX_AGENT_OPTIMIZE_JUDGE_EVAL_SIGNATURE,
   AX_AGENT_OPTIMIZE_PROGRAM_SIGNATURE,
@@ -29,16 +26,8 @@ import {
   resolveAgentOptimizeTargetIds,
   serializeForEval,
 } from '../optimize.js';
-import { cloneAgentState } from '../state.js';
-import {
-  createMutableDiscoveryPromptState,
-  restoreDiscoveryPromptState,
-  serializeDiscoveryPromptState,
-} from './discoveryHelpers.js';
 import type {
-  AxAgentClarification,
   AxAgentEvalDataset,
-  AxAgentEvalFunctionCall,
   AxAgentEvalPrediction,
   AxAgentEvalTask,
   AxAgentJudgeEvalInput,
@@ -283,113 +272,11 @@ export function createAgentOptimizeMetric<
   };
 }
 
-export async function forwardForEvaluation<
-  IN extends AxGenIn,
-  OUT extends AxGenOut,
-  T extends Readonly<AxAIService>,
->(
-  self: any,
-  parentAi: T,
-  task: Readonly<AxAgentEvalTask<IN>>,
-  options?: Readonly<AxProgramForwardOptionsWithModels<T>>
-): Promise<AxAgentEvalPrediction<OUT>> {
-  const s = self as any;
-  const savedState = s.state ? cloneAgentState(s.state) : undefined;
-  const savedStateError = s.stateError;
-  const savedDiscoveryPromptState = serializeDiscoveryPromptState(
-    s.currentDiscoveryPromptState
-  );
-  s.state = undefined;
-  s.stateError = undefined;
-  s.currentDiscoveryPromptState = createMutableDiscoveryPromptState();
-
-  const abortController = new AbortController();
-  if (s._stopRequested) {
-    abortController.abort('Stopped by user (pre-forward)');
-  }
-  const effectiveAbortSignal = mergeAbortSignals(
-    abortController.signal,
-    options?.abortSignal
-  );
-
-  s.activeAbortControllers.add(abortController);
-  const createdBudgetState = s._ensureLlmQueryBudgetState();
-  try {
-    const ai = s.ai ?? parentAi;
-    const debug = options?.debug ?? s.debug ?? ai?.getOptions()?.debug ?? false;
-    const functionCalls: AxAgentEvalFunctionCall[] = [];
-
-    const {
-      nonContextValues,
-      actorResult,
-      actorFieldValues,
-      guidanceLog,
-      actionLog,
-      turnCount,
-    } = await s._runActorLoop(
-      ai,
-      task.input,
-      options,
-      effectiveAbortSignal,
-      functionCalls
-    );
-    const toolErrors = functionCalls
-      .filter((call: AxAgentEvalFunctionCall) => Boolean(call.error))
-      .map(
-        (call: AxAgentEvalFunctionCall) =>
-          `${call.qualifiedName}: ${call.error ?? 'unknown error'}`
-      );
-
-    if (actorResult.type === 'askClarification') {
-      return {
-        completionType: 'askClarification',
-        clarification: normalizeClarificationForError(
-          actorResult.args[0] as AxAgentClarification
-        ),
-        guidanceLog,
-        actionLog,
-        functionCalls,
-        toolErrors,
-        turnCount,
-      };
-    }
-
-    const responderMergedOptions = {
-      ...s._genOptions,
-      ...s.responderForwardOptions,
-      ...options,
-      debug,
-      abortSignal: effectiveAbortSignal,
-      maxSteps: 1,
-    };
-
-    const responderResult = await s.responderProgram.forward(
-      ai,
-      {
-        ...nonContextValues,
-        contextData: actorResult,
-      },
-      responderMergedOptions
-    );
-    return {
-      completionType: 'final',
-      output: { ...responderResult, ...actorFieldValues } as OUT,
-      guidanceLog,
-      actionLog,
-      functionCalls,
-      toolErrors,
-      turnCount,
-    };
-  } finally {
-    s.state = savedState ? cloneAgentState(savedState) : undefined;
-    s.stateError = savedStateError;
-    s.currentDiscoveryPromptState = restoreDiscoveryPromptState(
-      savedDiscoveryPromptState
-    );
-    if (createdBudgetState) {
-      s.llmQueryBudgetState = undefined;
-    }
-    s.activeAbortControllers.delete(abortController);
-    s._stopRequested = false;
-  }
-}
+/**
+ * Legacy single-stage `forwardForEvaluation` is gone — `ActorAgentRLM` no
+ * longer owns a responder, so it can't synthesize a prediction by itself.
+ * Pipeline evaluation lives in `pipelineForwardForEvaluation.ts`. The
+ * `_listOptimizationTargetDescriptors` helper and friends still live on
+ * `ActorAgentRLM`; they're shared with the pipeline coordinator.
+ */
+export { forwardPipelineForEvaluation as forwardForEvaluation } from './pipelineForwardForEvaluation.js';

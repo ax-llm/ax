@@ -33,6 +33,12 @@ import {
 } from './guidanceHelpers.js';
 import { AxAgentClarificationError } from './types.js';
 
+const ACTOR_CODE_POLICY_GUIDANCE =
+  'Your previous Javascript Code value did not satisfy the executable-code turn contract. ' +
+  'On this turn, set Javascript Code to runnable JavaScript only: use console.log(...) for inspection, ' +
+  'await final("...", { ... }) when complete, or await askClarification(...) when blocked. ' +
+  'Do not emit plain task:/evidence: labels or prose as the Javascript Code value.';
+
 export async function runActorTurn<_IN extends AxGenIn>(
   ctx: ActorLoopContext,
   turn: number,
@@ -201,6 +207,11 @@ export async function runActorTurn<_IN extends AxGenIn>(
     if (policyResult?.violation) {
       const policyViolation = policyResult.violation;
       const entryTurn = actionLogEntries.length + 1;
+      guidanceState.entries.push({
+        turn: entryTurn,
+        guidance: ACTOR_CODE_POLICY_GUIDANCE,
+        triggeredBy: 'runtime policy',
+      });
       actionLogEntries.push({
         turn: entryTurn,
         code,

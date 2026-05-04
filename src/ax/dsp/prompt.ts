@@ -1,14 +1,13 @@
 import {
-  buildPromptMetrics,
-  countChatPromptContentChars,
-  type AxPromptMetrics,
-} from '../ai/promptMetrics.js';
-import type { AxChatRequest, AxContextCacheOptions } from '../ai/types.js';
-
-import {
   renderPromptTemplate,
   renderTemplateContent,
 } from '../agent/templateEngine.js';
+import {
+  type AxPromptMetrics,
+  buildPromptMetrics,
+  countChatPromptContentChars,
+} from '../ai/promptMetrics.js';
+import type { AxChatRequest, AxContextCacheOptions } from '../ai/types.js';
 import { formatDateWithTimezone } from './datetime.js';
 import type { AxInputFunctionType } from './functions.js';
 import type { AxField, AxFieldType, AxIField, AxSignature } from './sig.js';
@@ -196,7 +195,10 @@ export class AxPromptTemplate {
   /**
    * Build XML-structured prompt with format protection
    */
-  private buildStructuredPrompt(hasExampleDemonstrations = false): {
+  private buildStructuredPrompt(
+    hasExampleDemonstrations = false,
+    values?: unknown
+  ): {
     type: 'text';
     text: string;
   } {
@@ -214,10 +216,10 @@ export class AxPromptTemplate {
       hasStructuredOutputFunction: Boolean(
         hasComplexFields && this.structuredOutputFunctionName
       ),
-      identityText: this.buildIdentitySection(),
+      identityText: this.buildIdentitySection(values),
       taskDefinitionText: taskDefinition,
       functionsList: hasFunctions ? this.buildFunctionsSection(funcs) : '',
-      inputFieldsSection: this.buildInputFieldsSection(),
+      inputFieldsSection: this.buildInputFieldsSection(values),
       outputFieldsSection: !hasComplexFields
         ? this.buildOutputFieldsSection()
         : '',
@@ -235,8 +237,8 @@ export class AxPromptTemplate {
   /**
    * Build identity section: stable agent role (input/output field summary only).
    */
-  private buildIdentitySection(): string {
-    const inArgs = renderDescFields(this.sig.getInputFields());
+  private buildIdentitySection(values?: unknown): string {
+    const inArgs = renderDescFields(this.getInputFieldsForValues(values));
     const outArgs = renderDescFields(this.sig.getOutputFields());
     return `You will be provided with the following fields: ${inArgs}. Your task is to generate new fields: ${outArgs}.`;
   }
@@ -270,10 +272,30 @@ export class AxPromptTemplate {
   /**
    * Build input fields section
    */
-  private buildInputFieldsSection(): string {
+  private buildInputFieldsSection(values?: unknown): string {
     const fieldMap = this.getFieldNameToTitleMap();
-    const inputFields = renderInputFields(this.sig.getInputFields(), fieldMap);
+    const inputFields = renderInputFields(
+      this.getInputFieldsForValues(values),
+      fieldMap
+    );
     return `**Input Fields**: The following fields will be provided to you:\n\n${inputFields}`;
+  }
+
+  private getInputFieldsForValues(values?: unknown): readonly AxField[] {
+    const inputFields = this.sig.getInputFields();
+    const records = getInputValueRecords(values);
+    if (!records) {
+      return inputFields;
+    }
+
+    return inputFields.filter((field) => {
+      if (!field.isOptional) {
+        return true;
+      }
+      return records.some((record) =>
+        isProvidedValue(record[field.name] as AxFieldValue | undefined)
+      );
+    });
   }
 
   /**
@@ -395,7 +417,10 @@ export class AxPromptTemplate {
     const allTextDemos = renderedDemos.every((v) => v.type === 'text');
     const examplesInSystemPrompt = allTextExamples && allTextDemos;
 
-    let systemContent = this.task.text;
+    const baseSystemContent = this.customInstruction
+      ? this.task.text
+      : this.buildStructuredPrompt(false, values).text;
+    let systemContent = baseSystemContent;
 
     if (examplesInSystemPrompt) {
       const combinedItems = [
@@ -415,7 +440,7 @@ export class AxPromptTemplate {
       content: systemContent,
       cache: !!this.contextCache,
     };
-    const systemPromptCharacters = this.task.text.length;
+    const systemPromptCharacters = baseSystemContent.length;
     // In the legacy multimodal fallback, cached examples must be their own
     // top-level message so provider adapters can cache them without pulling
     // live input into the same boundary.
@@ -573,7 +598,7 @@ export class AxPromptTemplate {
       ? hasExamplesOrDemos
         ? `${this.task.text}\n${exampleDisclaimer}`
         : this.task.text
-      : this.buildStructuredPrompt(hasExamplesOrDemos).text;
+      : this.buildStructuredPrompt(hasExamplesOrDemos, values).text;
 
     const systemPrompt = {
       role: 'system' as const,
@@ -1495,11 +1520,6 @@ const renderInputFields = (
 ) => {
   const rows = fields.map((field) => {
     const name = field.title;
-    const type = field.type?.name ? toFieldType(field.type) : 'string';
-
-    const requiredMsg = field.isOptional
-      ? `This optional ${type} field may be omitted`
-      : `${/^[aeiou]/i.test(type) ? 'An' : 'A'} ${type} field`;
 
     let description = '';
     if (field.description) {
@@ -1510,7 +1530,7 @@ const renderInputFields = (
       description = ` ${formatted}`;
     }
 
-    return `${name}: (${requiredMsg})${description}`.trim();
+    return `${name}:${description}`.trim();
   });
 
   return rows.join('\n');
@@ -1656,6 +1676,49 @@ function combineConsecutiveStrings(separator: string) {
   };
 }
 
+const isRecordValue = (
+  value: unknown
+): value is Readonly<Record<string, unknown>> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const getInputValueRecords = (
+  values?: unknown
+): readonly Readonly<Record<string, unknown>>[] | undefined => {
+  if (values === undefined) {
+    return undefined;
+  }
+
+  if (Array.isArray(values)) {
+    return values
+      .map((item) => {
+        if (!isRecordValue(item)) {
+          return undefined;
+        }
+        return isRecordValue(item.values) ? item.values : undefined;
+      })
+      .filter((item): item is Readonly<Record<string, unknown>> =>
+        Boolean(item)
+      );
+  }
+
+  return isRecordValue(values) ? [values] : [];
+};
+
+const isProvidedValue = (value: unknown) => {
+  if (value === undefined || value === null) {
+    return false;
+  }
+
+  if (
+    (Array.isArray(value) || typeof value === 'string') &&
+    value.length === 0
+  ) {
+    return false;
+  }
+
+  return true;
+};
+
 const isEmptyValue = (
   field: Readonly<AxField>,
   value?: Readonly<AxFieldValue>,
@@ -1664,18 +1727,7 @@ const isEmptyValue = (
     isInputField?: boolean;
   }
 ) => {
-  if (typeof value === 'boolean') {
-    return false;
-  }
-
-  if (field?.type?.name === 'number' && typeof value === 'number') {
-    return false;
-  }
-
-  if (
-    !value ||
-    ((Array.isArray(value) || typeof value === 'string') && value.length === 0)
-  ) {
+  if (!isProvidedValue(value)) {
     // Handle examples case - all fields can be missing in examples
     if (context?.isExample) {
       return true;

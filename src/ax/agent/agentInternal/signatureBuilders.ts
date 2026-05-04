@@ -8,7 +8,6 @@ import {
 import {
   axBuildActorDefinition,
   axBuildContextActorDefinition,
-  axBuildResponderDefinition,
   axBuildTaskActorDefinition,
 } from '../rlm.js';
 import { compareCanonicalDiscoveryStrings } from '../runtimeDiscovery.js';
@@ -17,6 +16,11 @@ import type {
   AxLlmQueryPromptMode,
 } from './types.js';
 
+/**
+ * Build (or rebuild) the Actor program for an `ActorAgentRLM`. The Responder
+ * is no longer owned by the actor — it lives in a `Synthesizer` stage that the
+ * pipeline composes after the actor loop.
+ */
 export function buildSplitPrograms(self: any): void {
   const s = self as any;
   type FieldLike = AxIField;
@@ -30,7 +34,7 @@ export function buildSplitPrograms(self: any): void {
   const actorInlineContextInputs = contextFieldMeta
     .filter((fld: FieldLike) => s.contextPromptConfigByField.has(fld.name))
     .map((fld: FieldLike) => ({ ...fld, isOptional: true }));
-  // Non-context inputs (visible to Actor and Responder)
+  // Non-context inputs (visible to Actor)
   const nonContextInputs = inputFields.filter(
     (fld: FieldLike) => !contextFields.includes(fld.name)
   );
@@ -41,20 +45,28 @@ export function buildSplitPrograms(self: any): void {
   const actorOutputFields = originalOutputs.filter((fld: FieldLike) =>
     s.actorFieldNames.includes(fld.name)
   );
+  // The downstream Synthesizer consumes whatever output fields aren't claimed
+  // by the actor; we still expose them here so the actor template can render
+  // a hint about what the responder will be asked for.
   const responderOutputFields = originalOutputs.filter(
     (fld: FieldLike) => !s.actorFieldNames.includes(fld.name)
   );
 
-  // --- Actor signature: inputs + contextMetadata + guidanceLog + actionLog -> javascriptCode (+ actorFields) ---
+  // --- Actor signature: inputs (+ contextMetadata when context fields exist) + guidanceLog + actionLog -> javascriptCode (+ actorFields) ---
   let actorSigBuilder = f()
     .addInputFields(nonContextInputs)
-    .addInputFields(actorInlineContextInputs)
-    .input(
+    .addInputFields(actorInlineContextInputs);
+
+  if (contextFields.length > 0) {
+    actorSigBuilder = actorSigBuilder.input(
       'contextMetadata',
       f
         .string('Metadata about pre-loaded context variables (type and size)')
         .optional()
-    )
+    );
+  }
+
+  actorSigBuilder = actorSigBuilder
     .input(
       'guidanceLog',
       f
@@ -99,7 +111,12 @@ export function buildSplitPrograms(self: any): void {
   actorSigBuilder = actorSigBuilder.output(
     'javascriptCode',
     f.code(
-      'Pure raw JavaScript code only. No markdown backticks, no code fences, no prose, no <think> tags. Single statement ending in console.log().'
+      'The value of this field must be executable JavaScript only. ' +
+        'The outer response still uses the Javascript Code field label. ' +
+        'Do not put markdown backticks, code fences, prose, plain task/evidence labels, or <think> tags inside the value. ' +
+        'Use console.log(...) for intermediate inspection turns only. ' +
+        'When the task is complete, call await final(...); when clarification is required, call await askClarification(...). ' +
+        'Do not include console.log in either completion turn.'
     )
   ) as any;
 
@@ -108,16 +125,6 @@ export function buildSplitPrograms(self: any): void {
   }
 
   const actorSig = actorSigBuilder.build();
-
-  // --- Responder signature: inputs + contextData -> responderOutputFields ---
-  const responderSig = f()
-    .addInputFields(nonContextInputs)
-    .input(
-      'contextData',
-      f.json('Context data to help synthesize the final answer.')
-    )
-    .addOutputFields(responderOutputFields)
-    .build();
 
   const effectiveMaxSubAgentCalls =
     s.rlmConfig.maxSubAgentCalls ?? DEFAULT_RLM_MAX_LLM_CALLS;
@@ -182,6 +189,7 @@ export function buildSplitPrograms(self: any): void {
     llmQueryPromptMode: effectiveLlmQueryPromptMode,
     enforceIncrementalConsoleTurns: s.enforceIncrementalConsoleTurns,
     agentModuleNamespace: s.agentModuleNamespace,
+    agentIdentity: s.agentIdentity,
     hasAgentStatusCallback: Boolean(s.agentStatusCallback),
     discoveryMode: s.functionDiscoveryEnabled,
     availableModules,
@@ -197,10 +205,7 @@ export function buildSplitPrograms(self: any): void {
     actorDef = axBuildContextActorDefinition(
       actorDefinitionBaseDescription,
       contextFieldMeta,
-      {
-        ...actorDefinitionBuildOptions,
-        hasFinalForUser: Boolean(s.options?.hasFinalForUser),
-      }
+      actorDefinitionBuildOptions
     );
   } else if (variant === 'task') {
     actorDef = axBuildTaskActorDefinition(
@@ -226,14 +231,6 @@ export function buildSplitPrograms(self: any): void {
   s.actorDefinitionResponderOutputFields = responderOutputFields;
   s.actorDefinitionBuildOptions = actorDefinitionBuildOptions;
 
-  const responderDef = axBuildResponderDefinition(
-    s.responderDescription,
-    contextFieldMeta,
-    {
-      templateOverride: s._actorTemplateOverrides?.get('rlm/responder.md'),
-    }
-  );
-
   if (s.actorProgram) {
     s.actorProgram.setSignature(actorSig);
     s.actorProgram.setDescription(actorDef);
@@ -242,15 +239,5 @@ export function buildSplitPrograms(self: any): void {
       ...s._genOptions,
       description: actorDef,
     });
-  }
-
-  if (s.responderProgram) {
-    s.responderProgram.setSignature(responderSig);
-    s.responderProgram.setDescription(responderDef);
-  } else {
-    s.responderProgram = new AxGen(responderSig, {
-      ...s._genOptions,
-      description: responderDef,
-    }) as unknown as AxGen<any, any>;
   }
 }

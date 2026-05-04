@@ -190,16 +190,11 @@ OPENAI_APIKEY=your-key npm run tsx ./src/examples/[example-name].ts
 
 ### Production Patterns
 
-- [customer-support.ts](src/examples/customer-support.ts) - Complete support
-  system
-- [food-search.ts](src/examples/food-search.ts) - Restaurant recommendations
-  with tools
-- [simple-optimizer-test.ts](src/examples/simple-optimizer-test.ts) - Automatic
-  optimization
+- [customer-support.ts](src/examples/customer-support.ts) - Complete support system
+- [food-search.ts](src/examples/food-search.ts) - Restaurant recommendations with tools
+- [simple-optimizer-test.ts](src/examples/simple-optimizer-test.ts) - Automatic optimization
 - [axagent-gepa-optimization.ts](src/examples/axagent-gepa-optimization.ts) - Agent optimization with GEPA
-  MIPRO optimization
-- [ax-flow-enhanced-demo.ts](src/examples/ax-flow-enhanced-demo.ts) - Complex
-  workflows
+- [ax-flow-enhanced-demo.ts](src/examples/ax-flow-enhanced-demo.ts) - Complex workflows
 
 [📚 **View Full Examples Guide** →](docs/EXAMPLES.md)\
 [View All 70+ Examples →](src/examples/)

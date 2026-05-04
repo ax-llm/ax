@@ -65,12 +65,6 @@ export type AxAgentFunctionGroup = AxAgentFunctionModuleMeta & {
 export type AxAgentTestCompletionPayload = {
   type: 'final' | 'askClarification';
   args: unknown[];
-  /**
-   * Only meaningful when `type === 'final'`. Set by `finalForUser(...)` so the
-   * coordinator can route the actor payload directly to the task responder,
-   * bypassing ctx responder + task actor.
-   */
-  shortCircuit?: boolean;
 };
 
 export type AxAgentTestResult = string | AxAgentTestCompletionPayload;

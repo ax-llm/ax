@@ -15,6 +15,22 @@ import { renderPromptTemplate } from './templateEngine.js';
 
 // ----- Helpers for rendering function/agent signatures in the actor prompt -----
 
+type AgentIdentityPrompt = Readonly<{
+  name: string;
+  description: string;
+}>;
+
+function renderAgentIdentity(
+  identity: AgentIdentityPrompt | undefined
+): string {
+  if (!identity) return '';
+
+  return [
+    `- Name: ${identity.name}`,
+    `- Description: ${identity.description}`,
+  ].join('\n');
+}
+
 function normalizeSchemaTypes(schema: AxFunctionJSONSchema): string[] {
   const rawType = (schema as { type?: unknown }).type;
 
@@ -112,8 +128,9 @@ function renderReturnsSummary(
   return schemaTypeToShortString(schema);
 }
 
-function renderCallableEntry(args: {
+function renderCallableBlock(args: {
   qualifiedName: string;
+  description?: string;
   parameters?: AxFunctionJSONSchema;
   returns?: AxFunctionJSONSchema;
 }): string {
@@ -123,7 +140,9 @@ function renderCallableEntry(args: {
   const returnType = args.returns
     ? `: Promise<${renderReturnsSummary(args.returns)}>`
     : '';
-  return `- \`${args.qualifiedName}(args: ${paramType})${returnType}\``;
+  const signature = `\`${args.qualifiedName}(args: ${paramType})${returnType}\``;
+  const description = args.description?.trim();
+  return description ? `${description}\n${signature}` : signature;
 }
 
 /**
@@ -310,6 +329,8 @@ export function axBuildActorDefinition(
     hasAgentStatusCallback?: boolean;
     /** Enables module-only discovery rendering in prompt. */
     discoveryMode?: boolean;
+    /** User-facing agent identity from `agentIdentity`. */
+    agentIdentity?: AgentIdentityPrompt;
     /** Precomputed available modules for runtime discovery mode. */
     availableModules?: ReadonlyArray<{
       namespace: string;
@@ -317,7 +338,7 @@ export function axBuildActorDefinition(
     }>;
     /** Discovery docs accumulated during the current run. */
     discoveredDocsMarkdown?: string;
-    /** Optional override for the `rlm/ctx-actor.md` template source. */
+    /** Optional override for the `rlm/single-stage-actor.md` template source. */
     templateOverride?: string;
     /** Optional per-primitive override map keyed by primitive id. */
     primitiveOverrides?: ReadonlyMap<string, readonly string[]>;
@@ -358,6 +379,7 @@ export function axBuildActorDefinition(
   );
   const agentModuleNamespace = options.agentModuleNamespace ?? 'agents';
   const discoveryMode = Boolean(options.discoveryMode);
+  const agentIdentityText = renderAgentIdentity(options.agentIdentity);
   const availableModules: AvailableModule[] = options.availableModules
     ? [...options.availableModules].sort((a, b) =>
         a.namespace.localeCompare(b.namespace)
@@ -372,9 +394,12 @@ export function axBuildActorDefinition(
         .map((namespace) => ({ namespace }));
 
   const actorBody = renderPromptTemplate(
-    'rlm/ctx-actor.md',
+    'rlm/single-stage-actor.md',
     {
       contextVarList,
+      hasContextFields: contextFields.length > 0,
+      hasAgentIdentity: agentIdentityText.length > 0,
+      agentIdentityText,
       responderOutputFieldTitles,
       promptLevel: options.promptLevel ?? 'default',
       llmQueryPromptMode: options.llmQueryPromptMode ?? 'simple',
@@ -389,26 +414,32 @@ export function axBuildActorDefinition(
         },
         options.primitiveOverrides
       ),
-      hasAgentFunctions: !discoveryMode && sortedAgents.length > 0,
       agentModuleNamespace,
-      agentFunctionsList: sortedAgents
-        .map((fn) =>
-          renderCallableEntry({
-            qualifiedName: `${agentModuleNamespace}.${fn.name}`,
-            parameters: fn.parameters,
-          })
-        )
-        .join('\n'),
-      hasFunctions: !discoveryMode && sortedAgentFunctions.length > 0,
-      functionsList: sortedAgentFunctions
-        .map((fn) =>
-          renderCallableEntry({
-            qualifiedName: `${fn.namespace}.${fn.name}`,
-            parameters: fn.parameters,
-            returns: fn.returns,
-          })
-        )
-        .join('\n'),
+      agentFunctionsList:
+        !discoveryMode && sortedAgents.length > 0
+          ? sortedAgents
+              .map((fn) =>
+                renderCallableBlock({
+                  qualifiedName: `${agentModuleNamespace}.${fn.name}`,
+                  description: fn.description,
+                  parameters: fn.parameters,
+                })
+              )
+              .join('\n\n')
+          : '',
+      functionsList:
+        !discoveryMode && sortedAgentFunctions.length > 0
+          ? sortedAgentFunctions
+              .map((fn) =>
+                renderCallableBlock({
+                  qualifiedName: `${fn.namespace}.${fn.name}`,
+                  description: fn.description,
+                  parameters: fn.parameters,
+                  returns: fn.returns,
+                })
+              )
+              .join('\n\n')
+          : '',
       hasModules: discoveryMode && availableModules.length > 0,
       modulesList: availableModules
         .map((module) =>
@@ -449,8 +480,8 @@ export function axBuildContextActorDefinition(
     hasInspectRuntime?: boolean;
     hasLiveRuntimeState?: boolean;
     hasCompressedActionReplay?: boolean;
-    /** When true, advertise `finalForUser(...)` so ctx can short-circuit. */
-    hasFinalForUser?: boolean;
+    /** User-facing agent identity from `agentIdentity`. */
+    agentIdentity?: AgentIdentityPrompt;
     /** Optional override for the `rlm/context-actor.md` template source. */
     templateOverride?: string;
     /** Optional per-primitive override map keyed by primitive id. */
@@ -469,10 +500,14 @@ export function axBuildContextActorDefinition(
           .join('\n')
       : '(none)';
 
+  const agentIdentityText = renderAgentIdentity(options.agentIdentity);
+
   const actorBody = renderPromptTemplate(
     'rlm/context-actor.md',
     {
       contextVarList,
+      hasAgentIdentity: agentIdentityText.length > 0,
+      agentIdentityText,
       promptLevel: options.promptLevel ?? 'default',
       hasInspectRuntime: Boolean(options.hasInspectRuntime),
       hasLiveRuntimeState: Boolean(options.hasLiveRuntimeState),
@@ -481,7 +516,6 @@ export function axBuildContextActorDefinition(
         'context',
         {
           hasInspectRuntime: Boolean(options.hasInspectRuntime),
-          hasFinalForUser: Boolean(options.hasFinalForUser),
         },
         options.primitiveOverrides
       ),
@@ -498,8 +532,9 @@ export function axBuildContextActorDefinition(
 /**
  * Builds the task-execution actor system prompt.
  * Used when user `functions`/`agents` are declared. When `hasDistilledContext`
- * is true the template tells the actor to consume `inputs.contextData` from a
- * prior ctx stage instead of re-probing raw context fields.
+ * is true the template tells the actor to consume `inputs.executorRequest` and
+ * `inputs.distilledContext` from a prior ctx stage instead of re-probing raw
+ * context fields.
  */
 export function axBuildTaskActorDefinition(
   baseDefinition: string | undefined,
@@ -525,6 +560,8 @@ export function axBuildTaskActorDefinition(
       description: string;
       parameters?: AxFunctionJSONSchema;
     }>;
+    /** User-facing agent identity from `agentIdentity`. */
+    agentIdentity?: AgentIdentityPrompt;
     agentFunctions?: ReadonlyArray<{
       name: string;
       description?: string;
@@ -533,7 +570,10 @@ export function axBuildTaskActorDefinition(
       namespace: string;
     }>;
     agentModuleNamespace?: string;
-    /** When true, a prior ctx stage produced `inputs.contextData`. */
+    /**
+     * When true, a prior ctx stage produced `inputs.executorRequest` and
+     * `inputs.distilledContext`.
+     */
     hasDistilledContext?: boolean;
     /** Optional override for the `rlm/task-actor.md` template source. */
     templateOverride?: string;
@@ -572,6 +612,7 @@ export function axBuildTaskActorDefinition(
   );
   const agentModuleNamespace = options.agentModuleNamespace ?? 'agents';
   const discoveryMode = Boolean(options.discoveryMode);
+  const agentIdentityText = renderAgentIdentity(options.agentIdentity);
   const availableModules: AvailableModule[] = options.availableModules
     ? [...options.availableModules].sort((a, b) =>
         a.namespace.localeCompare(b.namespace)
@@ -589,6 +630,8 @@ export function axBuildTaskActorDefinition(
     'rlm/task-actor.md',
     {
       contextVarList,
+      hasAgentIdentity: agentIdentityText.length > 0,
+      agentIdentityText,
       responderOutputFieldTitles,
       promptLevel: options.promptLevel ?? 'default',
       llmQueryPromptMode: options.llmQueryPromptMode ?? 'simple',
@@ -603,26 +646,32 @@ export function axBuildTaskActorDefinition(
         },
         options.primitiveOverrides
       ),
-      hasAgentFunctions: !discoveryMode && sortedAgents.length > 0,
       agentModuleNamespace,
-      agentFunctionsList: sortedAgents
-        .map((fn) =>
-          renderCallableEntry({
-            qualifiedName: `${agentModuleNamespace}.${fn.name}`,
-            parameters: fn.parameters,
-          })
-        )
-        .join('\n'),
-      hasFunctions: !discoveryMode && sortedAgentFunctions.length > 0,
-      functionsList: sortedAgentFunctions
-        .map((fn) =>
-          renderCallableEntry({
-            qualifiedName: `${fn.namespace}.${fn.name}`,
-            parameters: fn.parameters,
-            returns: fn.returns,
-          })
-        )
-        .join('\n'),
+      agentFunctionsList:
+        !discoveryMode && sortedAgents.length > 0
+          ? sortedAgents
+              .map((fn) =>
+                renderCallableBlock({
+                  qualifiedName: `${agentModuleNamespace}.${fn.name}`,
+                  description: fn.description,
+                  parameters: fn.parameters,
+                })
+              )
+              .join('\n\n')
+          : '',
+      functionsList:
+        !discoveryMode && sortedAgentFunctions.length > 0
+          ? sortedAgentFunctions
+              .map((fn) =>
+                renderCallableBlock({
+                  qualifiedName: `${fn.namespace}.${fn.name}`,
+                  description: fn.description,
+                  parameters: fn.parameters,
+                  returns: fn.returns,
+                })
+              )
+              .join('\n\n')
+          : '',
       hasModules: discoveryMode && availableModules.length > 0,
       modulesList: availableModules
         .map((module) =>
@@ -658,6 +707,8 @@ export function axBuildResponderDefinition(
   baseDefinition: string | undefined,
   contextFields: readonly AxIField[],
   options?: Readonly<{
+    /** User-facing agent identity from `agentIdentity`. */
+    agentIdentity?: AgentIdentityPrompt;
     /** Optional override for the `rlm/responder.md` template source. */
     templateOverride?: string;
   }>
@@ -673,13 +724,19 @@ export function axBuildResponderDefinition(
           .join('\n')
       : '(none)';
 
-  const responderBody = renderPromptTemplate(
-    'rlm/responder.md',
-    { contextVarSummary },
-    options?.templateOverride
-  ).trim();
+  const agentIdentityText = renderAgentIdentity(options?.agentIdentity);
 
-  return baseDefinition
-    ? `${responderBody}\n\n${baseDefinition}`
-    : responderBody;
+  const body = renderPromptTemplate(
+    'rlm/responder.md',
+    {
+      contextVarSummary,
+      hasAgentIdentity: agentIdentityText.length > 0,
+      agentIdentityText,
+    },
+    options?.templateOverride
+  )
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  return baseDefinition ? `${body}\n\n${baseDefinition}` : body;
 }

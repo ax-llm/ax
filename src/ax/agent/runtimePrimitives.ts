@@ -1,10 +1,11 @@
 /**
  * Runtime primitive registry.
  *
- * The RLM actor templates (context-actor.md, task-actor.md, actor.md) all
+ * The RLM actor templates (single-stage-actor.md, context-actor.md,
+ * task-actor.md) all
  * advertise a small set of built-in async functions to the LLM: `final`,
  * `askClarification`, `llmQuery`, `inspect_runtime`, `success`/`failed`,
- * `discoverModules`/`discoverFunctions`, `finalForUser`, etc.
+ * `discoverModules`/`discoverFunctions`, etc.
  *
  * Historically these were hand-written into each template as bullet lists,
  * which drifted apart as primitives were added. This module is the single
@@ -28,9 +29,11 @@ export interface AxRuntimePrimitive {
    */
   readonly enabledBy?: string;
   /**
-   * Pre-formatted markdown bullet line(s). Multiple entries model overloads
-   * (`final(message)` vs `final(task, context)`). Each line is emitted as
-   * its own bullet.
+   * Pre-formatted callable blocks. Each entry renders as a self-contained
+   * description-then-signature block (description on one line, backticked
+   * signature on the next). Multiple entries model overloads
+   * (`final(message)` vs `final(task, context)`); they are emitted as
+   * separate blocks separated by a blank line.
    */
   readonly lines: readonly string[];
 }
@@ -44,32 +47,21 @@ export const axRuntimePrimitives: readonly AxRuntimePrimitive[] = [
     id: 'llmQuery',
     stages: ['context', 'task', 'combined'],
     lines: [
-      '`await llmQuery([{ query: string, context: any }, ...]): string[]` — Ask focused questions about the narrowed context you pass in.',
+      'Ask focused questions about the narrowed context you pass in.\n`await llmQuery([{ query: string, context: any }, ...]): string[]`',
     ],
   },
   {
     id: 'final',
     stages: ['context', 'task', 'combined'],
     lines: [
-      '`await final(task: string, context?: object)` — Signal completion. Pass a concise instruction and the raw evidence; the responder synthesizes the output. Omit `context` when the answer is directly known.',
-    ],
-  },
-  {
-    id: 'finalForUser',
-    // ctx-only: lets the context-understanding stage short-circuit directly to
-    // the task responder when the answer is already known, bypassing ctx
-    // responder + task actor (saves ~3+ LLM calls per hit).
-    stages: ['context'],
-    enabledBy: 'hasFinalForUser',
-    lines: [
-      "`await finalForUser(outputGenerationTask: string, context: object)` — If the answer to the user's request is already obvious from the context you just distilled, call this instead of `final(...)` to skip the downstream task-execution stage entirely. Use only when no tool call or extra reasoning is needed.",
+      'Signal completion. Pass a concise instruction and the raw evidence; the responder synthesizes the output. Omit `context` when the answer is directly known.\n`await final(task: string, context?: object)`',
     ],
   },
   {
     id: 'askClarification',
     stages: ['context', 'task', 'combined'],
     lines: [
-      "`await askClarification(spec: string | { question: string, type?: 'text'|'date'|'number'|'single_choice'|'multiple_choice', choices?: string[] }): void` — Ask the user for clarification when genuinely blocked on an ambiguity you cannot resolve.",
+      "Ask the user for clarification when genuinely blocked on an ambiguity you cannot resolve.\n`await askClarification(spec: string | { question: string, type?: 'text'|'date'|'number'|'single_choice'|'multiple_choice', choices?: string[] }): void`",
     ],
   },
   {
@@ -77,7 +69,7 @@ export const axRuntimePrimitives: readonly AxRuntimePrimitive[] = [
     stages: ['task', 'combined'],
     enabledBy: 'hasAgentStatusCallback',
     lines: [
-      '`await success(message: string)` — Report a successful sub-task completion to the user.',
+      'Report a successful sub-task completion to the user.\n`await success(message: string)`',
     ],
   },
   {
@@ -85,7 +77,7 @@ export const axRuntimePrimitives: readonly AxRuntimePrimitive[] = [
     stages: ['task', 'combined'],
     enabledBy: 'hasAgentStatusCallback',
     lines: [
-      '`await failed(message: string)` — Report a failed sub-task to the user.',
+      'Report a failed sub-task to the user.\n`await failed(message: string)`',
     ],
   },
   {
@@ -93,7 +85,7 @@ export const axRuntimePrimitives: readonly AxRuntimePrimitive[] = [
     stages: ['context', 'task', 'combined'],
     enabledBy: 'hasInspectRuntime',
     lines: [
-      '`await inspect_runtime(): string` — Returns a compact snapshot of user-defined variables in the current session (name, type, size, preview). Use this to re-ground yourself when the conversation is long.',
+      'Returns a compact snapshot of user-defined variables in the current session (name, type, size, preview). Use this to re-ground yourself when the conversation is long.\n`await inspect_runtime(): string`',
     ],
   },
   {
@@ -101,32 +93,33 @@ export const axRuntimePrimitives: readonly AxRuntimePrimitive[] = [
     stages: ['task', 'combined'],
     enabledBy: 'discoveryMode',
     lines: [
-      '`await discoverModules(modules: string[]): void` — Discover available functions in each module (docs become available next turn).',
-      '`await discoverFunctions(functions: string[]): void` — Discover full definitions for specified functions (docs become available next turn).',
+      'Discover available functions in each module (docs become available next turn).\n`await discoverModules(modules: string[]): void`',
+      'Discover full definitions for specified functions (docs become available next turn).\n`await discoverFunctions(functions: string[]): void`',
     ],
   },
 ];
 
 /**
- * Render the filtered primitive list as a markdown bullet block for the
- * prompt. Stage-gates and flag-gates primitives; omits any gated-out
- * entries so the prompt stays tight.
+ * Render the filtered primitive list as a markdown block for the prompt.
+ * Stage-gates and flag-gates primitives; omits any gated-out entries so the
+ * prompt stays tight. Each rendered entry is a description-then-signature
+ * block; entries are separated by blank lines.
  */
 export function renderPrimitivesList(
   stage: AxRuntimePrimitiveStage,
   flags: Readonly<Record<string, boolean | undefined>>,
   overrides?: ReadonlyMap<string, readonly string[]>
 ): string {
-  const bullets: string[] = [];
+  const blocks: string[] = [];
   for (const p of axRuntimePrimitives) {
     if (!p.stages.includes(stage)) continue;
     if (p.enabledBy && !flags[p.enabledBy]) continue;
     const lines = overrides?.get(p.id) ?? p.lines;
-    for (const line of lines) {
-      bullets.push(`- ${line}`);
+    for (const block of lines) {
+      blocks.push(block);
     }
   }
-  return bullets.join('\n');
+  return blocks.join('\n\n');
 }
 
 /**

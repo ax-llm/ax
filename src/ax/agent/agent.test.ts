@@ -43,12 +43,39 @@ import { truncateText, validateActorTurnCodePolicy } from './runtime.js';
 // ----- Helpers -----
 
 /**
- * Returns the primary AxAgentInternal instance from an AxAgent coordinator or
- * the agent itself when it is already an AxAgentInternal.
- * Use this to access private fields (actorProgram, _runActorLoop, etc.) in tests.
+ * Returns the primary `ActorAgentRLM` instance from an `AxAgent` pipeline or
+ * the agent itself when it is already an `ActorAgentRLM`. Tests reach through
+ * here to mock `actorProgram.forward`, call `_runActorLoop`, etc.
+ *
+ * Wraps the actor in a Proxy so legacy access patterns
+ * (`getInternal(agent).responderProgram.forward = ...`) still work — the
+ * responder now lives on `agent.finalResponder` (a Synthesizer wrapping its
+ * own AxGen).
  */
 function getInternal(agent: any): any {
-  return agent.primaryAgent ?? agent;
+  const actor = agent.primaryAgent ?? agent;
+  const finalResponder = agent.finalResponder;
+  if (!finalResponder) return actor;
+  return new Proxy(actor, {
+    get(target, prop, receiver) {
+      if (prop === 'responderProgram') {
+        return finalResponder.getProgram();
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+    set(target, prop, value) {
+      if (prop === 'responderProgram') {
+        // Allow tests to swap the responder program wholesale.
+        (finalResponder as any).program = value;
+        return true;
+      }
+      return Reflect.set(target, prop, value);
+    },
+  });
+}
+
+function getContextInternal(agent: any): any {
+  return agent.contextExplorer ?? getInternal(agent);
 }
 
 const makeModelUsage = () => ({
@@ -723,7 +750,9 @@ describe('AxAgent', () => {
       .actorProgram.getSignature()
       .getDescription() as string;
 
-    expect(actorDesc).toContain('Exploration & Turn Discipline');
+    expect(actorDesc).toContain('Task Execution Discipline');
+    expect(actorDesc).not.toContain('Exploration & Turn Discipline');
+    expect(actorDesc).not.toContain('### Context Fields');
     expect(actorDesc).not.toContain('### Common Anti-Patterns');
   });
 
@@ -745,7 +774,8 @@ describe('AxAgent', () => {
 
     // Anti-patterns block removed from prompt; detailed mode no longer adds it
     expect(actorDesc).not.toContain('### Common Anti-Patterns');
-    expect(actorDesc).toContain('Exploration & Turn Discipline');
+    expect(actorDesc).toContain('Task Execution Discipline');
+    expect(actorDesc).not.toContain('Exploration & Turn Discipline');
   });
 
   it('should describe guidanceLog and actionLog trust boundaries in field descriptions', () => {
@@ -816,6 +846,45 @@ describe('AxAgent', () => {
     expect(responderDesc).toContain('Always respond in bullet points.');
   });
 
+  it('should include agentIdentity in Actor and Responder prompts', () => {
+    const a = new AxAgent(
+      {
+        signature: 'query: string -> answer: string',
+        agentIdentity: {
+          name: 'Travel Concierge',
+          description: 'Plans trips from user preferences.',
+        },
+      },
+      {
+        ...defaultRlmFields,
+      }
+    );
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const actorDesc = getInternal(a)
+      .actorProgram.getSignature()
+      .getDescription() as string;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const responderDesc = getInternal(a)
+      .responderProgram.getSignature()
+      .getDescription() as string;
+
+    expect(actorDesc).toContain('### Agent Identity');
+    expect(actorDesc).toContain('User-facing identity:');
+    expect(actorDesc).toContain('- Name: Travel Concierge');
+    expect(actorDesc).toContain(
+      '- Description: Plans trips from user preferences.'
+    );
+
+    // Agent identity is rendered only on the actor; the responder relies on
+    // the actorResult payload alone.
+    expect(responderDesc).not.toContain('### Agent Identity');
+    expect(responderDesc).not.toContain('Travel Concierge');
+    expect(responderDesc).toContain(
+      'Follow `Context Data.task` using `Context Data.evidence`'
+    );
+  });
+
   it('should allow independent actor and responder descriptions', () => {
     const a = new AxAgent(
       {
@@ -862,11 +931,11 @@ describe('Split-architecture signature derivation', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorSig = getInternal(testAgent).actorProgram.getSignature();
+    const actorSig = getContextInternal(testAgent).actorProgram.getSignature();
     const inputs = actorSig.getInputFields();
     const outputs = actorSig.getOutputFields();
 
-    // Inputs: query (original minus context), contextMetadata, guidanceLog, actionLog
+    // Context explorer sees non-context inputs plus runtime-only context metadata.
     expect(inputs.find((f: AxIField) => f.name === 'query')).toBeDefined();
     expect(
       inputs.find((f: AxIField) => f.name === 'contextMetadata')
@@ -880,6 +949,38 @@ describe('Split-architecture signature derivation', () => {
     // Outputs: only code field
     expect(outputs).toHaveLength(1);
     expect(outputs[0].name).toBe('javascriptCode');
+  });
+
+  it('should not tell the actor that every code turn must end in console.log', () => {
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      contextFields: ['context'],
+      runtime,
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const actorSig = getContextInternal(testAgent).actorProgram.getSignature();
+    const outputs = actorSig.getOutputFields() as AxIField[];
+    const codeField = outputs.find((f) => f.name === 'javascriptCode');
+
+    expect(codeField?.description).toContain(
+      'The value of this field must be executable JavaScript only.'
+    );
+    expect(codeField?.description).toContain(
+      'The outer response still uses the Javascript Code field label.'
+    );
+    expect(codeField?.description).toContain('plain task/evidence labels');
+    expect(codeField?.description).toContain(
+      'Use console.log(...) for intermediate inspection turns only.'
+    );
+    expect(codeField?.description).toContain(
+      'When the task is complete, call await final(...); when clarification is required, call await askClarification(...).'
+    );
+    expect(codeField?.description).toContain(
+      'Do not include console.log in either completion turn.'
+    );
+    expect(codeField?.description).not.toContain(
+      'Single statement ending in console.log().'
+    );
   });
 
   it('should reject reserved synthetic input field names', () => {
@@ -929,7 +1030,7 @@ describe('Split-architecture signature derivation', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorSig = getInternal(testAgent).actorProgram.getSignature();
+    const actorSig = getContextInternal(testAgent).actorProgram.getSignature();
     const inputs = actorSig.getInputFields();
     const contextField = inputs.find((f: AxIField) => f.name === 'context');
 
@@ -946,7 +1047,7 @@ describe('Split-architecture signature derivation', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorSig = getInternal(testAgent).actorProgram.getSignature();
+    const actorSig = getContextInternal(testAgent).actorProgram.getSignature();
     const inputs = actorSig.getInputFields();
     const contextField = inputs.find((f: AxIField) => f.name === 'context');
 
@@ -1056,7 +1157,7 @@ describe('Split-architecture signature derivation', () => {
     expect(actorInputs.find((f: AxIField) => f.name === 'note')).toBeDefined();
     expect(
       actorInputs.find((f: AxIField) => f.name === 'contextMetadata')
-    ).toBeDefined();
+    ).toBeUndefined();
     expect(
       actorInputs.find((f: AxIField) => f.name === 'guidanceLog')
     ).toBeDefined();
@@ -1259,8 +1360,22 @@ describe('Context field runtime access and prompt inlining', () => {
         const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
         const userPrompt = String(req.chatPrompt[1]?.content ?? '');
 
-        if (systemPrompt.includes('Code Generation Agent')) {
+        if (systemPrompt.includes('Context Understanding Agent')) {
           onActorPrompt?.(userPrompt);
+          return {
+            results: [
+              {
+                index: 0,
+                content:
+                  'Javascript Code: final("generate output", { data: "done" })',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Code Generation Agent')) {
           return {
             results: [
               {
@@ -1296,7 +1411,9 @@ describe('Context field runtime access and prompt inlining', () => {
     const runtime: AxCodeRuntime = {
       getUsageInstructions: () => '',
       createSession(globals) {
-        capturedGlobals = globals;
+        if ((globals?.inputs as Record<string, unknown> | undefined)?.context) {
+          capturedGlobals = globals;
+        }
         return {
           execute: async (code: string) => {
             if (code.includes('final(') && globals?.final) {
@@ -2082,11 +2199,13 @@ describe('Actor/Responder execution loop', () => {
     });
 
     expect(responderPrompt).toContain('Context Data:');
-    expect(responderPrompt).toContain('"type": "final"');
+    expect(responderPrompt).toContain('"task"');
     expect(responderPrompt).toContain('Action 1:');
     expect(responderPrompt).toContain('Evidence summary');
     expect(responderPrompt).not.toContain('```javascript');
     expect(responderPrompt).not.toContain('Action Log:');
+    expect(responderPrompt).not.toContain('"type": "final"');
+    expect(responderPrompt).not.toContain('"args":');
   });
 
   it('should accumulate actionLog across turns', async () => {
@@ -2164,7 +2283,7 @@ describe('Actor/Responder execution loop', () => {
     });
 
     expect(lastResponderPayload).toContain('Context Data:');
-    expect(lastResponderPayload).toContain('"type": "final"');
+    expect(lastResponderPayload).toContain('"task"');
     expect(lastResponderPayload).toContain('"done"');
   });
 
@@ -4298,7 +4417,7 @@ describe('Actor/Responder execution loop', () => {
     expect(inspectReservedNames).toBeDefined();
     expect(inspectReservedNames).toContain('inputs');
     expect(inspectReservedNames).toContain('inspect_runtime');
-    expect(inspectReservedNames).toContain('context');
+    expect(inspectReservedNames).not.toContain('context');
     expect(inspectReservedNames).toContain('query');
     expect(responderPrompt).toContain('stateVar: number = 7');
     expect(responderPrompt).not.toContain('setImmediate');
@@ -4381,16 +4500,15 @@ describe('Actor/Responder execution loop', () => {
       },
     };
 
-    const testAgent = agent('context:string, query:string -> answer:string', {
+    const testAgent = agent('query:string -> answer:string', {
       ai: testMockAI,
-      contextFields: ['context'],
+      contextFields: [],
       runtime,
       maxTurns: 2,
       contextPolicy: { preset: 'adaptive' },
     });
 
     const result = await testAgent.forward(testMockAI, {
-      context: 'ctx',
       query: 'q',
     });
 
@@ -4480,16 +4598,15 @@ describe('Actor/Responder execution loop', () => {
       },
     };
 
-    const testAgent = agent('context:string, query:string -> answer:string', {
+    const testAgent = agent('query:string -> answer:string', {
       ai: testMockAI,
-      contextFields: ['context'],
+      contextFields: [],
       runtime,
       maxTurns: 2,
       contextPolicy: { preset: 'adaptive' },
     });
 
     const result = await testAgent.forward(testMockAI, {
-      context: 'ctx',
       query: 'q',
     });
 
@@ -5368,9 +5485,9 @@ describe('final()/askClarification() as runtime globals', () => {
     };
     anyAgent.responderProgram.forward = async (
       _ai: unknown,
-      values: { contextData: { args: string[] } }
+      values: { contextData: { task: string } }
     ) => ({
-      reply: values.contextData.args[0],
+      reply: values.contextData.task,
     });
 
     let savedState = testAgent.getState();
@@ -5512,9 +5629,9 @@ describe('final()/askClarification() as runtime globals', () => {
     };
     anyAgent.responderProgram.forward = async (
       _ai: unknown,
-      values: { contextData: { args: string[] } }
+      values: { contextData: { task: string } }
     ) => ({
-      answer: values.contextData.args[0],
+      answer: values.contextData.task,
     });
 
     await testAgent.forward(ai, { query: 'Draft a response' });
@@ -5557,9 +5674,9 @@ describe('final()/askClarification() as runtime globals', () => {
     };
     anyResumedAgent.responderProgram.forward = async (
       _ai: unknown,
-      values: { contextData: { args: string[] } }
+      values: { contextData: { task: string } }
     ) => ({
-      answer: values.contextData.args[0],
+      answer: values.contextData.task,
     });
 
     const resumed = await resumedAgent.forward(ai, {
@@ -5629,9 +5746,9 @@ describe('final()/askClarification() as runtime globals', () => {
     };
     anyAgent.responderProgram.forward = async (
       _ai: unknown,
-      values: { contextData: { args: string[] } }
+      values: { contextData: { task: string } }
     ) => ({
-      answer: values.contextData.args[0],
+      answer: values.contextData.task,
     });
 
     const ai = new AxMockAIService({
@@ -5690,9 +5807,9 @@ describe('final()/askClarification() as runtime globals', () => {
     };
     anyAgent.responderProgram.forward = async (
       _ai: unknown,
-      values: { contextData: { args: string[] } }
+      values: { contextData: { task: string } }
     ) => ({
-      reply: values.contextData.args[0],
+      reply: values.contextData.task,
     });
 
     let savedState: AxAgentState | undefined;
@@ -5927,6 +6044,17 @@ describe('incremental console-turn policy', () => {
     expect(result?.autoSplitDiscoveryCode).toContain('discoverModules');
     // But the remaining code has no console.log and no final, so it's still a violation
     expect(result?.violation).toContain('console.log');
+  });
+
+  it('should explain how to handle bare function calls without console.log', () => {
+    const result = validateActorTurnCodePolicy(
+      'await utils.runCommand({ command: "ls /" })'
+    );
+
+    expect(result?.violation).toContain('capture its return value first');
+    expect(result?.violation).toContain('const result = await tool.call(args)');
+    expect(result?.violation).toContain('console.log(result)');
+    expect(result?.violation).toContain('await final("...", { result })');
   });
 
   it('should auto-split discovery calls mixed with substantive code and final', () => {
@@ -6252,6 +6380,107 @@ console.log('Keys:', Object.keys(globalThis));`;
     );
     expect(secondTurnUserPrompt).toContain(
       '[POLICY] Non-final turns must include at least one console.log(...)'
+    );
+    expect(secondTurnUserPrompt).toContain(
+      'Your previous Javascript Code value did not satisfy the executable-code turn contract.'
+    );
+  });
+
+  it('should recover with trusted guidance after plain task/evidence actor output', async () => {
+    let actorCallCount = 0;
+    let secondTurnUserPrompt = '';
+    const executedCode: string[] = [];
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          actorCallCount++;
+          if (actorCallCount === 2) {
+            secondTurnUserPrompt = userPrompt;
+          }
+          return {
+            results: [
+              {
+                index: 0,
+                content:
+                  actorCallCount === 1
+                    ? [
+                        'Javascript Code: task: Analyze the mounted PDF',
+                        'evidence: {"filePath":"/Users/vr/Downloads/lifelong.pdf"}',
+                      ].join('\n')
+                    : [
+                        'Javascript Code: await final("Analyze the mounted PDF",',
+                        '{ filePath: "/Users/vr/Downloads/lifelong.pdf" })',
+                      ].join(' '),
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Answer Synthesis Agent')) {
+          return {
+            results: [
+              { index: 0, content: 'Answer: done', finishReason: 'stop' },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const runtime: AxCodeRuntime = {
+      ...runtimeWithConsoleMode,
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            executedCode.push(code);
+            if (globals?.final && code.includes('final(')) {
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
+            }
+            return 'ok';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: [],
+      runtime,
+      maxTurns: 3,
+      contextPolicy: { preset: 'full' },
+    });
+
+    const result = await testAgent.forward(testMockAI, { query: 'test' });
+
+    expect(result.answer).toBe('done');
+    expect(actorCallCount).toBe(2);
+    expect(getActorAuthoredCodes(executedCode)).toEqual([
+      [
+        'await final("Analyze the mounted PDF",',
+        '{ filePath: "/Users/vr/Downloads/lifelong.pdf" })',
+      ].join(' '),
+    ]);
+    expect(secondTurnUserPrompt).toContain(
+      '[POLICY] Non-final turns must include at least one console.log(...)'
+    );
+    expect(secondTurnUserPrompt).toContain(
+      'Do not emit plain task:/evidence: labels or prose as the Javascript Code value.'
     );
   });
 
@@ -6803,14 +7032,16 @@ describe('axBuildActorDefinition', () => {
   it('should document final()/askClarification() exit signals', () => {
     const result = axBuildActorDefinition(undefined, [], [], {});
     expect(result).toContain('final(task: string, context?: object)');
+    expect(result).toContain('Signal completion.');
     expect(result).toContain('askClarification');
     expect(result).not.toContain('guideAgent(');
   });
 
   it('should document canonical runtime input access', () => {
     const result = axBuildActorDefinition(undefined, [], [], {});
-    expect(result).toContain('Context fields are available as globals');
-    expect(result).toContain('### Context Fields');
+    expect(result).toContain('### Task Execution Discipline');
+    expect(result).not.toContain('Context fields are available as globals');
+    expect(result).not.toContain('### Context Fields');
     expect(result).not.toContain('### Runtime Field Access');
   });
 
@@ -6826,10 +7057,15 @@ describe('axBuildActorDefinition', () => {
     const result = axBuildActorDefinition(undefined, [], [], {
       enforceIncrementalConsoleTurns: true,
     });
-    expect(result).toContain('### Exploration & Turn Discipline');
+    expect(result).toContain('### Task Execution Discipline');
+    expect(result).not.toContain('### Exploration & Turn Discipline');
     expect(result).toContain(
       'Discovery calls (`discoverModules`/`discoverFunctions`) can appear alongside other code'
     );
+    expect(result).toContain(
+      'Function/tool results are not visible unless you use the return value.'
+    );
+    expect(result).toContain('finish with `await final("...", { result })`');
   });
 
   it('should render detailed-only anti-pattern examples when promptLevel is detailed', () => {
@@ -6839,7 +7075,7 @@ describe('axBuildActorDefinition', () => {
 
     // Anti-patterns block removed; detailed mode no longer adds it
     expect(result).not.toContain('### Common Anti-Patterns');
-    expect(result).toContain('Exploration & Turn Discipline');
+    expect(result).toContain('Task Execution Discipline');
   });
 
   it('should append base definition', () => {
@@ -6882,10 +7118,10 @@ describe('axBuildResponderDefinition', () => {
     expect(result).toContain('- `documents` (string, optional)');
   });
 
-  it('should instruct to base answer on actorResult evidence', () => {
+  it('should instruct to base answer on actor evidence', () => {
     const result = axBuildResponderDefinition(undefined, []);
     expect(result).toContain(
-      'Base your answer ONLY on evidence in actorResult'
+      'Follow `Context Data.task` using `Context Data.evidence`'
     );
   });
 
@@ -7653,7 +7889,7 @@ describe('RLM session restart', () => {
               throw new Error('Execution timed out');
             }
             // After timeout, next execute succeeds (worker auto-recovered)
-            return `ctx:${String(safeGlobals.context)};hasLlmQuery:${String(typeof safeGlobals.llmQuery === 'function')}`;
+            return `query:${String(safeGlobals.query)};hasLlmQuery:${String(typeof safeGlobals.llmQuery === 'function')}`;
           },
           close: () => {},
         };
@@ -7709,14 +7945,13 @@ describe('RLM session restart', () => {
       },
     });
 
-    const testAgent = agent('context:string, query:string -> answer:string', {
+    const testAgent = agent('query:string -> answer:string', {
       ai: testMockAI,
-      contextFields: ['context'],
+      contextFields: [],
       runtime,
     });
 
     await testAgent.forward(testMockAI, {
-      context: 'global-context',
       query: 'unused',
     });
 
@@ -7794,14 +8029,13 @@ describe('RLM session restart', () => {
       },
     });
 
-    const testAgent = agent('context:string, query:string -> answer:string', {
+    const testAgent = agent('query:string -> answer:string', {
       ai: testMockAI,
-      contextFields: ['context'],
+      contextFields: [],
       runtime,
     });
 
     await testAgent.forward(testMockAI, {
-      context: 'unused',
       query: 'unused',
     });
 
@@ -8562,9 +8796,9 @@ describe('actorTurnCallback', () => {
     };
     anySeedAgent.responderProgram.forward = async (
       _ai: unknown,
-      values: { contextData: { args: string[] } }
+      values: { contextData: { task: string } }
     ) => ({
-      answer: values.contextData.args[0],
+      answer: values.contextData.task,
     });
 
     await seedAgent.forward(testMockAI, { query: 'seed state' });
@@ -8593,9 +8827,9 @@ describe('actorTurnCallback', () => {
     };
     anyResumedAgent.responderProgram.forward = async (
       _ai: unknown,
-      values: { contextData: { args: string[] } }
+      values: { contextData: { task: string } }
     ) => ({
-      answer: values.contextData.args[0],
+      answer: values.contextData.task,
     });
 
     const resumed = await resumedAgent.forward(testMockAI, {
@@ -9029,8 +9263,8 @@ describe('inputUpdateCallback', () => {
     expect(responderValues).toEqual({
       query: 'stream-updated',
       contextData: {
-        type: 'final',
-        args: ['stream-updated', {}],
+        task: 'stream-updated',
+        evidence: {},
       },
     });
   });
@@ -10553,7 +10787,7 @@ describe('judgeOptions / optimize', () => {
     expect(compileSpy).toHaveBeenCalledOnce();
   });
 
-  it('should include ctx and task responders when staged coordinator target is all', async () => {
+  it('should include ctx actor and task actor + responder when staged coordinator target is all', async () => {
     const studentAI = makeStudentAI();
 
     const compileSpy = vi
@@ -10561,12 +10795,7 @@ describe('judgeOptions / optimize', () => {
       .mockImplementation(async (program) => {
         expect(
           program.namedProgramInstances?.().map((entry) => entry.id)
-        ).toEqual([
-          'ctx.root.actor',
-          'ctx.root.responder',
-          'task.root.actor',
-          'task.root.responder',
-        ]);
+        ).toEqual(['ctx.root.actor', 'task.root.actor', 'task.root.responder']);
 
         return {
           demos: [],
@@ -10928,9 +11157,9 @@ describe('judgeOptions / optimize', () => {
     };
     anyAgent.responderProgram.forward = async (
       _ai: unknown,
-      values: { contextData: { args: string[] } }
+      values: { contextData: { task: string } }
     ) => ({
-      answer: values.contextData.args[0],
+      answer: values.contextData.task,
     });
 
     await testAgent.optimize(
@@ -11068,9 +11297,9 @@ describe('judgeOptions / optimize', () => {
     };
     anyAgent.responderProgram.forward = async (
       _ai: unknown,
-      values: { contextData: { args: string[] } }
+      values: { contextData: { task: string } }
     ) => ({
-      answer: values.contextData.args[0],
+      answer: values.contextData.task,
     });
 
     await testAgent.optimize([makeTask()], {
@@ -11310,7 +11539,7 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
     required: ['query'],
   };
 
-  it('should render ### Available Agent Functions section when agents are provided', () => {
+  it('should render sub-agent signatures under unified ### Available Functions section', () => {
     const result = axBuildActorDefinition(undefined, [], [], {
       agents: [
         {
@@ -11320,9 +11549,11 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
         },
       ],
     });
-    expect(result).toContain('### Available Agent Functions');
+    expect(result).toContain('### Available Functions');
+    expect(result).not.toContain('### Available Agent Functions');
+    expect(result).not.toContain('### Additional Functions');
     expect(result).toContain(
-      '- `agents.searchAgent(args: { query: string, limit?: number })`'
+      '`agents.searchAgent(args: { query: string, limit?: number })`'
     );
   });
 
@@ -11339,10 +11570,10 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
     });
 
     expect(result).toContain(
-      '- `team.searchAgent(args: { query: string, limit?: number })`'
+      '`team.searchAgent(args: { query: string, limit?: number })`'
     );
     expect(result).not.toContain(
-      '- `agents.searchAgent(args: { query: string, limit?: number })`'
+      '`agents.searchAgent(args: { query: string, limit?: number })`'
     );
   });
 
@@ -11373,7 +11604,7 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
     });
     expect(result).toContain('### Available Functions');
     expect(result).toContain(
-      '- `utils.fetchData(args: { query: string, limit?: number })`'
+      '`utils.fetchData(args: { query: string, limit?: number })`'
     );
   });
 
@@ -11440,7 +11671,7 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
         { name: 'noParamsAgent', description: 'desc', parameters: undefined },
       ],
     });
-    expect(result).toContain('- `agents.noParamsAgent(args: {})`');
+    expect(result).toContain('`agents.noParamsAgent(args: {})`');
   });
 
   it('should render {} for agent with empty properties', () => {
@@ -11453,7 +11684,7 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
         },
       ],
     });
-    expect(result).toContain('- `agents.emptyAgent(args: {})`');
+    expect(result).toContain('`agents.emptyAgent(args: {})`');
   });
 
   it('should render multiple agents', () => {
@@ -11467,8 +11698,8 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
         { name: 'agentTwo', description: 'Second agent' },
       ],
     });
-    expect(result).toContain('- `agents.agentOne(args: ');
-    expect(result).toContain('- `agents.agentTwo(args: ');
+    expect(result).toContain('`agents.agentOne(args: ');
+    expect(result).toContain('`agents.agentTwo(args: ');
   });
 
   it('should render array type params correctly', () => {
@@ -11589,7 +11820,7 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
       ],
     });
     expect(result).toContain(
-      '- `utils.countMatches(args: { query: string, limit?: number }): Promise<number>`'
+      '`utils.countMatches(args: { query: string, limit?: number }): Promise<number>`'
     );
   });
 
@@ -11606,7 +11837,7 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
       ],
     });
     expect(result).toContain(
-      '- `utils.maybeFind(args: { query: string, limit?: number }): Promise<string | null>`'
+      '`utils.maybeFind(args: { query: string, limit?: number }): Promise<string | null>`'
     );
   });
 
@@ -11621,7 +11852,7 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
       ],
     });
     expect(result).toContain(
-      '- `agents.mapAgent(args: { [key: string]: unknown })`'
+      '`agents.mapAgent(args: { [key: string]: unknown })`'
     );
   });
 
@@ -11645,7 +11876,7 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
       ],
     });
     expect(result).toContain(
-      '- `utils.openQuery(args: { query: string, [key: string]: unknown })`'
+      '`utils.openQuery(args: { query: string, [key: string]: unknown })`'
     );
   });
 
@@ -11686,9 +11917,10 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
       .actorProgram.getSignature()
       .getDescription();
 
-    expect(actorDescription).toContain('### Available Agent Functions');
+    expect(actorDescription).toContain('### Available Functions');
+    expect(actorDescription).not.toContain('### Available Agent Functions');
     expect(actorDescription).toContain(
-      '- `agents.physicsResearcher(args: { question: string })`'
+      '`agents.physicsResearcher(args: { question: string })`'
     );
   });
 
@@ -11719,10 +11951,10 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
       .getDescription();
 
     expect(actorDescription).toContain(
-      '- `team.physicsResearcher(args: { question: string })`'
+      '`team.physicsResearcher(args: { question: string })`'
     );
     expect(actorDescription).not.toContain(
-      '- `agents.physicsResearcher(args: { question: string })`'
+      '`agents.physicsResearcher(args: { question: string })`'
     );
   });
 
@@ -11747,7 +11979,7 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
 
     expect(actorDescription).toContain('### Available Functions');
     expect(actorDescription).toContain(
-      '- `utils.lookupData(args: { query: string, limit?: number })`'
+      '`utils.lookupData(args: { query: string, limit?: number })`'
     );
   });
 
@@ -11795,7 +12027,7 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
       ],
     });
     expect(result).toContain(
-      '- `utils.fetchData(args: { query: string, limit?: number })`'
+      '`utils.fetchData(args: { query: string, limit?: number })`'
     );
   });
 });
@@ -12361,12 +12593,12 @@ describe('AxFunction', () => {
       'Child agent helper'
     );
     expect(discoveredFunctions['team.childAgent']).toContain(
-      '- `team.childAgent(args: { question: string })`'
+      '`team.childAgent(args: { question: string })`'
     );
     expect(discoveredFunctions['db.search']).toContain('### `db.search`');
     expect(discoveredFunctions['db.search']).toContain('Search in database');
     expect(discoveredFunctions['db.search']).toContain(
-      '- `db.search(args: { query: string, limit?: number }): Promise<number>`'
+      '`db.search(args: { query: string, limit?: number }): Promise<number>`'
     );
     expect(discoveredFunctions['db.search']).toContain('#### Arguments');
     expect(discoveredFunctions['db.search']).toContain(
@@ -12462,7 +12694,7 @@ describe('AxFunction', () => {
 
     expect(actorDesc).toContain('### Available Functions');
     expect(actorDesc).toContain(
-      '- `db.searchDB(args: { query: string, limit?: number }): Promise<{ results: string[] }>`'
+      '`db.searchDB(args: { query: string, limit?: number }): Promise<{ results: string[] }>`'
     );
     expect(actorDesc).not.toContain('async function db.searchDB(');
   });

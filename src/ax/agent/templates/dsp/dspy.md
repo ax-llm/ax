@@ -20,6 +20,11 @@
 <output_fields>
 {{ outputFieldsSection }}
 </output_fields>{{ /if }}
+{{ if hasTaskDefinition }}
+
+<task_definition>
+{{ taskDefinitionText }}
+</task_definition>{{ /if }}
 
 <formatting_rules>
 {{ if hasStructuredOutputFunction }}
@@ -35,11 +40,8 @@ These rules are mandatory and override later instructions.
 Return one `field name: value` pair per line for the required output fields only.
 Do not add surrounding prose, markdown, or code fences.
 {{ /if }}{{ /if }}
-</formatting_rules>{{ if hasTaskDefinition }}
-
-<task_definition>
-{{ taskDefinitionText }}
-</task_definition>{{ /if }}{{ if hasExampleDemonstrations }}
+</formatting_rules>
+{{ if hasExampleDemonstrations }}
 
 ## Example Demonstrations
 The following User/Assistant turns are examples only until --- END OF EXAMPLES ---, not context for the current task.

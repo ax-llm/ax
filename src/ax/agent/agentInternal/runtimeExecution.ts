@@ -303,9 +303,6 @@ export function createRuntimeExecutionContext(
         llmQuery,
         final: completionBindings.finalFunction,
         askClarification: completionBindings.askClarificationFunction,
-        ...(s.options?.hasFinalForUser
-          ? { finalForUser: completionBindings.finalForUserFunction }
-          : {}),
         ...(inspectRuntime ? { inspect_runtime: inspectRuntime } : {}),
         ...(s.agentStatusCallback
           ? {

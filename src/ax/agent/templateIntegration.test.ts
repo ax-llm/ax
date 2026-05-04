@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import { AxSignature } from '../dsp/sig.js';
-import { axBuildActorDefinition, axBuildResponderDefinition } from './rlm.js';
+import {
+  axBuildActorDefinition,
+  axBuildContextActorDefinition,
+  axBuildResponderDefinition,
+  axBuildTaskActorDefinition,
+} from './rlm.js';
 import {
   renderPromptTemplate,
   renderTemplateContent,
@@ -49,6 +54,11 @@ describe('template integration', () => {
         'OUTPUTS',
         '</output_fields>',
         '',
+        '',
+        '<task_definition>',
+        'TASK',
+        '</task_definition>',
+        '',
         '<formatting_rules>',
         '',
         'These rules are mandatory and override later instructions.',
@@ -56,10 +66,6 @@ describe('template integration', () => {
         'Do not add surrounding prose, markdown, or code fences.',
         '',
         '</formatting_rules>',
-        '',
-        '<task_definition>',
-        'TASK',
-        '</task_definition>',
       ].join('\n')
     );
   });
@@ -167,6 +173,66 @@ describe('template integration', () => {
     expect(actorDefinition).toContain('Prior actions may be summarized');
   });
 
+  it('points task actor at distilled context instead of raw exploration guidance', () => {
+    const signature = AxSignature.create(
+      'contextText:string -> finalAnswer:string'
+    );
+
+    const actorDefinition = axBuildTaskActorDefinition(
+      undefined,
+      signature.getInputFields(),
+      signature.getOutputFields(),
+      {
+        hasDistilledContext: true,
+        runtimeUsageInstructions: 'Use return statements only.',
+      }
+    );
+
+    expect(actorDefinition).toContain(
+      '### Executor Request & Distilled Context'
+    );
+    // Task actor receives pre-distilled context, so the raw-data exploration
+    // section is omitted; only the lighter turn-discipline guidance remains.
+    expect(actorDefinition).not.toContain('### Exploration & Turn Discipline');
+    expect(actorDefinition).toContain('### Turn Discipline');
+    expect(actorDefinition).toContain('inputs.executorRequest');
+    expect(actorDefinition).toContain('inputs.distilledContext');
+    expect(actorDefinition).toContain(
+      'Raw context fields are not available in this task stage.'
+    );
+    expect(actorDefinition).toContain(
+      'If the request needs information or effects that your available functions can provide'
+    );
+    expect(actorDefinition).not.toContain('inputs.<contextField>');
+    expect(actorDefinition).toContain('do not repeat that code');
+  });
+
+  it('tells the context actor to expand confirmations into an executor request', () => {
+    const signature = AxSignature.create(
+      'conversationHistory:json, userRequest:string -> finalAnswer:string'
+    );
+
+    const actorDefinition = axBuildContextActorDefinition(
+      undefined,
+      signature.getInputFields(),
+      {
+        runtimeUsageInstructions: 'Use return statements only.',
+      }
+    );
+
+    expect(actorDefinition).toContain('### Executor Request Contract');
+    expect(actorDefinition).toContain(
+      'A separate task executor will receive this request and has its own tools/functions.'
+    );
+    expect(actorDefinition).not.toContain('lookup(args:');
+    expect(actorDefinition).toContain(
+      'If the latest user message is a follow-up or confirmation'
+    );
+    expect(actorDefinition).toContain(
+      'Avoid meta-requests like "determine whether the user affirmed"'
+    );
+  });
+
   it('keeps responder prompt content aligned with prior prompt text', () => {
     const signature = AxSignature.create(
       'contextText:string -> finalAnswer:string'
@@ -181,15 +247,23 @@ describe('template integration', () => {
       [
         '## Answer Synthesis Agent',
         '',
-        'You synthesize the final answer from the actorResult payload — the raw evidence gathered by the actor.',
+        'You synthesize the final answer from the evidence the actor gathered. You do not run code, call tools, or invoke agents — you read input fields and write the output fields.',
+        '',
+        "### Reading the actor's payload",
+        '',
+        '`Context Data` has two keys:',
+        '',
+        '- `task` — a one-line instruction telling you what to write into the output fields.',
+        '- `evidence` — the data the actor curated for you to follow that instruction.',
+        '',
+        '### Rules',
+        '',
+        '1. Follow `Context Data.task` using `Context Data.evidence` and any other input fields provided.',
+        "2. When emitting a JSON output field, write the value flat — do **not** wrap it under a key matching the field's title. The field is already named.",
+        "3. If `evidence` lacks sufficient information, give the best possible answer from what's available across all input fields.",
         '',
         '### Context variables that were analyzed (metadata only)',
         '- `contextText` (string, required)',
-        '',
-        '### Rules',
-        '1. Base your answer ONLY on evidence in actorResult.',
-        "2. If actorResult lacks sufficient information, give the best possible answer from what's available.",
-        '3. If actorResult contains `type: askClarification`, surface the clarification question in your output fields instead of a final answer.',
       ].join('\n')
     );
   });

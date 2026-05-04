@@ -100,25 +100,7 @@ const makeCaseAMockAI = () =>
         };
       }
 
-      // Responder path (both ctx and task responders use "Answer Synthesis Agent")
-      // Discriminate by which output field appears in the **Output Fields** section.
-      // ctx responder: outputs `distilledContext` (title "Distilled Context")
-      // task responder: outputs `answer` (title "Answer")
-      const outputSection = systemPrompt.split('**Output Fields**')[1] ?? '';
-      if (outputSection.includes('Distilled Context')) {
-        return {
-          results: [
-            {
-              index: 0,
-              content: 'Distilled Context: {"evidence":"info"}',
-              finishReason: 'stop' as const,
-            },
-          ],
-          modelUsage: makeModelUsage(),
-        };
-      }
-
-      // Task responder outputs the `answer` field
+      // FinalResponder
       return {
         results: [
           {

@@ -25,15 +25,6 @@ const makeRuntime = (
   createSession(globals) {
     return {
       execute: async (code: string) => {
-        if (globals?.finalForUser && code.includes('finalForUser(')) {
-          const match = code.match(/finalForUser\("([^"]*)",\s*(\{[^}]*\})\)/);
-          if (match) {
-            const msg = match[1];
-            const extra = JSON.parse(match[2]!);
-            (globals.finalForUser as (...args: unknown[]) => void)(msg, extra);
-          }
-          return 'short-circuited';
-        }
         if (globals?.final && code.includes('final(')) {
           // Parse args from final("message", {field: "val"}) or final("message")
           const match = code.match(/final\("([^"]*)"(?:,\s*(\{[^}]*\}))?\)/);
@@ -82,10 +73,9 @@ describe('AxAgent coordinator routing', () => {
 
   describe('Case A: contextFields + tools (two-stage)', () => {
     it('routes through ctx then task stages and returns final output', async () => {
-      // Track how many times each role has been called so we can distinguish
-      // the ctx responder (1st Answer Synthesis Agent call) from the task
-      // responder (2nd Answer Synthesis Agent call).
-      let responderCallCount = 0;
+      let ctxActorCalls = 0;
+      let taskActorCalls = 0;
+      let finalResponderCalls = 0;
 
       const mockAI = new AxMockAIService({
         features: { functions: false, streaming: false },
@@ -94,6 +84,7 @@ describe('AxAgent coordinator routing', () => {
 
           // Ctx actor
           if (systemPrompt.includes('Context Understanding Agent')) {
+            ctxActorCalls++;
             return {
               results: [
                 {
@@ -109,6 +100,7 @@ describe('AxAgent coordinator routing', () => {
 
           // Task actor
           if (systemPrompt.includes('Code Generation Agent')) {
+            taskActorCalls++;
             return {
               results: [
                 {
@@ -122,21 +114,7 @@ describe('AxAgent coordinator routing', () => {
           }
 
           if (systemPrompt.includes('Answer Synthesis Agent')) {
-            responderCallCount++;
-            if (responderCallCount === 1) {
-              // First call: ctx responder — must emit the distilledContext field
-              return {
-                results: [
-                  {
-                    index: 0,
-                    content: 'Distilled Context: {"evidence":"summary"}',
-                    finishReason: 'stop' as const,
-                  },
-                ],
-                modelUsage: makeModelUsage(),
-              };
-            }
-            // Second call: task responder — emits the user output field
+            finalResponderCalls++;
             return {
               results: [
                 {
@@ -170,8 +148,9 @@ describe('AxAgent coordinator routing', () => {
       });
 
       expect(result.answer).toBe('42');
-      // Two responder calls: one for ctx stage, one for task stage
-      expect(responderCallCount).toBe(2);
+      expect(ctxActorCalls).toBe(1);
+      expect(taskActorCalls).toBe(1);
+      expect(finalResponderCalls).toBe(1);
     });
 
     it('ctx actor sees only context field in user input (not query)', async () => {
@@ -194,19 +173,6 @@ describe('AxAgent coordinator routing', () => {
                 {
                   index: 0,
                   content: 'Javascript Code: final("distilled")',
-                  finishReason: 'stop' as const,
-                },
-              ],
-              modelUsage: makeModelUsage(),
-            };
-          }
-
-          if (systemPrompt.includes('Answer Synthesis Agent')) {
-            return {
-              results: [
-                {
-                  index: 0,
-                  content: 'Distilled Context: {}',
                   finishReason: 'stop' as const,
                 },
               ],
@@ -256,10 +222,8 @@ describe('AxAgent coordinator routing', () => {
       expect(allCtxPromptText).not.toContain('query');
     });
 
-    it('task actor receives distilledContext in its user prompt', async () => {
+    it('task actor receives executorRequest + distilledContext in its user prompt', async () => {
       const taskActorPrompts: string[] = [];
-      // Use a counter to distinguish ctx responder (call 1) from task responder (call 2)
-      let responderCallCount = 0;
 
       const mockAI = new AxMockAIService({
         features: { functions: false, streaming: false },
@@ -300,21 +264,6 @@ describe('AxAgent coordinator routing', () => {
           }
 
           if (systemPrompt.includes('Answer Synthesis Agent')) {
-            responderCallCount++;
-            if (responderCallCount === 1) {
-              // Ctx responder: emit distilledContext field
-              return {
-                results: [
-                  {
-                    index: 0,
-                    content: 'Distilled Context: {"summary":"key facts"}',
-                    finishReason: 'stop' as const,
-                  },
-                ],
-                modelUsage: makeModelUsage(),
-              };
-            }
-            // Task responder
             return {
               results: [
                 {
@@ -348,20 +297,20 @@ describe('AxAgent coordinator routing', () => {
       });
 
       const allTaskPromptText = taskActorPrompts.join('\n');
-      // The field `distilledContext` is rendered as "Distilled Context:" in prompts
+      expect(allTaskPromptText).toContain('Executor Request');
       expect(allTaskPromptText).toContain('Distilled Context');
     });
   });
 
   // -------------------------------------------------------------------------
-  // Case B: contextFields only (no tools) → single combined stage
+  // Staged context flow without tools still uses ctx → task
   // -------------------------------------------------------------------------
 
-  describe('Case B: contextFields only, no tools (single stage)', () => {
-    it('uses single combined stage; `final(...)` routes directly to the single responder (no task actor to skip); `finalForUser` is NOT advertised', async () => {
+  describe('contextFields only, no tools (still staged)', () => {
+    it('runs context explorer then task executor before the responder', async () => {
       let ctxActorCalled = false;
-      let combinedActorCalled = false;
-      let combinedSystemPrompt = '';
+      let taskActorCalled = false;
+      let taskSystemPrompt = '';
 
       const mockAI = new AxMockAIService({
         features: { functions: false, streaming: false },
@@ -370,11 +319,22 @@ describe('AxAgent coordinator routing', () => {
 
           if (systemPrompt.includes('Context Understanding Agent')) {
             ctxActorCalled = true;
+            return {
+              results: [
+                {
+                  index: 0,
+                  content:
+                    'Javascript Code: final("Summarize the document", {"summary":"key facts"})',
+                  finishReason: 'stop' as const,
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
           }
 
           if (systemPrompt.includes('Code Generation Agent')) {
-            combinedActorCalled = true;
-            combinedSystemPrompt = systemPrompt;
+            taskActorCalled = true;
+            taskSystemPrompt = systemPrompt;
             return {
               results: [
                 {
@@ -409,7 +369,6 @@ describe('AxAgent coordinator routing', () => {
         },
       });
 
-      // No functions / agents — Case B
       const myAgent = agent('docText:string -> summary:string', {
         contextFields: ['docText'],
         // No functions, agents, or functionDiscovery
@@ -421,16 +380,32 @@ describe('AxAgent coordinator routing', () => {
       });
 
       expect(result.summary).toBe('extracted');
-      // Case B keeps the combined (single-stage) template — the split is not
-      // activated without tools, because there would be no task actor to skip.
-      expect(ctxActorCalled).toBe(false);
-      expect(combinedActorCalled).toBe(true);
-      // `final` and `finalForUser` would be indistinguishable here (no task
-      // actor to bypass), so `finalForUser` is not advertised at all. Only
-      // the canonical `final(...)` primitive shows up in the prompt, and it
-      // already routes straight to the (single) responder.
-      expect(combinedSystemPrompt).not.toContain('finalForUser');
-      expect(combinedSystemPrompt).toContain('final(');
+      expect(ctxActorCalled).toBe(true);
+      expect(taskActorCalled).toBe(true);
+      expect(taskSystemPrompt).toContain(
+        'Executor Request & Distilled Context'
+      );
+    });
+
+    it('contextFields + functionDiscovery only → still creates taskExecutor', () => {
+      const myAgent = agent('docText:string -> summary:string', {
+        contextFields: ['docText'],
+        functionDiscovery: true,
+        runtime: makeRuntime(),
+      });
+      expect(myAgent.contextExplorer).toBeDefined();
+      expect(myAgent.taskExecutor).toBeDefined();
+      expect(myAgent.finalResponder).toBeDefined();
+    });
+
+    it('contextFields + functions → taskExecutor present', () => {
+      const myAgent = agent('docText:string -> summary:string', {
+        contextFields: ['docText'],
+        functions: [simpleFn],
+        runtime: makeRuntime(),
+      });
+      expect(myAgent.contextExplorer).toBeDefined();
+      expect(myAgent.taskExecutor).toBeDefined();
     });
   });
 
@@ -679,16 +654,14 @@ describe('AxAgent coordinator routing', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Case A: finalForUser short-circuit
+  // Case A: explorer's `final(request, evidence)` payload becomes the executor's
+  // `executorRequest` / `distilledContext` directly — there is no separate
+  // distillation LLM call.
   // -------------------------------------------------------------------------
 
-  describe('finalForUser short-circuit from ctx stage', () => {
-    it('skips ctx responder + task actor and routes the task responder directly', async () => {
-      let ctxActorCalls = 0;
-      let ctxResponderCalls = 0;
-      let taskActorCalls = 0;
-      let taskResponderCalls = 0;
-      let taskResponderSawShortCircuit = false;
+  describe('Case A: explorer payload feeds executor directly', () => {
+    it("forwards explorer's request/evidence as executor executorRequest/distilledContext", async () => {
+      const taskActorPrompts: string[] = [];
 
       const mockAI = new AxMockAIService({
         features: { functions: false, streaming: false },
@@ -696,13 +669,12 @@ describe('AxAgent coordinator routing', () => {
           const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
 
           if (systemPrompt.includes('Context Understanding Agent')) {
-            ctxActorCalls++;
             return {
               results: [
                 {
                   index: 0,
                   content:
-                    'Javascript Code: finalForUser("deliver answer", {"evidence":"the answer is 42"})',
+                    'Javascript Code: final("Deliver the answer", {"evidence":"the answer is 42"})',
                   finishReason: 'stop' as const,
                 },
               ],
@@ -711,12 +683,16 @@ describe('AxAgent coordinator routing', () => {
           }
 
           if (systemPrompt.includes('Code Generation Agent')) {
-            taskActorCalls++;
+            for (const msg of req.chatPrompt) {
+              if (msg.role === 'user') {
+                taskActorPrompts.push(String(msg.content ?? ''));
+              }
+            }
             return {
               results: [
                 {
                   index: 0,
-                  content: 'Javascript Code: final("should not run")',
+                  content: 'Javascript Code: final("done", {"answer":"42"})',
                   finishReason: 'stop' as const,
                 },
               ],
@@ -725,30 +701,6 @@ describe('AxAgent coordinator routing', () => {
           }
 
           if (systemPrompt.includes('Answer Synthesis Agent')) {
-            // Split ctx vs task by inspecting whether the responder was
-            // asked to emit `distilledContext` (ctx) or user output (`answer`).
-            const isCtx = systemPrompt.includes('distilledContext');
-            if (isCtx) {
-              ctxResponderCalls++;
-              return {
-                results: [
-                  {
-                    index: 0,
-                    content: 'Distilled Context: {"evidence":"x"}',
-                    finishReason: 'stop' as const,
-                  },
-                ],
-                modelUsage: makeModelUsage(),
-              };
-            }
-            taskResponderCalls++;
-            const userMsg = req.chatPrompt.find((m) => m.role === 'user');
-            if (
-              typeof userMsg?.content === 'string' &&
-              userMsg.content.includes('deliver answer')
-            ) {
-              taskResponderSawShortCircuit = true;
-            }
             return {
               results: [
                 {
@@ -782,17 +734,14 @@ describe('AxAgent coordinator routing', () => {
       });
 
       expect(result.answer).toBe('42');
-      // ctx actor must run (it produced the short-circuit), task responder
-      // must run (it emits the user output). ctx responder and task actor
-      // must be fully skipped.
-      expect(ctxActorCalls).toBe(1);
-      expect(ctxResponderCalls).toBe(0);
-      expect(taskActorCalls).toBe(0);
-      expect(taskResponderCalls).toBe(1);
-      expect(taskResponderSawShortCircuit).toBe(true);
+      const taskPromptText = taskActorPrompts.join('\n');
+      // Explorer's first arg becomes `executorRequest`, second becomes
+      // `distilledContext` — both should land in the executor's prompt.
+      expect(taskPromptText).toContain('Deliver the answer');
+      expect(taskPromptText).toContain('the answer is 42');
     });
 
-    it('advertises finalForUser in the ctx actor prompt (Case A only)', async () => {
+    it('does not advertise finalForUser anywhere in the ctx actor prompt', async () => {
       let ctxSystemPrompt = '';
 
       const mockAI = new AxMockAIService({
@@ -805,7 +754,7 @@ describe('AxAgent coordinator routing', () => {
               results: [
                 {
                   index: 0,
-                  content: 'Javascript Code: final("distilled")',
+                  content: 'Javascript Code: final("distilled", {})',
                   finishReason: 'stop' as const,
                 },
               ],
@@ -828,7 +777,7 @@ describe('AxAgent coordinator routing', () => {
             results: [
               {
                 index: 0,
-                content: 'Distilled Context: {}',
+                content: 'Answer: ok',
                 finishReason: 'stop' as const,
               },
             ],
@@ -848,7 +797,7 @@ describe('AxAgent coordinator routing', () => {
         query: 'y',
       });
 
-      expect(ctxSystemPrompt).toContain('finalForUser');
+      expect(ctxSystemPrompt).not.toContain('finalForUser');
     });
   });
 
@@ -873,16 +822,16 @@ describe('AxAgent coordinator routing', () => {
       });
       const coord = a as any;
 
-      // ctxAgent exists (Case A) and must not see task-only knobs
-      expect(coord.ctxAgent).toBeDefined();
-      expect(coord.ctxAgent.agentFunctions ?? []).toEqual([]);
-      expect(coord.ctxAgent.agents ?? []).toEqual([]);
-      expect(coord.ctxAgent.functionDiscoveryEnabled).toBe(false);
+      // contextExplorer exists (Case A) and must not see task-only knobs
+      expect(coord.contextExplorer).toBeDefined();
+      expect(coord.contextExplorer.agentFunctions ?? []).toEqual([]);
+      expect(coord.contextExplorer.agents ?? []).toEqual([]);
+      expect(coord.contextExplorer.functionDiscoveryEnabled).toBe(false);
 
-      // taskAgent must see everything
-      expect(coord.taskAgent.agentFunctions.length).toBeGreaterThan(0);
-      expect(coord.taskAgent.agents?.length ?? 0).toBeGreaterThan(0);
-      expect(coord.taskAgent.functionDiscoveryEnabled).toBe(true);
+      // taskExecutor must see everything
+      expect(coord.taskExecutor.agentFunctions.length).toBeGreaterThan(0);
+      expect(coord.taskExecutor.agents?.length ?? 0).toBeGreaterThan(0);
+      expect(coord.taskExecutor.functionDiscoveryEnabled).toBe(true);
     });
 
     it('top-level maxTurns applies to taskAgent; contextOptions.maxTurns overrides on ctxAgent', () => {
@@ -895,8 +844,8 @@ describe('AxAgent coordinator routing', () => {
       });
       const coord = a as any;
 
-      expect(coord.ctxAgent._genOptions.maxTurns).toBe(3);
-      expect(coord.taskAgent._genOptions.maxTurns).toBe(10);
+      expect(coord.contextExplorer._genOptions.maxTurns).toBe(3);
+      expect(coord.taskExecutor._genOptions.maxTurns).toBe(10);
     });
 
     it('top-level maxTurns is shared to ctxAgent when no contextOptions override is set', () => {
@@ -908,8 +857,8 @@ describe('AxAgent coordinator routing', () => {
       });
       const coord = a as any;
 
-      expect(coord.ctxAgent._genOptions.maxTurns).toBe(7);
-      expect(coord.taskAgent._genOptions.maxTurns).toBe(7);
+      expect(coord.contextExplorer._genOptions.maxTurns).toBe(7);
+      expect(coord.taskExecutor._genOptions.maxTurns).toBe(7);
     });
   });
 });

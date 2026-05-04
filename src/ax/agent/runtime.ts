@@ -745,11 +745,11 @@ export function formatInterpreterError(
   return truncateText(parts.join('\n'), maxRuntimeChars);
 }
 
+const COMPLETION_SIGNAL_CALL_PATTERN = /\b(?:final|askClarification)\s*\(/;
+
 export function hasCompletionSignalCall(code: string): boolean {
   const sanitized = stripJsStringsAndComments(code);
-  return (
-    /\bfinal\s*\(/.test(sanitized) || /\baskClarification\s*\(/.test(sanitized)
-  );
+  return COMPLETION_SIGNAL_CALL_PATTERN.test(sanitized);
 }
 
 export function looksLikePromisePlaceholder(result: unknown): boolean {
@@ -1059,7 +1059,7 @@ export function validateActorTurnCodePolicy(
     return {
       autoSplitDiscoveryCode,
       violation:
-        '[POLICY] Non-final turns must include at least one console.log(...) so the next turn can reason from its output.',
+        '[POLICY] Non-final turns must include at least one console.log(...) so the next turn can reason from its output. If you called a tool or function, capture its return value first, e.g. `const result = await tool.call(args)`, then either `console.log(result)` to inspect it or `await final("...", { result })` if the task is complete.',
     };
   }
 
