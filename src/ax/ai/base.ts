@@ -2047,9 +2047,7 @@ export class AxBaseAI<
         await this.executeCacheOperation(
           this.aiImpl.buildCacheUpdateTTLOp(
             existingEntry.cacheName,
-            ttlSeconds,
-            req.model,
-            options?.beta
+            ttlSeconds
           ),
           options,
           span

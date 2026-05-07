@@ -258,7 +258,7 @@ class AxAIGoogleGeminiImpl
 
   constructor(
     private config: AxAIGoogleGeminiConfig,
-    private isVertex: boolean,
+    private vertexConfig: { projectId: string; region: string } | undefined,
     private endpointId?: string,
     private apiKey?: string | (() => Promise<string>),
     private options?: AxAIGoogleGeminiArgs<any>['options'],
@@ -339,8 +339,44 @@ class AxAIGoogleGeminiImpl
     return this.tokensUsed;
   }
 
+  private get isVertex(): boolean {
+    return this.vertexConfig !== undefined;
+  }
+
   private getVertexApiURL(model: string, beta?: boolean): string | undefined {
     return this.isVertex ? this.vertexApiURLForModel?.(model, beta) : undefined;
+  }
+
+  /**
+   * Resolve the Vertex `cachedContents` resource context. Vertex caches live
+   * at `/projects/{p}/locations/{r}/cachedContents` (no `publishers/google`
+   * segment, unlike chat URLs).
+   *
+   * @see https://cloud.google.com/vertex-ai/generative-ai/docs/context-cache/context-cache-create#location_support.
+   *
+   * Returns `undefined` for non-Vertex providers.
+   */
+  private getVertexCacheContext():
+    | {
+        baseUrl: string;
+        parent: string;
+        modelResource: (model: string) => string;
+      }
+    | undefined {
+    if (!this.vertexConfig) return undefined;
+    const { projectId, region } = this.vertexConfig;
+    // The global endpoint requires `v1beta1` for `cachedContents`; regional
+    // endpoints work on the stable `v1`.
+    const baseUrl =
+      region === 'global'
+        ? 'https://aiplatform.googleapis.com/v1beta1'
+        : `https://${region}-aiplatform.googleapis.com/v1`;
+    const parent = `projects/${projectId}/locations/${region}`;
+    return {
+      baseUrl,
+      parent,
+      modelResource: (model) => `${parent}/publishers/google/models/${model}`,
+    };
   }
 
   getModelConfig(): AxModelConfig {
@@ -1300,10 +1336,10 @@ class AxAIGoogleGeminiImpl
     ) {
       return undefined;
     }
-
     // Build the cache creation request
+    const vertexCtx = this.getVertexCacheContext();
     const cacheRequest: AxAIGoogleGeminiCacheCreateRequest = {
-      model: this.isVertex ? model : `models/${model}`,
+      model: vertexCtx ? vertexCtx.modelResource(model) : `models/${model}`,
       ttl: `${ttlSeconds}s`,
       displayName: `ax-cache-${Date.now()}`,
     };
@@ -1327,23 +1363,20 @@ class AxAIGoogleGeminiImpl
 
     // Build API endpoint
     let apiPath: string;
-    if (this.isVertex) {
-      apiPath = '/cachedContents';
+    if (vertexCtx) {
+      apiPath = `/${vertexCtx.parent}/cachedContents`;
     } else {
-      apiPath = '/cachedContents';
       // Add API key for non-Vertex
       const keyValue =
         typeof this.apiKey === 'function' ? 'ASYNC_KEY' : this.apiKey;
-      apiPath += `?key=${keyValue}`;
+      apiPath = `/cachedContents?key=${keyValue}`;
     }
 
     return {
       type: 'create',
       apiConfig: {
         name: apiPath,
-        ...(this.isVertex
-          ? { url: this.getVertexApiURL(model as string, options?.beta) }
-          : {}),
+        ...(vertexCtx ? { url: vertexCtx.baseUrl } : {}),
       },
       request: cacheRequest,
       parseResponse: (response: unknown): AxContextCacheInfo | undefined => {
@@ -1407,9 +1440,7 @@ class AxAIGoogleGeminiImpl
    */
   buildCacheUpdateTTLOp = (
     cacheName: string,
-    ttlSeconds: number,
-    model?: AxAIGoogleGeminiModel,
-    beta?: AxAIServiceOptions['beta']
+    ttlSeconds: number
   ): AxContextCacheOperation => {
     const updateRequest: AxAIGoogleGeminiCacheUpdateRequest = {
       ttl: `${ttlSeconds}s`,
@@ -1423,14 +1454,13 @@ class AxAIGoogleGeminiImpl
       apiPath += `?key=${keyValue}`;
     }
 
+    const vertexCtx = this.getVertexCacheContext();
     return {
       type: 'update',
       apiConfig: {
         name: apiPath,
         headers: { 'Content-Type': 'application/json' },
-        ...(this.isVertex && model
-          ? { url: this.getVertexApiURL(model, beta) }
-          : {}),
+        ...(vertexCtx ? { url: vertexCtx.baseUrl } : {}),
       },
       request: updateRequest,
       parseResponse: (response: unknown): AxContextCacheInfo | undefined => {
@@ -1456,11 +1486,13 @@ class AxAIGoogleGeminiImpl
       apiPath += `?key=${keyValue}`;
     }
 
+    const vertexCtx = this.getVertexCacheContext();
     return {
       type: 'delete',
       apiConfig: {
         name: apiPath,
         headers: { 'Content-Type': 'application/json' },
+        ...(vertexCtx ? { url: vertexCtx.baseUrl } : {}),
       },
       request: {},
       parseResponse: (): undefined => undefined,
@@ -1911,7 +1943,11 @@ export class AxAIGoogleGemini<TModelKey = string> extends AxBaseAI<
     models,
     modelInfo,
   }: Readonly<Omit<AxAIGoogleGeminiArgs<TModelKey>, 'name'>>) {
-    const isVertex = projectId !== undefined && region !== undefined;
+    const vertexConfig =
+      projectId !== undefined && region !== undefined
+        ? { projectId, region }
+        : undefined;
+    const isVertex = vertexConfig !== undefined;
     const Config = {
       ...axAIGoogleGeminiDefaultConfig(),
       ...config,
@@ -1957,7 +1993,7 @@ export class AxAIGoogleGemini<TModelKey = string> extends AxBaseAI<
 
     const aiImpl = new AxAIGoogleGeminiImpl(
       Config,
-      isVertex,
+      vertexConfig,
       endpointId,
       apiKey,
       options,
