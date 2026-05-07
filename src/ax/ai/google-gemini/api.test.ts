@@ -1637,7 +1637,7 @@ describe('AxAIGoogleGemini model key preset merging', () => {
       );
     });
 
-    it('routes global Vertex cache creation to the v1beta1 endpoint without a region prefix', async () => {
+    it('routes global Vertex cache creation to the v1 endpoint without a region prefix', async () => {
       const ai = new AxAIGoogleGemini({
         apiKey: async () => 'vertex-token',
         projectId: 'demo-project',
@@ -1680,7 +1680,7 @@ describe('AxAIGoogleGemini model key preset merging', () => {
       expect(capture.calls).toHaveLength(2);
 
       expect(capture.calls[0]?.url).toBe(
-        'https://aiplatform.googleapis.com/v1beta1/projects/demo-project/locations/global/cachedContents'
+        'https://aiplatform.googleapis.com/v1/projects/demo-project/locations/global/cachedContents'
       );
 
       const cacheCreateReq = capture.calls[0]?.body;

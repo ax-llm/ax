@@ -365,12 +365,11 @@ class AxAIGoogleGeminiImpl
     | undefined {
     if (!this.vertexConfig) return undefined;
     const { projectId, region } = this.vertexConfig;
-    // The global endpoint requires `v1beta1` for `cachedContents`; regional
-    // endpoints work on the stable `v1`.
-    const baseUrl =
+    const host =
       region === 'global'
-        ? 'https://aiplatform.googleapis.com/v1beta1'
-        : `https://${region}-aiplatform.googleapis.com/v1`;
+        ? 'aiplatform.googleapis.com'
+        : `${region}-aiplatform.googleapis.com`;
+    const baseUrl = `https://${host}/v1`;
     const parent = `projects/${projectId}/locations/${region}`;
     return {
       baseUrl,
