@@ -924,6 +924,17 @@ export type AxAIServiceOptions = {
    * @example { environment: 'production', feature: 'search' }
    */
   customLabels?: Record<string, string>;
+
+  /**
+   * Whether to include the request body in `AxAIServiceError` messages.
+   *
+   * When `false`, the request body is omitted from thrown errors. Useful when
+   * requests may contain sensitive data (API keys, PII) or large base64-encoded
+   * content that would bloat error logs.
+   *
+   * @default true
+   */
+  includeRequestBodyInErrors?: boolean;
 };
 
 export interface AxAIService<
