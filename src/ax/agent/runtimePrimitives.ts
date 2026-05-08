@@ -3,8 +3,8 @@
  *
  * The RLM stage templates (distiller.md, executor.md) advertise a small
  * set of built-in async functions to the LLM: `final`, `askClarification`,
- * `llmQuery`, `inspectRuntime`, `success`/`failed`, `discoverModules`/
- * `discoverFunctions`, etc.
+ * `llmQuery`, `inspectRuntime`, `reportSuccess`/`reportFailure`,
+ * `discoverModules`/`discoverFunctions`, etc.
  *
  * Historically these were hand-written into each template as bullet lists,
  * which drifted apart as primitives were added. This module is the single
@@ -24,7 +24,7 @@ export interface AxRuntimePrimitive {
    * Optional gating flag name. If set, the primitive is only rendered when
    * `flags[enabledBy]` is truthy. Useful for conditional primitives like
    * `inspectRuntime` (only when the runtime supports `inspectGlobals`) or
-   * `success`/`failed` (only when an agent status callback is wired).
+   * `reportSuccess`/`reportFailure` (only when an agent status callback is wired).
    */
   readonly enabledBy?: string;
   /**
@@ -53,7 +53,7 @@ export const axRuntimePrimitives: readonly AxRuntimePrimitive[] = [
     id: 'final',
     stages: ['distiller', 'executor'],
     lines: [
-      'Signal completion. Pass a concise instruction and the raw evidence; the responder synthesizes the output. Omit `context` when the answer is directly known.\n`await final(task: string, context?: object)`',
+      'End the turn. Use `final(task)` when the answer is direct; use `final(task, context)` to hand gathered evidence to downstream synthesis.\n`await final(task: string, context?: object)`',
     ],
   },
   {
@@ -64,19 +64,19 @@ export const axRuntimePrimitives: readonly AxRuntimePrimitive[] = [
     ],
   },
   {
-    id: 'success',
+    id: 'reportSuccess',
     stages: ['executor'],
     enabledBy: 'hasAgentStatusCallback',
     lines: [
-      'Report a successful sub-task completion to the user.\n`await success(message: string)`',
+      'Report a sub-task as **succeeded** to the user. Mid-run progress signal — does NOT end the turn. Use whenever a meaningful step lands; you may call it many times per turn. Use `final(...)` to end the turn.\n`await reportSuccess(message: string)`',
     ],
   },
   {
-    id: 'failed',
+    id: 'reportFailure',
     stages: ['executor'],
     enabledBy: 'hasAgentStatusCallback',
     lines: [
-      'Report a failed sub-task to the user.\n`await failed(message: string)`',
+      'Report a sub-task as **failed** to the user. Mid-run failure signal — does NOT end the turn; the actor continues and may retry. Use `final(...)` to end the turn.\n`await reportFailure(message: string)`',
     ],
   },
   {
@@ -84,7 +84,7 @@ export const axRuntimePrimitives: readonly AxRuntimePrimitive[] = [
     stages: ['distiller', 'executor'],
     enabledBy: 'hasInspectRuntime',
     lines: [
-      'Returns a compact snapshot of user-defined variables in the current session (name, type, size, preview). Use this to re-ground yourself when the conversation is long.\n`await inspectRuntime(): string`',
+      "Returns a compact snapshot of variables you've created in this session. Use to re-ground yourself when the conversation is long.\n`await inspectRuntime(): string`",
     ],
   },
   {
@@ -101,7 +101,7 @@ export const axRuntimePrimitives: readonly AxRuntimePrimitive[] = [
     stages: ['executor'],
     enabledBy: 'skillsMode',
     lines: [
-      'Consult skill guides by description. Matched skill bodies are added to the system prompt for subsequent turns. Read the **Loaded Skills** section to see what landed.\n`await consult(searches: string[]): void`',
+      'Consult skill guides by description. Matched skill bodies land in the **Loaded Skills** section next turn — read it to see what landed. Returns nothing.\n`await consult(searches: string[]): void`',
     ],
   },
   {
@@ -109,7 +109,7 @@ export const axRuntimePrimitives: readonly AxRuntimePrimitive[] = [
     stages: ['distiller', 'executor'],
     enabledBy: 'memoriesMode',
     lines: [
-      'Recall memories by description. Matched `{id, content}` entries are appended to `inputs.memories` for subsequent turns. Read `inputs.memories` next turn to see what landed.\n`await recall(searches: string[]): void`',
+      'Recall memories by description. Matched `{id, content}` entries land on `inputs.memories` next turn — read it to see what landed. Returns nothing.\n`await recall(searches: string[]): void`',
     ],
   },
 ];

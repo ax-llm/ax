@@ -29,7 +29,7 @@ Your job is not just to write valid code. Your job is to choose the smallest cor
 - Prefer `contextPolicy: { preset: 'adaptive', budget: 'balanced' }` when older successful turns should collapse sooner while live runtime state stays visible.
 - Prefer `executorModelPolicy` when the actor may need to upgrade after repeated error turns or discovery in specific namespaces without also upgrading the responder.
 - Use `executorTurnCallback` when the user needs per-turn observability into generated code, raw runtime result, formatted output, or provider thoughts.
-- Use `agentStatusCallback` when the user wants real-time task progress updates from the actor via `await success(message)` and `await failed(message)` calls.
+- Use `agentStatusCallback` when the user wants real-time task progress updates from the actor via `await reportSuccess(message)` and `await reportFailure(message)` calls.
 - Use `onFunctionCall` when the user wants to observe every function the actor invokes from the JS runtime (their own registered functions plus internal globals like child agents, `discoverModules`, `discoverFunctions`, `consult`).
 
 ## Decision Guide
@@ -43,7 +43,7 @@ Map user intent to agent shape before writing code:
 - "Need tool discovery because names/schemas are not stable" -> use `functions.discovery: true` and generate discovery-first code.
 - "Need a stronger actor only when the run gets noisy or large" -> use `executorModelPolicy` and keep the responder model separate.
 - "Need debugging or traceability" -> start with `debug: true` or `executorTurnCallback`; do not add both unless the user clearly wants both prompt/runtime visibility and structured telemetry.
-- "Need real-time progress updates" -> add `agentStatusCallback` so the actor can call `await success(message)` and `await failed(message)` to report sub-task progress.
+- "Need real-time progress updates" -> add `agentStatusCallback` so the actor can call `await reportSuccess(message)` and `await reportFailure(message)` to report sub-task progress.
 - "Need to log/trace every tool call" -> add `onFunctionCall` to receive `{ name, qualifiedName, args, kind }` for each function invoked by the runtime; `kind` is `'external'` for caller-registered functions and `'internal'` for agent-injected ones (child agents, discovery, skills loader).
 - "Need certain errors to escape the agent loop" -> add `bubbleErrors` with an array of error classes; those errors propagate through function handlers, actor code, and llmQuery sub-agents all the way to `.forward()`.
 - "Need to pull relevant memories into context" -> add `onMemoriesSearch` with a vector/BM25 search callback; the distiller and executor gain `await recall(searches)` (returns void; results land on `inputs.memories` next turn) and an `inputs.memories` field. Add `onUsedMemories` if you want to observe what gets loaded.
@@ -866,7 +866,7 @@ const supportAgent = agent('query:string -> answer:string', {
 
 ## Agent Status Callback
 
-Use `agentStatusCallback` when the caller wants real-time progress updates from the actor. When set, the actor can call `await success(message)` and `await failed(message)` in its JavaScript turns.
+Use `agentStatusCallback` when the caller wants real-time progress updates from the actor. When set, the actor can call `await reportSuccess(message)` and `await reportFailure(message)` in its JavaScript turns.
 
 ```typescript
 const supportAgent = agent('query:string -> answer:string', {
@@ -881,9 +881,9 @@ const supportAgent = agent('query:string -> answer:string', {
 Rules:
 
 - `agentStatusCallback` receives `(message: string, status: 'success' | 'failed')`.
-- When set, the actor prompt automatically includes `success(message)` and `failed(message)` as available runtime functions.
+- When set, the actor prompt automatically includes `reportSuccess(message)` and `reportFailure(message)` as available runtime functions.
 - The actor is instructed to keep the user updated of task progress.
-- `success` and `failed` are reserved runtime names when the callback is configured.
+- `reportSuccess` and `reportFailure` are reserved runtime names when the callback is configured.
 - Child agents inherit the callback via the rlm config.
 
 ## On Function Call
@@ -930,10 +930,19 @@ import { agent } from '@ax-llm/ax';
 import type { AxAgentMemoriesSearchFn } from '@ax-llm/ax';
 
 // Each result must be { id: string; content: string }
-const onMemoriesSearch: AxAgentMemoriesSearchFn = async (searches) => {
-  // Batch all queries in one round-trip — `searches` is the full array
-  // passed to recall(...). Your vector DB / BM25 / KV lookup goes here.
-  return myVectorDB.searchBatch(searches, { topK: 3 });
+const onMemoriesSearch: AxAgentMemoriesSearchFn = async (
+  searches,
+  alreadyLoaded
+) => {
+  // `searches` is the full array passed to recall(...) — batch your
+  // store lookup in one round-trip.
+  // `alreadyLoaded` is the snapshot of `inputs.memories` already in
+  // scope. Filter your results so you don't refetch what's already
+  // loaded (the runtime dedupes by id, but skipping here saves a
+  // round-trip and avoids charging the actor for duplicate tokens).
+  const skip = new Set(alreadyLoaded.map((m) => m.id));
+  const fresh = await myVectorDB.searchBatch(searches, { topK: 3 });
+  return fresh.filter((m) => !skip.has(m.id));
 };
 
 const myAgent = agent({
@@ -956,7 +965,7 @@ const prefs = inputs.memories.find(m => m.id === 'user-prefs-v2');
 
 ### Behaviour
 
-- `recall()` invokes `onMemoriesSearch` with the raw search strings and returns `void`. Results land on `inputs.memories` for subsequent turns.
+- `recall()` invokes `onMemoriesSearch` with `(searches, alreadyLoaded)` and returns `void`. `alreadyLoaded` is the current `inputs.memories` snapshot — filter your store results against it to skip duplicates. Results land on `inputs.memories` for subsequent turns.
 - Entries are **deduped by `id`** (last-write-wins) and **sorted by `id`** for prefix-cache stability.
 - Memories loaded by the distiller **thread automatically to the executor** — no second `recall()` needed for those entries.
 - `recall()` may be called multiple times per turn; results accumulate. The merge dedupes against existing entries, so re-running the same search is cheap.
@@ -1052,7 +1061,7 @@ Use these top-level controls consistently:
 - `executorOptions`: executor-stage forward options such as `description`, `model`, `modelConfig`, `thinkingTokenBudget`, and `showThoughts`
 - `executorModelPolicy`: executor-only model override rules based on consecutive error turns or discovery fetches from listed namespaces
 - `responderOptions`: responder-stage forward options
-- `agentStatusCallback`: real-time progress updates from actor via `success(message)` and `failed(message)`
+- `agentStatusCallback`: real-time progress updates from actor via `reportSuccess(message)` and `reportFailure(message)`
 - `onFunctionCall`: observe every runtime function call (`{ name, qualifiedName, args, kind: 'internal' | 'external' }`)
 - `judgeOptions`: built-in judge options for `agent.optimize(...)`; for tuning workflows use the `ax-agent-optimize` skill
 - `bubbleErrors`: error classes that propagate out of function handlers, actor code, and llmQuery sub-agents directly to `.forward()` instead of being caught and returned as `[ERROR]` strings

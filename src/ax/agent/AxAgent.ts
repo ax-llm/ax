@@ -676,7 +676,8 @@ export class ActorAgentRLM<
     onUsedMemories?: (
       results: readonly import('./agentInternal/memoriesTypes.js').AxAgentMemoryResult[]
     ) => void,
-    onFunctionCall?: import('./agentInternal/types.js').AxAgentOnFunctionCall
+    onFunctionCall?: import('./agentInternal/types.js').AxAgentOnFunctionCall,
+    getCurrentMemories?: () => readonly import('./agentInternal/memoriesTypes.js').AxAgentMemoryResult[]
   ): Record<string, unknown> {
     return buildRuntimeGlobals(
       this,
@@ -689,7 +690,8 @@ export class ActorAgentRLM<
       onDiscoveredFunctions,
       onUsedSkills,
       onUsedMemories,
-      onFunctionCall
+      onFunctionCall,
+      getCurrentMemories
     );
   }
 

@@ -244,6 +244,8 @@ export function createRuntimeExecutionContext(
     };
   };
 
+  const getCurrentMemories = () =>
+    currentMemories as readonly AxAgentMemoryResult[];
   const toolGlobals = s.buildRuntimeGlobals(
     effectiveAbortSignal,
     ai,
@@ -254,7 +256,8 @@ export function createRuntimeExecutionContext(
     noteDiscoveredFunctions,
     noteUsedSkills,
     noteUsedMemories,
-    onFunctionCall ?? s.onFunctionCall
+    onFunctionCall ?? s.onFunctionCall,
+    getCurrentMemories
   );
   const agentFunctionNamespaces = [
     ...new Set(
@@ -271,7 +274,7 @@ export function createRuntimeExecutionContext(
     s.agentModuleNamespace,
     'final',
     'askClarification',
-    ...(s.agentStatusCallback ? ['success', 'failed'] : []),
+    ...(s.agentStatusCallback ? ['reportSuccess', 'reportFailure'] : []),
     ...agentFunctionNamespaces,
     ...(effectiveContextConfig.stateInspection.enabled
       ? ['inspectRuntime']
@@ -350,10 +353,10 @@ export function createRuntimeExecutionContext(
         ...(inspectRuntime ? { inspectRuntime } : {}),
         ...(s.agentStatusCallback
           ? {
-              success: async (message: string) => {
+              reportSuccess: async (message: string) => {
                 await s.agentStatusCallback!(message, 'success');
               },
-              failed: async (message: string) => {
+              reportFailure: async (message: string) => {
                 await s.agentStatusCallback!(message, 'failed');
               },
             }

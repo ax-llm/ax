@@ -281,7 +281,7 @@ export interface AxRLMConfig {
     args: AxAgentExecutorTurnCallbackArgs
   ) => void | Promise<void>;
   /**
-   * Called when the actor signals task progress via `success(message)` or `failed(message)`.
+   * Called when the actor signals task progress via `reportSuccess(message)` or `reportFailure(message)`.
    */
   agentStatusCallback?: (
     message: string,

@@ -123,6 +123,48 @@ describe('recall() runtime global — void contract', () => {
 
     expect(onUsedMemories).not.toHaveBeenCalled();
   });
+
+  it('passes alreadyLoaded snapshot to onMemoriesSearch', async () => {
+    const onMemoriesSearch = vi.fn(async () => [
+      { id: 'b', content: 'B' } as AxAgentMemoryResult,
+    ]);
+    const self = makeSelf({ onMemoriesSearch });
+    const alreadyLoaded: AxAgentMemoryResult[] = [{ id: 'a', content: 'A' }];
+    const globals = buildRuntimeGlobals(
+      self,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      () => alreadyLoaded
+    ) as Record<string, unknown>;
+    const recall = globals.recall as (input: string[]) => Promise<void>;
+
+    await recall(['fresh query']);
+
+    expect(onMemoriesSearch).toHaveBeenCalledTimes(1);
+    expect(onMemoriesSearch).toHaveBeenCalledWith(
+      ['fresh query'],
+      alreadyLoaded
+    );
+  });
+
+  it('passes empty alreadyLoaded snapshot when no getter is provided', async () => {
+    const onMemoriesSearch = vi.fn(async () => []);
+    const self = makeSelf({ onMemoriesSearch });
+    const globals = buildRuntimeGlobals(self) as Record<string, unknown>;
+    const recall = globals.recall as (input: string[]) => Promise<void>;
+
+    await recall(['anything']);
+
+    expect(onMemoriesSearch).toHaveBeenCalledWith(['anything'], []);
+  });
 });
 
 describe('consult() runtime global — void contract', () => {

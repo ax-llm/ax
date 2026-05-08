@@ -126,7 +126,13 @@ export function buildRuntimeGlobals(
   ) => void,
   onUsedSkills?: (results: readonly AxAgentSkillResult[]) => void,
   onUsedMemories?: (results: readonly AxAgentMemoryResult[]) => void,
-  onFunctionCall?: AxAgentOnFunctionCall
+  onFunctionCall?: AxAgentOnFunctionCall,
+  /**
+   * Returns the snapshot of memories already loaded for the current run.
+   * Forwarded to `onMemoriesSearch` so the callback can skip re-fetching
+   * entries the actor already has in scope.
+   */
+  getCurrentMemories?: () => readonly AxAgentMemoryResult[]
 ): Record<string, unknown> {
   const fireInternal = async (
     name: string,
@@ -290,7 +296,8 @@ export function buildRuntimeGlobals(
       await fireInternal(MEMORIES_LOAD_NAME, { searches: input });
       const searches = normalizeMemoriesInput(input);
       if (searches.length === 0) return;
-      const results = await s.onMemoriesSearch(searches);
+      const alreadyLoaded = getCurrentMemories?.() ?? [];
+      const results = await s.onMemoriesSearch(searches, alreadyLoaded);
       if (!Array.isArray(results) || results.length === 0) return;
       const matched = results as readonly AxAgentMemoryResult[];
       onUsedMemories?.(matched);

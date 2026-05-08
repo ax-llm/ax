@@ -37,12 +37,20 @@ const memoryStore: Record<string, string> = {
     '# Postmortem\nRoot cause: stale cache. Mitigation: TTL bump + alert.',
 };
 
-const onMemoriesSearch: AxAgentMemoriesSearchFn = async (searches) => {
+const onMemoriesSearch: AxAgentMemoriesSearchFn = async (
+  searches,
+  alreadyLoaded
+) => {
+  // Skip ids the actor already has in scope — saves a round-trip to your
+  // store and avoids re-billing the actor for tokens it already paid for.
+  const skip = new Set(alreadyLoaded.map((m) => m.id));
+
   // Naive substring match — replace with your vector DB / BM25 / KV.
   const matches: AxAgentMemoryResult[] = [];
   for (const query of searches) {
     const q = query.toLowerCase();
     for (const [id, content] of Object.entries(memoryStore)) {
+      if (skip.has(id)) continue;
       if (id.toLowerCase().includes(q) || content.toLowerCase().includes(q)) {
         matches.push({ id, content });
       }

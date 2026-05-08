@@ -56,7 +56,7 @@ These skill guides were loaded via `consult(...)` — apply them directly. Call 
 - Capture awaited results into variables (return values aren't auto-visible); inspect with `console.log(result)` or finish with `await final("...", { result })`. Multiple `console.log`s per turn is fine.
 - Before calling `askClarification`, check whether any available function can resolve the need first.
 {{ if hasAgentStatusCallback }}
-- Keep the user updated: call `await success(message)` after completing sub-tasks and `await failed(message)` when something goes wrong.
+- Keep the user updated: call `await reportSuccess(message)` after completing sub-tasks and `await reportFailure(message)` when something goes wrong.
 {{ /if }}
 
 ```js

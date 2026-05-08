@@ -7259,7 +7259,7 @@ describe('axBuildExecutorDefinition', () => {
   it('should document final()/askClarification() exit signals', () => {
     const result = axBuildExecutorDefinition(undefined, [], [], {});
     expect(result).toContain('final(task: string, context?: object)');
-    expect(result).toContain('Signal completion.');
+    expect(result).toContain('End the turn.');
     expect(result).toContain('askClarification');
     expect(result).not.toContain('guideAgent(');
   });

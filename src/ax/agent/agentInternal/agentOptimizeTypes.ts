@@ -188,14 +188,17 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
    * Optional memories search callback. When set, the distiller and executor
    * stages gain a `recall(searches: string[]): void` global, and both
    * stages get a `memories` input field. The callback receives the raw
-   * search strings and returns matched memories (`{ id, content }`); the
-   * runtime appends matched entries to `inputs.memories` (deduped by id,
-   * sorted) so the next turn's prompt includes them. `recall()` itself
-   * returns nothing — the actor reads `inputs.memories` next turn to see
-   * what landed. Memories loaded by the distiller thread to the executor
-   * automatically; the responder does not receive the memories field.
-   * Memories live for one `.forward()` call; persist them externally to
-   * carry across calls.
+   * search strings plus a snapshot of `inputs.memories` already loaded
+   * for the current run (`alreadyLoaded`), and returns matched memories
+   * (`{ id, content }`); the runtime appends matched entries to
+   * `inputs.memories` (deduped by id, sorted) so the next turn's prompt
+   * includes them. Use `alreadyLoaded` to skip work for entries the
+   * actor already has — e.g. filter your vector search by `id NOT IN
+   * alreadyLoaded`. `recall()` itself returns nothing — the actor reads
+   * `inputs.memories` next turn to see what landed. Memories loaded by
+   * the distiller thread to the executor automatically; the responder
+   * does not receive the memories field. Memories live for one
+   * `.forward()` call; persist them externally to carry across calls.
    */
   onMemoriesSearch?: import('./memoriesTypes.js').AxAgentMemoriesSearchFn;
 
@@ -235,7 +238,7 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
     args: AxAgentExecutorTurnCallbackArgs
   ) => void | Promise<void>;
   /**
-   * Called when the executor signals task progress via `success(message)` or `failed(message)`.
+   * Called when the executor signals task progress via `reportSuccess(message)` or `reportFailure(message)`.
    */
   agentStatusCallback?: (
     message: string,

@@ -5,6 +5,16 @@ export type AxAgentMemoryResult = {
   content: string;
 };
 
+/**
+ * Memories search callback. Receives the raw search strings and the
+ * snapshot of `inputs.memories` already loaded for the current run
+ * (deduped by id, sorted). Use the second argument to skip work for
+ * entries that are already in scope — for example, filter your vector
+ * search by `id NOT IN alreadyLoaded` so you don't re-fetch and the
+ * actor doesn't pay tokens for duplicates. Returning already-loaded
+ * entries is still safe (the runtime dedupes by id) but wastes work.
+ */
 export type AxAgentMemoriesSearchFn = (
-  searches: readonly string[]
+  searches: readonly string[],
+  alreadyLoaded: readonly AxAgentMemoryResult[]
 ) => readonly AxAgentMemoryResult[] | Promise<readonly AxAgentMemoryResult[]>;
