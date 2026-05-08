@@ -1,5 +1,18 @@
 # Changelog
 
+## [20.0.2](///compare/20.0.0...20.0.1) (2026-05-08)
+
+### Bug Fixes
+
+* **examples:** remove deleted recursionOptions.maxDepth, fix functions shape a1b65c8
+* **google-gemini:** correct Vertex cachedContents URL and model resource ([#513](undefined/undefined/undefined/issues/513)) f2c39e5
+## [20.0.1](///compare/20.0.0...20.0.1) (2026-04-30)
+
+### Bug Fixes
+
+* **docs:** remove deleted llmQueryPromptMode field; add typecheck to CI 947fcdf
+* **sig:** avoid structuredClone on Zod-backed fields, expose AxSignatureConfig overloads ([#512](undefined/undefined/undefined/issues/512)) 0222938
+
 ## [20.0.1](///compare/19.0.45...20.0.0) (2026-04-30)
 
 ### Bug Fixes
