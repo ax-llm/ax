@@ -367,6 +367,68 @@ describe('AxBaseAI', () => {
     expect(mockFetch).toHaveBeenCalledTimes(3);
   });
 
+  describe('includeRequestBodyInErrors option', () => {
+    it('should round-trip through setOptions/getOptions', () => {
+      const ai = createTestAI();
+
+      ai.setOptions({ includeRequestBodyInErrors: false });
+      expect(ai.getOptions()).toMatchObject({
+        includeRequestBodyInErrors: false,
+      });
+
+      ai.setOptions({ includeRequestBodyInErrors: true });
+      expect(ai.getOptions()).toMatchObject({
+        includeRequestBodyInErrors: true,
+      });
+    });
+
+    it('should exclude request body from error string when set to false', async () => {
+      const sensitive = 'sensitive-marker-xyz-123';
+      const nonStreamingImpl = {
+        ...mockImpl,
+        getModelConfig: () => ({
+          maxTokens: 100,
+          temperature: 0,
+          stream: false,
+        }),
+        createChatReq: () => [
+          { name: 'test', headers: {} },
+          { payload: sensitive },
+        ],
+      };
+      const ai = createTestAI(undefined, nonStreamingImpl, {
+        ...baseConfig,
+        supportFor: { functions: true, streaming: false },
+      });
+
+      const errorFetch = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ error: 'bad' }), {
+          status: 500,
+          statusText: 'Internal Server Error',
+          headers: { 'content-type': 'application/json' },
+        })
+      );
+
+      ai.setOptions({
+        fetch: errorFetch,
+        includeRequestBodyInErrors: false,
+        // @ts-expect-error - testing
+        retry: { maxRetries: 0 },
+      });
+
+      let caught: unknown;
+      try {
+        await ai.chat({ chatPrompt: [{ role: 'user', content: 'test' }] });
+      } catch (e) {
+        caught = e;
+      }
+
+      expect(caught).toBeDefined();
+      expect(String(caught)).not.toContain(sensitive);
+      expect(String(caught)).not.toContain('Request Body:');
+    });
+  });
+
   describe('function schema cleanup', () => {
     let ai: AxBaseAI<
       string,
