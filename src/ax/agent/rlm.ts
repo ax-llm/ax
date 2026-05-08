@@ -261,8 +261,6 @@ export interface AxRLMConfig {
   runtime?: AxCodeRuntime;
   /** Global cap on recursive sub-agent calls across all descendants (default: 100). */
   maxSubAgentCalls?: number;
-  /** Per-child cap on recursive sub-agent calls (default: 50). */
-  maxSubAgentCallsPerChild?: number;
   /** Maximum parallel llmQuery calls in batched mode (default: 8). */
   maxBatchedLlmQueryConcurrency?: number;
   /** Maximum Actor turns before forcing Responder (default: 10). */

@@ -63,7 +63,6 @@ const SHARED_KNOB_KEYS = [
   'promptLevel',
   'maxTurns',
   'maxSubAgentCalls',
-  'maxSubAgentCallsPerChild',
   'maxBatchedLlmQueryConcurrency',
   'debug',
   'bubbleErrors',

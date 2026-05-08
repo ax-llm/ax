@@ -430,7 +430,6 @@ type AxLlmQueryBudgetState = {
 | Parameter | Default | Description |
 |---|---|---|
 | `maxSubAgentCalls` | 100 | Global LLM call limit for entire tree |
-| `maxSubAgentCallsPerChild` | 50 | Per-agent LLM call limit |
 | `maxTurns` | 8 | Actor turns per top-level call |
 | `maxRuntimeChars` | 3,000 | Max output chars per turn |
 | `maxBatchedLlmQueryConcurrency` | 8 | Parallel `llmQuery` calls |
@@ -853,7 +852,6 @@ A 7B model that can write basic JavaScript can be a surprisingly capable agent w
 ```typescript
 const RLM_DEFAULTS = {
   maxSubAgentCalls: 100,
-  maxSubAgentCallsPerChild: 50,
   maxBatchedLlmQueryConcurrency: 8,
   maxTurns: 8,
   maxRuntimeChars: 3_000,

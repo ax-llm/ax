@@ -13,8 +13,6 @@ import type {
 
 /** Global ceiling on total `llmQuery` child invocations per forward — guards runaway recursion. */
 export const DEFAULT_RLM_MAX_LLM_CALLS = 100;
-/** Per-child `llmQuery` budget — prevents a single child agent from exhausting the global budget. */
-export const DEFAULT_RLM_MAX_LLM_CALLS_PER_CHILD = 50;
 /** Max chars of turn output surfaced back to the actor; longer output gets truncated to force narrowing. */
 export const DEFAULT_RLM_MAX_RUNTIME_CHARS = 3_000;
 /** Max chars for the live-runtime-state summary injected into the actor prompt. */

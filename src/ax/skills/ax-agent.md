@@ -1075,7 +1075,6 @@ Use these top-level controls consistently:
 - `mode`: controls whether `llmQuery(...)` stays simple or delegates to recursive child agents in advanced mode
 - `recursionOptions.maxDepth`: limits recursive `llmQuery(...)` depth
 - `maxSubAgentCalls`: shared delegated-call budget across the whole run, including recursive children (default: 100)
-- `maxSubAgentCallsPerChild`: per-child cap on recursive sub-agent calls (default: 50). Bounds any single descendant's fan-out independently of the global budget.
 - `maxRuntimeChars`: runtime/output truncation ceiling for console logs, tool results, and interpreter output replay. The actual limit is computed dynamically each turn based on remaining context budget (see **Dynamic Output Truncation** below)
 - `summarizerOptions`: default model/options for the internal checkpoint summarizer
 - `contextOptions`: distiller-stage forward options (description, model, maxTurns, etc.). One of three peer stage-config bags.
@@ -1448,7 +1447,6 @@ Use `promptMaxChars` when partial data is worse than no data (e.g. JSON objects)
   runtime?: AxCodeRuntime;
   promptLevel?: 'default' | 'detailed';
   maxSubAgentCalls?: number;            // global cap (default: 100)
-  maxSubAgentCallsPerChild?: number;    // per-child cap (default: 50)
   maxBatchedLlmQueryConcurrency?: number;
   maxTurns?: number;
   maxRuntimeChars?: number;

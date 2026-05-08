@@ -7,7 +7,6 @@ import {
   DEFAULT_AGENT_MODULE_NAMESPACE,
   DEFAULT_RLM_BATCH_CONCURRENCY,
   DEFAULT_RLM_MAX_LLM_CALLS,
-  DEFAULT_RLM_MAX_LLM_CALLS_PER_CHILD,
   resolveContextPolicy,
 } from '../config.js';
 import type { ActionLogEntry } from '../contextManager.js';
@@ -102,8 +101,6 @@ export function createRuntimeExecutionContext(
   const rlm = s.rlmConfig;
   const runtime = s.runtime;
   const maxSubAgentCalls = rlm.maxSubAgentCalls ?? DEFAULT_RLM_MAX_LLM_CALLS;
-  const maxSubAgentCallsPerChild =
-    rlm.maxSubAgentCallsPerChild ?? DEFAULT_RLM_MAX_LLM_CALLS_PER_CHILD;
   const maxBatchedLlmQueryConcurrency = Math.max(
     1,
     rlm.maxBatchedLlmQueryConcurrency ?? DEFAULT_RLM_BATCH_CONCURRENCY
@@ -151,7 +148,6 @@ export function createRuntimeExecutionContext(
     debug,
     effectiveAbortSignal,
     llmQueryBudgetState,
-    maxSubAgentCallsPerChild,
     maxBatchedLlmQueryConcurrency,
     recursionForwardOptions,
     parentForwardOptions,

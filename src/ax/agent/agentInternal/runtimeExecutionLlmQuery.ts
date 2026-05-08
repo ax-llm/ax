@@ -22,7 +22,6 @@ export interface LlmQueryBindingsDeps {
   debug: boolean;
   effectiveAbortSignal?: AbortSignal;
   llmQueryBudgetState: AxLlmQueryBudgetState;
-  maxSubAgentCallsPerChild: number;
   maxBatchedLlmQueryConcurrency: number;
   recursionForwardOptions: AxAgentRecursionOptions;
   parentForwardOptions: Partial<
@@ -52,7 +51,6 @@ export function buildLlmQueryBindings(
     debug,
     effectiveAbortSignal,
     llmQueryBudgetState,
-    maxSubAgentCallsPerChild: _maxSubAgentCallsPerChild,
     maxBatchedLlmQueryConcurrency,
     recursionForwardOptions,
     parentForwardOptions,
