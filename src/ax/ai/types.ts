@@ -1061,9 +1061,7 @@ export interface AxAIServiceImpl<
    */
   buildCacheUpdateTTLOp?(
     cacheName: string,
-    ttlSeconds: number,
-    model?: TModel,
-    beta?: AxAIServiceOptions['beta']
+    ttlSeconds: number
   ): AxContextCacheOperation;
 
   /**

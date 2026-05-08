@@ -1545,6 +1545,151 @@ describe('AxAIGoogleGemini model key preset merging', () => {
     });
   });
 
+  describe('Vertex context caching URL composition', () => {
+    const cacheCreateResponse = {
+      name: 'projects/demo-project/locations/us-central1/cachedContents/abc123',
+      expireTime: '2099-01-01T00:00:00Z',
+      usageMetadata: { totalTokenCount: 4096 },
+    };
+
+    const generateResponse = {
+      candidates: [
+        {
+          content: { parts: [{ text: 'ok' }] },
+          finishReason: 'STOP',
+        },
+      ],
+      usageMetadata: {
+        promptTokenCount: 16,
+        candidatesTokenCount: 4,
+        totalTokenCount: 20,
+        cachedContentTokenCount: 8,
+        thoughtsTokenCount: 0,
+      },
+    };
+
+    const createRegistry = () => {
+      const map = new Map<string, any>();
+      return {
+        registry: {
+          get: vi.fn(async (key: string) => map.get(key)),
+          set: vi.fn(async (key: string, value: unknown) => {
+            map.set(key, value);
+          }),
+        },
+      };
+    };
+
+    it('routes regional Vertex cache creation to the v1 cachedContents endpoint with a full model resource', async () => {
+      const ai = new AxAIGoogleGemini({
+        apiKey: async () => 'vertex-token',
+        projectId: 'demo-project',
+        region: 'us-central1',
+        config: { model: AxAIGoogleGeminiModel.Gemini25Flash },
+        models: [],
+      });
+
+      const capture = { calls: [] as Array<{ url: string; body?: any }> };
+      const fetch = createSequencedMockFetch(
+        [
+          {
+            ...cacheCreateResponse,
+            name: 'projects/demo-project/locations/us-central1/cachedContents/abc123',
+          },
+          generateResponse,
+        ],
+        capture
+      );
+      const { registry } = createRegistry();
+
+      ai.setOptions({ fetch });
+
+      await ai.chat(
+        {
+          chatPrompt: [
+            { role: 'system', content: 'You are a router', cache: true },
+            { role: 'user', content: 'route this request' },
+          ],
+        },
+        {
+          stream: false,
+          contextCache: {
+            minTokens: 0,
+            registry,
+          },
+        }
+      );
+
+      expect(capture.calls).toHaveLength(2);
+
+      expect(capture.calls[0]?.url).toBe(
+        'https://us-central1-aiplatform.googleapis.com/v1/projects/demo-project/locations/us-central1/cachedContents'
+      );
+
+      const cacheCreateReq = capture.calls[0]?.body;
+      expect(cacheCreateReq.model).toBe(
+        `projects/demo-project/locations/us-central1/publishers/google/models/${AxAIGoogleGeminiModel.Gemini25Flash}`
+      );
+
+      const generateReq = capture.calls[1]?.body;
+      expect(generateReq.cachedContent).toBe(
+        'projects/demo-project/locations/us-central1/cachedContents/abc123'
+      );
+    });
+
+    it('routes global Vertex cache creation to the v1 endpoint without a region prefix', async () => {
+      const ai = new AxAIGoogleGemini({
+        apiKey: async () => 'vertex-token',
+        projectId: 'demo-project',
+        region: 'global',
+        config: { model: AxAIGoogleGeminiModel.Gemini25Flash },
+        models: [],
+      });
+
+      const capture = { calls: [] as Array<{ url: string; body?: any }> };
+      const fetch = createSequencedMockFetch(
+        [
+          {
+            ...cacheCreateResponse,
+            name: 'projects/demo-project/locations/global/cachedContents/abc123',
+          },
+          generateResponse,
+        ],
+        capture
+      );
+      const { registry } = createRegistry();
+
+      ai.setOptions({ fetch });
+
+      await ai.chat(
+        {
+          chatPrompt: [
+            { role: 'system', content: 'You are a router', cache: true },
+            { role: 'user', content: 'route this request' },
+          ],
+        },
+        {
+          stream: false,
+          contextCache: {
+            minTokens: 0,
+            registry,
+          },
+        }
+      );
+
+      expect(capture.calls).toHaveLength(2);
+
+      expect(capture.calls[0]?.url).toBe(
+        'https://aiplatform.googleapis.com/v1/projects/demo-project/locations/global/cachedContents'
+      );
+
+      const cacheCreateReq = capture.calls[0]?.body;
+      expect(cacheCreateReq.model).toBe(
+        `projects/demo-project/locations/global/publishers/google/models/${AxAIGoogleGeminiModel.Gemini25Flash}`
+      );
+    });
+  });
+
   describe('token usage normalization for cached content', () => {
     it('should subtract cachedContentTokenCount from promptTokens', async () => {
       const response = {
