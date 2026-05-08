@@ -960,7 +960,6 @@ const prefs = inputs.memories.find(m => m.id === 'user-prefs-v2');
 - Memories loaded by the distiller **thread automatically to the executor** — no second `recall()` needed for those entries.
 - `recall()` may be called multiple times per turn; results accumulate. The merge dedupes against existing entries, so re-running the same search is cheap.
 - **Lifetime is one `.forward()` call.** `inputs.memories` resets between calls. To carry memories across calls, persist them in your store and recall them again on the next call.
-- The caller can inspect what was loaded after a run via the `forward()` result's `results: AxAgentMemoryResult[]` field — useful for analytics or feedback loops.
 
 ### Child agents
 
