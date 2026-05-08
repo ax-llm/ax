@@ -165,24 +165,49 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
 
   /**
    * Optional skills search callback. When set, the executor runtime gains a
-   * `consult(searches: string[])` global. The callback receives the raw
-   * search strings and returns matched skills (`{ name, content }`); each
-   * returned skill's content is rendered into the executor system prompt for
-   * subsequent turns (sorted by name to keep the prefix cache stable).
+   * `consult(searches: string[]): void` global. The callback receives the
+   * raw search strings and returns matched skills (`{ name, content }`);
+   * each returned skill's content is rendered into the executor system
+   * prompt for subsequent turns (sorted by name to keep the prefix cache
+   * stable). `consult()` itself returns nothing — the actor inspects the
+   * **Loaded Skills** section of the next turn's prompt to see what landed.
    */
   onSkillsSearch?: import('./skillsTypes.js').AxAgentSkillsSearchFn;
 
   /**
+   * Optional callback fired whenever `consult(...)` loads skills. Receives
+   * the matched `{ name, content }[]` from `onSkillsSearch`. Use this for
+   * analytics, telemetry, or feedback loops on skill relevance — it does
+   * not affect runtime behaviour.
+   */
+  onUsedSkills?: (
+    results: readonly import('./skillsTypes.js').AxAgentSkillResult[]
+  ) => void | Promise<void>;
+
+  /**
    * Optional memories search callback. When set, the distiller and executor
-   * stages gain a `recall(searches: string[])` global, and both stages get a
-   * `memories` input field. The callback receives the raw search strings and
-   * returns matched memories (`{ id, content }`); the runtime appends
-   * matched entries to `inputs.memories` (deduped by id, sorted) so the
-   * next turn's prompt includes them. Memories loaded by the distiller
-   * thread to the executor automatically; the responder does not receive
-   * the memories field.
+   * stages gain a `recall(searches: string[]): void` global, and both
+   * stages get a `memories` input field. The callback receives the raw
+   * search strings and returns matched memories (`{ id, content }`); the
+   * runtime appends matched entries to `inputs.memories` (deduped by id,
+   * sorted) so the next turn's prompt includes them. `recall()` itself
+   * returns nothing — the actor reads `inputs.memories` next turn to see
+   * what landed. Memories loaded by the distiller thread to the executor
+   * automatically; the responder does not receive the memories field.
+   * Memories live for one `.forward()` call; persist them externally to
+   * carry across calls.
    */
   onMemoriesSearch?: import('./memoriesTypes.js').AxAgentMemoriesSearchFn;
+
+  /**
+   * Optional callback fired whenever `recall(...)` loads memories. Receives
+   * the matched `{ id, content }[]` from `onMemoriesSearch`. Use this for
+   * analytics, telemetry, or feedback loops on memory relevance — it does
+   * not affect runtime behaviour.
+   */
+  onUsedMemories?: (
+    results: readonly import('./memoriesTypes.js').AxAgentMemoryResult[]
+  ) => void | Promise<void>;
 
   /** Code runtime for the REPL loop (default: AxJSRuntime). */
   runtime?: import('../rlm.js').AxCodeRuntime;

@@ -59,7 +59,9 @@ export function initializeAgentInternal(
   s.agents = options.agents ?? [];
   s.functionDiscoveryEnabled = options.functionDiscovery ?? false;
   s.onSkillsSearch = options.onSkillsSearch;
+  s.onUsedSkills = options.onUsedSkills;
   s.onMemoriesSearch = options.onMemoriesSearch;
+  s.onUsedMemories = options.onUsedMemories;
   s.currentSkillsPromptState = createMutableSkillsPromptState();
   s.debug = debug;
   s.options = options;
@@ -115,7 +117,9 @@ export function initializeAgentInternal(
     functions: _fn,
     functionDiscovery: _fd,
     onSkillsSearch: _oss,
+    onUsedSkills: _ous,
     onMemoriesSearch: _oms,
+    onUsedMemories: _oum,
     judgeOptions: _jo,
     inputUpdateCallback: _iuc,
     executorModelPolicy: _amp,

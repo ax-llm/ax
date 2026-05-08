@@ -208,6 +208,10 @@ export function createRuntimeExecutionContext(
   };
   const noteUsedSkills = (results: readonly AxAgentSkillResult[]) => {
     ingestSkillResults(s.currentSkillsPromptState, results);
+    if (typeof s.onUsedSkills === 'function') {
+      // Fire-and-forget; errors must not break the actor loop.
+      Promise.resolve(s.onUsedSkills(results)).catch(() => {});
+    }
   };
   const memoriesEnabled = typeof s.onMemoriesSearch === 'function';
   let currentMemories: AxAgentMemoryEntry[] = memoriesEnabled
@@ -225,6 +229,10 @@ export function createRuntimeExecutionContext(
     if (!memoriesEnabled) return;
     currentMemories = mergeMemoryResults(currentMemories, results);
     inputState.currentInputs.memories = currentMemories;
+    if (typeof s.onUsedMemories === 'function') {
+      // Fire-and-forget; errors must not break the actor loop.
+      Promise.resolve(s.onUsedMemories(results)).catch(() => {});
+    }
   };
   const consumeDiscoveryTurnArtifacts = () => {
     const summary = formatDiscoveryTurnSummary(pendingDiscoveryTurnSummary);

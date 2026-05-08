@@ -46,7 +46,8 @@ Map user intent to agent shape before writing code:
 - "Need real-time progress updates" -> add `agentStatusCallback` so the actor can call `await success(message)` and `await failed(message)` to report sub-task progress.
 - "Need to log/trace every tool call" -> add `onFunctionCall` to receive `{ name, qualifiedName, args, kind }` for each function invoked by the runtime; `kind` is `'external'` for caller-registered functions and `'internal'` for agent-injected ones (child agents, discovery, skills loader).
 - "Need certain errors to escape the agent loop" -> add `bubbleErrors` with an array of error classes; those errors propagate through function handlers, actor code, and llmQuery sub-agents all the way to `.forward()`.
-- "Need to pull relevant memories into context" -> add `onMemoriesSearch` with a vector/BM25 search callback; the distiller and executor gain `await recall(searches)` (returns void; results land on `inputs.memories` next turn) and an `inputs.memories` field.
+- "Need to pull relevant memories into context" -> add `onMemoriesSearch` with a vector/BM25 search callback; the distiller and executor gain `await recall(searches)` (returns void; results land on `inputs.memories` next turn) and an `inputs.memories` field. Add `onUsedMemories` if you want to observe what gets loaded.
+- "Need to load skill guides into the executor system prompt on demand" -> add `onSkillsSearch`; the executor gains `await consult(searches)` (returns void; loaded skill bodies render under "Loaded Skills" next turn). Add `onUsedSkills` for observability.
 
 Choose options based on user needs, not feature completeness:
 
@@ -965,6 +966,79 @@ const prefs = inputs.memories.find(m => m.id === 'user-prefs-v2');
 
 Child agents do **not** inherit `onMemoriesSearch` automatically. If a recursive `llmQuery` advanced child or a registered child agent should also have `recall()`, set `onMemoriesSearch` on that agent's options explicitly.
 
+### Carrying memories across `.forward()` calls
+
+`inputs.memories` resets between runs. To preserve continuity across calls, observe loads with `onUsedMemories` and replay them on the next call's first `recall()` (or via your store):
+
+```typescript
+const carried = new Map<string, string>();
+
+const myAgent = agent({
+  // ...
+  onMemoriesSearch: async (searches) => {
+    const fresh = await myVectorDB.searchBatch(searches, { topK: 3 });
+    // Re-surface anything that landed on prior runs so the actor sees it
+    // alongside fresh matches.
+    const carriedAsResults = [...carried.entries()].map(([id, content]) => ({
+      id,
+      content,
+    }));
+    return [...carriedAsResults, ...fresh];
+  },
+  onUsedMemories: (results) => {
+    for (const r of results) carried.set(r.id, r.content);
+  },
+});
+```
+
+## Skills Search
+
+Use `onSkillsSearch` when the agent needs to load skill guides — usage instructions, runbooks, domain conventions — into the executor's system prompt on demand. The actor decides which skills to fetch and when, so you don't pre-render every skill into every prompt.
+
+When `onSkillsSearch` is set, the executor stage gains:
+
+1. A "Loaded Skills" section in the system prompt that renders matched skill bodies (sorted by `name`).
+2. A `consult(searches: string[]): void` global the actor `await`s to load more skills. Loaded entries appear in the next turn's prompt — `consult()` itself returns nothing.
+
+The distiller and responder do not see skills. Only the executor.
+
+### Enabling
+
+```typescript
+import { agent } from '@ax-llm/ax';
+import type { AxAgentSkillsSearchFn } from '@ax-llm/ax';
+
+// Each result must be { name: string; content: string }
+const onSkillsSearch: AxAgentSkillsSearchFn = async (searches) => {
+  return mySkillStore.searchBatch(searches, { topK: 2 });
+};
+
+const myAgent = agent({
+  // ...
+  onSkillsSearch,
+});
+```
+
+### Actor usage (executor code only)
+
+```javascript
+// Pass all queries in one call — don't loop or use Promise.all (the
+// runtime rejects that as a policy violation; your callback should
+// fan out internally).
+await consult(['release-checklist', 'incident-response']);
+
+// Next turn: the loaded skill bodies render under the "Loaded Skills"
+// system-prompt section, ready to apply directly.
+```
+
+### Behaviour
+
+- `consult()` invokes `onSkillsSearch` with the raw search strings and returns `void`. Matched skills land under "Loaded Skills" for the next turn.
+- Entries are deduped by `name` (last-write-wins) and sorted by `name` for prefix-cache stability.
+- **Skills persist on the agent's `currentSkillsPromptState` across `.forward()` calls** (unlike memories). Use `agent.getState()` / `setState(...)` to serialize/restore.
+- `consult()` may be called multiple times; results accumulate.
+- Child agents do **not** inherit `onSkillsSearch` — wire it explicitly per agent.
+
 ## Option Layout
 
 Use these top-level controls consistently:
@@ -1368,6 +1442,9 @@ Use `promptMaxChars` when partial data is worse than no data (e.g. JSON objects)
     kind: 'internal' | 'external';
   }) => void | Promise<void>;
   onMemoriesSearch?: AxAgentMemoriesSearchFn;  // (searches: readonly string[]) => readonly AxAgentMemoryResult[] | Promise<...>
+  onUsedMemories?: (results: readonly AxAgentMemoryResult[]) => void | Promise<void>;
+  onSkillsSearch?: AxAgentSkillsSearchFn;       // (searches: readonly string[]) => readonly AxAgentSkillResult[] | Promise<...>
+  onUsedSkills?: (results: readonly AxAgentSkillResult[]) => void | Promise<void>;
   mode?: 'simple' | 'advanced';
   executorModelPolicy?: readonly [
     | {
@@ -1513,6 +1590,7 @@ Fetch these for full working code:
 - [RLM Adaptive Replay](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-adaptive-replay.ts) — adaptive replay
 - [RLM Live Runtime State](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-live-runtime-state.ts) — structured runtime-state rendering
 - [RLM Clarification Resume](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-clarification-resume.ts) — clarification exception plus `getState()` / `setState(...)`
+- [RLM Memories and Skills](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-memories-and-skills.ts) — `onMemoriesSearch` + `recall()` and `onSkillsSearch` + `consult()` with observability via `onUsedMemories` / `onUsedSkills`
 - [Customer Support](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/customer-support.ts) — classification agent
 - [Abort Patterns](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/abort-patterns.ts) — abort handling
 
@@ -1528,6 +1606,8 @@ Fetch these for full working code:
 - Do not call `recall()` from the responder stage — it is only available in distiller and executor.
 - Do not assign the result of `await recall(...)` or `await consult(...)` — both return `void`. Read `inputs.memories` next turn (or the **Loaded Skills** section for `consult`) to see what landed.
 - Do not loop `recall()` calls or wrap them in `Promise.all` — the runtime rejects that as a policy violation. Pass all queries in one array to a single `await recall([...])`.
-- Do not assume child agents inherit `onMemoriesSearch` — set it explicitly on each agent that needs `recall()`.
+- Do not assume child agents inherit `onMemoriesSearch` or `onSkillsSearch` — set each one explicitly on each agent that needs `recall()` / `consult()`.
+- Do not call `consult()` from the distiller or responder stages — it is only available in the executor.
+- Do not loop `consult()` calls or wrap them in `Promise.all` — same policy as `recall()`. Pass all queries in one array.
 - Do not pass `onMemoriesSearch` results via `fields.shared` as a workaround — use the built-in `recall()` primitive instead.
 - Do not assume `inputs.memories` persists across `.forward()` calls — its lifetime is one run. Persist memories in your store and recall them again on subsequent calls.
