@@ -23,7 +23,7 @@ const summarizer = agent(
       description:
         'Summarizer can write short summaries of advanced science topics',
     },
-    actorOptions: {
+    executorOptions: {
       description:
         'You are a science summarizer. You can write short summaries of advanced science topics. Use numbered bullet points to summarize the answer in order of importance.',
     },

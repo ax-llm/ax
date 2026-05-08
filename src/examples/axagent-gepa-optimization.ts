@@ -227,7 +227,7 @@ function buildSupportAgent(env: SupportEnvironment) {
           'Be strict about account and incident questions that skip tool calls.',
         ].join('\n'),
       },
-      actorOptions: {
+      executorOptions: {
         description: [
           'Use the support tools before answering account or incident questions.',
           'First call support.lookupAccount({ slug }) to get accountId; then call support.lookupIncident({ accountId }) when incident details are needed.',

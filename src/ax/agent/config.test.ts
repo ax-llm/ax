@@ -6,8 +6,8 @@ import {
   computeEffectiveChatBudget,
   DEFAULT_RLM_MAX_RUNTIME_CHARS,
   DEFAULT_RLM_STATE_SUMMARY_MAX_CHARS,
-  resolveActorModelPolicy,
   resolveContextPolicy,
+  resolveExecutorModelPolicy,
   selectActorModelFromPolicy,
 } from './config.js';
 
@@ -182,10 +182,10 @@ describe('computeEffectiveChatBudget', () => {
   });
 });
 
-describe('actorModelPolicy', () => {
+describe('executorModelPolicy', () => {
   it('should reject removed prompt-size routing', () => {
     expect(() =>
-      resolveActorModelPolicy([
+      resolveExecutorModelPolicy([
         {
           model: 'actor-large',
           abovePromptChars: 10_000,
@@ -195,7 +195,7 @@ describe('actorModelPolicy', () => {
   });
 
   it('should select the last matching namespace or error-turn rule', () => {
-    const policy = resolveActorModelPolicy([
+    const policy = resolveExecutorModelPolicy([
       {
         model: 'actor-db',
         namespaces: ['db'],

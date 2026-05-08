@@ -8,6 +8,7 @@
 
 import type { AxAIService } from '../ai/types.js';
 import { AxGen } from '../dsp/generate.js';
+import { f } from '../dsp/sig.js';
 import type { AxProgramForwardOptions } from '../dsp/types.js';
 import {
   extractTopLevelDeclaredNames,
@@ -39,7 +40,6 @@ export type ActionLogEntry = {
   turn: number;
   code: string;
   output: string;
-  actorFieldsOutput: string;
   tags: ActionLogTag[];
   summary?: string;
   producedVars?: string[];
@@ -284,14 +284,9 @@ function buildEntrySummary(entry: Readonly<ActionLogEntry>): string {
             ? 'Finalize step'
             : 'Explore step';
   const observation = truncateInline(entry.output || '(no output)');
-  const actorFields = truncateInline(
-    entry.actorFieldsOutput.replace(/^Actor fields:\s*/i, ''),
-    80
-  );
   const stateDelta = entry.stateDelta ?? 'No durable runtime state update';
-  const actorFieldSuffix = actorFields ? ` Actor fields: ${actorFields}.` : '';
 
-  return `[SUMMARY]: ${label}. ${stateDelta}. Result: ${observation}.${actorFieldSuffix}`;
+  return `[SUMMARY]: ${label}. ${stateDelta}. Result: ${observation}.`;
 }
 
 function clearHindsightEvaluation(entry: ActionLogEntry): void {
@@ -685,7 +680,12 @@ export async function generateTombstoneAsync(
     },
     { tombstone: string }
   >(
-    'errorCode:string, errorOutput:string, resolutionCode:string -> tombstone:string',
+    f()
+      .input('errorCode', f.string())
+      .input('errorOutput', f.string())
+      .input('resolutionCode', f.string())
+      .output('tombstone', f.string())
+      .build(),
     {
       ...buildInternalSummaryProgramOptions(
         TOMBSTONE_SUMMARIZER_DESCRIPTION,
@@ -786,9 +786,6 @@ export function extractWorkingCodeState(
       : '(no output)';
     const directCallables =
       (entry._directQualifiedCalls ?? []).join(', ') || 'none';
-    const actorFields = entry.actorFieldsOutput
-      .replace(/^Actor fields:\s*/i, '')
-      .trim();
 
     const lines = [
       `Code:\n${code}`,
@@ -797,9 +794,6 @@ export function extractWorkingCodeState(
       `State delta: ${entry.stateDelta ?? 'none'}`,
       `Output: ${output}`,
     ];
-    if (actorFields) {
-      lines.push(`Actor fields: ${actorFields}`);
-    }
     return lines.join('\n');
   });
 
@@ -853,9 +847,6 @@ function _serializeCheckpointEntries(
     .map((entry) => {
       ensureEntryMetadata(entry);
       ensureDiscoveryMetadata(entry as ActionLogEntry);
-      const actorFields = entry.actorFieldsOutput
-        .replace(/^Actor fields:\s*/i, '')
-        .trim();
       const directCallables =
         (entry._directQualifiedCalls ?? []).join(', ') || 'none';
       const failureCues = entry.tags.includes('error')
@@ -870,7 +861,6 @@ function _serializeCheckpointEntries(
         `Direct callables: ${directCallables}`,
         `State delta: ${entry.stateDelta ?? 'none'}`,
         `Observed result: ${truncateInline(entry.output || '(no output)', 360)}`,
-        `Actor fields: ${actorFields || 'none'}`,
         `Failure cues: ${failureCues}`,
         `Code excerpt: ${truncateInline(entry.code || '(no code)', 360)}`,
       ].join('\n');
@@ -965,13 +955,19 @@ export async function generateCheckpointSummaryAsync(
     const summarizer = new AxGen<
       { turns: string },
       { checkpointSummary: string }
-    >('turns:string -> checkpointSummary:string', {
-      ...buildInternalSummaryProgramOptions(
-        CHECKPOINT_SUMMARIZER_DESCRIPTION,
-        'ax-agent-checkpoint-summary',
-        summarizerOptions
-      ),
-    });
+    >(
+      f()
+        .input('turns', f.string())
+        .output('checkpointSummary', f.string())
+        .build(),
+      {
+        ...buildInternalSummaryProgramOptions(
+          CHECKPOINT_SUMMARIZER_DESCRIPTION,
+          'ax-agent-checkpoint-summary',
+          summarizerOptions
+        ),
+      }
+    );
 
     try {
       const result = await summarizer.forward(
@@ -1146,7 +1142,7 @@ function renderActionReplayEntry(
       ensureEntryMetadata(entry as ActionLogEntry);
       return entry.summary ?? buildEntrySummary(entry);
     default:
-      return `\`\`\`javascript\n${entry.code}\n\`\`\`\nResult:\n${entry.output}${entry.actorFieldsOutput}`;
+      return `\`\`\`javascript\n${entry.code}\n\`\`\`\nResult:\n${entry.output}`;
   }
 }
 

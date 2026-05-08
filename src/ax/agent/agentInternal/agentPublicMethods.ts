@@ -11,6 +11,7 @@ import type {
 } from './agentInternalTypes.js';
 import type { AxAgentState, AxAgentTestResult } from './agentPublicTypes.js';
 import { restoreDiscoveryPromptState } from './discoveryHelpers.js';
+import { restoreSkillsPromptState } from './skillsHelpers.js';
 
 export function applyOptimization(self: any, optimizedProgram: any): void {
   const s = self as any;
@@ -37,6 +38,9 @@ export async function testAgent(
   inputState.recomputeTurnInputs(false);
   s.currentDiscoveryPromptState = restoreDiscoveryPromptState(
     s.state?.discoveryPromptState
+  );
+  s.currentSkillsPromptState = restoreSkillsPromptState(
+    s.state?.skillsPromptState
   );
 
   const completionState: AxAgentRuntimeCompletionState = {
@@ -101,6 +105,9 @@ export function setState(self: any, state?: AxAgentState): void {
   s.currentDiscoveryPromptState = restoreDiscoveryPromptState(
     s.state?.discoveryPromptState
   );
+  s.currentSkillsPromptState = restoreSkillsPromptState(
+    s.state?.skillsPromptState
+  );
   s.stateError = undefined;
   if (s.actorProgram) {
     const instruction = s._buildActorInstruction();
@@ -130,7 +137,7 @@ export function getFunction(self: any): AxFunction {
       throw new Error('AI service is required to run the agent');
     }
     const run = await s.run(ai, values, options);
-    const result = run.actorResult;
+    const result = run.executorResult;
     if (result?.type === 'askClarification') {
       const q = result.args?.[0];
       return typeof q === 'string'

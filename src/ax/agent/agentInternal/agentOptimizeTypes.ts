@@ -22,18 +22,18 @@ import type {
 } from '../agentRecursiveOptimize.js';
 import type { AxContextPolicyConfig } from '../rlm.js';
 import type {
-  AxActorModelPolicy,
+  AxAgentExecutorTurnCallbackArgs,
   AxAgentFunctionCollection,
   AxAgentInputUpdateCallback,
   AxAgentStructuredClarification,
-  AxAgentTurnCallbackArgs,
   AxAnyAgentic,
   AxContextFieldInput,
+  AxExecutorModelPolicy,
 } from './agentStateTypes.js';
 
 /**
  * Demo traces for AxAgent's split architecture.
- * Actor demos use `{ javascriptCode }` + optional actorFields.
+ * Actor demos use `{ javascriptCode }`.
  * Responder demos use the agent's output type + optional input fields.
  */
 export type AxAgentDemos<
@@ -145,14 +145,14 @@ export type AxAgentOptimizeResult<OUT extends AxGenOut = AxGenOut> =
 
 export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
   AxProgramForwardOptions<string>,
-  'functions' | 'description'
+  'functions' | 'description' | 'onFunctionCall'
 > & {
   debug?: boolean;
   /**
    * Input fields used as context.
    * - `string`: runtime-only (legacy behavior)
-   * - `{ field, promptMaxChars }`: runtime + conditionally inlined into Actor prompt
-   * - `{ field, keepInPromptChars, reverseTruncate? }`: runtime + truncated string excerpt in Actor prompt
+   * - `{ field, promptMaxChars }`: runtime + conditionally inlined into the distiller prompt
+   * - `{ field, keepInPromptChars, reverseTruncate? }`: runtime + truncated string excerpt in the distiller prompt
    */
   contextFields?: readonly AxContextFieldInput[];
 
@@ -162,6 +162,27 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
   functions?: AxAgentFunctionCollection;
   /** Enables runtime callable discovery (modules + on-demand definitions). */
   functionDiscovery?: boolean;
+
+  /**
+   * Optional skills search callback. When set, the executor runtime gains a
+   * `consult(searches: string[])` global. The callback receives the raw
+   * search strings and returns matched skills (`{ name, content }`); each
+   * returned skill's content is rendered into the executor system prompt for
+   * subsequent turns (sorted by name to keep the prefix cache stable).
+   */
+  onSkillsSearch?: import('./skillsTypes.js').AxAgentSkillsSearchFn;
+
+  /**
+   * Optional memories search callback. When set, the distiller and executor
+   * stages gain a `recall(searches: string[])` global, and both stages get a
+   * `memories` input field. The callback receives the raw search strings and
+   * returns matched memories (`{ id, content }`); the runtime appends
+   * matched entries to `inputs.memories` (deduped by id, sorted) so the
+   * next turn's prompt includes them. Memories loaded by the distiller
+   * thread to the executor automatically; the responder does not receive
+   * the memories field.
+   */
+  onMemoriesSearch?: import('./memoriesTypes.js').AxAgentMemoriesSearchFn;
 
   /** Code runtime for the REPL loop (default: AxJSRuntime). */
   runtime?: import('../rlm.js').AxCodeRuntime;
@@ -181,82 +202,80 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
   contextPolicy?: AxContextPolicyConfig;
   /** Default options for the internal checkpoint summarizer. */
   summarizerOptions?: Omit<AxProgramForwardOptions<string>, 'functions'>;
-  /** Output field names the Actor should produce (in addition to javascriptCode). */
-  actorFields?: string[];
   /**
-   * Called after each Actor turn is recorded with both the raw runtime result
-   * and the formatted action-log output.
+   * Called after each executor turn is recorded with both the raw runtime
+   * result and the formatted action-log output.
    */
-  actorTurnCallback?: (args: AxAgentTurnCallbackArgs) => void | Promise<void>;
+  executorTurnCallback?: (
+    args: AxAgentExecutorTurnCallbackArgs
+  ) => void | Promise<void>;
   /**
-   * Called when the actor signals task progress via `success(message)` or `failed(message)`.
+   * Called when the executor signals task progress via `success(message)` or `failed(message)`.
    */
   agentStatusCallback?: (
     message: string,
     status: 'success' | 'failed'
   ) => void | Promise<void>;
   /**
-   * Called before each Actor turn with current input values. Return a partial patch
-   * to update in-flight inputs for subsequent Actor/Responder steps.
+   * Called before each executor turn with current input values. Return a
+   * partial patch to update in-flight inputs for subsequent executor/responder
+   * steps.
    */
   inputUpdateCallback?: AxAgentInputUpdateCallback<IN>;
   /**
-   * Ordered Actor-model overrides keyed by consecutive error turns or namespace matches.
-   * Later entries take precedence over earlier ones.
+   * Fired whenever any function registered on the agent is invoked from the
+   * runtime. `kind` is `'external'` for user-registered functions, `'internal'`
+   * for agent-injected ones (child agents, skills/memories loaders, discovery globals).
    */
-  actorModelPolicy?: AxActorModelPolicy;
-  /** Default forward options for recursive llmQuery sub-agent calls. */
+  onFunctionCall?: import('./agentInternalTypes.js').AxAgentOnFunctionCall;
+  /**
+   * Ordered executor-model overrides keyed by consecutive error turns or
+   * namespace matches. Later entries take precedence over earlier ones.
+   */
+  executorModelPolicy?: AxExecutorModelPolicy;
+  /**
+   * Default forward options for recursive llmQuery sub-agent calls.
+   * Set `ai` to route recursive sub-agent calls to a different AI service
+   * than the one used for the parent agent. Falls back to the parent
+   * `forward(ai, ...)` argument when `ai` is not set.
+   */
   recursionOptions?: AxAgentRecursionOptions;
-  /** Default forward options for the Actor sub-program. */
-  actorOptions?: Partial<
-    Omit<AxProgramForwardOptions<string>, 'functions'> & {
-      description?: string;
-    }
-  >;
-  /** Default forward options for the Responder sub-program. */
-  responderOptions?: Partial<
-    Omit<AxProgramForwardOptions<string>, 'functions'> & {
-      description?: string;
-    }
-  >;
+  /**
+   * Forward options for the **context distiller** stage. Configures the
+   * REPL/turn loop and forward-to-LLM options for the context-understanding
+   * stage that runs before the executor. Set `ai` to override the AI service
+   * for this stage only — falls back to `forward(ai, ...)` when not set.
+   */
+  contextOptions?: AxStageOptions;
+  /**
+   * Forward options for the **task executor** stage. Set `ai` to override
+   * the AI service for this stage only — falls back to `forward(ai, ...)`
+   * when not set.
+   */
+  executorOptions?: AxStageOptions;
+  /**
+   * Forward options for the **final responder** stage. Set `ai` to override
+   * the AI service for this stage only — falls back to `forward(ai, ...)`
+   * when not set.
+   */
+  responderOptions?: AxStageOptions;
   /** Default options for the built-in judge used by optimize(). */
   judgeOptions?: AxAgentJudgeOptions;
   /** Error classes that should bubble up instead of being caught and returned to the LLM. */
   bubbleErrors?: ReadonlyArray<new (...args: any[]) => Error>;
-  /**
-   * Selects which actor prompt template this internal agent uses.
-   * - `'combined'`: single-stage-actor.md — default one-stage actor.
-   * - `'context'`: context-actor.md — context-understanding stage; no tools, no discovery.
-   * - `'task'`: task-actor.md — tool executor; optionally consumes executorRequest/distilledContext.
-   * Set automatically by the AxAgent pipeline; external callers can set it on ActorAgentRLM directly.
-   */
-  actorTemplateVariant?: 'combined' | 'context' | 'task';
-  /**
-   * When true, a prior context-understanding stage has produced
-   * `inputs.executorRequest` and `inputs.distilledContext`. The task-actor
-   * template surfaces a hint telling the actor to consume them instead of
-   * re-probing raw context fields. Only meaningful when
-   * `actorTemplateVariant === 'task'`.
-   */
-  hasDistilledContext?: boolean;
-  /**
-   * Options forwarded exclusively to the context-distillation stage when
-   * `contextFields` are configured. Use this to cap the context stage
-   * independently, e.g. `contextOptions: { maxTurns: 3 }`.
-   */
-  contextOptions?: Partial<
-    Pick<
-      AxAgentOptions<any>,
-      | 'maxTurns'
-      | 'maxRuntimeChars'
-      | 'promptLevel'
-      | 'actorOptions'
-      | 'responderOptions'
-      | 'contextPolicy'
-      | 'summarizerOptions'
-    >
-  >;
 };
+
+/**
+ * Per-stage forward options. Used by `contextOptions`, `executorOptions`, and
+ * `responderOptions` — one shape, three peers, one per pipeline stage.
+ */
+export type AxStageOptions = Partial<
+  Omit<AxProgramForwardOptions<string>, 'functions'> & {
+    description?: string;
+    /** Input field names to strip before passing values to this stage. */
+    excludeFields?: readonly string[];
+  }
+>;
 
 export type AxAgentJudgeInput = {
   taskInput: AxFieldValue;

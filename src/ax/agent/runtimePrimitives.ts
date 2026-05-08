@@ -1,11 +1,10 @@
 /**
  * Runtime primitive registry.
  *
- * The RLM actor templates (single-stage-actor.md, context-actor.md,
- * task-actor.md) all
- * advertise a small set of built-in async functions to the LLM: `final`,
- * `askClarification`, `llmQuery`, `inspect_runtime`, `success`/`failed`,
- * `discoverModules`/`discoverFunctions`, etc.
+ * The RLM stage templates (distiller.md, executor.md) advertise a small
+ * set of built-in async functions to the LLM: `final`, `askClarification`,
+ * `llmQuery`, `inspectRuntime`, `success`/`failed`, `discoverModules`/
+ * `discoverFunctions`, etc.
  *
  * Historically these were hand-written into each template as bullet lists,
  * which drifted apart as primitives were added. This module is the single
@@ -14,7 +13,7 @@
  * `{{ primitivesList }}` variable.
  */
 
-export type AxRuntimePrimitiveStage = 'context' | 'task' | 'combined';
+export type AxRuntimePrimitiveStage = 'distiller' | 'executor';
 
 export interface AxRuntimePrimitive {
   /** Stable id; used for testing / debugging. */
@@ -24,7 +23,7 @@ export interface AxRuntimePrimitive {
   /**
    * Optional gating flag name. If set, the primitive is only rendered when
    * `flags[enabledBy]` is truthy. Useful for conditional primitives like
-   * `inspect_runtime` (only when the runtime supports `inspectGlobals`) or
+   * `inspectRuntime` (only when the runtime supports `inspectGlobals`) or
    * `success`/`failed` (only when an agent status callback is wired).
    */
   readonly enabledBy?: string;
@@ -45,28 +44,28 @@ export interface AxRuntimePrimitive {
 export const axRuntimePrimitives: readonly AxRuntimePrimitive[] = [
   {
     id: 'llmQuery',
-    stages: ['context', 'task', 'combined'],
+    stages: ['distiller', 'executor'],
     lines: [
       'Ask focused questions about the narrowed context you pass in.\n`await llmQuery([{ query: string, context: any }, ...]): string[]`',
     ],
   },
   {
     id: 'final',
-    stages: ['context', 'task', 'combined'],
+    stages: ['distiller', 'executor'],
     lines: [
       'Signal completion. Pass a concise instruction and the raw evidence; the responder synthesizes the output. Omit `context` when the answer is directly known.\n`await final(task: string, context?: object)`',
     ],
   },
   {
     id: 'askClarification',
-    stages: ['context', 'task', 'combined'],
+    stages: ['distiller', 'executor'],
     lines: [
       "Ask the user for clarification when genuinely blocked on an ambiguity you cannot resolve.\n`await askClarification(spec: string | { question: string, type?: 'text'|'date'|'number'|'single_choice'|'multiple_choice', choices?: string[] }): void`",
     ],
   },
   {
     id: 'success',
-    stages: ['task', 'combined'],
+    stages: ['executor'],
     enabledBy: 'hasAgentStatusCallback',
     lines: [
       'Report a successful sub-task completion to the user.\n`await success(message: string)`',
@@ -74,27 +73,43 @@ export const axRuntimePrimitives: readonly AxRuntimePrimitive[] = [
   },
   {
     id: 'failed',
-    stages: ['task', 'combined'],
+    stages: ['executor'],
     enabledBy: 'hasAgentStatusCallback',
     lines: [
       'Report a failed sub-task to the user.\n`await failed(message: string)`',
     ],
   },
   {
-    id: 'inspect_runtime',
-    stages: ['context', 'task', 'combined'],
+    id: 'inspectRuntime',
+    stages: ['distiller', 'executor'],
     enabledBy: 'hasInspectRuntime',
     lines: [
-      'Returns a compact snapshot of user-defined variables in the current session (name, type, size, preview). Use this to re-ground yourself when the conversation is long.\n`await inspect_runtime(): string`',
+      'Returns a compact snapshot of user-defined variables in the current session (name, type, size, preview). Use this to re-ground yourself when the conversation is long.\n`await inspectRuntime(): string`',
     ],
   },
   {
     id: 'discoverModules',
-    stages: ['task', 'combined'],
+    stages: ['executor'],
     enabledBy: 'discoveryMode',
     lines: [
       'Discover available functions in each module (docs become available next turn).\n`await discoverModules(modules: string[]): void`',
       'Discover full definitions for specified functions (docs become available next turn).\n`await discoverFunctions(functions: string[]): void`',
+    ],
+  },
+  {
+    id: 'consult',
+    stages: ['executor'],
+    enabledBy: 'skillsMode',
+    lines: [
+      'Consult skill guides by description. Matched skill bodies are added to the system prompt for subsequent turns. Read the **Loaded Skills** section to see what landed.\n`await consult(searches: string[]): void`',
+    ],
+  },
+  {
+    id: 'recall',
+    stages: ['distiller', 'executor'],
+    enabledBy: 'memoriesMode',
+    lines: [
+      'Recall memories by description. Matched `{id, content}` entries are appended to `inputs.memories` for subsequent turns. Read `inputs.memories` next turn to see what landed.\n`await recall(searches: string[]): void`',
     ],
   },
 ];

@@ -23,6 +23,7 @@ import type {
 } from './common_types.js';
 import { AxGen } from './generate.js';
 import type { AxJudgeOptions } from './judgeTypes.js';
+import type { AxParetoResult } from './optimizer.js';
 import { AxACE } from './optimizers/ace.js';
 import { renderPlaybook } from './optimizers/acePlaybook.js';
 import type {
@@ -30,16 +31,15 @@ import type {
   AxACEOptions,
   AxACEPlaybook,
 } from './optimizers/aceTypes.js';
-import type { AxParetoResult } from './optimizer.js';
 import { AxGEPA } from './optimizers/gepa.js';
-import type { AxSignature } from './sig.js';
+import { type AxSignature, f } from './sig.js';
 import { AxSynth, type AxSynthOptions } from './synth.js';
 import type {
+  AxChatLogEntry,
   AxForwardable,
   AxGenIn,
   AxGenOut,
   AxGenStreamingOut,
-  AxMessage,
   AxProgramForwardOptions,
   AxProgramUsage,
   AxUsable,
@@ -179,26 +179,56 @@ function createAutoJudgeMetric<IN extends AxGenIn, OUT extends AxGenOut>(
   const referenceFreeGen = new AxGen<
     AxReferenceFreeJudgeInput,
     AxReferenceFreeJudgeOutput
-  >(`
-    task_input:string "The original task input encoded as JSON",
-    task_description?:string "Optional task description from the program signature",
-    criteria?:string "Optional evaluation guidance",
-    system_output:string "The candidate system output encoded as JSON"
-    ->
-    reasoning:string "Short explanation of the quality assessment",
-    quality:class "excellent, good, acceptable, poor, unacceptable" "Overall quality tier"
-  `);
+  >(
+    f()
+      .input('task_input', f.json('The original task input encoded as JSON'))
+      .input(
+        'task_description',
+        f
+          .string('Optional task description from the program signature')
+          .optional()
+      )
+      .input('criteria', f.string('Optional evaluation guidance').optional())
+      .input(
+        'system_output',
+        f.json('The candidate system output encoded as JSON')
+      )
+      .output(
+        'reasoning',
+        f.string('Short explanation of the quality assessment')
+      )
+      .output(
+        'quality',
+        f.class(
+          ['excellent', 'good', 'acceptable', 'poor', 'unacceptable'] as const,
+          'Overall quality tier'
+        )
+      )
+      .build()
+  );
 
-  const compareGen = new AxGen<AxCompareJudgeInput, AxCompareJudgeOutput>(`
-    task_input:string "The original task input encoded as JSON",
-    task_description?:string "Optional task description from the program signature",
-    criteria?:string "Optional evaluation guidance",
-    system_output_a:string "Candidate output A encoded as JSON",
-    system_output_b:string "Candidate output B encoded as JSON"
-    ->
-    reasoning:string "Short explanation of which output is better",
-    winner:class "A, B, Tie" "Which output is better overall"
-  `);
+  const compareGen = new AxGen<AxCompareJudgeInput, AxCompareJudgeOutput>(
+    f()
+      .input('task_input', f.json('The original task input encoded as JSON'))
+      .input(
+        'task_description',
+        f
+          .string('Optional task description from the program signature')
+          .optional()
+      )
+      .input('criteria', f.string('Optional evaluation guidance').optional())
+      .input('system_output_a', f.json('Candidate output A encoded as JSON'))
+      .input('system_output_b', f.json('Candidate output B encoded as JSON'))
+      .output(
+        'reasoning',
+        f.string('Short explanation of which output is better')
+      )
+      .output(
+        'winner',
+        f.class(['A', 'B', 'Tie'] as const, 'Which output is better overall')
+      )
+      .build()
+  );
 
   const extraGuidance = options.description?.trim();
   if (extraGuidance) {
@@ -544,7 +574,7 @@ export class AxLearn<IN extends AxGenIn, OUT extends AxGenOut>
    */
   async forward(
     ai: AxAIService,
-    values: IN | AxMessage<IN>[],
+    values: IN,
     options?: Readonly<AxProgramForwardOptions<string>>
   ): Promise<OUT> {
     await this.ready();
@@ -559,7 +589,7 @@ export class AxLearn<IN extends AxGenIn, OUT extends AxGenOut>
    */
   async *streamingForward(
     ai: AxAIService,
-    values: IN | AxMessage<IN>[],
+    values: IN,
     options?: Readonly<AxProgramForwardOptions<string>>
   ): AxGenStreamingOut<OUT> {
     await this.ready();
@@ -572,6 +602,10 @@ export class AxLearn<IN extends AxGenIn, OUT extends AxGenOut>
 
   getUsage(): AxProgramUsage[] {
     return this.gen.getUsage();
+  }
+
+  getChatLog(): readonly AxChatLogEntry[] {
+    return this.gen.getChatLog();
   }
 
   resetUsage(): void {

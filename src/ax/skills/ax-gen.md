@@ -382,6 +382,7 @@ type AxChatLogMessage =
   | { role: 'tool'; name: string; content: string };
 
 type AxChatLogEntry = {
+  name?: string;
   model: string;
   messages: AxChatLogMessage[];
   modelUsage?: AxProgramUsage;
@@ -400,7 +401,7 @@ console.log(usage[0]?.tokens?.promptTokens);
 gen.resetUsage();
 ```
 
-> For `AxAgent`, both `getChatLog()` and `getUsage()` return `{ actor: ..., responder: ... }` — see `ax-agent` skill.
+`AxAgent` and `AxFlow` also return flat `AxChatLogEntry[]` logs; composite programs set `entry.name` so callers can filter by node/stage.
 
 ## Examples
 

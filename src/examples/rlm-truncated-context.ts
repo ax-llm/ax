@@ -30,7 +30,7 @@ const supportAgent = agent(
     maxSteps: 15,
     maxTurns: 8,
     maxSubAgentCalls: 20,
-    actorOptions: {
+    executorOptions: {
       thinkingTokenBudget: 'minimal',
     },
     debug: true,

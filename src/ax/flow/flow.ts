@@ -21,10 +21,10 @@ import type { AxFieldType } from '../dsp/sig.js';
 import { type AxField, AxSignature, f } from '../dsp/sig.js';
 import { ax } from '../dsp/template.js';
 import type {
+  AxChatLogEntry,
   AxGenIn,
   AxGenOut,
   AxGenStreamingOut,
-  AxMessage,
   AxNamedProgramInstance,
   AxProgramDemos,
   AxProgramForwardOptions,
@@ -94,6 +94,7 @@ export class AxFlow<
 > implements AxFlowable<IN, OUT>
 {
   private static _ctorWarned = false;
+  private static _constructingFromFactory = false;
   private readonly nodes: Map<string, AxFlowNodeDefinition> = new Map();
   private readonly flowDefinition: AxFlowStepFunction[] = [];
   private readonly nodeGenerators: Map<
@@ -119,6 +120,9 @@ export class AxFlow<
 
   // Node-level trace tracking
   private nodeTraces: Map<string, AxProgramTrace<any, any>[]> = new Map();
+
+  // Node-level chat log tracking
+  private nodeChatLog: AxChatLogEntry[] = [];
 
   // Verbose logging support
   private readonly flowLogger?: AxFlowLoggerFunction;
@@ -152,24 +156,15 @@ export class AxFlow<
     }
   }
 
-  private extractInputValues(values: IN | AxMessage<IN>[]): IN {
-    if (!Array.isArray(values)) return values;
-    const lastUserMessage = values.filter((msg) => msg.role === 'user').pop();
-    if (!lastUserMessage) {
-      throw new Error('No user message found in values array');
-    }
-    return lastUserMessage.values;
-  }
-
   private getCacheKey(
-    values: IN | AxMessage<IN>[],
+    values: IN,
     cachingFunction?: ((key: string, value?: AxGenOut) => unknown) | undefined
   ): string | undefined {
     if (!cachingFunction) return undefined;
     this.ensureProgram();
     const sig = this.program!.getSignature();
     const inputNames = sig.getInputFields().map((f) => f.name);
-    const inputValues = this.extractInputValues(values);
+    const inputValues = values;
     const hasher = createHash('sha256');
     hasher.update(sig.hash() ?? '');
 
@@ -712,7 +707,7 @@ export class AxFlow<
     tracer?: Tracer;
     meter?: Meter;
   }) {
-    if (!AxFlow._ctorWarned) {
+    if (!AxFlow._constructingFromFactory && !AxFlow._ctorWarned) {
       // eslint-disable-next-line no-console
       console.warn(
         '[AxFlow] new AxFlow() is deprecated. Use flow() factory instead.'
@@ -769,7 +764,12 @@ export class AxFlow<
     logger?: AxFlowLoggerFunction;
     debug?: boolean;
   }): AxFlow<IN, OUT, TNodes, TState> {
-    return new AxFlow<IN, OUT, TNodes, TState>(options);
+    AxFlow._constructingFromFactory = true;
+    try {
+      return new AxFlow<IN, OUT, TNodes, TState>(options);
+    } finally {
+      AxFlow._constructingFromFactory = false;
+    }
   }
 
   /**
@@ -886,6 +886,10 @@ export class AxFlow<
     return mergeProgramUsage(allUsage);
   }
 
+  public getChatLog(): readonly AxChatLogEntry[] {
+    return this.nodeChatLog;
+  }
+
   public resetUsage(): void {
     // Clear node-level usage tracking
     this.nodeUsage.clear();
@@ -908,6 +912,10 @@ export class AxFlow<
 
     // Note: Individual node programs don't have resetTraces method,
     // so we only clear the flow-level trace collection
+  }
+
+  public resetChatLog(): void {
+    this.nodeChatLog = [];
   }
 
   /**
@@ -985,7 +993,7 @@ export class AxFlow<
 
   public async *streamingForward<T extends Readonly<AxAIService>>(
     ai: T,
-    values: IN | AxMessage<IN>[],
+    values: IN,
     options?: Readonly<
       AxProgramStreamingForwardOptionsWithModels<T> & {
         abortController?: AbortController;
@@ -1053,7 +1061,7 @@ export class AxFlow<
    */
   public async forward<T extends Readonly<AxAIService>>(
     ai: T,
-    values: IN | AxMessage<IN>[],
+    values: IN,
     options?: Readonly<
       AxProgramForwardOptionsWithModels<T> & {
         autoParallel?: boolean;
@@ -1087,8 +1095,9 @@ export class AxFlow<
       // Reset usage and trace tracking at the start of each forward call
       this.resetUsage();
       this.resetTraces();
+      this.resetChatLog();
 
-      const inputValues = this.extractInputValues(values);
+      const inputValues = values;
 
       // Dynamic signature inference - only if using default signature and have nodes
       // This allows flows to be created with a simple signature and then have it
@@ -1905,6 +1914,21 @@ export class AxFlow<
             // Store traces for this node
             const existingTraces = this.nodeTraces.get(nodeName) || [];
             this.nodeTraces.set(nodeName, [...existingTraces, ...nodeTraces]);
+          }
+        }
+
+        if (
+          'getChatLog' in nodeProgram &&
+          typeof nodeProgram.getChatLog === 'function'
+        ) {
+          const nodeChatLog = nodeProgram.getChatLog();
+          if (Array.isArray(nodeChatLog) && nodeChatLog.length > 0) {
+            this.nodeChatLog.push(
+              ...nodeChatLog.map((entry: AxChatLogEntry) => ({
+                ...entry,
+                name: entry.name ? `${nodeName}.${entry.name}` : nodeName,
+              }))
+            );
           }
         }
       } else {

@@ -1,7 +1,7 @@
 import { type AxIField, f } from '../../dsp/sig.js';
 
 /**
- * Build the signature consumed by the **finalResponder** stage:
+ * Build the signature consumed by the **responder** stage:
  *   { ...nonContextInputs, contextData } -> outputFields
  *
  * `contextData` is the reshape of the upstream actor's `final(task, evidence)`

@@ -1,9 +1,9 @@
 import type { AxAgentCompletionProtocol } from '../ai/types.js';
 import type {
-  AxAgentActorResultPayload,
   AxAgentClarification,
   AxAgentClarificationChoice,
   AxAgentClarificationKind,
+  AxAgentExecutorResultPayload,
   AxAgentStructuredClarification,
 } from './AxAgent.js';
 
@@ -14,7 +14,7 @@ export type AxAgentGuidancePayload = {
 };
 
 export type AxAgentInternalCompletionPayload =
-  | AxAgentActorResultPayload
+  | AxAgentExecutorResultPayload
   | AxAgentGuidancePayload;
 
 export class AxAgentProtocolCompletionSignal extends Error {
@@ -135,9 +135,9 @@ export function createCompletionBindings(
 }
 
 export function normalizeCompletionPayload(
-  type: AxAgentActorResultPayload['type'],
+  type: AxAgentExecutorResultPayload['type'],
   args: unknown[]
-): AxAgentActorResultPayload {
+): AxAgentExecutorResultPayload {
   if (args.length === 0) {
     throw new Error(`${type}() requires at least one argument`);
   }

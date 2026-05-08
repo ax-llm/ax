@@ -9,7 +9,7 @@ import type { AxFunctionJSONSchema } from '../ai/types.js';
 import { toFieldType } from '../dsp/prompt.js';
 import type { AxIField } from '../dsp/sig.js';
 import type { AxProgramForwardOptions } from '../dsp/types.js';
-import type { AxAgentTurnCallbackArgs } from './AxAgent.js';
+import type { AxAgentExecutorTurnCallbackArgs } from './AxAgent.js';
 import { renderPrimitivesList } from './runtimePrimitives.js';
 import { renderPromptTemplate } from './templateEngine.js';
 
@@ -273,13 +273,13 @@ export interface AxRLMConfig {
   contextPolicy?: AxContextPolicyConfig;
   /** Default options for the internal checkpoint summarizer. */
   summarizerOptions?: Omit<AxProgramForwardOptions<string>, 'functions'>;
-  /** Output field names the Actor should produce (in addition to javascriptCode). */
-  actorFields?: string[];
   /**
    * Called after each Actor turn is recorded with both raw runtime output and
    * the formatted action-log output.
    */
-  actorTurnCallback?: (args: AxAgentTurnCallbackArgs) => void | Promise<void>;
+  executorTurnCallback?: (
+    args: AxAgentExecutorTurnCallbackArgs
+  ) => void | Promise<void>;
   /**
    * Called when the actor signals task progress via `success(message)` or `failed(message)`.
    */
@@ -290,188 +290,11 @@ export interface AxRLMConfig {
 }
 
 /**
- * Builds the Actor system prompt. The Actor is a code generation agent that
- * decides what code to execute next based on the current state. It NEVER
- * generates final answers directly.
+ * Builds the context-understanding actor system prompt (the distiller).
+ * The distiller explores and distills long-context inputs into a concise
+ * evidence payload for the executor stage; it has no tools.
  */
-export function axBuildActorDefinition(
-  baseDefinition: string | undefined,
-  contextFields: readonly AxIField[],
-  responderOutputFields: readonly AxIField[],
-  options: Readonly<{
-    runtimeUsageInstructions?: string;
-    promptLevel?: 'default' | 'detailed';
-    maxSubAgentCalls?: number;
-    maxTurns?: number;
-    hasInspectRuntime?: boolean;
-    hasLiveRuntimeState?: boolean;
-    hasCompressedActionReplay?: boolean;
-    llmQueryPromptMode?: 'simple';
-    /** When true, Actor must run one observable console step per non-final turn. */
-    enforceIncrementalConsoleTurns?: boolean;
-    /** Child agents available under the `<agentModuleNamespace>.*` namespace in the JS runtime. */
-    agents?: ReadonlyArray<{
-      name: string;
-      description: string;
-      parameters?: AxFunctionJSONSchema;
-    }>;
-    /** Agent functions available under namespaced globals in the JS runtime. */
-    agentFunctions?: ReadonlyArray<{
-      name: string;
-      description?: string;
-      parameters: AxFunctionJSONSchema;
-      returns?: AxFunctionJSONSchema;
-      namespace: string;
-    }>;
-    /** Module namespace used for child agent calls (default: "agents"). */
-    agentModuleNamespace?: string;
-    /** Whether agentStatusCallback is set (enables success/failed in prompt). */
-    hasAgentStatusCallback?: boolean;
-    /** Enables module-only discovery rendering in prompt. */
-    discoveryMode?: boolean;
-    /** User-facing agent identity from `agentIdentity`. */
-    agentIdentity?: AgentIdentityPrompt;
-    /** Precomputed available modules for runtime discovery mode. */
-    availableModules?: ReadonlyArray<{
-      namespace: string;
-      selectionCriteria?: string;
-    }>;
-    /** Discovery docs accumulated during the current run. */
-    discoveredDocsMarkdown?: string;
-    /** Optional override for the `rlm/single-stage-actor.md` template source. */
-    templateOverride?: string;
-    /** Optional per-primitive override map keyed by primitive id. */
-    primitiveOverrides?: ReadonlyMap<string, readonly string[]>;
-  }>
-): string {
-  //   const maxSubAgentCalls = options.maxSubAgentCalls ?? 50;
-  type AvailableModule = {
-    namespace: string;
-    selectionCriteria?: string;
-  };
-
-  const contextVarList =
-    contextFields.length > 0
-      ? contextFields
-          .map((f) => {
-            const typeStr = toFieldType(f.type);
-            const optionality = f.isOptional ? 'optional' : 'required';
-            const desc = f.description ? `: ${f.description}` : '';
-            return `- \`${f.name}\` -> \`inputs.${f.name}\` (${typeStr}, ${optionality})${desc}`;
-          })
-          .join('\n')
-      : '(none)';
-
-  const responderOutputFieldTitles = responderOutputFields
-    .map((f) => `\`${f.name}\``)
-    .join(', ');
-
-  const sortedAgents = [...(options.agents ?? [])].sort((a, b) =>
-    a.name.localeCompare(b.name)
-  );
-  const sortedAgentFunctions = [...(options.agentFunctions ?? [])].sort(
-    (a, b) => {
-      if (a.namespace !== b.namespace) {
-        return a.namespace.localeCompare(b.namespace);
-      }
-      return a.name.localeCompare(b.name);
-    }
-  );
-  const agentModuleNamespace = options.agentModuleNamespace ?? 'agents';
-  const discoveryMode = Boolean(options.discoveryMode);
-  const agentIdentityText = renderAgentIdentity(options.agentIdentity);
-  const availableModules: AvailableModule[] = options.availableModules
-    ? [...options.availableModules].sort((a, b) =>
-        a.namespace.localeCompare(b.namespace)
-      )
-    : [
-        ...new Set([
-          ...sortedAgentFunctions.map((fn) => fn.namespace),
-          ...(sortedAgents.length > 0 ? [agentModuleNamespace] : []),
-        ]),
-      ]
-        .sort((a, b) => a.localeCompare(b))
-        .map((namespace) => ({ namespace }));
-
-  const actorBody = renderPromptTemplate(
-    'rlm/single-stage-actor.md',
-    {
-      contextVarList,
-      hasContextFields: contextFields.length > 0,
-      hasAgentIdentity: agentIdentityText.length > 0,
-      agentIdentityText,
-      responderOutputFieldTitles,
-      promptLevel: options.promptLevel ?? 'default',
-      llmQueryPromptMode: options.llmQueryPromptMode ?? 'simple',
-      discoveryMode,
-      hasInspectRuntime: Boolean(options.hasInspectRuntime),
-      primitivesList: renderPrimitivesList(
-        'combined',
-        {
-          hasInspectRuntime: Boolean(options.hasInspectRuntime),
-          hasAgentStatusCallback: Boolean(options.hasAgentStatusCallback),
-          discoveryMode,
-        },
-        options.primitiveOverrides
-      ),
-      agentModuleNamespace,
-      agentFunctionsList:
-        !discoveryMode && sortedAgents.length > 0
-          ? sortedAgents
-              .map((fn) =>
-                renderCallableBlock({
-                  qualifiedName: `${agentModuleNamespace}.${fn.name}`,
-                  description: fn.description,
-                  parameters: fn.parameters,
-                })
-              )
-              .join('\n\n')
-          : '',
-      functionsList:
-        !discoveryMode && sortedAgentFunctions.length > 0
-          ? sortedAgentFunctions
-              .map((fn) =>
-                renderCallableBlock({
-                  qualifiedName: `${fn.namespace}.${fn.name}`,
-                  description: fn.description,
-                  parameters: fn.parameters,
-                  returns: fn.returns,
-                })
-              )
-              .join('\n\n')
-          : '',
-      hasModules: discoveryMode && availableModules.length > 0,
-      modulesList: availableModules
-        .map((module) =>
-          module.selectionCriteria?.trim()
-            ? `- \`${module.namespace}\` - ${module.selectionCriteria.trim()}`
-            : `- \`${module.namespace}\``
-        )
-        .join('\n'),
-      runtimeUsageInstructions: String(options.runtimeUsageInstructions),
-      hasDiscoveredDocs: Boolean(options.discoveredDocsMarkdown),
-      discoveredDocsMarkdown: String(options.discoveredDocsMarkdown ?? ''),
-      enforceIncrementalConsoleTurns: Boolean(
-        options.enforceIncrementalConsoleTurns
-      ),
-      hasLiveRuntimeState: Boolean(options.hasLiveRuntimeState),
-      hasCompressedActionReplay: Boolean(options.hasCompressedActionReplay),
-      hasAgentStatusCallback: Boolean(options.hasAgentStatusCallback),
-    },
-    options.templateOverride
-  )
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-
-  return baseDefinition ? `${actorBody}\n\n${baseDefinition}` : actorBody;
-}
-
-/**
- * Builds the context-understanding actor system prompt (Y-RLM distiller).
- * Used when `contextFields` are declared. The actor explores and distills
- * long-context inputs into a concise evidence payload; it has no tools.
- */
-export function axBuildContextActorDefinition(
+export function axBuildDistillerDefinition(
   baseDefinition: string | undefined,
   contextFields: readonly AxIField[],
   options: Readonly<{
@@ -480,9 +303,9 @@ export function axBuildContextActorDefinition(
     hasInspectRuntime?: boolean;
     hasLiveRuntimeState?: boolean;
     hasCompressedActionReplay?: boolean;
-    /** User-facing agent identity from `agentIdentity`. */
-    agentIdentity?: AgentIdentityPrompt;
-    /** Optional override for the `rlm/context-actor.md` template source. */
+    /** Enables `recall` runtime primitive in the prompt. */
+    memoriesMode?: boolean;
+    /** Optional override for the `rlm/distiller.md` template source. */
     templateOverride?: string;
     /** Optional per-primitive override map keyed by primitive id. */
     primitiveOverrides?: ReadonlyMap<string, readonly string[]>;
@@ -491,34 +314,27 @@ export function axBuildContextActorDefinition(
   const contextVarList =
     contextFields.length > 0
       ? contextFields
-          .map((f) => {
-            const typeStr = toFieldType(f.type);
-            const optionality = f.isOptional ? 'optional' : 'required';
-            const desc = f.description ? `: ${f.description}` : '';
-            return `- \`${f.name}\` -> \`inputs.${f.name}\` (${typeStr}, ${optionality})${desc}`;
-          })
+          .map((f) => `- \`${f.name}\` -> \`inputs.${f.name}\``)
           .join('\n')
       : '(none)';
 
-  const agentIdentityText = renderAgentIdentity(options.agentIdentity);
-
   const actorBody = renderPromptTemplate(
-    'rlm/context-actor.md',
+    'rlm/distiller.md',
     {
       contextVarList,
-      hasAgentIdentity: agentIdentityText.length > 0,
-      agentIdentityText,
       promptLevel: options.promptLevel ?? 'default',
       hasInspectRuntime: Boolean(options.hasInspectRuntime),
       hasLiveRuntimeState: Boolean(options.hasLiveRuntimeState),
       hasCompressedActionReplay: Boolean(options.hasCompressedActionReplay),
       primitivesList: renderPrimitivesList(
-        'context',
+        'distiller',
         {
           hasInspectRuntime: Boolean(options.hasInspectRuntime),
+          memoriesMode: Boolean(options.memoriesMode),
         },
         options.primitiveOverrides
       ),
+      memoriesMode: Boolean(options.memoriesMode),
       runtimeUsageInstructions: String(options.runtimeUsageInstructions ?? ''),
     },
     options.templateOverride
@@ -530,13 +346,11 @@ export function axBuildContextActorDefinition(
 }
 
 /**
- * Builds the task-execution actor system prompt.
- * Used when user `functions`/`agents` are declared. When `hasDistilledContext`
- * is true the template tells the actor to consume `inputs.executorRequest` and
- * `inputs.distilledContext` from a prior ctx stage instead of re-probing raw
- * context fields.
+ * Builds the executor system prompt. The executor consumes
+ * `inputs.executorRequest` and `inputs.distilledContext` from the prior
+ * distiller stage and runs tools / discovery to complete the task.
  */
-export function axBuildTaskActorDefinition(
+export function axBuildExecutorDefinition(
   baseDefinition: string | undefined,
   contextFields: readonly AxIField[],
   responderOutputFields: readonly AxIField[],
@@ -550,18 +364,22 @@ export function axBuildTaskActorDefinition(
     enforceIncrementalConsoleTurns?: boolean;
     hasAgentStatusCallback?: boolean;
     discoveryMode?: boolean;
+    /** Enables `consult` runtime primitive in the prompt. */
+    skillsMode?: boolean;
+    /** Enables `recall` runtime primitive in the prompt. */
+    memoriesMode?: boolean;
     availableModules?: ReadonlyArray<{
       namespace: string;
       selectionCriteria?: string;
     }>;
     discoveredDocsMarkdown?: string;
+    /** Skill bodies accumulated during the current run (sorted by name). */
+    skillsMarkdown?: string;
     agents?: ReadonlyArray<{
       name: string;
       description: string;
       parameters?: AxFunctionJSONSchema;
     }>;
-    /** User-facing agent identity from `agentIdentity`. */
-    agentIdentity?: AgentIdentityPrompt;
     agentFunctions?: ReadonlyArray<{
       name: string;
       description?: string;
@@ -570,12 +388,7 @@ export function axBuildTaskActorDefinition(
       namespace: string;
     }>;
     agentModuleNamespace?: string;
-    /**
-     * When true, a prior ctx stage produced `inputs.executorRequest` and
-     * `inputs.distilledContext`.
-     */
-    hasDistilledContext?: boolean;
-    /** Optional override for the `rlm/task-actor.md` template source. */
+    /** Optional override for the `rlm/executor.md` template source. */
     templateOverride?: string;
     /** Optional per-primitive override map keyed by primitive id. */
     primitiveOverrides?: ReadonlyMap<string, readonly string[]>;
@@ -586,12 +399,7 @@ export function axBuildTaskActorDefinition(
   const contextVarList =
     contextFields.length > 0
       ? contextFields
-          .map((f) => {
-            const typeStr = toFieldType(f.type);
-            const optionality = f.isOptional ? 'optional' : 'required';
-            const desc = f.description ? `: ${f.description}` : '';
-            return `- \`${f.name}\` -> \`inputs.${f.name}\` (${typeStr}, ${optionality})${desc}`;
-          })
+          .map((f) => `- \`${f.name}\` -> \`inputs.${f.name}\``)
           .join('\n')
       : '(none)';
 
@@ -612,7 +420,6 @@ export function axBuildTaskActorDefinition(
   );
   const agentModuleNamespace = options.agentModuleNamespace ?? 'agents';
   const discoveryMode = Boolean(options.discoveryMode);
-  const agentIdentityText = renderAgentIdentity(options.agentIdentity);
   const availableModules: AvailableModule[] = options.availableModules
     ? [...options.availableModules].sort((a, b) =>
         a.namespace.localeCompare(b.namespace)
@@ -627,22 +434,22 @@ export function axBuildTaskActorDefinition(
         .map((namespace) => ({ namespace }));
 
   const actorBody = renderPromptTemplate(
-    'rlm/task-actor.md',
+    'rlm/executor.md',
     {
       contextVarList,
-      hasAgentIdentity: agentIdentityText.length > 0,
-      agentIdentityText,
       responderOutputFieldTitles,
       promptLevel: options.promptLevel ?? 'default',
       llmQueryPromptMode: options.llmQueryPromptMode ?? 'simple',
       discoveryMode,
       hasInspectRuntime: Boolean(options.hasInspectRuntime),
       primitivesList: renderPrimitivesList(
-        'task',
+        'executor',
         {
           hasInspectRuntime: Boolean(options.hasInspectRuntime),
           hasAgentStatusCallback: Boolean(options.hasAgentStatusCallback),
           discoveryMode,
+          skillsMode: Boolean(options.skillsMode),
+          memoriesMode: Boolean(options.memoriesMode),
         },
         options.primitiveOverrides
       ),
@@ -683,13 +490,15 @@ export function axBuildTaskActorDefinition(
       runtimeUsageInstructions: String(options.runtimeUsageInstructions ?? ''),
       hasDiscoveredDocs: Boolean(options.discoveredDocsMarkdown),
       discoveredDocsMarkdown: String(options.discoveredDocsMarkdown ?? ''),
+      hasSkills: Boolean(options.skillsMarkdown),
+      skillsMarkdown: String(options.skillsMarkdown ?? ''),
+      memoriesMode: Boolean(options.memoriesMode),
       enforceIncrementalConsoleTurns: Boolean(
         options.enforceIncrementalConsoleTurns
       ),
       hasLiveRuntimeState: Boolean(options.hasLiveRuntimeState),
       hasCompressedActionReplay: Boolean(options.hasCompressedActionReplay),
       hasAgentStatusCallback: Boolean(options.hasAgentStatusCallback),
-      hasDistilledContext: Boolean(options.hasDistilledContext),
     },
     options.templateOverride
   )

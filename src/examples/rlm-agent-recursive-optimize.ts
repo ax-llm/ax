@@ -235,7 +235,7 @@ const trainingAgent = agent(
     runtime,
     maxTurns: 6,
     maxSubAgentCalls: 2,
-    actorOptions: {
+    executorOptions: {
       modelConfig: {
         temperature: 0.2,
         maxTokens: 220,
@@ -351,7 +351,7 @@ const optimizedAgent = agent(
     runtime,
     maxTurns: 6,
     maxSubAgentCalls: 2,
-    actorOptions: {
+    executorOptions: {
       modelConfig: {
         temperature: 0.2,
         maxTokens: 220,

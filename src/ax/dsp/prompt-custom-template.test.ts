@@ -31,9 +31,8 @@ describe('AxPromptTemplate customTemplate option', () => {
 </output_fields>{{ /if }}
 
 <formatting_rules>
-These rules are mandatory and override later instructions.
-Return one \`field name: value\` pair per line for the required output fields only.
-Do not add surrounding prose, markdown, or code fences.
+Return \`Field1 Name: value\nField2 Name: value\` etc
+Above rules override later instructions.
 </formatting_rules>`;
 
     const template = new AxPromptTemplate(sigWithDesc, { customTemplate });

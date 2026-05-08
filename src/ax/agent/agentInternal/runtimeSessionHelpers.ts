@@ -126,7 +126,7 @@ export function buildInspectHelpers(deps: InspectHelpersDeps): InspectHelpers {
       });
       return typeof result === 'string' ? result : String(result);
     } catch (err) {
-      return `[inspect_runtime error: ${err instanceof Error ? err.message : String(err)}]`;
+      return `[inspectRuntime error: ${err instanceof Error ? err.message : String(err)}]`;
     }
   };
 
@@ -186,6 +186,7 @@ export function prepareRestoredState(
     })),
     checkpointState: state.checkpointState,
     discoveryPromptState: state.discoveryPromptState,
+    skillsPromptState: state.skillsPromptState,
     provenance: { ...(state.provenance ?? {}) },
     actorModelState: normalizeRestoredActorModelState(state.actorModelState),
   };

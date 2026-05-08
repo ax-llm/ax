@@ -28,7 +28,7 @@ const mathAgent = agent(
   {
     ai: llm,
     functions: tools,
-    actorOptions: {
+    executorOptions: {
       description:
         'You are a precise math assistant. Use tools for any arithmetic. Provide a concise final answer and a short rationale.',
     },

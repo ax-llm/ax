@@ -2,10 +2,11 @@
 // Auto-generated index file - Do not edit
 
 import type {
-  AxActorDefinitionBuildOptions,
-  AxAgentActorResultPayload,
+  AxAgentExecutorResultPayload,
+  AxAgentFunctionCall,
   AxAgentFunctionCallRecorder,
   AxAgentGuidanceState,
+  AxAgentOnFunctionCall,
   AxAgentOptimizationTargetDescriptor,
   AxAgentRuntimeCompletionState,
   AxAgentRuntimeExecutionContext,
@@ -14,10 +15,12 @@ import type {
   AxLlmQueryBudgetState,
   AxLlmQueryPromptMode,
   AxMutableDiscoveryPromptState,
+  AxMutableSkillsPromptState,
   AxPreparedRestoredState,
-  AxResolvedActorModelPolicy,
-  AxResolvedActorModelPolicyEntry,
   AxResolvedContextPolicy,
+  AxResolvedExecutorModelPolicy,
+  AxResolvedExecutorModelPolicyEntry,
+  AxStageDefinitionBuildOptions,
 } from './agent/agentInternal/agentInternalTypes.js';
 import type {
   AxAgentDemos,
@@ -36,15 +39,15 @@ import type {
   AxAgentOptions,
   AxAgentRecursionOptions,
   AxNormalizedAgentEvalDataset,
+  AxStageOptions,
 } from './agent/agentInternal/agentOptimizeTypes.js';
 import {
-  type AxActorModelPolicy,
-  type AxActorModelPolicyEntry,
   type AxAgentClarification,
   type AxAgentClarificationChoice,
   AxAgentClarificationError,
   type AxAgentClarificationKind,
   type AxAgentDiscoveryPromptState,
+  type AxAgentExecutorTurnCallbackArgs,
   type AxAgentFunction,
   type AxAgentFunctionCollection,
   type AxAgentFunctionExample,
@@ -54,24 +57,35 @@ import {
   type AxAgentIdentity,
   type AxAgentInputUpdateCallback,
   type AxAgentic,
+  type AxAgentSkillsPromptState,
   type AxAgentState,
   type AxAgentStateActionLogEntry,
-  type AxAgentStateActorModelState,
   type AxAgentStateCheckpointState,
+  type AxAgentStateExecutorModelState,
   type AxAgentStateRuntimeEntry,
   type AxAgentStructuredClarification,
   type AxAgentTestCompletionPayload,
   type AxAgentTestResult,
-  type AxAgentTurnCallbackArgs,
   type AxAnyAgentic,
   type AxContextFieldInput,
   type AxContextFieldPromptConfig,
+  type AxExecutorModelPolicy,
+  type AxExecutorModelPolicyEntry,
 } from './agent/agentInternal/agentStateTypes.js';
 import {
   AxAgent,
   type AxAgentConfig,
   agent,
 } from './agent/agentInternal/coordinator.js';
+import type { AxAgentMemoryEntry } from './agent/agentInternal/memoriesHelpers.js';
+import type {
+  AxAgentMemoriesSearchFn,
+  AxAgentMemoryResult,
+} from './agent/agentInternal/memoriesTypes.js';
+import type {
+  AxAgentSkillResult,
+  AxAgentSkillsSearchFn,
+} from './agent/agentInternal/skillsTypes.js';
 import type {
   AxAgentRecursiveExpensiveNode,
   AxAgentRecursiveFunctionCall,
@@ -97,10 +111,9 @@ import {
   type AxContextPolicyConfig,
   type AxContextPolicyPreset,
   type AxRLMConfig,
-  axBuildActorDefinition,
-  axBuildContextActorDefinition,
+  axBuildDistillerDefinition,
+  axBuildExecutorDefinition,
   axBuildResponderDefinition,
-  axBuildTaskActorDefinition,
 } from './agent/rlm.js';
 import {
   type AxRuntimePrimitive,
@@ -772,7 +785,6 @@ import type {
   AxGenOut,
   AxGenOutput,
   AxGenStreamingOut,
-  AxMessage,
   AxNamedProgramInstance,
   AxProgramDemos,
   AxProgramExamples,
@@ -1082,10 +1094,9 @@ export { axAnalyzeChatPromptRequirements };
 export { axAnalyzeRequestRequirements };
 export { axBaseAIDefaultConfig };
 export { axBaseAIDefaultCreativeConfig };
-export { axBuildActorDefinition };
-export { axBuildContextActorDefinition };
+export { axBuildDistillerDefinition };
+export { axBuildExecutorDefinition };
 export { axBuildResponderDefinition };
-export { axBuildTaskActorDefinition };
 export { axCheckMetricsHealth };
 export { axCreateDefaultColorLogger };
 export { axCreateDefaultOptimizerColorLogger };
@@ -1351,10 +1362,6 @@ export type { AxAIWebLLMEmbedRequest };
 export type { AxAIWebLLMEmbedResponse };
 export type { AxAPI };
 export type { AxAPIConfig };
-export type { AxActorDefinitionBuildOptions };
-export type { AxActorModelPolicy };
-export type { AxActorModelPolicyEntry };
-export type { AxAgentActorResultPayload };
 export type { AxAgentClarification };
 export type { AxAgentClarificationChoice };
 export type { AxAgentClarificationKind };
@@ -1366,7 +1373,10 @@ export type { AxAgentEvalDataset };
 export type { AxAgentEvalFunctionCall };
 export type { AxAgentEvalPrediction };
 export type { AxAgentEvalTask };
+export type { AxAgentExecutorResultPayload };
+export type { AxAgentExecutorTurnCallbackArgs };
 export type { AxAgentFunction };
+export type { AxAgentFunctionCall };
 export type { AxAgentFunctionCallRecorder };
 export type { AxAgentFunctionCollection };
 export type { AxAgentFunctionExample };
@@ -1383,6 +1393,10 @@ export type { AxAgentJudgeEvalOutput };
 export type { AxAgentJudgeInput };
 export type { AxAgentJudgeOptions };
 export type { AxAgentJudgeOutput };
+export type { AxAgentMemoriesSearchFn };
+export type { AxAgentMemoryEntry };
+export type { AxAgentMemoryResult };
+export type { AxAgentOnFunctionCall };
 export type { AxAgentOptimizationTargetDescriptor };
 export type { AxAgentOptimizeOptions };
 export type { AxAgentOptimizeResult };
@@ -1400,15 +1414,17 @@ export type { AxAgentRecursiveUsage };
 export type { AxAgentRuntimeCompletionState };
 export type { AxAgentRuntimeExecutionContext };
 export type { AxAgentRuntimeInputState };
+export type { AxAgentSkillResult };
+export type { AxAgentSkillsPromptState };
+export type { AxAgentSkillsSearchFn };
 export type { AxAgentState };
 export type { AxAgentStateActionLogEntry };
-export type { AxAgentStateActorModelState };
 export type { AxAgentStateCheckpointState };
+export type { AxAgentStateExecutorModelState };
 export type { AxAgentStateRuntimeEntry };
 export type { AxAgentStructuredClarification };
 export type { AxAgentTestCompletionPayload };
 export type { AxAgentTestResult };
-export type { AxAgentTurnCallbackArgs };
 export type { AxAgentUsage };
 export type { AxAgentic };
 export type { AxAnyAgentic };
@@ -1478,6 +1494,8 @@ export type { AxErrorCategory };
 export type { AxEvaluateArgs };
 export type { AxExample };
 export type { AxExamples };
+export type { AxExecutorModelPolicy };
+export type { AxExecutorModelPolicyEntry };
 export type { AxField };
 export type { AxFieldOptions };
 export type { AxFieldProcessor };
@@ -1596,7 +1614,6 @@ export type { AxMCPToolsListResult };
 export type { AxMCPTransport };
 export type { AxMemoryData };
 export type { AxMemoryMessageValue };
-export type { AxMessage };
 export type { AxMetricFn };
 export type { AxMetricFnArgs };
 export type { AxMetricsConfig };
@@ -1608,6 +1625,7 @@ export type { AxModelUsage };
 export type { AxMultiMetricFn };
 export type { AxMultiProviderConfig };
 export type { AxMutableDiscoveryPromptState };
+export type { AxMutableSkillsPromptState };
 export type { AxNamedProgramInstance };
 export type { AxNormalizedAgentEvalDataset };
 export type { AxOptimizableComponent };
@@ -1644,9 +1662,9 @@ export type { AxRateLimiterTokenUsageOptions };
 export type { AxRenderedPrompt };
 export type { AxRerankerIn };
 export type { AxRerankerOut };
-export type { AxResolvedActorModelPolicy };
-export type { AxResolvedActorModelPolicyEntry };
 export type { AxResolvedContextPolicy };
+export type { AxResolvedExecutorModelPolicy };
+export type { AxResolvedExecutorModelPolicyEntry };
 export type { AxResponseHandlerArgs };
 export type { AxResultPickerFunction };
 export type { AxResultPickerFunctionFieldResults };
@@ -1663,6 +1681,8 @@ export type { AxSerializedOptimizedProgram };
 export type { AxSetExamplesOptions };
 export type { AxSignatureConfig };
 export type { AxSimpleClassifierForwardOptions };
+export type { AxStageDefinitionBuildOptions };
+export type { AxStageOptions };
 export type { AxStepContext };
 export type { AxStepHooks };
 export type { AxStepUsage };

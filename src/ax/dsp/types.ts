@@ -112,19 +112,6 @@ export type AxGenIn = { [key: string]: AxFieldValue };
 
 export type AxGenOut = { [key: string]: AxFieldValue };
 
-/**
- * @deprecated AxMessage will be updated to a new design within this major version.
- * The current structure will be replaced in v15.0.0.
- *
- * Migration timeline:
- * - v14.0.0+: Deprecation warnings (current)
- * - v14.x: New message design introduced alongside existing
- * - v15.0.0: Complete replacement with new design
- */
-export type AxMessage<IN> =
-  | { role: 'user'; values: IN }
-  | { role: 'assistant'; values: IN };
-
 export type AxProgramTrace<IN, OUT> = {
   trace: OUT & Partial<IN>;
   programId: string;
@@ -300,13 +287,13 @@ export type AxSetExamplesOptions = {
 export interface AxForwardable<IN, OUT, TModelKey> {
   forward(
     ai: Readonly<AxAIService>,
-    values: IN | AxMessage<IN>[],
+    values: IN,
     options?: Readonly<AxProgramForwardOptions<TModelKey>>
   ): Promise<OUT>;
 
   streamingForward(
     ai: Readonly<AxAIService>,
-    values: IN | AxMessage<IN>[],
+    values: IN,
     options?: Readonly<AxProgramStreamingForwardOptions<TModelKey>>
   ): AxGenStreamingOut<OUT>;
 }
@@ -354,6 +341,7 @@ export type AxAgentUsage = {
 
 export interface AxUsable {
   getUsage(): AxProgramUsage[] | AxAgentUsage;
+  getChatLog(): readonly AxChatLogEntry[];
   resetUsage(): void;
 }
 
@@ -386,6 +374,8 @@ export type AxChatLogMessage =
  * with normalized roles and inline XML formatting.
  */
 export type AxChatLogEntry = {
+  /** Optional composite-program label for the program/node that produced this chat round trip. */
+  name?: string;
   model: string;
   messages: AxChatLogMessage[];
   modelUsage?: AxChatResponse['modelUsage'];

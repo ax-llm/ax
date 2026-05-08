@@ -17,3 +17,10 @@ You synthesize the final answer from the evidence the actor gathered. You do not
 
 ### Context variables that were analyzed (metadata only)
 {{ contextVarSummary }}
+{{ if hasAgentIdentity }}
+
+### Agent Identity
+
+User-facing identity:
+{{ agentIdentityText }}
+{{ /if }}

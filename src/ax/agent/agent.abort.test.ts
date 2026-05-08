@@ -39,7 +39,7 @@ describe('AxAgent.stop()', () => {
       chatResponse: async (req): Promise<AxChatResponse> => {
         const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
 
-        if (systemPrompt.includes('Code Generation Agent')) {
+        if (systemPrompt.includes('You (`executor`)')) {
           actorCallCount++;
           // Always return code (never final()) so the loop continues
           return {
@@ -110,7 +110,7 @@ describe('AxAgent.stop()', () => {
       chatResponse: async (req): Promise<AxChatResponse> => {
         const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
 
-        if (systemPrompt.includes('Code Generation Agent')) {
+        if (systemPrompt.includes('You (`executor`)')) {
           actorCallCount++;
           if (actorCallCount === 1) {
             controller.abort('external abort');
@@ -193,7 +193,7 @@ describe('AxAgent.stop()', () => {
       chatResponse: async (req): Promise<AxChatResponse> => {
         const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
 
-        if (systemPrompt.includes('Code Generation Agent')) {
+        if (systemPrompt.includes('You (`executor`)')) {
           return {
             results: [
               {
@@ -316,7 +316,7 @@ describe('AxAgent.stop()', () => {
       chatResponse: async (req): Promise<AxChatResponse> => {
         const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
 
-        if (systemPrompt.includes('Context Understanding Agent')) {
+        if (systemPrompt.includes('You (`distiller`)')) {
           // Deliberately slow so stop() wins the race
           await new Promise((resolve) => setTimeout(resolve, 50));
           return {

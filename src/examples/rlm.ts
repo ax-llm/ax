@@ -23,7 +23,7 @@ const analyzer = agent(
       // Optional, least-privilege sandbox permissions.
       permissions: [AxJSRuntimePermission.TIMING],
     }),
-    actorOptions: {
+    executorOptions: {
       thinkingTokenBudget: 'minimal',
     },
     maxSubAgentCalls: 30,
@@ -46,7 +46,7 @@ const analyzer = agent(
 // Type-safe demos for the Actor/Responder split architecture.
 // Each demo trace must include at least one input AND one output field.
 // Actor inputs: query, contextMetadata, actionLog → output: javascriptCode
-// Responder inputs: query, contextMetadata, actorResult → outputs: answer, evidence
+// Responder inputs: query, contextMetadata, executorResult → outputs: answer, evidence
 const _demos = [
   {
     programId: 'root.actor' as const,

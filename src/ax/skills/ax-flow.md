@@ -361,6 +361,17 @@ wf.setDemos([{ programId: 'root.summarizer', traces: [] }]);
 wf.applyOptimization(optimizedProgram);
 ```
 
+## Chat Logs
+
+`AxFlow.getChatLog()` returns a flat `readonly AxChatLogEntry[]` after `forward()`. Each child-node entry is tagged with `entry.name` so callers can filter by node:
+
+```typescript
+const log = wf.getChatLog();
+for (const entry of log) {
+  console.log(entry.name, entry.model);
+}
+```
+
 ## Error Handling
 
 ```typescript

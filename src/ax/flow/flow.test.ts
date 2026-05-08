@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AxMockAIService } from '../ai/mock/api.js';
 
-import { flow, AxFlow } from './flow.js';
+import { AxFlow, flow } from './flow.js';
 
 describe('AxFlow', () => {
   let mockAI: AxMockAIService;
@@ -30,6 +30,63 @@ describe('AxFlow', () => {
     it('should create an AxFlow instance with custom options', () => {
       const myFlow = flow({ autoParallel: false });
       expect(myFlow).toBeInstanceOf(AxFlow);
+    });
+  });
+
+  describe('chat logs', () => {
+    it('returns flat node-named chat logs and resets them per forward', async () => {
+      let callCount = 0;
+      const ai = new AxMockAIService({
+        features: { functions: false, streaming: false },
+        chatResponse: async () => {
+          callCount++;
+          return {
+            results: [
+              {
+                index: 0,
+                content:
+                  callCount % 2 === 1
+                    ? 'First Text: first'
+                    : 'Second Text: second',
+                finishReason: 'stop' as const,
+              },
+            ],
+            modelUsage: {
+              ai: 'mock',
+              model: 'test',
+              tokens: {
+                promptTokens: 10,
+                completionTokens: 5,
+                totalTokens: 15,
+              },
+            },
+          };
+        },
+      });
+
+      const wf = flow<{ inputText: string }, { finalText: string }>({
+        autoParallel: false,
+      })
+        .node('first', 'inputText:string -> firstText:string')
+        .node('second', 'inputText:string -> secondText:string')
+        .execute('first', (state) => ({ inputText: state.inputText }))
+        .execute('second', (state) => ({ inputText: state.inputText }))
+        .returns((state) => ({
+          finalText: state.secondResult.secondText,
+        }));
+
+      await wf.forward(ai, { inputText: 'hello' });
+      expect(wf.getChatLog().map((entry) => entry.name)).toEqual([
+        'first',
+        'second',
+      ]);
+
+      await wf.forward(ai, { inputText: 'again' });
+      expect(wf.getChatLog()).toHaveLength(2);
+      expect(wf.getChatLog().map((entry) => entry.name)).toEqual([
+        'first',
+        'second',
+      ]);
     });
   });
 

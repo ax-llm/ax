@@ -27,9 +27,10 @@ Your job is not just to write valid code. Your job is to choose the smallest cor
 - Prefer `promptLevel: 'default'` for normal use; use `promptLevel: 'detailed'` when you want extra anti-pattern examples and tighter teaching scaffolding in the actor prompt.
 - Default to `contextPolicy: { preset: 'checkpointed', budget: 'balanced' }` for most RLM tasks.
 - Prefer `contextPolicy: { preset: 'adaptive', budget: 'balanced' }` when older successful turns should collapse sooner while live runtime state stays visible.
-- Prefer `actorModelPolicy` when the actor may need to upgrade after repeated error turns or discovery in specific namespaces without also upgrading the responder.
-- Use `actorTurnCallback` when the user needs per-turn observability into generated code, raw runtime result, formatted output, or provider thoughts.
+- Prefer `executorModelPolicy` when the actor may need to upgrade after repeated error turns or discovery in specific namespaces without also upgrading the responder.
+- Use `executorTurnCallback` when the user needs per-turn observability into generated code, raw runtime result, formatted output, or provider thoughts.
 - Use `agentStatusCallback` when the user wants real-time task progress updates from the actor via `await success(message)` and `await failed(message)` calls.
+- Use `onFunctionCall` when the user wants to observe every function the actor invokes from the JS runtime (their own registered functions plus internal globals like child agents, `discoverModules`, `discoverFunctions`, `consult`).
 
 ## Decision Guide
 
@@ -40,10 +41,12 @@ Map user intent to agent shape before writing code:
 - "Delegate focused semantic subtasks" -> use `llmQuery(...)`; add `mode: 'advanced'` only when child tasks need their own runtime, tools, or discovery loop.
 - "Need child agents with distinct responsibilities" -> use `agents.local`, and add `fields.shared` only when parent inputs truly need to flow into children.
 - "Need tool discovery because names/schemas are not stable" -> use `functions.discovery: true` and generate discovery-first code.
-- "Need a stronger actor only when the run gets noisy or large" -> use `actorModelPolicy` and keep the responder model separate.
-- "Need debugging or traceability" -> start with `debug: true` or `actorTurnCallback`; do not add both unless the user clearly wants both prompt/runtime visibility and structured telemetry.
+- "Need a stronger actor only when the run gets noisy or large" -> use `executorModelPolicy` and keep the responder model separate.
+- "Need debugging or traceability" -> start with `debug: true` or `executorTurnCallback`; do not add both unless the user clearly wants both prompt/runtime visibility and structured telemetry.
 - "Need real-time progress updates" -> add `agentStatusCallback` so the actor can call `await success(message)` and `await failed(message)` to report sub-task progress.
+- "Need to log/trace every tool call" -> add `onFunctionCall` to receive `{ name, qualifiedName, args, kind }` for each function invoked by the runtime; `kind` is `'external'` for caller-registered functions and `'internal'` for agent-injected ones (child agents, discovery, skills loader).
 - "Need certain errors to escape the agent loop" -> add `bubbleErrors` with an array of error classes; those errors propagate through function handlers, actor code, and llmQuery sub-agents all the way to `.forward()`.
+- "Need to pull relevant memories into context" -> add `onMemoriesSearch` with a vector/BM25 search callback; the distiller and executor gain `await recall(searches)` (returns void; results land on `inputs.memories` next turn) and an `inputs.memories` field.
 
 Choose options based on user needs, not feature completeness:
 
@@ -56,14 +59,14 @@ Choose options based on user needs, not feature completeness:
 `AxAgent` is a three-stage pipeline. Each `forward()` call walks (some subset of) the stages in order:
 
 ```
-contextExplorer (RLM actor)  →  taskExecutor (RLM actor)  →  finalResponder (synthesizer)
+distiller (RLM actor)  →  executor (RLM actor)  →  responder (synthesizer)
 ```
 
-- **contextExplorer** runs only when `contextFields` are configured. It sees all original inputs so it can understand the task, while declared context fields stay runtime-only. It distils long-context inputs into evidence by writing JS code in a multi-turn loop, then calls `final(request, evidence)`. In the staged context flow, the request becomes the task executor's `inputs.executorRequest`; the explorer should expand the original user task with facts found in context, including follow-ups like "yes, do it".
-- **taskExecutor** always runs. With `contextFields`, it receives non-context task inputs plus `inputs.executorRequest` and `inputs.distilledContext` from the explorer's `final(request, evidence)` payload. Raw context fields are not present in the task stage. Without `contextFields`, it consumes the raw inputs directly. The executor owns tool use and decides whether to call its available functions or finish directly from the distilled evidence.
-- **finalResponder** always runs last. It synthesizes the user's output signature from whichever upstream actor finished the run.
+- **distiller** always runs first. It sees all original inputs so it can understand and normalize the task; declared `contextFields` stay runtime-only when present. It distils relevant evidence by writing JS code in a multi-turn loop, then calls `final(request, evidence)`. The request becomes the executor's `inputs.executorRequest`; the distiller should expand the original user task with facts found in context, including follow-ups like "yes, do it". When no `contextFields` are configured, it still performs request normalization over the original inputs with `contextFields: []`. **The distiller has no tools** — it only reads, narrows, and forwards. If the user asks for an action (e.g. "run a command"), the distiller forwards it via `final(request, {})`; refusing on the grounds of "no tools" is wrong.
+- **executor** always runs. It receives non-context inputs plus `inputs.executorRequest` and `inputs.distilledContext` from the distiller's `final(request, evidence)` payload. Raw context fields are not present in the executor stage. The executor owns tool use and decides whether to call its available functions or finish directly from the distilled evidence.
+- **responder** always runs last. It synthesizes the user's output signature from whichever upstream actor finished the run.
 
-Treat the actor stages (explorer, executor) as long-running JavaScript REPLs that the actor steers over multiple turns, not as fresh script generators on every turn.
+Treat both actor stages (distiller, executor) as long-running JavaScript REPLs that the actor steers over multiple turns, not as fresh script generators on every turn.
 
 - Successful code leaves variables, functions, imports, and computed values available in the runtime session.
 - The actor should continue from existing runtime state instead of recreating prior work.
@@ -100,7 +103,7 @@ Treat these knobs as a bundle:
 
 - `contextPolicy.preset` decides how much raw history the actor keeps seeing.
 - `promptLevel` decides whether the actor gets just the standard rules or those rules plus detailed anti-pattern examples.
-- `actorModelPolicy` decides when the actor switches to an override model without changing the responder.
+- `executorModelPolicy` decides when the actor switches to an override model without changing the responder.
 - Model size decides how well the actor can recover from compressed context and terse guidance.
 
 Recommended combinations:
@@ -109,7 +112,7 @@ Recommended combinations:
 - Long multi-turn task, general default, medium-to-strong model: `preset: 'checkpointed', budget: 'balanced'`.
 - Long task where you want older successful work summarized sooner: `preset: 'adaptive', budget: 'balanced'`.
 - Very long task under token pressure, stronger model only: `preset: 'lean'`.
-- Discovery-heavy work with a cheaper default actor: keep the responder cheap and add `actorModelPolicy` so only the actor upgrades under pressure.
+- Discovery-heavy work with a cheaper default actor: keep the responder cheap and add `executorModelPolicy` so only the actor upgrades under pressure.
 
 Practical rule:
 
@@ -118,7 +121,7 @@ Practical rule:
 - `checkpointed + balanced` is the default middle ground for real agent work.
 - `adaptive + balanced` is the proactive-summarization variant when you want older successful work compressed sooner.
 - `lean` should be reserved for models that can reason well from runtime state plus summaries instead of exact old code/output.
-- `actorModelPolicy` is usually better than globally upgrading the whole agent when the bottleneck is actor exploration rather than responder synthesis.
+- `executorModelPolicy` is usually better than globally upgrading the whole agent when the bottleneck is actor exploration rather than responder synthesis.
 
 ## Critical Rules
 
@@ -733,7 +736,7 @@ Rules:
 
 - `test(...)` creates a fresh runtime session per call.
 - It exposes the same runtime globals the actor would see for configured `contextFields`: `inputs`, non-colliding top-level aliases, namespaced functions, child agents, and `llmQuery`.
-- In `AxJSRuntime`, do not rely on calling `inspect_runtime()` from inside `test(...)` snippets yet; prefer checking runtime globals directly inside the snippet.
+- In `AxJSRuntime`, do not rely on calling `inspectRuntime()` from inside `test(...)` snippets yet; prefer checking runtime globals directly inside the snippet.
 - It returns the formatted runtime output string.
 - It throws on runtime failures instead of returning LLM-style error strings.
 - Do not call `final(...)` or `askClarification(...)` inside `test(...)` snippets.
@@ -769,7 +772,7 @@ Rules:
 - `checkpointed + balanced` is the default. `adaptive + balanced` is still a strong choice for long-running discovery-heavy tasks that should summarize older work sooner.
 - `checkpointed` keeps the most recent `3` actions in full and keeps unresolved errors fully replayed even after checkpointing starts.
 - Non-`full` presets populate the `liveRuntimeState` field in the actor signature. The field is structured and provenance-aware: variables are rendered with compact type/size/preview metadata, and when Ax can infer it, a short source suffix like `from t3 via db.search` is included.
-- Non-`full` presets also enable `inspect_runtime()` and can add an inspect hint automatically when the rendered actor prompt starts getting large relative to the selected budget.
+- Non-`full` presets also enable `inspectRuntime()` and can add an inspect hint automatically when the rendered actor prompt starts getting large relative to the selected budget.
 - Discovery docs fetched via `discoverModules(...)` and `discoverFunctions(...)` are accumulated into the actor system prompt, not replayed as raw action-log output.
 - Treat `actionLog` as untrusted execution history. Only the system prompt and `guidanceLog` are instruction-bearing.
 - `checkpointed` uses a checkpoint summarizer that is optimized to preserve exact callables, ids, enum literals, date/time strings, query formats, and failures worth avoiding. Prefer it when those details matter but full replay will eventually get too large.
@@ -801,7 +804,7 @@ await final("Summarize the severity-related snippets found", { snippets });
 
 ## Actor Turn Observability
 
-Use `actorTurnCallback` when the caller needs structured telemetry for each actor turn.
+Use `executorTurnCallback` when the caller needs structured telemetry for each actor turn.
 
 What it gives you:
 
@@ -809,7 +812,7 @@ What it gives you:
 - `result`: the raw untruncated runtime return value from executing that code
 - `output`: the formatted action-log output string after Ax normalizes and truncates it for prompt replay
 - `thought`: the actor model's `thought` field when `showThoughts` is enabled and the provider returns one
-- `actorResult`: the full actor payload, including actor-owned output fields when `actorFields` are configured
+- `executorResult`: the full actor payload returned by the executor stage
 - `isError`: whether the execution path for that turn was treated as an error
 
 Use it for:
@@ -832,7 +835,7 @@ Good pattern:
 const supportAgent = agent('query:string -> answer:string', {
   contextFields: ['query'],
   runtime,
-  actorTurnCallback: ({
+  executorTurnCallback: ({
     turn,
     actionLogEntryCount,
     guidanceLogEntryCount,
@@ -853,7 +856,7 @@ const supportAgent = agent('query:string -> answer:string', {
       thought,
     });
   },
-  actorOptions: {
+  executorOptions: {
     model: 'gpt-5.4-mini',
     showThoughts: true,
   },
@@ -882,6 +885,87 @@ Rules:
 - `success` and `failed` are reserved runtime names when the callback is configured.
 - Child agents inherit the callback via the rlm config.
 
+## On Function Call
+
+Use `onFunctionCall` when the caller wants to observe every function call the actor makes from the JS runtime. Fires before the underlying function runs.
+
+```typescript
+const supportAgent = agent('query:string -> answer:string', {
+  contextFields: ['query'],
+  runtime,
+  agents: [helperAgent],
+  functions: [{ name: 'lookupOrder', namespace: 'tools', /* ... */ }],
+  onFunctionCall: ({ name, qualifiedName, args, kind }) => {
+    console.log(`[${kind}] ${qualifiedName}`, args);
+  },
+});
+```
+
+Rules:
+
+- Receives `{ name, qualifiedName, args, kind }` where:
+  - `name` is the bare function name (e.g. `'lookupOrder'`).
+  - `qualifiedName` is the namespaced name as the actor sees it (e.g. `'tools.lookupOrder'`); for un-namespaced runtime globals it equals `name`.
+  - `args` is the resolved positional/named arguments object (`Record<string, unknown>`).
+  - `kind` is `'external'` for caller-registered `functions`, `'internal'` for agent-injected globals: child `agents`, `discoverModules`, `discoverFunctions` (when `functionDiscovery: true`), and `consult` (when `onSkillsSearch` is set).
+- Fires once per call, before the function executes. Errors thrown inside the callback are swallowed so they cannot break the actor loop.
+- Independent from the DSP-layer `onFunctionCall` on `AxProgramForwardOptions` — that hook is for LLM tool-calls and never fires under AxAgent (the agent injects functions as runtime globals, not as LLM tools).
+
+## Memory Search
+
+Use `onMemoriesSearch` when the agent needs to pull task-relevant context — user preferences, prior decisions, project facts, past conversations — from an external store (vector DB, BM25, KV) instead of stuffing everything into the prompt upfront. The actor decides what to load, when, and how much.
+
+When `onMemoriesSearch` is set, the distiller and executor stages gain:
+
+1. An `inputs.memories` field — an array of `{ id, content }` entries the actor reads directly. Each `content` is opaque markdown (frontmatter, if any, is not parsed).
+2. A `recall(searches: string[]): void` global the actor `await`s to load more entries. Recalled entries are appended to `inputs.memories` and visible from the next turn onward — similar to how `guidance` accumulates. **`recall()` returns nothing**; read `inputs.memories` next turn to see what landed.
+
+The responder stage does not receive memories.
+
+### Enabling
+
+```typescript
+import { agent } from '@ax-llm/ax';
+import type { AxAgentMemoriesSearchFn } from '@ax-llm/ax';
+
+// Each result must be { id: string; content: string }
+const onMemoriesSearch: AxAgentMemoriesSearchFn = async (searches) => {
+  // Batch all queries in one round-trip — `searches` is the full array
+  // passed to recall(...). Your vector DB / BM25 / KV lookup goes here.
+  return myVectorDB.searchBatch(searches, { topK: 3 });
+};
+
+const myAgent = agent({
+  // ...
+  onMemoriesSearch,
+});
+```
+
+### Actor usage (distiller or executor code)
+
+```javascript
+// Turn 1: kick off a batched lookup. Pass all queries in one call —
+// don't loop or use Promise.all (the runtime rejects that as a policy
+// violation; your callback should fan out internally).
+await recall(['user preferences', 'project constraints']);
+
+// Turn 2+: matched entries are now visible on `inputs.memories`.
+const prefs = inputs.memories.find(m => m.id === 'user-prefs-v2');
+```
+
+### Behaviour
+
+- `recall()` invokes `onMemoriesSearch` with the raw search strings and returns `void`. Results land on `inputs.memories` for subsequent turns.
+- Entries are **deduped by `id`** (last-write-wins) and **sorted by `id`** for prefix-cache stability.
+- Memories loaded by the distiller **thread automatically to the executor** — no second `recall()` needed for those entries.
+- `recall()` may be called multiple times per turn; results accumulate. The merge dedupes against existing entries, so re-running the same search is cheap.
+- **Lifetime is one `.forward()` call.** `inputs.memories` resets between calls. To carry memories across calls, persist them in your store and recall them again on the next call.
+- The caller can inspect what was loaded after a run via the `forward()` result's `results: AxAgentMemoryResult[]` field — useful for analytics or feedback loops.
+
+### Child agents
+
+Child agents do **not** inherit `onMemoriesSearch` automatically. If a recursive `llmQuery` advanced child or a registered child agent should also have `recall()`, set `onMemoriesSearch` on that agent's options explicitly.
+
 ## Option Layout
 
 Use these top-level controls consistently:
@@ -891,10 +975,12 @@ Use these top-level controls consistently:
 - `maxSubAgentCalls`: shared delegated-call budget across the whole run, including recursive children
 - `maxRuntimeChars`: runtime/output truncation ceiling for console logs, tool results, and interpreter output replay. The actual limit is computed dynamically each turn based on remaining context budget (see **Dynamic Output Truncation** below)
 - `summarizerOptions`: default model/options for the internal checkpoint summarizer
-- `actorOptions`: actor-only forward options such as `description`, `model`, `modelConfig`, `thinkingTokenBudget`, and `showThoughts`
-- `actorModelPolicy`: actor-only model override rules based on consecutive error turns or discovery fetches from listed namespaces
-- `responderOptions`: responder-only forward options
+- `contextOptions`: distiller-stage forward options (description, model, maxTurns, etc.). One of three peer stage-config bags.
+- `executorOptions`: executor-stage forward options such as `description`, `model`, `modelConfig`, `thinkingTokenBudget`, and `showThoughts`
+- `executorModelPolicy`: executor-only model override rules based on consecutive error turns or discovery fetches from listed namespaces
+- `responderOptions`: responder-stage forward options
 - `agentStatusCallback`: real-time progress updates from actor via `success(message)` and `failed(message)`
+- `onFunctionCall`: observe every runtime function call (`{ name, qualifiedName, args, kind: 'internal' | 'external' }`)
 - `judgeOptions`: built-in judge options for `agent.optimize(...)`; for tuning workflows use the `ax-agent-optimize` skill
 - `bubbleErrors`: error classes that propagate out of function handlers, actor code, and llmQuery sub-agents directly to `.forward()` instead of being caught and returned as `[ERROR]` strings
 
@@ -917,11 +1003,15 @@ const researchAgent = agent('query:string -> answer:string', {
     preset: 'checkpointed',
     budget: 'balanced',
   },
-  actorOptions: {
+  contextOptions: {
+    model: 'gpt-5.4-mini',
+    maxTurns: 3,
+  },
+  executorOptions: {
     description: 'Use tools first and keep JS steps small.',
     model: 'gpt-5.4-mini',
   },
-  actorModelPolicy: [
+  executorModelPolicy: [
     {
       model: 'gpt-5.4',
       aboveErrorTurns: 2,
@@ -939,10 +1029,10 @@ Semantics:
 - `mode` stays top-level; there is no `recursionOptions.mode`.
 - `maxRuntimeChars` sets the truncation ceiling and is separate from `contextPolicy.budget`. The effective limit per turn is computed dynamically (see below).
 - `summarizerOptions` tunes only the internal checkpoint summarizer. It does not change actor or responder model selection.
-- The current merged actor model stays the default base model. `actorModelPolicy` only overrides it when a rule matches.
-- `actorModelPolicy` only switches the actor model. It does not change `responderOptions.model`.
-- Recursive child agents can inherit `actorModelPolicy`; use a child override only when that child needs different routing behavior.
-- `actorModelPolicy` entries are ordered from weaker to stronger. If multiple rules match, the last matching entry wins.
+- The current merged actor model stays the default base model. `executorModelPolicy` only overrides it when a rule matches.
+- `executorModelPolicy` only switches the actor model. It does not change `responderOptions.model`.
+- Recursive child agents can inherit `executorModelPolicy`; use a child override only when that child needs different routing behavior.
+- `executorModelPolicy` entries are ordered from weaker to stronger. If multiple rules match, the last matching entry wins.
 - If one entry also defines `namespaces`, any successful `discoverFunctions(...)` fetch from one of those namespaces marks the rule as matched starting on the next actor turn.
 
 When choosing these options for a user:
@@ -950,8 +1040,8 @@ When choosing these options for a user:
 - Do not add `mode: 'advanced'` just because recursion exists as a feature. Add it only when delegated children need their own tool/discovery/runtime loop.
 - Do not add `recursionOptions` at all if the user does not need recursive delegation.
 - Do not add `judgeOptions` in normal agent examples; reserve that for optimize/eval workflows.
-- Keep `actorOptions` focused on actor-only forward concerns such as `description`, `model`, `modelConfig`, `thinkingTokenBudget`, and `showThoughts`.
-- Use `actorModelPolicy` when the actor is the bottleneck and you want the responder to stay fixed.
+- Keep `executorOptions` focused on actor-only forward concerns such as `description`, `model`, `modelConfig`, `thinkingTokenBudget`, and `showThoughts`.
+- Use `executorModelPolicy` when the actor is the bottleneck and you want the responder to stay fixed.
 
 ## Dynamic Output Truncation
 
@@ -970,15 +1060,17 @@ This means the actor sees structurally informative output even when the char bud
 
 Users do not need to configure this behavior — it is automatic. `maxRuntimeChars` sets the upper bound; the dynamic system only ever reduces, never exceeds it.
 
-## Actor Prompt Controls
+## Stage Prompt Controls
 
-Use `actorOptions` for actor-only forward options and `responderOptions` for responder-only tuning.
+The pipeline has three peer stage-config bags: `contextOptions` (distiller), `executorOptions` (executor), `responderOptions` (responder). Each accepts the same shape: `description`, `model`, `modelConfig`, `excludeFields`, plus other forward options.
 
 Key fields:
 
-- `actorOptions.description`: append extra actor-specific instructions without changing the responder prompt
-- `actorOptions.model` / `responderOptions.model`: split model choice across actor and responder when needed
-- `actorModelPolicy`: auto-switch only the actor when the run is on a consecutive error streak or discovery fetches land in specific namespaces
+- `contextOptions.description`: append extra distiller-specific instructions; useful for telling the distiller about domain conventions for narrowing context.
+- `executorOptions.description`: append extra executor-specific instructions; the typical place for tool-use guidance.
+- `responderOptions.description`: append extra responder-specific instructions; useful for output-formatting rules.
+- `contextOptions.model` / `executorOptions.model` / `responderOptions.model`: split model choice across the three stages.
+- `executorModelPolicy`: auto-switch only the executor when the run is on a consecutive error streak or discovery fetches land in specific namespaces.
 
 Good split-model pattern:
 
@@ -987,7 +1079,7 @@ const researchAgent = agent('query:string -> answer:string', {
   contextFields: ['query'],
   runtime,
   contextPolicy: { preset: 'checkpointed', budget: 'balanced' },
-  actorOptions: {
+  executorOptions: {
     model: 'gpt-5.4',
   },
   responderOptions: {
@@ -1001,8 +1093,8 @@ Model guidance:
 - Put the stronger model on the actor when the task depends on multi-turn exploration, discovery, runtime state reuse, or compressed replay.
 - Put the stronger model on the responder only when the hard part is final synthesis/formatting rather than exploration.
 - For cost-sensitive setups, a common pattern is stronger actor + cheaper responder, not the other way around.
-- Prefer `actorModelPolicy` over globally upgrading the whole agent when the actor only needs help after context grows or the run starts thrashing.
-- Pair `contextPolicy: { preset: 'checkpointed', budget: 'balanced' }` with `actorModelPolicy` when you want full replay first and actor-only upgrades triggered by errors or discovered tool domains.
+- Prefer `executorModelPolicy` over globally upgrading the whole agent when the actor only needs help after context grows or the run starts thrashing.
+- Pair `contextPolicy: { preset: 'checkpointed', budget: 'balanced' }` with `executorModelPolicy` when you want full replay first and actor-only upgrades triggered by errors or discovered tool domains.
 
 Invalid pattern:
 
@@ -1213,9 +1305,20 @@ agentIdentity?: {
 
 ### `AxAgentOptions`
 
+Each `contextFields` entry is either a plain field name string or an object controlling how much of the value is inlined into the distiller prompt:
+
+- `{ field, promptMaxChars: N }` — **threshold inline**: inlined only when the value's serialized size ≤ N chars; omitted entirely (runtime-only) when larger. Works with any value type.
+- `{ field, keepInPromptChars: N, reverseTruncate?: boolean }` — **guaranteed excerpt**: always inlined, truncated to N chars with a `...[truncated M chars]` marker. `reverseTruncate: true` keeps the *last* N chars instead of the first. Requires a string value.
+
+Use `promptMaxChars` when partial data is worse than no data (e.g. JSON objects). Use `keepInPromptChars` when a prefix or suffix alone is useful (e.g. a document header, or a log tail with `reverseTruncate: true`). The two options are mutually exclusive on a single field.
+
 ```typescript
 {
-  contextFields: readonly (string | { field: string; promptMaxChars?: number })[];
+  contextFields: readonly (
+    | string
+    | { field: string; promptMaxChars?: number }
+    | { field: string; keepInPromptChars: number; reverseTruncate?: boolean }
+  )[];
 
   agents?: {
     local?: AxAnyAgentic[];
@@ -1247,12 +1350,11 @@ agentIdentity?: {
   maxRuntimeChars?: number;
   contextPolicy?: AxContextPolicyConfig;
   summarizerOptions?: Omit<AxProgramForwardOptions<string>, 'functions'>;
-  actorFields?: string[];
-  actorTurnCallback?: (turn: {
+  executorTurnCallback?: (turn: {
     turn: number;
     actionLogEntryCount: number;
     guidanceLogEntryCount: number;
-    actorResult: Record<string, unknown>;
+    executorResult: Record<string, unknown>;
     code: string;
     result: unknown;
     output: string;
@@ -1260,8 +1362,15 @@ agentIdentity?: {
     thought?: string;
   }) => void | Promise<void>;
   inputUpdateCallback?: (currentInputs: Record<string, unknown>) => Promise<Record<string, unknown> | undefined> | Record<string, unknown> | undefined;
+  onFunctionCall?: (call: {
+    name: string;
+    qualifiedName: string;
+    args: Record<string, unknown>;
+    kind: 'internal' | 'external';
+  }) => void | Promise<void>;
+  onMemoriesSearch?: AxAgentMemoriesSearchFn;  // (searches: readonly string[]) => readonly AxAgentMemoryResult[] | Promise<...>
   mode?: 'simple' | 'advanced';
-  actorModelPolicy?: readonly [
+  executorModelPolicy?: readonly [
     | {
         model: string;
         aboveErrorTurns: number;
@@ -1288,15 +1397,16 @@ agentIdentity?: {
   recursionOptions?: Partial<Omit<AxProgramForwardOptions, 'functions'>> & {
     maxDepth?: number;
   };
-  actorOptions?: Partial<AxProgramForwardOptions & { description?: string }>;
-  responderOptions?: Partial<AxProgramForwardOptions & { description?: string }>;
+  contextOptions?: AxStageOptions;
+  executorOptions?: AxStageOptions;
+  responderOptions?: AxStageOptions;
   judgeOptions?: Partial<AxJudgeOptions>;
   bubbleErrors?: ReadonlyArray<new (...args: any[]) => Error>;
 }
 ```
 
-- `actorTurnCallback` fires for the root agent and for recursive child agents that run actor turns.
-- `actorModelPolicy` applies to the actor loop and can be inherited by recursive child agents unless you override it there.
+- `executorTurnCallback` fires for the root agent and for recursive child agents that run actor turns.
+- `executorModelPolicy` applies to the actor loop and can be inherited by recursive child agents unless you override it there.
 - `namespaces` matches exact discovery namespaces from successful `discoverFunctions(...)` lookups and starts affecting model choice on the next actor turn.
 - Consecutive error turns reset after a successful non-error turn and when checkpoint summarization refreshes to a new fingerprint.
 - `maxSubAgentCalls` is a shared delegated-call budget across the entire run.
@@ -1320,25 +1430,18 @@ Constructor options for `new AxJSRuntime(opts)`. All defaults are secure — see
 
 ## Observability: getChatLog() and getUsage()
 
-`AxAgent` exposes two sub-programs (Actor and Responder). Both `getChatLog()` and `getUsage()` return an object split by role — unlike `AxGen`, which returns a flat array.
+`AxAgent` exposes actor and responder sub-programs. `getChatLog()` returns the same flat `AxChatLogEntry[]` shape as `AxGen` and `AxFlow`; use each entry's optional `name` field to distinguish `distiller`, `executor`, and `responder`. `getUsage()` still returns token usage split by actor/responder.
 
 ### getChatLog()
 
-Returns the full normalized chat history split by actor/responder after any `.forward()` call. Each entry is one `ai.chat()` round-trip. The actor accumulates one entry per turn; the responder typically has one.
+Returns the full normalized chat history after any `.forward()` call. Each entry is one `ai.chat()` round-trip. Actor stages accumulate one entry per turn; the responder typically has one entry.
 
 ```typescript
 const log = myAgent.getChatLog();
-// { actor: AxChatLogEntry[], responder: AxChatLogEntry[] }
+// readonly AxChatLogEntry[]
 
-for (const entry of log.actor) {
-  console.log('Actor model:', entry.model);
-  for (const msg of entry.messages) {
-    console.log(`[${msg.role}]`, msg.content);
-  }
-}
-
-for (const entry of log.responder) {
-  console.log('Responder model:', entry.model);
+for (const entry of log) {
+  console.log(entry.name, entry.model);
   for (const msg of entry.messages) {
     console.log(`[${msg.role}]`, msg.content);
   }
@@ -1355,9 +1458,11 @@ type AxChatLogMessage =
   | { role: 'tool'; name: string; content: string };
 
 type AxChatLogEntry = {
+  name?: string; // e.g. "distiller", "executor", "responder"
   model: string;
   messages: AxChatLogMessage[];
   modelUsage?: AxProgramUsage;
+  stage?: 'ctx' | 'task';
 };
 ```
 
@@ -1385,11 +1490,11 @@ myAgent.resetUsage();
 
 ```typescript
 // AxAgent
-agent.getChatLog(): { actor: readonly AxChatLogEntry[]; responder: readonly AxChatLogEntry[] }
+agent.getChatLog(): readonly AxChatLogEntry[]
 agent.getUsage():   { actor: AxProgramUsage[]; responder: AxProgramUsage[] }
 agent.resetUsage(): void
 
-// AxGen (flat — no split)
+// AxGen / AxFlow
 gen.getChatLog(): readonly AxChatLogEntry[]
 gen.getUsage():   AxProgramUsage[]
 ```
@@ -1421,3 +1526,9 @@ Fetch these for full working code:
 - Do not combine `console.log(...)` with `final(...)`.
 - Do not forget `fields.shared` when child agents depend on parent inputs.
 - Do not add `bubbleErrors` for ordinary recoverable tool errors; those should stay as `[ERROR]` strings so the actor can handle them.
+- Do not call `recall()` from the responder stage — it is only available in distiller and executor.
+- Do not assign the result of `await recall(...)` or `await consult(...)` — both return `void`. Read `inputs.memories` next turn (or the **Loaded Skills** section for `consult`) to see what landed.
+- Do not loop `recall()` calls or wrap them in `Promise.all` — the runtime rejects that as a policy violation. Pass all queries in one array to a single `await recall([...])`.
+- Do not assume child agents inherit `onMemoriesSearch` — set it explicitly on each agent that needs `recall()`.
+- Do not pass `onMemoriesSearch` results via `fields.shared` as a workaround — use the built-in `recall()` primitive instead.
+- Do not assume `inputs.memories` persists across `.forward()` calls — its lifetime is one run. Persist memories in your store and recall them again on subsequent calls.

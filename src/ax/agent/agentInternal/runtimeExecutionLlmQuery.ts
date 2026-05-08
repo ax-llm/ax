@@ -153,8 +153,14 @@ export function buildLlmQueryBindings(
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         try {
           const simpleSubAgent = createSimpleSubAgent();
+          const { ai: recursionAiOverride, ...recursionRestOptions } =
+            recursionForwardOptions as {
+              ai?: Readonly<AxAIService>;
+              [k: string]: unknown;
+            };
+          const recursionAi = recursionAiOverride ?? ai;
           const simpleResult = await simpleSubAgent.forward(
-            ai,
+            recursionAi,
             {
               task: singleQuery,
               ...(normalizedCtx !== undefined
@@ -165,7 +171,7 @@ export function buildLlmQueryBindings(
               ...(parentForwardOptions as Partial<
                 Omit<AxProgramForwardOptions<string>, 'functions'>
               >),
-              ...(recursionForwardOptions as Partial<
+              ...(recursionRestOptions as Partial<
                 Omit<AxProgramForwardOptions<string>, 'functions'>
               >),
               abortSignal,

@@ -13,7 +13,7 @@ import type {
   AxTunable,
   AxUsable,
 } from '../dsp/types.js';
-import type { AxAgentActorResultPayload } from './agentInternal/agentInternalTypes.js';
+import type { AxAgentExecutorResultPayload } from './agentInternal/agentInternalTypes.js';
 import { buildResponderContextData } from './agentInternal/synthesizerContextData.js';
 import { axBuildResponderDefinition } from './rlm.js';
 import {
@@ -33,7 +33,7 @@ export interface AxSynthesizerInit {
   signature: AxSignature;
   /** Inline context-field metadata used by the responder template (titles/descriptions). */
   contextFieldMeta: readonly AxIField[];
-  /** Stage role. Currently only the `finalResponder` uses this class. */
+  /** Stage role. Currently only the `responder` uses this class. */
   role: AxSynthesizerRole;
   /** Optional human-authored instruction prepended to the responder template. */
   description?: string;
@@ -44,16 +44,16 @@ export interface AxSynthesizerInit {
 export interface AxSynthesizerOptions {
   /** Forward options merged onto every responder call (debug, model choice, etc.). */
   forwardOptions?: Partial<AxProgramForwardOptions<string>>;
-  /** Stable id used in `namedPrograms()` (e.g. `finalResponder`). */
+  /** Stable id used in `namedPrograms()` (e.g. `responder`). */
   id?: string;
 }
 
 /**
- * The finalResponder synthesis stage. Wraps an `AxGen` whose signature is
+ * The responder synthesis stage. Wraps an `AxGen` whose signature is
  * `{ ...nonContextInputs, contextData } -> outputFields`, rendered with
  * `rlm/responder.md`.
  *
- * Callers hand it the upstream actor's payload via `forward({ actorResult, ... })`;
+ * Callers hand it the upstream actor's payload via `forward({ executorResult, ... })`;
  * the contextData reshape (`buildResponderContextData`) happens here, not at the
  * call site.
  */
@@ -216,7 +216,7 @@ export class Synthesizer<OUT extends AxGenOut = AxGenOut> {
     ai: AxAIService,
     args: Readonly<{
       nonContextValues: Record<string, unknown>;
-      actorResult: AxAgentActorResultPayload;
+      executorResult: AxAgentExecutorResultPayload;
       options?: Readonly<AxProgramForwardOptions<string>>;
     }>
   ): Promise<OUT> {
@@ -233,14 +233,14 @@ export class Synthesizer<OUT extends AxGenOut = AxGenOut> {
       ai,
       {
         ...args.nonContextValues,
-        contextData: buildResponderContextData(args.actorResult),
+        contextData: buildResponderContextData(args.executorResult),
       },
       merged
     );
   }
 
   /**
-   * Streaming variant — only the finalResponder uses this. Yields the
+   * Streaming variant — only the responder uses this. Yields the
    * AxGen deltas; the pipeline appends `actorFieldValues` as a final delta
    * if any are present.
    */
@@ -248,7 +248,7 @@ export class Synthesizer<OUT extends AxGenOut = AxGenOut> {
     ai: AxAIService,
     args: Readonly<{
       nonContextValues: Record<string, unknown>;
-      actorResult: AxAgentActorResultPayload;
+      executorResult: AxAgentExecutorResultPayload;
       options?: Readonly<AxProgramForwardOptions<string>>;
     }>
   ): AxGenStreamingOut<OUT> {
@@ -265,7 +265,7 @@ export class Synthesizer<OUT extends AxGenOut = AxGenOut> {
       ai,
       {
         ...args.nonContextValues,
-        contextData: buildResponderContextData(args.actorResult),
+        contextData: buildResponderContextData(args.executorResult),
       },
       merged
     );

@@ -11,7 +11,6 @@ import type {
   AxGenIn,
   AxGenOut,
   AxGenStreamingOut,
-  AxMessage,
   AxProgramForwardOptions,
 } from '../dsp/types.js';
 import type { AxStorage, AxTrace } from '../mem/storage.js';
@@ -93,7 +92,7 @@ export class AxTraceLogger<IN extends AxGenIn, OUT extends AxGenOut> {
    */
   async *streamingForward(
     ai: AxAIService,
-    values: IN | AxMessage<IN>[],
+    values: IN,
     options?: Readonly<AxProgramForwardOptions<string>>
   ): AxGenStreamingOut<OUT> {
     const traceId = generateTraceId();
@@ -150,7 +149,7 @@ export class AxTraceLogger<IN extends AxGenIn, OUT extends AxGenOut> {
    */
   async forward(
     ai: AxAIService,
-    values: IN | AxMessage<IN>[],
+    values: IN,
     options?: Readonly<AxProgramForwardOptions<string>>
   ): Promise<OUT> {
     const traceId = generateTraceId();

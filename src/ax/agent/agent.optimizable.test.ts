@@ -19,17 +19,17 @@ function getInternal(a: any): any {
   // Wraps the actor stage with a Proxy so test access patterns that touch the
   // legacy responder surface (`responderProgram`, the responder-tpl entry in
   // getOptimizableComponents) continue to resolve through the pipeline's
-  // finalResponder synthesizer.
+  // responder synthesizer.
   const actor = a.primaryAgent ?? a;
-  const finalResponder = a.finalResponder;
-  if (!finalResponder) return actor;
+  const responder = a.responder;
+  if (!responder) return actor;
   return new Proxy(actor, {
     get(target, prop, receiver) {
-      if (prop === 'responderProgram') return finalResponder.getProgram();
+      if (prop === 'responderProgram') return responder.getProgram();
       if (prop === 'getOptimizableComponents') {
         return () => {
           const baseId = target.getId();
-          const responderEntries = finalResponder
+          const responderEntries = responder
             .getOptimizableComponents()
             .map((c: any) =>
               c.kind === 'actor-tpl'
@@ -43,7 +43,7 @@ function getInternal(a: any): any {
     },
     set(target, prop, value) {
       if (prop === 'responderProgram') {
-        (finalResponder as any).program = value;
+        (responder as any).program = value;
         return true;
       }
       return Reflect.set(target, prop, value);
@@ -73,13 +73,13 @@ describe('AxAgent — optimizable components', () => {
       .map((c: any) => c.key);
     expect(tplKeys).toEqual(
       expect.arrayContaining([
-        'agent::actor-tpl:rlm/single-stage-actor.md',
+        'agent::actor-tpl:rlm/executor.md',
         'agent::actor-tpl:rlm/responder.md',
       ])
     );
 
     // Own primitive entries — at minimum llmQuery / final / askClarification
-    // are advertised in the default 'combined' stage.
+    // are advertised in the default task stage.
     const primKeys = new Set(
       components
         .filter((c: any) => c.kind === 'primitive')
@@ -100,13 +100,13 @@ describe('AxAgent — optimizable components', () => {
 
     const tpl = internal
       .getOptimizableComponents()
-      .find((c: any) => c.key === 'agent::actor-tpl:rlm/single-stage-actor.md');
+      .find((c: any) => c.key === 'agent::actor-tpl:rlm/executor.md');
     const customTpl = String(tpl.current).replace(
-      '## Code Generation Agent',
+      '## Executor',
       '## CUSTOM ACTOR HEADER'
     );
     internal.applyOptimizedComponents({
-      'agent::actor-tpl:rlm/single-stage-actor.md': customTpl,
+      'agent::actor-tpl:rlm/executor.md': customTpl,
     });
 
     const actorDesc = internal.actorProgram
@@ -114,12 +114,12 @@ describe('AxAgent — optimizable components', () => {
       .getDescription() as string;
     expect(actorDesc).toContain('CUSTOM ACTOR HEADER');
     // Default builtin header should be gone
-    expect(actorDesc).not.toContain('Code Generation Agent');
+    expect(actorDesc).not.toMatch(/^## Executor$/m);
 
     // After querying components again, the override is reflected as `current`
     const after = internal.getOptimizableComponents();
     const updatedTpl = after.find(
-      (c: any) => c.key === 'agent::actor-tpl:rlm/single-stage-actor.md'
+      (c: any) => c.key === 'agent::actor-tpl:rlm/executor.md'
     );
     expect(updatedTpl?.current).toBe(customTpl);
   });
@@ -156,8 +156,7 @@ describe('AxAgent — optimizable components', () => {
       .getDescription() as string;
     internal.applyOptimizedComponents({
       // Unclosed `if` — should be rejected by validatePromptTemplateSyntax
-      'agent::actor-tpl:rlm/single-stage-actor.md':
-        'broken {{ if hasInspectRuntime }}',
+      'agent::actor-tpl:rlm/executor.md': 'broken {{ if hasInspectRuntime }}',
     });
 
     const after = internal.actorProgram
@@ -178,8 +177,7 @@ describe('AxAgent — optimizable components', () => {
       .getSignature()
       .getDescription() as string;
     internal.applyOptimizedComponents({
-      'agent::actor-tpl:rlm/single-stage-actor.md':
-        'valid syntax but no placeholders',
+      'agent::actor-tpl:rlm/executor.md': 'valid syntax but no placeholders',
     });
 
     const after = internal.actorProgram

@@ -1,4 +1,4 @@
-import type { AxAgentActorResultPayload } from './agentInternalTypes.js';
+import type { AxAgentExecutorResultPayload } from './agentInternalTypes.js';
 
 /**
  * Reshape an upstream actor's `{type, args}` envelope into the `{task, evidence}`
@@ -9,10 +9,10 @@ import type { AxAgentActorResultPayload } from './agentInternalTypes.js';
  * synthetic finals — the responder template tolerates that).
  */
 export function buildResponderContextData(
-  actorResult: AxAgentActorResultPayload
+  executorResult: AxAgentExecutorResultPayload
 ): { task: unknown; evidence: unknown } {
   return {
-    task: actorResult.args[0],
-    evidence: actorResult.args[1],
+    task: executorResult.args[0],
+    evidence: executorResult.args[1],
   };
 }

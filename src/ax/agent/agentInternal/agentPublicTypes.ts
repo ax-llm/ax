@@ -2,3 +2,4 @@
 
 export * from './agentOptimizeTypes.js';
 export * from './agentStateTypes.js';
+export * from './skillsTypes.js';

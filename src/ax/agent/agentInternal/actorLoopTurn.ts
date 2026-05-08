@@ -26,6 +26,7 @@ import {
   stripDiscoveryTurnOutput,
 } from './discoveryHelpers.js';
 import {
+  appendGuidanceEntry,
   buildGuidanceActionLogCode,
   buildGuidanceActionLogOutput,
   renderGuidanceLog,
@@ -102,14 +103,14 @@ export async function runActorTurn<_IN extends AxGenIn>(
       computeEffectiveChatBudget(contextThreshold, inspectFixedOverhead)
   ) {
     actionLogText +=
-      '\n\n[HINT: Actor prompt is large. Call `const state = await inspect_runtime()` for a compact snapshot of current variables instead of re-reading old outputs.]';
+      '\n\n[HINT: Actor prompt is large. Call `const state = await inspectRuntime()` for a compact snapshot of current variables instead of re-reading old outputs.]';
   }
 
   let actorCallOptions = actorMergedOptions;
-  if (s.actorModelPolicy) {
+  if (s.executorModelPolicy) {
     syncDiscoveredActorModelNamespaces();
     const selectedModel = selectActorModelFromPolicy(
-      s.actorModelPolicy,
+      s.executorModelPolicy,
       getActorModelConsecutiveErrorTurns(mutableState.actorModelState),
       getActorModelMatchedNamespaces(mutableState.actorModelState)
     );
@@ -133,7 +134,7 @@ export async function runActorTurn<_IN extends AxGenIn>(
 
   const usageBefore = s.actorProgram.getUsage()?.length ?? 0;
 
-  const actorResult = await s.actorProgram.forward(
+  const executorResult = await s.actorProgram.forward(
     ai,
     buildActorPromptValues(
       actionLogText,
@@ -148,7 +149,7 @@ export async function runActorTurn<_IN extends AxGenIn>(
   }
 
   // Capture per-turn metadata for the callback.
-  const turnUsage = rlm.actorTurnCallback
+  const turnUsage = rlm.executorTurnCallback
     ? (s.actorProgram.getUsage()?.slice(usageBefore) as
         | AxProgramUsage[]
         | undefined)
@@ -157,7 +158,7 @@ export async function runActorTurn<_IN extends AxGenIn>(
     actorCallOptions.model !== undefined
       ? String(actorCallOptions.model)
       : undefined;
-  const turnChatLogMessages = rlm.actorTurnCallback
+  const turnChatLogMessages = rlm.executorTurnCallback
     ? snapshotChatLogMessages(s.actorProgram.getChatLog())
     : undefined;
 
@@ -165,30 +166,13 @@ export async function runActorTurn<_IN extends AxGenIn>(
     mutableState.restoreNotice = undefined;
   }
 
-  let code = actorResult.javascriptCode as string | undefined;
+  let code = executorResult.javascriptCode as string | undefined;
   const trimmedCode = code?.trim();
   if (!code || !trimmedCode) {
     return { shouldBreak: true, shouldContinue: false };
   }
   code = normalizeActorJavascriptCode(trimmedCode);
-  actorResult.javascriptCode = code;
-
-  for (const fieldName of s.actorFieldNames) {
-    if (fieldName in actorResult) {
-      mutableState.actorFieldValues[fieldName] = actorResult[fieldName];
-    }
-  }
-
-  let actorFieldsOutput = '';
-  if (s.actorFieldNames.length > 0) {
-    const fieldEntries = s.actorFieldNames
-      .filter((name: string) => name in actorResult)
-      .map((name: string) => `${name}: ${actorResult[name]}`)
-      .join('\n');
-    if (fieldEntries) {
-      actorFieldsOutput = `\nActor fields:\n${fieldEntries}`;
-    }
-  }
+  executorResult.javascriptCode = code;
 
   completionState.payload = undefined;
 
@@ -207,7 +191,7 @@ export async function runActorTurn<_IN extends AxGenIn>(
     if (policyResult?.violation) {
       const policyViolation = policyResult.violation;
       const entryTurn = actionLogEntries.length + 1;
-      guidanceState.entries.push({
+      appendGuidanceEntry(guidanceState.entries, {
         turn: entryTurn,
         guidance: ACTOR_CODE_POLICY_GUIDANCE,
         triggeredBy: 'runtime policy',
@@ -216,23 +200,22 @@ export async function runActorTurn<_IN extends AxGenIn>(
         turn: entryTurn,
         code,
         output: policyViolation,
-        actorFieldsOutput,
         tags: ['error'],
       });
 
-      if (rlm.actorTurnCallback) {
-        await rlm.actorTurnCallback({
+      if (rlm.executorTurnCallback) {
+        await rlm.executorTurnCallback({
           turn: entryTurn,
           actionLogEntryCount: actionLogEntries.length,
           guidanceLogEntryCount: guidanceState.entries.length,
-          actorResult: actorResult as Record<string, unknown>,
+          executorResult: executorResult as Record<string, unknown>,
           code,
           result: undefined,
           output: policyViolation,
           isError: true,
           thought:
-            typeof actorResult.thought === 'string'
-              ? actorResult.thought
+            typeof executorResult.thought === 'string'
+              ? executorResult.thought
               : undefined,
           usage: turnUsage,
           model: turnModel,
@@ -274,12 +257,12 @@ export async function runActorTurn<_IN extends AxGenIn>(
       s.shouldBubbleUserError(err)
     ) {
       const bubbledError = err instanceof Error ? err : new Error(String(err));
-      if (rlm.actorTurnCallback) {
-        await rlm.actorTurnCallback({
+      if (rlm.executorTurnCallback) {
+        await rlm.executorTurnCallback({
           turn: actionLogEntries.length + 1,
           actionLogEntryCount: actionLogEntries.length,
           guidanceLogEntryCount: guidanceState.entries.length,
-          actorResult: actorResult as Record<string, unknown>,
+          executorResult: executorResult as Record<string, unknown>,
           code,
           result: undefined,
           output: formatBubbledActorTurnOutput(
@@ -290,8 +273,8 @@ export async function runActorTurn<_IN extends AxGenIn>(
             err instanceof AxAIServiceAbortedError ||
             s.shouldBubbleUserError(err),
           thought:
-            typeof actorResult.thought === 'string'
-              ? actorResult.thought
+            typeof executorResult.thought === 'string'
+              ? executorResult.thought
               : undefined,
           usage: turnUsage,
           model: turnModel,
@@ -311,7 +294,7 @@ export async function runActorTurn<_IN extends AxGenIn>(
       : undefined;
   if (guidancePayload) {
     const nextTurn = actionLogEntries.length + 1;
-    guidanceState.entries.push({
+    appendGuidanceEntry(guidanceState.entries, {
       turn: nextTurn,
       guidance: guidancePayload.guidance,
       ...(guidancePayload.triggeredBy
@@ -337,23 +320,22 @@ export async function runActorTurn<_IN extends AxGenIn>(
     turn: entryTurn,
     code: actionLogCode,
     output,
-    actorFieldsOutput,
     tags: isError ? ['error'] : [],
   });
 
-  if (rlm.actorTurnCallback) {
-    await rlm.actorTurnCallback({
+  if (rlm.executorTurnCallback) {
+    await rlm.executorTurnCallback({
       turn: entryTurn,
       actionLogEntryCount: actionLogEntries.length,
       guidanceLogEntryCount: guidanceState.entries.length,
-      actorResult: actorResult as Record<string, unknown>,
+      executorResult: executorResult as Record<string, unknown>,
       code,
       result,
       output,
       isError,
       thought:
-        typeof actorResult.thought === 'string'
-          ? actorResult.thought
+        typeof executorResult.thought === 'string'
+          ? executorResult.thought
           : undefined,
       usage: turnUsage,
       model: turnModel,

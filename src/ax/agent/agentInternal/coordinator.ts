@@ -8,7 +8,6 @@ import type {
   AxGenIn,
   AxGenOut,
   AxGenStreamingOut,
-  AxMessage,
   AxNamedProgramInstance,
   AxProgramDemos,
   AxProgramForwardOptionsWithModels,
@@ -40,6 +39,7 @@ import {
   optimizeAgent,
 } from './optimizer.js';
 import {
+  buildPipelineFlow,
   forwardPipeline,
   streamingForwardPipeline,
 } from './pipelineForward.js';
@@ -50,10 +50,10 @@ import type { AxAgentOptimizationTargetDescriptor } from './types.js';
 /**
  * Knobs the coordinator passes from top-level `AxAgentOptions` down to
  * BOTH internal actor agents. These are the LLM-call defaults and stage-agnostic
- * infrastructure that should apply identically to ctx and task stages.
+ * infrastructure that should apply identically to the distiller and executor.
  *
- * All other top-level options reach ONLY the taskExecutor; callers who need
- * ctx-specific overrides must opt in explicitly via `options.contextOptions`.
+ * All other top-level options reach ONLY the executor; callers who need
+ * distiller-specific overrides must opt in explicitly via `options.contextOptions`.
  */
 const SHARED_KNOB_KEYS = [
   'runtime',
@@ -67,6 +67,7 @@ const SHARED_KNOB_KEYS = [
   'maxBatchedLlmQueryConcurrency',
   'debug',
   'bubbleErrors',
+  'onFunctionCall',
 ] as const;
 
 function pickShared<IN extends import('../../dsp/types.js').AxGenIn>(
@@ -98,20 +99,16 @@ export function resolveToInternal(
 }
 
 /**
- * Pipeline-based coordinator. Wires stages based on whether the user declared
- * `contextFields`:
+ * Pipeline-based coordinator. Every run walks the same static sequence:
  *
- *   contextExplorer (RLM actor, optional)  →  taskExecutor (RLM actor)
- *                                          ↓
- *                                  finalResponder (Synthesizer)
+ *   distiller (RLM actor)  →  executor (RLM actor)
+ *                          ↓
+ *                    responder (Synthesizer)
  *
- * - **Context staged flow** (`contextFields` present): explorer → executor →
- *   responder. The explorer's `final(request, evidence)` payload feeds the
- *   executor as `{executorRequest, distilledContext}`. The executor owns
- *   completion and any tool use, even when no tools are configured.
- * - **Task-only flow** (no `contextFields`): taskExecutor →
- *   finalResponder; behaviorally equivalent to the pre-pipeline single-stage
- *   agent.
+ * The distiller's `final(request, evidence)` payload feeds the executor as
+ * `{executorRequest, distilledContext}`. When no `contextFields` are declared,
+ * the distiller still acts as the context-understanding/request-normalization
+ * stage over the original inputs.
  *
  * This is the primary user-facing class. `ActorAgentRLM` and `Synthesizer`
  * are exported for callers that need direct per-instance control.
@@ -119,28 +116,39 @@ export function resolveToInternal(
 export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   implements AxAgentic<IN, OUT>
 {
-  /** RLM actor that distils long-context inputs into evidence. Present when contextFields are configured. */
-  public readonly contextExplorer?: ActorAgentRLM<any, any>;
-  /** RLM actor that runs tools / discovery with the pre-distilled context. Always present. */
-  public readonly taskExecutor?: ActorAgentRLM<any, any>;
+  /** RLM actor that normalizes the request and distils context evidence. */
+  public readonly distiller: ActorAgentRLM<any, any>;
+  /** RLM actor that runs tools / discovery with the pre-distilled context. */
+  public readonly executor: ActorAgentRLM<any, any>;
   /** Synthesizer that produces the user's output signature. Always present. */
-  public readonly finalResponder!: Synthesizer<OUT>;
+  public readonly responder!: Synthesizer<OUT>;
 
   /**
    * Backward-compat handle used by legacy access patterns: returns the actor
-   * stage that "owns" the run-time forward — always the `taskExecutor` in
+   * stage that "owns" the run-time forward — always the `executor` in
    * current pipeline shapes. Tests reach in via
    * `agent.primaryAgent.actorProgram` etc.
    */
   public get primaryAgent(): ActorAgentRLM<any, any> {
-    return (this.taskExecutor ?? this.contextExplorer) as ActorAgentRLM<
-      any,
-      any
-    >;
+    return this.executor as ActorAgentRLM<any, any>;
   }
 
   private readonly contextFieldNames: Set<string>;
+  /** Field names stripped from executor inputs (from executorOptions.excludeFields). */
+  public readonly executorExcludeFields: Set<string>;
+  /** Field names stripped from responder inputs (from responderOptions.excludeFields). */
+  public readonly responderExcludeFields: Set<string>;
+  /**
+   * Per-stage AI service overrides. When set, the corresponding stage uses
+   * this AI service instead of the one passed positionally to `forward()`.
+   * `forward(ai, ...)` is the fallback when the stage-specific override is
+   * not defined.
+   */
+  public readonly distillerAi?: Readonly<AxAIService>;
+  public readonly executorAi?: Readonly<AxAIService>;
+  public readonly responderAi?: Readonly<AxAIService>;
   private readonly fullSignature: AxSignature<IN, OUT>;
+  private readonly pipelineFlow: any;
   private readonly init: Readonly<{
     ai?: Readonly<AxAIService>;
     judgeAI?: Readonly<AxAIService>;
@@ -175,13 +183,26 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         : init.signature instanceof AxSignature
           ? (init.signature as AxSignature<IN, OUT>)
           : (new AxSignature(init.signature) as AxSignature<IN, OUT>);
+    if (this.fullSignature.getDescription()?.trim()) {
+      throw new Error(
+        'AxAgent does not support signature-level descriptions; use contextOptions.description, executorOptions.description, or responderOptions.description instead'
+      );
+    }
+
+    this.executorExcludeFields = new Set(
+      options.executorOptions?.excludeFields ?? []
+    );
+    this.responderExcludeFields = new Set(
+      options.responderOptions?.excludeFields ?? []
+    );
+    this.distillerAi = options.contextOptions?.ai;
+    this.executorAi = options.executorOptions?.ai;
+    this.responderAi = options.responderOptions?.ai;
 
     const ctxFieldInputs = options.contextFields ?? [];
     this.contextFieldNames = new Set(
       ctxFieldInputs.map((cf) => (typeof cf === 'string' ? cf : cf.field))
     );
-
-    const hasContextFields = this.contextFieldNames.size > 0;
 
     const allInputFields = this.fullSignature.getInputFields();
     const allOutputFields = this.fullSignature.getOutputFields();
@@ -191,13 +212,16 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const nonCtxInputFields = allInputFields.filter(
       (fld) => !this.contextFieldNames.has(fld.name)
     );
-    // The synthesizer never emits fields the actor produces directly
-    // (set via `actorFields`) — the pipeline merges actor field values into
-    // the result *after* the synthesizer responds.
-    const actorFieldNames = new Set(options.actorFields ?? []);
-    const responderOutputFields = allOutputFields.filter(
-      (fld) => !actorFieldNames.has(fld.name)
+    // Fields excluded from the executor signature only.
+    const executorNonCtxInputFields = nonCtxInputFields.filter(
+      (fld) => !this.executorExcludeFields.has(fld.name)
     );
+    // The responder receives original non-context values (pre-executor), so its
+    // signature only needs to omit responderOptions.excludeFields, not executorExcludeFields.
+    const responderNonCtxInputFields = nonCtxInputFields.filter(
+      (fld) => !this.responderExcludeFields.has(fld.name)
+    );
+    const responderOutputFields = allOutputFields;
 
     const {
       description: finalResponderDescription,
@@ -213,115 +237,108 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       ...finalResponderForwardOptionsFromUser,
     };
 
-    if (hasContextFields) {
-      // ----- Staged context flow: contextExplorer → taskExecutor → finalResponder
-      // The explorer's *base* signature carries `distilledContext` as a
-      // placeholder output so the actor template can hint at what the
-      // downstream task stage will be asked for. The actor program built
-      // inside ActorAgentRLM swaps this for `javascriptCode` at runtime.
-      const ctxSig = f()
-        .addInputFields(allInputFields)
-        .output(
-          'distilledContext',
-          f
-            .json('Pre-distilled context evidence for the task stage.')
-            .optional()
-        )
-        .build();
-
-      const shared = pickShared(options);
-      const ctxOverrides = options.contextOptions ?? {};
-      this.contextExplorer = new ActorAgentRLM<any, any>(
-        { ...init, signature: ctxSig },
-        {
-          ...shared,
-          ...ctxOverrides,
-          contextFields: [...ctxFieldInputs],
-          actorTemplateVariant: 'context',
-        } as any
-      );
-
-      // The task executor's *base* signature carries the user's output
-      // fields as a placeholder so the actor template can hint at what the
-      // downstream finalResponder will be asked for. The actor program
-      // built inside ActorAgentRLM swaps these for `javascriptCode` at
-      // runtime.
-      //
-      const taskSig = f()
-        .addInputFields(nonCtxInputFields)
-        .input(
-          'executorRequest',
-          f.string(
-            'Expanded executor request from the context-understanding stage — what the task stage should complete, enriched with relevant context evidence.'
+    // ----- Static flow: distiller → executor → responder
+    // The distiller's *base* signature carries `distilledContext` as a
+    // placeholder output so the actor template can hint at what the downstream
+    // executor stage will be asked for. The actor program built inside
+    // ActorAgentRLM swaps this for `javascriptCode` at runtime.
+    const memoriesEnabled = typeof options.onMemoriesSearch === 'function';
+    let distillerSigBuilder = f().addInputFields(allInputFields);
+    if (memoriesEnabled) {
+      distillerSigBuilder = distillerSigBuilder.input(
+        'memories',
+        f
+          .json(
+            'Memories already loaded for this run as `[{ id, content }]`. Call `recall(...)` to load more.'
           )
-        )
-        .input(
-          'distilledContext',
-          f
-            .json(
-              'Pre-distilled context evidence from the context-understanding stage.'
-            )
-            .optional()
-        )
-        .addOutputFields(allOutputFields)
-        .build();
-
-      const taskOptions = {
-        ...options,
-        contextFields: [],
-        actorTemplateVariant: 'task' as const,
-        hasDistilledContext: true,
-      };
-
-      this.taskExecutor = new ActorAgentRLM<any, any>(
-        { ...init, signature: taskSig },
-        taskOptions as any
-      );
-
-      this.finalResponder = new Synthesizer<OUT>(
-        {
-          signature: buildFinalResponderSignature(
-            nonCtxInputFields,
-            responderOutputFields
-          ),
-          contextFieldMeta: ctxInputFields,
-          role: 'final',
-          description: finalResponderDescription,
-          agentIdentity: init.agentIdentity,
-        },
-        {
-          forwardOptions: finalResponderForwardOptions as Partial<
-            import('../../dsp/types.js').AxProgramForwardOptions<string>
-          >,
-          // The aggregator adds the pipeline-stage prefix when reporting
-          // `namedPrograms()`.
-          id: 'root.responder',
-        }
-      );
-    } else {
-      // ----- Task-only flow: taskExecutor → finalResponder
-      this.taskExecutor = new ActorAgentRLM<any, any>(init, options);
-      this.finalResponder = new Synthesizer<OUT>(
-        {
-          signature: buildFinalResponderSignature(
-            allInputFields,
-            responderOutputFields
-          ),
-          contextFieldMeta: [],
-          role: 'final',
-          description: finalResponderDescription,
-          agentIdentity: init.agentIdentity,
-        },
-        {
-          forwardOptions: finalResponderForwardOptions as Partial<
-            import('../../dsp/types.js').AxProgramForwardOptions<string>
-          >,
-          // The aggregator adds the pipeline-stage prefix when reporting
-          // `namedPrograms()`.
-          id: 'root.responder',
-        }
+          .optional()
       );
     }
+    const distillerSig = distillerSigBuilder
+      .output(
+        'distilledContext',
+        f
+          .json('Pre-distilled context evidence for the executor stage.')
+          .optional()
+      )
+      .build();
+
+    const shared = pickShared(options);
+    const distillerOverrides = options.contextOptions ?? {};
+    this.distiller = new ActorAgentRLM<any, any>(
+      { ...init, signature: distillerSig },
+      {
+        ...shared,
+        ...distillerOverrides,
+        contextFields: [...ctxFieldInputs],
+        stageVariant: 'distiller',
+      } as any
+    );
+
+    // The executor's *base* signature carries the user's output
+    // fields as a placeholder so the actor template can hint at what the
+    // downstream responder will be asked for. The actor program
+    // built inside ActorAgentRLM swaps these for `javascriptCode` at
+    // runtime.
+    let executorSigBuilder = f()
+      .addInputFields(executorNonCtxInputFields)
+      .input(
+        'executorRequest',
+        f.string(
+          'Expanded executor request from the distiller stage — what the executor should complete, enriched with relevant context evidence.'
+        )
+      )
+      .input(
+        'distilledContext',
+        f
+          .json('Pre-distilled context evidence from the distiller stage.')
+          .optional()
+      );
+    if (memoriesEnabled) {
+      executorSigBuilder = executorSigBuilder.input(
+        'memories',
+        f
+          .json(
+            'Memories loaded so far for this run as `[{ id, content }]` (carried over from the distiller and any prior executor turns). Call `recall(...)` to load more.'
+          )
+          .optional()
+      );
+    }
+    const executorSig = executorSigBuilder
+      .addOutputFields(allOutputFields)
+      .build();
+
+    const executorInitOptions = {
+      ...options,
+      contextFields: [],
+      stageVariant: 'executor' as const,
+    };
+
+    this.executor = new ActorAgentRLM<any, any>(
+      { ...init, signature: executorSig },
+      executorInitOptions as any
+    );
+
+    this.responder = new Synthesizer<OUT>(
+      {
+        signature: buildFinalResponderSignature(
+          responderNonCtxInputFields,
+          responderOutputFields
+        ),
+        contextFieldMeta: ctxInputFields,
+        role: 'final',
+        description: finalResponderDescription,
+        agentIdentity: init.agentIdentity,
+      },
+      {
+        forwardOptions: finalResponderForwardOptions as Partial<
+          import('../../dsp/types.js').AxProgramForwardOptions<string>
+        >,
+        // The aggregator adds the pipeline-stage prefix when reporting
+        // `namedPrograms()`.
+        id: 'root.responder',
+      }
+    );
 
     if (init.agentIdentity) {
       const coordForward = this.forward.bind(this);
@@ -351,11 +368,13 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         },
       };
     }
+
+    this.pipelineFlow = buildPipelineFlow(this);
   }
 
   public async forward<T extends Readonly<AxAIService>>(
     ai: T,
-    values: IN | AxMessage<IN>[],
+    values: IN,
     options?: Readonly<AxProgramForwardOptionsWithModels<T>>
   ): Promise<OUT> {
     return forwardPipeline<IN, OUT, T>(this, ai, values, options);
@@ -363,7 +382,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
   public async *streamingForward<T extends Readonly<AxAIService>>(
     ai: T,
-    values: IN | AxMessage<IN>[],
+    values: IN,
     options?: Readonly<AxProgramStreamingForwardOptionsWithModels<T>>
   ): AxGenStreamingOut<OUT> {
     yield* streamingForwardPipeline<IN, OUT, T>(this, ai, values, options);
@@ -383,9 +402,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   }
 
   public stop(): void {
-    this.contextExplorer?.stop();
-    this.taskExecutor?.stop();
-    this.finalResponder.stop();
+    this.pipelineFlow.stop();
+    this.distiller.stop();
+    this.executor.stop();
+    this.responder.stop();
   }
 
   public getId(): string {
@@ -397,80 +417,41 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   }
 
   /**
-   * In staged context flows the explorer is reported under `ctx.*` and the executor /
-   * finalResponder pair under `task.*` — matching the legacy coordinator's
-   * prefixing so optimizer demo IDs and template-overrides keep their stable
-   * names. Task-only flows have a single actor + a single synthesizer, so no
-   * prefix is added.
+   * The explorer is reported under `ctx.*` and the executor / responder
+   * pair under `task.*` so optimizer demo IDs and template-overrides keep
+   * stable stage ownership.
    */
   public namedPrograms(): Array<{ id: string; signature?: string }> {
-    const isStaged = Boolean(this.contextExplorer && this.taskExecutor);
     const out: Array<{ id: string; signature?: string }> = [];
     const tagAll = (
       entries: Array<{ id: string; signature?: string }>,
-      prefix: string | undefined
-    ) =>
-      prefix
-        ? entries.map((p) => ({ ...p, id: `${prefix}.${p.id}` }))
-        : entries;
-    if (this.contextExplorer)
-      out.push(
-        ...tagAll(
-          this.contextExplorer.namedPrograms(),
-          isStaged ? 'ctx' : undefined
-        )
-      );
-    if (this.taskExecutor)
-      out.push(
-        ...tagAll(
-          this.taskExecutor.namedPrograms(),
-          isStaged ? 'task' : undefined
-        )
-      );
-    out.push(
-      ...tagAll(
-        this.finalResponder.namedPrograms(),
-        isStaged ? 'task' : undefined
-      )
-    );
+      prefix: 'ctx' | 'task'
+    ) => entries.map((p) => ({ ...p, id: `${prefix}.${p.id}` }));
+    out.push(...tagAll(this.distiller.namedPrograms(), 'ctx'));
+    out.push(...tagAll(this.executor.namedPrograms(), 'task'));
+    out.push(...tagAll(this.responder.namedPrograms(), 'task'));
     return out;
   }
 
   public namedProgramInstances(): AxNamedProgramInstance<IN, OUT>[] {
-    const isStaged = Boolean(this.contextExplorer && this.taskExecutor);
     const out: any[] = [];
-    const tagAll = (entries: any[], prefix: string | undefined) =>
-      prefix
-        ? entries.map((p) => ({ ...p, id: `${prefix}.${(p as any).id}` }))
-        : entries;
-    if (this.contextExplorer)
-      out.push(
-        ...tagAll(
-          this.contextExplorer.namedProgramInstances(),
-          isStaged ? 'ctx' : undefined
-        )
-      );
-    if (this.taskExecutor)
-      out.push(
-        ...tagAll(
-          this.taskExecutor.namedProgramInstances(),
-          isStaged ? 'task' : undefined
-        )
-      );
-    out.push(
-      ...tagAll(
-        this.finalResponder.namedProgramInstances(),
-        isStaged ? 'task' : undefined
-      )
-    );
+    const tagAll = (entries: any[], prefix: 'ctx' | 'task') =>
+      entries.map((p) => ({ ...p, id: `${prefix}.${(p as any).id}` }));
+    out.push(...tagAll(this.distiller.namedProgramInstances(), 'ctx'));
+    out.push(...tagAll(this.executor.namedProgramInstances(), 'task'));
+    out.push(...tagAll(this.responder.namedProgramInstances(), 'task'));
     return out as AxNamedProgramInstance<IN, OUT>[];
   }
 
   public getTraces(): AxProgramTrace<IN, OUT>[] {
+    const fromFlow = this.pipelineFlow.getTraces() as AxProgramTrace<IN, OUT>[];
+    if (fromFlow.length > 0) {
+      return fromFlow;
+    }
     const out: any[] = [];
-    if (this.contextExplorer) out.push(...this.contextExplorer.getTraces());
-    if (this.taskExecutor) out.push(...this.taskExecutor.getTraces());
-    out.push(...this.finalResponder.getTraces());
+    out.push(...this.distiller.getTraces());
+    out.push(...this.executor.getTraces());
+    out.push(...this.responder.getTraces());
     return out as AxProgramTrace<IN, OUT>[];
   }
 
@@ -478,32 +459,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     demos: readonly (AxAgentDemos<IN, OUT> | AxProgramDemos<IN, OUT>)[],
     options?: { modelConfig?: Record<string, unknown> }
   ): void {
-    const isStaged = Boolean(this.contextExplorer && this.taskExecutor);
     const programIdOf = (d: any): string | undefined => d.programId ?? d.id;
     const isResponderId = (id: string | undefined) =>
       Boolean(id?.endsWith('.responder'));
-    if (!isStaged) {
-      // Task-only flow: send actor demos to the actor stage and
-      // responder demos to the synthesizer.
-      const actorDemos: any[] = [];
-      const responderDemos: any[] = [];
-      for (const demo of demos) {
-        if (isResponderId(programIdOf(demo))) {
-          responderDemos.push(demo);
-        } else {
-          actorDemos.push(demo);
-        }
-      }
-      if (actorDemos.length > 0)
-        this.primaryAgent.setDemos(actorDemos as any, options);
-      if (responderDemos.length > 0)
-        this.finalResponder.setDemos(responderDemos as any, options);
-      return;
-    }
-
-    // Staged context flow: route by `ctx.*` / `task.*` prefix. The ctx side
-    // has only the explorer actor; the task side has the executor actor +
-    // finalResponder.
+    // Route by `ctx.*` / `task.*` prefix. The ctx side has only the explorer
+    // actor; the task side has the executor actor + responder. Unprefixed
+    // demos default to the task side for compatibility with older callers.
     const ctxDemos: any[] = [];
     const taskDemos: any[] = [];
     for (const demo of demos) {
@@ -516,7 +477,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         taskDemos.push(demo);
       }
     }
-    if (ctxDemos.length > 0) this.contextExplorer?.setDemos(ctxDemos, options);
+    if (ctxDemos.length > 0) this.distiller.setDemos(ctxDemos, options);
     if (taskDemos.length > 0) {
       const actor: any[] = [];
       const responder: any[] = [];
@@ -524,18 +485,21 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         if (isResponderId(programIdOf(d))) responder.push(d);
         else actor.push(d);
       }
-      if (actor.length > 0) this.taskExecutor?.setDemos(actor, options);
+      if (actor.length > 0) this.executor.setDemos(actor, options);
       if (responder.length > 0)
-        this.finalResponder.setDemos(responder as any, options);
+        this.responder.setDemos(responder as any, options);
     }
   }
 
   public getUsage(): AxAgentUsage {
-    const actor: any[] = [];
-    const responder: any[] = [];
-    if (this.contextExplorer) actor.push(...this.contextExplorer.getUsage());
-    if (this.taskExecutor) actor.push(...this.taskExecutor.getUsage());
-    responder.push(...this.finalResponder.getUsage());
+    const usage = this.pipelineFlow.getUsageReport();
+    const actor = [...(usage.distiller ?? []), ...(usage.executor ?? [])];
+    const responder = [...(usage.responder ?? [])];
+    if (actor.length === 0 && responder.length === 0) {
+      actor.push(...this.distiller.getUsage());
+      actor.push(...this.executor.getUsage());
+      responder.push(...this.responder.getUsage());
+    }
     return { actor, responder };
   }
 
@@ -543,64 +507,56 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     ctx?: AxAgentUsage;
     task: AxAgentUsage;
   } {
-    const isStaged = Boolean(this.contextExplorer && this.taskExecutor);
-    if (!isStaged) {
-      // Task-only flow: a single actor + a single synthesizer.
-      const actorStage = this.taskExecutor ?? this.contextExplorer;
-      return {
-        task: {
-          actor: actorStage ? [...actorStage.getUsage()] : [],
-          responder: [...this.finalResponder.getUsage()],
-        },
-      };
-    }
+    const usage = this.pipelineFlow.getUsageReport();
     // The ctx stage has only the explorer actor (no responder LLM call).
     return {
       ctx: {
-        actor: [...this.contextExplorer!.getUsage()],
+        actor:
+          (usage.distiller?.length ?? 0) > 0
+            ? [...usage.distiller!]
+            : [...this.distiller.getUsage()],
         responder: [],
       },
       task: {
-        actor: [...this.taskExecutor!.getUsage()],
-        responder: [...this.finalResponder.getUsage()],
+        actor:
+          (usage.executor?.length ?? 0) > 0
+            ? [...usage.executor!]
+            : [...this.executor.getUsage()],
+        responder:
+          (usage.responder?.length ?? 0) > 0
+            ? [...usage.responder!]
+            : [...this.responder.getUsage()],
       },
     };
   }
 
-  public getChatLog(): {
-    actor: readonly AxChatLogEntry[];
-    responder: readonly AxChatLogEntry[];
-  } {
-    const isStaged = Boolean(this.contextExplorer && this.taskExecutor);
-    // Task-only flows leave entries untagged. In staged context flows every
-    // entry is tagged 'ctx' or 'task' so callers can split the log by pipeline side.
+  public getChatLog(): readonly AxChatLogEntry[] {
+    const fromFlow = this.pipelineFlow.getChatLog();
+    if (fromFlow.length > 0) {
+      return fromFlow;
+    }
+    // streamingForward() still streams the final responder manually so it can
+    // yield true responder deltas. Reconstruct the same flat shape from stage
+    // programs when a caller asks for logs after a streaming run.
     const tag = (
       entries: readonly AxChatLogEntry[],
+      name: 'distiller' | 'executor' | 'responder',
       stage: 'ctx' | 'task'
-    ): AxChatLogEntry[] => entries.map((e) => ({ ...e, stage }));
-    const passthrough = (entries: readonly AxChatLogEntry[]) => [...entries];
-    const actor = [
-      ...(this.contextExplorer
-        ? isStaged
-          ? tag(this.contextExplorer.getChatLog(), 'ctx')
-          : passthrough(this.contextExplorer.getChatLog())
-        : []),
-      ...(this.taskExecutor
-        ? isStaged
-          ? tag(this.taskExecutor.getChatLog(), 'task')
-          : passthrough(this.taskExecutor.getChatLog())
-        : []),
+    ): AxChatLogEntry[] =>
+      entries.map((entry) => ({
+        ...entry,
+        name: entry.name ? `${name}.${entry.name}` : name,
+        ...(stage ? { stage } : {}),
+      }));
+    return [
+      ...tag(this.distiller.getChatLog(), 'distiller', 'ctx'),
+      ...tag(this.executor.getChatLog(), 'executor', 'task'),
+      ...tag(this.responder.getChatLog(), 'responder', 'task'),
     ];
-    const responder = isStaged
-      ? tag(this.finalResponder.getChatLog(), 'task')
-      : passthrough(this.finalResponder.getChatLog());
-    return { actor, responder };
   }
 
   public resetUsage(): void {
-    this.contextExplorer?.resetUsage();
-    this.taskExecutor?.resetUsage();
-    this.finalResponder.resetUsage();
+    this.pipelineFlow.resetUsage();
   }
 
   public getState(): AxAgentState | undefined {
@@ -618,24 +574,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const allInputFields = nextSig.getInputFields();
     const allOutputFields = nextSig.getOutputFields();
     const ctxNames = this.contextFieldNames;
-    const actorFieldNames = new Set(this.options.actorFields ?? []);
-    const responderOutputFields = allOutputFields.filter(
-      (fld) => !actorFieldNames.has(fld.name)
-    );
+    const responderOutputFields = allOutputFields;
 
     const inputFieldNames = new Set(allInputFields.map((fld) => fld.name));
     for (const field of ctxNames) {
       if (!inputFieldNames.has(field)) {
         throw new Error(`RLM contextField "${field}" not found in signature`);
-      }
-    }
-
-    const outputFieldNames = new Set(allOutputFields.map((fld) => fld.name));
-    for (const field of this.options.actorFields ?? []) {
-      if (!outputFieldNames.has(field)) {
-        throw new Error(
-          `RLM actorField "${field}" not found in output signature`
-        );
       }
     }
 
@@ -645,56 +589,74 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const ctxInputFields = allInputFields.filter((fld) =>
       ctxNames.has(fld.name)
     );
+    const executorNonCtxInputFields = nonCtxInputFields.filter(
+      (fld) => !this.executorExcludeFields.has(fld.name)
+    );
+    const responderNonCtxInputFields = nonCtxInputFields.filter(
+      (fld) => !this.responderExcludeFields.has(fld.name)
+    );
 
-    const hasContextFields = ctxNames.size > 0;
-    if (hasContextFields) {
-      const ctxSig = f()
-        .addInputFields(allInputFields)
-        .output(
-          'distilledContext',
-          f
-            .json('Pre-distilled context evidence for the task stage.')
-            .optional()
-        )
-        .build();
-
-      const taskSig = f()
-        .addInputFields(nonCtxInputFields)
-        .input(
-          'executorRequest',
-          f.string(
-            'Expanded executor request from the context-understanding stage — what the task stage should complete, enriched with relevant context evidence.'
+    const memoriesEnabled =
+      typeof (this.options as any)?.onMemoriesSearch === 'function';
+    let distillerSigBuilder = f().addInputFields(allInputFields);
+    if (memoriesEnabled) {
+      distillerSigBuilder = distillerSigBuilder.input(
+        'memories',
+        f
+          .json(
+            'Memories already loaded for this run as `[{ id, content }]`. Call `recall(...)` to load more.'
           )
-        )
-        .input(
-          'distilledContext',
-          f
-            .json(
-              'Pre-distilled context evidence from the context-understanding stage.'
-            )
-            .optional()
-        )
-        .addOutputFields(allOutputFields)
-        .build();
-
-      this.contextExplorer?.setSignature(ctxSig);
-      this.taskExecutor?.setSignature(taskSig);
-    } else {
-      this.primaryAgent.setSignature(nextSig);
+          .optional()
+      );
     }
+    const distillerSig = distillerSigBuilder
+      .output(
+        'distilledContext',
+        f
+          .json('Pre-distilled context evidence for the executor stage.')
+          .optional()
+      )
+      .build();
 
-    // The finalResponder's signature is `{ ...nonContextInputs, contextData } ->
+    let executorSigBuilder = f()
+      .addInputFields(executorNonCtxInputFields)
+      .input(
+        'executorRequest',
+        f.string(
+          'Expanded executor request from the distiller stage — what the executor should complete, enriched with relevant context evidence.'
+        )
+      )
+      .input(
+        'distilledContext',
+        f
+          .json('Pre-distilled context evidence from the distiller stage.')
+          .optional()
+      );
+    if (memoriesEnabled) {
+      executorSigBuilder = executorSigBuilder.input(
+        'memories',
+        f
+          .json(
+            'Memories loaded so far for this run as `[{ id, content }]` (carried over from the distiller and any prior executor turns). Call `recall(...)` to load more.'
+          )
+          .optional()
+      );
+    }
+    const executorSig = executorSigBuilder
+      .addOutputFields(allOutputFields)
+      .build();
+
+    this.distiller.setSignature(distillerSig);
+    this.executor.setSignature(executorSig);
+
+    // The responder's signature is `{ ...nonContextInputs, contextData } ->
     // outputFields`. After actor signatures change we need to rebuild the
     // synthesizer's underlying program to match the new fields.
     const nextResponderSig = buildFinalResponderSignature(
-      hasContextFields
-        ? nonCtxInputFields
-        : nonCtxInputFields.length
-          ? nonCtxInputFields
-          : allInputFields,
+      responderNonCtxInputFields,
       responderOutputFields
     );
-    (this.finalResponder as any).program?.setSignature?.(nextResponderSig);
+    (this.responder as any).program?.setSignature?.(nextResponderSig);
     (this as any).fullSignature = nextSig;
     void ctxInputFields;
     if (this.func) {
@@ -711,20 +673,18 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
   public getOptimizableComponents(): readonly any[] {
     const out: any[] = [];
-    if (this.contextExplorer)
-      out.push(...this.contextExplorer.getOptimizableComponents());
-    if (this.taskExecutor)
-      out.push(...this.taskExecutor.getOptimizableComponents());
-    out.push(...this.finalResponder.getOptimizableComponents());
+    out.push(...this.distiller.getOptimizableComponents());
+    out.push(...this.executor.getOptimizableComponents());
+    out.push(...this.responder.getOptimizableComponents());
     return out;
   }
 
   public applyOptimizedComponents(
     updates: Readonly<Record<string, string>>
   ): void {
-    this.contextExplorer?.applyOptimizedComponents(updates);
-    this.taskExecutor?.applyOptimizedComponents(updates);
-    this.finalResponder.applyOptimizedComponents(updates);
+    this.distiller.applyOptimizedComponents(updates);
+    this.executor.applyOptimizedComponents(updates);
+    this.responder.applyOptimizedComponents(updates);
   }
 
   public async optimize(
@@ -789,13 +749,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       debug?: boolean;
     }>
   ): Promise<AxAgentTestResult> {
-    // Route to the stage that owns the context fields. In staged flows the context
-    // fields live on contextExplorer; values passed to test() are context-field
-    // values. In task-only flows, taskExecutor holds everything.
-    if (this.contextExplorer) {
-      return this.contextExplorer.test(code, values as any, options);
-    }
-    return this.primaryAgent.test(code, values, options);
+    // Test code runs where its declared runtime values and tools live. Context
+    // field snippets use the explorer; ordinary tool/function snippets use the
+    // executor, where task-only knobs are intentionally routed.
+    return this.contextFieldNames.size > 0
+      ? this.distiller.test(code, values as any, options)
+      : this.executor.test(code, values, options);
   }
 }
 

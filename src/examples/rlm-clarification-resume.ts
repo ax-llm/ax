@@ -1,6 +1,6 @@
 import {
-  type AxChatRequest,
   AxAgentClarificationError,
+  type AxChatRequest,
   AxJSRuntime,
   AxMockAIService,
   agent,
@@ -44,7 +44,7 @@ const mockAI = new AxMockAIService<string>({
     const systemPrompt = getPromptText(req.chatPrompt[0]);
     const userPrompt = getPromptText(req.chatPrompt[1]);
 
-    if (systemPrompt.includes('Code Generation Agent')) {
+    if (systemPrompt.includes('You (`executor`)')) {
       actorTurnCount += 1;
 
       if (actorTurnCount === 1) {

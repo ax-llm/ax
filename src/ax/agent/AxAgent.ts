@@ -15,7 +15,6 @@ import type {
   AxChatLogEntry,
   AxGenIn,
   AxGenOut,
-  AxMessage,
   AxNamedProgramInstance,
   AxProgramDemos,
   AxProgramForwardOptions,
@@ -68,10 +67,9 @@ import {
 } from './agentInternal/runtimeGlobals.js';
 import { buildSplitPrograms } from './agentInternal/signatureBuilders.js';
 import type {
-  AxActorDefinitionBuildOptions,
-  AxAgentActorResultPayload,
   AxAgentDemos,
   AxAgentEvalFunctionCall,
+  AxAgentExecutorResultPayload,
   AxAgentFunction,
   AxAgentFunctionCallRecorder,
   AxAgentFunctionModuleMeta,
@@ -90,7 +88,8 @@ import type {
   AxAnyAgentic,
   AxContextFieldPromptConfig,
   AxLlmQueryBudgetState,
-  AxResolvedActorModelPolicy,
+  AxResolvedExecutorModelPolicy,
+  AxStageDefinitionBuildOptions,
 } from './agentInternal/types.js';
 import {
   mergeAgentFunctionModuleMetadata,
@@ -140,17 +139,17 @@ export class ActorAgentRLM<
   private options?: Readonly<AxAgentOptions<IN>>;
   private rlmConfig!: AxRLMConfig;
   private runtime!: AxCodeRuntime;
-  private actorFieldNames!: string[];
-  private actorDescription?: string;
-  private actorModelPolicy?: AxResolvedActorModelPolicy;
+  private executorDescription?: string;
+  private executorModelPolicy?: AxResolvedExecutorModelPolicy;
   private judgeOptions?: AxAgentJudgeOptions;
   private recursionForwardOptions?: AxAgentRecursionOptions;
-  private actorForwardOptions?: Partial<AxProgramForwardOptions<string>>;
+  private executorForwardOptions?: Partial<AxProgramForwardOptions<string>>;
   private inputUpdateCallback?: AxAgentInputUpdateCallback<IN>;
   private agentStatusCallback?: (
     message: string,
     status: 'success' | 'failed'
   ) => void | Promise<void>;
+  private onFunctionCall?: import('./agentInternal/types.js').AxAgentOnFunctionCall;
   private contextPromptConfigByField: Map<string, AxContextFieldPromptConfig> =
     new Map();
   private agentModuleNamespace = DEFAULT_AGENT_MODULE_NAMESPACE;
@@ -172,7 +171,7 @@ export class ActorAgentRLM<
   private actorDefinitionContextFields: readonly AxIField[] = [];
   private actorDefinitionResponderOutputFields: readonly AxIField[] = [];
   private actorDefinitionBuildOptions:
-    | AxActorDefinitionBuildOptions
+    | AxStageDefinitionBuildOptions
     | undefined;
   private func: AxFunction | undefined;
 
@@ -183,17 +182,20 @@ export class ActorAgentRLM<
 
   /** Returns the actor template id this agent's variant renders. */
   public _actorTemplateId(): TemplateId {
-    const variant = (this as any).options?.actorTemplateVariant ?? 'combined';
-    if (variant === 'context') return 'rlm/context-actor.md';
-    if (variant === 'task') return 'rlm/task-actor.md';
-    return 'rlm/single-stage-actor.md';
+    const variant = (this as any).options?.stageVariant as
+      | 'distiller'
+      | 'executor'
+      | undefined;
+    if (variant === 'distiller') return 'rlm/distiller.md';
+    return 'rlm/executor.md';
   }
 
   private _actorPrimitiveStage(): AxRuntimePrimitiveStage {
-    const variant = (this as any).options?.actorTemplateVariant ?? 'combined';
-    if (variant === 'context') return 'context';
-    if (variant === 'task') return 'task';
-    return 'combined';
+    const variant = (this as any).options?.stageVariant as
+      | 'distiller'
+      | 'executor'
+      | undefined;
+    return variant === 'distiller' ? 'distiller' : 'executor';
   }
 
   private _primitiveFlags(): Record<string, boolean | undefined> {
@@ -438,7 +440,7 @@ export class ActorAgentRLM<
   }
 
   private _createRuntimeInputState(
-    values: IN | AxMessage<IN>[] | Partial<IN>,
+    values: IN | Partial<IN>,
     options?: Readonly<{
       allowedFieldNames?: readonly string[];
       validateInputKeys?: boolean;
@@ -557,7 +559,7 @@ export class ActorAgentRLM<
    */
   public async _runActorLoop(
     parentAi: Readonly<AxAIService>,
-    values: IN | AxMessage<IN>[],
+    values: IN,
     options?: Readonly<AxProgramForwardOptions<string>>,
     effectiveAbortSignal?: AbortSignal,
     functionCallRecords?: AxAgentEvalFunctionCall[]
@@ -566,19 +568,43 @@ export class ActorAgentRLM<
     contextMetadata: string | undefined;
     guidanceLog: string | undefined;
     actionLog: string;
-    actorResult: AxAgentActorResultPayload;
+    executorResult: AxAgentExecutorResultPayload;
     actorFieldValues: Record<string, unknown>;
     turnCount: number;
   }> {
     const ai = this.ai ?? parentAi;
+    const actorValues = this._withDefaultExecutorRequest(values);
     return runActorLoop(
       this,
       ai,
-      values,
+      actorValues,
       options,
       effectiveAbortSignal,
       functionCallRecords
     );
+  }
+
+  private _withDefaultExecutorRequest(values: IN): IN {
+    const variant = (this as any).options?.stageVariant;
+    if (variant !== 'executor') return values;
+
+    const addDefault = (raw: Record<string, unknown>) => {
+      if (raw.executorRequest !== undefined) return raw;
+      const query = raw.query;
+      const executorRequest =
+        typeof query === 'string' && query.trim()
+          ? query
+          : Object.entries(raw)
+              .filter(([key]) => key !== 'distilledContext')
+              .map(
+                ([key, value]) =>
+                  `${key}: ${typeof value === 'string' ? value : JSON.stringify(value)}`
+              )
+              .join('\n');
+      return { ...raw, executorRequest };
+    };
+
+    return addDefault(values as Record<string, unknown>) as IN;
   }
 
   /**
@@ -587,11 +613,11 @@ export class ActorAgentRLM<
    */
   public async run<T extends Readonly<AxAIService>>(
     parentAi: T,
-    values: IN | AxMessage<IN>[],
+    values: IN,
     options?: Readonly<AxProgramForwardOptions<string>>
   ): Promise<{
     nonContextValues: Record<string, unknown>;
-    actorResult: AxAgentActorResultPayload;
+    executorResult: AxAgentExecutorResultPayload;
     actorFieldValues: Record<string, unknown>;
     turnCount: number;
     guidanceLog: string | undefined;
@@ -643,7 +669,14 @@ export class ActorAgentRLM<
     onDiscoveredFunctions?: (
       qualifiedNames: readonly string[],
       docs: Readonly<Record<string, string>>
-    ) => void
+    ) => void,
+    onUsedSkills?: (
+      results: readonly import('./agentInternal/skillsTypes.js').AxAgentSkillResult[]
+    ) => void,
+    onUsedMemories?: (
+      results: readonly import('./agentInternal/memoriesTypes.js').AxAgentMemoryResult[]
+    ) => void,
+    onFunctionCall?: import('./agentInternal/types.js').AxAgentOnFunctionCall
   ): Record<string, unknown> {
     return buildRuntimeGlobals(
       this,
@@ -653,7 +686,10 @@ export class ActorAgentRLM<
       functionCallRecorder,
       onDiscoveredNamespaces,
       onDiscoveredModules,
-      onDiscoveredFunctions
+      onDiscoveredFunctions,
+      onUsedSkills,
+      onUsedMemories,
+      onFunctionCall
     );
   }
 

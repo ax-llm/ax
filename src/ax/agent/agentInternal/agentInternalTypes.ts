@@ -11,15 +11,16 @@ import type {
 import type {
   AxContextPolicyBudget,
   AxContextPolicyPreset,
-  axBuildActorDefinition,
+  axBuildExecutorDefinition,
 } from '../rlm.js';
 import type {
   AxAgentDiscoveryPromptState,
   AxAgentEvalFunctionCall,
   AxAgentGuidanceLogEntry,
+  AxAgentSkillsPromptState,
   AxAgentState,
-  AxAgentStateActorModelState,
   AxAgentStateCheckpointState,
+  AxAgentStateExecutorModelState,
   AxAgentStateRuntimeEntry,
   AxAgentTestCompletionPayload,
   AxAgentTestResult,
@@ -28,11 +29,22 @@ import type {
 // Re-export to avoid unused-import warnings when types are used only transitively
 export type { AxIField };
 
-export type AxAgentActorResultPayload = AxAgentTestCompletionPayload;
+export type AxAgentExecutorResultPayload = AxAgentTestCompletionPayload;
 
 export type AxAgentFunctionCallRecorder = (
   call: AxAgentEvalFunctionCall
 ) => void;
+
+export type AxAgentFunctionCall = {
+  name: string;
+  qualifiedName: string;
+  args: Record<string, unknown>;
+  kind: 'internal' | 'external';
+};
+
+export type AxAgentOnFunctionCall = (
+  call: Readonly<AxAgentFunctionCall>
+) => void | Promise<void>;
 
 /**
  * Budget state for llmQuery calls. Uses a shared global object for cross-tree
@@ -76,14 +88,14 @@ export type AxResolvedContextPolicy = {
   maxRuntimeChars: number;
 };
 
-export type AxResolvedActorModelPolicyEntry = {
+export type AxResolvedExecutorModelPolicyEntry = {
   model: string;
   aboveErrorTurns?: number;
   namespaces?: string[];
 };
 
-export type AxResolvedActorModelPolicy =
-  readonly AxResolvedActorModelPolicyEntry[];
+export type AxResolvedExecutorModelPolicy =
+  readonly AxResolvedExecutorModelPolicyEntry[];
 
 export type AxAgentRuntimeInputState = {
   currentInputs: Record<string, unknown>;
@@ -98,8 +110,8 @@ export type AxAgentRuntimeCompletionState = {
   payload: AxAgentInternalCompletionPayload | undefined;
 };
 
-export type AxActorDefinitionBuildOptions = Parameters<
-  typeof axBuildActorDefinition
+export type AxStageDefinitionBuildOptions = Parameters<
+  typeof axBuildExecutorDefinition
 >[3];
 
 export type AxPreparedRestoredState = {
@@ -108,9 +120,10 @@ export type AxPreparedRestoredState = {
   actionLogEntries: ActionLogEntry[];
   guidanceLogEntries: AxAgentGuidanceLogEntry[];
   discoveryPromptState?: AxAgentDiscoveryPromptState;
+  skillsPromptState?: AxAgentSkillsPromptState;
   checkpointState?: AxAgentStateCheckpointState;
   provenance: Record<string, RuntimeStateVariableProvenance>;
-  actorModelState?: AxAgentStateActorModelState;
+  actorModelState?: AxAgentStateExecutorModelState;
 };
 
 export type AxAgentGuidanceState = {
@@ -148,6 +161,10 @@ export type AxDiscoveryTurnSummary = {
   modules: Set<string>;
   functions: Set<string>;
   texts: Set<string>;
+};
+
+export type AxMutableSkillsPromptState = {
+  loaded: Map<string, string>;
 };
 
 export type AxAgentOptimizationTargetDescriptor = {

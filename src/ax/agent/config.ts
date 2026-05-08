@@ -1,9 +1,9 @@
 import type { AxProgramForwardOptions } from '../dsp/types.js';
 import type {
-  AxActorModelPolicy,
-  AxAgentStateActorModelState,
-  AxResolvedActorModelPolicy,
+  AxAgentStateExecutorModelState,
+  AxExecutorModelPolicy,
   AxResolvedContextPolicy,
+  AxResolvedExecutorModelPolicy,
 } from './AxAgent.js';
 import type {
   AxContextPolicyBudget,
@@ -58,7 +58,7 @@ export function computeEffectiveChatBudget(
 }
 
 export const ACTOR_MODEL_POLICY_MIGRATION_ERROR =
-  'actorModelPolicy now expects an ordered array of { model, namespaces?, aboveErrorTurns? } entries. Manage prompt pressure with contextPolicy.budget instead of abovePromptChars.';
+  'executorModelPolicy now expects an ordered array of { model, namespaces?, aboveErrorTurns? } entries. Manage prompt pressure with contextPolicy.budget instead of abovePromptChars.';
 const CONTEXT_POLICY_MIGRATION_ERROR =
   'contextPolicy now only supports { preset?, budget? }. Use contextPolicy.budget instead of contextPolicy.state.*, contextPolicy.checkpoints.*, or other manual cutoff options.';
 export const CONTEXT_POLICY_SUMMARIZER_OPTIONS_MIGRATION_ERROR =
@@ -114,9 +114,9 @@ function normalizeOptionalNamespaces(
   return [...new Set(normalized)];
 }
 
-export function resolveActorModelPolicy(
-  policy: Readonly<AxActorModelPolicy> | undefined
-): AxResolvedActorModelPolicy | undefined {
+export function resolveExecutorModelPolicy(
+  policy: Readonly<AxExecutorModelPolicy> | undefined
+): AxResolvedExecutorModelPolicy | undefined {
   if (policy === undefined) {
     return undefined;
   }
@@ -126,12 +126,12 @@ export function resolveActorModelPolicy(
   }
 
   if (policy.length === 0) {
-    throw new Error('actorModelPolicy must contain at least one entry');
+    throw new Error('executorModelPolicy must contain at least one entry');
   }
 
   return policy.map((entry, index) => {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-      throw new Error(`actorModelPolicy[${index}] must be an object`);
+      throw new Error(`executorModelPolicy[${index}] must be an object`);
     }
 
     const rawEntry = entry as Record<string, unknown>;
@@ -153,28 +153,28 @@ export function resolveActorModelPolicy(
 
     const aboveErrorTurns = normalizeOptionalThreshold(
       rawEntry.aboveErrorTurns,
-      `actorModelPolicy[${index}].aboveErrorTurns`
+      `executorModelPolicy[${index}].aboveErrorTurns`
     );
     const namespaces = normalizeOptionalNamespaces(
       rawEntry.namespaces,
-      `actorModelPolicy[${index}].namespaces`
+      `executorModelPolicy[${index}].namespaces`
     );
     if (aboveErrorTurns !== undefined && !Number.isInteger(aboveErrorTurns)) {
       throw new Error(
-        `actorModelPolicy[${index}].aboveErrorTurns must be an integer >= 0`
+        `executorModelPolicy[${index}].aboveErrorTurns must be an integer >= 0`
       );
     }
 
     if (aboveErrorTurns === undefined && namespaces === undefined) {
       throw new Error(
-        `actorModelPolicy[${index}] must define at least one of aboveErrorTurns or namespaces`
+        `executorModelPolicy[${index}] must define at least one of aboveErrorTurns or namespaces`
       );
     }
 
     return {
       model: normalizeOptionalModelName(
         rawEntry.model,
-        `actorModelPolicy[${index}].model`
+        `executorModelPolicy[${index}].model`
       ),
       ...(aboveErrorTurns !== undefined ? { aboveErrorTurns } : {}),
       ...(namespaces !== undefined ? { namespaces } : {}),
@@ -352,13 +352,13 @@ function getContextPolicyPresetDefaults(
 }
 
 export function getActorModelConsecutiveErrorTurns(
-  state: Readonly<AxAgentStateActorModelState> | undefined
+  state: Readonly<AxAgentStateExecutorModelState> | undefined
 ): number {
   return state?.consecutiveErrorTurns ?? 0;
 }
 
 export function getActorModelMatchedNamespaces(
-  state: Readonly<AxAgentStateActorModelState> | undefined
+  state: Readonly<AxAgentStateExecutorModelState> | undefined
 ): string[] {
   const matchedNamespaces = state?.matchedNamespaces;
   if (!Array.isArray(matchedNamespaces)) {
@@ -376,8 +376,8 @@ export function getActorModelMatchedNamespaces(
 }
 
 export function resetActorModelErrorTurns(
-  state?: Readonly<AxAgentStateActorModelState>
-): AxAgentStateActorModelState {
+  state?: Readonly<AxAgentStateExecutorModelState>
+): AxAgentStateExecutorModelState {
   const matchedNamespaces = getActorModelMatchedNamespaces(state);
 
   return {
@@ -388,7 +388,7 @@ export function resetActorModelErrorTurns(
 
 export function normalizeRestoredActorModelState(
   state: unknown
-): AxAgentStateActorModelState | undefined {
+): AxAgentStateExecutorModelState | undefined {
   if (!state || typeof state !== 'object' || Array.isArray(state)) {
     return undefined;
   }
@@ -426,9 +426,9 @@ export function normalizeRestoredActorModelState(
 }
 
 export function updateActorModelErrorTurns(
-  state: Readonly<AxAgentStateActorModelState> | undefined,
+  state: Readonly<AxAgentStateExecutorModelState> | undefined,
   isError: boolean
-): AxAgentStateActorModelState {
+): AxAgentStateExecutorModelState {
   const matchedNamespaces = getActorModelMatchedNamespaces(state);
 
   return {
@@ -440,9 +440,9 @@ export function updateActorModelErrorTurns(
 }
 
 export function updateActorModelMatchedNamespaces(
-  state: Readonly<AxAgentStateActorModelState> | undefined,
+  state: Readonly<AxAgentStateExecutorModelState> | undefined,
   namespaces: readonly string[]
-): AxAgentStateActorModelState {
+): AxAgentStateExecutorModelState {
   const matchedNamespaces = [
     ...new Set([
       ...getActorModelMatchedNamespaces(state),
@@ -460,7 +460,7 @@ export function updateActorModelMatchedNamespaces(
 }
 
 export function selectActorModelFromPolicy(
-  policy: Readonly<AxResolvedActorModelPolicy>,
+  policy: Readonly<AxResolvedExecutorModelPolicy>,
   consecutiveErrorTurns: number,
   matchedNamespaces: readonly string[] = []
 ): string | undefined {

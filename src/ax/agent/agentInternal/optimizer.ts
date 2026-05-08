@@ -210,6 +210,7 @@ export function createOptimizationProgram<
       }
     },
     getUsage: () => s.getUsage(),
+    getChatLog: () => s.getChatLog(),
     resetUsage: () => s.resetUsage(),
   };
 }

@@ -2,7 +2,6 @@ import { ReadableStream } from 'node:stream/web';
 
 import { describe, expect, it } from 'vitest';
 
-import { validateAxMessageArray } from '../ai/base.js';
 import { AxMockAIService } from '../ai/mock/api.js';
 import type { AxChatResponse } from '../ai/types.js';
 import { AxGen } from './generate.js';
@@ -702,22 +701,6 @@ describe('Error handling in AxGen', () => {
       expect(error.message).toContain('Generate failed');
       expect((error as unknown as { cause?: Error }).cause).toBe(originalError);
     }
-  });
-});
-
-describe('AxGen Message Validation', () => {
-  it('should pass validation for valid AxMessage array (direct function test)', () => {
-    expect(() =>
-      validateAxMessageArray([{ role: 'user', content: 'hello' }])
-    ).not.toThrow();
-  });
-
-  it('should pass validation for AxMessage array with non-string content (direct function test)', () => {
-    expect(() =>
-      validateAxMessageArray([
-        { role: 'user', content: [{ type: 'text', text: 'hello' }] },
-      ])
-    ).not.toThrow();
   });
 });
 

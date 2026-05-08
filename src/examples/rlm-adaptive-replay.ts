@@ -33,7 +33,7 @@ const incidentAnalyst = agent(
       preset: 'adaptive',
       budget: 'compact',
     },
-    actorOptions: {
+    executorOptions: {
       thinkingTokenBudget: 'minimal',
     },
     debug: true,

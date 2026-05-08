@@ -4,6 +4,70 @@
 **Version**: 13.0.24+\
 **Status**: Active Deprecations
 
+## v21 — three-stage pipeline rename (breaking)
+
+The `AxAgent` pipeline is and always has been three stages: a context distiller → a task executor → a final responder. The public API now reflects that. No deprecation aliases were added — update call sites directly.
+
+### Renames on `AxAgentOptions`
+
+| Before | After |
+|---|---|
+| `actorOptions` | `executorOptions` |
+| `actorModelPolicy` | `executorModelPolicy` |
+| `actorTurnCallback` | `executorTurnCallback` |
+| `contextOptions: { actorOptions, responderOptions, ... }` | `contextOptions: AxStageOptions` (flattened — peer of `executorOptions` / `responderOptions`) |
+
+`contextOptions`, `executorOptions`, and `responderOptions` are now three peer stage-config bags, all aliasing one `AxStageOptions` type.
+
+### Removed
+
+- `actorFields` — split-output-field feature removed; all output fields go to the responder.
+- `actorTemplateVariant` (was `'combined' | 'context' | 'task'`) — single-stage mode is gone; the coordinator drives the variant internally as `stageVariant: 'distiller' | 'executor'`.
+- `hasDistilledContext` — always-true in 3-stage mode; the executor template no longer gates on it.
+- `contextOptions.responderOptions` — was unused.
+- `axBuildActorDefinition` — single-stage builder; gone.
+- The `single-stage-actor.md` template.
+
+### Renamed type exports
+
+| Before | After |
+|---|---|
+| `AxActorModelPolicy` | `AxExecutorModelPolicy` |
+| `AxActorModelPolicyEntry` | `AxExecutorModelPolicyEntry` |
+| `AxResolvedActorModelPolicy` | `AxResolvedExecutorModelPolicy` |
+| `AxResolvedActorModelPolicyEntry` | `AxResolvedExecutorModelPolicyEntry` |
+| `AxActorDefinitionBuildOptions` | `AxStageDefinitionBuildOptions` |
+| `AxAgentTurnCallbackArgs` | `AxAgentExecutorTurnCallbackArgs` (`actorResult` field → `executorResult`) |
+| `AxAgentActorResultPayload` | `AxAgentExecutorResultPayload` |
+| `AxAgentStateActorModelState` | `AxAgentStateExecutorModelState` |
+| `axBuildContextActorDefinition` | `axBuildDistillerDefinition` |
+| `axBuildTaskActorDefinition` | `axBuildExecutorDefinition` |
+
+### Public properties on `AxAgent`
+
+| Before | After |
+|---|---|
+| `agent.contextExplorer` | `agent.distiller` |
+| `agent.taskExecutor` | `agent.executor` |
+| `agent.finalResponder` | `agent.responder` |
+| `agent.actorExcludeFields` | `agent.executorExcludeFields` |
+
+### Template files
+
+| Before | After |
+|---|---|
+| `templates/rlm/context-actor.md` | `templates/rlm/distiller.md` |
+| `templates/rlm/task-actor.md` | `templates/rlm/executor.md` |
+| `templates/rlm/single-stage-actor.md` | _deleted_ |
+
+In-prompt role labels: `\`contextActor\`` → `\`distiller\``; `\`actor\`` → `\`executor\``.
+
+### `ActionLogEntry`
+
+`actorFieldsOutput: string` field removed (was always empty after `actorFields` removal).
+
+
+
 ## Overview
 
 This document outlines the deprecation strategy for the Ax framework to improve
@@ -29,7 +93,6 @@ approaches that provide better TypeScript type inference.
    type-safe
 2. **Template Literals**: ``ax```,``s``` with interpolation - Not type-safe
 3. **Field Helpers**: `f.string()`, `f.class()`, etc. - Not type-safe
-4. **AxMessage**: Current structure - Will be replaced with new design
 
 ## Migration Guide
 
@@ -121,24 +184,7 @@ const agent = agent({
 **Note**: We recommend using `const agentInstance` instead of `const agent` to
 avoid naming conflicts with the `agent()` factory function.
 
-### 6. AxMessage Structure
-
-```typescript
-// ❌ DEPRECATED: Current AxMessage structure (will be replaced)
-type AxMessage<IN> =
-  | { role: 'user'; values: IN }
-  | { role: 'assistant'; values: IN };
-
-// ⚠️  TRANSITIONAL: New design will be introduced in v14.x
-// Details will be provided when the new design is ready
-```
-
-**Migration Timeline:**
-- **v14.0.0+**: Deprecation warnings (current)
-- **v14.x**: New message design introduced alongside existing
-- **v15.0.0**: Complete replacement with new design
-
-### 7. Field Types in String Signatures
+### 6. Field Types in String Signatures
 
 | Old (Deprecated)              | New (Recommended)               |
 | ----------------------------- | ------------------------------- |
@@ -204,7 +250,6 @@ type AxMessage<IN> =
 - Complete removal of deprecated constructors
 - Removal of template literal support
 - Removal of `f` helper functions
-- Complete replacement of AxMessage with new design
 
 ## Migration Tools and Support
 

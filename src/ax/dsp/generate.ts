@@ -9,11 +9,10 @@ import {
   trace,
 } from '@opentelemetry/api';
 
-import { validateAxMessageArray } from '../ai/base.js';
 import { logResultPickerUsed } from '../ai/debug.js';
 import {
-  countChatPromptContentChars,
   type AxPromptMetrics,
+  countChatPromptContentChars,
 } from '../ai/promptMetrics.js';
 import type {
   AxAIService,
@@ -76,14 +75,14 @@ import {
   recordStreamingMetric,
 } from './metrics.js';
 import {
+  type AxOptimizableComponent,
+  axOptimizableValidators,
+} from './optimizable.js';
+import {
   processResponse,
   processStreamingResponse,
   shouldContinueSteps,
 } from './processResponse.js';
-import {
-  type AxOptimizableComponent,
-  axOptimizableValidators,
-} from './optimizable.js';
 import { AxProgram } from './program.js';
 import { AxPromptTemplate, type AxRenderedPrompt } from './prompt.js';
 import { selectFromSamples, selectFromSamplesInMemory } from './samples.js';
@@ -95,11 +94,10 @@ import type {
   AsyncGenDeltaOut,
   AxChatLogEntry,
   AxChatLogMessage,
+  AxFunctionCallTrace,
   AxGenDeltaOut,
   AxGenOut,
   AxGenStreamingOut,
-  AxFunctionCallTrace,
-  AxMessage,
   AxProgramExamples,
   AxProgramForwardOptions,
   AxProgramForwardOptionsWithModels,
@@ -384,7 +382,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
   private async renderPromptWithMetricsForInternalUse(
     ai: Readonly<AxAIService>,
-    values: IN | AxMessage<IN>[],
+    values: IN,
     options?: Readonly<
       Partial<Omit<AxProgramForwardOptions<any>, 'functions'>>
     >,
@@ -461,10 +459,6 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     const instruction = this.getInstruction();
     if (instruction !== undefined) {
       promptTemplate.setInstruction(instruction);
-    }
-
-    if (Array.isArray(values)) {
-      validateAxMessageArray<IN>(values as AxMessage<IN>[]);
     }
 
     const renderedPrompt:
@@ -554,7 +548,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
   private async renderPromptForInternalUse(
     ai: Readonly<AxAIService>,
-    values: IN | AxMessage<IN>[],
+    values: IN,
     options?: Readonly<Partial<Omit<AxProgramForwardOptions<any>, 'functions'>>>
   ): Promise<AxChatRequest['chatPrompt']> {
     return (
@@ -565,7 +559,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
   /** @internal */
   public async _measurePromptCharsForInternalUse(
     ai: Readonly<AxAIService>,
-    values: IN | AxMessage<IN>[],
+    values: IN,
     options?: Readonly<Partial<Omit<AxProgramForwardOptions<any>, 'functions'>>>
   ): Promise<AxPromptMetrics> {
     const { promptMetrics } = await this.renderPromptWithMetricsForInternalUse(
@@ -856,7 +850,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     stepIndex,
   }: Readonly<{
     ai: Readonly<AxAIService>;
-    values: IN | AxMessage<IN>[];
+    values: IN;
     mem: AxAIMemory;
     options?: Omit<AxProgramForwardOptions<any>, 'ai' | 'mem'>;
     traceContext?: Context;
@@ -1103,7 +1097,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     stepContext,
   }: Readonly<{
     ai: Readonly<AxAIService>;
-    values: IN | AxMessage<IN>[];
+    values: IN;
     mem: AxAIMemory;
     options: Omit<AxProgramForwardOptions<any>, 'ai' | 'mem'>;
     stepIndex?: number;
@@ -1254,7 +1248,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
   private async *_forward2(
     ai: Readonly<AxAIService>,
-    values: IN | AxMessage<IN>[],
+    values: IN,
     states: InternalAxGenState[],
     options: Readonly<AxProgramForwardOptions<any>>,
     span?: Span,
@@ -1406,32 +1400,16 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       currentPromptTemplateOptions
     );
 
-    // New logic:
-    let prompt: AxChatRequest['chatPrompt'];
-
     // Track prompt rendering performance
     const promptRenderStart = performance.now();
 
-    if (Array.isArray(values)) {
-      // Validate AxMessage array items
-      validateAxMessageArray<IN>(values as AxMessage<IN>[]);
-
-      // We'll need to decide how to get the 'individual' IN for demos/examples if needed by render.
-      // For now, assume render will handle the array directly.
-      // The generic type for render might need to be T (from render<T extends ...>)
-      // and T will be inferred as ReadonlyArray<AxMessage>
-      prompt = this.promptTemplate.render(values as any, {
+    const prompt: AxChatRequest['chatPrompt'] = this.promptTemplate.render(
+      values as any,
+      {
         examples: this.examples as any,
         demos: this.demos as any,
-      });
-    } else {
-      // Ensure `values` here is correctly inferred as IN
-      prompt = this.promptTemplate.render(values as any, {
-        // Cast if necessary
-        examples: this.examples as any,
-        demos: this.demos as any,
-      });
-    }
+      }
+    );
 
     const promptRenderDuration = performance.now() - promptRenderStart;
 
@@ -2285,13 +2263,10 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
   public async *_forward1(
     ai: Readonly<AxAIService>,
-    values: IN | AxMessage<IN>[],
+    values: IN,
     options: Readonly<AxProgramForwardOptions<any>>
   ): AxGenStreamingOut<OUT> {
-    // Validate input values before processing
-    if (!Array.isArray(values) || !values.every((v) => 'role' in v)) {
-      this.validateInputs(values as IN);
-    }
+    this.validateInputs(values);
 
     // Create internal abort controller and merge with any user-provided signal
     const abortController = new AbortController();
@@ -2420,8 +2395,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
    * 5. **Assert** - Validate outputs and retry with error correction if needed
    *
    * @param ai - The AI service instance to use (created via `ai()` factory)
-   * @param values - Input values matching the signature's input fields, or an array of
-   *   `AxMessage` objects for multi-turn conversations
+   * @param values - Input values matching the signature's input fields
    * @param options - Optional execution configuration
    *
    * @param options.model - Override the default model for this request
@@ -2502,7 +2476,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
    */
   public async forward<T extends Readonly<AxAIService>>(
     ai: T,
-    values: IN | AxMessage<IN>[],
+    values: IN,
     options?: Readonly<AxProgramForwardOptionsWithModels<T>>
   ): Promise<OUT> {
     // Caching pre-check: if cachingFunction provided and returns a value, short-circuit
@@ -2584,10 +2558,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       const selectedResult = buffer[selectedIndex];
       const result = selectedResult?.delta ?? {};
 
-      // When values is an AxMessage array, do not spread it into trace; only include result
-      const baseTrace = Array.isArray(values)
-        ? ({} as Record<string, unknown>)
-        : ((values as unknown as Record<string, unknown>) ?? {});
+      const baseTrace = (values as unknown as Record<string, unknown>) ?? {};
       this.trace = { ...baseTrace, ...result } as unknown as OUT;
       // Log result picker usage if it was used and debug is enabled
       if (resultPickerUsed && this.isDebug(ai, options)) {
@@ -2671,7 +2642,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
   async *streamingForward<T extends Readonly<AxAIService>>(
     ai: T,
-    values: IN | AxMessage<IN>[],
+    values: IN,
     options?: Readonly<AxProgramStreamingForwardOptionsWithModels<T>>
   ): AxGenStreamingOut<OUT> {
     // Caching pre-check for streaming
@@ -2791,10 +2762,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     );
   }
 
-  private computeCacheKey(
-    values: IN | AxMessage<IN>[],
-    inputNames: readonly string[]
-  ): string {
+  private computeCacheKey(values: IN, inputNames: readonly string[]): string {
     const hasher = createHash('sha256');
     hasher.update(this.signature.hash() ?? '');
 
@@ -2841,16 +2809,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       hasher.update(String(v));
     };
 
-    if (Array.isArray(values)) {
-      for (const m of values as AxMessage<IN>[]) {
-        hasher.update(`role:${m.role}`);
-        const row = inputNames.map((n) => (m as any).values?.[n]);
-        for (const val of row) updateWithValue(val);
-      }
-    } else {
-      const row = inputNames.map((n) => (values as any)?.[n]);
-      for (const val of row) updateWithValue(val);
-    }
+    const row = inputNames.map((n) => (values as any)?.[n]);
+    for (const val of row) updateWithValue(val);
 
     return hasher.digest('hex');
   }

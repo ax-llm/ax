@@ -316,7 +316,6 @@ function generateIndexContent(exportMap: Map<string, ExportInfo[]>): string {
   const canonicalSources = new Map<string, string>([
     ['type:AxOptimizedProgram', 'dsp/optimizer'],
     ['type:AxIField', 'dsp/sig'],
-    ['type:AxMessage', 'dsp/types'],
     ['type:AxFieldValue', 'dsp/types'],
     ['type:AxAgentUsage', 'dsp/types'],
     ['type:AxChatLogEntry', 'dsp/types'],

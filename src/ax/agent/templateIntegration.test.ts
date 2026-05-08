@@ -2,10 +2,9 @@ import { describe, expect, it } from 'vitest';
 
 import { AxSignature } from '../dsp/sig.js';
 import {
-  axBuildActorDefinition,
-  axBuildContextActorDefinition,
+  axBuildDistillerDefinition,
+  axBuildExecutorDefinition,
   axBuildResponderDefinition,
-  axBuildTaskActorDefinition,
 } from './rlm.js';
 import {
   renderPromptTemplate,
@@ -61,9 +60,8 @@ describe('template integration', () => {
         '',
         '<formatting_rules>',
         '',
-        'These rules are mandatory and override later instructions.',
         'Return one `field name: value` pair per line for the required output fields only.',
-        'Do not add surrounding prose, markdown, or code fences.',
+        'Above rules override later instructions.',
         '',
         '</formatting_rules>',
       ].join('\n')
@@ -111,7 +109,7 @@ describe('template integration', () => {
       'contextText:string -> finalAnswer:string'
     );
 
-    const actorDefinition = axBuildActorDefinition(
+    const actorDefinition = axBuildExecutorDefinition(
       undefined,
       signature.getInputFields(),
       signature.getOutputFields(),
@@ -123,35 +121,27 @@ describe('template integration', () => {
       }
     );
 
-    expect(actorDefinition).toContain(
-      'You (`actor`) are a code generation agent'
-    );
+    expect(actorDefinition).toContain('You (`executor`)');
     expect(actorDefinition).toContain('long-running REPL');
-    expect(actorDefinition).toContain(
-      '- `contextText` -> `inputs.contextText` (string, required)'
-    );
-    expect(actorDefinition).toContain('### Responder Contract');
+    expect(actorDefinition).toContain('### Output Contract');
     expect(actorDefinition).toContain('llmQuery');
-    expect(actorDefinition).toContain('### Exploration & Turn Discipline');
+    expect(actorDefinition).toContain('### How to Work');
     expect(actorDefinition).toContain(
       '## JavaScript Runtime Usage Instructions'
     );
     expect(actorDefinition).toContain('Use return statements only.');
-    expect(actorDefinition).toContain(
-      'If a `Delegated Context` block appears, data is injected as named globals'
-    );
-    expect(actorDefinition).not.toContain('await inspect_runtime()');
+    expect(actorDefinition).not.toContain('await inspectRuntime()');
     expect(actorDefinition).not.toContain(
       'Prior actions may be summarized or omitted.'
     );
   });
 
-  it('includes state and replay guidance only when those features are enabled', () => {
+  it('includes inspectRuntime primitive only when enabled', () => {
     const signature = AxSignature.create(
       'contextText:string -> finalAnswer:string'
     );
 
-    const actorDefinition = axBuildActorDefinition(
+    const actorDefinition = axBuildExecutorDefinition(
       undefined,
       signature.getInputFields(),
       signature.getOutputFields(),
@@ -163,14 +153,7 @@ describe('template integration', () => {
       }
     );
 
-    expect(actorDefinition).toContain('await inspect_runtime()');
-    expect(actorDefinition).toContain(
-      'If a `Delegated Context` block appears, data is injected as named globals'
-    );
-    expect(actorDefinition).toContain(
-      '`liveRuntimeState` field is the source of truth'
-    );
-    expect(actorDefinition).toContain('Prior actions may be summarized');
+    expect(actorDefinition).toContain('await inspectRuntime()');
   });
 
   it('points task actor at distilled context instead of raw exploration guidance', () => {
@@ -178,12 +161,11 @@ describe('template integration', () => {
       'contextText:string -> finalAnswer:string'
     );
 
-    const actorDefinition = axBuildTaskActorDefinition(
+    const actorDefinition = axBuildExecutorDefinition(
       undefined,
       signature.getInputFields(),
       signature.getOutputFields(),
       {
-        hasDistilledContext: true,
         runtimeUsageInstructions: 'Use return statements only.',
       }
     );
@@ -191,20 +173,17 @@ describe('template integration', () => {
     expect(actorDefinition).toContain(
       '### Executor Request & Distilled Context'
     );
-    // Task actor receives pre-distilled context, so the raw-data exploration
-    // section is omitted; only the lighter turn-discipline guidance remains.
-    expect(actorDefinition).not.toContain('### Exploration & Turn Discipline');
-    expect(actorDefinition).toContain('### Turn Discipline');
+    expect(actorDefinition).toContain('### How to Work');
     expect(actorDefinition).toContain('inputs.executorRequest');
     expect(actorDefinition).toContain('inputs.distilledContext');
     expect(actorDefinition).toContain(
-      'Raw context fields are not available in this task stage.'
+      'Raw context fields are not available in this stage.'
     );
     expect(actorDefinition).toContain(
       'If the request needs information or effects that your available functions can provide'
     );
     expect(actorDefinition).not.toContain('inputs.<contextField>');
-    expect(actorDefinition).toContain('do not repeat that code');
+    expect(actorDefinition).toContain("Don't repeat probes");
   });
 
   it('tells the context actor to expand confirmations into an executor request', () => {
@@ -212,7 +191,7 @@ describe('template integration', () => {
       'conversationHistory:json, userRequest:string -> finalAnswer:string'
     );
 
-    const actorDefinition = axBuildContextActorDefinition(
+    const actorDefinition = axBuildDistillerDefinition(
       undefined,
       signature.getInputFields(),
       {
@@ -220,16 +199,10 @@ describe('template integration', () => {
       }
     );
 
-    expect(actorDefinition).toContain('### Executor Request Contract');
-    expect(actorDefinition).toContain(
-      'A separate task executor will receive this request and has its own tools/functions.'
-    );
     expect(actorDefinition).not.toContain('lookup(args:');
+    expect(actorDefinition).toContain('Expand the user');
     expect(actorDefinition).toContain(
-      'If the latest user message is a follow-up or confirmation'
-    );
-    expect(actorDefinition).toContain(
-      'Avoid meta-requests like "determine whether the user affirmed"'
+      'Resolve follow-ups against prior conversation'
     );
   });
 

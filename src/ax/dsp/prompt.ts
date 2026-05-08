@@ -11,7 +11,7 @@ import type { AxChatRequest, AxContextCacheOptions } from '../ai/types.js';
 import { formatDateWithTimezone } from './datetime.js';
 import type { AxInputFunctionType } from './functions.js';
 import type { AxField, AxFieldType, AxIField, AxSignature } from './sig.js';
-import type { AxFieldValue, AxMessage } from './types.js';
+import type { AxFieldValue } from './types.js';
 import { validateValue } from './util.js';
 
 type Writeable<T> = { -readonly [P in keyof T]: T[P] };
@@ -384,7 +384,7 @@ export class AxPromptTemplate {
   };
 
   private renderInternal = <T = any>(
-    values: T | ReadonlyArray<AxMessage<T>>,
+    values: T,
     {
       examples,
       demos,
@@ -455,75 +455,6 @@ export class AxPromptTemplate {
         )
       : undefined;
 
-    if (Array.isArray(values)) {
-      const messages: Extract<
-        AxChatRequest['chatPrompt'][number],
-        { role: 'user' } | { role: 'assistant' }
-      >[] = [];
-
-      const history = values as ReadonlyArray<AxMessage<T>>;
-
-      let firstItem = true;
-      for (const message of history) {
-        let content: string | ChatRequestUserMessage;
-
-        if (firstItem) {
-          content = useLegacyMultimodalCacheBoundary
-            ? this.renderSingleValueUserContent(message.values, [], [], false)
-            : this.renderSingleValueUserContent(
-                message.values,
-                renderedExamples,
-                renderedDemos,
-                examplesInSystemPrompt
-              );
-          firstItem = false;
-        } else {
-          content = this.renderSingleValueUserContent(
-            message.values,
-            [],
-            [],
-            false
-          );
-        }
-
-        if (message.role === 'user') {
-          messages.push({ role: 'user', content });
-          continue;
-        }
-
-        if (message.role !== 'assistant') {
-          throw new Error('Invalid message role');
-        }
-
-        if (typeof content !== 'string') {
-          throw new Error(
-            'Assistant message cannot contain non-text content like images, files,etc'
-          );
-        }
-
-        messages.push({ role: 'assistant', content });
-      }
-
-      const renderedMutableChars = countChatPromptContentChars(messages as any);
-      const mutableChatContextCharacters = examplesInSystemPrompt
-        ? renderedMutableChars
-        : Math.max(0, renderedMutableChars - exampleChatContextCharacters);
-      const renderedPrompt = legacyExampleMessage
-        ? [systemPrompt, legacyExampleMessage, ...messages]
-        : [systemPrompt, ...messages];
-
-      return {
-        chatPrompt: renderedPrompt,
-        promptMetrics: buildPromptMetrics(
-          systemPromptCharacters,
-          exampleChatContextCharacters,
-          legacyExampleMessage
-            ? renderedMutableChars
-            : mutableChatContextCharacters
-        ),
-      };
-    }
-
     const userContent = useLegacyMultimodalCacheBoundary
       ? this.renderSingleValueUserContent(values as T, [], [], false)
       : this.renderSingleValueUserContent(
@@ -554,7 +485,7 @@ export class AxPromptTemplate {
   };
 
   public render = <T = any>(
-    values: T | ReadonlyArray<AxMessage<T>>,
+    values: T,
     options: Readonly<{
       skipSystemPrompt?: boolean;
       examples?: Record<string, AxFieldValue>[];
@@ -566,7 +497,7 @@ export class AxPromptTemplate {
   >[] => this.renderInternal(values, options).chatPrompt;
 
   public renderWithMetrics = <T = any>(
-    values: T | ReadonlyArray<AxMessage<T>>,
+    values: T,
     options: Readonly<{
       skipSystemPrompt?: boolean;
       examples?: Record<string, AxFieldValue>[];
@@ -579,7 +510,7 @@ export class AxPromptTemplate {
    * This follows the best practices for few-shot prompting in modern LLMs.
    */
   private renderWithMessagePairs = <T = any>(
-    values: T | ReadonlyArray<AxMessage<T>>,
+    values: T,
     {
       examples,
       demos,
@@ -642,64 +573,6 @@ export class AxPromptTemplate {
       if (lastMsg) {
         fewShotMessages[lastIdx] = { ...lastMsg, cache: true };
       }
-    }
-
-    // Handle multi-turn history
-    if (Array.isArray(values)) {
-      const historyMessages: Extract<
-        AxChatRequest['chatPrompt'][number],
-        { role: 'user' | 'assistant' }
-      >[] = [];
-
-      const history = values as ReadonlyArray<AxMessage<T>>;
-      let isFirstUserMessage = true;
-
-      for (const message of history) {
-        const renderedContent = this.renderInputFields(message.values);
-        let content: string | ChatRequestUserMessage = renderedContent.every(
-          (v) => v.type === 'text'
-        )
-          ? renderedContent.map((v) => v.text).join('\n')
-          : renderedContent.reduce(combineConsecutiveStrings('\n'), []);
-
-        if (message.role === 'user') {
-          // Add separator before first user message if we had examples/demos
-          if (isFirstUserMessage && hasExamplesOrDemos) {
-            if (typeof content === 'string') {
-              content = exampleSeparator + content;
-            } else {
-              content = [
-                { type: 'text' as const, text: exampleSeparator },
-                ...content,
-              ];
-            }
-            isFirstUserMessage = false;
-          }
-          historyMessages.push({ role: 'user', content });
-          continue;
-        }
-
-        if (message.role !== 'assistant') {
-          throw new Error('Invalid message role');
-        }
-
-        if (typeof content !== 'string') {
-          throw new Error(
-            'Assistant message cannot contain non-text content like images, files, etc'
-          );
-        }
-
-        historyMessages.push({ role: 'assistant', content });
-      }
-
-      return {
-        chatPrompt: [systemPrompt, ...fewShotMessages, ...historyMessages],
-        promptMetrics: buildPromptMetrics(
-          countChatPromptContentChars([systemPrompt] as any),
-          countChatPromptContentChars(fewShotMessages as any),
-          countChatPromptContentChars(historyMessages as any)
-        ),
-      };
     }
 
     // Single-turn: separate cached and non-cached fields
@@ -1687,20 +1560,6 @@ const getInputValueRecords = (
   if (values === undefined) {
     return undefined;
   }
-
-  if (Array.isArray(values)) {
-    return values
-      .map((item) => {
-        if (!isRecordValue(item)) {
-          return undefined;
-        }
-        return isRecordValue(item.values) ? item.values : undefined;
-      })
-      .filter((item): item is Readonly<Record<string, unknown>> =>
-        Boolean(item)
-      );
-  }
-
   return isRecordValue(values) ? [values] : [];
 };
 

@@ -1,9 +1,5 @@
 import type { AxAIService } from '../../ai/types.js';
-import type {
-  AxGenIn,
-  AxMessage,
-  AxProgramForwardOptions,
-} from '../../dsp/types.js';
+import type { AxGenIn, AxProgramForwardOptions } from '../../dsp/types.js';
 import { createCompletionBindings } from '../completion.js';
 import {
   DEFAULT_RLM_MAX_TURNS,
@@ -31,8 +27,8 @@ import { buildActorLoopSetup } from './actorLoopSetup.js';
 import { runActorTurn } from './actorLoopTurn.js';
 import { renderGuidanceLog } from './guidanceHelpers.js';
 import type {
-  AxAgentActorResultPayload,
   AxAgentEvalFunctionCall,
+  AxAgentExecutorResultPayload,
   AxAgentGuidanceState,
   AxAgentRuntimeCompletionState,
 } from './types.js';
@@ -40,7 +36,7 @@ import type {
 export async function runActorLoop<IN extends AxGenIn>(
   self: any,
   ai: AxAIService,
-  values: IN | AxMessage<IN>[],
+  values: IN,
   options: Readonly<AxProgramForwardOptions<string>> | undefined,
   effectiveAbortSignal: AbortSignal | undefined,
   functionCallRecords?: AxAgentEvalFunctionCall[]
@@ -49,7 +45,7 @@ export async function runActorLoop<IN extends AxGenIn>(
   contextMetadata: string | undefined;
   guidanceLog: string | undefined;
   actionLog: string;
-  actorResult: AxAgentActorResultPayload;
+  executorResult: AxAgentExecutorResultPayload;
   actorFieldValues: Record<string, unknown>;
   turnCount: number;
 }> {
@@ -98,6 +94,7 @@ export async function runActorLoop<IN extends AxGenIn>(
           functionCallRecords.push(call);
         }
       : undefined,
+    onFunctionCall: s.onFunctionCall,
   });
   const delegatedContextSummary = runtimeContext.effectiveContextConfig
     .stateSummary.enabled
@@ -130,14 +127,14 @@ export async function runActorLoop<IN extends AxGenIn>(
 
   const actorMergedOptions = {
     ...s._genOptions,
-    ...s.actorForwardOptions,
+    ...s.executorForwardOptions,
     ...options,
     debug,
     abortSignal: effectiveAbortSignal,
   };
   const explicitActorDebugHideSystemPrompt = [
     options,
-    s.actorForwardOptions,
+    s.executorForwardOptions,
     s._genOptions,
   ].find(
     (source): source is Readonly<{ debugHideSystemPrompt?: boolean }> =>
@@ -345,7 +342,7 @@ export async function runActorLoop<IN extends AxGenIn>(
     }
   }
 
-  const actorResult =
+  const executorResult =
     completionState.payload && 'args' in completionState.payload
       ? completionState.payload
       : ({
@@ -357,14 +354,14 @@ export async function runActorLoop<IN extends AxGenIn>(
               checkpointTurns: mutableState.checkpointState?.turns,
             }),
           ],
-        } satisfies AxAgentActorResultPayload);
+        } satisfies AxAgentExecutorResultPayload);
 
   return {
     nonContextValues: inputState.getNonContextValues(),
     contextMetadata: inputState.getContextMetadata(),
     guidanceLog: renderGuidanceLog(guidanceState.entries),
     actionLog: renderActionLog(),
-    actorResult,
+    executorResult,
     actorFieldValues: mutableState.actorFieldValues,
     turnCount: actionLogEntries.length,
   };

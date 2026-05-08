@@ -7,12 +7,12 @@ import type {
   AxAgentEvalFunctionCall,
   AxAgentGuidanceState,
   AxAgentRuntimeCompletionState,
-  AxAgentStateActorModelState,
+  AxAgentStateExecutorModelState,
 } from './types.js';
 
 export interface MutableActorLoopState {
   checkpointState: CheckpointSummaryState | undefined;
-  actorModelState: AxAgentStateActorModelState | undefined;
+  actorModelState: AxAgentStateExecutorModelState | undefined;
   restoreNotice: string | undefined;
   runtimeStateSummary: string | undefined;
   lastDebugLoggedActorInstruction: string | undefined;

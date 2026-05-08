@@ -3,23 +3,6 @@ import { describe, expect, it } from 'vitest';
 import { countChatPromptContentChars } from '../ai/promptMetrics.js';
 import { AxPromptTemplate } from './prompt.js';
 import { AxSignature, f } from './sig.js';
-import type { AxMessage } from './types.js';
-
-// Helper to create a basic signature
-const createSignature = (desc: string) => {
-  return new AxSignature(desc);
-};
-
-const defaultSig = createSignature('userQuery:string -> aiResponse:string');
-
-const multiFieldSig = createSignature(
-  'userQuestion:string, contextInfo:string -> assistantAnswer:string'
-);
-
-// Signature for testing assistant message rendering logic
-const assistantTestSig = createSignature(
-  'userMessage:string -> thoughtProcess:string "Thought process", mainResponse:string "Main output", optionalResponse?:string "Optional output", internalThoughts!:string "Internal output"'
-);
 
 describe('AxPromptTemplate.render', () => {
   type TestExpectedMessage = { role: 'user' | 'assistant'; content: string };
@@ -268,32 +251,6 @@ describe('AxPromptTemplate.render', () => {
       );
     });
 
-    it('should separate example chars from mutable multi-turn history', () => {
-      const signature = new AxSignature(
-        'userQuery:string -> aiResponse:string "the result"'
-      );
-      const template = new AxPromptTemplate(signature);
-      const history: AxMessage<{ userQuery: string }>[] = [
-        { role: 'user', values: { userQuery: 'first question' } },
-        { role: 'assistant', values: { userQuery: 'first answer' } },
-        { role: 'user', values: { userQuery: 'follow-up' } },
-      ];
-
-      const rendered = template.renderWithMetrics(history, {
-        examples: [{ userQuery: 'hello', aiResponse: 'world' }],
-      });
-
-      expect(rendered.promptMetrics.exampleChatContextCharacters).toBe(
-        countChatPromptContentChars(rendered.chatPrompt.slice(1, 3) as any)
-      );
-      expect(rendered.promptMetrics.mutableChatContextCharacters).toBe(
-        countChatPromptContentChars(rendered.chatPrompt.slice(3) as any)
-      );
-      expect(rendered.promptMetrics.totalPromptCharacters).toBe(
-        countChatPromptContentChars(rendered.chatPrompt as any)
-      );
-    });
-
     it('should count only text parts for multimodal mutable user content', () => {
       const signature = new AxSignature('note:string -> answer:string');
       const template = new AxPromptTemplate(signature, undefined, {
@@ -526,174 +483,6 @@ describe('AxPromptTemplate.render', () => {
 
       const secondExampleUser = result[3] as { role: 'user'; content: string };
       expect(secondExampleUser.content).toContain('goodbye');
-    });
-  });
-
-  describe('ReadonlyArray<AxMessage> input (new behavior)', () => {
-    it('should render with a single user message in history', () => {
-      const pt = new AxPromptTemplate(defaultSig);
-      const history: ReadonlyArray<AxMessage<{ userQuery: string }>> = [
-        { role: 'user', values: { userQuery: 'first message' } },
-      ];
-      const result = pt.render(history, {});
-
-      expect(result.length).toBe(2);
-      expect(result[0]?.role).toBe('system');
-      const userMessage = result[1] as TestExpectedMessage | undefined;
-      expect(userMessage?.role).toBe('user');
-      expect(userMessage?.content).toBe('User Query: first message\n');
-    });
-
-    it('should combine consecutive user messages', () => {
-      const pt = new AxPromptTemplate(multiFieldSig);
-      const history: ReadonlyArray<
-        AxMessage<{ userQuestion: string; contextInfo: string }>
-      > = [
-        { role: 'user', values: { userQuestion: 'q1', contextInfo: 'c1' } },
-        { role: 'user', values: { userQuestion: 'q2', contextInfo: 'c2' } },
-      ];
-      const result = pt.render(history, {});
-
-      expect(result.length).toBe(3);
-      const userMessage = result[1] as TestExpectedMessage | undefined;
-      expect(userMessage?.role).toBe('user');
-      expect(userMessage?.content).toBe(
-        'User Question: q1\n\nContext Info: c1\n'
-      );
-    });
-
-    it('should handle alternating user and assistant messages', () => {
-      const pt = new AxPromptTemplate(multiFieldSig);
-      const history: ReadonlyArray<
-        AxMessage<{ userQuestion: string; contextInfo: string }>
-      > = [
-        { role: 'user', values: { userQuestion: 'q1', contextInfo: 'c1' } },
-        {
-          role: 'assistant',
-          values: { userQuestion: 'q1-followup', contextInfo: 'c1-response' },
-        },
-        { role: 'user', values: { userQuestion: 'q2', contextInfo: 'c2' } },
-      ];
-      const result = pt.render(history, {});
-
-      expect(result.length).toBe(4);
-      expect(result[0]?.role).toBe('system');
-      const userMessage1 = result[1] as TestExpectedMessage | undefined;
-      expect(userMessage1?.role).toBe('user');
-      expect(userMessage1?.content).toBe(
-        'User Question: q1\n\nContext Info: c1\n'
-      );
-      const assistantMessage = result[2] as TestExpectedMessage | undefined;
-      expect(assistantMessage?.role).toBe('assistant');
-      expect(assistantMessage?.content).toBe(
-        'User Question: q1-followup\n\nContext Info: c1-response\n'
-      );
-      const userMessage2 = result[3] as TestExpectedMessage | undefined;
-      expect(userMessage2?.role).toBe('user');
-      expect(userMessage2?.content).toBe(
-        'User Question: q2\n\nContext Info: c2\n'
-      );
-    });
-
-    // This test confirms user messages need all required fields
-    it('should throw if required field missing in user message history', () => {
-      const pt = new AxPromptTemplate(multiFieldSig);
-      const history: ReadonlyArray<
-        AxMessage<{ userQuestion: string; contextInfo?: string }>
-      > = [
-        { role: 'user', values: { userQuestion: 'q1' } }, // contextInfo is missing
-      ];
-      expect(() => pt.render(history, {})).toThrowError(
-        "Value for input field 'contextInfo' is required."
-      );
-    });
-
-    it('should handle empty history array', () => {
-      const pt = new AxPromptTemplate(defaultSig);
-      const history: ReadonlyArray<AxMessage<{ userQuery: string }>> = [];
-      const result = pt.render(history, {});
-
-      expect(result.length).toBe(1); // Only system prompt for empty array
-      expect(result[0]?.role).toBe('system');
-      // If an empty history array resulted in an empty user message, this would be:
-      // expect(result.length).toBe(2);
-      // const userMessage = result[1] as TestExpectedMessage | undefined;
-      // expect(userMessage?.role).toBe('user');
-      // expect(userMessage?.content).toBe('');
-    });
-
-    describe('Assistant Messages in History', () => {
-      it('should render assistant message with input fields', () => {
-        const pt = new AxPromptTemplate(assistantTestSig);
-        const history: ReadonlyArray<AxMessage<{ userMessage: string }>> = [
-          {
-            role: 'assistant',
-            values: {
-              userMessage: 'assistant input value',
-            },
-          },
-        ];
-        const result = pt.render(history, {});
-        expect(result.length).toBe(2);
-        const assistantMsg = result[1] as TestExpectedMessage | undefined;
-        expect(assistantMsg?.role).toBe('assistant');
-        expect(assistantMsg?.content).toBe(
-          'User Message: assistant input value\n'
-        );
-      });
-
-      it('should throw error if required input field is missing in assistant message', () => {
-        const pt = new AxPromptTemplate(assistantTestSig);
-        const history: ReadonlyArray<AxMessage<{ userMessage?: string }>> = [
-          {
-            role: 'assistant',
-            values: {}, // 'userMessage' is missing
-          },
-        ];
-        expect(() => pt.render(history, {})).toThrowError(
-          "Value for input field 'userMessage' is required."
-        );
-      });
-
-      it('should render assistant message with multiple input fields', () => {
-        const pt = new AxPromptTemplate(multiFieldSig);
-        const history: ReadonlyArray<
-          AxMessage<{ userQuestion: string; contextInfo: string }>
-        > = [
-          {
-            role: 'assistant',
-            values: {
-              userQuestion: 'What is the answer?',
-              contextInfo: 'This is the context',
-            },
-          },
-        ];
-        const result = pt.render(history, {});
-        expect(result.length).toBe(2);
-        const assistantMsg = result[1] as TestExpectedMessage | undefined;
-        expect(assistantMsg?.role).toBe('assistant');
-        expect(assistantMsg?.content).toBe(
-          'User Question: What is the answer?\n\nContext Info: This is the context\n'
-        );
-      });
-
-      it('should throw error if required input field is missing in multi-field assistant message', () => {
-        const pt = new AxPromptTemplate(multiFieldSig);
-        const history: ReadonlyArray<
-          AxMessage<{ userQuestion: string; contextInfo?: string }>
-        > = [
-          {
-            role: 'assistant',
-            values: {
-              userQuestion: 'What is the answer?',
-              // contextInfo is missing
-            },
-          },
-        ];
-        expect(() => pt.render(history, {})).toThrowError(
-          "Value for input field 'contextInfo' is required."
-        );
-      });
     });
   });
 
@@ -1000,41 +789,6 @@ describe('AxPromptTemplate.render', () => {
       expect(userQuery.cache).toBeUndefined();
     });
 
-    it('should work with multi-turn history and examples', () => {
-      const signature = new AxSignature(
-        'userQuery:string -> aiResponse:string'
-      );
-      const template = new AxPromptTemplate(signature);
-
-      const examples = [{ userQuery: 'example', aiResponse: 'example out' }];
-      const history: ReadonlyArray<AxMessage<{ userQuery: string }>> = [
-        { role: 'user', values: { userQuery: 'first message' } },
-        { role: 'assistant', values: { userQuery: 'first response' } },
-        { role: 'user', values: { userQuery: 'second message' } },
-      ];
-
-      const result = template.render(history, { examples });
-
-      // Should have: system, user (ex), assistant (ex), user (hist1), assistant (hist1), user (hist2)
-      expect(result).toHaveLength(6);
-      expect(result[0]?.role).toBe('system');
-
-      // Example messages
-      expect(result[1]?.role).toBe('user');
-      expect(result[2]?.role).toBe('assistant');
-      const exUser = result[1] as { role: 'user'; content: string };
-      expect(exUser.content).toContain('User Query: example');
-
-      // History messages
-      expect(result[3]?.role).toBe('user');
-      expect(result[4]?.role).toBe('assistant');
-      expect(result[5]?.role).toBe('user');
-      const histUser1 = result[3] as { role: 'user'; content: string };
-      const histUser2 = result[5] as { role: 'user'; content: string };
-      expect(histUser1.content).toContain('User Query: first message');
-      expect(histUser2.content).toContain('User Query: second message');
-    });
-
     it('should skip output-only demos (no input fields)', () => {
       const signature = new AxSignature(
         'userQuery:string -> aiResponse:string'
@@ -1150,32 +904,6 @@ describe('AxPromptTemplate.render', () => {
       expect(finalUserMessage.content).toContain('--- END OF EXAMPLES ---');
     });
 
-    it('should add separator only to first user message in multi-turn history', () => {
-      const signature = new AxSignature(
-        'userQuery:string -> aiResponse:string'
-      );
-      const template = new AxPromptTemplate(signature);
-
-      const examples = [{ userQuery: 'example', aiResponse: 'example out' }];
-      const history: ReadonlyArray<AxMessage<{ userQuery: string }>> = [
-        { role: 'user', values: { userQuery: 'first message' } },
-        { role: 'assistant', values: { userQuery: 'first response' } },
-        { role: 'user', values: { userQuery: 'second message' } },
-      ];
-
-      const result = template.render(history, { examples });
-
-      // First history user message should have separator
-      const histUser1 = result[3] as { role: 'user'; content: string };
-      expect(histUser1.content).toContain('--- END OF EXAMPLES ---');
-      expect(histUser1.content).toContain('first message');
-
-      // Second history user message should NOT have separator
-      const histUser2 = result[5] as { role: 'user'; content: string };
-      expect(histUser2.content).not.toContain('--- END OF EXAMPLES ---');
-      expect(histUser2.content).toContain('second message');
-    });
-
     it('should NOT add disclaimer/separator when examples array is empty', () => {
       const signature = new AxSignature(
         'userQuery:string -> aiResponse:string'
@@ -1271,58 +999,6 @@ describe('AxPromptTemplate.render', () => {
       expect(liveInputMsg.cache).toBeUndefined();
       expect(Array.isArray(liveInputMsg.content)).toBe(true);
       expect(liveInputMsg.content.some((c: any) => c.type === 'image')).toBe(
-        true
-      );
-    });
-
-    it('keeps the first real history turn separate from the cached example message', () => {
-      const signature = new AxSignature(
-        'imageInput:image -> description:string'
-      );
-      const template = new AxPromptTemplate(signature, {
-        examplesInSystem: true,
-        contextCache: { ttlSeconds: 3600 },
-      });
-
-      const examples = [
-        {
-          imageInput: { mimeType: 'image/png', data: 'base64ImageData' },
-          description: 'A beautiful sunset',
-        },
-      ];
-      const history: ReadonlyArray<
-        AxMessage<{ imageInput: { mimeType: string; data: string } }>
-      > = [
-        {
-          role: 'user',
-          values: {
-            imageInput: { mimeType: 'image/png', data: 'historyImage' },
-          },
-        },
-      ];
-
-      const result = template.render(history, { examples });
-
-      expect(result).toHaveLength(3);
-      expect(result[0]?.role).toBe('system');
-      expect(result[1]?.role).toBe('user');
-      expect(result[2]?.role).toBe('user');
-
-      const exampleMsg = result[1] as {
-        role: 'user';
-        cache?: boolean;
-        content: unknown[];
-      };
-      expect(exampleMsg.cache).toBe(true);
-
-      const historyMsg = result[2] as {
-        role: 'user';
-        cache?: boolean;
-        content: unknown[];
-      };
-      expect(historyMsg.cache).toBeUndefined();
-      expect(Array.isArray(historyMsg.content)).toBe(true);
-      expect(historyMsg.content.some((c: any) => c.type === 'image')).toBe(
         true
       );
     });

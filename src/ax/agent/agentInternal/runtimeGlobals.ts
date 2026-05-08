@@ -9,6 +9,8 @@ import { serializeForEval } from '../optimize.js';
 import {
   DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME,
   DISCOVERY_LIST_MODULE_FUNCTIONS_NAME,
+  MEMORIES_LOAD_NAME,
+  SKILLS_LOAD_NAME,
 } from '../runtime.js';
 import {
   type DiscoveryCallableMeta,
@@ -19,10 +21,15 @@ import {
   resolveDiscoveryCallableNamespaces,
   sortDiscoveryModules,
 } from '../runtimeDiscovery.js';
+import { normalizeMemoriesInput } from './memoriesHelpers.js';
+import type { AxAgentMemoryResult } from './memoriesTypes.js';
+import { normalizeSkillsInput } from './skillsHelpers.js';
+import type { AxAgentSkillResult } from './skillsTypes.js';
 import type {
   AxAgentFunction,
   AxAgentFunctionCallRecorder,
   AxAgentFunctionModuleMeta,
+  AxAgentOnFunctionCall,
 } from './types.js';
 
 export function wrapFunction(
@@ -31,7 +38,9 @@ export function wrapFunction(
   ai?: AxAIService,
   protocolForTrigger?: (triggeredBy?: string) => AxAgentCompletionProtocol,
   qualifiedName?: string,
-  functionCallRecorder?: AxAgentFunctionCallRecorder
+  functionCallRecorder?: AxAgentFunctionCallRecorder,
+  kind: 'internal' | 'external' = 'external',
+  onFunctionCall?: AxAgentOnFunctionCall
 ): (...args: unknown[]) => Promise<unknown> {
   return async (...args: unknown[]) => {
     let callArgs: Record<string, unknown>;
@@ -57,6 +66,16 @@ export function wrapFunction(
 
     const normalizedQualifiedName = qualifiedName ?? fn.name;
     const protocol = protocolForTrigger?.(normalizedQualifiedName);
+    if (onFunctionCall) {
+      try {
+        await onFunctionCall({
+          name: fn.name,
+          qualifiedName: normalizedQualifiedName,
+          args: callArgs,
+          kind,
+        });
+      } catch {}
+    }
     try {
       const result = await fn.func(callArgs, { abortSignal, ai, protocol });
       functionCallRecorder?.({
@@ -104,8 +123,25 @@ export function buildRuntimeGlobals(
   onDiscoveredFunctions?: (
     qualifiedNames: readonly string[],
     docs: Readonly<Record<string, string>>
-  ) => void
+  ) => void,
+  onUsedSkills?: (results: readonly AxAgentSkillResult[]) => void,
+  onUsedMemories?: (results: readonly AxAgentMemoryResult[]) => void,
+  onFunctionCall?: AxAgentOnFunctionCall
 ): Record<string, unknown> {
+  const fireInternal = async (
+    name: string,
+    args: Record<string, unknown>
+  ): Promise<void> => {
+    if (!onFunctionCall) return;
+    try {
+      await onFunctionCall({
+        name,
+        qualifiedName: name,
+        args,
+        kind: 'internal',
+      });
+    } catch {}
+  };
   const s = self as any;
   const globals: Record<string, unknown> = {};
   const callableLookup = new Map<string, DiscoveryCallableMeta>();
@@ -138,7 +174,9 @@ export function buildRuntimeGlobals(
       ai,
       protocolForTrigger,
       qualifiedName,
-      functionCallRecorder
+      functionCallRecorder,
+      'external',
+      onFunctionCall
     );
     registerCallable(
       {
@@ -166,7 +204,9 @@ export function buildRuntimeGlobals(
         ai,
         protocolForTrigger,
         qualifiedName,
-        functionCallRecorder
+        functionCallRecorder,
+        'internal',
+        onFunctionCall
       );
       registerCallable(
         {
@@ -185,6 +225,9 @@ export function buildRuntimeGlobals(
     globals[DISCOVERY_LIST_MODULE_FUNCTIONS_NAME] = async (
       modulesInput: unknown
     ): Promise<void> => {
+      await fireInternal(DISCOVERY_LIST_MODULE_FUNCTIONS_NAME, {
+        modules: modulesInput,
+      });
       const modules = sortDiscoveryModules(
         normalizeDiscoveryStringInput(modulesInput, 'modules')
       );
@@ -204,6 +247,9 @@ export function buildRuntimeGlobals(
     globals[DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME] = async (
       functionsInput: unknown
     ): Promise<void> => {
+      await fireInternal(DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME, {
+        functions: functionsInput,
+      });
       const items = normalizeAndSortDiscoveryFunctionIdentifiers(
         normalizeDiscoveryStringInput(functionsInput, 'functions')
       );
@@ -224,6 +270,30 @@ export function buildRuntimeGlobals(
         ])
       );
       onDiscoveredFunctions?.(items, docs);
+    };
+  }
+
+  if (typeof s.onSkillsSearch === 'function') {
+    globals[SKILLS_LOAD_NAME] = async (input: unknown): Promise<void> => {
+      await fireInternal(SKILLS_LOAD_NAME, { searches: input });
+      const searches = normalizeSkillsInput(input);
+      if (searches.length === 0) return;
+      const results = await s.onSkillsSearch(searches);
+      if (!Array.isArray(results) || results.length === 0) return;
+      const matched = results as readonly AxAgentSkillResult[];
+      onUsedSkills?.(matched);
+    };
+  }
+
+  if (typeof s.onMemoriesSearch === 'function') {
+    globals[MEMORIES_LOAD_NAME] = async (input: unknown): Promise<void> => {
+      await fireInternal(MEMORIES_LOAD_NAME, { searches: input });
+      const searches = normalizeMemoriesInput(input);
+      if (searches.length === 0) return;
+      const results = await s.onMemoriesSearch(searches);
+      if (!Array.isArray(results) || results.length === 0) return;
+      const matched = results as readonly AxAgentMemoryResult[];
+      onUsedMemories?.(matched);
     };
   }
 

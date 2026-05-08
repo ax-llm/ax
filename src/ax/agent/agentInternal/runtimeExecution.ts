@@ -31,6 +31,11 @@ import {
   restoreDiscoveryPromptState,
   serializeDiscoveryPromptState,
 } from './discoveryHelpers.js';
+import {
+  type AxAgentMemoryEntry,
+  mergeMemoryResults,
+} from './memoriesHelpers.js';
+import type { AxAgentMemoryResult } from './memoriesTypes.js';
 import { buildExecutionHelpers } from './runtimeExecutionHelpers.js';
 import { buildLlmQueryBindings } from './runtimeExecutionLlmQuery.js';
 import {
@@ -39,6 +44,12 @@ import {
   getSnapshotableSession,
   prepareRestoredState,
 } from './runtimeSessionHelpers.js';
+import {
+  ingestSkillResults,
+  restoreSkillsPromptState,
+  serializeSkillsPromptState,
+} from './skillsHelpers.js';
+import type { AxAgentSkillResult } from './skillsTypes.js';
 import {
   AxAgentClarificationError,
   type AxAgentFunctionCallRecorder,
@@ -70,6 +81,7 @@ export function createRuntimeExecutionContext(
     completionBindings,
     actionLogEntries,
     functionCallRecorder,
+    onFunctionCall,
   }: Readonly<{
     ai?: AxAIService;
     inputState: AxAgentRuntimeInputState;
@@ -83,6 +95,7 @@ export function createRuntimeExecutionContext(
     completionBindings: ReturnType<typeof createCompletionBindings>;
     actionLogEntries?: ActionLogEntry[];
     functionCallRecorder?: AxAgentFunctionCallRecorder;
+    onFunctionCall?: import('./types.js').AxAgentOnFunctionCall;
   }>
 ): AxAgentRuntimeExecutionContext {
   const s = self as any;
@@ -193,6 +206,26 @@ export function createRuntimeExecutionContext(
       pendingDiscoveryTurnSummary.texts.add(text);
     }
   };
+  const noteUsedSkills = (results: readonly AxAgentSkillResult[]) => {
+    ingestSkillResults(s.currentSkillsPromptState, results);
+  };
+  const memoriesEnabled = typeof s.onMemoriesSearch === 'function';
+  let currentMemories: AxAgentMemoryEntry[] = memoriesEnabled
+    ? mergeMemoryResults(
+        Array.isArray(inputState.currentInputs?.memories)
+          ? (inputState.currentInputs.memories as readonly AxAgentMemoryEntry[])
+          : [],
+        []
+      )
+    : [];
+  if (memoriesEnabled) {
+    inputState.currentInputs.memories = currentMemories;
+  }
+  const noteUsedMemories = (results: readonly AxAgentMemoryResult[]) => {
+    if (!memoriesEnabled) return;
+    currentMemories = mergeMemoryResults(currentMemories, results);
+    inputState.currentInputs.memories = currentMemories;
+  };
   const consumeDiscoveryTurnArtifacts = () => {
     const summary = formatDiscoveryTurnSummary(pendingDiscoveryTurnSummary);
     const texts = [...pendingDiscoveryTurnSummary.texts];
@@ -210,7 +243,10 @@ export function createRuntimeExecutionContext(
     functionCallRecorder,
     noteDiscoveredActorModelNamespaces,
     noteDiscoveredModules,
-    noteDiscoveredFunctions
+    noteDiscoveredFunctions,
+    noteUsedSkills,
+    noteUsedMemories,
+    onFunctionCall ?? s.onFunctionCall
   );
   const agentFunctionNamespaces = [
     ...new Set(
@@ -230,7 +266,7 @@ export function createRuntimeExecutionContext(
     ...(s.agentStatusCallback ? ['success', 'failed'] : []),
     ...agentFunctionNamespaces,
     ...(effectiveContextConfig.stateInspection.enabled
-      ? ['inspect_runtime']
+      ? ['inspectRuntime']
       : []),
     ...Object.keys(toolGlobals),
   ]);
@@ -303,7 +339,7 @@ export function createRuntimeExecutionContext(
         llmQuery,
         final: completionBindings.finalFunction,
         askClarification: completionBindings.askClarificationFunction,
-        ...(inspectRuntime ? { inspect_runtime: inspectRuntime } : {}),
+        ...(inspectRuntime ? { inspectRuntime } : {}),
         ...(s.agentStatusCallback
           ? {
               success: async (message: string) => {
@@ -398,6 +434,9 @@ export function createRuntimeExecutionContext(
     s.currentDiscoveryPromptState = restoreDiscoveryPromptState(
       preparedState.discoveryPromptState
     );
+    s.currentSkillsPromptState = restoreSkillsPromptState(
+      preparedState.skillsPromptState
+    );
     return preparedState;
   };
 
@@ -429,6 +468,13 @@ export function createRuntimeExecutionContext(
         ? {
             discoveryPromptState: serializeDiscoveryPromptState(
               s.currentDiscoveryPromptState
+            ),
+          }
+        : {}),
+      ...(serializeSkillsPromptState(s.currentSkillsPromptState)
+        ? {
+            skillsPromptState: serializeSkillsPromptState(
+              s.currentSkillsPromptState
             ),
           }
         : {}),

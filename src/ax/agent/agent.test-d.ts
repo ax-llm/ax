@@ -281,13 +281,13 @@ import {
   });
 }
 
-// actorModelPolicy should accept namespace-triggered routing
+// executorModelPolicy should accept namespace-triggered routing
 {
   const runtime = {} as AxCodeRuntime;
   agent('query:string -> answer:string', {
     contextFields: [] as const,
     runtime,
-    actorModelPolicy: [
+    executorModelPolicy: [
       {
         model: 'actor-db',
         namespaces: ['db'],
@@ -296,20 +296,20 @@ import {
   });
 }
 
-// Agent actorTurnCallback exposes raw result plus formatted output
+// Agent executorTurnCallback exposes raw result plus formatted output
 {
   const runtime = {} as AxCodeRuntime;
   agent('query:string -> answer:string', {
     contextFields: [] as const,
     runtime,
-    actorTurnCallback: async (turn) => {
+    executorTurnCallback: async (turn) => {
       const _turn: number = turn.turn;
       const _code: string = turn.code;
       const _result: unknown = turn.result;
       const _output: string = turn.output;
       const _isError: boolean = turn.isError;
       const _thought: string | undefined = turn.thought;
-      const _actorResult: Record<string, unknown> = turn.actorResult;
+      const _actorResult: Record<string, unknown> = turn.executorResult;
     },
   });
 }

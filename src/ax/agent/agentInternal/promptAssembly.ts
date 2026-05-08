@@ -1,15 +1,20 @@
 import {
-  axBuildActorDefinition,
-  axBuildContextActorDefinition,
-  axBuildTaskActorDefinition,
+  axBuildDistillerDefinition,
+  axBuildExecutorDefinition,
 } from '../rlm.js';
 import { renderDiscoveryPromptMarkdown } from './discoveryHelpers.js';
+import { renderSkillsPromptMarkdown } from './skillsHelpers.js';
 
 export function renderActorDefinition(self: any): string {
   const s = self as any;
   if (!s.actorDefinitionBuildOptions) {
     return s.baseActorDefinition;
   }
+
+  const skillsMarkdown =
+    typeof s.onSkillsSearch === 'function' && s.currentSkillsPromptState
+      ? renderSkillsPromptMarkdown(s.currentSkillsPromptState)
+      : undefined;
 
   const buildOptions = {
     ...s.actorDefinitionBuildOptions,
@@ -19,30 +24,25 @@ export function renderActorDefinition(self: any): string {
     templateOverride: s._actorTemplateOverrides?.get(s._actorTemplateId()),
     primitiveOverrides: s._primitiveOverrides,
   };
-  const variant = s.options?.actorTemplateVariant ?? 'combined';
-  if (variant === 'context') {
-    return axBuildContextActorDefinition(
+  const variant = s.options?.stageVariant as
+    | 'distiller'
+    | 'executor'
+    | undefined;
+  if (variant === 'distiller') {
+    return axBuildDistillerDefinition(
       s.actorDefinitionBaseDescription,
       s.actorDefinitionContextFields,
       buildOptions
     );
   }
-  if (variant === 'task') {
-    return axBuildTaskActorDefinition(
-      s.actorDefinitionBaseDescription,
-      s.actorDefinitionContextFields,
-      s.actorDefinitionResponderOutputFields,
-      {
-        ...buildOptions,
-        hasDistilledContext: s.options?.hasDistilledContext ?? false,
-      }
-    );
-  }
-  return axBuildActorDefinition(
+  return axBuildExecutorDefinition(
     s.actorDefinitionBaseDescription,
     s.actorDefinitionContextFields,
     s.actorDefinitionResponderOutputFields,
-    buildOptions
+    {
+      ...buildOptions,
+      skillsMarkdown,
+    }
   );
 }
 

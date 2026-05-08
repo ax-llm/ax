@@ -34,7 +34,6 @@ function makeEntry(
   return {
     code: '',
     output: '',
-    actorFieldsOutput: '',
     tags: [],
     ...overrides,
   };

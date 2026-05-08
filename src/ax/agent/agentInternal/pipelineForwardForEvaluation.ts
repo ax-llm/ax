@@ -20,6 +20,17 @@ import type {
   AxAgentEvalTask,
 } from './types.js';
 
+function defaultExecutorRequest(values: Record<string, unknown>): string {
+  const query = values.query;
+  if (typeof query === 'string' && query.trim()) return query;
+  return Object.entries(values)
+    .map(
+      ([key, value]) =>
+        `${key}: ${typeof value === 'string' ? value : JSON.stringify(value)}`
+    )
+    .join('\n');
+}
+
 /**
  * Walk the pipeline once for the optimizer. Behaves like `forwardPipeline`
  * but additionally:
@@ -71,13 +82,8 @@ export async function forwardPipelineForEvaluation<
     const contextFieldNames: Set<string> = p.contextFieldNames;
 
     const splitValues = (values: any) => {
-      const raw: Record<string, unknown> = Array.isArray(values)
-        ? values.reduce(
-            (acc: Record<string, unknown>, m: any) =>
-              m.role === 'user' ? { ...acc, ...m.values } : acc,
-            {}
-          )
-        : (values as Record<string, unknown>);
+      const raw: Record<string, unknown> =
+        (values as Record<string, unknown>) ?? {};
       const ctxValues: Record<string, unknown> = {};
       const nonCtxValues: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(raw)) {
@@ -90,79 +96,59 @@ export async function forwardPipelineForEvaluation<
     let actionLog = '';
     let guidanceLog: string | undefined;
     let turnCount = 0;
-    let actorResult: any;
-    let actorFieldValues: Record<string, unknown> = {};
+    let executorResult: any;
     let nonContextValues: Record<string, unknown>;
 
-    if (!p.contextExplorer) {
-      // Task-only flow
-      const taskRun = await primary._runActorLoop(
-        ai,
-        task.input,
-        { ...options, abortSignal: effectiveAbortSignal },
-        effectiveAbortSignal,
-        functionCalls
-      );
-      actionLog = taskRun.actionLog;
-      guidanceLog = taskRun.guidanceLog;
-      turnCount = taskRun.turnCount;
-      actorResult = taskRun.actorResult;
-      actorFieldValues = taskRun.actorFieldValues;
-      nonContextValues = taskRun.nonContextValues;
-    } else {
-      const { nonCtxValues } = splitValues(task.input);
-      const ctxRun = await p.contextExplorer._runActorLoop(
-        ai,
-        task.input,
-        { ...options, abortSignal: effectiveAbortSignal },
-        effectiveAbortSignal,
-        functionCalls
-      );
-      actionLog = ctxRun.actionLog;
-      guidanceLog = ctxRun.guidanceLog;
-      turnCount = ctxRun.turnCount;
+    const { nonCtxValues } = splitValues(task.input);
+    const distillerRun = await p.distiller._runActorLoop(
+      ai,
+      task.input,
+      { ...options, abortSignal: effectiveAbortSignal },
+      effectiveAbortSignal,
+      functionCalls
+    );
+    actionLog = distillerRun.actionLog;
+    guidanceLog = distillerRun.guidanceLog;
+    turnCount = distillerRun.turnCount;
 
-      if (ctxRun.actorResult.type === 'askClarification') {
-        actorResult = ctxRun.actorResult;
-        actorFieldValues = ctxRun.actorFieldValues;
-        nonContextValues = nonCtxValues;
-      } else {
-        // Staged context flow: explorer feeds the executor directly.
-        // `executorRequest` and
-        // `distilledContext` come from the explorer's `final(task, evidence)`
-        // payload (`actorResult.args[0]` / `args[1]`).
-        const explorerArgs = (ctxRun.actorResult as any)?.args ?? [];
-        const taskInputs = {
-          ...nonCtxValues,
-          ...(ctxRun.nonContextValues as Record<string, unknown>),
-          executorRequest: explorerArgs[0],
-          distilledContext: explorerArgs[1],
-        };
-        const taskRun = await p.taskExecutor._runActorLoop(
-          ai,
-          taskInputs,
-          { ...options, abortSignal: effectiveAbortSignal },
-          effectiveAbortSignal,
-          functionCalls
-        );
-        actionLog = taskRun.actionLog;
-        guidanceLog = taskRun.guidanceLog;
-        turnCount = taskRun.turnCount;
-        actorResult = taskRun.actorResult;
-        actorFieldValues = taskRun.actorFieldValues;
-        nonContextValues = taskRun.nonContextValues;
-      }
+    if (distillerRun.executorResult.type === 'askClarification') {
+      executorResult = distillerRun.executorResult;
+      nonContextValues = nonCtxValues;
+    } else {
+      const distillerArgs = (distillerRun.executorResult as any)?.args ?? [];
+      const executorRequest =
+        distillerArgs[0] ?? defaultExecutorRequest(nonCtxValues);
+      const executorInputs: Record<string, unknown> = {
+        ...nonCtxValues,
+        ...(distillerRun.nonContextValues as Record<string, unknown>),
+        executorRequest,
+        distilledContext: distillerArgs[1],
+      };
+      const executorExclude: Set<string> = p.executorExcludeFields;
+      for (const key of executorExclude) delete executorInputs[key];
+      const executorRun = await p.executor._runActorLoop(
+        ai,
+        executorInputs,
+        { ...options, abortSignal: effectiveAbortSignal },
+        effectiveAbortSignal,
+        functionCalls
+      );
+      actionLog = executorRun.actionLog;
+      guidanceLog = executorRun.guidanceLog;
+      turnCount = executorRun.turnCount;
+      executorResult = executorRun.executorResult;
+      nonContextValues = executorRun.nonContextValues;
     }
 
     const toolErrors = functionCalls
       .filter((call) => Boolean(call.error))
       .map((call) => `${call.qualifiedName}: ${call.error ?? 'unknown error'}`);
 
-    if (actorResult.type === 'askClarification') {
+    if (executorResult.type === 'askClarification') {
       return {
         completionType: 'askClarification',
         clarification: normalizeClarificationForError(
-          actorResult.args[0] as AxAgentClarification
+          executorResult.args[0] as AxAgentClarification
         ),
         guidanceLog,
         actionLog,
@@ -172,22 +158,36 @@ export async function forwardPipelineForEvaluation<
       };
     }
 
-    // The task stage's actor inputs include `executorRequest` and
-    // `distilledContext` in staged context flows. The finalResponder's signature does not,
-    // so drop them before forward.
+    // The executor stage's actor inputs include `executorRequest`,
+    // `distilledContext`, and (when memories mode is on) `memories`. The
+    // responder's signature does not, so drop them.
     const {
       executorRequest: _ignoreT,
       distilledContext: _ignoreC,
-      ...nonCtxForResponder
+      memories: _ignoreM,
+      ...nonCtxFromExecutor
     } = nonContextValues as Record<string, unknown>;
-    const responderResult = await p.finalResponder.forward(ai, {
+    const nonCtxForResponder: Record<string, unknown> = {
+      ...nonCtxFromExecutor,
+    };
+    const executorExcludeForResponder: Set<string> = p.executorExcludeFields;
+    for (const key of executorExcludeForResponder) {
+      if (key in nonCtxValues) {
+        nonCtxForResponder[key] = (nonCtxValues as Record<string, unknown>)[
+          key
+        ];
+      }
+    }
+    const responderExclude: Set<string> = p.responderExcludeFields;
+    for (const key of responderExclude) delete nonCtxForResponder[key];
+    const responderResult = await p.responder.forward(ai, {
       nonContextValues: nonCtxForResponder,
-      actorResult,
+      executorResult,
       options: { ...options, abortSignal: effectiveAbortSignal },
     });
     return {
       completionType: 'final',
-      output: { ...responderResult, ...actorFieldValues } as OUT,
+      output: responderResult as OUT,
       guidanceLog,
       actionLog,
       functionCalls,

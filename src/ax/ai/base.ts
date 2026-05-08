@@ -2,7 +2,6 @@ import { context, type Span, SpanKind } from '@opentelemetry/api';
 import { axGlobals } from '../dsp/globals.js';
 import { defaultLogger } from '../dsp/loggers.js';
 import { getModelInfo } from '../dsp/modelinfo.js';
-import type { AxMessage } from '../dsp/types.js';
 import { axSpanAttributes, axSpanEvents } from '../trace/trace.js';
 import { apiCall } from '../util/apicall.js';
 import { createHash, randomUUID } from '../util/crypto.js';
@@ -2446,29 +2445,6 @@ export function setChatResponseEvents(
       index,
       message: JSON.stringify(message, null, 2),
     });
-  }
-}
-
-export function validateAxMessageArray<T>(
-  values: ReadonlyArray<AxMessage<T>>
-): void {
-  let index = 0;
-  for (const message of values) {
-    if (!message || typeof message !== 'object') {
-      throw new Error(
-        `AxMessage array validation failed: Item at index ${index} is not a valid message object`
-      );
-    }
-    if (message.role !== 'user' && message.role !== 'assistant') {
-      throw new Error(
-        `AxMessage array validation failed: Item at index ${index} has invalid role: ${
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (message as any).role
-        }`
-      );
-    }
-    // The current AxMessage design accepts any "values" payload. Do not enforce non-empty object.
-    index++;
   }
 }
 

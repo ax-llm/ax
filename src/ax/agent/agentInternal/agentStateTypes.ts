@@ -6,7 +6,6 @@ import type {
   AxFieldValue,
   AxGenIn,
   AxGenOut,
-  AxMessage,
   AxProgrammable,
   AxProgramUsage,
 } from '../../dsp/types.js';
@@ -20,7 +19,7 @@ import type { AxCodeSessionSnapshotEntry } from '../rlm.js';
 import { cloneAgentState } from '../state.js';
 
 // Re-exports to avoid unused-import warnings when types are used only transitively
-export type { AxOptimizedProgram, AxAgentUsage, AxChatLogEntry, AxMessage };
+export type { AxOptimizedProgram, AxAgentUsage, AxChatLogEntry };
 
 /**
  * Interface for agents that can be used as child agents.
@@ -103,7 +102,6 @@ export type AxAgentStateActionLogEntry = Pick<
   | 'turn'
   | 'code'
   | 'output'
-  | 'actorFieldsOutput'
   | 'tags'
   | 'summary'
   | 'producedVars'
@@ -119,19 +117,19 @@ export type AxAgentStateCheckpointState = CheckpointSummaryState;
 
 export type AxAgentStateRuntimeEntry = AxCodeSessionSnapshotEntry;
 
-type AxActorModelPolicyEntryBase = {
+type AxExecutorModelPolicyEntryBase = {
   model: string;
   namespaces?: readonly string[];
   aboveErrorTurns?: number;
 };
 
-export type AxActorModelPolicyEntry =
-  | (AxActorModelPolicyEntryBase & { aboveErrorTurns: number })
-  | (AxActorModelPolicyEntryBase & {
+export type AxExecutorModelPolicyEntry =
+  | (AxExecutorModelPolicyEntryBase & { aboveErrorTurns: number })
+  | (AxExecutorModelPolicyEntryBase & {
       namespaces: readonly string[];
     });
 
-export type AxAgentStateActorModelState = {
+export type AxAgentStateExecutorModelState = {
   consecutiveErrorTurns: number;
   matchedNamespaces?: string[];
 };
@@ -147,9 +145,16 @@ export type AxAgentDiscoveryPromptState = {
   }>;
 };
 
-export type AxActorModelPolicy = readonly [
-  AxActorModelPolicyEntry,
-  ...AxActorModelPolicyEntry[],
+export type AxAgentSkillsPromptState = {
+  loaded?: Array<{
+    name: string;
+    content: string;
+  }>;
+};
+
+export type AxExecutorModelPolicy = readonly [
+  AxExecutorModelPolicyEntry,
+  ...AxExecutorModelPolicyEntry[],
 ];
 
 export type AxAgentState = {
@@ -159,9 +164,10 @@ export type AxAgentState = {
   actionLogEntries: AxAgentStateActionLogEntry[];
   guidanceLogEntries?: AxAgentGuidanceLogEntry[];
   discoveryPromptState?: AxAgentDiscoveryPromptState;
+  skillsPromptState?: AxAgentSkillsPromptState;
   checkpointState?: AxAgentStateCheckpointState;
   provenance: Record<string, RuntimeStateVariableProvenance>;
-  actorModelState?: AxAgentStateActorModelState;
+  actorModelState?: AxAgentStateExecutorModelState;
 };
 
 export class AxAgentClarificationError extends Error {
@@ -230,7 +236,7 @@ export type AxAgentInputUpdateCallback<IN extends AxGenIn> = (
   currentInputs: Readonly<IN>
 ) => Promise<Partial<IN> | undefined> | Partial<IN> | undefined;
 
-export type AxAgentTurnCallbackArgs = {
+export type AxAgentExecutorTurnCallbackArgs = {
   /** 1-based actor turn number. */
   turn: number;
   /** Number of action log entries recorded after processing this turn. */
@@ -238,7 +244,7 @@ export type AxAgentTurnCallbackArgs = {
   /** Number of guidance log entries recorded after processing this turn. */
   guidanceLogEntryCount: number;
   /** Full actor AxGen output for the turn, including javascriptCode and any actor fields. */
-  actorResult: Record<string, unknown>;
+  executorResult: Record<string, unknown>;
   /** Normalized JavaScript that was executed for this turn. */
   code: string;
   /**
@@ -254,9 +260,9 @@ export type AxAgentTurnCallbackArgs = {
   thought?: string;
   /** Token usage for this turn only. */
   usage?: AxProgramUsage[];
-  /** Model used for this turn, when explicitly set via actorModelPolicy. */
+  /** Model used for this turn, when explicitly set via executorModelPolicy. */
   model?: string;
-  /** Raw ChatML conversation for this turn (system, user, assistant). Only populated when actorTurnCallback is set. */
+  /** Raw ChatML conversation for this turn (system, user, assistant). Only populated when executorTurnCallback is set. */
   chatLogMessages?: ReadonlyArray<{ role: string; content: string }>;
 };
 

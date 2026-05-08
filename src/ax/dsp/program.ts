@@ -4,6 +4,7 @@ import { AxInstanceRegistry } from './registry.js';
 import type { AxSignatureConfig } from './sig.js';
 import { AxSignature } from './sig.js';
 import type {
+  AxChatLogEntry,
   AxFieldValue,
   AxNamedProgramInstance,
   AxProgramDemos,
@@ -172,6 +173,30 @@ export class AxProgram<IN = any, OUT = any>
       }
     }
     return mergeProgramUsage(usage);
+  }
+
+  public getChatLog(): readonly AxChatLogEntry[] {
+    const chatLog: AxChatLogEntry[] = [];
+
+    for (const child of Array.from(this.children)) {
+      const entries = child?.getChatLog();
+      if (!entries || entries.length === 0) {
+        continue;
+      }
+      const childName = this.childNames.get(child);
+      chatLog.push(
+        ...entries.map((entry) => ({
+          ...entry,
+          ...(childName
+            ? {
+                name: entry.name ? `${childName}.${entry.name}` : childName,
+              }
+            : {}),
+        }))
+      );
+    }
+
+    return chatLog;
   }
 
   public resetUsage() {

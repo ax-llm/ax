@@ -17,7 +17,7 @@ import {
 import { renderGuidanceLog } from './guidanceHelpers.js';
 import type {
   AxAgentGuidanceState,
-  AxAgentStateActorModelState,
+  AxAgentStateExecutorModelState,
   AxResolvedContextPolicy,
 } from './types.js';
 
@@ -36,8 +36,10 @@ export interface ActorLoopSetupDeps {
   // Mutable refs
   getCheckpointState: () => CheckpointSummaryState | undefined;
   setCheckpointState: (state: CheckpointSummaryState | undefined) => void;
-  getActorModelState: () => AxAgentStateActorModelState | undefined;
-  setActorModelState: (state: AxAgentStateActorModelState | undefined) => void;
+  getActorModelState: () => AxAgentStateExecutorModelState | undefined;
+  setActorModelState: (
+    state: AxAgentStateExecutorModelState | undefined
+  ) => void;
   getRestoreNotice: () => string | undefined;
   getRuntimeStateSummary: () => string | undefined;
 }
@@ -204,7 +206,7 @@ export function buildActorLoopSetup(
 
   const resetActorModelErrorState = () => {
     const current = getActorModelState();
-    if (!s.actorModelPolicy && !current) {
+    if (!s.executorModelPolicy && !current) {
       return;
     }
     setActorModelState(resetActorModelErrorTurns(current));
@@ -212,7 +214,7 @@ export function buildActorLoopSetup(
 
   const noteActorTurnErrorState = (isError: boolean) => {
     const current = getActorModelState();
-    if (!s.actorModelPolicy && !current) {
+    if (!s.executorModelPolicy && !current) {
       return;
     }
     setActorModelState(updateActorModelErrorTurns(current, isError));
@@ -277,7 +279,6 @@ export function buildActorLoopSetup(
         turn: entry.turn,
         code: entry.code,
         output: entry.output,
-        actorFieldsOutput: entry.actorFieldsOutput,
         tags: entry.tags,
         tombstone: entry.tombstone,
       }))

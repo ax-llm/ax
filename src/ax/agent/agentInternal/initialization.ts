@@ -4,12 +4,14 @@ import { AxJSRuntime } from '../../funcs/jsRuntime.js';
 import {
   DEFAULT_AGENT_MODULE_NAMESPACE,
   DEFAULT_CONTEXT_FIELD_PROMPT_MAX_CHARS,
-  resolveActorModelPolicy,
+  resolveExecutorModelPolicy,
 } from '../config.js';
 import {
   DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME,
   DISCOVERY_LIST_MODULE_FUNCTIONS_NAME,
+  MEMORIES_LOAD_NAME,
   normalizeContextFields,
+  SKILLS_LOAD_NAME,
   shouldEnforceIncrementalConsoleTurns,
 } from '../runtime.js';
 import {
@@ -17,6 +19,7 @@ import {
   normalizeAgentModuleNamespace,
   toCamelCase,
 } from '../runtimeDiscovery.js';
+import { createMutableSkillsPromptState } from './skillsHelpers.js';
 
 export function initializeAgentInternal(
   self: any,
@@ -37,17 +40,17 @@ export function initializeAgentInternal(
     maxRuntimeChars,
     contextPolicy,
     summarizerOptions,
-    actorFields,
-    actorTurnCallback,
+    executorTurnCallback,
     agentStatusCallback,
     mode,
-    actorModelPolicy,
+    executorModelPolicy,
     recursionOptions,
-    actorOptions,
+    executorOptions,
     responderOptions,
     judgeOptions,
     inputUpdateCallback,
     bubbleErrors,
+    onFunctionCall,
   } = options;
 
   s.ai = ai;
@@ -55,6 +58,9 @@ export function initializeAgentInternal(
   s.agentIdentity = agentIdentity ? { ...agentIdentity } : undefined;
   s.agents = options.agents ?? [];
   s.functionDiscoveryEnabled = options.functionDiscovery ?? false;
+  s.onSkillsSearch = options.onSkillsSearch;
+  s.onMemoriesSearch = options.onMemoriesSearch;
+  s.currentSkillsPromptState = createMutableSkillsPromptState();
   s.debug = debug;
   s.options = options;
   s.runtime = runtime ?? new AxJSRuntime();
@@ -81,9 +87,11 @@ export function initializeAgentInternal(
     'askClarification',
     'success',
     'failed',
-    'inspect_runtime',
+    'inspectRuntime',
     DISCOVERY_LIST_MODULE_FUNCTIONS_NAME,
     DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME,
+    SKILLS_LOAD_NAME,
+    MEMORIES_LOAD_NAME,
   ]);
   if (reservedAgentModuleNamespaces.has(s.agentModuleNamespace)) {
     throw new Error(
@@ -99,18 +107,24 @@ export function initializeAgentInternal(
   s.agentFunctions = localAgentFnBundle.functions;
   s._mergeAgentFunctionModuleMetadata(localAgentFnBundle.moduleMetadata);
 
-  // Create the base program (used for signature/schema access)
+  // Create the base program (used for signature/schema access).
+  // `description` is stripped because AxAgent owns the per-stage prompts;
+  // letting it through would stamp the signature and trip the validator.
   const {
     agents: _a,
     functions: _fn,
     functionDiscovery: _fd,
+    onSkillsSearch: _oss,
+    onMemoriesSearch: _oms,
     judgeOptions: _jo,
     inputUpdateCallback: _iuc,
-    actorModelPolicy: _amp,
+    executorModelPolicy: _amp,
     maxRuntimeChars: _mrc,
     summarizerOptions: _so,
+    onFunctionCall: _ofc,
+    description: _desc,
     ...genOptions
-  } = options;
+  } = options as typeof options & { description?: string };
   s.program = new AxGen(signature, genOptions);
   const inputFields = s.program.getSignature().getInputFields();
 
@@ -132,27 +146,27 @@ export function initializeAgentInternal(
     maxRuntimeChars,
     contextPolicy,
     summarizerOptions,
-    actorFields,
-    actorTurnCallback,
+    executorTurnCallback,
     agentStatusCallback,
     mode,
   };
   s.recursionForwardOptions = recursionOptions;
   s.bubbleErrors = bubbleErrors;
 
-  const { description: actorDescription, ...actorForwardOptions } =
-    actorOptions ?? {};
+  const { description: executorDescription, ...executorForwardOptions } =
+    executorOptions ?? {};
   // The responder description and forward options now belong to the
   // pipeline's Synthesizer stages — the actor agent itself is responder-free.
   void responderOptions;
 
-  s.actorDescription = actorDescription;
-  s.actorModelPolicy = resolveActorModelPolicy(actorModelPolicy);
-  s.actorForwardOptions = actorForwardOptions;
+  s.executorDescription = executorDescription;
+  s.executorModelPolicy = resolveExecutorModelPolicy(executorModelPolicy);
+  s.executorForwardOptions = executorForwardOptions;
 
   s.judgeOptions = judgeOptions ? { ...judgeOptions } : undefined;
   s.inputUpdateCallback = inputUpdateCallback;
   s.agentStatusCallback = agentStatusCallback;
+  s.onFunctionCall = onFunctionCall;
 
   const agents = s.agents;
   for (const agent of agents ?? []) {
@@ -177,9 +191,6 @@ export function initializeAgentInternal(
   }
 
   // ----- Split architecture setup -----
-
-  const actorFieldNames = actorFields ?? [];
-  s.actorFieldNames = actorFieldNames;
 
   const allAgentFns = [...s.agentFunctions];
 

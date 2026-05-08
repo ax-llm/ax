@@ -33,8 +33,8 @@ describe('AxAgent coordinator optimization routing (Case A)', () => {
   });
 
   it('Case A namedPrograms() aggregates ctx and task programs with prefixes', () => {
-    // namedPrograms() in Case A returns programs from BOTH the contextExplorer
-    // and taskExecutor + finalResponder, each prefixed with 'ctx.' or 'task.'.
+    // namedPrograms() in Case A returns programs from BOTH the distiller
+    // and executor + responder, each prefixed with 'ctx.' or 'task.'.
     // The user's output field 'answer' lives in the task.responder signature.
     // The ctx side has only the explorer actor; there is no ctx.responder.
     const caseAAgent = agent('document:string, query:string -> answer:string', {
@@ -81,10 +81,8 @@ describe('AxAgent coordinator optimization routing (Case A)', () => {
     expect(taskResponderSig).toContain('answer');
   });
 
-  it('Case C namedPrograms() match pre-split baseline (no ctxAgent, no prefixes)', () => {
-    // Case C: tools only, no contextFields — single taskAgent, same as old AxAgent.
-    // No ctx.* prefixes; program IDs are returned verbatim.
-    const caseAAgent = agent('query:string -> answer:string', {
+  it('namedPrograms() are prefixed for agents without contextFields', () => {
+    const toolsOnlyAgent = agent('query:string -> answer:string', {
       functions: [
         {
           name: 'fn',
@@ -98,16 +96,22 @@ describe('AxAgent coordinator optimization routing (Case A)', () => {
 
     const caseC = agent('query:string -> answer:string', {});
 
-    // Both should expose the same number of named programs (actor + responder).
-    expect(caseAAgent.namedPrograms().length).toBe(
+    // Both expose context actor + task actor + task responder because the
+    // coordinator pipeline is static even without configured contextFields.
+    expect(toolsOnlyAgent.namedPrograms().length).toBe(
       caseC.namedPrograms().length
     );
-    // No ctx./task. stage prefixes in Case C — IDs are the raw agent-scoped names
-    const ids = caseAAgent.namedPrograms().map((p) => p.id);
+    const ids = toolsOnlyAgent.namedPrograms().map((p) => p.id);
+    expect(ids.some((id) => id.startsWith('ctx.'))).toBe(true);
+    expect(ids.some((id) => id.startsWith('task.'))).toBe(true);
     expect(
-      ids.every((id) => !id.startsWith('ctx.') && !id.startsWith('task.'))
+      ids.some((id) => id.startsWith('ctx.') && id.includes('actor'))
     ).toBe(true);
-    expect(ids.some((id) => id.includes('actor'))).toBe(true);
-    expect(ids.some((id) => id.includes('responder'))).toBe(true);
+    expect(
+      ids.some((id) => id.startsWith('task.') && id.includes('actor'))
+    ).toBe(true);
+    expect(
+      ids.some((id) => id.startsWith('task.') && id.includes('responder'))
+    ).toBe(true);
   });
 });

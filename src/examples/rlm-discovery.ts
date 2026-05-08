@@ -176,7 +176,7 @@ const analyst = agent(
     agents: [writingCoach],
     functions: tools,
     functionDiscovery: true,
-    actorOptions: {
+    executorOptions: {
       description: [
         'Workflow:',
         '1) Discover modules and functions you need (kb, metrics, utils, team).',

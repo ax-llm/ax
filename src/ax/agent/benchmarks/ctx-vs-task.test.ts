@@ -1,15 +1,14 @@
 /**
  * Benchmark: ctx-vs-task prompt shrink ratio
  *
- * Verifies that the two-stage split (Case A) actually reduces the downstream
- * task-actor prompt vs. a single-stage agent (Case C). Without this check the
- * refactor could silently pay 2× actor loops without delivering token savings.
+ * Verifies that contextFields actually reduce the downstream task-actor prompt
+ * versus the same signature with no configured context fields.
  *
  * Asserts:
  *   1. Task-actor in Case A omits "Exploration & Truncation" and uses the
  *      shorter "Pre-Distilled Context" hint instead.
- *   2. Task-actor system prompt in Case A is shorter than the Case C actor
- *      prompt (same signature, same function, no context distillation).
+ *   2. Task-actor system prompt in Case A excludes raw context values that a
+ *      no-contextFields agent keeps in the task side.
  */
 import { describe, expect, it } from 'vitest';
 import { AxMockAIService } from '../../ai/mock/api.js';
@@ -78,7 +77,7 @@ describe('ctx-vs-task prompt shrink ratio', () => {
           req.chatPrompt as { role: string; content?: unknown }[]
         );
 
-        if (systemPrompt.includes('Context Understanding Agent')) {
+        if (systemPrompt.includes('You (`distiller`)')) {
           ctxActorSystemPrompt = systemPrompt;
           return {
             results: [
@@ -92,7 +91,7 @@ describe('ctx-vs-task prompt shrink ratio', () => {
             modelUsage: makeModelUsage(),
           };
         }
-        if (systemPrompt.includes('Code Generation Agent')) {
+        if (systemPrompt.includes('You (`executor`)')) {
           taskActorSystemPrompt = systemPrompt;
           return {
             results: [
@@ -125,12 +124,13 @@ describe('ctx-vs-task prompt shrink ratio', () => {
       query: 'what?',
     });
 
-    // ctx actor still uses exploration/turn discipline for raw context probing
-    expect(ctxActorSystemPrompt).toContain('Exploration & Turn Discipline');
-    // task actor skips exploration — it has pre-distilled context from ctx stage
-    expect(taskActorSystemPrompt).not.toContain(
-      'Exploration & Turn Discipline'
+    // ctx actor probes raw context fields directly
+    expect(ctxActorSystemPrompt).toContain('### Context Fields');
+    expect(ctxActorSystemPrompt).not.toContain(
+      'Executor Request & Distilled Context'
     );
+    // task actor skips exploration — it has pre-distilled context from ctx stage
+    expect(taskActorSystemPrompt).not.toContain('### Context Fields');
     expect(taskActorSystemPrompt).toContain(
       'Executor Request & Distilled Context'
     );
@@ -140,7 +140,7 @@ describe('ctx-vs-task prompt shrink ratio', () => {
     let caseACtxActorUserPrompt = '';
     let caseATaskActorSystemPrompt = '';
     let caseATaskActorUserPrompt = '';
-    let caseCActorSystemPrompt = '';
+    let caseCTaskActorSystemPrompt = '';
     let _responderCallCount = 0;
 
     const mockAICaseA = new AxMockAIService({
@@ -151,7 +151,7 @@ describe('ctx-vs-task prompt shrink ratio', () => {
         );
         const userPrompt = String(req.chatPrompt[1]?.content ?? '');
 
-        if (systemPrompt.includes('Context Understanding Agent')) {
+        if (systemPrompt.includes('You (`distiller`)')) {
           caseACtxActorUserPrompt = userPrompt;
           return {
             results: [
@@ -165,7 +165,7 @@ describe('ctx-vs-task prompt shrink ratio', () => {
             modelUsage: makeModelUsage(),
           };
         }
-        if (systemPrompt.includes('Code Generation Agent')) {
+        if (systemPrompt.includes('You (`executor`)')) {
           caseATaskActorSystemPrompt = systemPrompt;
           caseATaskActorUserPrompt = userPrompt;
           return {
@@ -207,8 +207,21 @@ describe('ctx-vs-task prompt shrink ratio', () => {
           req.chatPrompt as { role: string; content?: unknown }[]
         );
 
-        if (systemPrompt.includes('Code Generation Agent')) {
-          caseCActorSystemPrompt = systemPrompt;
+        if (systemPrompt.includes('You (`distiller`)')) {
+          return {
+            results: [
+              {
+                index: 0,
+                content:
+                  'Javascript Code: final("what?", {"docText":"long document"})',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+        if (systemPrompt.includes('You (`executor`)')) {
+          caseCTaskActorSystemPrompt = systemPrompt;
           return {
             results: [
               {
@@ -228,7 +241,7 @@ describe('ctx-vs-task prompt shrink ratio', () => {
       },
     });
 
-    // Case C: same tools, no contextFields (task-only, single stage)
+    // Same tools and signature, but no configured contextFields.
     const caseCAgent = agent('docText:string, query:string -> answer:string', {
       functions: [stubFn],
       runtime: makeRuntime(),
@@ -248,15 +261,15 @@ describe('ctx-vs-task prompt shrink ratio', () => {
     expect(caseATaskActorUserPrompt).toContain('Executor Request: distilled');
     expect(caseATaskActorUserPrompt).toContain('Distilled Context:');
     expect(caseATaskActorUserPrompt).not.toContain('Context Metadata:');
-    expect(caseCActorSystemPrompt).toBeTruthy();
+    expect(caseCTaskActorSystemPrompt).toBeTruthy();
 
-    // The key distillation benefit: in Case A `docText` is isolated to the
-    // context actor. The task actor receives only executorRequest and
-    // distilledContext, while Case C has no separate context actor.
+    // The key distillation benefit: with declared contextFields, `docText` is
+    // isolated to the context actor. Without contextFields, it remains a normal
+    // task-side input.
     expect(caseATaskActorSystemPrompt).not.toContain('Doc Text');
     expect(caseATaskActorUserPrompt).not.toContain('Doc Text');
     expect(caseATaskActorSystemPrompt).not.toContain('long document');
     expect(caseATaskActorUserPrompt).not.toContain('long document');
-    expect(caseCActorSystemPrompt).toContain('Doc Text');
+    expect(caseCTaskActorSystemPrompt).toContain('Doc Text');
   });
 });

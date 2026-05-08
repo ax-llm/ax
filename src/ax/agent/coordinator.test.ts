@@ -83,7 +83,7 @@ describe('AxAgent coordinator routing', () => {
           const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
 
           // Ctx actor
-          if (systemPrompt.includes('Context Understanding Agent')) {
+          if (systemPrompt.includes('You (`distiller`)')) {
             ctxActorCalls++;
             return {
               results: [
@@ -99,7 +99,7 @@ describe('AxAgent coordinator routing', () => {
           }
 
           // Task actor
-          if (systemPrompt.includes('Code Generation Agent')) {
+          if (systemPrompt.includes('You (`executor`)')) {
             taskActorCalls++;
             return {
               results: [
@@ -161,7 +161,7 @@ describe('AxAgent coordinator routing', () => {
         chatResponse: async (req) => {
           const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
 
-          if (systemPrompt.includes('Context Understanding Agent')) {
+          if (systemPrompt.includes('You (`distiller`)')) {
             // Capture the full prompt to assert on field names
             for (const msg of req.chatPrompt) {
               if (msg.role === 'user') {
@@ -180,7 +180,7 @@ describe('AxAgent coordinator routing', () => {
             };
           }
 
-          if (systemPrompt.includes('Code Generation Agent')) {
+          if (systemPrompt.includes('You (`executor`)')) {
             return {
               results: [
                 {
@@ -230,7 +230,7 @@ describe('AxAgent coordinator routing', () => {
         chatResponse: async (req) => {
           const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
 
-          if (systemPrompt.includes('Context Understanding Agent')) {
+          if (systemPrompt.includes('You (`distiller`)')) {
             return {
               results: [
                 {
@@ -244,7 +244,7 @@ describe('AxAgent coordinator routing', () => {
             };
           }
 
-          if (systemPrompt.includes('Code Generation Agent')) {
+          if (systemPrompt.includes('You (`executor`)')) {
             // Capture task actor user prompts
             for (const msg of req.chatPrompt) {
               if (msg.role === 'user') {
@@ -317,7 +317,7 @@ describe('AxAgent coordinator routing', () => {
         chatResponse: async (req) => {
           const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
 
-          if (systemPrompt.includes('Context Understanding Agent')) {
+          if (systemPrompt.includes('You (`distiller`)')) {
             ctxActorCalled = true;
             return {
               results: [
@@ -332,7 +332,7 @@ describe('AxAgent coordinator routing', () => {
             };
           }
 
-          if (systemPrompt.includes('Code Generation Agent')) {
+          if (systemPrompt.includes('You (`executor`)')) {
             taskActorCalled = true;
             taskSystemPrompt = systemPrompt;
             return {
@@ -387,40 +387,57 @@ describe('AxAgent coordinator routing', () => {
       );
     });
 
-    it('contextFields + functionDiscovery only → still creates taskExecutor', () => {
+    it('contextFields + functionDiscovery only → still creates executor', () => {
       const myAgent = agent('docText:string -> summary:string', {
         contextFields: ['docText'],
         functionDiscovery: true,
         runtime: makeRuntime(),
       });
-      expect(myAgent.contextExplorer).toBeDefined();
-      expect(myAgent.taskExecutor).toBeDefined();
-      expect(myAgent.finalResponder).toBeDefined();
+      expect(myAgent.distiller).toBeDefined();
+      expect(myAgent.executor).toBeDefined();
+      expect(myAgent.responder).toBeDefined();
     });
 
-    it('contextFields + functions → taskExecutor present', () => {
+    it('contextFields + functions → executor present', () => {
       const myAgent = agent('docText:string -> summary:string', {
         contextFields: ['docText'],
         functions: [simpleFn],
         runtime: makeRuntime(),
       });
-      expect(myAgent.contextExplorer).toBeDefined();
-      expect(myAgent.taskExecutor).toBeDefined();
+      expect(myAgent.distiller).toBeDefined();
+      expect(myAgent.executor).toBeDefined();
     });
   });
 
   // -------------------------------------------------------------------------
-  // Case C: tools only, no contextFields → single stage
+  // Case C: tools only, no contextFields → static three-stage pipeline
   // -------------------------------------------------------------------------
 
-  describe('Case C: tools only, no contextFields (single stage)', () => {
-    it('runs single stage with Code Generation Agent and returns output', async () => {
+  describe('Case C: tools only, no contextFields (static pipeline)', () => {
+    it('runs context explorer, task executor, and responder', async () => {
+      let ctxActorCalled = false;
+      let taskActorCalled = false;
       const mockAI = new AxMockAIService({
         features: { functions: false, streaming: false },
         chatResponse: async (req) => {
           const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
 
-          if (systemPrompt.includes('Code Generation Agent')) {
+          if (systemPrompt.includes('You (`distiller`)')) {
+            ctxActorCalled = true;
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: final("What is 6 * 7?", {})',
+                  finishReason: 'stop' as const,
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+
+          if (systemPrompt.includes('You (`executor`)')) {
+            taskActorCalled = true;
             return {
               results: [
                 {
@@ -463,21 +480,41 @@ describe('AxAgent coordinator routing', () => {
 
       const result = await myAgent.forward(mockAI, { query: 'What is 6 * 7?' });
       expect(result.answer).toBe('ok');
+      expect(myAgent.distiller).toBeDefined();
+      expect(ctxActorCalled).toBe(true);
+      expect(taskActorCalled).toBe(true);
     });
   });
 
   // -------------------------------------------------------------------------
-  // Case D: neither contextFields nor tools → single stage
+  // Case D: neither contextFields nor tools → static three-stage pipeline
   // -------------------------------------------------------------------------
 
-  describe('Case D: no contextFields, no tools (single stage)', () => {
-    it('runs single stage and returns output', async () => {
+  describe('Case D: no contextFields, no tools (static pipeline)', () => {
+    it('runs context explorer, task executor, and responder', async () => {
+      let ctxActorCalled = false;
+      let taskActorCalled = false;
       const mockAI = new AxMockAIService({
         features: { functions: false, streaming: false },
         chatResponse: async (req) => {
           const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
 
-          if (systemPrompt.includes('Code Generation Agent')) {
+          if (systemPrompt.includes('You (`distiller`)')) {
+            ctxActorCalled = true;
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: final("Anything?", {})',
+                  finishReason: 'stop' as const,
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+
+          if (systemPrompt.includes('You (`executor`)')) {
+            taskActorCalled = true;
             return {
               results: [
                 {
@@ -519,6 +556,9 @@ describe('AxAgent coordinator routing', () => {
 
       const result = await myAgent.forward(mockAI, { query: 'Anything?' });
       expect(result.answer).toBe('42');
+      expect(myAgent.distiller).toBeDefined();
+      expect(ctxActorCalled).toBe(true);
+      expect(taskActorCalled).toBe(true);
     });
   });
 
@@ -533,7 +573,20 @@ describe('AxAgent coordinator routing', () => {
         chatResponse: async (req) => {
           const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
 
-          if (systemPrompt.includes('Code Generation Agent')) {
+          if (systemPrompt.includes('You (`distiller`)')) {
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: final("test", {})',
+                  finishReason: 'stop' as const,
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+
+          if (systemPrompt.includes('You (`executor`)')) {
             return {
               results: [
                 {
@@ -611,7 +664,7 @@ describe('AxAgent coordinator routing', () => {
         chatResponse: async (req) => {
           const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
 
-          if (systemPrompt.includes('Context Understanding Agent')) {
+          if (systemPrompt.includes('You (`distiller`)')) {
             return {
               results: [
                 {
@@ -668,7 +721,7 @@ describe('AxAgent coordinator routing', () => {
         chatResponse: async (req) => {
           const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
 
-          if (systemPrompt.includes('Context Understanding Agent')) {
+          if (systemPrompt.includes('You (`distiller`)')) {
             return {
               results: [
                 {
@@ -682,7 +735,7 @@ describe('AxAgent coordinator routing', () => {
             };
           }
 
-          if (systemPrompt.includes('Code Generation Agent')) {
+          if (systemPrompt.includes('You (`executor`)')) {
             for (const msg of req.chatPrompt) {
               if (msg.role === 'user') {
                 taskActorPrompts.push(String(msg.content ?? ''));
@@ -748,7 +801,7 @@ describe('AxAgent coordinator routing', () => {
         features: { functions: false, streaming: false },
         chatResponse: async (req) => {
           const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
-          if (systemPrompt.includes('Context Understanding Agent')) {
+          if (systemPrompt.includes('You (`distiller`)')) {
             ctxSystemPrompt = systemPrompt;
             return {
               results: [
@@ -761,7 +814,7 @@ describe('AxAgent coordinator routing', () => {
               modelUsage: makeModelUsage(),
             };
           }
-          if (systemPrompt.includes('Code Generation Agent')) {
+          if (systemPrompt.includes('You (`executor`)')) {
             return {
               results: [
                 {
@@ -822,16 +875,16 @@ describe('AxAgent coordinator routing', () => {
       });
       const coord = a as any;
 
-      // contextExplorer exists (Case A) and must not see task-only knobs
-      expect(coord.contextExplorer).toBeDefined();
-      expect(coord.contextExplorer.agentFunctions ?? []).toEqual([]);
-      expect(coord.contextExplorer.agents ?? []).toEqual([]);
-      expect(coord.contextExplorer.functionDiscoveryEnabled).toBe(false);
+      // distiller exists (Case A) and must not see task-only knobs
+      expect(coord.distiller).toBeDefined();
+      expect(coord.distiller.agentFunctions ?? []).toEqual([]);
+      expect(coord.distiller.agents ?? []).toEqual([]);
+      expect(coord.distiller.functionDiscoveryEnabled).toBe(false);
 
-      // taskExecutor must see everything
-      expect(coord.taskExecutor.agentFunctions.length).toBeGreaterThan(0);
-      expect(coord.taskExecutor.agents?.length ?? 0).toBeGreaterThan(0);
-      expect(coord.taskExecutor.functionDiscoveryEnabled).toBe(true);
+      // executor must see everything
+      expect(coord.executor.agentFunctions.length).toBeGreaterThan(0);
+      expect(coord.executor.agents?.length ?? 0).toBeGreaterThan(0);
+      expect(coord.executor.functionDiscoveryEnabled).toBe(true);
     });
 
     it('top-level maxTurns applies to taskAgent; contextOptions.maxTurns overrides on ctxAgent', () => {
@@ -844,8 +897,8 @@ describe('AxAgent coordinator routing', () => {
       });
       const coord = a as any;
 
-      expect(coord.contextExplorer._genOptions.maxTurns).toBe(3);
-      expect(coord.taskExecutor._genOptions.maxTurns).toBe(10);
+      expect(coord.distiller._genOptions.maxTurns).toBe(3);
+      expect(coord.executor._genOptions.maxTurns).toBe(10);
     });
 
     it('top-level maxTurns is shared to ctxAgent when no contextOptions override is set', () => {
@@ -857,8 +910,182 @@ describe('AxAgent coordinator routing', () => {
       });
       const coord = a as any;
 
-      expect(coord.contextExplorer._genOptions.maxTurns).toBe(7);
-      expect(coord.taskExecutor._genOptions.maxTurns).toBe(7);
+      expect(coord.distiller._genOptions.maxTurns).toBe(7);
+      expect(coord.executor._genOptions.maxTurns).toBe(7);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Per-stage `ai` overrides on contextOptions / executorOptions / responderOptions
+  // -------------------------------------------------------------------------
+
+  describe('per-stage ai override', () => {
+    type StageMockOptions = {
+      tag: string;
+      counter: { count: number };
+    };
+
+    const makeTrackingAI = ({ tag, counter }: StageMockOptions) =>
+      new AxMockAIService({
+        name: tag,
+        features: { functions: false, streaming: false },
+        chatResponse: async (req) => {
+          counter.count++;
+          const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+          if (systemPrompt.includes('You (`distiller`)')) {
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: final("normalized", {})',
+                  finishReason: 'stop' as const,
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          if (systemPrompt.includes('You (`executor`)')) {
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: final("done", {})',
+                  finishReason: 'stop' as const,
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          if (systemPrompt.includes('Answer Synthesis Agent')) {
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Answer: ok',
+                  finishReason: 'stop' as const,
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          return {
+            results: [
+              { index: 0, content: 'fallback', finishReason: 'stop' as const },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        },
+      });
+
+    it('contextOptions.ai routes the distiller call to the override AI', async () => {
+      const baseCounter = { count: 0 };
+      const overrideCounter = { count: 0 };
+      const baseAI = makeTrackingAI({ tag: 'base', counter: baseCounter });
+      const overrideAI = makeTrackingAI({
+        tag: 'override',
+        counter: overrideCounter,
+      });
+
+      const myAgent = agent('query:string -> answer:string', {
+        runtime: makeRuntime(),
+        contextOptions: { ai: overrideAI },
+      });
+
+      const result = await myAgent.forward(baseAI, { query: 'hi' });
+      expect(result.answer).toBe('ok');
+      // Override handles the distiller (1 call); base handles executor + responder (2 calls)
+      expect(overrideCounter.count).toBe(1);
+      expect(baseCounter.count).toBe(2);
+    });
+
+    it('executorOptions.ai routes the executor call to the override AI', async () => {
+      const baseCounter = { count: 0 };
+      const overrideCounter = { count: 0 };
+      const baseAI = makeTrackingAI({ tag: 'base', counter: baseCounter });
+      const overrideAI = makeTrackingAI({
+        tag: 'override',
+        counter: overrideCounter,
+      });
+
+      const myAgent = agent('query:string -> answer:string', {
+        runtime: makeRuntime(),
+        executorOptions: { ai: overrideAI },
+      });
+
+      await myAgent.forward(baseAI, { query: 'hi' });
+      expect(overrideCounter.count).toBe(1);
+      expect(baseCounter.count).toBe(2);
+    });
+
+    it('responderOptions.ai routes the responder call to the override AI', async () => {
+      const baseCounter = { count: 0 };
+      const overrideCounter = { count: 0 };
+      const baseAI = makeTrackingAI({ tag: 'base', counter: baseCounter });
+      const overrideAI = makeTrackingAI({
+        tag: 'override',
+        counter: overrideCounter,
+      });
+
+      const myAgent = agent('query:string -> answer:string', {
+        runtime: makeRuntime(),
+        responderOptions: { ai: overrideAI },
+      });
+
+      await myAgent.forward(baseAI, { query: 'hi' });
+      expect(overrideCounter.count).toBe(1);
+      expect(baseCounter.count).toBe(2);
+    });
+
+    it('falls back to forward(ai) when no stage override is set', async () => {
+      const baseCounter = { count: 0 };
+      const baseAI = makeTrackingAI({ tag: 'base', counter: baseCounter });
+
+      const myAgent = agent('query:string -> answer:string', {
+        runtime: makeRuntime(),
+      });
+
+      await myAgent.forward(baseAI, { query: 'hi' });
+      expect(baseCounter.count).toBe(3);
+    });
+
+    it('streamingForward also routes per-stage ai overrides', async () => {
+      const baseCounter = { count: 0 };
+      const overrideCounter = { count: 0 };
+      const baseAI = makeTrackingAI({ tag: 'base', counter: baseCounter });
+      const overrideAI = makeTrackingAI({
+        tag: 'override',
+        counter: overrideCounter,
+      });
+
+      const myAgent = agent('query:string -> answer:string', {
+        runtime: makeRuntime(),
+        responderOptions: { ai: overrideAI },
+      });
+
+      // Drain the stream
+      const stream = myAgent.streamingForward(baseAI, { query: 'hi' });
+      for await (const _ of stream) {
+        // consume
+      }
+      expect(overrideCounter.count).toBe(1);
+      expect(baseCounter.count).toBe(2);
+    });
+
+    it('exposes stage override AIs as public fields on the coordinator', () => {
+      const overrideA = new AxMockAIService({ name: 'A' });
+      const overrideB = new AxMockAIService({ name: 'B' });
+      const overrideC = new AxMockAIService({ name: 'C' });
+
+      const myAgent = agent('query:string -> answer:string', {
+        runtime: makeRuntime(),
+        contextOptions: { ai: overrideA },
+        executorOptions: { ai: overrideB },
+        responderOptions: { ai: overrideC },
+      });
+
+      expect(myAgent.distillerAi).toBe(overrideA);
+      expect(myAgent.executorAi).toBe(overrideB);
+      expect(myAgent.responderAi).toBe(overrideC);
     });
   });
 });

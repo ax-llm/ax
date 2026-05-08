@@ -14,21 +14,8 @@ export function createRuntimeInputState(
   }>
 ): AxAgentRuntimeInputState {
   const s = self as any;
-  let rawValues: Record<string, unknown>;
-
-  if (Array.isArray(values)) {
-    rawValues = values
-      .filter((msg) => msg.role === 'user')
-      .reduce<Record<string, unknown>>(
-        (acc, msg) => ({
-          ...acc,
-          ...(msg.values as Record<string, unknown>),
-        }),
-        {}
-      );
-  } else {
-    rawValues = values as Record<string, unknown>;
-  }
+  const rawValues: Record<string, unknown> =
+    (values as Record<string, unknown>) ?? {};
 
   const allowedFieldNames = options?.allowedFieldNames
     ? new Set(options.allowedFieldNames)

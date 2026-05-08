@@ -13,7 +13,7 @@ export function reservedAgentFunctionNamespaces(self: any): Set<string> {
     'llmQuery',
     'final',
     'askClarification',
-    'inspect_runtime',
+    'inspectRuntime',
     DEFAULT_AGENT_MODULE_NAMESPACE,
     s.agentModuleNamespace,
     ...(s.functionDiscoveryEnabled
@@ -59,10 +59,10 @@ export function validateConfiguredSignature(
   signature: Readonly<AxSignature>
 ): void {
   const s = self as any;
-  if (signature.getDescription()) {
+  if (signature.getDescription()?.trim()) {
     throw new Error(
       'AxAgent does not support signature-level descriptions. ' +
-        'Use setActorDescription() and/or setResponderDescription() to customize the actor and responder prompts independently.'
+        'Use contextOptions.description, executorOptions.description, or responderOptions.description instead.'
     );
   }
 
@@ -102,14 +102,7 @@ export function validateConfiguredSignature(
       throw new Error(`RLM contextField "${field}" not found in signature`);
     }
   }
-
-  for (const field of s.actorFieldNames) {
-    if (!outputFieldNames.has(field)) {
-      throw new Error(
-        `RLM actorField "${field}" not found in output signature`
-      );
-    }
-  }
+  void outputFieldNames;
 }
 
 export function validateAgentFunctionNamespaces(

@@ -41,13 +41,13 @@ const assistant = agent(
     functions: attachmentTools,
     maxTurns: 6,
     contextOptions: {
-      actorOptions: {
+      executorOptions: {
         description: [
           'If userRequest is a simple greeting and attachmentManifest is empty, distill that fact and call final("answer the greeting", { userRequest: inputs.userRequest, attachmentCount: 0 }).',
         ].join('\n'),
       },
     },
-    actorOptions: {
+    executorOptions: {
       description: [
         'Start from inputs.distilledTask and inputs.distilledContext. Do not re-probe runtime-only fields unless a specific missing fact blocks completion.',
       ].join('\n'),

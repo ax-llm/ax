@@ -19,7 +19,7 @@ describe('Agent Split Architecture Flow', () => {
         const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
         const userPrompt = String(req.chatPrompt[1]?.content ?? '');
 
-        if (systemPrompt.includes('Code Generation Agent')) {
+        if (systemPrompt.includes('You (`executor`)')) {
           if (userPrompt.includes('Lunch in SF')) {
             actorCallCount++;
             if (actorCallCount === 1) {
@@ -165,7 +165,7 @@ describe('Agent Split Architecture Flow', () => {
       chatResponse: async (req) => {
         const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
 
-        if (systemPrompt.includes('Context Understanding Agent')) {
+        if (systemPrompt.includes('You (`distiller`)')) {
           ctxActorCalls++;
           return {
             results: [
@@ -179,7 +179,7 @@ describe('Agent Split Architecture Flow', () => {
           };
         }
 
-        if (systemPrompt.includes('Code Generation Agent')) {
+        if (systemPrompt.includes('You (`executor`)')) {
           taskActorCalls++;
           return {
             results: [
@@ -267,8 +267,8 @@ describe('Agent Split Architecture Flow', () => {
         const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
 
         if (
-          systemPrompt.includes('Code Generation Agent') ||
-          systemPrompt.includes('Context Understanding Agent')
+          systemPrompt.includes('You (`executor`)') ||
+          systemPrompt.includes('You (`distiller`)')
         ) {
           return {
             results: [

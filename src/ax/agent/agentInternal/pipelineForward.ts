@@ -1,20 +1,26 @@
 import type { AxAIService } from '../../ai/types.js';
 import type {
+  AxChatLogEntry,
   AxGenIn,
   AxGenOut,
   AxGenStreamingOut,
-  AxMessage,
+  AxNamedProgramInstance,
+  AxProgramDemos,
+  AxProgramForwardOptions,
   AxProgramForwardOptionsWithModels,
   AxProgramStreamingForwardOptionsWithModels,
+  AxProgramTrace,
+  AxProgramUsage,
 } from '../../dsp/types.js';
+import { flow } from '../../flow/flow.js';
 import type { AxAgentClarification } from './agentStateTypes.js';
 import { AxAgentClarificationError } from './agentStateTypes.js';
 import type { AxAgent } from './coordinator.js';
 
-function throwOnClarification(actorResult: any, owner: any): void {
-  if (actorResult?.type === 'askClarification') {
+function throwOnClarification(executorResult: any, owner: any): void {
+  if (executorResult?.type === 'askClarification') {
     throw new AxAgentClarificationError(
-      actorResult.args[0] as AxAgentClarification,
+      executorResult.args[0] as AxAgentClarification,
       {
         state: owner?.state,
         stateError: owner?.stateError,
@@ -25,9 +31,7 @@ function throwOnClarification(actorResult: any, owner: any): void {
 
 /**
  * Split incoming values into (contextValues, nonContextValues) using the
- * coordinator's `contextFieldNames` set. AxMessage[] inputs are flattened by
- * merging all `user` messages — the same shape coordinator.forward used to
- * compute before delegating to the inner agents.
+ * coordinator's `contextFieldNames` set.
  */
 function splitValuesByContext(
   values: any,
@@ -36,18 +40,7 @@ function splitValuesByContext(
   ctxValues: Record<string, unknown>;
   nonCtxValues: Record<string, unknown>;
 } {
-  const rawValues: Record<string, unknown> = Array.isArray(values)
-    ? values
-        .filter((m: AxMessage<any>) => m.role === 'user')
-        .reduce<Record<string, unknown>>(
-          (acc, m: AxMessage<any>) => ({
-            ...acc,
-            ...(m.values as Record<string, unknown>),
-          }),
-          {}
-        )
-    : (values as Record<string, unknown>);
-
+  const rawValues = (values ?? {}) as Record<string, unknown>;
   const ctxValues: Record<string, unknown> = {};
   const nonCtxValues: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(rawValues)) {
@@ -60,15 +53,327 @@ function splitValuesByContext(
   return { ctxValues, nonCtxValues };
 }
 
+function defaultExecutorRequest(values: Record<string, unknown>): string {
+  const query = values.query;
+  if (typeof query === 'string' && query.trim()) return query;
+  return Object.entries(values)
+    .map(
+      ([key, value]) =>
+        `${key}: ${typeof value === 'string' ? value : JSON.stringify(value)}`
+    )
+    .join('\n');
+}
+
+class ActorStageProgram {
+  private id = '';
+
+  constructor(
+    private readonly actor: any,
+    private readonly stage?: 'ctx' | 'task'
+  ) {}
+
+  public async forward(
+    ai: Readonly<AxAIService>,
+    values: any,
+    options?: Readonly<AxProgramForwardOptions<string>>
+  ) {
+    return this.actor.run(ai, values, options);
+  }
+
+  public async *streamingForward(
+    ai: Readonly<AxAIService>,
+    values: any,
+    options?: Readonly<AxProgramForwardOptions<string>>
+  ): AxGenStreamingOut<any> {
+    yield {
+      version: 1,
+      index: 0,
+      delta: await this.forward(ai, values, options),
+    };
+  }
+
+  public getSignature() {
+    return this.actor.getSignature();
+  }
+
+  public getId(): string {
+    return this.id;
+  }
+
+  public setId(id: string): void {
+    this.id = id;
+  }
+
+  public namedPrograms(): Array<{ id: string; signature?: string }> {
+    return this.actor.namedPrograms();
+  }
+
+  public namedProgramInstances(): AxNamedProgramInstance<any, any>[] {
+    return this.actor.namedProgramInstances();
+  }
+
+  public getTraces(): AxProgramTrace<any, any>[] {
+    return this.actor.getTraces();
+  }
+
+  public setDemos(
+    demos: readonly AxProgramDemos<any, any>[],
+    options?: { modelConfig?: Record<string, unknown> }
+  ): void {
+    this.actor.setDemos(demos, options);
+  }
+
+  public applyOptimization(optimizedProgram: any): void {
+    this.actor.applyOptimization(optimizedProgram);
+  }
+
+  public getOptimizableComponents(): readonly any[] {
+    return this.actor.getOptimizableComponents();
+  }
+
+  public applyOptimizedComponents(
+    updates: Readonly<Record<string, string>>
+  ): void {
+    this.actor.applyOptimizedComponents(updates);
+  }
+
+  public getUsage(): readonly AxProgramUsage[] {
+    return this.actor.getUsage();
+  }
+
+  public getChatLog(): readonly AxChatLogEntry[] {
+    return this.actor.getChatLog().map((entry: AxChatLogEntry) => ({
+      ...entry,
+      ...(this.stage ? { stage: this.stage } : {}),
+    }));
+  }
+
+  public resetUsage(): void {
+    this.actor.resetUsage();
+  }
+
+  public stop(): void {
+    this.actor.stop();
+  }
+}
+
+class FinalResponderStageProgram {
+  private id = '';
+
+  constructor(
+    private readonly responder: any,
+    private readonly stage?: 'ctx' | 'task'
+  ) {}
+
+  public async forward(
+    ai: Readonly<AxAIService>,
+    values: Readonly<{
+      nonContextValues: Record<string, unknown>;
+      executorResult: unknown;
+    }>,
+    options?: Readonly<AxProgramForwardOptions<string>>
+  ) {
+    return this.responder.forward(ai, {
+      nonContextValues: values.nonContextValues,
+      executorResult: values.executorResult,
+      options,
+    });
+  }
+
+  public async *streamingForward(
+    ai: Readonly<AxAIService>,
+    values: Readonly<{
+      nonContextValues: Record<string, unknown>;
+      executorResult: unknown;
+    }>,
+    options?: Readonly<AxProgramForwardOptions<string>>
+  ): AxGenStreamingOut<any> {
+    yield* this.responder.streamingForward(ai, {
+      nonContextValues: values.nonContextValues,
+      executorResult: values.executorResult,
+      options,
+    });
+  }
+
+  public getSignature() {
+    return this.responder.getSignature();
+  }
+
+  public getId(): string {
+    return this.id;
+  }
+
+  public setId(id: string): void {
+    this.id = id;
+  }
+
+  public namedPrograms(): Array<{ id: string; signature?: string }> {
+    return this.responder.namedPrograms();
+  }
+
+  public namedProgramInstances(): AxNamedProgramInstance<any, any>[] {
+    return this.responder.namedProgramInstances();
+  }
+
+  public getTraces(): AxProgramTrace<any, any>[] {
+    return this.responder.getTraces();
+  }
+
+  public setDemos(
+    demos: readonly AxProgramDemos<any, any>[],
+    options?: { modelConfig?: Record<string, unknown> }
+  ): void {
+    this.responder.setDemos(demos, options);
+  }
+
+  public applyOptimization(optimizedProgram: any): void {
+    this.responder.applyOptimization(optimizedProgram);
+  }
+
+  public getOptimizableComponents(): readonly any[] {
+    return this.responder.getOptimizableComponents();
+  }
+
+  public applyOptimizedComponents(
+    updates: Readonly<Record<string, string>>
+  ): void {
+    this.responder.applyOptimizedComponents(updates);
+  }
+
+  public getUsage(): readonly AxProgramUsage[] {
+    return this.responder.getUsage();
+  }
+
+  public getChatLog(): readonly AxChatLogEntry[] {
+    return this.responder.getChatLog().map((entry: AxChatLogEntry) => ({
+      ...entry,
+      ...(this.stage ? { stage: this.stage } : {}),
+    }));
+  }
+
+  public resetUsage(): void {
+    this.responder.resetUsage();
+  }
+
+  public stop(): void {
+    this.responder.stop();
+  }
+}
+
+/**
+ * After the distiller runs, build the input record for the executor.
+ * Merges non-context input values with the explorer's `(executorRequest,
+ * distilledContext)` payload, drops `executorExcludeFields`, and preserves the
+ * original non-context values so the responder can later restore actor-excluded
+ * fields it still wants to see.
+ */
+function buildExecutorInputsFromDistiller(p: any, state: any) {
+  const distillerRun = state.distillerResult;
+  throwOnClarification(distillerRun.executorResult, p.distiller);
+  const { nonCtxValues } = splitValuesByContext(
+    state.agentValues,
+    p.contextFieldNames
+  );
+  const distillerArgs = distillerRun.executorResult?.args ?? [];
+  const executorRequest =
+    distillerArgs[0] ?? defaultExecutorRequest(nonCtxValues);
+  const rawExecutorInputs: Record<string, unknown> = {
+    ...nonCtxValues,
+    ...(distillerRun.nonContextValues as Record<string, unknown>),
+    executorRequest,
+    distilledContext: distillerArgs[1],
+  };
+  const executorExclude: Set<string> = p.executorExcludeFields;
+  for (const key of executorExclude) delete rawExecutorInputs[key];
+  return {
+    ...state,
+    executorInputs: rawExecutorInputs,
+    originalNonCtxValues: nonCtxValues,
+  };
+}
+
+/**
+ * After the executor runs, build the input for the responder. Starts
+ * from the task executor's nonContextValues (so inputUpdateCallback edits
+ * survive), restores actor-excluded fields from the original input, then
+ * removes `responderExcludeFields`.
+ */
+function buildResponderInputFromExecutor(p: any, state: any) {
+  const executorRun = state.executorResult;
+  throwOnClarification(executorRun.executorResult, p.executor);
+  const {
+    executorRequest: _ignoreT,
+    distilledContext: _ignoreC,
+    memories: _ignoreM,
+    ...nonCtxFromExecutor
+  } = executorRun.nonContextValues as Record<string, unknown>;
+  const originalNonCtxValues = state.originalNonCtxValues as Record<
+    string,
+    unknown
+  >;
+  const nonCtxForResponder: Record<string, unknown> = { ...nonCtxFromExecutor };
+  const executorExclude: Set<string> = p.executorExcludeFields;
+  for (const key of executorExclude) {
+    if (key in originalNonCtxValues) {
+      nonCtxForResponder[key] = originalNonCtxValues[key];
+    }
+  }
+  const responderExclude: Set<string> = p.responderExcludeFields;
+  for (const key of responderExclude) delete nonCtxForResponder[key];
+  return {
+    ...state,
+    responderInput: {
+      nonContextValues: nonCtxForResponder,
+      executorResult: executorRun.executorResult,
+    },
+  };
+}
+
+function mergePipelineReturn(state: any) {
+  return state.responderResult;
+}
+
+export function buildPipelineFlow<IN extends AxGenIn, OUT extends AxGenOut>(
+  pipeline: AxAgent<IN, OUT>
+) {
+  const p = pipeline as any;
+  return flow<{ agentValues: IN }, OUT>({
+    autoParallel: false,
+  })
+    .node('distiller', new ActorStageProgram(p.distiller, 'ctx') as any)
+    .node('executor', new ActorStageProgram(p.executor, 'task') as any)
+    .node(
+      'responder',
+      new FinalResponderStageProgram(p.responder, 'task') as any
+    )
+    .execute(
+      'distiller',
+      (state) => state.agentValues as any,
+      p.distillerAi ? { ai: p.distillerAi } : undefined
+    )
+    .map((state) => buildExecutorInputsFromDistiller(p, state))
+    .execute(
+      'executor',
+      (state) => (state as any).executorInputs,
+      p.executorAi ? { ai: p.executorAi } : undefined
+    )
+    .map((state) => buildResponderInputFromExecutor(p, state))
+    .execute(
+      'responder',
+      (state) => (state as any).responderInput,
+      p.responderAi ? { ai: p.responderAi } : undefined
+    )
+    .returns(mergePipelineReturn);
+}
+
 /**
  * Walk the pipeline once and return the final user output.
  *
- *   contextExplorer.run → taskExecutor.run → finalResponder.forward
+ *   distiller.run → executor.run → responder.forward
  *
- * Each stage may be absent depending on the case; the function picks the
- * shortest valid path. `actorFieldValues` from the actor stages are merged
- * into the final result *after* the responder output, matching the legacy
- * "responder can't overwrite extra actor outputs" contract.
+ * Every agent run walks the static pipeline in order. `actorFieldValues` from
+ * the task actor are merged into the final result *after* the responder output,
+ * matching the legacy "responder can't overwrite extra actor outputs" contract.
  */
 export async function forwardPipeline<
   IN extends AxGenIn,
@@ -77,62 +382,16 @@ export async function forwardPipeline<
 >(
   pipeline: AxAgent<IN, OUT>,
   ai: T,
-  values: IN | AxMessage<IN>[],
+  values: IN,
   options?: Readonly<AxProgramForwardOptionsWithModels<T>>
 ): Promise<OUT> {
   const p = pipeline as any;
-  const contextFieldNames: Set<string> = p.contextFieldNames;
-
-  // ----- Task-only flow: no contextExplorer, taskExecutor only.
-  if (!p.contextExplorer) {
-    const taskRun = await p.taskExecutor.run(ai, values, options);
-    throwOnClarification(taskRun.actorResult, p.taskExecutor);
-    const responderResult = await p.finalResponder.forward(ai, {
-      nonContextValues: taskRun.nonContextValues,
-      actorResult: taskRun.actorResult,
-      options,
-    });
-    return { ...responderResult, ...taskRun.actorFieldValues } as OUT;
-  }
-
-  // Staged context flow: explorer receives the full input so it can understand the task
-  // while treating declared contextFields as runtime-only context. The task
-  // stage receives only non-context inputs plus executorRequest/distilledContext.
-  const { nonCtxValues } = splitValuesByContext(values, contextFieldNames);
-
-  const ctxRun = await p.contextExplorer.run(ai, values, options);
-  throwOnClarification(ctxRun.actorResult, p.contextExplorer);
-
-  const explorerArgs = (ctxRun.actorResult as any)?.args ?? [];
-  const taskInputs = {
-    ...nonCtxValues,
-    ...(ctxRun.nonContextValues as Record<string, unknown>),
-    executorRequest: explorerArgs[0],
-    distilledContext: explorerArgs[1],
-  };
-  const taskRun = await p.taskExecutor.run(ai, taskInputs, options);
-  throwOnClarification(taskRun.actorResult, p.taskExecutor);
-  // The task stage's signature includes `executorRequest`/`distilledContext`
-  // as actor inputs, so `taskRun.nonContextValues` carries them through.
-  // Strip them before handing values to the finalResponder, whose signature
-  // does *not* declare those fields.
-  const {
-    executorRequest: _ignoreT,
-    distilledContext: _ignoreC,
-    ...nonCtxForResponder
-  } = taskRun.nonContextValues as Record<string, unknown>;
-  const responderResult = await p.finalResponder.forward(ai, {
-    nonContextValues: nonCtxForResponder,
-    actorResult: taskRun.actorResult,
-    options,
-  });
-  return { ...responderResult, ...taskRun.actorFieldValues } as OUT;
+  return p.pipelineFlow.forward(ai, { agentValues: values }, options);
 }
 
 /**
  * Streaming variant of `forwardPipeline`. All actor stages run non-streaming;
- * only the finalResponder is streamed. `actorFieldValues` are yielded as a
- * final delta so callers see them in the stream.
+ * only the responder is streamed.
  */
 export async function* streamingForwardPipeline<
   IN extends AxGenIn,
@@ -141,66 +400,53 @@ export async function* streamingForwardPipeline<
 >(
   pipeline: AxAgent<IN, OUT>,
   ai: T,
-  values: IN | AxMessage<IN>[],
+  values: IN,
   options?: Readonly<AxProgramStreamingForwardOptionsWithModels<T>>
 ): AxGenStreamingOut<OUT> {
   const p = pipeline as any;
   const contextFieldNames: Set<string> = p.contextFieldNames;
-
-  // ----- Task-only flow
-  if (!p.contextExplorer) {
-    const taskRun = await p.taskExecutor.run(ai, values, options);
-    throwOnClarification(taskRun.actorResult, p.taskExecutor);
-    yield* p.finalResponder.streamingForward(ai, {
-      nonContextValues: taskRun.nonContextValues,
-      actorResult: taskRun.actorResult,
-      options,
-    });
-    if (Object.keys(taskRun.actorFieldValues).length > 0) {
-      yield {
-        version: 1,
-        index: 0,
-        delta: taskRun.actorFieldValues,
-      } as any;
-    }
-    return;
-  }
-
-  // Staged context flow: explorer receives the full input so it can understand the task
-  // while treating declared contextFields as runtime-only context. The task
-  // stage receives only non-context inputs plus executorRequest/distilledContext.
+  // The explorer receives the full input so it can normalize the request while
+  // treating declared contextFields as runtime-only context. The task stage
+  // receives only non-context inputs plus executorRequest/distilledContext.
   const { nonCtxValues } = splitValuesByContext(values, contextFieldNames);
 
-  const ctxRun = await p.contextExplorer.run(ai, values, options);
-  throwOnClarification(ctxRun.actorResult, p.contextExplorer);
+  const distillerAi = p.distillerAi ?? ai;
+  const executorAi = p.executorAi ?? ai;
+  const responderAi = p.responderAi ?? ai;
 
-  const explorerArgs = (ctxRun.actorResult as any)?.args ?? [];
-  const taskInputs = {
+  const distillerRun = await p.distiller.run(distillerAi, values, options);
+  throwOnClarification(distillerRun.executorResult, p.distiller);
+
+  const distillerArgs = (distillerRun.executorResult as any)?.args ?? [];
+  const executorRequest =
+    distillerArgs[0] ?? defaultExecutorRequest(nonCtxValues);
+  const executorInputs: Record<string, unknown> = {
     ...nonCtxValues,
-    ...(ctxRun.nonContextValues as Record<string, unknown>),
-    executorRequest: explorerArgs[0],
-    distilledContext: explorerArgs[1],
+    ...(distillerRun.nonContextValues as Record<string, unknown>),
+    executorRequest,
+    distilledContext: distillerArgs[1],
   };
-  const taskRun = await p.taskExecutor.run(ai, taskInputs, options);
-  throwOnClarification(taskRun.actorResult, p.taskExecutor);
-  // Strip the actor-only `executorRequest`/`distilledContext` inputs before
-  // handing values to the finalResponder (whose signature doesn't declare
-  // them).
+  const executorExclude: Set<string> = p.executorExcludeFields;
+  for (const key of executorExclude) delete executorInputs[key];
+  const executorRun = await p.executor.run(executorAi, executorInputs, options);
+  throwOnClarification(executorRun.executorResult, p.executor);
   const {
     executorRequest: _ignoreT,
     distilledContext: _ignoreC,
-    ...nonCtxForResponder
-  } = taskRun.nonContextValues as Record<string, unknown>;
-  yield* p.finalResponder.streamingForward(ai, {
+    memories: _ignoreM,
+    ...nonCtxFromExecutor
+  } = executorRun.nonContextValues as Record<string, unknown>;
+  const nonCtxForResponder: Record<string, unknown> = { ...nonCtxFromExecutor };
+  for (const key of executorExclude) {
+    if (key in (nonCtxValues as Record<string, unknown>)) {
+      nonCtxForResponder[key] = (nonCtxValues as Record<string, unknown>)[key];
+    }
+  }
+  const responderExclude: Set<string> = p.responderExcludeFields;
+  for (const key of responderExclude) delete nonCtxForResponder[key];
+  yield* p.responder.streamingForward(responderAi, {
     nonContextValues: nonCtxForResponder,
-    actorResult: taskRun.actorResult,
+    executorResult: executorRun.executorResult,
     options,
   });
-  if (Object.keys(taskRun.actorFieldValues).length > 0) {
-    yield {
-      version: 1,
-      index: 0,
-      delta: taskRun.actorFieldValues,
-    } as any;
-  }
 }

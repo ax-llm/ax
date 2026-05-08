@@ -553,7 +553,7 @@ function buildCoordinator(env: OfficeEnvironment) {
       preset: 'checkpointed',
       budget: 'balanced',
     },
-    actorOptions: {
+    executorOptions: {
       description:
         'You are the operations coordinator for Big Basin Labs. Use tools instead of guessing. Respect relative dates using the provided today field. Prefer direct tool calls and simple runtime JavaScript for scheduling, project status, and email tasks. When the task says draft only, save a draft and do not send. When the task forbids emailing someone, do not include them as recipients. Do not ask for clarification if the needed information can be gathered from tools.',
       model: AxAIGoogleGeminiModel.Gemini25FlashLite,

@@ -99,7 +99,7 @@ type AxAgentState = {
   actionLogEntries: AxAgentStateActionLogEntry[]; // Full turn history
   guidanceLogEntries?: AxAgentGuidanceLogEntry[];
   provenance: Record<string, RuntimeStateVariableProvenance>;
-  actorModelState?: AxAgentStateActorModelState;  // Model escalation state
+  actorModelState?: AxAgentStateExecutorModelState;  // Model escalation state
   checkpointState?: AxAgentStateCheckpointState;
   discoveryPromptState?: AxAgentDiscoveryPromptState;
 };
@@ -309,7 +309,6 @@ type AxAgentStateActionLogEntry = {
   turn: number;
   code: string;                    // The JS code generated
   output: string;                  // stdout / return value
-  actorFieldsOutput: string;       // Actor's structured fields
   tags: ActionLogTag[];            // 'error' | 'dead-end' | 'foundational'
                                    // | 'pivot' | 'superseded'
   summary?: string;                // Human-readable summary
@@ -353,15 +352,15 @@ Not every turn needs a large model. Routine data gathering, transformation, and 
 
 ### Policy Definition
 
-The `actorModelPolicy` is an ordered array where **later entries take precedence**:
+The `executorModelPolicy` is an ordered array where **later entries take precedence**:
 
 ```typescript
-type AxActorModelPolicy = readonly [
-  AxActorModelPolicyEntry,
-  ...AxActorModelPolicyEntry[]
+type AxExecutorModelPolicy = readonly [
+  AxExecutorModelPolicyEntry,
+  ...AxExecutorModelPolicyEntry[]
 ];
 
-type AxActorModelPolicyEntry =
+type AxExecutorModelPolicyEntry =
   | { model: string; aboveErrorTurns: number }   // Escalate on errors
   | { model: string; namespaces: readonly string[] }; // Escalate on capability
 ```
@@ -369,7 +368,7 @@ type AxActorModelPolicyEntry =
 ### Example Policy
 
 ```typescript
-const policy: AxActorModelPolicy = [
+const policy: AxExecutorModelPolicy = [
   { model: 'google:gemini-2.0-flash',  aboveErrorTurns: 0 },  // Default: fast
   { model: 'google:gemini-2.5-pro',    aboveErrorTurns: 3 },  // 3+ errors: escalate
   { model: 'anthropic:claude-opus-4',  namespaces: ['legal', 'medical'] }, // Specialized
@@ -389,10 +388,10 @@ flowchart TD
 
 ### Escalation State Tracking
 
-The `AxAgentStateActorModelState` object persists across turns:
+The `AxAgentStateExecutorModelState` object persists across turns:
 
 ```typescript
-type AxAgentStateActorModelState = {
+type AxAgentStateExecutorModelState = {
   consecutiveErrorTurns: number;   // Resets to 0 on success
   matchedNamespaces: string[];     // Namespaces seen in function calls
 };
@@ -609,7 +608,7 @@ LLM providers (Anthropic, Google) offer **prompt caching** — if the same prefi
 Every collection in the actor definition is **sorted canonically** before being serialized into the prompt:
 
 ```typescript
-axBuildActorDefinition(baseDefinition, contextFields, responderOutputFields, {
+axBuildExecutorDefinition(baseDefinition, contextFields, responderOutputFields, {
   agents: sortedByName(agents),                        // Deterministic order
   agentFunctions: sortedByNamespaceThenName(functions), // Deterministic order
   availableModules: sortedCanonically(modules),
@@ -722,7 +721,7 @@ The runtime injects these as API surfaces that actor code can call, but cannot o
 | `llmQuery(...)` | Spawn child agent |
 | `final(...)` | Signal task completion |
 | `askClarification(...)` | Request clarification |
-| `inspect_runtime.*` | Runtime state inspection |
+| `inspectRuntime.*` | Runtime state inspection |
 | `agents.*` | Named child agent calls |
 | `discoverModules()` | Tool discovery |
 | `discoverFunctions()` | Function discovery |
@@ -878,7 +877,7 @@ const agent = new AxAgent({
   contextPolicy: { preset: 'adaptive', budget: 'balanced' },
 
   // Model escalation
-  actorModelPolicy: [
+  executorModelPolicy: [
     { model: 'google:gemini-2.0-flash', aboveErrorTurns: 0 },
     { model: 'google:gemini-2.5-pro',   aboveErrorTurns: 3 },
   ],

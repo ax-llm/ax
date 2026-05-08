@@ -59,8 +59,8 @@ const makeFinalRuntime = (): AxCodeRuntime => ({
 
 /**
  * Mock AI for Case A (contextFields + function):
- *   - "Context Understanding Agent" (ctx actor) → final("distilled", {evidence:"info"})
- *   - "Code Generation Agent"       (task actor) → final("done", {answer:"ok"})
+ *   - "Distiller" (ctx actor) → final("distilled", {evidence:"info"})
+ *   - "Executor"       (task actor) → final("done", {answer:"ok"})
  *   - responder:
  *       ctx responder system prompt mentions "Distilled Context" output field
  *         → Distilled Context: {"evidence":"info"}
@@ -73,7 +73,7 @@ const makeCaseAMockAI = () =>
     chatResponse: async (req): Promise<AxChatResponse> => {
       const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
 
-      if (systemPrompt.includes('Context Understanding Agent')) {
+      if (systemPrompt.includes('You (`distiller`)')) {
         return {
           results: [
             {
@@ -87,7 +87,7 @@ const makeCaseAMockAI = () =>
         };
       }
 
-      if (systemPrompt.includes('Code Generation Agent')) {
+      if (systemPrompt.includes('You (`executor`)')) {
         return {
           results: [
             {
@@ -115,9 +115,10 @@ const makeCaseAMockAI = () =>
   });
 
 /**
- * Mock AI for Case C (no contextFields, has function):
- *   - "Code Generation Agent" (task actor) → final("done", {answer:"ok"})
- *   - Responder                            → Answer: ok
+ * Mock AI for no contextFields:
+ *   - Distiller → final("done", {})
+ *   - Executor       → final("done", {answer:"ok"})
+ *   - Responder                   → Answer: ok
  */
 const makeCaseCMockAI = () =>
   new AxMockAIService({
@@ -125,7 +126,20 @@ const makeCaseCMockAI = () =>
     chatResponse: async (req): Promise<AxChatResponse> => {
       const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
 
-      if (systemPrompt.includes('Code Generation Agent')) {
+      if (systemPrompt.includes('You (`distiller`)')) {
+        return {
+          results: [
+            {
+              index: 0,
+              content: 'Javascript Code: final("done", {})',
+              finishReason: 'stop' as const,
+            },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      }
+
+      if (systemPrompt.includes('You (`executor`)')) {
         return {
           results: [
             {
@@ -186,7 +200,7 @@ const makeCaseCAgent = () =>
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe('getChatLog() stage markers', () => {
-  it('tags actor entries with stage markers in Case A (ctx+task two-stage)', async () => {
+  it('tags flat entries with stage names in Case A (ctx+task two-stage)', async () => {
     const mockAI = makeCaseAMockAI();
     const ag = makeCaseAAgent();
 
@@ -194,32 +208,50 @@ describe('getChatLog() stage markers', () => {
 
     const log = ag.getChatLog();
 
-    // In Case A the coordinator tags every entry with 'ctx' or 'task'
-    const actorEntries = log.actor;
-    expect(actorEntries.length).toBeGreaterThan(0);
+    expect(log.length).toBeGreaterThan(0);
 
-    const ctxEntries = actorEntries.filter((e: any) => e.stage === 'ctx');
-    const taskEntries = actorEntries.filter((e: any) => e.stage === 'task');
+    const ctxEntries = log.filter(
+      (e: any) => e.name === 'distiller' && e.stage === 'ctx'
+    );
+    const taskEntries = log.filter(
+      (e: any) => e.name === 'executor' && e.stage === 'task'
+    );
+    const responderEntries = log.filter(
+      (e: any) => e.name === 'responder' && e.stage === 'task'
+    );
 
     expect(ctxEntries.length).toBeGreaterThan(0);
     expect(taskEntries.length).toBeGreaterThan(0);
+    expect(responderEntries.length).toBeGreaterThan(0);
   });
 
-  it('returns no stage markers on actor entries in Case C (single-stage, no contextFields)', async () => {
+  it('tags flat entries with stage names when no contextFields are configured', async () => {
     const mockAI = makeCaseCMockAI();
     const ag = makeCaseCAgent();
 
     await ag.forward(mockAI, { query: 'what?' });
 
     const log = ag.getChatLog();
-    const actorEntries = log.actor;
 
-    expect(actorEntries.length).toBeGreaterThan(0);
-
-    // Case C is a single-stage flow; no coordinator tagging happens
-    for (const entry of actorEntries) {
-      expect((entry as any).stage).toBeUndefined();
-    }
+    expect(log.length).toBeGreaterThan(0);
+    expect(log.some((entry) => entry.name === 'distiller')).toBe(true);
+    expect(log.some((entry) => entry.name === 'executor')).toBe(true);
+    expect(log.some((entry) => entry.name === 'responder')).toBe(true);
+    expect(
+      log.some(
+        (entry: any) => entry.name === 'distiller' && entry.stage === 'ctx'
+      )
+    ).toBe(true);
+    expect(
+      log.some(
+        (entry: any) => entry.name === 'executor' && entry.stage === 'task'
+      )
+    ).toBe(true);
+    expect(
+      log.some(
+        (entry: any) => entry.name === 'responder' && entry.stage === 'task'
+      )
+    ).toBe(true);
   });
 });
 
@@ -245,7 +277,7 @@ describe('getStagedUsage()', () => {
     expect(Array.isArray(staged.task.responder)).toBe(true);
   });
 
-  it('returns only task (no ctx) for Case C (single-stage, no contextFields)', async () => {
+  it('returns ctx and task usage when no contextFields are configured', async () => {
     const mockAI = makeCaseCMockAI();
     const ag = makeCaseCAgent();
 
@@ -256,8 +288,10 @@ describe('getStagedUsage()', () => {
       task: { actor: unknown[]; responder: unknown[] };
     };
 
-    expect(staged.ctx).toBeUndefined();
+    expect(staged.ctx).toBeDefined();
     expect(staged).toHaveProperty('task');
+    expect(Array.isArray(staged.ctx!.actor)).toBe(true);
+    expect(Array.isArray(staged.ctx!.responder)).toBe(true);
     expect(Array.isArray(staged.task.actor)).toBe(true);
     expect(Array.isArray(staged.task.responder)).toBe(true);
   });

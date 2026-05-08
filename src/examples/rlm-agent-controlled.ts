@@ -70,7 +70,7 @@ export const buildSupportAgent = () =>
       outputMode: 'return',
     }),
     functions: workflowTools,
-    actorOptions: {
+    executorOptions: {
       description: [
         'This demo uses host-side workflow functions for review and clarification, then completes successful runs with direct final(...).',
         'Treat order IDs already present in the message as valid, including formats like "#4812", "Order #4812", or "order 4812".',
