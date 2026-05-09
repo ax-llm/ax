@@ -1,54 +1,53 @@
-# Ax - Build Reliable AI Apps in TypeScript with DSPy
+# Ax — DSPy for TypeScript
 
-Ax brings DSPy's approach to TypeScript – describe what you want, and let the framework handle the rest. Production-ready, type-safe, works with all major LLMs.
+Automatic prompt generation, RLM agents, and a single API across 15+ providers. Production-tested.
 
-[![NPM Package](https://img.shields.io/npm/v/@ax-llm/ax?style=for-the-badge&color=green)](https://www.npmjs.com/package/@ax-llm/ax)
-[![Twitter](https://img.shields.io/twitter/follow/dosco?style=for-the-badge&color=red)](https://twitter.com/dosco)
-[![Discord Chat](https://img.shields.io/discord/1078454354849304667?style=for-the-badge&color=green)](https://discord.gg/DSHg3dU7dW)
+[![NPM](https://img.shields.io/npm/v/@ax-llm/ax?style=for-the-badge&color=222&label=npm)](https://www.npmjs.com/package/@ax-llm/ax)
+[![Discord](https://img.shields.io/discord/1078454354849304667?style=for-the-badge&color=5865F2&label=discord)](https://discord.gg/DSHg3dU7dW)
+[![Twitter](https://img.shields.io/twitter/follow/dosco?style=for-the-badge&color=1da1f2&label=%40dosco)](https://twitter.com/dosco)
 
-## The Problem
+## What Ax is
 
-Building with LLMs is painful. You write prompts, test them, they break. You switch providers, everything needs rewriting. You add validation, error handling, retries – suddenly you're maintaining infrastructure instead of shipping features.
+- A small, dependency-free TypeScript library that brings the **DSPy** programming model to JS/TS runtimes.
+- You declare a **signature** (string DSL, fluent `f()` builder, or any **Standard Schema v1** validator — Zod, Valibot, ArkType). Ax compiles it to a prompt at runtime, runs the call, parses the output, and gives you back a fully typed value.
+- The same signatures plug into agents, workflows, optimizers, and a sandboxed JS runtime — without rewriting prompts.
+- Works in NodeJS, Bun, Deno and in all browsers.
 
-## The Solution
+```mermaid
+flowchart LR
+  S["Signature (string, f, zod)"] --> P["Prompt"]
+  P --> AI["AI"]
+  AI --> R["Streaming parser"]
+  R --> O["Typed output"]
+  X["GEPA / ACE optimizer"] --> P
+```
 
-Define what goes in and what comes out. Ax handles the rest.
+## 30 seconds
 
 ```typescript
 import { ai, ax } from "@ax-llm/ax";
 
 const llm = ai({ name: "openai", apiKey: process.env.OPENAI_APIKEY });
 
-const classifier = ax(
+const classify = ax(
   'review:string -> sentiment:class "positive, negative, neutral"',
 );
 
-const result = await classifier.forward(llm, {
+const { sentiment } = await classify.forward(llm, {
   review: "This product is amazing!",
 });
-
-console.log(result.sentiment); // "positive"
+// sentiment: "positive" — typed as the literal union
 ```
 
-No prompt engineering. No trial and error. Works with GPT-4, Claude, Gemini, or any LLM.
-
-## Why Ax
-
-**Write once, run anywhere.** Switch between OpenAI, Anthropic, Google, or 15+ providers with one line. No rewrites.
-
-**Ship faster.** Stop tweaking prompts. Define inputs and outputs. The framework generates optimal prompts automatically.
-
-**Production-ready.** Built-in streaming, validation, error handling, observability. Used in production handling millions of requests.
-
-**Gets smarter.** Train your programs with examples. Watch accuracy improve automatically. No ML expertise needed.
+No prompt engineering. Switch `name: "openai"` to `"anthropic"`, `"google-gemini"`, `"mistral"`, `"ollama"`, etc. — same signature, same code.
 
 ## Examples
 
-### Extract structured data
+### Structured extraction
 
 ```typescript
-const extractor = ax(`
-  customerEmail:string, currentDate:datetime -> 
+const extract = ax(`
+  customerEmail:string, currentDate:datetime ->
   priority:class "high, normal, low",
   sentiment:class "positive, negative, neutral",
   ticketNumber?:number,
@@ -56,16 +55,16 @@ const extractor = ax(`
   estimatedResponseTime:string
 `);
 
-const result = await extractor.forward(llm, {
+const result = await extract.forward(llm, {
   customerEmail: "Order #12345 hasn't arrived. Need this resolved immediately!",
   currentDate: new Date(),
 });
 ```
 
-### Complex nested objects
+### Nested objects with `f()`
 
 ```typescript
-import { f, ax } from "@ax-llm/ax";
+import { ax, f } from "@ax-llm/ax";
 
 const productExtractor = f()
   .input("productPage", f.string())
@@ -73,53 +72,41 @@ const productExtractor = f()
     name: f.string(),
     price: f.number(),
     specs: f.object({
-      dimensions: f.object({
-        width: f.number(),
-        height: f.number()
-      }),
-      materials: f.array(f.string())
+      dimensions: f.object({ width: f.number(), height: f.number() }),
+      materials: f.array(f.string()),
     }),
-    reviews: f.array(f.object({
-      rating: f.number(),
-      comment: f.string()
-    }))
+    reviews: f.array(f.object({ rating: f.number(), comment: f.string() })),
   }))
   .build();
 
-const generator = ax(productExtractor);
-const result = await generator.forward(llm, { productPage: "..." });
-
-// Full TypeScript inference
-console.log(result.product.specs.dimensions.width);
-console.log(result.product.reviews[0].comment);
+const gen = ax(productExtractor);
+const { product } = await gen.forward(llm, { productPage: "..." });
+// product.specs.dimensions.width is typed end-to-end
 ```
 
-### Use zod (or valibot / arktype) directly
+### Standard Schema v1 (Zod / Valibot / ArkType)
 
-Ax accepts any [Standard Schema v1](https://standardschema.dev) validator (zod, valibot, arktype) anywhere `f.*` is accepted — same pipeline, same validation retries, same type inference.
+Any Standard Schema v1 validator works wherever `f.*` is accepted — at field level, whole-object level, or on a `fn()` tool. Same retry pipeline, same type inference, no adapter.
 
 ```typescript
 import { z } from "zod";
-import { ai, ax, f, fn } from "@ax-llm/ax";
+import { ax, f, fn } from "@ax-llm/ax";
 
-// 1. Per-field zod on f() — mix with f.*() fields freely
+// (1) Per-field zod — mix freely with f.* fields
 const reviewSentiment = ax(
   f()
     .input("productName", z.string().describe("Reviewed product"))
-    .input("reviewText", z.string().min(10).describe("Full review"))
+    .input("reviewText", z.string().min(10))
     .output("sentiment", z.enum(["positive", "neutral", "negative"]))
     .output("score", z.number().min(1).max(10))
     .output("keyPoints", z.array(z.string()))
     .build(),
 );
 
-// 2. Whole-object zod on f() — declare once, decomposed into ordered fields
+// (2) Whole-object zod — declare once, decomposed into ordered fields
 const productSummary = ax(
   f()
-    .input(z.object({
-      productName: z.string(),
-      buyerProfile: z.string(),
-    }))
+    .input(z.object({ productName: z.string(), buyerProfile: z.string() }))
     .output(z.object({
       headline: z.string(),
       pros: z.array(z.string()),
@@ -129,65 +116,61 @@ const productSummary = ax(
     .build(),
 );
 
-// 3. Whole-object zod on fn() — AI-SDK-style tool definition
+// (3) Whole-object zod on fn() — typed tool definition
 const lookupProduct = fn("lookupProduct")
   .description("Look up a product by name")
-  .arg(z.object({
-    productName: z.string().min(1),
-    includeSpecs: z.boolean().optional(),
-  }))
-  .returns(z.object({
-    price: z.number(),
-    inStock: z.boolean(),
-    rating: z.number().min(1).max(5),
-  }))
+  .arg(z.object({ productName: z.string().min(1), includeSpecs: z.boolean().optional() }))
+  .returns(z.object({ price: z.number(), inStock: z.boolean(), rating: z.number().min(1).max(5) }))
   .handler(async ({ productName }) => ({ price: 79.99, inStock: true, rating: 4.3 }))
   .build();
 ```
 
-Constraints (`.min()`, `.max()`, `.email()`, `.url()`, `.regex()`) feed the normal retry pipeline. `.refine()`, `.transform()`, and `.superRefine()` execute at parse time on complete field values — in both non-streaming and streaming (at field boundaries). For prompt-cache breakpoints and internal reasoning fields, pass companion options: `.input('ctx', z.string(), { cache: true })` or `.output('reasoning', z.string(), { internal: true })`. Multimodal inputs (`image`, `audio`, `file`) still use `f.*` — zod has no equivalent.
+`.min()`, `.max()`, `.email()`, `.url()`, `.regex()` feed the normal retry pipeline; `.refine()`, `.transform()`, and `.superRefine()` execute at parse time on complete field values, in both streaming and non-streaming. Cache breakpoints and internal reasoning fields use companion options: `{ cache: true }`, `{ internal: true }`. Multimodal inputs (`image`, `audio`, `file`) still use `f.*`.
 
-Full runnable example: [`src/examples/standard-schema.ts`](src/examples/standard-schema.ts).
+Runnable: [`src/examples/standard-schema.ts`](src/examples/standard-schema.ts).
 
-### Validation and constraints
-
-```typescript
-const userRegistration = f()
-  .input("userData", f.string())
-  .output("user", f.object({
-    username: f.string().min(3).max(20),
-    email: f.string().email(),
-    age: f.number().min(18).max(120),
-    password: f.string().min(8).regex("^(?=.*[A-Za-z])(?=.*\\d)", "Must contain letter and digit"),
-    bio: f.string().max(500).optional(),
-    website: f.string().url().optional(),
-  }))
-  .build();
-```
-
-Available constraints: `.min(n)`, `.max(n)`, `.email()`, `.url()`, `.date()`, `.datetime()`, `.regex(pattern, description)`, `.optional()`
-
-Validation runs on both input and output. Automatic retry with corrections on validation errors.
-
-### Agents with tools (ReAct pattern)
+### Tools (ReAct)
 
 ```typescript
-const assistant = ax(
-  "question:string -> answer:string",
-  {
-    functions: [
-      { name: "getCurrentWeather", func: weatherAPI },
-      { name: "searchNews", func: newsAPI },
-    ],
-  },
-);
+const assistant = ax("question:string -> answer:string", {
+  functions: [
+    { name: "getCurrentWeather", func: weatherAPI },
+    { name: "searchNews", func: newsAPI },
+  ],
+});
 
-const result = await assistant.forward(llm, {
+const { answer } = await assistant.forward(llm, {
   question: "What's the weather in Tokyo and any news about it?",
 });
 ```
 
-### AxAgent + RLM for long context
+### Multi-modal
+
+```typescript
+const analyze = ax(`
+  image:image, question:string ->
+  description:string,
+  mainColors:string[],
+  category:class "electronics, clothing, food, other",
+  estimatedPrice:string
+`);
+```
+
+## AxAgent
+
+`AxAgent` is a three-stage pipeline that turns a signature into a long-running, tool-using actor. Each `forward()` call runs distiller → executor → responder.
+
+```mermaid
+flowchart LR
+  IN["inputs"] --> D["Distiller"]
+  D --> E["Executor (RLM loop)"]
+  E --> RT["AxJSRuntime sandbox"]
+  E --> FN["functions / child agents"]
+  E --> M["recall - memories"]
+  E --> SK["consult - skills"]
+  E --> RES["Responder"]
+  RES --> OUT["typed output"]
+```
 
 ```typescript
 import { agent, AxJSRuntime } from "@ax-llm/ax";
@@ -195,17 +178,16 @@ import { agent, AxJSRuntime } from "@ax-llm/ax";
 const analyzer = agent(
   "context:string, query:string -> answer:string, evidence:string[]",
   {
-    name: "documentAnalyzer",
-    description: "Analyze very long documents with recursive code + sub-queries",
-    maxSteps: 20,
-    rlm: {
-      contextFields: ["context"],
-      runtime: new AxJSRuntime(),
-      maxSubAgentCalls: 40,
-      maxRuntimeChars: 2_000, // Shared cap for llmQuery context + interpreter output
-      maxBatchedLlmQueryConcurrency: 6,
-      subModel: "gpt-4o-mini",
+    agentIdentity: {
+      name: "documentAnalyzer",
+      description: "Analyze long documents with iterative code + sub-queries",
     },
+    contextFields: ["context"],
+    runtime: new AxJSRuntime(),
+    maxTurns: 20,
+    maxRuntimeChars: 2_000,
+    contextPolicy: { preset: "checkpointed", budget: "balanced" },
+    executorOptions: { model: "gpt-4o-mini" },
   },
 );
 
@@ -215,35 +197,123 @@ const result = await analyzer.forward(llm, {
 });
 ```
 
-RLM mode keeps long context out of the root prompt, runs iterative analysis in a persistent runtime session, and uses bounded sub-queries for semantic extraction (typically targeting <=10k chars per sub-call).
+The **recursive runtime** (RLM) keeps long context out of the root prompt: the executor runs JS in a persistent sandboxed session, narrows context with `llmQuery(...)` sub-calls, and uses checkpointed replay so older turns collapse into summaries instead of growing the prompt unbounded.
 
-### AxJSRuntime
+Runnable: [`src/examples/rlm-agent-controlled.ts`](src/examples/rlm-agent-controlled.ts), [`src/examples/rlm-discovery.ts`](src/examples/rlm-discovery.ts).
 
-`AxJSRuntime` is the built-in JavaScript runtime used by RLM and tool-style execution.
-It works across:
+### Memories, skills, sandboxed runtime
 
-- Node.js backends (worker_threads runtime path)
-- Bun backends (global Worker path with `smol: true`)
-- Deno backends (module worker path)
-- Browser environments (Web Worker path)
+Three orthogonal options on `agent(...)`. Opt in to what the task needs.
 
-It supports:
-
-- Persistent sessions via `createSession()`
-- Function tool usage via `toFunction()`
-- Sandbox permissions via `AxJSRuntimePermission`
-
-### Multi-modal (images, audio)
+**Memories** — vector / BM25 / KV lookup the actor controls via `await recall([...])`. Results land on `inputs.memories` for the next turn. Lifetime is one `.forward()`; persist externally to carry across calls.
 
 ```typescript
-const analyzer = ax(`
-  image:image, question:string ->
-  description:string,
-  mainColors:string[],
-  category:class "electronics, clothing, food, other",
-  estimatedPrice:string
-`);
+const myAgent = agent("task:string -> plan:string", {
+  onMemoriesSearch: async (searches, alreadyLoaded) => {
+    const skip = new Set(alreadyLoaded.map((m) => m.id));
+    return (await myVectorDB.searchBatch(searches, { topK: 3 }))
+      .filter((m) => !skip.has(m.id));
+  },
+  onUsedMemories: (results) => console.log("[memories]", results.map((r) => r.id)),
+});
 ```
+
+**Skills** — guidance / runbook bodies the actor pulls in on demand via `await consult([...])`. Loaded skills render under "Loaded Skills" in the executor system prompt and persist across `.forward()` calls.
+
+```typescript
+const myAgent = agent("task:string -> plan:string", {
+  onSkillsSearch: async (searches) =>
+    mySkillStore.searchBatch(searches, { topK: 2 }),
+  // Or preload statically — `consult()` not required:
+  skills: [{ name: "release-checklist", content: "1. Bump version\n2. ..." }],
+});
+```
+
+**Sandboxed JS runtime** — `AxJSRuntime` is the default; it is hardened by default and portable across Node, Bun (`smol: true` workers), Deno, and the browser. Capabilities are opt-in via permissions.
+
+```typescript
+import { AxJSRuntime, AxJSRuntimePermission } from "@ax-llm/ax";
+
+const runtime = new AxJSRuntime({
+  permissions: [AxJSRuntimePermission.NETWORK], // grant fetch only
+});
+```
+
+Defaults: `import()` blocked, intrinsics frozen, `ShadowRealm` locked, worker IPC locked, and on Node 20+ the OS Permission Model auto-engages as a second defense layer. Add `FILESYSTEM`, `STORAGE`, `CHILD_PROCESS`, etc. only as the task requires.
+
+Runnable: [`src/examples/rlm-memories-and-skills.ts`](src/examples/rlm-memories-and-skills.ts).
+
+## AxFlow + optimization
+
+`AxFlow` is a typed, chainable workflow runner — define nodes, wire state through `execute`, finalize with `map`. State types evolve as you add nodes, so the final mapper is fully type-checked.
+
+```typescript
+import { AxAI, AxAIOpenAIModel, AxGEPA, flow } from "@ax-llm/ax";
+
+const emailFlow = flow<{ emailText: string }>()
+  .description("Email Priority", "Classify priority and write a one-line rationale.")
+  .n("classifier", 'emailText:string -> priority:class "high, normal, low"')
+  .n("rationale", "emailText:string, priority:string -> rationale:string")
+  .e("classifier", (s) => ({ emailText: s.emailText }))
+  .e("rationale", (s) => ({ emailText: s.emailText, priority: s.classifierResult.priority }))
+  .m((s) => ({
+    priority: s.classifierResult.priority,
+    rationale: s.rationaleResult.rationale,
+  }));
+```
+
+Tune the whole flow with **GEPA** (multi-objective Pareto optimizer). Define a metric that returns one or more named scores; GEPA explores the prompt space and returns a Pareto front.
+
+```typescript
+const student = new AxAI({ name: "openai", apiKey: process.env.OPENAI_APIKEY!,
+  config: { model: AxAIOpenAIModel.GPT4OMini } });
+const teacher = new AxAI({ name: "openai", apiKey: process.env.OPENAI_APIKEY!,
+  config: { model: AxAIOpenAIModel.GPT4O } });
+
+const optimizer = new AxGEPA({
+  studentAI: student,
+  teacherAI: teacher,
+  numTrials: 16,
+  minibatch: true,
+  minibatchSize: 6,
+  seed: 42,
+});
+
+const result = await optimizer.compile(
+  emailFlow,
+  trainSet,
+  async ({ prediction, example }) => ({
+    accuracy: prediction.priority === example.priority ? 1 : 0,
+    brevity: (prediction.rationale?.length ?? 0) <= 60 ? 1 : 0.4,
+  }),
+  { auto: "medium", validationExamples: valSet, maxMetricCalls: 240 },
+);
+// result.paretoFront, result.hypervolume, result.paretoFrontSize
+```
+
+**ACE** (Automatic Curriculum Extraction) works the same way via `new AxACE({...}).compile(...)` — playbook-based iterative refinement. See [`src/examples/ace-train-inference.ts`](src/examples/ace-train-inference.ts) and [`src/examples/gepa-flow.ts`](src/examples/gepa-flow.ts).
+
+## Capabilities
+
+| Capability | Entrypoint | Notes |
+|---|---|---|
+| String signature DSL | `ax`, `s` | `'review:string -> sentiment:class "..."'` |
+| Fluent signature builder | `f` | typed nesting, constraints, retry on validation error |
+| Standard Schema v1 | `f`, `fn` | Zod, Valibot, ArkType — per-field or whole-object |
+| Tools / function calling | `fn`, `functions:` option | typed args, typed return, async handler |
+| Streaming + validation | `.streamingForward()` | parses at field boundaries |
+| Multi-modal | `f.image`, `f.audio` | OpenAI, Gemini, Anthropic |
+| Workflows | `flow`, `AxFlow` | typed DAG, parallelism, branching, sub-contexts |
+| Optimization | `AxGEPA`, `AxACE`, `AxBootstrapFewShot` | Pareto front, playbook curriculum, few-shot |
+| Agent loop | `agent`, `AxAgent` | distiller → executor → responder |
+| Memories | `onMemoriesSearch`, `recall(...)` | vector/BM25-backed context loader |
+| Skills | `onSkillsSearch`, `consult(...)` | on-demand prompt-section loader |
+| Sandboxed JS | `AxJSRuntime`, `AxJSRuntimePermission` | Node, Bun, Deno, browser |
+| Recursive runtime (RLM) | `agent({ runtime, contextFields })` | long-context REPL with checkpointed replay |
+| Providers | `ai({ name: ... })` | OpenAI, Anthropic, Gemini, Mistral, Cohere, Groq, Together, Ollama, OpenRouter, Bedrock (separate pkg), Reka, DeepSeek, Grok, HuggingFace, WebLLM |
+| Observability | OpenTelemetry, `executorTurnCallback`, `onFunctionCall` | per-turn telemetry, tool-call tracing |
+| RAG | `AxDBManager`, `AxDefaultResultReranker` | multi-hop retrieval with quality loops |
+| MCP | `AxMCPClient`, `AxMCPHTTPSSETransport`, `AxMCPStreambleHTTPTransport` | use any MCP server as a tool source |
 
 ## Install
 
@@ -251,75 +321,43 @@ const analyzer = ax(`
 npm install @ax-llm/ax
 ```
 
-Additional packages:
+Optional packages:
 
 ```bash
-# AWS Bedrock provider
-npm install @ax-llm/ax-ai-aws-bedrock
-
-# Vercel AI SDK v5 integration
-npm install @ax-llm/ax-ai-sdk-provider
-
-# Tools: MCP stdio transport, JS runtime
-npm install @ax-llm/ax-tools
+npm install @ax-llm/ax-ai-aws-bedrock     # AWS Bedrock provider
+npm install @ax-llm/ax-ai-sdk-provider    # Vercel AI SDK v5 integration
+npm install @ax-llm/ax-tools              # MCP stdio transport, JS runtime extras
 ```
-
-## Features
-
-- **15+ LLM Providers** – OpenAI, Anthropic, Google, Mistral, Ollama, and more
-- **Type-safe** – Full TypeScript support with auto-completion
-- **Standard Schema v1** – First-class zod / valibot / arktype on signatures and tools, no adapter
-- **Streaming** – Real-time responses with validation
-- **Multi-modal** – Images, audio, text in the same signature
-- **Optimization** – Automatic prompt tuning with MiPRO, ACE, GEPA
-- **Observability** – OpenTelemetry tracing built-in
-- **Workflows** – Compose complex pipelines with AxFlow
-- **RAG** – Multi-hop retrieval with quality loops
-- **Agents** – Tools and multi-agent collaboration
-- **RLM in AxAgent** – Long-context analysis with recursive runtime loops
-- **Zero dependencies** – Lightweight, fast, reliable
 
 ## Documentation
 
-**Get Started**
-- [Quick Start Guide](https://github.com/ax-llm/ax/blob/main/src/ax/README.md) – Set up in 5 minutes
-- [Examples Guide](https://github.com/ax-llm/ax/blob/main/src/docs/src/content/docs/examples.md) – Comprehensive examples
-- [DSPy Concepts](https://github.com/ax-llm/ax/blob/main/src/docs/src/content/docs/dspy.md) – Understanding the approach
-- [Signatures Guide](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-signature.md) – Type-safe signature design
+**Get started**
+- [Quick Start](https://github.com/ax-llm/ax/blob/main/src/ax/README.md)
+- [Examples](https://github.com/ax-llm/ax/blob/main/src/docs/src/content/docs/examples.md)
+- [DSPy concepts](https://github.com/ax-llm/ax/blob/main/src/docs/src/content/docs/dspy.md)
+- [Signatures](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-signature.md)
 
-**Deep Dives**
-- [AI Providers](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-ai.md) – All providers, AWS Bedrock, Vercel AI SDK
-- [AxFlow Workflows](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-flow.md) – Build complex AI systems
-- [Optimization (MiPRO, ACE, GEPA)](https://github.com/ax-llm/ax/blob/main/src/docs/src/content/docs/optimize.md) – Make programs smarter
-- [AxAgent & RLM](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-agent.md) – Agents, child agents, tools, and RLM for long contexts
-- [Advanced RAG](https://github.com/ax-llm/ax/blob/main/src/docs/src/content/docs/axrag.md) – Production search and retrieval
+**Deep dives**
+- [AI providers](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-ai.md)
+- [AxFlow workflows](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-flow.md)
+- [Optimization (GEPA, ACE)](https://github.com/ax-llm/ax/blob/main/src/docs/src/content/docs/optimize.md)
+- [AxAgent & RLM](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-agent.md)
+- [Advanced RAG](https://github.com/ax-llm/ax/blob/main/src/docs/src/content/docs/axrag.md)
 
-## Run Examples
+## Run examples
 
 ```bash
-OPENAI_APIKEY=your-key npm run tsx ./src/examples/[example-name].ts
+OPENAI_APIKEY=your-key npm run tsx ./src/examples/<name>.ts
 ```
 
-Core examples: `extract.ts`, `react.ts`, `agent.ts`, `streaming1.ts`, `multi-modal.ts`
-
-Production patterns: `customer-support.ts`, `food-search.ts`, `rlm.ts`, `ace-train-inference.ts`, `ax-flow-enhanced-demo.ts`
-
-[View all 70+ examples](src/examples/)
+Highlights: `extract.ts`, `react.ts`, `agent.ts`, `streaming1.ts`, `multi-modal.ts`, `standard-schema.ts`, `rlm-memories-and-skills.ts`, `rlm-discovery.ts`, `gepa-flow.ts`, `ace-train-inference.ts`, `ax-flow-enhanced-demo.ts`. [Browse all 70+ examples →](src/examples/)
 
 ## Community
 
-- [Twitter](https://twitter.com/dosco) – Updates
-- [Discord](https://discord.gg/DSHg3dU7dW) – Help and discussion
-- [GitHub](https://github.com/ax-llm/ax) – Star the project
-- [DeepWiki](https://deepwiki.com/ax-llm/ax) – AI-powered docs
-
-## Production Ready
-
-- Battle-tested in production
-- Stable minor versions
-- Comprehensive test coverage
-- OpenTelemetry built-in
-- TypeScript first
+- [Discord](https://discord.gg/DSHg3dU7dW) — questions and discussion
+- [Twitter](https://twitter.com/dosco) — updates
+- [GitHub](https://github.com/ax-llm/ax) — source and issues
+- [DeepWiki](https://deepwiki.com/ax-llm/ax) — AI-generated docs
 
 ## Contributors
 
@@ -329,9 +367,3 @@ Production patterns: `customer-support.ts`, `food-search.ts`, `rlm.ts`, `ace-tra
 ## License
 
 Apache 2.0
-
----
-
-```bash
-npm install @ax-llm/ax
-```

@@ -462,7 +462,7 @@ const dbTool = fn('queryUsers')
 
 const myAgent = agent('query:string -> answer:string', {
   contextFields: [],
-  functions: { local: [dbTool] },
+  functions: [dbTool],
   bubbleErrors: [DatabaseError, AuthError],
 });
 
@@ -535,11 +535,8 @@ const analyst = agent('context:string, query:string -> answer:string', {
     namespace: 'team',
   },
   contextFields: ['context'],
-  agents: { local: [writer] },
-  functions: {
-    discovery: true,
-    local: tools,
-  },
+  functions: [writer, ...tools],
+  functionDiscovery: true,
 });
 ```
 
@@ -720,7 +717,7 @@ const tools = [
 const harness = agent('query:string -> answer:string', {
   contextFields: ['query'],
   runtime,
-  functions: { local: tools },
+  functions: tools,
   contextPolicy: { preset: 'checkpointed', budget: 'balanced' },
 });
 
@@ -893,8 +890,7 @@ Use `onFunctionCall` when the caller wants to observe every function call the ac
 const supportAgent = agent('query:string -> answer:string', {
   contextFields: ['query'],
   runtime,
-  agents: [helperAgent],
-  functions: [{ name: 'lookupOrder', namespace: 'tools', /* ... */ }],
+  functions: [helperAgent, { name: 'lookupOrder', namespace: 'tools', /* ... */ }],
   onFunctionCall: ({ name, qualifiedName, args, kind }) => {
     console.log(`[${kind}] ${qualifiedName}`, args);
   },
@@ -1211,9 +1207,9 @@ await final("Summarize severity findings", { snippets });
 
 Reason: this mixes observation and follow-up work in one turn.
 
-## Shared Fields
+## Threading Parent Fields Into Child Agents
 
-If a child agent requires a parent field such as `audience`, prefer shared fields:
+If a child agent requires a parent field such as `audience`, declare it on the child's signature and pass it explicitly when calling the child from the actor:
 
 ```typescript
 const writingCoach = agent(
@@ -1222,6 +1218,7 @@ const writingCoach = agent(
     agentIdentity: {
       name: 'Writing Coach',
       description: 'Polishes summaries for a target audience',
+      namespace: 'team',
     },
     contextFields: [],
   }
@@ -1230,50 +1227,55 @@ const writingCoach = agent(
 const analyst = agent(
   'context:string, audience:string, query:string -> answer:string',
   {
-    agents: { local: [writingCoach] },
-    fields: { shared: ['audience'] },
+    functions: [writingCoach],
     contextFields: ['context'],
   }
 );
 ```
 
-Generated runtime call:
+Generated runtime call (note: namespace comes from the child's `agentIdentity.namespace`; falls back to `utils` if unset):
 
 ```javascript
-const polished = await agents.writingCoach({ draft: summary });
+const polished = await team.writingCoach({
+  draft: summary,
+  audience: inputs.audience,
+});
 ```
 
 Rules:
 
-- Use `fields.shared` for direct children.
-- Use `fields.globallyShared` for all descendants.
-- Do not manually thread a parent field on every child call when shared fields fit the use case.
+- Pass parent fields explicitly via the call site — `inputs.<field>`.
+- If many children need the same field on every call, use `inputUpdateCallback` to inject the value before each executor turn.
+- Do not assume any auto-propagation: child agents receive only the args the actor passes.
 
-## Shared Agents And Shared Functions
+## Grouped Function Modules
 
-Use grouped config:
+For discovery mode, you can group functions into modules using the `AxAgentFunctionGroup` shape — handy when you want a clean `kb.find(...)`, `metrics.score(...)` namespace tree without setting `namespace` on every individual `fn(...)`:
 
 ```typescript
 const parent = agent('query:string -> answer:string', {
-  agents: {
-    local: [worker],
-    shared: [logger],
-    globallyShared: [auditor],
-  },
-  functions: {
-    local: [searchTool],
-    shared: [scoreTool],
-    globallyShared: [traceTool],
-  },
+  functions: [
+    {
+      namespace: 'kb',
+      description: 'Knowledge base lookups',
+      functions: [findSnippetsFn, searchPagesFn],
+    },
+    {
+      namespace: 'metrics',
+      description: 'Scoring and coverage helpers',
+      functions: [scoreCoverageFn],
+    },
+  ],
+  functionDiscovery: true,
   contextFields: [],
 });
 ```
 
 Rules:
 
-- `agents.shared` and `functions.shared` propagate one level down.
-- `agents.globallyShared` and `functions.globallyShared` propagate to all descendants.
-- Use `excluded` when a child should not receive a propagated field, agent, or function.
+- A group is `{ namespace, description, functions: [...] }`. The group's `namespace` and `description` show up in `discoverModules(...)` markdown.
+- Mix groups and ungrouped entries freely in `functions: [...]` — child agents and `fn(...)` tools sit alongside group entries.
+- There is no `local` / `shared` / `globallyShared` propagation. Each agent owns its own `functions: [...]`; pass shared tools to children explicitly.
 
 ## Tuning Hand-off
 

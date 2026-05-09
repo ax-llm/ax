@@ -1,5 +1,5 @@
 ---
-name: ax
+name: ax-llm
 description: This skill helps with using the @ax-llm/ax TypeScript library for building LLM applications. Use when the user asks about ax(), ai(), f(), s(), agent(), flow(), AxGen, AxAgent, AxFlow, signatures, streaming, or mentions @ax-llm/ax.
 version: "__VERSION__"
 ---
