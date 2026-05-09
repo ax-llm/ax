@@ -1,6 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
-import type { AxAIService, AxChatResponse } from '@ax-llm/ax/index.js';
 import type { LanguageModelV2CallOptions } from '@ai-sdk/provider';
+import type { AxAIService, AxChatResponse } from '@ax-llm/ax/index.js';
+import { describe, expect, it, vi } from 'vitest';
 
 import { AxAIProvider } from './index.js';
 
@@ -145,6 +145,26 @@ describe('AxAIProvider', () => {
         input: '{"location":"New York"}',
       });
       expect(result.finishReason).toBe('tool-calls');
+    });
+
+    it('should request a non-streaming response from the AI service', async () => {
+      const mockResponse: AxChatResponse = {
+        results: [{ content: 'ok', finishReason: 'stop' }],
+      };
+
+      const mockAI = createMockAIService([mockResponse]);
+      const provider = new AxAIProvider(mockAI);
+
+      const options: LanguageModelV2CallOptions = {
+        prompt: [{ role: 'user', content: [{ type: 'text', text: 'Hi' }] }],
+      };
+
+      await provider.doGenerate(options);
+
+      expect(mockAI.chat).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({ stream: false })
+      );
     });
 
     it('should handle string function params correctly', async () => {
@@ -330,7 +350,8 @@ describe('AxAIProvider', () => {
               result: 'Sunny, 22°C',
             },
           ]),
-        })
+        }),
+        expect.objectContaining({ stream: false })
       );
     });
   });
