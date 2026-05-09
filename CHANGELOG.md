@@ -1,5 +1,22 @@
 # Changelog
 
+## [21.0.0](///compare/20.0.1...20.0.2) (2026-05-09)
+
+### Features
+
+* **agent:** pass alreadyLoaded snapshot to onMemoriesSearch 69ae7d2
+* **agent:** unify child-agent registration through functions array 689c0ba
+
+### Bug Fixes
+
+* **skill:** drop false claim that forward() exposes memory results e8f5686
+## [20.0.2](///compare/20.0.1...20.0.2) (2026-05-08)
+
+### Bug Fixes
+
+* **examples:** remove deleted recursionOptions.maxDepth, fix functions shape a1b65c8
+* **google-gemini:** correct Vertex cachedContents URL and model resource ([#513](undefined/undefined/undefined/issues/513)) f2c39e5
+
 ## [20.0.2](///compare/20.0.0...20.0.1) (2026-05-08)
 
 ### Bug Fixes
