@@ -167,7 +167,10 @@ export function buildRuntimeGlobals(
     moduleLookup.get(meta.module)?.push(qualifiedName);
   };
 
-  // Agent functions under namespace.* (e.g. utils.myFn, custom.otherFn)
+  // Agent functions under namespace.* (e.g. utils.myFn, custom.otherFn).
+  // Agent-derived entries carry `_kind: 'internal'` so that `onFunctionCall`
+  // observers can still distinguish them from user-registered tools; everything
+  // else lands under the same flow.
   for (const agentFn of s.agentFunctions) {
     const ns = agentFn.namespace ?? 'utils';
     if (!globals[ns] || typeof globals[ns] !== 'object') {
@@ -181,7 +184,7 @@ export function buildRuntimeGlobals(
       protocolForTrigger,
       qualifiedName,
       functionCallRecorder,
-      'external',
+      agentFn._kind ?? 'external',
       onFunctionCall
     );
     registerCallable(
@@ -195,36 +198,6 @@ export function buildRuntimeGlobals(
       },
       qualifiedName
     );
-  }
-
-  // Child agents under <module>.* namespace
-  if (s.agents && s.agents.length > 0) {
-    const agentsObj: Record<string, unknown> = {};
-    for (const agent of s.agents) {
-      const fn = agent.getFunction();
-
-      const qualifiedName = `${s.agentModuleNamespace}.${fn.name}`;
-      agentsObj[fn.name] = wrapFunction(
-        fn,
-        abortSignal,
-        ai,
-        protocolForTrigger,
-        qualifiedName,
-        functionCallRecorder,
-        'internal',
-        onFunctionCall
-      );
-      registerCallable(
-        {
-          module: s.agentModuleNamespace,
-          name: fn.name,
-          description: fn.description,
-          parameters: fn.parameters,
-        },
-        qualifiedName
-      );
-    }
-    globals[s.agentModuleNamespace] = agentsObj;
   }
 
   if (s.functionDiscoveryEnabled) {

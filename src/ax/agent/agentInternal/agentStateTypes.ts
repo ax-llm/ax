@@ -55,6 +55,13 @@ export type AxAgentFunctionExample = {
 export type AxAgentFunction = Omit<AxFunction, 'description'> & {
   description?: string;
   examples?: readonly AxAgentFunctionExample[];
+  /**
+   * Marks the function's origin so the runtime can distinguish user-registered
+   * tools (`'external'`, default) from agent-derived ones (`'internal'`) when
+   * dispatching `onFunctionCall` observers. Set automatically when an
+   * `AxAgentic` is supplied through `functions: [...]`.
+   */
+  _kind?: 'internal' | 'external';
 };
 
 export type AxAgentFunctionGroup = AxAgentFunctionModuleMeta & {
@@ -204,12 +211,17 @@ export class AxAgentClarificationError extends Error {
 }
 
 export type AxAgentFunctionCollection =
-  | readonly AxAgentFunction[]
+  | readonly (AxAgentFunction | AxAnyAgentic)[]
   | readonly AxAgentFunctionGroup[];
 
 export type NormalizedAgentFunctionCollection = {
   functions: AxAgentFunction[];
   moduleMetadata: AxAgentFunctionModuleMeta[];
+  /**
+   * Agentic entries that were inlined as functions. Tracked so the parent can
+   * register them as DSPy sub-programs (preserving optimizer reach-through).
+   */
+  agents: AxAnyAgentic[];
 };
 
 export type AxContextFieldInput =

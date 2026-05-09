@@ -11,7 +11,6 @@ import type {
   AxNamedProgramInstance,
   AxProgramDemos,
   AxProgramForwardOptionsWithModels,
-  AxProgramStreamingForwardOptionsWithModels,
   AxProgramTrace,
 } from '../../dsp/types.js';
 import { ActorAgentRLM } from '../AxAgent.js';
@@ -22,6 +21,7 @@ import type {
   AxAgentEvalDataset,
   AxAgentEvalPrediction,
   AxAgentEvalTask,
+  AxAgentForwardOptions,
   AxAgentIdentity,
   AxAgentic,
   AxAgentJudgeOptions,
@@ -29,6 +29,7 @@ import type {
   AxAgentOptimizeResult,
   AxAgentOptions,
   AxAgentState,
+  AxAgentStreamingForwardOptions,
   AxAgentTestResult,
   AxAnyAgentic,
   AxContextFieldInput,
@@ -152,7 +153,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     ai?: Readonly<AxAIService>;
     judgeAI?: Readonly<AxAIService>;
     agentIdentity?: Readonly<AxAgentIdentity>;
-    agentModuleNamespace?: string;
     signature:
       | string
       | Readonly<AxSignatureConfig>
@@ -342,12 +342,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     if (init.agentIdentity) {
       const coordForward = this.forward.bind(this);
       const coordSig = this.fullSignature;
-      const coordFuncName = init.agentIdentity.namespace
-        ? `${init.agentIdentity.namespace}.${toCamelCase(init.agentIdentity.name)}`
-        : toCamelCase(init.agentIdentity.name);
       this.func = {
-        name: coordFuncName,
+        name: toCamelCase(init.agentIdentity.name),
         description: init.agentIdentity.description,
+        ...(init.agentIdentity.namespace
+          ? { namespace: init.agentIdentity.namespace }
+          : {}),
         parameters: this.fullSignature.toInputJSONSchema(),
         func: async (funcValues: any, funcOptions?: any): Promise<string> => {
           const ai = funcOptions?.ai;
@@ -374,7 +374,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   public async forward<T extends Readonly<AxAIService>>(
     ai: T,
     values: IN,
-    options?: Readonly<AxProgramForwardOptionsWithModels<T>>
+    options?: Readonly<AxAgentForwardOptions<T>>
   ): Promise<OUT> {
     return forwardPipeline<IN, OUT, T>(this, ai, values, options);
   }
@@ -382,7 +382,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   public async *streamingForward<T extends Readonly<AxAIService>>(
     ai: T,
     values: IN,
-    options?: Readonly<AxProgramStreamingForwardOptionsWithModels<T>>
+    options?: Readonly<AxAgentStreamingForwardOptions<T>>
   ): AxGenStreamingOut<OUT> {
     yield* streamingForwardPipeline<IN, OUT, T>(this, ai, values, options);
   }

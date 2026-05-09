@@ -100,6 +100,44 @@ describe('axWorkerRuntime bootstrap', () => {
     );
   });
 
+  it('treats Bun workers as Web Worker transport even when Node compatibility is present', () => {
+    const runtimeConfig = {
+      functionRefKey: '__ax_fn_ref__',
+      maxErrorCauseDepth: 4,
+    } as const;
+    const source = `(${axWorkerRuntime.toString()})(${JSON.stringify(runtimeConfig)});`;
+
+    const builtinCalls: string[] = [];
+    const messages: unknown[] = [];
+    const sandbox: Record<string, unknown> = {
+      process: {
+        versions: { node: process.version.slice(1), bun: '1.3.5' },
+        getBuiltinModule: (specifier: string) => {
+          builtinCalls.push(specifier);
+          return null;
+        },
+      },
+      postMessage: (message: unknown) => messages.push(message),
+      console,
+    };
+    sandbox.globalThis = sandbox;
+
+    runInNewContext(source, sandbox);
+
+    expect(builtinCalls).toEqual([]);
+    expect(typeof sandbox.onmessage).toBe('function');
+
+    (sandbox.onmessage as (event: { data: unknown }) => void)({
+      data: {
+        type: 'init',
+        outputMode: 'return',
+        blockDynamicImport: true,
+      },
+    });
+
+    expect(messages).toEqual([]);
+  });
+
   it('prefers process.getBuiltinModule over new Function require', () => {
     const runtimeConfig = {
       functionRefKey: '__ax_fn_ref__',

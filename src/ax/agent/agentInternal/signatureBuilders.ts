@@ -125,18 +125,9 @@ export function buildSplitPrograms(self: any): void {
   const effectiveMaxTurns = s.rlmConfig.maxTurns ?? DEFAULT_RLM_MAX_TURNS;
   const effectiveLlmQueryPromptMode: AxLlmQueryPromptMode = 'simple';
 
-  // Collect metadata from child agents and tool functions so the actor prompt
+  // Collect metadata from registered tool functions (which now includes
+  // any agents that arrived via `options.functions`) so the actor prompt
   // describes what's available in the JS runtime session.
-  const agentMeta =
-    s.agents?.map((a: { getFunction: () => any }) => {
-      const fn = a.getFunction();
-      return {
-        name: fn.name,
-        description: fn.description,
-        parameters: fn.parameters,
-      };
-    }) ?? [];
-
   const agentFunctionMeta = s.agentFunctions.map((fn: any) => ({
     name: fn.name,
     description: fn.description,
@@ -149,9 +140,6 @@ export function buildSplitPrograms(self: any): void {
       (fn: { namespace?: string }) => fn.namespace ?? 'utils'
     )
   );
-  if (agentMeta.length > 0) {
-    moduleSet.add(s.agentModuleNamespace);
-  }
   const availableModules = [...moduleSet]
     .sort(compareCanonicalDiscoveryStrings)
     .map((namespace: string) => ({
@@ -173,13 +161,11 @@ export function buildSplitPrograms(self: any): void {
     hasCompressedActionReplay,
     llmQueryPromptMode: effectiveLlmQueryPromptMode,
     enforceIncrementalConsoleTurns: s.enforceIncrementalConsoleTurns,
-    agentModuleNamespace: s.agentModuleNamespace,
     hasAgentStatusCallback: Boolean(s.agentStatusCallback),
     discoveryMode: s.functionDiscoveryEnabled,
     skillsMode: typeof s.onSkillsSearch === 'function',
     memoriesMode: typeof s.onMemoriesSearch === 'function',
     availableModules,
-    agents: agentMeta,
     agentFunctions: agentFunctionMeta,
     templateOverride: s._actorTemplateOverrides?.get(s._actorTemplateId()),
     primitiveOverrides: s._primitiveOverrides,

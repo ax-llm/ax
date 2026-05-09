@@ -11,7 +11,10 @@ import type {
 } from './agentInternalTypes.js';
 import type { AxAgentState, AxAgentTestResult } from './agentPublicTypes.js';
 import { restoreDiscoveryPromptState } from './discoveryHelpers.js';
-import { restoreSkillsPromptState } from './skillsHelpers.js';
+import {
+  ingestSkillResults,
+  restoreSkillsPromptState,
+} from './skillsHelpers.js';
 
 export function applyOptimization(self: any, optimizedProgram: any): void {
   const s = self as any;
@@ -42,6 +45,9 @@ export async function testAgent(
   s.currentSkillsPromptState = restoreSkillsPromptState(
     s.state?.skillsPromptState
   );
+  if (Array.isArray(s.presetSkills) && s.presetSkills.length > 0) {
+    ingestSkillResults(s.currentSkillsPromptState, s.presetSkills);
+  }
 
   const completionState: AxAgentRuntimeCompletionState = {
     payload: undefined,
@@ -108,6 +114,9 @@ export function setState(self: any, state?: AxAgentState): void {
   s.currentSkillsPromptState = restoreSkillsPromptState(
     s.state?.skillsPromptState
   );
+  if (Array.isArray(s.presetSkills) && s.presetSkills.length > 0) {
+    ingestSkillResults(s.currentSkillsPromptState, s.presetSkills);
+  }
   s.stateError = undefined;
   if (s.actorProgram) {
     const instruction = s._buildActorInstruction();
@@ -157,8 +166,10 @@ export function getFunction(self: any): AxFunction {
     ].join('');
   };
 
+  const namespace = s.agentIdentity?.namespace as string | undefined;
   return {
     ...funcMeta,
+    ...(namespace ? { namespace } : {}),
     func: wrappedFunc,
   };
 }

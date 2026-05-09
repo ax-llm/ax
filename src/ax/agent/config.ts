@@ -23,8 +23,6 @@ export const DEFAULT_RLM_BATCH_CONCURRENCY = 8;
 export const DEFAULT_RLM_MAX_TURNS = 8;
 /** Per-context-field truncation budget when rendering input fields into the prompt. */
 export const DEFAULT_CONTEXT_FIELD_PROMPT_MAX_CHARS = 1_200;
-/** Namespace under which child agents are exposed to the JS runtime (e.g. `agents.searchAgent`). */
-export const DEFAULT_AGENT_MODULE_NAMESPACE = 'agents';
 /** Turns to wait after a rank-pruning signal before actually pruning — avoids pruning entries still in use. */
 export const DEFAULT_RANK_PRUNE_GRACE_TURNS = 2;
 

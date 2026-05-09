@@ -26,6 +26,7 @@ import type {
 import { buildActorLoopSetup } from './actorLoopSetup.js';
 import { runActorTurn } from './actorLoopTurn.js';
 import { renderGuidanceLog } from './guidanceHelpers.js';
+import { ingestSkillResults } from './skillsHelpers.js';
 import type {
   AxAgentEvalFunctionCall,
   AxAgentExecutorResultPayload,
@@ -56,6 +57,16 @@ export async function runActorLoop<IN extends AxGenIn>(
 
   const inputState = s._createRuntimeInputState(values);
   inputState.recomputeTurnInputs(false);
+
+  const stageVariant = s.options?.stageVariant;
+  if (stageVariant !== 'distiller') {
+    const forwardSkills = (
+      options as { skills?: readonly unknown[] } | undefined
+    )?.skills;
+    if (Array.isArray(forwardSkills) && forwardSkills.length > 0) {
+      ingestSkillResults(s.currentSkillsPromptState, forwardSkills as any);
+    }
+  }
 
   const completionState: AxAgentRuntimeCompletionState = {
     payload: undefined,

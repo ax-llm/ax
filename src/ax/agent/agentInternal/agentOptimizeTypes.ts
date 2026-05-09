@@ -14,6 +14,8 @@ import type {
   AxGenIn,
   AxGenOut,
   AxProgramForwardOptions,
+  AxProgramForwardOptionsWithModels,
+  AxProgramStreamingForwardOptionsWithModels,
   AxProgramUsage,
 } from '../../dsp/types.js';
 import type {
@@ -26,7 +28,6 @@ import type {
   AxAgentFunctionCollection,
   AxAgentInputUpdateCallback,
   AxAgentStructuredClarification,
-  AxAnyAgentic,
   AxContextFieldInput,
   AxExecutorModelPolicy,
 } from './agentStateTypes.js';
@@ -156,9 +157,13 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
    */
   contextFields?: readonly AxContextFieldInput[];
 
-  /** Child agents registered under the configured child-agent module namespace (default: `agents.*`). */
-  agents?: AxAnyAgentic[];
-  /** Agent functions registered under the configured namespace globals. */
+  /**
+   * Tools registered under their configured namespace globals. May contain
+   * `AxFunction` / `AxAgentFunction` entries, grouped function modules, or
+   * `AxAgentic` instances — agents are auto-converted via `.getFunction()` and
+   * land under their `agentIdentity.namespace` (or `utils` if unset), exactly
+   * like a plain function. Pass an `AxAgent` here to use it as a child tool.
+   */
   functions?: AxAgentFunctionCollection;
   /** Enables runtime callable discovery (modules + on-demand definitions). */
   functionDiscovery?: boolean;
@@ -173,6 +178,16 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
    * **Loaded Skills** section of the next turn's prompt to see what landed.
    */
   onSkillsSearch?: import('./skillsTypes.js').AxAgentSkillsSearchFn;
+
+  /**
+   * Skills to preload into the executor prompt at startup, in the same
+   * shape returned by `onSkillsSearch` ({ name, content }). Useful when
+   * the caller already knows which skills are relevant and wants to
+   * skip the actor's `consult(...)` round-trip. Merged with skills
+   * passed at forward()-time (forward overrides by name). Does NOT
+   * fire `onUsedSkills` — that callback is for runtime-loaded skills.
+   */
+  skills?: readonly import('./skillsTypes.js').AxAgentSkillResult[];
 
   /**
    * Optional callback fired whenever `consult(...)` loads skills. Receives
@@ -295,6 +310,23 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
  * Per-stage forward options. Used by `contextOptions`, `executorOptions`, and
  * `responderOptions` — one shape, three peers, one per pipeline stage.
  */
+/**
+ * Forward options for `AxAgent.forward(...)`. Extends the dsp-layer
+ * `AxProgramForwardOptionsWithModels` with agent-specific knobs that only
+ * make sense at the agent boundary (currently `skills` for one-shot
+ * preloading). Forward-time `skills` merge on top of init-time `skills`
+ * (forward overrides by name).
+ */
+export type AxAgentForwardOptions<T extends Readonly<AxAIService>> =
+  AxProgramForwardOptionsWithModels<T> & {
+    skills?: readonly import('./skillsTypes.js').AxAgentSkillResult[];
+  };
+
+export type AxAgentStreamingForwardOptions<T extends Readonly<AxAIService>> =
+  AxProgramStreamingForwardOptionsWithModels<T> & {
+    skills?: readonly import('./skillsTypes.js').AxAgentSkillResult[];
+  };
+
 export type AxStageOptions = Partial<
   Omit<AxProgramForwardOptions<string>, 'functions'> & {
     description?: string;

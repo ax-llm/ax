@@ -11,8 +11,11 @@ export function renderActorDefinition(self: any): string {
     return s.baseActorDefinition;
   }
 
+  const skillsEnabled =
+    typeof s.onSkillsSearch === 'function' ||
+    (s.currentSkillsPromptState && s.currentSkillsPromptState.loaded.size > 0);
   const skillsMarkdown =
-    typeof s.onSkillsSearch === 'function' && s.currentSkillsPromptState
+    skillsEnabled && s.currentSkillsPromptState
       ? renderSkillsPromptMarkdown(s.currentSkillsPromptState)
       : undefined;
 

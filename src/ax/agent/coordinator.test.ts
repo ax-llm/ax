@@ -859,7 +859,7 @@ describe('AxAgent coordinator routing', () => {
   // -------------------------------------------------------------------------
 
   describe('strict knob routing (Stage D)', () => {
-    it('task-only knobs (functions, agents, functionDiscovery, mode) never reach ctxAgent', () => {
+    it('task-only knobs (functions, functionDiscovery, mode) never reach ctxAgent', () => {
       const childAgent = agent('inputText:string -> outputText:string', {
         agentIdentity: { name: 'childAgent', description: 'child' },
         runtime: makeRuntime(),
@@ -867,8 +867,7 @@ describe('AxAgent coordinator routing', () => {
 
       const a = agent('docText:string, query:string -> answer:string', {
         contextFields: ['docText'],
-        functions: [simpleFn],
-        agents: [childAgent],
+        functions: [simpleFn, childAgent],
         functionDiscovery: true,
 
         runtime: makeRuntime(),
@@ -881,8 +880,8 @@ describe('AxAgent coordinator routing', () => {
       expect(coord.distiller.agents ?? []).toEqual([]);
       expect(coord.distiller.functionDiscoveryEnabled).toBe(false);
 
-      // executor must see everything
-      expect(coord.executor.agentFunctions.length).toBeGreaterThan(0);
+      // executor must see everything (functions + child agents both inlined)
+      expect(coord.executor.agentFunctions.length).toBeGreaterThan(1);
       expect(coord.executor.agents?.length ?? 0).toBeGreaterThan(0);
       expect(coord.executor.functionDiscoveryEnabled).toBe(true);
     });

@@ -1,10 +1,10 @@
-import type { AxFunction } from '../ai/types.js';
 import type {
   AxCodeRuntime,
   AxCodeSession,
   AxCodeSessionSnapshot,
   AxCodeSessionSnapshotEntry,
 } from '../agent/rlm.js';
+import type { AxFunction } from '../ai/types.js';
 import {
   extractTopLevelDeclaredNames,
   stripJsStringsAndComments,
@@ -20,6 +20,7 @@ import {
 /**
  * Cross-runtime RLM JavaScript interpreter architecture:
  * - Browser runtime: uses Web Workers directly.
+ * - Bun runtime: uses Bun's global Worker with `smol: true`.
  * - Node runtime: uses node:worker_threads via lazy dynamic import.
  * - Worker script: shared inline source that supports both runtimes.
  * - Session model: one persistent worker per session (state survives execute calls).
@@ -45,9 +46,14 @@ const canUseWebWorker = () =>
   typeof URL !== 'undefined' &&
   typeof URL.createObjectURL === 'function';
 
-/** True when running under Node.js. */
+/** True when running under Bun. */
+const isBunRuntime = () =>
+  !!(globalThis as { process?: { versions?: { bun?: string } } }).process
+    ?.versions?.bun;
+
+/** True when running under Node.js, excluding Bun's Node compatibility layer. */
 const isNodeRuntime = () =>
-  typeof process !== 'undefined' && !!process.versions?.node;
+  typeof process !== 'undefined' && !!process.versions?.node && !isBunRuntime();
 
 /** True when running under Deno.js. */
 const isDenoRuntime = () =>
@@ -211,7 +217,10 @@ const createDenoWorker = (
   return new Worker(url, { type: 'module' });
 };
 
-/** Creates a browser/Deno Web Worker and wraps it with the unified worker facade. */
+const createBunWorker = (url: string): Worker =>
+  new Worker(url, { smol: true } as WorkerOptions & { smol: true });
+
+/** Creates a browser/Deno/Bun Web Worker and wraps it with the unified worker facade. */
 const createBrowserWorker = (
   source: string,
   permissions: readonly AxJSRuntimePermission[],
@@ -221,10 +230,12 @@ const createBrowserWorker = (
     type: 'application/javascript',
   });
   const url = URL.createObjectURL(blob);
-  // Deno supports module workers only; browsers support both.
+  // Deno supports module workers only; Bun supports smol workers.
   const worker = isDenoRuntime()
     ? createDenoWorker(url, permissions, allowDenoRemoteImport)
-    : new Worker(url);
+    : isBunRuntime()
+      ? createBunWorker(url)
+      : new Worker(url);
   let isRevoked = false;
   const revoke = () => {
     if (!isRevoked) {
@@ -389,6 +400,7 @@ const createNodeWorker = async (
 ): Promise<RLMWorker> => {
   const nodeWorkerThreadsModule = `node:${'worker_threads'}`;
   const { Worker: NodeWorker } = (await import(
+    /* @vite-ignore */
     nodeWorkerThreadsModule
   )) as typeof import('node:worker_threads');
   const workerOptions: {

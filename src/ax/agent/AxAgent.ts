@@ -21,7 +21,6 @@ import type {
   AxProgramUsage,
 } from '../dsp/types.js';
 import type { createCompletionBindings } from './completion.js';
-import { DEFAULT_AGENT_MODULE_NAMESPACE } from './config.js';
 import type { ActionLogEntry } from './contextManager.js';
 import type { AxCodeRuntime, AxRLMConfig } from './rlm.js';
 import {
@@ -129,6 +128,11 @@ export class ActorAgentRLM<
   private judgeAI?: AxAIService;
   private program!: AxGen<IN, OUT>;
   private actorProgram!: AxGen<any, any>;
+  /**
+   * Child agents that arrived through `options.functions` and were inlined as
+   * tools. Tracked here so the optimizer can still walk into them via
+   * `getOptimizableComponents`.
+   */
   private agents?: AxAnyAgentic[];
   private agentFunctions!: AxAgentFunction[];
   private agentFunctionModuleMetadata = new Map<
@@ -152,7 +156,6 @@ export class ActorAgentRLM<
   private onFunctionCall?: import('./agentInternal/types.js').AxAgentOnFunctionCall;
   private contextPromptConfigByField: Map<string, AxContextFieldPromptConfig> =
     new Map();
-  private agentModuleNamespace = DEFAULT_AGENT_MODULE_NAMESPACE;
   private functionDiscoveryEnabled = false;
   private runtimeUsageInstructions = '';
   private enforceIncrementalConsoleTurns = false;
@@ -346,7 +349,6 @@ export class ActorAgentRLM<
       ai?: Readonly<AxAIService>;
       judgeAI?: Readonly<AxAIService>;
       agentIdentity?: Readonly<AxAgentIdentity>;
-      agentModuleNamespace?: string;
       signature:
         | string
         | Readonly<AxSignatureConfig>
@@ -701,7 +703,6 @@ export class ActorAgentRLM<
   private get _genOptions(): Record<string, unknown> {
     if (!this.options) return {};
     const {
-      agents: _a,
       functions: _fn,
       functionDiscovery: _fd,
       judgeOptions: _jo,

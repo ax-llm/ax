@@ -2,24 +2,21 @@ import { AxGen } from '../../dsp/generate.js';
 import type { AxTunable, AxUsable } from '../../dsp/types.js';
 import { AxJSRuntime } from '../../funcs/jsRuntime.js';
 import {
-  DEFAULT_AGENT_MODULE_NAMESPACE,
   DEFAULT_CONTEXT_FIELD_PROMPT_MAX_CHARS,
   resolveExecutorModelPolicy,
 } from '../config.js';
 import {
-  DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME,
-  DISCOVERY_LIST_MODULE_FUNCTIONS_NAME,
-  MEMORIES_LOAD_NAME,
   normalizeContextFields,
-  SKILLS_LOAD_NAME,
   shouldEnforceIncrementalConsoleTurns,
 } from '../runtime.js';
 import {
   normalizeAgentFunctionCollection,
-  normalizeAgentModuleNamespace,
   toCamelCase,
 } from '../runtimeDiscovery.js';
-import { createMutableSkillsPromptState } from './skillsHelpers.js';
+import {
+  createMutableSkillsPromptState,
+  ingestSkillResults,
+} from './skillsHelpers.js';
 
 export function initializeAgentInternal(
   self: any,
@@ -27,7 +24,7 @@ export function initializeAgentInternal(
   options: any
 ): void {
   const s = self as any;
-  const { ai, judgeAI, agentIdentity, agentModuleNamespace, signature } = init;
+  const { ai, judgeAI, agentIdentity, signature } = init;
 
   const {
     debug,
@@ -55,13 +52,18 @@ export function initializeAgentInternal(
   s.ai = ai;
   s.judgeAI = judgeAI;
   s.agentIdentity = agentIdentity ? { ...agentIdentity } : undefined;
-  s.agents = options.agents ?? [];
   s.functionDiscoveryEnabled = options.functionDiscovery ?? false;
   s.onSkillsSearch = options.onSkillsSearch;
   s.onUsedSkills = options.onUsedSkills;
   s.onMemoriesSearch = options.onMemoriesSearch;
   s.onUsedMemories = options.onUsedMemories;
   s.currentSkillsPromptState = createMutableSkillsPromptState();
+  s.presetSkills = Array.isArray(options.skills)
+    ? options.skills.slice()
+    : undefined;
+  if (s.presetSkills && s.presetSkills.length > 0) {
+    ingestSkillResults(s.currentSkillsPromptState, s.presetSkills);
+  }
   s.debug = debug;
   s.options = options;
   s.runtime = runtime ?? new AxJSRuntime();
@@ -70,49 +72,19 @@ export function initializeAgentInternal(
     s.runtimeUsageInstructions
   );
 
-  const resolvedAgentModuleNamespace =
-    agentModuleNamespace ??
-    agentIdentity?.namespace ??
-    DEFAULT_AGENT_MODULE_NAMESPACE;
-  s.agentModuleNamespace = normalizeAgentModuleNamespace(
-    resolvedAgentModuleNamespace,
-    {
-      normalize: agentModuleNamespace === undefined,
-    }
-  );
-
-  const reservedAgentModuleNamespaces = new Set([
-    'inputs',
-    'llmQuery',
-    'final',
-    'askClarification',
-    'reportSuccess',
-    'reportFailure',
-    'inspectRuntime',
-    DISCOVERY_LIST_MODULE_FUNCTIONS_NAME,
-    DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME,
-    SKILLS_LOAD_NAME,
-    MEMORIES_LOAD_NAME,
-  ]);
-  if (reservedAgentModuleNamespaces.has(s.agentModuleNamespace)) {
-    throw new Error(
-      `Agent module namespace "${s.agentModuleNamespace}" is reserved`
-    );
-  }
-
   const reservedAgentFunctionNamespaces = s._reservedAgentFunctionNamespaces();
   const localAgentFnBundle = normalizeAgentFunctionCollection(
     options.functions,
     reservedAgentFunctionNamespaces
   );
   s.agentFunctions = localAgentFnBundle.functions;
+  s.agents = localAgentFnBundle.agents;
   s._mergeAgentFunctionModuleMetadata(localAgentFnBundle.moduleMetadata);
 
   // Create the base program (used for signature/schema access).
   // `description` is stripped because AxAgent owns the per-stage prompts;
   // letting it through would stamp the signature and trip the validator.
   const {
-    agents: _a,
     functions: _fn,
     functionDiscovery: _fd,
     onSkillsSearch: _oss,
@@ -170,9 +142,11 @@ export function initializeAgentInternal(
   s.agentStatusCallback = agentStatusCallback;
   s.onFunctionCall = onFunctionCall;
 
-  const agents = s.agents;
-  for (const agent of agents ?? []) {
-    // Use agent function name as the child name for DSPy-compatible IDs
+  // Register child agents (those that arrived via `options.functions`) as
+  // DSPy sub-programs so optimizer reach-through is preserved.
+  for (const agent of (s.agents ?? []) as readonly {
+    getFunction: () => { name: string };
+  }[]) {
     const childName = agent.getFunction().name;
     s.program.register(
       agent as unknown as Readonly<AxTunable<any, any> & AxUsable>,

@@ -21,10 +21,13 @@ vi.stubGlobal('URL', {
   revokeObjectURL: vi.fn(),
 });
 
+const originalProcess = globalThis.process;
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockWorkerInstance.onmessage = null;
   delete (globalThis as { Deno?: unknown }).Deno;
+  vi.stubGlobal('process', originalProcess);
 });
 
 // --- Tests ---
@@ -676,6 +679,41 @@ describe('AxJSRuntime', () => {
 
     session.close();
     vi.useRealTimers();
+  });
+
+  it('uses Bun Worker smol mode when running under Bun', () => {
+    vi.stubGlobal('process', {
+      env: {},
+      versions: { node: '24.3.0', bun: '1.3.5' },
+    });
+
+    const interp = new AxJSRuntime();
+    interp.createSession();
+
+    const WorkerMock = vi.mocked(
+      globalThis.Worker as unknown as ReturnType<typeof vi.fn>
+    );
+    const workerCtorCall = WorkerMock.mock.calls[0]!;
+
+    expect(workerCtorCall[1]).toEqual({ smol: true });
+  });
+
+  it('does not use Node Permission Model when running under Bun', () => {
+    vi.stubGlobal('process', {
+      env: {},
+      versions: { node: '18.19.0', bun: '1.3.5' },
+    });
+
+    const interp = new AxJSRuntime({ useNodePermissionModel: true });
+
+    expect(() => interp.createSession()).not.toThrow();
+
+    const WorkerMock = vi.mocked(
+      globalThis.Worker as unknown as ReturnType<typeof vi.fn>
+    );
+    const workerCtorCall = WorkerMock.mock.calls[0]!;
+
+    expect(workerCtorCall[1]).toEqual({ smol: true });
   });
 
   it('uses Deno module worker options when available', () => {

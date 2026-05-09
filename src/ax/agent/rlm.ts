@@ -373,19 +373,13 @@ export function axBuildExecutorDefinition(
     discoveredDocsMarkdown?: string;
     /** Skill bodies accumulated during the current run (sorted by name). */
     skillsMarkdown?: string;
-    agents?: ReadonlyArray<{
-      name: string;
-      description: string;
-      parameters?: AxFunctionJSONSchema;
-    }>;
     agentFunctions?: ReadonlyArray<{
       name: string;
       description?: string;
-      parameters: AxFunctionJSONSchema;
+      parameters?: AxFunctionJSONSchema;
       returns?: AxFunctionJSONSchema;
       namespace: string;
     }>;
-    agentModuleNamespace?: string;
     /** Optional override for the `rlm/executor.md` template source. */
     templateOverride?: string;
     /** Optional per-primitive override map keyed by primitive id. */
@@ -405,9 +399,6 @@ export function axBuildExecutorDefinition(
     .map((f) => `\`${f.name}\``)
     .join(', ');
 
-  const sortedAgents = [...(options.agents ?? [])].sort((a, b) =>
-    a.name.localeCompare(b.name)
-  );
   const sortedAgentFunctions = [...(options.agentFunctions ?? [])].sort(
     (a, b) => {
       if (a.namespace !== b.namespace) {
@@ -416,18 +407,12 @@ export function axBuildExecutorDefinition(
       return a.name.localeCompare(b.name);
     }
   );
-  const agentModuleNamespace = options.agentModuleNamespace ?? 'agents';
   const discoveryMode = Boolean(options.discoveryMode);
   const availableModules: AvailableModule[] = options.availableModules
     ? [...options.availableModules].sort((a, b) =>
         a.namespace.localeCompare(b.namespace)
       )
-    : [
-        ...new Set([
-          ...sortedAgentFunctions.map((fn) => fn.namespace),
-          ...(sortedAgents.length > 0 ? [agentModuleNamespace] : []),
-        ]),
-      ]
+    : [...new Set(sortedAgentFunctions.map((fn) => fn.namespace))]
         .sort((a, b) => a.localeCompare(b))
         .map((namespace) => ({ namespace }));
 
@@ -451,19 +436,6 @@ export function axBuildExecutorDefinition(
         },
         options.primitiveOverrides
       ),
-      agentModuleNamespace,
-      agentFunctionsList:
-        !discoveryMode && sortedAgents.length > 0
-          ? sortedAgents
-              .map((fn) =>
-                renderCallableBlock({
-                  qualifiedName: `${agentModuleNamespace}.${fn.name}`,
-                  description: fn.description,
-                  parameters: fn.parameters,
-                })
-              )
-              .join('\n\n')
-          : '',
       functionsList:
         !discoveryMode && sortedAgentFunctions.length > 0
           ? sortedAgentFunctions

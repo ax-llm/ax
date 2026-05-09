@@ -1,8 +1,9 @@
 import type { AxSignature } from '../../dsp/sig.js';
-import { DEFAULT_AGENT_MODULE_NAMESPACE } from '../config.js';
 import {
   DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME,
   DISCOVERY_LIST_MODULE_FUNCTIONS_NAME,
+  MEMORIES_LOAD_NAME,
+  SKILLS_LOAD_NAME,
 } from '../runtime.js';
 import type { AxAgentFunction, AxAgentFunctionModuleMeta } from './types.js';
 
@@ -13,9 +14,11 @@ export function reservedAgentFunctionNamespaces(self: any): Set<string> {
     'llmQuery',
     'final',
     'askClarification',
+    'reportSuccess',
+    'reportFailure',
     'inspectRuntime',
-    DEFAULT_AGENT_MODULE_NAMESPACE,
-    s.agentModuleNamespace,
+    SKILLS_LOAD_NAME,
+    MEMORIES_LOAD_NAME,
     ...(s.functionDiscoveryEnabled
       ? [
           DISCOVERY_LIST_MODULE_FUNCTIONS_NAME,

@@ -5,8 +5,17 @@ import type {
   AxAgentFunctionExample,
   AxAgentFunctionGroup,
   AxAgentFunctionModuleMeta,
+  AxAnyAgentic,
   NormalizedAgentFunctionCollection,
 } from './AxAgent.js';
+
+function isAgentic(value: unknown): value is AxAnyAgentic {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    typeof (value as { getFunction?: unknown }).getFunction === 'function'
+  );
+}
 
 /**
  * Returns a copy of `schema` with the listed property names removed from
@@ -62,13 +71,40 @@ export function normalizeAgentFunctionCollection(
   reservedNames: ReadonlySet<string>
 ): NormalizedAgentFunctionCollection {
   if (!collection || collection.length === 0) {
-    return { functions: [], moduleMetadata: [] };
+    return { functions: [], moduleMetadata: [], agents: [] };
   }
 
-  const allGroups = collection.every((item) =>
+  // First pass: split out agentic entries (anything with `.getFunction()`)
+  // from the rest. Agents convert to AxAgentFunction so they share the same
+  // namespacing, prompt rendering, and runtime injection as regular functions.
+  const remaining: (AxAgentFunction | AxAgentFunctionGroup)[] = [];
+  const agents: AxAnyAgentic[] = [];
+  const agentFunctions: AxAgentFunction[] = [];
+  for (const item of collection as readonly (
+    | AxAgentFunction
+    | AxAgentFunctionGroup
+    | AxAnyAgentic
+  )[]) {
+    if (isAgentic(item)) {
+      const fn = item.getFunction();
+      agents.push(item);
+      agentFunctions.push({
+        ...fn,
+        _kind: 'internal',
+      } as AxAgentFunction);
+    } else {
+      remaining.push(item as AxAgentFunction | AxAgentFunctionGroup);
+    }
+  }
+
+  if (remaining.length === 0) {
+    return { functions: agentFunctions, moduleMetadata: [], agents };
+  }
+
+  const allGroups = remaining.every((item) =>
     isAgentFunctionGroup(item as AxAgentFunction | AxAgentFunctionGroup)
   );
-  const allFunctions = collection.every(
+  const allFunctions = remaining.every(
     (item) =>
       !isAgentFunctionGroup(item as AxAgentFunction | AxAgentFunctionGroup)
   );
@@ -81,16 +117,20 @@ export function normalizeAgentFunctionCollection(
 
   if (allFunctions) {
     return {
-      functions: [...(collection as readonly AxAgentFunction[])],
+      functions: [
+        ...agentFunctions,
+        ...(remaining as readonly AxAgentFunction[]),
+      ],
       moduleMetadata: [],
+      agents,
     };
   }
 
   const seenNamespaces = new Set<string>();
   const moduleMetadata: AxAgentFunctionModuleMeta[] = [];
-  const functions: AxAgentFunction[] = [];
+  const functions: AxAgentFunction[] = [...agentFunctions];
 
-  for (const group of collection as readonly AxAgentFunctionGroup[]) {
+  for (const group of remaining as readonly AxAgentFunctionGroup[]) {
     const namespace = group.namespace.trim();
     const title = group.title.trim();
     const selectionCriteria = group.selectionCriteria?.trim() || undefined;
@@ -144,7 +184,7 @@ export function normalizeAgentFunctionCollection(
     }
   }
 
-  return { functions, moduleMetadata };
+  return { functions, moduleMetadata, agents };
 }
 
 export function normalizeDiscoveryStringInput(

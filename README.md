@@ -222,7 +222,8 @@ RLM mode keeps long context out of the root prompt, runs iterative analysis in a
 `AxJSRuntime` is the built-in JavaScript runtime used by RLM and tool-style execution.
 It works across:
 
-- Node.js/Bun-style backends (worker_threads runtime path)
+- Node.js backends (worker_threads runtime path)
+- Bun backends (global Worker path with `smol: true`)
 - Deno backends (module worker path)
 - Browser environments (Web Worker path)
 

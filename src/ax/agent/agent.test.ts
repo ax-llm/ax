@@ -11705,11 +11705,12 @@ describe('axBuildExecutorDefinition - Available Sub-Agents and Tool Functions', 
 
   it('should render sub-agent signatures under unified ### Available Functions section', () => {
     const result = axBuildExecutorDefinition(undefined, [], [], {
-      agents: [
+      agentFunctions: [
         {
           name: 'searchAgent',
           description: 'Searches the web',
           parameters: sampleSchema,
+          namespace: 'utils',
         },
       ],
     });
@@ -11717,18 +11718,18 @@ describe('axBuildExecutorDefinition - Available Sub-Agents and Tool Functions', 
     expect(result).not.toContain('### Available Agent Functions');
     expect(result).not.toContain('### Additional Functions');
     expect(result).toContain(
-      '`agents.searchAgent(args: { query: string, limit?: number })`'
+      '`utils.searchAgent(args: { query: string, limit?: number })`'
     );
   });
 
   it('should render child agent signatures under custom module namespace', () => {
     const result = axBuildExecutorDefinition(undefined, [], [], {
-      agentModuleNamespace: 'team',
-      agents: [
+      agentFunctions: [
         {
           name: 'searchAgent',
           description: 'Searches the web',
           parameters: sampleSchema,
+          namespace: 'team',
         },
       ],
     });
@@ -11737,17 +11738,18 @@ describe('axBuildExecutorDefinition - Available Sub-Agents and Tool Functions', 
       '`team.searchAgent(args: { query: string, limit?: number })`'
     );
     expect(result).not.toContain(
-      '`agents.searchAgent(args: { query: string, limit?: number })`'
+      '`utils.searchAgent(args: { query: string, limit?: number })`'
     );
   });
 
   it('should render required and optional params in TypeScript-style signature', () => {
     const result = axBuildExecutorDefinition(undefined, [], [], {
-      agents: [
+      agentFunctions: [
         {
           name: 'searchAgent',
           description: 'desc',
           parameters: sampleSchema,
+          namespace: 'utils',
         },
       ],
     });
@@ -11772,8 +11774,10 @@ describe('axBuildExecutorDefinition - Available Sub-Agents and Tool Functions', 
     );
   });
 
-  it('should omit sub-agents section when agents array is empty', () => {
-    const result = axBuildExecutorDefinition(undefined, [], [], { agents: [] });
+  it('should omit sub-agents section when agentFunctions array is empty', () => {
+    const result = axBuildExecutorDefinition(undefined, [], [], {
+      agentFunctions: [],
+    });
     expect(result).not.toContain('### Available Agent Functions');
   });
 
@@ -11805,9 +11809,12 @@ describe('axBuildExecutorDefinition - Available Sub-Agents and Tool Functions', 
   it('should render modules only in discovery mode', () => {
     const result = axBuildExecutorDefinition(undefined, [], [], {
       discoveryMode: true,
-      agentModuleNamespace: 'team',
-      agents: [{ name: 'searchAgent', description: 'Searches' }],
       agentFunctions: [
+        {
+          name: 'searchAgent',
+          description: 'Searches',
+          namespace: 'team',
+        },
         {
           name: 'fetchData',
           description: 'Fetches remote data',
@@ -11831,39 +11838,50 @@ describe('axBuildExecutorDefinition - Available Sub-Agents and Tool Functions', 
 
   it('should render {} for agent with undefined parameters', () => {
     const result = axBuildExecutorDefinition(undefined, [], [], {
-      agents: [
-        { name: 'noParamsAgent', description: 'desc', parameters: undefined },
+      agentFunctions: [
+        {
+          name: 'noParamsAgent',
+          description: 'desc',
+          parameters: undefined,
+          namespace: 'utils',
+        },
       ],
     });
-    expect(result).toContain('`agents.noParamsAgent(args: {})`');
+    expect(result).toContain('`utils.noParamsAgent(args: {})`');
   });
 
   it('should render {} for agent with empty properties', () => {
     const result = axBuildExecutorDefinition(undefined, [], [], {
-      agents: [
+      agentFunctions: [
         {
           name: 'emptyAgent',
           description: 'desc',
           parameters: { type: 'object', properties: {} },
+          namespace: 'utils',
         },
       ],
     });
-    expect(result).toContain('`agents.emptyAgent(args: {})`');
+    expect(result).toContain('`utils.emptyAgent(args: {})`');
   });
 
   it('should render multiple agents', () => {
     const result = axBuildExecutorDefinition(undefined, [], [], {
-      agents: [
+      agentFunctions: [
         {
           name: 'agentOne',
           description: 'First agent',
           parameters: sampleSchema,
+          namespace: 'utils',
         },
-        { name: 'agentTwo', description: 'Second agent' },
+        {
+          name: 'agentTwo',
+          description: 'Second agent',
+          namespace: 'utils',
+        },
       ],
     });
-    expect(result).toContain('`agents.agentOne(args: ');
-    expect(result).toContain('`agents.agentTwo(args: ');
+    expect(result).toContain('`utils.agentOne(args: ');
+    expect(result).toContain('`utils.agentTwo(args: ');
   });
 
   it('should render array type params correctly', () => {
@@ -11900,8 +11918,13 @@ describe('axBuildExecutorDefinition - Available Sub-Agents and Tool Functions', 
       required: ['mode'],
     };
     const result = axBuildExecutorDefinition(undefined, [], [], {
-      agents: [
-        { name: 'modeAgent', description: 'desc', parameters: enumSchema },
+      agentFunctions: [
+        {
+          name: 'modeAgent',
+          description: 'desc',
+          parameters: enumSchema,
+          namespace: 'utils',
+        },
       ],
     });
     expect(result).toContain('"fast" | "slow"');
@@ -11940,8 +11963,13 @@ describe('axBuildExecutorDefinition - Available Sub-Agents and Tool Functions', 
       required: ['maybeText'],
     };
     const result = axBuildExecutorDefinition(undefined, [], [], {
-      agents: [
-        { name: 'unionAgent', description: 'desc', parameters: unionSchema },
+      agentFunctions: [
+        {
+          name: 'unionAgent',
+          description: 'desc',
+          parameters: unionSchema,
+          namespace: 'utils',
+        },
       ],
     });
     expect(result).toContain('maybeText: string | null');
@@ -11960,11 +11988,12 @@ describe('axBuildExecutorDefinition - Available Sub-Agents and Tool Functions', 
       required: ['task'],
     };
     const result = axBuildExecutorDefinition(undefined, [], [], {
-      agents: [
+      agentFunctions: [
         {
           name: 'searchAgent',
           description: 'desc',
           parameters: jsonUnionSchema,
+          namespace: 'utils',
         },
       ],
     });
@@ -12007,16 +12036,17 @@ describe('axBuildExecutorDefinition - Available Sub-Agents and Tool Functions', 
 
   it('should render open object parameter schemas as index signatures', () => {
     const result = axBuildExecutorDefinition(undefined, [], [], {
-      agents: [
+      agentFunctions: [
         {
           name: 'mapAgent',
           description: 'Accepts key/value map',
           parameters: { type: 'object', additionalProperties: true },
+          namespace: 'utils',
         },
       ],
     });
     expect(result).toContain(
-      '`agents.mapAgent(args: { [key: string]: unknown })`'
+      '`utils.mapAgent(args: { [key: string]: unknown })`'
     );
   });
 
@@ -12053,8 +12083,13 @@ describe('axBuildExecutorDefinition - Available Sub-Agents and Tool Functions', 
       required: ['config'],
     };
     const result = axBuildExecutorDefinition(undefined, [], [], {
-      agents: [
-        { name: 'setupAgent', description: 'desc', parameters: objSchema },
+      agentFunctions: [
+        {
+          name: 'setupAgent',
+          description: 'desc',
+          parameters: objSchema,
+          namespace: 'utils',
+        },
       ],
     });
     expect(result).toContain('config: object');
@@ -12071,7 +12106,7 @@ describe('axBuildExecutorDefinition - Available Sub-Agents and Tool Functions', 
     });
 
     const parentAgent = agent('query:string -> finalAnswer:string', {
-      agents: [childAgent],
+      functions: [childAgent],
       contextFields: [],
       runtime,
     });
@@ -12084,27 +12119,23 @@ describe('axBuildExecutorDefinition - Available Sub-Agents and Tool Functions', 
     expect(executorDescription).toContain('### Available Functions');
     expect(executorDescription).not.toContain('### Available Agent Functions');
     expect(executorDescription).toContain(
-      '`agents.physicsResearcher(args: { question: string })`'
+      '`utils.physicsResearcher(args: { question: string })`'
     );
   });
 
-  it('actor program description should include custom sub-agent module namespace', () => {
+  it('actor program description should route child agent through agentIdentity.namespace', () => {
     const childAgent = agent('question:string -> answer:string', {
       agentIdentity: {
         name: 'Physics Researcher',
         description: 'Answers physics questions',
+        namespace: 'team',
       },
       contextFields: [],
       runtime,
     });
 
     const parentAgent = agent('query:string -> finalAnswer:string', {
-      agentIdentity: {
-        name: 'Parent Agent',
-        description: 'Parent',
-        namespace: 'team',
-      },
-      agents: [childAgent],
+      functions: [childAgent],
       contextFields: [],
       runtime,
     });
@@ -12118,7 +12149,7 @@ describe('axBuildExecutorDefinition - Available Sub-Agents and Tool Functions', 
       '`team.physicsResearcher(args: { question: string })`'
     );
     expect(executorDescription).not.toContain(
-      '`agents.physicsResearcher(args: { question: string })`'
+      '`utils.physicsResearcher(args: { question: string })`'
     );
   });
 
@@ -12299,7 +12330,7 @@ describe('AxFunction', () => {
     expect(typeof globals.media.processImage).toBe('function');
   });
 
-  it('should expose child agents under default agents namespace in runtime globals', () => {
+  it('should expose child agents under default utils namespace in runtime globals', () => {
     const child = agent('question:string -> answer:string', {
       agentIdentity: { name: 'Child', description: 'child' },
       contextFields: [],
@@ -12307,70 +12338,44 @@ describe('AxFunction', () => {
     });
 
     const parent = agent('query:string -> answer:string', {
-      agents: [child],
+      functions: [child],
       contextFields: [],
       runtime,
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const globals = getInternal(parent).buildRuntimeGlobals();
-    expect(globals).toHaveProperty('agents');
-    expect(globals.agents).toHaveProperty('child');
-  });
-
-  it('should expose child agents under custom namespace in runtime globals', () => {
-    const child = agent('question:string -> answer:string', {
-      agentIdentity: { name: 'Child', description: 'child' },
-      contextFields: [],
-      runtime,
-    });
-
-    const parent = agent('query:string -> answer:string', {
-      agentIdentity: {
-        name: 'Parent Agent',
-        description: 'parent',
-        namespace: 'Team Namespace',
-      },
-      agents: [child],
-      contextFields: [],
-      runtime,
-    });
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const globals = getInternal(parent).buildRuntimeGlobals();
-    expect(globals).toHaveProperty('teamNamespace');
-    expect(globals.teamNamespace).toHaveProperty('child');
+    expect(globals).toHaveProperty('utils');
+    expect(globals.utils).toHaveProperty('child');
     expect(globals).not.toHaveProperty('agents');
   });
 
-  it('should preserve internal module namespace override without re-normalization', () => {
+  it('should expose child agents under their agentIdentity.namespace in runtime globals', () => {
     const child = agent('question:string -> answer:string', {
-      agentIdentity: { name: 'Child', description: 'child' },
+      agentIdentity: {
+        name: 'Child',
+        description: 'child',
+        namespace: 'team',
+      },
       contextFields: [],
       runtime,
     });
 
-    const parent = new AxAgent(
-      {
-        signature: 'query:string -> answer:string',
-        agentModuleNamespace: 'teamNamespace',
-      },
-      {
-        agents: [child],
-        contextFields: [],
-        runtime,
-      }
-    );
+    const parent = agent('query:string -> answer:string', {
+      functions: [child],
+      contextFields: [],
+      runtime,
+    });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const globals = getInternal(parent).buildRuntimeGlobals();
-    expect(globals).toHaveProperty('teamNamespace');
-    expect(globals).not.toHaveProperty('teamnamespace');
+    expect(globals).toHaveProperty('team');
+    expect(globals.team).toHaveProperty('child');
+    expect(globals).not.toHaveProperty('agents');
   });
 
   it('should throw on reserved namespace', () => {
     for (const ns of [
-      'agents',
       'inputs',
       'llmQuery',
       'final',
@@ -12399,37 +12404,6 @@ describe('AxFunction', () => {
         `Agent function namespace "${ns}" conflicts with an AxAgent runtime global and is reserved`
       );
     }
-  });
-
-  it('should reserve custom agent module namespace for function namespaces', () => {
-    expect(
-      () =>
-        new AxAgent(
-          {
-            signature: 'query:string -> answer:string',
-            agentIdentity: {
-              name: 'Parent Agent',
-              description: 'parent',
-              namespace: 'team',
-            },
-          },
-          {
-            contextFields: [],
-            runtime,
-            functions: [
-              {
-                name: 'badFn',
-                description: 'bad',
-                parameters: { type: 'object', properties: {} },
-                namespace: 'team',
-                func: async () => 'x',
-              },
-            ],
-          }
-        )
-    ).toThrow(
-      'Agent function namespace "team" conflicts with an AxAgent runtime global and is reserved'
-    );
   });
 
   it('should throw on reserved grouped function namespaces', () => {
@@ -12540,29 +12514,13 @@ describe('AxFunction', () => {
     );
   });
 
-  it('should throw when agentIdentity.namespace normalizes to empty', () => {
-    expect(
-      () =>
-        new AxAgent(
-          {
-            signature: 'query:string -> answer:string',
-            agentIdentity: {
-              name: 'Parent Agent',
-              description: 'parent',
-              namespace: '---',
-            },
-          },
-          {
-            contextFields: [],
-            runtime,
-          }
-        )
-    ).toThrow('Agent module namespace must contain letters or numbers');
-  });
-
   it('should expose discovery runtime APIs and update discovery docs for functions and sub-agents', async () => {
     const child = agent('question:string -> answer:string', {
-      agentIdentity: { name: 'Child Agent', description: 'Child agent helper' },
+      agentIdentity: {
+        name: 'Child Agent',
+        description: 'Child agent helper',
+        namespace: 'team',
+      },
       contextFields: [],
       runtime,
     });
@@ -12571,12 +12529,11 @@ describe('AxFunction', () => {
       agentIdentity: {
         name: 'Parent Agent',
         description: 'parent',
-        namespace: 'team',
       },
-      agents: [child],
       contextFields: [],
       runtime,
       functions: [
+        child,
         {
           namespace: 'utils',
           title: 'Utilities',
@@ -12865,7 +12822,11 @@ describe('AxFunction', () => {
 
   it('should render module list instead of function definitions in discovery mode', () => {
     const child = agent('question:string -> answer:string', {
-      agentIdentity: { name: 'Child', description: 'child helper' },
+      agentIdentity: {
+        name: 'Child',
+        description: 'child helper',
+        namespace: 'team',
+      },
       contextFields: [],
       runtime,
     });
@@ -12874,12 +12835,11 @@ describe('AxFunction', () => {
       agentIdentity: {
         name: 'Parent',
         description: 'parent',
-        namespace: 'team',
       },
-      agents: [child],
       contextFields: [],
       runtime,
       functions: [
+        child,
         {
           namespace: 'db',
           title: 'Database Tools',

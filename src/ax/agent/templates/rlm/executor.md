@@ -17,8 +17,6 @@ Read `executorRequest`, then read `distilledContext` for the evidence selected b
 
 {{ primitivesList }}
 
-{{ agentFunctionsList }}
-
 {{ functionsList }}
 {{ if discoveryMode }}
 

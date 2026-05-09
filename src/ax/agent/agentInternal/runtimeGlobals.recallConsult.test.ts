@@ -3,7 +3,10 @@ import { agent } from '../index.js';
 import type { AxCodeRuntime } from '../rlm.js';
 import type { AxAgentMemoryResult } from './memoriesTypes.js';
 import { buildRuntimeGlobals } from './runtimeGlobals.js';
-import { createMutableSkillsPromptState } from './skillsHelpers.js';
+import {
+  createMutableSkillsPromptState,
+  ingestSkillResults,
+} from './skillsHelpers.js';
 import type { AxAgentSkillResult } from './skillsTypes.js';
 
 const noOpRuntime: AxCodeRuntime = {
@@ -28,7 +31,6 @@ function makeSelf(
     agents: [],
     agentFunctionModuleMetadata: new Map(),
     functionDiscoveryEnabled: false,
-    agentModuleNamespace: 'agents',
     currentSkillsPromptState: createMutableSkillsPromptState(),
     onMemoriesSearch: undefined,
     onSkillsSearch: undefined,
@@ -220,6 +222,70 @@ describe('consult() runtime global — void contract', () => {
 
     expect(onUsedSkills).toHaveBeenCalledTimes(1);
     expect(onUsedSkills).toHaveBeenCalledWith(matched);
+  });
+});
+
+describe('skills option preloads into the executor prompt state', () => {
+  const presets: AxAgentSkillResult[] = [
+    { name: 'release-checklist', content: '## checklist body' },
+    { name: 'incident-response', content: '## ir body' },
+  ];
+
+  function getInternal(a: unknown): any {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (a as any).primaryAgent ?? a;
+  }
+
+  it('seeds currentSkillsPromptState at construction (no onSkillsSearch needed)', () => {
+    const myAgent = agent('query:string -> answer:string', {
+      contextFields: [],
+      runtime: noOpRuntime,
+      skills: presets,
+    });
+    const internal = getInternal(myAgent);
+    const loaded = internal.currentSkillsPromptState.loaded as Map<
+      string,
+      string
+    >;
+    expect(loaded.get('release-checklist')).toBe('## checklist body');
+    expect(loaded.get('incident-response')).toBe('## ir body');
+  });
+
+  it('preserves preset skills across setState({}) resets', () => {
+    const myAgent = agent('query:string -> answer:string', {
+      contextFields: [],
+      runtime: noOpRuntime,
+      skills: presets,
+    });
+    const internal = getInternal(myAgent);
+    // setState is the public reset path — preset skills must be re-ingested.
+    if (typeof internal.setState === 'function') {
+      internal.setState(undefined);
+    }
+    const loaded = internal.currentSkillsPromptState.loaded as Map<
+      string,
+      string
+    >;
+    expect(loaded.get('release-checklist')).toBe('## checklist body');
+    expect(loaded.get('incident-response')).toBe('## ir body');
+  });
+
+  it('forward-time skills override init-time skills with the same name (Map.set semantics)', () => {
+    const myAgent = agent('query:string -> answer:string', {
+      contextFields: [],
+      runtime: noOpRuntime,
+      skills: [{ name: 'shared', content: 'init-content' }],
+    });
+    const internal = getInternal(myAgent);
+    // Simulate the same merge runActorLoop performs on options.skills.
+    ingestSkillResults(internal.currentSkillsPromptState, [
+      { name: 'shared', content: 'forward-content' },
+    ]);
+    const loaded = internal.currentSkillsPromptState.loaded as Map<
+      string,
+      string
+    >;
+    expect(loaded.get('shared')).toBe('forward-content');
   });
 });
 

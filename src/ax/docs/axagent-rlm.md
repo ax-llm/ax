@@ -144,7 +144,7 @@ RLM Agent:
 
 ### Runtime Architecture
 
-The JS sandbox runs in a Web Worker (browser) or `worker_threads` (Node.js), giving each session an **isolated V8 context**:
+The JS sandbox runs in a Web Worker (browser/Bun), a module Worker (Deno), or `worker_threads` (Node.js), giving each session an **isolated V8 context**:
 
 ```mermaid
 flowchart LR
@@ -197,6 +197,7 @@ The output from `console.log` feeds back into the next actor turn as context. Th
 | Runtime | Mechanism | Notes |
 |---|---|---|
 | **Browser** | `new Worker(blob)` | Native Web Worker |
+| **Bun** | `new Worker(blob, { smol: true })` | Global Worker with reduced-memory heap |
 | **Node.js** | `new Worker(source, { eval: true })` | worker_threads |
 | **Deno** | Module worker with permission mapping | Permission-safe |
 
@@ -693,7 +694,7 @@ Default: **deny all**. Each permission must be explicitly opted in.
 
 When running on Node 20+, `AxJSRuntime` can engage Node's Permission Model as a second defense layer that is enforced by the runtime itself rather than the language sandbox. The model was introduced in Node 20 under `--experimental-permission` and promoted to stable `--permission` in Node 23.5; `AxJSRuntime` emits the right flag for the detected runtime automatically. Controlled by `useNodePermissionModel`:
 
-- `'auto'` (default): engage unconditionally on any supported Node (20+), regardless of which `permissions` are granted — so even a fully default `new AxJSRuntime()` gets kernel-enforced fs/child_process/worker denial. Silently skips on Node < 20, Deno, and browsers (language-level blocks still defend).
+- `'auto'` (default): engage unconditionally on any supported Node (20+), regardless of which `permissions` are granted — so even a fully default `new AxJSRuntime()` gets kernel-enforced fs/child_process/worker denial. Silently skips on Node < 20, Bun, Deno, and browsers (language-level blocks still defend).
 - `true`: engage unconditionally; hard-fail on Node < 20.
 - `false`: never engage.
 

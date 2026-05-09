@@ -135,12 +135,16 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
   };
 
   const _loadBuiltin = _detectLoadBuiltin();
+  const _isBunLike =
+    typeof process !== 'undefined' &&
+    !!(process as unknown as { versions?: { bun?: string } }).versions?.bun;
 
   const _detectNodeParentPort = (): {
     isNodeWorker: boolean;
     parentPort: NodeParentPort | null;
   } => {
     const isNodeLike =
+      !_isBunLike &&
       typeof _loadBuiltin === 'function' &&
       typeof process !== 'undefined' &&
       !!process.versions?.node;
@@ -171,7 +175,7 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
   // as _detectNodeParentPort. Must run BEFORE _applyNodeHostLockdown strips
   // `process` / `require` from user scope.
   const _detectNodeVm = (): { vm: unknown | null } => {
-    if (typeof _loadBuiltin !== 'function') {
+    if (_isBunLike || typeof _loadBuiltin !== 'function') {
       return { vm: null };
     }
     try {

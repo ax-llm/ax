@@ -4,7 +4,6 @@ import type { AxProgramForwardOptions } from '../../dsp/types.js';
 import { AxAIServiceAbortedError } from '../../util/apicall.js';
 import type { createCompletionBindings } from '../completion.js';
 import {
-  DEFAULT_AGENT_MODULE_NAMESPACE,
   DEFAULT_RLM_BATCH_CONCURRENCY,
   DEFAULT_RLM_MAX_LLM_CALLS,
   resolveContextPolicy,
@@ -255,19 +254,17 @@ export function createRuntimeExecutionContext(
     onFunctionCall ?? s.onFunctionCall,
     getCurrentMemories
   );
-  const agentFunctionNamespaces = [
+  const agentFunctionNamespaces: string[] = [
     ...new Set(
-      s.agentFunctions.map(
-        (f: { namespace?: string }) => f.namespace ?? 'utils'
+      (s.agentFunctions as readonly { namespace?: string }[]).map(
+        (f) => f.namespace ?? 'utils'
       )
     ),
   ];
   const runtimeInputs = { ...inputState.currentInputs };
-  const reservedTopLevelNames = new Set([
+  const reservedTopLevelNames = new Set<string>([
     'inputs',
     'llmQuery',
-    DEFAULT_AGENT_MODULE_NAMESPACE,
-    s.agentModuleNamespace,
     'final',
     'askClarification',
     ...(s.agentStatusCallback ? ['reportSuccess', 'reportFailure'] : []),

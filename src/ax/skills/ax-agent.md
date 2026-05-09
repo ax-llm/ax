@@ -21,7 +21,7 @@ Your job is not just to write valid code. Your job is to choose the smallest cor
 - Use `agent(...)`, not `new AxAgent(...)`.
 - Prefer `fn(...)` for host-side function definitions instead of hand-writing JSON Schema objects.
 - Prefer namespaced functions such as `utils.search(...)` or `kb.find(...)`.
-- Assume the child-agent module is `agents` unless `agentIdentity.namespace` is set.
+- Pass child agents directly in `functions: [...]`. They land under their `agentIdentity.namespace` (or `utils` if unset), exactly like a `fn()` tool.
 - If `functions.discovery` is `true`, discover callables from modules before using them.
 - In stdout-mode RLM, use one observable `console.log(...)` step per non-final actor turn.
 - Prefer `promptLevel: 'default'` for normal use; use `promptLevel: 'detailed'` when you want extra anti-pattern examples and tighter teaching scaffolding in the actor prompt.
@@ -39,7 +39,7 @@ Map user intent to agent shape before writing code:
 - "Use tools and answer" -> plain `agent(...)` with local functions, no recursion, no extra observability.
 - "Inspect large context with code" -> add `runtime`, `contextFields`, and usually `contextPolicy: { preset: 'checkpointed', budget: 'balanced' }`.
 - "Delegate focused semantic subtasks" -> use `llmQuery(...)`; add `mode: 'advanced'` only when child tasks need their own runtime, tools, or discovery loop.
-- "Need child agents with distinct responsibilities" -> use `agents.local`, and add `fields.shared` only when parent inputs truly need to flow into children.
+- "Need child agents with distinct responsibilities" -> add the child agents to the parent's `functions: [...]` list. Set `agentIdentity.namespace` on each child to control where it lands in the JS runtime (e.g. `team.writer(...)`); otherwise it lands under `utils.<name>` like any other tool.
 - "Need tool discovery because names/schemas are not stable" -> use `functions.discovery: true` and generate discovery-first code.
 - "Need a stronger actor only when the run gets noisy or large" -> use `executorModelPolicy` and keep the responder model separate.
 - "Need debugging or traceability" -> start with `debug: true` or `executorTurnCallback`; do not add both unless the user clearly wants both prompt/runtime visibility and structured telemetry.
@@ -127,7 +127,7 @@ Practical rule:
 ## Critical Rules
 
 - Use `agent(...)` factory syntax for new code.
-- If `agentIdentity.namespace` is set, call child agents through that module, not `agents`.
+- Add child agents to the parent's `functions: [...]` list. Each child's `agentIdentity.namespace` (or `utils`, the default) determines the runtime call site, e.g. `await team.writer({...})`.
 - If `functions.discovery` is `true`, call `discoverModules(...)` first, then `discoverFunctions(...)`, then call only discovered functions.
 - The `Javascript Code` output field uses Ax's normal field-pair response shape, but its value must be executable JavaScript only; do not emit plain `task:` / `evidence:` labels, prose, markdown fences, or `<think>` tags as the value.
 - In stdout-mode RLM, non-final turns must emit exactly one `console.log(...)` and stop immediately after it.
@@ -171,49 +171,22 @@ const result = await assistant.forward(llm, { query: 'What is TypeScript?' });
 console.log(result.answer);
 ```
 
-## Child Agents And Module Namespace
+## Child Agents As Tools
 
-Default child-agent module:
-
-```typescript
-const writer = agent('draft:string -> revision:string', {
-  agentIdentity: {
-    name: 'Writer',
-    description: 'Polishes drafts',
-  },
-  contextFields: [],
-});
-
-const coordinator = agent('query:string -> answer:string', {
-  agents: { local: [writer] },
-  contextFields: [],
-});
-```
-
-Generated runtime call:
-
-```javascript
-const result = await agents.writer({ draft: '...' });
-```
-
-Custom child-agent module:
+Child agents are passed in the parent's `functions` list — there's no separate `agents` option. Each child agent's `agentIdentity.namespace` (or `utils`, the default) determines where it lands in the JS runtime:
 
 ```typescript
 const writer = agent('draft:string -> revision:string', {
   agentIdentity: {
     name: 'Writer',
     description: 'Polishes drafts',
-  },
-  contextFields: [],
-});
-
-const coordinator = agent('query:string -> answer:string', {
-  agentIdentity: {
-    name: 'Coordinator',
-    description: 'Routes work',
     namespace: 'team',
   },
-  agents: { local: [writer] },
+  contextFields: [],
+});
+
+const coordinator = agent('query:string -> answer:string', {
+  functions: [writer],
   contextFields: [],
 });
 ```
@@ -224,15 +197,21 @@ Generated runtime call:
 const result = await team.writer({ draft: '...' });
 ```
 
+Without `agentIdentity.namespace`, the child lands under `utils.<name>` like any other tool:
+
+```javascript
+const result = await utils.writer({ draft: '...' });
+```
+
 Rules:
 
-- Default child-agent module is `agents`.
-- If `agentIdentity.namespace` is set, that becomes the child-agent module.
-- Do not hardcode `agents.<name>(...)` when a custom namespace is configured.
+- Add child agents to `functions: [...]` — same array as `fn(...)` tools.
+- Set `agentIdentity.namespace` on the child to control its runtime call site.
+- `onFunctionCall` observers receive `kind: 'internal'` for agent-derived calls (vs. `'external'` for user-registered tools).
 
 ### Reserved namespace names
 
-The agent runtime injects a fixed set of globals into the JS REPL. These names cannot be used as `agentIdentity.namespace` values or as agent-function namespaces — the constructor throws `Agent module namespace "<name>" is reserved`.
+The agent runtime injects a fixed set of globals into the JS REPL. These names cannot be used as `agentIdentity.namespace` values or as agent-function namespaces — the constructor throws `Agent function namespace "<name>" conflicts with an AxAgent runtime global and is reserved`.
 
 ```
 inputs            // input field bag
@@ -647,7 +626,7 @@ Reason: turn 2 reuses `customers` from the persistent runtime. `Live Runtime Sta
 
 ## AxJSRuntime Security
 
-Default `new AxJSRuntime()` is hardened: no network, no fs, no child_process, `import()` blocked, intrinsics frozen, `ShadowRealm` locked to `undefined`, worker IPC locked in browser/Deno, and on Node 20+ the OS Permission Model auto-engages (using `--permission` on Node 23.5+ or `--experimental-permission` on Node 20–23.4) as a second defense layer. You do not need to configure anything to get the strict profile — opt in only to the capability the user actually asked for.
+Default `new AxJSRuntime()` is hardened: no network, no fs, no child_process, `import()` blocked, intrinsics frozen, `ShadowRealm` locked to `undefined`, worker IPC locked in browser/Deno/Bun, Bun workers use `smol: true`, and on Node 20+ the OS Permission Model auto-engages (using `--permission` on Node 23.5+ or `--experimental-permission` on Node 20–23.4) as a second defense layer. You do not need to configure anything to get the strict profile — opt in only to the capability the user actually asked for.
 
 **Permission enum** (`AxJSRuntimePermission`):
 `NETWORK`, `STORAGE`, `CODE_LOADING`, `COMMUNICATION`, `TIMING`, `WORKERS`, `FILESYSTEM` (new), `CHILD_PROCESS` (new).
@@ -660,9 +639,9 @@ Default `new AxJSRuntime()` is hardened: no network, no fs, no child_process, `i
 | `allowedModules` | `[]` | Whitelist of specifiers permitted when `blockDynamicImport` is on. |
 | `freezeIntrinsics` | `true` | Freezes `Object`/`Array`/`Promise`/etc. prototypes. |
 | `blockShadowRealm` | `true` | Locks `globalThis.ShadowRealm` to `undefined`. |
-| `lockWorkerIPC` | `true` | Locks `self.postMessage`/`onmessage` in browser/Deno workers. |
+| `lockWorkerIPC` | `true` | Locks `self.postMessage`/`onmessage` in browser/Deno/Bun workers. |
 | `preventGlobalThisExtensions` | `false` | Opt-in; breaks top-level `var/let/const` persistence across turns. |
-| `useNodePermissionModel` | `'auto'` | Engages Node Permission Model on Node 20+ (`--permission` on 23.5+, `--experimental-permission` on 20–23.4); skips on older runtimes. |
+| `useNodePermissionModel` | `'auto'` | Engages Node Permission Model on Node 20+ (`--permission` on 23.5+, `--experimental-permission` on 20–23.4); skips on Bun, Deno, browsers, and older Node. |
 | `nodePermissionAllowlist` | `undefined` | Fine-grained `{ fsRead, fsWrite, childProcess, addons, wasi }`. |
 | `resourceLimits` | `undefined` | `{ maxOldGenerationSizeMb, maxYoungGenerationSizeMb, codeRangeSizeMb, stackSizeMb }`. |
 | `allowDenoRemoteImport` | `false` | On Deno, controls whether `NETWORK` also grants remote module loading. |
@@ -1067,6 +1046,29 @@ await consult(['release-checklist', 'incident-response']);
 - **Skills persist on the agent's `currentSkillsPromptState` across `.forward()` calls** (unlike memories). Use `agent.getState()` / `setState(...)` to serialize/restore.
 - `consult()` may be called multiple times; results accumulate.
 - Child agents do **not** inherit `onSkillsSearch` — wire it explicitly per agent.
+
+### Preloading Skills (`skills` option)
+
+If the caller already knows which skills are relevant, pass them up-front instead of round-tripping through `consult()`:
+
+- **Init-time** — `skills` on `AxAgentOptions` (constructor) seeds the executor's prompt at agent creation. They survive `setState(...)` resets, so they're always present from turn 1.
+- **Forward-time** — `skills` on the `forward(ai, values, { skills })` options merge in at the start of that call (executor stage only — distiller and responder ignore it).
+
+Both accept the same shape `onSkillsSearch` returns: `readonly AxAgentSkillResult[]` (`{ name, content }[]`). Forward overrides init by `name` (same `Map.set` semantics as runtime-loaded skills). `onUsedSkills` is **not** fired for preset skills — that callback is for runtime `consult(...)` analytics.
+
+```ts
+const agent = new AxAgent(
+  { signature: '...', agentIdentity: { name: 'release-bot', namespace: 'utils' } },
+  { skills: [{ name: 'release-checklist', content: '...' }] }
+);
+
+await agent.forward(ai, values, {
+  // overrides any same-named init skill, layers on top of runtime consult() loads
+  skills: [{ name: 'incident-response', content: '...' }],
+});
+```
+
+You can use `skills` without setting `onSkillsSearch` at all — handy for static guides where the actor never needs to fetch more.
 
 ## Option Layout
 
@@ -1474,6 +1476,7 @@ Use `promptMaxChars` when partial data is worse than no data (e.g. JSON objects)
   onUsedMemories?: (results: readonly AxAgentMemoryResult[]) => void | Promise<void>;
   onSkillsSearch?: AxAgentSkillsSearchFn;       // (searches: readonly string[]) => readonly AxAgentSkillResult[] | Promise<...>
   onUsedSkills?: (results: readonly AxAgentSkillResult[]) => void | Promise<void>;
+  skills?: readonly AxAgentSkillResult[];       // preload skills at construction; also accepted at forward()-time (executor stage only)
   mode?: 'simple' | 'advanced';
   executorModelPolicy?: readonly [
     | {

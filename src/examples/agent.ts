@@ -37,9 +37,18 @@ const myAgent = agent('question -> answer', {
     name: 'Scientist',
     description: 'An agent that can answer advanced science questions',
   },
-  agents: [researcher, summarizer],
+  functions: [researcher, summarizer],
   contextFields: [],
   runtime,
+  // Preload static skills into the executor prompt without needing
+  // onSkillsSearch. Same shape as onSkillsSearch's return value.
+  skills: [
+    {
+      name: 'response-style',
+      content:
+        'Always answer with one numbered bullet per claim, ending with a one-line takeaway.',
+    },
+  ],
 });
 
 const llm = new AxAI({
@@ -67,5 +76,17 @@ llm.setOptions({ debug: true });
 
 const question = 'Why is gravity not a real force?';
 
-const res = await myAgent.forward(llm, { question });
+const res = await myAgent.forward(
+  llm,
+  { question },
+  {
+    // Per-call preset: layered on top of init-time `skills` (same name overrides).
+    skills: [
+      {
+        name: 'topic-context',
+        content: 'Treat the question as undergrad-level physics intuition.',
+      },
+    ],
+  }
+);
 console.log('>', res);
