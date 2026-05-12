@@ -39,7 +39,6 @@ import type {
 } from '../types.js';
 import { axModelInfoGoogleGemini } from './info.js';
 import {
-  axAIGoogleGeminiLiveAudioDefaultConfig,
   axCreateGeminiLiveAudioApi,
   axMapGeminiLiveAudioPart,
   axResolveGeminiLiveAudioConfig,

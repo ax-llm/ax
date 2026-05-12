@@ -11,6 +11,8 @@ yarn.lock
 *.mp3
 *.wav
 audio
+!src/ax/ai/audio/
+!src/ax/ai/audio/*.ts
 .env
 .env.*
 .data
