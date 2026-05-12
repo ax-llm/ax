@@ -41,6 +41,11 @@ export type AxAIModelCatalogModelCapabilities = {
   audioOutput: boolean;
 };
 
+export type AxAIModelCatalogAudioSupport = {
+  input?: boolean;
+  output?: boolean;
+};
+
 export type AxAIModelCatalogModelType =
   | 'text'
   | 'embeddings'
@@ -51,6 +56,7 @@ export type AxAIModelCatalogFilter = 'all' | AxAIModelCatalogModelType;
 
 export type AxAIModelCatalogModel = AxModelInfo & {
   provider: AxAIModelCatalogProviderName;
+  audio?: AxAIModelCatalogAudioSupport;
   type: AxAIModelCatalogModelType;
   isDefault: boolean;
   capabilities: AxAIModelCatalogModelCapabilities;
@@ -69,11 +75,15 @@ export type AxAIModelCatalogOptions = {
   type?: AxAIModelCatalogFilter | readonly AxAIModelCatalogFilter[];
 };
 
+type AxAIModelCatalogModelInfo = AxModelInfo & {
+  audio?: AxAIModelCatalogAudioSupport;
+};
+
 type AxAIModelCatalogProviderDefinition = Omit<
   AxAIModelCatalogProvider,
   'models' | 'name'
 > & {
-  modelInfo: readonly AxModelInfo[];
+  modelInfo: readonly AxAIModelCatalogModelInfo[];
 };
 
 // Keep this keyed by AxAIArgs['name'] so new ai(...) providers must add catalog metadata.
@@ -166,7 +176,7 @@ const axAIModelCatalogProviderDefinitions = {
   },
   grok: {
     displayName: 'xAI Grok',
-    defaultModel: AxAIGrokModel.Grok43,
+    defaultModel: AxAIGrokModel.Grok3,
     isDynamic: false,
     modelInfo: axModelInfoGrok,
   },
@@ -181,8 +191,10 @@ const axAIModelCatalogProviderDefinitions = {
   AxAIModelCatalogProviderDefinition
 >;
 
-const axCloneModelInfo = (model: Readonly<AxModelInfo>): AxModelInfo => {
-  const clone: AxModelInfo = { ...model };
+const axCloneModelInfo = (
+  model: Readonly<AxAIModelCatalogModelInfo>
+): AxAIModelCatalogModelInfo => {
+  const clone: AxAIModelCatalogModelInfo = { ...model };
 
   if (model.aliases) {
     clone.aliases = [...model.aliases];
@@ -201,19 +213,28 @@ const axCloneModelInfo = (model: Readonly<AxModelInfo>): AxModelInfo => {
 };
 
 const axModelCapabilities = (
-  model: Readonly<AxModelInfo>
-): AxAIModelCatalogModelCapabilities => ({
-  thinkingBudget: model.supported?.thinkingBudget ?? false,
-  showThoughts: model.supported?.showThoughts ?? false,
-  structuredOutputs: model.supported?.structuredOutputs ?? false,
-  temperature: !(model.notSupported?.temperature ?? false),
-  topP: !(model.notSupported?.topP ?? false),
-  audioInput: model.audio?.input ?? false,
-  audioOutput: model.audio?.output ?? false,
-});
+  model: Readonly<AxAIModelCatalogModelInfo>
+): AxAIModelCatalogModelCapabilities => {
+  const type = axModelType(model);
+  const name = model.name.toLowerCase();
+
+  return {
+    thinkingBudget: model.supported?.thinkingBudget ?? false,
+    showThoughts: model.supported?.showThoughts ?? false,
+    structuredOutputs: model.supported?.structuredOutputs ?? false,
+    temperature: !(model.notSupported?.temperature ?? false),
+    topP: !(model.notSupported?.topP ?? false),
+    audioInput: model.audio?.input ?? type === 'audio',
+    audioOutput:
+      model.audio?.output ??
+      (type === 'audio' &&
+        !name.includes('whisper') &&
+        !name.includes('transcription')),
+  };
+};
 
 const axModelType = (
-  model: Readonly<AxModelInfo>
+  model: Readonly<AxAIModelCatalogModelInfo>
 ): AxAIModelCatalogModelType => {
   const name = model.name.toLowerCase();
 
@@ -292,7 +313,7 @@ const axCompareModelCatalogModels = (
 const axModelCatalogModel = (
   provider: AxAIModelCatalogProviderName,
   defaultModel: string | undefined,
-  model: Readonly<AxModelInfo>
+  model: Readonly<AxAIModelCatalogModelInfo>
 ): AxAIModelCatalogModel => {
   const modelInfo = axCloneModelInfo(model);
 

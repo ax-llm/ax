@@ -186,6 +186,7 @@ import {
   axValidateProviderCapabilities,
 } from './ai/capabilities.js';
 import {
+  type AxAIModelCatalogAudioSupport,
   type AxAIModelCatalogFilter,
   type AxAIModelCatalogModel,
   type AxAIModelCatalogModelCapabilities,
@@ -1252,6 +1253,7 @@ export type { AxAIMemory };
 export type { AxAIMetricsInstruments };
 export type { AxAIMistralArgs };
 export type { AxAIMistralChatRequest };
+export type { AxAIModelCatalogAudioSupport };
 export type { AxAIModelCatalogFilter };
 export type { AxAIModelCatalogModel };
 export type { AxAIModelCatalogModelCapabilities };
