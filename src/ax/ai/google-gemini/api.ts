@@ -2,6 +2,7 @@ import { getModelInfo } from '../../dsp/modelinfo.js';
 import type { AxAPI } from '../../util/apicall.js';
 import { AxAIRefusalError } from '../../util/apicall.js';
 import { randomUUID } from '../../util/crypto.js';
+import { axAudioMimeType } from '../audio/util.js';
 import {
   AxBaseAI,
   axBaseAIDefaultConfig,
@@ -38,6 +39,13 @@ import type {
 } from '../types.js';
 import { axModelInfoGoogleGemini } from './info.js';
 import {
+  axAIGoogleGeminiLiveAudioDefaultConfig,
+  axCreateGeminiLiveAudioApi,
+  axMapGeminiLiveAudioPart,
+  axResolveGeminiLiveAudioConfig,
+  axShouldUseGeminiLiveAudio,
+} from './live_audio.js';
+import {
   type AxAIGoogleGeminiBatchEmbedRequest,
   type AxAIGoogleGeminiBatchEmbedResponse,
   type AxAIGoogleGeminiCacheCreateRequest,
@@ -63,6 +71,8 @@ import {
   type AxAIGoogleVertexBatchEmbedResponse,
   GEMINI_CONTEXT_CACHE_SUPPORTED_MODELS,
 } from './types.js';
+
+export { axAIGoogleGeminiLiveAudioDefaultConfig } from './live_audio.js';
 
 const getVertexGeminiAPIVersion = (
   _model: string,
@@ -583,13 +593,29 @@ class AxAIGoogleGeminiImpl
   ): Promise<[AxAPI, AxAIGoogleGeminiChatRequest]> => {
     const model = req.model;
     const stream = req.modelConfig?.stream ?? this.config.stream;
+    const liveAudio = axResolveGeminiLiveAudioConfig(
+      this.config.audio,
+      req.modelConfig?.audio
+    );
+    const useLiveAudio = axShouldUseGeminiLiveAudio(
+      model,
+      this.config.audio,
+      req.modelConfig?.audio
+    );
 
     if (!req.chatPrompt || req.chatPrompt.length === 0) {
       throw new Error('Chat prompt is empty');
     }
 
     let apiConfig: AxAPI;
-    if (this.endpointId) {
+    if (useLiveAudio) {
+      if (this.isVertex) {
+        throw new Error(
+          'Gemini Live audio currently supports Google AI API-key WebSocket sessions only'
+        );
+      }
+      apiConfig = { name: 'gemini-live-audio' };
+    } else if (this.endpointId) {
       apiConfig = {
         name: stream
           ? `/${this.endpointId}:streamGenerateContent?alt=sse`
@@ -603,11 +629,11 @@ class AxAIGoogleGeminiImpl
       };
     }
 
-    if (this.isVertex) {
+    if (!useLiveAudio && this.isVertex) {
       apiConfig.url = this.getVertexApiURL(model as string, config?.beta);
     }
 
-    if (!this.isVertex) {
+    if (!useLiveAudio && !this.isVertex) {
       const pf = stream ? '&' : '?';
       const keyValue =
         typeof this.apiKey === 'function' ? await this.apiKey() : this.apiKey;
@@ -647,7 +673,8 @@ class AxAIGoogleGeminiImpl
                   case 'audio':
                     return {
                       inlineData: {
-                        mimeType: `audio/${c.format ?? 'mp3'}`,
+                        mimeType:
+                          c.mimeType ?? axAudioMimeType(c.format, c.sampleRate),
                         data: c.data,
                       },
                     };
@@ -746,8 +773,9 @@ class AxAIGoogleGeminiImpl
             parts.push(...fcParts);
           }
 
-          if (msg.content) {
-            parts.push({ text: msg.content });
+          const assistantAudioTranscript = msg.audio?.transcript;
+          if (msg.content || assistantAudioTranscript) {
+            parts.push({ text: msg.content ?? assistantAudioTranscript ?? '' });
           }
 
           if (parts.length === 0) {
@@ -962,6 +990,12 @@ class AxAIGoogleGeminiImpl
       generationConfig.temperature = 1;
     }
 
+    if (useLiveAudio && (req.responseFormat || this.config.responseFormat)) {
+      throw new Error(
+        'Gemini Live audio models do not support structured response formats with audio output'
+      );
+    }
+
     // Handle structured output
     if (req.responseFormat) {
       generationConfig.responseMimeType = 'application/json';
@@ -992,6 +1026,20 @@ class AxAIGoogleGeminiImpl
       generationConfig,
       safetySettings,
     };
+
+    if (useLiveAudio) {
+      const keyValue =
+        typeof this.apiKey === 'function' ? await this.apiKey() : this.apiKey;
+      if (!keyValue) {
+        throw new Error('GoogleGemini AI API key not set');
+      }
+      apiConfig = axCreateGeminiLiveAudioApi({
+        model,
+        request: reqValue,
+        apiKey: keyValue,
+        audio: liveAudio!,
+      });
+    }
 
     return [apiConfig, reqValue];
   };
@@ -1198,6 +1246,11 @@ class AxAIGoogleGeminiImpl
                 },
               },
             ];
+          }
+
+          const audio = axMapGeminiLiveAudioPart(part);
+          if (audio) {
+            result.audio = audio;
           }
         }
         // Map citation metadata to normalized citations
@@ -1655,7 +1708,8 @@ class AxAIGoogleGeminiImpl
                 case 'audio':
                   parts.push({
                     inlineData: {
-                      mimeType: `audio/${c.format ?? 'mp3'}`,
+                      mimeType:
+                        c.mimeType ?? axAudioMimeType(c.format, c.sampleRate),
                       data: c.data,
                     },
                   });
@@ -1813,7 +1867,8 @@ class AxAIGoogleGeminiImpl
               case 'audio':
                 parts.push({
                   inlineData: {
-                    mimeType: `audio/${c.format ?? 'mp3'}`,
+                    mimeType:
+                      c.mimeType ?? axAudioMimeType(c.format, c.sampleRate),
                     data: c.data,
                   },
                 });
@@ -2002,6 +2057,9 @@ export class AxAIGoogleGemini<TModelKey = string> extends AxBaseAI<
     modelInfo = [...axModelInfoGoogleGemini, ...(modelInfo ?? [])];
 
     const supportFor = (model: AxAIGoogleGeminiModel) => {
+      const isLiveAudioModel = axShouldUseGeminiLiveAudio(model, {
+        output: { enabled: true },
+      });
       const mi = getModelInfo<
         AxAIGoogleGeminiModel,
         AxAIGoogleGeminiEmbedModel,
@@ -2030,8 +2088,16 @@ export class AxAIGoogleGemini<TModelKey = string> extends AxBaseAI<
           },
           audio: {
             supported: true,
-            formats: ['wav', 'mp3', 'aac', 'ogg'],
+            formats: isLiveAudioModel
+              ? ['pcm16', 'pcm']
+              : ['wav', 'mp3', 'aac', 'ogg'],
             maxDuration: 9.5 * 60, // 9.5 minutes for cloud storage
+            output: {
+              supported: isLiveAudioModel,
+              formats: ['pcm16'],
+              sampleRate: 24_000,
+              voices: ['Kore'],
+            },
           },
           files: {
             supported: true,

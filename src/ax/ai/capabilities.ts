@@ -1,5 +1,5 @@
-import type { AxAIService, AxChatRequest } from './types.js';
 import type { MediaRequirements } from './processor.js';
+import type { AxAIService, AxChatRequest } from './types.js';
 
 /**
  * Represents a provider's compatibility score for a specific request
@@ -61,6 +61,7 @@ export interface CapabilityValidationResult {
 export function axAnalyzeRequestRequirements(
   request: AxChatRequest
 ): MediaRequirements & {
+  hasAudioOutput: boolean;
   requiresFunctions: boolean;
   requiresStreaming: boolean;
   requiresCaching: boolean;
@@ -69,6 +70,7 @@ export function axAnalyzeRequestRequirements(
 } {
   let hasImages = false;
   let hasAudio = false;
+  let hasAudioOutput = false;
   let hasFiles = false;
   let hasUrls = false;
   let requiresFunctions = false;
@@ -138,10 +140,15 @@ export function axAnalyzeRequestRequirements(
     requiresStreaming = true;
   }
 
+  if (request.modelConfig?.audio?.output?.enabled === true) {
+    hasAudioOutput = true;
+  }
+
   // Check capability preferences
   if (request.capabilities) {
     if (request.capabilities.requiresImages) hasImages = true;
     if (request.capabilities.requiresAudio) hasAudio = true;
+    if (request.capabilities.requiresAudioOutput) hasAudioOutput = true;
     if (request.capabilities.requiresFiles) hasFiles = true;
     if (request.capabilities.requiresWebSearch) hasUrls = true;
   }
@@ -149,6 +156,7 @@ export function axAnalyzeRequestRequirements(
   return {
     hasImages,
     hasAudio,
+    hasAudioOutput,
     hasFiles,
     hasUrls,
     requiresFunctions,
@@ -198,6 +206,13 @@ export function axValidateProviderCapabilities(
   if (requirements.hasAudio && !features.media.audio.supported) {
     missingCapabilities.push('Audio support');
     alternatives.push('Pre-transcribe audio or use transcription field');
+  }
+
+  if (requirements.hasAudioOutput && !features.media.audio.output?.supported) {
+    missingCapabilities.push('Audio output support');
+    alternatives.push(
+      'Use text output or a text-to-speech post-processing step'
+    );
   }
 
   if (requirements.hasFiles && !features.media.files.supported) {

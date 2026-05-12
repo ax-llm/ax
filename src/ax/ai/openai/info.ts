@@ -50,6 +50,23 @@ export const axModelInfoOpenAI: AxModelInfo[] = [
     supported: { structuredOutputs: true },
   },
   {
+    name: AxAIOpenAIModel.GPTAudio,
+    audio: { input: true, output: true },
+  },
+  {
+    name: AxAIOpenAIModel.GPTAudioMini,
+    audio: { input: true, output: true },
+  },
+  {
+    name: AxAIOpenAIModel.GPTRealtime2,
+    audio: { input: true, output: true },
+    supported: { thinkingBudget: true },
+  },
+  {
+    name: AxAIOpenAIModel.GPTRealtimeWhisper,
+    audio: { input: true, output: false },
+  },
+  {
     name: AxAIOpenAIModel.GPT4ChatGPT4O,
     currency: 'usd',
     promptTokenCostPer1M: 5,

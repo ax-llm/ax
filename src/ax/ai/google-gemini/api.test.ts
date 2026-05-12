@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { AxAIGoogleGemini, axAIGoogleGeminiDefaultConfig } from './api.js';
+import {
+  AxAIGoogleGemini,
+  axAIGoogleGeminiDefaultConfig,
+  axAIGoogleGeminiLiveAudioDefaultConfig,
+} from './api.js';
 import { AxAIGoogleGeminiEmbedModel, AxAIGoogleGeminiModel } from './types.js';
 
 // Utility to create a fake fetch that returns a minimal valid response and captures request body
@@ -46,6 +50,80 @@ function createSequencedMockFetch(
         headers: { 'Content-Type': 'application/json' },
       });
     });
+}
+
+class FakeGeminiLiveWebSocket {
+  static serverMessages: unknown[] = [];
+  static instances: FakeGeminiLiveWebSocket[] = [];
+
+  readonly sent: string[] = [];
+  readonly url: string;
+  private readonly listeners = new Map<string, ((event: any) => void)[]>();
+
+  constructor(url: string) {
+    this.url = url;
+    FakeGeminiLiveWebSocket.instances.push(this);
+    queueMicrotask(() => this.emit('open', {}));
+  }
+
+  addEventListener(type: string, listener: (event: any) => void) {
+    this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
+  }
+
+  removeEventListener(type: string, listener: (event: any) => void) {
+    this.listeners.set(
+      type,
+      (this.listeners.get(type) ?? []).filter((item) => item !== listener)
+    );
+  }
+
+  send(data: string) {
+    this.sent.push(data);
+    const message = JSON.parse(data);
+
+    if (message.setup) {
+      queueMicrotask(() => {
+        this.emit('message', { data: JSON.stringify({ setupComplete: {} }) });
+      });
+      return;
+    }
+
+    if (
+      message.clientContent?.turnComplete === true ||
+      message.realtimeInput?.audioStreamEnd === true
+    ) {
+      queueMicrotask(() => {
+        for (const serverMessage of FakeGeminiLiveWebSocket.serverMessages) {
+          this.emit('message', { data: JSON.stringify(serverMessage) });
+        }
+      });
+    }
+  }
+
+  close() {
+    this.emit('close', {});
+  }
+
+  private emit(type: string, event: any) {
+    for (const listener of this.listeners.get(type) ?? []) {
+      listener(event);
+    }
+    const handler = (this as any)[`on${type}`];
+    if (typeof handler === 'function') {
+      handler(event);
+    }
+  }
+}
+
+function installFakeGeminiLiveWebSocket(messages: unknown[]) {
+  const original = globalThis.WebSocket;
+  FakeGeminiLiveWebSocket.serverMessages = messages;
+  FakeGeminiLiveWebSocket.instances = [];
+  (globalThis as any).WebSocket = FakeGeminiLiveWebSocket;
+
+  return () => {
+    (globalThis as any).WebSocket = original;
+  };
 }
 
 describe('AxAIGoogleGemini model key preset merging', () => {
@@ -1768,5 +1846,235 @@ describe('AxAIGoogleGemini model key preset merging', () => {
       expect(usage.tokens.promptTokens).toBe(5000);
       expect(usage.tokens.cacheReadTokens).toBeUndefined();
     });
+  });
+});
+
+describe('AxAIGoogleGemini Live audio chat', () => {
+  it('provides a native audio default config', () => {
+    const config = axAIGoogleGeminiLiveAudioDefaultConfig();
+
+    expect(config.model).toBe(AxAIGoogleGeminiModel.Gemini25FlashNativeAudio);
+    expect(config.stream).toBe(false);
+    expect(config.audio?.output?.enabled).toBe(true);
+    expect(config.audio?.output?.voice).toBe('Kore');
+    expect(config.audio?.output?.format).toBe('pcm16');
+    expect(config.audio?.output?.sampleRate).toBe(24_000);
+    expect(config.audio?.output?.includeTranscript).toBe(true);
+    expect(config.audio?.live?.turnTimeoutMs).toBe(30_000);
+  });
+
+  it('aggregates a bounded one-turn WebSocket audio response', async () => {
+    const restore = installFakeGeminiLiveWebSocket([
+      {
+        serverContent: {
+          outputTranscription: { text: 'spoken ' },
+        },
+      },
+      {
+        usageMetadata: {
+          promptTokenCount: 10,
+          candidatesTokenCount: 3,
+          totalTokenCount: 13,
+          thoughtsTokenCount: 0,
+        },
+      },
+      {
+        serverContent: {
+          outputTranscription: { text: 'answer' },
+          modelTurn: {
+            parts: [
+              {
+                inlineData: {
+                  mimeType: 'audio/pcm;rate=24000',
+                  data: 'AQI=',
+                },
+              },
+            ],
+          },
+        },
+      },
+      {
+        serverContent: {
+          modelTurn: {
+            parts: [
+              {
+                inlineData: {
+                  mimeType: 'audio/pcm;rate=24000',
+                  data: 'AwQ=',
+                },
+              },
+            ],
+          },
+          turnComplete: true,
+        },
+      },
+    ]);
+
+    try {
+      const ai = new AxAIGoogleGemini({
+        apiKey: 'key',
+        config: axAIGoogleGeminiLiveAudioDefaultConfig(),
+        models: [],
+      });
+
+      const res = (await ai.chat(
+        {
+          chatPrompt: [
+            {
+              role: 'user',
+              content: [
+                { type: 'text', text: 'answer this' },
+                {
+                  type: 'audio',
+                  data: 'AAAA',
+                  format: 'pcm16',
+                  sampleRate: 16_000,
+                },
+              ],
+            },
+          ],
+        },
+        { stream: false }
+      )) as any;
+
+      expect(res.results[0]?.content).toBe('spoken answer');
+      expect(res.results[0]?.audio).toEqual({
+        data: 'AQIDBA==',
+        mimeType: 'audio/pcm;rate=24000',
+        format: 'pcm16',
+        sampleRate: 24_000,
+        channels: 1,
+        isDelta: false,
+      });
+      expect(res.modelUsage?.tokens.promptTokens).toBe(10);
+
+      const socket = FakeGeminiLiveWebSocket.instances[0];
+      expect(socket?.url).toContain('BidiGenerateContent?key=key');
+      const setup = JSON.parse(socket?.sent[0] ?? '{}');
+      expect(setup.setup.generationConfig.responseModalities).toEqual([
+        'AUDIO',
+      ]);
+      expect(
+        setup.setup.generationConfig.speechConfig.voiceConfig
+          .prebuiltVoiceConfig.voiceName
+      ).toBe('Kore');
+      expect(setup.setup.outputAudioTranscription).toEqual({});
+
+      const audioInput = socket?.sent
+        .map((item) => JSON.parse(item))
+        .find((item) => item.realtimeInput?.audio);
+      expect(audioInput?.realtimeInput.audio).toEqual({
+        data: 'AAAA',
+        mimeType: 'audio/pcm;rate=16000',
+      });
+    } finally {
+      restore();
+    }
+  });
+
+  it('streams audio deltas from the Live WebSocket', async () => {
+    const restore = installFakeGeminiLiveWebSocket([
+      {
+        serverContent: {
+          modelTurn: {
+            parts: [
+              {
+                inlineData: {
+                  mimeType: 'audio/pcm;rate=24000',
+                  data: 'AQI=',
+                },
+              },
+            ],
+          },
+        },
+      },
+      {
+        serverContent: {
+          turnComplete: true,
+        },
+      },
+    ]);
+
+    try {
+      const ai = new AxAIGoogleGemini({
+        apiKey: 'key',
+        config: axAIGoogleGeminiLiveAudioDefaultConfig(),
+        models: [],
+      });
+
+      const stream = (await ai.chat(
+        {
+          chatPrompt: [{ role: 'user', content: 'say hi' }],
+        },
+        { stream: true }
+      )) as ReadableStream<any>;
+
+      const reader = stream.getReader();
+      const chunks: any[] = [];
+      while (true) {
+        const item = await reader.read();
+        if (item.done) break;
+        chunks.push(item.value);
+      }
+
+      expect(chunks[0]?.results[0]?.audio).toEqual({
+        data: 'AQI=',
+        mimeType: 'audio/pcm;rate=24000',
+        format: 'pcm16',
+        sampleRate: 24_000,
+        channels: 1,
+        isDelta: true,
+      });
+      expect(chunks.at(-1)?.results[0]?.audio?.data).toBe('AQI=');
+      expect(chunks.at(-1)?.results[0]?.audio?.isDelta).toBe(false);
+    } finally {
+      restore();
+    }
+  });
+
+  it('rejects structured output with Live audio output enabled', async () => {
+    const ai = new AxAIGoogleGemini({
+      apiKey: 'key',
+      config: axAIGoogleGeminiLiveAudioDefaultConfig(),
+      models: [],
+    });
+
+    await expect(
+      ai.chat(
+        {
+          chatPrompt: [{ role: 'user', content: 'return json' }],
+          responseFormat: { type: 'json_object' },
+        },
+        { stream: false }
+      )
+    ).rejects.toThrow('structured response formats');
+  });
+
+  it('rejects non-PCM input for Live audio', async () => {
+    const restore = installFakeGeminiLiveWebSocket([]);
+
+    try {
+      const ai = new AxAIGoogleGemini({
+        apiKey: 'key',
+        config: axAIGoogleGeminiLiveAudioDefaultConfig(),
+        models: [],
+      });
+
+      await expect(
+        ai.chat(
+          {
+            chatPrompt: [
+              {
+                role: 'user',
+                content: [{ type: 'audio', data: 'AAAA', format: 'wav' }],
+              },
+            ],
+          },
+          { stream: false }
+        )
+      ).rejects.toThrow('requires PCM audio input');
+    } finally {
+      restore();
+    }
   });
 });

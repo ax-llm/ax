@@ -9,7 +9,7 @@ console.log('=== Grok Live Search Demo ===');
 const llm = ai({
   name: 'grok',
   apiKey: process.env.GROK_API_KEY!,
-  config: { model: AxAIGrokModel.Grok3, stream: false },
+  config: { model: AxAIGrokModel.Grok43, stream: false },
   options: {
     searchParameters: {
       mode: 'on',

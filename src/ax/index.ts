@@ -28,6 +28,7 @@ import type {
   AxAgentEvalFunctionCall,
   AxAgentEvalPrediction,
   AxAgentEvalTask,
+  AxAgentForwardOptions,
   AxAgentJudgeEvalInput,
   AxAgentJudgeEvalOutput,
   AxAgentJudgeInput,
@@ -38,6 +39,7 @@ import type {
   AxAgentOptimizeTarget,
   AxAgentOptions,
   AxAgentRecursionOptions,
+  AxAgentStreamingForwardOptions,
   AxNormalizedAgentEvalDataset,
   AxStageOptions,
 } from './agent/agentInternal/agentOptimizeTypes.js';
@@ -160,6 +162,22 @@ import {
   type AxAIAnthropicWebSearchTool,
 } from './ai/anthropic/types.js';
 import {
+  axGoogleGeminiLiveAudioDefaults,
+  axIsAudioOutputEnabled,
+  axMergeChatAudioConfig,
+  axOpenAIChatAudioDefaults,
+} from './ai/audio/defaults.js';
+import type {
+  AxAudioFormat,
+  AxChatAudioConfig,
+  AxChatAudioOutput,
+} from './ai/audio/types.js';
+import {
+  axAudioFormatFromMimeType,
+  axAudioMimeType,
+  axConcatBase64,
+} from './ai/audio/util.js';
+import {
   AxAIAzureOpenAI,
   type AxAIAzureOpenAIArgs,
   type AxAIAzureOpenAIConfig,
@@ -229,8 +247,17 @@ import {
   type AxAIGoogleGeminiOptionsTools,
   axAIGoogleGeminiDefaultConfig,
   axAIGoogleGeminiDefaultCreativeConfig,
+  axAIGoogleGeminiLiveAudioDefaultConfig,
 } from './ai/google-gemini/api.js';
 import { axModelInfoGoogleGemini } from './ai/google-gemini/info.js';
+import {
+  axCreateGeminiLiveAudioApi,
+  axIsGeminiLiveAudioModel,
+  axMapGeminiLiveAudioPart,
+  axResolveGeminiLiveAudioConfig,
+  axShouldUseGeminiLiveAudio,
+  axValidateGeminiLiveAudioInput,
+} from './ai/google-gemini/live_audio.js';
 import {
   type AxAIGoogleGeminiBatchEmbedRequest,
   type AxAIGoogleGeminiBatchEmbedResponse,
@@ -306,11 +333,22 @@ import {
   type AxAIOpenAIArgs,
   AxAIOpenAIBase,
   type AxAIOpenAIBaseArgs,
+  axAIOpenAIAudioDefaultConfig,
   axAIOpenAIBestConfig,
   axAIOpenAICreativeConfig,
   axAIOpenAIDefaultConfig,
   axAIOpenAIFastConfig,
+  axAIOpenAIRealtimeDefaultConfig,
+  axAIOpenAIRealtimeTranscriptionDefaultConfig,
 } from './ai/openai/api.js';
+import {
+  axApplyOpenAIChatAudioRequest,
+  axIsOpenAIChatAudioModel,
+  axMapOpenAIChatAudioDelta,
+  axMapOpenAIChatAudioResponse,
+  axMapOpenAIInputAudioPart,
+  axResolveOpenAIChatAudioConfig,
+} from './ai/openai/audio.js';
 import {
   type AxAIOpenAIAnnotation,
   type AxAIOpenAIChatRequest,
@@ -330,6 +368,13 @@ import {
   axModelInfoOpenAI,
   axModelInfoOpenAIResponses,
 } from './ai/openai/info.js';
+import {
+  axCreateOpenAIRealtimeApi,
+  axIsOpenAIRealtimeModel,
+  axIsOpenAIRealtimeTranscriptionModel,
+  axResolveOpenAIRealtimeAudioConfig,
+  axShouldUseOpenAIRealtime,
+} from './ai/openai/realtime.js';
 import { AxAIOpenAIResponsesImpl } from './ai/openai/responses_api.js';
 import {
   AxAIOpenAIResponses,
@@ -536,6 +581,11 @@ import {
   type AxAIGrokSearchSource,
   axAIGrokBestConfig,
   axAIGrokDefaultConfig,
+  axAIGrokVoiceDefaultConfig,
+  axCreateGrokRealtimeApi,
+  axIsGrokVoiceModel,
+  axResolveGrokRealtimeAudioConfig,
+  axShouldUseGrokRealtime,
 } from './ai/x-grok/api.js';
 import { axModelInfoGrok } from './ai/x-grok/info.js';
 import { AxAIGrokEmbedModels, AxAIGrokModel } from './ai/x-grok/types.js';
@@ -1078,18 +1128,23 @@ export { axAIDeepSeekCodeConfig };
 export { axAIDeepSeekDefaultConfig };
 export { axAIGoogleGeminiDefaultConfig };
 export { axAIGoogleGeminiDefaultCreativeConfig };
+export { axAIGoogleGeminiLiveAudioDefaultConfig };
 export { axAIGrokBestConfig };
 export { axAIGrokDefaultConfig };
+export { axAIGrokVoiceDefaultConfig };
 export { axAIHuggingFaceCreativeConfig };
 export { axAIHuggingFaceDefaultConfig };
 export { axAIMistralBestConfig };
 export { axAIMistralDefaultConfig };
 export { axAIOllamaDefaultConfig };
 export { axAIOllamaDefaultCreativeConfig };
+export { axAIOpenAIAudioDefaultConfig };
 export { axAIOpenAIBestConfig };
 export { axAIOpenAICreativeConfig };
 export { axAIOpenAIDefaultConfig };
 export { axAIOpenAIFastConfig };
+export { axAIOpenAIRealtimeDefaultConfig };
+export { axAIOpenAIRealtimeTranscriptionDefaultConfig };
 export { axAIOpenAIResponsesBestConfig };
 export { axAIOpenAIResponsesCreativeConfig };
 export { axAIOpenAIResponsesDefaultConfig };
@@ -1103,19 +1158,26 @@ export { axAIWebLLMCreativeConfig };
 export { axAIWebLLMDefaultConfig };
 export { axAnalyzeChatPromptRequirements };
 export { axAnalyzeRequestRequirements };
+export { axApplyOpenAIChatAudioRequest };
+export { axAudioFormatFromMimeType };
+export { axAudioMimeType };
 export { axBaseAIDefaultConfig };
 export { axBaseAIDefaultCreativeConfig };
 export { axBuildDistillerDefinition };
 export { axBuildExecutorDefinition };
 export { axBuildResponderDefinition };
 export { axCheckMetricsHealth };
+export { axConcatBase64 };
 export { axCreateDefaultColorLogger };
 export { axCreateDefaultOptimizerColorLogger };
 export { axCreateDefaultOptimizerTextLogger };
 export { axCreateDefaultTextLogger };
 export { axCreateFlowColorLogger };
 export { axCreateFlowTextLogger };
+export { axCreateGeminiLiveAudioApi };
+export { axCreateGrokRealtimeApi };
 export { axCreateJSRuntime };
+export { axCreateOpenAIRealtimeApi };
 export { axDefaultFlowLogger };
 export { axDefaultMetricsConfig };
 export { axDefaultOptimizerLogger };
@@ -1128,6 +1190,18 @@ export { axGetOptimizerMetricsConfig };
 export { axGetProvidersWithMediaSupport };
 export { axGetSupportedAIModels };
 export { axGlobals };
+export { axGoogleGeminiLiveAudioDefaults };
+export { axIsAudioOutputEnabled };
+export { axIsGeminiLiveAudioModel };
+export { axIsGrokVoiceModel };
+export { axIsOpenAIChatAudioModel };
+export { axIsOpenAIRealtimeModel };
+export { axIsOpenAIRealtimeTranscriptionModel };
+export { axMapGeminiLiveAudioPart };
+export { axMapOpenAIChatAudioDelta };
+export { axMapOpenAIChatAudioResponse };
+export { axMapOpenAIInputAudioPart };
+export { axMergeChatAudioConfig };
 export { axModelInfoAnthropic };
 export { axModelInfoCohere };
 export { axModelInfoDeepSeek };
@@ -1141,19 +1215,28 @@ export { axModelInfoOpenAIResponses };
 export { axModelInfoReka };
 export { axModelInfoTogether };
 export { axModelInfoWebLLM };
+export { axOpenAIChatAudioDefaults };
 export { axOptimizableValidators };
 export { axProcessContentForProvider };
 export { axRAG };
+export { axResolveGeminiLiveAudioConfig };
+export { axResolveGrokRealtimeAudioConfig };
+export { axResolveOpenAIChatAudioConfig };
+export { axResolveOpenAIRealtimeAudioConfig };
 export { axRuntimePrimitives };
 export { axScoreProvidersForRequest };
 export { axSelectOptimalProvider };
 export { axSerializeOptimizedProgram };
+export { axShouldUseGeminiLiveAudio };
+export { axShouldUseGrokRealtime };
+export { axShouldUseOpenAIRealtime };
 export { axSpanAttributes };
 export { axSpanEvents };
 export { axUpdateMetricsConfig };
 export { axUpdateOptimizerMetricsConfig };
 export { axValidateChatRequestMessage };
 export { axValidateChatResponseResult };
+export { axValidateGeminiLiveAudioInput };
 export { axValidateProviderCapabilities };
 export { axWorkerRuntime };
 export { f };
@@ -1395,6 +1478,7 @@ export type { AxAgentEvalPrediction };
 export type { AxAgentEvalTask };
 export type { AxAgentExecutorResultPayload };
 export type { AxAgentExecutorTurnCallbackArgs };
+export type { AxAgentForwardOptions };
 export type { AxAgentFunction };
 export type { AxAgentFunctionCall };
 export type { AxAgentFunctionCallRecorder };
@@ -1442,6 +1526,7 @@ export type { AxAgentStateActionLogEntry };
 export type { AxAgentStateCheckpointState };
 export type { AxAgentStateExecutorModelState };
 export type { AxAgentStateRuntimeEntry };
+export type { AxAgentStreamingForwardOptions };
 export type { AxAgentStructuredClarification };
 export type { AxAgentTestCompletionPayload };
 export type { AxAgentTestResult };
@@ -1451,9 +1536,12 @@ export type { AxAnyAgentic };
 export type { AxApacheTikaArgs };
 export type { AxApacheTikaConvertOptions };
 export type { AxAssertion };
+export type { AxAudioFormat };
 export type { AxBalancerOptions };
 export type { AxBaseAIArgs };
 export type { AxBootstrapOptimizerOptions };
+export type { AxChatAudioConfig };
+export type { AxChatAudioOutput };
 export type { AxChatLogEntry };
 export type { AxChatLogMessage };
 export type { AxChatRequest };

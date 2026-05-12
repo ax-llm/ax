@@ -8,6 +8,10 @@ export enum AxAIOpenAIModel {
   GPT41Nano = 'gpt-4.1-nano',
   GPT4O = 'gpt-4o',
   GPT4OMini = 'gpt-4o-mini',
+  GPTAudio = 'gpt-audio',
+  GPTAudioMini = 'gpt-audio-mini',
+  GPTRealtime2 = 'gpt-realtime-2',
+  GPTRealtimeWhisper = 'gpt-realtime-whisper',
   GPT4ChatGPT4O = 'chatgpt-4o-latest',
   GPT4Turbo = 'gpt-4-turbo',
   GPT35Turbo = 'gpt-3.5-turbo',
@@ -115,7 +119,7 @@ export interface AxAIOpenAIResponseDelta<T> {
   choices: {
     index: number;
     delta: T;
-    finish_reason: 'stop' | 'length' | 'content_filter' | 'tool_calls';
+    finish_reason?: 'stop' | 'length' | 'content_filter' | 'tool_calls' | null;
   }[];
   usage?: AxAIOpenAIUsage;
   system_fingerprint: string;
@@ -123,8 +127,13 @@ export interface AxAIOpenAIResponseDelta<T> {
 
 export type AxAIOpenAIChatRequest<TModel> = {
   model: TModel;
-  reasoning_effort?: 'minimal' | 'low' | 'medium' | 'high';
+  reasoning_effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high';
   store?: boolean;
+  modalities?: readonly ('text' | 'audio')[];
+  audio?: {
+    format: 'wav' | 'mp3' | 'flac' | 'opus' | 'aac' | 'pcm16';
+    voice: string | { id: string };
+  };
   messages: (
     | { role: 'system'; content: string }
     | {
@@ -142,7 +151,13 @@ export type AxAIOpenAIChatRequest<TModel> = {
                 }
               | {
                   type: 'input_audio';
-                  input_audio: { data: string; format?: 'wav' };
+                  input_audio: {
+                    data: string;
+                    format: 'wav' | 'mp3' | 'pcm16';
+                    mimeType?: string;
+                    sampleRate?: number;
+                    channels?: number;
+                  };
                 }
               | {
                   type: 'file';
@@ -156,13 +171,14 @@ export type AxAIOpenAIChatRequest<TModel> = {
       }
     | {
         role: 'assistant';
-        content:
+        content?:
           | string
           | {
               type: string;
               text: string;
             };
         name?: string;
+        audio?: { id: string };
       }
     | {
         role: 'assistant';
@@ -236,6 +252,12 @@ export type AxAIOpenAIChatResponse = {
       role: string;
       content: string | null;
       refusal: string | null;
+      audio?: {
+        id: string;
+        data?: string;
+        expires_at?: number;
+        transcript?: string;
+      } | null;
       reasoning_content?: string;
       annotations?: AxAIOpenAIAnnotation[];
       tool_calls?: {
@@ -260,6 +282,13 @@ export type AxAIOpenAIChatResponse = {
 export type AxAIOpenAIChatResponseDelta = AxAIOpenAIResponseDelta<{
   content: string | null;
   refusal?: string | null;
+  audio?: {
+    id?: string;
+    data?: string;
+    delta?: string;
+    expires_at?: number;
+    transcript?: string;
+  } | null;
   reasoning_content?: string;
   role?: string;
   annotations?: AxAIOpenAIAnnotation[];

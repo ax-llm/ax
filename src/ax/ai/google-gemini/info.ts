@@ -121,6 +121,17 @@ export const axModelInfoGoogleGemini: AxModelInfo[] = [
     },
   },
   {
+    name: AxAIGoogleGeminiModel.Gemini25FlashNativeAudio,
+    characterIsToken: false,
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+    },
+    audio: { input: true, output: true },
+    contextWindow: 131_072,
+    maxTokens: 8192,
+  },
+  {
     name: AxAIGoogleGeminiModel.Gemini25FlashLite,
     currency: 'usd',
     characterIsToken: false,

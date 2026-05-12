@@ -262,19 +262,31 @@ export function axValidateChatRequestMessage(item: AxChatRequestMessage): void {
           ? (item as any).thoughtBlocks
           : undefined;
 
+      const audio =
+        typeof item === 'object' && item !== null && 'audio' in item
+          ? (item as any).audio
+          : undefined;
+
       const hasNonEmptyContent =
         typeof content === 'string' && content.trim() !== '';
       const hasFunctionCalls =
         Array.isArray(functionCalls) && functionCalls.length > 0;
       const hasThoughtBlocks =
         Array.isArray(thoughtBlocks) && thoughtBlocks.length > 0;
+      const hasAudioReference =
+        typeof audio?.id === 'string' && audio.id.trim() !== '';
 
-      if (!hasNonEmptyContent && !hasFunctionCalls && !hasThoughtBlocks) {
+      if (
+        !hasNonEmptyContent &&
+        !hasFunctionCalls &&
+        !hasThoughtBlocks &&
+        !hasAudioReference
+      ) {
         raiseValidationError(
-          'Assistant message must include non-empty content, at least one function call, or thought blocks',
+          'Assistant message must include non-empty content, at least one function call, thought blocks, or an audio reference',
           {
-            fieldPath: 'content | functionCalls | thoughtBlocks',
-            value: { content, functionCalls, thoughtBlocks },
+            fieldPath: 'content | functionCalls | thoughtBlocks | audio.id',
+            value: { content, functionCalls, thoughtBlocks, audio },
             item,
           }
         );
@@ -286,6 +298,38 @@ export function axValidateChatRequestMessage(item: AxChatRequestMessage): void {
           value: content,
           item,
         });
+      }
+
+      if (audio !== undefined) {
+        if (
+          typeof audio !== 'object' ||
+          audio === null ||
+          typeof audio.id !== 'string' ||
+          audio.id.trim() === ''
+        ) {
+          raiseValidationError(
+            'Assistant message audio reference must include a non-empty id',
+            {
+              fieldPath: 'audio.id',
+              value: audio,
+              item,
+            }
+          );
+        }
+
+        if (
+          audio.transcript !== undefined &&
+          typeof audio.transcript !== 'string'
+        ) {
+          raiseValidationError(
+            'Assistant message audio transcript must be a string',
+            {
+              fieldPath: 'audio.transcript',
+              value: audio.transcript,
+              item,
+            }
+          );
+        }
       }
 
       if (functionCalls !== undefined && !Array.isArray(functionCalls)) {

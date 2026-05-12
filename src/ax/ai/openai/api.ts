@@ -1,6 +1,7 @@
 import { getModelInfo } from '../../dsp/modelinfo.js';
 import type { AxAPI } from '../../util/apicall.js';
 import { AxAIRefusalError } from '../../util/apicall.js';
+import type { AxChatAudioConfig } from '../audio/types.js';
 import {
   type AxAIFeatures,
   AxBaseAI,
@@ -21,6 +22,14 @@ import type {
   AxTokenUsage,
 } from '../types.js';
 import {
+  axAIOpenAIAudioDefaultConfig,
+  axApplyOpenAIChatAudioRequest,
+  axIsOpenAIChatAudioModel,
+  axMapOpenAIChatAudioDelta,
+  axMapOpenAIChatAudioResponse,
+  axMapOpenAIInputAudioPart,
+} from './audio.js';
+import {
   type AxAIOpenAIChatRequest,
   type AxAIOpenAIChatResponse,
   type AxAIOpenAIChatResponseDelta,
@@ -31,6 +40,22 @@ import {
   AxAIOpenAIModel,
 } from './chat_types.js';
 import { axModelInfoOpenAI } from './info.js';
+import {
+  axAIOpenAIRealtimeDefaultConfig,
+  axAIOpenAIRealtimeTranscriptionDefaultConfig,
+  axCreateOpenAIRealtimeApi,
+  axIsOpenAIRealtimeModel,
+  axIsOpenAIRealtimeTranscriptionModel,
+  axResolveOpenAIRealtimeAudioConfig,
+  axShouldUseOpenAIRealtime,
+  type OpenAIRealtimeRequest,
+} from './realtime.js';
+
+export {
+  axAIOpenAIAudioDefaultConfig,
+  axAIOpenAIRealtimeDefaultConfig,
+  axAIOpenAIRealtimeTranscriptionDefaultConfig,
+};
 
 /**
  * Checks if the given OpenAI model is a thinking/reasoning model.
@@ -119,6 +144,20 @@ type ChatStreamRespProcessor = (
   state: object
 ) => AxChatResponse;
 
+type RealtimeAdapter<TModel> = {
+  apiName: string;
+  shouldUse: (
+    model: string,
+    providerAudio?: Readonly<AxChatAudioConfig>,
+    requestAudio?: Readonly<AxChatAudioConfig>
+  ) => boolean;
+  resolveAudioConfig: (
+    providerAudio?: Readonly<AxChatAudioConfig>,
+    requestAudio?: Readonly<AxChatAudioConfig>
+  ) => AxChatAudioConfig;
+  createApi: (request: OpenAIRealtimeRequest<TModel>) => AxAPI;
+};
+
 export interface AxAIOpenAIBaseArgs<
   TModel,
   TEmbedModel,
@@ -134,6 +173,7 @@ export interface AxAIOpenAIBaseArgs<
   chatReqUpdater?: ChatReqUpdater<TModel, TChatReq>;
   chatRespProcessor?: ChatRespProcessor;
   chatStreamRespProcessor?: ChatStreamRespProcessor;
+  realtime?: RealtimeAdapter<TModel>;
   supportFor: AxAIFeatures | ((model: TModel) => AxAIFeatures);
 }
 
@@ -156,10 +196,13 @@ class AxAIOpenAIImpl<
 
   constructor(
     private readonly config: Readonly<AxAIOpenAIConfig<TModel, TEmbedModel>>,
+    private readonly apiKey: string,
     private streamingUsage: boolean,
+    private readonly options?: Readonly<AxAIServiceOptions>,
     private readonly chatReqUpdater?: ChatReqUpdater<TModel, TChatReq>,
     private readonly chatRespProcessor?: ChatRespProcessor,
-    private readonly chatStreamRespProcessor?: ChatStreamRespProcessor
+    private readonly chatStreamRespProcessor?: ChatStreamRespProcessor,
+    private readonly realtime?: RealtimeAdapter<TModel>
   ) {}
 
   getTokenUsage(): AxTokenUsage | undefined {
@@ -187,12 +230,20 @@ class AxAIOpenAIImpl<
     config: Readonly<AxAIServiceOptions>
   ): [AxAPI, AxAIOpenAIChatRequest<TModel>] => {
     const model = req.model;
+    const realtimeAudio = (
+      this.realtime?.resolveAudioConfig ?? axResolveOpenAIRealtimeAudioConfig
+    )(this.config.audio, req.modelConfig?.audio);
+    const useRealtime = (this.realtime?.shouldUse ?? axShouldUseOpenAIRealtime)(
+      model as string,
+      this.config.audio,
+      req.modelConfig?.audio
+    );
 
     if (!req.chatPrompt || req.chatPrompt.length === 0) {
       throw new Error('Chat prompt is empty');
     }
 
-    const apiConfig = {
+    const apiConfig: AxAPI = {
       name: '/chat/completions',
     };
 
@@ -210,7 +261,7 @@ class AxAIOpenAIImpl<
         ? 'auto'
         : req.functionCall;
 
-    const messages = createMessages(req);
+    const messages = createMessages(req, useRealtime);
 
     const frequencyPenalty =
       req.modelConfig?.frequencyPenalty ?? this.config.frequencyPenalty;
@@ -286,6 +337,32 @@ class AxAIOpenAIImpl<
         : {}),
       ...(this.config.user ? { user: this.config.user } : {}),
     };
+
+    if (useRealtime) {
+      if (req.responseFormat || reqValue.response_format) {
+        throw new Error(
+          `${this.realtime?.apiName ?? 'OpenAI Realtime'} models do not support structured response formats with audio output or transcription`
+        );
+      }
+      const realtimeApi = (
+        this.realtime?.createApi ?? axCreateOpenAIRealtimeApi
+      )({
+        model,
+        request: reqValue,
+        apiKey: this.apiKey,
+        audio: realtimeAudio,
+        webSocket: config.webSocket ?? this.options?.webSocket,
+        debug: config.debug ?? this.options?.debug,
+      });
+      apiConfig.name = realtimeApi.name;
+      apiConfig.localCall = realtimeApi.localCall;
+    } else {
+      reqValue = axApplyOpenAIChatAudioRequest(
+        reqValue,
+        req,
+        this.config.audio
+      );
+    }
 
     if (this.config.reasoningEffort) {
       reqValue.reasoning_effort = this.config.reasoningEffort;
@@ -432,10 +509,13 @@ class AxAIOpenAIImpl<
         })
       );
 
+      const audio = axMapOpenAIChatAudioResponse(choice.message.audio);
+
       return {
         index: choice.index,
         id: `${choice.index}`,
-        content: choice.message.content ?? undefined,
+        content: choice.message.content ?? audio?.transcript ?? undefined,
+        audio,
         thought: choice.message.reasoning_content,
         citations: choice.message.annotations
           ?.filter((a) => a?.type === 'url_citation' && (a as any).url_citation)
@@ -482,6 +562,7 @@ class AxAIOpenAIImpl<
           content,
           role,
           refusal,
+          audio: audioDelta,
           tool_calls: toolCalls,
           reasoning_content: thought,
           annotations,
@@ -518,10 +599,13 @@ class AxAIOpenAIImpl<
           })
           .filter((v) => v !== null);
 
+        const audio = axMapOpenAIChatAudioDelta(audioDelta);
+
         return {
           index,
-          content: content ?? undefined,
+          content: content ?? audio?.transcript ?? undefined,
           role,
+          audio,
           thought,
           citations: annotations
             ?.filter(
@@ -561,7 +645,10 @@ class AxAIOpenAIImpl<
 }
 
 const mapFinishReason = (
-  finishReason: AxAIOpenAIChatResponse['choices'][0]['finish_reason']
+  finishReason:
+    | AxAIOpenAIChatResponse['choices'][0]['finish_reason']
+    | null
+    | undefined
 ): AxChatResponseResult['finishReason'] => {
   switch (finishReason) {
     case 'stop':
@@ -576,7 +663,8 @@ const mapFinishReason = (
 };
 
 function createMessages<TModel>(
-  req: Readonly<AxInternalChatRequest<TModel>>
+  req: Readonly<AxInternalChatRequest<TModel>>,
+  allowRealtimeAudio = false
 ): AxAIOpenAIChatRequest<TModel>['messages'] {
   type UserContent = Extract<
     AxAIOpenAIChatRequest<TModel>['messages'][number],
@@ -602,14 +690,9 @@ function createMessages<TModel>(
                   };
                 }
                 case 'audio': {
-                  const data = c.data;
-                  return {
-                    type: 'input_audio' as const,
-                    input_audio: {
-                      data,
-                      format: c.format === 'wav' ? 'wav' : undefined,
-                    },
-                  };
+                  return axMapOpenAIInputAudioPart(c, {
+                    allowPcm16: allowRealtimeAudio,
+                  });
                 }
                 default:
                   throw new Error('Invalid content type');
@@ -645,7 +728,7 @@ function createMessages<TModel>(
           };
         }
 
-        if (msg.content === undefined) {
+        if (msg.content === undefined && !msg.audio) {
           throw new Error(
             'Assistant content is required when no tool calls are provided'
           );
@@ -653,7 +736,8 @@ function createMessages<TModel>(
 
         return {
           role: 'assistant' as const,
-          content: msg.content,
+          ...(msg.content !== undefined ? { content: msg.content } : {}),
+          ...(msg.audio ? { audio: { id: msg.audio.id } } : {}),
           ...(msg.name ? { name: msg.name } : {}),
         };
       }
@@ -697,6 +781,7 @@ export class AxAIOpenAIBase<
     chatReqUpdater,
     chatRespProcessor,
     chatStreamRespProcessor,
+    realtime,
     supportFor,
   }: Readonly<
     Omit<AxAIOpenAIBaseArgs<TModel, TEmbedModel, TModelKey, TChatReq>, 'name'>
@@ -707,10 +792,13 @@ export class AxAIOpenAIBase<
 
     const aiImpl = new AxAIOpenAIImpl<TModel, TEmbedModel, TChatReq>(
       config,
+      apiKey,
       options?.streamingUsage ?? true,
+      options,
       chatReqUpdater,
       chatRespProcessor,
-      chatStreamRespProcessor
+      chatStreamRespProcessor,
+      realtime
     );
 
     super(aiImpl, {
@@ -770,6 +858,10 @@ export class AxAIOpenAI<TModelKey = string> extends AxAIOpenAIBase<
           >,
         }
       );
+      const isAudioModel = axIsOpenAIChatAudioModel(model);
+      const isRealtimeModel = axIsOpenAIRealtimeModel(model);
+      const isRealtimeTranscriptionModel =
+        axIsOpenAIRealtimeTranscriptionModel(model);
       return {
         functions: true,
         streaming: true,
@@ -789,8 +881,32 @@ export class AxAIOpenAI<TModelKey = string> extends AxAIOpenAIBase<
           },
           audio: {
             supported: true,
-            formats: ['wav', 'mp3', 'ogg'],
+            formats:
+              isAudioModel || isRealtimeModel
+                ? ['wav', 'mp3', 'pcm16']
+                : ['wav', 'mp3', 'ogg'],
             maxDuration: 25 * 60, // 25 minutes
+            output: {
+              supported: isAudioModel || isRealtimeModel,
+              formats: ['wav', 'mp3', 'flac', 'opus', 'aac', 'pcm16'],
+              voices: [
+                'alloy',
+                'ash',
+                'ballad',
+                'coral',
+                'echo',
+                'fable',
+                'nova',
+                'onyx',
+                'sage',
+                'shimmer',
+                'marin',
+                'cedar',
+              ],
+            },
+            ...(isRealtimeTranscriptionModel
+              ? { output: { supported: false, formats: [], voices: [] } }
+              : {}),
           },
           files: {
             supported: true,

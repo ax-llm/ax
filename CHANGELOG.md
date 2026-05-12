@@ -1,5 +1,17 @@
 # Changelog
 
+## [21.0.1](///compare/20.0.2...21.0.0) (2026-05-12)
+## [21.0.0](///compare/20.0.2...21.0.0) (2026-05-09)
+
+### Features
+
+* **agent:** pass alreadyLoaded snapshot to onMemoriesSearch 69ae7d2
+* **agent:** unify child-agent registration through functions array 689c0ba
+
+### Bug Fixes
+
+* **skill:** drop false claim that forward() exposes memory results e8f5686
+
 ## [21.0.0](///compare/20.0.1...20.0.2) (2026-05-09)
 
 ### Features

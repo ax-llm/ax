@@ -2,7 +2,18 @@
 
 import type { Context, Meter, Tracer } from '@opentelemetry/api';
 import type { AxAPI, RetryConfig } from '../util/apicall.js';
+import type {
+  AxAudioFormat,
+  AxChatAudioConfig,
+  AxChatAudioOutput,
+} from './audio/types.js';
 import type { AxAIFeatures } from './base.js';
+
+export type {
+  AxAudioFormat,
+  AxChatAudioConfig,
+  AxChatAudioOutput,
+} from './audio/types.js';
 
 export type AxAIInputModelList<TModel, TEmbedModel, TModelKey> =
   (AxAIModelListBase<TModelKey> & {
@@ -51,6 +62,10 @@ export type AxModelInfo = {
   notSupported?: {
     temperature?: boolean;
     topP?: boolean;
+  };
+  audio?: {
+    input?: boolean;
+    output?: boolean;
   };
   maxTokens?: number;
   isExpensive?: boolean;
@@ -189,6 +204,9 @@ export type AxModelConfig = {
    */
   stream?: boolean;
 
+  /** Conversational audio input/output configuration for chat models. */
+  audio?: AxChatAudioConfig;
+
   /**
    * Number of completions to generate for each prompt.
    *
@@ -268,6 +286,7 @@ export type AxChatResponseResult = {
   thoughtBlocks?: AxThoughtBlockItem[];
   name?: string;
   id?: string;
+  audio?: AxChatAudioOutput;
   functionCalls?: {
     id: string;
     type: 'function';
@@ -359,7 +378,10 @@ export type AxChatRequest<TModel = string> = {
               | {
                   type: 'audio';
                   data: string;
-                  format?: 'wav' | 'mp3' | 'ogg';
+                  format?: AxAudioFormat;
+                  mimeType?: string;
+                  sampleRate?: number;
+                  channels?: number;
                   cache?: boolean;
                   /** Pre-transcribed text content for fallback */
                   transcription?: string;
@@ -421,6 +443,8 @@ export type AxChatRequest<TModel = string> = {
         thought?: string;
         /** Array of thinking blocks, each with its own signature */
         thoughtBlocks?: AxThoughtBlockItem[];
+        /** Previous assistant audio response reference for audio-capable chat models */
+        audio?: { id: string; transcript?: string };
         cache?: boolean;
       }
     | {
@@ -438,6 +462,8 @@ export type AxChatRequest<TModel = string> = {
     requiresImages?: boolean;
     /** Whether the request requires audio support */
     requiresAudio?: boolean;
+    /** Whether the request requires generated audio responses */
+    requiresAudioOutput?: boolean;
     /** Whether the request requires file support */
     requiresFiles?: boolean;
     /** Whether the request requires web search capabilities */
@@ -761,6 +787,9 @@ export type AxAIServiceOptions = {
 
   /** Custom fetch implementation (useful for proxies or custom HTTP handling). */
   fetch?: typeof fetch;
+
+  /** Custom WebSocket constructor for providers that use realtime WebSocket transports. */
+  webSocket?: any;
 
   /** OpenTelemetry tracer for distributed tracing. */
   tracer?: Tracer;

@@ -282,6 +282,17 @@ export interface AxAIFeatures {
       formats: string[];
       /** Maximum audio duration in seconds */
       maxDuration?: number;
+      /** Audio output capabilities for conversational audio models */
+      output?: {
+        /** Whether the provider supports generated audio responses */
+        supported: boolean;
+        /** Supported generated audio formats */
+        formats: string[];
+        /** Default output sample rate, when fixed by the provider */
+        sampleRate?: number;
+        /** Known built-in voice names, when enumerable */
+        voices?: string[];
+      };
     };
     /** File processing capabilities */
     files: {

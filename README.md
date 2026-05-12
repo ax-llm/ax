@@ -156,6 +156,48 @@ const analyze = ax(`
 `);
 ```
 
+### Conversational audio
+
+Audio input/output for bounded `.chat()` turns is supported directly on AI services. Generated audio lives on `result.audio`, not in DSPy signature output fields.
+
+OpenAI supports both request-based audio chat (`gpt-audio`, `gpt-audio-mini`) and realtime voice/transcription models (`gpt-realtime-2`, `gpt-realtime-whisper`). Gemini native audio uses the Live API under the same `.chat()` shape.
+
+```typescript
+import WebSocket from "ws";
+import {
+  ai,
+  axAIOpenAIRealtimeDefaultConfig,
+  axAIOpenAIRealtimeTranscriptionDefaultConfig,
+} from "@ax-llm/ax";
+
+const voice = ai({
+  name: "openai",
+  apiKey: process.env.OPENAI_APIKEY!,
+  config: axAIOpenAIRealtimeDefaultConfig(), // gpt-realtime-2
+});
+
+const stream = await voice.chat(
+  { chatPrompt: [{ role: "user", content: "Say hello out loud." }] },
+  { stream: true, webSocket: WebSocket },
+);
+
+for await (const chunk of stream) {
+  const audio = chunk.results[0]?.audio;
+  if (audio?.isDelta) {
+    // base64 pcm16 audio bytes
+    process.stdout.write(".");
+  }
+}
+
+const transcriber = ai({
+  name: "openai",
+  apiKey: process.env.OPENAI_APIKEY!,
+  config: axAIOpenAIRealtimeTranscriptionDefaultConfig(), // gpt-realtime-whisper
+});
+```
+
+Runnable: [`src/examples/audio-chat.ts`](src/examples/audio-chat.ts).
+
 ## AxAgent
 
 `AxAgent` is a three-stage pipeline that turns a signature into a long-running, tool-using actor. Each `forward()` call runs distiller → executor → responder.
@@ -302,7 +344,8 @@ const result = await optimizer.compile(
 | Standard Schema v1 | `f`, `fn` | Zod, Valibot, ArkType — per-field or whole-object |
 | Tools / function calling | `fn`, `functions:` option | typed args, typed return, async handler |
 | Streaming + validation | `.streamingForward()` | parses at field boundaries |
-| Multi-modal | `f.image`, `f.audio` | OpenAI, Gemini, Anthropic |
+| Multi-modal | `f.image`, `f.audio`, `.chat({ audio })` | OpenAI, Gemini, Anthropic |
+| Conversational audio | `.chat()` + `result.audio` | OpenAI `gpt-audio*`, `gpt-realtime-2`, `gpt-realtime-whisper`; Gemini Live native audio |
 | Workflows | `flow`, `AxFlow` | typed DAG, parallelism, branching, sub-contexts |
 | Optimization | `AxGEPA`, `AxACE`, `AxBootstrapFewShot` | Pareto front, playbook curriculum, few-shot |
 | Agent loop | `agent`, `AxAgent` | distiller → executor → responder |
@@ -339,6 +382,7 @@ npm install @ax-llm/ax-tools              # MCP stdio transport, JS runtime extr
 
 **Deep dives**
 - [AI providers](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-ai.md)
+- [Audio I/O](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-audio.md)
 - [AxFlow workflows](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-flow.md)
 - [Optimization (GEPA, ACE)](https://github.com/ax-llm/ax/blob/main/src/docs/src/content/docs/optimize.md)
 - [AxAgent & RLM](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-agent.md)
@@ -350,7 +394,7 @@ npm install @ax-llm/ax-tools              # MCP stdio transport, JS runtime extr
 OPENAI_APIKEY=your-key npm run tsx ./src/examples/<name>.ts
 ```
 
-Highlights: `extract.ts`, `react.ts`, `agent.ts`, `streaming1.ts`, `multi-modal.ts`, `standard-schema.ts`, `rlm-memories-and-skills.ts`, `rlm-discovery.ts`, `gepa-flow.ts`, `ace-train-inference.ts`, `ax-flow-enhanced-demo.ts`. [Browse all 70+ examples →](src/examples/)
+Highlights: `extract.ts`, `react.ts`, `agent.ts`, `streaming1.ts`, `multi-modal.ts`, `audio-chat.ts`, `standard-schema.ts`, `rlm-memories-and-skills.ts`, `rlm-discovery.ts`, `gepa-flow.ts`, `ace-train-inference.ts`, `ax-flow-enhanced-demo.ts`. [Browse all 70+ examples →](src/examples/)
 
 ## Community
 

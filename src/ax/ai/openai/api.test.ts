@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { AxAIOpenAI } from './api.js';
+import {
+  AxAIOpenAI,
+  axAIOpenAIAudioDefaultConfig,
+  axAIOpenAIRealtimeDefaultConfig,
+  axAIOpenAIRealtimeTranscriptionDefaultConfig,
+} from './api.js';
 import { AxAIOpenAIModel } from './chat_types.js';
 
 function createMockFetch(body: unknown, capture: { lastBody?: any }) {
@@ -16,6 +21,118 @@ function createMockFetch(body: unknown, capture: { lastBody?: any }) {
         headers: { 'Content-Type': 'application/json' },
       });
     });
+}
+
+function createMockStreamFetch(
+  chunks: readonly unknown[],
+  capture: { lastBody?: any }
+) {
+  return vi
+    .fn()
+    .mockImplementation(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      try {
+        if (init?.body && typeof init.body === 'string') {
+          capture.lastBody = JSON.parse(init.body);
+        }
+      } catch {}
+
+      const encoder = new TextEncoder();
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          for (const chunk of chunks) {
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`)
+            );
+          }
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+          controller.close();
+        },
+      });
+
+      return new Response(body, {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      });
+    });
+}
+
+class FakeOpenAIRealtimeWebSocket {
+  static serverMessages: unknown[] = [];
+  static instances: FakeOpenAIRealtimeWebSocket[] = [];
+
+  readonly sent: string[] = [];
+  readonly url: string;
+  readonly options: any;
+  private readonly listeners = new Map<string, ((event: any) => void)[]>();
+
+  constructor(url: string, options?: any) {
+    this.url = url;
+    this.options = options;
+    FakeOpenAIRealtimeWebSocket.instances.push(this);
+    queueMicrotask(() => this.emit('open', {}));
+  }
+
+  addEventListener(type: string, listener: (event: any) => void) {
+    this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
+  }
+
+  on(type: string, listener: (event: any) => void) {
+    this.addEventListener(type, listener);
+  }
+
+  send(data: string) {
+    this.sent.push(data);
+    const message = JSON.parse(data);
+
+    if (message.type === 'session.update') {
+      queueMicrotask(() =>
+        this.emit('message', {
+          data: JSON.stringify({ type: 'session.updated' }),
+        })
+      );
+      return;
+    }
+
+    if (message.type === 'transcription_session.update') {
+      queueMicrotask(() =>
+        this.emit('message', {
+          data: JSON.stringify({ type: 'transcription_session.updated' }),
+        })
+      );
+      return;
+    }
+
+    if (
+      message.type === 'response.create' ||
+      message.type === 'input_audio_buffer.commit'
+    ) {
+      queueMicrotask(() => {
+        for (const serverMessage of FakeOpenAIRealtimeWebSocket.serverMessages) {
+          this.emit('message', { data: JSON.stringify(serverMessage) });
+        }
+      });
+    }
+  }
+
+  close() {
+    this.emit('close', {});
+  }
+
+  private emit(type: string, event: any) {
+    for (const listener of this.listeners.get(type) ?? []) {
+      listener(event);
+    }
+    const handler = (this as any)[`on${type}`];
+    if (typeof handler === 'function') {
+      handler(event);
+    }
+  }
+}
+
+function openAIRealtimeWebSocket(messages: unknown[]) {
+  FakeOpenAIRealtimeWebSocket.serverMessages = messages;
+  FakeOpenAIRealtimeWebSocket.instances = [];
+  return FakeOpenAIRealtimeWebSocket as any;
 }
 
 describe('AxAIOpenAI model key preset merging', () => {
@@ -155,5 +272,381 @@ describe('AxAIOpenAI', () => {
 
       expect((llm as any).apiURL).toBe('https://openrouter.ai/api/v1');
     });
+  });
+});
+
+describe('AxAIOpenAI audio chat', () => {
+  it('provides a conservative audio default config', () => {
+    const config = axAIOpenAIAudioDefaultConfig();
+
+    expect(config.model).toBe(AxAIOpenAIModel.GPTAudioMini);
+    expect(config.stream).toBe(false);
+    expect(config.audio?.output?.enabled).toBe(true);
+    expect(config.audio?.output?.voice).toBe('alloy');
+    expect(config.audio?.output?.format).toBe('wav');
+    expect(config.audio?.output?.includeTranscript).toBe(true);
+  });
+
+  it('maps audio input, output config, and message.audio responses', async () => {
+    const ai = new AxAIOpenAI({
+      apiKey: 'key',
+      config: axAIOpenAIAudioDefaultConfig(),
+    });
+    const capture: { lastBody?: any } = {};
+    const fetch = createMockFetch(
+      {
+        choices: [
+          {
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: null,
+              audio: {
+                id: 'aud_123',
+                data: 'UklGRg==',
+                transcript: 'spoken answer',
+                expires_at: 1234,
+              },
+            },
+            finish_reason: 'stop',
+          },
+        ],
+      },
+      capture
+    );
+
+    ai.setOptions({ fetch });
+
+    const res = (await ai.chat(
+      {
+        chatPrompt: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'Answer this recording.' },
+              { type: 'audio', data: 'UklGRg==', format: 'wav' },
+            ],
+          },
+        ],
+      },
+      { stream: false }
+    )) as any;
+
+    expect(capture.lastBody?.model).toBe(AxAIOpenAIModel.GPTAudioMini);
+    expect(capture.lastBody?.modalities).toEqual(['text', 'audio']);
+    expect(capture.lastBody?.audio).toEqual({
+      voice: 'alloy',
+      format: 'wav',
+    });
+    expect(capture.lastBody?.messages[0]?.content[1]).toEqual({
+      type: 'input_audio',
+      input_audio: { data: 'UklGRg==', format: 'wav' },
+    });
+    expect(res.results[0]?.content).toBe('spoken answer');
+    expect(res.results[0]?.audio).toEqual({
+      id: 'aud_123',
+      data: 'UklGRg==',
+      transcript: 'spoken answer',
+      expiresAt: 1234,
+    });
+  });
+
+  it('keeps assistant audio history as an audio reference', async () => {
+    const ai = new AxAIOpenAI({
+      apiKey: 'key',
+      config: axAIOpenAIAudioDefaultConfig(),
+    });
+    const capture: { lastBody?: any } = {};
+    const fetch = createMockFetch(
+      {
+        choices: [
+          {
+            index: 0,
+            message: { role: 'assistant', content: 'ok' },
+            finish_reason: 'stop',
+          },
+        ],
+      },
+      capture
+    );
+
+    ai.setOptions({ fetch });
+
+    await ai.chat(
+      {
+        chatPrompt: [
+          { role: 'assistant', audio: { id: 'aud_prev' } },
+          { role: 'user', content: 'continue' },
+        ],
+      },
+      { stream: false }
+    );
+
+    expect(capture.lastBody?.messages[0]).toEqual({
+      role: 'assistant',
+      audio: { id: 'aud_prev' },
+    });
+  });
+
+  it('streams OpenAI audio deltas from chat completions', async () => {
+    const ai = new AxAIOpenAI({
+      apiKey: 'key',
+      config: axAIOpenAIAudioDefaultConfig(),
+    });
+    const capture: { lastBody?: any } = {};
+    const fetch = createMockStreamFetch(
+      [
+        {
+          id: 'chatcmpl_audio',
+          choices: [
+            {
+              index: 0,
+              delta: {
+                role: 'assistant',
+                content: null,
+                audio: {
+                  id: 'aud_stream',
+                  data: 'AAAA',
+                  transcript: 'hello',
+                },
+              },
+              finish_reason: null,
+            },
+          ],
+        },
+      ],
+      capture
+    );
+
+    ai.setOptions({ fetch });
+
+    const stream = (await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'say hello' }] },
+      { stream: true }
+    )) as ReadableStream<any>;
+
+    const reader = stream.getReader();
+    const values: any[] = [];
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      values.push(value);
+    }
+
+    expect(capture.lastBody?.stream).toBe(true);
+    expect(capture.lastBody?.modalities).toEqual(['text', 'audio']);
+    expect(values[0]?.results[0]?.content).toBe('hello');
+    expect(values[0]?.results[0]?.audio).toEqual({
+      id: 'aud_stream',
+      data: 'AAAA',
+      transcript: 'hello',
+      isDelta: true,
+    });
+  });
+
+  it('rejects unsupported audio chat input formats', async () => {
+    const ai = new AxAIOpenAI({
+      apiKey: 'key',
+      config: axAIOpenAIAudioDefaultConfig(),
+    });
+
+    await expect(
+      ai.chat(
+        {
+          chatPrompt: [
+            {
+              role: 'user',
+              content: [{ type: 'audio', data: 'AAAA', format: 'flac' }],
+            },
+          ],
+        },
+        { stream: false }
+      )
+    ).rejects.toThrow('supports only wav and mp3');
+  });
+
+  it('rejects structured outputs with audio output enabled', async () => {
+    const ai = new AxAIOpenAI({
+      apiKey: 'key',
+      config: axAIOpenAIAudioDefaultConfig(),
+    });
+
+    await expect(
+      ai.chat(
+        {
+          chatPrompt: [{ role: 'user', content: 'return json' }],
+          responseFormat: { type: 'json_object' },
+        },
+        { stream: false }
+      )
+    ).rejects.toThrow('structured response formats');
+  });
+});
+
+describe('AxAIOpenAI realtime audio chat', () => {
+  it('provides realtime voice and transcription defaults', () => {
+    const voice = axAIOpenAIRealtimeDefaultConfig();
+    expect(voice.model).toBe(AxAIOpenAIModel.GPTRealtime2);
+    expect(voice.audio?.output?.enabled).toBe(true);
+    expect(voice.audio?.output?.format).toBe('pcm16');
+    expect(voice.audio?.output?.voice).toBe('marin');
+
+    const transcription = axAIOpenAIRealtimeTranscriptionDefaultConfig();
+    expect(transcription.model).toBe(AxAIOpenAIModel.GPTRealtimeWhisper);
+    expect(transcription.audio?.output?.enabled).toBeUndefined();
+    expect(transcription.audio?.input?.format).toBe('pcm16');
+  });
+
+  it('aggregates gpt-realtime-2 audio output from WebSocket events', async () => {
+    const ai = new AxAIOpenAI({
+      apiKey: 'key',
+      config: axAIOpenAIRealtimeDefaultConfig(),
+    });
+    const webSocket = openAIRealtimeWebSocket([
+      {
+        type: 'response.output_audio_transcript.delta',
+        response_id: 'resp_1',
+        delta: 'hello',
+      },
+      {
+        type: 'response.output_audio.delta',
+        response_id: 'resp_1',
+        delta: 'AQI=',
+      },
+      {
+        type: 'response.output_audio.delta',
+        response_id: 'resp_1',
+        delta: 'AwQ=',
+      },
+      { type: 'response.done', response_id: 'resp_1' },
+    ]);
+
+    const res = (await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'say hello' }] },
+      { stream: false, webSocket }
+    )) as any;
+
+    expect(res.results[0]?.content).toBe('hello');
+    expect(res.results[0]?.audio).toEqual({
+      id: 'resp_1',
+      data: 'AQIDBA==',
+      transcript: 'hello',
+    });
+
+    const socket = FakeOpenAIRealtimeWebSocket.instances[0];
+    expect(socket?.url).toContain('/v1/realtime?model=gpt-realtime-2');
+    expect(socket?.options?.headers?.Authorization).toBe('Bearer key');
+
+    const session = JSON.parse(socket?.sent[0] ?? '{}');
+    expect(session.session.type).toBe('realtime');
+    expect(session.session.audio.output.voice).toBe('marin');
+    expect(session.session.audio.output.format.type).toBe('audio/pcm');
+  });
+
+  it('streams gpt-realtime-2 audio deltas from WebSocket events', async () => {
+    const ai = new AxAIOpenAI({
+      apiKey: 'key',
+      config: axAIOpenAIRealtimeDefaultConfig(),
+    });
+    const webSocket = openAIRealtimeWebSocket([
+      {
+        type: 'response.output_audio.delta',
+        response_id: 'resp_stream',
+        delta: 'AQI=',
+      },
+      { type: 'response.done', response_id: 'resp_stream' },
+    ]);
+
+    const stream = (await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'say hello' }] },
+      { stream: true, webSocket }
+    )) as ReadableStream<any>;
+
+    const reader = stream.getReader();
+    const chunks: any[] = [];
+    while (true) {
+      const item = await reader.read();
+      if (item.done) break;
+      chunks.push(item.value);
+    }
+
+    expect(chunks[0]?.results[0]?.audio).toEqual({
+      id: 'resp_stream',
+      data: 'AQI=',
+      isDelta: true,
+    });
+    expect(chunks.at(-1)?.results[0]?.finishReason).toBe('stop');
+    expect(chunks.at(-1)?.results[0]?.audio).toBeUndefined();
+  });
+
+  it('uses gpt-realtime-whisper for realtime transcript deltas', async () => {
+    const ai = new AxAIOpenAI({
+      apiKey: 'key',
+      config: axAIOpenAIRealtimeTranscriptionDefaultConfig(),
+    });
+    const webSocket = openAIRealtimeWebSocket([
+      {
+        type: 'conversation.item.input_audio_transcription.delta',
+        delta: 'hello ',
+      },
+      {
+        type: 'conversation.item.input_audio_transcription.completed',
+        transcript: 'hello world',
+      },
+    ]);
+
+    const res = (await ai.chat(
+      {
+        chatPrompt: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'audio',
+                data: 'AAAA',
+                format: 'pcm16',
+                sampleRate: 24_000,
+              },
+            ],
+          },
+        ],
+      },
+      { stream: false, webSocket }
+    )) as any;
+
+    expect(res.results[0]?.content).toBe('hello world');
+    expect(res.results[0]?.audio).toBeUndefined();
+
+    const socket = FakeOpenAIRealtimeWebSocket.instances[0];
+    expect(socket?.url).toContain(
+      '/v1/realtime/transcription_sessions?model=gpt-realtime-whisper'
+    );
+    const session = JSON.parse(socket?.sent[0] ?? '{}');
+    expect(session.type).toBe('transcription_session.update');
+    expect(session.session.audio.input.transcription.model).toBe(
+      'gpt-realtime-whisper'
+    );
+    expect(session.session.audio.input.format.rate).toBe(24_000);
+  });
+
+  it('rejects non-PCM input for OpenAI Realtime models', async () => {
+    const ai = new AxAIOpenAI({
+      apiKey: 'key',
+      config: axAIOpenAIRealtimeDefaultConfig(),
+    });
+
+    await expect(
+      ai.chat(
+        {
+          chatPrompt: [
+            {
+              role: 'user',
+              content: [{ type: 'audio', data: 'AAAA', format: 'wav' }],
+            },
+          ],
+        },
+        { stream: false, webSocket: openAIRealtimeWebSocket([]) }
+      )
+    ).rejects.toThrow('requires pcm16 audio');
   });
 });

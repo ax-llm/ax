@@ -8,6 +8,7 @@ export enum AxAIGoogleGeminiModel {
   Gemini3ProImage = 'gemini-3-pro-image-preview',
   Gemini25Pro = 'gemini-2.5-pro',
   Gemini25Flash = 'gemini-2.5-flash',
+  Gemini25FlashNativeAudio = 'gemini-2.5-flash-native-audio-preview-12-2025',
   Gemini25FlashLite = 'gemini-2.5-flash-lite',
   Gemini20Flash = 'gemini-2.0-flash',
   Gemini20FlashLite = 'gemini-2.0-flash-lite',
