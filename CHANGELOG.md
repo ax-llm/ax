@@ -1,5 +1,12 @@
 # Changelog
 
+## [21.0.2](///compare/21.0.0...21.0.1) (2026-05-12)
+
+### Bug Fixes
+
+* **ai:** expose includeRequestBodyInErrors on AxAIServiceOptions ([#514](undefined/undefined/undefined/issues/514)) a22531c
+## [21.0.1](///compare/21.0.0...21.0.1) (2026-05-12)
+
 ## [21.0.1](///compare/20.0.2...21.0.0) (2026-05-12)
 ## [21.0.0](///compare/20.0.2...21.0.0) (2026-05-09)
 
