@@ -173,8 +173,17 @@ const analyst = agent(
     } as any,
     contextFields: ['context'],
     runtime,
-    agents: [writingCoach],
-    functions: tools,
+    functions: [
+      ...tools,
+      {
+        namespace: 'team',
+        title: 'Team Agents',
+        selectionCriteria:
+          'Use for specialist agent help with writing or review tasks.',
+        description: 'Callable specialist agents available to the executor.',
+        functions: [writingCoach.getFunction()],
+      },
+    ],
     functionDiscovery: true,
     executorOptions: {
       description: [

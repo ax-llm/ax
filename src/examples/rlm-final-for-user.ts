@@ -41,11 +41,9 @@ const assistant = agent(
     functions: attachmentTools,
     maxTurns: 6,
     contextOptions: {
-      executorOptions: {
-        description: [
-          'If userRequest is a simple greeting and attachmentManifest is empty, distill that fact and call final("answer the greeting", { userRequest: inputs.userRequest, attachmentCount: 0 }).',
-        ].join('\n'),
-      },
+      description: [
+        'If userRequest is a simple greeting and attachmentManifest is empty, distill that fact and call final("answer the greeting", { userRequest: inputs.userRequest, attachmentCount: 0 }).',
+      ].join('\n'),
     },
     executorOptions: {
       description: [
