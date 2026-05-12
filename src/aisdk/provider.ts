@@ -8,19 +8,19 @@ import {
 import type {
   LanguageModelV2,
   LanguageModelV2CallOptions,
+  LanguageModelV2CallWarning,
+  LanguageModelV2Content,
   LanguageModelV2FinishReason,
   LanguageModelV2FunctionTool,
-  LanguageModelV2ToolCall,
   LanguageModelV2Prompt,
   LanguageModelV2StreamPart,
-  LanguageModelV2Usage,
-  LanguageModelV2Content,
+  LanguageModelV2ToolCall,
   LanguageModelV2ToolChoice,
-  LanguageModelV2CallWarning,
+  LanguageModelV2Usage,
 } from '@ai-sdk/provider';
 import type {
-  AxAIService,
   AxAgentic,
+  AxAIService,
   AxChatRequest,
   AxChatResponse,
   AxChatResponseResult,
@@ -149,7 +149,7 @@ export class AxAIProvider implements LanguageModelV2 {
     options: LanguageModelV2CallOptions
   ): Promise<Awaited<ReturnType<LanguageModelV2['doGenerate']>>> {
     const req = createChatRequest(options);
-    const res = (await this.ai.chat(req)) as AxChatResponse;
+    const res = (await this.ai.chat(req, { stream: false })) as AxChatResponse;
     const choice = res.results.at(0);
 
     if (!choice) {
