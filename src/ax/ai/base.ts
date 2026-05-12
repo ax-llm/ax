@@ -380,6 +380,7 @@ export class AxBaseAI<
   private customLabels?: Record<string, string>;
   private contextCache?: AxAIServiceOptions['contextCache'];
   private beta?: AxAIServiceOptions['beta'];
+  private includeRequestBodyInErrors?: AxAIServiceOptions['includeRequestBodyInErrors'];
 
   private modelInfo: readonly AxModelInfo[];
   private modelUsage?: AxModelUsage;
@@ -520,6 +521,7 @@ export class AxBaseAI<
     this.customLabels = options.customLabels;
     this.contextCache = options.contextCache;
     this.beta = options.beta;
+    this.includeRequestBodyInErrors = options.includeRequestBodyInErrors;
   }
 
   getOptions(): Readonly<AxAIServiceOptions> {
@@ -539,6 +541,7 @@ export class AxBaseAI<
       customLabels: this.customLabels,
       contextCache: this.contextCache,
       beta: this.beta,
+      includeRequestBodyInErrors: this.includeRequestBodyInErrors,
     };
   }
 
@@ -1516,6 +1519,9 @@ export class AxBaseAI<
             abortSignal: options?.abortSignal ?? this.abortSignal,
             corsProxy: this.corsProxy,
             retry: options?.retry ?? this.retry,
+            includeRequestBodyInErrors:
+              options?.includeRequestBodyInErrors ??
+              this.includeRequestBodyInErrors,
           },
           reqValue
         );
@@ -1546,6 +1552,9 @@ export class AxBaseAI<
           abortSignal: options?.abortSignal ?? this.abortSignal,
           corsProxy: this.corsProxy,
           retry: options?.retry ?? this.retry,
+          includeRequestBodyInErrors:
+            options?.includeRequestBodyInErrors ??
+            this.includeRequestBodyInErrors,
         },
         reqValue
       );
@@ -1893,6 +1902,9 @@ export class AxBaseAI<
           abortSignal: options?.abortSignal ?? this.abortSignal,
           corsProxy: this.corsProxy,
           retry: options?.retry ?? this.retry,
+          includeRequestBodyInErrors:
+            options?.includeRequestBodyInErrors ??
+            this.includeRequestBodyInErrors,
         },
         reqValue
       );
@@ -2217,6 +2229,9 @@ export class AxBaseAI<
           abortSignal: options?.abortSignal ?? this.abortSignal,
           corsProxy: this.corsProxy,
           retry: options?.retry ?? this.retry,
+          includeRequestBodyInErrors:
+            options?.includeRequestBodyInErrors ??
+            this.includeRequestBodyInErrors,
         },
         op.request
       );
