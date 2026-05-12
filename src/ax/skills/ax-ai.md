@@ -26,7 +26,7 @@ const openrouter = ai({ name: 'openrouter', apiKey: 'your-key' });
 const ollama = ai({ name: 'ollama', url: 'http://localhost:11434' });
 const hf = ai({ name: 'huggingface', apiKey: 'hf_...' });
 const reka = ai({ name: 'reka', apiKey: 'your-key' });
-const grok = ai({ name: 'x-grok', apiKey: 'your-key' });
+const grok = ai({ name: 'grok', apiKey: 'your-key' });
 ```
 
 ## Model Presets
@@ -46,6 +46,25 @@ const gemini = ai({
 
 await gemini.chat({ model: 'tiny', chatPrompt: [{ role: 'user', content: 'Hi' }] });
 ```
+
+## Model Catalog
+
+```typescript
+import { axGetSupportedAIModels } from '@ax-llm/ax';
+
+const providers = axGetSupportedAIModels();
+const openai = providers.find((provider) => provider.name === 'openai');
+console.log(openai?.models[0]?.promptTokenCostPer1M);
+
+const textProviders = axGetSupportedAIModels({ type: 'text' });
+const embeddingProviders = axGetSupportedAIModels({ type: 'embeddings' });
+```
+
+Use `axGetSupportedAIModels()` to build provider/model selectors before creating an `ai(...)` instance. It returns bundled static metadata: provider names, display names, default models, raw `AxModelInfo` pricing/details, model type (`'text'`, `'embeddings'`, `'code'`, or `'audio'`), and normalized capability flags for thinking, thoughts, structured outputs, audio, temperature, and top-p support. Provider groups and models are sorted cheapest to most expensive based on bundled input + output token pricing; unpriced models sort last.
+
+Filter with `{ type: 'all' | 'text' | 'embeddings' | 'code' | 'audio' }` or an array of those values. The `'text'` filter includes code-capable models; use `'code'` to show only code-first models.
+
+Dynamic providers such as Azure OpenAI deployments, OpenRouter, Ollama, and Hugging Face are marked with `isDynamic: true` and may have an empty or static-limited model list.
 
 ## Chat
 
@@ -210,7 +229,7 @@ const client = new AxMCPClient(transport);
 ## Critical Rules
 
 - Use `ai()` factory for all providers.
-- Provider names: `'openai'`, `'anthropic'`, `'google-gemini'`, `'azure-openai'`, `'mistral'`, `'groq'`, `'cohere'`, `'together'`, `'deepseek'`, `'ollama'`, `'huggingface'`, `'openrouter'`, `'reka'`, `'x-grok'`
+- Provider names: `'openai'`, `'anthropic'`, `'google-gemini'`, `'azure-openai'`, `'mistral'`, `'groq'`, `'cohere'`, `'together'`, `'deepseek'`, `'ollama'`, `'huggingface'`, `'openrouter'`, `'reka'`, `'grok'`
 - Thinking constraints on Anthropic: `temperature` and `topK` are ignored; `topP` only sent if >= 0.95.
 - Bedrock uses `new AxAIBedrock()`, not `ai()`.
 - Vercel AI SDK uses `AxAIProvider` wrapper.

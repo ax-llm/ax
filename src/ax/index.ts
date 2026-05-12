@@ -186,6 +186,16 @@ import {
   axValidateProviderCapabilities,
 } from './ai/capabilities.js';
 import {
+  type AxAIModelCatalogFilter,
+  type AxAIModelCatalogModel,
+  type AxAIModelCatalogModelCapabilities,
+  type AxAIModelCatalogModelType,
+  type AxAIModelCatalogOptions,
+  type AxAIModelCatalogProvider,
+  type AxAIModelCatalogProviderName,
+  axGetSupportedAIModels,
+} from './ai/catalog.js';
+import {
   AxAICohere,
   type AxAICohereArgs,
   axAICohereCreativeConfig,
@@ -1115,6 +1125,7 @@ export { axGetFormatCompatibility };
 export { axGetMetricsConfig };
 export { axGetOptimizerMetricsConfig };
 export { axGetProvidersWithMediaSupport };
+export { axGetSupportedAIModels };
 export { axGlobals };
 export { axModelInfoAnthropic };
 export { axModelInfoCohere };
@@ -1241,6 +1252,13 @@ export type { AxAIMemory };
 export type { AxAIMetricsInstruments };
 export type { AxAIMistralArgs };
 export type { AxAIMistralChatRequest };
+export type { AxAIModelCatalogFilter };
+export type { AxAIModelCatalogModel };
+export type { AxAIModelCatalogModelCapabilities };
+export type { AxAIModelCatalogModelType };
+export type { AxAIModelCatalogOptions };
+export type { AxAIModelCatalogProvider };
+export type { AxAIModelCatalogProviderName };
 export type { AxAIModelList };
 export type { AxAIModelListBase };
 export type { AxAIModels };
