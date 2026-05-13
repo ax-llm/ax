@@ -31,6 +31,15 @@ export const validateValue = (
         return val instanceof Date || typeof val === 'string';
       case 'datetime':
         return val instanceof Date || typeof val === 'string';
+      case 'dateRange':
+      case 'datetimeRange':
+        return (
+          typeof val === 'string' ||
+          (typeof val === 'object' &&
+            val !== null &&
+            'start' in val &&
+            'end' in val)
+        );
       case 'json':
         return typeof val === 'object' || typeof val === 'string';
       case 'object':
@@ -205,12 +214,24 @@ export function mergeProgramUsage(
   usages: readonly AxProgramUsage[]
 ): AxProgramUsage[] {
   const usageMap: { [key: string]: AxProgramUsage } = {};
+  const tokenKeys = [
+    'promptTokens',
+    'completionTokens',
+    'totalTokens',
+    'thoughtsTokens',
+    'reasoningTokens',
+    'cacheCreationTokens',
+    'cacheReadTokens',
+  ] as const;
 
   for (const usage of usages) {
     const key = `${usage.ai}:${usage.model}`;
 
     if (!usageMap[key]) {
-      usageMap[key] = { ...usage };
+      usageMap[key] = {
+        ...usage,
+        ...(usage.tokens ? { tokens: { ...usage.tokens } } : {}),
+      };
       continue;
     }
 
@@ -221,9 +242,15 @@ export function mergeProgramUsage(
         completionTokens: 0,
         totalTokens: 0,
       };
-      tokens.promptTokens += usage?.tokens?.promptTokens ?? 0;
-      tokens.completionTokens += usage?.tokens?.completionTokens ?? 0;
-      tokens.totalTokens += usage?.tokens?.totalTokens ?? 0;
+      for (const tokenKey of tokenKeys) {
+        const incoming = usage?.tokens?.[tokenKey];
+        if (incoming !== undefined || tokens[tokenKey] !== undefined) {
+          tokens[tokenKey] = (tokens[tokenKey] ?? 0) + (incoming ?? 0);
+        }
+      }
+      if (!tokens.serviceTier && usage?.tokens?.serviceTier) {
+        tokens.serviceTier = usage.tokens.serviceTier;
+      }
       currentUsage.tokens = tokens;
 
       // Merge citations and dedupe by URL

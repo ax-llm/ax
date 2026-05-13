@@ -393,7 +393,7 @@ gen.getChatLog(): readonly AxChatLogEntry[]
 
 ### getUsage()
 
-Returns token usage aggregated by `(ai, model)` across all steps. Reset with `resetUsage()`.
+Returns token usage aggregated by `(ai, model)` across all steps. When a provider reports prompt-cache usage, `promptTokens` is the uncached input portion and `cacheReadTokens` / `cacheCreationTokens` carry the cache counters. Reset with `resetUsage()`.
 
 ```typescript
 const usage = gen.getUsage(); // AxProgramUsage[]

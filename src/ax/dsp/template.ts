@@ -40,6 +40,8 @@ export function s<const T extends string>(
  * - `json` - Arbitrary JSON objects
  * - `date` - Date in YYYY-MM-DD format
  * - `datetime` - ISO 8601 datetime
+ * - `dateRange` - date range with start/end dates
+ * - `datetimeRange` - datetime range with start/end datetimes
  * - `code` - Code blocks (preserves formatting)
  * - `image` - Image input (for multimodal models)
  * - `audio` - Audio input

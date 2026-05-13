@@ -4,6 +4,7 @@ import { describe, expect, it, test } from 'vitest';
 import {
   LRUCache,
   matchesContent,
+  mergeProgramUsage,
   parseMarkdownList,
   validateValue,
 } from './util.js';
@@ -54,6 +55,50 @@ describe('parseMarkdownList', () => {
     - value3`;
 
     expect(() => parseMarkdownList(content)).toThrow();
+  });
+});
+
+describe('mergeProgramUsage', () => {
+  it('sums optional token counters when usage entries share a model key', () => {
+    const usage = mergeProgramUsage([
+      {
+        ai: 'test-ai',
+        model: 'test-model',
+        tokens: {
+          promptTokens: 10,
+          completionTokens: 5,
+          totalTokens: 25,
+          thoughtsTokens: 2,
+          reasoningTokens: 3,
+          cacheCreationTokens: 4,
+          cacheReadTokens: 6,
+        },
+      },
+      {
+        ai: 'test-ai',
+        model: 'test-model',
+        tokens: {
+          promptTokens: 7,
+          completionTokens: 8,
+          totalTokens: 20,
+          thoughtsTokens: 1,
+          reasoningTokens: 9,
+          cacheCreationTokens: 5,
+          cacheReadTokens: 11,
+        },
+      },
+    ]);
+
+    expect(usage).toHaveLength(1);
+    expect(usage[0]?.tokens).toEqual({
+      promptTokens: 17,
+      completionTokens: 13,
+      totalTokens: 45,
+      thoughtsTokens: 3,
+      reasoningTokens: 12,
+      cacheCreationTokens: 9,
+      cacheReadTokens: 17,
+    });
   });
 });
 

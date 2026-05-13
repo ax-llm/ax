@@ -41,6 +41,7 @@ import type {
   UserMessageContentItem,
 } from './responses_types.js';
 import { AxAIOpenAIResponsesModel } from './responses_types.js';
+import { axNormalizeOpenAIUsage } from './usage.js';
 
 /**
  * Checks if the given OpenAI Responses model is a thinking/reasoning model.
@@ -533,13 +534,7 @@ export class AxAIOpenAIResponsesImpl<
   ): Readonly<AxChatResponse> {
     const { id, output, usage } = resp;
 
-    if (usage) {
-      this.tokensUsed = {
-        promptTokens: usage.prompt_tokens,
-        completionTokens: usage.completion_tokens ?? usage.output_tokens ?? 0,
-        totalTokens: usage.total_tokens,
-      };
-    }
+    this.tokensUsed = axNormalizeOpenAIUsage(usage);
 
     const currentResult: Partial<AxChatResponseResult> = {};
 
@@ -1104,16 +1099,7 @@ export class AxAIOpenAIResponsesImpl<
 
       case 'response.completed':
         // Response completion - handle usage
-        if (event.response.usage) {
-          this.tokensUsed = {
-            promptTokens: event.response.usage.prompt_tokens,
-            completionTokens:
-              event.response.usage.completion_tokens ??
-              event.response.usage.output_tokens ??
-              0,
-            totalTokens: event.response.usage.total_tokens,
-          };
-        }
+        this.tokensUsed = axNormalizeOpenAIUsage(event.response.usage);
         remoteId = event.response.id;
         baseResult.id = `${event.response.id}_completed`;
         baseResult.finishReason = 'stop';

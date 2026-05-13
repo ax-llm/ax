@@ -1,6 +1,11 @@
 /* eslint-disable @typescript-eslint/naming-convention */
 
-import { parseLLMFriendlyDate, parseLLMFriendlyDateTime } from './datetime.js';
+import {
+  parseLLMFriendlyDate,
+  parseLLMFriendlyDateRange,
+  parseLLMFriendlyDateTime,
+  parseLLMFriendlyDateTimeRange,
+} from './datetime.js';
 import {
   createExpectedRequiredFieldNotFoundError,
   createInvalidArrayError,
@@ -405,15 +410,15 @@ const parseMissedFieldsFromFullContent = (
 
 const convertValueToType = (
   field: Readonly<AxField>,
-  val: string,
+  val: unknown,
   required = false
 ) => {
   switch (field.type?.name) {
     case 'code':
-      return extractBlock(val);
+      return extractBlock(String(val));
 
     case 'string':
-      return val;
+      return typeof val === 'string' ? val : String(val);
 
     case 'number': {
       const v = Number(val);
@@ -430,7 +435,7 @@ const convertValueToType = (
       if (typeof val === 'boolean') {
         return val;
       }
-      const v = val.toLowerCase();
+      const v = String(val).toLowerCase();
       if (v === 'true') {
         return true;
       }
@@ -443,13 +448,19 @@ const convertValueToType = (
       throw new Error('Invalid boolean');
     }
     case 'date':
-      return parseLLMFriendlyDate(field, val, required);
+      return parseLLMFriendlyDate(field, String(val), required);
+
+    case 'dateRange':
+      return parseLLMFriendlyDateRange(field, val, required);
 
     case 'datetime':
-      return parseLLMFriendlyDateTime(field, val, required);
+      return parseLLMFriendlyDateTime(field, String(val), required);
+
+    case 'datetimeRange':
+      return parseLLMFriendlyDateTimeRange(field, val, required);
 
     case 'class': {
-      const className = val;
+      const className = String(val);
       if (field.type.options && !field.type.options.includes(className)) {
         if (field.isOptional) {
           return;

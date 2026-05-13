@@ -71,4 +71,23 @@ describe('Verification of Fixes', () => {
     // It should return the string as is, because JSON.parse failed and it swallowed the error
     expect(result).toEqual(['{invalid json}']);
   });
+
+  it('should parse datetime range fields', () => {
+    const field = {
+      name: 'window',
+      title: 'Window',
+      type: { name: 'datetimeRange', isArray: false },
+    };
+
+    // @ts-ignore
+    const result = validateAndParseFieldValue(
+      field,
+      '{"start":"2022-01-01T12:00:00Z","end":"2022-01-01T13:30:00Z"}'
+    );
+
+    expect(result).toEqual({
+      start: new Date('2022-01-01T12:00:00Z'),
+      end: new Date('2022-01-01T13:30:00Z'),
+    });
+  });
 });

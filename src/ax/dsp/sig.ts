@@ -44,7 +44,9 @@ export interface AxFieldType {
     | 'file'
     | 'url'
     | 'date'
+    | 'dateRange'
     | 'datetime'
+    | 'datetimeRange'
     | 'class'
     | 'code'
     | 'object';
@@ -651,6 +653,8 @@ type ValidateNoMediaTypes<TFields> = {
  * - `f.json(desc?)` - Arbitrary JSON objects
  * - `f.datetime(desc?)` - ISO 8601 datetime strings
  * - `f.date(desc?)` - Date in YYYY-MM-DD format
+ * - `f.datetimeRange(desc?)` - `{ start: Date; end: Date }` datetime ranges
+ * - `f.dateRange(desc?)` - `{ start: Date; end: Date }` date ranges
  * - `f.class(options, desc?)` - Classification with predefined choices
  * - `f.image(desc?)` - Image input (multimodal)
  * - `f.audio(desc?)` - Audio input
@@ -905,6 +909,33 @@ export const f = Object.assign(
       }),
 
     /**
+     * Creates a datetime range field type.
+     *
+     * Values normalize to `{ start: Date; end: Date }`. Prefer ISO 8601
+     * interval strings such as `2024-01-15T14:30:00Z/2024-01-15T15:30:00Z`
+     * or JSON objects with `start` and `end`.
+     */
+    datetimeRange: (
+      desc?: string
+    ): AxFluentFieldType<
+      'datetimeRange',
+      false,
+      undefined,
+      false,
+      false,
+      undefined,
+      false
+    > =>
+      new AxFluentFieldType({
+        type: 'datetimeRange' as const,
+        isArray: false as const,
+        description: desc,
+        isOptional: false as const,
+        isInternal: false as const,
+        isCached: false as const,
+      }),
+
+    /**
      * Creates a date field type for YYYY-MM-DD formatted dates.
      *
      * Values are formatted as date strings without time components (e.g., "2024-01-15").
@@ -932,6 +963,32 @@ export const f = Object.assign(
     > =>
       new AxFluentFieldType({
         type: 'date' as const,
+        isArray: false as const,
+        description: desc,
+        isOptional: false as const,
+        isInternal: false as const,
+        isCached: false as const,
+      }),
+
+    /**
+     * Creates a date range field type.
+     *
+     * Values normalize to `{ start: Date; end: Date }`. Prefer interval strings
+     * such as `2024-01-15/2024-01-20` or JSON objects with `start` and `end`.
+     */
+    dateRange: (
+      desc?: string
+    ): AxFluentFieldType<
+      'dateRange',
+      false,
+      undefined,
+      false,
+      false,
+      undefined,
+      false
+    > =>
+      new AxFluentFieldType({
+        type: 'dateRange' as const,
         isArray: false as const,
         description: desc,
         isOptional: false as const,
@@ -1293,7 +1350,9 @@ export interface AxField {
       | 'file'
       | 'url'
       | 'date'
+      | 'dateRange'
       | 'datetime'
+      | 'datetimeRange'
       | 'class'
       | 'code'
       | 'object';
@@ -1317,6 +1376,7 @@ export interface AxField {
 }
 
 export type AxIField = Omit<AxField, 'title'> & { title: string };
+export type AxDateRangeValue = { start: Date; end: Date };
 
 // Helper type to map AxFieldType or AxFluentFieldType to TypeScript types for type-safe field additions
 type InferFieldValueType<T> = T extends AxFieldType | AxFluentFieldType
@@ -1340,52 +1400,64 @@ type InferFieldValueType<T> = T extends AxFieldType | AxFluentFieldType
             ? T['isArray'] extends true
               ? Date[]
               : Date
-            : T['type'] extends 'datetime'
+            : T['type'] extends 'dateRange'
               ? T['isArray'] extends true
-                ? Date[]
-                : Date
-              : T['type'] extends 'image'
+                ? AxDateRangeValue[]
+                : AxDateRangeValue
+              : T['type'] extends 'datetime'
                 ? T['isArray'] extends true
-                  ? { mimeType: string; data: string }[]
-                  : { mimeType: string; data: string }
-                : T['type'] extends 'audio'
+                  ? Date[]
+                  : Date
+                : T['type'] extends 'datetimeRange'
                   ? T['isArray'] extends true
-                    ? { format?: 'wav'; data: string }[]
-                    : { format?: 'wav'; data: string }
-                  : T['type'] extends 'file'
+                    ? AxDateRangeValue[]
+                    : AxDateRangeValue
+                  : T['type'] extends 'image'
                     ? T['isArray'] extends true
-                      ? (
-                          | { mimeType: string; data: string }
-                          | { mimeType: string; fileUri: string }
-                        )[]
-                      :
-                          | { mimeType: string; data: string }
-                          | { mimeType: string; fileUri: string }
-                    : T['type'] extends 'url'
+                      ? { mimeType: string; data: string }[]
+                      : { mimeType: string; data: string }
+                    : T['type'] extends 'audio'
                       ? T['isArray'] extends true
-                        ? string[]
-                        : string
-                      : T['type'] extends 'code'
+                        ? { format?: 'wav'; data: string }[]
+                        : { format?: 'wav'; data: string }
+                      : T['type'] extends 'file'
                         ? T['isArray'] extends true
-                          ? string[]
-                          : string
-                        : T['type'] extends 'class'
-                          ? T['options'] extends readonly (infer U)[]
+                          ? (
+                              | { mimeType: string; data: string }
+                              | { mimeType: string; fileUri: string }
+                            )[]
+                          :
+                              | { mimeType: string; data: string }
+                              | { mimeType: string; fileUri: string }
+                        : T['type'] extends 'url'
+                          ? T['isArray'] extends true
+                            ? string[]
+                            : string
+                          : T['type'] extends 'code'
                             ? T['isArray'] extends true
-                              ? U[]
-                              : U
-                            : T['isArray'] extends true
                               ? string[]
                               : string
-                          : T['type'] extends 'object'
-                            ? T extends { fields: infer F }
-                              ? F extends Record<string, any>
+                            : T['type'] extends 'class'
+                              ? T['options'] extends readonly (infer U)[]
                                 ? T['isArray'] extends true
-                                  ? { [K in keyof F]: InferFluentType<F[K]> }[]
-                                  : { [K in keyof F]: InferFluentType<F[K]> }
+                                  ? U[]
+                                  : U
+                                : T['isArray'] extends true
+                                  ? string[]
+                                  : string
+                              : T['type'] extends 'object'
+                                ? T extends { fields: infer F }
+                                  ? F extends Record<string, any>
+                                    ? T['isArray'] extends true
+                                      ? {
+                                          [K in keyof F]: InferFluentType<F[K]>;
+                                        }[]
+                                      : {
+                                          [K in keyof F]: InferFluentType<F[K]>;
+                                        }
+                                    : any
+                                  : any
                                 : any
-                              : any
-                            : any
   : any;
 
 // Improved fluent field type that preserves exact type information for better inference
@@ -1472,52 +1544,64 @@ type InferFluentType<
           ? T['isArray'] extends true
             ? Date[]
             : Date
-          : T['type'] extends 'datetime'
+          : T['type'] extends 'dateRange'
             ? T['isArray'] extends true
-              ? Date[]
-              : Date
-            : T['type'] extends 'image'
+              ? AxDateRangeValue[]
+              : AxDateRangeValue
+            : T['type'] extends 'datetime'
               ? T['isArray'] extends true
-                ? { mimeType: string; data: string }[]
-                : { mimeType: string; data: string }
-              : T['type'] extends 'audio'
+                ? Date[]
+                : Date
+              : T['type'] extends 'datetimeRange'
                 ? T['isArray'] extends true
-                  ? { format?: 'wav'; data: string }[]
-                  : { format?: 'wav'; data: string }
-                : T['type'] extends 'file'
+                  ? AxDateRangeValue[]
+                  : AxDateRangeValue
+                : T['type'] extends 'image'
                   ? T['isArray'] extends true
-                    ? (
-                        | { mimeType: string; data: string }
-                        | { mimeType: string; fileUri: string }
-                      )[]
-                    :
-                        | { mimeType: string; data: string }
-                        | { mimeType: string; fileUri: string }
-                  : T['type'] extends 'url'
+                    ? { mimeType: string; data: string }[]
+                    : { mimeType: string; data: string }
+                  : T['type'] extends 'audio'
                     ? T['isArray'] extends true
-                      ? string[]
-                      : string
-                    : T['type'] extends 'code'
+                      ? { format?: 'wav'; data: string }[]
+                      : { format?: 'wav'; data: string }
+                    : T['type'] extends 'file'
                       ? T['isArray'] extends true
-                        ? string[]
-                        : string
-                      : T['type'] extends 'class'
-                        ? T['options'] extends readonly (infer U)[]
+                        ? (
+                            | { mimeType: string; data: string }
+                            | { mimeType: string; fileUri: string }
+                          )[]
+                        :
+                            | { mimeType: string; data: string }
+                            | { mimeType: string; fileUri: string }
+                      : T['type'] extends 'url'
+                        ? T['isArray'] extends true
+                          ? string[]
+                          : string
+                        : T['type'] extends 'code'
                           ? T['isArray'] extends true
-                            ? U[]
-                            : U
-                          : T['isArray'] extends true
                             ? string[]
                             : string
-                        : T['type'] extends 'object'
-                          ? T extends { fields: infer F }
-                            ? F extends Record<string, any>
+                          : T['type'] extends 'class'
+                            ? T['options'] extends readonly (infer U)[]
                               ? T['isArray'] extends true
-                                ? { [K in keyof F]: InferFluentType<F[K]> }[]
-                                : { [K in keyof F]: InferFluentType<F[K]> }
-                              : any
-                            : any
-                          : any;
+                                ? U[]
+                                : U
+                              : T['isArray'] extends true
+                                ? string[]
+                                : string
+                            : T['type'] extends 'object'
+                              ? T extends { fields: infer F }
+                                ? F extends Record<string, any>
+                                  ? T['isArray'] extends true
+                                    ? {
+                                        [K in keyof F]: InferFluentType<F[K]>;
+                                      }[]
+                                    : {
+                                        [K in keyof F]: InferFluentType<F[K]>;
+                                      }
+                                  : any
+                                : any
+                              : any;
 
 // Helper flags for fluent type modifiers
 type _IsInternal<T> = T extends { readonly isInternal: true } ? true : false;
@@ -2124,7 +2208,7 @@ export class AxSignature<
       throw new AxSignatureValidationError(
         'Field type name is required',
         field.name,
-        'Specify a valid type. Available types: string, number, boolean, json, image, audio, file, url, date, datetime, class, code'
+        'Specify a valid type. Available types: string, number, boolean, json, image, audio, file, url, date, dateRange, datetime, datetimeRange, class, code'
       );
     }
 
@@ -2691,6 +2775,8 @@ function validateField(
       'boolean',
       'json',
       'array',
+      'daterange',
+      'datetimerange',
       'datetime',
       'date',
       'time',
@@ -2763,7 +2849,7 @@ function validateFieldType(
   const { type } = field;
 
   // Only media types (image, audio, file) are restricted to input fields
-  // url, email, date, datetime can be used in both input and output
+  // url, email, date, dateRange, datetime, datetimeRange can be used in both input and output
   if (type.name === 'image' || type.name === 'audio' || type.name === 'file') {
     if (context === 'output') {
       throw new AxSignatureValidationError(

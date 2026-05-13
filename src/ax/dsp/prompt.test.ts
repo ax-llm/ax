@@ -173,6 +173,51 @@ describe('AxPromptTemplate.render', () => {
       expect(userContent).toContain('Enabled: false');
       expect(userContent).toContain('Limit: 0');
     });
+
+    it('uses ISO datetime examples in prompts', () => {
+      const sig = f()
+        .input('currentDate', f.datetime('Current timestamp'))
+        .output('scheduledAt', f.datetime())
+        .build();
+      const template = new AxPromptTemplate(sig);
+
+      const messages = template.render(
+        { currentDate: new Date(Date.UTC(2022, 0, 1, 12, 0, 10)) },
+        {}
+      );
+      const systemContent = getSystemContent(messages);
+      const userContent = getUserContent(messages);
+
+      expect(systemContent).toContain('datetime (ISO 8601 with timezone');
+      expect(systemContent).toContain('2024-05-09T14:30:00Z');
+      expect(userContent).toContain('Current Date: 2022-01-01T12:00:10Z');
+    });
+
+    it('uses range examples in prompts', () => {
+      const sig = f()
+        .input('availableWindow', f.datetimeRange('Available time'))
+        .output('travelDates', f.dateRange())
+        .output('selectedWindow', f.datetimeRange())
+        .build();
+      const template = new AxPromptTemplate(sig);
+
+      const messages = template.render(
+        {
+          availableWindow: {
+            start: new Date(Date.UTC(2022, 0, 1, 12, 0, 0)),
+            end: new Date(Date.UTC(2022, 0, 1, 13, 30, 0)),
+          },
+        },
+        {}
+      );
+      const systemContent = getSystemContent(messages);
+      const userContent = getUserContent(messages);
+
+      expect(systemContent).toContain('datetime range');
+      expect(systemContent).toContain('date range');
+      expect(userContent).toContain('"start": "2022-01-01T12:00:00Z"');
+      expect(userContent).toContain('"end": "2022-01-01T13:30:00Z"');
+    });
   });
 
   describe('renderWithMetrics', () => {

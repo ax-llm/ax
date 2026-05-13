@@ -273,6 +273,51 @@ describe('AxAIOpenAI', () => {
       expect((llm as any).apiURL).toBe('https://openrouter.ai/api/v1');
     });
   });
+
+  it('normalizes OpenAI-compatible cached token usage', async () => {
+    const ai = new AxAIOpenAI({
+      apiKey: 'key',
+      config: { model: AxAIOpenAIModel.GPT5Mini },
+    });
+    const capture: { lastBody?: any } = {};
+    const fetch = createMockFetch(
+      {
+        choices: [
+          {
+            index: 0,
+            message: { role: 'assistant', content: 'ok' },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 100,
+          completion_tokens: 5,
+          total_tokens: 105,
+          prompt_tokens_details: { cached_tokens: 40 },
+          completion_tokens_details: { reasoning_tokens: 3 },
+        },
+      },
+      capture
+    );
+
+    ai.setOptions({ fetch });
+
+    const res = (await ai.chat(
+      {
+        model: AxAIOpenAIModel.GPT5Mini,
+        chatPrompt: [{ role: 'user', content: 'hi' }],
+      },
+      { stream: false }
+    )) as any;
+
+    expect(res.modelUsage?.tokens).toEqual({
+      promptTokens: 60,
+      completionTokens: 5,
+      totalTokens: 105,
+      reasoningTokens: 3,
+      cacheReadTokens: 40,
+    });
+  });
 });
 
 describe('AxAIOpenAI audio chat', () => {
@@ -518,7 +563,20 @@ describe('AxAIOpenAI realtime audio chat', () => {
         response_id: 'resp_1',
         delta: 'AwQ=',
       },
-      { type: 'response.done', response_id: 'resp_1' },
+      {
+        type: 'response.done',
+        response_id: 'resp_1',
+        response: {
+          id: 'resp_1',
+          usage: {
+            input_tokens: 100,
+            output_tokens: 10,
+            total_tokens: 110,
+            input_tokens_details: { cached_tokens: 25 },
+            output_tokens_details: { reasoning_tokens: 4 },
+          },
+        },
+      },
     ]);
 
     const res = (await ai.chat(
@@ -531,6 +589,13 @@ describe('AxAIOpenAI realtime audio chat', () => {
       id: 'resp_1',
       data: 'AQIDBA==',
       transcript: 'hello',
+    });
+    expect(res.modelUsage?.tokens).toEqual({
+      promptTokens: 75,
+      completionTokens: 10,
+      totalTokens: 110,
+      reasoningTokens: 4,
+      cacheReadTokens: 25,
     });
 
     const socket = FakeOpenAIRealtimeWebSocket.instances[0];
@@ -554,7 +619,19 @@ describe('AxAIOpenAI realtime audio chat', () => {
         response_id: 'resp_stream',
         delta: 'AQI=',
       },
-      { type: 'response.done', response_id: 'resp_stream' },
+      {
+        type: 'response.done',
+        response_id: 'resp_stream',
+        response: {
+          id: 'resp_stream',
+          usage: {
+            input_tokens: 20,
+            output_tokens: 5,
+            total_tokens: 25,
+            input_tokens_details: { cached_tokens: 8 },
+          },
+        },
+      },
     ]);
 
     const stream = (await ai.chat(
@@ -564,10 +641,14 @@ describe('AxAIOpenAI realtime audio chat', () => {
 
     const reader = stream.getReader();
     const chunks: any[] = [];
+    let finalUsage: any;
     while (true) {
       const item = await reader.read();
       if (item.done) break;
       chunks.push(item.value);
+      if (item.value.modelUsage) {
+        finalUsage = item.value.modelUsage;
+      }
     }
 
     expect(chunks[0]?.results[0]?.audio).toEqual({
@@ -577,6 +658,56 @@ describe('AxAIOpenAI realtime audio chat', () => {
     });
     expect(chunks.at(-1)?.results[0]?.finishReason).toBe('stop');
     expect(chunks.at(-1)?.results[0]?.audio).toBeUndefined();
+    expect(finalUsage?.tokens).toEqual({
+      promptTokens: 12,
+      completionTokens: 5,
+      totalTokens: 25,
+      cacheReadTokens: 8,
+    });
+  });
+
+  it('waits for realtime response.done usage after output audio done', async () => {
+    const ai = new AxAIOpenAI({
+      apiKey: 'key',
+      config: axAIOpenAIRealtimeDefaultConfig(),
+    });
+    const webSocket = openAIRealtimeWebSocket([
+      {
+        type: 'response.output_audio.delta',
+        response_id: 'resp_audio_done_first',
+        delta: 'AQI=',
+      },
+      {
+        type: 'response.output_audio.done',
+        response_id: 'resp_audio_done_first',
+      },
+      {
+        type: 'response.done',
+        response_id: 'resp_audio_done_first',
+        response: {
+          id: 'resp_audio_done_first',
+          usage: {
+            input_tokens: 30,
+            output_tokens: 6,
+            total_tokens: 36,
+            input_tokens_details: { cached_tokens: 12 },
+          },
+        },
+      },
+    ]);
+
+    const res = (await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'say hello' }] },
+      { stream: false, webSocket }
+    )) as any;
+
+    expect(res.results[0]?.audio?.data).toBe('AQI=');
+    expect(res.modelUsage?.tokens).toEqual({
+      promptTokens: 18,
+      completionTokens: 6,
+      totalTokens: 36,
+      cacheReadTokens: 12,
+    });
   });
 
   it('uses gpt-realtime-whisper for realtime transcript deltas', async () => {

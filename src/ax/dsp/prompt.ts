@@ -8,7 +8,11 @@ import {
   countChatPromptContentChars,
 } from '../ai/promptMetrics.js';
 import type { AxChatRequest, AxContextCacheOptions } from '../ai/types.js';
-import { formatDateWithTimezone } from './datetime.js';
+import {
+  formatDateRange,
+  formatDateTimeRange,
+  formatDateWithTimezone,
+} from './datetime.js';
 import type { AxInputFunctionType } from './functions.js';
 import type { AxField, AxFieldType, AxIField, AxSignature } from './sig.js';
 import type { AxFieldValue } from './types.js';
@@ -1451,12 +1455,28 @@ const processValue = (
   field: Readonly<AxField>,
   value: Readonly<AxFieldValue>
 ): AxFieldValue => {
+  const isDateRangeValue = (
+    v: Readonly<AxFieldValue>
+  ): v is { start: Date; end: Date } =>
+    !!v &&
+    typeof v === 'object' &&
+    'start' in v &&
+    'end' in v &&
+    v.start instanceof Date &&
+    v.end instanceof Date;
+
   if (field.type?.name === 'date' && value instanceof Date) {
     const v = value.toISOString();
     return v.slice(0, v.indexOf('T'));
   }
   if (field.type?.name === 'datetime' && value instanceof Date) {
     return formatDateWithTimezone(value);
+  }
+  if (field.type?.name === 'dateRange' && isDateRangeValue(value)) {
+    return JSON.stringify(formatDateRange(value), null, 2);
+  }
+  if (field.type?.name === 'datetimeRange' && isDateRangeValue(value)) {
+    return JSON.stringify(formatDateTimeRange(value), null, 2);
   }
   if (field.type?.name === 'image' && typeof value === 'object') {
     return value;
@@ -1505,9 +1525,13 @@ export const toFieldType = (type: Readonly<AxField['type']>) => {
       case 'boolean':
         return 'boolean (true or false)';
       case 'date':
-        return 'date ("YYYY-MM-DD" format)';
+        return 'date (YYYY-MM-DD, e.g. 2024-05-09)';
+      case 'dateRange':
+        return 'date range ({ "start": "YYYY-MM-DD", "end": "YYYY-MM-DD" }, e.g. {"start":"2024-05-09","end":"2024-05-12"})';
       case 'datetime':
-        return 'date time ("YYYY-MM-DD HH:mm Timezone" format)';
+        return 'datetime (ISO 8601 with timezone, e.g. 2024-05-09T14:30:00Z or 2024-05-09T14:30:00-07:00)';
+      case 'datetimeRange':
+        return 'datetime range ({ "start": ISO datetime, "end": ISO datetime }, e.g. {"start":"2024-05-09T14:30:00Z","end":"2024-05-09T15:30:00Z"})';
       case 'json':
         return 'JSON object';
       case 'class':

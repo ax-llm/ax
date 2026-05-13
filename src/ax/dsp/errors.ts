@@ -24,9 +24,13 @@ const toFieldType = (type: Readonly<AxField['type']>) => {
       case 'boolean':
         return 'boolean';
       case 'date':
-        return 'date ("YYYY-MM-DD" format)';
+        return 'date (YYYY-MM-DD, e.g. 2024-05-09)';
       case 'datetime':
-        return 'date time ("YYYY-MM-DD HH:mm Timezone" format)';
+        return 'datetime (ISO 8601 with timezone, e.g. 2024-05-09T14:30:00Z)';
+      case 'dateRange':
+        return 'date range ({ "start": "YYYY-MM-DD", "end": "YYYY-MM-DD" })';
+      case 'datetimeRange':
+        return 'datetime range ({ "start": "2024-05-09T14:30:00Z", "end": "2024-05-09T15:30:00Z" })';
       case 'json':
         return 'JSON object';
       case 'class':
@@ -141,7 +145,25 @@ export const createInvalidDateTimeError = (
   detail: string
 ) =>
   new ValidationError(
-    `Invalid date/time for '${field.title}': ${detail}. Use the format YYYY-MM-DD HH:mm or YYYY-MM-DD HH:mm:ss followed by a valid timezone (e.g., America/New_York). You provided: ${dateStr}.`
+    `Invalid date/time for '${field.title}': ${detail}. Prefer ISO 8601 with an explicit timezone, e.g. 2024-05-09T14:30:00Z or 2024-05-09T14:30:00-07:00. Legacy values like "2024-05-09 14:30 America/New_York" are also accepted. You provided: ${dateStr}.`
+  );
+
+export const createInvalidDateRangeError = (
+  field: Readonly<AxField>,
+  rangeStr: string,
+  detail: string
+) =>
+  new ValidationError(
+    `Invalid date range for '${field.title}': ${detail}. Prefer JSON like {"start":"2024-05-09","end":"2024-05-12"} or an interval like 2024-05-09/2024-05-12. You provided: ${rangeStr}.`
+  );
+
+export const createInvalidDateTimeRangeError = (
+  field: Readonly<AxField>,
+  rangeStr: string,
+  detail: string
+) =>
+  new ValidationError(
+    `Invalid date/time range for '${field.title}': ${detail}. Prefer JSON like {"start":"2024-05-09T14:30:00Z","end":"2024-05-09T15:30:00Z"} or an ISO interval like 2024-05-09T14:30:00Z/2024-05-09T15:30:00Z. You provided: ${rangeStr}.`
   );
 
 export const createInvalidURLError = (

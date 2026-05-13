@@ -15,6 +15,7 @@ import {
   AxAIOpenAIEmbedModel,
   AxAIOpenAIModel,
 } from './chat_types.js';
+import type { OpenAICompatibleUsage } from './usage.js';
 
 type WebSocketLike = {
   send(data: string): void;
@@ -52,6 +53,7 @@ type OpenAIRealtimeCollected = {
   transcriptChunks: string[];
   inputTranscriptChunks: string[];
   responseId?: string;
+  usage?: OpenAICompatibleUsage;
 };
 
 export const axAIOpenAIRealtimeDefaultConfig = (): AxAIOpenAIConfig<
@@ -414,11 +416,11 @@ const makeChatResponse = <TModel>({
         finish_reason: 'stop',
       },
     ],
-    usage: {
+    usage: (collected.usage ?? {
       prompt_tokens: 0,
       completion_tokens: 0,
       total_tokens: 0,
-    },
+    }) as any,
     system_fingerprint: '',
     ...(isDelta ? { __isDelta: true } : {}),
   } as AxAIOpenAIChatResponse;
@@ -460,6 +462,7 @@ const makeChatDelta = <TModel>({
     },
   ],
   system_fingerprint: '',
+  ...(collected.usage ? { usage: collected.usage as any } : {}),
 });
 
 const axRunOpenAIRealtimeTurn = async <TModel>(
@@ -596,6 +599,12 @@ const axRunOpenAIRealtimeTurn = async <TModel>(
         if (typeof message.response_id === 'string') {
           collected.responseId = message.response_id;
         }
+        if (typeof message.response?.id === 'string') {
+          collected.responseId = message.response.id;
+        }
+        if (message.response?.usage || message.usage) {
+          collected.usage = message.response?.usage ?? message.usage;
+        }
 
         if (
           message.type === 'response.output_audio.delta' ||
@@ -686,7 +695,7 @@ const axRunOpenAIRealtimeTurn = async <TModel>(
           message.type === 'response.output_audio.done' ||
           message.type === 'response.audio.done'
         ) {
-          finish();
+          finishAfterIdle();
           return;
         }
 
@@ -712,9 +721,13 @@ const axRunOpenAIRealtimeTurn = async <TModel>(
 
         if (
           message.type === 'response.output_item.done' ||
-          message.type === 'response.content_part.done' ||
-          message.type === 'response.completed'
+          message.type === 'response.content_part.done'
         ) {
+          finishAfterIdle();
+          return;
+        }
+
+        if (message.type === 'response.completed') {
           finish();
         }
       } catch (error) {
@@ -732,7 +745,7 @@ const axRunOpenAIRealtimeStream = <TModel>(
       axRunOpenAIRealtimeTurn(realtimeRequest, (chunk) =>
         controller.enqueue(chunk)
       )
-        .then(() => {
+        .then((response) => {
           controller.enqueue(
             makeChatDelta({
               model: realtimeRequest.model,
@@ -741,6 +754,7 @@ const axRunOpenAIRealtimeStream = <TModel>(
                 textChunks: [],
                 transcriptChunks: [],
                 inputTranscriptChunks: [],
+                usage: response.usage as any,
               },
               finishReason: 'stop',
             })

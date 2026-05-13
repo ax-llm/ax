@@ -8,7 +8,7 @@
 // ✅ Supported:
 //   - Primitives: string, number, boolean
 //   - Arrays: string[], number[], boolean[]
-//   - Special types: json, date, datetime, url, code, file, image, audio
+//   - Special types: json, date, datetime, dateRange, datetimeRange, url, code, file, image, audio
 //   - Class enums: class "option1, option2, option3"
 //
 // ❌ NOT Supported:
@@ -30,6 +30,8 @@ export type TypeNotClass =
   | 'audio'
   | 'file'
   | 'url'
+  | 'dateRange'
+  | 'datetimeRange'
   | 'datetime'
   | 'date'
   | 'code'
@@ -539,6 +541,8 @@ class SignatureParser {
         'boolean',
         'json',
         'array',
+        'daterange',
+        'datetimerange',
         'datetime',
         'date',
         'time',
@@ -614,6 +618,8 @@ class SignatureParser {
       'audio',
       'file',
       'url',
+      'datetimeRange',
+      'dateRange',
       'datetime',
       'date',
       'code',
@@ -653,6 +659,9 @@ class SignatureParser {
       bool: 'boolean',
       object: 'json',
       dict: 'json',
+      daterange: 'dateRange',
+      range: 'datetimeRange',
+      datetimerange: 'datetimeRange',
       timestamp: 'datetime',
       time: 'datetime',
       img: 'image',

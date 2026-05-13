@@ -50,6 +50,7 @@ import {
   axShouldUseOpenAIRealtime,
   type OpenAIRealtimeRequest,
 } from './realtime.js';
+import { axNormalizeOpenAIUsage } from './usage.js';
 
 export {
   axAIOpenAIAudioDefaultConfig,
@@ -485,13 +486,7 @@ class AxAIOpenAIImpl<
     if (error) {
       throw error;
     }
-    this.tokensUsed = usage
-      ? {
-          promptTokens: usage.prompt_tokens,
-          completionTokens: usage.completion_tokens,
-          totalTokens: usage.total_tokens,
-        }
-      : undefined;
+    this.tokensUsed = axNormalizeOpenAIUsage(usage);
 
     const results = choices.map((choice) => {
       // Check for refusal and throw exception if present
@@ -539,13 +534,7 @@ class AxAIOpenAIImpl<
   ): AxChatResponse => {
     const { id, usage, choices } = resp;
 
-    this.tokensUsed = usage
-      ? {
-          promptTokens: usage.prompt_tokens,
-          completionTokens: usage.completion_tokens,
-          totalTokens: usage.total_tokens,
-        }
-      : undefined;
+    this.tokensUsed = axNormalizeOpenAIUsage(usage);
 
     const sstate = state as {
       indexIdMap: Record<number, string>;
@@ -632,13 +621,7 @@ class AxAIOpenAIImpl<
   createEmbedResp(resp: Readonly<AxAIOpenAIEmbedResponse>): AxEmbedResponse {
     const { data, usage } = resp;
 
-    this.tokensUsed = usage
-      ? {
-          promptTokens: usage.prompt_tokens,
-          completionTokens: usage.completion_tokens,
-          totalTokens: usage.total_tokens,
-        }
-      : undefined;
+    this.tokensUsed = axNormalizeOpenAIUsage(usage);
 
     return { embeddings: data.map((v) => v.embedding) };
   }

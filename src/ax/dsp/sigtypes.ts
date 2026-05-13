@@ -24,7 +24,7 @@
 // 6. BuildObject: Converts field tuples to final TypeScript object types
 //
 // CAPABILITIES:
-// - Basic types: string, number, boolean, json, date, datetime, image, audio, file, url, code
+// - Basic types: string, number, boolean, json, date, dateRange, datetime, datetimeRange, image, audio, file, url, code
 // - Array types: string[], number[], boolean[], etc.
 // - Class types with comma-separated options: class "option1, option2, option3"
 // - Optional fields: fieldName?:type
@@ -67,7 +67,9 @@ export interface TypeMap {
   boolean: boolean;
   json: any; // Flexible type - accepts any JSON value
   date: Date;
+  dateRange: { start: Date; end: Date };
   datetime: Date;
+  datetimeRange: { start: Date; end: Date };
   image: { mimeType: string; data: string };
   audio: { format?: 'wav'; data: string };
   file:

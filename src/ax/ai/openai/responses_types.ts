@@ -299,11 +299,23 @@ export interface AxAIOpenAIResponsesResponse {
   readonly model: string; // Model ID used
   readonly output: ReadonlyArray<AxAIOpenAIResponsesOutputItem>;
   readonly usage?: {
-    readonly prompt_tokens: number;
+    readonly prompt_tokens?: number;
+    readonly input_tokens?: number;
     readonly completion_tokens?: number; // Some variants use output_tokens
     readonly output_tokens?: number; // Alias seen in some responses
-    readonly total_tokens: number;
-    // reasoning_tokens?: number // if applicable and included
+    readonly total_tokens?: number;
+    readonly prompt_tokens_details?: {
+      readonly cached_tokens?: number;
+    };
+    readonly input_tokens_details?: {
+      readonly cached_tokens?: number;
+    };
+    readonly completion_tokens_details?: {
+      readonly reasoning_tokens?: number;
+    };
+    readonly output_tokens_details?: {
+      readonly reasoning_tokens?: number;
+    };
   } | null;
 }
 
@@ -737,10 +749,23 @@ export interface AxAIOpenAIResponsesResponseDelta {
   // If event is 'response.done'
   readonly response?: Readonly<AxAIOpenAIResponsesResponse>; // The final full response object (often without items if streamed separately)
   readonly usage?: {
-    readonly prompt_tokens: number;
-    readonly completion_tokens: number;
-    readonly total_tokens: number;
-    // reasoning_tokens?: number
+    readonly prompt_tokens?: number;
+    readonly input_tokens?: number;
+    readonly completion_tokens?: number;
+    readonly output_tokens?: number;
+    readonly total_tokens?: number;
+    readonly prompt_tokens_details?: {
+      readonly cached_tokens?: number;
+    };
+    readonly input_tokens_details?: {
+      readonly cached_tokens?: number;
+    };
+    readonly completion_tokens_details?: {
+      readonly reasoning_tokens?: number;
+    };
+    readonly output_tokens_details?: {
+      readonly reasoning_tokens?: number;
+    };
   } | null; // Usage often comes in the 'response.done' event or with stream_options
 }
 

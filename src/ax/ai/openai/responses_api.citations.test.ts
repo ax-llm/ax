@@ -82,3 +82,84 @@ describe('OpenAI Responses annotation mapping', () => {
     expect(urls).toEqual(['https://example.com']);
   });
 });
+
+describe('OpenAI Responses usage normalization', () => {
+  it('normalizes current Responses usage details', () => {
+    const impl = new AxAIOpenAIResponsesImpl(config, true);
+
+    impl.createChatResp({
+      id: 'res_usage',
+      object: 'response',
+      created: 1,
+      model: 'gpt-5-mini',
+      output: [],
+      usage: {
+        input_tokens: 120,
+        output_tokens: 9,
+        total_tokens: 129,
+        input_tokens_details: { cached_tokens: 50 },
+        output_tokens_details: { reasoning_tokens: 4 },
+      },
+    } as unknown as AxAIOpenAIResponsesResponse);
+
+    expect(impl.getTokenUsage()).toEqual({
+      promptTokens: 70,
+      completionTokens: 9,
+      totalTokens: 129,
+      reasoningTokens: 4,
+      cacheReadTokens: 50,
+    });
+  });
+
+  it('keeps legacy Responses usage aliases working', () => {
+    const impl = new AxAIOpenAIResponsesImpl(config, true);
+
+    impl.createChatResp({
+      id: 'res_legacy_usage',
+      object: 'response',
+      created: 1,
+      model: 'gpt-4o',
+      output: [],
+      usage: {
+        prompt_tokens: 20,
+        completion_tokens: 3,
+        total_tokens: 23,
+      },
+    } as unknown as AxAIOpenAIResponsesResponse);
+
+    expect(impl.getTokenUsage()).toEqual({
+      promptTokens: 20,
+      completionTokens: 3,
+      totalTokens: 23,
+    });
+  });
+
+  it('normalizes streamed Responses completion usage', () => {
+    const impl = new AxAIOpenAIResponsesImpl(config, true);
+
+    impl.createChatStreamResp({
+      type: 'response.completed',
+      sequence_number: 1,
+      response: {
+        id: 'res_stream_usage',
+        object: 'response',
+        created: 1,
+        model: 'gpt-5-mini',
+        output: [],
+        usage: {
+          input_tokens: 50,
+          output_tokens: 7,
+          total_tokens: 57,
+          input_tokens_details: { cached_tokens: 10 },
+        },
+      },
+    } as unknown as AxAIOpenAIResponsesResponseDelta);
+
+    expect(impl.getTokenUsage()).toEqual({
+      promptTokens: 40,
+      completionTokens: 7,
+      totalTokens: 57,
+      cacheReadTokens: 10,
+    });
+  });
+});

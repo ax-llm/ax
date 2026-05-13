@@ -1,6 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
-import type { AxAIService, AxChatResponse } from '@ax-llm/ax/index.js';
 import type { LanguageModelV2CallOptions } from '@ai-sdk/provider';
+import type { AxAIService, AxChatResponse } from '@ax-llm/ax/index.js';
+import { describe, expect, it, vi } from 'vitest';
 
 import { AxAIProvider } from './index.js';
 
@@ -83,6 +83,23 @@ describe('AxAIProvider', () => {
         totalTokens: 15,
       });
       expect(result.warnings).toEqual([]);
+    });
+
+    it('should request a non-streaming response', async () => {
+      const mockAI = createMockAIService([
+        { results: [{ content: 'Response', finishReason: 'stop' }] },
+      ]);
+      const provider = new AxAIProvider(mockAI);
+
+      const options: LanguageModelV2CallOptions = {
+        prompt: [{ role: 'user', content: [{ type: 'text', text: 'Hello' }] }],
+      };
+
+      await provider.doGenerate(options);
+
+      expect(mockAI.chat).toHaveBeenCalledWith(expect.any(Object), {
+        stream: false,
+      });
     });
 
     it('should handle tool calls correctly', async () => {
@@ -260,6 +277,25 @@ describe('AxAIProvider', () => {
         },
       });
     });
+
+    it('should request a streaming response', async () => {
+      const mockAI = createMockAIService([
+        { results: [{ content: 'Streaming text', finishReason: 'stop' }] },
+      ]);
+      const provider = new AxAIProvider(mockAI);
+
+      const options: LanguageModelV2CallOptions = {
+        prompt: [
+          { role: 'user', content: [{ type: 'text', text: 'Stream test' }] },
+        ],
+      };
+
+      await provider.doStream(options);
+
+      expect(mockAI.chat).toHaveBeenCalledWith(expect.any(Object), {
+        stream: true,
+      });
+    });
   });
 
   describe('prompt conversion', () => {
@@ -330,7 +366,8 @@ describe('AxAIProvider', () => {
               result: 'Sunny, 22°C',
             },
           ]),
-        })
+        }),
+        { stream: false }
       );
     });
   });

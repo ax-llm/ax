@@ -20,6 +20,8 @@ describe('TypeScript Parser Parity with JS Parser', () => {
       // Date types
       'startDate:date -> processedDate:date',
       'timestamp:datetime -> processedTime:datetime',
+      'travelDates:dateRange -> processedDates:dateRange',
+      'availability:datetimeRange -> selectedWindow:datetimeRange',
 
       // JSON and code types
       'configData:json -> resultData:json',

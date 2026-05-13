@@ -71,6 +71,8 @@ describe('AxSignatureBuilder fluent API', () => {
       .input('jsonField', f.json('A JSON field'))
       .input('dateField', f.date('A date field'))
       .input('datetimeField', f.datetime('A datetime field'))
+      .input('dateRangeField', f.dateRange('A date range field'))
+      .input('datetimeRangeField', f.datetimeRange('A datetime range field'))
       .input('imageField', f.image('An image field'))
       .input('audioField', f.audio('An audio field'))
       .input('fileField', f.file('A file field'))
@@ -85,7 +87,7 @@ describe('AxSignatureBuilder fluent API', () => {
     const inputs = sig.getInputFields();
     const outputs = sig.getOutputFields();
 
-    expect(inputs).toHaveLength(11);
+    expect(inputs).toHaveLength(13);
     expect(outputs).toHaveLength(1);
     expect(outputs[0].type?.name).toBe('class');
     expect(outputs[0].type?.options).toEqual([

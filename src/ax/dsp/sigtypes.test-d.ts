@@ -1,5 +1,5 @@
 import { expectType } from 'tsd';
-import type { ParseSignature, BuildObject } from './sigtypes.js';
+import type { BuildObject, ParseSignature } from './sigtypes.js';
 
 // Test basic string types
 type BasicStringResult =
@@ -126,6 +126,25 @@ type DateTimeResult =
   ParseSignature<'timestamp:datetime -> processedTime:datetime'>;
 expectType<{ timestamp: Date }>({} as DateTimeResult['inputs']);
 expectType<{ processedTime: Date }>({} as DateTimeResult['outputs']);
+
+// Test range types
+type DateRangeResult =
+  ParseSignature<'travelDates:dateRange -> processedDates:dateRange'>;
+expectType<{ travelDates: { start: Date; end: Date } }>(
+  {} as DateRangeResult['inputs']
+);
+expectType<{ processedDates: { start: Date; end: Date } }>(
+  {} as DateRangeResult['outputs']
+);
+
+type DateTimeRangeResult =
+  ParseSignature<'availability:datetimeRange -> selectedWindow:datetimeRange'>;
+expectType<{ availability: { start: Date; end: Date } }>(
+  {} as DateTimeRangeResult['inputs']
+);
+expectType<{ selectedWindow: { start: Date; end: Date } }>(
+  {} as DateTimeRangeResult['outputs']
+);
 
 // Test JSON types
 type JSONResult = ParseSignature<'configData:json -> resultData:json'>;

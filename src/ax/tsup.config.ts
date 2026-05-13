@@ -12,7 +12,7 @@ export default defineConfig({
   target: 'es2022', // Modern target for better performance
   globalName: 'ax', // Global variable name for IIFE
   external: [
-    // Keep OpenTelemetry external, bundle dayjs to fix plugin resolution
+    // Keep OpenTelemetry external for host applications
     '@opentelemetry/api',
   ],
   // Ensure proper module resolution for different environments

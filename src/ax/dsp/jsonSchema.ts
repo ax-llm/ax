@@ -29,7 +29,9 @@ function enhanceDescriptionWithValidation(
     type.name === 'code' ||
     type.name === 'url' ||
     type.name === 'date' ||
-    type.name === 'datetime'
+    type.name === 'dateRange' ||
+    type.name === 'datetime' ||
+    type.name === 'datetimeRange'
   ) {
     if (type.minLength !== undefined && type.maxLength !== undefined) {
       constraints.push(
@@ -69,8 +71,18 @@ function enhanceDescriptionWithValidation(
   if (type.name === 'date') {
     constraints.push('Format: YYYY-MM-DD');
   }
+  if (type.name === 'dateRange') {
+    constraints.push(
+      'Format: JSON object with start and end dates, or YYYY-MM-DD/YYYY-MM-DD'
+    );
+  }
   if (type.name === 'datetime') {
     constraints.push('Format: ISO 8601 date-time');
+  }
+  if (type.name === 'datetimeRange') {
+    constraints.push(
+      'Format: JSON object with start and end ISO 8601 date-times, or ISO interval start/end'
+    );
   }
 
   // Combine base description with constraints
@@ -215,7 +227,9 @@ function fieldToSchema(field: Readonly<AxField>, isNested = false): any {
         type.name === 'code' ||
         type.name === 'url' ||
         type.name === 'date' ||
-        type.name === 'datetime'
+        type.name === 'dateRange' ||
+        type.name === 'datetime' ||
+        type.name === 'datetimeRange'
       ) {
         if (type.minLength !== undefined) {
           schema.items.minLength = type.minLength;
@@ -281,7 +295,9 @@ function fieldToSchema(field: Readonly<AxField>, isNested = false): any {
       type?.name === 'code' ||
       type?.name === 'url' ||
       type?.name === 'date' ||
-      type?.name === 'datetime'
+      type?.name === 'dateRange' ||
+      type?.name === 'datetime' ||
+      type?.name === 'datetimeRange'
     ) {
       if (type.minLength !== undefined) {
         schema.minLength = type.minLength;
@@ -325,6 +341,8 @@ function mapAxTypeToJsonSchemaType(axType: string): string | string[] {
     case 'url':
     case 'date':
     case 'datetime':
+    case 'dateRange':
+    case 'datetimeRange':
     case 'image':
     case 'audio':
     case 'file':

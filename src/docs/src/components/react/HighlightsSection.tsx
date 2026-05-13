@@ -1,6 +1,6 @@
-import type React from 'react';
 import { motion } from 'framer-motion';
-import { Zap, Shield, Activity, RefreshCcw } from 'lucide-react';
+import { Activity, RefreshCcw, Shield, Zap } from 'lucide-react';
+import type React from 'react';
 import { GlowCard } from './GlowCard';
 
 /* ─── Inline SVG visualizations ─── */
@@ -381,7 +381,7 @@ const highlights: Highlight[] = [
     statGradient: true,
     title: 'Dependencies',
     description:
-      'Only 2 optional peer deps (OpenTelemetry + dayjs). Your bundle stays lean.',
+      'No date library dependency. OpenTelemetry stays external and Zod remains peer-only.',
     glowColor: 'rgba(34, 211, 238, 0.15)',
     statColor: '',
     visual: null,

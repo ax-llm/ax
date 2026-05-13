@@ -22,12 +22,16 @@ version: "__VERSION__"
 | JSON | `:json` | `any` | `metadata:json` |
 | Date | `:date` | `Date` | `birthDate:date` |
 | DateTime | `:datetime` | `Date` | `timestamp:datetime` |
+| DateRange | `:dateRange` | `{ start: Date; end: Date }` | `travelDates:dateRange` |
+| DateTimeRange | `:datetimeRange` | `{ start: Date; end: Date }` | `meetingWindow:datetimeRange` |
 | Image | `:image` | `{mimeType, data}` | `photo:image` (input only) |
 | Audio | `:audio` | `{format?, data}` | `recording:audio` (input only) |
 | File | `:file` | `{mimeType, data}` | `document:file` (input only) |
 | URL | `:url` | `string` | `website:url` |
 | Code | `:code` | `string` | `pythonScript:code` |
 | Class | `:class "a, b, c"` | `"a" \| "b" \| "c"` | `mood:class "happy, sad"` |
+
+Date, datetime, and range fields are AI-friendly but strict. They accept ISO-style values, trim minor whitespace/casing issues, and parse ranges as `{ "start": "...", "end": "..." }`, `[start, end]`, `start/end`, or natural delimiters like `start to end`; invalid values and reversed ranges should fail validation rather than being silently autocorrected.
 
 ## Arrays, Optional, and Internal Fields
 
@@ -177,7 +181,7 @@ const sig = s('base:string -> result:string')
 Type creators:
 - `f.string(desc)`, `f.number(desc)`, `f.boolean(desc)`, `f.json(desc)`
 - `f.image(desc)`, `f.audio(desc)`, `f.file(desc)`, `f.url(desc)`
-- `f.email(desc)`, `f.date(desc)`, `f.datetime(desc)`
+- `f.email(desc)`, `f.date(desc)`, `f.datetime(desc)`, `f.dateRange(desc)`, `f.datetimeRange(desc)`
 - `f.class(['a','b','c'], desc)`, `f.code(desc)`
 - `f.object({ field: f.string() }, desc)`
 
@@ -283,7 +287,7 @@ Bad: `text`, `data`, `input`, `output`, `a`, `x`, `val` (too generic), `1field` 
 - `.internal()` / `{ internal: true }` is output-only (for chain-of-thought reasoning).
 - `.cache()` / `{ cache: true }` is input-only (for prompt caching).
 - Validation errors trigger auto-retry with correction feedback.
-- `f.email()`, `f.url()`, `f.date()`, `f.datetime()` are shorthand for `f.string().email()` etc.
+- `f.email()`, `f.url()`, `f.date()`, `f.datetime()` are shorthand for `f.string().email()` etc.; `f.dateRange()` and `f.datetimeRange()` return `{ start: Date; end: Date }`.
 - `z.enum()` maps to ax's `class` type — only valid on **output** fields.
 - For multimodal inputs (images, audio, files) use `f.image()` / `f.audio()` / `f.file()` — zod has no equivalent.
 

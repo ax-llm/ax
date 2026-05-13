@@ -37,8 +37,7 @@
     "postbuild": "node ../../scripts/postbuild.js"
   },
   "dependencies": {
-    "@opentelemetry/api": "^1.9.0",
-    "dayjs": "^1.11.13"
+    "@opentelemetry/api": "^1.9.0"
   },
   "peerDependencies": {
     "zod": "^3.24.0 || ^4.0.0"

@@ -181,6 +181,20 @@ describe('jsonSchema - validation constraints', () => {
       .build();
     const schemaDateTime = sigDateTime.toJSONSchema();
     expect(schemaDateTime.properties?.timestamp?.format).toBe('date-time');
+
+    const sigDateRange = f()
+      .input('query', f.string())
+      .output('travelDates', f.dateRange())
+      .build();
+    const schemaDateRange = sigDateRange.toJSONSchema();
+    expect(schemaDateRange.properties?.travelDates?.type).toBe('string');
+
+    const sigDateTimeRange = f()
+      .input('query', f.string())
+      .output('window', f.datetimeRange())
+      .build();
+    const schemaDateTimeRange = sigDateTimeRange.toJSONSchema();
+    expect(schemaDateTimeRange.properties?.window?.type).toBe('string');
   });
 
   it('should include constraints in nested objects', () => {
@@ -456,6 +470,23 @@ describe('jsonSchema - description enhancement with validation', () => {
 
     expect(schema.properties?.createdAt?.description).toContain(
       'Format: ISO 8601 date-time'
+    );
+  });
+
+  it('should add range format hints', () => {
+    const sig = f()
+      .input('query', f.string())
+      .output('travelDates', f.dateRange())
+      .output('availability', f.datetimeRange())
+      .build();
+
+    const schema = sig.toJSONSchema();
+
+    expect(schema.properties?.travelDates?.description).toContain(
+      'Format: JSON object with start and end dates'
+    );
+    expect(schema.properties?.availability?.description).toContain(
+      'Format: JSON object with start and end ISO 8601 date-times'
     );
   });
 });
