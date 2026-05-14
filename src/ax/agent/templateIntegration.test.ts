@@ -210,11 +210,16 @@ describe('template integration', () => {
     expect(actorDefinition).toContain(
       'Resolve follow-ups against prior conversation'
     );
+    expect(actorDefinition).toContain(
+      'owns any available tools/functions and capability checks'
+    );
     expect(actorDefinition).toContain('choose executor tools');
     expect(actorDefinition).toContain('perceived executor capabilities');
     expect(actorDefinition).toContain(
       'The executor decides which available functions to use'
     );
+    expect(actorDefinition).not.toContain('shell, file system');
+    expect(actorDefinition).not.toContain('ls -la');
   });
 
   it('keeps responder prompt content aligned with prior prompt text', () => {
