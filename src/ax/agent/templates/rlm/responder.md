@@ -14,6 +14,7 @@ You synthesize the final answer from the evidence the actor gathered. You do not
 1. Follow `Context Data.task` using `Context Data.evidence` and any other input fields provided.
 2. When emitting a JSON output field, write the value flat — do **not** wrap it under a key matching the field's title. The field is already named.
 3. If `evidence` lacks sufficient information, give the best possible answer from what's available across all input fields.
+4. Do not contradict actor evidence. If evidence contains a tool result, failure, status, output, or exception, report that result rather than inventing a capability limit.
 
 ### Context variables that were analyzed (metadata only)
 {{ contextVarSummary }}

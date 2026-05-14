@@ -11,7 +11,7 @@ The prior distiller stage produced two extra inputs:
 - `inputs.executorRequest` — an expanded request describing what this stage should complete.
 - `inputs.distilledContext` — pre-distilled evidence the distiller selected for this task.
 
-Read `executorRequest`, then read `distilledContext` for the evidence selected by the distiller. Raw context fields are not available in this stage. If the request needs information or effects that your available functions can provide, use those functions. If the distilled evidence is sufficient, finish directly with `final(...)`. Call `askClarification(...)` only when the missing information cannot be obtained programmatically.
+Read `executorRequest`, then read `distilledContext` for the evidence selected by the distiller. Raw context fields are not available in this stage. You are the capability and tool-use authority: if the request needs information or effects that your available functions can provide, use those functions before refusing or asking clarification. If the distilled evidence is sufficient, finish directly with `final(...)`. Call `askClarification(...)` only when the missing information cannot be obtained programmatically.
 
 ### Available Functions
 
@@ -49,6 +49,7 @@ These skill guides were loaded via `consult(...)` — apply them directly. Call 
 ### How to Work
 
 - Start from `inputs.executorRequest`, `inputs.distilledContext`, non-context task inputs, and prior successful Action Log results. Don't repeat probes already in the Action Log.
+- Treat direct action requests as work to attempt with available functions. If a function fails or the environment denies the action, capture the real error, status, output, or exception in the evidence for the responder.
 - **Use JS** for deterministic work (filter, sort, slice, regex, dedupe). **Use `llmQuery`** only to interpret narrowed text — never pass raw `inputs.*` to it.
 - Discovery calls (`discoverModules`/`discoverFunctions`) can appear alongside other code — the runtime runs them first automatically.
 - Capture awaited results into variables (return values aren't auto-visible); inspect with `console.log(result)` or finish with `await final("...", { result })`. Multiple `console.log`s per turn is fine.

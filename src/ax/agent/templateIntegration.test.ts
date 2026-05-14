@@ -180,7 +180,13 @@ describe('template integration', () => {
       'Raw context fields are not available in this stage.'
     );
     expect(actorDefinition).toContain(
-      'If the request needs information or effects that your available functions can provide'
+      'request needs information or effects that your available functions can provide'
+    );
+    expect(actorDefinition).toContain(
+      'You are the capability and tool-use authority'
+    );
+    expect(actorDefinition).toContain(
+      'capture the real error, status, output, or exception'
     );
     expect(actorDefinition).not.toContain('inputs.<contextField>');
     expect(actorDefinition).toContain("Don't repeat probes");
@@ -203,6 +209,11 @@ describe('template integration', () => {
     expect(actorDefinition).toContain('Expand the user');
     expect(actorDefinition).toContain(
       'Resolve follow-ups against prior conversation'
+    );
+    expect(actorDefinition).toContain('choose executor tools');
+    expect(actorDefinition).toContain('perceived executor capabilities');
+    expect(actorDefinition).toContain(
+      'The executor decides which available functions to use'
     );
   });
 
@@ -234,6 +245,7 @@ describe('template integration', () => {
         '1. Follow `Context Data.task` using `Context Data.evidence` and any other input fields provided.',
         "2. When emitting a JSON output field, write the value flat — do **not** wrap it under a key matching the field's title. The field is already named.",
         "3. If `evidence` lacks sufficient information, give the best possible answer from what's available across all input fields.",
+        '4. Do not contradict actor evidence. If evidence contains a tool result, failure, status, output, or exception, report that result rather than inventing a capability limit.',
         '',
         '### Context variables that were analyzed (metadata only)',
         '- `contextText` (string, required)',

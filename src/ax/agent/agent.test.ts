@@ -7292,6 +7292,16 @@ describe('axBuildExecutorDefinition', () => {
     expect(result).toContain('finish with `await final("...", { result })`');
   });
 
+  it('should make the executor the capability and tool-result authority', () => {
+    const result = axBuildExecutorDefinition(undefined, [], [], {});
+    expect(result).toContain('capability and tool-use authority');
+    expect(result).toContain('use those functions before refusing');
+    expect(result).toContain('Treat direct action requests as work to attempt');
+    expect(result).toContain(
+      'capture the real error, status, output, or exception'
+    );
+  });
+
   it('should render detailed-only anti-pattern examples when promptLevel is detailed', () => {
     const result = axBuildExecutorDefinition(undefined, [], [], {
       promptLevel: 'detailed',
@@ -7354,6 +7364,13 @@ describe('axBuildResponderDefinition', () => {
     expect(result).toContain(
       "give the best possible answer from what's available"
     );
+  });
+
+  it('should instruct not to contradict tool evidence', () => {
+    const result = axBuildResponderDefinition(undefined, []);
+    expect(result).toContain('Do not contradict actor evidence');
+    expect(result).toContain('report that result');
+    expect(result).toContain('rather than inventing a capability limit');
   });
 
   it('should append base definition', () => {
