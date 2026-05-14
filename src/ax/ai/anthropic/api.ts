@@ -1098,7 +1098,9 @@ function createMessages(
             content: msg.result,
             tool_use_id: msg.functionId,
             ...(msg.isError ? { is_error: true } : {}),
-            ...(msg.cache ? { cache: { type: 'ephemeral' } } : {}),
+            ...(msg.cache
+              ? { cache_control: { type: 'ephemeral' as const } }
+              : {}),
           },
         ];
 
@@ -1111,10 +1113,15 @@ function createMessages(
         if (typeof msg.content === 'string') {
           return {
             role: 'user' as const,
-            content: msg.content,
-            ...(msg.cache
-              ? { cache_control: { type: 'ephemeral' as const } }
-              : {}),
+            content: msg.cache
+              ? [
+                  {
+                    type: 'text' as const,
+                    text: msg.content,
+                    cache_control: { type: 'ephemeral' as const },
+                  },
+                ]
+              : msg.content,
           };
         }
         const content = msg.content.map((v) => {
@@ -1143,6 +1150,19 @@ function createMessages(
               throw new Error('Invalid content type');
           }
         });
+        if (msg.cache && content.length > 0) {
+          const lastIdx = content.length - 1;
+          const lastBlock = content[lastIdx];
+          if (
+            lastBlock &&
+            (lastBlock.type === 'text' || lastBlock.type === 'image')
+          ) {
+            content[lastIdx] = {
+              ...lastBlock,
+              cache_control: { type: 'ephemeral' as const },
+            };
+          }
+        }
         return {
           role: 'user' as const,
           content,
