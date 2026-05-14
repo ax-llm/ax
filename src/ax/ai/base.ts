@@ -55,6 +55,7 @@ import type {
   AxModelConfig,
   AxModelInfo,
   AxModelUsage,
+  AxTokenUsage,
 } from './types.js';
 import { axValidateChatRequestMessage } from './validate.js';
 
@@ -351,6 +352,46 @@ export const axBaseAIDefaultCreativeConfig = (): AxModelConfig =>
     temperature: 0.4,
     frequencyPenalty: 0.2,
   });
+
+/**
+ * Returns a stateful diff over cumulative {@link AxTokenUsage} readings.
+ * Some providers (e.g. Anthropic) report a running cumulative on every
+ * streaming event, but the underlying OTel token counters are additive —
+ * recording the cumulative per-event would multiply the true cost by the
+ * event count. State is per call so concurrent streams don't share it.
+ *
+ * Every numeric field on `tokens` is treated as cumulative; non-numeric
+ * fields (e.g. serviceTier) are dropped from the delta — they don't make
+ * sense to repeat on every event and downstream OTel recording doesn't
+ * read them. Returns `undefined` when no field increased.
+ *
+ * This assumes all streaming providers report cumulative-or-once-at-end
+ * usage (true for Anthropic, OpenAI, Gemini today).
+ */
+const makeDiffTokenUsage = (): ((
+  cumulative: Readonly<AxTokenUsage>
+) => Partial<AxTokenUsage> | undefined) => {
+  const recorded: Record<string, number> = {};
+  return (tokens) => {
+    const delta: Partial<Record<keyof AxTokenUsage, unknown>> = {};
+    let anyIncrement = false;
+    for (const [key, cur] of Object.entries(tokens) as [
+      keyof AxTokenUsage,
+      AxTokenUsage[keyof AxTokenUsage],
+    ][]) {
+      if (typeof cur !== 'number') continue;
+      const prev = recorded[key] ?? 0;
+      // Clamp to handle the unlikely case of a provider reporting a decrease.
+      const inc = Math.max(0, cur - prev);
+      if (cur > prev) recorded[key] = cur;
+      if (inc > 0) {
+        delta[key] = inc;
+        anyIncrement = true;
+      }
+    }
+    return anyIncrement ? (delta as Partial<AxTokenUsage>) : undefined;
+  };
+};
 
 export class AxBaseAI<
   TModel,
@@ -727,107 +768,106 @@ export class AxBaseAI<
     }
   }
 
-  // Method to record token usage metrics
+  private recordEstimatedCost(
+    operationType: 'chat' | 'embed',
+    costUSD: number,
+    model: string,
+    customLabels?: Record<string, string>
+  ): void {
+    if (costUSD <= 0) return;
+    const metricsInstruments = this.getMetricsInstruments();
+    if (!metricsInstruments) return;
+    recordEstimatedCostMetric(
+      metricsInstruments,
+      operationType,
+      costUSD,
+      this.name,
+      model,
+      customLabels
+    );
+  }
+
   private recordTokenUsage(
-    modelUsage?: AxModelUsage,
-    optionsCustomLabels?: Record<string, string>,
-    operationType?: 'chat' | 'embed'
+    model: string,
+    tokens?: Partial<AxTokenUsage>,
+    optionsCustomLabels?: Record<string, string>
   ): void {
     const metricsInstruments = this.getMetricsInstruments();
-    if (metricsInstruments && modelUsage?.tokens) {
-      const {
+    if (!metricsInstruments || !tokens) return;
+    const {
+      promptTokens,
+      completionTokens,
+      totalTokens,
+      thoughtsTokens,
+      cacheReadTokens,
+      cacheCreationTokens,
+    } = tokens;
+    const customLabels = this.getMergedCustomLabels(optionsCustomLabels);
+
+    if (promptTokens) {
+      recordTokenMetric(
+        metricsInstruments,
+        'input',
         promptTokens,
+        this.name,
+        model,
+        customLabels
+      );
+    }
+
+    if (completionTokens) {
+      recordTokenMetric(
+        metricsInstruments,
+        'output',
         completionTokens,
+        this.name,
+        model,
+        customLabels
+      );
+    }
+
+    if (totalTokens) {
+      recordTokenMetric(
+        metricsInstruments,
+        'total',
         totalTokens,
+        this.name,
+        model,
+        customLabels
+      );
+    }
+
+    if (thoughtsTokens) {
+      recordTokenMetric(
+        metricsInstruments,
+        'thoughts',
         thoughtsTokens,
+        this.name,
+        model,
+        customLabels
+      );
+    }
+
+    if (cacheReadTokens) {
+      recordCacheTokenMetric(
+        metricsInstruments,
+        'read',
         cacheReadTokens,
+        this.name,
+        model,
+        customLabels
+      );
+    }
+
+    if (cacheCreationTokens) {
+      recordCacheTokenMetric(
+        metricsInstruments,
+        'write',
         cacheCreationTokens,
-      } = modelUsage.tokens;
-      const customLabels = this.getMergedCustomLabels(optionsCustomLabels);
-
-      if (promptTokens) {
-        recordTokenMetric(
-          metricsInstruments,
-          'input',
-          promptTokens,
-          this.name,
-          modelUsage.model,
-          customLabels
-        );
-      }
-
-      if (completionTokens) {
-        recordTokenMetric(
-          metricsInstruments,
-          'output',
-          completionTokens,
-          this.name,
-          modelUsage.model,
-          customLabels
-        );
-      }
-
-      if (totalTokens) {
-        recordTokenMetric(
-          metricsInstruments,
-          'total',
-          totalTokens,
-          this.name,
-          modelUsage.model,
-          customLabels
-        );
-      }
-
-      if (thoughtsTokens) {
-        recordTokenMetric(
-          metricsInstruments,
-          'thoughts',
-          thoughtsTokens,
-          this.name,
-          modelUsage.model,
-          customLabels
-        );
-      }
-
-      if (cacheReadTokens) {
-        recordCacheTokenMetric(
-          metricsInstruments,
-          'read',
-          cacheReadTokens,
-          this.name,
-          modelUsage.model,
-          customLabels
-        );
-      }
-
-      if (cacheCreationTokens) {
-        recordCacheTokenMetric(
-          metricsInstruments,
-          'write',
-          cacheCreationTokens,
-          this.name,
-          modelUsage.model,
-          customLabels
-        );
-      }
-
-      // Record estimated cost alongside token usage
-      if (operationType) {
-        const estimatedCost = this.estimateCostByName(
-          modelUsage.model,
-          modelUsage
-        );
-        if (estimatedCost > 0) {
-          recordEstimatedCostMetric(
-            metricsInstruments,
-            operationType,
-            estimatedCost,
-            this.name,
-            modelUsage.model,
-            customLabels
-          );
-        }
-      }
+        this.name,
+        model,
+        customLabels
+      );
     }
   }
 
@@ -1570,6 +1610,9 @@ export class AxBaseAI<
       }
 
       const respFn = this.aiImpl.createChatStreamResp.bind(this);
+      const diffTokenUsage = makeDiffTokenUsage();
+      let recordedCost = 0;
+
       const wrappedRespFn =
         (state: object) => (resp: Readonly<TChatResponseDelta>) => {
           const res = respFn(resp, state);
@@ -1587,7 +1630,30 @@ export class AxBaseAI<
             }
           }
           this.modelUsage = res.modelUsage;
-          this.recordTokenUsage(res.modelUsage, options?.customLabels, 'chat');
+          if (res.modelUsage?.tokens) {
+            const deltaTokens = diffTokenUsage(res.modelUsage.tokens);
+            if (deltaTokens) {
+              this.recordTokenUsage(
+                res.modelUsage.model,
+                deltaTokens,
+                options?.customLabels
+              );
+              // Compute cumulative cost so long-context pricing tiers are accounted for,
+              // then diff it to get an accurate delta.
+              const curCost = this.estimateCostByName(
+                res.modelUsage.model,
+                res.modelUsage
+              );
+              const costDelta = Math.max(0, curCost - recordedCost);
+              if (curCost > recordedCost) recordedCost = curCost;
+              this.recordEstimatedCost(
+                'chat',
+                costDelta,
+                res.modelUsage.model,
+                options?.customLabels
+              );
+            }
+          }
 
           if (span?.isRecording()) {
             setChatResponseEvents(res, span, this.excludeContentFromTrace);
@@ -1721,7 +1787,17 @@ export class AxBaseAI<
 
     if (res.modelUsage) {
       this.modelUsage = res.modelUsage;
-      this.recordTokenUsage(res.modelUsage, options?.customLabels, 'chat');
+      this.recordTokenUsage(
+        res.modelUsage.model,
+        res.modelUsage.tokens,
+        options?.customLabels
+      );
+      this.recordEstimatedCost(
+        'chat',
+        this.estimateCostByName(res.modelUsage.model, res.modelUsage),
+        res.modelUsage.model,
+        options?.customLabels
+      );
     }
 
     if (span?.isRecording()) {
@@ -1931,7 +2007,19 @@ export class AxBaseAI<
       }
     }
     this.embedModelUsage = res.modelUsage;
-    this.recordTokenUsage(res.modelUsage, options?.customLabels, 'embed');
+    if (res.modelUsage) {
+      this.recordTokenUsage(
+        res.modelUsage.model,
+        res.modelUsage.tokens,
+        options?.customLabels
+      );
+      this.recordEstimatedCost(
+        'embed',
+        this.estimateCostByName(res.modelUsage.model, res.modelUsage),
+        res.modelUsage.model,
+        options?.customLabels
+      );
+    }
 
     if (span?.isRecording() && res.modelUsage?.tokens) {
       span.addEvent(axSpanEvents.GEN_AI_USAGE, {

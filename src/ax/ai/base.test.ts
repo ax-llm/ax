@@ -9,6 +9,7 @@ import {
   setChatRequestEvents,
   setChatResponseEvents,
 } from './base.js'; // Import new functions
+import { resetAIMetricsInstruments } from './metrics.js';
 import type {
   AxAIServiceImpl,
   AxAIServiceOptions,
@@ -270,6 +271,185 @@ describe('AxBaseAI', () => {
     expect(metrics.latency.chat.samples).toHaveLength(1);
     expect(metrics.errors.chat.count).toBe(0);
   }, 10000);
+
+  describe('streaming token usage diffing', () => {
+    type CounterTracker = {
+      sums: Record<string, number>;
+      meter: AxAIServiceOptions['meter'];
+    };
+
+    // Builds a fake OTel meter that records every `counter.add(value)` into a
+    // sums map, keyed by counter name. Only counters listed in `tracked` are
+    // accumulated; the rest are no-ops. Returns both the sums and the meter
+    // for assertions.
+    const makeMetricsTestHarness = (tracked: readonly string[]): CounterTracker => {
+      const sums: Record<string, number> = Object.fromEntries(
+        tracked.map((name) => [name, 0])
+      );
+      const makeCounter = (name: string) => ({
+        add: vi.fn((value: number) => {
+          if (name in sums) sums[name] += value;
+        }),
+      });
+      const noop = () => ({ add: vi.fn(), record: vi.fn() });
+      const meter = {
+        createCounter: vi.fn((name: string) =>
+          name in sums ? makeCounter(name) : noop()
+        ),
+        createHistogram: vi.fn(noop),
+        createGauge: vi.fn(noop),
+        createUpDownCounter: vi.fn(noop),
+        createObservableCounter: vi.fn(),
+        createObservableGauge: vi.fn(),
+        createObservableUpDownCounter: vi.fn(),
+        addBatchObservableCallback: vi.fn(),
+        removeBatchObservableCallback: vi.fn(),
+      } as unknown as AxAIServiceOptions['meter'];
+      return { sums, meter };
+    };
+
+    const fiveChunkSSE = () => {
+      const body = [1, 2, 3, 4, 5]
+        .map((i) => `data: {"chunk":${i}}\n\n`)
+        .join('');
+      return vi.fn().mockResolvedValue(
+        new Response(new TextEncoder().encode(body), {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        })
+      );
+    };
+
+    const drain = async (response: unknown) => {
+      expect(response).toBeInstanceOf(ReadableStream);
+      if (response instanceof ReadableStream) {
+        const reader = response.getReader();
+        // Only consumed to drive the pipeline — assertions are on counters.
+        while (!(await reader.read()).done) {}
+      }
+    };
+
+    // Build a minimal streaming AxAIServiceImpl. `onDelta` runs once per
+    // streamed event (5 total, one per SSE chunk in fiveChunkSSE) and
+    // returns the usage to surface from getTokenUsage(); returning
+    // undefined leaves usage absent for that delta.
+    const makeStreamingImpl = (
+      onDelta: (deltaIdx: number) => AxTokenUsage | undefined,
+      reqName = 'test'
+    ): AxAIServiceImpl<
+      string,
+      string,
+      unknown,
+      unknown,
+      unknown,
+      unknown,
+      unknown
+    > => {
+      let deltaIdx = 0;
+      let usage: AxTokenUsage | undefined;
+      return {
+        createChatReq: () => [{ name: reqName, headers: {} }, {}],
+        createChatResp: () => ({ results: [] }),
+        createChatStreamResp: () => {
+          deltaIdx += 1;
+          const next = onDelta(deltaIdx);
+          if (next) usage = next;
+          return { results: [{ index: 0, content: 'x' }] };
+        },
+        getModelConfig: () => ({ maxTokens: 100, temperature: 0, stream: true }),
+        getTokenUsage: () => usage,
+      };
+    };
+
+    beforeEach(() => resetAIMetricsInstruments());
+    afterEach(() => resetAIMetricsInstruments());
+
+    it('deduplicates cumulative streaming token usage into deltas', async () => {
+      const { sums, meter } = makeMetricsTestHarness([
+        'ax_llm_input_tokens_total',
+        'ax_llm_output_tokens_total',
+      ]);
+
+      // Each delta reports a running total, not an increment — the failure mode.
+      const impl = makeStreamingImpl((i) => ({
+        promptTokens: 100,
+        completionTokens: i * 5,
+        totalTokens: 100 + i * 5,
+      }));
+
+      const ai = new AxBaseAI(impl, baseConfig);
+      ai.setOptions({ fetch: fiveChunkSSE(), meter });
+      await drain(
+        await ai.chat({ chatPrompt: [{ role: 'user', content: 'test' }] })
+      );
+
+      // Final cumulative after 5 deltas: 100 prompt, 25 completion. Pre-fix the
+      // counters would have summed to 5x these values.
+      expect(sums.ax_llm_input_tokens_total).toBe(100);
+      expect(sums.ax_llm_output_tokens_total).toBe(25);
+    }, 10000);
+
+    it('records cumulative streaming usage when usage is reported on a single event', async () => {
+      const { sums, meter } = makeMetricsTestHarness([
+        'ax_llm_input_tokens_total',
+        'ax_llm_output_tokens_total',
+      ]);
+
+      // Only the last delta carries usage.
+      const impl = makeStreamingImpl((i) =>
+        i === 5
+          ? { promptTokens: 80, completionTokens: 42, totalTokens: 122 }
+          : undefined
+      );
+
+      const ai = new AxBaseAI(impl, baseConfig);
+      ai.setOptions({ fetch: fiveChunkSSE(), meter });
+      await drain(
+        await ai.chat({ chatPrompt: [{ role: 'user', content: 'test' }] })
+      );
+
+      expect(sums.ax_llm_input_tokens_total).toBe(80);
+      expect(sums.ax_llm_output_tokens_total).toBe(42);
+    }, 10000);
+
+    it('prices long-context cost from cumulative usage, not per-delta increments', async () => {
+      const { sums, meter } = makeMetricsTestHarness([
+        'ax_llm_estimated_cost_total',
+      ]);
+
+      // Anthropic-shape: large prompt set at first event, completion grows.
+      const impl = makeStreamingImpl(
+        (i) => ({
+          promptTokens: 250_000,
+          completionTokens: i * 100,
+          totalTokens: 250_000 + i * 100,
+        }),
+        'test-long'
+      );
+
+      const modelInfo: AxModelInfo[] = [
+        {
+          name: 'test-model',
+          promptTokenCostPer1M: 3,
+          completionTokenCostPer1M: 15,
+          longContextThreshold: 200_000,
+          longContextPromptTokenCostPer1M: 6,
+          longContextCompletionTokenCostPer1M: 22.5,
+        },
+      ];
+
+      const ai = new AxBaseAI(impl, { ...baseConfig, modelInfo });
+      ai.setOptions({ fetch: fiveChunkSSE(), meter });
+      await drain(
+        await ai.chat({ chatPrompt: [{ role: 'user', content: 'test' }] })
+      );
+
+      // 250k prompt @ $6/1M + 500 completion @ $22.5/1M.
+      const expectedCost =
+        (250_000 * 6) / 1_000_000 + (500 * 22.5) / 1_000_000;
+      expect(sums.ax_llm_estimated_cost_total).toBeCloseTo(expectedCost, 6);
+    }, 10000);
+  });
 
   it('should handle errors in metrics', async () => {
     // Create an implementation that throws an error
