@@ -424,7 +424,7 @@ class AxAIOpenAIImpl<
           reqValue.reasoning_effort = 'high';
           break;
         case 'highest':
-          reqValue.reasoning_effort = 'high';
+          reqValue.reasoning_effort = 'xhigh';
           break;
       }
     }
@@ -441,8 +441,10 @@ class AxAIOpenAIImpl<
           break;
         case 'medium':
         case 'high':
-        case 'highest':
           reqValue.reasoning_effort = 'high';
+          break;
+        case 'highest':
+          reqValue.reasoning_effort = 'xhigh';
           break;
       }
     }

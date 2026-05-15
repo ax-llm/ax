@@ -55,6 +55,7 @@ export type AxAIAnthropicEffortLevel = 'low' | 'medium' | 'high' | 'max';
 
 export type AxAIAnthropicOutputConfig = {
   effort?: AxAIAnthropicEffortLevel;
+  format?: { type: 'json_schema'; schema: object };
 };
 
 export type AxAIAnthropicEffortLevelMapping = {
@@ -195,11 +196,7 @@ export type AxAIAnthropicChatRequest = {
   top_p?: number; // Nucleus sampling probability
   top_k?: number; // Sample from the top K options
   thinking?: AxAIAnthropicThinkingWire; // Extended thinking configuration
-  output_config?: AxAIAnthropicOutputConfig; // Effort level configuration
-  output_format?: {
-    type: 'json_schema';
-    schema: object;
-  }; // Structured output configuration
+  output_config?: AxAIAnthropicOutputConfig; // Effort level + structured output configuration
   metadata?: {
     user_id: string;
   };

@@ -41,6 +41,9 @@ export enum AxAIOpenAIResponsesModel {
   GPT54 = 'gpt-5.4',
   GPT54Mini = 'gpt-5.4-mini',
   GPT54Nano = 'gpt-5.4-nano',
+  // GPT-5.5 models
+  GPT55 = 'gpt-5.5',
+  GPT55Pro = 'gpt-5.5-pro',
   // Reasoning models
   O1Pro = 'o1-pro',
   O1 = 'o1',
@@ -194,6 +197,7 @@ export interface AxAIOpenAIResponsesRequest<TModel = AxAIOpenAIResponsesModel> {
     | 'computer_call_output.output.image_url'
     | 'reasoning.encrypted_content'
     | 'code_interpreter_call.outputs'
+    | 'web_search_call.action.return_token_budget'
   > | null;
   readonly instructions?: string | null; // Maps to system prompt
   readonly max_output_tokens?: number | null;
@@ -201,7 +205,14 @@ export interface AxAIOpenAIResponsesRequest<TModel = AxAIOpenAIResponsesModel> {
   readonly parallel_tool_calls?: boolean | null;
   readonly previous_response_id?: string | null;
   readonly reasoning?: {
-    readonly effort?: 'minimal' | 'low' | 'medium' | 'high' | null;
+    readonly effort?:
+      | 'none'
+      | 'minimal'
+      | 'low'
+      | 'medium'
+      | 'high'
+      | 'xhigh'
+      | null;
     readonly summary?: 'auto' | 'concise' | 'detailed' | null; // 'generate_summary' is deprecated
   } | null;
   readonly service_tier?: 'auto' | 'default' | 'flex' | null;
@@ -235,6 +246,7 @@ export interface AxAIOpenAIResponsesOutputMessageItem {
     | AxAIOpenAIResponsesOutputRefusalContentPart
   >;
   status: 'in_progress' | 'completed' | 'incomplete'; // Mutable during construction
+  phase?: 'commentary' | 'final_answer';
 }
 
 // Output Item: Function Call (emitted by the model)
@@ -792,7 +804,7 @@ export type AxAIOpenAIResponsesConfig<TModel, TEmbedModel> = Omit<
   logprobs?: number;
   echo?: boolean;
   dimensions?: number;
-  reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high';
+  reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
   reasoningSummary?: 'auto' | 'concise' | 'detailed';
   store?: boolean;
   systemPrompt?: string;

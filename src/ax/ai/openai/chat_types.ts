@@ -10,8 +10,11 @@ export enum AxAIOpenAIModel {
   GPT4OMini = 'gpt-4o-mini',
   GPTAudio = 'gpt-audio',
   GPTAudioMini = 'gpt-audio-mini',
+  GPTAudio15 = 'gpt-audio-1.5',
+  GPTRealtime15 = 'gpt-realtime-1.5',
   GPTRealtime2 = 'gpt-realtime-2',
   GPTRealtimeWhisper = 'gpt-realtime-whisper',
+  GPTRealtimeTranslate = 'gpt-realtime-translate',
   GPT4ChatGPT4O = 'chatgpt-4o-latest',
   GPT4Turbo = 'gpt-4-turbo',
   GPT35Turbo = 'gpt-3.5-turbo',
@@ -40,6 +43,9 @@ export enum AxAIOpenAIModel {
   GPT54 = 'gpt-5.4',
   GPT54Mini = 'gpt-5.4-mini',
   GPT54Nano = 'gpt-5.4-nano',
+  // GPT-5.5 models
+  GPT55 = 'gpt-5.5',
+  GPT55Pro = 'gpt-5.5-pro',
   // Reasoning models
   O1 = 'o1',
   O1Mini = 'o1-mini',
@@ -81,7 +87,7 @@ export type AxAIOpenAIConfig<TModel, TEmbedModel> = Omit<
   logprobs?: number;
   echo?: boolean;
   dimensions?: number;
-  reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high';
+  reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
   store?: boolean;
   serviceTier?: 'auto' | 'default' | 'flex';
   webSearchOptions?: {
@@ -133,7 +139,7 @@ export interface AxAIOpenAIResponseDelta<T> {
 
 export type AxAIOpenAIChatRequest<TModel> = {
   model: TModel;
-  reasoning_effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high';
+  reasoning_effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
   store?: boolean;
   modalities?: readonly ('text' | 'audio')[];
   audio?: {

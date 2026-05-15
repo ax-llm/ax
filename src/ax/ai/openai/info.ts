@@ -58,6 +58,14 @@ export const axModelInfoOpenAI: AxModelInfo[] = [
     audio: { input: true, output: true },
   },
   {
+    name: AxAIOpenAIModel.GPTAudio15,
+    audio: { input: true, output: true },
+  },
+  {
+    name: AxAIOpenAIModel.GPTRealtime15,
+    audio: { input: true, output: true },
+  },
+  {
     name: AxAIOpenAIModel.GPTRealtime2,
     audio: { input: true, output: true },
     supported: { thinkingBudget: true },
@@ -65,6 +73,10 @@ export const axModelInfoOpenAI: AxModelInfo[] = [
   {
     name: AxAIOpenAIModel.GPTRealtimeWhisper,
     audio: { input: true, output: false },
+  },
+  {
+    name: AxAIOpenAIModel.GPTRealtimeTranslate,
+    audio: { input: true, output: true },
   },
   {
     name: AxAIOpenAIModel.GPT4ChatGPT4O,
@@ -239,6 +251,28 @@ export const axModelInfoOpenAI: AxModelInfo[] = [
     completionTokenCostPer1M: 1.25,
     notSupported: { temperature: true, topP: true },
     supported: { structuredOutputs: true },
+  },
+  // GPT-5.5 models
+  {
+    name: AxAIOpenAIModel.GPT55,
+    currency: 'usd',
+    promptTokenCostPer1M: 1.25,
+    completionTokenCostPer1M: 10,
+    cacheReadTokenCostPer1M: 0.125,
+    contextWindow: 1_000_000,
+    notSupported: { temperature: true, topP: true },
+    supported: { structuredOutputs: true, thinkingBudget: true },
+  },
+  {
+    name: AxAIOpenAIModel.GPT55Pro,
+    currency: 'usd',
+    promptTokenCostPer1M: 15,
+    completionTokenCostPer1M: 60,
+    cacheReadTokenCostPer1M: 1.5,
+    contextWindow: 1_000_000,
+    isExpensive: true,
+    notSupported: { temperature: true, topP: true },
+    supported: { structuredOutputs: true, thinkingBudget: true },
   },
   // Reasoning models
   {
@@ -579,6 +613,36 @@ export const axModelInfoOpenAIResponses: AxModelInfo[] = [
     currency: 'usd',
     promptTokenCostPer1M: 0.2,
     completionTokenCostPer1M: 1.25,
+    notSupported: { temperature: true, topP: true },
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: true,
+    },
+  },
+  // GPT-5.5 models
+  {
+    name: AxAIOpenAIResponsesModel.GPT55,
+    currency: 'usd',
+    promptTokenCostPer1M: 1.25,
+    completionTokenCostPer1M: 10,
+    cacheReadTokenCostPer1M: 0.125,
+    contextWindow: 1_000_000,
+    notSupported: { temperature: true, topP: true },
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: true,
+    },
+  },
+  {
+    name: AxAIOpenAIResponsesModel.GPT55Pro,
+    currency: 'usd',
+    promptTokenCostPer1M: 15,
+    completionTokenCostPer1M: 60,
+    cacheReadTokenCostPer1M: 1.5,
+    contextWindow: 1_000_000,
+    isExpensive: true,
     notSupported: { temperature: true, topP: true },
     supported: {
       thinkingBudget: true,

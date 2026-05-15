@@ -70,6 +70,9 @@ export type AxModelInfo = {
   maxTokens?: number;
   isExpensive?: boolean;
   contextWindow?: number;
+  isDeprecated?: boolean;
+  /** ISO date (YYYY-MM-DD) the upstream provider will stop serving this model. */
+  deprecatedOn?: string;
 };
 
 export type AxTokenUsage = {
@@ -316,6 +319,10 @@ export type AxCitation = {
   license?: string;
   publicationDate?: string;
   snippet?: string;
+  /** File Search multimodal (Gemini, May 2026): media chunk id. */
+  mediaId?: string;
+  /** File Search multimodal (Gemini, May 2026): page numbers cited within the source. */
+  pageNumbers?: number[];
 };
 
 export type AxModelUsage = {

@@ -464,6 +464,7 @@ import {
   type AxAIOpenAIResponsesWebSearchCallSearchingEvent,
   type AxAIOpenAIResponsesWebSearchToolCall,
 } from './ai/openai/responses_types.js';
+import { axNormalizeOpenAIUsage } from './ai/openai/usage.js';
 import {
   AxAIOpenRouter,
   type AxAIOpenRouterArgs,
@@ -666,6 +667,7 @@ import type {
   AxOptimizerArgs,
   AxTypedExample,
 } from './dsp/common_types.js';
+import type { AxDateRange } from './dsp/datetime.js';
 import { AxEvalUtil } from './dsp/eval.js';
 import { type AxEvaluateArgs, AxTestPrompt } from './dsp/evaluate.js';
 import type {
@@ -807,6 +809,7 @@ import {
 import { AxInstanceRegistry } from './dsp/registry.js';
 import type { AxSamplePickerOptions } from './dsp/samples.js';
 import {
+  type AxDateRangeValue,
   type AxField,
   type AxFieldType,
   type AxFluentFieldInfo,
@@ -1215,6 +1218,7 @@ export { axModelInfoOpenAIResponses };
 export { axModelInfoReka };
 export { axModelInfoTogether };
 export { axModelInfoWebLLM };
+export { axNormalizeOpenAIUsage };
 export { axOpenAIChatAudioDefaults };
 export { axOptimizableValidators };
 export { axProcessContentForProvider };
@@ -1593,6 +1597,8 @@ export type { AxDBUpsertResponse };
 export type { AxDBWeaviateArgs };
 export type { AxDBWeaviateOpOptions };
 export type { AxDataRow };
+export type { AxDateRange };
+export type { AxDateRangeValue };
 export type { AxDebugChatResponseUsage };
 export type { AxDiscoveryTurnSummary };
 export type { AxDockerContainer };

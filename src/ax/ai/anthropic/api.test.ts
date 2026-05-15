@@ -121,10 +121,20 @@ describe('AxAIAnthropic schema validation', () => {
     });
 
     expect(fetch).toHaveBeenCalledTimes(1);
-    expect(capture.lastBody?.output_format?.type).toBe('json_schema');
-    expect(capture.lastBody?.output_format?.schema?.additionalProperties).toBe(
-      false
-    );
+    expect(capture.lastBody?.output_format).toBeUndefined();
+    expect(capture.lastBody?.output_config?.format?.type).toBe('json_schema');
+    expect(
+      capture.lastBody?.output_config?.format?.schema?.additionalProperties
+    ).toBe(false);
+    // Multi-type-array union should be collapsed to a permissive object.
+    expect(
+      capture.lastBody?.output_config?.format?.schema?.properties?.arbitrary
+        ?.type
+    ).toBe('object');
+    expect(
+      capture.lastBody?.output_config?.format?.schema?.properties?.arbitrary
+        ?.additionalProperties
+    ).toBe(true);
   });
 });
 

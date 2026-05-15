@@ -1285,6 +1285,29 @@ class AxAIGoogleGeminiImpl
                 ...mapsCitations,
               ];
             }
+            const fileSearchCitations = gm.groundingChunks
+              .map((ch: any) => ch?.retrievedContext)
+              .filter(
+                (r: any) =>
+                  r &&
+                  (typeof r.uri === 'string' || typeof r.media_id === 'string')
+              )
+              .map((r: any) => ({
+                url: (r.uri as string) ?? '',
+                title: r.title as string | undefined,
+                ...(typeof r.media_id === 'string'
+                  ? { mediaId: r.media_id }
+                  : {}),
+                ...(Array.isArray(r.page_numbers)
+                  ? { pageNumbers: r.page_numbers as number[] }
+                  : {}),
+              }));
+            if (fileSearchCitations.length) {
+              result.citations = [
+                ...(result.citations ?? []),
+                ...fileSearchCitations,
+              ];
+            }
           }
           if (typeof gm.googleMapsWidgetContextToken === 'string') {
             mapsWidgetToken = gm.googleMapsWidgetContextToken;

@@ -40,9 +40,19 @@ const cleanSchemaForAnthropic = (schema: any): any => {
 
   const cleaned = { ...schema };
 
-  const isObjectType =
-    cleaned.type === 'object' ||
-    (Array.isArray(cleaned.type) && cleaned.type.includes('object'));
+  // Anthropic's structured-output validator rejects multi-type arrays
+  // (e.g. type: ['object','array','string','number','boolean','null']).
+  // Collapse to a permissive object so arbitrary JSON values still validate.
+  if (Array.isArray(cleaned.type) && cleaned.type.length > 1) {
+    cleaned.type = 'object';
+    cleaned.additionalProperties = true;
+    delete cleaned.properties;
+    delete cleaned.required;
+    delete cleaned.items;
+    return cleaned;
+  }
+
+  const isObjectType = cleaned.type === 'object';
 
   if (isObjectType) {
     if (!cleaned.properties || Object.keys(cleaned.properties).length === 0) {
@@ -57,10 +67,29 @@ const cleanSchemaForAnthropic = (schema: any): any => {
   // Anthropic supports default, anyOf, allOf, const, enum.
   // We only remove fields that are definitely not supported or non-standard.
   delete cleaned.optional;
-  // delete cleaned.default; // Supported
-  // delete cleaned.oneOf; // Supported
-  // delete cleaned.anyOf; // Supported
-  // delete cleaned.allOf; // Supported
+
+  // Anthropic's structured-output validator rejects validation keywords
+  // (minimum/maximum on numbers, minLength/maxLength/pattern/format on strings,
+  // minItems/maxItems on arrays). Strip them so the request is accepted; the
+  // framework's response parser performs validation post-hoc.
+  if (cleaned.type === 'number' || cleaned.type === 'integer') {
+    delete cleaned.minimum;
+    delete cleaned.maximum;
+    delete cleaned.exclusiveMinimum;
+    delete cleaned.exclusiveMaximum;
+    delete cleaned.multipleOf;
+  }
+  if (cleaned.type === 'string') {
+    delete cleaned.minLength;
+    delete cleaned.maxLength;
+    delete cleaned.pattern;
+    delete cleaned.format;
+  }
+  if (cleaned.type === 'array') {
+    delete cleaned.minItems;
+    delete cleaned.maxItems;
+    delete cleaned.uniqueItems;
+  }
 
   // Recursively clean properties
   if (cleaned.properties && typeof cleaned.properties === 'object') {
@@ -434,21 +463,22 @@ class AxAIAnthropicImpl
       outputConfig = undefined;
     }
 
-    // Handle structured output using native output_format parameter
-    let outputFormat: { type: 'json_schema'; schema: any } | undefined;
+    // Handle structured output via the GA output_config.format parameter
     this.usedStructuredOutput = false;
     if (req.responseFormat) {
       if (
         req.responseFormat.type === 'json_schema' &&
         req.responseFormat.schema
       ) {
-        // Anthropic supports structured output natively via output_format parameter
         const schema =
           req.responseFormat.schema.schema || req.responseFormat.schema;
 
-        outputFormat = {
-          type: 'json_schema',
-          schema: cleanSchemaForAnthropic(schema),
+        outputConfig = {
+          ...outputConfig,
+          format: {
+            type: 'json_schema',
+            schema: cleanSchemaForAnthropic(schema),
+          },
         };
         this.usedStructuredOutput = true;
       }
@@ -476,7 +506,6 @@ class AxAIAnthropicImpl
       ...(system ? { system } : {}),
       ...(thinkingWire ? { thinking: thinkingWire } : {}),
       ...(outputConfig ? { output_config: outputConfig } : {}),
-      ...(outputFormat ? { output_format: outputFormat } : {}),
       messages,
     };
 
@@ -586,7 +615,7 @@ class AxAIAnthropicImpl
       result.functionCalls = aggregatedFunctionCalls;
     }
 
-    // When using native structured outputs via output_format parameter,
+    // When using native structured outputs via output_config.format,
     // the JSON response is returned in text content (not as a function call).
     // The text content is guaranteed to be valid JSON matching the schema.
     // The framework's processResponse will parse this JSON content automatically.

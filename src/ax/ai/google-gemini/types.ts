@@ -6,6 +6,10 @@ export enum AxAIGoogleGeminiModel {
   Gemini3Flash = 'gemini-3-flash-preview',
   Gemini3Pro = 'gemini-3.1-pro-preview',
   Gemini3ProImage = 'gemini-3-pro-image-preview',
+  Gemini31FlashImage = 'gemini-3.1-flash-image-preview',
+  Gemini31FlashTTS = 'gemini-3.1-flash-tts-preview',
+  NanoBanana2 = 'nano-banana-2',
+  GeminiRoboticsER16 = 'gemini-robotics-er-1.6-preview',
   Gemini25Pro = 'gemini-2.5-pro',
   Gemini25Flash = 'gemini-2.5-flash',
   Gemini25FlashNativeAudio = 'gemini-2.5-flash-native-audio-preview-12-2025',
@@ -28,7 +32,6 @@ export enum AxAIGoogleGeminiEmbedModel {
   GeminiEmbedding001 = 'gemini-embedding-001',
   GeminiEmbedding = 'gemini-embedding-exp',
   TextEmbeddingLarge = 'text-embedding-large-exp-03-07',
-  TextEmbedding004 = 'text-embedding-004',
   TextEmbedding005 = 'text-embedding-005',
 }
 
@@ -211,6 +214,14 @@ export type AxAIGoogleGeminiChatResponse = {
         maps?: {
           title?: string;
           uri?: string;
+        };
+        retrievedContext?: {
+          title?: string;
+          uri?: string;
+          /** File Search multimodal (May 2026): id of the file/media chunk. */
+          media_id?: string;
+          /** File Search multimodal (May 2026): page numbers cited within the source. */
+          page_numbers?: number[];
         };
       }[];
       googleMapsWidgetContextToken?: string;

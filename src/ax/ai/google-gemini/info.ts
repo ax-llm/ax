@@ -65,6 +65,36 @@ export const axModelInfoGoogleGemini: AxModelInfo[] = [
     },
   },
   {
+    name: AxAIGoogleGeminiModel.Gemini31FlashImage,
+    currency: 'usd',
+    characterIsToken: false,
+    promptTokenCostPer1M: 0.5,
+    completionTokenCostPer1M: 3.0,
+    supported: { structuredOutputs: true },
+  },
+  {
+    name: AxAIGoogleGeminiModel.Gemini31FlashTTS,
+    currency: 'usd',
+    characterIsToken: false,
+    promptTokenCostPer1M: 0.5,
+    completionTokenCostPer1M: 3.0,
+    audio: { input: false, output: true },
+  },
+  {
+    name: AxAIGoogleGeminiModel.NanoBanana2,
+    currency: 'usd',
+    characterIsToken: false,
+    promptTokenCostPer1M: 0.5,
+    completionTokenCostPer1M: 3.0,
+  },
+  {
+    name: AxAIGoogleGeminiModel.GeminiRoboticsER16,
+    currency: 'usd',
+    characterIsToken: false,
+    promptTokenCostPer1M: 0.0,
+    completionTokenCostPer1M: 0.0,
+  },
+  {
     name: AxAIGoogleGeminiModel.Gemini25Pro,
     currency: 'usd',
     characterIsToken: false,
@@ -154,6 +184,8 @@ export const axModelInfoGoogleGemini: AxModelInfo[] = [
     cacheReadTokenCostPer1M: 0.025,
     cacheWriteTokenCostPer1M: 0.1,
     supported: { structuredOutputs: true },
+    isDeprecated: true,
+    deprecatedOn: '2026-06-01',
   },
 
   {
@@ -163,6 +195,8 @@ export const axModelInfoGoogleGemini: AxModelInfo[] = [
     promptTokenCostPer1M: 0.075,
     completionTokenCostPer1M: 0.3,
     supported: { structuredOutputs: true },
+    isDeprecated: true,
+    deprecatedOn: '2026-06-01',
   },
   {
     name: AxAIGoogleGeminiModel.Gemini15Flash,

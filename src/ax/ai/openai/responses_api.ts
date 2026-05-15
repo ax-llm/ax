@@ -357,8 +357,10 @@ export class AxAIOpenAIResponsesImpl<
           break;
         case 'medium':
         case 'high':
-        case 'highest':
           reasoningEffort = 'high';
+          break;
+        case 'highest':
+          reasoningEffort = 'xhigh';
           break;
       }
     }
@@ -501,10 +503,15 @@ export class AxAIOpenAIResponsesImpl<
           break;
         case 'medium':
         case 'high':
-        case 'highest':
           currentReasoning = {
             ...currentReasoning,
             effort: 'high',
+          };
+          break;
+        case 'highest':
+          currentReasoning = {
+            ...currentReasoning,
+            effort: 'xhigh',
           };
           break;
       }

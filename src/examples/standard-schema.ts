@@ -20,7 +20,7 @@ import { AxAIAnthropicModel, ai, ax, f, fn } from '../ax/index.js';
 const llm = ai({
   name: 'anthropic',
   apiKey: process.env.ANTHROPIC_APIKEY as string,
-  config: { model: AxAIAnthropicModel.Claude35Haiku },
+  config: { model: AxAIAnthropicModel.Claude45Sonnet },
 });
 
 // const llm = ai({ name: 'openai', apiKey: process.env['OPENAI_APIKEY'] as string });
@@ -104,6 +104,7 @@ const reviewSentimentGen = ax(
     )
     .output('score', z.number().min(1).max(10).describe('Sentiment score 1-10'))
     .output('keyPoints', z.array(z.string()).describe('Top 3 takeaway points'))
+    .useStructured()
     .build()
 );
 
@@ -151,6 +152,7 @@ const productSummaryGen = ax(
           .describe('Purchase recommendation'),
       })
     )
+    .useStructured()
     .build(),
   { maxSteps: 3 }
 );
