@@ -131,7 +131,7 @@ export type AxAIAnthropicChatRequest = {
                   type: 'image';
                   source: { type: 'base64'; media_type: string; data: string };
                 } & AxAIAnthropicChatRequestCacheParam)
-              | {
+              | ({
                   type: 'tool_result';
                   is_error?: boolean;
                   tool_use_id: string;
@@ -151,7 +151,7 @@ export type AxAIAnthropicChatRequest = {
                             };
                           } & AxAIAnthropicChatRequestCacheParam)
                       )[];
-                }
+                } & AxAIAnthropicChatRequestCacheParam)
             )[];
       }
     | {

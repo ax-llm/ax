@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AxAIAnthropic } from './api.js';
 import { AxAIAnthropicModel } from './types.js';
@@ -443,5 +443,300 @@ describe('AxAIAnthropic thinking configuration', () => {
     const body = capture.lastBody;
     expect(body.thinking).toEqual({ type: 'adaptive' });
     expect(body.output_config).toEqual({ effort: 'max' });
+  });
+});
+
+describe('AxAIAnthropic user message caching', () => {
+  let ai: AxAIAnthropic;
+  let capture: { lastBody?: any };
+  let fetch: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: { model: AxAIAnthropicModel.Claude35Sonnet },
+    });
+    ({ capture, fetch } = createCaptureFetch('claude-3-5-sonnet-latest'));
+    ai.setOptions({ fetch });
+  });
+
+  it('string content + cache: true serializes to a single text block with block-level cache_control', async () => {
+    await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'hi', cache: true }] },
+      { stream: false }
+    );
+
+    expect(fetch).toHaveBeenCalled();
+    const body = capture.lastBody;
+    expect(body.messages[0].role).toBe('user');
+    expect(Array.isArray(body.messages[0].content)).toBe(true);
+    expect(body.messages[0].content).toHaveLength(1);
+    expect(body.messages[0].content[0]).toEqual({
+      type: 'text',
+      text: 'hi',
+      cache_control: { type: 'ephemeral' },
+    });
+    // Regression guard: cache_control must NOT sit on the message envelope.
+    expect(body.messages[0].cache_control).toBeUndefined();
+  });
+
+  it('string content without cache flag is preserved as a plain string', async () => {
+    await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'hi' }] },
+      { stream: false }
+    );
+
+    expect(fetch).toHaveBeenCalled();
+    const body = capture.lastBody;
+    expect(body.messages[0].content).toBe('hi');
+    expect(body.messages[0].cache_control).toBeUndefined();
+  });
+
+  it('array content + message-level cache attaches cache_control to the last block', async () => {
+    await ai.chat(
+      {
+        chatPrompt: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'a' },
+              { type: 'text', text: 'b' },
+            ],
+            cache: true,
+          },
+        ],
+      },
+      { stream: false }
+    );
+
+    expect(fetch).toHaveBeenCalled();
+    const body = capture.lastBody;
+    expect(body.messages[0].content[0].cache_control).toBeUndefined();
+    expect(body.messages[0].content[1].cache_control).toEqual({
+      type: 'ephemeral',
+    });
+    expect(body.messages[0].cache_control).toBeUndefined();
+  });
+
+  it('array content with per-block cache continues to honor block-level flag', async () => {
+    await ai.chat(
+      {
+        chatPrompt: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'a', cache: true },
+              { type: 'text', text: 'b' },
+            ],
+          },
+        ],
+      },
+      { stream: false }
+    );
+
+    expect(fetch).toHaveBeenCalled();
+    const body = capture.lastBody;
+    expect(body.messages[0].content[0].cache_control).toEqual({
+      type: 'ephemeral',
+    });
+    expect(body.messages[0].content[1].cache_control).toBeUndefined();
+  });
+
+  it('array content without any cache flag leaks no cache_control anywhere', async () => {
+    await ai.chat(
+      {
+        chatPrompt: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'a' },
+              { type: 'text', text: 'b' },
+            ],
+          },
+        ],
+      },
+      { stream: false }
+    );
+
+    expect(fetch).toHaveBeenCalled();
+    const body = capture.lastBody;
+    expect(body.messages[0].cache_control).toBeUndefined();
+    expect(body.messages[0].content[0].cache_control).toBeUndefined();
+    expect(body.messages[0].content[1].cache_control).toBeUndefined();
+  });
+
+  it('message-level cache on array content whose tail is an image attaches cache_control to that image block', async () => {
+    await ai.chat(
+      {
+        chatPrompt: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'describe' },
+              {
+                type: 'image',
+                mimeType: 'image/png',
+                image: 'aGVsbG8=',
+              },
+            ],
+            cache: true,
+          },
+        ],
+      },
+      { stream: false }
+    );
+
+    expect(fetch).toHaveBeenCalled();
+    const body = capture.lastBody;
+    expect(body.messages[0].content[0].cache_control).toBeUndefined();
+    expect(body.messages[0].content[1].type).toBe('image');
+    expect(body.messages[0].content[1].cache_control).toEqual({
+      type: 'ephemeral',
+    });
+    expect(body.messages[0].cache_control).toBeUndefined();
+  });
+});
+
+describe('AxAIAnthropic assistant message caching', () => {
+  let ai: AxAIAnthropic;
+  let capture: { lastBody?: any };
+  let fetch: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: { model: AxAIAnthropicModel.Claude35Sonnet },
+    });
+    ({ capture, fetch } = createCaptureFetch('claude-3-5-sonnet-latest'));
+    ai.setOptions({ fetch });
+  });
+
+  it('string content + cache: true normalizes to a single text block with cache_control', async () => {
+    await ai.chat(
+      {
+        chatPrompt: [
+          { role: 'user', content: 'hi' },
+          { role: 'assistant', content: 'cached reply', cache: true },
+          { role: 'user', content: 'continue' },
+        ],
+      },
+      { stream: false }
+    );
+
+    expect(fetch).toHaveBeenCalled();
+    const body = capture.lastBody;
+    expect(body.messages[1].role).toBe('assistant');
+    expect(Array.isArray(body.messages[1].content)).toBe(true);
+    expect(body.messages[1].content[0]).toEqual({
+      type: 'text',
+      text: 'cached reply',
+      cache_control: { type: 'ephemeral' },
+    });
+    expect(body.messages[1].cache_control).toBeUndefined();
+  });
+
+  it('functionCalls + message-level cache marks each tool_use block (block-level, not envelope)', async () => {
+    await ai.chat(
+      {
+        chatPrompt: [
+          { role: 'user', content: 'hi' },
+          {
+            role: 'assistant',
+            content: '',
+            functionCalls: [
+              {
+                id: 'call_1',
+                type: 'function',
+                function: { name: 'lookup', params: '{"q":"x"}' },
+              },
+              {
+                id: 'call_2',
+                type: 'function',
+                function: { name: 'lookup', params: '{"q":"y"}' },
+              },
+            ],
+            cache: true,
+          },
+          {
+            role: 'function',
+            functionId: 'call_1',
+            result: 'r1',
+          },
+          {
+            role: 'function',
+            functionId: 'call_2',
+            result: 'r2',
+          },
+        ],
+      },
+      { stream: false }
+    );
+
+    expect(fetch).toHaveBeenCalled();
+    const body = capture.lastBody;
+    expect(body.messages[1].role).toBe('assistant');
+    expect(body.messages[1].cache_control).toBeUndefined();
+    expect(body.messages[1].content[0].type).toBe('tool_use');
+    expect(body.messages[1].content[0].cache_control).toEqual({
+      type: 'ephemeral',
+    });
+    expect(body.messages[1].content[1].cache_control).toEqual({
+      type: 'ephemeral',
+    });
+  });
+});
+
+describe('AxAIAnthropic function (tool_result) caching', () => {
+  let ai: AxAIAnthropic;
+  let capture: { lastBody?: any };
+  let fetch: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: { model: AxAIAnthropicModel.Claude35Sonnet },
+    });
+    ({ capture, fetch } = createCaptureFetch('claude-3-5-sonnet-latest'));
+    ai.setOptions({ fetch });
+  });
+
+  it('function role + cache: true emits cache_control on the tool_result block (not a stray `cache` key, not the envelope)', async () => {
+    await ai.chat(
+      {
+        chatPrompt: [
+          { role: 'user', content: 'hi' },
+          {
+            role: 'assistant',
+            content: '',
+            functionCalls: [
+              {
+                id: 'call_1',
+                type: 'function',
+                function: { name: 'lookup', params: '{}' },
+              },
+            ],
+          },
+          {
+            role: 'function',
+            functionId: 'call_1',
+            result: 'result body',
+            cache: true,
+          },
+        ],
+      },
+      { stream: false }
+    );
+
+    expect(fetch).toHaveBeenCalled();
+    const body = capture.lastBody;
+    const toolResultMsg = body.messages[2];
+    expect(toolResultMsg.role).toBe('user');
+    expect(toolResultMsg.cache_control).toBeUndefined();
+    const block = toolResultMsg.content[0];
+    expect(block.type).toBe('tool_result');
+    expect(block.tool_use_id).toBe('call_1');
+    expect(block.cache_control).toEqual({ type: 'ephemeral' });
+    // Regression guard for the previous typo: must not be a `cache` field.
+    expect(block.cache).toBeUndefined();
   });
 });
