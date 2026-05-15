@@ -1,5 +1,17 @@
 # Changelog
 
+## [21.0.5](///compare/21.0.3...21.0.4) (2026-05-15)
+
+### Features
+
+* **ai:** add new models, xhigh reasoning effort, and Anthropic structured output fix ec008b7
+
+### Bug Fixes
+
+* **ai:** record streaming token usage as deltas, not cumulative ([#516](undefined/undefined/undefined/issues/516)) 4f7f417
+* **anthropic:** emit cache_control on content blocks, not envelopes ([#517](undefined/undefined/undefined/issues/517)) c12a3a8
+## [21.0.4](///compare/21.0.3...21.0.4) (2026-05-14)
+
 ## [21.0.4](///compare/21.0.2...21.0.3) (2026-05-14)
 ## [21.0.3](///compare/21.0.2...21.0.3) (2026-05-13)
 
