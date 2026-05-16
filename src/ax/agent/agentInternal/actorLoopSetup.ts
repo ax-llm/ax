@@ -11,6 +11,7 @@ import {
   buildActionLogParts,
   buildActionLogReplayPlan,
   buildActionLogWithPolicy,
+  buildCheckpointSupersessionNotes,
   type CheckpointSummaryState,
   generateCheckpointSummaryAsync,
   getPromptFacingActionLogEntries,
@@ -307,16 +308,23 @@ export function buildActorLoopSetup(
     if (checkpointEntries.length === 0) {
       return applyNext(undefined, 'under_budget');
     }
+    const supersessionNotes = buildCheckpointSupersessionNotes(
+      checkpointEntries,
+      actionLogEntries
+    );
 
-    const fingerprint = JSON.stringify(
-      checkpointEntries.map((entry) => ({
+    const fingerprint = JSON.stringify({
+      checkpointEntries: checkpointEntries.map((entry) => ({
         turn: entry.turn,
         code: entry.code,
         output: entry.output,
         tags: entry.tags,
         tombstone: entry.tombstone,
-      }))
-    );
+        functionCalls: entry._functionCalls,
+        stateDelta: entry.stateDelta,
+      })),
+      supersessionNotes,
+    });
 
     const current = getCheckpointState();
     if (current?.fingerprint === fingerprint) {
@@ -331,7 +339,11 @@ export function buildActorLoopSetup(
           ai,
           runtimeContext.effectiveContextConfig.summarizerOptions,
           summaryForwardOptions,
-          checkpointEntries
+          checkpointEntries,
+          {
+            allEntries: actionLogEntries,
+            supersessionNotes,
+          }
         ),
       },
       'over_budget'

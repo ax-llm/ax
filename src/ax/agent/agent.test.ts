@@ -8950,7 +8950,7 @@ describe('Program registration for optimization', () => {
   });
 });
 
-describe('executorTurnCallback', () => {
+describe('actor turn callbacks', () => {
   const longOutput = 'a'.repeat(3_500);
   const runtime: AxCodeRuntime = {
     getUsageInstructions: () => '',
@@ -8972,7 +8972,7 @@ describe('executorTurnCallback', () => {
     },
   };
 
-  it('should expose raw runtime result, formatted output, code, and thought on each turn', async () => {
+  it('should expose stage, raw runtime result, formatted output, code, and thought on each turn', async () => {
     let actorCallCount = 0;
     const callbackResults: Array<Record<string, unknown>> = [];
 
@@ -9023,7 +9023,7 @@ describe('executorTurnCallback', () => {
       contextFields: [],
       runtime,
       contextPolicy: { budget: 'compact' },
-      executorTurnCallback: async (turn) => {
+      actorTurnCallback: async (turn) => {
         callbackResults.push(turn as unknown as Record<string, unknown>);
       },
     });
@@ -9032,6 +9032,7 @@ describe('executorTurnCallback', () => {
 
     expect(callbackResults).toHaveLength(2);
     expect(callbackResults[0]).toMatchObject({
+      stage: 'executor',
       turn: 1,
       actionLogEntryCount: 1,
       guidanceLogEntryCount: 0,
@@ -9042,6 +9043,7 @@ describe('executorTurnCallback', () => {
       thought: 'Inspect runtime state first.',
     });
     expect(callbackResults[1]).toMatchObject({
+      stage: 'executor',
       turn: 2,
       actionLogEntryCount: 2,
       guidanceLogEntryCount: 0,
@@ -9057,7 +9059,7 @@ describe('executorTurnCallback', () => {
     });
   });
 
-  it('should report live guidance counts in executorTurnCallback after resuming state', async () => {
+  it('should support executorTurnCallback as a deprecated alias', async () => {
     const callbackResults: Array<Record<string, unknown>> = [];
 
     const guideFn: AxFunction = {
@@ -9190,6 +9192,7 @@ describe('executorTurnCallback', () => {
     expect(resumed.answer).toBe('done');
     expect(callbackResults).toHaveLength(2);
     expect(callbackResults[0]).toMatchObject({
+      stage: 'executor',
       turn: 3,
       actionLogEntryCount: 3,
       guidanceLogEntryCount: 2,
@@ -9197,12 +9200,148 @@ describe('executorTurnCallback', () => {
       isError: false,
     });
     expect(callbackResults[1]).toMatchObject({
+      stage: 'executor',
       turn: 4,
       actionLogEntryCount: 4,
       guidanceLogEntryCount: 2,
       code: 'final("resumed result", {})',
       isError: false,
     });
+  });
+
+  it('should attach runtime function calls to checkpointed action entries', async () => {
+    const capturedSummarizerPrompts: string[] = [];
+    const readPrompt = (
+      message: AxChatRequest<unknown>['chatPrompt'][number] | undefined
+    ): string => {
+      if (!message || !('content' in message)) return '';
+      if (typeof message.content === 'string') return message.content;
+      if (!Array.isArray(message.content)) return '';
+      return message.content
+        .map((part) => ('text' in part ? part.text : ''))
+        .join('\n');
+    };
+
+    const uppercaseFn: AxFunction = {
+      name: 'uppercase',
+      namespace: 'tools',
+      description: 'Uppercase text',
+      parameters: {
+        type: 'object',
+        properties: {
+          text: { type: 'string' },
+        },
+        required: ['text'],
+      },
+      func: async ({ text }: { text: string }) => text.toUpperCase(),
+    };
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code.includes('tools.uppercase')) {
+              const tools = globals?.tools as Record<
+                string,
+                (args: Record<string, unknown>) => Promise<unknown>
+              >;
+              await tools.uppercase({ text: 'hello' });
+              return 'hello';
+            }
+            if (code.includes('final(') && globals?.final) {
+              (globals.final as (...args: unknown[]) => void)('done', {});
+              return 'done';
+            }
+            return 'ok';
+          },
+          inspectGlobals: async () => '{"version":1,"entries":[]}',
+          snapshotGlobals: async () => ({
+            version: 1 as const,
+            entries: [],
+            bindings: {},
+          }),
+          patchGlobals: async () => {},
+          close: () => {},
+        };
+      },
+    };
+
+    let executorTurn = 0;
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = readPrompt(req.chatPrompt[0]);
+        const userPrompt = readPrompt(req.chatPrompt[1]);
+
+        if (systemPrompt.includes('internal AxAgent trajectory summarizer')) {
+          capturedSummarizerPrompts.push(userPrompt);
+          return {
+            results: [
+              {
+                index: 0,
+                content:
+                  'Objective: preserve callables\nCurrent state and artifacts: none\nExact callables and formats: none\nEvidence: none\nUser constraints and preferences: none\nFailures to avoid: none\nNext step: continue',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('You (`executor`)')) {
+          executorTurn++;
+          const codeByTurn: Record<number, string> = {
+            1: 'Javascript Code: const value = await tools.uppercase({ text: "hello" }); console.log(value.toLowerCase())',
+            2: 'Javascript Code: const other = "x"; console.log(other)',
+            3: 'Javascript Code: const another = "y"; console.log(another)',
+            4: 'Javascript Code: final("done", {})',
+          };
+          return {
+            results: [
+              {
+                index: 0,
+                content: codeByTurn[executorTurn] ?? codeByTurn[4]!,
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: [],
+      runtime,
+      functions: [uppercaseFn],
+      maxTurns: 4,
+      contextPolicy: { preset: 'checkpointed', budget: 'compact' },
+    });
+
+    await testAgent.forward(testMockAI, {
+      query: `preserve actual tools ${'padding '.repeat(13_000)}`,
+    });
+
+    const checkpointSummary =
+      testAgent.getState()?.checkpointState?.summary ?? '';
+    const directCallableLines = checkpointSummary
+      .split('\n')
+      .filter((line) => line.startsWith('Direct callables:'));
+
+    expect(checkpointSummary).toContain('=== Working Code State');
+    expect(directCallableLines).toContain('Direct callables: tools.uppercase');
+    expect(directCallableLines).not.toContain(
+      'Direct callables: value.toLowerCase'
+    );
   });
 });
 

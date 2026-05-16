@@ -25,6 +25,7 @@ import type {
 import type { AxAgentOnContextEvent } from '../contextEvents.js';
 import type { AxContextPolicyConfig } from '../rlm.js';
 import type {
+  AxAgentActorTurnCallback,
   AxAgentExecutorTurnCallbackArgs,
   AxAgentFunctionCollection,
   AxAgentInputUpdateCallback,
@@ -245,7 +246,14 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
   /** Default options for the internal checkpoint summarizer. */
   summarizerOptions?: Omit<AxProgramForwardOptions<string>, 'functions'>;
   /**
-   * Called after each executor turn is recorded with both the raw runtime
+   * Called after each actor turn is recorded with both the raw runtime
+   * result and the formatted action-log output.
+   */
+  actorTurnCallback?: AxAgentActorTurnCallback;
+  /**
+   * @deprecated Use actorTurnCallback.
+   *
+   * Called after each actor turn is recorded with both the raw runtime
    * result and the formatted action-log output.
    */
   executorTurnCallback?: (

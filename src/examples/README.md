@@ -70,6 +70,20 @@ What to look for:
 - `Context Pressure:` hints stay compact and behavioral instead of exposing raw metrics to the actor.
 - `onContextEvent` emits `budget_check`, `tombstone_created`, `checkpoint_created`, and `checkpoint_cleared`.
 - Checkpoint summaries preserve resumability-focused sections such as objective, exact formats, evidence, failures to avoid, and next step.
+- The scorecard ends with `Scorecard: PASS` when the deterministic baseline holds.
+
+**Optional live eval:**
+```bash
+cd src/ax
+npm run tsx src/examples/rlm-context-management-live.ts
+```
+
+**Prerequisites:** Google Gemini API key (`GOOGLE_APIKEY` environment variable)
+
+What to look for:
+- The real model uses the compact `ops.fetchIncidentFacts(...)` callable under pressure.
+- Checkpoint lifecycle events fire while the actor avoids logging the full raw incident notes.
+- The live scorecard ends with `Live scorecard: PASS` when the run satisfies the tolerant rubric.
 
 ## Host-Controlled RLM Example
 

@@ -6,6 +6,8 @@ import {
   type AxCodeSessionSnapshot,
   AxMockAIService,
   agent,
+  f,
+  fn,
 } from '@ax-llm/ax';
 
 const getPromptText = (
@@ -103,6 +105,20 @@ const createIncidentRuntime = (): AxCodeRuntime => ({
           throw new Error('Execution timed out while reading verbose trace');
         }
 
+        if (code.includes('ops.fetchIncidentFacts')) {
+          const ops = globals?.ops as Record<
+            string,
+            (args: Record<string, unknown>) => Promise<unknown>
+          >;
+          const facts = (await ops.fetchIncidentFacts({
+            incidentId: 'checkout-17',
+            includeVerboseTrace: false,
+          })) as string[];
+          bindings.incidentFacts = facts;
+          bindings.factMessages = facts.map((fact) => fact.toLowerCase());
+          return facts.join('\n');
+        }
+
         if (code.includes('recoveredSignal')) {
           bindings.recoveredSignal = 'rollback restored latency to 820ms';
           return 'rollback restored latency to 820ms';
@@ -183,6 +199,8 @@ const formatEvent = (event: AxAgentContextEvent): string => {
 
 const mainEvents: AxAgentContextEvent[] = [];
 const contextPressureLines: string[] = [];
+const summarizerPrompts: string[] = [];
+const actorPromptTexts: string[] = [];
 let executorTurnCount = 0;
 
 const mockAI = new AxMockAIService<string>({
@@ -192,14 +210,15 @@ const mockAI = new AxMockAIService<string>({
     const userPrompt = getPromptText(req.chatPrompt[1]);
 
     if (systemPrompt.includes('internal AxAgent trajectory summarizer')) {
+      summarizerPrompts.push(userPrompt);
       return {
         results: [
           {
             index: 0,
             content: [
               'Checkpoint Summary: Objective: produce a customer-safe incident response',
-              'Current state and artifacts: rootCause, impactNote, recoveredSignal',
-              'Exact callables and formats: final(answer:string, evidence?:object); Root cause / Impact / Next step',
+              'Current state and artifacts: incidentFacts, rootCause, impactNote',
+              'Exact callables and formats: ops.fetchIncidentFacts({ incidentId: "checkout-17", includeVerboseTrace: false }); final(answer:string, evidence?:object); Root cause / Impact / Next step',
               'Evidence: pricing_rules_v2 cache miss spike; rollback restored latency',
               'User constraints and preferences: keep the final answer concise and evidence-backed',
               'Failures to avoid: do not reread the verbose trace after it timed out',
@@ -237,10 +256,10 @@ const mockAI = new AxMockAIService<string>({
 
       const codeByTurn: Record<number, string> = {
         1: 'Javascript Code: triggerError()',
-        2: 'Javascript Code: const recoveredSignal = "rollback restored latency to 820ms"; console.log(recoveredSignal)',
+        2: 'Javascript Code: const incidentFacts = await ops.fetchIncidentFacts({ incidentId: "checkout-17", includeVerboseTrace: false }); const factMessages = incidentFacts.map((fact) => fact.toLowerCase()); console.log(factMessages.join("\\n"))',
         3: 'Javascript Code: const rootCause = "tenant-scoped pricing_rules_v2 cache key regression"; console.log(rootCause)',
         4: 'Javascript Code: const impactNote = "confirmed customer impact was delayed price calculation before order submit"; console.log(impactNote)',
-        5: 'Javascript Code: const finalAnswer = [rootCause, impactNote, recoveredSignal].join("\\n"); console.log(finalAnswer)',
+        5: 'Javascript Code: const finalAnswer = [rootCause, impactNote, incidentFacts[1]].join("\\n"); console.log(finalAnswer)',
         6: 'Javascript Code: final(finalAnswer)',
       };
 
@@ -283,12 +302,39 @@ const incidentNotes = `
 [09:24] Follow-up: no evidence of payment failures; impact was delayed price calculation before order submit.
 `.trim();
 
+const incidentTools = [
+  fn('fetchIncidentFacts')
+    .namespace('ops')
+    .description('Fetch curated incident facts by incident id')
+    .arg('incidentId', f.string('Incident id such as checkout-17'))
+    .arg(
+      'includeVerboseTrace',
+      f.boolean('Whether to include the verbose trace').optional()
+    )
+    .returns(f.string('Curated incident fact').array())
+    .handler(async ({ incidentId, includeVerboseTrace = false }) => {
+      if (incidentId !== 'checkout-17') {
+        return [];
+      }
+      if (includeVerboseTrace) {
+        throw new Error('Verbose trace is too large; request compact facts');
+      }
+      return [
+        'cache miss rate doubled for enterprise tenants',
+        'rollback recovered checkout latency to 820ms',
+        'pricing_rules_v2 hydration caused tenant cache key regression',
+      ];
+    })
+    .build(),
+];
+
 const contextAgent = agent(
   'incidentNotes:string, query:string -> answer:string "Analyze an incident with pressure-aware RLM context management"',
   {
     ai: mockAI,
     contextFields: ['incidentNotes'],
     runtime: createIncidentRuntime(),
+    functions: incidentTools,
     maxTurns: 6,
     contextPolicy: {
       preset: 'adaptive',
@@ -296,6 +342,11 @@ const contextAgent = agent(
     },
     onContextEvent: (event) => {
       mainEvents.push(event);
+    },
+    actorTurnCallback: (turn) => {
+      for (const message of turn.chatLogMessages ?? []) {
+        actorPromptTexts.push(message.content);
+      }
     },
   }
 );
@@ -389,3 +440,56 @@ console.log('\nCheckpoint clear events:');
 for (const event of clearEvents) {
   console.log(`- ${formatEvent(event)}`);
 }
+
+const assertScore = (condition: unknown, message: string): void => {
+  if (!condition) {
+    throw new Error(`Scorecard failed: ${message}`);
+  }
+};
+
+const checkpointPromptText = [...summarizerPrompts, ...actorPromptTexts]
+  .join('\n')
+  .split('Checkpoint Summary:')
+  .join('\n');
+const directCallableLines = checkpointPromptText
+  .split('\n')
+  .filter((line) => line.startsWith('Direct callables:'));
+
+assertScore(
+  /pricing_rules_v2|cache key regression/i.test(result.answer),
+  'final answer includes root cause'
+);
+assertScore(/delayed price calculation|impact/i.test(result.answer), 'impact');
+assertScore(/Next step|patch cache warming/i.test(result.answer), 'next step');
+assertScore(
+  contextPressureLines.every((line) => line.includes('Context Pressure:')),
+  'compact context pressure hints are visible'
+);
+assertScore(
+  mainEvents.some((event) => event.kind === 'tombstone_created'),
+  'tombstone event fires'
+);
+assertScore(
+  mainEvents.some((event) => event.kind === 'checkpoint_created'),
+  'checkpoint creation event fires'
+);
+assertScore(
+  clearEvents.some((event) => event.kind === 'checkpoint_cleared'),
+  'stale checkpoint clear event fires'
+);
+assertScore(
+  directCallableLines.some((line) => line.includes('ops.fetchIncidentFacts')),
+  'actual callable name is preserved in checkpoint trajectory'
+);
+assertScore(
+  !directCallableLines.some((line) => line.includes('incidentFacts.map')),
+  'JS array methods are not recorded as tool callables'
+);
+assertScore(
+  checkpointPromptText.includes(
+    'Execution timed out while reading verbose trace'
+  ),
+  'failure hazard is preserved for checkpoint summarization'
+);
+
+console.log('\nScorecard: PASS');

@@ -41,6 +41,14 @@ export type ActionLogStepKind =
 
 export type ActionReplayMode = 'full' | 'omit';
 
+export type ActionLogFunctionCall = {
+  qualifiedName: string;
+  name?: string;
+  arguments?: unknown;
+  result?: unknown;
+  error?: string;
+};
+
 export type ActionLogEntry = {
   turn: number;
   code: string;
@@ -60,6 +68,14 @@ export type ActionLogEntry = {
   _tombstonePromise?: Promise<string>;
   /** @internal Direct qualified callable usages like `db.search(...)`. */
   _directQualifiedCalls?: readonly string[];
+  /** @internal Runtime-recorded function calls made during this turn. */
+  _functionCalls?: readonly ActionLogFunctionCall[];
+  /** @internal Durable runtime values written during this turn. */
+  _durableWrites?: readonly string[];
+  /** @internal Runtime values read during this turn. */
+  _durableReads?: readonly string[];
+  /** @internal Retry hazards inferred from errors in this turn. */
+  _failureHazards?: readonly string[];
 };
 
 /** Resolved config passed to `manageContext`. */
@@ -241,8 +257,34 @@ function truncateInline(text: string, maxChars = 120): string {
   return `${normalized.slice(0, maxChars - 3)}...`;
 }
 
+function formatCompactList(
+  values: readonly string[],
+  options?: Readonly<{ maxItems?: number; maxItemChars?: number }>
+): string {
+  const maxItems = options?.maxItems ?? 8;
+  const maxItemChars = options?.maxItemChars ?? 48;
+  const shown = values
+    .slice(0, maxItems)
+    .map((value) => truncateInline(value, maxItemChars));
+  if (values.length > shown.length) {
+    shown.push('...');
+  }
+  return shown.join(', ');
+}
+
 function hasCompletionSignal(code: string): boolean {
   return /\b(final|askClarification)\s*\(/.test(code);
+}
+
+function uniqueNonEmpty(values: readonly (string | undefined)[]): string[] {
+  return [
+    ...new Set(
+      values
+        .filter((value): value is string => typeof value === 'string')
+        .map((value) => value.trim())
+        .filter(Boolean)
+    ),
+  ];
 }
 
 function inferStepKind(entry: Readonly<ActionLogEntry>): ActionLogStepKind {
@@ -256,9 +298,33 @@ function inferStepKind(entry: Readonly<ActionLogEntry>): ActionLogStepKind {
 }
 
 function buildStateDelta(entry: Readonly<ActionLogEntry>): string {
-  const producedVars = entry.producedVars ?? [];
-  if (producedVars.length > 0) {
-    return `Updated live runtime values: ${producedVars.join(', ')}`;
+  const producedVars = entry._durableWrites ?? entry.producedVars ?? [];
+  const readVars = entry._durableReads ?? [
+    ...extractReadIdentifiers(entry.code),
+  ];
+  const callables = getQualifiedCallableUsages(entry);
+
+  if (entry.tags.includes('error')) {
+    const failure = getFailureHazards(entry)[0];
+    return [
+      'Runtime error; no durable runtime state update',
+      callables.length > 0 ? `callables: ${callables.join(', ')}` : undefined,
+      failure ? `failure: ${failure}` : undefined,
+    ]
+      .filter((part): part is string => Boolean(part))
+      .join('; ');
+  }
+
+  const details = [
+    producedVars.length > 0
+      ? `Updated live runtime values: ${producedVars.join(', ')}`
+      : undefined,
+    readVars.length > 0 ? `read: ${formatCompactList(readVars)}` : undefined,
+    callables.length > 0 ? `callables: ${callables.join(', ')}` : undefined,
+  ].filter((part): part is string => Boolean(part));
+
+  if (details.length > 0) {
+    return details.join('; ');
   }
 
   switch (entry.stepKind) {
@@ -309,6 +375,17 @@ function ensureEntryMetadata(entry: ActionLogEntry): void {
   if (!entry.stepKind) {
     entry.stepKind = inferStepKind(entry);
   }
+  if (!entry._durableWrites) {
+    entry._durableWrites = [...(entry.producedVars ?? [])];
+  }
+  if (!entry._durableReads) {
+    entry._durableReads = [...extractReadIdentifiers(entry.code)];
+  }
+  if (entry.tags.includes('error') && !entry._failureHazards) {
+    entry._failureHazards = [extractErrorSignature(entry.output)].filter(
+      Boolean
+    );
+  }
   if (!entry.stateDelta) {
     entry.stateDelta = buildStateDelta(entry);
   }
@@ -344,10 +421,31 @@ function ensureDiscoveryMetadata(entry: ActionLogEntry): void {
   }
 }
 
-function getPrimaryActionSource(entry: ActionLogEntry): string | undefined {
-  ensureDiscoveryMetadata(entry);
+export function getQualifiedCallableUsages(
+  entry: Readonly<ActionLogEntry>
+): string[] {
+  if (entry._functionCalls) {
+    return uniqueNonEmpty(
+      entry._functionCalls.map((call) => call.qualifiedName)
+    );
+  }
 
-  return entry._directQualifiedCalls?.find(Boolean);
+  ensureDiscoveryMetadata(entry as ActionLogEntry);
+  return uniqueNonEmpty(entry._directQualifiedCalls ?? []);
+}
+
+function getFailureHazards(entry: Readonly<ActionLogEntry>): string[] {
+  if (entry._failureHazards) {
+    return uniqueNonEmpty(entry._failureHazards);
+  }
+  if (!entry.tags.includes('error')) {
+    return [];
+  }
+  return uniqueNonEmpty([extractErrorSignature(entry.output)]);
+}
+
+function getPrimaryActionSource(entry: ActionLogEntry): string | undefined {
+  return getQualifiedCallableUsages(entry)[0];
 }
 
 export function buildRuntimeStateProvenance(
@@ -793,11 +891,16 @@ export function extractWorkingCodeState(
       ? truncateInline(entry.output, WORKING_STATE_OUTPUT_CAP)
       : '(no output)';
     const directCallables =
-      (entry._directQualifiedCalls ?? []).join(', ') || 'none';
+      getQualifiedCallableUsages(entry).join(', ') || 'none';
 
     const lines = [
       `Code:\n${code}`,
       `Produced: ${(entry.producedVars ?? []).join(', ') || 'none'}`,
+      `Read: ${
+        entry._durableReads && entry._durableReads.length > 0
+          ? formatCompactList(entry._durableReads)
+          : 'none'
+      }`,
       `Direct callables: ${directCallables}`,
       `State delta: ${entry.stateDelta ?? 'none'}`,
       `Output: ${output}`,
@@ -824,16 +927,22 @@ export function serializeTrajectoryEntries(
       }
 
       ensureEntryMetadata(entry as ActionLogEntry);
-      ensureDiscoveryMetadata(entry as ActionLogEntry);
       const directCallables =
-        (entry._directQualifiedCalls ?? []).join(', ') || 'none';
-      const failureCues = entry.tags.includes('error')
-        ? truncateInline(entry.output || '(no output)', 160)
-        : 'none';
+        getQualifiedCallableUsages(entry).join(', ') || 'none';
+      const failureCues =
+        getFailureHazards(entry)
+          .map((hazard) => truncateInline(hazard, 160))
+          .join(' | ') || 'none';
 
       return [
         `Turn: ${entry.turn}`,
         `Step kind: ${entry.stepKind ?? 'explore'}`,
+        `Durable values written: ${(entry.producedVars ?? []).join(', ') || 'none'}`,
+        `Runtime values read: ${
+          entry._durableReads && entry._durableReads.length > 0
+            ? formatCompactList(entry._durableReads)
+            : 'none'
+        }`,
         `Direct callables: ${directCallables}`,
         `State delta: ${entry.stateDelta ?? 'none'}`,
         `Observed result: ${truncateInline(entry.output || '(no output)', 200)}`,
@@ -854,12 +963,12 @@ function _serializeCheckpointEntries(
   return entries
     .map((entry) => {
       ensureEntryMetadata(entry);
-      ensureDiscoveryMetadata(entry as ActionLogEntry);
       const directCallables =
-        (entry._directQualifiedCalls ?? []).join(', ') || 'none';
-      const failureCues = entry.tags.includes('error')
-        ? truncateInline(entry.output || '(no output)', 200)
-        : 'none';
+        getQualifiedCallableUsages(entry).join(', ') || 'none';
+      const failureCues =
+        getFailureHazards(entry)
+          .map((hazard) => truncateInline(hazard, 200))
+          .join(' | ') || 'none';
 
       return [
         `Turn: ${entry.turn}`,
@@ -894,9 +1003,8 @@ function buildFallbackTrajectorySummary(
 
   for (const entry of entries) {
     ensureEntryMetadata(entry);
-    ensureDiscoveryMetadata(entry as ActionLogEntry);
     objectives.add(entry.stepKind ?? 'explore');
-    const directCallables = entry._directQualifiedCalls ?? [];
+    const directCallables = getQualifiedCallableUsages(entry);
     if (directCallables.length > 0) {
       exactCallablesAndFormats.push(
         `Turn ${entry.turn}: ${directCallables.join(', ')} via ${truncateInline(entry.code || '(no code)', 140)}`
@@ -919,9 +1027,9 @@ function buildFallbackTrajectorySummary(
     }
     const observation = truncateInline(entry.output || '(no output)', 200);
     evidence.push(`Turn ${entry.turn}: ${observation}`);
-    if (entry.tags.includes('error')) {
+    for (const hazard of getFailureHazards(entry)) {
       failuresToAvoid.push(
-        `Turn ${entry.turn}: ${truncateInline(entry.output || '(no output)', 160)}`
+        `Turn ${entry.turn}: ${truncateInline(hazard, 160)}`
       );
     }
     nextStep =
@@ -939,6 +1047,151 @@ function buildFallbackTrajectorySummary(
     `Failures to avoid: ${failuresToAvoid.join(' | ') || 'none'}`,
     `Next step: ${nextStep}`,
   ].join('\n');
+}
+
+const CHECKPOINT_SECTION_LABELS = [
+  'Objective',
+  'Current state and artifacts',
+  'Exact callables and formats',
+  'Evidence',
+  'User constraints and preferences',
+  'Failures to avoid',
+  'Next step',
+] as const;
+
+type CheckpointSectionLabel = (typeof CHECKPOINT_SECTION_LABELS)[number];
+
+function isEmptySectionValue(value: string | undefined): boolean {
+  return !value || value.trim().length === 0 || value.trim() === 'none';
+}
+
+function normalizeSectionValue(value: string | undefined): string {
+  const trimmed = value?.replace(/\s+/g, ' ').trim() ?? '';
+  return trimmed.length > 0 ? trimmed : 'none';
+}
+
+function parseCheckpointSections(
+  summary: string
+): Record<CheckpointSectionLabel, string> {
+  const sections = Object.fromEntries(
+    CHECKPOINT_SECTION_LABELS.map((label) => [label, ''])
+  ) as Record<CheckpointSectionLabel, string>;
+  let currentLabel: CheckpointSectionLabel | undefined;
+  const labelSet = new Set<string>(CHECKPOINT_SECTION_LABELS);
+  const normalized = summary.replace(/^Checkpoint Summary:\s*/i, '').trim();
+
+  for (const rawLine of normalized.split('\n')) {
+    const line = rawLine.trim();
+    if (!line) {
+      continue;
+    }
+    const match = line.match(/^([^:]+):\s*(.*)$/);
+    if (match && labelSet.has(match[1]!.trim())) {
+      currentLabel = match[1]!.trim() as CheckpointSectionLabel;
+      sections[currentLabel] = [sections[currentLabel], match[2] ?? '']
+        .filter(Boolean)
+        .join(' ')
+        .trim();
+      continue;
+    }
+    if (currentLabel) {
+      sections[currentLabel] = [sections[currentLabel], line]
+        .filter(Boolean)
+        .join(' ')
+        .trim();
+    } else {
+      sections.Evidence = [sections.Evidence, line]
+        .filter(Boolean)
+        .join(' ')
+        .trim();
+    }
+  }
+
+  return sections;
+}
+
+function mergeSectionValue(
+  primary: string | undefined,
+  deterministic: string | undefined
+): string {
+  if (isEmptySectionValue(primary)) {
+    return normalizeSectionValue(deterministic);
+  }
+  if (isEmptySectionValue(deterministic)) {
+    return normalizeSectionValue(primary);
+  }
+
+  const normalizedPrimary = normalizeSectionValue(primary);
+  const normalizedDeterministic = normalizeSectionValue(deterministic);
+  if (normalizedPrimary.includes(normalizedDeterministic)) {
+    return normalizedPrimary;
+  }
+  return `${normalizedPrimary} | ${normalizedDeterministic}`;
+}
+
+export function buildCheckpointSupersessionNotes(
+  checkpointEntries: readonly ActionLogEntry[],
+  allEntries: readonly ActionLogEntry[]
+): string[] {
+  const notes: string[] = [];
+  const checkpointTurns = new Set(checkpointEntries.map((entry) => entry.turn));
+
+  for (const checkpointEntry of checkpointEntries) {
+    ensureEntryMetadata(checkpointEntry as ActionLogEntry);
+    for (const name of checkpointEntry.producedVars ?? []) {
+      const overwriter = allEntries.find((entry) => {
+        if (
+          entry.turn <= checkpointEntry.turn ||
+          checkpointTurns.has(entry.turn) ||
+          entry.tags.includes('error')
+        ) {
+          return false;
+        }
+        ensureEntryMetadata(entry as ActionLogEntry);
+        return (entry.producedVars ?? []).includes(name);
+      });
+      if (overwriter) {
+        notes.push(
+          `${name} from checkpoint turn ${checkpointEntry.turn} was overwritten by turn ${overwriter.turn}; prefer liveRuntimeState and recent full replay for ${name}.`
+        );
+      }
+    }
+  }
+
+  return uniqueNonEmpty(notes);
+}
+
+export function mergeCheckpointSummaryWithDeterministicFacts(
+  summary: string,
+  entries: readonly ActionLogEntry[],
+  supersessionNotes: readonly string[] = []
+): string {
+  const modelSections = parseCheckpointSections(summary);
+  const deterministicSections = parseCheckpointSections(
+    buildFallbackTrajectorySummary(entries)
+  );
+  const merged = Object.fromEntries(
+    CHECKPOINT_SECTION_LABELS.map((label) => [
+      label,
+      mergeSectionValue(modelSections[label], deterministicSections[label]),
+    ])
+  ) as Record<CheckpointSectionLabel, string>;
+
+  if (supersessionNotes.length > 0) {
+    const notes = supersessionNotes.join(' | ');
+    merged['Current state and artifacts'] = mergeSectionValue(
+      merged['Current state and artifacts'],
+      notes
+    );
+    merged['Next step'] = mergeSectionValue(
+      merged['Next step'],
+      'Prefer liveRuntimeState and recent full action replay for overwritten values.'
+    );
+  }
+
+  return CHECKPOINT_SECTION_LABELS.map(
+    (label) => `${label}: ${normalizeSectionValue(merged[label])}`
+  ).join('\n');
 }
 
 /**
@@ -967,10 +1220,17 @@ export async function generateCheckpointSummaryAsync(
     | Omit<AxProgramForwardOptions<string>, 'functions'>
     | undefined,
   requestForwardOptions: Readonly<InternalSummaryForwardOptions> | undefined,
-  entries: readonly ActionLogEntry[]
+  entries: readonly ActionLogEntry[],
+  options?: Readonly<{
+    allEntries?: readonly ActionLogEntry[];
+    supersessionNotes?: readonly string[];
+  }>
 ): Promise<string> {
   const { working, trajectory } = splitCheckpointEntries(entries);
   const workingCodeBlock = extractWorkingCodeState(working);
+  const supersessionNotes =
+    options?.supersessionNotes ??
+    buildCheckpointSupersessionNotes(entries, options?.allEntries ?? entries);
 
   let trajectorySummary: string;
   if (trajectory.length > 0) {
@@ -1004,12 +1264,27 @@ export async function generateCheckpointSummaryAsync(
         typeof result.checkpointSummary === 'string'
           ? result.checkpointSummary.trim()
           : String(result.checkpointSummary).trim();
-      trajectorySummary = text || buildFallbackTrajectorySummary(trajectory);
+      trajectorySummary = mergeCheckpointSummaryWithDeterministicFacts(
+        text || buildFallbackTrajectorySummary(trajectory),
+        trajectory,
+        supersessionNotes
+      );
     } catch {
-      trajectorySummary = buildFallbackTrajectorySummary(trajectory);
+      trajectorySummary = mergeCheckpointSummaryWithDeterministicFacts(
+        buildFallbackTrajectorySummary(trajectory),
+        trajectory,
+        supersessionNotes
+      );
     }
   } else {
-    trajectorySummary = '';
+    trajectorySummary =
+      supersessionNotes.length > 0
+        ? mergeCheckpointSummaryWithDeterministicFacts(
+            '',
+            [],
+            supersessionNotes
+          )
+        : '';
   }
 
   return [workingCodeBlock, trajectorySummary].filter(Boolean).join('\n\n');
