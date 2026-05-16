@@ -1,5 +1,26 @@
 # Changelog
 
+## [21.0.6](https://github.com/ax-llm/ax/compare/21.0.4...21.0.5) (2026-05-16)
+
+### Features
+
+* improve ax agent context management ([7b974ad](https://github.com/ax-llm/ax/commit/7b974ade805c42d70b8b94a238f8736340ad984b))
+
+### Bug Fixes
+
+* package fixes ([e7e260b](https://github.com/ax-llm/ax/commit/e7e260b31716e51da04d52fc33554bd12b12cea9))
+
+## [21.0.5](https://github.com/ax-llm/ax/compare/21.0.4...21.0.5) (2026-05-15)
+
+### Features
+
+* **ai:** add new models, xhigh reasoning effort, and Anthropic structured output fix ([ec008b7](https://github.com/ax-llm/ax/commit/ec008b772ec12ace026a453a11f5af1e23c6a9ec))
+
+### Bug Fixes
+
+* **ai:** record streaming token usage as deltas, not cumulative ([#516](https://github.com/ax-llm/ax/issues/516)) ([4f7f417](https://github.com/ax-llm/ax/commit/4f7f417860d18d051f458579903701e1fe2635c4))
+* **anthropic:** emit cache_control on content blocks, not envelopes ([#517](https://github.com/ax-llm/ax/issues/517)) ([c12a3a8](https://github.com/ax-llm/ax/commit/c12a3a8374bcd8c626dc312cbd3c8a18841b6d4d))
+
 ## [21.0.5](///compare/21.0.3...21.0.4) (2026-05-15)
 
 ### Features
