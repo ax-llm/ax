@@ -1,5 +1,15 @@
 # Changelog
 
+## [21.0.7](https://github.com/ax-llm/ax/compare/21.0.5...21.0.6) (2026-05-16)
+
+### Features
+
+* improve ax agent context management ([7b974ad](https://github.com/ax-llm/ax/commit/7b974ade805c42d70b8b94a238f8736340ad984b))
+
+### Bug Fixes
+
+* package fixes ([e7e260b](https://github.com/ax-llm/ax/commit/e7e260b31716e51da04d52fc33554bd12b12cea9))
+
 ## [21.0.6](https://github.com/ax-llm/ax/compare/21.0.4...21.0.5) (2026-05-16)
 
 ### Features
