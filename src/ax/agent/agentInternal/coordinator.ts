@@ -68,6 +68,7 @@ const SHARED_KNOB_KEYS = [
   'debug',
   'bubbleErrors',
   'onFunctionCall',
+  'onContextEvent',
 ] as const;
 
 function pickShared<IN extends import('../../dsp/types.js').AxGenIn>(

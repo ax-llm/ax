@@ -56,6 +56,21 @@ What to look for:
 - The saved state contains runtime bindings and prior action-log history.
 - The resumed call succeeds after `setState(savedState)` and reuses values created before the clarification.
 
+## Context Management Example
+
+`rlm-context-management.ts` is a deterministic, no-API-key smoke test for AxAgent context management. It uses `AxMockAIService` plus a tiny custom runtime to force prompt pressure, a resolved runtime error, checkpoint summarization, and stale checkpoint clearing.
+
+**Quick Start:**
+```bash
+cd src/ax
+npm run tsx src/examples/rlm-context-management.ts
+```
+
+What to look for:
+- `Context Pressure:` hints stay compact and behavioral instead of exposing raw metrics to the actor.
+- `onContextEvent` emits `budget_check`, `tombstone_created`, `checkpoint_created`, and `checkpoint_cleared`.
+- Checkpoint summaries preserve resumability-focused sections such as objective, exact formats, evidence, failures to avoid, and next step.
+
 ## Host-Controlled RLM Example
 
 `rlm-agent-controlled.ts` demonstrates host-side workflow control for `AxAgent`, with the default runnable path focused on `extra.protocol.guideAgent(...)` and `extra.protocol.askClarification(...)` while successful actor turns complete with `final(...)`.

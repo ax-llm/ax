@@ -47,6 +47,7 @@ export function initializeAgentInternal(
     inputUpdateCallback,
     bubbleErrors,
     onFunctionCall,
+    onContextEvent,
   } = options;
 
   s.ai = ai;
@@ -97,6 +98,7 @@ export function initializeAgentInternal(
     maxRuntimeChars: _mrc,
     summarizerOptions: _so,
     onFunctionCall: _ofc,
+    onContextEvent: _oce,
     description: _desc,
     ...genOptions
   } = options as typeof options & { description?: string };
@@ -121,6 +123,7 @@ export function initializeAgentInternal(
     contextPolicy,
     summarizerOptions,
     executorTurnCallback,
+    onContextEvent,
     agentStatusCallback,
     mode,
   };
@@ -141,6 +144,7 @@ export function initializeAgentInternal(
   s.inputUpdateCallback = inputUpdateCallback;
   s.agentStatusCallback = agentStatusCallback;
   s.onFunctionCall = onFunctionCall;
+  s.onContextEvent = onContextEvent;
 
   // Register child agents (those that arrived via `options.functions`) as
   // DSPy sub-programs so optimizer reach-through is preserved.

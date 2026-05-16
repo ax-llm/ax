@@ -37,7 +37,7 @@
   "devDependencies": {
     "@biomejs/biome": "^2.1.1",
     "@release-it/bumper": "^7.0.5",
-    "@release-it/conventional-changelog": "^10.0.1",
+    "@release-it/conventional-changelog": "^11.0.0",
     "@total-typescript/tsconfig": "^1.0.4",
     "@types/node": "^22.13.10",
     "@vitest/coverage-v8": "^3.2.1",
@@ -65,6 +65,11 @@
     "src/*",
     "!src/data"
   ],
+  "overrides": {
+    "release-it": {
+      "undici": "6.24.0"
+    }
+  },
   "author": "Vikram <https://twitter.com/dosco>",
   "private": "true",
   "version": "21.0.5"

@@ -10,6 +10,7 @@ import { toFieldType } from '../dsp/prompt.js';
 import type { AxIField } from '../dsp/sig.js';
 import type { AxProgramForwardOptions } from '../dsp/types.js';
 import type { AxAgentExecutorTurnCallbackArgs } from './AxAgent.js';
+import type { AxAgentOnContextEvent } from './contextEvents.js';
 import { renderPrimitivesList } from './runtimePrimitives.js';
 import { renderPromptTemplate } from './templateEngine.js';
 
@@ -217,7 +218,7 @@ export interface AxCodeSession {
  *   older successful work, and summarize replay-pruned successful turns instead of
  *   replaying their full code blocks. Reliability-first
  *   defaults still preserve recent evidence before deleting older low-value steps.
- *   Best when token pressure matters more than raw replay detail.
+ *   Best when character-based prompt pressure matters more than raw replay detail.
  * - `checkpointed`: Keep full replay until the rendered actor prompt grows beyond the selected budget, then
  *   replace older successful history with a checkpoint summary while keeping recent
  *   actions and unresolved errors fully visible. Best when you want conservative,
@@ -278,6 +279,11 @@ export interface AxRLMConfig {
   executorTurnCallback?: (
     args: AxAgentExecutorTurnCallbackArgs
   ) => void | Promise<void>;
+  /**
+   * Called when AxAgent measures context pressure or changes compacted context state.
+   * Intended for observability; callback failures are ignored.
+   */
+  onContextEvent?: AxAgentOnContextEvent;
   /**
    * Called when the actor signals task progress via `reportSuccess(message)` or `reportFailure(message)`.
    */

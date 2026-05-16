@@ -15,6 +15,11 @@ import {
   extractTopLevelDurableWriteTargets,
   stripJsStringsAndComments,
 } from '../util/jsAnalysis.js';
+import type {
+  AxAgentContextStage,
+  AxAgentOnContextEvent,
+} from './contextEvents.js';
+import { emitContextEvent } from './contextEvents.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -601,17 +606,20 @@ Your job is to compress this execution history into a concise ledger.
 
 Write the output field \`checkpointSummary\` as plain text with exactly these labels in this order:
 Objective:
+Current state and artifacts:
 Exact callables and formats:
 Evidence:
-Conclusions:
+User constraints and preferences:
 Failures to avoid:
 Next step:
 
 Rules:
 - Compress the execution trajectory aggressively — only keep what is needed to avoid repeating mistakes and to understand the path taken.
 - Distinguish confirmed execution facts from inferred conclusions.
+- Preserve current state, artifacts, and durable values needed to resume the task.
 - Preserve exact qualified function names, module names, ids, field names, enum literals, date/time strings, literals, and query formats when they matter.
 - Put those exact details under \`Exact callables and formats:\` when possible.
+- Put user-provided constraints, preferences, requested output shape, deadlines, paths, ids, and success criteria under \`User constraints and preferences:\`.
 - Keep enough evidence to avoid repeating invalid callable names, invalid query formats, rejected literals, or wrong assumptions.
 - Use \`Failures to avoid:\` for exact retry hazards. Use \`none\` if there are no important failure patterns in the provided turns.
 - Do not restate raw code or quote large outputs.
@@ -879,6 +887,8 @@ function buildFallbackTrajectorySummary(
   const objectives = new Set<string>();
   const exactCallablesAndFormats: string[] = [];
   const evidence: string[] = [];
+  const currentStateAndArtifacts: string[] = [];
+  const userConstraintsAndPreferences: string[] = [];
   const failuresToAvoid: string[] = [];
   let nextStep = 'Continue from the latest live runtime state.';
 
@@ -896,6 +906,17 @@ function buildFallbackTrajectorySummary(
         `Turn ${entry.turn}: ${truncateInline(entry.code || '(no code)', 140)}`
       );
     }
+    if (entry.stateDelta && entry.stateDelta !== 'none') {
+      currentStateAndArtifacts.push(`Turn ${entry.turn}: ${entry.stateDelta}`);
+    }
+    const constraintMatches = [
+      ...`${entry.code}\n${entry.output}`.matchAll(
+        /\b(?:must|should|prefer|only|never|exact|format|deadline|path|id)\b[^.\n]{0,120}/gi
+      ),
+    ].map((match) => truncateInline(match[0], 140));
+    for (const match of constraintMatches.slice(0, 2)) {
+      userConstraintsAndPreferences.push(`Turn ${entry.turn}: ${match}`);
+    }
     const observation = truncateInline(entry.output || '(no output)', 200);
     evidence.push(`Turn ${entry.turn}: ${observation}`);
     if (entry.tags.includes('error')) {
@@ -911,9 +932,10 @@ function buildFallbackTrajectorySummary(
 
   return [
     `Objective: ${[...objectives].join(', ') || 'none'}`,
+    `Current state and artifacts: ${currentStateAndArtifacts.join(' | ') || 'Continue from liveRuntimeState and recent full action replay.'}`,
     `Exact callables and formats: ${exactCallablesAndFormats.join(' | ') || 'none'}`,
     `Evidence: ${evidence.join(' | ') || 'none'}`,
-    `Conclusions: Confirmed execution facts should override inference.`,
+    `User constraints and preferences: ${userConstraintsAndPreferences.join(' | ') || 'none'}`,
     `Failures to avoid: ${failuresToAvoid.join(' | ') || 'none'}`,
     `Next step: ${nextStep}`,
   ].join('\n');
@@ -1013,7 +1035,11 @@ export async function manageContext(
   newIndex: number,
   config: Readonly<ContextManagementEffectiveConfig>,
   ai?: AxAIService,
-  requestForwardOptions?: Readonly<InternalSummaryForwardOptions>
+  requestForwardOptions?: Readonly<InternalSummaryForwardOptions>,
+  contextEvents?: Readonly<{
+    stage: AxAgentContextStage;
+    onContextEvent?: AxAgentOnContextEvent;
+  }>
 ): Promise<void> {
   const newEntry = entries[newIndex];
   if (!newEntry) return;
@@ -1043,6 +1069,14 @@ export async function manageContext(
 
       if (config.errorPruning && !entry.tombstone) {
         entry.tombstone = buildDeterministicResolvedErrorTombstone(entry, next);
+        await emitContextEvent(contextEvents?.onContextEvent, {
+          kind: 'tombstone_created',
+          stage: contextEvents?.stage ?? 'executor',
+          turn: entry.turn,
+          resolvedByTurn: next.turn,
+          source: 'deterministic',
+          summaryChars: entry.tombstone.length,
+        });
       }
 
       const shouldGenerateModelTombstone =
@@ -1067,6 +1101,14 @@ export async function manageContext(
       entry._tombstonePromise
         .then((ts) => {
           entry.tombstone = ts;
+          void emitContextEvent(contextEvents?.onContextEvent, {
+            kind: 'tombstone_created',
+            stage: contextEvents?.stage ?? 'executor',
+            turn: entry.turn,
+            resolvedByTurn: next.turn,
+            source: 'model',
+            summaryChars: ts.length,
+          });
         })
         .catch(() => {
           // Tombstone failure is non-fatal.

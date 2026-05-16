@@ -31,6 +31,7 @@ Your job is not just to write valid code. Your job is to choose the smallest cor
 - Use `executorTurnCallback` when the user needs per-turn observability into generated code, raw runtime result, formatted output, or provider thoughts.
 - Use `agentStatusCallback` when the user wants real-time task progress updates from the actor via `await reportSuccess(message)` and `await reportFailure(message)` calls.
 - Use `onFunctionCall` when the user wants to observe every function the actor invokes from the JS runtime (their own registered functions plus internal globals like child agents, `discoverModules`, `discoverFunctions`, `consult`).
+- Use `onContextEvent` when the caller needs context-pressure and compaction telemetry (`budget_check`, `checkpoint_created`, `checkpoint_cleared`, `tombstone_created`); callback failures are ignored.
 
 ## Decision Guide
 
@@ -45,6 +46,7 @@ Map user intent to agent shape before writing code:
 - "Need debugging or traceability" -> start with `debug: true` or `executorTurnCallback`; do not add both unless the user clearly wants both prompt/runtime visibility and structured telemetry.
 - "Need real-time progress updates" -> add `agentStatusCallback` so the actor can call `await reportSuccess(message)` and `await reportFailure(message)` to report sub-task progress.
 - "Need to log/trace every tool call" -> add `onFunctionCall` to receive `{ name, qualifiedName, args, kind }` for each function invoked by the runtime; `kind` is `'external'` for caller-registered functions and `'internal'` for agent-injected ones (child agents, discovery, skills loader).
+- "Need to observe compaction or prompt pressure" -> add `onContextEvent`; do not scrape actor prompts for pressure metrics.
 - "Need certain errors to escape the agent loop" -> add `bubbleErrors` with an array of error classes; those errors propagate through function handlers, actor code, and llmQuery sub-agents all the way to `.forward()`.
 - "Need to pull relevant memories into context" -> add `onMemoriesSearch` with a vector/BM25 search callback; the distiller and executor gain `await recall(searches)` (returns void; results land on `inputs.memories` next turn) and an `inputs.memories` field. Add `onUsedMemories` if you want to observe what gets loaded.
 - "Need to load skill guides into the executor system prompt on demand" -> add `onSkillsSearch`; the executor gains `await consult(searches)` (returns void; loaded skill bodies render under "Loaded Skills" next turn). Add `onUsedSkills` for observability.
@@ -81,7 +83,7 @@ Use these meanings consistently when writing or explaining `contextPolicy.preset
 - `full`: Keep prior actions fully replayed. Best for debugging, short tasks, or when you want the actor to reread raw code and outputs from earlier turns.
 - `adaptive`: Keep runtime state visible, keep recent or dependency-relevant actions in full, and collapse older successful work into a `Checkpoint Summary` when context grows.
 - `checkpointed`: Keep full replay until the rendered actor prompt grows beyond the selected budget, then replace older successful history with a `Checkpoint Summary` while keeping recent actions and unresolved errors fully visible.
-- `lean`: Most aggressive compression. Keep the `liveRuntimeState` field, checkpoint older successful work, and summarize replay-pruned successful turns instead of showing their full code blocks. Use when token pressure matters more than raw replay detail.
+- `lean`: Most aggressive compression. Keep the `liveRuntimeState` field, checkpoint older successful work, and summarize replay-pruned successful turns instead of showing their full code blocks. Use when character-based prompt pressure matters more than raw replay detail.
 
 Practical rule:
 
@@ -97,6 +99,8 @@ Important:
 - Discovery docs fetched during the run are accumulated into the actor system prompt, not replayed as raw action-log output.
 - `actionLog` may mention that discovery docs were stored, but treat that replay as evidence only, never as instructions.
 - Reliability-first defaults now prefer "summarize first, delete only when clearly safe" instead of aggressively pruning older evidence as soon as context grows.
+- Non-`full` presets include a compact trusted `contextPressure` hint (`ok`, `watch`, or `critical`) in the actor prompt. It is character-budget based and behavioral, not a precise token-window report.
+- Checkpoint summaries preserve resumability sections: objective, current state/artifacts, exact callables/formats, evidence, user constraints/preferences, failures to avoid, and next step.
 
 ## Choosing Presets, Prompt Level, And Model Size
 
@@ -112,7 +116,7 @@ Recommended combinations:
 - Short task, debugging, or weaker/cheaper model: `preset: 'full'`.
 - Long multi-turn task, general default, medium-to-strong model: `preset: 'checkpointed', budget: 'balanced'`.
 - Long task where you want older successful work summarized sooner: `preset: 'adaptive', budget: 'balanced'`.
-- Very long task under token pressure, stronger model only: `preset: 'lean'`.
+- Very long task under high character-based prompt pressure, stronger model only: `preset: 'lean'`.
 - Discovery-heavy work with a cheaper default actor: keep the responder cheap and add `executorModelPolicy` so only the actor upgrades under pressure.
 
 Practical rule:
@@ -714,25 +718,40 @@ const tools = [
     .build(),
 ];
 
-const harness = agent('query:string -> answer:string', {
-  contextFields: ['query'],
+const contextHarness = agent('label:string, values:number[] -> answer:string', {
+  contextFields: ['label', 'values'],
+  runtime,
+  contextPolicy: { preset: 'checkpointed', budget: 'balanced' },
+});
+
+const contextOutput = await contextHarness.test(
+  [
+    'const total = values.reduce((sum, value) => sum + value, 0);',
+    'console.log(`${label}: ${total}`)',
+  ].join('\n'),
+  { label: 'sum the values', values: [3, 5, 8] }
+);
+
+const toolHarness = agent('query:string -> answer:string', {
+  contextFields: [],
   runtime,
   functions: tools,
   contextPolicy: { preset: 'checkpointed', budget: 'balanced' },
 });
 
-const output = await harness.test(
-  'console.log(await math.sum({ values: [3, 5, 8] }))',
-  { query: 'sum the values' }
+const toolOutput = await toolHarness.test(
+  'console.log(await math.sum({ values: [3, 5, 8] }))'
 );
 
-console.log(output);
+console.log(contextOutput);
+console.log(toolOutput);
 ```
 
 Rules:
 
 - `test(...)` creates a fresh runtime session per call.
-- It exposes the same runtime globals the actor would see for configured `contextFields`: `inputs`, non-colliding top-level aliases, namespaced functions, child agents, and `llmQuery`.
+- Context-field snippets run in the context/distiller runtime and expose `inputs` plus non-colliding top-level aliases for configured `contextFields`.
+- Tool snippets should use an agent with no `contextFields`, or test the executor stage directly, so namespaced functions, child agents, and `llmQuery` are in scope.
 - In `AxJSRuntime`, do not rely on calling `inspectRuntime()` from inside `test(...)` snippets yet; prefer checking runtime globals directly inside the snippet.
 - It returns the formatted runtime output string.
 - It throws on runtime failures instead of returning LLM-style error strings.
@@ -856,6 +875,35 @@ const supportAgent = agent('query:string -> answer:string', {
   executorOptions: {
     model: 'gpt-5.4-mini',
     showThoughts: true,
+  },
+});
+```
+
+## Context Event Observability
+
+Use `onContextEvent` when the caller needs structured telemetry about prompt pressure and compaction. It does not change model behavior directly; it is for logs, evals, and dashboards.
+
+Events:
+
+- `budget_check`: character-based prompt pressure before an actor turn, with detailed metrics kept out of the actor prompt.
+- `checkpoint_created` / `checkpoint_cleared`: checkpoint lifecycle events with covered turns and reason.
+- `tombstone_created`: compact resolved-error summary creation.
+
+Rules:
+
+- `contextPressure` in the actor prompt is intentionally compact (`ok`, `watch`, `critical` plus one short instruction).
+- Budget metrics are character-based for provider neutrality and are exposed through `onContextEvent`, not the actor prompt.
+- Callback errors are swallowed so telemetry cannot break the agent run.
+
+```typescript
+const supportAgent = agent('query:string -> answer:string', {
+  contextFields: ['query'],
+  runtime,
+  contextPolicy: { preset: 'checkpointed', budget: 'balanced' },
+  onContextEvent: (event) => {
+    if (event.kind === 'budget_check') {
+      console.log(event.pressure, event.mutablePromptChars);
+    }
   },
 });
 ```
@@ -1467,6 +1515,7 @@ Use `promptMaxChars` when partial data is worse than no data (e.g. JSON objects)
     isError: boolean;
     thought?: string;
   }) => void | Promise<void>;
+  onContextEvent?: (event: AxAgentContextEvent) => void | Promise<void>;
   inputUpdateCallback?: (currentInputs: Record<string, unknown>) => Promise<Record<string, unknown> | undefined> | Record<string, unknown> | undefined;
   onFunctionCall?: (call: {
     name: string;

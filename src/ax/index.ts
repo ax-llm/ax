@@ -89,6 +89,12 @@ import type {
   AxAgentSkillsSearchFn,
 } from './agent/agentInternal/skillsTypes.js';
 import type {
+  AxAgentContextEvent,
+  AxAgentContextPressure,
+  AxAgentContextStage,
+  AxAgentOnContextEvent,
+} from './agent/agentInternal/types.js';
+import type {
   AxAgentRecursiveExpensiveNode,
   AxAgentRecursiveFunctionCall,
   AxAgentRecursiveNodeRole,
@@ -1474,6 +1480,9 @@ export type { AxAgentClarificationChoice };
 export type { AxAgentClarificationKind };
 export type { AxAgentCompletionProtocol };
 export type { AxAgentConfig };
+export type { AxAgentContextEvent };
+export type { AxAgentContextPressure };
+export type { AxAgentContextStage };
 export type { AxAgentDemos };
 export type { AxAgentDiscoveryPromptState };
 export type { AxAgentEvalDataset };
@@ -1504,6 +1513,7 @@ export type { AxAgentJudgeOutput };
 export type { AxAgentMemoriesSearchFn };
 export type { AxAgentMemoryEntry };
 export type { AxAgentMemoryResult };
+export type { AxAgentOnContextEvent };
 export type { AxAgentOnFunctionCall };
 export type { AxAgentOptimizationTargetDescriptor };
 export type { AxAgentOptimizeOptions };

@@ -22,6 +22,7 @@ import type {
   AxAgentRecursiveStats,
   AxAgentRecursiveTraceNode,
 } from '../agentRecursiveOptimize.js';
+import type { AxAgentOnContextEvent } from '../contextEvents.js';
 import type { AxContextPolicyConfig } from '../rlm.js';
 import type {
   AxAgentExecutorTurnCallbackArgs,
@@ -250,6 +251,11 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
   executorTurnCallback?: (
     args: AxAgentExecutorTurnCallbackArgs
   ) => void | Promise<void>;
+  /**
+   * Called when AxAgent measures context pressure or creates/clears compacted
+   * context. Use for observability and evaluation; failures are ignored.
+   */
+  onContextEvent?: AxAgentOnContextEvent;
   /**
    * Called when the executor signals task progress via `reportSuccess(message)` or `reportFailure(message)`.
    */

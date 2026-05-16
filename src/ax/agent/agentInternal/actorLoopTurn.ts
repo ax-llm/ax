@@ -14,6 +14,11 @@ import {
   getActorModelMatchedNamespaces,
   selectActorModelFromPolicy,
 } from '../config.js';
+import {
+  classifyContextPressure,
+  emitContextEvent,
+  renderContextPressure,
+} from '../contextEvents.js';
 import { manageContext } from '../contextManager.js';
 import { normalizeActorJavascriptCode } from '../optimize.js';
 import {
@@ -60,6 +65,7 @@ export async function runActorTurn<_IN extends AxGenIn>(
     actorMergedOptions,
     summaryForwardOptions,
     explicitActorDebugHideSystemPrompt,
+    contextStage,
     contextThreshold,
     mutableState,
     helpers,
@@ -79,7 +85,7 @@ export async function runActorTurn<_IN extends AxGenIn>(
   const actorInstruction = refreshActorInstruction();
   await applyInputUpdateCallback();
   inputState.recomputeTurnInputs(true);
-  if (await refreshCheckpointSummary()) {
+  if (await refreshCheckpointSummary(actionLogEntries.length)) {
     resetActorModelErrorState();
   }
 
@@ -97,6 +103,33 @@ export async function runActorTurn<_IN extends AxGenIn>(
   const inspectFixedOverhead =
     inspectMetrics.systemPromptCharacters +
     inspectMetrics.exampleChatContextCharacters;
+  const effectiveBudgetChars = computeEffectiveChatBudget(
+    runtimeContext.effectiveContextConfig.targetPromptChars,
+    inspectFixedOverhead
+  );
+  const checkpointActive = Boolean(mutableState.checkpointState);
+  const pressure = classifyContextPressure({
+    mutablePromptChars: inspectMetrics.mutableChatContextCharacters,
+    effectiveBudgetChars,
+    checkpointActive,
+  });
+  const contextPressureText =
+    runtimeContext.effectiveContextConfig.preset !== 'full'
+      ? renderContextPressure(pressure)
+      : undefined;
+  await emitContextEvent(s.onContextEvent, {
+    kind: 'budget_check',
+    stage: contextStage,
+    turn: turn + 1,
+    pressure,
+    mutablePromptChars: inspectMetrics.mutableChatContextCharacters,
+    fixedPromptChars: inspectFixedOverhead,
+    effectiveBudgetChars,
+    targetPromptChars: runtimeContext.effectiveContextConfig.targetPromptChars,
+    checkpointActive,
+    actionLogEntryCount: actionLogEntries.length,
+    guidanceLogEntryCount: guidanceState.entries.length,
+  });
   if (
     contextThreshold &&
     inspectMetrics.mutableChatContextCharacters >
@@ -140,7 +173,8 @@ export async function runActorTurn<_IN extends AxGenIn>(
       actionLogText,
       guidanceLogText,
       mutableState.runtimeStateSummary,
-      summarizedActorLogText
+      summarizedActorLogText,
+      contextPressureText
     ),
     actorCallOptions
   );
@@ -228,10 +262,11 @@ export async function runActorTurn<_IN extends AxGenIn>(
         actionLogEntries.length - 1,
         runtimeContext.effectiveContextConfig,
         ai,
-        summaryForwardOptions
+        summaryForwardOptions,
+        { stage: contextStage, onContextEvent: s.onContextEvent }
       );
       noteActorTurnErrorState(true);
-      if (await refreshCheckpointSummary()) {
+      if (await refreshCheckpointSummary(entryTurn)) {
         resetActorModelErrorState();
       }
       return { shouldBreak: false, shouldContinue: true };
@@ -348,14 +383,15 @@ export async function runActorTurn<_IN extends AxGenIn>(
     actionLogEntries.length - 1,
     runtimeContext.effectiveContextConfig,
     ai,
-    summaryForwardOptions
+    summaryForwardOptions,
+    { stage: contextStage, onContextEvent: s.onContextEvent }
   );
   if (!isError) {
     mutableState.runtimeStateSummary =
       await runtimeContext.captureRuntimeStateSummary();
   }
   noteActorTurnErrorState(isError);
-  if (await refreshCheckpointSummary()) {
+  if (await refreshCheckpointSummary(entryTurn)) {
     resetActorModelErrorState();
   }
 

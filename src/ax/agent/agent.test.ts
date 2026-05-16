@@ -33,6 +33,7 @@ import {
 import {
   AxAgent,
   AxAgentClarificationError,
+  type AxAgentContextEvent,
   type AxAgentState,
   agent,
 } from './index.js';
@@ -497,11 +498,10 @@ async function runDiscoveryPromptScenario(args: {
               index: 0,
               content: [
                 'Checkpoint Summary: Objective: keep only active discovery evidence',
-                'Durable state: none',
+                'Current state and artifacts: none',
                 'Exact callables and formats: none',
                 'Evidence: keep the remaining docs and latest runtime state',
-                'Conclusions: continue from the current state',
-                'Actor fields: none',
+                'User constraints and preferences: none',
                 'Failures to avoid: none',
                 'Next step: finalize the answer',
               ].join('\n'),
@@ -2495,6 +2495,7 @@ describe('Actor/Responder execution loop', () => {
   it('should keep resolved error entries as tombstones with the adaptive preset', async () => {
     let actorCallCount = 0;
     let thirdActorPrompt = '';
+    const events: AxAgentContextEvent[] = [];
 
     const testMockAI = new AxMockAIService({
       features: { functions: false, streaming: false },
@@ -2585,6 +2586,9 @@ describe('Actor/Responder execution loop', () => {
       contextFields: ['context'],
       runtime: testRuntime,
       contextPolicy: { preset: 'adaptive' },
+      onContextEvent: (event) => {
+        events.push(event);
+      },
     });
 
     await testAgent.forward(testMockAI, {
@@ -2597,6 +2601,15 @@ describe('Actor/Responder execution loop', () => {
     );
     // The successful turn 2 should still be present
     expect(thirdActorPrompt).toContain('var y = 99');
+    expect(events).toContainEqual({
+      kind: 'tombstone_created',
+      stage: 'executor',
+      turn: 1,
+      resolvedByTurn: 2,
+      source: 'deterministic',
+      summaryChars:
+        '[TOMBSTONE]: Resolved Error: Execution timed out in turn 2.'.length,
+    });
   });
 
   it('should keep resolved error entries as tombstones with the lean preset', async () => {
@@ -2832,9 +2845,273 @@ describe('Actor/Responder execution loop', () => {
     expect(definition).toContain('inspectRuntime');
   });
 
+  it('should include contextPressure for budget-managed presets only', () => {
+    for (const preset of ['adaptive', 'checkpointed', 'lean'] as const) {
+      const testAgent = agent('context:string, query:string -> answer:string', {
+        contextFields: ['context'],
+        runtime: defaultRuntime,
+        contextPolicy: { preset },
+      });
+
+      const actorSig = getInternal(testAgent).actorProgram.getSignature();
+      const inputNames = actorSig
+        .getInputFields()
+        .map((field: AxIField) => field.name);
+      expect(inputNames).toContain('contextPressure');
+    }
+
+    const fullAgent = agent('context:string, query:string -> answer:string', {
+      contextFields: ['context'],
+      runtime: defaultRuntime,
+      contextPolicy: { preset: 'full' },
+    });
+    const fullInputNames = getInternal(fullAgent)
+      .actorProgram.getSignature()
+      .getInputFields()
+      .map((field: AxIField) => field.name);
+    expect(fullInputNames).not.toContain('contextPressure');
+  });
+
+  it('should render compact context pressure hints in actor prompts', async () => {
+    let executorPrompt = '';
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+        if (systemPrompt.includes('You (`distiller`)')) {
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: final("perform task", {})',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('You (`executor`)')) {
+          executorPrompt = userPrompt;
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: final("answer", {})',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      runtime: defaultRuntime,
+      contextFields: [],
+      contextPolicy: { preset: 'adaptive' },
+    });
+
+    await testAgent.forward(testMockAI, { query: 'hello' });
+
+    expect(executorPrompt).toContain('Context Pressure:');
+    expect(executorPrompt).toContain('ok - normal context pressure');
+    expect(executorPrompt).not.toContain('mutablePromptChars');
+  });
+
+  it('should emit budget check context events without exposing metrics to the actor', async () => {
+    const events: AxAgentContextEvent[] = [];
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (
+          systemPrompt.includes('You (`distiller`)') ||
+          systemPrompt.includes('You (`executor`)')
+        ) {
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: final("answer", {})',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      runtime: defaultRuntime,
+      contextFields: [],
+      contextPolicy: { preset: 'adaptive' },
+      onContextEvent: (event) => {
+        events.push(event);
+      },
+    });
+
+    await testAgent.forward(testMockAI, { query: 'hello' });
+
+    const budgetEvents = events.filter(
+      (event) => event.kind === 'budget_check'
+    );
+    expect(budgetEvents.length).toBeGreaterThan(0);
+    expect(budgetEvents[0]).toMatchObject({
+      kind: 'budget_check',
+      pressure: 'ok',
+      targetPromptChars: 16_000,
+      checkpointActive: false,
+    });
+    expect(budgetEvents[0]?.mutablePromptChars).toBeGreaterThan(0);
+    expect(budgetEvents[0]?.effectiveBudgetChars).toBeGreaterThan(0);
+  });
+
+  it('should swallow context event callback failures', async () => {
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (
+          systemPrompt.includes('You (`distiller`)') ||
+          systemPrompt.includes('You (`executor`)')
+        ) {
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: final("answer", {})',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      runtime: defaultRuntime,
+      contextFields: [],
+      contextPolicy: { preset: 'adaptive' },
+      onContextEvent: () => {
+        throw new Error('telemetry failed');
+      },
+    });
+
+    await expect(
+      testAgent.forward(testMockAI, { query: 'hello' })
+    ).resolves.toEqual({ answer: 'done' });
+  });
+
+  it('should emit checkpoint cleared context events for restored stale checkpoints', async () => {
+    const events: AxAgentContextEvent[] = [];
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (
+          systemPrompt.includes('You (`distiller`)') ||
+          systemPrompt.includes('You (`executor`)')
+        ) {
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: final("answer", {})',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      runtime: defaultRuntime,
+      contextFields: [],
+      contextPolicy: { preset: 'full' },
+      onContextEvent: (event) => {
+        events.push(event);
+      },
+    });
+    testAgent.setState({
+      version: 1,
+      runtimeBindings: {},
+      runtimeEntries: [],
+      actionLogEntries: [
+        {
+          turn: 1,
+          code: 'console.log("restored")',
+          output: 'restored',
+          tags: [],
+        },
+      ],
+      checkpointState: {
+        fingerprint: 'stale',
+        turns: [1],
+        summary: 'stale summary',
+      },
+      provenance: {},
+    } as AxAgentState);
+
+    await testAgent.forward(testMockAI, { query: 'hello' });
+
+    expect(events).toContainEqual({
+      kind: 'checkpoint_cleared',
+      stage: 'executor',
+      turn: 1,
+      coveredTurns: [1],
+      reason: 'disabled',
+    });
+  });
+
   it('should render a checkpoint summary for older successful turns after the trigger threshold', async () => {
     let actorCallCount = 0;
     let fifthActorPrompt = '';
+    const events: AxAgentContextEvent[] = [];
 
     const testMockAI = new AxMockAIService({
       features: { functions: false, streaming: false },
@@ -2849,11 +3126,10 @@ describe('Actor/Responder execution loop', () => {
                 index: 0,
                 content: [
                   'Checkpoint Summary: Objective: capture the side note',
-                  'Durable state: none',
+                  'Current state and artifacts: none',
                   'Exact callables and formats: none',
                   'Evidence: side-note observed',
-                  'Conclusions: keep focus on the live runtime state',
-                  'Actor fields: none',
+                  'User constraints and preferences: none',
                   'Failures to avoid: none',
                   'Next step: finalize the answer',
                 ].join('\n'),
@@ -2945,6 +3221,9 @@ describe('Actor/Responder execution loop', () => {
         preset: 'adaptive',
         budget: 'compact',
       },
+      onContextEvent: (event) => {
+        events.push(event);
+      },
     });
 
     const result = await testAgent.forward(testMockAI, {
@@ -2964,6 +3243,9 @@ describe('Actor/Responder execution loop', () => {
       'const refined = firstPass.toUpperCase()'
     );
     expect(fifthActorPrompt).toContain('const finalValue = refined + "!"');
+    expect(events.some((event) => event.kind === 'checkpoint_created')).toBe(
+      true
+    );
   });
 
   it('should forward request-level options into checkpoint summarizer calls', async () => {
@@ -2981,9 +3263,10 @@ describe('Actor/Responder execution loop', () => {
                 index: 0,
                 content: [
                   'Objective: compress the draft',
+                  'Current state and artifacts: none',
                   'Exact callables and formats: none',
                   'Evidence: draft observed',
-                  'Conclusions: rely on the latest runtime state',
+                  'User constraints and preferences: none',
                   'Failures to avoid: none',
                   'Next step: finish the task',
                 ].join('\n'),
@@ -3111,9 +3394,10 @@ describe('Actor/Responder execution loop', () => {
                 index: 0,
                 content: [
                   'Objective: compress the draft',
+                  'Current state and artifacts: none',
                   'Exact callables and formats: none',
                   'Evidence: draft observed',
-                  'Conclusions: rely on the latest runtime state',
+                  'User constraints and preferences: none',
                   'Failures to avoid: none',
                   'Next step: finish the task',
                 ].join('\n'),
@@ -3559,11 +3843,10 @@ describe('Actor/Responder execution loop', () => {
                 index: 0,
                 content: [
                   'Checkpoint Summary: Objective: compress the older action log',
-                  'Durable state: hugeState captured in runtime',
+                  'Current state and artifacts: hugeState captured in runtime',
                   'Exact callables and formats: none',
                   'Evidence: console captured state successfully',
-                  'Conclusions: rely on live runtime state for details',
-                  'Actor fields: none',
+                  'User constraints and preferences: none',
                   'Failures to avoid: none',
                   'Next step: continue from the current runtime state',
                 ].join('\n'),
@@ -10322,11 +10605,10 @@ describe('executorModelPolicy', () => {
                 index: 0,
                 content: [
                   'Checkpoint Summary: Objective: compress restored history',
-                  'Durable state: none',
+                  'Current state and artifacts: none',
                   'Exact callables and formats: none',
                   'Evidence: restored action log entry was summarized',
-                  'Conclusions: continue from the latest turn',
-                  'Actor fields: none',
+                  'User constraints and preferences: none',
                   'Failures to avoid: none',
                   'Next step: finish the task',
                 ].join('\n'),

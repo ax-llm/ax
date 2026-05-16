@@ -5,6 +5,7 @@ import {
   updateActorModelErrorTurns,
   updateActorModelMatchedNamespaces,
 } from '../config.js';
+import { emitContextEvent } from '../contextEvents.js';
 import type { ActionLogEntry } from '../contextManager.js';
 import {
   buildActionLogParts,
@@ -16,6 +17,7 @@ import {
 } from '../contextManager.js';
 import { renderGuidanceLog } from './guidanceHelpers.js';
 import type {
+  AxAgentContextStage,
   AxAgentGuidanceState,
   AxAgentStateExecutorModelState,
   AxResolvedContextPolicy,
@@ -33,6 +35,7 @@ export interface ActorLoopSetupDeps {
   delegatedContextSummary: string | undefined;
   checkpointReplayMode: AxResolvedContextPolicy['actionReplay'];
   checkpointThresholdReplayMode: AxResolvedContextPolicy['actionReplay'];
+  contextStage: AxAgentContextStage;
   // Mutable refs
   getCheckpointState: () => CheckpointSummaryState | undefined;
   setCheckpointState: (state: CheckpointSummaryState | undefined) => void;
@@ -50,7 +53,8 @@ export interface ActorLoopSetupHelpers {
     actionLog: string,
     guidanceLog: string | undefined,
     liveRuntimeState?: string,
-    summarizedActorLog?: string
+    summarizedActorLog?: string,
+    contextPressure?: string
   ) => Record<string, unknown>;
   measureActorPromptChars: (
     actionLog: string,
@@ -73,7 +77,7 @@ export interface ActorLoopSetupHelpers {
   resetActorModelErrorState: () => void;
   noteActorTurnErrorState: (isError: boolean) => void;
   syncDiscoveredActorModelNamespaces: () => void;
-  refreshCheckpointSummary: () => Promise<boolean>;
+  refreshCheckpointSummary: (turnForEvent: number) => Promise<boolean>;
   getPromptFacingEntries: () => ActionLogEntry[];
 }
 
@@ -92,6 +96,7 @@ export function buildActorLoopSetup(
     delegatedContextSummary,
     checkpointReplayMode,
     checkpointThresholdReplayMode,
+    contextStage,
     getCheckpointState,
     setCheckpointState,
     getActorModelState,
@@ -114,7 +119,8 @@ export function buildActorLoopSetup(
     actionLog: string,
     guidanceLog: string | undefined,
     liveRuntimeState?: string,
-    summarizedActorLog?: string
+    summarizedActorLog?: string,
+    contextPressure?: string
   ) => {
     const values: Record<string, unknown> = {
       ...inputState.getNonContextValues(),
@@ -133,6 +139,9 @@ export function buildActorLoopSetup(
     }
     if (summarizedActorLog) {
       values.summarizedActorLog = summarizedActorLog;
+    }
+    if (contextPressure) {
+      values.contextPressure = contextPressure;
     }
     return values;
   };
@@ -230,17 +239,42 @@ export function buildActorLoopSetup(
     );
   };
 
-  const refreshCheckpointSummary = async (): Promise<boolean> => {
-    const applyNext = (nextState: CheckpointSummaryState | undefined) => {
+  const refreshCheckpointSummary = async (
+    turnForEvent: number
+  ): Promise<boolean> => {
+    const applyNext = async (
+      nextState: CheckpointSummaryState | undefined,
+      reason: 'over_budget' | 'under_budget' | 'disabled'
+    ) => {
       const current = getCheckpointState();
       const changed =
         (current?.fingerprint ?? null) !== (nextState?.fingerprint ?? null);
       setCheckpointState(nextState);
+      if (changed) {
+        if (nextState) {
+          await emitContextEvent(s.onContextEvent, {
+            kind: 'checkpoint_created',
+            stage: contextStage,
+            turn: turnForEvent,
+            coveredTurns: [...nextState.turns],
+            summaryChars: nextState.summary.length,
+            reason,
+          });
+        } else if (current) {
+          await emitContextEvent(s.onContextEvent, {
+            kind: 'checkpoint_cleared',
+            stage: contextStage,
+            turn: turnForEvent,
+            coveredTurns: [...current.turns],
+            reason,
+          });
+        }
+      }
       return changed;
     };
 
     if (!runtimeContext.effectiveContextConfig.checkpoints.enabled) {
-      return applyNext(undefined);
+      return applyNext(undefined, 'disabled');
     }
 
     const triggerChars =
@@ -261,7 +295,7 @@ export function buildActorLoopSetup(
       thresholdMetrics.mutableChatContextCharacters <=
         computeEffectiveChatBudget(triggerChars, thresholdFixedOverhead)
     ) {
-      return applyNext(undefined);
+      return applyNext(undefined, 'under_budget');
     }
 
     const checkpointReplayPlan = buildActionLogReplayPlan(actionLogEntries, {
@@ -271,7 +305,7 @@ export function buildActorLoopSetup(
     });
     const checkpointEntries = checkpointReplayPlan.checkpointEntries;
     if (checkpointEntries.length === 0) {
-      return applyNext(undefined);
+      return applyNext(undefined, 'under_budget');
     }
 
     const fingerprint = JSON.stringify(
@@ -289,16 +323,19 @@ export function buildActorLoopSetup(
       return false;
     }
 
-    return applyNext({
-      fingerprint,
-      turns: checkpointEntries.map((entry) => entry.turn),
-      summary: await generateCheckpointSummaryAsync(
-        ai,
-        runtimeContext.effectiveContextConfig.summarizerOptions,
-        summaryForwardOptions,
-        checkpointEntries
-      ),
-    });
+    return applyNext(
+      {
+        fingerprint,
+        turns: checkpointEntries.map((entry) => entry.turn),
+        summary: await generateCheckpointSummaryAsync(
+          ai,
+          runtimeContext.effectiveContextConfig.summarizerOptions,
+          summaryForwardOptions,
+          checkpointEntries
+        ),
+      },
+      'over_budget'
+    );
   };
 
   return {

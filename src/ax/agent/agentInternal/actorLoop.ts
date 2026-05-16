@@ -5,6 +5,7 @@ import {
   DEFAULT_RLM_MAX_TURNS,
   getActorModelMatchedNamespaces,
 } from '../config.js';
+import { normalizeContextStage } from '../contextEvents.js';
 import type { ActionLogEntry } from '../contextManager.js';
 import {
   buildActionEvidenceSummary,
@@ -58,6 +59,7 @@ export async function runActorLoop<IN extends AxGenIn>(
   const inputState = s._createRuntimeInputState(values);
   inputState.recomputeTurnInputs(false);
 
+  const contextStage = normalizeContextStage(s.options?.stageVariant);
   const stageVariant = s.options?.stageVariant;
   if (stageVariant !== 'distiller') {
     const forwardSkills = (
@@ -182,6 +184,7 @@ export async function runActorLoop<IN extends AxGenIn>(
     delegatedContextSummary,
     checkpointReplayMode,
     checkpointThresholdReplayMode,
+    contextStage,
     getCheckpointState: () => mutableState.checkpointState,
     setCheckpointState: (state) => {
       mutableState.checkpointState = state;
@@ -214,6 +217,7 @@ export async function runActorLoop<IN extends AxGenIn>(
     summaryForwardOptions,
     functionCallRecords,
     explicitActorDebugHideSystemPrompt,
+    contextStage,
     contextThreshold,
     delegatedContextSummary,
     mutableState,
@@ -308,7 +312,7 @@ export async function runActorLoop<IN extends AxGenIn>(
         break;
       }
     }
-    if (await refreshCheckpointSummary()) {
+    if (await refreshCheckpointSummary(actionLogEntries.length)) {
       resetActorModelErrorState();
     }
 

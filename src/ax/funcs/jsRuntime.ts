@@ -33,6 +33,8 @@ type RLMMessageEvent = { data: unknown };
 type RLMWorker = {
   postMessage: (message: unknown) => void;
   terminate: () => void;
+  ref?: () => void;
+  unref?: () => void;
   onmessage: ((event: RLMMessageEvent) => void) | null;
   onerror: ((error: Error) => void) | null;
   /** True if the underlying worker thread has exited (Node only). */
@@ -453,6 +455,12 @@ const createNodeWorker = async (
     terminate: () => {
       void nodeWorker.terminate();
     },
+    ref: () => {
+      nodeWorker.ref();
+    },
+    unref: () => {
+      nodeWorker.unref();
+    },
     onmessage: null,
     get onerror(): ((error: Error) => void) | null {
       return externalOnerror;
@@ -514,6 +522,8 @@ class AxNodeFreshWorkerPool {
           // Workers in the idle pool are detached from session handlers.
           worker.onmessage = null;
           worker.onerror = null;
+          // Idle prewarmed workers should not keep short-lived scripts alive.
+          worker.unref?.();
           this.idle.push(worker);
         })
         .catch(() => {
@@ -531,6 +541,7 @@ class AxNodeFreshWorkerPool {
     while (this.idle.length > 0) {
       const worker = this.idle.pop()!;
       if (!worker.exited) {
+        worker.ref?.();
         this.warm();
         return worker;
       }

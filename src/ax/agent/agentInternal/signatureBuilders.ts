@@ -101,6 +101,7 @@ export function buildSplitPrograms(self: any): void {
     ) as any;
 
   const liveRuntimeStateEnabled = effectiveContextPolicy.stateSummary.enabled;
+  const contextPressureEnabled = effectiveContextPolicy.preset !== 'full';
 
   if (liveRuntimeStateEnabled) {
     actorSigBuilder = actorSigBuilder.input(
@@ -108,6 +109,17 @@ export function buildSplitPrograms(self: any): void {
       f
         .string(
           'Trusted system-generated snapshot of all current runtime variables — names, types, values, and which turn created them. This is the source of truth for what exists in the session right now.'
+        )
+        .optional()
+    );
+  }
+
+  if (contextPressureEnabled) {
+    actorSigBuilder = actorSigBuilder.input(
+      'contextPressure',
+      f
+        .string(
+          'Trusted system-generated context pressure hint. Use it to choose compact inspections and avoid large logs under watch/critical pressure; it is not a precise token budget.'
         )
         .optional()
     );

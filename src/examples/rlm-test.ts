@@ -19,7 +19,6 @@ export const rlmTestAgent = agent(
   {
     contextFields: ['label', 'values'],
     runtime,
-    functions: testTools,
     contextPolicy: {
       preset: 'checkpointed',
       budget: 'balanced',
@@ -29,7 +28,7 @@ export const rlmTestAgent = agent(
 
 const snippetOutput = await rlmTestAgent.test(
   [
-    'const total = await math.sum({ values });',
+    'const total = values.reduce((sum, value) => sum + value, 0);',
     'console.log(String(label) + ": " + String(total))',
   ].join('\n'),
   { label: 'sum the values', values: [3, 5, 8] }
@@ -37,13 +36,32 @@ const snippetOutput = await rlmTestAgent.test(
 
 const inspectOutput = await rlmTestAgent.test(
   [
-    'const total = await math.sum({ values });',
+    'const total = values.reduce((sum, value) => sum + value, 0);',
     'globalThis.lastTotal = total;',
     'console.log([String(label), typeof inspect_runtime, String(lastTotal)].join(" | "))',
   ].join('\n'),
   { label: 'inspect runtime', values: [3, 5, 8] }
 );
 
+export const rlmToolTestAgent = agent('query:string -> answer:string', {
+  contextFields: [],
+  runtime,
+  functions: testTools,
+  contextPolicy: {
+    preset: 'checkpointed',
+    budget: 'balanced',
+  },
+});
+
+const toolOutput = await rlmToolTestAgent.test(
+  [
+    'const total = await math.sum({ values: [3, 5, 8] });',
+    'console.log("tool sum: " + String(total))',
+  ].join('\n')
+);
+
 console.log(snippetOutput);
 console.log('---');
 console.log(inspectOutput);
+console.log('---');
+console.log(toolOutput);

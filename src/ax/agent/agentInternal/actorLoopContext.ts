@@ -4,6 +4,7 @@ import type {
 } from '../contextManager.js';
 import type { buildActorLoopSetup } from './actorLoopSetup.js';
 import type {
+  AxAgentContextStage,
   AxAgentEvalFunctionCall,
   AxAgentGuidanceState,
   AxAgentRuntimeCompletionState,
@@ -32,6 +33,7 @@ export interface ActorLoopContext {
   summaryForwardOptions: any;
   functionCallRecords?: AxAgentEvalFunctionCall[];
   explicitActorDebugHideSystemPrompt: boolean | undefined;
+  contextStage: AxAgentContextStage;
   contextThreshold: any;
   delegatedContextSummary: any;
   mutableState: MutableActorLoopState;

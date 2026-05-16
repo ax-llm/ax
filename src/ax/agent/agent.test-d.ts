@@ -1,5 +1,7 @@
 import {
   AxAgentClarificationError,
+  type AxAgentContextEvent,
+  type AxAgentContextPressure,
   type AxAgentEvalPrediction,
   type AxAgentFunction,
   type AxAgentFunctionGroup,
@@ -310,6 +312,29 @@ import {
       const _isError: boolean = turn.isError;
       const _thought: string | undefined = turn.thought;
       const _actorResult: Record<string, unknown> = turn.executorResult;
+    },
+  });
+}
+
+// Agent onContextEvent exposes context pressure and compaction telemetry
+{
+  const runtime = {} as AxCodeRuntime;
+  agent('query:string -> answer:string', {
+    contextFields: [] as const,
+    runtime,
+    onContextEvent: async (event) => {
+      const _event: AxAgentContextEvent = event;
+      const _stage: 'distiller' | 'executor' = event.stage;
+      if (event.kind === 'budget_check') {
+        const _pressure: AxAgentContextPressure = event.pressure;
+        const _chars: number = event.mutablePromptChars;
+      }
+      if (event.kind === 'checkpoint_created') {
+        const _summaryChars: number | undefined = event.summaryChars;
+      }
+      if (event.kind === 'tombstone_created') {
+        const _source: 'deterministic' | 'model' = event.source;
+      }
     },
   });
 }

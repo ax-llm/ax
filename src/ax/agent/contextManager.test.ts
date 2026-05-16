@@ -689,7 +689,7 @@ describe('buildActionLog', () => {
       recentFullActions: 1,
       checkpointSummary: [
         'Objective: refine the draft',
-        'Durable state: draft, finalDraft',
+        'Current state and artifacts: draft, finalDraft',
       ].join('\n'),
       checkpointTurns: [1],
     });
@@ -723,7 +723,7 @@ describe('buildActionLog', () => {
       actionReplay: 'adaptive',
       recentFullActions: 1,
       checkpointSummary:
-        'Objective: use prior data\nDurable state: data, length',
+        'Objective: use prior data\nCurrent state and artifacts: data, length',
       checkpointTurns: [1, 2],
     });
 
@@ -757,11 +757,10 @@ describe('buildActionLog', () => {
       recentFullActions: 1,
       checkpointSummary: [
         'Objective: refine the draft',
-        'Durable state: draft, finalDraft',
+        'Current state and artifacts: draft, finalDraft',
         'Exact callables and formats: none',
         'Evidence: draft ready',
-        'Conclusions: use the latest draft',
-        'Actor fields: none',
+        'User constraints and preferences: none',
         'Failures to avoid: none',
         'Next step: finalize answer',
       ].join('\n'),
@@ -789,11 +788,10 @@ describe('buildActionLog', () => {
       recentFullActions: 1,
       checkpointSummary: [
         'Objective: refine the draft',
-        'Durable state: finalDraft',
+        'Current state and artifacts: finalDraft',
         'Exact callables and formats: none',
         'Evidence: final ready',
-        'Conclusions: use finalDraft',
-        'Actor fields: none',
+        'User constraints and preferences: none',
         'Failures to avoid: db.search({ query: "widgets" })',
         'Next step: finalize answer',
       ].join('\n'),
@@ -809,7 +807,8 @@ describe('buildActionLog', () => {
     const log = buildActionLogWithPolicy(entries, {
       actionReplay: 'minimal',
       recentFullActions: 0,
-      checkpointSummary: 'Objective: inspect totals\nDurable state: total',
+      checkpointSummary:
+        'Objective: inspect totals\nCurrent state and artifacts: total',
       checkpointTurns: [1],
     });
     expect(log).not.toContain('Live Runtime State:');
@@ -878,7 +877,8 @@ describe('buildActionEvidenceSummary', () => {
     ];
     const summary = buildActionEvidenceSummary(entries, {
       stateSummary: 'draft: string = "v1"',
-      checkpointSummary: 'Objective: draft answer\nDurable state: draft',
+      checkpointSummary:
+        'Objective: draft answer\nCurrent state and artifacts: draft',
       checkpointTurns: [1],
     });
     expect(summary).toContain('Evidence summary');
@@ -1107,9 +1107,10 @@ describe('generateCheckpointSummaryAsync', () => {
             index: 0,
             content: [
               'Objective: explore data',
+              'Current state and artifacts: filtered, report',
               'Exact callables and formats: db.query("SELECT *")',
               'Evidence: query returned 5 rows',
-              'Conclusions: schema confirmed',
+              'User constraints and preferences: none',
               'Failures to avoid: none',
               'Next step: transform data',
             ].join('\n'),
@@ -1188,7 +1189,7 @@ describe('generateCheckpointSummaryAsync', () => {
           {
             index: 0,
             content:
-              'Objective: verify draft\nExact callables and formats: none\nEvidence: done\nConclusions: ok\nFailures to avoid: none\nNext step: finalize',
+              'Objective: verify draft\nCurrent state and artifacts: none\nExact callables and formats: none\nEvidence: done\nUser constraints and preferences: none\nFailures to avoid: none\nNext step: finalize',
             finishReason: 'stop',
           },
         ],
@@ -1228,7 +1229,7 @@ describe('generateCheckpointSummaryAsync', () => {
           {
             index: 0,
             content:
-              'Objective: verify\nExact callables and formats: none\nEvidence: done\nConclusions: ok\nFailures to avoid: none\nNext step: finalize',
+              'Objective: verify\nCurrent state and artifacts: none\nExact callables and formats: none\nEvidence: done\nUser constraints and preferences: none\nFailures to avoid: none\nNext step: finalize',
             finishReason: 'stop',
           },
         ],
@@ -1293,7 +1294,7 @@ describe('generateCheckpointSummaryAsync', () => {
           {
             index: 0,
             content:
-              'Objective: debug\nExact callables and formats: none\nEvidence: error resolved\nConclusions: fixed\nFailures to avoid: bad syntax\nNext step: continue',
+              'Objective: debug\nCurrent state and artifacts: none\nExact callables and formats: none\nEvidence: error resolved\nUser constraints and preferences: none\nFailures to avoid: bad syntax\nNext step: continue',
             finishReason: 'stop',
           },
         ],

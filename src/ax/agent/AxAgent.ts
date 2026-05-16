@@ -154,6 +154,7 @@ export class ActorAgentRLM<
     status: 'success' | 'failed'
   ) => void | Promise<void>;
   private onFunctionCall?: import('./agentInternal/types.js').AxAgentOnFunctionCall;
+  private onContextEvent?: import('./contextEvents.js').AxAgentOnContextEvent;
   private contextPromptConfigByField: Map<string, AxContextFieldPromptConfig> =
     new Map();
   private functionDiscoveryEnabled = false;
