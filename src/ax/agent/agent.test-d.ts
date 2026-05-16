@@ -1,4 +1,5 @@
 import {
+  type AxAgentActorTurnCallbackArgs,
   AxAgentClarificationError,
   type AxAgentContextEvent,
   type AxAgentContextPressure,
@@ -298,13 +299,15 @@ import {
   });
 }
 
-// Agent executorTurnCallback exposes raw result plus formatted output
+// Agent actorTurnCallback exposes stage, raw result, plus formatted output
 {
   const runtime = {} as AxCodeRuntime;
   agent('query:string -> answer:string', {
     contextFields: [] as const,
     runtime,
-    executorTurnCallback: async (turn) => {
+    actorTurnCallback: async (turn) => {
+      const _args: AxAgentActorTurnCallbackArgs = turn;
+      const _stage: 'distiller' | 'executor' = turn.stage;
       const _turn: number = turn.turn;
       const _code: string = turn.code;
       const _result: unknown = turn.result;
@@ -312,6 +315,19 @@ import {
       const _isError: boolean = turn.isError;
       const _thought: string | undefined = turn.thought;
       const _actorResult: Record<string, unknown> = turn.executorResult;
+    },
+  });
+}
+
+// Deprecated executorTurnCallback alias still exposes the staged actor payload
+{
+  const runtime = {} as AxCodeRuntime;
+  agent('query:string -> answer:string', {
+    contextFields: [] as const,
+    runtime,
+    executorTurnCallback: async (turn) => {
+      const _stage: 'distiller' | 'executor' = turn.stage;
+      const _code: string = turn.code;
     },
   });
 }

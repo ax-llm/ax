@@ -44,11 +44,14 @@ import type {
   AxStageOptions,
 } from './agent/agentInternal/agentOptimizeTypes.js';
 import {
+  type AxAgentActorTurnCallback,
+  type AxAgentActorTurnCallbackArgs,
   type AxAgentClarification,
   type AxAgentClarificationChoice,
   AxAgentClarificationError,
   type AxAgentClarificationKind,
   type AxAgentDiscoveryPromptState,
+  type AxAgentExecutorTurnCallback,
   type AxAgentExecutorTurnCallbackArgs,
   type AxAgentFunction,
   type AxAgentFunctionCollection,
@@ -1475,6 +1478,8 @@ export type { AxAIWebLLMEmbedRequest };
 export type { AxAIWebLLMEmbedResponse };
 export type { AxAPI };
 export type { AxAPIConfig };
+export type { AxAgentActorTurnCallback };
+export type { AxAgentActorTurnCallbackArgs };
 export type { AxAgentClarification };
 export type { AxAgentClarificationChoice };
 export type { AxAgentClarificationKind };
@@ -1490,6 +1495,7 @@ export type { AxAgentEvalFunctionCall };
 export type { AxAgentEvalPrediction };
 export type { AxAgentEvalTask };
 export type { AxAgentExecutorResultPayload };
+export type { AxAgentExecutorTurnCallback };
 export type { AxAgentExecutorTurnCallbackArgs };
 export type { AxAgentForwardOptions };
 export type { AxAgentFunction };

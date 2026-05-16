@@ -92,6 +92,7 @@ export async function runActorLoop<IN extends AxGenIn>(
     lastDebugLoggedActorInstruction: undefined,
     actorFieldValues: {},
   };
+  const internalFunctionCallRecords: AxAgentEvalFunctionCall[] = [];
   const runtimeContext = s._createRuntimeExecutionContext({
     ai,
     inputState,
@@ -102,11 +103,10 @@ export async function runActorLoop<IN extends AxGenIn>(
     guidanceState,
     completionBindings,
     actionLogEntries,
-    functionCallRecorder: functionCallRecords
-      ? (call: AxAgentEvalFunctionCall) => {
-          functionCallRecords.push(call);
-        }
-      : undefined,
+    functionCallRecorder: (call: AxAgentEvalFunctionCall) => {
+      internalFunctionCallRecords.push(call);
+      functionCallRecords?.push(call);
+    },
     onFunctionCall: s.onFunctionCall,
   });
   const delegatedContextSummary = runtimeContext.effectiveContextConfig
@@ -215,7 +215,7 @@ export async function runActorLoop<IN extends AxGenIn>(
     actionLogEntries,
     actorMergedOptions,
     summaryForwardOptions,
-    functionCallRecords,
+    functionCallRecords: internalFunctionCallRecords,
     explicitActorDebugHideSystemPrompt,
     contextStage,
     contextThreshold,

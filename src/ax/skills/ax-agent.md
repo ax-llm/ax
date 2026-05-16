@@ -28,7 +28,7 @@ Your job is not just to write valid code. Your job is to choose the smallest cor
 - Default to `contextPolicy: { preset: 'checkpointed', budget: 'balanced' }` for most RLM tasks.
 - Prefer `contextPolicy: { preset: 'adaptive', budget: 'balanced' }` when older successful turns should collapse sooner while live runtime state stays visible.
 - Prefer `executorModelPolicy` when the actor may need to upgrade after repeated error turns or discovery in specific namespaces without also upgrading the responder.
-- Use `executorTurnCallback` when the user needs per-turn observability into generated code, raw runtime result, formatted output, or provider thoughts.
+- Use `actorTurnCallback` when the user needs per-turn observability into generated code, raw runtime result, formatted output, provider thoughts, or the actor stage (`distiller` vs `executor`). `executorTurnCallback` is the deprecated alias.
 - Use `agentStatusCallback` when the user wants real-time task progress updates from the actor via `await reportSuccess(message)` and `await reportFailure(message)` calls.
 - Use `onFunctionCall` when the user wants to observe every function the actor invokes from the JS runtime (their own registered functions plus internal globals like child agents, `discoverModules`, `discoverFunctions`, `consult`).
 - Use `onContextEvent` when the caller needs context-pressure and compaction telemetry (`budget_check`, `checkpoint_created`, `checkpoint_cleared`, `tombstone_created`); callback failures are ignored.
@@ -43,7 +43,7 @@ Map user intent to agent shape before writing code:
 - "Need child agents with distinct responsibilities" -> add the child agents to the parent's `functions: [...]` list. Set `agentIdentity.namespace` on each child to control where it lands in the JS runtime (e.g. `team.writer(...)`); otherwise it lands under `utils.<name>` like any other tool.
 - "Need tool discovery because names/schemas are not stable" -> use `functions.discovery: true` and generate discovery-first code.
 - "Need a stronger actor only when the run gets noisy or large" -> use `executorModelPolicy` and keep the responder model separate.
-- "Need debugging or traceability" -> start with `debug: true` or `executorTurnCallback`; do not add both unless the user clearly wants both prompt/runtime visibility and structured telemetry.
+- "Need debugging or traceability" -> start with `debug: true` or `actorTurnCallback`; do not add both unless the user clearly wants both prompt/runtime visibility and structured telemetry.
 - "Need real-time progress updates" -> add `agentStatusCallback` so the actor can call `await reportSuccess(message)` and `await reportFailure(message)` to report sub-task progress.
 - "Need to log/trace every tool call" -> add `onFunctionCall` to receive `{ name, qualifiedName, args, kind }` for each function invoked by the runtime; `kind` is `'external'` for caller-registered functions and `'internal'` for agent-injected ones (child agents, discovery, skills loader).
 - "Need to observe compaction or prompt pressure" -> add `onContextEvent`; do not scrape actor prompts for pressure metrics.
@@ -820,15 +820,16 @@ await final("Summarize the severity-related snippets found", { snippets });
 
 ## Actor Turn Observability
 
-Use `executorTurnCallback` when the caller needs structured telemetry for each actor turn.
+Use `actorTurnCallback` when the caller needs structured telemetry for each actor turn. `executorTurnCallback` is still accepted as a deprecated alias for older code.
 
 What it gives you:
 
 - `code`: the normalized JavaScript code the actor produced
+- `stage`: which actor produced the turn (`distiller` or `executor`)
 - `result`: the raw untruncated runtime return value from executing that code
 - `output`: the formatted action-log output string after Ax normalizes and truncates it for prompt replay
 - `thought`: the actor model's `thought` field when `showThoughts` is enabled and the provider returns one
-- `executorResult`: the full actor payload returned by the executor stage
+- `executorResult`: the full actor payload returned by the current actor stage (kept under this historical field name for compatibility)
 - `isError`: whether the execution path for that turn was treated as an error
 
 Use it for:
@@ -851,7 +852,8 @@ Good pattern:
 const supportAgent = agent('query:string -> answer:string', {
   contextFields: ['query'],
   runtime,
-  executorTurnCallback: ({
+  actorTurnCallback: ({
+    stage,
     turn,
     actionLogEntryCount,
     guidanceLogEntryCount,
@@ -863,6 +865,7 @@ const supportAgent = agent('query:string -> answer:string', {
   }) => {
     console.log({
       turn,
+      stage,
       actionLogEntryCount,
       guidanceLogEntryCount,
       isError,
@@ -1504,7 +1507,8 @@ Use `promptMaxChars` when partial data is worse than no data (e.g. JSON objects)
   maxRuntimeChars?: number;
   contextPolicy?: AxContextPolicyConfig;
   summarizerOptions?: Omit<AxProgramForwardOptions<string>, 'functions'>;
-  executorTurnCallback?: (turn: {
+  actorTurnCallback?: (turn: {
+    stage: 'distiller' | 'executor';
     turn: number;
     actionLogEntryCount: number;
     guidanceLogEntryCount: number;
@@ -1515,6 +1519,18 @@ Use `promptMaxChars` when partial data is worse than no data (e.g. JSON objects)
     isError: boolean;
     thought?: string;
   }) => void | Promise<void>;
+  executorTurnCallback?: (turn: {
+    stage: 'distiller' | 'executor';
+    turn: number;
+    actionLogEntryCount: number;
+    guidanceLogEntryCount: number;
+    executorResult: Record<string, unknown>;
+    code: string;
+    result: unknown;
+    output: string;
+    isError: boolean;
+    thought?: string;
+  }) => void | Promise<void>; // deprecated alias; use actorTurnCallback
   onContextEvent?: (event: AxAgentContextEvent) => void | Promise<void>;
   inputUpdateCallback?: (currentInputs: Record<string, unknown>) => Promise<Record<string, unknown> | undefined> | Record<string, unknown> | undefined;
   onFunctionCall?: (call: {
@@ -1564,7 +1580,7 @@ Use `promptMaxChars` when partial data is worse than no data (e.g. JSON objects)
 }
 ```
 
-- `executorTurnCallback` fires for the root agent and for recursive child agents that run actor turns.
+- `actorTurnCallback` fires for the root agent and for recursive child agents that run actor turns.
 - `executorModelPolicy` applies to the actor loop and can be inherited by recursive child agents unless you override it there.
 - `namespaces` matches exact discovery namespaces from successful `discoverFunctions(...)` lookups and starts affecting model choice on the next actor turn.
 - Consecutive error turns reset after a successful non-error turn and when checkpoint summarization refreshes to a new fingerprint.

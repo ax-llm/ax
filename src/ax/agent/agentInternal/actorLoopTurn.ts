@@ -64,6 +64,7 @@ export async function runActorTurn<_IN extends AxGenIn>(
     actionLogEntries,
     actorMergedOptions,
     summaryForwardOptions,
+    functionCallRecords,
     explicitActorDebugHideSystemPrompt,
     contextStage,
     contextThreshold,
@@ -166,6 +167,7 @@ export async function runActorTurn<_IN extends AxGenIn>(
   };
 
   const usageBefore = s.actorProgram.getUsage()?.length ?? 0;
+  const actorTurnCallback = rlm.actorTurnCallback ?? rlm.executorTurnCallback;
 
   const executorResult = await s.actorProgram.forward(
     ai,
@@ -183,7 +185,7 @@ export async function runActorTurn<_IN extends AxGenIn>(
   }
 
   // Capture per-turn metadata for the callback.
-  const turnUsage = rlm.executorTurnCallback
+  const turnUsage = actorTurnCallback
     ? (s.actorProgram.getUsage()?.slice(usageBefore) as
         | AxProgramUsage[]
         | undefined)
@@ -192,7 +194,7 @@ export async function runActorTurn<_IN extends AxGenIn>(
     actorCallOptions.model !== undefined
       ? String(actorCallOptions.model)
       : undefined;
-  const turnChatLogMessages = rlm.executorTurnCallback
+  const turnChatLogMessages = actorTurnCallback
     ? snapshotChatLogMessages(s.actorProgram.getChatLog())
     : undefined;
 
@@ -209,6 +211,7 @@ export async function runActorTurn<_IN extends AxGenIn>(
   executorResult.javascriptCode = code;
 
   completionState.payload = undefined;
+  const functionCallStartIndex = functionCallRecords?.length ?? 0;
 
   if (s.enforceIncrementalConsoleTurns) {
     const policyResult = validateActorTurnCodePolicy(code);
@@ -235,10 +238,16 @@ export async function runActorTurn<_IN extends AxGenIn>(
         code,
         output: policyViolation,
         tags: ['error'],
+        ...(() => {
+          const calls =
+            functionCallRecords?.slice(functionCallStartIndex) ?? [];
+          return calls.length > 0 ? { _functionCalls: calls } : {};
+        })(),
       });
 
-      if (rlm.executorTurnCallback) {
-        await rlm.executorTurnCallback({
+      if (actorTurnCallback) {
+        await actorTurnCallback({
+          stage: contextStage,
           turn: entryTurn,
           actionLogEntryCount: actionLogEntries.length,
           guidanceLogEntryCount: guidanceState.entries.length,
@@ -292,8 +301,9 @@ export async function runActorTurn<_IN extends AxGenIn>(
       s.shouldBubbleUserError(err)
     ) {
       const bubbledError = err instanceof Error ? err : new Error(String(err));
-      if (rlm.executorTurnCallback) {
-        await rlm.executorTurnCallback({
+      if (actorTurnCallback) {
+        await actorTurnCallback({
+          stage: contextStage,
           turn: actionLogEntries.length + 1,
           actionLogEntryCount: actionLogEntries.length,
           guidanceLogEntryCount: guidanceState.entries.length,
@@ -356,10 +366,15 @@ export async function runActorTurn<_IN extends AxGenIn>(
     code: actionLogCode,
     output,
     tags: isError ? ['error'] : [],
+    ...(() => {
+      const calls = functionCallRecords?.slice(functionCallStartIndex) ?? [];
+      return calls.length > 0 ? { _functionCalls: calls } : {};
+    })(),
   });
 
-  if (rlm.executorTurnCallback) {
-    await rlm.executorTurnCallback({
+  if (actorTurnCallback) {
+    await actorTurnCallback({
+      stage: contextStage,
       turn: entryTurn,
       actionLogEntryCount: actionLogEntries.length,
       guidanceLogEntryCount: guidanceState.entries.length,

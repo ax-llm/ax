@@ -10,6 +10,7 @@ import type {
   AxProgramUsage,
 } from '../../dsp/types.js';
 import { normalizeClarificationForError } from '../completion.js';
+import type { AxAgentContextStage } from '../contextEvents.js';
 import type {
   ActionLogEntry,
   CheckpointSummaryState,
@@ -248,7 +249,9 @@ export type AxAgentInputUpdateCallback<IN extends AxGenIn> = (
   currentInputs: Readonly<IN>
 ) => Promise<Partial<IN> | undefined> | Partial<IN> | undefined;
 
-export type AxAgentExecutorTurnCallbackArgs = {
+export type AxAgentActorTurnCallbackArgs = {
+  /** Actor stage that produced this turn. */
+  stage: AxAgentContextStage;
   /** 1-based actor turn number. */
   turn: number;
   /** Number of action log entries recorded after processing this turn. */
@@ -274,9 +277,23 @@ export type AxAgentExecutorTurnCallbackArgs = {
   usage?: AxProgramUsage[];
   /** Model used for this turn, when explicitly set via executorModelPolicy. */
   model?: string;
-  /** Raw ChatML conversation for this turn (system, user, assistant). Only populated when executorTurnCallback is set. */
+  /** Raw ChatML conversation for this turn (system, user, assistant). Only populated when an actor turn callback is set. */
   chatLogMessages?: ReadonlyArray<{ role: string; content: string }>;
 };
+
+export type AxAgentActorTurnCallback = (
+  args: AxAgentActorTurnCallbackArgs
+) => void | Promise<void>;
+
+/**
+ * @deprecated Use AxAgentActorTurnCallbackArgs.
+ */
+export type AxAgentExecutorTurnCallbackArgs = AxAgentActorTurnCallbackArgs;
+
+/**
+ * @deprecated Use AxAgentActorTurnCallback.
+ */
+export type AxAgentExecutorTurnCallback = AxAgentActorTurnCallback;
 
 // Re-export for consumers that only import from this module
 export type { AxFieldValue };

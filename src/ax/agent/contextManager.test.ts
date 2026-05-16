@@ -7,6 +7,7 @@ import {
   buildActionLog,
   buildActionLogReplayPlan,
   buildActionLogWithPolicy,
+  buildCheckpointSupersessionNotes,
   buildInspectRuntimeBaselineCode,
   buildInspectRuntimeCode,
   buildRuntimeStateProvenance,
@@ -19,10 +20,13 @@ import {
   extractWorkingCodeState,
   generateCheckpointSummaryAsync,
   generateTombstoneAsync,
+  getQualifiedCallableUsages,
   manageContext,
+  mergeCheckpointSummaryWithDeterministicFacts,
   serializeTrajectoryEntries,
   splitCheckpointEntries,
 } from './contextManager.js';
+import { serializeAgentStateActionLogEntries } from './state.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -253,6 +257,46 @@ describe('buildRuntimeStateProvenance', () => {
       lastReadTurn: 3,
       stepKind: 'transform',
     });
+  });
+
+  it('should prefer runtime-recorded function calls over regex method calls', () => {
+    const provenance = buildRuntimeStateProvenance([
+      makeEntry({
+        turn: 1,
+        code: [
+          'const rows = await db.search({ query: "widgets" });',
+          'const ids = rows.map(row => row.id);',
+        ].join('\n'),
+        output: '[1]',
+        tags: [],
+        _functionCalls: [
+          {
+            qualifiedName: 'db.search',
+            name: 'search',
+            arguments: { query: 'widgets' },
+            result: [{ id: 1 }],
+          },
+        ],
+      }),
+    ]);
+
+    expect(provenance.get('rows')?.source).toBe('db.search');
+    expect(provenance.get('ids')?.source).toBe('db.search');
+  });
+
+  it('should ignore JS method calls when runtime recorded no tools', () => {
+    const entry = makeEntry({
+      turn: 1,
+      code: 'const ids = rows.map(row => row.id)',
+      output: '[1]',
+      tags: [],
+      _functionCalls: [],
+    });
+
+    expect(getQualifiedCallableUsages(entry)).toEqual([]);
+    expect(serializeTrajectoryEntries([entry])).toContain(
+      'Direct callables: none'
+    );
   });
 });
 
@@ -1093,6 +1137,82 @@ describe('serializeTrajectoryEntries', () => {
   });
 });
 
+describe('checkpoint deterministic facts', () => {
+  it('should merge deterministic facts into weak checkpoint summaries', () => {
+    const result = mergeCheckpointSummaryWithDeterministicFacts(
+      [
+        'Objective: weak summary',
+        'Current state and artifacts: none',
+        'Exact callables and formats: none',
+        'Evidence: none',
+        'User constraints and preferences: none',
+        'Failures to avoid: none',
+        'Next step: continue',
+      ].join('\n'),
+      [
+        makeEntry({
+          turn: 1,
+          code: 'const rows = await db.search({ query: "widgets" })',
+          output: '[{"id":1}]',
+          tags: [],
+          _functionCalls: [
+            {
+              qualifiedName: 'db.search',
+              name: 'search',
+              arguments: { query: 'widgets' },
+            },
+          ],
+        }),
+        makeErrorEntry(2, 'TypeError: invalid query format'),
+      ]
+    );
+
+    expect(result).toContain('Exact callables and formats:');
+    expect(result).toContain('db.search');
+    expect(result).toContain('Current state and artifacts:');
+    expect(result).toContain('Updated live runtime values: rows');
+    expect(result).toContain('Failures to avoid:');
+    expect(result).toContain('TypeError: invalid query format');
+  });
+
+  it('should detect checkpointed values superseded by recent replay', () => {
+    const checkpointEntries = [
+      makeSuccessEntry(1, 'const rows = await db.search({ query: "old" })'),
+    ];
+    const allEntries = [
+      ...checkpointEntries,
+      makeSuccessEntry(2, 'const note = "middle"'),
+      makeSuccessEntry(3, 'const rows = await db.search({ query: "new" })'),
+    ];
+
+    expect(
+      buildCheckpointSupersessionNotes(checkpointEntries, allEntries)
+    ).toEqual([
+      'rows from checkpoint turn 1 was overwritten by turn 3; prefer liveRuntimeState and recent full replay for rows.',
+    ]);
+  });
+
+  it('should keep internal metadata out of serialized agent state entries', () => {
+    const [serialized] = serializeAgentStateActionLogEntries([
+      makeEntry({
+        turn: 1,
+        code: 'const rows = await db.search({ query: "widgets" })',
+        output: '[{"id":1}]',
+        tags: [],
+        _functionCalls: [{ qualifiedName: 'db.search', name: 'search' }],
+        _durableReads: ['query'],
+        _durableWrites: ['rows'],
+        _failureHazards: ['do not use bad query format'],
+      }),
+    ]) as Array<Record<string, unknown>>;
+
+    expect(serialized).not.toHaveProperty('_functionCalls');
+    expect(serialized).not.toHaveProperty('_durableReads');
+    expect(serialized).not.toHaveProperty('_durableWrites');
+    expect(serialized).not.toHaveProperty('_failureHazards');
+  });
+});
+
 // ---------------------------------------------------------------------------
 // generateCheckpointSummaryAsync
 // ---------------------------------------------------------------------------
@@ -1317,8 +1437,10 @@ describe('generateCheckpointSummaryAsync', () => {
     // Working state should have turns 2 and 4 (skipping error turn 3)
     expect(result).toContain('const b = process(a)');
     expect(result).toContain('const c = fixedProcess(a)');
-    // Error should NOT be in working state
-    expect(result).not.toContain('SyntaxError: unexpected token');
+    // Error should not be in the verbatim working state, but should remain as a trajectory hazard.
+    const workingState = result.split('\n\nObjective:')[0] ?? result;
+    expect(workingState).not.toContain('SyntaxError: unexpected token');
+    expect(result).toContain('SyntaxError: unexpected token');
   });
 });
 
