@@ -1,5 +1,7 @@
 # Changelog
 
+## [21.0.8](https://github.com/ax-llm/ax/compare/21.0.6...21.0.6) (2026-05-17)
+
 ## [21.0.7](https://github.com/ax-llm/ax/compare/21.0.6...21.0.6) (2026-05-17)
 
 ## [21.0.6](https://github.com/ax-llm/ax/compare/21.0.4...21.0.5) (2026-05-16)
