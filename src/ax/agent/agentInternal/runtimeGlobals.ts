@@ -6,12 +6,7 @@ import type {
 } from '../../ai/types.js';
 import { AxAgentProtocolCompletionSignal } from '../completion.js';
 import { serializeForEval } from '../optimize.js';
-import {
-  DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME,
-  DISCOVERY_LIST_MODULE_FUNCTIONS_NAME,
-  MEMORIES_LOAD_NAME,
-  SKILLS_LOAD_NAME,
-} from '../runtime.js';
+import { DISCOVERY_DISCOVER_NAME, MEMORIES_LOAD_NAME } from '../runtime.js';
 import {
   type DiscoveryCallableMeta,
   normalizeAndSortDiscoveryFunctionIdentifiers,
@@ -23,7 +18,6 @@ import {
 } from '../runtimeDiscovery.js';
 import { normalizeMemoriesInput } from './memoriesHelpers.js';
 import type { AxAgentMemoryResult } from './memoriesTypes.js';
-import { normalizeSkillsInput } from './skillsHelpers.js';
 import type { AxAgentSkillResult } from './skillsTypes.js';
 import type {
   AxAgentFunction,
@@ -31,6 +25,106 @@ import type {
   AxAgentFunctionModuleMeta,
   AxAgentOnFunctionCall,
 } from './types.js';
+
+type NormalizedDiscoverRequest = {
+  tools: string[];
+  skills: string[];
+};
+
+function normalizeOptionalStringInput(
+  value: unknown,
+  fieldName: string,
+  functionName: string
+): string[] {
+  if (value === undefined) {
+    return [];
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      throw new Error(
+        `[POLICY] ${functionName}(...) ${fieldName} entries must be non-empty strings.`
+      );
+    }
+    return [trimmed];
+  }
+  if (!Array.isArray(value)) {
+    throw new Error(
+      `[POLICY] ${functionName}(...) ${fieldName} must be a string or string[].`
+    );
+  }
+  if (value.length === 0) {
+    throw new Error(
+      `[POLICY] ${functionName}(...) ${fieldName} requires at least one entry.`
+    );
+  }
+  const normalized = value.map((item) => {
+    if (typeof item !== 'string') {
+      throw new Error(
+        `[POLICY] ${functionName}(...) ${fieldName} entries must be strings.`
+      );
+    }
+    const trimmed = item.trim();
+    if (!trimmed) {
+      throw new Error(
+        `[POLICY] ${functionName}(...) ${fieldName} entries must be non-empty strings.`
+      );
+    }
+    return trimmed;
+  });
+  return [...new Set(normalized)];
+}
+
+function normalizeDiscoverInput(
+  input: unknown,
+  options: Readonly<{ toolsEnabled: boolean; skillsEnabled: boolean }>
+): NormalizedDiscoverRequest {
+  if (typeof input === 'string' || Array.isArray(input)) {
+    if (!options.toolsEnabled) {
+      throw new Error(
+        '[POLICY] discover(string|string[]) requires function discovery to be enabled. Use discover({ skills: ... }) for skills.'
+      );
+    }
+    return {
+      tools: normalizeDiscoveryStringInput(input, 'items'),
+      skills: [],
+    };
+  }
+
+  if (!input || typeof input !== 'object') {
+    throw new Error(
+      '[POLICY] discover(...) expects a string, string[], or { tools?, skills? }.'
+    );
+  }
+
+  const record = input as Record<string, unknown>;
+  const hasTools = record.tools !== undefined;
+  const hasSkills = record.skills !== undefined;
+  if (!hasTools && !hasSkills) {
+    throw new Error(
+      '[POLICY] discover(...) requires at least one of tools or skills.'
+    );
+  }
+  if (hasTools && !options.toolsEnabled) {
+    throw new Error(
+      '[POLICY] discover({ tools }) requires function discovery to be enabled.'
+    );
+  }
+  if (hasSkills && !options.skillsEnabled) {
+    throw new Error(
+      '[POLICY] discover({ skills }) requires onSkillsSearch to be configured.'
+    );
+  }
+
+  return {
+    tools: hasTools
+      ? normalizeOptionalStringInput(record.tools, 'tools', 'discover')
+      : [],
+    skills: hasSkills
+      ? normalizeOptionalStringInput(record.skills, 'skills', 'discover')
+      : [],
+  };
+}
 
 export function wrapFunction(
   fn: AxFunction | AxAgentFunction,
@@ -124,8 +218,9 @@ export function buildRuntimeGlobals(
     qualifiedNames: readonly string[],
     docs: Readonly<Record<string, string>>
   ) => void,
-  onUsedSkills?: (results: readonly AxAgentSkillResult[]) => void,
-  onUsedMemories?: (results: readonly AxAgentMemoryResult[]) => void,
+  onLoadedSkills?: (results: readonly AxAgentSkillResult[]) => void,
+  onLoadedMemories?: (results: readonly AxAgentMemoryResult[]) => void,
+  onUsed?: (id: unknown, reason?: unknown) => void,
   onFunctionCall?: AxAgentOnFunctionCall,
   /**
    * Returns the snapshot of memories already loaded for the current run.
@@ -187,80 +282,83 @@ export function buildRuntimeGlobals(
       agentFn._kind ?? 'external',
       onFunctionCall
     );
-    registerCallable(
-      {
-        module: ns,
-        name: agentFn.name,
-        description: agentFn.description,
-        parameters: agentFn.parameters,
-        returns: agentFn.returns,
-        examples: agentFn.examples,
-      },
-      qualifiedName
-    );
+    if (agentFn._alwaysInclude !== true) {
+      registerCallable(
+        {
+          module: ns,
+          name: agentFn.name,
+          description: agentFn.description,
+          parameters: agentFn.parameters,
+          returns: agentFn.returns,
+          examples: agentFn.examples,
+        },
+        qualifiedName
+      );
+    }
   }
 
-  if (s.functionDiscoveryEnabled) {
-    globals[DISCOVERY_LIST_MODULE_FUNCTIONS_NAME] = async (
-      modulesInput: unknown
+  if (s.functionDiscoveryEnabled || typeof s.onSkillsSearch === 'function') {
+    globals[DISCOVERY_DISCOVER_NAME] = async (
+      input: unknown
     ): Promise<void> => {
-      await fireInternal(DISCOVERY_LIST_MODULE_FUNCTIONS_NAME, {
-        modules: modulesInput,
+      await fireInternal(DISCOVERY_DISCOVER_NAME, { request: input });
+      const { tools, skills } = normalizeDiscoverInput(input, {
+        toolsEnabled: Boolean(s.functionDiscoveryEnabled),
+        skillsEnabled: typeof s.onSkillsSearch === 'function',
       });
-      const modules = sortDiscoveryModules(
-        normalizeDiscoveryStringInput(modulesInput, 'modules')
-      );
-      const docs = Object.fromEntries(
-        modules.map((module) => [
-          module,
-          renderDiscoveryModuleListMarkdown(
-            [module],
-            moduleLookup,
-            moduleMetaLookup
-          ),
-        ])
-      );
-      onDiscoveredModules?.(modules, docs);
-    };
 
-    globals[DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME] = async (
-      functionsInput: unknown
-    ): Promise<void> => {
-      await fireInternal(DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME, {
-        functions: functionsInput,
-      });
-      const items = normalizeAndSortDiscoveryFunctionIdentifiers(
-        normalizeDiscoveryStringInput(functionsInput, 'functions')
-      );
-      const matchedNamespaces = resolveDiscoveryCallableNamespaces(
-        items,
-        callableLookup
-      );
-      if (matchedNamespaces.length > 0) {
-        onDiscoveredNamespaces?.(matchedNamespaces);
-      }
-      const docs = Object.fromEntries(
-        items.map((qualifiedName) => [
-          qualifiedName,
-          renderDiscoveryFunctionDefinitionsMarkdown(
-            [qualifiedName],
+      if (tools.length > 0) {
+        const modules = sortDiscoveryModules(
+          tools.filter((item) => {
+            const meta = moduleMetaLookup.get(item);
+            return moduleLookup.has(item) || meta?.alwaysInclude === true;
+          })
+        );
+        const functionItems = tools.filter((item) => !modules.includes(item));
+
+        if (modules.length > 0) {
+          const docs = Object.fromEntries(
+            modules.map((module) => [
+              module,
+              renderDiscoveryModuleListMarkdown(
+                [module],
+                moduleLookup,
+                moduleMetaLookup
+              ),
+            ])
+          );
+          onDiscoveredModules?.(modules, docs);
+        }
+
+        if (functionItems.length > 0) {
+          const items =
+            normalizeAndSortDiscoveryFunctionIdentifiers(functionItems);
+          const matchedNamespaces = resolveDiscoveryCallableNamespaces(
+            items,
             callableLookup
-          ),
-        ])
-      );
-      onDiscoveredFunctions?.(items, docs);
-    };
-  }
+          );
+          if (matchedNamespaces.length > 0) {
+            onDiscoveredNamespaces?.(matchedNamespaces);
+          }
+          const docs = Object.fromEntries(
+            items.map((qualifiedName) => [
+              qualifiedName,
+              renderDiscoveryFunctionDefinitionsMarkdown(
+                [qualifiedName],
+                callableLookup
+              ),
+            ])
+          );
+          onDiscoveredFunctions?.(items, docs);
+        }
+      }
 
-  if (typeof s.onSkillsSearch === 'function') {
-    globals[SKILLS_LOAD_NAME] = async (input: unknown): Promise<void> => {
-      await fireInternal(SKILLS_LOAD_NAME, { searches: input });
-      const searches = normalizeSkillsInput(input);
-      if (searches.length === 0) return;
-      const results = await s.onSkillsSearch(searches);
-      if (!Array.isArray(results) || results.length === 0) return;
-      const matched = results as readonly AxAgentSkillResult[];
-      onUsedSkills?.(matched);
+      if (skills.length > 0) {
+        const results = await s.onSkillsSearch(skills);
+        if (!Array.isArray(results) || results.length === 0) return;
+        const matched = results as readonly AxAgentSkillResult[];
+        onLoadedSkills?.(matched);
+      }
     };
   }
 
@@ -273,7 +371,14 @@ export function buildRuntimeGlobals(
       const results = await s.onMemoriesSearch(searches, alreadyLoaded);
       if (!Array.isArray(results) || results.length === 0) return;
       const matched = results as readonly AxAgentMemoryResult[];
-      onUsedMemories?.(matched);
+      onLoadedMemories?.(matched);
+    };
+  }
+
+  if (s.usageTrackingEnabled === true) {
+    globals.used = async (id: unknown, reason?: unknown): Promise<void> => {
+      await fireInternal('used', { id, reason });
+      onUsed?.(id, reason);
     };
   }
 

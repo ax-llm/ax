@@ -164,7 +164,7 @@ export type AxDiscoveryTurnSummary = {
 };
 
 export type AxMutableSkillsPromptState = {
-  loaded: Map<string, string>;
+  loaded: Map<string, { id: string; name: string; content: string }>;
 };
 
 export type AxAgentOptimizationTargetDescriptor = {

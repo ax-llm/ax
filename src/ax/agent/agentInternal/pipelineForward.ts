@@ -16,6 +16,21 @@ import { flow } from '../../flow/flow.js';
 import type { AxAgentClarification } from './agentStateTypes.js';
 import { AxAgentClarificationError } from './agentStateTypes.js';
 import type { AxAgent } from './coordinator.js';
+import { mergeUsedMemoryResults } from './memoriesHelpers.js';
+import type {
+  AxAgentUsedMemoriesCallback,
+  AxAgentUsedMemory,
+} from './memoriesTypes.js';
+import { mergeUsedSkillResults } from './skillsHelpers.js';
+import type {
+  AxAgentUsedSkill,
+  AxAgentUsedSkillsCallback,
+} from './skillsTypes.js';
+
+type PipelineForwardState<IN extends AxGenIn> = {
+  agentValues: IN;
+  forwardOptions?: Readonly<Record<string, unknown>>;
+};
 
 function throwOnClarification(executorResult: any, owner: any): void {
   if (executorResult?.type === 'askClarification') {
@@ -320,8 +335,20 @@ function buildResponderInputFromExecutor(p: any, state: any) {
   }
   const responderExclude: Set<string> = p.responderExcludeFields;
   for (const key of responderExclude) delete nonCtxForResponder[key];
+  const usedMemories = mergeUsedMemoryResults(
+    state.distillerResult?.usedMemories,
+    executorRun.usedMemories ?? []
+  );
+  const usedSkills = mergeUsedSkillResults(
+    state.distillerResult?.usedSkills,
+    executorRun.usedSkills ?? []
+  );
+  notifyUsedMemories(p, state.forwardOptions, usedMemories);
+  notifyUsedSkills(p, state.forwardOptions, usedSkills);
   return {
     ...state,
+    usedMemories,
+    usedSkills,
     responderInput: {
       nonContextValues: nonCtxForResponder,
       executorResult: executorRun.executorResult,
@@ -333,11 +360,63 @@ function mergePipelineReturn(state: any) {
   return state.responderResult;
 }
 
+function getUsedMemoriesCallback(
+  p: any,
+  options: unknown
+): AxAgentUsedMemoriesCallback | undefined {
+  const forwardCallback = (options as { onUsedMemories?: unknown } | undefined)
+    ?.onUsedMemories;
+  if (typeof forwardCallback === 'function') {
+    return forwardCallback as AxAgentUsedMemoriesCallback;
+  }
+  return typeof p.options?.onUsedMemories === 'function'
+    ? p.options.onUsedMemories
+    : undefined;
+}
+
+function notifyUsedMemories(
+  p: any,
+  options: unknown,
+  usedMemories: readonly AxAgentUsedMemory[]
+): void {
+  const callback = getUsedMemoriesCallback(p, options);
+  if (!callback) {
+    return;
+  }
+  Promise.resolve(callback(usedMemories)).catch(() => {});
+}
+
+function getUsedSkillsCallback(
+  p: any,
+  options: unknown
+): AxAgentUsedSkillsCallback | undefined {
+  const forwardCallback = (options as { onUsedSkills?: unknown } | undefined)
+    ?.onUsedSkills;
+  if (typeof forwardCallback === 'function') {
+    return forwardCallback as AxAgentUsedSkillsCallback;
+  }
+  return typeof p.options?.onUsedSkills === 'function'
+    ? p.options.onUsedSkills
+    : undefined;
+}
+
+function notifyUsedSkills(
+  p: any,
+  options: unknown,
+  usedSkills: readonly AxAgentUsedSkill[]
+): void {
+  const callback = getUsedSkillsCallback(p, options);
+  if (!callback) {
+    return;
+  }
+  Promise.resolve(callback(usedSkills)).catch(() => {});
+}
+
 export function buildPipelineFlow<IN extends AxGenIn, OUT extends AxGenOut>(
   pipeline: AxAgent<IN, OUT>
 ) {
   const p = pipeline as any;
-  return flow<{ agentValues: IN }, OUT>({
+  return flow<PipelineForwardState<IN>, OUT>({
     autoParallel: false,
   })
     .node('distiller', new ActorStageProgram(p.distiller, 'ctx') as any)
@@ -386,7 +465,11 @@ export async function forwardPipeline<
   options?: Readonly<AxProgramForwardOptionsWithModels<T>>
 ): Promise<OUT> {
   const p = pipeline as any;
-  return p.pipelineFlow.forward(ai, { agentValues: values }, options);
+  return (await p.pipelineFlow.forward(
+    ai,
+    { agentValues: values, forwardOptions: options },
+    options
+  )) as OUT;
 }
 
 /**
@@ -430,6 +513,16 @@ export async function* streamingForwardPipeline<
   for (const key of executorExclude) delete executorInputs[key];
   const executorRun = await p.executor.run(executorAi, executorInputs, options);
   throwOnClarification(executorRun.executorResult, p.executor);
+  const usedMemories = mergeUsedMemoryResults(
+    distillerRun.usedMemories,
+    executorRun.usedMemories ?? []
+  );
+  const usedSkills = mergeUsedSkillResults(
+    distillerRun.usedSkills,
+    executorRun.usedSkills ?? []
+  );
+  notifyUsedMemories(p, options, usedMemories);
+  notifyUsedSkills(p, options, usedSkills);
   const {
     executorRequest: _ignoreT,
     distilledContext: _ignoreC,

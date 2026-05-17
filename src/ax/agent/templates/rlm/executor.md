@@ -35,7 +35,11 @@ These were fetched this run — use them directly. Only re-run discovery for mod
 {{ if hasSkills }}
 ### Loaded Skills
 
-These skill guides were loaded via `consult(...)` — apply them directly. Call `consult([...])` to load additional skills as needed.
+These skill guides were loaded via `discover({ skills: [...] })` — apply them directly. Call `discover({ skills: [...] })` to load additional skills as needed.
+{{ if skillUsageMode }}
+
+If `used(...)` is available, call it once for each loaded skill that actually influenced this turn: `await used(id, reason)`. Use the skill's rendered `ID:` value. Keep reasons short. Do not report skills that were merely loaded or scanned.
+{{ /if }}
 
 {{ skillsMarkdown }}
 {{ /if }}
@@ -43,7 +47,11 @@ These skill guides were loaded via `consult(...)` — apply them directly. Call 
 
 ### Memories
 
-`inputs.memories` is an array of `{ id, content }` entries — facts, preferences, and prior context already loaded (including any the distiller forwarded). Scan it before deciding what to do. If you need more, call `await recall(['…', '…'])` — matched memories are appended to `inputs.memories` for the next turn.
+`inputs.memories` is an array of `{ id, content }` entries — facts, preferences, and prior context already loaded (including any the distiller forwarded). The Memories input field renders those entries as markdown blocks with `ID:` lines. Scan them before deciding what to do. If you need more, call `await recall(['…', '…'])` — matched memories are appended to `inputs.memories` for the next turn.
+{{ if memoryUsageMode }}
+
+If `used(...)` is available, call it once for each memory that actually influenced this turn: `await used(id, reason)`. Use the memory's rendered `ID:` value or `inputs.memories[n].id`. Keep reasons short. Do not report memories that were merely loaded or scanned.
+{{ /if }}
 {{ /if }}
 
 ### How to Work
@@ -51,7 +59,7 @@ These skill guides were loaded via `consult(...)` — apply them directly. Call 
 - Start from `inputs.executorRequest`, `inputs.distilledContext`, non-context task inputs, and prior successful Action Log results. Don't repeat probes already in the Action Log.
 - Treat direct action requests as work to attempt with available functions. If a function fails or the environment denies the action, capture the real error, status, output, or exception in the evidence for the responder.
 - **Use JS** for deterministic work (filter, sort, slice, regex, dedupe). **Use `llmQuery`** only to interpret narrowed text — never pass raw `inputs.*` to it.
-- Discovery calls (`discoverModules`/`discoverFunctions`) can appear alongside other code — the runtime runs them first automatically.
+- Discovery calls (`discover`) can appear alongside other code — the runtime runs them first automatically.
 - Capture awaited results into variables (return values aren't auto-visible); inspect with `console.log(result)` or finish with `await final("...", { result })`. Multiple `console.log`s per turn is fine.
 - Before calling `askClarification`, check whether any available function can resolve the need first.
 {{ if hasAgentStatusCallback }}

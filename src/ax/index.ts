@@ -86,10 +86,14 @@ import type { AxAgentMemoryEntry } from './agent/agentInternal/memoriesHelpers.j
 import type {
   AxAgentMemoriesSearchFn,
   AxAgentMemoryResult,
+  AxAgentUsedMemoriesCallback,
+  AxAgentUsedMemory,
 } from './agent/agentInternal/memoriesTypes.js';
 import type {
   AxAgentSkillResult,
   AxAgentSkillsSearchFn,
+  AxAgentUsedSkill,
+  AxAgentUsedSkillsCallback,
 } from './agent/agentInternal/skillsTypes.js';
 import type {
   AxAgentContextEvent,
@@ -128,6 +132,8 @@ import {
 } from './agent/rlm.js';
 import {
   type AxRuntimePrimitive,
+  type AxRuntimePrimitiveExample,
+  type AxRuntimePrimitiveSignature,
   type AxRuntimePrimitiveStage,
   axRuntimePrimitives,
 } from './agent/runtimePrimitives.js';
@@ -1551,6 +1557,10 @@ export type { AxAgentStructuredClarification };
 export type { AxAgentTestCompletionPayload };
 export type { AxAgentTestResult };
 export type { AxAgentUsage };
+export type { AxAgentUsedMemoriesCallback };
+export type { AxAgentUsedMemory };
+export type { AxAgentUsedSkill };
+export type { AxAgentUsedSkillsCallback };
 export type { AxAgentic };
 export type { AxAnyAgentic };
 export type { AxApacheTikaArgs };
@@ -1804,6 +1814,8 @@ export type { AxRewriteOut };
 export type { AxRolloutTrace };
 export type { AxRoutingResult };
 export type { AxRuntimePrimitive };
+export type { AxRuntimePrimitiveExample };
+export type { AxRuntimePrimitiveSignature };
 export type { AxRuntimePrimitiveStage };
 export type { AxSamplePickerOptions };
 export type { AxSelfTuningConfig };

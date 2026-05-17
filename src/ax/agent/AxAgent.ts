@@ -25,6 +25,7 @@ import type { ActionLogEntry } from './contextManager.js';
 import type { AxCodeRuntime, AxRLMConfig } from './rlm.js';
 import {
   type AxRuntimePrimitiveStage,
+  renderRuntimePrimitive,
   visibleRuntimePrimitives,
 } from './runtimePrimitives.js';
 import { cloneAgentState } from './state.js';
@@ -84,6 +85,8 @@ import type {
   AxAgentRuntimeInputState,
   AxAgentState,
   AxAgentTestResult,
+  AxAgentUsedMemory,
+  AxAgentUsedSkill,
   AxAnyAgentic,
   AxContextFieldPromptConfig,
   AxLlmQueryBudgetState,
@@ -208,6 +211,11 @@ export class ActorAgentRLM<
       hasInspectRuntime: Boolean(opts?.hasInspectRuntime),
       hasAgentStatusCallback: Boolean(opts?.hasAgentStatusCallback),
       discoveryMode: Boolean(opts?.discoveryMode),
+      skillsMode: Boolean(opts?.skillsMode),
+      memoriesMode: Boolean(opts?.memoriesMode),
+      memoryUsageMode: Boolean(opts?.memoryUsageMode),
+      skillUsageMode: Boolean(opts?.skillUsageMode),
+      usageTrackingMode: Boolean(opts?.usageTrackingMode),
     };
   }
 
@@ -243,11 +251,15 @@ export class ActorAgentRLM<
     const stage = this._actorPrimitiveStage();
     const flags = this._primitiveFlags();
     for (const p of visibleRuntimePrimitives(stage, flags)) {
-      const lines = this._primitiveOverrides?.get(p.id) ?? p.lines;
+      const current = renderRuntimePrimitive(
+        p,
+        flags,
+        this._primitiveOverrides?.get(p.id)
+      );
       out.push({
         key: `${id}::primitive:${p.id}`,
         kind: 'primitive',
-        current: lines.join('\n\n'),
+        current,
         description: `Runtime primitive \`${p.id}\` advertised in the actor prompt. Each blank-line-separated entry is a description-then-signature block.`,
         constraints:
           'Blank-line-separated entries; each entry is a short purpose statement followed by a backtick-wrapped signature on the next line.',
@@ -573,18 +585,61 @@ export class ActorAgentRLM<
     actionLog: string;
     executorResult: AxAgentExecutorResultPayload;
     actorFieldValues: Record<string, unknown>;
+    usedMemories: AxAgentUsedMemory[];
+    usedSkills: AxAgentUsedSkill[];
     turnCount: number;
   }> {
     const ai = this.ai ?? parentAi;
     const actorValues = this._withDefaultExecutorRequest(values);
-    return runActorLoop(
-      this,
-      ai,
-      actorValues,
-      options,
-      effectiveAbortSignal,
-      functionCallRecords
-    );
+    const stageVariant = (this as any).options?.stageVariant as
+      | 'distiller'
+      | 'executor'
+      | undefined;
+    const canTrackSkills = stageVariant !== 'distiller';
+    const previousMemoryUsageTracking = (this as any)
+      .memoryUsageTrackingEnabled;
+    const previousSkillUsageTracking = (this as any).skillUsageTrackingEnabled;
+    const previousUsageTracking = (this as any).usageTrackingEnabled;
+    const nextMemoryUsageTracking =
+      typeof (this as any).onMemoriesSearch === 'function' &&
+      (typeof (this as any).onUsedMemories === 'function' ||
+        typeof (options as any)?.onUsedMemories === 'function');
+    const nextSkillUsageTracking =
+      canTrackSkills &&
+      (typeof (this as any).onUsedSkills === 'function' ||
+        typeof (options as any)?.onUsedSkills === 'function');
+    const nextUsageTracking = nextMemoryUsageTracking || nextSkillUsageTracking;
+    if (
+      previousMemoryUsageTracking !== nextMemoryUsageTracking ||
+      previousSkillUsageTracking !== nextSkillUsageTracking ||
+      previousUsageTracking !== nextUsageTracking
+    ) {
+      (this as any).memoryUsageTrackingEnabled = nextMemoryUsageTracking;
+      (this as any).skillUsageTrackingEnabled = nextSkillUsageTracking;
+      (this as any).usageTrackingEnabled = nextUsageTracking;
+      this._buildSplitPrograms();
+    }
+    try {
+      return await runActorLoop(
+        this,
+        ai,
+        actorValues,
+        options,
+        effectiveAbortSignal,
+        functionCallRecords
+      );
+    } finally {
+      if (
+        previousMemoryUsageTracking !== nextMemoryUsageTracking ||
+        previousSkillUsageTracking !== nextSkillUsageTracking ||
+        previousUsageTracking !== nextUsageTracking
+      ) {
+        (this as any).memoryUsageTrackingEnabled = previousMemoryUsageTracking;
+        (this as any).skillUsageTrackingEnabled = previousSkillUsageTracking;
+        (this as any).usageTrackingEnabled = previousUsageTracking;
+        this._buildSplitPrograms();
+      }
+    }
   }
 
   private _withDefaultExecutorRequest(values: IN): IN {
@@ -622,6 +677,8 @@ export class ActorAgentRLM<
     nonContextValues: Record<string, unknown>;
     executorResult: AxAgentExecutorResultPayload;
     actorFieldValues: Record<string, unknown>;
+    usedMemories: AxAgentUsedMemory[];
+    usedSkills: AxAgentUsedSkill[];
     turnCount: number;
     guidanceLog: string | undefined;
     actionLog: string;
@@ -673,12 +730,13 @@ export class ActorAgentRLM<
       qualifiedNames: readonly string[],
       docs: Readonly<Record<string, string>>
     ) => void,
-    onUsedSkills?: (
+    onLoadedSkills?: (
       results: readonly import('./agentInternal/skillsTypes.js').AxAgentSkillResult[]
     ) => void,
-    onUsedMemories?: (
+    onLoadedMemories?: (
       results: readonly import('./agentInternal/memoriesTypes.js').AxAgentMemoryResult[]
     ) => void,
+    onUsed?: (id: unknown, reason?: unknown) => void,
     onFunctionCall?: import('./agentInternal/types.js').AxAgentOnFunctionCall,
     getCurrentMemories?: () => readonly import('./agentInternal/memoriesTypes.js').AxAgentMemoryResult[]
   ): Record<string, unknown> {
@@ -691,8 +749,9 @@ export class ActorAgentRLM<
       onDiscoveredNamespaces,
       onDiscoveredModules,
       onDiscoveredFunctions,
-      onUsedSkills,
-      onUsedMemories,
+      onLoadedSkills,
+      onLoadedMemories,
+      onUsed,
       onFunctionCall,
       getCurrentMemories
     );
@@ -708,6 +767,12 @@ export class ActorAgentRLM<
       functionDiscovery: _fd,
       judgeOptions: _jo,
       inputUpdateCallback: _iuc,
+      onSkillsSearch: _oss,
+      onLoadedSkills: _ols,
+      onUsedSkills: _ous,
+      onMemoriesSearch: _oms,
+      onLoadedMemories: _olm,
+      onUsedMemories: _oum,
       ...rest
     } = this.options;
     return rest;

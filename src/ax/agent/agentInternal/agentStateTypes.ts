@@ -44,6 +44,7 @@ export type AxAgentFunctionModuleMeta = {
   title: string;
   selectionCriteria?: string;
   description?: string;
+  alwaysInclude?: boolean;
 };
 
 export type AxAgentFunctionExample = {
@@ -63,6 +64,8 @@ export type AxAgentFunction = Omit<AxFunction, 'description'> & {
    * `AxAgentic` is supplied through `functions: [...]`.
    */
   _kind?: 'internal' | 'external';
+  /** Internal marker copied from an `AxAgentFunctionGroup` with alwaysInclude. */
+  _alwaysInclude?: boolean;
 };
 
 export type AxAgentFunctionGroup = AxAgentFunctionModuleMeta & {
@@ -155,6 +158,7 @@ export type AxAgentDiscoveryPromptState = {
 
 export type AxAgentSkillsPromptState = {
   loaded?: Array<{
+    id?: string;
     name: string;
     content: string;
   }>;

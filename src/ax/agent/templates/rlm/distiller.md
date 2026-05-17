@@ -18,7 +18,11 @@ Context fields are available as globals (in the REPL) on the `inputs` object:
 
 ### Memories
 
-`inputs.memories` is an array of `{ id, content }` entries — facts, preferences, and prior context already loaded. Scan it before deciding what to do. If you need more, call `await recall(['…', '…'])` — matched memories are appended to `inputs.memories` for the next turn (and forwarded to the executor).
+`inputs.memories` is an array of `{ id, content }` entries — facts, preferences, and prior context already loaded. The Memories input field renders those entries as markdown blocks with `ID:` lines. Scan them before deciding what to do. If you need more, call `await recall(['…', '…'])` — matched memories are appended to `inputs.memories` for the next turn (and forwarded to the executor).
+{{ if memoryUsageMode }}
+
+If `used(...)` is available, call it once for each memory that actually influenced this turn: `await used(id, reason)`. Use the memory's rendered `ID:` value or `inputs.memories[n].id`. Keep reasons short. Do not report memories that were merely loaded or scanned.
+{{ /if }}
 {{ /if }}
 
 ### How to Work

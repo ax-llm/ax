@@ -27,12 +27,15 @@ import type {
 import { buildActorLoopSetup } from './actorLoopSetup.js';
 import { runActorTurn } from './actorLoopTurn.js';
 import { renderGuidanceLog } from './guidanceHelpers.js';
-import { ingestSkillResults } from './skillsHelpers.js';
+import { mergeUsedMemoryResults } from './memoriesHelpers.js';
+import { ingestSkillResults, mergeUsedSkillResults } from './skillsHelpers.js';
 import type {
   AxAgentEvalFunctionCall,
   AxAgentExecutorResultPayload,
   AxAgentGuidanceState,
   AxAgentRuntimeCompletionState,
+  AxAgentUsedMemory,
+  AxAgentUsedSkill,
 } from './types.js';
 
 export async function runActorLoop<IN extends AxGenIn>(
@@ -49,6 +52,8 @@ export async function runActorLoop<IN extends AxGenIn>(
   actionLog: string;
   executorResult: AxAgentExecutorResultPayload;
   actorFieldValues: Record<string, unknown>;
+  usedMemories: AxAgentUsedMemory[];
+  usedSkills: AxAgentUsedSkill[];
   turnCount: number;
 }> {
   const s = self as any;
@@ -91,6 +96,8 @@ export async function runActorLoop<IN extends AxGenIn>(
     runtimeStateSummary: undefined,
     lastDebugLoggedActorInstruction: undefined,
     actorFieldValues: {},
+    usedMemories: [],
+    usedSkills: [],
   };
   const internalFunctionCallRecords: AxAgentEvalFunctionCall[] = [];
   const runtimeContext = s._createRuntimeExecutionContext({
@@ -108,6 +115,18 @@ export async function runActorLoop<IN extends AxGenIn>(
       functionCallRecords?.push(call);
     },
     onFunctionCall: s.onFunctionCall,
+    onUsedMemories: (usedMemories: readonly AxAgentUsedMemory[]) => {
+      mutableState.usedMemories = mergeUsedMemoryResults(
+        mutableState.usedMemories,
+        usedMemories
+      );
+    },
+    onUsedSkills: (usedSkills: readonly AxAgentUsedSkill[]) => {
+      mutableState.usedSkills = mergeUsedSkillResults(
+        mutableState.usedSkills,
+        usedSkills
+      );
+    },
   });
   const delegatedContextSummary = runtimeContext.effectiveContextConfig
     .stateSummary.enabled
@@ -378,6 +397,8 @@ export async function runActorLoop<IN extends AxGenIn>(
     actionLog: renderActionLog(),
     executorResult,
     actorFieldValues: mutableState.actorFieldValues,
+    usedMemories: mutableState.usedMemories,
+    usedSkills: mutableState.usedSkills,
     turnCount: actionLogEntries.length,
   };
 }

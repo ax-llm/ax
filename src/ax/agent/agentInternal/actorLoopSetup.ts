@@ -17,6 +17,7 @@ import {
   getPromptFacingActionLogEntries,
 } from '../contextManager.js';
 import { renderGuidanceLog } from './guidanceHelpers.js';
+import { renderMemoriesPromptMarkdown } from './memoriesHelpers.js';
 import type {
   AxAgentContextStage,
   AxAgentGuidanceState,
@@ -123,8 +124,22 @@ export function buildActorLoopSetup(
     summarizedActorLog?: string,
     contextPressure?: string
   ) => {
+    const nonContextValues = { ...inputState.getNonContextValues() };
+    if (
+      typeof s.onMemoriesSearch === 'function' &&
+      Array.isArray(nonContextValues.memories)
+    ) {
+      const memoriesMarkdown = renderMemoriesPromptMarkdown(
+        nonContextValues.memories
+      );
+      if (memoriesMarkdown) {
+        nonContextValues.memories = memoriesMarkdown;
+      } else {
+        delete nonContextValues.memories;
+      }
+    }
     const values: Record<string, unknown> = {
-      ...inputState.getNonContextValues(),
+      ...nonContextValues,
       ...inputState.getActorInlineContextValues(),
       actionLog,
     };

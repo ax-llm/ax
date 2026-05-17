@@ -4,10 +4,10 @@
  *   relevant entries into `inputs.memories` via `await recall([...])`;
  *   results live for one `.forward()` call.
  * - `onSkillsSearch` loads skill guides into the executor system prompt
- *   via `await consult([...])`. Loaded skills persist on the agent's
+ *   via `await discover({ skills: [...] })`. Loaded skills persist on the agent's
  *   skills prompt state across calls (until you reset it).
  *
- * Both callbacks are opt-in. `recall()` and `consult()` return `void` —
+ * Search callbacks are opt-in. `recall()` and `discover()` return `void` —
  * the actor reads `inputs.memories` (or the **Loaded Skills** section)
  * on the next turn to see what landed.
  *
@@ -60,8 +60,9 @@ const onMemoriesSearch: AxAgentMemoriesSearchFn = async (
 };
 
 // ---------------------------------------------------------------------------
-// Skill store — same shape, but { name, content }. Skills get rendered
-// directly into the executor system prompt under "Loaded Skills".
+// Skill store — { id?, name, content }. Skills get rendered directly into
+// the executor system prompt under "Loaded Skills"; the id is what `used()`
+// reports back when actual skill usage tracking is enabled.
 // ---------------------------------------------------------------------------
 
 const skillStore: Record<string, string> = {
@@ -76,14 +77,16 @@ const onSkillsSearch: AxAgentSkillsSearchFn = async (searches) => {
     const lower = q.toLowerCase();
     return Object.entries(skillStore)
       .filter(([name]) => name.toLowerCase().includes(lower))
-      .map(([name, content]) => ({ name, content }));
+      .map(([name, content]) => ({ id: `skill:${name}`, name, content }));
   });
 };
 
 // ---------------------------------------------------------------------------
-// Agent — both callbacks wired up. The optional onUsed* callbacks are
-// pure observability: they fire when memories / skills are loaded so
-// you can log, score, or feed results back into your store.
+// Agent — both load and actual-use callbacks wired up.
+// Load observability: these fire when memories / skills are loaded so
+// you can log, score, or feed retrieval results back into your store.
+// `onUsedMemories` / `onUsedSkills` are separate: they track what the
+// actor says it actually relied on.
 // ---------------------------------------------------------------------------
 
 const myAgent = agent(
@@ -94,11 +97,20 @@ const myAgent = agent(
     onMemoriesSearch,
     onSkillsSearch,
     // Observability — track what got loaded for each run.
-    onUsedMemories: (results) => {
+    onLoadedMemories: (results) => {
       console.log('[memories loaded]', results.map((r) => r.id).join(', '));
     },
-    onUsedSkills: (results) => {
-      console.log('[skills loaded]', results.map((r) => r.name).join(', '));
+    onLoadedSkills: (results) => {
+      console.log(
+        '[skills loaded]',
+        results.map((r) => r.id ?? r.name).join(', ')
+      );
+    },
+    onUsedMemories: (usedMemories) => {
+      console.log('[memories used]', usedMemories);
+    },
+    onUsedSkills: (usedSkills) => {
+      console.log('[skills used]', usedSkills);
     },
   }
 );

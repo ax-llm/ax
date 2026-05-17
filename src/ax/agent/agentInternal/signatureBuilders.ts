@@ -146,9 +146,13 @@ export function buildSplitPrograms(self: any): void {
     parameters: fn.parameters!,
     returns: fn.returns,
     namespace: fn.namespace ?? 'utils',
+    alwaysInclude: fn._alwaysInclude === true,
   }));
+  const discoverableFunctionMeta = agentFunctionMeta.filter(
+    (fn: { alwaysInclude?: boolean }) => !fn.alwaysInclude
+  );
   const moduleSet = new Set<string>(
-    agentFunctionMeta.map(
+    discoverableFunctionMeta.map(
       (fn: { namespace?: string }) => fn.namespace ?? 'utils'
     )
   );
@@ -177,6 +181,9 @@ export function buildSplitPrograms(self: any): void {
     discoveryMode: s.functionDiscoveryEnabled,
     skillsMode: typeof s.onSkillsSearch === 'function',
     memoriesMode: typeof s.onMemoriesSearch === 'function',
+    memoryUsageMode: s.memoryUsageTrackingEnabled === true,
+    skillUsageMode: s.skillUsageTrackingEnabled === true,
+    usageTrackingMode: s.usageTrackingEnabled === true,
     availableModules,
     agentFunctions: agentFunctionMeta,
     templateOverride: s._actorTemplateOverrides?.get(s._actorTemplateId()),

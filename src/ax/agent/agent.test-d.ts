@@ -46,6 +46,74 @@ import {
   const _ok: Result = { answer: 'x' };
 }
 
+// onUsedMemories observes actor-declared memory usage without changing output
+{
+  const runtime = {} as AxCodeRuntime;
+  const ai = {} as import('../ai/types.js').AxAIService;
+  const a = agent('query:string -> answer:string', {
+    contextFields: [] as const,
+    runtime,
+    onMemoriesSearch: async () => [{ id: 'prefs', content: 'Coffee' }],
+  });
+
+  const withUsage = a.forward(
+    ai,
+    { query: 'hello' },
+    {
+      onUsedMemories: (items) => {
+        const _id: string = items[0]!.id;
+        const _stage: 'distiller' | 'executor' = items[0]!.stage;
+        const _reason: string | undefined = items[0]!.reason;
+        void _id;
+        void _stage;
+        void _reason;
+      },
+    }
+  );
+  type WithUsage = Awaited<typeof withUsage>;
+  const _withUsageOk: WithUsage = { answer: 'x' };
+
+  const withoutUsage = a.forward(ai, { query: 'hello' });
+  type WithoutUsage = Awaited<typeof withoutUsage>;
+  // @ts-expect-error usedMemories is observed by callback, not returned
+  const _withoutUsageBad: WithoutUsage = { answer: 'x', usedMemories: [] };
+}
+
+// onUsedSkills observes actor-declared skill usage without changing output
+{
+  const runtime = {} as AxCodeRuntime;
+  const ai = {} as import('../ai/types.js').AxAIService;
+  const a = agent('query:string -> answer:string', {
+    contextFields: [] as const,
+    runtime,
+    skills: [{ id: 'skill:planning', name: 'planning', content: 'Plan well.' }],
+  });
+
+  const withUsage = a.forward(
+    ai,
+    { query: 'hello' },
+    {
+      onUsedSkills: (items) => {
+        const _id: string = items[0]!.id;
+        const _name: string = items[0]!.name;
+        const _stage: 'distiller' | 'executor' = items[0]!.stage;
+        const _reason: string | undefined = items[0]!.reason;
+        void _id;
+        void _name;
+        void _stage;
+        void _reason;
+      },
+    }
+  );
+  type WithUsage = Awaited<typeof withUsage>;
+  const _withUsageOk: WithUsage = { answer: 'x' };
+
+  const withoutUsage = a.forward(ai, { query: 'hello' });
+  type WithoutUsage = Awaited<typeof withoutUsage>;
+  // @ts-expect-error usedSkills is observed by callback, not returned
+  const _withoutUsageBad: WithoutUsage = { answer: 'x', usedSkills: [] };
+}
+
 // Agent test() helper returns formatted runtime output
 {
   const runtime = {} as AxCodeRuntime;
@@ -558,6 +626,7 @@ import {
       title: 'Database Tools',
       selectionCriteria: 'Use for schedule or availability lookups',
       description: 'Schedule lookup helpers',
+      alwaysInclude: true,
       functions: [
         {
           name: 'lookupSchedule',
@@ -651,6 +720,39 @@ import {
       ...optionalGroupedFns,
       agentFns[0]!,
       agentFns[1]!,
+    ],
+    functionDiscovery: true,
+  });
+}
+
+// AxAgent grouped function modules should reject non-boolean alwaysInclude
+{
+  const runtime = {} as AxCodeRuntime;
+  agent('query:string -> answer:string', {
+    contextFields: [] as const,
+    runtime,
+    functions: [
+      {
+        namespace: 'db',
+        title: 'Database Tools',
+        // @ts-expect-error alwaysInclude must be a boolean when provided
+        alwaysInclude: 'yes',
+        functions: [
+          {
+            name: 'lookupSchedule',
+            parameters: {
+              type: 'object',
+              properties: {
+                query: { type: 'string', description: 'Query text' },
+              },
+              required: ['query'],
+            },
+            async func() {
+              return [];
+            },
+          },
+        ],
+      },
     ],
     functionDiscovery: true,
   });

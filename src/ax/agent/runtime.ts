@@ -119,9 +119,7 @@ const UNSAFE_BOOTSTRAP_GLOBAL_NAMES = new Set([
   'protected',
   'public',
 ]);
-export const DISCOVERY_LIST_MODULE_FUNCTIONS_NAME = 'discoverModules';
-export const DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME = 'discoverFunctions';
-export const SKILLS_LOAD_NAME = 'consult';
+export const DISCOVERY_DISCOVER_NAME = 'discover';
 export const MEMORIES_LOAD_NAME = 'recall';
 export const TEST_HARNESS_LLM_QUERY_AI_REQUIRED_ERROR =
   'AI service is required to use llmQuery(...) in AxAgent.test(). Pass options.ai or configure ai on the agent.';
@@ -1087,20 +1085,13 @@ function analyzeDiscoveryTurnPolicy(
   sanitizedCode: string,
   originalCode?: string
 ): DiscoveryTurnPolicyAnalysis {
-  const listCalls = findNamedCalls(sanitizedCode, [
-    DISCOVERY_LIST_MODULE_FUNCTIONS_NAME,
+  const discoverCalls = findNamedCalls(sanitizedCode, [
+    DISCOVERY_DISCOVER_NAME,
   ]);
-  const definitionCalls = findNamedCalls(sanitizedCode, [
-    DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME,
-  ]);
-  const skillsCalls = findNamedCalls(sanitizedCode, [SKILLS_LOAD_NAME]);
   const memoriesCalls = findNamedCalls(sanitizedCode, [MEMORIES_LOAD_NAME]);
-  const discoveryCalls = [
-    ...listCalls,
-    ...definitionCalls,
-    ...skillsCalls,
-    ...memoriesCalls,
-  ].sort((left, right) => left.startIndex - right.startIndex);
+  const discoveryCalls = [...discoverCalls, ...memoriesCalls].sort(
+    (left, right) => left.startIndex - right.startIndex
+  );
 
   if (discoveryCalls.length === 0) {
     return { isDiscoveryOnly: false };
@@ -1115,25 +1106,11 @@ function analyzeDiscoveryTurnPolicy(
       promiseAllCall.openParenIndex + 1,
       promiseAllCall.closeParenIndex
     );
-    if (promiseAllBody.includes(DISCOVERY_LIST_MODULE_FUNCTIONS_NAME)) {
+    if (promiseAllBody.includes(DISCOVERY_DISCOVER_NAME)) {
       return {
         isDiscoveryOnly: false,
         violation:
-          "[POLICY] Batch module discovery into one array call: use `await discoverModules(['tasks', 'contact'])`, not repeated `discoverModules(...)` calls or `Promise.all(...)`.",
-      };
-    }
-    if (promiseAllBody.includes(DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME)) {
-      return {
-        isDiscoveryOnly: false,
-        violation:
-          "[POLICY] Batch function-definition discovery into one array call: use `await discoverFunctions(['mod.funcA', 'mod.funcB'])`, not repeated `discoverFunctions(...)` calls or `Promise.all(...)`.",
-      };
-    }
-    if (promiseAllBody.includes(SKILLS_LOAD_NAME)) {
-      return {
-        isDiscoveryOnly: false,
-        violation:
-          "[POLICY] Batch skill loading into one array call: use `await consult(['queryA', 'queryB'])`, not repeated `consult(...)` calls or `Promise.all(...)`.",
+          "[POLICY] Batch tool/skill discovery into one call: use `await discover(['tasks', 'contact.lookup'])` or `await discover({ tools: ['tasks'], skills: ['release checklist'] })`, not repeated `discover(...)` calls or `Promise.all(...)`.",
       };
     }
     if (promiseAllBody.includes(MEMORIES_LOAD_NAME)) {
@@ -1145,27 +1122,11 @@ function analyzeDiscoveryTurnPolicy(
     }
   }
 
-  if (listCalls.length > 1) {
+  if (discoverCalls.length > 1) {
     return {
       isDiscoveryOnly: false,
       violation:
-        "[POLICY] Batch module discovery into one array call: use `await discoverModules(['tasks', 'contact'])`, not repeated `discoverModules(...)` calls or `Promise.all(...)`.",
-    };
-  }
-
-  if (definitionCalls.length > 1) {
-    return {
-      isDiscoveryOnly: false,
-      violation:
-        "[POLICY] Batch function-definition discovery into one array call: use `await discoverFunctions(['mod.funcA', 'mod.funcB'])`, not repeated `discoverFunctions(...)` calls or `Promise.all(...)`.",
-    };
-  }
-
-  if (skillsCalls.length > 1) {
-    return {
-      isDiscoveryOnly: false,
-      violation:
-        "[POLICY] Batch skill loading into one array call: use `await consult(['queryA', 'queryB'])`, not repeated `consult(...)` calls or `Promise.all(...)`.",
+        "[POLICY] Batch tool/skill discovery into one call: use `await discover(['tasks', 'contact.lookup'])` or `await discover({ tools: ['tasks'], skills: ['release checklist'] })`, not repeated `discover(...)` calls or `Promise.all(...)`.",
     };
   }
 
@@ -1208,7 +1169,7 @@ function analyzeDiscoveryTurnPolicy(
     return {
       isDiscoveryOnly: false,
       violation:
-        '[POLICY] Discovery calls (discoverModules/discoverFunctions/consult/recall) must be in their own turn — do not combine them with other code. Run discovery first, then use the results in the next turn.',
+        '[POLICY] Discovery calls (discover/recall) must be in their own turn — do not combine them with other code. Run discovery first, then use the results in the next turn.',
     };
   }
 
@@ -1304,10 +1265,8 @@ function splitTopLevelStatements(code: string): string[] {
 
 function isAllowedDiscoveryOnlyStatement(statement: string): boolean {
   return (
-    /^(?:await\s+)?(?:discoverModules|discoverFunctions|consult|recall)\s*\([\s\S]*\)$/.test(
-      statement
-    ) ||
-    /^(?:const|let|var)\s+[\s\S]+?=\s*(?:await\s+)?(?:discoverModules|discoverFunctions|consult|recall)\s*\([\s\S]*\)$/.test(
+    /^(?:await\s+)?(?:discover|recall)\s*\([\s\S]*\)$/.test(statement) ||
+    /^(?:const|let|var)\s+[\s\S]+?=\s*(?:await\s+)?(?:discover|recall)\s*\([\s\S]*\)$/.test(
       statement
     )
   );

@@ -135,6 +135,7 @@ export function normalizeAgentFunctionCollection(
     const title = group.title.trim();
     const selectionCriteria = group.selectionCriteria?.trim() || undefined;
     const description = group.description?.trim() || undefined;
+    const alwaysInclude = group.alwaysInclude === true;
 
     if (!namespace) {
       throw new Error(
@@ -168,6 +169,7 @@ export function normalizeAgentFunctionCollection(
       title,
       selectionCriteria,
       description,
+      ...(alwaysInclude ? { alwaysInclude } : {}),
     });
 
     for (const fn of group.functions) {
@@ -180,6 +182,7 @@ export function normalizeAgentFunctionCollection(
       functions.push({
         ...fn,
         namespace,
+        ...(alwaysInclude ? { _alwaysInclude: true } : {}),
       });
     }
   }

@@ -1,10 +1,5 @@
 import type { AxSignature } from '../../dsp/sig.js';
-import {
-  DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME,
-  DISCOVERY_LIST_MODULE_FUNCTIONS_NAME,
-  MEMORIES_LOAD_NAME,
-  SKILLS_LOAD_NAME,
-} from '../runtime.js';
+import { DISCOVERY_DISCOVER_NAME, MEMORIES_LOAD_NAME } from '../runtime.js';
 import type { AxAgentFunction, AxAgentFunctionModuleMeta } from './types.js';
 
 export function reservedAgentFunctionNamespaces(self: any): Set<string> {
@@ -17,13 +12,9 @@ export function reservedAgentFunctionNamespaces(self: any): Set<string> {
     'reportSuccess',
     'reportFailure',
     'inspectRuntime',
-    SKILLS_LOAD_NAME,
     MEMORIES_LOAD_NAME,
-    ...(s.functionDiscoveryEnabled
-      ? [
-          DISCOVERY_LIST_MODULE_FUNCTIONS_NAME,
-          DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME,
-        ]
+    ...(s.functionDiscoveryEnabled || typeof s.onSkillsSearch === 'function'
+      ? [DISCOVERY_DISCOVER_NAME]
       : []),
   ]);
 }
@@ -46,7 +37,8 @@ export function mergeAgentFunctionModuleMetadata(
     if (
       existing.title !== meta.title ||
       existing.selectionCriteria !== meta.selectionCriteria ||
-      existing.description !== meta.description
+      existing.description !== meta.description ||
+      existing.alwaysInclude !== meta.alwaysInclude
     ) {
       throw new Error(
         `Conflicting agent function group metadata for namespace "${meta.namespace}"`

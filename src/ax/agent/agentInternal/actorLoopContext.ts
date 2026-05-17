@@ -9,6 +9,8 @@ import type {
   AxAgentGuidanceState,
   AxAgentRuntimeCompletionState,
   AxAgentStateExecutorModelState,
+  AxAgentUsedMemory,
+  AxAgentUsedSkill,
 } from './types.js';
 
 export interface MutableActorLoopState {
@@ -18,6 +20,8 @@ export interface MutableActorLoopState {
   runtimeStateSummary: string | undefined;
   lastDebugLoggedActorInstruction: string | undefined;
   actorFieldValues: Record<string, unknown>;
+  usedMemories: AxAgentUsedMemory[];
+  usedSkills: AxAgentUsedSkill[];
 }
 
 export interface ActorLoopContext {

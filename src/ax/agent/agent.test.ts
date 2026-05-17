@@ -227,18 +227,10 @@ function makeDiscoveryPromptRuntime(): AxCodeRuntime {
             });
             return 'done';
           }
-          if (code.includes('discoverModules') && globals?.discoverModules) {
+          if (code.includes('discover(') && globals?.discover) {
             return await (
-              globals.discoverModules as (value: unknown) => Promise<void>
-            )(['kb', 'db']);
-          }
-          if (
-            code.includes('discoverFunctions') &&
-            globals?.discoverFunctions
-          ) {
-            return await (
-              globals.discoverFunctions as (value: unknown) => Promise<void>
-            )(['kb.lookup', 'db.search']);
+              globals.discover as (value: unknown) => Promise<void>
+            )(['kb', 'db', 'kb.lookup', 'db.search']);
           }
           if (code.includes('await db.search(')) {
             return '[{"id":1}]';
@@ -325,18 +317,16 @@ function makeEmailSearchDiscoveryPromptRuntime(): AxCodeRuntime {
             });
             return 'done';
           }
-          if (code.includes('discoverModules') && globals?.discoverModules) {
+          if (code.includes('discover(') && globals?.discover) {
             return await (
-              globals.discoverModules as (value: unknown) => Promise<void>
-            )(['email', 'search']);
-          }
-          if (
-            code.includes('discoverFunctions') &&
-            globals?.discoverFunctions
-          ) {
-            return await (
-              globals.discoverFunctions as (value: unknown) => Promise<void>
-            )(['email.newEmail', 'email.saveEmail', 'search.search']);
+              globals.discover as (value: unknown) => Promise<void>
+            )([
+              'email',
+              'search',
+              'email.newEmail',
+              'email.saveEmail',
+              'search.search',
+            ]);
           }
           if (
             code.includes('await email.draft(') ||
@@ -531,8 +521,8 @@ async function runDiscoveryPromptScenario(args: {
         }
 
         const actorCodeByTurn: Record<number, string> = {
-          1: "Javascript Code: await discoverModules(['kb', 'db'])",
-          2: "Javascript Code: await discoverFunctions(['kb.lookup', 'db.search'])",
+          1: "Javascript Code: await discover(['kb', 'db'])",
+          2: "Javascript Code: await discover(['kb.lookup', 'db.search'])",
           3: 'Javascript Code: const rows = await db.search({ query: "widgets" }); console.log(rows)',
         };
 
@@ -601,7 +591,7 @@ async function runInvalidDiscoveryRecoveryScenario() {
           'Do NOT guess an alternate name.'
         );
         const hasRediscoveryGuidance = systemPrompt.includes(
-          'Re-run `discoverModules(...)` for that module.'
+          'Run `discover(...)` for that module or function.'
         );
         const hasExactLiteralGuidance = systemPrompt.includes(
           'If tool docs or error messages specify an exact literal, type, or query format'
@@ -619,8 +609,7 @@ async function runInvalidDiscoveryRecoveryScenario() {
               hasInvalidCallableGuidance &&
               hasRediscoveryGuidance
             ) {
-              content =
-                "Javascript Code: await discoverModules(['email', 'search'])";
+              content = "Javascript Code: await discover(['email', 'search'])";
             } else {
               usedFallbackRecoveryPath = true;
               content =
@@ -629,7 +618,7 @@ async function runInvalidDiscoveryRecoveryScenario() {
             break;
           case 3:
             content =
-              "Javascript Code: await discoverFunctions(['email.newEmail', 'email.saveEmail', 'search.search'])";
+              "Javascript Code: await discover(['email.newEmail', 'email.saveEmail', 'search.search'])";
             break;
           case 4:
             content =
@@ -1378,12 +1367,12 @@ describe('AxAgent.test()', () => {
     ]);
 
     calls.length = 0;
-    await testAgent.test("await discoverModules(['tools'])");
+    await testAgent.test("await discover(['tools'])");
     expect(calls).toEqual([
       {
-        name: 'discoverModules',
-        qualifiedName: 'discoverModules',
-        args: { modules: ['tools'] },
+        name: 'discover',
+        qualifiedName: 'discover',
+        args: { request: ['tools'] },
         kind: 'internal',
       },
     ]);
@@ -3537,10 +3526,10 @@ describe('Actor/Responder execution loop', () => {
         return {
           execute: async (code: string) => {
             if (code === 'DISCOVER_AND_LOG') {
-              const discoverModules = globals?.discoverModules as
+              const discover = globals?.discover as
                 | ((value: unknown) => Promise<void>)
                 | undefined;
-              await discoverModules?.(['kb', 'db']);
+              await discover?.(['kb', 'db']);
               return 'plain evidence';
             }
             if (code === 'final("done", {})' && globals?.final) {
@@ -6529,11 +6518,16 @@ describe('incremental console-turn policy', () => {
 
   it('should allow discovery-only turns without console.log', () => {
     expect(
-      validateActorTurnCodePolicy("await discoverModules(['tasks', 'contact'])")
+      validateActorTurnCodePolicy("await discover(['tasks', 'contact'])")
     ).toBeUndefined();
     expect(
       validateActorTurnCodePolicy(
-        "const defs = await discoverFunctions(['tasks.lookup', 'contact.find'])"
+        "const defs = await discover(['tasks.lookup', 'contact.find'])"
+      )
+    ).toBeUndefined();
+    expect(
+      validateActorTurnCodePolicy(
+        "await discover({ tools: ['tasks'], skills: ['release checklist'] })"
       )
     ).toBeUndefined();
   });
@@ -6541,26 +6535,26 @@ describe('incremental console-turn policy', () => {
   it('should reject split discovery calls and require a single batched array call', () => {
     expect(
       validateActorTurnCodePolicy(
-        "await Promise.all([discoverModules('tasks'), discoverModules('contact')])"
+        "await Promise.all([discover('tasks'), discover('contact')])"
       )?.violation
     ).toContain(
-      "Batch module discovery into one array call: use `await discoverModules(['tasks', 'contact'])`"
+      'Batch tool/skill discovery into one call: use `await discover'
     );
     expect(
       validateActorTurnCodePolicy(
-        "await discoverFunctions('tasks.lookup'); await discoverFunctions('contact.find')"
+        "await discover('tasks.lookup'); await discover('contact.find')"
       )?.violation
     ).toContain(
-      "Batch function-definition discovery into one array call: use `await discoverFunctions(['mod.funcA', 'mod.funcB'])`"
+      'Batch tool/skill discovery into one call: use `await discover'
     );
   });
 
   it('should auto-split discovery calls mixed with non-discovery code and still enforce console.log', () => {
     const result = validateActorTurnCodePolicy(
-      "await discoverModules(['tasks']); const unrelated = 1"
+      "await discover(['tasks']); const unrelated = 1"
     );
     // Discovery is extracted for auto-split pre-execution
-    expect(result?.autoSplitDiscoveryCode).toContain('discoverModules');
+    expect(result?.autoSplitDiscoveryCode).toContain('discover');
     // But the remaining code has no console.log and no final, so it's still a violation
     expect(result?.violation).toContain('console.log');
   });
@@ -6578,8 +6572,7 @@ describe('incremental console-turn policy', () => {
 
   it('should auto-split discovery calls mixed with substantive code and final', () => {
     const mixedCode = `
-      await discoverModules(['tasks', 'email']);
-      await discoverFunctions(['tasks.create', 'email.draft']);
+      await discover(['tasks', 'email', 'tasks.create', 'email.draft']);
       const poem = await llmQuery([{ query: 'Write a poem', context: {} }]);
       const task = await tasks.create({ title: 'Test' });
       final(poem);
@@ -6587,17 +6580,17 @@ describe('incremental console-turn policy', () => {
     const result = validateActorTurnCodePolicy(mixedCode);
     // Since this contains final(), the discovery portion before final is
     // checked. Auto-split extracts the discovery statements.
-    expect(result?.autoSplitDiscoveryCode).toContain('discoverModules');
+    expect(result?.autoSplitDiscoveryCode).toContain('discover');
     expect(result?.violation).toBeUndefined();
   });
 
   it('should preserve original string arguments in auto-split discovery code', () => {
     const result = validateActorTurnCodePolicy(
-      "await discoverModules(['tasks', 'contact']); console.log('done')"
+      "await discover(['tasks', 'contact']); console.log('done')"
     );
     // Auto-split should return the original code with string args intact
     expect(result?.autoSplitDiscoveryCode).toBe(
-      "await discoverModules(['tasks', 'contact'])"
+      "await discover(['tasks', 'contact'])"
     );
     expect(result?.violation).toBeUndefined();
   });
@@ -6675,7 +6668,7 @@ console.log(analysis[0]);`;
   });
 
   it('should allow discovery mixed with multiple console.log calls', () => {
-    const code = `await discoverModules(['kb', 'metrics']);
+    const code = `await discover(['kb', 'metrics']);
 const snippets = await kb.findSnippets({ topic: 'severity' });
 console.log('Snippets:', snippets);
 console.log('Keys:', Object.keys(globalThis));`;
@@ -6712,8 +6705,8 @@ console.log('Keys:', Object.keys(globalThis));`;
           actorUserPrompts.push(userPrompt);
           actorCallCount++;
           const codeByTurn: Record<number, string> = {
-            1: "Javascript Code: await discoverModules(['kb', 'db'])",
-            2: "Javascript Code: await discoverFunctions(['kb.lookup', 'db.search'])",
+            1: "Javascript Code: await discover(['kb', 'db'])",
+            2: "Javascript Code: await discover(['kb.lookup', 'db.search'])",
             3: 'Javascript Code: final("done", {})',
           };
           return {
@@ -6750,18 +6743,11 @@ console.log('Keys:', Object.keys(globalThis));`;
         return {
           execute: async (code: string) => {
             executedCode.push(code);
-            if (code.includes('discoverModules')) {
-              const discoverModules = globals?.discoverModules as
+            if (code.includes('discover(')) {
+              const discover = globals?.discover as
                 | ((value: unknown) => Promise<void>)
                 | undefined;
-              await discoverModules?.(['kb', 'db']);
-              return 'ok';
-            }
-            if (code.includes('discoverFunctions')) {
-              const discoverFunctions = globals?.discoverFunctions as
-                | ((value: unknown) => Promise<void>)
-                | undefined;
-              await discoverFunctions?.(['kb.lookup', 'db.search']);
+              await discover?.(['kb', 'db', 'kb.lookup', 'db.search']);
               return 'ok';
             }
             if (globals?.final && code.includes('final(')) {
@@ -6793,8 +6779,8 @@ console.log('Keys:', Object.keys(globalThis));`;
     expect(actorCallCount).toBe(3);
     expect(getActorAuthoredCodes(executedCode)).toEqual([
       'final("test", {})',
-      "await discoverModules(['kb', 'db'])",
-      "await discoverFunctions(['kb.lookup', 'db.search'])",
+      "await discover(['kb', 'db'])",
+      "await discover(['kb.lookup', 'db.search'])",
       'final("done", {})',
     ]);
     expect(actorUserPrompts[1]).not.toContain(
@@ -7569,7 +7555,7 @@ describe('axBuildExecutorDefinition', () => {
     });
     expect(result).toContain('### How to Work');
     expect(result).toContain(
-      'Discovery calls (`discoverModules`/`discoverFunctions`) can appear alongside other code'
+      'Discovery calls (`discover`) can appear alongside other code'
     );
     expect(result).toContain('return values aren');
     expect(result).toContain('finish with `await final("...", { result })`');
@@ -10280,7 +10266,7 @@ describe('executorModelPolicy', () => {
           actorCallCount += 1;
           actorModels.push(req.model as string | undefined);
           const codeByTurn: Record<number, string> = {
-            1: 'Javascript Code: await discoverFunctions(["db.search"])',
+            1: 'Javascript Code: await discover(["db.search"])',
             2: 'Javascript Code: final("done", {})',
           };
           return {
@@ -10340,7 +10326,7 @@ describe('executorModelPolicy', () => {
           actorCallCount += 1;
           actorModels.push(req.model as string | undefined);
           const codeByTurn: Record<number, string> = {
-            1: 'Javascript Code: await discoverFunctions(["lookup"])',
+            1: 'Javascript Code: await discover(["lookup"])',
             2: 'Javascript Code: final("done", {})',
           };
           return {
@@ -10416,7 +10402,7 @@ describe('executorModelPolicy', () => {
           actorCallCount += 1;
           actorModels.push(req.model as string | undefined);
           const codeByTurn: Record<number, string> = {
-            1: 'Javascript Code: await discoverFunctions(["db.search", "kb.lookup"])',
+            1: 'Javascript Code: await discover(["db.search", "kb.lookup"])',
             2: 'Javascript Code: final("done", {})',
           };
           return {
@@ -10479,7 +10465,7 @@ describe('executorModelPolicy', () => {
           actorCallCount += 1;
           actorModels.push(req.model as string | undefined);
           const codeByTurn: Record<number, string> = {
-            1: 'Javascript Code: await discoverFunctions(["kb.lookup"])',
+            1: 'Javascript Code: await discover(["kb.lookup"])',
             2: 'Javascript Code: final("done", {})',
           };
           return {
@@ -10538,7 +10524,7 @@ describe('executorModelPolicy', () => {
           actorCallCount += 1;
           actorModels.push(req.model as string | undefined);
           const codeByTurn: Record<number, string> = {
-            1: 'Javascript Code: await discoverFunctions(["db.missing"])',
+            1: 'Javascript Code: await discover(["db.missing"])',
             2: 'Javascript Code: final("done", {})',
           };
           return {
@@ -10844,7 +10830,7 @@ describe('executorModelPolicy', () => {
           actorModels.push(req.model as string | undefined);
           if (phase === 'initial') {
             const codeByTurn: Record<number, string> = {
-              1: 'Javascript Code: await discoverFunctions(["db.search"])',
+              1: 'Javascript Code: await discover(["db.search"])',
               2: 'Javascript Code: final("initial done", {})',
             };
             return {
@@ -12274,6 +12260,44 @@ describe('axBuildExecutorDefinition - Available Sub-Agents and Tool Functions', 
     expect(result).not.toContain('### Additional Functions');
   });
 
+  it('should render discover overloads and examples based on enabled modes', () => {
+    const discoveryOnly = axBuildExecutorDefinition(undefined, [], [], {
+      discoveryMode: true,
+    });
+    expect(discoveryOnly).toContain('await discover(item: string): void');
+    expect(discoveryOnly).toContain('await discover(items: string[]): void');
+    expect(discoveryOnly).toContain("await discover('db');");
+    expect(discoveryOnly).not.toContain('skills?: string');
+    expect(discoveryOnly).not.toContain('discoverModules');
+    expect(discoveryOnly).not.toContain('discoverFunctions');
+    expect(discoveryOnly).not.toContain('consult(');
+
+    const skillsOnly = axBuildExecutorDefinition(undefined, [], [], {
+      skillsMode: true,
+    });
+    expect(skillsOnly).toContain(
+      'await discover(request: { skills: string | string[] }): void'
+    );
+    expect(skillsOnly).toContain(
+      "await discover({ skills: ['release checklist'] });"
+    );
+    expect(skillsOnly).not.toContain('await discover(item: string): void');
+
+    const mixed = axBuildExecutorDefinition(undefined, [], [], {
+      discoveryMode: true,
+      skillsMode: true,
+    });
+    expect(mixed).toContain(
+      'await discover(request: { tools?: string | string[], skills?: string | string[] }): void'
+    );
+    expect(mixed).toContain(
+      "await discover({ tools: ['db'], skills: ['release checklist'] });"
+    );
+    expect(mixed).not.toContain(
+      'await discover(request: { skills: string | string[] }): void'
+    );
+  });
+
   it('should render {} for agent with undefined parameters', () => {
     const result = axBuildExecutorDefinition(undefined, [], [], {
       agentFunctions: [
@@ -13085,8 +13109,9 @@ describe('AxFunction', () => {
       string,
       unknown
     >;
-    expect(typeof globals.discoverModules).toBe('function');
-    expect(typeof globals.discoverFunctions).toBe('function');
+    expect(typeof globals.discover).toBe('function');
+    expect(globals.discoverModules).toBeUndefined();
+    expect(globals.discoverFunctions).toBeUndefined();
 
     const discoveredModules: Record<string, string> = {};
     const discoveredFunctions: Record<string, string> = {};
@@ -13103,17 +13128,12 @@ describe('AxFunction', () => {
         Object.assign(discoveredFunctions, docs)
     ) as Record<string, unknown>;
 
-    const discoverModules = globalsWithCallbacks.discoverModules as (
-      modules: string | string[]
-    ) => Promise<void>;
-    const discoverFunctions = globalsWithCallbacks.discoverFunctions as (
-      functions: string | string[]
+    const discover = globalsWithCallbacks.discover as (
+      items: unknown
     ) => Promise<void>;
 
-    await expect(discoverModules(['team', 'db', 'missing'])).resolves.toBe(
-      undefined
-    );
-    await expect(discoverModules('team')).resolves.toBeUndefined();
+    await expect(discover(['team', 'db'])).resolves.toBe(undefined);
+    await expect(discover('team')).resolves.toBeUndefined();
     expect(discoveredModules.team).toContain('### Module `team`');
     expect(discoveredModules.team).not.toContain('#### Callables');
     expect(discoveredModules.team).toContain('- `childAgent`');
@@ -13129,13 +13149,9 @@ describe('AxFunction', () => {
         'Database accessors for schedule lookups and availability.'
       )
     );
-    expect(discoveredModules.missing).toContain('### Module `missing`');
-    expect(discoveredModules.missing).toContain(
-      '- Error: module `missing` does not exist.'
-    );
 
     await expect(
-      discoverFunctions([
+      discover([
         'team.childAgent',
         'db.search',
         'db.resolveWindow',
@@ -13143,7 +13159,7 @@ describe('AxFunction', () => {
         'unknownFn',
       ])
     ).resolves.toBeUndefined();
-    await expect(discoverFunctions('lookup')).resolves.toBeUndefined();
+    await expect(discover('lookup')).resolves.toBeUndefined();
     expect(discoveredFunctions['utils.lookup']).toContain('### `utils.lookup`');
     expect(discoveredFunctions['team.childAgent']).toContain(
       '### `team.childAgent`'
@@ -13190,6 +13206,69 @@ describe('AxFunction', () => {
       '### `utils.unknownFn`'
     );
     expect(discoveredFunctions['utils.unknownFn']).toContain('- Not found.');
+  });
+
+  it('should let discover load tool docs and skill guides in one call', async () => {
+    const matchedSkills = [
+      { name: 'release-checklist', content: '## Release checklist' },
+    ];
+    const myAgent = agent('query:string -> answer:string', {
+      contextFields: [],
+      runtime,
+      functions: [
+        {
+          namespace: 'db',
+          title: 'Database Tools',
+          functions: [
+            {
+              name: 'searchDB',
+              description: 'Searches the database',
+              parameters: {
+                type: 'object',
+                properties: {
+                  query: { type: 'string', description: 'Search query' },
+                },
+                required: ['query'],
+              },
+              func: async () => [],
+            },
+          ],
+        },
+      ],
+      functionDiscovery: true,
+      onSkillsSearch: async (searches) => {
+        expect(searches).toEqual(['release checklist']);
+        return matchedSkills;
+      },
+    });
+
+    const discoveredModules: Record<string, string> = {};
+    const discoveredFunctions: Record<string, string> = {};
+    const onLoadedSkills = vi.fn();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const globals = getInternal(myAgent).buildRuntimeGlobals(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      (_modules: readonly string[], docs: Readonly<Record<string, string>>) =>
+        Object.assign(discoveredModules, docs),
+      (_functions: readonly string[], docs: Readonly<Record<string, string>>) =>
+        Object.assign(discoveredFunctions, docs),
+      onLoadedSkills
+    );
+
+    await expect(
+      globals.discover({
+        tools: ['db', 'db.searchDB'],
+        skills: ['release checklist'],
+      })
+    ).resolves.toBeUndefined();
+
+    expect(discoveredModules.db).toContain('### Module `db`');
+    expect(discoveredFunctions['db.searchDB']).toContain('### `db.searchDB`');
+    expect(onLoadedSkills).toHaveBeenCalledWith(matchedSkills);
   });
 
   it('should require parameters for functions used in agent runtime', () => {
@@ -13313,12 +13392,129 @@ describe('AxFunction', () => {
     );
     expect(actorDesc).not.toContain('### Available Agent Functions');
     expect(actorDesc).toContain('### Available Functions');
+    expect(actorDesc).toContain('await discover(item: string): void');
+    expect(actorDesc).toContain('await discover(items: string[]): void');
+    expect(actorDesc).toContain("await discover('db');");
+    expect(actorDesc).not.toContain('discoverModules');
+    expect(actorDesc).not.toContain('discoverFunctions');
+  });
+
+  it('should render always-included function groups inline in discovery mode', async () => {
+    const child = agent('question:string -> answer:string', {
+      agentIdentity: {
+        name: 'Child',
+        description: 'child helper',
+        namespace: 'team',
+      },
+      contextFields: [],
+      runtime,
+    });
+
+    const myAgent = agent('query:string -> answer:string', {
+      contextFields: [],
+      runtime,
+      functions: [
+        child,
+        {
+          namespace: 'workflow',
+          title: 'Workflow Controls',
+          selectionCriteria: 'Use for fixed workflow control operations.',
+          description: 'Workflow control helpers.',
+          alwaysInclude: true,
+          functions: [
+            {
+              name: 'finish',
+              description: 'Finish the workflow',
+              parameters: {
+                type: 'object',
+                properties: {
+                  reason: { type: 'string', description: 'Finish reason' },
+                },
+                required: ['reason'],
+              },
+              func: async () => 'done',
+            },
+          ],
+        },
+        {
+          namespace: 'db',
+          title: 'Database Tools',
+          selectionCriteria: 'Use when you need structured data lookups.',
+          description: 'Database lookup helpers.',
+          functions: [
+            {
+              name: 'searchDB',
+              description: 'Searches the database',
+              parameters: {
+                type: 'object',
+                properties: {
+                  query: { type: 'string', description: 'Search query' },
+                },
+                required: ['query'],
+              },
+              func: async () => [],
+            },
+          ],
+        },
+      ],
+      functionDiscovery: true,
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const actorDesc = getInternal(myAgent)
+      .actorProgram.getSignature()
+      .getDescription();
+    expect(actorDesc).toContain('### Available Functions');
+    expect(actorDesc).toContain('`workflow.finish(args: { reason: string })`');
+    expect(actorDesc).toContain('Finish the workflow');
+    expect(actorDesc).toContain('### Available Modules');
     expect(actorDesc).toContain(
-      'await discoverModules(modules: string[]): void'
+      '- `db` - Use when you need structured data lookups.'
     );
-    expect(actorDesc).toContain(
-      'await discoverFunctions(functions: string[]): void'
+    expect(actorDesc).toContain('- `team`');
+    expect(actorDesc).not.toContain(
+      '- `workflow` - Use for fixed workflow control operations.'
     );
+    expect(actorDesc).not.toContain('`db.searchDB(args: { query: string })`');
+    expect(actorDesc).not.toContain('`team.child(args: { question: string })`');
+
+    const discoveredModules: Record<string, string> = {};
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const globals = getInternal(myAgent).buildRuntimeGlobals(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      (_modules: readonly string[], docs: Readonly<Record<string, string>>) =>
+        Object.assign(discoveredModules, docs)
+    );
+
+    await expect(globals.discover('workflow')).resolves.toBeUndefined();
+    expect(discoveredModules.workflow).toContain('### Module `workflow`');
+    expect(discoveredModules.workflow).toContain(
+      '- Error: module `workflow` does not exist.'
+    );
+
+    const discoveredFunctions: Record<string, string> = {};
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const globalsWithFunctionDiscovery = getInternal(
+      myAgent
+    ).buildRuntimeGlobals(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      (_functions: readonly string[], docs: Readonly<Record<string, string>>) =>
+        Object.assign(discoveredFunctions, docs)
+    );
+
+    await expect(
+      globalsWithFunctionDiscovery.discover('workflow.finish')
+    ).resolves.toBeUndefined();
+    expect(discoveredFunctions['workflow.finish']).toContain('- Not found.');
   });
 
   it('should allow discovery metadata and function descriptions to be omitted', async () => {
@@ -13361,10 +13557,8 @@ describe('AxFunction', () => {
       (_functions: readonly string[], docs: Readonly<Record<string, string>>) =>
         Object.assign(discoveredFunctions, docs)
     );
-    await expect(globals.discoverModules('db')).resolves.toBeUndefined();
-    await expect(
-      globals.discoverFunctions('db.searchDB')
-    ).resolves.toBeUndefined();
+    await expect(globals.discover('db')).resolves.toBeUndefined();
+    await expect(globals.discover('db.searchDB')).resolves.toBeUndefined();
 
     expect(discoveredModules.db).toContain('### Module `db`');
     expect(discoveredModules.db).toContain('**Database Tools**');
@@ -13960,10 +14154,10 @@ describe('AxFunction', () => {
         return {
           execute: async (code: string) => {
             if (code === 'DISCOVER_AND_GUIDE') {
-              const discoverModules = globals?.discoverModules as
+              const discover = globals?.discover as
                 | ((value: unknown) => Promise<string>)
                 | undefined;
-              await discoverModules?.(['kb', 'db']);
+              await discover?.(['kb', 'db']);
               const utils = globals?.utils as Record<
                 string,
                 (args: Record<string, unknown>) => Promise<unknown>
@@ -14210,14 +14404,10 @@ describe('AxFunction', () => {
         return {
           execute: async (code: string) => {
             if (code === 'DISCOVER') {
-              const discoverModules = globals?.discoverModules as
+              const discover = globals?.discover as
                 | ((value: unknown) => Promise<void>)
                 | undefined;
-              const discoverFunctions = globals?.discoverFunctions as
-                | ((value: unknown) => Promise<void>)
-                | undefined;
-              await discoverModules?.(['kb', 'db']);
-              await discoverFunctions?.(['kb.lookup', 'db.search']);
+              await discover?.(['kb', 'db', 'kb.lookup', 'db.search']);
               return 'discovered';
             }
             if (code === 'FINAL' && globals?.final) {
@@ -14442,18 +14632,14 @@ describe('AxFunction', () => {
         return {
           execute: async (code: string) => {
             if (code === 'DISCOVER_AND_GUIDE') {
-              const discoverModules = globals?.discoverModules as
-                | ((value: unknown) => Promise<void>)
-                | undefined;
-              const discoverFunctions = globals?.discoverFunctions as
+              const discover = globals?.discover as
                 | ((value: unknown) => Promise<void>)
                 | undefined;
               const utils = globals?.utils as Record<
                 string,
                 (args: Record<string, unknown>) => Promise<unknown>
               >;
-              await discoverModules?.(['kb', 'db']);
-              await discoverFunctions?.(['kb.lookup', 'db.search']);
+              await discover?.(['kb', 'db', 'kb.lookup', 'db.search']);
               await utils.reviewPlan({
                 guidance:
                   'Do not send email yet. Gather one more detail first.',

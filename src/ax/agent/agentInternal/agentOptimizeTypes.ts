@@ -172,34 +172,41 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
 
   /**
    * Optional skills search callback. When set, the executor runtime gains a
-   * `consult(searches: string[]): void` global. The callback receives the
-   * raw search strings and returns matched skills (`{ name, content }`);
-   * each returned skill's content is rendered into the executor system
-   * prompt for subsequent turns (sorted by name to keep the prefix cache
-   * stable). `consult()` itself returns nothing — the actor inspects the
-   * **Loaded Skills** section of the next turn's prompt to see what landed.
+   * `discover({ skills })` path. The callback receives the raw search strings
+   * and returns matched skills (`{ id?, name, content }`); each returned skill's
+   * content is rendered into the executor system prompt for subsequent turns
+   * (sorted by id to keep the prefix cache stable). `discover(...)` itself
+   * returns nothing — the actor inspects the **Loaded Skills** section of the
+   * next turn's prompt to see what landed.
    */
   onSkillsSearch?: import('./skillsTypes.js').AxAgentSkillsSearchFn;
 
   /**
    * Skills to preload into the executor prompt at startup, in the same
-   * shape returned by `onSkillsSearch` ({ name, content }). Useful when
+   * shape returned by `onSkillsSearch` ({ id?, name, content }). Useful when
    * the caller already knows which skills are relevant and wants to
-   * skip the actor's `consult(...)` round-trip. Merged with skills
-   * passed at forward()-time (forward overrides by name). Does NOT
-   * fire `onUsedSkills` — that callback is for runtime-loaded skills.
+   * skip the actor's `discover({ skills })` round-trip. Merged with skills
+   * passed at forward()-time (forward overrides by id). Does NOT
+   * fire `onLoadedSkills` — that callback is for runtime-loaded skills.
    */
   skills?: readonly import('./skillsTypes.js').AxAgentSkillResult[];
 
   /**
-   * Optional callback fired whenever `consult(...)` loads skills. Receives
-   * the matched `{ name, content }[]` from `onSkillsSearch`. Use this for
+   * Optional callback fired whenever `discover({ skills })` loads skills. Receives
+   * the matched `{ id?, name, content }[]` from `onSkillsSearch`. Use this for
    * analytics, telemetry, or feedback loops on skill relevance — it does
    * not affect runtime behaviour.
    */
-  onUsedSkills?: (
+  onLoadedSkills?: (
     results: readonly import('./skillsTypes.js').AxAgentSkillResult[]
   ) => void | Promise<void>;
+
+  /**
+   * Optional callback fired once per agent forward when skill usage tracking
+   * is enabled. Receives actor-declared skills that actually influenced the
+   * executor (`{ id, name, reason?, stage }`). Unknown ids are dropped.
+   */
+  onUsedSkills?: import('./skillsTypes.js').AxAgentUsedSkillsCallback;
 
   /**
    * Optional memories search callback. When set, the distiller and executor
@@ -222,12 +229,19 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
   /**
    * Optional callback fired whenever `recall(...)` loads memories. Receives
    * the matched `{ id, content }[]` from `onMemoriesSearch`. Use this for
-   * analytics, telemetry, or feedback loops on memory relevance — it does
-   * not affect runtime behaviour.
+   * load telemetry, cache warming, or feedback loops on retrieval relevance —
+   * it does not mean the actor used every memory in its final reasoning.
    */
-  onUsedMemories?: (
+  onLoadedMemories?: (
     results: readonly import('./memoriesTypes.js').AxAgentMemoryResult[]
   ) => void | Promise<void>;
+
+  /**
+   * Optional callback fired once per agent forward when memory usage tracking
+   * is enabled. Receives actor-declared memories that actually influenced the
+   * distiller or executor (`{ id, reason?, stage }`). Unknown ids are dropped.
+   */
+  onUsedMemories?: import('./memoriesTypes.js').AxAgentUsedMemoriesCallback;
 
   /** Code runtime for the REPL loop (default: AxJSRuntime). */
   runtime?: import('../rlm.js').AxCodeRuntime;
@@ -329,16 +343,20 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
  * `AxProgramForwardOptionsWithModels` with agent-specific knobs that only
  * make sense at the agent boundary (currently `skills` for one-shot
  * preloading). Forward-time `skills` merge on top of init-time `skills`
- * (forward overrides by name).
+ * (forward overrides by id).
  */
 export type AxAgentForwardOptions<T extends Readonly<AxAIService>> =
   AxProgramForwardOptionsWithModels<T> & {
     skills?: readonly import('./skillsTypes.js').AxAgentSkillResult[];
+    onUsedMemories?: import('./memoriesTypes.js').AxAgentUsedMemoriesCallback;
+    onUsedSkills?: import('./skillsTypes.js').AxAgentUsedSkillsCallback;
   };
 
 export type AxAgentStreamingForwardOptions<T extends Readonly<AxAIService>> =
   AxProgramStreamingForwardOptionsWithModels<T> & {
     skills?: readonly import('./skillsTypes.js').AxAgentSkillResult[];
+    onUsedMemories?: import('./memoriesTypes.js').AxAgentUsedMemoriesCallback;
+    onUsedSkills?: import('./skillsTypes.js').AxAgentUsedSkillsCallback;
   };
 
 export type AxStageOptions = Partial<

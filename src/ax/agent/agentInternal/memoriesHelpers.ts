@@ -1,4 +1,8 @@
-import type { AxAgentMemoryResult } from './memoriesTypes.js';
+import type { AxAgentContextStage } from '../contextEvents.js';
+import type {
+  AxAgentMemoryResult,
+  AxAgentUsedMemory,
+} from './memoriesTypes.js';
 
 export type AxAgentMemoryEntry = {
   id: string;
@@ -74,4 +78,65 @@ export function mergeMemoryResults(
   return [...map.entries()]
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([id, content]) => ({ id, content }));
+}
+
+export function renderMemoriesPromptMarkdown(
+  memories: ReadonlyArray<AxAgentMemoryEntry> | undefined
+): string | undefined {
+  const loaded = mergeMemoryResults(undefined, memories ?? []);
+  if (loaded.length === 0) {
+    return undefined;
+  }
+  return loaded
+    .map(({ id, content }) => `### Memory\n\nID: \`${id}\`\n\n${content}`)
+    .join('\n\n');
+}
+
+const MAX_USED_MEMORY_REASON_CHARS = 300;
+
+export function normalizeUsedMemoryResult(
+  idInput: unknown,
+  reasonInput: unknown,
+  loadedMemories: ReadonlyArray<AxAgentMemoryEntry> | undefined,
+  stage: AxAgentContextStage
+): AxAgentUsedMemory | undefined {
+  const loadedIds = new Set(
+    (loadedMemories ?? [])
+      .map((entry) =>
+        entry && typeof entry.id === 'string' ? entry.id.trim() : ''
+      )
+      .filter(Boolean)
+  );
+  if (loadedIds.size === 0) {
+    return undefined;
+  }
+
+  const id = typeof idInput === 'string' ? idInput.trim() : '';
+  const reason = typeof reasonInput === 'string' ? reasonInput.trim() : '';
+  if (!id || !loadedIds.has(id)) {
+    return undefined;
+  }
+  const cappedReason =
+    reason && reason.length > MAX_USED_MEMORY_REASON_CHARS
+      ? reason.slice(0, MAX_USED_MEMORY_REASON_CHARS)
+      : reason;
+  return {
+    id,
+    ...(cappedReason ? { reason: cappedReason } : {}),
+    stage,
+  };
+}
+
+export function mergeUsedMemoryResults(
+  existing: readonly AxAgentUsedMemory[] | undefined,
+  incoming: readonly AxAgentUsedMemory[]
+): AxAgentUsedMemory[] {
+  const map = new Map<string, AxAgentUsedMemory>();
+  for (const item of [...(existing ?? []), ...incoming]) {
+    if (!item?.id) {
+      continue;
+    }
+    map.set(`${item.stage}\0${item.id}\0${item.reason ?? ''}`, item);
+  }
+  return [...map.values()];
 }

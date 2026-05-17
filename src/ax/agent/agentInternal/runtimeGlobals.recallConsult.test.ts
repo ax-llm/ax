@@ -1,11 +1,19 @@
 import { describe, expect, it, vi } from 'vitest';
 import { agent } from '../index.js';
 import type { AxCodeRuntime } from '../rlm.js';
+import {
+  mergeUsedMemoryResults,
+  normalizeUsedMemoryResult,
+  renderMemoriesPromptMarkdown,
+} from './memoriesHelpers.js';
 import type { AxAgentMemoryResult } from './memoriesTypes.js';
 import { buildRuntimeGlobals } from './runtimeGlobals.js';
 import {
   createMutableSkillsPromptState,
   ingestSkillResults,
+  mergeUsedSkillResults,
+  normalizeUsedSkillResult,
+  renderSkillsPromptMarkdown,
 } from './skillsHelpers.js';
 import type { AxAgentSkillResult } from './skillsTypes.js';
 
@@ -75,7 +83,7 @@ describe('recall() runtime global — void contract', () => {
     expect(globals.recall).toBeUndefined();
   });
 
-  it('fires onUsedMemories with the matched results', async () => {
+  it('fires onLoadedMemories with the matched results', async () => {
     const matched: AxAgentMemoryResult[] = [
       { id: 'a', content: 'A' },
       { id: 'b', content: 'B' },
@@ -83,7 +91,7 @@ describe('recall() runtime global — void contract', () => {
     const self = makeSelf({
       onMemoriesSearch: async () => matched,
     });
-    const onUsedMemories = vi.fn();
+    const onLoadedMemories = vi.fn();
     const globals = buildRuntimeGlobals(
       self,
       undefined,
@@ -94,19 +102,19 @@ describe('recall() runtime global — void contract', () => {
       undefined,
       undefined,
       undefined,
-      onUsedMemories
+      onLoadedMemories
     ) as Record<string, unknown>;
     const recall = globals.recall as (input: string[]) => Promise<void>;
 
     await recall(['anything']);
 
-    expect(onUsedMemories).toHaveBeenCalledTimes(1);
-    expect(onUsedMemories).toHaveBeenCalledWith(matched);
+    expect(onLoadedMemories).toHaveBeenCalledTimes(1);
+    expect(onLoadedMemories).toHaveBeenCalledWith(matched);
   });
 
-  it('does not fire onUsedMemories when search returns nothing', async () => {
+  it('does not fire onLoadedMemories when search returns nothing', async () => {
     const self = makeSelf({ onMemoriesSearch: async () => [] });
-    const onUsedMemories = vi.fn();
+    const onLoadedMemories = vi.fn();
     const globals = buildRuntimeGlobals(
       self,
       undefined,
@@ -117,13 +125,13 @@ describe('recall() runtime global — void contract', () => {
       undefined,
       undefined,
       undefined,
-      onUsedMemories
+      onLoadedMemories
     ) as Record<string, unknown>;
     const recall = globals.recall as (input: string[]) => Promise<void>;
 
     await recall(['nothing']);
 
-    expect(onUsedMemories).not.toHaveBeenCalled();
+    expect(onLoadedMemories).not.toHaveBeenCalled();
   });
 
   it('passes alreadyLoaded snapshot to onMemoriesSearch', async () => {
@@ -134,6 +142,7 @@ describe('recall() runtime global — void contract', () => {
     const alreadyLoaded: AxAgentMemoryResult[] = [{ id: 'a', content: 'A' }];
     const globals = buildRuntimeGlobals(
       self,
+      undefined,
       undefined,
       undefined,
       undefined,
@@ -167,9 +176,44 @@ describe('recall() runtime global — void contract', () => {
 
     expect(onMemoriesSearch).toHaveBeenCalledWith(['anything'], []);
   });
+
+  it('exposes used only when usage tracking is enabled', async () => {
+    const onUsed = vi.fn();
+    const enabled = makeSelf({
+      usageTrackingEnabled: true,
+      onMemoriesSearch: async () => [],
+    });
+    const disabled = makeSelf({ onMemoriesSearch: async () => [] });
+
+    const enabledGlobals = buildRuntimeGlobals(
+      enabled,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      onUsed
+    ) as Record<string, unknown>;
+    const disabledGlobals = buildRuntimeGlobals(disabled) as Record<
+      string,
+      unknown
+    >;
+
+    expect(typeof enabledGlobals.used).toBe('function');
+    expect(disabledGlobals.used).toBeUndefined();
+
+    await (
+      enabledGlobals.used as (id: unknown, reason?: unknown) => Promise<void>
+    )('x', 'Used');
+    expect(onUsed).toHaveBeenCalledWith('x', 'Used');
+  });
 });
 
-describe('consult() runtime global — void contract', () => {
+describe('discover() skills runtime global — void contract', () => {
   it('returns undefined even when skills are matched', async () => {
     const self = makeSelf({
       onSkillsSearch: async (): Promise<readonly AxAgentSkillResult[]> => [
@@ -179,32 +223,33 @@ describe('consult() runtime global — void contract', () => {
     });
 
     const globals = buildRuntimeGlobals(self) as Record<string, unknown>;
-    const consult = globals.consult as (input: string[]) => Promise<unknown>;
+    const discover = globals.discover as (input: unknown) => Promise<unknown>;
 
-    expect(typeof consult).toBe('function');
-    await expect(consult(['some query'])).resolves.toBeUndefined();
+    expect(typeof discover).toBe('function');
+    expect(globals.consult).toBeUndefined();
+    await expect(discover({ skills: ['some query'] })).resolves.toBeUndefined();
   });
 
   it('returns undefined when no skills match', async () => {
     const self = makeSelf({ onSkillsSearch: async () => [] });
     const globals = buildRuntimeGlobals(self) as Record<string, unknown>;
-    const consult = globals.consult as (input: string[]) => Promise<unknown>;
+    const discover = globals.discover as (input: unknown) => Promise<unknown>;
 
-    await expect(consult(['nothing'])).resolves.toBeUndefined();
+    await expect(discover({ skills: ['nothing'] })).resolves.toBeUndefined();
   });
 
   it('is not exposed when onSkillsSearch is not configured', () => {
     const self = makeSelf();
     const globals = buildRuntimeGlobals(self) as Record<string, unknown>;
-    expect(globals.consult).toBeUndefined();
+    expect(globals.discover).toBeUndefined();
   });
 
-  it('fires onUsedSkills with the matched results', async () => {
+  it('fires onLoadedSkills with the matched results', async () => {
     const matched: AxAgentSkillResult[] = [
       { name: 'skill-a', content: '## A' },
     ];
     const self = makeSelf({ onSkillsSearch: async () => matched });
-    const onUsedSkills = vi.fn();
+    const onLoadedSkills = vi.fn();
     const globals = buildRuntimeGlobals(
       self,
       undefined,
@@ -214,20 +259,34 @@ describe('consult() runtime global — void contract', () => {
       undefined,
       undefined,
       undefined,
-      onUsedSkills
+      onLoadedSkills
     ) as Record<string, unknown>;
-    const consult = globals.consult as (input: string[]) => Promise<void>;
+    const discover = globals.discover as (input: unknown) => Promise<void>;
 
-    await consult(['anything']);
+    await discover({ skills: ['anything'] });
 
-    expect(onUsedSkills).toHaveBeenCalledTimes(1);
-    expect(onUsedSkills).toHaveBeenCalledWith(matched);
+    expect(onLoadedSkills).toHaveBeenCalledTimes(1);
+    expect(onLoadedSkills).toHaveBeenCalledWith(matched);
+  });
+
+  it('rejects skill discovery when onSkillsSearch is not configured', async () => {
+    const self = makeSelf({ functionDiscoveryEnabled: true });
+    const globals = buildRuntimeGlobals(self) as Record<string, unknown>;
+    const discover = globals.discover as (input: unknown) => Promise<unknown>;
+
+    await expect(discover({ skills: ['anything'] })).rejects.toThrow(
+      'discover({ skills }) requires onSkillsSearch to be configured'
+    );
   });
 });
 
 describe('skills option preloads into the executor prompt state', () => {
   const presets: AxAgentSkillResult[] = [
-    { name: 'release-checklist', content: '## checklist body' },
+    {
+      id: 'skill:release-checklist',
+      name: 'release-checklist',
+      content: '## checklist body',
+    },
     { name: 'incident-response', content: '## ir body' },
   ];
 
@@ -245,10 +304,12 @@ describe('skills option preloads into the executor prompt state', () => {
     const internal = getInternal(myAgent);
     const loaded = internal.currentSkillsPromptState.loaded as Map<
       string,
-      string
+      { id: string; name: string; content: string }
     >;
-    expect(loaded.get('release-checklist')).toBe('## checklist body');
-    expect(loaded.get('incident-response')).toBe('## ir body');
+    expect(loaded.get('skill:release-checklist')?.content).toBe(
+      '## checklist body'
+    );
+    expect(loaded.get('incident-response')?.content).toBe('## ir body');
   });
 
   it('preserves preset skills across setState({}) resets', () => {
@@ -264,13 +325,15 @@ describe('skills option preloads into the executor prompt state', () => {
     }
     const loaded = internal.currentSkillsPromptState.loaded as Map<
       string,
-      string
+      { id: string; name: string; content: string }
     >;
-    expect(loaded.get('release-checklist')).toBe('## checklist body');
-    expect(loaded.get('incident-response')).toBe('## ir body');
+    expect(loaded.get('skill:release-checklist')?.content).toBe(
+      '## checklist body'
+    );
+    expect(loaded.get('incident-response')?.content).toBe('## ir body');
   });
 
-  it('forward-time skills override init-time skills with the same name (Map.set semantics)', () => {
+  it('forward-time skills override init-time skills with the same id (Map.set semantics)', () => {
     const myAgent = agent('query:string -> answer:string', {
       contextFields: [],
       runtime: noOpRuntime,
@@ -283,14 +346,27 @@ describe('skills option preloads into the executor prompt state', () => {
     ]);
     const loaded = internal.currentSkillsPromptState.loaded as Map<
       string,
-      string
+      { id: string; name: string; content: string }
     >;
-    expect(loaded.get('shared')).toBe('forward-content');
+    expect(loaded.get('shared')?.content).toBe('forward-content');
+  });
+
+  it('renders stable skill ids in the loaded skills prompt', () => {
+    const state = createMutableSkillsPromptState();
+    ingestSkillResults(state, [
+      { id: 'skill:planning', name: 'Planning', content: 'Plan well.' },
+    ]);
+
+    expect(renderSkillsPromptMarkdown(state)).toBe(
+      '### Planning\n\nID: `skill:planning`\n\nPlan well.'
+    );
   });
 });
 
-describe('agent() factory wires onUsedMemories / onUsedSkills options', () => {
+describe('agent() factory wires memory / skill callback options', () => {
   it('stores the option callbacks on the agent instance', () => {
+    const onLoadedMemories = vi.fn();
+    const onLoadedSkills = vi.fn();
     const onUsedMemories = vi.fn();
     const onUsedSkills = vi.fn();
     const myAgent = agent('query:string -> answer:string', {
@@ -298,6 +374,8 @@ describe('agent() factory wires onUsedMemories / onUsedSkills options', () => {
       runtime: noOpRuntime,
       onMemoriesSearch: async () => [{ id: 'x', content: 'X' }],
       onSkillsSearch: async () => [{ name: 'skill-a', content: '## A' }],
+      onLoadedMemories,
+      onLoadedSkills,
       onUsedMemories,
       onUsedSkills,
     });
@@ -307,7 +385,116 @@ describe('agent() factory wires onUsedMemories / onUsedSkills options', () => {
     // the factory exposes them on the primary agent instance.)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const internalAgent = (myAgent as any).primaryAgent ?? myAgent;
+    expect(internalAgent.onLoadedMemories).toBe(onLoadedMemories);
+    expect(internalAgent.onLoadedSkills).toBe(onLoadedSkills);
     expect(internalAgent.onUsedMemories).toBe(onUsedMemories);
     expect(internalAgent.onUsedSkills).toBe(onUsedSkills);
+  });
+});
+
+describe('memory usage normalization', () => {
+  it('renders stable memory ids in the prompt like skills', () => {
+    expect(
+      renderMemoriesPromptMarkdown([
+        { id: 'mem:coffee', content: 'User prefers coffee.' },
+      ])
+    ).toBe('### Memory\n\nID: `mem:coffee`\n\nUser prefers coffee.');
+  });
+
+  it('keeps only loaded memory ids and annotates the stage', () => {
+    const result = normalizeUsedMemoryResult(
+      'a',
+      'Personalized the answer',
+      [
+        { id: 'a', content: 'A' },
+        { id: 'b', content: 'B' },
+      ],
+      'executor'
+    );
+
+    expect(result).toEqual({
+      id: 'a',
+      reason: 'Personalized the answer',
+      stage: 'executor',
+    });
+    expect(
+      normalizeUsedMemoryResult(
+        'missing',
+        'Not loaded',
+        [{ id: 'a', content: 'A' }],
+        'executor'
+      )
+    ).toBeUndefined();
+    expect(
+      normalizeUsedMemoryResult(
+        'a',
+        undefined,
+        [{ id: 'a', content: 'A' }],
+        'executor'
+      )
+    ).toEqual({ id: 'a', stage: 'executor' });
+  });
+
+  it('dedupes merged usage by stage, id, and reason', () => {
+    const result = mergeUsedMemoryResults(
+      [{ id: 'a', reason: 'R', stage: 'distiller' }],
+      [
+        { id: 'a', reason: 'R', stage: 'distiller' },
+        { id: 'a', reason: 'R', stage: 'executor' },
+      ]
+    );
+
+    expect(result).toEqual([
+      { id: 'a', reason: 'R', stage: 'distiller' },
+      { id: 'a', reason: 'R', stage: 'executor' },
+    ]);
+  });
+});
+
+describe('skill usage normalization', () => {
+  it('keeps only loaded skill ids and annotates the stage', () => {
+    const state = createMutableSkillsPromptState();
+    ingestSkillResults(state, [
+      { id: 'skill:planning', name: 'Planning', content: 'Plan well.' },
+    ]);
+
+    expect(
+      normalizeUsedSkillResult('skill:planning', undefined, state, 'executor')
+    ).toEqual({ id: 'skill:planning', name: 'Planning', stage: 'executor' });
+    expect(
+      normalizeUsedSkillResult('missing', 'Not loaded', state, 'executor')
+    ).toBeUndefined();
+  });
+
+  it('dedupes merged skill usage by stage, id, and reason', () => {
+    const result = mergeUsedSkillResults(
+      [
+        {
+          id: 'skill:planning',
+          name: 'Planning',
+          reason: 'R',
+          stage: 'executor',
+        },
+      ],
+      [
+        {
+          id: 'skill:planning',
+          name: 'Planning',
+          reason: 'R',
+          stage: 'executor',
+        },
+        { id: 'skill:planning', name: 'Planning', stage: 'executor' },
+      ]
+    );
+
+    expect(result).toEqual([
+      {
+        id: 'skill:planning',
+        name: 'Planning',
+        reason: 'R',
+        stage: 'executor',
+      },
+      { id: 'skill:planning', name: 'Planning', stage: 'executor' },
+    ]);
   });
 });

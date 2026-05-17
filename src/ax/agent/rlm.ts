@@ -314,6 +314,10 @@ export function axBuildDistillerDefinition(
     hasCompressedActionReplay?: boolean;
     /** Enables `recall` runtime primitive in the prompt. */
     memoriesMode?: boolean;
+    /** Enables the generic `used` runtime primitive in the prompt. */
+    usageTrackingMode?: boolean;
+    /** Enables actor-declared memory usage instructions. */
+    memoryUsageMode?: boolean;
     /** Optional override for the `rlm/distiller.md` template source. */
     templateOverride?: string;
     /** Optional per-primitive override map keyed by primitive id. */
@@ -340,10 +344,13 @@ export function axBuildDistillerDefinition(
         {
           hasInspectRuntime: Boolean(options.hasInspectRuntime),
           memoriesMode: Boolean(options.memoriesMode),
+          usageTrackingMode: Boolean(options.usageTrackingMode),
         },
         options.primitiveOverrides
       ),
       memoriesMode: Boolean(options.memoriesMode),
+      memoryUsageMode: Boolean(options.memoryUsageMode),
+      usageTrackingMode: Boolean(options.usageTrackingMode),
       runtimeUsageInstructions: String(options.runtimeUsageInstructions ?? ''),
     },
     options.templateOverride
@@ -373,16 +380,22 @@ export function axBuildExecutorDefinition(
     enforceIncrementalConsoleTurns?: boolean;
     hasAgentStatusCallback?: boolean;
     discoveryMode?: boolean;
-    /** Enables `consult` runtime primitive in the prompt. */
+    /** Enables `discover({ skills })` runtime overload in the prompt. */
     skillsMode?: boolean;
     /** Enables `recall` runtime primitive in the prompt. */
     memoriesMode?: boolean;
+    /** Enables the generic `used` runtime primitive in the prompt. */
+    usageTrackingMode?: boolean;
+    /** Enables actor-declared memory usage instructions. */
+    memoryUsageMode?: boolean;
+    /** Enables actor-declared skill usage instructions. */
+    skillUsageMode?: boolean;
     availableModules?: ReadonlyArray<{
       namespace: string;
       selectionCriteria?: string;
     }>;
     discoveredDocsMarkdown?: string;
-    /** Skill bodies accumulated during the current run (sorted by name). */
+    /** Skill bodies accumulated during the current run (sorted by id). */
     skillsMarkdown?: string;
     agentFunctions?: ReadonlyArray<{
       name: string;
@@ -390,6 +403,7 @@ export function axBuildExecutorDefinition(
       parameters?: AxFunctionJSONSchema;
       returns?: AxFunctionJSONSchema;
       namespace: string;
+      alwaysInclude?: boolean;
     }>;
     /** Optional override for the `rlm/executor.md` template source. */
     templateOverride?: string;
@@ -419,6 +433,9 @@ export function axBuildExecutorDefinition(
     }
   );
   const discoveryMode = Boolean(options.discoveryMode);
+  const inlineAgentFunctions = discoveryMode
+    ? sortedAgentFunctions.filter((fn) => fn.alwaysInclude)
+    : sortedAgentFunctions;
   const availableModules: AvailableModule[] = options.availableModules
     ? [...options.availableModules].sort((a, b) =>
         a.namespace.localeCompare(b.namespace)
@@ -444,12 +461,13 @@ export function axBuildExecutorDefinition(
           discoveryMode,
           skillsMode: Boolean(options.skillsMode),
           memoriesMode: Boolean(options.memoriesMode),
+          usageTrackingMode: Boolean(options.usageTrackingMode),
         },
         options.primitiveOverrides
       ),
       functionsList:
-        !discoveryMode && sortedAgentFunctions.length > 0
-          ? sortedAgentFunctions
+        inlineAgentFunctions.length > 0
+          ? inlineAgentFunctions
               .map((fn) =>
                 renderCallableBlock({
                   qualifiedName: `${fn.namespace}.${fn.name}`,
@@ -474,6 +492,9 @@ export function axBuildExecutorDefinition(
       hasSkills: Boolean(options.skillsMarkdown),
       skillsMarkdown: String(options.skillsMarkdown ?? ''),
       memoriesMode: Boolean(options.memoriesMode),
+      memoryUsageMode: Boolean(options.memoryUsageMode),
+      skillUsageMode: Boolean(options.skillUsageMode),
+      usageTrackingMode: Boolean(options.usageTrackingMode),
       enforceIncrementalConsoleTurns: Boolean(
         options.enforceIncrementalConsoleTurns
       ),

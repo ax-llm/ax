@@ -56,9 +56,17 @@ export function initializeAgentInternal(
   s.agentIdentity = agentIdentity ? { ...agentIdentity } : undefined;
   s.functionDiscoveryEnabled = options.functionDiscovery ?? false;
   s.onSkillsSearch = options.onSkillsSearch;
+  s.onLoadedSkills = options.onLoadedSkills;
   s.onUsedSkills = options.onUsedSkills;
   s.onMemoriesSearch = options.onMemoriesSearch;
+  s.onLoadedMemories = options.onLoadedMemories;
   s.onUsedMemories = options.onUsedMemories;
+  s.memoryUsageTrackingEnabled =
+    typeof options.onMemoriesSearch === 'function' &&
+    typeof options.onUsedMemories === 'function';
+  s.skillUsageTrackingEnabled = typeof options.onUsedSkills === 'function';
+  s.usageTrackingEnabled =
+    s.memoryUsageTrackingEnabled || s.skillUsageTrackingEnabled;
   s.currentSkillsPromptState = createMutableSkillsPromptState();
   s.presetSkills = Array.isArray(options.skills)
     ? options.skills.slice()
@@ -90,8 +98,10 @@ export function initializeAgentInternal(
     functions: _fn,
     functionDiscovery: _fd,
     onSkillsSearch: _oss,
+    onLoadedSkills: _ols,
     onUsedSkills: _ous,
     onMemoriesSearch: _oms,
+    onLoadedMemories: _olm,
     onUsedMemories: _oum,
     judgeOptions: _jo,
     inputUpdateCallback: _iuc,

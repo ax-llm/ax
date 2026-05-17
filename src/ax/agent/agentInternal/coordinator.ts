@@ -69,6 +69,9 @@ const SHARED_KNOB_KEYS = [
   'bubbleErrors',
   'onFunctionCall',
   'onContextEvent',
+  'onMemoriesSearch',
+  'onLoadedMemories',
+  'onUsedMemories',
 ] as const;
 
 function pickShared<IN extends import('../../dsp/types.js').AxGenIn>(
@@ -248,8 +251,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       distillerSigBuilder = distillerSigBuilder.input(
         'memories',
         f
-          .json(
-            'Memories already loaded for this run as `[{ id, content }]`. Call `recall(...)` to load more.'
+          .string(
+            'Memories already loaded for this run, rendered as markdown blocks with `ID:` lines. In JS, read `inputs.memories` as `[{ id, content }]`. Call `recall(...)` to load more.'
           )
           .optional()
       );
@@ -298,8 +301,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       executorSigBuilder = executorSigBuilder.input(
         'memories',
         f
-          .json(
-            'Memories loaded so far for this run as `[{ id, content }]` (carried over from the distiller and any prior executor turns). Call `recall(...)` to load more.'
+          .string(
+            'Memories loaded so far for this run, rendered as markdown blocks with `ID:` lines. In JS, read `inputs.memories` as `[{ id, content }]` (carried over from the distiller and any prior executor turns). Call `recall(...)` to load more.'
           )
           .optional()
       );
@@ -603,8 +606,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       distillerSigBuilder = distillerSigBuilder.input(
         'memories',
         f
-          .json(
-            'Memories already loaded for this run as `[{ id, content }]`. Call `recall(...)` to load more.'
+          .string(
+            'Memories already loaded for this run, rendered as markdown blocks with `ID:` lines. In JS, read `inputs.memories` as `[{ id, content }]`. Call `recall(...)` to load more.'
           )
           .optional()
       );
@@ -636,8 +639,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       executorSigBuilder = executorSigBuilder.input(
         'memories',
         f
-          .json(
-            'Memories loaded so far for this run as `[{ id, content }]` (carried over from the distiller and any prior executor turns). Call `recall(...)` to load more.'
+          .string(
+            'Memories loaded so far for this run, rendered as markdown blocks with `ID:` lines. In JS, read `inputs.memories` as `[{ id, content }]` (carried over from the distiller and any prior executor turns). Call `recall(...)` to load more.'
           )
           .optional()
       );

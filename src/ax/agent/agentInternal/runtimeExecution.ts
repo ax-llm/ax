@@ -32,8 +32,12 @@ import {
 import {
   type AxAgentMemoryEntry,
   mergeMemoryResults,
+  normalizeUsedMemoryResult,
 } from './memoriesHelpers.js';
-import type { AxAgentMemoryResult } from './memoriesTypes.js';
+import type {
+  AxAgentMemoryResult,
+  AxAgentUsedMemory,
+} from './memoriesTypes.js';
 import { buildExecutionHelpers } from './runtimeExecutionHelpers.js';
 import { buildLlmQueryBindings } from './runtimeExecutionLlmQuery.js';
 import {
@@ -44,10 +48,11 @@ import {
 } from './runtimeSessionHelpers.js';
 import {
   ingestSkillResults,
+  normalizeUsedSkillResult,
   restoreSkillsPromptState,
   serializeSkillsPromptState,
 } from './skillsHelpers.js';
-import type { AxAgentSkillResult } from './skillsTypes.js';
+import type { AxAgentSkillResult, AxAgentUsedSkill } from './skillsTypes.js';
 import {
   AxAgentClarificationError,
   type AxAgentFunctionCallRecorder,
@@ -80,6 +85,8 @@ export function createRuntimeExecutionContext(
     actionLogEntries,
     functionCallRecorder,
     onFunctionCall,
+    onUsedMemories,
+    onUsedSkills,
   }: Readonly<{
     ai?: AxAIService;
     inputState: AxAgentRuntimeInputState;
@@ -94,6 +101,8 @@ export function createRuntimeExecutionContext(
     actionLogEntries?: ActionLogEntry[];
     functionCallRecorder?: AxAgentFunctionCallRecorder;
     onFunctionCall?: import('./types.js').AxAgentOnFunctionCall;
+    onUsedMemories?: (usedMemories: readonly AxAgentUsedMemory[]) => void;
+    onUsedSkills?: (usedSkills: readonly AxAgentUsedSkill[]) => void;
   }>
 ): AxAgentRuntimeExecutionContext {
   const s = self as any;
@@ -201,11 +210,11 @@ export function createRuntimeExecutionContext(
       pendingDiscoveryTurnSummary.texts.add(text);
     }
   };
-  const noteUsedSkills = (results: readonly AxAgentSkillResult[]) => {
+  const noteLoadedSkills = (results: readonly AxAgentSkillResult[]) => {
     ingestSkillResults(s.currentSkillsPromptState, results);
-    if (typeof s.onUsedSkills === 'function') {
+    if (typeof s.onLoadedSkills === 'function') {
       // Fire-and-forget; errors must not break the actor loop.
-      Promise.resolve(s.onUsedSkills(results)).catch(() => {});
+      Promise.resolve(s.onLoadedSkills(results)).catch(() => {});
     }
   };
   const memoriesEnabled = typeof s.onMemoriesSearch === 'function';
@@ -220,13 +229,41 @@ export function createRuntimeExecutionContext(
   if (memoriesEnabled) {
     inputState.currentInputs.memories = currentMemories;
   }
-  const noteUsedMemories = (results: readonly AxAgentMemoryResult[]) => {
+  const noteLoadedMemories = (results: readonly AxAgentMemoryResult[]) => {
     if (!memoriesEnabled) return;
     currentMemories = mergeMemoryResults(currentMemories, results);
     inputState.currentInputs.memories = currentMemories;
-    if (typeof s.onUsedMemories === 'function') {
+    if (typeof s.onLoadedMemories === 'function') {
       // Fire-and-forget; errors must not break the actor loop.
-      Promise.resolve(s.onUsedMemories(results)).catch(() => {});
+      Promise.resolve(s.onLoadedMemories(results)).catch(() => {});
+    }
+  };
+  const stage = (
+    s.options?.stageVariant === 'distiller' ? 'distiller' : 'executor'
+  ) as 'distiller' | 'executor';
+  const noteUsed = (id: unknown, reason: unknown) => {
+    if (s.usageTrackingEnabled !== true) return;
+    if (memoriesEnabled && s.memoryUsageTrackingEnabled === true) {
+      const usedMemory = normalizeUsedMemoryResult(
+        id,
+        reason,
+        currentMemories,
+        stage
+      );
+      if (usedMemory) {
+        onUsedMemories?.([usedMemory]);
+      }
+    }
+    if (s.skillUsageTrackingEnabled === true) {
+      const usedSkill = normalizeUsedSkillResult(
+        id,
+        reason,
+        s.currentSkillsPromptState,
+        stage
+      );
+      if (usedSkill) {
+        onUsedSkills?.([usedSkill]);
+      }
     }
   };
   const consumeDiscoveryTurnArtifacts = () => {
@@ -249,8 +286,9 @@ export function createRuntimeExecutionContext(
     noteDiscoveredActorModelNamespaces,
     noteDiscoveredModules,
     noteDiscoveredFunctions,
-    noteUsedSkills,
-    noteUsedMemories,
+    noteLoadedSkills,
+    noteLoadedMemories,
+    noteUsed,
     onFunctionCall ?? s.onFunctionCall,
     getCurrentMemories
   );

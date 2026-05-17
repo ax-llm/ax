@@ -1,9 +1,24 @@
+import type { AxAgentContextStage } from '../contextEvents.js';
+
 export type AxAgentMemoryResult = {
   /** Stable identifier — dedup key and label in `inputs.memories`. */
   id: string;
   /** Opaque markdown body (frontmatter, if any, is not parsed). */
   content: string;
 };
+
+export type AxAgentUsedMemory = {
+  /** Stable identifier of a memory present in `inputs.memories`. */
+  id: string;
+  /** Short actor-declared explanation of how the memory influenced the run. */
+  reason?: string;
+  /** Actor stage that declared this memory as used. */
+  stage: AxAgentContextStage;
+};
+
+export type AxAgentUsedMemoriesCallback = (
+  usedMemories: readonly AxAgentUsedMemory[]
+) => void | Promise<void>;
 
 /**
  * Memories search callback. Receives the raw search strings and the
