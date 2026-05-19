@@ -5,7 +5,10 @@ import { AxAICohereModel } from './cohere/types.js';
 import { axModelInfoDeepSeek } from './deepseek/info.js';
 import { AxAIDeepSeekModel } from './deepseek/types.js';
 import { axModelInfoGoogleGemini } from './google-gemini/info.js';
-import { AxAIGoogleGeminiModel } from './google-gemini/types.js';
+import {
+  AxAIGoogleGeminiEmbedModel,
+  AxAIGoogleGeminiModel,
+} from './google-gemini/types.js';
 import { axModelInfoGroq } from './groq/info.js';
 import { AxAIGroqModel } from './groq/types.js';
 import { axModelInfoHuggingFace } from './huggingface/info.js';
@@ -116,6 +119,7 @@ const axAIModelCatalogProviderDefinitions = {
   'google-gemini': {
     displayName: 'Google Gemini',
     defaultModel: AxAIGoogleGeminiModel.Gemini25Flash,
+    defaultEmbedModel: AxAIGoogleGeminiEmbedModel.GeminiEmbedding2,
     isDynamic: false,
     modelInfo: axModelInfoGoogleGemini,
   },
@@ -313,18 +317,21 @@ const axCompareModelCatalogModels = (
 const axModelCatalogModel = (
   provider: AxAIModelCatalogProviderName,
   defaultModel: string | undefined,
+  defaultEmbedModel: string | undefined,
   model: Readonly<AxAIModelCatalogModelInfo>
 ): AxAIModelCatalogModel => {
   const modelInfo = axCloneModelInfo(model);
+  const defaultModels = [defaultModel, defaultEmbedModel].filter(
+    (item): item is string => item !== undefined
+  );
 
   return {
     ...modelInfo,
     provider,
     type: axModelType(model),
-    isDefault:
-      model.name === defaultModel ||
-      (defaultModel !== undefined &&
-        (model.aliases?.includes(defaultModel) ?? false)),
+    isDefault: defaultModels.some(
+      (item) => model.name === item || (model.aliases?.includes(item) ?? false)
+    ),
     capabilities: axModelCapabilities(model),
   };
 };
@@ -353,7 +360,9 @@ export const axGetSupportedAIModels = (
         { displayName, defaultModel, defaultEmbedModel, isDynamic, modelInfo },
       ]) => {
         const models = modelInfo
-          .map((model) => axModelCatalogModel(name, defaultModel, model))
+          .map((model) =>
+            axModelCatalogModel(name, defaultModel, defaultEmbedModel, model)
+          )
           .filter((model) => axMatchesModelCatalogFilter(model, filters))
           .sort(axCompareModelCatalogModels);
 

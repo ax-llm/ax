@@ -1,6 +1,19 @@
 import type { AxFunctionJSONSchema } from '../ai/types.js';
 import type { AxField } from './sig.js';
 
+type ToJsonSchemaOptions = {
+  /**
+   * Native structured-output providers often reject flexible JSON unions. When
+   * enabled, json and unshaped object fields are represented as JSON strings.
+   */
+  flexibleJsonFieldsAsString?: boolean;
+  /**
+   * Native structured-output APIs require every object property to be listed in
+   * `required`; optional fields are represented as nullable unions instead.
+   */
+  strictStructuredOutputs?: boolean;
+};
+
 /**
  * Enhances field description with validation constraint information
  * so the LLM understands the requirements
@@ -104,13 +117,66 @@ function enhanceDescriptionWithValidation(
   return `${normalizedBase} ${constraintText}`;
 }
 
+function appendJsonStringDescription(
+  baseDescription: string | undefined
+): string {
+  const jsonStringHint =
+    'Return this field as a JSON-encoded string that can be parsed with JSON.parse.';
+
+  if (!baseDescription || baseDescription.trim().length === 0) {
+    return jsonStringHint;
+  }
+
+  const normalizedBase = baseDescription.trim().endsWith('.')
+    ? baseDescription.trim()
+    : `${baseDescription.trim()}.`;
+
+  return `${normalizedBase} ${jsonStringHint}`;
+}
+
+function shouldEncodeFlexibleJsonAsString(
+  type: AxField['type'] | undefined,
+  options?: ToJsonSchemaOptions
+): boolean {
+  return (
+    options?.flexibleJsonFieldsAsString === true &&
+    (type?.name === 'json' || (type?.name === 'object' && !type.fields))
+  );
+}
+
+function shouldRequireField(
+  field: Pick<AxField, 'isOptional'>,
+  options?: ToJsonSchemaOptions
+): boolean {
+  return options?.strictStructuredOutputs === true || !field.isOptional;
+}
+
+function addNullToSchemaType(schema: any): void {
+  if (schema.type === undefined) {
+    return;
+  }
+
+  if (Array.isArray(schema.type)) {
+    if (!schema.type.includes('null')) {
+      schema.type = [...schema.type, 'null'];
+    }
+  } else {
+    schema.type = [schema.type, 'null'];
+  }
+
+  if (Array.isArray(schema.enum) && !schema.enum.includes(null)) {
+    schema.enum = [...schema.enum, null];
+  }
+}
+
 export function toJsonSchema(
   fields: Readonly<AxField[]> | Readonly<AxField>,
-  schemaTitle: string = 'Schema'
+  schemaTitle: string = 'Schema',
+  options?: ToJsonSchemaOptions
 ): AxFunctionJSONSchema {
   // Handle single field case (for recursive calls or single output)
   if ('name' in fields && 'type' in fields) {
-    return fieldToSchema(fields as AxField);
+    return fieldToSchema(fields as AxField, false, options);
   }
 
   // Handle array of fields (root object)
@@ -120,10 +186,10 @@ export function toJsonSchema(
   for (const field of fields as AxField[]) {
     if (field.isInternal) continue;
 
-    const schema = fieldToSchema(field);
+    const schema = fieldToSchema(field, false, options);
     properties[field.name] = schema;
 
-    if (!field.isOptional) {
+    if (shouldRequireField(field, options)) {
       required.push(field.name);
     }
   }
@@ -137,7 +203,11 @@ export function toJsonSchema(
   };
 }
 
-function fieldToSchema(field: Readonly<AxField>, isNested = false): any {
+function fieldToSchema(
+  field: Readonly<AxField>,
+  isNested = false,
+  options?: ToJsonSchemaOptions
+): any {
   const type = field.type;
 
   // Enhance description with validation constraints
@@ -195,8 +265,12 @@ function fieldToSchema(field: Readonly<AxField>, isNested = false): any {
           isOptional: fieldType.isOptional,
           isInternal: fieldType.isInternal,
         };
-        schema.items.properties[key] = fieldToSchema(nestedField, true);
-        if (!fieldType.isOptional) {
+        schema.items.properties[key] = fieldToSchema(
+          nestedField,
+          true,
+          options
+        );
+        if (shouldRequireField(fieldType, options)) {
           schema.items.required.push(key);
         }
       }
@@ -214,10 +288,14 @@ function fieldToSchema(field: Readonly<AxField>, isNested = false): any {
       );
 
       schema.items = {
-        type: mapAxTypeToJsonSchemaType(type.name),
+        type: shouldEncodeFlexibleJsonAsString(type, options)
+          ? 'string'
+          : mapAxTypeToJsonSchemaType(type.name),
       };
 
-      if (itemDescription) {
+      if (shouldEncodeFlexibleJsonAsString(type, options)) {
+        schema.items.description = appendJsonStringDescription(itemDescription);
+      } else if (itemDescription) {
         schema.items.description = itemDescription;
       }
 
@@ -278,8 +356,8 @@ function fieldToSchema(field: Readonly<AxField>, isNested = false): any {
         isOptional: fieldType.isOptional,
         isInternal: fieldType.isInternal,
       };
-      schema.properties[key] = fieldToSchema(nestedField, true);
-      if (!fieldType.isOptional) {
+      schema.properties[key] = fieldToSchema(nestedField, true, options);
+      if (shouldRequireField(fieldType, options)) {
         schema.required.push(key);
       }
     }
@@ -287,7 +365,13 @@ function fieldToSchema(field: Readonly<AxField>, isNested = false): any {
     schema.type = 'string';
     schema.enum = type.options;
   } else {
-    schema.type = mapAxTypeToJsonSchemaType(type?.name ?? 'string');
+    schema.type = shouldEncodeFlexibleJsonAsString(type, options)
+      ? 'string'
+      : mapAxTypeToJsonSchemaType(type?.name ?? 'string');
+
+    if (shouldEncodeFlexibleJsonAsString(type, options)) {
+      schema.description = appendJsonStringDescription(schema.description);
+    }
 
     // Add constraints based on field type
     if (
@@ -329,6 +413,10 @@ function fieldToSchema(field: Readonly<AxField>, isNested = false): any {
         schema.maximum = type.maximum;
       }
     }
+  }
+
+  if (field.isOptional && options?.strictStructuredOutputs === true) {
+    addNullToSchemaType(schema);
   }
 
   return schema;

@@ -20,6 +20,7 @@ import {
 } from './asserts.js';
 import {
   extractValues,
+  parseStructuredJsonFieldValues,
   streamingExtractFinalValue,
   streamingExtractValues,
   streamValues,
@@ -50,6 +51,7 @@ type ProcessStreamingResponseArgs = Readonly<
   thoughtFieldName: string;
   signature: AxSignature;
   excludeContentFromTrace: boolean;
+  parseJsonStringFields: boolean;
   debug: boolean;
   functionResultFormatter?: (result: unknown) => string;
   signatureToolCallingManager: SignatureToolCallingManager | undefined;
@@ -463,6 +465,7 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
   streamingFieldProcessors,
   functionResultFormatter,
   signatureToolCallingManager,
+  parseJsonStringFields,
   logger,
   debug,
   stopFunctionNames,
@@ -511,6 +514,9 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
       // This ensures we catch any final closing braces that might have been missing in the stream
       try {
         const finalJson = JSON.parse(state.content);
+        if (parseJsonStringFields) {
+          parseStructuredJsonFieldValues(signature, finalJson);
+        }
         const delta: Partial<OUT> = {};
         for (const key of Object.keys(finalJson)) {
           if (outputFields.some((f) => f.name === key)) {
@@ -561,6 +567,7 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
             errorMsg.includes('required') ||
             errorMsg.includes('missing') ||
             errorMsg.includes('valid email') ||
+            errorMsg.includes('invalid json') ||
             errorMsg.includes('number must be')
           ) {
             throw e;
@@ -591,6 +598,7 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
           errorMsg.includes('required') ||
           errorMsg.includes('missing') ||
           errorMsg.includes('valid email') ||
+          errorMsg.includes('invalid json') ||
           errorMsg.includes('number must be')
         ) {
           throw e;
@@ -721,6 +729,7 @@ export async function* processResponse<OUT>({
   fieldProcessors,
   thoughtFieldName,
   signature,
+  parseJsonStringFields,
   debugPromptMetrics,
   functionResultFormatter,
   logger,
@@ -739,6 +748,7 @@ export async function* processResponse<OUT>({
   fieldProcessors: AxFieldProcessor[];
   thoughtFieldName: string;
   signature: AxSignature;
+  parseJsonStringFields: boolean;
   debug: boolean;
   functionResultFormatter?: (result: unknown) => string;
   signatureToolCallingManager?: SignatureToolCallingManager;
@@ -917,6 +927,9 @@ export async function* processResponse<OUT>({
       if (hasComplexFields) {
         try {
           const json = JSON.parse(result.content);
+          if (parseJsonStringFields) {
+            parseStructuredJsonFieldValues(signature, json);
+          }
           const delta: Record<string, unknown> = {};
           for (const key of Object.keys(json)) {
             if (outputFields.some((f) => f.name === key)) {
@@ -948,6 +961,7 @@ export async function* processResponse<OUT>({
               errorMsg.includes('required') ||
               errorMsg.includes('missing') ||
               errorMsg.includes('valid email') ||
+              errorMsg.includes('invalid json') ||
               errorMsg.includes('number must be')
             ) {
               // Re-throw validation errors to trigger error correction

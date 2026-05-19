@@ -79,8 +79,9 @@ const getVertexGeminiAPIVersion = (
 ): 'v1' | 'v1beta1' => (beta ? 'v1beta1' : 'v1');
 
 /**
- * Clean function schema for Gemini API compatibility by removing unsupported fields
- * Gemini doesn't support: additionalProperties, default, optional, maximum, oneOf, anyOf
+ * Clean function schema for Gemini API compatibility by removing unsupported fields.
+ * Gemini structured outputs support `additionalProperties` and nullable type
+ * unions such as `["string", "null"]`.
  */
 const cleanSchemaForGemini = (schema: any): any => {
   if (!schema || typeof schema !== 'object') {
@@ -88,20 +89,23 @@ const cleanSchemaForGemini = (schema: any): any => {
   }
 
   const cleaned = { ...schema };
+  const isNullableUnion =
+    Array.isArray(cleaned.type) &&
+    cleaned.type.length === 2 &&
+    cleaned.type.includes('null');
 
   // Remove unsupported fields
-  delete cleaned.additionalProperties;
   delete cleaned.default;
   delete cleaned.optional;
-  delete cleaned.maximum;
   delete cleaned.oneOf;
   delete cleaned.anyOf;
 
   // Gemini does not support type unions (type as an array).
+  // Preserve nullable unions, which Gemini supports for optional fields.
   // Convert to a single concrete type, preferring 'object' for flexible
   // json/object types (e.g. json[] signature produces items with
   // type: ["object","array","string","number","boolean","null"]).
-  if (Array.isArray(cleaned.type)) {
+  if (Array.isArray(cleaned.type) && !isNullableUnion) {
     cleaned.type = cleaned.type.includes('object')
       ? 'object'
       : (cleaned.type[0] ?? 'string');
@@ -997,16 +1001,18 @@ class AxAIGoogleGeminiImpl
 
     // Handle structured output
     if (req.responseFormat) {
-      generationConfig.responseMimeType = 'application/json';
       if (
         req.responseFormat.type === 'json_schema' &&
         req.responseFormat.schema
       ) {
-        // Gemini expects the schema directly, not wrapped in { type: 'json_schema', schema: ... } like OpenAI
-        // Also need to clean it for Gemini compatibility
+        // Gemini's live REST endpoint accepts full JSON Schema through
+        // responseJsonSchema; responseSchema is the older Gemini schema subset.
         const schema =
           req.responseFormat.schema.schema || req.responseFormat.schema;
-        generationConfig.responseSchema = cleanSchemaForGemini(schema);
+        generationConfig.responseMimeType = 'application/json';
+        generationConfig.responseJsonSchema = cleanSchemaForGemini(schema);
+      } else {
+        generationConfig.responseMimeType = 'application/json';
       }
     } else if (this.config.responseFormat) {
       // Fallback to config-level response format if present

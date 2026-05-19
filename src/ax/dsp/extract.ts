@@ -739,6 +739,149 @@ export function validateAndParseFieldValue(
   return value;
 }
 
+function nestedFieldFromType(
+  name: string,
+  fieldType: AxField['type']
+): AxField {
+  return {
+    name,
+    title: name,
+    description: fieldType?.description,
+    type: fieldType
+      ? {
+          name: fieldType.name,
+          isArray: fieldType.isArray,
+          options: fieldType.options,
+          fields: fieldType.fields,
+          minLength: fieldType.minLength,
+          maxLength: fieldType.maxLength,
+          minimum: fieldType.minimum,
+          maximum: fieldType.maximum,
+          pattern: fieldType.pattern,
+          patternDescription: fieldType.patternDescription,
+          format: fieldType.format,
+          description: fieldType.description,
+        }
+      : undefined,
+  };
+}
+
+function parseJsonStringFieldValue(
+  field: Readonly<AxField>,
+  value: unknown
+): unknown {
+  if (typeof value !== 'string') {
+    return value;
+  }
+
+  try {
+    return JSON.parse(value);
+  } catch (e) {
+    throw createInvalidJsonError(field, (e as Error).message);
+  }
+}
+
+function parseJsonStringValuesForField(
+  field: Readonly<AxField>,
+  value: unknown
+): unknown {
+  const type = field.type;
+  if (!type || value === undefined || value === null) {
+    return value;
+  }
+
+  const isFlexibleJsonField =
+    type.name === 'json' || (type.name === 'object' && !type.fields);
+
+  if (type.isArray) {
+    if (!Array.isArray(value)) {
+      return value;
+    }
+
+    if (isFlexibleJsonField) {
+      return value.map((item) => parseJsonStringFieldValue(field, item));
+    }
+
+    if (type.fields) {
+      for (const item of value) {
+        if (item && typeof item === 'object' && !Array.isArray(item)) {
+          parseJsonStringValuesForFields(
+            type.fields,
+            item as Record<string, unknown>
+          );
+        }
+      }
+    }
+
+    return value;
+  }
+
+  if (isFlexibleJsonField) {
+    return parseJsonStringFieldValue(field, value);
+  }
+
+  if (
+    type.name === 'object' &&
+    type.fields &&
+    value &&
+    typeof value === 'object' &&
+    !Array.isArray(value)
+  ) {
+    parseJsonStringValuesForFields(
+      type.fields,
+      value as Record<string, unknown>
+    );
+  }
+
+  return value;
+}
+
+function parseJsonStringValuesForFields(
+  fields: NonNullable<AxField['type']>['fields'],
+  values: Record<string, unknown>
+): void {
+  if (!fields) {
+    return;
+  }
+
+  for (const [name, fieldType] of Object.entries(fields)) {
+    if (!(name in values)) {
+      continue;
+    }
+
+    const field = nestedFieldFromType(name, {
+      name: fieldType.type,
+      isArray: fieldType.isArray,
+      options: fieldType.options as string[] | undefined,
+      fields: fieldType.fields,
+      minLength: fieldType.minLength,
+      maxLength: fieldType.maxLength,
+      minimum: fieldType.minimum,
+      maximum: fieldType.maximum,
+      pattern: fieldType.pattern,
+      patternDescription: fieldType.patternDescription,
+      format: fieldType.format,
+      description: fieldType.description,
+    });
+    values[name] = parseJsonStringValuesForField(field, values[name]);
+  }
+}
+
+export function parseStructuredJsonFieldValues(
+  signature: Readonly<AxSignature>,
+  values: Record<string, unknown>
+): void {
+  for (const field of signature.getOutputFields()) {
+    if (!(field.name in values)) {
+      continue;
+    }
+    values[field.name] = parseJsonStringValuesForField(
+      field,
+      values[field.name]
+    );
+  }
+}
+
 /**
  * Validate structured output values (from JSON parsing) against field constraints
  * @throws ValidationError if constraints are violated

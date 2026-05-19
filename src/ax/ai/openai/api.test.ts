@@ -225,6 +225,67 @@ describe('AxAIOpenAI model key preset merging', () => {
 });
 
 describe('AxAIOpenAI', () => {
+  it('passes strict nullable structured-output schemas unchanged', async () => {
+    const ai = new AxAIOpenAI({
+      apiKey: 'key',
+      config: { model: AxAIOpenAIModel.GPT5Mini },
+    });
+
+    const capture: { lastBody?: any } = {};
+    const fetch = createMockFetch(
+      {
+        choices: [
+          {
+            index: 0,
+            message: { role: 'assistant', content: '{"summary":"ok"}' },
+            finish_reason: 'stop',
+          },
+        ],
+      },
+      capture
+    );
+
+    ai.setOptions({ fetch });
+
+    const strictSchema = {
+      name: 'output',
+      strict: true,
+      schema: {
+        type: 'object',
+        properties: {
+          summary: { type: 'string' },
+          nickname: { type: ['string', 'null'] },
+          profile: {
+            type: 'object',
+            properties: {
+              age: { type: ['number', 'null'] },
+            },
+            required: ['age'],
+            additionalProperties: false,
+          },
+        },
+        required: ['summary', 'nickname', 'profile'],
+        additionalProperties: false,
+      },
+    };
+
+    await ai.chat(
+      {
+        chatPrompt: [{ role: 'user', content: 'return structured data' }],
+        responseFormat: {
+          type: 'json_schema',
+          schema: strictSchema,
+        },
+      },
+      { stream: false }
+    );
+
+    expect(capture.lastBody?.response_format).toEqual({
+      type: 'json_schema',
+      json_schema: strictSchema,
+    });
+  });
+
   describe('API URL configuration', () => {
     it('should use default OpenAI API URL when apiURL is not provided', () => {
       const llm = new AxAIOpenAI({

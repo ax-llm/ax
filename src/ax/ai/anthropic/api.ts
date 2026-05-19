@@ -39,11 +39,22 @@ const cleanSchemaForAnthropic = (schema: any): any => {
   }
 
   const cleaned = { ...schema };
+  const schemaTypes = Array.isArray(cleaned.type)
+    ? cleaned.type
+    : [cleaned.type];
+  const isNullableUnion =
+    Array.isArray(cleaned.type) &&
+    cleaned.type.length === 2 &&
+    cleaned.type.includes('null');
 
   // Anthropic's structured-output validator rejects multi-type arrays
   // (e.g. type: ['object','array','string','number','boolean','null']).
   // Collapse to a permissive object so arbitrary JSON values still validate.
-  if (Array.isArray(cleaned.type) && cleaned.type.length > 1) {
+  if (
+    Array.isArray(cleaned.type) &&
+    cleaned.type.length > 1 &&
+    !isNullableUnion
+  ) {
     cleaned.type = 'object';
     cleaned.additionalProperties = true;
     delete cleaned.properties;
@@ -52,7 +63,9 @@ const cleanSchemaForAnthropic = (schema: any): any => {
     return cleaned;
   }
 
-  const isObjectType = cleaned.type === 'object';
+  const isObjectType =
+    cleaned.type === 'object' ||
+    (isNullableUnion && schemaTypes.includes('object'));
 
   if (isObjectType) {
     if (!cleaned.properties || Object.keys(cleaned.properties).length === 0) {
@@ -72,20 +85,20 @@ const cleanSchemaForAnthropic = (schema: any): any => {
   // (minimum/maximum on numbers, minLength/maxLength/pattern/format on strings,
   // minItems/maxItems on arrays). Strip them so the request is accepted; the
   // framework's response parser performs validation post-hoc.
-  if (cleaned.type === 'number' || cleaned.type === 'integer') {
+  if (schemaTypes.includes('number') || schemaTypes.includes('integer')) {
     delete cleaned.minimum;
     delete cleaned.maximum;
     delete cleaned.exclusiveMinimum;
     delete cleaned.exclusiveMaximum;
     delete cleaned.multipleOf;
   }
-  if (cleaned.type === 'string') {
+  if (schemaTypes.includes('string')) {
     delete cleaned.minLength;
     delete cleaned.maxLength;
     delete cleaned.pattern;
     delete cleaned.format;
   }
-  if (cleaned.type === 'array') {
+  if (schemaTypes.includes('array')) {
     delete cleaned.minItems;
     delete cleaned.maxItems;
     delete cleaned.uniqueItems;

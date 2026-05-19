@@ -86,7 +86,7 @@ import {
   const a = agent('query:string -> answer:string', {
     contextFields: [] as const,
     runtime,
-    skills: [{ id: 'skill:planning', name: 'planning', content: 'Plan well.' }],
+    skills: [{ id: 'planning', name: 'planning', content: 'Plan well.' }],
   });
 
   const withUsage = a.forward(

@@ -1,11 +1,40 @@
 import type { AxModelInfo } from '../types.js';
 
-import { AxAIGoogleGeminiModel } from './types.js';
+import { AxAIGoogleGeminiEmbedModel, AxAIGoogleGeminiModel } from './types.js';
 
 /**
  * AxAIGoogleGemini: Model information
  */
 export const axModelInfoGoogleGemini: AxModelInfo[] = [
+  {
+    name: AxAIGoogleGeminiEmbedModel.GeminiEmbedding2,
+    currency: 'usd',
+    characterIsToken: false,
+    promptTokenCostPer1M: 0.2,
+    contextWindow: 8192,
+  },
+  {
+    name: AxAIGoogleGeminiEmbedModel.GeminiEmbedding001,
+    currency: 'usd',
+    characterIsToken: false,
+    promptTokenCostPer1M: 0.15,
+  },
+  {
+    name: AxAIGoogleGeminiModel.Gemini35Flash,
+    currency: 'usd',
+    characterIsToken: false,
+    promptTokenCostPer1M: 1.5,
+    completionTokenCostPer1M: 9.0,
+    cacheReadTokenCostPer1M: 0.15,
+    cacheWriteTokenCostPer1M: 1.5,
+    contextWindow: 1_048_576,
+    maxTokens: 65_536,
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: true,
+    },
+  },
   {
     name: AxAIGoogleGeminiModel.Gemini3Pro,
     currency: 'usd',
@@ -32,6 +61,22 @@ export const axModelInfoGoogleGemini: AxModelInfo[] = [
     completionTokenCostPer1M: 3.0,
     cacheReadTokenCostPer1M: 0.05,
     cacheWriteTokenCostPer1M: 0.5,
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: true,
+    },
+  },
+  {
+    name: AxAIGoogleGeminiModel.Gemini31FlashLite,
+    currency: 'usd',
+    characterIsToken: false,
+    promptTokenCostPer1M: 0.25,
+    completionTokenCostPer1M: 1.5,
+    cacheReadTokenCostPer1M: 0.025,
+    cacheWriteTokenCostPer1M: 0.25,
+    contextWindow: 1_048_576,
+    maxTokens: 65_536,
     supported: {
       thinkingBudget: true,
       showThoughts: true,
@@ -71,6 +116,17 @@ export const axModelInfoGoogleGemini: AxModelInfo[] = [
     promptTokenCostPer1M: 0.5,
     completionTokenCostPer1M: 3.0,
     supported: { structuredOutputs: true },
+  },
+  {
+    name: AxAIGoogleGeminiModel.Gemini31FlashLive,
+    characterIsToken: false,
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+    },
+    audio: { input: true, output: true },
+    contextWindow: 131_072,
+    maxTokens: 65_536,
   },
   {
     name: AxAIGoogleGeminiModel.Gemini31FlashTTS,

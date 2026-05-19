@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { AxAIAnthropicModel } from './anthropic/types.js';
 import { axGetSupportedAIModels } from './catalog.js';
+import {
+  AxAIGoogleGeminiEmbedModel,
+  AxAIGoogleGeminiModel,
+} from './google-gemini/types.js';
 import { AxAIOpenAIModel } from './openai/chat_types.js';
 
 describe('axGetSupportedAIModels', () => {
@@ -137,6 +141,46 @@ describe('axGetSupportedAIModels', () => {
     expect(claude?.capabilities).toMatchObject({
       thinkingBudget: true,
       showThoughts: true,
+    });
+
+    const gemini = providers.find(
+      (provider) => provider.name === 'google-gemini'
+    );
+    const gemini35Flash = gemini?.models.find(
+      (model) => model.name === AxAIGoogleGeminiModel.Gemini35Flash
+    );
+    const gemini31Live = gemini?.models.find(
+      (model) => model.name === AxAIGoogleGeminiModel.Gemini31FlashLive
+    );
+    const geminiEmbedding2 = gemini?.models.find(
+      (model) => model.name === AxAIGoogleGeminiEmbedModel.GeminiEmbedding2
+    );
+
+    expect(gemini?.defaultEmbedModel).toBe(
+      AxAIGoogleGeminiEmbedModel.GeminiEmbedding2
+    );
+    expect(gemini35Flash).toMatchObject({
+      provider: 'google-gemini',
+      type: 'text',
+      promptTokenCostPer1M: 1.5,
+      completionTokenCostPer1M: 9,
+      capabilities: {
+        thinkingBudget: true,
+        showThoughts: true,
+        structuredOutputs: true,
+      },
+    });
+    expect(gemini31Live).toMatchObject({
+      type: 'audio',
+      capabilities: {
+        audioInput: true,
+        audioOutput: true,
+      },
+    });
+    expect(geminiEmbedding2).toMatchObject({
+      type: 'embeddings',
+      isDefault: true,
+      promptTokenCostPer1M: 0.2,
     });
   });
 

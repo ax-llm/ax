@@ -70,6 +70,124 @@ describe('Structured Outputs', () => {
     expect(result.user.tags).toHaveLength(2);
   });
 
+  it('should encode flexible json fields as strings for native structured outputs', async () => {
+    const sig = f()
+      .input('question', f.string())
+      .output('payload', f.json())
+      .useStructured()
+      .build();
+
+    const gen = ax(sig);
+
+    const mockAI = new AxMockAIService({
+      name: 'mock',
+      features: { functions: true, streaming: true, structuredOutputs: true },
+    });
+
+    mockAI.chat = async (req) => {
+      expect(req.responseFormat).toBeDefined();
+      expect(req.responseFormat?.type).toBe('json_schema');
+      expect(req.responseFormat?.schema?.schema?.properties?.payload).toEqual(
+        expect.objectContaining({
+          type: 'string',
+        })
+      );
+
+      return {
+        results: [
+          {
+            index: 0,
+            content: JSON.stringify({
+              payload: JSON.stringify({ answer: 42 }),
+            }),
+          },
+        ],
+      };
+    };
+
+    const result = await gen.forward(mockAI, { question: 'test' });
+
+    expect(result.payload).toEqual({ answer: 42 });
+  });
+
+  it('should make native structured-output fields required and nullable when optional', async () => {
+    const sig = f()
+      .input('question', f.string())
+      .output('summary', f.string())
+      .output(
+        'user',
+        f.object({
+          name: f.string(),
+          nickname: f.string().optional(),
+          metadata: f.json().optional(),
+          preferences: f
+            .object({
+              color: f.string().optional(),
+            })
+            .optional(),
+        })
+      )
+      .useStructured()
+      .build();
+
+    const gen = ax(sig);
+
+    const mockAI = new AxMockAIService({
+      name: 'mock',
+      features: { functions: true, streaming: true, structuredOutputs: true },
+    });
+
+    mockAI.chat = async (req) => {
+      const schema = req.responseFormat?.schema?.schema;
+      const user = schema?.properties?.user;
+
+      expect(schema?.additionalProperties).toBe(false);
+      expect(schema?.required).toEqual(['summary', 'user']);
+      expect(user?.additionalProperties).toBe(false);
+      expect(user?.required).toEqual([
+        'name',
+        'nickname',
+        'metadata',
+        'preferences',
+      ]);
+      expect(user?.properties?.nickname?.type).toEqual(['string', 'null']);
+      expect(user?.properties?.metadata?.type).toEqual(['string', 'null']);
+      expect(user?.properties?.preferences?.type).toEqual(['object', 'null']);
+      expect(user?.properties?.preferences?.additionalProperties).toBe(false);
+      expect(user?.properties?.preferences?.required).toEqual(['color']);
+      expect(user?.properties?.preferences?.properties?.color?.type).toEqual([
+        'string',
+        'null',
+      ]);
+
+      return {
+        results: [
+          {
+            index: 0,
+            content: JSON.stringify({
+              summary: 'ok',
+              user: {
+                name: 'Ada',
+                nickname: null,
+                metadata: JSON.stringify({ answer: 42 }),
+                preferences: { color: null },
+              },
+            }),
+          },
+        ],
+      };
+    };
+
+    const result = await gen.forward(mockAI, { question: 'test' });
+
+    expect(result.user).toEqual({
+      name: 'Ada',
+      nickname: null,
+      metadata: { answer: 42 },
+      preferences: { color: null },
+    });
+  });
+
   it('should handle streaming with partial JSON parsing', async () => {
     const sig = f()
       .input('question', f.string())

@@ -75,7 +75,9 @@ export const axAIGoogleGeminiLiveAudioDefaultConfig =
 
 export const axIsGeminiLiveAudioModel = (model: string): boolean =>
   model === AxAIGoogleGeminiModel.Gemini25FlashNativeAudio ||
+  model === AxAIGoogleGeminiModel.Gemini31FlashLive ||
   model.includes('native-audio') ||
+  model.includes('-live-') ||
   model.startsWith('gemini-live-');
 
 export const axResolveGeminiLiveAudioConfig = (

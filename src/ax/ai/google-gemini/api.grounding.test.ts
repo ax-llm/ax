@@ -110,11 +110,21 @@ describe('Gemini deprecation flags', () => {
       'text-embedding-004'
     );
   });
+
+  it('exposes gemini-embedding-2 in the embed enum', async () => {
+    const { AxAIGoogleGeminiEmbedModel } = await import('./types.js');
+    expect(AxAIGoogleGeminiEmbedModel.GeminiEmbedding2).toBe(
+      'gemini-embedding-2'
+    );
+  });
 });
 
 describe('Gemini new model catalog entries', () => {
   it.each([
+    AxAIGoogleGeminiModel.Gemini35Flash,
+    AxAIGoogleGeminiModel.Gemini31FlashLite,
     AxAIGoogleGeminiModel.Gemini31FlashImage,
+    AxAIGoogleGeminiModel.Gemini31FlashLive,
     AxAIGoogleGeminiModel.Gemini31FlashTTS,
     AxAIGoogleGeminiModel.NanoBanana2,
     AxAIGoogleGeminiModel.GeminiRoboticsER16,

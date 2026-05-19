@@ -264,6 +264,23 @@ Rules:
 - `thinkingTokenBudget` can be `'low'`, `'medium'`, `'high'`, or a number.
 - Set `showThoughts: true` to include the model's reasoning in `result.thought`.
 
+## Structured Outputs
+
+```typescript
+const sig = f()
+  .input('text', f.string())
+  .output('summary', f.string())
+  .output('metadata', f.json().optional())
+  .useStructured()
+  .build();
+```
+
+Rules:
+
+- `.useStructured()` asks providers with native support, including OpenAI, Anthropic, and Gemini, for schema-constrained JSON.
+- Native structured-output schemas list every object property in `required`, set `additionalProperties: false` on objects, and express optional fields as nullable types.
+- Flexible `json` fields and unshaped `object` fields are sent as JSON-encoded strings for native structured outputs, then parsed back into normal JavaScript values.
+
 ## Step Hooks
 
 ```typescript

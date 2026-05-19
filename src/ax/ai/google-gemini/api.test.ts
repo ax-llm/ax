@@ -5,6 +5,7 @@ import {
   axAIGoogleGeminiDefaultConfig,
   axAIGoogleGeminiLiveAudioDefaultConfig,
 } from './api.js';
+import { axIsGeminiLiveAudioModel } from './live_audio.js';
 import { AxAIGoogleGeminiEmbedModel, AxAIGoogleGeminiModel } from './types.js';
 
 // Utility to create a fake fetch that returns a minimal valid response and captures request body
@@ -125,6 +126,89 @@ function installFakeGeminiLiveWebSocket(messages: unknown[]) {
     (globalThis as any).WebSocket = original;
   };
 }
+
+describe('AxAIGoogleGemini schema validation', () => {
+  it('preserves strict nullable structured-output schema fields Gemini supports', async () => {
+    const ai = new AxAIGoogleGemini({
+      apiKey: 'key',
+      config: { model: AxAIGoogleGeminiModel.Gemini25Flash },
+      models: [],
+    });
+
+    const capture: { lastBody?: any } = {};
+    const fetch = createMockFetch(
+      {
+        candidates: [
+          {
+            content: { parts: [{ text: '{"summary":"ok"}' }] },
+            finishReason: 'STOP',
+          },
+        ],
+      },
+      capture
+    );
+
+    ai.setOptions({ fetch });
+
+    await ai.chat(
+      {
+        chatPrompt: [{ role: 'user', content: 'return structured data' }],
+        responseFormat: {
+          type: 'json_schema',
+          schema: {
+            type: 'object',
+            properties: {
+              summary: { type: 'string' },
+              nickname: { type: ['string', 'null'] },
+              profile: {
+                type: ['object', 'null'],
+                properties: {
+                  age: { type: ['number', 'null'], maximum: 120 },
+                },
+                required: ['age'],
+                additionalProperties: false,
+              },
+            },
+            required: ['summary', 'nickname', 'profile'],
+            additionalProperties: false,
+          },
+        },
+      },
+      { stream: false }
+    );
+
+    const responseSchema =
+      capture.lastBody?.generationConfig?.responseJsonSchema;
+
+    expect(capture.lastBody?.generationConfig?.responseMimeType).toBe(
+      'application/json'
+    );
+    expect(responseSchema?.additionalProperties).toBe(false);
+    expect(responseSchema?.required).toEqual([
+      'summary',
+      'nickname',
+      'profile',
+    ]);
+    expect(responseSchema?.properties?.nickname?.type).toEqual([
+      'string',
+      'null',
+    ]);
+    expect(responseSchema?.properties?.profile?.type).toEqual([
+      'object',
+      'null',
+    ]);
+    expect(responseSchema?.properties?.profile?.additionalProperties).toBe(
+      false
+    );
+    expect(responseSchema?.properties?.profile?.properties?.age?.type).toEqual([
+      'number',
+      'null',
+    ]);
+    expect(responseSchema?.properties?.profile?.properties?.age?.maximum).toBe(
+      120
+    );
+  });
+});
 
 describe('AxAIGoogleGemini model key preset merging', () => {
   it('routes all Vertex chat requests to v1 by default, including Gemini 3.x', async () => {
@@ -1850,6 +1934,12 @@ describe('AxAIGoogleGemini model key preset merging', () => {
 });
 
 describe('AxAIGoogleGemini Live audio chat', () => {
+  it('recognizes Gemini 3.1 Flash Live as a Live audio model', () => {
+    expect(
+      axIsGeminiLiveAudioModel(AxAIGoogleGeminiModel.Gemini31FlashLive)
+    ).toBe(true);
+  });
+
   it('provides a native audio default config', () => {
     const config = axAIGoogleGeminiLiveAudioDefaultConfig();
 

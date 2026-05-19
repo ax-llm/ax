@@ -1,12 +1,15 @@
 import type { AxModelConfig } from '../types.js';
 
 export enum AxAIGoogleGeminiModel {
+  Gemini35Flash = 'gemini-3.5-flash',
   Gemini31Pro = 'gemini-3.1-pro-preview',
+  Gemini31FlashLite = 'gemini-3.1-flash-lite',
   Gemini3FlashLite = 'gemini-3.1-flash-lite-preview',
   Gemini3Flash = 'gemini-3-flash-preview',
   Gemini3Pro = 'gemini-3.1-pro-preview',
   Gemini3ProImage = 'gemini-3-pro-image-preview',
   Gemini31FlashImage = 'gemini-3.1-flash-image-preview',
+  Gemini31FlashLive = 'gemini-3.1-flash-live-preview',
   Gemini31FlashTTS = 'gemini-3.1-flash-tts-preview',
   NanoBanana2 = 'nano-banana-2',
   GeminiRoboticsER16 = 'gemini-robotics-er-1.6-preview',
@@ -29,6 +32,7 @@ export enum AxAIGoogleGeminiModel {
 }
 
 export enum AxAIGoogleGeminiEmbedModel {
+  GeminiEmbedding2 = 'gemini-embedding-2',
   GeminiEmbedding001 = 'gemini-embedding-001',
   GeminiEmbedding = 'gemini-embedding-exp',
   TextEmbeddingLarge = 'text-embedding-large-exp-03-07',
@@ -152,6 +156,7 @@ export type AxAIGoogleGeminiGenerationConfig = {
   stopSequences?: readonly string[];
   responseMimeType?: string;
   responseSchema?: object;
+  responseJsonSchema?: object;
   thinkingConfig?: {
     thinkingBudget?: number;
     thinkingLevel?: AxAIGoogleGeminiThinkingLevel;
@@ -391,8 +396,10 @@ export type AxAIGoogleGeminiCacheUpdateRequest = {
  * Models that support explicit context caching.
  */
 export const GEMINI_CONTEXT_CACHE_SUPPORTED_MODELS = [
+  'gemini-3.5-flash',
   'gemini-3.1-pro-preview',
   'gemini-3.1-pro-preview-customtools',
+  'gemini-3.1-flash-lite',
   'gemini-3.1-flash-lite-preview',
   'gemini-3-flash-preview',
   'gemini-2.5-pro',

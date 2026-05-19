@@ -65,19 +65,40 @@ const onMemoriesSearch: AxAgentMemoriesSearchFn = async (
 // reports back when actual skill usage tracking is enabled.
 // ---------------------------------------------------------------------------
 
-const skillStore: Record<string, string> = {
-  'release-checklist':
-    '## Release checklist\n1. Bump version\n2. Update CHANGELOG\n3. Tag and push',
-  'incident-response':
-    '## Incident response\n- Acknowledge within 5 min\n- Open incident channel\n- File postmortem within 48h',
-};
+const skillStore = [
+  {
+    id: 'release-checklist',
+    name: 'Release checklist',
+    content:
+      '## Release checklist\n1. Bump version\n2. Update CHANGELOG\n3. Tag and push',
+  },
+  {
+    id: 'incident-response',
+    name: 'Incident response',
+    content:
+      '## Incident response\n- Acknowledge within 5 min\n- Open incident channel\n- File postmortem within 48h',
+  },
+] as const;
 
 const onSkillsSearch: AxAgentSkillsSearchFn = async (searches) => {
-  return searches.flatMap((q) => {
-    const lower = q.toLowerCase();
-    return Object.entries(skillStore)
-      .filter(([name]) => name.toLowerCase().includes(lower))
-      .map(([name, content]) => ({ id: `skill:${name}`, name, content }));
+  return searches.flatMap((query) => {
+    const normalized = query.toLowerCase();
+    const exactId = skillStore.find((s) => s.id.toLowerCase() === normalized);
+    if (exactId) {
+      return [exactId];
+    }
+    const exactName = skillStore.find(
+      (s) => s.name.toLowerCase() === normalized
+    );
+    if (exactName) {
+      return [exactName];
+    }
+    return skillStore.filter(
+      (s) =>
+        s.id.toLowerCase().includes(normalized) ||
+        s.name.toLowerCase().includes(normalized) ||
+        s.content.toLowerCase().includes(normalized)
+    );
   });
 };
 

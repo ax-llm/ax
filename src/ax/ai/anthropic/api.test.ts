@@ -136,6 +136,102 @@ describe('AxAIAnthropic schema validation', () => {
         ?.additionalProperties
     ).toBe(true);
   });
+
+  it('should preserve nullable type unions in structured output schemas', async () => {
+    const ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: { model: AxAIAnthropicModel.Claude35Sonnet },
+    });
+
+    const capture: { lastBody?: any } = {};
+    const fetch = vi
+      .fn()
+      .mockImplementation(
+        async (_url: RequestInfo | URL, init?: RequestInit) => {
+          if (init?.body && typeof init.body === 'string') {
+            capture.lastBody = JSON.parse(init.body);
+          }
+          return new Response(
+            JSON.stringify({
+              id: 'id',
+              type: 'message',
+              role: 'assistant',
+              content: [{ type: 'text', text: 'ok' }],
+              model: 'claude-3-5-sonnet-latest',
+              stop_reason: 'end_turn',
+              usage: { input_tokens: 1, output_tokens: 1 },
+            }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            }
+          );
+        }
+      );
+
+    ai.setOptions({ fetch });
+
+    await ai.chat(
+      {
+        chatPrompt: [{ role: 'user', content: 'hi' }],
+        responseFormat: {
+          type: 'json_schema',
+          schema: {
+            type: 'object',
+            properties: {
+              nickname: { type: ['string', 'null'], minLength: 2 },
+              profile: {
+                type: ['object', 'null'],
+                properties: {
+                  age: { type: ['number', 'null'], maximum: 120 },
+                },
+                required: ['age'],
+                additionalProperties: false,
+              },
+            },
+            required: ['nickname', 'profile'],
+            additionalProperties: false,
+          },
+        },
+      },
+      { stream: false }
+    );
+
+    expect(
+      capture.lastBody?.output_config?.format?.schema?.additionalProperties
+    ).toBe(false);
+    expect(capture.lastBody?.output_config?.format?.schema?.required).toEqual([
+      'nickname',
+      'profile',
+    ]);
+    expect(
+      capture.lastBody?.output_config?.format?.schema?.properties?.nickname
+        ?.type
+    ).toEqual(['string', 'null']);
+    expect(
+      capture.lastBody?.output_config?.format?.schema?.properties?.nickname
+        ?.minLength
+    ).toBeUndefined();
+    expect(
+      capture.lastBody?.output_config?.format?.schema?.properties?.profile?.type
+    ).toEqual(['object', 'null']);
+    expect(
+      capture.lastBody?.output_config?.format?.schema?.properties?.profile
+        ?.additionalProperties
+    ).toBe(false);
+    expect(
+      capture.lastBody?.output_config?.format?.schema?.properties?.profile
+        ?.required
+    ).toEqual(['age']);
+    expect(
+      capture.lastBody?.output_config?.format?.schema?.properties?.profile
+        ?.properties?.age?.type
+    ).toEqual(['number', 'null']);
+    expect(
+      capture.lastBody?.output_config?.format?.schema?.properties?.profile
+        ?.properties?.age?.maximum
+    ).toBeUndefined();
+  });
 });
 
 describe('AxAIAnthropic system prompt caching', () => {

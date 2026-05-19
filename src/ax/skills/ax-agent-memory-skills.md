@@ -138,7 +138,12 @@ import type { AxAgentSkillsSearchFn } from '@ax-llm/ax';
 // Each result is { id?: string; name: string; content: string }.
 // If id is omitted, Ax falls back to name.
 const onSkillsSearch: AxAgentSkillsSearchFn = async (searches) => {
-  return mySkillStore.searchBatch(searches, { topK: 2 });
+  return mySkillStore.resolveBatch(searches, {
+    // Recommended backend order: exact id, exact name, then broader search.
+    // This lets the actor pass one simple string and keeps lookup policy host-side.
+    strategy: ['id', 'name', 'search'],
+    topK: 2,
+  });
 };
 
 const myAgent = agent('task:string -> answer:string', {
@@ -170,6 +175,7 @@ await discover({ skills: ['release-checklist', 'incident-response'] });
 Rules:
 
 - `discover({ skills })` invokes `onSkillsSearch` with the raw search strings and returns `void`.
+- Resolve each raw string backend-side: prefer an exact `id` match, then an exact `name` match, then fuzzy/full-text search. The actor should not have to choose `id:` vs `name:` syntax.
 - Matched skills land under "Loaded Skills" for the next turn.
 - Entries are deduped by `id` (last-write-wins) and sorted by `id` for prefix-cache stability.
 - If a skill result omits `id`, its trimmed `name` is used as the id for backwards compatibility.
@@ -192,7 +198,7 @@ const releaseAgent = agent('task:string -> answer:string', {
   contextFields: [],
   skills: [
     {
-      id: 'skill:release-checklist',
+      id: 'release-checklist',
       name: 'release-checklist',
       content: '...',
     },
@@ -205,7 +211,7 @@ await releaseAgent.forward(
   {
     skills: [
       {
-        id: 'skill:incident-response',
+        id: 'incident-response',
         name: 'incident-response',
         content: '...',
       },

@@ -989,7 +989,10 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       }
 
       // Use the signature-to-schema converter we implemented
-      const schema = toJsonSchema(outputFields);
+      const schema = toJsonSchema(outputFields, 'Schema', {
+        flexibleJsonFieldsAsString: true,
+        strictStructuredOutputs: true,
+      });
 
       responseFormat = {
         type: 'json_schema',
@@ -1179,6 +1182,9 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         thoughtFieldName: this.thoughtFieldName,
         excludeContentFromTrace: this.excludeContentFromTrace,
         signature: this.signature,
+        parseJsonStringFields:
+          this.signature.hasComplexFields() &&
+          !this.structuredOutputFunctionFallback,
         logger,
         debugPromptMetrics,
         onFunctionCall: options.onFunctionCall,
@@ -1232,6 +1238,9 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         thoughtFieldName: this.thoughtFieldName,
         excludeContentFromTrace: this.excludeContentFromTrace,
         signature: this.signature,
+        parseJsonStringFields:
+          this.signature.hasComplexFields() &&
+          !this.structuredOutputFunctionFallback,
         logger,
         debugPromptMetrics,
         onFunctionCall: options.onFunctionCall,
