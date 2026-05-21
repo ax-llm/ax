@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { AxMockAIService } from '../ai/mock/api.js';
 import type { AxFunction } from '../ai/types.js';
 import { AxGen } from './generate.js';
@@ -136,5 +136,156 @@ describe('AxGen onFunctionCall hook', () => {
         }
       )
     ).resolves.toMatchObject({ answer: 'answer: done' });
+  });
+
+  it('keeps provider ids in chat logs', async () => {
+    const ai = new AxMockAIService({
+      features: { functions: true, streaming: false },
+      chatResponse: async () => ({
+        sessionId: 'session-123',
+        remoteId: 'resp-123',
+        remoteRequestId: 'req-123',
+        results: [
+          {
+            index: 0,
+            content: 'answer: done',
+            finishReason: 'stop' as const,
+          },
+        ],
+      }),
+    });
+    const gen = new AxGen<{ query: string }, { answer: string }>(
+      'query:string -> answer:string'
+    );
+
+    await gen.forward(ai, { query: 'q' }, { sessionId: 'session-123' });
+
+    expect(gen.getChatLog()[0]).toMatchObject({
+      sessionId: 'session-123',
+      remoteId: 'resp-123',
+      remoteRequestId: 'req-123',
+    });
+  });
+
+  it('starts tool spans with the AxGen trace context', async () => {
+    let functionTraceId: string | undefined;
+    const fn: AxFunction = {
+      name: 'lookup_user',
+      description: 'Lookup a user',
+      parameters: {
+        type: 'object',
+        properties: { id: { type: 'string' } },
+        required: ['id'],
+      },
+      func: async ({ id }: any, extra?: Readonly<{ traceId?: string }>) => {
+        functionTraceId = extra?.traceId;
+        return { name: `user-${id}` };
+      },
+    };
+
+    let callCount = 0;
+    const ai = new AxMockAIService({
+      features: { functions: true, streaming: false },
+      chatResponse: async () => {
+        callCount++;
+        if (callCount === 1) {
+          return {
+            results: [
+              {
+                index: 0,
+                content: '',
+                finishReason: 'stop' as const,
+                functionCalls: [
+                  {
+                    id: 'call_1',
+                    type: 'function' as const,
+                    function: {
+                      name: 'lookup_user',
+                      params: { id: '42' },
+                    },
+                  },
+                ],
+              },
+            ],
+          };
+        }
+        return {
+          results: [
+            {
+              index: 0,
+              content: 'answer: done',
+              finishReason: 'stop' as const,
+            },
+          ],
+        };
+      },
+    });
+
+    const parentSpan = {
+      spanContext: () => ({
+        traceId: 'trace-parent',
+        spanId: 'span-parent',
+        traceFlags: 1,
+      }),
+      addEvent: vi.fn(),
+      recordException: vi.fn(),
+      setStatus: vi.fn(),
+      end: vi.fn(),
+    };
+    const toolSpan = {
+      spanContext: () => ({
+        traceId: 'trace-parent',
+        spanId: 'span-tool',
+        traceFlags: 1,
+      }),
+      setAttributes: vi.fn(),
+      addEvent: vi.fn(),
+      recordException: vi.fn(),
+      end: vi.fn(),
+    };
+    let toolParentContext: unknown;
+    const tracer = {
+      startSpan: vi.fn(() => parentSpan),
+      startActiveSpan: vi.fn(
+        (
+          _name: string,
+          optionsOrCallback: unknown,
+          contextOrCallback?: unknown,
+          maybeCallback?: unknown
+        ) => {
+          const callback =
+            typeof optionsOrCallback === 'function'
+              ? optionsOrCallback
+              : typeof contextOrCallback === 'function'
+                ? contextOrCallback
+                : maybeCallback;
+          toolParentContext =
+            typeof contextOrCallback === 'function'
+              ? undefined
+              : contextOrCallback;
+          return (callback as (span: typeof toolSpan) => unknown)(toolSpan);
+        }
+      ),
+    };
+
+    const gen = new AxGen<{ query: string }, { answer: string }>(
+      'query:string -> answer:string',
+      { functions: [fn] }
+    );
+
+    await gen.forward(ai, { query: 'q' }, { tracer: tracer as any });
+
+    expect(tracer.startSpan).toHaveBeenCalledWith(
+      'AxGen',
+      expect.objectContaining({ kind: 1 })
+    );
+    expect(tracer.startActiveSpan).toHaveBeenCalledWith(
+      'Tool: lookup_user',
+      {},
+      expect.anything(),
+      expect.any(Function)
+    );
+    expect(toolParentContext).toBeDefined();
+    expect(functionTraceId).toBe('trace-parent');
   });
 });

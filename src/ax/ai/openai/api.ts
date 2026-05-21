@@ -614,7 +614,7 @@ class AxAIOpenAIImpl<
       }
     );
 
-    const chatStreamResp: AxChatResponse = { results };
+    const chatStreamResp: AxChatResponse = { results, remoteId: id };
     return this.chatStreamRespProcessor
       ? this.chatStreamRespProcessor(chatStreamResp, state)
       : chatStreamResp;

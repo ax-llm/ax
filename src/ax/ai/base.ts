@@ -1,8 +1,14 @@
-import { context, type Span, SpanKind } from '@opentelemetry/api';
+import {
+  context,
+  type Span,
+  SpanKind,
+  SpanStatusCode,
+} from '@opentelemetry/api';
 import { axGlobals } from '../dsp/globals.js';
 import { defaultLogger } from '../dsp/loggers.js';
 import { getModelInfo } from '../dsp/modelinfo.js';
 import { axSpanAttributes, axSpanEvents } from '../trace/trace.js';
+import { mergeAbortSignals } from '../util/abort.js';
 import { apiCall } from '../util/apicall.js';
 import { createHash, randomUUID } from '../util/crypto.js';
 import { RespTransformStream } from '../util/transform.js';
@@ -55,6 +61,7 @@ import type {
   AxModelConfig,
   AxModelInfo,
   AxModelUsage,
+  AxProviderMetadata,
   AxTokenUsage,
 } from './types.js';
 import { axValidateChatRequestMessage } from './validate.js';
@@ -116,6 +123,162 @@ function normalizeForStableStringify(value: unknown): unknown {
   }
 
   return value;
+}
+
+type AxResponseCorrelationMetadata = Pick<
+  AxChatResponse,
+  'remoteRequestId' | 'remoteSessionId' | 'providerMetadata'
+>;
+
+const PROVIDER_REQUEST_ID_HEADERS = [
+  'x-request-id',
+  'request-id',
+  'x-requestid',
+  'x-ms-request-id',
+  'x-goog-request-id',
+  'x-amzn-requestid',
+  'x-amz-request-id',
+] as const;
+
+const PROVIDER_SESSION_ID_HEADERS = [
+  'openai-session-id',
+  'anthropic-session-id',
+  'x-session-id',
+] as const;
+
+function getFirstHeader(
+  headers: Headers,
+  names: readonly string[]
+): string | undefined {
+  for (const name of names) {
+    const value = headers.get(name);
+    if (value) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function mergeProviderMetadata(
+  base?: Readonly<AxProviderMetadata>,
+  next?: Readonly<AxProviderMetadata>
+): AxProviderMetadata | undefined {
+  if (!base && !next) {
+    return undefined;
+  }
+
+  const merged: AxProviderMetadata = {};
+  for (const source of [base, next]) {
+    if (!source) {
+      continue;
+    }
+    for (const [provider, metadata] of Object.entries(source)) {
+      merged[provider] = {
+        ...(merged[provider] ?? {}),
+        ...metadata,
+      };
+    }
+  }
+  return merged;
+}
+
+function extractResponseCorrelationMetadata(
+  headers: Headers,
+  providerName: string
+): AxResponseCorrelationMetadata {
+  const remoteRequestId = getFirstHeader(headers, PROVIDER_REQUEST_ID_HEADERS);
+  const remoteSessionId = getFirstHeader(headers, PROVIDER_SESSION_ID_HEADERS);
+  const providerMetadata =
+    remoteRequestId || remoteSessionId
+      ? {
+          [providerName]: {
+            ...(remoteRequestId ? { requestId: remoteRequestId } : {}),
+            ...(remoteSessionId ? { sessionId: remoteSessionId } : {}),
+          },
+        }
+      : undefined;
+
+  return {
+    ...(remoteRequestId ? { remoteRequestId } : {}),
+    ...(remoteSessionId ? { remoteSessionId } : {}),
+    ...(providerMetadata ? { providerMetadata } : {}),
+  };
+}
+
+function mergeCorrelationMetadata(
+  current: AxResponseCorrelationMetadata,
+  next: Readonly<AxResponseCorrelationMetadata>
+): AxResponseCorrelationMetadata {
+  return {
+    remoteRequestId: next.remoteRequestId ?? current.remoteRequestId,
+    remoteSessionId: next.remoteSessionId ?? current.remoteSessionId,
+    providerMetadata: mergeProviderMetadata(
+      current.providerMetadata,
+      next.providerMetadata
+    ),
+  };
+}
+
+function applyResponseCorrelationMetadata(
+  res: AxChatResponse | AxEmbedResponse,
+  sessionId: string | undefined,
+  metadata: Readonly<AxResponseCorrelationMetadata>
+): void {
+  res.sessionId = sessionId;
+  if (metadata.remoteRequestId && !res.remoteRequestId) {
+    res.remoteRequestId = metadata.remoteRequestId;
+  }
+  if (metadata.remoteSessionId) {
+    res.remoteSessionId ??= metadata.remoteSessionId;
+  }
+  res.providerMetadata = mergeProviderMetadata(
+    res.providerMetadata,
+    metadata.providerMetadata
+  );
+}
+
+function recordSpanException(span: Span | undefined, error: unknown): void {
+  if (!span?.isRecording()) {
+    return;
+  }
+
+  const err = error instanceof Error ? error : new Error(String(error));
+  span.recordException(err);
+  span.setStatus({
+    code: SpanStatusCode.ERROR,
+    message: err.message,
+  });
+}
+
+function setResponseCorrelationAttributes(
+  res: Readonly<AxChatResponse | AxEmbedResponse>,
+  span: Span
+): void {
+  const attributes: Record<string, string> = {};
+  const conversationId = res.remoteSessionId ?? res.sessionId;
+
+  if (res.remoteId) {
+    attributes[axSpanAttributes.LLM_RESPONSE_ID] = res.remoteId;
+  }
+  if (res.modelUsage?.model) {
+    attributes[axSpanAttributes.LLM_RESPONSE_MODEL] = res.modelUsage.model;
+  }
+  if (conversationId) {
+    attributes[axSpanAttributes.LLM_CONVERSATION_ID] = conversationId;
+  }
+  if (res.sessionId) {
+    attributes[axSpanAttributes.AX_SESSION_ID] = res.sessionId;
+  }
+  if (res.remoteRequestId) {
+    attributes[axSpanAttributes.AX_PROVIDER_REQUEST_ID] = res.remoteRequestId;
+  }
+  if (res.remoteSessionId) {
+    attributes[axSpanAttributes.AX_PROVIDER_SESSION_ID] = res.remoteSessionId;
+  }
+
+  if (Object.keys(attributes).length > 0) {
+    span.setAttributes(attributes);
+  }
 }
 
 function stableStringify(value: unknown): string {
@@ -404,7 +567,7 @@ export class AxBaseAI<
   TModelKey,
 > implements AxAIService<TModel, TEmbedModel, TModelKey>
 {
-  #debug = false;
+  #debug?: boolean;
   #verbose = false;
 
   private rt?: AxAIServiceOptions['rateLimiter'];
@@ -415,7 +578,7 @@ export class AxBaseAI<
   private excludeContentFromTrace?: boolean;
   private models?: AxAIInputModelList<TModel, TEmbedModel, TModelKey>;
   private abortSignal?: AbortSignal;
-  private logger: AxLoggerFunction = axGlobals.logger ?? defaultLogger;
+  private logger?: AxLoggerFunction;
   private corsProxy?: AxAIServiceOptions['corsProxy'];
   private retry?: AxAIServiceOptions['retry'];
   private customLabels?: Record<string, string>;
@@ -494,8 +657,6 @@ export class AxBaseAI<
     this.apiURL = apiURL || '';
     this.headers = headers;
     this.supportFor = supportFor;
-    this.tracer = options.tracer ?? axGlobals.tracer;
-    this.meter = options.meter ?? axGlobals.meter;
     this.modelInfo = modelInfo;
     this.models = models;
     this.id = randomUUID();
@@ -521,8 +682,43 @@ export class AxBaseAI<
     }
   }
 
-  private getMetricsInstruments(): AxAIMetricsInstruments | undefined {
-    return getOrCreateAIMetricsInstruments(this.meter);
+  private getEffectiveDebug(
+    options?: Readonly<Pick<AxAIServiceOptions, 'debug'>>
+  ): boolean {
+    return options?.debug ?? this.#debug ?? axGlobals.debug ?? false;
+  }
+
+  private getEffectiveTracer(
+    options?: Readonly<Pick<AxAIServiceOptions, 'tracer'>>
+  ): AxAIServiceOptions['tracer'] {
+    return options?.tracer ?? this.tracer ?? axGlobals.tracer;
+  }
+
+  private getEffectiveMeter(
+    options?: Readonly<Pick<AxAIServiceOptions, 'meter'>>
+  ): AxAIServiceOptions['meter'] {
+    return options?.meter ?? this.meter ?? axGlobals.meter;
+  }
+
+  private getEffectiveLogger(
+    options?: Readonly<Pick<AxAIServiceOptions, 'logger'>>
+  ): AxLoggerFunction {
+    return options?.logger ?? this.logger ?? axGlobals.logger ?? defaultLogger;
+  }
+
+  private getEffectiveAbortSignal(
+    options?: Readonly<Pick<AxAIServiceOptions, 'abortSignal'>>
+  ): AbortSignal | undefined {
+    return mergeAbortSignals(
+      options?.abortSignal,
+      mergeAbortSignals(this.abortSignal, axGlobals.abortSignal)
+    );
+  }
+
+  private getMetricsInstruments(
+    options?: Readonly<Pick<AxAIServiceOptions, 'meter'>>
+  ): AxAIMetricsInstruments | undefined {
+    return getOrCreateAIMetricsInstruments(this.getEffectiveMeter(options));
   }
 
   public setName(name: string): void {
@@ -542,21 +738,21 @@ export class AxBaseAI<
   }
 
   get debug(): boolean {
-    return this.#debug;
+    return this.getEffectiveDebug();
   }
 
   setOptions(options: Readonly<AxAIServiceOptions>): void {
-    this.#debug = options.debug ?? axGlobals.debug ?? false;
+    this.#debug = options.debug;
     // verbose controls low-level HTTP logging (separate from debug)
     this.#verbose = options.verbose ?? false;
     this.rt = options.rateLimiter;
     this.fetch = options.fetch;
     this.timeout = options.timeout;
-    this.tracer = options.tracer ?? axGlobals.tracer;
-    this.meter = options.meter ?? axGlobals.meter;
+    this.tracer = options.tracer;
+    this.meter = options.meter;
     this.excludeContentFromTrace = options.excludeContentFromTrace;
     this.abortSignal = options.abortSignal;
-    this.logger = options.logger ?? axGlobals.logger ?? this.logger;
+    this.logger = options.logger;
     this.corsProxy = options.corsProxy;
     this.retry = options.retry;
     this.customLabels = options.customLabels;
@@ -567,19 +763,19 @@ export class AxBaseAI<
 
   getOptions(): Readonly<AxAIServiceOptions> {
     return {
-      debug: this.#debug,
+      debug: this.getEffectiveDebug(),
       verbose: this.#verbose,
       rateLimiter: this.rt,
       fetch: this.fetch,
-      tracer: this.tracer,
-      meter: this.meter,
+      tracer: this.getEffectiveTracer(),
+      meter: this.getEffectiveMeter(),
       timeout: this.timeout,
       excludeContentFromTrace: this.excludeContentFromTrace,
-      abortSignal: this.abortSignal,
-      logger: this.logger,
+      abortSignal: this.getEffectiveAbortSignal(),
+      logger: this.getEffectiveLogger(),
       corsProxy: this.corsProxy,
       retry: this.retry,
-      customLabels: this.customLabels,
+      customLabels: this.getMergedCustomLabels(),
       contextCache: this.contextCache,
       beta: this.beta,
       includeRequestBodyInErrors: this.includeRequestBodyInErrors,
@@ -587,7 +783,7 @@ export class AxBaseAI<
   }
 
   getLogger(): AxLoggerFunction {
-    return this.logger;
+    return this.getEffectiveLogger();
   }
 
   // Helper to get merged custom labels from globals, service options, and per-call options
@@ -665,7 +861,7 @@ export class AxBaseAI<
   private updateLatencyMetrics(
     type: 'chat' | 'embed',
     duration: number,
-    optionsCustomLabels?: Record<string, string>
+    options?: Readonly<Pick<AxAIServiceOptions, 'customLabels' | 'meter'>>
   ): void {
     const metrics = this.metrics.latency[type];
     metrics.samples.push(duration);
@@ -682,13 +878,13 @@ export class AxBaseAI<
     metrics.p99 = this.calculatePercentile(metrics.samples, 99);
 
     // Export to OpenTelemetry metrics
-    const metricsInstruments = this.getMetricsInstruments();
+    const metricsInstruments = this.getMetricsInstruments(options);
     if (metricsInstruments) {
       const model =
         type === 'chat'
           ? (this.lastUsedChatModel as string)
           : (this.lastUsedEmbedModel as string);
-      const customLabels = this.getMergedCustomLabels(optionsCustomLabels);
+      const customLabels = this.getMergedCustomLabels(options?.customLabels);
 
       // Record individual latency measurement
       recordLatencyMetric(
@@ -718,7 +914,7 @@ export class AxBaseAI<
   private updateErrorMetrics(
     type: 'chat' | 'embed',
     isError: boolean,
-    optionsCustomLabels?: Record<string, string>
+    options?: Readonly<Pick<AxAIServiceOptions, 'customLabels' | 'meter'>>
   ): void {
     const metrics = this.metrics.errors[type];
     metrics.total++;
@@ -728,13 +924,13 @@ export class AxBaseAI<
     metrics.rate = metrics.count / metrics.total;
 
     // Export to OpenTelemetry metrics
-    const metricsInstruments = this.getMetricsInstruments();
+    const metricsInstruments = this.getMetricsInstruments(options);
     if (metricsInstruments) {
       const model =
         type === 'chat'
           ? (this.lastUsedChatModel as string)
           : (this.lastUsedEmbedModel as string);
-      const customLabels = this.getMergedCustomLabels(optionsCustomLabels);
+      const customLabels = this.getMergedCustomLabels(options?.customLabels);
 
       // Always record request count
       recordRequestMetric(
@@ -772,11 +968,12 @@ export class AxBaseAI<
     operationType: 'chat' | 'embed',
     costUSD: number,
     model: string,
-    customLabels?: Record<string, string>
+    options?: Readonly<Pick<AxAIServiceOptions, 'customLabels' | 'meter'>>
   ): void {
     if (costUSD <= 0) return;
-    const metricsInstruments = this.getMetricsInstruments();
+    const metricsInstruments = this.getMetricsInstruments(options);
     if (!metricsInstruments) return;
+    const customLabels = this.getMergedCustomLabels(options?.customLabels);
     recordEstimatedCostMetric(
       metricsInstruments,
       operationType,
@@ -790,9 +987,9 @@ export class AxBaseAI<
   private recordTokenUsage(
     model: string,
     tokens?: Partial<AxTokenUsage>,
-    optionsCustomLabels?: Record<string, string>
+    options?: Readonly<Pick<AxAIServiceOptions, 'customLabels' | 'meter'>>
   ): void {
-    const metricsInstruments = this.getMetricsInstruments();
+    const metricsInstruments = this.getMetricsInstruments(options);
     if (!metricsInstruments || !tokens) return;
     const {
       promptTokens,
@@ -802,7 +999,7 @@ export class AxBaseAI<
       cacheReadTokens,
       cacheCreationTokens,
     } = tokens;
-    const customLabels = this.getMergedCustomLabels(optionsCustomLabels);
+    const customLabels = this.getMergedCustomLabels(options?.customLabels);
 
     if (promptTokens) {
       recordTokenMetric(
@@ -998,9 +1195,9 @@ export class AxBaseAI<
   private recordFunctionCallMetrics(
     functionCalls?: readonly unknown[],
     model?: TModel,
-    optionsCustomLabels?: Record<string, string>
+    options?: Readonly<Pick<AxAIServiceOptions, 'customLabels' | 'meter'>>
   ): void {
-    const metricsInstruments = this.getMetricsInstruments();
+    const metricsInstruments = this.getMetricsInstruments(options);
     if (!metricsInstruments || !functionCalls) return;
 
     for (const call of functionCalls) {
@@ -1018,7 +1215,7 @@ export class AxBaseAI<
           undefined, // latency would need to be tracked separately
           this.name,
           model as string,
-          this.getMergedCustomLabels(optionsCustomLabels)
+          this.getMergedCustomLabels(options?.customLabels)
         );
       }
     }
@@ -1027,9 +1224,9 @@ export class AxBaseAI<
   // Helper method to record timeout metrics
   private recordTimeoutMetric(
     type: 'chat' | 'embed',
-    optionsCustomLabels?: Record<string, string>
+    options?: Readonly<Pick<AxAIServiceOptions, 'customLabels' | 'meter'>>
   ): void {
-    const metricsInstruments = this.getMetricsInstruments();
+    const metricsInstruments = this.getMetricsInstruments(options);
     if (metricsInstruments) {
       const model =
         type === 'chat'
@@ -1040,7 +1237,7 @@ export class AxBaseAI<
         type,
         this.name,
         model,
-        this.getMergedCustomLabels(optionsCustomLabels)
+        this.getMergedCustomLabels(options?.customLabels)
       );
     }
   }
@@ -1048,9 +1245,9 @@ export class AxBaseAI<
   // Helper method to record abort metrics
   private recordAbortMetric(
     type: 'chat' | 'embed',
-    optionsCustomLabels?: Record<string, string>
+    options?: Readonly<Pick<AxAIServiceOptions, 'customLabels' | 'meter'>>
   ): void {
-    const metricsInstruments = this.getMetricsInstruments();
+    const metricsInstruments = this.getMetricsInstruments(options);
     if (metricsInstruments) {
       const model =
         type === 'chat'
@@ -1061,7 +1258,7 @@ export class AxBaseAI<
         type,
         this.name,
         model,
-        this.getMergedCustomLabels(optionsCustomLabels)
+        this.getMergedCustomLabels(options?.customLabels)
       );
     }
   }
@@ -1072,7 +1269,7 @@ export class AxBaseAI<
     options?: Readonly<AxAIServiceOptions>,
     result?: AxChatResponse | ReadableStream<AxChatResponse>
   ): void {
-    const metricsInstruments = this.getMetricsInstruments();
+    const metricsInstruments = this.getMetricsInstruments(options);
     if (!metricsInstruments) return;
 
     const model = this.lastUsedChatModel as string;
@@ -1166,7 +1363,7 @@ export class AxBaseAI<
             this.recordFunctionCallMetrics(
               chatResult.functionCalls,
               this.lastUsedChatModel,
-              customLabels
+              options
             );
           }
         }
@@ -1195,7 +1392,7 @@ export class AxBaseAI<
     result: Readonly<AxEmbedResponse>,
     options?: Readonly<AxAIServiceOptions>
   ): void {
-    const metricsInstruments = this.getMetricsInstruments();
+    const metricsInstruments = this.getMetricsInstruments(options);
     if (!metricsInstruments) return;
 
     const model = this.lastUsedEmbedModel as string;
@@ -1303,19 +1500,19 @@ export class AxBaseAI<
           error.message.includes('timeout') ||
           error.name === 'TimeoutError'
         ) {
-          this.recordTimeoutMetric('chat', mergedOptions?.customLabels);
+          this.recordTimeoutMetric('chat', mergedOptions);
         } else if (
           error.message.includes('abort') ||
           error.name === 'AbortError'
         ) {
-          this.recordAbortMetric('chat', mergedOptions?.customLabels);
+          this.recordAbortMetric('chat', mergedOptions);
         }
       }
       throw error;
     } finally {
       const duration = performance.now() - startTime;
-      this.updateLatencyMetrics('chat', duration, mergedOptions?.customLabels);
-      this.updateErrorMetrics('chat', isError, mergedOptions?.customLabels);
+      this.updateLatencyMetrics('chat', duration, mergedOptions);
+      this.updateErrorMetrics('chat', isError, mergedOptions);
 
       // Record additional metrics if successful
       if (!isError) {
@@ -1385,8 +1582,9 @@ export class AxBaseAI<
       modelConfig.stream = false;
     }
 
-    if (this.tracer) {
-      return await this.tracer.startActiveSpan(
+    const tracer = this.getEffectiveTracer(options);
+    if (tracer) {
+      return await tracer.startActiveSpan(
         'AI Chat Request',
         {
           kind: SpanKind.SERVER,
@@ -1407,6 +1605,12 @@ export class AxBaseAI<
               modelConfig.stopSequences?.join(', ') ?? 'Not set',
             [axSpanAttributes.LLM_REQUEST_LLM_IS_STREAMING]:
               modelConfig.stream ?? 'Not set',
+            ...(options?.sessionId
+              ? {
+                  [axSpanAttributes.LLM_CONVERSATION_ID]: options.sessionId,
+                  [axSpanAttributes.AX_SESSION_ID]: options.sessionId,
+                }
+              : {}),
           },
         },
         options?.traceContext ?? context.active(),
@@ -1466,8 +1670,12 @@ export class AxBaseAI<
       throw new Error('createChatReq not implemented');
     }
 
-    const debug = options?.debug ?? this.#debug;
+    const debug = this.getEffectiveDebug(options);
     const verbose = options?.verbose ?? this.#verbose;
+    const logger = this.getEffectiveLogger(options);
+    const abortSignal = this.getEffectiveAbortSignal(options);
+    const excludeContentFromTrace =
+      options?.excludeContentFromTrace ?? this.excludeContentFromTrace;
 
     let functions: NonNullable<AxChatRequest['functions']> | undefined;
 
@@ -1490,7 +1698,7 @@ export class AxBaseAI<
       logChatRequest(
         req.chatPrompt,
         options?.stepIndex ?? 0,
-        options?.logger ?? this.logger,
+        logger,
         options?.debugHideSystemPrompt
       );
     }
@@ -1536,13 +1744,21 @@ export class AxBaseAI<
       span
     );
 
+    let responseMetadata: AxResponseCorrelationMetadata = {};
+    const onResponseMetadata = (metadata: { headers: Headers }): void => {
+      responseMetadata = mergeCorrelationMetadata(
+        responseMetadata,
+        extractResponseCorrelationMetadata(metadata.headers, this.name)
+      );
+    };
+
     const fn = async () => {
       // If we have a prepared cached request from the provider, use it
       if (cacheResult?.preparedRequest) {
         const { apiConfig, request: reqValue } = cacheResult.preparedRequest;
 
         if (span?.isRecording()) {
-          setChatRequestEvents(chatReq, span, this.excludeContentFromTrace);
+          setChatRequestEvents(chatReq, span, excludeContentFromTrace);
         }
 
         const res = await apiCall(
@@ -1556,8 +1772,9 @@ export class AxBaseAI<
             verbose,
             fetch: this.fetch,
             span,
-            abortSignal: options?.abortSignal ?? this.abortSignal,
+            abortSignal,
             corsProxy: this.corsProxy,
+            onResponseMetadata,
             retry: options?.retry ?? this.retry,
             includeRequestBodyInErrors:
               options?.includeRequestBodyInErrors ??
@@ -1575,7 +1792,7 @@ export class AxBaseAI<
       );
 
       if (span?.isRecording()) {
-        setChatRequestEvents(chatReq, span, this.excludeContentFromTrace);
+        setChatRequestEvents(chatReq, span, excludeContentFromTrace);
       }
 
       const res = await apiCall(
@@ -1589,8 +1806,9 @@ export class AxBaseAI<
           verbose,
           fetch: this.fetch,
           span,
-          abortSignal: options?.abortSignal ?? this.abortSignal,
+          abortSignal,
           corsProxy: this.corsProxy,
+          onResponseMetadata,
           retry: options?.retry ?? this.retry,
           includeRequestBodyInErrors:
             options?.includeRequestBodyInErrors ??
@@ -1602,7 +1820,16 @@ export class AxBaseAI<
     };
 
     const rt = options?.rateLimiter ?? this.rt;
-    const rv = rt ? await rt(fn, { modelUsage: this.modelUsage }) : await fn();
+    let rv: Awaited<ReturnType<typeof fn>>;
+    try {
+      rv = rt ? await rt(fn, { modelUsage: this.modelUsage }) : await fn();
+    } catch (error) {
+      recordSpanException(span, error);
+      if (span?.isRecording()) {
+        span.end();
+      }
+      throw error;
+    }
 
     if (modelConfig.stream) {
       if (!this.aiImpl.createChatStreamResp) {
@@ -1612,54 +1839,102 @@ export class AxBaseAI<
       const respFn = this.aiImpl.createChatStreamResp.bind(this);
       const diffTokenUsage = makeDiffTokenUsage();
       let recordedCost = 0;
+      let streamRemoteId: string | undefined;
+      let streamRemoteRequestId: string | undefined;
+      let streamRemoteSessionId: string | undefined;
+      let streamProviderMetadata: AxProviderMetadata | undefined;
 
       const wrappedRespFn =
         (state: object) => (resp: Readonly<TChatResponseDelta>) => {
-          const res = respFn(resp, state);
-          res.sessionId = options?.sessionId;
-
-          // Only call getTokenUsage if modelUsage is not already provided by the service
-          if (!res.modelUsage) {
-            const tokenUsage = this.aiImpl.getTokenUsage();
-            if (tokenUsage) {
-              res.modelUsage = {
-                ai: this.name,
-                model: model as string,
-                tokens: tokenUsage,
-              };
+          try {
+            const res = respFn(resp, state);
+            if (res.remoteId) {
+              streamRemoteId = res.remoteId;
+            } else if (streamRemoteId) {
+              res.remoteId = streamRemoteId;
             }
-          }
-          this.modelUsage = res.modelUsage;
-          if (res.modelUsage?.tokens) {
-            const deltaTokens = diffTokenUsage(res.modelUsage.tokens);
-            if (deltaTokens) {
-              this.recordTokenUsage(
-                res.modelUsage.model,
-                deltaTokens,
-                options?.customLabels
-              );
-              // Compute cumulative cost so long-context pricing tiers are accounted for,
-              // then diff it to get an accurate delta.
-              const curCost = this.estimateCostByName(
-                res.modelUsage.model,
-                res.modelUsage
-              );
-              const costDelta = Math.max(0, curCost - recordedCost);
-              if (curCost > recordedCost) recordedCost = curCost;
-              this.recordEstimatedCost(
-                'chat',
-                costDelta,
-                res.modelUsage.model,
-                options?.customLabels
-              );
+            if (res.remoteRequestId) {
+              streamRemoteRequestId = res.remoteRequestId;
+            } else if (streamRemoteRequestId) {
+              res.remoteRequestId = streamRemoteRequestId;
             }
-          }
+            if (res.remoteSessionId) {
+              streamRemoteSessionId = res.remoteSessionId;
+            } else if (streamRemoteSessionId) {
+              res.remoteSessionId = streamRemoteSessionId;
+            }
+            streamProviderMetadata = mergeProviderMetadata(
+              streamProviderMetadata,
+              res.providerMetadata
+            );
+            if (streamProviderMetadata) {
+              res.providerMetadata = streamProviderMetadata;
+            }
+            applyResponseCorrelationMetadata(
+              res,
+              options?.sessionId,
+              responseMetadata
+            );
+            if (res.remoteRequestId) {
+              streamRemoteRequestId = res.remoteRequestId;
+            }
+            if (res.remoteSessionId) {
+              streamRemoteSessionId = res.remoteSessionId;
+            }
+            streamProviderMetadata = mergeProviderMetadata(
+              streamProviderMetadata,
+              res.providerMetadata
+            );
 
-          if (span?.isRecording()) {
-            setChatResponseEvents(res, span, this.excludeContentFromTrace);
-          }
+            // Only call getTokenUsage if modelUsage is not already provided by the service
+            if (!res.modelUsage) {
+              const tokenUsage = this.aiImpl.getTokenUsage();
+              if (tokenUsage) {
+                res.modelUsage = {
+                  ai: this.name,
+                  model: model as string,
+                  tokens: tokenUsage,
+                };
+              }
+            }
+            this.modelUsage = res.modelUsage;
+            if (res.modelUsage?.tokens) {
+              const deltaTokens = diffTokenUsage(res.modelUsage.tokens);
+              if (deltaTokens) {
+                this.recordTokenUsage(
+                  res.modelUsage.model,
+                  deltaTokens,
+                  options
+                );
+                // Compute cumulative cost so long-context pricing tiers are accounted for,
+                // then diff it to get an accurate delta.
+                const curCost = this.estimateCostByName(
+                  res.modelUsage.model,
+                  res.modelUsage
+                );
+                const costDelta = Math.max(0, curCost - recordedCost);
+                if (curCost > recordedCost) recordedCost = curCost;
+                this.recordEstimatedCost(
+                  'chat',
+                  costDelta,
+                  res.modelUsage.model,
+                  options
+                );
+              }
+            }
 
-          return res;
+            if (span?.isRecording()) {
+              setChatResponseEvents(res, span, excludeContentFromTrace);
+            }
+
+            return res;
+          } catch (error) {
+            recordSpanException(span, error);
+            if (span?.isRecording()) {
+              span.end();
+            }
+            throw error;
+          }
         };
 
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -1668,10 +1943,7 @@ export class AxBaseAI<
           span.end();
         }
         if (debug) {
-          logResponseStreamingDoneResult(
-            values,
-            options?.logger ?? this.logger
-          );
+          logResponseStreamingDoneResult(values, logger);
         }
       };
 
@@ -1683,7 +1955,6 @@ export class AxBaseAI<
         const sourceStream = rv as ReadableStream<TChatResponseDelta>;
         const transformState = {};
         const transformedValues: AxChatResponse[] = [];
-        const abortSignal = options?.abortSignal ?? this.abortSignal;
         return new ReadableStream<AxChatResponse>({
           start: (controller) => {
             const reader = sourceStream.getReader();
@@ -1693,7 +1964,7 @@ export class AxBaseAI<
                 reader.cancel().catch(() => {});
               } catch {}
               try {
-                this.recordAbortMetric('chat', options?.customLabels);
+                this.recordAbortMetric('chat', options);
               } catch {}
               try {
                 if (span?.isRecording()) span.end();
@@ -1736,6 +2007,7 @@ export class AxBaseAI<
                   }
                 }
               } catch (error) {
+                recordSpanException(span, error);
                 controller.error(error);
                 if (span?.isRecording()) {
                   try {
@@ -1770,46 +2042,58 @@ export class AxBaseAI<
       throw new Error('createChatResp not implemented');
     }
 
-    const res = this.aiImpl.createChatResp(rv as TChatResponse);
-    res.sessionId = options?.sessionId;
+    try {
+      const res = this.aiImpl.createChatResp(rv as TChatResponse);
+      applyResponseCorrelationMetadata(
+        res,
+        options?.sessionId,
+        responseMetadata
+      );
 
-    // Only call getTokenUsage if modelUsage is not already provided by the service
-    if (!res.modelUsage) {
-      const tokenUsage = this.aiImpl.getTokenUsage();
-      if (tokenUsage) {
-        res.modelUsage = {
-          ai: this.name,
-          model: model as string,
-          tokens: tokenUsage,
-        };
+      // Only call getTokenUsage if modelUsage is not already provided by the service
+      if (!res.modelUsage) {
+        const tokenUsage = this.aiImpl.getTokenUsage();
+        if (tokenUsage) {
+          res.modelUsage = {
+            ai: this.name,
+            model: model as string,
+            tokens: tokenUsage,
+          };
+        }
       }
-    }
 
-    if (res.modelUsage) {
-      this.modelUsage = res.modelUsage;
-      this.recordTokenUsage(
-        res.modelUsage.model,
-        res.modelUsage.tokens,
-        options?.customLabels
-      );
-      this.recordEstimatedCost(
-        'chat',
-        this.estimateCostByName(res.modelUsage.model, res.modelUsage),
-        res.modelUsage.model,
-        options?.customLabels
-      );
-    }
+      if (res.modelUsage) {
+        this.modelUsage = res.modelUsage;
+        this.recordTokenUsage(
+          res.modelUsage.model,
+          res.modelUsage.tokens,
+          options
+        );
+        this.recordEstimatedCost(
+          'chat',
+          this.estimateCostByName(res.modelUsage.model, res.modelUsage),
+          res.modelUsage.model,
+          options
+        );
+      }
 
-    if (span?.isRecording()) {
-      setChatResponseEvents(res, span, this.excludeContentFromTrace);
-      span.end();
-    }
+      if (span?.isRecording()) {
+        setChatResponseEvents(res, span, excludeContentFromTrace);
+        span.end();
+      }
 
-    if (debug) {
-      logResponse(res, options?.logger ?? this.logger);
-    }
+      if (debug) {
+        logResponse(res, logger);
+      }
 
-    return res;
+      return res;
+    } catch (error) {
+      recordSpanException(span, error);
+      if (span?.isRecording()) {
+        span.end();
+      }
+      throw error;
+    }
   }
 
   async embed(
@@ -1874,19 +2158,19 @@ export class AxBaseAI<
           error.message.includes('timeout') ||
           error.name === 'TimeoutError'
         ) {
-          this.recordTimeoutMetric('embed', mergedOptions?.customLabels);
+          this.recordTimeoutMetric('embed', mergedOptions);
         } else if (
           error.message.includes('abort') ||
           error.name === 'AbortError'
         ) {
-          this.recordAbortMetric('embed', mergedOptions?.customLabels);
+          this.recordAbortMetric('embed', mergedOptions);
         }
       }
       throw error;
     } finally {
       const duration = performance.now() - startTime;
-      this.updateLatencyMetrics('embed', duration, mergedOptions?.customLabels);
-      this.updateErrorMetrics('embed', isError, mergedOptions?.customLabels);
+      this.updateLatencyMetrics('embed', duration, mergedOptions);
+      this.updateErrorMetrics('embed', isError, mergedOptions);
 
       // Record additional metrics if successful
       if (!isError && result) {
@@ -1908,8 +2192,9 @@ export class AxBaseAI<
       throw new Error('No embed model defined');
     }
 
-    if (this.tracer) {
-      return await this.tracer.startActiveSpan(
+    const tracer = this.getEffectiveTracer(options);
+    if (tracer) {
+      return await tracer.startActiveSpan(
         'AI Embed Request',
         {
           kind: SpanKind.SERVER,
@@ -1917,6 +2202,12 @@ export class AxBaseAI<
             [axSpanAttributes.LLM_SYSTEM]: this.name,
             [axSpanAttributes.LLM_OPERATION_NAME]: 'embeddings',
             [axSpanAttributes.LLM_REQUEST_MODEL]: embedModel as string,
+            ...(options?.sessionId
+              ? {
+                  [axSpanAttributes.LLM_CONVERSATION_ID]: options.sessionId,
+                  [axSpanAttributes.AX_SESSION_ID]: options.sessionId,
+                }
+              : {}),
           },
         },
         options?.traceContext ?? context.active(),
@@ -1943,8 +2234,10 @@ export class AxBaseAI<
 
     // Bind provider implementation method to preserve `this` and satisfy TS
     const createEmbedReq = this.aiImpl.createEmbedReq!.bind(this.aiImpl);
-    const debug = options?.debug ?? this.#debug;
+    const debug = this.getEffectiveDebug(options);
     const verbose = options?.verbose ?? this.#verbose;
+    const logger = this.getEffectiveLogger(options);
+    const abortSignal = this.getEffectiveAbortSignal(options);
 
     const req = {
       ...embedReq,
@@ -1955,12 +2248,16 @@ export class AxBaseAI<
     this.lastUsedEmbedModel = embedModel;
 
     if (debug) {
-      logEmbedRequest(
-        req.texts ?? [],
-        embedModel as string,
-        options?.logger ?? this.logger
-      );
+      logEmbedRequest(req.texts ?? [], embedModel as string, logger);
     }
+
+    let responseMetadata: AxResponseCorrelationMetadata = {};
+    const onResponseMetadata = (metadata: { headers: Headers }): void => {
+      responseMetadata = mergeCorrelationMetadata(
+        responseMetadata,
+        extractResponseCorrelationMetadata(metadata.headers, this.name)
+      );
+    };
 
     const fn = async () => {
       const [apiConfig, reqValue] = await createEmbedReq(req, options);
@@ -1975,8 +2272,9 @@ export class AxBaseAI<
           fetch: this.fetch,
           timeout: this.timeout,
           span,
-          abortSignal: options?.abortSignal ?? this.abortSignal,
+          abortSignal,
           corsProxy: this.corsProxy,
+          onResponseMetadata,
           retry: options?.retry ?? this.retry,
           includeRequestBodyInErrors:
             options?.includeRequestBodyInErrors ??
@@ -1988,12 +2286,34 @@ export class AxBaseAI<
     };
 
     const rt = options?.rateLimiter ?? this.rt;
-    const resValue = rt
-      ? await rt(fn, { modelUsage: this.embedModelUsage })
-      : await fn();
-    const res = this.aiImpl.createEmbedResp?.(resValue as TEmbedResponse);
+    let resValue: Awaited<ReturnType<typeof fn>>;
+    try {
+      resValue = rt
+        ? await rt(fn, { modelUsage: this.embedModelUsage })
+        : await fn();
+    } catch (error) {
+      recordSpanException(span, error);
+      if (span?.isRecording()) {
+        span.end();
+      }
+      throw error;
+    }
 
-    res.sessionId = options?.sessionId;
+    let res: AxEmbedResponse;
+    try {
+      res = this.aiImpl.createEmbedResp(resValue as TEmbedResponse);
+      applyResponseCorrelationMetadata(
+        res,
+        options?.sessionId,
+        responseMetadata
+      );
+    } catch (error) {
+      recordSpanException(span, error);
+      if (span?.isRecording()) {
+        span.end();
+      }
+      throw error;
+    }
 
     // Only call getTokenUsage if modelUsage is not already provided by the service
     if (!res.modelUsage) {
@@ -2011,29 +2331,32 @@ export class AxBaseAI<
       this.recordTokenUsage(
         res.modelUsage.model,
         res.modelUsage.tokens,
-        options?.customLabels
+        options
       );
       this.recordEstimatedCost(
         'embed',
         this.estimateCostByName(res.modelUsage.model, res.modelUsage),
         res.modelUsage.model,
-        options?.customLabels
+        options
       );
     }
 
-    if (span?.isRecording() && res.modelUsage?.tokens) {
-      span.addEvent(axSpanEvents.GEN_AI_USAGE, {
-        [axSpanAttributes.LLM_USAGE_INPUT_TOKENS]:
-          res.modelUsage.tokens.promptTokens,
-        [axSpanAttributes.LLM_USAGE_OUTPUT_TOKENS]:
-          res.modelUsage.tokens.completionTokens ?? 0,
-        [axSpanAttributes.LLM_USAGE_TOTAL_TOKENS]:
-          res.modelUsage.tokens.totalTokens,
-      });
+    if (span?.isRecording()) {
+      setResponseCorrelationAttributes(res, span);
+      if (res.modelUsage?.tokens) {
+        span.addEvent(axSpanEvents.GEN_AI_USAGE, {
+          [axSpanAttributes.LLM_USAGE_INPUT_TOKENS]:
+            res.modelUsage.tokens.promptTokens,
+          [axSpanAttributes.LLM_USAGE_OUTPUT_TOKENS]:
+            res.modelUsage.tokens.completionTokens ?? 0,
+          [axSpanAttributes.LLM_USAGE_TOTAL_TOKENS]:
+            res.modelUsage.tokens.totalTokens,
+        });
+      }
     }
 
     if (debug) {
-      logEmbedResponse(res.embeddings, options?.logger ?? this.logger);
+      logEmbedResponse(res.embeddings, logger);
     }
 
     span?.end();
@@ -2296,6 +2619,7 @@ export class AxBaseAI<
     span?: Span
   ): Promise<AxContextCacheInfo | undefined> {
     const verbose = options?.verbose ?? this.#verbose;
+    const abortSignal = this.getEffectiveAbortSignal(options);
 
     try {
       span?.addEvent('context_cache.operation', {
@@ -2314,7 +2638,7 @@ export class AxBaseAI<
           verbose,
           fetch: this.fetch,
           span,
-          abortSignal: options?.abortSignal ?? this.abortSignal,
+          abortSignal,
           corsProxy: this.corsProxy,
           retry: options?.retry ?? this.retry,
           includeRequestBodyInErrors:
@@ -2494,6 +2818,8 @@ export function setChatResponseEvents(
   span: Span,
   excludeContentFromTrace?: boolean
 ) {
+  setResponseCorrelationAttributes(res, span);
+
   if (res.modelUsage?.tokens) {
     const thoughtsTokensEntry = res.modelUsage.tokens.thoughtsTokens
       ? {

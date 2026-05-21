@@ -663,6 +663,7 @@ class AxAIAnthropicImpl
 
     const sstate = state as {
       indexIdMap: Record<number, string>;
+      remoteId?: string;
     };
 
     if (!sstate.indexIdMap) {
@@ -683,6 +684,7 @@ class AxAIAnthropicImpl
     if (resp.type === 'message_start') {
       const { message } = resp as unknown as AxAIAnthropicMessageStartEvent;
       const results = [{ index, content: '', id: message.id }];
+      sstate.remoteId = message.id;
 
       this.tokensUsed = {
         promptTokens: message.usage?.input_tokens ?? 0,
@@ -695,7 +697,7 @@ class AxAIAnthropicImpl
         cacheCreationTokens: message.usage?.cache_creation_input_tokens,
         cacheReadTokens: message.usage?.cache_read_input_tokens,
       };
-      return { results };
+      return { results, remoteId: message.id };
     }
 
     if (resp.type === 'content_block_start') {
@@ -724,6 +726,7 @@ class AxAIAnthropicImpl
               ...(annos.length ? { citations: annos } : {}),
             },
           ],
+          remoteId: sstate.remoteId,
         };
       }
       if (contentBlock.type === 'thinking') {
@@ -805,9 +808,10 @@ class AxAIAnthropicImpl
                 citations: annos,
               },
             ],
+            remoteId: sstate.remoteId,
           };
         }
-        return { results: [{ index, content: '' }] };
+        return { results: [{ index, content: '' }], remoteId: sstate.remoteId };
       }
       if (delta.type === 'text_delta') {
         const annos: NonNullable<AxChatResponseResult['citations']> = [];

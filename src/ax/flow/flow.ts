@@ -1127,7 +1127,13 @@ export class AxFlow<
 
       // Determine tracer and create a parent span/context if available
       const tracer: Tracer | undefined =
-        (options as any)?.tracer ?? this.defaultAIOptions?.tracer;
+        (options as any)?.tracer ??
+        this.defaultAIOptions?.tracer ??
+        axGlobals.tracer;
+      const meter: Meter | undefined =
+        (options as any)?.meter ??
+        this.defaultAIOptions?.meter ??
+        axGlobals.meter;
       const providedCtx: OtelContext | undefined = (options as any)
         ?.traceContext;
 
@@ -1177,6 +1183,7 @@ export class AxFlow<
           if ((options as any)?.model)
             merged.model = String((options as any).model);
           if (tracer) merged.tracer = tracer;
+          if (meter) merged.meter = meter;
           if (parentCtx) (merged as any).traceContext = parentCtx;
           if (effectiveAbortSignal) merged.abortSignal = effectiveAbortSignal;
           // If nothing to merge and no defaults, return undefined

@@ -76,7 +76,7 @@ describe('OpenAI Responses annotation mapping', () => {
       },
     } as unknown as AxAIOpenAIResponsesResponseDelta;
 
-    const out = impl.createChatStreamResp(event) as AxChatResponse;
+    const out = impl.createChatStreamResp(event, {}) as AxChatResponse;
     expect(out.results[0]!.citations).toBeDefined();
     const urls = out.results[0]!.citations!.map((a) => a.url);
     expect(urls).toEqual(['https://example.com']);
@@ -137,23 +137,26 @@ describe('OpenAI Responses usage normalization', () => {
   it('normalizes streamed Responses completion usage', () => {
     const impl = new AxAIOpenAIResponsesImpl(config, true);
 
-    impl.createChatStreamResp({
-      type: 'response.completed',
-      sequence_number: 1,
-      response: {
-        id: 'res_stream_usage',
-        object: 'response',
-        created: 1,
-        model: 'gpt-5-mini',
-        output: [],
-        usage: {
-          input_tokens: 50,
-          output_tokens: 7,
-          total_tokens: 57,
-          input_tokens_details: { cached_tokens: 10 },
+    impl.createChatStreamResp(
+      {
+        type: 'response.completed',
+        sequence_number: 1,
+        response: {
+          id: 'res_stream_usage',
+          object: 'response',
+          created: 1,
+          model: 'gpt-5-mini',
+          output: [],
+          usage: {
+            input_tokens: 50,
+            output_tokens: 7,
+            total_tokens: 57,
+            input_tokens_details: { cached_tokens: 10 },
+          },
         },
-      },
-    } as unknown as AxAIOpenAIResponsesResponseDelta);
+      } as unknown as AxAIOpenAIResponsesResponseDelta,
+      {}
+    );
 
     expect(impl.getTokenUsage()).toEqual({
       promptTokens: 40,
@@ -161,5 +164,33 @@ describe('OpenAI Responses usage normalization', () => {
       totalTokens: 57,
       cacheReadTokens: 10,
     });
+  });
+
+  it('persists streamed response ids across later events', () => {
+    const impl = new AxAIOpenAIResponsesImpl(config, true);
+    const state = {};
+
+    const created = impl.createChatStreamResp(
+      {
+        type: 'response.created',
+        sequence_number: 1,
+        response: { id: 'res_persist' },
+      } as unknown as AxAIOpenAIResponsesResponseDelta,
+      state
+    ) as AxChatResponse;
+    const delta = impl.createChatStreamResp(
+      {
+        type: 'response.output_text.delta',
+        sequence_number: 2,
+        item_id: 'msg_1',
+        output_index: 0,
+        content_index: 0,
+        delta: 'hello',
+      } as unknown as AxAIOpenAIResponsesResponseDelta,
+      state
+    ) as AxChatResponse;
+
+    expect(created.remoteId).toBe('res_persist');
+    expect(delta.remoteId).toBe('res_persist');
   });
 });

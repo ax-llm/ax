@@ -185,6 +185,8 @@ export type AxAIGoogleGeminiChatRequest = {
 };
 
 export type AxAIGoogleGeminiChatResponse = {
+  responseId?: string;
+  modelVersion?: string;
   candidates: {
     content: AxAIGoogleGeminiContent;
 

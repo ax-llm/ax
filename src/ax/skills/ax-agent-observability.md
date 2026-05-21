@@ -21,6 +21,21 @@ Use this skill when an agent needs runtime visibility, progress reporting, traci
 - Need Ax program traces -> use `getTraces()`.
 - Do not add multiple hooks unless the user clearly needs each output stream.
 
+## Global Runtime Defaults
+
+OpenTelemetry and debug defaults come from the shared Ax runtime surface:
+
+```typescript
+import { axGlobals, axCreateDefaultColorLogger } from '@ax-llm/ax';
+import { trace } from '@opentelemetry/api';
+
+axGlobals.tracer = trace.getTracer('agent-app');
+axGlobals.debug = true;
+axGlobals.logger = axCreateDefaultColorLogger();
+```
+
+These globals are live defaults for future AI, AxGen, AxFlow, and agent-internal model calls. Per-call or explicitly configured options still override `axGlobals`. Use AxAgent callbacks below when the caller needs structured agent-turn events rather than OpenTelemetry spans or debug logs.
+
 ## Actor Turn Callback
 
 Use `actorTurnCallback` when the caller needs structured telemetry for each actor turn. `executorTurnCallback` is still accepted as a deprecated alias for older code.

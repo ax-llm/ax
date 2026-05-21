@@ -425,6 +425,8 @@ describe('AxAIGoogleGemini model key preset merging', () => {
     const capture: { lastBody?: any } = {};
     const fetch = createMockFetch(
       {
+        responseId: 'gemini-response-123',
+        modelVersion: 'gemini-test-version',
         candidates: [
           {
             content: { parts: [{ text: 'ok' }] },
@@ -446,6 +448,10 @@ describe('AxAIGoogleGemini model key preset merging', () => {
     );
 
     expect(res.results[0]?.content).toBe('ok');
+    expect(res.remoteId).toBe('gemini-response-123');
+    expect(res.providerMetadata?.google?.modelVersion).toBe(
+      'gemini-test-version'
+    );
 
     // Ensure the request was made; we cannot directly read internal config,
     // but we can ensure no errors and that defaults were honored for stream, etc.

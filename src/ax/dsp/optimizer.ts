@@ -1,7 +1,6 @@
 import type { Counter, Gauge, Histogram, Meter } from '@opentelemetry/api';
-
-import type { AxAIService, AxLoggerFunction } from '../ai/types.js';
 import { mergeCustomLabels } from '../ai/metrics.js';
+import type { AxAIService, AxLoggerFunction } from '../ai/types.js';
 
 // FIXME: Circular dependency - import { ax } from '../index.js';
 
@@ -23,8 +22,8 @@ import type {
 import { AxGen } from './generate.js';
 import { axGlobals } from './globals.js';
 import { axDefaultOptimizerLogger } from './optimizerLogging.js';
-import type { AxOptimizerLoggerFunction } from './optimizerTypes.js';
 import type { AxGEPAComponentBanditState } from './optimizers/gepaSelection.js';
+import type { AxOptimizerLoggerFunction } from './optimizerTypes.js';
 import type { AxGenOut, AxProgramDemos } from './types.js';
 
 // Shared optimizer-related types are exported exclusively from `common_types.ts`
@@ -141,28 +140,32 @@ export interface AxOptimizerMetricsInstruments {
 let globalOptimizerMetricsInstruments:
   | AxOptimizerMetricsInstruments
   | undefined;
+let globalOptimizerMetricsMeter: Meter | undefined;
 
 // Function to get or create optimizer metrics instruments (singleton pattern)
 export const getOrCreateOptimizerMetricsInstruments = (
   meter?: Meter
 ): AxOptimizerMetricsInstruments | undefined => {
-  // Return existing instance if available
-  if (globalOptimizerMetricsInstruments) {
+  if (!meter) {
     return globalOptimizerMetricsInstruments;
   }
 
-  if (meter) {
+  if (
+    !globalOptimizerMetricsInstruments ||
+    globalOptimizerMetricsMeter !== meter
+  ) {
     globalOptimizerMetricsInstruments =
       createOptimizerMetricsInstruments(meter);
-    return globalOptimizerMetricsInstruments;
+    globalOptimizerMetricsMeter = meter;
   }
 
-  return undefined;
+  return globalOptimizerMetricsInstruments;
 };
 
 // Function to reset the optimizer metrics singleton (useful for testing)
 export const resetOptimizerMetricsInstruments = (): void => {
   globalOptimizerMetricsInstruments = undefined;
+  globalOptimizerMetricsMeter = undefined;
 };
 
 // Global optimizer metrics configuration
@@ -1261,9 +1264,6 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
   // Common optimization statistics
   protected stats: AxOptimizationStats;
 
-  // Metrics instruments
-  protected readonly metricsInstruments?: AxOptimizerMetricsInstruments;
-
   // Result explanation generator
   // FIXME: Disabled due to circular dependency - private resultExplainer?: ReturnType<typeof ax>;
   private resultExplainer?: any;
@@ -1294,11 +1294,6 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
     });
     this.costTracker = args.costTracker ?? costTracker;
 
-    // Initialize metrics instruments
-    this.metricsInstruments = getOrCreateOptimizerMetricsInstruments(
-      axGlobals.meter
-    );
-
     // Initialize common stats structure
     this.stats = this.initializeStats();
 
@@ -1324,6 +1319,14 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
       this.studentAI?.getOptions?.()?.customLabels,
       this.teacherAI?.getOptions?.()?.customLabels,
       options?.customLabels
+    );
+  }
+
+  protected getMetricsInstruments(): AxOptimizerMetricsInstruments | undefined {
+    return getOrCreateOptimizerMetricsInstruments(
+      this.studentAI?.getOptions?.()?.meter ??
+        this.teacherAI?.getOptions?.()?.meter ??
+        axGlobals.meter
     );
   }
 
@@ -2419,8 +2422,11 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
       return this.logger;
     }
 
-    // Fall back to student AI logger
-    return this.studentAI.getLogger();
+    return (
+      this.studentAI.getOptions?.()?.logger ??
+      axGlobals.logger ??
+      this.studentAI.getLogger()
+    );
   }
 
   /**
@@ -2444,7 +2450,8 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
     programSignature?: string,
     options?: AxCompileOptions
   ): void {
-    if (!this.metricsInstruments) return;
+    const metricsInstruments = this.getMetricsInstruments();
+    if (!metricsInstruments) return;
 
     const customLabels = this.getMergedCustomLabels(options);
 
@@ -2455,7 +2462,7 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
       const outputFields = (programSignature.match(/output:/g) || []).length;
 
       recordProgramComplexityMetric(
-        this.metricsInstruments,
+        metricsInstruments,
         inputFields,
         outputFields,
         0, // this.examples.length - now in options
@@ -2467,7 +2474,7 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
 
     // Record configuration metrics
     recordOptimizerConfigurationMetric(
-      this.metricsInstruments,
+      metricsInstruments,
       optimizerType,
       this.targetScore,
       undefined, // maxRounds would be set by concrete optimizers
@@ -2485,12 +2492,13 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
     programSignature?: string,
     options?: AxCompileOptions
   ): void {
-    if (!this.metricsInstruments) return;
+    const metricsInstruments = this.getMetricsInstruments();
+    if (!metricsInstruments) return;
 
     const customLabels = this.getMergedCustomLabels(options);
 
     recordOptimizationMetric(
-      this.metricsInstruments,
+      metricsInstruments,
       duration,
       success,
       optimizerType,
@@ -2499,7 +2507,7 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
     );
 
     recordOptimizationDurationMetric(
-      this.metricsInstruments,
+      metricsInstruments,
       duration,
       optimizerType,
       customLabels
@@ -2509,7 +2517,7 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
     const currentCost = this.costTracker?.getCurrentCost() ?? 0;
     const totalTokens = this.costTracker?.getTotalTokens() ?? 0;
     recordResourceUsageMetric(
-      this.metricsInstruments,
+      metricsInstruments,
       totalTokens,
       currentCost,
       optimizerType,
@@ -2529,12 +2537,13 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
     optimizerType: string,
     options?: AxCompileOptions
   ): void {
-    if (!this.metricsInstruments) return;
+    const metricsInstruments = this.getMetricsInstruments();
+    if (!metricsInstruments) return;
 
     const customLabels = this.getMergedCustomLabels(options);
 
     recordConvergenceMetric(
-      this.metricsInstruments,
+      metricsInstruments,
       rounds,
       currentScore,
       improvement,
@@ -2552,12 +2561,13 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
     optimizerType: string,
     options?: AxCompileOptions
   ): void {
-    if (!this.metricsInstruments) return;
+    const metricsInstruments = this.getMetricsInstruments();
+    if (!metricsInstruments) return;
 
     const customLabels = this.getMergedCustomLabels(options);
 
     recordEarlyStoppingMetric(
-      this.metricsInstruments,
+      metricsInstruments,
       reason,
       optimizerType,
       customLabels
@@ -2573,12 +2583,13 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
     optimizerType: string,
     options?: AxCompileOptions
   ): void {
-    if (!this.metricsInstruments) return;
+    const metricsInstruments = this.getMetricsInstruments();
+    if (!metricsInstruments) return;
 
     const customLabels = this.getMergedCustomLabels(options);
 
     recordTeacherStudentMetric(
-      this.metricsInstruments,
+      metricsInstruments,
       latency,
       scoreImprovement,
       optimizerType,
@@ -2596,12 +2607,13 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
     optimizerType: string,
     options?: AxCompileOptions
   ): void {
-    if (!this.metricsInstruments) return;
+    const metricsInstruments = this.getMetricsInstruments();
+    if (!metricsInstruments) return;
 
     const customLabels = this.getMergedCustomLabels(options);
 
     recordCheckpointMetric(
-      this.metricsInstruments,
+      metricsInstruments,
       operation,
       latency,
       success,
@@ -2620,12 +2632,13 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
     hypervolume?: number,
     options?: AxCompileOptions
   ): void {
-    if (!this.metricsInstruments) return;
+    const metricsInstruments = this.getMetricsInstruments();
+    if (!metricsInstruments) return;
 
     const customLabels = this.getMergedCustomLabels(options);
 
     recordParetoMetric(
-      this.metricsInstruments,
+      metricsInstruments,
       frontSize,
       solutionsGenerated,
       optimizerType,
@@ -2643,12 +2656,13 @@ export abstract class AxBaseOptimizer implements AxOptimizer {
     optimizerType: string,
     options?: AxCompileOptions
   ): void {
-    if (!this.metricsInstruments) return;
+    const metricsInstruments = this.getMetricsInstruments();
+    if (!metricsInstruments) return;
 
     const customLabels = this.getMergedCustomLabels(options);
 
     recordOptimizerPerformanceMetric(
-      this.metricsInstruments,
+      metricsInstruments,
       metricType,
       duration,
       optimizerType,

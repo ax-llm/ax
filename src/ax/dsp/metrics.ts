@@ -101,29 +101,30 @@ export interface AxGenMetricsInstruments {
 
 // Singleton instance for metrics instruments
 let globalGenMetricsInstruments: AxGenMetricsInstruments | undefined;
+let globalGenMetricsMeter: Meter | undefined;
 
 // Function to get or create metrics instruments (singleton pattern)
 export const getOrCreateGenMetricsInstruments = (
   meter?: Meter
 ): AxGenMetricsInstruments | undefined => {
-  // Return existing instance if available
-  if (globalGenMetricsInstruments) {
-    return globalGenMetricsInstruments;
-  }
-
   // Try to use provided meter or fall back to global
   const activeMeter = meter ?? axGlobals.meter;
-  if (activeMeter) {
-    globalGenMetricsInstruments = createGenMetricsInstruments(activeMeter);
+  if (!activeMeter) {
     return globalGenMetricsInstruments;
   }
 
-  return undefined;
+  if (!globalGenMetricsInstruments || globalGenMetricsMeter !== activeMeter) {
+    globalGenMetricsInstruments = createGenMetricsInstruments(activeMeter);
+    globalGenMetricsMeter = activeMeter;
+  }
+
+  return globalGenMetricsInstruments;
 };
 
 // Function to reset the singleton (useful for testing)
 export const resetGenMetricsInstruments = (): void => {
   globalGenMetricsInstruments = undefined;
+  globalGenMetricsMeter = undefined;
 };
 
 // Health check for metrics system

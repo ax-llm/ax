@@ -1,12 +1,13 @@
 import { context, trace } from '@opentelemetry/api';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AxAIService } from '../ai/types.js';
-import { ax } from '../dsp/template.js';
+import { axGlobals } from '../dsp/globals.js';
 import { AxSignature } from '../dsp/sig.js';
+import { ax } from '../dsp/template.js';
 import type {
+  AxProgramDemos,
   AxProgramForwardOptions,
   AxProgrammable,
-  AxProgramDemos,
 } from '../dsp/types.js';
 import { AxAIServiceAbortedError } from '../util/apicall.js';
 import { flow } from './flow.js';
@@ -67,6 +68,12 @@ class TestProgram
 }
 
 describe('AxFlow propagation and instrumentation', () => {
+  const originalTracer = axGlobals.tracer;
+
+  afterEach(() => {
+    axGlobals.tracer = originalTracer;
+  });
+
   it('setDemos propagates to children with name-based IDs', () => {
     const wf = flow<{ userInput: string }>();
     wf.node('n1', 'documentText:string -> summaryText:string');
@@ -178,6 +185,32 @@ describe('AxFlow propagation and instrumentation', () => {
 
     expect(prog.seenTracer).toBeDefined();
     expect(prog.seenTraceContext).toBeDefined();
+  });
+
+  it('uses axGlobals.tracer set after construction for parent and node tracing', async () => {
+    const spanEnd = vi.fn();
+    const tracer = {
+      startSpan: vi.fn(() => ({ end: spanEnd })),
+    } as any;
+    const wf = flow<
+      { userInput: string },
+      { pResult: { outputText: string } }
+    >();
+    const prog = new TestProgram();
+    wf.node('p', prog).execute('p', (s) => ({ inputText: s.userInput }));
+    const ai = { name: 'mock' } as unknown as AxAIService;
+
+    axGlobals.tracer = tracer;
+
+    await wf.forward(ai, { userInput: 'hi' });
+
+    expect(tracer.startSpan).toHaveBeenCalledWith(
+      'AxFlow',
+      expect.objectContaining({ kind: expect.any(Number) })
+    );
+    expect(prog.seenTracer).toBe(tracer);
+    expect(prog.seenTraceContext).toBeDefined();
+    expect(spanEnd).toHaveBeenCalledTimes(1);
   });
 
   it('parallel map merges outputs from all transforms', async () => {

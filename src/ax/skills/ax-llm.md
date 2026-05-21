@@ -106,6 +106,19 @@ for await (const chunk of gen.streamingForward(llm, { question: 'Tell a story' }
 | Stop function | `stopFunction` | `{ stopFunction: 'finalAnswer' }` |
 | Function mode | `functionCallMode` | `{ functionCallMode: 'auto' }` |
 
+Global runtime defaults can be set with `axGlobals` and are read live by future AI, AxGen, and AxFlow calls:
+
+```typescript
+import { axGlobals, axCreateDefaultColorLogger } from '@ax-llm/ax';
+import { trace } from '@opentelemetry/api';
+
+axGlobals.tracer = trace.getTracer('my-app');
+axGlobals.debug = true;
+axGlobals.logger = axCreateDefaultColorLogger();
+```
+
+Precedence is: per-call options, then explicit instance/program options, then current `axGlobals`, then built-in defaults. `customLabels` merge in that order, and `abortSignal` values are combined so either global or local cancellation works.
+
 ## Memory and Context
 
 ```typescript
@@ -208,7 +221,7 @@ try {
 ## Debugging
 
 ```typescript
-import { axCreateDefaultColorLogger } from '@ax-llm/ax';
+import { axCreateDefaultColorLogger, axGlobals } from '@ax-llm/ax';
 
 const result = await gen.forward(llm, { input: 'test' }, {
   debug: true,
@@ -217,6 +230,10 @@ const result = await gen.forward(llm, { input: 'test' }, {
   tracer: openTelemetryTracer,
   meter: openTelemetryMeter,
 });
+
+// Or set live app-wide defaults for future calls:
+axGlobals.tracer = openTelemetryTracer;
+axGlobals.meter = openTelemetryMeter;
 ```
 
 ## MCP Integration

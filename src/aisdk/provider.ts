@@ -6,6 +6,7 @@ import {
   type TransformStreamDefaultController,
 } from 'node:stream/web';
 import type {
+  JSONValue,
   LanguageModelV2,
   LanguageModelV2CallOptions,
   LanguageModelV2CallWarning,
@@ -17,6 +18,7 @@ import type {
   LanguageModelV2ToolCall,
   LanguageModelV2ToolChoice,
   LanguageModelV2Usage,
+  SharedV2ProviderMetadata,
 } from '@ai-sdk/provider';
 import type {
   AxAgentic,
@@ -36,6 +38,106 @@ import { z } from 'zod';
 
 type Writeable<T> = { -readonly [P in keyof T]: T[P] };
 type AxChatRequestChatPrompt = Writeable<AxChatRequest['chatPrompt'][0]>;
+
+type AxResponseLike = Pick<
+  AxChatResponse,
+  | 'sessionId'
+  | 'remoteId'
+  | 'remoteRequestId'
+  | 'remoteSessionId'
+  | 'providerMetadata'
+  | 'modelUsage'
+>;
+
+function toJSONValue(value: unknown): JSONValue | undefined {
+  if (value === null) return null;
+  if (
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean'
+  ) {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => toJSONValue(item))
+      .filter((item): item is JSONValue => item !== undefined);
+  }
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value)
+      .map(([key, nested]) => [key, toJSONValue(nested)] as const)
+      .filter((entry): entry is readonly [string, JSONValue] => {
+        return entry[1] !== undefined;
+      });
+    return Object.fromEntries(entries) as JSONValue;
+  }
+  return undefined;
+}
+
+function mergeProviderMetadata(
+  base?: SharedV2ProviderMetadata,
+  next?: SharedV2ProviderMetadata
+): SharedV2ProviderMetadata | undefined {
+  if (!base && !next) return undefined;
+  const merged: SharedV2ProviderMetadata = {};
+  for (const source of [base, next]) {
+    if (!source) continue;
+    for (const [provider, metadata] of Object.entries(source)) {
+      merged[provider] = {
+        ...(merged[provider] ?? {}),
+        ...metadata,
+      };
+    }
+  }
+  return merged;
+}
+
+function createProviderMetadata(
+  res: Readonly<AxResponseLike>,
+  provider: string
+): SharedV2ProviderMetadata | undefined {
+  let metadata: SharedV2ProviderMetadata | undefined;
+
+  if (res.providerMetadata) {
+    metadata = {};
+    for (const [providerName, providerMetadata] of Object.entries(
+      res.providerMetadata
+    )) {
+      const jsonProviderMetadata = toJSONValue(providerMetadata);
+      if (
+        jsonProviderMetadata &&
+        typeof jsonProviderMetadata === 'object' &&
+        !Array.isArray(jsonProviderMetadata)
+      ) {
+        metadata[providerName] = jsonProviderMetadata;
+      }
+    }
+  }
+
+  const axMetadata = {
+    ...(res.sessionId ? { sessionId: res.sessionId } : {}),
+    ...(res.remoteRequestId ? { requestId: res.remoteRequestId } : {}),
+    ...(res.remoteSessionId ? { remoteSessionId: res.remoteSessionId } : {}),
+  };
+
+  if (Object.keys(axMetadata).length > 0) {
+    metadata = mergeProviderMetadata(metadata, {
+      [provider]: axMetadata,
+    });
+  }
+
+  return metadata;
+}
+
+function createResponseMetadata(res: Readonly<AxResponseLike>) {
+  if (!res.remoteId && !res.modelUsage?.model) {
+    return undefined;
+  }
+  return {
+    ...(res.remoteId ? { id: res.remoteId } : {}),
+    ...(res.modelUsage?.model ? { modelId: res.modelUsage.model } : {}),
+  };
+}
 
 type AxConfig = {
   fetch?: typeof fetch;
@@ -178,6 +280,9 @@ export class AxAIProvider implements LanguageModelV2 {
       }
     }
 
+    const providerMetadata = createProviderMetadata(res, this.provider);
+    const response = createResponseMetadata(res);
+
     return {
       content,
       finishReason: mapAxFinishReason(choice.finishReason),
@@ -188,6 +293,8 @@ export class AxAIProvider implements LanguageModelV2 {
           (res.modelUsage?.tokens?.promptTokens ?? 0) +
           (res.modelUsage?.tokens?.completionTokens ?? 0),
       },
+      ...(providerMetadata ? { providerMetadata } : {}),
+      ...(response ? { response } : {}),
       warnings: [] as LanguageModelV2CallWarning[],
     };
   }
@@ -202,7 +309,7 @@ export class AxAIProvider implements LanguageModelV2 {
     })) as ReadableStream<AxChatResponse>;
 
     return {
-      stream: res.pipeThrough(new AxToSDKTransformer()) as any,
+      stream: res.pipeThrough(new AxToSDKTransformer(this.provider)) as any,
     };
   }
 }
@@ -437,10 +544,13 @@ class AxToSDKTransformer extends TransformStream<
   private finishReason: LanguageModelV2FinishReason = 'other';
 
   private functionCalls: LanguageModelV2ToolCall[] = [];
+  private providerMetadata: SharedV2ProviderMetadata | undefined;
+  private responseMetadataSent = false;
   private hasStarted = false;
   private textStarted = false;
 
-  constructor() {
+  constructor(provider: string) {
+    const providerName = provider;
     const transformer = {
       transform: (
         chunk: Readonly<AxChatResponse>,
@@ -453,6 +563,24 @@ class AxToSDKTransformer extends TransformStream<
             warnings: [] as LanguageModelV2CallWarning[],
           });
           this.hasStarted = true;
+        }
+
+        const chunkProviderMetadata = createProviderMetadata(
+          chunk,
+          providerName
+        );
+        this.providerMetadata = mergeProviderMetadata(
+          this.providerMetadata,
+          chunkProviderMetadata
+        );
+
+        const responseMetadata = createResponseMetadata(chunk);
+        if (!this.responseMetadataSent && responseMetadata) {
+          controller.enqueue({
+            type: 'response-metadata',
+            ...responseMetadata,
+          });
+          this.responseMetadataSent = true;
         }
 
         const choice = chunk.results.at(0);
@@ -469,6 +597,9 @@ class AxToSDKTransformer extends TransformStream<
             type: 'finish' as const,
             finishReason: this.finishReason,
             usage: this.usage,
+            ...(this.providerMetadata
+              ? { providerMetadata: this.providerMetadata }
+              : {}),
           };
           controller.enqueue(val);
           return;
@@ -556,6 +687,9 @@ class AxToSDKTransformer extends TransformStream<
           type: 'finish' as const,
           finishReason: this.finishReason,
           usage: this.usage,
+          ...(this.providerMetadata
+            ? { providerMetadata: this.providerMetadata }
+            : {}),
         };
         controller.enqueue(val);
         controller.terminate();

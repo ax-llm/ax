@@ -12,7 +12,73 @@ function createMockFetch(body: unknown) {
   );
 }
 
+function createMockStreamFetch(chunks: readonly unknown[]) {
+  return vi.fn().mockImplementation(async () => {
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const chunk of chunks) {
+          controller.enqueue(
+            encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`)
+          );
+        }
+        controller.close();
+      },
+    });
+
+    return new Response(body, {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+    });
+  });
+}
+
 describe('AxAIAnthropic model key preset merging', () => {
+  it('preserves message ids on streaming chunks', async () => {
+    const ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: { model: AxAIAnthropicModel.Claude35Sonnet },
+    });
+    const fetch = createMockStreamFetch([
+      {
+        type: 'message_start',
+        message: {
+          id: 'msg_stream_123',
+          type: 'message',
+          role: 'assistant',
+          content: [],
+          model: 'claude-3-5-sonnet',
+          stop_reason: null,
+          usage: { input_tokens: 1, output_tokens: 0 },
+        },
+      },
+      {
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'text_delta', text: 'hello' },
+      },
+    ]);
+
+    ai.setOptions({ fetch });
+
+    const stream = (await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'hi' }] },
+      { stream: true }
+    )) as ReadableStream<any>;
+    const reader = stream.getReader();
+    const values: any[] = [];
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      values.push(value);
+    }
+
+    expect(values.map((value) => value.remoteId)).toEqual([
+      'msg_stream_123',
+      'msg_stream_123',
+    ]);
+  });
+
   it('merges model list item modelConfig into effective config', async () => {
     const ai = new AxAIAnthropic({
       apiKey: 'key',

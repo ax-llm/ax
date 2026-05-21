@@ -245,6 +245,35 @@ describe('AxBaseAI', () => {
     expect(ai.getFeatures()).toEqual(features);
   });
 
+  it('should capture provider request ids from response headers', async () => {
+    const ai = createTestAI(
+      () =>
+        new Response(JSON.stringify({ results: [] }), {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+            'x-request-id': 'req_header_123',
+          },
+        })
+    );
+
+    const response = (await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'test' }] },
+      { stream: false, sessionId: 'session-123' }
+    )) as AxChatResponse;
+
+    expect(response.remoteRequestId).toBe('req_header_123');
+    expect(response.sessionId).toBe('session-123');
+    expect(response.providerMetadata).toEqual({
+      'test-ai': { requestId: 'req_header_123' },
+    });
+    expect(mockSpan.attributes).toMatchObject({
+      [axSpanAttributes.AX_PROVIDER_REQUEST_ID]: 'req_header_123',
+      [axSpanAttributes.AX_SESSION_ID]: 'session-123',
+      [axSpanAttributes.LLM_CONVERSATION_ID]: 'session-123',
+    });
+  });
+
   it('should track metrics correctly', async () => {
     // Mock successful response
     const mockResponse = () =>
@@ -282,7 +311,9 @@ describe('AxBaseAI', () => {
     // sums map, keyed by counter name. Only counters listed in `tracked` are
     // accumulated; the rest are no-ops. Returns both the sums and the meter
     // for assertions.
-    const makeMetricsTestHarness = (tracked: readonly string[]): CounterTracker => {
+    const makeMetricsTestHarness = (
+      tracked: readonly string[]
+    ): CounterTracker => {
       const sums: Record<string, number> = Object.fromEntries(
         tracked.map((name) => [name, 0])
       );
@@ -356,7 +387,11 @@ describe('AxBaseAI', () => {
           if (next) usage = next;
           return { results: [{ index: 0, content: 'x' }] };
         },
-        getModelConfig: () => ({ maxTokens: 100, temperature: 0, stream: true }),
+        getModelConfig: () => ({
+          maxTokens: 100,
+          temperature: 0,
+          stream: true,
+        }),
         getTokenUsage: () => usage,
       };
     };
@@ -445,8 +480,7 @@ describe('AxBaseAI', () => {
       );
 
       // 250k prompt @ $6/1M + 500 completion @ $22.5/1M.
-      const expectedCost =
-        (250_000 * 6) / 1_000_000 + (500 * 22.5) / 1_000_000;
+      const expectedCost = (250_000 * 6) / 1_000_000 + (500 * 22.5) / 1_000_000;
       expect(sums.ax_llm_estimated_cost_total).toBeCloseTo(expectedCost, 6);
     }, 10000);
   });
@@ -1080,6 +1114,35 @@ describe('setChatResponseEvents', () => {
         ),
       }
     );
+  });
+
+  it('should add response correlation attributes', () => {
+    const mockChatResponse: AxChatResponse = {
+      sessionId: 'local-session',
+      remoteId: 'resp_123',
+      remoteRequestId: 'req_123',
+      remoteSessionId: 'provider-session',
+      modelUsage: {
+        ai: 'test-ai',
+        model: 'test-model',
+        tokens: { promptTokens: 1, completionTokens: 2, totalTokens: 3 },
+      },
+      results: [{ index: 0, content: 'Hello', finishReason: 'stop' }],
+    };
+
+    setChatResponseEvents(
+      mockChatResponse,
+      mockSpanInstance as unknown as Span
+    );
+
+    expect(mockSpanInstance.attributes).toMatchObject({
+      [axSpanAttributes.LLM_RESPONSE_ID]: 'resp_123',
+      [axSpanAttributes.LLM_RESPONSE_MODEL]: 'test-model',
+      [axSpanAttributes.LLM_CONVERSATION_ID]: 'provider-session',
+      [axSpanAttributes.AX_SESSION_ID]: 'local-session',
+      [axSpanAttributes.AX_PROVIDER_REQUEST_ID]: 'req_123',
+      [axSpanAttributes.AX_PROVIDER_SESSION_ID]: 'provider-session',
+    });
   });
 
   it('should handle Chat Response (Empty Results)', () => {

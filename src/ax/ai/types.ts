@@ -341,16 +341,34 @@ export type AxDebugChatResponseUsage = AxModelUsage & {
   estimatedCost?: number;
 };
 
+export type AxProviderMetadata = Record<string, Record<string, unknown>>;
+
 export type AxChatResponse = {
+  /** Ax-local session identifier used for conversation tracking and memory isolation. */
   sessionId?: string;
+  /** Provider response/message/completion identifier. */
   remoteId?: string;
+  /** Provider request identifier, usually from response headers. */
+  remoteRequestId?: string;
+  /** Provider conversation/session identifier when distinct from Ax's local sessionId. */
+  remoteSessionId?: string;
+  /** Provider-specific metadata that should flow through adapters. */
+  providerMetadata?: AxProviderMetadata;
   results: readonly AxChatResponseResult[];
   modelUsage?: AxModelUsage;
 };
 
 export type AxEmbedResponse = {
+  /** Provider response/embedding request identifier when available. */
   remoteId?: string;
+  /** Ax-local session identifier used for conversation tracking. */
   sessionId?: string;
+  /** Provider request identifier, usually from response headers. */
+  remoteRequestId?: string;
+  /** Provider conversation/session identifier when distinct from Ax's local sessionId. */
+  remoteSessionId?: string;
+  /** Provider-specific metadata that should flow through adapters. */
+  providerMetadata?: AxProviderMetadata;
   embeddings: readonly (readonly number[])[];
   modelUsage?: AxModelUsage;
 };

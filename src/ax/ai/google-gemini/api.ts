@@ -1335,12 +1335,18 @@ class AxAIGoogleGeminiImpl
         ...(cachedTokens > 0 ? { cacheReadTokens: cachedTokens } : {}),
       };
     }
-    const response: AxChatResponse = { results };
+    const response: AxChatResponse = {
+      results,
+      ...(resp.responseId ? { remoteId: resp.responseId } : {}),
+      ...(resp.modelVersion
+        ? { providerMetadata: { google: { modelVersion: resp.modelVersion } } }
+        : {}),
+    };
     if (mapsWidgetToken) {
-      (response as any).providerMetadata = {
-        ...(response as any).providerMetadata,
+      response.providerMetadata = {
+        ...response.providerMetadata,
         google: {
-          ...((response as any).providerMetadata?.google ?? {}),
+          ...(response.providerMetadata?.google ?? {}),
           mapsWidgetContextToken: mapsWidgetToken,
         },
       };

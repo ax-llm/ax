@@ -378,6 +378,16 @@ export type AxChatLogEntry = {
   name?: string;
   model: string;
   messages: AxChatLogMessage[];
+  /** Ax-local session identifier used for conversation tracking and memory isolation. */
+  sessionId?: AxChatResponse['sessionId'];
+  /** Provider response/message/completion identifier. */
+  remoteId?: AxChatResponse['remoteId'];
+  /** Provider request identifier, usually from response headers. */
+  remoteRequestId?: AxChatResponse['remoteRequestId'];
+  /** Provider conversation/session identifier when distinct from Ax's local sessionId. */
+  remoteSessionId?: AxChatResponse['remoteSessionId'];
+  /** Provider-specific metadata that should flow through adapters. */
+  providerMetadata?: AxChatResponse['providerMetadata'];
   modelUsage?: AxChatResponse['modelUsage'];
   /** Set by the AxAgent coordinator when running a two-stage ctx+task flow. */
   stage?: 'ctx' | 'task';

@@ -11,11 +11,18 @@ export const axSpanAttributes = {
   LLM_REQUEST_STOP_SEQUENCES: 'gen_ai.request.stop_sequences',
   LLM_REQUEST_LLM_IS_STREAMING: 'gen_ai.request.llm_is_streaming',
   LLM_REQUEST_TOP_P: 'gen_ai.request.top_p',
+  LLM_RESPONSE_ID: 'gen_ai.response.id',
+  LLM_RESPONSE_MODEL: 'gen_ai.response.model',
+  LLM_CONVERSATION_ID: 'gen_ai.conversation.id',
 
   LLM_USAGE_INPUT_TOKENS: 'gen_ai.usage.input_tokens',
   LLM_USAGE_OUTPUT_TOKENS: 'gen_ai.usage.output_tokens',
   LLM_USAGE_TOTAL_TOKENS: 'gen_ai.usage.total_tokens',
   LLM_USAGE_THOUGHTS_TOKENS: 'gen_ai.usage.thoughts_tokens',
+
+  AX_SESSION_ID: 'ax.session.id',
+  AX_PROVIDER_REQUEST_ID: 'ax.provider.request_id',
+  AX_PROVIDER_SESSION_ID: 'ax.provider.session_id',
 
   // Vector DB
   DB_SYSTEM: 'db.system',

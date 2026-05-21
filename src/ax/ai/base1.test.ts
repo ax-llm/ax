@@ -2,13 +2,16 @@ import { ReadableStream } from 'node:stream/web';
 import type { Span } from '@opentelemetry/api'; // Ensure Span is imported
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { axGlobals } from '../dsp/globals.js';
 import { axSpanAttributes, axSpanEvents } from '../trace/trace.js'; // Added import
+import { AxAIServiceAbortedError } from '../util/apicall.js';
 import type { AxAIFeatures, AxBaseAIArgs } from './base.js';
 import {
   AxBaseAI,
   setChatRequestEvents,
   setChatResponseEvents,
 } from './base.js'; // Import new functions
+import { resetAIMetricsInstruments } from './metrics.js';
 import type {
   AxAIServiceImpl,
   AxAIServiceOptions,
@@ -66,6 +69,47 @@ const mockTracer = {
   ),
 };
 
+const createMockTracer = () => ({
+  startActiveSpan: vi.fn(
+    async (
+      _name: string,
+      _options: unknown,
+      _context: unknown,
+      fn: (span: Readonly<typeof mockSpan>) => Promise<unknown>
+    ) => {
+      if (typeof fn === 'function') {
+        return await fn(mockSpan);
+      }
+      return mockSpan;
+    }
+  ),
+});
+
+const createMockMeter = () => {
+  const records: Array<{
+    instrument: string;
+    value: unknown;
+    attributes?: Record<string, unknown>;
+  }> = [];
+  const createInstrument = (instrument: string) => ({
+    record: vi.fn((value: unknown, attributes?: Record<string, unknown>) => {
+      records.push({ instrument, value, attributes });
+    }),
+    add: vi.fn((value: unknown, attributes?: Record<string, unknown>) => {
+      records.push({ instrument, value, attributes });
+    }),
+  });
+
+  return {
+    records,
+    meter: {
+      createHistogram: vi.fn((name: string) => createInstrument(name)),
+      createCounter: vi.fn((name: string) => createInstrument(name)),
+      createGauge: vi.fn((name: string) => createInstrument(name)),
+    },
+  };
+};
+
 // Create a mock fetch implementation - MOVED TO TOP LEVEL
 const createMockFetch = (responseFactory: () => Response) => {
   return vi.fn().mockImplementation(async () => {
@@ -85,6 +129,14 @@ const createDefaultMockResponse = () => {
 };
 
 describe('AxBaseAI', () => {
+  const originalAxGlobals = {
+    tracer: axGlobals.tracer,
+    logger: axGlobals.logger,
+    debug: axGlobals.debug,
+    abortSignal: axGlobals.abortSignal,
+    meter: axGlobals.meter,
+    customLabels: axGlobals.customLabels,
+  };
   // Mock implementation of the AI service
   const mockImpl: AxAIServiceImpl<
     string,
@@ -112,10 +164,18 @@ describe('AxBaseAI', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    resetAIMetricsInstruments();
   });
 
   afterEach(() => {
     vi.clearAllMocks();
+    resetAIMetricsInstruments();
+    axGlobals.tracer = originalAxGlobals.tracer;
+    axGlobals.logger = originalAxGlobals.logger;
+    axGlobals.debug = originalAxGlobals.debug;
+    axGlobals.abortSignal = originalAxGlobals.abortSignal;
+    axGlobals.meter = originalAxGlobals.meter;
+    axGlobals.customLabels = originalAxGlobals.customLabels;
   });
 
   // Base configuration for tests
@@ -282,6 +342,193 @@ describe('AxBaseAI', () => {
 
     ai.setOptions(options);
     expect(ai.getOptions()).toMatchObject(options);
+  });
+
+  it('uses axGlobals.tracer set after construction for chat and embed', async () => {
+    const ai = new AxBaseAI(
+      {
+        ...mockImpl,
+        getModelConfig: () => ({
+          maxTokens: 100,
+          temperature: 0,
+          stream: false,
+        }),
+        createEmbedReq: () => [{ name: 'test', headers: {} }, {}],
+        createEmbedResp: () => ({
+          embeddings: [[0.1, 0.2]],
+          modelUsage: {
+            ai: 'test-ai',
+            model: 'test-embed-model',
+            tokens: {
+              totalTokens: 1,
+              promptTokens: 1,
+              completionTokens: 0,
+            },
+          },
+        }),
+      },
+      {
+        ...baseConfig,
+        defaults: {
+          model: 'test-model',
+          embedModel: 'test-embed-model',
+        },
+      }
+    );
+    ai.setOptions({ fetch: createMockFetch(createDefaultMockResponse) });
+
+    axGlobals.tracer = mockTracer as unknown as AxAIServiceOptions['tracer'];
+
+    await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'test' }] },
+      { stream: false }
+    );
+    await ai.embed({ texts: ['test'] });
+
+    const spanNames = mockTracer.startActiveSpan.mock.calls.map(
+      (call) => call[0]
+    );
+    expect(spanNames).toContain('AI Chat Request');
+    expect(spanNames).toContain('AI Embed Request');
+  });
+
+  it('lets per-call tracer and debug override axGlobals', async () => {
+    const ai = new AxBaseAI(
+      {
+        ...mockImpl,
+        getModelConfig: () => ({
+          maxTokens: 100,
+          temperature: 0,
+          stream: false,
+        }),
+      },
+      baseConfig
+    );
+    ai.setOptions({ fetch: createMockFetch(createDefaultMockResponse) });
+
+    const globalTracer = createMockTracer();
+    const localTracer = createMockTracer();
+    const globalLogger = vi.fn();
+    axGlobals.tracer = globalTracer as unknown as AxAIServiceOptions['tracer'];
+    axGlobals.debug = true;
+    axGlobals.logger = globalLogger;
+
+    await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'test' }] },
+      {
+        stream: false,
+        tracer: localTracer as unknown as AxAIServiceOptions['tracer'],
+        debug: false,
+      }
+    );
+
+    expect(localTracer.startActiveSpan).toHaveBeenCalledTimes(1);
+    expect(globalTracer.startActiveSpan).not.toHaveBeenCalled();
+    expect(globalLogger).not.toHaveBeenCalled();
+  });
+
+  it('uses axGlobals.logger set after construction when global debug is enabled', async () => {
+    const ai = new AxBaseAI(
+      {
+        ...mockImpl,
+        getModelConfig: () => ({
+          maxTokens: 100,
+          temperature: 0,
+          stream: false,
+        }),
+      },
+      baseConfig
+    );
+    ai.setOptions({ fetch: createMockFetch(createDefaultMockResponse) });
+
+    const globalLogger = vi.fn();
+    axGlobals.debug = true;
+    axGlobals.logger = globalLogger;
+
+    await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'test' }] },
+      { stream: false }
+    );
+
+    expect(globalLogger).toHaveBeenCalled();
+  });
+
+  it('uses late axGlobals.meter and merges custom labels in precedence order', async () => {
+    const { meter, records } = createMockMeter();
+    const ai = new AxBaseAI(
+      {
+        ...mockImpl,
+        getModelConfig: () => ({
+          maxTokens: 100,
+          temperature: 0,
+          stream: false,
+        }),
+      },
+      baseConfig
+    );
+    ai.setOptions({
+      fetch: createMockFetch(createDefaultMockResponse),
+      customLabels: { service: 'svc', shared: 'service' },
+    });
+
+    axGlobals.meter = meter as any;
+    axGlobals.customLabels = { global: 'yes', shared: 'global' };
+
+    await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'test' }] },
+      {
+        stream: false,
+        customLabels: { call: 'yes', shared: 'call' },
+      }
+    );
+
+    expect(meter.createCounter).toHaveBeenCalled();
+    expect(
+      records.some(
+        (record) =>
+          record.attributes?.global === 'yes' &&
+          record.attributes?.service === 'svc' &&
+          record.attributes?.call === 'yes' &&
+          record.attributes?.shared === 'call'
+      )
+    ).toBe(true);
+  });
+
+  it('lets both global and per-call abort signals cancel requests', async () => {
+    const ai = new AxBaseAI(
+      {
+        ...mockImpl,
+        getModelConfig: () => ({
+          maxTokens: 100,
+          temperature: 0,
+          stream: false,
+        }),
+      },
+      baseConfig
+    );
+    ai.setOptions({ fetch: createMockFetch(createDefaultMockResponse) });
+
+    const globalController = new AbortController();
+    globalController.abort('global-cancelled');
+    axGlobals.abortSignal = globalController.signal;
+
+    await expect(
+      ai.chat(
+        { chatPrompt: [{ role: 'user', content: 'test' }] },
+        { stream: false }
+      )
+    ).rejects.toBeInstanceOf(AxAIServiceAbortedError);
+
+    axGlobals.abortSignal = undefined;
+    const perCallController = new AbortController();
+    perCallController.abort('per-call-cancelled');
+
+    await expect(
+      ai.chat(
+        { chatPrompt: [{ role: 'user', content: 'test' }] },
+        { stream: false, abortSignal: perCallController.signal }
+      )
+    ).rejects.toBeInstanceOf(AxAIServiceAbortedError);
   });
 
   it('should throw error when no model is defined', () => {

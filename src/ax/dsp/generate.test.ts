@@ -1,10 +1,11 @@
 import { ReadableStream } from 'node:stream/web';
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { AxMockAIService } from '../ai/mock/api.js';
 import type { AxChatResponse } from '../ai/types.js';
 import { AxGen } from './generate.js';
+import { axGlobals } from './globals.js';
 import { AxSignature } from './sig.js';
 import type { AxProgramForwardOptions } from './types.js';
 
@@ -67,8 +68,41 @@ function createStreamingResponse(
   });
 }
 
+const createMockTracer = () => {
+  const span = {
+    addEvent: vi.fn(),
+    end: vi.fn(),
+    isRecording: vi.fn(() => true),
+    recordException: vi.fn(),
+    setAttributes: vi.fn(),
+    spanContext: vi.fn(() => ({ traceId: 'trace-id' })),
+  };
+
+  return {
+    span,
+    tracer: {
+      startSpan: vi.fn(() => span),
+      startActiveSpan: vi.fn(async (...args: unknown[]) => {
+        const fn = [...args]
+          .reverse()
+          .find((arg) => typeof arg === 'function') as
+          | ((activeSpan: typeof span) => unknown)
+          | undefined;
+        return fn ? await fn(span) : span;
+      }),
+    },
+  };
+};
+
 describe('AxGen forward and streamingForward', () => {
   const signature = 'userQuestion:string -> modelAnswer:string';
+  const originalTracer = axGlobals.tracer;
+  const originalFunctionResultFormatter = axGlobals.functionResultFormatter;
+
+  afterEach(() => {
+    axGlobals.tracer = originalTracer;
+    axGlobals.functionResultFormatter = originalFunctionResultFormatter;
+  });
 
   it('should return non-streaming output from forward when stream option is false', async () => {
     // Prepare a non-streaming (plain) response.
@@ -105,6 +139,155 @@ describe('AxGen forward and streamingForward', () => {
       { stream: false }
     );
     expect(response).toEqual({ modelAnswer: 'Non-stream response' });
+  });
+
+  it('uses axGlobals.tracer set after construction for forward spans', async () => {
+    const { tracer } = createMockTracer();
+    const ai = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: {
+        results: [
+          {
+            index: 0,
+            content: 'Model Answer: traced response',
+            finishReason: 'stop',
+          },
+        ],
+      },
+    });
+    const gen = new AxGen<{ userQuestion: string }, { modelAnswer: string }>(
+      signature
+    );
+
+    axGlobals.tracer = tracer as any;
+
+    await gen.forward(ai, { userQuestion: 'test' }, { stream: false });
+
+    expect(tracer.startSpan).toHaveBeenCalledWith(
+      'AxGen',
+      expect.objectContaining({ kind: expect.any(Number) })
+    );
+  });
+
+  it('uses axGlobals.tracer set after construction for tool spans', async () => {
+    const { tracer } = createMockTracer();
+    let callCount = 0;
+    const ai = new AxMockAIService({
+      features: { functions: true, streaming: false },
+      chatResponse: async () => {
+        callCount++;
+        if (callCount === 1) {
+          return {
+            results: [
+              {
+                index: 0,
+                content: '',
+                functionCalls: [
+                  {
+                    id: 'call_1',
+                    type: 'function' as const,
+                    function: { name: 'getTime', params: '{}' },
+                  },
+                ],
+                finishReason: 'function_call' as const,
+              },
+            ],
+          };
+        }
+        return {
+          results: [
+            {
+              index: 0,
+              content: 'Model Answer: done',
+              finishReason: 'stop' as const,
+            },
+          ],
+        };
+      },
+    });
+    const gen = new AxGen<{ userQuestion: string }, { modelAnswer: string }>(
+      signature,
+      {
+        functions: [
+          {
+            name: 'getTime',
+            description: 'Returns the time',
+            func: () => 'noon',
+          },
+        ],
+      }
+    );
+
+    axGlobals.tracer = tracer as any;
+
+    await gen.forward(ai, { userQuestion: 'call tool' }, { stream: false });
+
+    expect(tracer.startActiveSpan).toHaveBeenCalledWith(
+      'Tool: getTime',
+      {},
+      expect.anything(),
+      expect.any(Function)
+    );
+  });
+
+  it('uses axGlobals.functionResultFormatter set after construction for tool results', async () => {
+    let callCount = 0;
+    let formattedToolResult: string | undefined;
+    const ai = new AxMockAIService({
+      features: { functions: true, streaming: false },
+      chatResponse: async (req) => {
+        callCount++;
+        if (callCount === 1) {
+          return {
+            results: [
+              {
+                index: 0,
+                content: '',
+                functionCalls: [
+                  {
+                    id: 'call_1',
+                    type: 'function' as const,
+                    function: { name: 'lookup', params: '{}' },
+                  },
+                ],
+                finishReason: 'function_call' as const,
+              },
+            ],
+          };
+        }
+        formattedToolResult = req.chatPrompt.find(
+          (msg) => msg.role === 'function'
+        )?.result;
+        return {
+          results: [
+            {
+              index: 0,
+              content: 'Model Answer: done',
+              finishReason: 'stop' as const,
+            },
+          ],
+        };
+      },
+    });
+    const gen = new AxGen<{ userQuestion: string }, { modelAnswer: string }>(
+      signature,
+      {
+        functions: [
+          {
+            name: 'lookup',
+            description: 'Looks up data',
+            func: () => ({ value: 7 }),
+          },
+        ],
+      }
+    );
+
+    axGlobals.functionResultFormatter = (result) =>
+      `GLOBAL:${JSON.stringify(result)}`;
+
+    await gen.forward(ai, { userQuestion: 'call tool' }, { stream: false });
+
+    expect(formattedToolResult).toBe('GLOBAL:{"value":7}');
   });
 
   it('should return aggregated output from forward when stream option is true', async () => {

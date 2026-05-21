@@ -86,6 +86,29 @@ console.log(res.results[0]?.content);
 - `functionCallMode`: `'auto'` | `'native'` | `'prompt'`
 - `debug`, `logger`, `tracer`, `rateLimiter`, `timeout`
 
+## Global Runtime Defaults
+
+Use `axGlobals` when the app wants one live default for AI requests, generator runs, flows, or metrics:
+
+```typescript
+import { ai, axGlobals, axCreateDefaultColorLogger } from '@ax-llm/ax';
+import { trace } from '@opentelemetry/api';
+
+axGlobals.tracer = trace.getTracer('my-app');
+axGlobals.debug = true;
+axGlobals.logger = axCreateDefaultColorLogger();
+axGlobals.customLabels = { service: 'api' };
+
+const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! });
+```
+
+Rules:
+
+- `axGlobals.tracer`, `meter`, `logger`, `debug`, `abortSignal`, and `customLabels` are live runtime defaults; future calls read the current value even if the AI instance already exists.
+- Precedence is: per-call options, then explicit AI/service options, then current `axGlobals`, then built-in defaults.
+- `customLabels` merge from globals to service to call options; later sources override earlier keys.
+- `abortSignal` values are merged, so either a global shutdown signal or a local request signal can cancel the request.
+
 ## DeepSeek Notes
 
 ```typescript

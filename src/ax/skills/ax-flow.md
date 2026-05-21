@@ -343,6 +343,25 @@ const result = await wf.forward(llm, { userQuestion: 'hi' }, {
 });
 ```
 
+Flow tracing also respects live app-wide defaults:
+
+```typescript
+import { axGlobals } from '@ax-llm/ax';
+import { metrics } from '@opentelemetry/api';
+
+axGlobals.tracer = tracer;
+axGlobals.meter = metrics.getMeter('axflow');
+
+const result = await wf.forward(llm, { userQuestion: 'hi' });
+```
+
+Rules:
+
+- `wf.forward(..., { tracer, meter })` overrides flow defaults and `axGlobals`.
+- Constructor/factory flow defaults override `axGlobals`.
+- If no local tracer or meter is provided, `AxFlow` reads current `axGlobals.tracer` and `axGlobals.meter`, creates a parent flow span, and propagates tracer/meter plus trace context to node forwards.
+- `axGlobals.abortSignal` is merged with flow-level abort signals.
+
 ## Program IDs and Demos
 
 ```typescript

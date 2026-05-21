@@ -541,6 +541,7 @@ describe('AxAIOpenAI audio chat', () => {
 
     expect(capture.lastBody?.stream).toBe(true);
     expect(capture.lastBody?.modalities).toEqual(['text', 'audio']);
+    expect(values[0]?.remoteId).toBe('chatcmpl_audio');
     expect(values[0]?.results[0]?.content).toBe('hello');
     expect(values[0]?.results[0]?.audio).toEqual({
       id: 'aud_stream',

@@ -114,6 +114,34 @@ const result = await gen.forward(llm, { input: '...' }, {
 });
 ```
 
+### Live Global Defaults
+
+`AxGen` respects `axGlobals` for app-wide runtime defaults:
+
+```typescript
+import { axGlobals } from '@ax-llm/ax';
+import { trace } from '@opentelemetry/api';
+
+const responseCache = new Map<string, any>();
+
+axGlobals.tracer = trace.getTracer('my-app');
+axGlobals.debug = true;
+axGlobals.cachingFunction = async (key, value?) => {
+  if (value !== undefined) {
+    responseCache.set(key, value);
+    return;
+  }
+  return responseCache.get(key);
+};
+```
+
+Rules:
+
+- Tracing/logging precedence is: forward options, then generator options, then AI service options, then current `axGlobals`, then built-in defaults.
+- `abortSignal` from `axGlobals` is merged with local forward signals.
+- `customLabels` merge from globals to AI service to forward options.
+- `cachingFunction` and `functionResultFormatter` also fall back to current `axGlobals` when local options do not provide them.
+
 ### `streamingForward()`
 
 ```typescript

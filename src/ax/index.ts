@@ -557,6 +557,7 @@ import type {
   AxModelInfoWithProvider,
   AxModelUsage,
   AxPreparedChatRequest,
+  AxProviderMetadata,
   AxRateLimiterFunction,
   AxThoughtBlockItem,
   AxTokenUsage,
@@ -1004,6 +1005,7 @@ import {
   AxAIServiceTimeoutError,
   type AxAPI,
   type AxAPIConfig,
+  type AxAPIResponseMetadata,
   AxContentProcessingError,
   AxMediaNotSupportedError,
   AxTokenLimitError,
@@ -1484,6 +1486,7 @@ export type { AxAIWebLLMEmbedRequest };
 export type { AxAIWebLLMEmbedResponse };
 export type { AxAPI };
 export type { AxAPIConfig };
+export type { AxAPIResponseMetadata };
 export type { AxAgentActorTurnCallback };
 export type { AxAgentActorTurnCallbackArgs };
 export type { AxAgentClarification };
@@ -1796,6 +1799,7 @@ export type { AxProgramUsage };
 export type { AxProgrammable };
 export type { AxPromptMetrics };
 export type { AxPromptTemplateOptions };
+export type { AxProviderMetadata };
 export type { AxRLMConfig };
 export type { AxRateLimiterFunction };
 export type { AxRateLimiterTokenUsageOptions };

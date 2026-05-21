@@ -102,6 +102,40 @@ describe('AxAIProvider', () => {
       });
     });
 
+    it('maps Ax correlation ids to AI SDK response metadata', async () => {
+      const mockAI = createMockAIService([
+        {
+          sessionId: 'session-123',
+          remoteId: 'resp-123',
+          remoteRequestId: 'req-123',
+          providerMetadata: { test: { nested: true } },
+          results: [{ content: 'Response', finishReason: 'stop' }],
+          modelUsage: {
+            ai: 'test',
+            model: 'test-model-v1',
+            tokens: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          },
+        },
+      ]);
+      const provider = new AxAIProvider(mockAI);
+
+      const result = await provider.doGenerate({
+        prompt: [{ role: 'user', content: [{ type: 'text', text: 'Hello' }] }],
+      });
+
+      expect(result.response).toMatchObject({
+        id: 'resp-123',
+        modelId: 'test-model-v1',
+      });
+      expect(result.providerMetadata).toMatchObject({
+        test: { nested: true },
+        'test-model': {
+          sessionId: 'session-123',
+          requestId: 'req-123',
+        },
+      });
+    });
+
     it('should handle tool calls correctly', async () => {
       const mockResponse: AxChatResponse = {
         results: [
@@ -294,6 +328,47 @@ describe('AxAIProvider', () => {
 
       expect(mockAI.chat).toHaveBeenCalledWith(expect.any(Object), {
         stream: true,
+      });
+    });
+
+    it('emits AI SDK response metadata for streaming Ax chunks', async () => {
+      const mockAI = createMockAIService([
+        {
+          remoteId: 'resp-stream-123',
+          remoteRequestId: 'req-stream-123',
+          results: [{ content: 'Streaming text', finishReason: 'stop' }],
+          modelUsage: {
+            ai: 'test',
+            model: 'test-model-v1',
+            tokens: { promptTokens: 1, completionTokens: 2, totalTokens: 3 },
+          },
+        },
+      ]);
+      const provider = new AxAIProvider(mockAI);
+
+      const result = await provider.doStream({
+        prompt: [
+          { role: 'user', content: [{ type: 'text', text: 'Stream test' }] },
+        ],
+      });
+      const reader = result.stream.getReader();
+      const chunks: any[] = [];
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+      }
+
+      expect(chunks).toContainEqual({
+        type: 'response-metadata',
+        id: 'resp-stream-123',
+        modelId: 'test-model-v1',
+      });
+      expect(chunks.at(-1)).toMatchObject({
+        type: 'finish',
+        providerMetadata: {
+          'test-model': { requestId: 'req-stream-123' },
+        },
       });
     });
   });

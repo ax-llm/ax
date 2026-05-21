@@ -713,10 +713,12 @@ export class AxAIOpenAIResponsesImpl<
 
   // Create Chat Stream Response from /v1/responses stream events
   createChatStreamResp = (
-    streamEvent: Readonly<AxAIOpenAIResponsesResponseDelta>
+    streamEvent: Readonly<AxAIOpenAIResponsesResponseDelta>,
+    state: object
   ): Readonly<AxChatResponse> => {
     // Handle new streaming event format
     const event = streamEvent as AxAIOpenAIResponsesStreamEvent;
+    const sstate = state as { remoteId?: string };
 
     // Create a basic result structure
     const baseResult: AxChatResponseResult = {
@@ -726,7 +728,11 @@ export class AxAIOpenAIResponsesImpl<
       finishReason: 'stop',
     };
 
-    let remoteId: string | undefined;
+    let remoteId =
+      typeof (event as { response?: { id?: unknown } }).response?.id ===
+      'string'
+        ? (event as { response: { id: string } }).response.id
+        : undefined;
 
     switch (event.type) {
       case 'response.created':
@@ -1137,6 +1143,12 @@ export class AxAIOpenAIResponsesImpl<
         // For unhandled events, return empty result
         baseResult.id = 'unknown';
         break;
+    }
+
+    if (remoteId) {
+      sstate.remoteId = remoteId;
+    } else {
+      remoteId = sstate.remoteId;
     }
 
     return {

@@ -24,6 +24,15 @@ export interface RequestMetrics {
   errorTime?: number;
 }
 
+export interface AxAPIResponseMetadata {
+  requestId: string;
+  status: number;
+  statusText: string;
+  headers: Headers;
+  url: string;
+  retryCount: number;
+}
+
 // Validation Interfaces
 interface RequestValidation {
   validateRequest?: (request: unknown) => boolean | Promise<boolean>;
@@ -60,6 +69,7 @@ export interface AxAPIConfig
   retry?: Partial<RetryConfig>;
   abortSignal?: AbortSignal;
   corsProxy?: string;
+  onResponseMetadata?: (metadata: Readonly<AxAPIResponseMetadata>) => void;
   /** Whether to include request body in error messages. Defaults to true. Set to false when request may contain sensitive data or large base64 content. */
   includeRequestBodyInErrors?: boolean;
 }
@@ -699,6 +709,15 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
         },
         body: JSON.stringify(json),
         signal: combinedAbortController.signal,
+      });
+
+      api.onResponseMetadata?.({
+        requestId,
+        status: res.status,
+        statusText: res.statusText,
+        headers: res.headers,
+        url: apiUrl.href,
+        retryCount: metrics.retryCount,
       });
 
       if (timeoutId) {

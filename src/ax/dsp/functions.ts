@@ -302,6 +302,8 @@ type ProcessFunctionsArgs = {
   mem: Readonly<AxMemory>;
   sessionId?: string;
   traceId?: string;
+  traceContext?: any;
+  tracer?: any;
   span?: any;
   excludeContentFromTrace?: boolean;
   index: number;
@@ -323,6 +325,8 @@ export const processFunctions = async ({
   mem,
   sessionId,
   traceId,
+  traceContext,
+  tracer,
   span,
   excludeContentFromTrace,
   index,
@@ -384,9 +388,9 @@ export const processFunctions = async ({
     }
 
     const startedAt = Date.now();
-    const tracer = ai.getOptions().tracer ?? axGlobals.tracer;
+    const activeTracer = tracer ?? ai.getOptions().tracer ?? axGlobals.tracer;
 
-    if (!tracer) {
+    if (!activeTracer) {
       return funcProc
         .executeWithDetails(func, {
           sessionId,
@@ -490,124 +494,130 @@ export const processFunctions = async ({
         });
     }
 
-    return tracer.startActiveSpan(
-      `Tool: ${func.name}`,
-      async (toolSpan: any) => {
-        try {
-          toolSpan?.setAttributes?.({
-            'tool.name': func.name,
-            'tool.mode': 'native',
-            'function.id': func.id,
-            'session.id': sessionId ?? '',
+    const startToolSpan = (callback: (toolSpan: any) => Promise<unknown>) =>
+      traceContext
+        ? activeTracer.startActiveSpan(
+            `Tool: ${func.name}`,
+            {},
+            traceContext,
+            callback
+          )
+        : activeTracer.startActiveSpan(`Tool: ${func.name}`, callback);
+
+    return startToolSpan(async (toolSpan: any) => {
+      try {
+        toolSpan?.setAttributes?.({
+          'tool.name': func.name,
+          'tool.mode': 'native',
+          'function.id': func.id,
+          'session.id': sessionId ?? '',
+        });
+        const {
+          formatted,
+          rawResult,
+          parsedArgs,
+        }: { formatted: string; rawResult: unknown; parsedArgs: unknown } =
+          await funcProc.executeWithDetails(func, {
+            sessionId,
+            ai,
+            functionResultFormatter,
+            traceId: toolSpan?.spanContext?.().traceId ?? traceId,
+            stopFunctionNames,
+            step,
+            abortSignal,
           });
-          const {
-            formatted,
-            rawResult,
-            parsedArgs,
-          }: { formatted: string; rawResult: unknown; parsedArgs: unknown } =
-            await funcProc.executeWithDetails(func, {
-              sessionId,
-              ai,
-              functionResultFormatter,
-              traceId: toolSpan?.spanContext?.().traceId ?? traceId,
-              stopFunctionNames,
-              step,
-              abortSignal,
+
+        functionsExecuted.add(func.name.toLowerCase());
+        step?._recordFunctionCall(func.name, parsedArgs, rawResult);
+        await emitFunctionTrace(startedAt, func, {
+          args: parsedArgs,
+          result: rawResult,
+          ok: true,
+        });
+        if (stopFunctionNames?.includes(func.name.toLowerCase())) {
+          const spec = findFunctionSpec(func.name);
+          if (spec) {
+            stopMatches.push({
+              func: spec,
+              args: parsedArgs as any,
+              result: rawResult,
             });
-
-          functionsExecuted.add(func.name.toLowerCase());
-          step?._recordFunctionCall(func.name, parsedArgs, rawResult);
-          await emitFunctionTrace(startedAt, func, {
-            args: parsedArgs,
-            result: rawResult,
-            ok: true,
-          });
-          if (stopFunctionNames?.includes(func.name.toLowerCase())) {
-            const spec = findFunctionSpec(func.name);
-            if (spec) {
-              stopMatches.push({
-                func: spec,
-                args: parsedArgs as any,
-                result: rawResult,
-              });
-            }
           }
+        }
 
+        if (!excludeContentFromTrace) {
+          toolSpan.addEvent('gen_ai.tool.message', {
+            name: func.name,
+            args: func.args,
+            result: formatted ?? '',
+          });
+        } else {
+          toolSpan.addEvent('gen_ai.tool.message', { name: func.name });
+        }
+
+        if (span) {
+          const eventData: { name: string; args?: string; result?: string } = {
+            name: func.name,
+          };
           if (!excludeContentFromTrace) {
-            toolSpan.addEvent('gen_ai.tool.message', {
-              name: func.name,
-              args: func.args,
-              result: formatted ?? '',
-            });
-          } else {
-            toolSpan.addEvent('gen_ai.tool.message', { name: func.name });
+            eventData.args = func.args;
+            eventData.result = formatted ?? '';
           }
+          span.addEvent('function.call', eventData);
+        }
 
-          if (span) {
-            const eventData: { name: string; args?: string; result?: string } =
-              {
-                name: func.name,
-              };
-            if (!excludeContentFromTrace) {
-              eventData.args = func.args;
-              eventData.result = formatted ?? '';
-            }
-            span.addEvent('function.call', eventData);
+        return {
+          result: formatted ?? '',
+          role: 'function' as const,
+          functionId: func.id,
+          index,
+        };
+      } catch (e) {
+        toolSpan?.recordException?.(e as Error);
+        if (e instanceof FunctionError) {
+          const result = e.getFixingInstructions();
+          await emitFunctionTrace(startedAt, func, {
+            args: parseTraceArgs(func),
+            result,
+            ok: false,
+          });
+          const errorEventData: {
+            name: string;
+            args?: string;
+            message: string;
+            fixing_instructions?: string;
+          } = {
+            name: func.name,
+            message: e.toString(),
+          };
+          if (!excludeContentFromTrace) {
+            errorEventData.args = func.args;
+            errorEventData.fixing_instructions = result;
+          }
+          toolSpan?.addEvent?.('function.error', errorEventData);
+
+          if (debug) {
+            logFunctionError(e, index, result, logger);
           }
 
           return {
-            result: formatted ?? '',
-            role: 'function' as const,
             functionId: func.id,
+            isError: true,
             index,
+            result,
+            role: 'function' as const,
           };
-        } catch (e) {
-          toolSpan?.recordException?.(e as Error);
-          if (e instanceof FunctionError) {
-            const result = e.getFixingInstructions();
-            await emitFunctionTrace(startedAt, func, {
-              args: parseTraceArgs(func),
-              result,
-              ok: false,
-            });
-            const errorEventData: {
-              name: string;
-              args?: string;
-              message: string;
-              fixing_instructions?: string;
-            } = {
-              name: func.name,
-              message: e.toString(),
-            };
-            if (!excludeContentFromTrace) {
-              errorEventData.args = func.args;
-              errorEventData.fixing_instructions = result;
-            }
-            toolSpan?.addEvent?.('function.error', errorEventData);
-
-            if (debug) {
-              logFunctionError(e, index, result, logger);
-            }
-
-            return {
-              functionId: func.id,
-              isError: true,
-              index,
-              result,
-              role: 'function' as const,
-            };
-          }
-          await emitFunctionTrace(startedAt, func, {
-            args: parseTraceArgs(func),
-            result: e,
-            ok: false,
-          });
-          throw e;
-        } finally {
-          toolSpan?.end?.();
         }
+        await emitFunctionTrace(startedAt, func, {
+          args: parseTraceArgs(func),
+          result: e,
+          ok: false,
+        });
+        throw e;
+      } finally {
+        toolSpan?.end?.();
       }
-    );
+    });
   });
 
   // Wait for all promises to resolve

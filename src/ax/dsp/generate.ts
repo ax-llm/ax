@@ -6,6 +6,8 @@ import {
   type Meter,
   type Span,
   SpanKind,
+  SpanStatusCode,
+  type Tracer,
   trace,
 } from '@opentelemetry/api';
 
@@ -17,6 +19,7 @@ import {
 import type {
   AxAIService,
   AxChatRequest,
+  AxChatResponse,
   AxChatResponseResult,
   AxFunction,
   AxLoggerFunction,
@@ -127,6 +130,8 @@ export interface AxResponseHandlerArgs<T> {
   mem: AxAIMemory;
   sessionId?: string;
   traceId?: string;
+  traceContext?: Context;
+  tracer?: Tracer;
   functions: Readonly<AxFunction[]>;
   strictMode?: boolean;
   span?: Span;
@@ -155,6 +160,15 @@ export type InternalAxGenState = {
   functionCalls: NonNullable<AxChatResponseResult['functionCalls']>;
   xstate: extractionState;
 };
+
+type AxChatResponseLogMetadata = Pick<
+  AxChatResponse,
+  | 'sessionId'
+  | 'remoteId'
+  | 'remoteRequestId'
+  | 'remoteSessionId'
+  | 'providerMetadata'
+>;
 
 export class AxGen<IN = any, OUT extends AxGenOut = any>
   extends AxProgram<IN, OUT>
@@ -708,6 +722,46 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     return this.chatLog;
   }
 
+  private captureChatResponseLogMetadata(
+    metadata: AxChatResponseLogMetadata,
+    res: Readonly<AxChatResponse>
+  ): void {
+    metadata.sessionId = res.sessionId ?? metadata.sessionId;
+    metadata.remoteId = res.remoteId ?? metadata.remoteId;
+    metadata.remoteRequestId = res.remoteRequestId ?? metadata.remoteRequestId;
+    metadata.remoteSessionId = res.remoteSessionId ?? metadata.remoteSessionId;
+    if (res.providerMetadata) {
+      metadata.providerMetadata = {
+        ...(metadata.providerMetadata ?? {}),
+      };
+      for (const [provider, providerMetadata] of Object.entries(
+        res.providerMetadata
+      )) {
+        metadata.providerMetadata[provider] = {
+          ...(metadata.providerMetadata[provider] ?? {}),
+          ...providerMetadata,
+        };
+      }
+    }
+  }
+
+  private applyChatResponseLogMetadata(
+    entry: AxChatLogEntry,
+    metadata: Readonly<AxChatResponseLogMetadata>
+  ): void {
+    if (metadata.sessionId) entry.sessionId = metadata.sessionId;
+    if (metadata.remoteId) entry.remoteId = metadata.remoteId;
+    if (metadata.remoteRequestId) {
+      entry.remoteRequestId = metadata.remoteRequestId;
+    }
+    if (metadata.remoteSessionId) {
+      entry.remoteSessionId = metadata.remoteSessionId;
+    }
+    if (metadata.providerMetadata) {
+      entry.providerMetadata = metadata.providerMetadata;
+    }
+  }
+
   /**
    * Normalize internal chatPrompt messages to standard training format.
    * If functions are provided, appends a <tools> JSON block to the system prompt.
@@ -959,6 +1013,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         })()
       : undefined;
 
+    const responseMetadata: AxChatResponseLogMetadata = {};
+
     // Save original functions for chat log before zeroing out for prompt mode.
     // Filter out internal synthetic functions (e.g. __finalResult).
     const logFunctions = functions.filter(
@@ -1028,7 +1084,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
           }))
         : functions;
 
-    const res = await ai.chat(
+    let res = await ai.chat(
       {
         chatPrompt,
         // Do not send native functions to the provider when emulating via prompt mode
@@ -1051,7 +1107,10 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         thinkingTokenBudget,
         showThoughts,
         traceContext,
-        abortSignal: options?.abortSignal ?? axGlobals.abortSignal,
+        abortSignal: mergeAbortSignals(
+          options?.abortSignal,
+          axGlobals.abortSignal
+        ),
         stepIndex,
         logger,
         functionCallMode:
@@ -1061,6 +1120,20 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         customLabels: options?.customLabels,
       }
     );
+
+    if (res instanceof ReadableStream) {
+      const source = res;
+      res = source.pipeThrough(
+        new TransformStream<AxChatResponse, AxChatResponse>({
+          transform: (chunk, controller) => {
+            this.captureChatResponseLogMetadata(responseMetadata, chunk);
+            controller.enqueue(chunk);
+          },
+        })
+      );
+    } else {
+      this.captureChatResponseLogMetadata(responseMetadata, res);
+    }
 
     // Capture chat log entry
     const logMessages = this.normalizeChatMessages(chatPrompt, logFunctions);
@@ -1074,6 +1147,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       this.chatLog.push({
         model: modelStr,
         messages: logMessages,
+        ...responseMetadata,
         modelUsage: res.modelUsage,
       });
     } else {
@@ -1081,10 +1155,11 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       this.chatLog.push({
         model: modelStr,
         messages: logMessages,
+        ...responseMetadata,
       });
     }
 
-    return { res, debugPromptMetrics };
+    return { res, debugPromptMetrics, responseMetadata };
   }
 
   private async *forwardCore({
@@ -1127,6 +1202,11 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
     const debug = this.isDebug(ai, options);
     const logger = this.getLogger(ai, options);
+    const activeTracer =
+      options?.tracer ??
+      this.options?.tracer ??
+      ai.getOptions().tracer ??
+      axGlobals.tracer;
 
     // Pass the function call mode directly to createFunctionConfig
     let { functions, functionCall } = createFunctionConfig(
@@ -1151,16 +1231,17 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       }
     }
 
-    const { res, debugPromptMetrics } = await this.forwardSendRequest({
-      ai,
-      values,
-      mem,
-      options,
-      traceContext,
-      functions,
-      functionCall,
-      stepIndex,
-    });
+    const { res, debugPromptMetrics, responseMetadata } =
+      await this.forwardSendRequest({
+        ai,
+        values,
+        mem,
+        options,
+        traceContext,
+        functions,
+        functionCall,
+        stepIndex,
+      });
 
     if (res instanceof ReadableStream) {
       yield* processStreamingResponse<OUT>({
@@ -1170,6 +1251,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         mem,
         sessionId,
         traceId: span ? (span as any).spanContext?.().traceId : undefined,
+        traceContext,
+        tracer: activeTracer,
         functions,
         strictMode,
         span,
@@ -1203,6 +1286,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       // output field (not native extended thinking) and would be duplicated.
       const lastLogEntry = this.chatLog[this.chatLog.length - 1];
       if (lastLogEntry) {
+        this.applyChatResponseLogMetadata(lastLogEntry, responseMetadata);
         for (const state of states) {
           lastLogEntry.messages.push(
             this.buildAssistantLogMessage({
@@ -1228,6 +1312,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         mem,
         sessionId,
         traceId: span ? (span as any).spanContext?.().traceId : undefined,
+        traceContext,
+        tracer: activeTracer,
         functions,
         span,
         strictMode,
@@ -1493,7 +1579,10 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     };
 
     // Resolve the effective abort signal once at method start
-    const effectiveAbortSignal = options?.abortSignal ?? axGlobals.abortSignal;
+    const effectiveAbortSignal = mergeAbortSignals(
+      options?.abortSignal,
+      axGlobals.abortSignal
+    );
 
     multiStepLoop: for (let n = 0; n < maxSteps; n++) {
       // Begin new step on the context
@@ -2285,7 +2374,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     }
     const effectiveAbortSignal = mergeAbortSignals(
       abortController.signal,
-      options?.abortSignal ?? axGlobals.abortSignal
+      mergeAbortSignals(options?.abortSignal, axGlobals.abortSignal)
     );
     const effectiveOptions = effectiveAbortSignal
       ? { ...options, abortSignal: effectiveAbortSignal }
@@ -2311,7 +2400,10 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       }
 
       const tracer =
-        options?.tracer ?? this.options?.tracer ?? ai.getOptions().tracer;
+        options?.tracer ??
+        this.options?.tracer ??
+        ai.getOptions().tracer ??
+        axGlobals.tracer;
 
       let functions: AxFunction[] | undefined = this.functions;
 
@@ -2384,6 +2476,14 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
             content: JSON.stringify(values, null, 2),
           });
         }
+      } catch (error) {
+        const err = error instanceof Error ? error : new Error(String(error));
+        span.recordException(err);
+        span.setStatus({
+          code: SpanStatusCode.ERROR,
+          message: err.message,
+        });
+        throw error;
       } finally {
         span.end();
       }
@@ -2753,8 +2853,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     return (
       options?.debug ??
       this.options?.debug ??
-      axGlobals.debug ??
       ai.getOptions().debug ??
+      axGlobals.debug ??
       false
     );
   }
@@ -2766,6 +2866,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     return (
       options?.logger ??
       this.options?.logger ??
+      ai.getOptions().logger ??
       axGlobals.logger ??
       ai.getLogger()
     );

@@ -72,27 +72,28 @@ export interface AxAIMetricsInstruments {
 
 // Singleton instance for AI metrics instruments
 let globalAIMetricsInstruments: AxAIMetricsInstruments | undefined;
+let globalAIMetricsMeter: Meter | undefined;
 
 // Function to get or create AI metrics instruments (singleton pattern)
 export const getOrCreateAIMetricsInstruments = (
   meter?: Meter
 ): AxAIMetricsInstruments | undefined => {
-  // Return existing instance if available
-  if (globalAIMetricsInstruments) {
+  if (!meter) {
     return globalAIMetricsInstruments;
   }
 
-  if (meter) {
+  if (!globalAIMetricsInstruments || globalAIMetricsMeter !== meter) {
     globalAIMetricsInstruments = createMetricsInstruments(meter);
-    return globalAIMetricsInstruments;
+    globalAIMetricsMeter = meter;
   }
 
-  return undefined;
+  return globalAIMetricsInstruments;
 };
 
 // Function to reset the AI metrics singleton (useful for testing)
 export const resetAIMetricsInstruments = (): void => {
   globalAIMetricsInstruments = undefined;
+  globalAIMetricsMeter = undefined;
 };
 
 export const createMetricsInstruments = (
