@@ -45,6 +45,21 @@ providers with one line. No rewrites needed.
 Stop tweaking prompts. Define inputs → outputs. The framework generates optimal
 prompts automatically.
 
+### ⚡ **Provider-Native Speed**
+
+Ax stays in the same latency class as direct provider calls while adding typed
+outputs, validation, retries, tracing, and tools. Streaming is the default so Ax
+can parse fields as they arrive, fail early on streaming assertions, cancel bad
+outputs, and start correction without wasting tokens on completions that are
+already invalid.
+
+Benchmark the current code against your own providers:
+
+```bash
+AX_STREAM_BENCH_PROVIDER=anthropic AX_STREAM_BENCH_MODEL=claude-sonnet-4-5-20250929 AX_STREAM_BENCH_RUNS=2 AX_STREAM_BENCH_WARMUP_RUNS=0 npm run tsx src/examples/streaming-latency.ts
+AX_STREAM_BENCH_PROVIDER=google-gemini AX_STREAM_BENCH_MODEL=gemini-2.5-flash AX_STREAM_BENCH_RUNS=2 AX_STREAM_BENCH_WARMUP_RUNS=0 npm run tsx src/examples/streaming-latency.ts
+```
+
 ### 🛡️ **Production-Ready from Day One**
 
 Built-in streaming, validation, error handling, observability. Used by startups

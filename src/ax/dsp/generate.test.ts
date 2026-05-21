@@ -6,6 +6,7 @@ import { AxMockAIService } from '../ai/mock/api.js';
 import type { AxChatResponse } from '../ai/types.js';
 import { AxGen } from './generate.js';
 import { axGlobals } from './globals.js';
+import { AxPromptTemplate } from './prompt.js';
 import { AxSignature } from './sig.js';
 import type { AxProgramForwardOptions } from './types.js';
 
@@ -139,6 +140,48 @@ describe('AxGen forward and streamingForward', () => {
       { stream: false }
     );
     expect(response).toEqual({ modelAnswer: 'Non-stream response' });
+  });
+
+  it('renders the initial prompt once for the first request', async () => {
+    class CountingPromptTemplate extends AxPromptTemplate {
+      static renderCount = 0;
+
+      constructor(...args: ConstructorParameters<typeof AxPromptTemplate>) {
+        super(...args);
+        const render = this.render.bind(this);
+        const renderWithMetrics = this.renderWithMetrics.bind(this);
+        this.render = (...renderArgs) => {
+          CountingPromptTemplate.renderCount++;
+          return render(...renderArgs);
+        };
+        this.renderWithMetrics = (...renderArgs) => {
+          CountingPromptTemplate.renderCount++;
+          return renderWithMetrics(...renderArgs);
+        };
+      }
+    }
+
+    const ai = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: {
+        results: [
+          {
+            index: 0,
+            content: 'Model Answer: counted response',
+            finishReason: 'stop',
+          },
+        ],
+      },
+    });
+    const gen = new AxGen<{ userQuestion: string }, { modelAnswer: string }>(
+      signature,
+      { promptTemplate: CountingPromptTemplate }
+    );
+
+    CountingPromptTemplate.renderCount = 0;
+    await gen.forward(ai, { userQuestion: 'test' }, { stream: false });
+
+    expect(CountingPromptTemplate.renderCount).toBe(1);
   });
 
   it('uses axGlobals.tracer set after construction for forward spans', async () => {

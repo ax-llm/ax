@@ -81,6 +81,47 @@ describe('getUsage citations aggregation', () => {
     ]);
   });
 
+  it('non-streaming: records one model usage entry for multi-sample responses', async () => {
+    const gen = new AxGen<{ userQuestion: string }, { responseText: string }>(
+      'userQuestion:string -> responseText:string'
+    );
+
+    const ai = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: {
+        results: [
+          {
+            index: 0,
+            content: 'Response Text: first',
+            finishReason: 'stop',
+          },
+          {
+            index: 1,
+            content: 'Response Text: second',
+            finishReason: 'stop',
+          },
+        ],
+        modelUsage: {
+          ai: 'test-ai',
+          model: 'test-model',
+          tokens: {
+            promptTokens: 10,
+            completionTokens: 20,
+            totalTokens: 30,
+          },
+        },
+      },
+    });
+
+    await gen.forward(ai, { userQuestion: 'hi' }, { sampleCount: 2 });
+
+    const usage = gen.getUsage();
+    expect(usage).toHaveLength(1);
+    expect(usage[0]?.tokens?.promptTokens).toBe(10);
+    expect(usage[0]?.tokens?.completionTokens).toBe(20);
+    expect(usage[0]?.tokens?.totalTokens).toBe(30);
+  });
+
   it('streaming: aggregates across chunks and dedupes', async () => {
     const gen = new AxGen<{ userQuestion: string }, { responseText: string }>(
       'userQuestion:string -> responseText:string'

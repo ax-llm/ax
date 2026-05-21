@@ -7,7 +7,6 @@ import {
   type Span,
   SpanKind,
   SpanStatusCode,
-  type Tracer,
   trace,
 } from '@opentelemetry/api';
 
@@ -22,7 +21,6 @@ import type {
   AxChatResponse,
   AxChatResponseResult,
   AxFunction,
-  AxLoggerFunction,
 } from '../ai/types.js';
 import { AxMemory } from '../mem/memory.js';
 import type { AxAIMemory } from '../mem/types.js';
@@ -49,7 +47,6 @@ import {
   handleValidationErrorForGenerate,
   ValidationError,
 } from './errors.js';
-import type { extractionState } from './extract.js';
 import { validateStructuredOutputValues } from './extract.js';
 import {
   type AxFieldProcessor,
@@ -88,6 +85,8 @@ import {
 } from './processResponse.js';
 import { AxProgram } from './program.js';
 import { AxPromptTemplate, type AxRenderedPrompt } from './prompt.js';
+import { areValuesEqual } from './response/structuredDelta.js';
+import type { InternalAxGenState } from './response/types.js';
 import { selectFromSamples, selectFromSamplesInMemory } from './samples.js';
 import { createSelfTuningFunction } from './selfTuning.js';
 import { type AxIField, AxSignature, type AxSignatureConfig } from './sig.js';
@@ -97,7 +96,6 @@ import type {
   AsyncGenDeltaOut,
   AxChatLogEntry,
   AxChatLogMessage,
-  AxFunctionCallTrace,
   AxGenDeltaOut,
   AxGenOut,
   AxGenStreamingOut,
@@ -119,28 +117,14 @@ import {
 
 const STRUCTURED_OUTPUT_FUNCTION_NAME = '__finalResult';
 
+export type {
+  AxResponseHandlerArgs,
+  InternalAxGenState,
+} from './response/types.js';
+
 export type AxGenerateResult<OUT> = OUT & {
   thought?: string;
 };
-
-export interface AxResponseHandlerArgs<T> {
-  ai: Readonly<AxAIService>;
-  model?: string;
-  res: T;
-  mem: AxAIMemory;
-  sessionId?: string;
-  traceId?: string;
-  traceContext?: Context;
-  tracer?: Tracer;
-  functions: Readonly<AxFunction[]>;
-  strictMode?: boolean;
-  span?: Span;
-  logger: AxLoggerFunction;
-  debugPromptMetrics?: Readonly<AxPromptMetrics>;
-  onFunctionCall?: (
-    call: Readonly<AxFunctionCallTrace>
-  ) => void | Promise<void>;
-}
 
 export interface AxStreamingEvent<T> {
   event: 'delta' | 'done' | 'error';
@@ -151,15 +135,6 @@ export interface AxStreamingEvent<T> {
     functions?: AxChatResponseFunctionCall[];
   };
 }
-
-export type InternalAxGenState = {
-  index: number;
-  values: Record<string, any>;
-  content: string;
-  functionsExecuted: Set<string>;
-  functionCalls: NonNullable<AxChatResponseResult['functionCalls']>;
-  xstate: extractionState;
-};
 
 type AxChatResponseLogMetadata = Pick<
   AxChatResponse,
@@ -902,6 +877,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     functions,
     functionCall,
     stepIndex,
+    preRenderedPrompt,
   }: Readonly<{
     ai: Readonly<AxAIService>;
     values: IN;
@@ -911,6 +887,10 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     functions: AxFunction[];
     functionCall: AxChatRequest['functionCall'] | undefined;
     stepIndex?: number;
+    preRenderedPrompt?: {
+      prompt: AxChatRequest['chatPrompt'];
+      promptMetrics?: AxPromptMetrics;
+    };
   }>) {
     const {
       sessionId,
@@ -929,7 +909,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     });
 
     const { prompt: basePrompt, promptMetrics: basePromptMetrics } =
-      await this.renderPromptWithMetricsForInternalUse(
+      preRenderedPrompt ??
+      (await this.renderPromptWithMetricsForInternalUse(
         ai,
         values as any,
         {
@@ -937,7 +918,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
           sessionId,
         },
         functions
-      );
+      ));
     const chatPrompt = mem?.history(selectedIndex, sessionId) ?? basePrompt;
 
     // Replace the system message in memory history with the freshly rendered one.
@@ -1173,6 +1154,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     states,
     stopFunctionNames,
     stepContext,
+    preRenderedPrompt,
   }: Readonly<{
     ai: Readonly<AxAIService>;
     values: IN;
@@ -1184,6 +1166,10 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     states: InternalAxGenState[];
     stopFunctionNames?: readonly string[];
     stepContext?: AxStepContextImpl;
+    preRenderedPrompt?: {
+      prompt: AxChatRequest['chatPrompt'];
+      promptMetrics?: AxPromptMetrics;
+    };
   }>): AsyncGenDeltaOut<OUT> {
     const { sessionId, functions: functionList } = options ?? {};
 
@@ -1241,6 +1227,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         functions,
         functionCall,
         stepIndex,
+        preRenderedPrompt,
       });
 
     if (res instanceof ReadableStream) {
@@ -1498,13 +1485,27 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     // Track prompt rendering performance
     const promptRenderStart = performance.now();
 
-    const prompt: AxChatRequest['chatPrompt'] = this.promptTemplate.render(
-      values as any,
-      {
-        examples: this.examples as any,
-        demos: this.demos as any,
-      }
-    );
+    const renderedInitialPrompt:
+      | AxRenderedPrompt
+      | { chatPrompt: AxChatRequest['chatPrompt'] } =
+      'renderWithMetrics' in this.promptTemplate &&
+      typeof this.promptTemplate.renderWithMetrics === 'function'
+        ? this.promptTemplate.renderWithMetrics(values as any, {
+            examples: this.examples as any,
+            demos: this.demos as any,
+          })
+        : {
+            chatPrompt: this.promptTemplate.render(values as any, {
+              examples: this.examples as any,
+              demos: this.demos as any,
+            }),
+          };
+
+    const prompt = renderedInitialPrompt.chatPrompt;
+    const promptMetrics =
+      'promptMetrics' in renderedInitialPrompt
+        ? renderedInitialPrompt.promptMetrics
+        : undefined;
 
     const promptRenderDuration = performance.now() - promptRenderStart;
 
@@ -1656,6 +1657,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
               s.functionCalls = [];
               s.functionsExecuted = new Set<string>();
               s.xstate = { extractedFields: [], streamedIndex: {}, s: -1 };
+              s.structuredAccumulator = undefined;
             });
 
             // Reset committed values on retry so all values are re-emitted in new version
@@ -1683,6 +1685,10 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
                 states,
                 stopFunctionNames,
                 stepContext,
+                preRenderedPrompt:
+                  n === 0 && errCount === 0 && !stepHooks?.beforeStep
+                    ? { prompt, promptMetrics }
+                    : undefined,
               });
 
               let stopFunctionTriggered = false;
@@ -1762,9 +1768,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
                         // If val is subset of committed (replay), do nothing.
                       } else {
                         // Other types (boolean, number, object), yield if changed
-                        if (
-                          JSON.stringify(val) !== JSON.stringify(committedVal)
-                        ) {
+                        if (!areValuesEqual(val, committedVal)) {
                           (effectiveDelta as any)[key] = val;
                           hasEffectiveDelta = true;
                           committed[key] = val;
@@ -2047,6 +2051,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
                       streamedIndex: {},
                       s: -1,
                     };
+                    state.structuredAccumulator = undefined;
                   }
                 }
               }

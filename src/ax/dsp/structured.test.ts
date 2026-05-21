@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 
 import { AxMockAIService } from '../ai/mock/api.js';
 import { f } from './sig.js';
@@ -307,6 +308,353 @@ describe('Structured Outputs', () => {
     // If the chunks are full JSONs, then parsePartialJson returns them fully.
 
     // Let's see the chunks first.
+  });
+
+  it('should reject streamed structured values that fail final validation', async () => {
+    const sig = f()
+      .input('question', f.string())
+      .output(
+        'user',
+        f.object({
+          username: f.string().min(5),
+        })
+      )
+      .build();
+
+    const gen = ax(sig);
+    const mockAI = new AxMockAIService({
+      name: 'mock',
+      features: { functions: true, streaming: true, structuredOutputs: true },
+    });
+
+    mockAI.chat = async (_req, options) => {
+      if (options?.stream) {
+        return new ReadableStream({
+          start(controller) {
+            controller.enqueue({
+              results: [
+                {
+                  index: 0,
+                  content: JSON.stringify({ user: { username: 'abc' } }),
+                },
+              ],
+            });
+            controller.close();
+          },
+        }) as ReturnType<typeof mockAI.chat>;
+      }
+      return { results: [] };
+    };
+
+    await expect(
+      gen.forward(mockAI, { question: 'test' }, { stream: true, maxRetries: 0 })
+    ).rejects.toThrow(/at least 5 characters/);
+  });
+
+  it('should apply standard schema transforms during structured streaming', async () => {
+    const sig = f()
+      .input('question', f.string())
+      .output(
+        'code',
+        z
+          .string()
+          .transform((value) => value.trim().toUpperCase())
+          .refine((value) => value === 'OK', 'Must be OK')
+      )
+      .build();
+
+    const gen = ax(sig);
+    const mockAI = new AxMockAIService({
+      name: 'mock',
+      features: { functions: true, streaming: true, structuredOutputs: true },
+    });
+
+    mockAI.chat = async (_req, options) => {
+      if (options?.stream) {
+        return new ReadableStream({
+          start(controller) {
+            controller.enqueue({
+              results: [
+                {
+                  index: 0,
+                  content: 'Code: ok',
+                },
+              ],
+            });
+            controller.close();
+          },
+        }) as ReturnType<typeof mockAI.chat>;
+      }
+      return { results: [] };
+    };
+
+    const result = await gen.forward(
+      mockAI,
+      { question: 'test' },
+      {
+        stream: true,
+      }
+    );
+
+    expect(result.code).toBe('OK');
+  });
+
+  it('should apply standard schema transforms during structured JSON streaming', async () => {
+    const sig = f()
+      .input('question', f.string())
+      .output(
+        'code',
+        z
+          .string()
+          .transform((value) => value.trim().toUpperCase())
+          .refine((value) => value === 'OK', 'Must be OK')
+      )
+      .useStructured()
+      .build();
+
+    const gen = ax(sig);
+    const mockAI = new AxMockAIService({
+      name: 'mock',
+      features: { functions: true, streaming: true, structuredOutputs: true },
+    });
+
+    mockAI.chat = async (_req, options) => {
+      if (options?.stream) {
+        return new ReadableStream({
+          start(controller) {
+            controller.enqueue({
+              results: [
+                {
+                  index: 0,
+                  content: JSON.stringify({ code: ' ok ' }),
+                },
+              ],
+            });
+            controller.close();
+          },
+        }) as ReturnType<typeof mockAI.chat>;
+      }
+      return { results: [] };
+    };
+
+    const result = await gen.forward(
+      mockAI,
+      { question: 'test' },
+      { stream: true }
+    );
+
+    expect(result.code).toBe('OK');
+  });
+
+  it('should not stream raw encoded strings for flexible json fields', async () => {
+    const sig = f()
+      .input('question', f.string())
+      .output('payload', f.json())
+      .useStructured()
+      .build();
+
+    const gen = ax(sig);
+    const mockAI = new AxMockAIService({
+      name: 'mock',
+      features: { functions: true, streaming: true, structuredOutputs: true },
+    });
+    const fullJson = JSON.stringify({
+      payload: JSON.stringify({ answer: 42 }),
+    });
+    const chunks = [fullJson.slice(0, 20), fullJson.slice(20)];
+
+    mockAI.chat = async (_req, options) => {
+      if (options?.stream) {
+        return new ReadableStream({
+          start(controller) {
+            for (const chunk of chunks) {
+              controller.enqueue({
+                results: [{ index: 0, content: chunk }],
+              });
+            }
+            controller.close();
+          },
+        }) as ReturnType<typeof mockAI.chat>;
+      }
+      return { results: [] };
+    };
+
+    const deltas: unknown[] = [];
+    for await (const chunk of gen.streamingForward(mockAI, {
+      question: 'test',
+    })) {
+      deltas.push(chunk.delta.payload);
+    }
+
+    expect(deltas.some((delta) => typeof delta === 'string')).toBe(false);
+    expect(deltas).toContainEqual({ answer: 42 });
+  });
+
+  it('should stream sibling fields while flexible json fields are incomplete', async () => {
+    const sig = f()
+      .input('question', f.string())
+      .output('action', f.string())
+      .output('payload', f.json())
+      .useStructured()
+      .build();
+
+    const gen = ax(sig);
+    const mockAI = new AxMockAIService({
+      name: 'mock',
+      features: { functions: true, streaming: true, structuredOutputs: true },
+    });
+    const action = `go-${'x'.repeat(180)}`;
+    const firstChunk = `{"action":${JSON.stringify(action)},"payload":"{\\"answer`;
+    const fullJson = JSON.stringify({
+      action,
+      payload: JSON.stringify({ answer: 42 }),
+    });
+    const chunks = [firstChunk, fullJson.slice(firstChunk.length)];
+
+    mockAI.chat = async (_req, options) => {
+      if (options?.stream) {
+        return new ReadableStream({
+          start(controller) {
+            for (const chunk of chunks) {
+              controller.enqueue({
+                results: [{ index: 0, content: chunk }],
+              });
+            }
+            controller.close();
+          },
+        }) as ReturnType<typeof mockAI.chat>;
+      }
+      return { results: [] };
+    };
+
+    const deltas: Array<Record<string, unknown>> = [];
+    for await (const chunk of gen.streamingForward(mockAI, {
+      question: 'test',
+    })) {
+      deltas.push(chunk.delta);
+    }
+
+    expect(deltas).toContainEqual({ action });
+    expect(deltas.some((delta) => typeof delta.payload === 'string')).toBe(
+      false
+    );
+    expect(deltas.some((delta) => delta.payload)).toBe(true);
+  });
+
+  it('should preserve empty arrays from complete structured stream chunks', async () => {
+    const sig = f()
+      .input('question', f.string())
+      .output('tags', f.string().array())
+      .useStructured()
+      .build();
+
+    const gen = ax(sig);
+    const mockAI = new AxMockAIService({
+      name: 'mock',
+      features: { functions: true, streaming: true, structuredOutputs: true },
+    });
+
+    mockAI.chat = async (_req, options) => {
+      if (options?.stream) {
+        return new ReadableStream({
+          start(controller) {
+            controller.enqueue({
+              results: [
+                {
+                  index: 0,
+                  content: JSON.stringify({ tags: [] }),
+                },
+              ],
+            });
+            controller.close();
+          },
+        }) as ReturnType<typeof mockAI.chat>;
+      }
+      return { results: [] };
+    };
+
+    const result = await gen.forward(
+      mockAI,
+      { question: 'test' },
+      { stream: true }
+    );
+
+    expect(result.tags).toEqual([]);
+  });
+
+  it('should reject structured streams that finish because of length', async () => {
+    const sig = f()
+      .input('question', f.string())
+      .output('action', f.string())
+      .useStructured()
+      .build();
+
+    const gen = ax(sig);
+    const mockAI = new AxMockAIService({
+      name: 'mock',
+      features: { functions: true, streaming: true, structuredOutputs: true },
+    });
+
+    mockAI.chat = async (_req, options) => {
+      if (options?.stream) {
+        return new ReadableStream({
+          start(controller) {
+            controller.enqueue({
+              results: [
+                {
+                  index: 0,
+                  content: JSON.stringify({ action: 'continue' }),
+                  finishReason: 'length',
+                },
+              ],
+            });
+            controller.close();
+          },
+        }) as ReturnType<typeof mockAI.chat>;
+      }
+      return { results: [] };
+    };
+
+    await expect(
+      gen.forward(mockAI, { question: 'test' }, { stream: true, maxRetries: 0 })
+    ).rejects.toThrow(/Max tokens reached/);
+  });
+
+  it('should reject non-object structured stream payloads', async () => {
+    const sig = f()
+      .input('question', f.string())
+      .output('answer', f.string())
+      .useStructured()
+      .build();
+
+    const gen = ax(sig);
+    const mockAI = new AxMockAIService({
+      name: 'mock',
+      features: { functions: true, streaming: true, structuredOutputs: true },
+    });
+
+    mockAI.chat = async (_req, options) => {
+      if (options?.stream) {
+        return new ReadableStream({
+          start(controller) {
+            controller.enqueue({
+              results: [
+                {
+                  index: 0,
+                  content: JSON.stringify('not an object'),
+                },
+              ],
+            });
+            controller.close();
+          },
+        }) as ReturnType<typeof mockAI.chat>;
+      }
+      return { results: [] };
+    };
+
+    await expect(
+      gen.forward(mockAI, { question: 'test' }, { stream: true, maxRetries: 0 })
+    ).rejects.toThrow(/JSON object/);
   });
 
   describe('Streaming array of objects', () => {
