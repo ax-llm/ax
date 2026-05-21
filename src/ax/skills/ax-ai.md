@@ -86,6 +86,23 @@ console.log(res.results[0]?.content);
 - `functionCallMode`: `'auto'` | `'native'` | `'prompt'`
 - `debug`, `logger`, `tracer`, `rateLimiter`, `timeout`
 
+## DeepSeek Notes
+
+```typescript
+import { ai, AxAIDeepSeekModel } from '@ax-llm/ax';
+
+const deepseek = ai({
+  name: 'deepseek',
+  apiKey: process.env.DEEPSEEK_APIKEY!,
+  config: { model: AxAIDeepSeekModel.DeepSeekV4Pro },
+});
+```
+
+DeepSeek V4 thinking models support tools, but reject the `tool_choice`
+request parameter. Ax omits forced/auto tool choice for `deepseek-v4-pro`,
+`deepseek-v4-flash`, and `deepseek-reasoner` while still sending tool
+definitions.
+
 ## Extended Thinking
 
 ```typescript

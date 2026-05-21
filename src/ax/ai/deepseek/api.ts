@@ -3,7 +3,10 @@ import {
   axBaseAIDefaultCreativeConfig,
 } from '../base.js';
 import { type AxAIOpenAIArgs, AxAIOpenAIBase } from '../openai/api.js';
-import type { AxAIOpenAIConfig } from '../openai/chat_types.js';
+import type {
+  AxAIOpenAIChatRequest,
+  AxAIOpenAIConfig,
+} from '../openai/chat_types.js';
 
 import { axModelInfoDeepSeek } from './info.js';
 import { AxAIDeepSeekModel } from './types.js';
@@ -12,6 +15,33 @@ import { AxAIDeepSeekModel } from './types.js';
  * Configuration type for DeepSeek AI models
  */
 type DeepSeekConfig = AxAIOpenAIConfig<AxAIDeepSeekModel, undefined>;
+
+const axAIDeepSeekSupportsToolChoice = (model: unknown): boolean => {
+  switch (String(model)) {
+    case AxAIDeepSeekModel.DeepSeekV4Flash:
+    case AxAIDeepSeekModel.DeepSeekV4Pro:
+    case AxAIDeepSeekModel.DeepSeekReasoner:
+      return false;
+    default:
+      return true;
+  }
+};
+
+const axAIDeepSeekChatReqUpdater = <TModel>(
+  req: Readonly<AxAIOpenAIChatRequest<TModel>>
+): AxAIOpenAIChatRequest<TModel> => {
+  const nextReq = { ...req };
+
+  if (axAIDeepSeekSupportsToolChoice(req.model)) {
+    return nextReq;
+  }
+
+  if (nextReq.tool_choice === 'none') {
+    delete nextReq.tools;
+  }
+  delete nextReq.tool_choice;
+  return nextReq;
+};
 
 /**
  * Creates the default configuration for DeepSeek AI with the chat model
@@ -87,6 +117,7 @@ export class AxAIDeepSeek<TModelKey> extends AxAIOpenAIBase<
       options,
       apiURL: 'https://api.deepseek.com',
       modelInfo,
+      chatReqUpdater: axAIDeepSeekChatReqUpdater,
       supportFor: {
         functions: true,
         streaming: true,
