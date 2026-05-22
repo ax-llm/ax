@@ -194,6 +194,16 @@ const formatEvent = (event: AxAgentContextEvent): string => {
     ].join(' | ');
   }
 
+  if (event.kind === 'action_compacted') {
+    return [
+      `${event.stage} turn ${event.turn}`,
+      event.kind,
+      `mode=${event.mode}`,
+      `reason=${event.reason}`,
+      `chars=${event.originalChars}->${event.renderedChars}`,
+    ].join(' | ');
+  }
+
   return `${event.stage} turn ${event.turn} | ${event.kind}`;
 };
 
@@ -441,6 +451,148 @@ for (const event of clearEvents) {
   console.log(`- ${formatEvent(event)}`);
 }
 
+const hygieneEvents: AxAgentContextEvent[] = [];
+const hygieneActorPrompts: string[] = [];
+let hygieneExecutorTurnCount = 0;
+
+const verboseTestOutput = [
+  'FAILED tests/auth.test.ts::rejects_bad_token - AssertionError: expected 401 got 200',
+  ...Array.from(
+    { length: 40 },
+    (_, index) => `verbose passing test log line ${index}`
+  ),
+  '================ 94 passed, 1 failed in 3.5s ================',
+].join('\n');
+
+const hygieneMockAI = new AxMockAIService<string>({
+  features: { functions: false, streaming: false },
+  chatResponse: async (req) => {
+    const systemPrompt = getPromptText(req.chatPrompt[0]);
+    const userPrompt = getPromptText(req.chatPrompt[1]);
+
+    if (systemPrompt.includes('You (`distiller`)')) {
+      return {
+        results: [
+          {
+            index: 0,
+            content: 'Javascript Code: final("run deterministic hygiene", {})',
+            finishReason: 'stop',
+          },
+        ],
+        modelUsage: makeUsage(),
+      };
+    }
+
+    if (systemPrompt.includes('You (`executor`)')) {
+      hygieneExecutorTurnCount += 1;
+      if (hygieneExecutorTurnCount === 1) {
+        return {
+          results: [
+            {
+              index: 0,
+              content:
+                'Javascript Code: const testOutput = await runTests(); console.log(testOutput)',
+              finishReason: 'stop',
+            },
+          ],
+          modelUsage: makeUsage(),
+        };
+      }
+      if (hygieneExecutorTurnCount === 2) {
+        return {
+          results: [
+            {
+              index: 0,
+              content: 'Javascript Code: console.log("middle turn")',
+              finishReason: 'stop',
+            },
+          ],
+          modelUsage: makeUsage(),
+        };
+      }
+      hygieneActorPrompts.push(userPrompt);
+      return {
+        results: [
+          {
+            index: 0,
+            content: 'Javascript Code: final("hygiene complete", {})',
+            finishReason: 'stop',
+          },
+        ],
+        modelUsage: makeUsage(),
+      };
+    }
+
+    return {
+      results: [
+        {
+          index: 0,
+          content: 'Answer: deterministic hygiene complete',
+          finishReason: 'stop',
+        },
+      ],
+      modelUsage: makeUsage(),
+    };
+  },
+});
+
+const hygieneRuntime: AxCodeRuntime = {
+  getUsageInstructions: () =>
+    'This example runtime emits a verbose test log for deterministic hygiene checks.',
+  createSession(globals) {
+    const snapshot = (): AxCodeSessionSnapshot => ({
+      version: 1,
+      entries: [],
+      bindings: {},
+    });
+
+    return {
+      execute: async (code: string) => {
+        if (globals?.final && code.includes('final(')) {
+          (globals.final as (...args: unknown[]) => void)(
+            'hygiene complete',
+            {}
+          );
+          return 'final accepted';
+        }
+        if (code.includes('runTests')) {
+          return verboseTestOutput;
+        }
+        return 'middle turn';
+      },
+      inspectGlobals: async () => JSON.stringify(snapshot()),
+      snapshotGlobals: async () => snapshot(),
+      patchGlobals: async () => {},
+      close: () => {},
+    };
+  },
+};
+
+const hygieneAgent = agent('query:string -> answer:string', {
+  ai: hygieneMockAI,
+  contextFields: [],
+  runtime: hygieneRuntime,
+  maxTurns: 3,
+  contextPolicy: {
+    preset: 'lean',
+    budget: 'compact',
+  },
+  onContextEvent: (event) => {
+    hygieneEvents.push(event);
+  },
+});
+
+await hygieneAgent.forward(hygieneMockAI, {
+  query: 'Run tests and preserve the useful failure evidence.',
+});
+
+console.log('\nDeterministic hygiene events:');
+for (const event of hygieneEvents.filter(
+  (event) => event.kind === 'action_compacted'
+)) {
+  console.log(`- ${formatEvent(event)}`);
+}
+
 const assertScore = (condition: unknown, message: string): void => {
   if (!condition) {
     throw new Error(`Scorecard failed: ${message}`);
@@ -454,6 +606,9 @@ const checkpointPromptText = [...summarizerPrompts, ...actorPromptTexts]
 const directCallableLines = checkpointPromptText
   .split('\n')
   .filter((line) => line.startsWith('Direct callables:'));
+const hygienePromptText = hygieneActorPrompts.join('\n');
+const hygieneState = hygieneAgent.getState();
+const rawHygieneOutput = hygieneState?.actionLogEntries?.[0]?.output ?? '';
 
 assertScore(
   /pricing_rules_v2|cache key regression/i.test(result.answer),
@@ -490,6 +645,31 @@ assertScore(
     'Execution timed out while reading verbose trace'
   ),
   'failure hazard is preserved for checkpoint summarization'
+);
+assertScore(
+  hygienePromptText.includes('[DISTILLED:test-output]'),
+  'verbose structured action output is distilled in actor prompts'
+);
+assertScore(
+  hygienePromptText.includes('tests/auth.test.ts::rejects_bad_token'),
+  'failing test evidence remains visible after distillation'
+);
+assertScore(
+  !hygienePromptText.includes('verbose passing test log line 39'),
+  'verbose passing test noise is removed from actor prompt'
+);
+assertScore(
+  rawHygieneOutput.includes('verbose passing test log line 39'),
+  'raw action output remains recoverable from agent state'
+);
+assertScore(
+  hygieneEvents.some(
+    (event) =>
+      event.kind === 'action_compacted' &&
+      event.mode === 'distill' &&
+      event.reason === 'structured_output'
+  ),
+  'action_compacted event fires for deterministic distillation'
 );
 
 console.log('\nScorecard: PASS');

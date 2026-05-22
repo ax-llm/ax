@@ -31,6 +31,20 @@ export type AxAgentContextEvent =
       resolvedByTurn: number;
       source: 'deterministic' | 'model';
       summaryChars: number;
+    }
+  | {
+      kind: 'action_compacted';
+      stage: AxAgentContextStage;
+      turn: number;
+      mode: 'distill' | 'compact';
+      reason:
+        | 'structured_output'
+        | 'superseded'
+        | 'pressure'
+        | 'proactive'
+        | 'lean';
+      originalChars: number;
+      renderedChars: number;
     };
 
 export type AxAgentOnContextEvent = (

@@ -223,6 +223,7 @@ export function resolveContextPolicy(
     summarizerOptions,
     actionReplay: presetDefaults.actionReplay,
     recentFullActions: Math.max(presetDefaults.recentFullActions, 0),
+    contextHygiene: presetDefaults.contextHygiene,
     errorPruning: presetDefaults.errorPruning,
     hindsightEvaluation: presetDefaults.hindsight,
     pruneRank: presetDefaults.pruneRank,
@@ -289,6 +290,10 @@ function getContextPolicyPresetDefaults(
         stateSummary: true,
         inspect: true,
         maxEntries: 8,
+        contextHygiene: {
+          defaultMode: 'proactive' as const,
+          pressureMode: 'proactive' as const,
+        },
         checkpointsEnabled: true,
         // Trigger a checkpoint once the prompt fills to 75% of budget — leaves
         // headroom for the summarized state to fit alongside recent turns.
@@ -306,6 +311,10 @@ function getContextPolicyPresetDefaults(
         stateSummary: true,
         inspect: true,
         maxEntries: 4,
+        contextHygiene: {
+          defaultMode: 'aggressive' as const,
+          pressureMode: 'aggressive' as const,
+        },
         checkpointsEnabled: true,
         // 'lean' preset trims aggressively — checkpoint earlier (60% of budget)
         // because less prior context is retained in full form.
@@ -328,6 +337,10 @@ function getContextPolicyPresetDefaults(
         stateSummary: true,
         inspect: false,
         maxEntries: 8,
+        contextHygiene: {
+          defaultMode: 'none' as const,
+          pressureMode: 'pressure' as const,
+        },
         checkpointsEnabled: true,
         checkpointTriggerChars: budgetDefaults.targetPromptChars,
       };
@@ -341,6 +354,9 @@ function getContextPolicyPresetDefaults(
         stateSummary: false,
         inspect: false,
         maxEntries: undefined,
+        contextHygiene: {
+          defaultMode: 'none' as const,
+        },
         checkpointsEnabled: false,
         checkpointTriggerChars: undefined,
       };

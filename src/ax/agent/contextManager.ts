@@ -39,7 +39,30 @@ export type ActionLogStepKind =
   | 'finalize'
   | 'error';
 
-export type ActionReplayMode = 'full' | 'omit';
+export type ActionReplayMode = 'full' | 'distill' | 'compact' | 'omit';
+
+export type ActionLogHygieneMode =
+  | 'none'
+  | 'pressure'
+  | 'proactive'
+  | 'aggressive';
+
+export type ActionLogCompactionMode = 'distill' | 'compact';
+
+export type ActionLogCompactionReason =
+  | 'structured_output'
+  | 'superseded'
+  | 'pressure'
+  | 'proactive'
+  | 'lean';
+
+export type ActionLogCompaction = {
+  turn: number;
+  mode: ActionLogCompactionMode;
+  reason: ActionLogCompactionReason;
+  originalChars: number;
+  renderedChars: number;
+};
 
 export type ActionLogFunctionCall = {
   qualifiedName: string;
@@ -90,6 +113,10 @@ export type ContextManagementEffectiveConfig = {
   rankPruneGraceTurns: number;
   actionReplay: 'full' | 'adaptive' | 'minimal' | 'checkpointed';
   recentFullActions: number;
+  contextHygiene?: {
+    defaultMode: ActionLogHygieneMode;
+    pressureMode?: ActionLogHygieneMode;
+  };
   stateSummary: { enabled: boolean; maxEntries?: number; maxChars?: number };
   stateInspection: { enabled: boolean; contextThreshold?: number };
   checkpoints: {
@@ -106,6 +133,8 @@ export type ActionLogBuildPolicy = {
   delegatedContextSummary?: string;
   checkpointSummary?: string;
   checkpointTurns?: readonly number[];
+  hygieneMode?: ActionLogHygieneMode;
+  hygieneGraceTurns?: number;
 };
 
 export type CheckpointSummaryState = {
@@ -119,6 +148,7 @@ export type ActionLogReplayPlan = {
   checkpointEntries: ActionLogEntry[];
   historyText: string;
   historyChars: number;
+  compactions: ActionLogCompaction[];
 };
 
 export type RuntimeStateSnapshotEntry = {
@@ -490,6 +520,213 @@ export function getPromptFacingActionLogEntries(
   return [...entries];
 }
 
+function extractTestOutputSummary(output: string): string | undefined {
+  const counts = new Map<string, number>();
+  const countRegex =
+    /\b(\d+)\s+(passed|failed|failures?|errors?|skipped|xfailed|xpassed)\b/gi;
+  let match = countRegex.exec(output);
+  while (match) {
+    const count = Number.parseInt(match[1]!, 10);
+    const label = match[2]!.toLowerCase().replace(/s$/, '');
+    counts.set(label, (counts.get(label) ?? 0) + count);
+    match = countRegex.exec(output);
+  }
+
+  if (counts.size === 0) {
+    return undefined;
+  }
+
+  const lines = output.split('\n');
+  const failingTests = uniqueNonEmpty(
+    lines
+      .map((line) => {
+        const trimmed = line.trim();
+        return (
+          trimmed.match(/^FAILED\s+([^\s]+)/)?.[1] ??
+          trimmed.match(/^FAIL\s+([^\s]+)/)?.[1] ??
+          trimmed.match(/^([^\s]+::[^\s]+)\s+(?:FAILED|FAIL)\b/)?.[1]
+        );
+      })
+      .filter((line): line is string => Boolean(line))
+  ).slice(0, 6);
+  const errorLines = uniqueNonEmpty(
+    lines
+      .map((line) => line.trim())
+      .filter((line) =>
+        /\b(?:AssertionError|Error:|Expected|Received|Traceback)\b/.test(line)
+      )
+      .map((line) => truncateInline(line, 180))
+  ).slice(0, 4);
+
+  const orderedLabels = [
+    'passed',
+    'failed',
+    'failure',
+    'error',
+    'skipped',
+    'xfailed',
+    'xpassed',
+  ];
+  const summary = orderedLabels
+    .filter((label) => counts.has(label))
+    .map((label) => `${counts.get(label)} ${label}`)
+    .join(', ');
+  const parts = [`[DISTILLED:test-output]: ${summary}`];
+  if (failingTests.length > 0) {
+    parts.push(`Failures: ${failingTests.join(', ')}`);
+  }
+  if (errorLines.length > 0) {
+    parts.push(`Error details: ${errorLines.join(' | ')}`);
+  }
+  return parts.join('\n');
+}
+
+function extractDiffSummary(output: string): string | undefined {
+  const lines = output.split('\n');
+  const looksLikeDiff = lines.some(
+    (line) =>
+      line.startsWith('diff --git ') ||
+      line.startsWith('@@ ') ||
+      line.startsWith('+++ b/')
+  );
+  if (!looksLikeDiff) {
+    return undefined;
+  }
+
+  const files = uniqueNonEmpty(
+    lines
+      .map((line) => {
+        const diffMatch = line.match(/^diff --git a\/(.+?) b\/(.+)$/);
+        if (diffMatch) return diffMatch[2];
+        return line.match(/^\+\+\+ b\/(.+)$/)?.[1];
+      })
+      .filter((file): file is string => Boolean(file))
+  ).slice(0, 8);
+  const additions = lines.filter(
+    (line) => line.startsWith('+') && !line.startsWith('+++')
+  ).length;
+  const deletions = lines.filter(
+    (line) => line.startsWith('-') && !line.startsWith('---')
+  ).length;
+  const hunks = lines.filter((line) => line.startsWith('@@ ')).length;
+  const changedFiles = files.length > 0 ? files.join(', ') : 'unknown files';
+  return `[DISTILLED:diff]: ${files.length || 'unknown'} file(s), +${additions}/-${deletions}, ${hunks} hunk(s)\nFiles: ${changedFiles}`;
+}
+
+function extractTraceSummary(output: string): string | undefined {
+  const lines = output.split('\n').map((line) => line.trim());
+  const hasTrace =
+    /\b\w+Error:/.test(output) ||
+    /^Traceback \(most recent call last\):/m.test(output) ||
+    lines.some(
+      (line) =>
+        /^at\s+.+:\d+:\d+/.test(line) || /^File ".+", line \d+/.test(line)
+    );
+  if (!hasTrace) {
+    return undefined;
+  }
+
+  const signature = extractErrorSignature(output);
+  const frames = uniqueNonEmpty(
+    lines
+      .filter(
+        (line) =>
+          /^at\s+.+:\d+:\d+/.test(line) || /^File ".+", line \d+/.test(line)
+      )
+      .map((line) => truncateInline(line, 180))
+  );
+  const keptFrames =
+    frames.length > 4
+      ? [...frames.slice(0, 3), frames[frames.length - 1]!]
+      : frames;
+  return [
+    `[DISTILLED:trace]: ${truncateInline(signature, 160)}`,
+    keptFrames.length > 0 ? `Frames: ${keptFrames.join(' | ')}` : undefined,
+  ]
+    .filter((part): part is string => Boolean(part))
+    .join('\n');
+}
+
+function summarizeJsonShape(value: unknown): string {
+  if (Array.isArray(value)) {
+    const firstObject = value.find(
+      (item): item is Record<string, unknown> =>
+        Boolean(item) && typeof item === 'object' && !Array.isArray(item)
+    );
+    const keys = firstObject ? Object.keys(firstObject).slice(0, 8) : [];
+    return `array(${value.length})${keys.length > 0 ? ` object keys: ${keys.join(', ')}` : ''}`;
+  }
+
+  if (value && typeof value === 'object') {
+    const keys = Object.keys(value as Record<string, unknown>).slice(0, 12);
+    return `object keys: ${keys.join(', ') || 'none'}`;
+  }
+
+  return typeof value;
+}
+
+function extractJsonSummary(output: string): string | undefined {
+  const trimmed = output.trim();
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
+    return undefined;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return undefined;
+  }
+
+  const shouldDistill =
+    trimmed.length > 220 ||
+    (Array.isArray(parsed) && parsed.length > 4) ||
+    (!!parsed &&
+      typeof parsed === 'object' &&
+      !Array.isArray(parsed) &&
+      Object.keys(parsed as Record<string, unknown>).length > 8);
+  if (!shouldDistill) {
+    return undefined;
+  }
+
+  const previewValue = Array.isArray(parsed)
+    ? parsed.slice(0, 2)
+    : Object.fromEntries(
+        Object.entries(parsed as Record<string, unknown>).slice(0, 6)
+      );
+  return `[DISTILLED:json]: ${summarizeJsonShape(parsed)}\nPreview: ${truncateInline(
+    JSON.stringify(previewValue),
+    180
+  )}`;
+}
+
+export function distillStructuredActionOutput(
+  output: string
+): string | undefined {
+  return (
+    extractTestOutputSummary(output) ??
+    extractDiffSummary(output) ??
+    extractTraceSummary(output) ??
+    extractJsonSummary(output)
+  );
+}
+
+function hasUserConstraintSignal(entry: Readonly<ActionLogEntry>): boolean {
+  return /\b(?:user|constraint|preference|prefer|must|should|only|never|exact|format|deadline|success criteria)\b/i.test(
+    `${entry.code}\n${entry.output}`
+  );
+}
+
+function getCompactionReason(
+  entry: Readonly<ActionLogEntry>,
+  hygieneMode: ActionLogHygieneMode
+): ActionLogCompactionReason {
+  if (entry.tags.includes('superseded')) return 'superseded';
+  if (hygieneMode === 'pressure') return 'pressure';
+  if (hygieneMode === 'aggressive') return 'lean';
+  return 'proactive';
+}
+
 function buildFutureReferenceSets(
   entries: readonly ActionLogEntry[]
 ): Array<Set<string>> {
@@ -515,6 +752,8 @@ function assignReplayModes(
 ): void {
   const actionReplay = policy.actionReplay ?? 'full';
   const recentFullActions = Math.max(policy.recentFullActions ?? 1, 0);
+  const hygieneMode = policy.hygieneMode ?? 'none';
+  const hygieneGraceTurns = Math.max(policy.hygieneGraceTurns ?? 0, 0);
   const checkpointReplayActive =
     actionReplay === 'checkpointed' &&
     ((policy.checkpointTurns?.length ?? 0) > 0 ||
@@ -526,6 +765,7 @@ function assignReplayModes(
 
   const futureRefs = buildFutureReferenceSets(entries);
   const recentStart = Math.max(entries.length - recentFullActions, 0);
+  const latestTurn = entries.at(-1)?.turn ?? 0;
 
   entries.forEach((entry, index) => {
     if (entry.tombstone) {
@@ -538,7 +778,11 @@ function assignReplayModes(
       return;
     }
 
-    if (actionReplay === 'checkpointed' && !checkpointReplayActive) {
+    if (
+      actionReplay === 'checkpointed' &&
+      !checkpointReplayActive &&
+      hygieneMode === 'none'
+    ) {
       entry.replayMode = 'full';
       return;
     }
@@ -546,18 +790,49 @@ function assignReplayModes(
     const keepRecent = index >= recentStart;
     const unresolvedError = entry.tags.includes('error');
     const policyViolation = entry.output.startsWith('[POLICY]');
+    const finalizationPayload = entry.stepKind === 'finalize';
+    const userConstraintSignal = hasUserConstraintSignal(entry);
+    const inProactiveGraceWindow =
+      hygieneMode === 'proactive' &&
+      hygieneGraceTurns > 0 &&
+      latestTurn - entry.turn < hygieneGraceTurns;
     const laterReferences = futureRefs[index] ?? new Set<string>();
     const producedVars = entry.producedVars ?? [];
     const referencedLater = producedVars.some((name) =>
       laterReferences.has(name)
     );
 
-    if (keepRecent || unresolvedError || policyViolation) {
+    if (
+      keepRecent ||
+      unresolvedError ||
+      policyViolation ||
+      finalizationPayload ||
+      userConstraintSignal ||
+      referencedLater ||
+      inProactiveGraceWindow
+    ) {
       entry.replayMode = 'full';
       return;
     }
 
-    if (actionReplay === 'adaptive' && referencedLater) {
+    if (hygieneMode !== 'none') {
+      const distillation = distillStructuredActionOutput(entry.output);
+      if (distillation) {
+        entry.replayMode = 'distill';
+        return;
+      }
+
+      if (
+        entry.tags.includes('superseded') ||
+        (hygieneMode === 'aggressive' && entry.output.length > 400) ||
+        (hygieneMode === 'pressure' && entry.output.length > 1200)
+      ) {
+        entry.replayMode = 'compact';
+        return;
+      }
+    }
+
+    if (actionReplay === 'checkpointed' && !checkpointReplayActive) {
       entry.replayMode = 'full';
       return;
     }
@@ -1438,28 +1713,88 @@ export function buildActionLog(entries: readonly ActionLogEntry[]): string {
   return buildActionLogWithPolicy(entries, {});
 }
 
+function renderFullActionReplayEntry(entry: Readonly<ActionLogEntry>): string {
+  return `\`\`\`javascript\n${entry.code}\n\`\`\`\nResult:\n${entry.output}`;
+}
+
+function buildCompactActionReplayEntry(
+  entry: Readonly<ActionLogEntry>,
+  hygieneMode: ActionLogHygieneMode
+): string {
+  ensureEntryMetadata(entry as ActionLogEntry);
+  const reason = getCompactionReason(entry, hygieneMode);
+  const callables = getQualifiedCallableUsages(entry).join(', ') || 'none';
+  const result =
+    distillStructuredActionOutput(entry.output) ??
+    truncateInline(entry.output || '(no output)', 180);
+  return [
+    `[COMPACT:${reason}]: Turn ${entry.turn}. ${entry.stepKind ?? 'explore'} step.`,
+    `State: ${entry.stateDelta ?? 'No durable runtime state update'}.`,
+    `Callables: ${callables}.`,
+    `Result: ${result}.`,
+  ].join(' ');
+}
+
 function renderActionReplayEntry(
   entry: Readonly<ActionLogEntry>,
-  checkpointTurns: ReadonlySet<number>
-): string {
+  checkpointTurns: ReadonlySet<number>,
+  hygieneMode: ActionLogHygieneMode
+): { text: string; compaction?: ActionLogCompaction } {
   if (
     checkpointTurns.has(entry.turn) &&
     !entry.tags.includes('error') &&
     entry.replayMode !== 'full'
   ) {
-    return '';
+    return { text: '' };
   }
 
   if (entry.tombstone) {
-    return entry.tombstone;
+    return { text: entry.tombstone };
   }
 
+  const fullText = renderFullActionReplayEntry(entry);
   switch (entry.replayMode) {
+    case 'distill': {
+      const distilled = distillStructuredActionOutput(entry.output);
+      if (!distilled) {
+        return { text: fullText };
+      }
+      const text = `\`\`\`javascript\n${entry.code}\n\`\`\`\nResult:\n${distilled}`;
+      if (text.length >= fullText.length) {
+        return { text: fullText };
+      }
+      return {
+        text,
+        compaction: {
+          turn: entry.turn,
+          mode: 'distill',
+          reason: 'structured_output',
+          originalChars: fullText.length,
+          renderedChars: text.length,
+        },
+      };
+    }
+    case 'compact': {
+      const text = buildCompactActionReplayEntry(entry, hygieneMode);
+      if (text.length >= fullText.length) {
+        return { text: fullText };
+      }
+      return {
+        text,
+        compaction: {
+          turn: entry.turn,
+          mode: 'compact',
+          reason: getCompactionReason(entry, hygieneMode),
+          originalChars: fullText.length,
+          renderedChars: text.length,
+        },
+      };
+    }
     case 'omit':
       ensureEntryMetadata(entry as ActionLogEntry);
-      return entry.summary ?? buildEntrySummary(entry);
+      return { text: entry.summary ?? buildEntrySummary(entry) };
     default:
-      return `\`\`\`javascript\n${entry.code}\n\`\`\`\nResult:\n${entry.output}`;
+      return { text: fullText };
   }
 }
 
@@ -1475,6 +1810,7 @@ export function buildActionLogReplayPlan(
       checkpointEntries: [],
       historyText: '',
       historyChars: 0,
+      compactions: [],
     };
   }
 
@@ -1484,16 +1820,26 @@ export function buildActionLogReplayPlan(
     (entry) => !entry.tags.includes('error') && entry.replayMode !== 'full'
   );
   const checkpointTurns = new Set(policy.checkpointTurns ?? []);
-  const historyText = promptFacingEntries
-    .map((entry) => renderActionReplayEntry(entry, checkpointTurns))
-    .filter(Boolean)
-    .join('\n\n');
+  const renderedEntries = promptFacingEntries
+    .map((entry) =>
+      renderActionReplayEntry(
+        entry,
+        checkpointTurns,
+        policy.hygieneMode ?? 'none'
+      )
+    )
+    .filter((entry) => Boolean(entry.text));
+  const historyText = renderedEntries.map((entry) => entry.text).join('\n\n');
+  const compactions = renderedEntries
+    .map((entry) => entry.compaction)
+    .filter((entry): entry is ActionLogCompaction => Boolean(entry));
 
   return {
     promptFacingEntries,
     checkpointEntries,
     historyText,
     historyChars: historyText.length,
+    compactions,
   };
 }
 
@@ -1543,6 +1889,7 @@ export function buildActionLogWithPolicy(
 export type ActionLogParts = {
   summary: string;
   history: string;
+  compactions: ActionLogCompaction[];
 };
 
 export function buildActionLogParts(
@@ -1567,6 +1914,7 @@ export function buildActionLogParts(
   return {
     summary: summaryParts.join('\n\n'),
     history: replayPlan.historyText,
+    compactions: replayPlan.compactions,
   };
 }
 

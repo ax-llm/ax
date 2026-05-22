@@ -30,6 +30,10 @@ describe('resolveContextPolicy', () => {
         enabled: true,
         triggerChars: 16_000,
       },
+      contextHygiene: {
+        defaultMode: 'none',
+        pressureMode: 'pressure',
+      },
     });
   });
 
@@ -56,6 +60,20 @@ describe('resolveContextPolicy', () => {
       checkpoints: {
         enabled: true,
         triggerChars: 9_000,
+      },
+      contextHygiene: {
+        defaultMode: 'proactive',
+        pressureMode: 'proactive',
+      },
+    });
+  });
+
+  it('should derive lean hygiene from preset without public policy options', () => {
+    expect(resolveContextPolicy({ preset: 'lean' })).toMatchObject({
+      preset: 'lean',
+      contextHygiene: {
+        defaultMode: 'aggressive',
+        pressureMode: 'aggressive',
       },
     });
   });

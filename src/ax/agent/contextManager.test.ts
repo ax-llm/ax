@@ -5,12 +5,14 @@ import type { ActionLogEntry } from './contextManager.js';
 import {
   buildActionEvidenceSummary,
   buildActionLog,
+  buildActionLogParts,
   buildActionLogReplayPlan,
   buildActionLogWithPolicy,
   buildCheckpointSupersessionNotes,
   buildInspectRuntimeBaselineCode,
   buildInspectRuntimeCode,
   buildRuntimeStateProvenance,
+  distillStructuredActionOutput,
   evaluateHindsight,
   extractDeclaredVariables,
   extractDurableWriteTargets,
@@ -687,6 +689,81 @@ describe('generateTombstoneAsync', () => {
 });
 
 // ---------------------------------------------------------------------------
+// deterministic action-output distillation
+// ---------------------------------------------------------------------------
+
+describe('distillStructuredActionOutput', () => {
+  it('should distill test output while preserving failure details', () => {
+    const summary = distillStructuredActionOutput(
+      [
+        '============================= test session starts =============================',
+        'FAILED tests/auth.test.ts::rejects_bad_token - AssertionError: expected 401 got 200',
+        'FAILED tests/user.test.ts::loads_profile - Error: timeout',
+        '================ 94 passed, 2 failed, 1 skipped in 3.5s ================',
+      ].join('\n')
+    );
+
+    expect(summary).toContain('[DISTILLED:test-output]');
+    expect(summary).toContain('94 passed');
+    expect(summary).toContain('2 failed');
+    expect(summary).toContain('tests/auth.test.ts::rejects_bad_token');
+    expect(summary).toContain('AssertionError');
+  });
+
+  it('should distill tracebacks to the error signature and useful frames', () => {
+    const summary = distillStructuredActionOutput(
+      [
+        'Traceback (most recent call last):',
+        '  File "src/app.py", line 10, in main',
+        '  File "src/auth.py", line 42, in verify',
+        'ValueError: invalid token',
+      ].join('\n')
+    );
+
+    expect(summary).toContain('[DISTILLED:trace]');
+    expect(summary).toContain('ValueError: invalid token');
+    expect(summary).toContain('src/auth.py');
+  });
+
+  it('should distill diffs to changed files and line counts', () => {
+    const summary = distillStructuredActionOutput(
+      [
+        'diff --git a/src/auth.ts b/src/auth.ts',
+        '--- a/src/auth.ts',
+        '+++ b/src/auth.ts',
+        '@@ -1,3 +1,4 @@',
+        '-const oldValue = 1;',
+        '+const newValue = 2;',
+        '+const extra = true;',
+      ].join('\n')
+    );
+
+    expect(summary).toContain('[DISTILLED:diff]');
+    expect(summary).toContain('src/auth.ts');
+    expect(summary).toContain('+2/-1');
+  });
+
+  it('should distill large JSON arrays to shape and preview', () => {
+    const rows = Array.from({ length: 8 }, (_, index) => ({
+      id: index + 1,
+      name: `user-${index + 1}`,
+      active: index % 2 === 0,
+    }));
+    const summary = distillStructuredActionOutput(JSON.stringify(rows));
+
+    expect(summary).toContain('[DISTILLED:json]');
+    expect(summary).toContain('array(8)');
+    expect(summary).toContain('id, name, active');
+  });
+
+  it('should not summarize unknown free-form output', () => {
+    expect(
+      distillStructuredActionOutput('ordinary short note')
+    ).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // buildActionLog
 // ---------------------------------------------------------------------------
 
@@ -789,6 +866,132 @@ describe('buildActionLog', () => {
     expect(log).toContain('const draft = "v1"');
     expect(log).toContain('const finalDraft = "v2"');
     expect(log).not.toContain('Checkpoint Summary:');
+  });
+
+  it('should distill structured output when checkpointed replay is under pressure hygiene', () => {
+    const entries = [
+      makeSuccessEntry(
+        1,
+        'const testOutput = await runTests()',
+        [
+          'FAILED tests/auth.test.ts::rejects_bad_token - AssertionError: expected 401 got 200',
+          ...Array.from(
+            { length: 30 },
+            (_, index) => `verbose passing test log line ${index}`
+          ),
+          '================ 94 passed, 1 failed in 3.5s ================',
+        ].join('\n')
+      ),
+      makeSuccessEntry(2, 'console.log("next")', 'next'),
+    ];
+    const parts = buildActionLogParts(entries, {
+      actionReplay: 'checkpointed',
+      recentFullActions: 1,
+      hygieneMode: 'pressure',
+    });
+
+    expect(parts.history).toContain('const testOutput = await runTests()');
+    expect(parts.history).toContain('[DISTILLED:test-output]');
+    expect(parts.history).toContain('tests/auth.test.ts::rejects_bad_token');
+    expect(parts.history).not.toContain('================ 94 passed');
+    expect(parts.compactions).toEqual([
+      expect.objectContaining({
+        turn: 1,
+        mode: 'distill',
+        reason: 'structured_output',
+      }),
+    ]);
+  });
+
+  it('should compact superseded successful turns without mutating raw output', () => {
+    const entries = [
+      makeEntry({
+        turn: 1,
+        code: 'const rows = await db.search({ query: "old" })',
+        output: Array.from(
+          { length: 20 },
+          (_, index) => `ordinary result line ${index} that is no longer needed`
+        ).join('\n'),
+        tags: ['superseded'],
+      }),
+      makeSuccessEntry(2, 'console.log("next")', 'next'),
+    ];
+    const parts = buildActionLogParts(entries, {
+      actionReplay: 'minimal',
+      recentFullActions: 1,
+      hygieneMode: 'proactive',
+    });
+
+    expect(parts.history).toContain('[COMPACT:superseded]');
+    expect(parts.history).not.toContain('```javascript\nconst rows');
+    expect(entries[0]?.output).toContain('ordinary result line 0');
+    expect(parts.compactions[0]).toMatchObject({
+      turn: 1,
+      mode: 'compact',
+      reason: 'superseded',
+    });
+  });
+
+  it('should keep full replay for full policy even when hygiene is requested', () => {
+    const entries = [
+      makeSuccessEntry(
+        1,
+        'const output = await runTests()',
+        '================ 94 passed in 3.5s ================'
+      ),
+    ];
+    const parts = buildActionLogParts(entries, {
+      actionReplay: 'full',
+      recentFullActions: 0,
+      hygieneMode: 'aggressive',
+    });
+
+    expect(parts.history).toContain('```javascript');
+    expect(parts.history).toContain('================ 94 passed');
+    expect(parts.compactions).toEqual([]);
+  });
+
+  it('should keep unresolved errors fully rendered under hygiene', () => {
+    const entries = [
+      makeEntry({
+        turn: 1,
+        code: 'await db.search({ bad: true })',
+        output: 'TypeError: invalid query\n    at db.ts:10:2',
+        tags: ['error'],
+      }),
+      makeSuccessEntry(2, 'console.log("next")', 'next'),
+    ];
+    const parts = buildActionLogParts(entries, {
+      actionReplay: 'minimal',
+      recentFullActions: 1,
+      hygieneMode: 'aggressive',
+    });
+
+    expect(parts.history).toContain('await db.search({ bad: true })');
+    expect(parts.history).toContain('TypeError: invalid query');
+    expect(parts.compactions).toEqual([]);
+  });
+
+  it('should omit checkpoint-covered compacted turns from replay history', () => {
+    const entries = [
+      makeSuccessEntry(
+        1,
+        'const testOutput = await runTests()',
+        '================ 94 passed in 3.5s ================'
+      ),
+      makeSuccessEntry(2, 'console.log("next")', 'next'),
+    ];
+    const parts = buildActionLogParts(entries, {
+      actionReplay: 'checkpointed',
+      recentFullActions: 1,
+      checkpointSummary: 'Objective: tests passed',
+      checkpointTurns: [1],
+      hygieneMode: 'pressure',
+    });
+
+    expect(parts.history).not.toContain('const testOutput');
+    expect(parts.history).toContain('console.log("next")');
+    expect(parts.compactions).toEqual([]);
   });
 
   it('should replace older successful history with a checkpoint summary in checkpointed mode', () => {

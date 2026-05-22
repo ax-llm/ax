@@ -2979,6 +2979,137 @@ describe('Actor/Responder execution loop', () => {
     expect(budgetEvents[0]?.effectiveBudgetChars).toBeGreaterThan(0);
   });
 
+  it('should emit action_compacted events when deterministic hygiene rewrites actor replay', async () => {
+    const events: AxAgentContextEvent[] = [];
+    let executorActorCallCount = 0;
+    let thirdExecutorPrompt = '';
+    const verboseTestOutput = [
+      'FAILED tests/auth.test.ts::rejects_bad_token - AssertionError: expected 401 got 200',
+      ...Array.from(
+        { length: 40 },
+        (_, index) => `verbose passing test log line ${index}`
+      ),
+      '================ 94 passed, 1 failed in 3.5s ================',
+    ].join('\n');
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+        if (systemPrompt.includes('You (`distiller`)')) {
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: final("perform task", {})',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('You (`executor`)')) {
+          executorActorCallCount++;
+          if (executorActorCallCount === 1) {
+            return {
+              results: [
+                {
+                  index: 0,
+                  content:
+                    'Javascript Code: const testOutput = await runTests(); console.log(testOutput)',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          if (executorActorCallCount === 2) {
+            return {
+              results: [
+                {
+                  index: 0,
+                  content: 'Javascript Code: console.log("middle")',
+                  finishReason: 'stop',
+                },
+              ],
+              modelUsage: makeModelUsage(),
+            };
+          }
+          thirdExecutorPrompt = userPrompt;
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: final("answer", {})',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (globals?.final && code.includes('final(')) {
+              (globals.final as (...args: unknown[]) => void)('answer', {});
+              return 'done';
+            }
+            if (code.includes('runTests')) {
+              return verboseTestOutput;
+            }
+            return 'middle';
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      runtime,
+      contextFields: [],
+      maxTurns: 3,
+      contextPolicy: { preset: 'lean' },
+      onContextEvent: (event) => {
+        events.push(event);
+      },
+    });
+
+    await testAgent.forward(testMockAI, { query: 'hello' });
+
+    expect(thirdExecutorPrompt).toContain('[DISTILLED:test-output]');
+    expect(thirdExecutorPrompt).toContain(
+      'tests/auth.test.ts::rejects_bad_token'
+    );
+    expect(thirdExecutorPrompt).not.toContain(
+      'verbose passing test log line 39'
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        kind: 'action_compacted',
+        stage: 'executor',
+        turn: 1,
+        mode: 'distill',
+        reason: 'structured_output',
+      })
+    );
+  });
+
   it('should swallow context event callback failures', async () => {
     const testMockAI = new AxMockAIService({
       features: { functions: false, streaming: false },
@@ -3099,7 +3230,7 @@ describe('Actor/Responder execution loop', () => {
 
   it('should render a checkpoint summary for older successful turns after the trigger threshold', async () => {
     let actorCallCount = 0;
-    let fifthActorPrompt = '';
+    let sixthActorPrompt = '';
     const events: AxAgentContextEvent[] = [];
 
     const testMockAI = new AxMockAIService({
@@ -3131,8 +3262,8 @@ describe('Actor/Responder execution loop', () => {
 
         if (systemPrompt.includes('You (`executor`)')) {
           actorCallCount++;
-          if (actorCallCount === 5) {
-            fifthActorPrompt = userPrompt;
+          if (actorCallCount === 6) {
+            sixthActorPrompt = userPrompt;
             return {
               results: [
                 {
@@ -3150,6 +3281,7 @@ describe('Actor/Responder execution loop', () => {
             2: 'Javascript Code: const refined = firstPass.toUpperCase(); console.log(refined)',
             3: 'Javascript Code: console.log("side-note")',
             4: 'Javascript Code: const finalValue = refined + "!"; console.log(finalValue)',
+            5: 'Javascript Code: console.log("padding")',
           };
 
           return {
@@ -3205,7 +3337,7 @@ describe('Actor/Responder execution loop', () => {
       ai: testMockAI,
       contextFields: ['context'],
       runtime,
-      maxTurns: 5,
+      maxTurns: 6,
       contextPolicy: {
         preset: 'adaptive',
         budget: 'compact',
@@ -3217,21 +3349,21 @@ describe('Actor/Responder execution loop', () => {
 
     const result = await testAgent.forward(testMockAI, {
       context: 'ctx',
-      query: 'q'.repeat(13_000),
+      query: 'q'.repeat(30_000),
     });
 
     expect(result.answer).toBe('done');
-    expect(fifthActorPrompt).toContain('Checkpoint Summary:');
+    expect(sixthActorPrompt).toContain('Checkpoint Summary:');
     // Working code state preserves verbatim code from checkpointed non-error turns
     // In adaptive mode, turns with referenced vars stay as full replay, so only
     // turn 3 (console.log("side-note")) gets checkpointed and placed in working state.
-    expect(fifthActorPrompt).toContain('=== Working Code State (verbatim) ===');
+    expect(sixthActorPrompt).toContain('=== Working Code State (verbatim) ===');
     // Turns 1, 2, 4 stay as full replay entries because their vars are referenced later
-    expect(fifthActorPrompt).toContain('const firstPass = "draft"');
-    expect(fifthActorPrompt).toContain(
+    expect(sixthActorPrompt).toContain('const firstPass = "draft"');
+    expect(sixthActorPrompt).toContain(
       'const refined = firstPass.toUpperCase()'
     );
-    expect(fifthActorPrompt).toContain('const finalValue = refined + "!"');
+    expect(sixthActorPrompt).toContain('const finalValue = refined + "!"');
     expect(events.some((event) => event.kind === 'checkpoint_created')).toBe(
       true
     );
@@ -3272,7 +3404,8 @@ describe('Actor/Responder execution loop', () => {
             1: 'Javascript Code: const draft = "v1"; console.log(draft)',
             2: 'Javascript Code: console.log("note")',
             3: 'Javascript Code: console.log("more")',
-            4: 'Javascript Code: final("done", {})',
+            4: 'Javascript Code: console.log("even more")',
+            5: 'Javascript Code: final("done", {})',
           };
 
           return {
@@ -3324,7 +3457,7 @@ describe('Actor/Responder execution loop', () => {
       ai: testMockAI,
       contextFields: ['context'],
       runtime,
-      maxTurns: 4,
+      maxTurns: 5,
       contextPolicy: {
         preset: 'adaptive',
         budget: 'compact',
@@ -3339,7 +3472,7 @@ describe('Actor/Responder execution loop', () => {
       testMockAI,
       {
         context: 'ctx',
-        query: 'q'.repeat(13_000),
+        query: 'q'.repeat(30_000),
       },
       {
         model: 'request-model',

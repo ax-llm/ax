@@ -77,6 +77,7 @@ export async function runActorTurn<_IN extends AxGenIn>(
     buildActorPromptValues,
     measureActorPromptChars,
     renderActionLogParts,
+    renderActionLogPartsWithReplayMode,
     resetActorModelErrorState,
     noteActorTurnErrorState,
     syncDiscoveredActorModelNamespaces,
@@ -90,34 +91,90 @@ export async function runActorTurn<_IN extends AxGenIn>(
     resetActorModelErrorState();
   }
 
-  const { summary: baseSummarizedActorLog, history: baseHistoryText } =
-    renderActionLogParts();
-  const summarizedActorLogText = baseSummarizedActorLog || undefined;
-  let actionLogText = baseHistoryText || '(no actions yet)';
+  let actionLogParts = renderActionLogParts();
+  let summarizedActorLogText = actionLogParts.summary || undefined;
+  let actionLogText = actionLogParts.history || '(no actions yet)';
   const guidanceLogText = renderGuidanceLog(guidanceState.entries);
-  const inspectMetrics = await measureActorPromptChars(
+  let inspectMetrics = await measureActorPromptChars(
     actionLogText,
     guidanceLogText,
     mutableState.runtimeStateSummary,
     summarizedActorLogText
   );
-  const inspectFixedOverhead =
+  let inspectFixedOverhead =
     inspectMetrics.systemPromptCharacters +
     inspectMetrics.exampleChatContextCharacters;
-  const effectiveBudgetChars = computeEffectiveChatBudget(
+  let effectiveBudgetChars = computeEffectiveChatBudget(
     runtimeContext.effectiveContextConfig.targetPromptChars,
     inspectFixedOverhead
   );
   const checkpointActive = Boolean(mutableState.checkpointState);
-  const pressure = classifyContextPressure({
+  let pressure = classifyContextPressure({
     mutablePromptChars: inspectMetrics.mutableChatContextCharacters,
     effectiveBudgetChars,
     checkpointActive,
   });
+  const pressureHygieneMode =
+    runtimeContext.effectiveContextConfig.contextHygiene?.pressureMode;
+  const defaultHygieneMode =
+    runtimeContext.effectiveContextConfig.contextHygiene?.defaultMode ?? 'none';
+  if (
+    pressure !== 'ok' &&
+    pressureHygieneMode &&
+    pressureHygieneMode !== defaultHygieneMode
+  ) {
+    const cps = mutableState.checkpointState;
+    const pressureParts = renderActionLogPartsWithReplayMode(
+      runtimeContext.effectiveContextConfig.actionReplay,
+      cps?.summary,
+      cps?.turns,
+      pressureHygieneMode
+    );
+    const pressureActionLogText = pressureParts.history || '(no actions yet)';
+    const pressureSummarizedActorLogText = pressureParts.summary || undefined;
+    const pressureMetrics = await measureActorPromptChars(
+      pressureActionLogText,
+      guidanceLogText,
+      mutableState.runtimeStateSummary,
+      pressureSummarizedActorLogText
+    );
+    if (
+      pressureMetrics.mutableChatContextCharacters <
+      inspectMetrics.mutableChatContextCharacters
+    ) {
+      actionLogParts = pressureParts;
+      actionLogText = pressureActionLogText;
+      summarizedActorLogText = pressureSummarizedActorLogText;
+      inspectMetrics = pressureMetrics;
+      inspectFixedOverhead =
+        inspectMetrics.systemPromptCharacters +
+        inspectMetrics.exampleChatContextCharacters;
+      effectiveBudgetChars = computeEffectiveChatBudget(
+        runtimeContext.effectiveContextConfig.targetPromptChars,
+        inspectFixedOverhead
+      );
+      pressure = classifyContextPressure({
+        mutablePromptChars: inspectMetrics.mutableChatContextCharacters,
+        effectiveBudgetChars,
+        checkpointActive,
+      });
+    }
+  }
   const contextPressureText =
     runtimeContext.effectiveContextConfig.preset !== 'full'
       ? renderContextPressure(pressure)
       : undefined;
+  for (const compaction of actionLogParts.compactions) {
+    await emitContextEvent(s.onContextEvent, {
+      kind: 'action_compacted',
+      stage: contextStage,
+      turn: compaction.turn,
+      mode: compaction.mode,
+      reason: compaction.reason,
+      originalChars: compaction.originalChars,
+      renderedChars: compaction.renderedChars,
+    });
+  }
   await emitContextEvent(s.onContextEvent, {
     kind: 'budget_check',
     stage: contextStage,

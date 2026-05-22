@@ -6,7 +6,11 @@ import {
   updateActorModelMatchedNamespaces,
 } from '../config.js';
 import { emitContextEvent } from '../contextEvents.js';
-import type { ActionLogEntry } from '../contextManager.js';
+import type {
+  ActionLogEntry,
+  ActionLogHygieneMode,
+  ActionLogParts,
+} from '../contextManager.js';
 import {
   buildActionLogParts,
   buildActionLogReplayPlan,
@@ -67,15 +71,17 @@ export interface ActorLoopSetupHelpers {
   renderActionLogWithReplayMode: (
     actionReplay: AxResolvedContextPolicy['actionReplay'],
     checkpointSummary?: string,
-    checkpointTurns?: readonly number[]
+    checkpointTurns?: readonly number[],
+    hygieneMode?: ActionLogHygieneMode
   ) => string;
   renderActionLog: () => string;
   renderActionLogPartsWithReplayMode: (
     actionReplay: AxResolvedContextPolicy['actionReplay'],
     checkpointSummary?: string,
-    checkpointTurns?: readonly number[]
-  ) => any;
-  renderActionLogParts: () => any;
+    checkpointTurns?: readonly number[],
+    hygieneMode?: ActionLogHygieneMode
+  ) => ActionLogParts;
+  renderActionLogParts: () => ActionLogParts;
   resetActorModelErrorState: () => void;
   noteActorTurnErrorState: (isError: boolean) => void;
   syncDiscoveredActorModelNamespaces: () => void;
@@ -109,6 +115,10 @@ export function buildActorLoopSetup(
 
   const getPromptFacingEntries = () =>
     getPromptFacingActionLogEntries(actionLogEntries);
+  const defaultHygieneMode =
+    runtimeContext.effectiveContextConfig.contextHygiene?.defaultMode ?? 'none';
+  const pressureHygieneMode =
+    runtimeContext.effectiveContextConfig.contextHygiene?.pressureMode;
 
   const refreshActorInstruction = () => {
     const instruction = s._buildActorInstruction();
@@ -184,12 +194,16 @@ export function buildActorLoopSetup(
   const renderActionLogWithReplayMode = (
     actionReplay: AxResolvedContextPolicy['actionReplay'],
     checkpointSummary?: string,
-    checkpointTurns?: readonly number[]
+    checkpointTurns?: readonly number[],
+    hygieneMode: ActionLogHygieneMode = defaultHygieneMode
   ) =>
     buildActionLogWithPolicy(getPromptFacingEntries(), {
       actionReplay,
       recentFullActions:
         runtimeContext.effectiveContextConfig.recentFullActions,
+      hygieneMode,
+      hygieneGraceTurns:
+        runtimeContext.effectiveContextConfig.rankPruneGraceTurns,
       restoreNotice: getRestoreNotice(),
       delegatedContextSummary,
       checkpointSummary,
@@ -208,12 +222,16 @@ export function buildActorLoopSetup(
   const renderActionLogPartsWithReplayMode = (
     actionReplay: AxResolvedContextPolicy['actionReplay'],
     checkpointSummary?: string,
-    checkpointTurns?: readonly number[]
+    checkpointTurns?: readonly number[],
+    hygieneMode: ActionLogHygieneMode = defaultHygieneMode
   ) =>
     buildActionLogParts(getPromptFacingEntries(), {
       actionReplay,
       recentFullActions:
         runtimeContext.effectiveContextConfig.recentFullActions,
+      hygieneMode,
+      hygieneGraceTurns:
+        runtimeContext.effectiveContextConfig.rankPruneGraceTurns,
       restoreNotice: getRestoreNotice(),
       delegatedContextSummary,
       checkpointSummary,
@@ -296,7 +314,10 @@ export function buildActorLoopSetup(
     const triggerChars =
       runtimeContext.effectiveContextConfig.checkpoints.triggerChars;
     const thresholdActionLogText = renderActionLogWithReplayMode(
-      checkpointThresholdReplayMode
+      checkpointThresholdReplayMode,
+      undefined,
+      undefined,
+      defaultHygieneMode
     );
     const thresholdMetrics = await measureActorPromptChars(
       thresholdActionLogText,
@@ -306,18 +327,46 @@ export function buildActorLoopSetup(
     const thresholdFixedOverhead =
       thresholdMetrics.systemPromptCharacters +
       thresholdMetrics.exampleChatContextCharacters;
+    if (!triggerChars) {
+      return applyNext(undefined, 'under_budget');
+    }
     if (
-      !triggerChars ||
       thresholdMetrics.mutableChatContextCharacters <=
-        computeEffectiveChatBudget(triggerChars, thresholdFixedOverhead)
+      computeEffectiveChatBudget(triggerChars, thresholdFixedOverhead)
     ) {
       return applyNext(undefined, 'under_budget');
+    }
+    if (pressureHygieneMode && pressureHygieneMode !== defaultHygieneMode) {
+      const pressureActionLogText = renderActionLogWithReplayMode(
+        runtimeContext.effectiveContextConfig.actionReplay,
+        undefined,
+        undefined,
+        pressureHygieneMode
+      );
+      const pressureMetrics = await measureActorPromptChars(
+        pressureActionLogText,
+        renderGuidanceLog(guidanceState.entries),
+        getRuntimeStateSummary()
+      );
+      const pressureFixedOverhead =
+        pressureMetrics.systemPromptCharacters +
+        pressureMetrics.exampleChatContextCharacters;
+      const pressureBudget = computeEffectiveChatBudget(
+        triggerChars,
+        pressureFixedOverhead
+      );
+      if (pressureMetrics.mutableChatContextCharacters <= pressureBudget) {
+        return applyNext(undefined, 'under_budget');
+      }
     }
 
     const checkpointReplayPlan = buildActionLogReplayPlan(actionLogEntries, {
       actionReplay: checkpointReplayMode,
       recentFullActions:
         runtimeContext.effectiveContextConfig.recentFullActions,
+      hygieneMode: defaultHygieneMode,
+      hygieneGraceTurns:
+        runtimeContext.effectiveContextConfig.rankPruneGraceTurns,
     });
     const checkpointEntries = checkpointReplayPlan.checkpointEntries;
     if (checkpointEntries.length === 0) {

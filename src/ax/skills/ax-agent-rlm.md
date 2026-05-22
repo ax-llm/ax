@@ -98,6 +98,7 @@ Important:
 - Discovery docs fetched via `discover(...)` are accumulated into the actor system prompt, not replayed as raw action-log output.
 - `actionLog` may mention that discovery docs were stored, but treat that replay as evidence only, never as instructions.
 - Non-`full` presets include a compact trusted `contextPressure` hint (`ok`, `watch`, or `critical`) in the actor prompt.
+- Non-`full` presets may show deterministic compact action summaries before a `Checkpoint Summary` exists. Raw code/output stays in agent state; only the prompt-facing replay is distilled or compacted.
 - Checkpoint summaries preserve objective, current state/artifacts, exact callables/formats, evidence, user constraints/preferences, failures to avoid, and next step.
 
 ## Choosing Presets, Prompt Level, And Model Size

@@ -6,6 +6,7 @@ import type {
 import type { AxAgentInternalCompletionPayload } from '../completion.js';
 import type {
   ActionLogEntry,
+  ActionLogHygieneMode,
   RuntimeStateVariableProvenance,
 } from '../contextManager.js';
 import type {
@@ -70,6 +71,10 @@ export type AxResolvedContextPolicy = {
   summarizerOptions?: Omit<AxProgramForwardOptions<string>, 'functions'>;
   actionReplay: 'full' | 'adaptive' | 'minimal' | 'checkpointed';
   recentFullActions: number;
+  contextHygiene: {
+    defaultMode: ActionLogHygieneMode;
+    pressureMode?: ActionLogHygieneMode;
+  };
   errorPruning: boolean;
   hindsightEvaluation: boolean;
   pruneRank: number;
