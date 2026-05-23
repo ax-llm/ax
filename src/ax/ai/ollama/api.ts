@@ -7,8 +7,7 @@ import type {
   AxAIOpenAIChatRequest,
   AxAIOpenAIConfig,
 } from '../openai/chat_types.js';
-import type { AxChatResponse } from '../types.js';
-import type { AxAIServiceOptions } from '../types.js';
+import type { AxAIServiceOptions, AxChatResponse } from '../types.js';
 
 /**
  * Extracts <think>...</think> content from a full (non-streaming) response.
@@ -80,6 +79,7 @@ export type AxAIOllamaAIConfig = AxAIOpenAIConfig<string, string>;
 
 type AxAIOllamaChatRequest = AxAIOpenAIChatRequest<string> & {
   think?: boolean;
+  format?: object | string;
 };
 
 /**
@@ -155,14 +155,29 @@ export class AxAIOllama<TModelKey> extends AxAIOpenAIBase<
       req: Readonly<AxAIOllamaChatRequest>,
       serviceOptions: Readonly<AxAIServiceOptions>
     ): AxAIOllamaChatRequest => {
-      if (!serviceOptions.thinkingTokenBudget) {
-        return req;
+      const updated = { ...req };
+
+      // Convert OpenAI-style response_format to Ollama's native format parameter
+      // for constrained decoding / structured outputs.
+      if (updated.response_format) {
+        const rf = updated.response_format as
+          | { type: string }
+          | { type: 'json_schema'; json_schema: any };
+        if ('json_schema' in rf && rf.type === 'json_schema') {
+          // Extract the raw JSON Schema from OpenAI's wrapper
+          updated.format = rf.json_schema?.schema ?? rf.json_schema;
+        } else if (rf.type === 'json_object') {
+          updated.format = 'json';
+        }
+        delete updated.response_format;
       }
 
-      return {
-        ...req,
-        think: serviceOptions.thinkingTokenBudget !== 'none',
-      };
+      // Handle thinking budget
+      if (serviceOptions.thinkingTokenBudget) {
+        updated.think = serviceOptions.thinkingTokenBudget !== 'none';
+      }
+
+      return updated;
     };
 
     const chatRespProcessor = (resp: AxChatResponse): AxChatResponse => ({
@@ -205,6 +220,7 @@ export class AxAIOllama<TModelKey> extends AxAIOpenAIBase<
       supportFor: {
         functions: true,
         streaming: true,
+        structuredOutputs: true,
         hasThinkingBudget: true,
         hasShowThoughts: true,
         media: {
