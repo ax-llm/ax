@@ -79,7 +79,6 @@ export type AxAIOllamaAIConfig = AxAIOpenAIConfig<string, string>;
 
 type AxAIOllamaChatRequest = AxAIOpenAIChatRequest<string> & {
   think?: boolean;
-  format?: object | string;
 };
 
 /**
@@ -157,20 +156,10 @@ export class AxAIOllama<TModelKey> extends AxAIOpenAIBase<
     ): AxAIOllamaChatRequest => {
       const updated = { ...req };
 
-      // Convert OpenAI-style response_format to Ollama's native format parameter
-      // for constrained decoding / structured outputs.
-      if (updated.response_format) {
-        const rf = updated.response_format as
-          | { type: string }
-          | { type: 'json_schema'; json_schema: any };
-        if ('json_schema' in rf && rf.type === 'json_schema') {
-          // Extract the raw JSON Schema from OpenAI's wrapper
-          updated.format = rf.json_schema?.schema ?? rf.json_schema;
-        } else if (rf.type === 'json_object') {
-          updated.format = 'json';
-        }
-        delete updated.response_format;
-      }
+      // Note: response_format is NOT converted here. The Ollama adapter uses
+      // the OpenAI-compatible /v1/chat/completions endpoint, which handles
+      // response_format natively (same as OpenAI's API). The `format` field
+      // is only used by Ollama's native /api/chat endpoint.
 
       // Handle thinking budget
       if (serviceOptions.thinkingTokenBudget) {
