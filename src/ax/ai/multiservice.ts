@@ -1,5 +1,6 @@
 // ReadableStream is available globally in modern browsers and Node.js 16+
 
+import type { AxAIFeatures } from './base.js';
 import type {
   AxAIModelList,
   AxAIService,
@@ -12,8 +13,11 @@ import type {
   AxLoggerFunction,
   AxModelConfig,
   AxModelUsage,
+  AxSpeechRequest,
+  AxSpeechResponse,
+  AxTranscriptionRequest,
+  AxTranscriptionResponse,
 } from './types.js';
-import type { AxAIFeatures } from './base.js';
 
 type AxAIServiceListItem<
   TModel = unknown,
@@ -207,6 +211,50 @@ export class AxMultiServiceRouter<
       { embedModel: embedModelKey, ...req },
       options
     );
+  }
+
+  async transcribe(
+    req: Readonly<AxTranscriptionRequest<TModelKey>>,
+    options?: Readonly<AxAIServiceOptions>
+  ): Promise<AxTranscriptionResponse> {
+    const modelKey = req.model as TModelKey | undefined;
+    if (!modelKey) {
+      const first = Array.from(this.services.values())[0]?.service;
+      if (!first) throw new Error('No AI services provided.');
+      this.lastUsedService = first;
+      return await first.transcribe(req, options);
+    }
+
+    const item = this.services.get(modelKey);
+    if (!item) {
+      throw new Error(
+        `No service found for transcription model key: ${modelKey}`
+      );
+    }
+
+    this.lastUsedService = item.service;
+    return await item.service.transcribe(req, options);
+  }
+
+  async speak(
+    req: Readonly<AxSpeechRequest<TModelKey>>,
+    options?: Readonly<AxAIServiceOptions>
+  ): Promise<AxSpeechResponse> {
+    const modelKey = req.model as TModelKey | undefined;
+    if (!modelKey) {
+      const first = Array.from(this.services.values())[0]?.service;
+      if (!first) throw new Error('No AI services provided.');
+      this.lastUsedService = first;
+      return await first.speak(req, options);
+    }
+
+    const item = this.services.get(modelKey);
+    if (!item) {
+      throw new Error(`No service found for speech model key: ${modelKey}`);
+    }
+
+    this.lastUsedService = item.service;
+    return await item.service.speak(req, options);
   }
 
   /**

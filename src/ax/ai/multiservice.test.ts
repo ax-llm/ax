@@ -11,6 +11,10 @@ import type {
   AxEmbedResponse,
   AxLoggerFunction,
   AxModelConfig,
+  AxSpeechRequest,
+  AxSpeechResponse,
+  AxTranscriptionRequest,
+  AxTranscriptionResponse,
 } from './types.js';
 
 // Mock logger function for tests
@@ -94,6 +98,18 @@ const serviceA: AxAIService<string, string> = {
       },
     };
   },
+  transcribe: async (
+    req: Readonly<AxTranscriptionRequest<string>>
+  ): Promise<AxTranscriptionResponse> => ({
+    text: `transcription ${req.model ?? 'default'} from Service A`,
+  }),
+  speak: async (
+    req: Readonly<AxSpeechRequest<string>>
+  ): Promise<AxSpeechResponse> => ({
+    data: 'YXVkaW8=',
+    format: req.format ?? 'mp3',
+    transcript: req.text,
+  }),
   setOptions: () => {},
   getOptions: () => ({ optionFrom: 'A' }) as AxAIServiceOptions,
 };
@@ -147,6 +163,18 @@ const serviceB: AxAIService<string, string> = {
       },
     };
   },
+  transcribe: async (
+    req: Readonly<AxTranscriptionRequest<string>>
+  ): Promise<AxTranscriptionResponse> => ({
+    text: `transcription ${req.model ?? 'default'} from Service B`,
+  }),
+  speak: async (
+    req: Readonly<AxSpeechRequest<string>>
+  ): Promise<AxSpeechResponse> => ({
+    data: 'YXVkaW8=',
+    format: req.format ?? 'mp3',
+    transcript: req.text,
+  }),
   setOptions: () => {},
   getOptions: () => ({ optionFrom: 'B' }) as AxAIServiceOptions,
 };
@@ -179,6 +207,16 @@ const serviceC: AxAIService<string, string> = {
       },
     };
   },
+  transcribe: async (): Promise<AxTranscriptionResponse> => ({
+    text: 'transcription from Service C',
+  }),
+  speak: async (
+    req: Readonly<AxSpeechRequest<string>>
+  ): Promise<AxSpeechResponse> => ({
+    data: 'YXVkaW8=',
+    format: req.format ?? 'mp3',
+    transcript: req.text,
+  }),
   setOptions: () => {},
   getOptions: () => ({ optionFrom: 'C' }) as AxAIServiceOptions,
   getLastUsedChatModel: (): string | undefined => undefined,
@@ -543,6 +581,16 @@ describe('AxMultiServiceRouter', () => {
           },
         };
       },
+      transcribe: async (): Promise<AxTranscriptionResponse> => ({
+        text: 'transcription from Embed Only Service',
+      }),
+      speak: async (
+        req: Readonly<AxSpeechRequest<string>>
+      ): Promise<AxSpeechResponse> => ({
+        data: 'YXVkaW8=',
+        format: req.format ?? 'mp3',
+        transcript: req.text,
+      }),
       getLastUsedChatModel: (): string | undefined => undefined,
       getLastUsedEmbedModel: (): string | undefined =>
         embedOnlyServiceLastUsed.embedModel,
@@ -590,6 +638,16 @@ describe('AxMultiServiceRouter', () => {
         throw new Error('chat should not be called');
       },
       embed: embedFn,
+      transcribe: async (): Promise<AxTranscriptionResponse> => ({
+        text: 'transcription from Embed Only Service',
+      }),
+      speak: async (
+        req: Readonly<AxSpeechRequest<string>>
+      ): Promise<AxSpeechResponse> => ({
+        data: 'YXVkaW8=',
+        format: req.format ?? 'mp3',
+        transcript: req.text,
+      }),
       setOptions: () => {},
       getOptions: () => ({}),
       getLogger: () => mockLogger,

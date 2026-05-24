@@ -26,6 +26,39 @@ npm run tsx src/examples/ace-train-inference.ts
 
 **Prerequisites:** OpenAI API key (`OPENAI_APIKEY` environment variable)
 
+## Batch Audio and Agent Audio Example
+
+`audio-batch-and-agent.ts` shows the three audio paths together: direct
+`ai.transcribe(...)`, direct `ai.speak(...)`, signature audio outputs like
+`question:string -> speech:audio, summary:string`, and the shape of an agent
+call where `recording:audio` is transcribed before the agent stages run. When
+`OPENAI_APIKEY` is set it also writes playable MP3 output files under
+`src/examples/output/`.
+
+**Quick Start:**
+```bash
+cd src/ax
+npm run tsx src/examples/audio-batch-and-agent.ts
+```
+
+The mock path runs without keys. Set `OPENAI_APIKEY` to run the live agent call.
+Live runs write the MP3 files and play them immediately.
+
+## Realtime Audio Chat Example
+
+`audio-chat.ts` is the best example for actual streaming audio. In `voice` mode
+it streams OpenAI Realtime PCM16 deltas into a local player when available,
+saves a WAV file under `src/examples/output/`, then plays the saved WAV. In
+`transcribe` mode it streams `presentation.wav` into the realtime transcription
+model and prints transcript deltas.
+
+**Quick Start:**
+```bash
+cd src/ax
+npm run tsx src/examples/audio-chat.ts voice
+npm run tsx src/examples/audio-chat.ts transcribe
+```
+
 ## Live Runtime State Example
 
 A small runnable example focused on the AxAgent runtime-state pipeline. It uses a non-`full` context preset so the agent keeps a compact `Live Runtime State` block available, then runs a mock two-turn agent loop and prints the captured state block so you can verify the structured runtime-state formatting locally without needing an LLM API key.
@@ -40,6 +73,21 @@ What to look for:
 - Variables are rendered with structured metadata like type and size.
 - Durable runtime values such as `rows`, `bestRow`, and `summary` appear as compact state lines in the second actor prompt.
 - This exercises the same structured collection path used by `Live Runtime State` in agent turns.
+
+## Context Map Example
+
+A deterministic, no-API-key smoke test for `AxAgentContextMap`. It runs two questions over the same long-context-style corpus, updates the map once, then reuses the frozen map on the second run.
+
+**Quick Start:**
+```bash
+cd src/ax
+npm run tsx src/examples/rlm-context-map.ts
+```
+
+What to look for:
+- The first run learns a reusable parsing-schema item.
+- `onUpdate` fires exactly once because the map uses `{ infiniteEvolve: false, evolveSteps: 1 }`.
+- The second run still receives the learned map in the distiller prompt while the updater stays frozen.
 
 ## Clarification Resume Example
 
@@ -100,9 +148,9 @@ What to look for:
 - The host can still stop and ask the user for missing information with `workflow.askForOrderId(...)`, but that path is kept out of the default run so the example stays focused on `guideAgent(...)`.
 - Each sample run uses a fresh agent instance so restored runtime state from the first message does not contaminate the second one.
 
-## Recursive GEPA Agent Example
+## Delegated `llmQuery` GEPA Agent Example
 
-A runnable advanced-mode `AxAgent` example that optimizes recursive `llmQuery(...)` behavior with GEPA, saves the resulting recursive-slot artifact, reloads it, and applies it on a fresh agent instance.
+A runnable `AxAgent` example that optimizes when to answer directly, call tools, or use a focused semantic `llmQuery(...)` helper. It saves the resulting optimized artifact, reloads it, and applies it on a fresh agent instance.
 
 **Quick Start:**
 ```bash
@@ -111,9 +159,9 @@ npm run tsx src/examples/rlm-agent-recursive-optimize.ts
 ```
 
 What to look for:
-- Direct tasks are part of the eval set, so the optimizer can learn when not to recurse.
-- The saved artifact contains recursive slot IDs such as `root.actor.shared` and `root.actor.terminal`.
-- Recursive-slot artifacts are forward-only across versions. Older Ax builds will not understand these slot IDs.
+- Direct tasks are part of the eval set, so the optimizer can learn when not to call `llmQuery(...)`.
+- The saved artifact contains normal optimized component keys and demos that can be restored with `agent.applyOptimization(...)`.
+- The file keeps its historical name, but the current runtime treats `llmQuery(...)` as a semantic sub-query helper rather than a nested AxAgent.
 
 ## AxAgent GEPA Component Optimization Example
 

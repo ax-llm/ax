@@ -1,5 +1,9 @@
 import { getModelInfo } from '../../dsp/modelinfo.js';
 import {
+  axFetchJsonSpeech,
+  axFetchMultipartTranscription,
+} from '../audio/api.js';
+import {
   axIsAudioOutputEnabled,
   axMergeChatAudioConfig,
 } from '../audio/defaults.js';
@@ -17,6 +21,10 @@ import type {
   AxAIServiceOptions,
   AxChatAudioConfig,
   AxModelInfo,
+  AxSpeechRequest,
+  AxSpeechResponse,
+  AxTranscriptionRequest,
+  AxTranscriptionResponse,
 } from '../types.js';
 import { axModelInfoGrok } from './info.js';
 import { type AxAIGrokEmbedModels, AxAIGrokModel } from './types.js';
@@ -349,5 +357,64 @@ export class AxAIGrok<TModelKey> extends AxAIOpenAIBase<
     });
 
     super.setName('Grok');
+    this.setBatchAudioConfig({
+      speechVoice: 'eve',
+      speechFormat: 'mp3',
+    });
+  }
+
+  override async transcribe(
+    req: Readonly<AxTranscriptionRequest<AxAIGrokModel | TModelKey>>,
+    options?: Readonly<AxAIServiceOptions>
+  ): Promise<AxTranscriptionResponse> {
+    const serviceOptions = this.getOptions();
+    return await axFetchMultipartTranscription({
+      url: `${this.openAICompatibleApiURL}/stt`,
+      headers: { Authorization: `Bearer ${this.openAICompatibleApiKey}` },
+      audio: req.audio,
+      fields: {
+        language: req.language,
+        keyterm: req.prompt,
+        format: true,
+      },
+      fetch: options?.fetch ?? serviceOptions.fetch,
+      abortSignal: options?.abortSignal ?? serviceOptions.abortSignal,
+    });
+  }
+
+  override async speak(
+    req: Readonly<AxSpeechRequest<AxAIGrokModel | TModelKey>>,
+    options?: Readonly<AxAIServiceOptions>
+  ): Promise<AxSpeechResponse> {
+    const format = req.format ?? this.batchAudioConfig.speechFormat ?? 'mp3';
+    const voice =
+      typeof req.voice === 'object'
+        ? req.voice.id
+        : (req.voice ?? this.batchAudioConfig.speechVoice ?? 'eve');
+    const codec =
+      format === 'pcm16' || format === 'raw'
+        ? 'pcm'
+        : format === 'ulaw'
+          ? 'mulaw'
+          : format;
+    const serviceOptions = this.getOptions();
+    return await axFetchJsonSpeech({
+      url: `${this.openAICompatibleApiURL}/tts`,
+      headers: { Authorization: `Bearer ${this.openAICompatibleApiKey}` },
+      body: {
+        text: req.text,
+        voice_id: voice,
+        language: req.language ?? 'auto',
+        output_format: {
+          codec,
+          ...(req.sampleRate ? { sample_rate: req.sampleRate } : {}),
+        },
+        ...(req.speed !== undefined ? { speed: req.speed } : {}),
+      },
+      format,
+      transcript: req.text,
+      fetch: options?.fetch ?? serviceOptions.fetch,
+      abortSignal: options?.abortSignal ?? serviceOptions.abortSignal,
+    });
   }
 }

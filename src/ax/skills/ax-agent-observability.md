@@ -66,7 +66,7 @@ Important:
 - `result` is the raw runtime result before Ax applies type-aware serialization and budget-proportional truncation.
 - `thought` is optional and only appears when the underlying `AxGen` call had `showThoughts` enabled and the provider actually returned a thought field.
 - `actionLogEntryCount` and `guidanceLogEntryCount` reflect the live log sizes after the turn is processed, including resumed runs.
-- `actorTurnCallback` fires for the root agent and for recursive child agents that run actor turns.
+- `actorTurnCallback` fires for the configured agent instance. Child agents passed through `functions: [...]` should define their own callback if you need their internal actor turns; use `onFunctionCall` on the parent to observe the parent-side child-agent invocation.
 
 Good pattern:
 

@@ -1,4 +1,6 @@
 import type {
+  AxAudioInput,
+  AxChatAudioOutput,
   AxFunction,
   AxFunctionHandler,
   AxFunctionJSONSchema,
@@ -106,7 +108,7 @@ export class AxSignatureBuilder<
     name: K,
     fieldInfo: T,
     prepend?: boolean
-  ): AxSignatureBuilder<AddFieldToShape<_TInput, K, T>, _TOutput>;
+  ): AxSignatureBuilder<AddFieldToShape<_TInput, K, T, 'input'>, _TOutput>;
   public input<K extends string, T extends StandardSchemaV1>(
     name: K,
     schema: T,
@@ -164,7 +166,7 @@ export class AxSignatureBuilder<
     name: K,
     fieldInfo: T,
     prepend?: boolean
-  ): AxSignatureBuilder<_TInput, AddFieldToShape<_TOutput, K, T>>;
+  ): AxSignatureBuilder<_TInput, AddFieldToShape<_TOutput, K, T, 'output'>>;
   public output<K extends string, T extends StandardSchemaV1>(
     name: K,
     schema: T,
@@ -1379,7 +1381,21 @@ export type AxIField = Omit<AxField, 'title'> & { title: string };
 export type AxDateRangeValue = { start: Date; end: Date };
 
 // Helper type to map AxFieldType or AxFluentFieldType to TypeScript types for type-safe field additions
-type InferFieldValueType<T> = T extends AxFieldType | AxFluentFieldType
+type InferAudioValueType<
+  T extends { isArray?: boolean },
+  TMode extends 'input' | 'output',
+> = TMode extends 'output'
+  ? T['isArray'] extends true
+    ? AxChatAudioOutput[]
+    : AxChatAudioOutput
+  : T['isArray'] extends true
+    ? AxAudioInput[]
+    : AxAudioInput;
+
+type InferFieldValueType<
+  T,
+  TMode extends 'input' | 'output' = 'input',
+> = T extends AxFieldType | AxFluentFieldType
   ? T['type'] extends 'string'
     ? T['isArray'] extends true
       ? string[]
@@ -1417,9 +1433,7 @@ type InferFieldValueType<T> = T extends AxFieldType | AxFluentFieldType
                       ? { mimeType: string; data: string }[]
                       : { mimeType: string; data: string }
                     : T['type'] extends 'audio'
-                      ? T['isArray'] extends true
-                        ? { format?: 'wav'; data: string }[]
-                        : { format?: 'wav'; data: string }
+                      ? InferAudioValueType<T, TMode>
                       : T['type'] extends 'file'
                         ? T['isArray'] extends true
                           ? (
@@ -1450,10 +1464,16 @@ type InferFieldValueType<T> = T extends AxFieldType | AxFluentFieldType
                                   ? F extends Record<string, any>
                                     ? T['isArray'] extends true
                                       ? {
-                                          [K in keyof F]: InferFluentType<F[K]>;
+                                          [K in keyof F]: InferFluentType<
+                                            F[K],
+                                            TMode
+                                          >;
                                         }[]
                                       : {
-                                          [K in keyof F]: InferFluentType<F[K]>;
+                                          [K in keyof F]: InferFluentType<
+                                            F[K],
+                                            TMode
+                                          >;
                                         }
                                     : any
                                   : any
@@ -1524,6 +1544,7 @@ function convertFluentToAxFieldType(
 // Helper type to infer TypeScript type from fluent field info
 type InferFluentType<
   T extends AxFluentFieldInfo<any, any, any, any> | AxFluentFieldType,
+  TMode extends 'input' | 'output' = 'input',
 > = T['type'] extends 'string'
   ? T['isArray'] extends true
     ? string[]
@@ -1561,9 +1582,7 @@ type InferFluentType<
                     ? { mimeType: string; data: string }[]
                     : { mimeType: string; data: string }
                   : T['type'] extends 'audio'
-                    ? T['isArray'] extends true
-                      ? { format?: 'wav'; data: string }[]
-                      : { format?: 'wav'; data: string }
+                    ? InferAudioValueType<T, TMode>
                     : T['type'] extends 'file'
                       ? T['isArray'] extends true
                         ? (
@@ -1594,10 +1613,16 @@ type InferFluentType<
                                 ? F extends Record<string, any>
                                   ? T['isArray'] extends true
                                     ? {
-                                        [K in keyof F]: InferFluentType<F[K]>;
+                                        [K in keyof F]: InferFluentType<
+                                          F[K],
+                                          TMode
+                                        >;
                                       }[]
                                     : {
-                                        [K in keyof F]: InferFluentType<F[K]>;
+                                        [K in keyof F]: InferFluentType<
+                                          F[K],
+                                          TMode
+                                        >;
                                       }
                                   : any
                                 : any
@@ -1612,11 +1637,12 @@ type AddFieldToShape<
   S extends Record<string, any>,
   K extends string,
   T extends AxFluentFieldInfo<any, any, any, any> | AxFluentFieldType,
+  TMode extends 'input' | 'output' = 'input',
 > = _IsInternal<T> extends true
   ? S
   : _IsOptional<T> extends true
-    ? S & { readonly [P in K]?: InferFluentType<T> }
-    : S & { readonly [P in K]: InferFluentType<T> };
+    ? S & { readonly [P in K]?: InferFluentType<T, TMode> }
+    : S & { readonly [P in K]: InferFluentType<T, TMode> };
 
 // Helper function to convert AxFieldType to AxField
 function convertFieldTypeToAxField(
@@ -2374,14 +2400,17 @@ export class AxSignature<
   public appendInputField = <K extends string, T extends AxFieldType>(
     name: K,
     fieldType: T
-  ): AxSignature<_TInput & Record<K, InferFieldValueType<T>>, _TOutput> => {
+  ): AxSignature<
+    _TInput & Record<K, InferFieldValueType<T, 'input'>>,
+    _TOutput
+  > => {
     const newSig = new AxSignature(this);
     newSig.addInputField({
       name,
       ...convertFieldTypeToAxField(fieldType),
     });
     return newSig as AxSignature<
-      _TInput & Record<K, InferFieldValueType<T>>,
+      _TInput & Record<K, InferFieldValueType<T, 'input'>>,
       _TOutput
     >;
   };
@@ -2389,7 +2418,10 @@ export class AxSignature<
   public prependInputField = <K extends string, T extends AxFieldType>(
     name: K,
     fieldType: T
-  ): AxSignature<Record<K, InferFieldValueType<T>> & _TInput, _TOutput> => {
+  ): AxSignature<
+    Record<K, InferFieldValueType<T, 'input'>> & _TInput,
+    _TOutput
+  > => {
     const newSig = new AxSignature(this);
     const fieldToAdd = {
       name,
@@ -2428,7 +2460,7 @@ export class AxSignature<
     newSig.updateHashLight();
 
     return newSig as AxSignature<
-      Record<K, InferFieldValueType<T>> & _TInput,
+      Record<K, InferFieldValueType<T, 'input'>> & _TInput,
       _TOutput
     >;
   };
@@ -2436,7 +2468,10 @@ export class AxSignature<
   public appendOutputField = <K extends string, T extends AxFieldType>(
     name: K,
     fieldType: T
-  ): AxSignature<_TInput, _TOutput & Record<K, InferFieldValueType<T>>> => {
+  ): AxSignature<
+    _TInput,
+    _TOutput & Record<K, InferFieldValueType<T, 'output'>>
+  > => {
     const newSig = new AxSignature(this);
     newSig.addOutputField({
       name,
@@ -2444,14 +2479,17 @@ export class AxSignature<
     });
     return newSig as AxSignature<
       _TInput,
-      _TOutput & Record<K, InferFieldValueType<T>>
+      _TOutput & Record<K, InferFieldValueType<T, 'output'>>
     >;
   };
 
   public prependOutputField = <K extends string, T extends AxFieldType>(
     name: K,
     fieldType: T
-  ): AxSignature<_TInput, Record<K, InferFieldValueType<T>> & _TOutput> => {
+  ): AxSignature<
+    _TInput,
+    Record<K, InferFieldValueType<T, 'output'>> & _TOutput
+  > => {
     const newSig = new AxSignature(this);
     const fieldToAdd = {
       name,
@@ -2491,7 +2529,7 @@ export class AxSignature<
 
     return newSig as AxSignature<
       _TInput,
-      Record<K, InferFieldValueType<T>> & _TOutput
+      Record<K, InferFieldValueType<T, 'output'>> & _TOutput
     >;
   };
 
@@ -2848,9 +2886,9 @@ function validateFieldType(
 
   const { type } = field;
 
-  // Only media types (image, audio, file) are restricted to input fields
-  // url, email, date, dateRange, datetime, datetimeRange can be used in both input and output
-  if (type.name === 'image' || type.name === 'audio' || type.name === 'file') {
+  // Image/file remain input-only. Audio may be output as a scripted speech
+  // artifact, but arrays of generated audio are intentionally not supported.
+  if (type.name === 'image' || type.name === 'file') {
     if (context === 'output') {
       throw new AxSignatureValidationError(
         `${type.name} type is not supported in output fields`,
@@ -2858,6 +2896,13 @@ function validateFieldType(
         `${type.name} types can only be used in input fields`
       );
     }
+  }
+  if (type.name === 'audio' && context === 'output' && type.isArray) {
+    throw new AxSignatureValidationError(
+      'audio array type is not supported in output fields',
+      field.name,
+      'Use a single audio output field instead'
+    );
   }
 
   if (type.name === 'class') {

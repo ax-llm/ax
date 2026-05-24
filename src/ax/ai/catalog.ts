@@ -143,7 +143,7 @@ const axAIModelCatalogProviderDefinitions = {
   },
   deepseek: {
     displayName: 'DeepSeek',
-    defaultModel: AxAIDeepSeekModel.DeepSeekChat,
+    defaultModel: AxAIDeepSeekModel.DeepSeekV4Flash,
     isDynamic: false,
     modelInfo: axModelInfoDeepSeek,
   },

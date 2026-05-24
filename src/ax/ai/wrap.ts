@@ -53,6 +53,10 @@ import type {
   AxEmbedResponse,
   AxLoggerFunction,
   AxModelUsage,
+  AxSpeechRequest,
+  AxSpeechResponse,
+  AxTranscriptionRequest,
+  AxTranscriptionResponse,
 } from './types.js';
 import { AxAIWebLLM, type AxAIWebLLMArgs } from './webllm/api.js';
 import type { AxAIWebLLMModel } from './webllm/types.js';
@@ -128,7 +132,7 @@ type InferTModelKey<T> = T extends { models: infer M }
  * - `'groq'` - Groq (Llama, Mixtral with fast inference)
  * - `'cohere'` - Cohere (Command R+, embeddings)
  * - `'mistral'` - Mistral AI (Mistral Large, Codestral)
- * - `'deepseek'` - DeepSeek (DeepSeek-V3, DeepSeek-R1)
+ * - `'deepseek'` - DeepSeek (DeepSeek-V4-Flash, DeepSeek-V4-Pro)
  * - `'together'` - Together AI (various open models)
  * - `'openrouter'` - OpenRouter (unified API for many providers)
  * - `'ollama'` - Ollama (local models)
@@ -327,6 +331,20 @@ export class AxAI<TModelKey = string>
     options?: Readonly<AxAIServiceOptions>
   ): Promise<AxEmbedResponse> {
     return await this.ai.embed(req, options);
+  }
+
+  async transcribe(
+    req: Readonly<AxTranscriptionRequest<TModelKey>>,
+    options?: Readonly<AxAIServiceOptions>
+  ): Promise<AxTranscriptionResponse> {
+    return await this.ai.transcribe(req, options);
+  }
+
+  async speak(
+    req: Readonly<AxSpeechRequest<TModelKey>>,
+    options?: Readonly<AxAIServiceOptions>
+  ): Promise<AxSpeechResponse> {
+    return await this.ai.speak(req, options);
   }
 
   setOptions(options: Readonly<AxAIServiceOptions>): void {

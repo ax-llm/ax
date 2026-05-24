@@ -1,3 +1,4 @@
+import type { AxAIFeatures } from '../base.js';
 import {
   axBaseAIDefaultConfig,
   axBaseAIDefaultCreativeConfig,
@@ -7,6 +8,7 @@ import type {
   AxAIOpenAIChatRequest,
   AxAIOpenAIConfig,
 } from '../openai/chat_types.js';
+import type { AxAIServiceOptions } from '../types.js';
 
 import { axModelInfoDeepSeek } from './info.js';
 import { AxAIDeepSeekModel } from './types.js';
@@ -15,6 +17,14 @@ import { AxAIDeepSeekModel } from './types.js';
  * Configuration type for DeepSeek AI models
  */
 type DeepSeekConfig = AxAIOpenAIConfig<AxAIDeepSeekModel, undefined>;
+
+type DeepSeekReasoningEffort =
+  | NonNullable<AxAIOpenAIChatRequest<AxAIDeepSeekModel>['reasoning_effort']>
+  | 'max';
+
+type DeepSeekChatRequest<TModel> = AxAIOpenAIChatRequest<TModel> & {
+  thinking?: { type: 'enabled' | 'disabled' };
+};
 
 const axAIDeepSeekSupportsToolChoice = (model: unknown): boolean => {
   switch (String(model)) {
@@ -27,10 +37,56 @@ const axAIDeepSeekSupportsToolChoice = (model: unknown): boolean => {
   }
 };
 
+const axAIDeepSeekSupportsThinking = (model: unknown): boolean => {
+  switch (String(model)) {
+    case AxAIDeepSeekModel.DeepSeekV4Flash:
+    case AxAIDeepSeekModel.DeepSeekV4Pro:
+      return true;
+    default:
+      return false;
+  }
+};
+
 const axAIDeepSeekChatReqUpdater = <TModel>(
-  req: Readonly<AxAIOpenAIChatRequest<TModel>>
-): AxAIOpenAIChatRequest<TModel> => {
+  req: Readonly<DeepSeekChatRequest<TModel>>,
+  config: Readonly<AxAIServiceOptions>
+): DeepSeekChatRequest<TModel> => {
   const nextReq = { ...req };
+
+  if (axAIDeepSeekSupportsThinking(req.model)) {
+    const thinkingEnabled =
+      config.thinkingTokenBudget !== 'none' &&
+      nextReq.reasoning_effort !== 'none' &&
+      (config.thinkingTokenBudget !== undefined ||
+        nextReq.reasoning_effort !== undefined);
+
+    nextReq.thinking = {
+      type: thinkingEnabled ? 'enabled' : 'disabled',
+    };
+
+    if (!thinkingEnabled) {
+      delete nextReq.reasoning_effort;
+    } else {
+      switch (nextReq.reasoning_effort) {
+        case 'xhigh':
+          (
+            nextReq as { reasoning_effort?: DeepSeekReasoningEffort }
+          ).reasoning_effort = 'max';
+          break;
+        case 'minimal':
+        case 'low':
+        case 'medium':
+        case undefined:
+          nextReq.reasoning_effort = 'high';
+          break;
+      }
+
+      delete nextReq.temperature;
+      delete nextReq.top_p;
+      delete nextReq.presence_penalty;
+      delete nextReq.frequency_penalty;
+    }
+  }
 
   if (axAIDeepSeekSupportsToolChoice(req.model)) {
     return nextReq;
@@ -44,24 +100,57 @@ const axAIDeepSeekChatReqUpdater = <TModel>(
 };
 
 /**
- * Creates the default configuration for DeepSeek AI with the chat model
- * @returns Default DeepSeek configuration with chat model settings
+ * Creates the default configuration for DeepSeek AI with the V4 Flash model
+ * @returns Default DeepSeek configuration with V4 Flash settings
  */
 export const axAIDeepSeekDefaultConfig = (): DeepSeekConfig =>
   structuredClone({
-    model: AxAIDeepSeekModel.DeepSeekChat,
+    model: AxAIDeepSeekModel.DeepSeekV4Flash,
     ...axBaseAIDefaultConfig(),
   });
 
 /**
- * Creates a configuration optimized for code generation tasks using DeepSeek Coder
+ * Creates a configuration optimized for code generation tasks using DeepSeek V4 Pro
  * @returns DeepSeek configuration with creative settings for coding tasks
  */
 export const axAIDeepSeekCodeConfig = (): DeepSeekConfig =>
   structuredClone({
-    model: AxAIDeepSeekModel.DeepSeekCoder,
+    model: AxAIDeepSeekModel.DeepSeekV4Pro,
     ...axBaseAIDefaultCreativeConfig(),
   });
+
+const axAIDeepSeekSupportFor = (model: AxAIDeepSeekModel): AxAIFeatures => ({
+  functions: true,
+  streaming: true,
+  hasThinkingBudget: axAIDeepSeekSupportsThinking(model),
+  hasShowThoughts: axAIDeepSeekSupportsThinking(model),
+  media: {
+    images: {
+      supported: false,
+      formats: [],
+    },
+    audio: {
+      supported: false,
+      formats: [],
+    },
+    files: {
+      supported: false,
+      formats: [],
+      uploadMethod: 'none' as const,
+    },
+    urls: {
+      supported: false,
+      webSearch: false,
+      contextFetching: false,
+    },
+  },
+  caching: {
+    supported: false,
+    types: [],
+  },
+  thinking: axAIDeepSeekSupportsThinking(model),
+  multiTurn: true,
+});
 
 /**
  * Arguments type for initializing DeepSeek AI instances
@@ -82,7 +171,8 @@ export type AxAIDeepSeekArgs<TModelKey> = AxAIOpenAIArgs<
 export class AxAIDeepSeek<TModelKey> extends AxAIOpenAIBase<
   AxAIDeepSeekModel,
   undefined,
-  TModelKey
+  TModelKey,
+  DeepSeekChatRequest<AxAIDeepSeekModel>
 > {
   /**
    * Creates a new DeepSeek AI client instance
@@ -118,38 +208,7 @@ export class AxAIDeepSeek<TModelKey> extends AxAIOpenAIBase<
       apiURL: 'https://api.deepseek.com',
       modelInfo,
       chatReqUpdater: axAIDeepSeekChatReqUpdater,
-      supportFor: {
-        functions: true,
-        streaming: true,
-        hasThinkingBudget: false,
-        hasShowThoughts: false,
-        media: {
-          images: {
-            supported: false,
-            formats: [],
-          },
-          audio: {
-            supported: false,
-            formats: [],
-          },
-          files: {
-            supported: false,
-            formats: [],
-            uploadMethod: 'none' as const,
-          },
-          urls: {
-            supported: false,
-            webSearch: false,
-            contextFetching: false,
-          },
-        },
-        caching: {
-          supported: false,
-          types: [],
-        },
-        thinking: false,
-        multiTurn: true,
-      },
+      supportFor: axAIDeepSeekSupportFor,
       models,
     });
 

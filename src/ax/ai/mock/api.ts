@@ -14,6 +14,10 @@ import type {
   AxLoggerFunction,
   AxModelConfig,
   AxModelInfoWithProvider,
+  AxSpeechRequest,
+  AxSpeechResponse,
+  AxTranscriptionRequest,
+  AxTranscriptionResponse,
 } from '../types.js';
 
 export type AxMockAIServiceConfig<TModelKey> = {
@@ -43,6 +47,16 @@ export type AxMockAIServiceConfig<TModelKey> = {
     | ((
         req: Readonly<AxEmbedRequest>
       ) => AxEmbedResponse | Promise<AxEmbedResponse>);
+  transcribeResponse?:
+    | AxTranscriptionResponse
+    | ((
+        req: Readonly<AxTranscriptionRequest<unknown>>
+      ) => AxTranscriptionResponse | Promise<AxTranscriptionResponse>);
+  speechResponse?:
+    | AxSpeechResponse
+    | ((
+        req: Readonly<AxSpeechRequest<unknown>>
+      ) => AxSpeechResponse | Promise<AxSpeechResponse>);
   shouldError?: boolean;
   errorMessage?: string;
   latencyMs?: number;
@@ -213,6 +227,45 @@ export class AxMockAIService<TModelKey>
             totalTokens: 5,
           },
         },
+      }
+    );
+  }
+
+  async transcribe(
+    req: Readonly<AxTranscriptionRequest<unknown>>,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _options?: Readonly<AxAIServiceOptions>
+  ): Promise<AxTranscriptionResponse> {
+    if (this.config.shouldError) {
+      throw new Error(this.config.errorMessage ?? 'Mock transcribe error');
+    }
+
+    if (typeof this.config.transcribeResponse === 'function') {
+      return this.config.transcribeResponse(req);
+    }
+
+    return this.config.transcribeResponse ?? { text: 'Mock transcription' };
+  }
+
+  async speak(
+    req: Readonly<AxSpeechRequest<unknown>>,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _options?: Readonly<AxAIServiceOptions>
+  ): Promise<AxSpeechResponse> {
+    if (this.config.shouldError) {
+      throw new Error(this.config.errorMessage ?? 'Mock speech error');
+    }
+
+    if (typeof this.config.speechResponse === 'function') {
+      return this.config.speechResponse(req);
+    }
+
+    return (
+      this.config.speechResponse ?? {
+        data: 'bW9jay1hdWRpbw==',
+        format: 'mp3',
+        mimeType: 'audio/mpeg',
+        transcript: req.text,
       }
     );
   }

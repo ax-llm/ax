@@ -1,57 +1,175 @@
 ---
 name: ax-audio
-description: This skill helps an LLM generate correct conversational audio I/O code with @ax-llm/ax. Use when the user asks about .chat() audio input, audio output, OpenAI gpt-audio or realtime models, Gemini Live native audio, Grok Voice Agent models, voices, formats, transcripts, or how audio fits with signatures and structured outputs.
+description: This skill helps an LLM generate correct audio code with @ax-llm/ax. Use when the user asks about ai.transcribe(), ai.speak(), signature audio inputs or outputs, agent audio behavior, .chat() conversational audio, OpenAI audio or realtime models, Gemini Live native audio, Grok Voice Agent models, voices, formats, transcripts, or how audio fits with structured outputs.
 version: "__VERSION__"
 ---
 
 # Audio I/O Codegen Rules (@ax-llm/ax)
 
-Use this skill for bounded-turn conversational audio through `.chat()`. Prefer short, modern, copyable examples. Do not model generated audio as a DSPy signature output field.
+Use this skill for audio in Ax. Pick the smallest audio surface that matches the job:
 
-## Core Rule
+- Use `ai.transcribe(...)` for batch speech-to-text.
+- Use `ai.speak(...)` for batch text-to-speech.
+- Use `speech:audio` signature outputs for structured programs that should return synthesized audio artifacts.
+- Use `.chat()` audio config for conversational or realtime audio turns.
 
-Audio output is returned on `AxChatResponseResult.audio`, not in signature fields.
+## Core Rules
 
-Signatures should keep text fields text-shaped:
+- Input `:audio` is an audio input value: `{ data, format?, mimeType?, sampleRate?, channels? }`.
+- Output `:audio` is a scripted audio artifact. The model returns plain text for that field; Ax synthesizes it after structured output parsing.
+- Output audio JSON schema is model-facing `string`, not a binary object.
+- Agents transcribe input audio fields before planner/executor/responder stages by default, so agent stages see text instead of base64 audio.
+- Realtime and conversational audio still use `.chat()` and `modelConfig.audio`.
+- Batch signature audio artifacts use forward-time `speech` options, not `modelConfig.audio`.
+
+## Direct Batch APIs
 
 ```typescript
-const result = await llm.chat({
+import { ai } from '@ax-llm/ax';
+
+const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! });
+
+const transcript = await llm.transcribe({
+  audio: { data: base64Wav, format: 'wav' },
+  model: 'gpt-4o-mini-transcribe',
+  language: 'en',
+  prompt: 'Product support call',
+});
+
+const speech = await llm.speak({
+  text: transcript.text,
+  model: 'gpt-4o-mini-tts',
+  voice: 'alloy',
+  format: 'mp3',
+});
+
+console.log(transcript.text);
+console.log(speech.data);
+console.log(speech.transcript);
+```
+
+Providers without the requested batch audio capability throw `AxMediaNotSupportedError`.
+
+## Signature Audio Artifacts
+
+```typescript
+import { ai, ax } from '@ax-llm/ax';
+
+const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! });
+const say = ax('question:string -> speech:audio, summary:string');
+
+const result = await say.forward(
+  llm,
+  { question: 'Explain retries in one sentence.' },
+  {
+    speech: {
+      speak: { voice: 'alloy', format: 'mp3' },
+      fields: {
+        speech: { voice: 'alloy' },
+      },
+    },
+  }
+);
+
+console.log(result.summary);
+console.log(result.speech.data);
+console.log(result.speech.mimeType);
+console.log(result.speech.transcript);
+```
+
+The model emits a text script for `speech`; Ax replaces it with `AxChatAudioOutput` after result selection. If the field already contains an audio artifact with `{ data }` or `{ id }`, Ax leaves it alone.
+
+## Agent Audio Inputs
+
+```typescript
+import { agent, ai } from '@ax-llm/ax';
+
+const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! });
+
+const voiceAgent = agent(
+  'recording:audio, question:string -> speech:audio, summary:string',
+  {
+    agentIdentity: {
+      name: 'Voice Assistant',
+      description: 'Answers spoken requests with spoken and written output',
+    },
+    contextFields: [],
+  }
+);
+
+const result = await voiceAgent.forward(
+  llm,
+  {
+    recording: { data: base64Wav, format: 'wav' },
+    question: 'What should I do next?',
+  },
+  {
+    speech: {
+      transcribe: { model: 'gpt-4o-mini-transcribe' },
+      speak: { voice: 'alloy', format: 'mp3' },
+    },
+  }
+);
+
+console.log(result.summary);
+console.log(result.speech.data);
+```
+
+The agent runtime transcribes `recording` first and passes the transcript through the internal agent stages. Use direct `ax(...)` or `.chat()` when you specifically want native audio understanding in the model call.
+
+## Conversational `.chat()` Audio
+
+Use `modelConfig.audio` for conversational audio turns where audio is part of the chat response instead of a structured signature field.
+
+```typescript
+const res = await llm.chat({
   chatPrompt: [{ role: 'user', content: 'Say hello out loud.' }],
   modelConfig: {
-    audio: { output: { enabled: true } },
+    audio: { output: { enabled: true, voice: 'alloy', format: 'wav' } },
   },
 });
 
-console.log(result.results[0]?.content);
-console.log(result.results[0]?.audio?.data);
-console.log(result.results[0]?.audio?.transcript);
+console.log(res.results[0]?.content);
+console.log(res.results[0]?.audio?.data);
+console.log(res.results[0]?.audio?.transcript);
 ```
-
-Do not write signatures like `question:string -> audio:audio`. Use `.chat()` for conversational audio and use `audio.data` for the generated bytes.
 
 ## Config Shape
 
 ```typescript
-type AxChatAudioConfig = {
-  input?: {
-    format?: 'wav' | 'mp3' | 'flac' | 'opus' | 'aac' | 'pcm16' | 'pcm' | 'ogg';
-    mimeType?: string;
-    sampleRate?: number;
-    channels?: number;
+type AxAudioFormat =
+  | 'wav'
+  | 'mp3'
+  | 'flac'
+  | 'opus'
+  | 'aac'
+  | 'pcm16'
+  | 'pcm'
+  | 'ogg'
+  | 'raw'
+  | 'mulaw'
+  | 'ulaw'
+  | 'alaw';
+
+type AxSpeechConfig = {
+  transcribe?: {
+    model?: string;
+    language?: string;
+    prompt?: string;
   };
-  output?: {
-    enabled?: boolean;
-    voice?: string | { id: string };
-    format?: 'wav' | 'mp3' | 'flac' | 'opus' | 'aac' | 'pcm16' | 'pcm' | 'ogg';
-    sampleRate?: number;
-    channels?: number;
-    includeTranscript?: boolean;
+  speak?: {
+    model?: string;
+    voice?: string;
+    format?: AxAudioFormat;
   };
-  live?: {
-    turnTimeoutMs?: number;
-    enableAffectiveDialog?: boolean;
-    proactiveAudio?: boolean;
-  };
+  fields?: Record<
+    string,
+    {
+      model?: string;
+      voice?: string;
+      format?: AxAudioFormat;
+    }
+  >;
 };
 ```
 
@@ -246,6 +364,10 @@ for await (const chunk of stream) {
 
 ## Structured Outputs
 
-Do not combine audio output with structured response formats. Audio chat may return a text transcript in `content`, but generated audio bytes live at `result.results[0].audio`.
+Use signature audio outputs for structured speech artifacts:
 
-For structured extraction from speech, use a text-only or transcription step first, then pass the transcript into `ax(...)` or `flow(...)`.
+```typescript
+const gen = ax('question:string -> answer:string, speech:audio');
+```
+
+Use `.chat()` audio when the response itself is a conversational audio turn. Do not combine `.chat()` audio output with provider-native structured response formats unless that provider explicitly supports the combination.

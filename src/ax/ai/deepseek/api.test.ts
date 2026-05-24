@@ -2,10 +2,18 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { f } from '../../dsp/sig.js';
 import { ax } from '../../dsp/template.js';
-import { AxAIDeepSeek } from './api.js';
+import {
+  AxAIDeepSeek,
+  axAIDeepSeekCodeConfig,
+  axAIDeepSeekDefaultConfig,
+} from './api.js';
 import { AxAIDeepSeekModel } from './types.js';
 
 type CapturedBody = {
+  model?: string;
+  reasoning_effort?: string;
+  temperature?: number;
+  thinking?: { type?: string };
   tools?: unknown[];
   tool_choice?: unknown;
 };
@@ -58,6 +66,97 @@ function createMockFetch(
       });
     });
 }
+
+describe('AxAIDeepSeek model defaults', () => {
+  it('uses current V4 models for defaults and code config', () => {
+    expect(axAIDeepSeekDefaultConfig().model).toBe(
+      AxAIDeepSeekModel.DeepSeekV4Flash
+    );
+    expect(axAIDeepSeekCodeConfig().model).toBe(
+      AxAIDeepSeekModel.DeepSeekV4Pro
+    );
+  });
+
+  it('sends V4 Flash with thinking disabled by default', async () => {
+    const ai = new AxAIDeepSeek({
+      apiKey: 'key',
+      config: { stream: false },
+    });
+    const capture: { lastBody?: CapturedBody } = {};
+    ai.setOptions({ fetch: createMockFetch(capture) });
+
+    await ai.chat(
+      {
+        chatPrompt: [{ role: 'user', content: 'Return ok.' }],
+      },
+      { stream: false }
+    );
+
+    expect(capture.lastBody?.model).toBe(AxAIDeepSeekModel.DeepSeekV4Flash);
+    expect(capture.lastBody?.thinking).toEqual({ type: 'disabled' });
+    expect(capture.lastBody?.reasoning_effort).toBeUndefined();
+  });
+
+  it('enables DeepSeek thinking from thinkingTokenBudget', async () => {
+    const ai = new AxAIDeepSeek({
+      apiKey: 'key',
+      config: {
+        model: AxAIDeepSeekModel.DeepSeekV4Pro,
+        stream: false,
+        temperature: 0.4,
+      },
+    });
+    const capture: { lastBody?: CapturedBody } = {};
+    ai.setOptions({ fetch: createMockFetch(capture) });
+
+    await ai.chat(
+      {
+        chatPrompt: [{ role: 'user', content: 'Think carefully.' }],
+      },
+      { stream: false, thinkingTokenBudget: 'high' }
+    );
+
+    expect(capture.lastBody?.thinking).toEqual({ type: 'enabled' });
+    expect(capture.lastBody?.reasoning_effort).toBe('high');
+    expect(capture.lastBody?.temperature).toBeUndefined();
+  });
+
+  it('maps highest thinking budget to DeepSeek max effort', async () => {
+    const ai = new AxAIDeepSeek({
+      apiKey: 'key',
+      config: { model: AxAIDeepSeekModel.DeepSeekV4Pro, stream: false },
+    });
+    const capture: { lastBody?: CapturedBody } = {};
+    ai.setOptions({ fetch: createMockFetch(capture) });
+
+    await ai.chat(
+      {
+        chatPrompt: [{ role: 'user', content: 'Think as much as needed.' }],
+      },
+      { stream: false, thinkingTokenBudget: 'highest' }
+    );
+
+    expect(capture.lastBody?.thinking).toEqual({ type: 'enabled' });
+    expect(capture.lastBody?.reasoning_effort).toBe('max');
+  });
+
+  it('advertises thinking support for current V4 models', () => {
+    const ai = new AxAIDeepSeek({
+      apiKey: 'key',
+    });
+
+    expect(ai.getFeatures(AxAIDeepSeekModel.DeepSeekV4Flash)).toMatchObject({
+      hasThinkingBudget: true,
+      hasShowThoughts: true,
+      thinking: true,
+    });
+    expect(ai.getFeatures(AxAIDeepSeekModel.DeepSeekChat)).toMatchObject({
+      hasThinkingBudget: false,
+      hasShowThoughts: false,
+      thinking: false,
+    });
+  });
+});
 
 describe('AxAIDeepSeek tool choice compatibility', () => {
   it('lets AxGen structured fallback send __finalResult to V4 without tool_choice', async () => {

@@ -25,19 +25,18 @@ Your job is to choose the smallest correct `AxAgent` shape for the user's needs:
 - Prefer namespaced functions such as `utils.search(...)` or `kb.find(...)`.
 - Pass child agents directly in `functions: [...]`. They land under their `agentIdentity.namespace` (or `utils` if unset), exactly like a `fn()` tool.
 - If discovery is enabled, call `discover(...)` before using callables whose docs are not already in the prompt.
-- Prefer `mode: 'simple'` unless recursive child agents materially improve the task.
-- Add `mode: 'advanced'`, `recursionOptions`, or `maxSubAgentCalls` only when delegated children need their own runtime, tools, or discovery loop.
+- Use explicit child agents in `functions: [...]` for specialist delegation; do not model that as recursive `llmQuery(...)`.
 - Add `bubbleErrors` only for fatal infrastructure errors that should abort `.forward()`.
 
 ## Decision Guide
 
 Map user intent to agent shape before writing code:
 
-- "Use tools and answer" -> plain `agent(...)` with local functions, no recursion, no extra observability.
+- "Use tools and answer" -> plain `agent(...)` with local functions, no extra observability.
 - "Need child agents with distinct responsibilities" -> add child agents to the parent's `functions: [...]` list and set each child's `agentIdentity.namespace` when you want a specific runtime call site such as `team.writer(...)`.
 - "Need tool discovery because names/schemas are not stable" -> enable discovery and generate discovery-first actor code.
-- "Need certain errors to escape the agent loop" -> add `bubbleErrors` with error classes; those errors propagate through function handlers, actor code, and `llmQuery(...)` sub-agents to `.forward()`.
-- "Inspect large context with code", "RLM", "`llmQuery(...)`", or "recursive delegation" -> use `ax-agent-rlm`.
+- "Need certain errors to escape the agent loop" -> add `bubbleErrors` with error classes; those errors propagate through function handlers, actor code, and `llmQuery(...)` sub-queries to `.forward()`.
+- "Inspect large context with code", "RLM", or "`llmQuery(...)`" -> use `ax-agent-rlm`.
 - "Need debugging, traces, progress updates, tool-call logs, chat logs, or usage" -> use `ax-agent-observability`.
 - "Need memories, recall, dynamic skill guides, `discover({ skills })`, or loaded/used tracking" -> use `ax-agent-memory-skills`.
 
@@ -51,6 +50,7 @@ Map user intent to agent shape before writing code:
 - When resuming after clarification, prefer `error.getState()` from the thrown `AxAgentClarificationError`, then call `agent.setState(savedState)` before the next `forward(...)`.
 - Errors listed in `bubbleErrors` bypass actor-loop catch blocks and propagate directly to the caller of `.forward()`.
 - Child agents receive only the arguments the actor passes. Pass parent fields explicitly via `inputs.<field>` or use `inputUpdateCallback` when many calls need the same value.
+- Audio input fields are transcribed before agent planner/executor/responder stages by default; internal agent stages receive text transcripts, not base64 audio.
 
 ## Canonical Pattern
 
@@ -79,6 +79,42 @@ const assistant = agent(
 const result = await assistant.forward(llm, { query: 'What is TypeScript?' });
 console.log(result.answer);
 ```
+
+## Audio Inputs And Speech Outputs
+
+Agents can accept audio inputs and return scripted speech artifacts. The runtime transcribes audio input fields before internal stages run, then synthesizes `:audio` outputs after the final structured response is selected.
+
+```typescript
+const voiceAgent = agent(
+  'recording:audio, question:string -> speech:audio, summary:string',
+  {
+    agentIdentity: {
+      name: 'Voice Assistant',
+      description: 'Answers spoken requests',
+    },
+    contextFields: [],
+  }
+);
+
+const result = await voiceAgent.forward(
+  llm,
+  {
+    recording: { data: base64Wav, format: 'wav' },
+    question: 'What should I do next?',
+  },
+  {
+    speech: {
+      transcribe: { model: 'gpt-4o-mini-transcribe' },
+      speak: { voice: 'alloy', format: 'mp3' },
+    },
+  }
+);
+
+console.log(result.summary);
+console.log(result.speech.data);
+```
+
+Use direct `ax(...)` or `.chat()` if the model should receive native audio instead of a transcript-first agent pipeline.
 
 ## Child Agents As Tools
 
@@ -333,7 +369,7 @@ State notes:
 
 ## Bubble Errors
 
-Use `bubbleErrors` when certain exceptions thrown inside function handlers or `llmQuery(...)` sub-agent calls should propagate all the way out to `.forward()` instead of being caught by the actor loop and returned as `[ERROR]` strings.
+Use `bubbleErrors` when certain exceptions thrown inside function handlers or `llmQuery(...)` sub-query calls should propagate all the way out to `.forward()` instead of being caught by the actor loop and returned as `[ERROR]` strings.
 
 ```typescript
 import { agent, f, fn } from '@ax-llm/ax';
@@ -366,8 +402,7 @@ const myAgent = agent('query:string -> answer:string', {
 Rules:
 
 - `bubbleErrors` takes an array of Error constructor classes, checked via `instanceof`.
-- A matching error thrown inside a function handler, during actor code execution, or inside a nested `llmQuery(...)` child agent propagates immediately to `.forward()`.
-- The same `bubbleErrors` list is automatically propagated to recursive child agents created for advanced-mode `llmQuery(...)` calls.
+- A matching error thrown inside a function handler, during actor code execution, or inside an `llmQuery(...)` sub-query propagates immediately to `.forward()`.
 - Use `bubbleErrors` for fatal infrastructure errors such as DB down, auth failure, or quota exceeded.
 - Do not use `bubbleErrors` for expected recoverable errors; let those return as `[ERROR] ...` strings so the actor can handle them.
 - `AxAgentClarificationError` and `AxAIServiceAbortedError` always bubble up unconditionally.
@@ -503,7 +538,7 @@ Use these method groups as the compact AxAgent surface map:
 
 - Running: `forward(ai, values, options?)` and `streamingForward(ai, values, options?)`.
 - Forward-time agent options: `skills`, `onUsedMemories`, and `onUsedSkills`; use `ax-agent-memory-skills` for details.
-- State and control: `getState()`, `setState(state?)`, `stop()`, `getSignature()`, `setSignature(signature)`, `getFunction()`, `getId()`, and `setId(id)`.
+- State and control: `getState()`, `setState(state?)`, `getContextMap()`, `setContextMap(map?)`, `stop()`, `getSignature()`, `setSignature(signature)`, `getFunction()`, `getId()`, and `setId(id)`. Context-map evolve policy lives on `AxAgentContextMap` (`infiniteEvolve`, `evolveSteps`, `maxChars`), not on the agent config. See [`src/examples/rlm-context-map.ts`](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-context-map.ts) for persistence and finite-evolve usage.
 - Observability: `getChatLog()`, `getUsage()`, `getStagedUsage()`, `resetUsage()`, and `getTraces()`; use `ax-agent-observability` for details.
 - Demos and tuning: `setDemos(...)`, `namedPrograms()`, `namedProgramInstances()`, `optimize(...)`, `applyOptimization(...)`, `getOptimizableComponents()`, and `applyOptimizedComponents(...)`; use `ax-agent-optimize` for tuning details.
 
@@ -516,7 +551,7 @@ Rules:
 
 ## Tuning Hand-off
 
-When the user wants `agent.optimize(...)`, judge configuration, eval datasets, saved optimization artifacts, or recursive optimization guidance, use `ax-agent-optimize`.
+When the user wants `agent.optimize(...)`, judge configuration, eval datasets, saved optimization artifacts, or optimization guidance, use `ax-agent-optimize`.
 
 Keep this skill focused on building and running agents. For tuning work:
 

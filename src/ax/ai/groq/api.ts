@@ -100,6 +100,12 @@ export class AxAIGroq<TModelKey> extends AxAIOpenAIBase<
     });
 
     super.setName('Groq');
+    this.setBatchAudioConfig({
+      transcriptionModel: 'whisper-large-v3-turbo',
+      speechModel: 'canopylabs/orpheus-v1-english',
+      speechVoice: 'troy',
+      speechFormat: 'wav',
+    });
     this.setOptions(Options);
   }
 

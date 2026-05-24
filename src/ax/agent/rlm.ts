@@ -318,6 +318,8 @@ export function axBuildDistillerDefinition(
     usageTrackingMode?: boolean;
     /** Enables actor-declared memory usage instructions. */
     memoryUsageMode?: boolean;
+    /** Optional prompt-resident orientation cache for recurring long context. */
+    contextMapText?: string;
     /** Optional override for the `rlm/distiller.md` template source. */
     templateOverride?: string;
     /** Optional per-primitive override map keyed by primitive id. */
@@ -351,6 +353,8 @@ export function axBuildDistillerDefinition(
       memoriesMode: Boolean(options.memoriesMode),
       memoryUsageMode: Boolean(options.memoryUsageMode),
       usageTrackingMode: Boolean(options.usageTrackingMode),
+      hasContextMap: Boolean(options.contextMapText?.trim()),
+      contextMapText: String(options.contextMapText ?? ''),
       runtimeUsageInstructions: String(options.runtimeUsageInstructions ?? ''),
     },
     options.templateOverride
@@ -390,6 +394,8 @@ export function axBuildExecutorDefinition(
     memoryUsageMode?: boolean;
     /** Enables actor-declared skill usage instructions. */
     skillUsageMode?: boolean;
+    /** Optional prompt-resident orientation cache for recurring long context. */
+    contextMapText?: string;
     availableModules?: ReadonlyArray<{
       namespace: string;
       selectionCriteria?: string;

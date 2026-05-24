@@ -6,11 +6,16 @@ export const axModelInfoDeepSeek: AxModelInfo[] = [
   {
     name: AxAIDeepSeekModel.DeepSeekV4Flash,
     currency: 'USD',
+    aliases: [
+      AxAIDeepSeekModel.DeepSeekChat,
+      AxAIDeepSeekModel.DeepSeekReasoner,
+    ],
     promptTokenCostPer1M: 0.14,
     completionTokenCostPer1M: 0.28,
     cacheReadTokenCostPer1M: 0.0028,
     contextWindow: 1_000_000,
     maxTokens: 384_000,
+    supported: { thinkingBudget: true, showThoughts: true },
   },
   {
     name: AxAIDeepSeekModel.DeepSeekV4Pro,
@@ -20,17 +25,6 @@ export const axModelInfoDeepSeek: AxModelInfo[] = [
     cacheReadTokenCostPer1M: 0.003625,
     contextWindow: 1_000_000,
     maxTokens: 384_000,
-  },
-  {
-    name: AxAIDeepSeekModel.DeepSeekChat,
-    currency: 'USD',
-    promptTokenCostPer1M: 0.27,
-    completionTokenCostPer1M: 1.1,
-  },
-  {
-    name: AxAIDeepSeekModel.DeepSeekReasoner,
-    currency: 'USD',
-    promptTokenCostPer1M: 0.55,
-    completionTokenCostPer1M: 2.19,
+    supported: { thinkingBudget: true, showThoughts: true },
   },
 ];

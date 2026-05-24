@@ -1,6 +1,6 @@
 ---
 name: ax-ai
-description: This skill helps an LLM generate correct AI provider setup and configuration code using @ax-llm/ax. Use when the user asks about ai(), providers, models, presets, embeddings, extended thinking, context caching, or mentions OpenAI/Anthropic/Google/Azure/Groq/DeepSeek/Mistral/Cohere/Together/Ollama/HuggingFace/Reka/OpenRouter with @ax-llm/ax.
+description: This skill helps an LLM generate correct AI provider setup and configuration code using @ax-llm/ax. Use when the user asks about ai(), providers, models, presets, embeddings, batch audio with ai.transcribe() or ai.speak(), extended thinking, context caching, or mentions OpenAI/Anthropic/Google/Azure/Groq/DeepSeek/Mistral/Cohere/Together/Ollama/HuggingFace/Reka/OpenRouter with @ax-llm/ax.
 version: "__VERSION__"
 ---
 
@@ -78,6 +78,30 @@ const res = await llm.chat({
 console.log(res.results[0]?.content);
 ```
 
+## Batch Audio
+
+Use `ai.transcribe(...)` for batch speech-to-text and `ai.speak(...)` for batch text-to-speech. These are separate from conversational `.chat()` audio config.
+
+```typescript
+const transcript = await llm.transcribe({
+  audio: { data: base64Wav, format: 'wav' },
+  model: 'gpt-4o-mini-transcribe',
+  language: 'en',
+});
+
+const speech = await llm.speak({
+  text: transcript.text,
+  model: 'gpt-4o-mini-tts',
+  voice: 'alloy',
+  format: 'mp3',
+});
+
+console.log(transcript.text);
+console.log(speech.data);
+```
+
+Providers without the requested audio endpoint throw `AxMediaNotSupportedError`. Use `speech` forward options for signature audio artifacts and `modelConfig.audio` for conversational chat audio.
+
 ## Common Options
 
 - `stream` (boolean): enable SSE; true by default
@@ -117,14 +141,21 @@ import { ai, AxAIDeepSeekModel } from '@ax-llm/ax';
 const deepseek = ai({
   name: 'deepseek',
   apiKey: process.env.DEEPSEEK_APIKEY!,
-  config: { model: AxAIDeepSeekModel.DeepSeekV4Pro },
+  config: { model: AxAIDeepSeekModel.DeepSeekV4Flash },
 });
 ```
 
-DeepSeek V4 thinking models support tools, but reject the `tool_choice`
-request parameter. Ax omits forced/auto tool choice for `deepseek-v4-pro`,
-`deepseek-v4-flash`, and `deepseek-reasoner` while still sending tool
-definitions.
+DeepSeek's current API models are `deepseek-v4-flash` and `deepseek-v4-pro`.
+The deprecated `deepseek-chat` and `deepseek-reasoner` aliases are retained for
+compatibility until DeepSeek removes them on 2026-07-24.
+
+DeepSeek V4 supports thinking mode. Ax sends `thinking: { type: "disabled" }`
+by default to preserve non-thinking behavior, and enables it when
+`thinkingTokenBudget` is set. Ax maps lower budget levels to DeepSeek's `high`
+effort and maps `highest` to `max`. DeepSeek V4 thinking models support tools,
+but reject the `tool_choice` request parameter, so Ax omits forced/auto tool
+choice for `deepseek-v4-pro`, `deepseek-v4-flash`, and `deepseek-reasoner`
+while still sending tool definitions.
 
 ## Extended Thinking
 

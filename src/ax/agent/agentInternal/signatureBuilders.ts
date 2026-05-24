@@ -184,6 +184,7 @@ export function buildSplitPrograms(self: any): void {
     memoryUsageMode: s.memoryUsageTrackingEnabled === true,
     skillUsageMode: s.skillUsageTrackingEnabled === true,
     usageTrackingMode: s.usageTrackingEnabled === true,
+    contextMapText: s.contextMapText,
     availableModules,
     agentFunctions: agentFunctionMeta,
     templateOverride: s._actorTemplateOverrides?.get(s._actorTemplateId()),

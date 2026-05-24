@@ -15,6 +15,7 @@ import type {
 import { flow } from '../../flow/flow.js';
 import type { AxAgentClarification } from './agentStateTypes.js';
 import { AxAgentClarificationError } from './agentStateTypes.js';
+import { transcribeAgentAudioInputs } from './audioInputs.js';
 import type { AxAgent } from './coordinator.js';
 import { mergeUsedMemoryResults } from './memoriesHelpers.js';
 import type {
@@ -29,6 +30,7 @@ import type {
 
 type PipelineForwardState<IN extends AxGenIn> = {
   agentValues: IN;
+  ai?: Readonly<AxAIService>;
   forwardOptions?: Readonly<Record<string, unknown>>;
 };
 
@@ -360,6 +362,17 @@ function mergePipelineReturn(state: any) {
   return state.responderResult;
 }
 
+async function updateContextMapFromState(p: any, state: any) {
+  if (state.ai && typeof p._updateContextMapFromPipelineState === 'function') {
+    await p._updateContextMapFromPipelineState(
+      state.ai,
+      state,
+      state.responderResult
+    );
+  }
+  return state;
+}
+
 function getUsedMemoriesCallback(
   p: any,
   options: unknown
@@ -442,6 +455,7 @@ export function buildPipelineFlow<IN extends AxGenIn, OUT extends AxGenOut>(
       (state) => (state as any).responderInput,
       p.responderAi ? { ai: p.responderAi } : undefined
     )
+    .map((state) => updateContextMapFromState(p, state))
     .returns(mergePipelineReturn);
 }
 
@@ -465,9 +479,18 @@ export async function forwardPipeline<
   options?: Readonly<AxProgramForwardOptionsWithModels<T>>
 ): Promise<OUT> {
   const p = pipeline as any;
+  const agentValues = await transcribeAgentAudioInputs(
+    p.distillerAi ?? ai,
+    p.fullSignature ?? pipeline.getSignature(),
+    values,
+    options as any
+  );
+  if (typeof p._syncContextMapPrompt === 'function') {
+    p._syncContextMapPrompt();
+  }
   return (await p.pipelineFlow.forward(
     ai,
-    { agentValues: values, forwardOptions: options },
+    { agentValues, ai, forwardOptions: options },
     options
   )) as OUT;
 }
@@ -487,17 +510,33 @@ export async function* streamingForwardPipeline<
   options?: Readonly<AxProgramStreamingForwardOptionsWithModels<T>>
 ): AxGenStreamingOut<OUT> {
   const p = pipeline as any;
+  const valuesForStages = await transcribeAgentAudioInputs(
+    p.distillerAi ?? ai,
+    p.fullSignature ?? pipeline.getSignature(),
+    values,
+    options as any
+  );
   const contextFieldNames: Set<string> = p.contextFieldNames;
   // The explorer receives the full input so it can normalize the request while
   // treating declared contextFields as runtime-only context. The task stage
   // receives only non-context inputs plus executorRequest/distilledContext.
-  const { nonCtxValues } = splitValuesByContext(values, contextFieldNames);
+  const { nonCtxValues } = splitValuesByContext(
+    valuesForStages,
+    contextFieldNames
+  );
 
   const distillerAi = p.distillerAi ?? ai;
   const executorAi = p.executorAi ?? ai;
   const responderAi = p.responderAi ?? ai;
+  if (typeof p._syncContextMapPrompt === 'function') {
+    p._syncContextMapPrompt();
+  }
 
-  const distillerRun = await p.distiller.run(distillerAi, values, options);
+  const distillerRun = await p.distiller.run(
+    distillerAi,
+    valuesForStages,
+    options
+  );
   throwOnClarification(distillerRun.executorResult, p.distiller);
 
   const distillerArgs = (distillerRun.executorResult as any)?.args ?? [];
@@ -542,4 +581,12 @@ export async function* streamingForwardPipeline<
     executorResult: executorRun.executorResult,
     options,
   });
+  if (typeof p._updateContextMapFromPipelineState === 'function') {
+    await p._updateContextMapFromPipelineState(ai, {
+      agentValues: valuesForStages,
+      executorInputs,
+      distillerResult: distillerRun,
+      executorResult: executorRun,
+    });
+  }
 }

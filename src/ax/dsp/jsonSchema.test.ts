@@ -68,6 +68,20 @@ describe('parseFunctions - wraps schema errors with function context', () => {
 });
 
 describe('jsonSchema - validation constraints', () => {
+  it('exposes output audio fields as speech script strings', () => {
+    const sig = f()
+      .input('question', f.string())
+      .output('speech', f.audio('Short spoken answer'))
+      .build();
+
+    const schema = sig.toJSONSchema();
+
+    expect(schema.properties?.speech?.type).toBe('string');
+    expect(schema.properties?.speech?.description).toContain(
+      'plain text to synthesize as speech'
+    );
+  });
+
   it('should include string length constraints in schema', () => {
     const sig = f()
       .input('query', f.string())

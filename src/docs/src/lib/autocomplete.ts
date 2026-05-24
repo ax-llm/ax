@@ -152,9 +152,8 @@ function getFieldTypeCompletions(): AutocompleteItem[] {
     },
     {
       label: 'audio',
-      detail: 'Audio field (input only)',
-      documentation:
-        'An audio field for audio file uploads (input fields only)',
+      detail: 'Audio field',
+      documentation: 'An audio field for audio input or scripted speech output',
       insertText: 'audio',
       kind: 'type',
     },

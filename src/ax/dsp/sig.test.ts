@@ -117,6 +117,18 @@ describe('signature parsing', () => {
     ).toThrow('Image type is not supported in output fields');
   });
 
+  it('allows audio type in output', () => {
+    expect(() =>
+      parseSignature('userInput:string -> speech:audio, summary:string')
+    ).not.toThrow();
+  });
+
+  it('throws error for audio array type in output', () => {
+    expect(() => parseSignature('userInput:string -> clips:audio[]')).toThrow(
+      'Arrays of audio are not supported'
+    );
+  });
+
   it('allows single class option', () => {
     expect(() =>
       parseSignature('userInput:string -> categoryType:class "only-one"')
@@ -282,6 +294,13 @@ describe('AxSignature class validation', () => {
         type: { name: 'image', isArray: false },
       })
     ).toThrow('image type is not supported in output fields');
+  });
+
+  it('allows adding a single audio output field', () => {
+    const sig = new AxSignature('prompt:string -> answer:string');
+    expect(() =>
+      sig.appendOutputField('speech', { type: 'audio' })
+    ).not.toThrow();
   });
 
   it('throws error when setting non-array input fields', () => {
@@ -1038,7 +1057,7 @@ describe('Media type restrictions', () => {
       }).not.toThrow();
     });
 
-    it('should throw error for media types as output fields', () => {
+    it('should throw error for image and file media types as output fields', () => {
       // The error is thrown during build, not toJSONSchema
       expect(() => {
         f()
@@ -1046,6 +1065,15 @@ describe('Media type restrictions', () => {
           .output('generatedImage', f.image('Generated image'))
           .build();
       }).toThrow(/image type is not supported in output fields/);
+    });
+
+    it('should allow audio as a top-level output field', () => {
+      const sig = f()
+        .input('prompt', f.string())
+        .output('speech', f.audio('Generated spoken response'))
+        .build();
+
+      expect(sig.getOutputFields()[0].type?.name).toBe('audio');
     });
 
     it('should include helpful error message for nested media types', () => {

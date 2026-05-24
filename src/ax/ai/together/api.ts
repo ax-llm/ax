@@ -3,7 +3,7 @@ import { type AxAIOpenAIArgs, AxAIOpenAIBase } from '../openai/api.js';
 import type { AxAIOpenAIConfig } from '../openai/chat_types.js';
 
 import { axModelInfoTogether } from './info.js';
-import { AxAITogetherModel, type AxAITogetherChatModel } from './types.js';
+import { type AxAITogetherChatModel, AxAITogetherModel } from './types.js';
 
 type TogetherAIConfig = AxAIOpenAIConfig<AxAITogetherChatModel, unknown>;
 
@@ -86,5 +86,11 @@ export class AxAITogether<TModelKey> extends AxAIOpenAIBase<
     });
 
     super.setName('Together');
+    this.setBatchAudioConfig({
+      transcriptionModel: 'openai/whisper-large-v3',
+      speechModel: 'canopylabs/orpheus-3b-0.1-ft',
+      speechVoice: 'tara',
+      speechFormat: 'mp3',
+    });
   }
 }

@@ -1,10 +1,16 @@
+import { axFetchJsonSpeech } from '../audio/api.js';
 import { axBaseAIDefaultConfig } from '../base.js';
 import { type AxAIOpenAIArgs, AxAIOpenAIBase } from '../openai/api.js';
 import type {
   AxAIOpenAIChatRequest,
   AxAIOpenAIConfig,
 } from '../openai/chat_types.js';
-import type { AxAIServiceOptions, AxModelInfo } from '../types.js';
+import type {
+  AxAIServiceOptions,
+  AxModelInfo,
+  AxSpeechRequest,
+  AxSpeechResponse,
+} from '../types.js';
 
 import { axModelInfoMistral } from './info.js';
 import { type AxAIMistralEmbedModels, AxAIMistralModel } from './types.js';
@@ -162,6 +168,37 @@ export class AxAIMistral<TModelKey> extends AxAIOpenAIBase<
     });
 
     super.setName('Mistral');
+    this.setBatchAudioConfig({
+      transcriptionModel: 'voxtral-mini-latest',
+      speechModel: 'voxtral-mini-tts-2603',
+      speechFormat: 'mp3',
+    });
+  }
+
+  override async speak(
+    req: Readonly<AxSpeechRequest<AxAIMistralModel | TModelKey>>,
+    options?: Readonly<AxAIServiceOptions>
+  ): Promise<AxSpeechResponse> {
+    const format = req.format ?? this.batchAudioConfig.speechFormat ?? 'mp3';
+    const voiceId = typeof req.voice === 'object' ? req.voice.id : req.voice;
+    const serviceOptions = this.getOptions();
+    return await axFetchJsonSpeech({
+      url: `${this.openAICompatibleApiURL}/audio/speech`,
+      headers: { Authorization: `Bearer ${this.openAICompatibleApiKey}` },
+      body: {
+        model:
+          typeof req.model === 'string'
+            ? req.model
+            : this.batchAudioConfig.speechModel,
+        input: req.text,
+        response_format: format,
+        ...(voiceId ? { voice_id: voiceId } : {}),
+      },
+      format,
+      transcript: req.text,
+      fetch: options?.fetch ?? serviceOptions.fetch,
+      abortSignal: options?.abortSignal ?? serviceOptions.abortSignal,
+    });
   }
 
   private updateMessages(

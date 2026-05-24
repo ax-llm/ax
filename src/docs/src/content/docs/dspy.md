@@ -43,7 +43,7 @@ The string `reviewText:string -> sentiment:class "positive, negative, neutral"` 
 | `class` | Enum classification | `mood:class "happy, sad, neutral"` |
 | `url` | URL | `sourceLink:url` |
 | `image` | Image (input only) | `photo:image` |
-| `audio` | Audio (input only) | `recording:audio` |
+| `audio` | Audio input or scripted speech output | `recording:audio`, `speech:audio` |
 
 ### Modifiers
 
@@ -127,7 +127,7 @@ const wholeObject = ax(
 );
 ```
 
-The same shapes work on `fn()` tools via `.arg()` / `.returns()` / `.returnsField()`. Multimodal inputs (`image` / `audio` / `file`) still need `f.*` — zod has no native equivalent.
+The same shapes work on `fn()` tools via `.arg()` / `.returns()` / `.returnsField()`. Multimodal inputs (`image` / `audio` / `file`) and scripted audio outputs still need `f.*` — zod has no native equivalent.
 
 ### 4. Hybrid (extend a string signature with fluent fields)
 
@@ -234,9 +234,9 @@ const cot = ax('problem:string -> reasoning!:string, solution:string');
 
 The LLM is forced to produce `reasoning` first, then `solution`. The `!` means `reasoning` won't appear in the result object — only `solution` is returned.
 
-## Multi-Modal
+## Multi-Modal And Audio
 
-Image and audio fields work as inputs. The LLM receives the media directly.
+Image and audio fields work as inputs. For direct `ax(...)` programs, the LLM can receive the media directly when the provider supports it.
 
 ```typescript
 const describe = ax('photo:image, question?:string -> description:string, objects:string[]');
@@ -246,6 +246,28 @@ const result = await describe.forward(llm, {
   question: 'What animals are in this image?',
 });
 ```
+
+Audio can also be an output field. In that case the model writes a plain text script and Ax synthesizes the field into an audio artifact after structured output parsing.
+
+```typescript
+const say = ax('question:string -> speech:audio, summary:string');
+
+const spoken = await say.forward(
+  llm,
+  { question: 'Explain retries in one sentence.' },
+  {
+    speech: {
+      speak: { voice: 'alloy', format: 'mp3' },
+    },
+  }
+);
+
+console.log(spoken.summary);
+console.log(spoken.speech.data);
+console.log(spoken.speech.transcript);
+```
+
+Agents transcribe audio input fields before their internal stages run, so tools and responder prompts receive stable text transcripts instead of base64 audio.
 
 ## Optimization
 

@@ -150,7 +150,7 @@ const lookupProduct = fn("lookupProduct")
   .build();
 ```
 
-Constraints (`.min()`, `.max()`, `.email()`, `.url()`, `.regex()`) feed the normal retry pipeline. `.refine()`, `.transform()`, and `.superRefine()` execute at parse time on complete field values — in both non-streaming and streaming (at field boundaries). For prompt-cache breakpoints and internal reasoning fields, pass companion options: `.input('ctx', z.string(), { cache: true })` or `.output('reasoning', z.string(), { internal: true })`. Multimodal inputs (`image`, `audio`, `file`) still use `f.*` — zod has no equivalent.
+Constraints (`.min()`, `.max()`, `.email()`, `.url()`, `.regex()`) feed the normal retry pipeline. `.refine()`, `.transform()`, and `.superRefine()` execute at parse time on complete field values — in both non-streaming and streaming (at field boundaries). For prompt-cache breakpoints and internal reasoning fields, pass companion options: `.input('ctx', z.string(), { cache: true })` or `.output('reasoning', z.string(), { internal: true })`. Multimodal inputs (`image`, `audio`, `file`) and scripted audio outputs still use `f.*` — zod has no equivalent.
 
 Full runnable example: [`src/examples/standard-schema.ts`](https://github.com/ax-llm/ax/blob/main/src/examples/standard-schema.ts).
 
@@ -237,7 +237,7 @@ It supports:
 - Function tool usage via `toFunction()`
 - Sandbox permissions via `AxJSRuntimePermission`
 
-### Multi-modal (images, audio)
+### Multi-modal and audio
 
 ```typescript
 const analyzer = ax(`
@@ -248,6 +248,18 @@ const analyzer = ax(`
   estimatedPrice:string
 `);
 ```
+
+```typescript
+const say = ax("question:string -> speech:audio, summary:string");
+const spoken = await say.forward(llm, { question: "Greet the team." }, {
+  speech: { speak: { voice: "alloy", format: "mp3" } },
+});
+
+console.log(spoken.speech.data);
+console.log(spoken.speech.transcript);
+```
+
+Agents transcribe `:audio` inputs before internal planning and tool stages. Direct `ai.transcribe(...)` and `ai.speak(...)` are available for batch STT/TTS.
 
 ## Install
 
@@ -274,7 +286,7 @@ npm install @ax-llm/ax-tools
 - **Type-safe** – Full TypeScript support with auto-completion
 - **Standard Schema v1** – First-class zod / valibot / arktype on signatures and tools, no adapter
 - **Streaming** – Real-time responses with validation
-- **Multi-modal** – Images, audio, text in the same signature
+- **Multi-modal and audio** – Images, audio inputs, scripted speech outputs, and batch STT/TTS
 - **Optimization** – Automatic prompt tuning with MiPRO, ACE, GEPA
 - **Observability** – OpenTelemetry tracing built-in
 - **Workflows** – Compose complex pipelines with AxFlow

@@ -14,6 +14,13 @@ import type {
   AxProgramTrace,
 } from '../../dsp/types.js';
 import { ActorAgentRLM } from '../AxAgent.js';
+import {
+  AxAgentContextMap,
+  type AxAgentContextMapConfig,
+  type AxAgentContextMapSnapshot,
+  formatContextMapTrajectory,
+  normalizeAgentContextMap,
+} from '../contextMap.js';
 import { toCamelCase } from '../runtimeDiscovery.js';
 import { Synthesizer } from '../synthesizer.js';
 import type {
@@ -34,6 +41,7 @@ import type {
   AxAnyAgentic,
   AxContextFieldInput,
 } from './agentPublicTypes.js';
+import { transcribedAgentInputFields } from './audioInputs.js';
 import {
   createAgentOptimizeMetric,
   createOptimizationProgram,
@@ -163,6 +171,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       | Readonly<AxSignature<IN, OUT>>;
   }>;
   private readonly options: Readonly<AxAgentOptions<IN>>;
+  private readonly contextMapConfig?: AxAgentContextMapConfig;
+  private contextMap?: AxAgentContextMap;
   private func?: AxFunction;
 
   constructor(
@@ -180,6 +190,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   ) {
     this.init = init;
     this.options = options;
+    this.contextMapConfig = options.contextMap;
+    this.contextMap = normalizeAgentContextMap(options.contextMap);
     this.fullSignature =
       typeof init.signature === 'string'
         ? (AxSignature.create(init.signature) as AxSignature<IN, OUT>)
@@ -207,7 +219,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       ctxFieldInputs.map((cf) => (typeof cf === 'string' ? cf : cf.field))
     );
 
-    const allInputFields = this.fullSignature.getInputFields();
+    const allInputFields = transcribedAgentInputFields(
+      this.fullSignature.getInputFields()
+    );
     const allOutputFields = this.fullSignature.getOutputFields();
     const ctxInputFields = allInputFields.filter((fld) =>
       this.contextFieldNames.has(fld.name)
@@ -274,6 +288,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         ...shared,
         ...distillerOverrides,
         contextFields: [...ctxFieldInputs],
+        contextMapText: this.contextMap?.text,
         stageVariant: 'distiller',
       } as any
     );
@@ -568,6 +583,61 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
   public setState(state?: AxAgentState): void {
     this.primaryAgent.setState(state);
+  }
+
+  public getContextMap(): AxAgentContextMap | undefined {
+    return this.contextMap;
+  }
+
+  public setContextMap(
+    map?: AxAgentContextMap | AxAgentContextMapSnapshot | string
+  ): void {
+    this.contextMap =
+      map === undefined
+        ? undefined
+        : map instanceof AxAgentContextMap
+          ? map
+          : new AxAgentContextMap(map);
+    this._syncContextMapPrompt();
+  }
+
+  public _syncContextMapPrompt(): void {
+    const text = this.contextMap?.text.trim();
+    (this.distiller as any).contextMapText = text
+      ? this.contextMap?.text
+      : undefined;
+  }
+
+  public async _updateContextMapFromPipelineState(
+    ai: Readonly<AxAIService>,
+    state: Readonly<Record<string, any>>,
+    finalOutput?: unknown
+  ): Promise<void> {
+    if (!this.contextMap) {
+      return;
+    }
+
+    const task =
+      typeof state.executorInputs?.executorRequest === 'string'
+        ? state.executorInputs.executorRequest
+        : JSON.stringify(state.agentValues ?? {});
+    const trajectory = formatContextMapTrajectory({
+      values: state.agentValues,
+      distillerActionLog: state.distillerResult?.actionLog,
+      executorActionLog: state.executorResult?.actionLog,
+      executorResult: state.executorResult?.executorResult,
+      finalOutput,
+    });
+
+    try {
+      const result = await this.contextMap.update(ai, { task, trajectory });
+      this._syncContextMapPrompt();
+      if (result.status !== 'skipped' && this.contextMapConfig?.onUpdate) {
+        await this.contextMapConfig.onUpdate(result);
+      }
+    } catch {
+      // Context-map upkeep must not break the completed user-facing run.
+    }
   }
 
   public setSignature(

@@ -1481,7 +1481,10 @@ const processValue = (
   if (field.type?.name === 'image' && typeof value === 'object') {
     return value;
   }
-  if (field.type?.name === 'audio' && typeof value === 'object') {
+  if (field.type?.name === 'audio' && value && typeof value === 'object') {
+    if ('transcript' in value && typeof value.transcript === 'string') {
+      return value.transcript;
+    }
     return value;
   }
   if (field.type?.name === 'file' && typeof value === 'object') {
@@ -1540,6 +1543,8 @@ export const toFieldType = (type: Readonly<AxField['type']>) => {
         return 'code';
       case 'file':
         return 'file (with filename, mimeType, and data)';
+      case 'audio':
+        return 'speech script (plain text to synthesize as audio)';
       case 'url':
         return 'URL (string or object with url, title, description)';
       case 'object':

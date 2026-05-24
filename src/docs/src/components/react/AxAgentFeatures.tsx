@@ -32,6 +32,13 @@ const FEATURES = [
     body: 'Works naturally with prompt-cache-friendly patterns instead of fighting repeated multi-turn workloads.',
   },
   {
+    tag: 'Memory',
+    tagColor:
+      'text-amber-600 dark:text-amber-300 bg-amber-500/10 border-amber-500/20',
+    title: 'Context Map',
+    body: 'Persist a compact orientation map for repeated long-context questions, then freeze it after a finite warmup when the cache is stable.',
+  },
+  {
     tag: 'Optimization',
     tagColor:
       'text-violet-600 dark:text-violet-300 bg-violet-500/10 border-violet-500/20',
@@ -43,7 +50,7 @@ const FEATURES = [
 export default function AxAgentFeatures() {
   return (
     <section className="relative bg-white px-6 py-8 dark:bg-slate-950 md:px-10 lg:px-12 lg:py-12">
-      <div className="mx-auto grid max-w-7xl gap-6 md:grid-cols-2 xl:grid-cols-4">
+      <div className="mx-auto grid max-w-7xl gap-6 md:grid-cols-2 xl:grid-cols-5">
         {FEATURES.map((item, index) => (
           <motion.div
             key={item.title}

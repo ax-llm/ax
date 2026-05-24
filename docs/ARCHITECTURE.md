@@ -85,7 +85,7 @@ const sig = f()
 - `string`, `number`, `boolean` - Basic types
 - `json` - Arbitrary JSON data
 - `class` - Classification with predefined options
-- `image`, `audio`, `file` - Media types (input only)
+- `image`, `audio`, `file` - Media input types; top-level `audio` outputs are synthesized speech artifacts
 - `date`, `datetime` - Temporal types
 - `code` - Code snippets with language hints
 

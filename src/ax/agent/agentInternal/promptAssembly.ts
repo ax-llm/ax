@@ -21,6 +21,7 @@ export function renderActorDefinition(self: any): string {
 
   const buildOptions = {
     ...s.actorDefinitionBuildOptions,
+    contextMapText: s.contextMapText,
     discoveredDocsMarkdown: renderDiscoveryPromptMarkdown(
       s.currentDiscoveryPromptState
     ),

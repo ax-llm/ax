@@ -83,7 +83,14 @@ export const validateValue = (
   }
 
   const validAudio = (val: Readonly<AxFieldValue>): boolean => {
-    if (!val || typeof val !== 'object' || !('data' in val)) {
+    if (typeof val === 'string') {
+      return true;
+    }
+    if (
+      !val ||
+      typeof val !== 'object' ||
+      (!('data' in val) && !('id' in val))
+    ) {
       return false;
     }
     return true;
@@ -94,12 +101,12 @@ export const validateValue = (
     if (Array.isArray(value)) {
       for (const item of value) {
         if (!validAudio(item)) {
-          msg = 'object ({ data: string; format?: string })';
+          msg = 'string or object ({ data: string; format?: string })';
           break;
         }
       }
     } else if (!validAudio(value)) {
-      msg = 'object ({ data: string; format?: string })';
+      msg = 'string or object ({ data: string; format?: string })';
     }
 
     if (msg) {

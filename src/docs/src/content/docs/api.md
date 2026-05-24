@@ -105,7 +105,7 @@ f.url(description?: string)
 f.file(description?: string)
 f.object(fields: Record<string, AxField>, description?: string)
 
-// Media types (input only, not allowed in nested objects)
+// Media types (not allowed in nested objects)
 f.image(description?: string)
 f.audio(description?: string)
 
@@ -168,7 +168,9 @@ const userSignature = f()
 - **Nested validation**: Recursively validates objects and arrays
 
 **Media Type Restrictions:**
-- `f.image()`, `f.audio()`, `f.file()` can only be used as top-level **input** fields
+- `f.image()` and `f.file()` can only be used as top-level **input** fields
+- `f.audio()` can be a top-level input or a single top-level output
+- Output audio fields are model-facing text scripts that Ax synthesizes into audio artifacts
 - These media types are NOT allowed in nested objects created with `f.object()`
 - TypeScript compile-time protection + runtime validation enforce this restriction
 
@@ -554,7 +556,7 @@ axGlobals.meter = metrics.getMeter("my-app");
 - `date` - Date field (YYYY-MM-DD)
 - `datetime` - DateTime field (ISO 8601)
 - `image` - Image input ({ mimeType, data })
-- `audio` - Audio input ({ format, data })
+- `audio` - Audio input ({ format, data }) or scripted speech output (`AxChatAudioOutput`)
 - `file` - File input
 - `url` - URL field
 - `code` - Code field

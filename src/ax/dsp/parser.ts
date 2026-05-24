@@ -495,15 +495,6 @@ class SignatureParser {
               'Image types can only be used in input fields'
             );
           }
-
-          if (typeName === 'audio') {
-            throw new SignatureValidationError(
-              `Output field "${name}": Audio type is not supported in output fields`,
-              this.position,
-              this.getErrorContext(),
-              'Audio types can only be used in input fields'
-            );
-          }
         } catch (error) {
           if (error instanceof SignatureValidationError) {
             throw error;

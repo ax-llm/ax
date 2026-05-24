@@ -4,6 +4,7 @@ import type {
   AxChatRequest,
   AxChatResponse,
   AxModelConfig,
+  AxSpeechConfig,
 } from '../ai/types.js';
 import type { AxAIMemory } from '../mem/types.js';
 import type { AxAssertion, AxStreamingAssertion } from './asserts.js';
@@ -105,8 +106,24 @@ export type AxFieldValue =
   | undefined
   | { mimeType: string; data: string }
   | { mimeType: string; data: string }[]
-  | { format?: 'wav'; data: string }
-  | { format?: 'wav'; data: string }[];
+  | {
+      format?: string;
+      data?: string;
+      id?: string;
+      mimeType?: string;
+      transcript?: string;
+      sampleRate?: number;
+      channels?: number;
+    }
+  | {
+      format?: string;
+      data?: string;
+      id?: string;
+      mimeType?: string;
+      transcript?: string;
+      sampleRate?: number;
+      channels?: number;
+    }[];
 
 export type AxGenIn = { [key: string]: AxFieldValue };
 
@@ -172,6 +189,7 @@ export type AxProgramForwardOptions<MODEL> = AxAIServiceOptions & {
   // Streaming and output
   sampleCount?: number;
   resultPicker?: AxResultPickerFunction<AxGenOut>;
+  speech?: AxSpeechConfig;
 
   // Functions and calls
   functions?: AxInputFunctionType;

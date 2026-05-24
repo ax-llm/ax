@@ -40,6 +40,7 @@ import {
   type AxStreamingAssertion,
   assertAssertions,
 } from './asserts.js';
+import { renderAudioOutputArtifacts } from './audioArtifacts.js';
 import {
   type HandleErrorForGenerateArgs,
   handleAssertionErrorForGenerate,
@@ -2606,7 +2607,12 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     if (cachingFunction && cacheKey) {
       const cached = await cachingFunction(cacheKey);
       if (cached !== undefined) {
-        return cached as unknown as OUT;
+        return (await renderAudioOutputArtifacts(
+          ai,
+          this.signature,
+          cached as AxGenOut,
+          options
+        )) as unknown as OUT;
       }
     }
 
@@ -2670,7 +2676,12 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       const resultPickerLatency = performance.now() - resultPickerStart;
 
       const selectedResult = buffer[selectedIndex];
-      const result = selectedResult?.delta ?? {};
+      const result = await renderAudioOutputArtifacts(
+        ai,
+        this.signature,
+        (selectedResult?.delta ?? {}) as AxGenOut,
+        options
+      );
 
       const baseTrace = (values as unknown as Record<string, unknown>) ?? {};
       this.trace = { ...baseTrace, ...result } as unknown as OUT;
@@ -2712,7 +2723,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       // Caching post-store: call cachingFunction again with value if provided
       if (cachingFunction && cacheKey) {
         try {
-          await cachingFunction(cacheKey, result as unknown as AxGenOut);
+          await cachingFunction(cacheKey, result);
         } catch {}
       }
 
@@ -2775,10 +2786,16 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         cached = await cachingFunction(cacheKey);
       } catch {}
       if (cached !== undefined) {
+        const renderedCached = await renderAudioOutputArtifacts(
+          ai,
+          this.signature,
+          cached as AxGenOut,
+          options
+        );
         yield {
           version: 0,
           index: 0,
-          delta: cached as OUT,
+          delta: renderedCached as unknown as OUT,
         };
         return;
       }
@@ -2826,19 +2843,22 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     // Yield the selected result
     const selectedResult = buffer[selectedIndex];
     if (selectedResult) {
+      const renderedDelta = await renderAudioOutputArtifacts(
+        ai,
+        this.signature,
+        selectedResult.delta as unknown as AxGenOut,
+        options
+      );
       // Post-store cache
       if (cachingFunction && cacheKey) {
         try {
-          await cachingFunction(
-            cacheKey,
-            selectedResult.delta as unknown as AxGenOut
-          );
+          await cachingFunction(cacheKey, renderedDelta);
         } catch {}
       }
       yield {
         version: currentVersion,
         index: selectedIndex,
-        delta: selectedResult.delta,
+        delta: renderedDelta as unknown as OUT,
       };
     }
   }

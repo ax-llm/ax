@@ -1,7 +1,11 @@
 import { getModelInfo } from '../../dsp/modelinfo.js';
 import type { AxAPI } from '../../util/apicall.js';
 import { AxAIRefusalError } from '../../util/apicall.js';
-import type { AxChatAudioConfig } from '../audio/types.js';
+import {
+  axFetchJsonSpeech,
+  axFetchMultipartTranscription,
+} from '../audio/api.js';
+import type { AxAudioFormat, AxChatAudioConfig } from '../audio/types.js';
 import {
   type AxAIFeatures,
   AxBaseAI,
@@ -19,7 +23,11 @@ import type {
   AxInternalEmbedRequest,
   AxModelConfig,
   AxModelInfo,
+  AxSpeechRequest,
+  AxSpeechResponse,
   AxTokenUsage,
+  AxTranscriptionRequest,
+  AxTranscriptionResponse,
 } from '../types.js';
 import {
   axAIOpenAIAudioDefaultConfig,
@@ -157,6 +165,13 @@ type RealtimeAdapter<TModel> = {
     requestAudio?: Readonly<AxChatAudioConfig>
   ) => AxChatAudioConfig;
   createApi: (request: OpenAIRealtimeRequest<TModel>) => AxAPI;
+};
+
+type AxOpenAIBatchAudioConfig = {
+  transcriptionModel?: string;
+  speechModel?: string;
+  speechVoice?: string;
+  speechFormat?: AxAudioFormat;
 };
 
 export interface AxAIOpenAIBaseArgs<
@@ -756,6 +771,15 @@ export class AxAIOpenAIBase<
   AxAIOpenAIEmbedResponse,
   TModelKey
 > {
+  protected batchAudioConfig: AxOpenAIBatchAudioConfig = {
+    transcriptionModel: 'gpt-4o-mini-transcribe',
+    speechModel: 'gpt-4o-mini-tts',
+    speechVoice: 'alloy',
+    speechFormat: 'mp3',
+  };
+  protected readonly openAICompatibleApiKey: string;
+  protected readonly openAICompatibleApiURL: string;
+
   constructor({
     apiKey,
     config,
@@ -786,9 +810,10 @@ export class AxAIOpenAIBase<
       realtime
     );
 
+    const resolvedApiURL = apiURL ? apiURL : 'https://api.openai.com/v1';
     super(aiImpl, {
       name: 'OpenAI',
-      apiURL: apiURL ? apiURL : 'https://api.openai.com/v1',
+      apiURL: resolvedApiURL,
       headers: async () => ({ Authorization: `Bearer ${apiKey}` }),
       modelInfo,
       defaults: {
@@ -798,6 +823,69 @@ export class AxAIOpenAIBase<
       options,
       supportFor,
       models,
+    });
+
+    this.openAICompatibleApiKey = apiKey;
+    this.openAICompatibleApiURL = resolvedApiURL;
+  }
+
+  protected setBatchAudioConfig(config: Readonly<AxOpenAIBatchAudioConfig>) {
+    this.batchAudioConfig = { ...this.batchAudioConfig, ...config };
+  }
+
+  override async transcribe(
+    req: Readonly<AxTranscriptionRequest<TModel | TModelKey>>,
+    options?: Readonly<AxAIServiceOptions>
+  ): Promise<AxTranscriptionResponse> {
+    const model =
+      typeof req.model === 'string'
+        ? req.model
+        : this.batchAudioConfig.transcriptionModel;
+    const serviceOptions = this.getOptions();
+    return await axFetchMultipartTranscription({
+      url: `${this.openAICompatibleApiURL}/audio/transcriptions`,
+      headers: { Authorization: `Bearer ${this.openAICompatibleApiKey}` },
+      audio: req.audio,
+      fields: {
+        model: model ?? this.batchAudioConfig.transcriptionModel,
+        language: req.language,
+        prompt: req.prompt,
+        temperature: req.temperature,
+        response_format: req.responseFormat ?? 'json',
+      },
+      fetch: options?.fetch ?? serviceOptions.fetch,
+      abortSignal: options?.abortSignal ?? serviceOptions.abortSignal,
+    });
+  }
+
+  override async speak(
+    req: Readonly<AxSpeechRequest<TModel | TModelKey>>,
+    options?: Readonly<AxAIServiceOptions>
+  ): Promise<AxSpeechResponse> {
+    const format = req.format ?? this.batchAudioConfig.speechFormat ?? 'mp3';
+    const model =
+      typeof req.model === 'string'
+        ? req.model
+        : this.batchAudioConfig.speechModel;
+    const voice =
+      typeof req.voice === 'object'
+        ? req.voice.id
+        : (req.voice ?? this.batchAudioConfig.speechVoice ?? 'alloy');
+    const serviceOptions = this.getOptions();
+    return await axFetchJsonSpeech({
+      url: `${this.openAICompatibleApiURL}/audio/speech`,
+      headers: { Authorization: `Bearer ${this.openAICompatibleApiKey}` },
+      body: {
+        model,
+        input: req.text,
+        voice,
+        response_format: format === 'pcm' ? 'pcm16' : format,
+        ...(req.speed !== undefined ? { speed: req.speed } : {}),
+      },
+      format,
+      transcript: req.text,
+      fetch: options?.fetch ?? serviceOptions.fetch,
+      abortSignal: options?.abortSignal ?? serviceOptions.abortSignal,
     });
   }
 }

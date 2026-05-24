@@ -5,6 +5,7 @@ export {
   AxContentProcessingError,
   AxMediaNotSupportedError,
 } from '../util/apicall.js';
+export * from './audio/api.js';
 export * from './audio/defaults.js';
 export type * from './audio/types.js';
 export * from './audio/util.js';

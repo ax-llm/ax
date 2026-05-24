@@ -1,4 +1,5 @@
 import { expectType } from 'tsd';
+import type { AxAudioInput, AxChatAudioOutput } from '../ai/types.js';
 import type { BuildObject, ParseSignature } from './sigtypes.js';
 
 // Test basic string types
@@ -96,9 +97,17 @@ type AudioResult =
   ParseSignature<'userQuestion:string, audioData:audio -> responseText:string'>;
 expectType<{
   userQuestion: string;
-  audioData: { format?: 'wav'; data: string };
+  audioData: AxAudioInput;
 }>({} as AudioResult['inputs']);
 expectType<{ responseText: string }>({} as AudioResult['outputs']);
+
+// Test output audio types use synthesized audio artifacts
+type AudioOutputResult =
+  ParseSignature<'userQuestion:string -> speech:audio, summary:string'>;
+expectType<{ userQuestion: string }>({} as AudioOutputResult['inputs']);
+expectType<{ speech: AxChatAudioOutput; summary: string }>(
+  {} as AudioOutputResult['outputs']
+);
 
 // Test file types
 type FileResult =

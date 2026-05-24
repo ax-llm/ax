@@ -18,7 +18,13 @@ export const axAudioMimeType = (
       return 'audio/aac';
     case 'pcm':
     case 'pcm16':
+    case 'raw':
       return sampleRate ? `audio/pcm;rate=${sampleRate}` : 'audio/pcm';
+    case 'mulaw':
+    case 'ulaw':
+      return sampleRate ? `audio/basic;rate=${sampleRate}` : 'audio/basic';
+    case 'alaw':
+      return sampleRate ? `audio/alaw;rate=${sampleRate}` : 'audio/alaw';
     case 'ogg':
       return 'audio/ogg';
     default:
@@ -37,6 +43,9 @@ export const axAudioFormatFromMimeType = (
   if (mt.includes('opus')) return 'opus';
   if (mt.includes('aac')) return 'aac';
   if (mt.includes('ogg')) return 'ogg';
+  if (mt.includes('mulaw')) return 'mulaw';
+  if (mt.includes('ulaw') || mt.includes('basic')) return 'ulaw';
+  if (mt.includes('alaw')) return 'alaw';
   if (mt.includes('pcm16')) return 'pcm16';
   if (mt.includes('pcm')) return 'pcm';
   return undefined;

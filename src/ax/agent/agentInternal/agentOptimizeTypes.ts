@@ -23,6 +23,7 @@ import type {
   AxAgentRecursiveTraceNode,
 } from '../agentRecursiveOptimize.js';
 import type { AxAgentOnContextEvent } from '../contextEvents.js';
+import type { AxAgentContextMapConfig } from '../contextMap.js';
 import type { AxContextPolicyConfig } from '../rlm.js';
 import type {
   AxAgentActorTurnCallback,
@@ -158,6 +159,14 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
    * - `{ field, keepInPromptChars, reverseTruncate? }`: runtime + truncated string excerpt in the distiller prompt
    */
   contextFields?: readonly AxContextFieldInput[];
+
+  /**
+   * Optional persistent context map for recurring long-context work.
+   * When configured, Ax injects the map into the distiller prompt and updates
+   * it once after each successful completed run. Use `onUpdate` to persist the
+   * updated snapshot.
+   */
+  contextMap?: AxAgentContextMapConfig;
 
   /**
    * Tools registered under their configured namespace globals. May contain

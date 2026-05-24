@@ -65,6 +65,7 @@ This page lists every runnable example in [`src/examples/`](https://github.com/a
 - **[rlm-discovery.ts](https://github.com/ax-llm/ax/tree/main/src/examples/rlm-discovery.ts)** - Runtime discovery of tools and permissions in an agent.
 - **[rlm-long-task.ts](https://github.com/ax-llm/ax/tree/main/src/examples/rlm-long-task.ts)** - Context-policy example for long-running tasks and checkpoint summaries.
 - **[rlm-truncated-context.ts](https://github.com/ax-llm/ax/tree/main/src/examples/rlm-truncated-context.ts)** - Keep only the most relevant tail of a long conversation in prompt context.
+- **[rlm-context-map.ts](https://github.com/ax-llm/ax/tree/main/src/examples/rlm-context-map.ts)** - Deterministic context-map example showing one update, finite evolve, frozen reuse, and snapshot persistence.
 - **[rlm-shared-fields.ts](https://github.com/ax-llm/ax/tree/main/src/examples/rlm-shared-fields.ts)** - Propagate shared fields automatically into subagents.
 - **[rlm-adaptive-replay.ts](https://github.com/ax-llm/ax/tree/main/src/examples/rlm-adaptive-replay.ts)** - Collapse older turns into checkpoint summaries during replay.
 - **[rlm-live-runtime-state.ts](https://github.com/ax-llm/ax/tree/main/src/examples/rlm-live-runtime-state.ts)** - Inspect the structured live runtime-state block in prompts.
@@ -110,6 +111,8 @@ This page lists every runnable example in [`src/examples/`](https://github.com/a
 - **[image-arrays-test.ts](https://github.com/ax-llm/ax/tree/main/src/examples/image-arrays-test.ts)** - Send multiple images in a single request.
 - **[image-arrays-multi-provider-test.ts](https://github.com/ax-llm/ax/tree/main/src/examples/image-arrays-multi-provider-test.ts)** - Compare multi-image support across providers.
 - **[audio-arrays-test.ts](https://github.com/ax-llm/ax/tree/main/src/examples/audio-arrays-test.ts)** - Send multiple audio clips and inspect the response.
+- **[audio-chat.ts](https://github.com/ax-llm/ax/tree/main/src/examples/audio-chat.ts)** - Stream realtime audio output, save WAV files, play audio locally when a player is available, and stream realtime transcription.
+- **[audio-batch-and-agent.ts](https://github.com/ax-llm/ax/tree/main/src/examples/audio-batch-and-agent.ts)** - Direct transcribe/speak calls, agent audio input transcription, scripted `speech:audio` output, and playable MP3 artifacts.
 
 ## Provider-Specific Examples
 

@@ -14,19 +14,19 @@ import {
 } from '@ax-llm/ax';
 
 const artifactPath = new URL(
-  './rlm-agent-recursive-optimize.json',
+  './rlm-agent-delegated-optimize.json',
   import.meta.url
 );
 const googleApiKey = process.env.GOOGLE_APIKEY;
-const optimizerTrials = Number(process.env.AX_RECURSIVE_GEPA_NUM_TRIALS ?? 3);
+const optimizerTrials = Number(process.env.AX_DELEGATED_GEPA_NUM_TRIALS ?? 3);
 const optimizerMinibatchSize = Number(
-  process.env.AX_RECURSIVE_GEPA_MINIBATCH_SIZE ?? 3
+  process.env.AX_DELEGATED_GEPA_MINIBATCH_SIZE ?? 3
 );
 const optimizerEarlyStoppingTrials = Number(
-  process.env.AX_RECURSIVE_GEPA_EARLY_STOPPING_TRIALS ?? 2
+  process.env.AX_DELEGATED_GEPA_EARLY_STOPPING_TRIALS ?? 2
 );
 const optimizerMaxMetricCalls = Number(
-  process.env.AX_RECURSIVE_GEPA_MAX_METRIC_CALLS ?? 36
+  process.env.AX_DELEGATED_GEPA_MAX_METRIC_CALLS ?? 36
 );
 
 if (!googleApiKey) {
@@ -150,16 +150,16 @@ const trainTasks: readonly AxAgentEvalTask<{ query: string }>[] = [
       query: 'Who owns the Atlas project and what is currently blocking it?',
     },
     criteria:
-      'Use the project tools and answer directly. This is a simple factual lookup and should not recurse.',
+      'Use the project tools and answer directly. This is a simple factual lookup and should not use llmQuery.',
     expectedActions: ['lookupProjectStatus'],
   },
   {
     input: {
       query:
-        'Prepare a concise leadership brief for the Atlas project with the current blocker, the owner contact, and the next action. This broader synthesis should use one focused delegated child analysis after narrowing the tool output in JS.',
+        'Prepare a concise leadership brief for the Atlas project with the current blocker, the owner contact, and the next action. This broader synthesis may use one focused llmQuery analysis after narrowing the tool output in JS.',
     },
     criteria:
-      'Look up the Atlas project status, resolve the owner, narrow the payload in JS, then use one recursive child analysis to turn that narrowed evidence into a short leadership-ready brief.',
+      'Look up the Atlas project status, resolve the owner, narrow the payload in JS, then use at most one focused llmQuery analysis to turn that narrowed evidence into a short leadership-ready brief.',
     expectedActions: ['lookupProjectStatus', 'lookupPerson'],
   },
   {
@@ -167,7 +167,7 @@ const trainTasks: readonly AxAgentEvalTask<{ query: string }>[] = [
       query: 'What is the next milestone for the Nova project?',
     },
     criteria:
-      'Use the project tools and answer directly without recursion or extra synthesis.',
+      'Use the project tools and answer directly without llmQuery or extra synthesis.',
     expectedActions: ['lookupProjectStatus'],
   },
 ];
@@ -176,10 +176,10 @@ const validationTasks: readonly AxAgentEvalTask<{ query: string }>[] = [
   {
     input: {
       query:
-        'Draft a manager update for the Nova project that includes the owner, the blocker, and the next milestone. Use recursion only if the broader synthesis genuinely benefits from it.',
+        'Draft a manager update for the Nova project that includes the owner, the blocker, and the next milestone. Use llmQuery only if the broader synthesis genuinely benefits from it.',
     },
     criteria:
-      'Look up Nova, resolve the owner, and produce a compact manager update. Prefer shallow execution unless the synthesis clearly needs one delegated child.',
+      'Look up Nova, resolve the owner, and produce a compact manager update. Prefer shallow execution unless the synthesis clearly needs one focused semantic sub-query.',
     expectedActions: ['lookupProjectStatus', 'lookupPerson'],
   },
 ];
@@ -196,8 +196,6 @@ const judgeGen = new AxGen<
     functionCalls?: object;
     toolErrors?: string[];
     turnCount: number;
-    recursiveStats?: object;
-    recursiveTrace?: object;
   },
   { score: number }
 >(`
@@ -211,8 +209,6 @@ const judgeGen = new AxGen<
   functionCalls?:json "Observed function-call records",
   toolErrors?:string[] "Observed tool errors",
   turnCount:number "Number of actor turns",
-  recursiveStats?:json "Recursive execution statistics",
-  recursiveTrace?:json "Recursive trace tree"
   ->
   score:number "Normalized quality score from 0 to 1"
 `);
@@ -220,9 +216,9 @@ judgeGen.setInstruction(
   [
     'Score the agent run from 0 to 1.',
     'Reward correct factual answers, correct tool use, and following the task criteria.',
-    'For simple factual lookups, reward staying shallow and answering directly without recursion.',
-    'For broader synthesis tasks, reward at most one focused delegated child analysis after narrowing tool output.',
-    'Penalize unnecessary recursion, redundant delegation, missing expected actions, forbidden actions, and tool errors.',
+    'For simple factual lookups, reward staying shallow and answering directly without llmQuery.',
+    'For broader synthesis tasks, reward at most one focused semantic llmQuery analysis after narrowing tool output.',
+    'Penalize unnecessary llmQuery calls, redundant delegation, missing expected actions, forbidden actions, and tool errors.',
     'Return only the score field.',
   ].join('\n')
 );
@@ -241,16 +237,15 @@ const trainingAgent = agent(
         maxTokens: 220,
       },
       description: [
-        'For simple factual questions, stay shallow: call the tools, narrow the result in JS, and answer directly without recursion.',
+        'For simple factual questions, stay shallow: call the tools, narrow the result in JS, and answer directly without llmQuery.',
         'In this demo there is exactly one Atlas project and exactly one Nova project. Never ask for project disambiguation or invent multiple Atlas/Nova variants.',
         'Never use llmQuery(...) for direct project lookups like owner, blocker, or next milestone when the tools already provide the answer.',
         'Never simulate tool output or invent missing fields. Use only the exact tool schemas: lookupProjectStatus({ projectName }) returns owner, blocker, summary, risks, nextMilestone, and nextAction; lookupPerson({ name }) returns name, email, and team.',
         'Do not invent ownerId, personId, nextStep, or nextAction-like aliases beyond the exact returned keys.',
         'Return only raw runnable JavaScript. Never prefix code with `javascript:` and never emit multiple code snippets in one turn.',
         'If you inspect anything with console.log(...), emit exactly one console.log call in that turn and then stop.',
-        'If you delegate with llmQuery(...), always pass an explicit compact context object. Children only see the passed context and do not see Atlas/Nova globals or earlier tool results unless you include them.',
-        'For broader synthesis questions that ask for a brief, recommendation, or next action, narrow the tool output in JS first to exact fields like { owner, ownerEmail, blocker, nextAction } and then use at most one focused llmQuery(...) child analysis.',
-        'At terminal depth, answer directly from the available context instead of delegating again.',
+        'If you use llmQuery(...), always pass an explicit compact context object. The sub-query only sees the passed context and does not see Atlas/Nova globals or earlier tool results unless you include them.',
+        'For broader synthesis questions that ask for a brief, recommendation, or next action, narrow the tool output in JS first to exact fields like { owner, ownerEmail, blocker, nextAction } and then use at most one focused llmQuery(...) semantic analysis.',
       ].join('\n'),
     },
     responderOptions: {
@@ -263,7 +258,7 @@ const trainingAgent = agent(
   }
 );
 
-console.log('Starting recursive GEPA optimization...');
+console.log('Starting delegated llmQuery GEPA optimization...');
 console.log(
   `Using numTrials=${optimizerTrials}, minibatchSize=${optimizerMinibatchSize}, earlyStoppingTrials=${optimizerEarlyStoppingTrials}, maxMetricCalls=${optimizerMaxMetricCalls}`
 );
@@ -305,8 +300,6 @@ const optimizationResult = await trainingAgent.optimize(
           functionCalls: evalPrediction.functionCalls,
           toolErrors: evalPrediction.toolErrors,
           turnCount: evalPrediction.turnCount,
-          recursiveStats: evalPrediction.recursiveStats,
-          recursiveTrace: evalPrediction.recursiveTrace,
         },
         {
           model: AxAIGoogleGeminiModel.Gemini3Pro,
@@ -334,9 +327,8 @@ await writeFile(
   artifactPath,
   JSON.stringify(optimizationResult.optimizedProgram, null, 2)
 );
-console.log(`Saved recursive GEPA artifact to ${artifactPath.pathname}`);
 console.log(
-  'Recursive-slot artifacts are forward-only. Older Ax versions will not understand these instruction-slot IDs.'
+  `Saved delegated llmQuery GEPA artifact to ${artifactPath.pathname}`
 );
 
 const restoredProgram = new AxOptimizedProgramImpl(
@@ -357,16 +349,15 @@ const optimizedAgent = agent(
         maxTokens: 220,
       },
       description: [
-        'For simple factual questions, stay shallow: call the tools, narrow the result in JS, and answer directly without recursion.',
+        'For simple factual questions, stay shallow: call the tools, narrow the result in JS, and answer directly without llmQuery.',
         'In this demo there is exactly one Atlas project and exactly one Nova project. Never ask for project disambiguation or invent multiple Atlas/Nova variants.',
         'Never use llmQuery(...) for direct project lookups like owner, blocker, or next milestone when the tools already provide the answer.',
         'Never simulate tool output or invent missing fields. Use only the exact tool schemas: lookupProjectStatus({ projectName }) returns owner, blocker, summary, risks, nextMilestone, and nextAction; lookupPerson({ name }) returns name, email, and team.',
         'Do not invent ownerId, personId, nextStep, or nextAction-like aliases beyond the exact returned keys.',
         'Return only raw runnable JavaScript. Never prefix code with `javascript:` and never emit multiple code snippets in one turn.',
         'If you inspect anything with console.log(...), emit exactly one console.log call in that turn and then stop.',
-        'If you delegate with llmQuery(...), always pass an explicit compact context object. Children only see the passed context and do not see Atlas/Nova globals or earlier tool results unless you include them.',
-        'For broader synthesis questions that ask for a brief, recommendation, or next action, narrow the tool output in JS first to exact fields like { owner, ownerEmail, blocker, nextAction } and then use at most one focused llmQuery(...) child analysis.',
-        'At terminal depth, answer directly from the available context instead of delegating again.',
+        'If you use llmQuery(...), always pass an explicit compact context object. The sub-query only sees the passed context and does not see Atlas/Nova globals or earlier tool results unless you include them.',
+        'For broader synthesis questions that ask for a brief, recommendation, or next action, narrow the tool output in JS first to exact fields like { owner, ownerEmail, blocker, nextAction } and then use at most one focused llmQuery(...) semantic analysis.',
       ].join('\n'),
     },
     responderOptions: {

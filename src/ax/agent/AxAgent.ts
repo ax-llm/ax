@@ -36,6 +36,14 @@ import {
 import { promptTemplates, type TemplateId } from './templates.generated.js';
 
 export * from './agentInternal/types.js';
+export {
+  AxAgentContextMap,
+  type AxAgentContextMapConfig,
+  type AxAgentContextMapOperation,
+  type AxAgentContextMapOptions,
+  type AxAgentContextMapSnapshot,
+  type AxAgentContextMapUpdateResult,
+} from './contextMap.js';
 
 import { runActorLoop } from './agentInternal/actorLoop.js';
 import {
@@ -773,8 +781,10 @@ export class ActorAgentRLM<
       onMemoriesSearch: _oms,
       onLoadedMemories: _olm,
       onUsedMemories: _oum,
+      contextMap: _cm,
+      contextMapText: _cmt,
       ...rest
-    } = this.options;
+    } = this.options as typeof this.options & { contextMapText?: string };
     return rest;
   }
 

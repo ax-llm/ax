@@ -49,6 +49,7 @@ export function initializeAgentInternal(
     bubbleErrors,
     onFunctionCall,
     onContextEvent,
+    contextMapText,
   } = options;
 
   s.ai = ai;
@@ -76,6 +77,10 @@ export function initializeAgentInternal(
   }
   s.debug = debug;
   s.options = options;
+  s.contextMapText =
+    typeof contextMapText === 'string' && contextMapText.trim()
+      ? contextMapText
+      : undefined;
   s.runtime = runtime ?? new AxJSRuntime();
   s.runtimeUsageInstructions = s.runtime.getUsageInstructions();
   s.enforceIncrementalConsoleTurns = shouldEnforceIncrementalConsoleTurns(
@@ -112,6 +117,8 @@ export function initializeAgentInternal(
     executorTurnCallback: _etc,
     onFunctionCall: _ofc,
     onContextEvent: _oce,
+    contextMap: _cm,
+    contextMapText: _cmt,
     description: _desc,
     ...genOptions
   } = options as typeof options & { description?: string };

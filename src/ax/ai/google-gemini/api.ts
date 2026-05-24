@@ -2,6 +2,7 @@ import { getModelInfo } from '../../dsp/modelinfo.js';
 import type { AxAPI } from '../../util/apicall.js';
 import { AxAIRefusalError } from '../../util/apicall.js';
 import { randomUUID } from '../../util/crypto.js';
+import { axFetchJsonSpeech } from '../audio/api.js';
 import { axAudioMimeType } from '../audio/util.js';
 import {
   AxBaseAI,
@@ -34,8 +35,12 @@ import type {
   AxModelConfig,
   AxModelInfo,
   AxPreparedChatRequest,
+  AxSpeechRequest,
+  AxSpeechResponse,
   AxThoughtBlockItem,
   AxTokenUsage,
+  AxTranscriptionRequest,
+  AxTranscriptionResponse,
 } from '../types.js';
 import { axModelInfoGoogleGemini } from './info.js';
 import {
@@ -358,6 +363,103 @@ class AxAIGoogleGeminiImpl
 
   private getVertexApiURL(model: string, beta?: boolean): string | undefined {
     return this.isVertex ? this.vertexApiURLForModel?.(model, beta) : undefined;
+  }
+
+  async transcribe(
+    req: Readonly<AxTranscriptionRequest<AxAIGoogleGeminiModel>>,
+    options?: Readonly<AxAIServiceOptions>
+  ): Promise<AxTranscriptionResponse> {
+    const model = req.model ?? AxAIGoogleGeminiModel.Gemini25Flash;
+    const keyValue =
+      typeof this.apiKey === 'function' ? await this.apiKey() : this.apiKey;
+    const url = this.isVertex
+      ? `${this.getVertexApiURL(model as string, options?.beta)}/models/${model}:generateContent`
+      : `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${keyValue}`;
+    const body = {
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            {
+              inlineData: {
+                mimeType:
+                  req.audio.mimeType ??
+                  axAudioMimeType(req.audio.format, req.audio.sampleRate),
+                data: req.audio.data,
+              },
+            },
+            {
+              text:
+                req.prompt ??
+                'Generate a transcript of the speech in this audio.',
+            },
+          ],
+        },
+      ],
+    };
+
+    const response = await (options?.fetch ?? globalThis.fetch)(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(this.isVertex && keyValue
+          ? { Authorization: `Bearer ${keyValue}` }
+          : {}),
+      },
+      body: JSON.stringify(body),
+      signal: options?.abortSignal,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Gemini transcription failed: ${response.status} ${response.statusText}`
+      );
+    }
+    const json = (await response.json()) as AxAIGoogleGeminiChatResponse;
+    const text =
+      json.candidates?.[0]?.content?.parts
+        ?.map((part) => ('text' in part ? part.text : ''))
+        .join('')
+        .trim() ?? '';
+    return { text };
+  }
+
+  async speak(
+    req: Readonly<AxSpeechRequest<AxAIGoogleGeminiModel>>,
+    options?: Readonly<AxAIServiceOptions>
+  ): Promise<AxSpeechResponse> {
+    const model =
+      req.model ?? ('gemini-2.5-flash-preview-tts' as AxAIGoogleGeminiModel);
+    const keyValue =
+      typeof this.apiKey === 'function' ? await this.apiKey() : this.apiKey;
+    const url = this.isVertex
+      ? `${this.getVertexApiURL(model as string, options?.beta)}/models/${model}:generateContent`
+      : `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${keyValue}`;
+    const voice =
+      typeof req.voice === 'object' ? req.voice.id : (req.voice ?? 'Kore');
+    return await axFetchJsonSpeech({
+      url,
+      headers:
+        this.isVertex && keyValue
+          ? { Authorization: `Bearer ${keyValue}` }
+          : {},
+      body: {
+        contents: [{ role: 'user', parts: [{ text: req.text }] }],
+        generationConfig: {
+          responseModalities: ['AUDIO'],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: {
+                voiceName: voice,
+              },
+            },
+          },
+        },
+      },
+      format: req.format ?? 'wav',
+      transcript: req.text,
+      fetch: options?.fetch,
+      abortSignal: options?.abortSignal,
+    });
   }
 
   /**

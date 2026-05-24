@@ -171,11 +171,23 @@ const analyze = ax(`
 `);
 ```
 
-### Conversational audio
+### Audio
 
-Audio input/output for bounded `.chat()` turns is supported directly on AI services. Generated audio lives on `result.audio`, not in DSPy signature output fields.
+Batch speech APIs live on AI services: `ai.transcribe({ audio })` turns audio into text, and `ai.speak({ text })` turns text into an audio artifact. Signature audio outputs are scripted artifacts: the model writes the text for `speech:audio`, then Ax synthesizes it after parsing.
 
-OpenAI supports both request-based audio chat (`gpt-audio`, `gpt-audio-mini`) and realtime voice/transcription models (`gpt-realtime-2`, `gpt-realtime-whisper`). Gemini native audio uses the Live API under the same `.chat()` shape.
+```typescript
+const say = ax("question:string -> speech:audio, summary:string");
+const res = await say.forward(llm, { question: "Greet the team." }, {
+  speech: { speak: { voice: "alloy", format: "mp3" } },
+});
+
+console.log(res.speech.data);       // base64 audio
+console.log(res.speech.transcript); // generated script
+```
+
+Agents transcribe `:audio` inputs before the planner/executor/responder stages, so tools and memory receive stable text rather than base64 payloads. Native conversational audio is still available through `.chat()`.
+
+OpenAI supports both request-based audio chat (`gpt-audio`, `gpt-audio-mini`) and realtime voice/transcription models (`gpt-realtime-2`, `gpt-realtime-whisper`). Gemini native audio uses the Live API under the same `.chat()` shape; Grok Voice uses the realtime voice endpoint.
 
 ```typescript
 import WebSocket from "ws";
@@ -211,7 +223,7 @@ const transcriber = ai({
 });
 ```
 
-Runnable: [`src/examples/audio-chat.ts`](src/examples/audio-chat.ts).
+Runnable: [`src/examples/audio-chat.ts`](src/examples/audio-chat.ts) streams realtime audio, saves a WAV, and plays it when a local player is available. [`src/examples/audio-batch-and-agent.ts`](src/examples/audio-batch-and-agent.ts) writes generated MP3 artifacts under `src/examples/output/` and plays them immediately.
 
 ## AxAgent
 
@@ -258,9 +270,29 @@ The **recursive runtime** (RLM) keeps long context out of the root prompt: the e
 
 Runnable: [`src/examples/rlm-agent-controlled.ts`](src/examples/rlm-agent-controlled.ts), [`src/examples/rlm-discovery.ts`](src/examples/rlm-discovery.ts).
 
-### Memories, skills, sandboxed runtime
+### Context map, memories, skills, sandboxed runtime
 
-Three orthogonal options on `agent(...)`. Opt in to what the task needs.
+Four orthogonal options on `agent(...)`. Opt in to what the task needs.
+
+**Context map** — a small persistent orientation cache for repeated questions over the same long context. When configured, Ax shows it to the distiller and updates it once after each successful completed run. By default the map keeps evolving forever; set `infiniteEvolve: false` with `evolveSteps` on the map object to do a finite warmup and then reuse a frozen map. Use `onUpdate` to save the new snapshot wherever your app stores state.
+
+```typescript
+import { agent, AxAgentContextMap } from "@ax-llm/ax";
+
+const map = new AxAgentContextMap(savedSnapshot, {
+  maxChars: 4000,
+  infiniteEvolve: false,
+  evolveSteps: 10,
+});
+
+const analyzer = agent("context:string, query:string -> answer:string", {
+  contextFields: ["context"],
+  contextMap: {
+    map,
+    onUpdate: ({ map }) => saveSnapshot(map.snapshot()),
+  },
+});
+```
 
 **Memories** — vector / BM25 / KV lookup the actor controls via `await recall([...])`. Results land on `inputs.memories` for the next turn. Lifetime is one `.forward()`; persist externally to carry across calls.
 
@@ -360,10 +392,13 @@ const result = await optimizer.compile(
 | Tools / function calling | `fn`, `functions:` option | typed args, typed return, async handler |
 | Streaming + validation | `.streamingForward()` | parses at field boundaries |
 | Multi-modal | `f.image`, `f.audio`, `.chat({ audio })` | OpenAI, Gemini, Anthropic |
-| Conversational audio | `.chat()` + `result.audio` | OpenAI `gpt-audio*`, `gpt-realtime-2`, `gpt-realtime-whisper`; Gemini Live native audio |
+| Batch STT/TTS | `ai.transcribe`, `ai.speak` | OpenAI, xAI, Gemini, Groq, Mistral, Together where provider endpoints exist |
+| Signature audio artifacts | `speech:audio` outputs + `speech` options | model emits script text, Ax synthesizes audio after parsing |
+| Conversational audio | `.chat()` + `result.audio` | OpenAI `gpt-audio*`, `gpt-realtime-2`, `gpt-realtime-whisper`; Gemini Live native audio; Grok Voice |
 | Workflows | `flow`, `AxFlow` | typed DAG, parallelism, branching, sub-contexts |
 | Optimization | `AxGEPA`, `AxACE`, `AxBootstrapFewShot` | Pareto front, playbook curriculum, few-shot |
 | Agent loop | `agent`, `AxAgent` | distiller → executor → responder |
+| Context map | `contextMap`, `AxAgentContextMap` | persistent orientation cache for recurring long context |
 | Memories | `onMemoriesSearch`, `recall(...)` | vector/BM25-backed context loader |
 | Skills | `onSkillsSearch`, `consult(...)` | on-demand prompt-section loader |
 | Sandboxed JS | `AxJSRuntime`, `AxJSRuntimePermission` | Node, Bun, Deno, browser |
@@ -409,7 +444,7 @@ npm install @ax-llm/ax-tools              # MCP stdio transport, JS runtime extr
 OPENAI_APIKEY=your-key npm run tsx ./src/examples/<name>.ts
 ```
 
-Highlights: `extract.ts`, `react.ts`, `agent.ts`, `streaming1.ts`, `multi-modal.ts`, `audio-chat.ts`, `standard-schema.ts`, `rlm-memories-and-skills.ts`, `rlm-discovery.ts`, `gepa-flow.ts`, `ace-train-inference.ts`, `ax-flow-enhanced-demo.ts`. [Browse all 70+ examples →](src/examples/)
+Highlights: `extract.ts`, `react.ts`, `agent.ts`, `streaming1.ts`, `multi-modal.ts`, `audio-chat.ts`, `audio-batch-and-agent.ts`, `standard-schema.ts`, `rlm-memories-and-skills.ts`, `rlm-discovery.ts`, `gepa-flow.ts`, `ace-train-inference.ts`, `ax-flow-enhanced-demo.ts`. [Browse all 70+ examples →](src/examples/)
 
 ## Community
 

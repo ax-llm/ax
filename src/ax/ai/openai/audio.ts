@@ -100,6 +100,13 @@ const resolveOpenAIOutputAudioFormat = (
       return 'pcm16';
     case 'ogg':
       throw new Error('OpenAI audio chat output does not support ogg format');
+    case 'raw':
+    case 'mulaw':
+    case 'ulaw':
+    case 'alaw':
+      throw new Error(
+        `OpenAI audio chat output does not support ${resolved} format`
+      );
   }
 };
 

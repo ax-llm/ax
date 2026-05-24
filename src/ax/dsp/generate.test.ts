@@ -142,6 +142,59 @@ describe('AxGen forward and streamingForward', () => {
     expect(response).toEqual({ modelAnswer: 'Non-stream response' });
   });
 
+  it('synthesizes scripted audio output fields after parsing', async () => {
+    const ai = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: {
+        results: [
+          {
+            index: 0,
+            content:
+              'Speech: Here is the spoken answer.\nSummary: A short answer',
+            finishReason: 'stop',
+          },
+        ],
+        modelUsage: {
+          ai: 'test-ai',
+          model: 'test-model',
+          tokens: {
+            promptTokens: 0,
+            completionTokens: 0,
+            totalTokens: 0,
+          },
+        },
+      },
+      speechResponse: (req) => ({
+        data: 'YXVkaW8=',
+        format: req.format ?? 'mp3',
+        mimeType: 'audio/mpeg',
+        transcript: req.text,
+      }),
+    });
+    const gen = new AxGen<
+      { question: string },
+      {
+        speech: {
+          data: string;
+          format?: string;
+          mimeType?: string;
+          transcript?: string;
+        };
+        summary: string;
+      }
+    >('question:string -> speech:audio, summary:string');
+
+    const res = await gen.forward(ai, { question: 'Say hi' });
+
+    expect(res.speech).toEqual({
+      data: 'YXVkaW8=',
+      format: 'mp3',
+      mimeType: 'audio/mpeg',
+      transcript: 'Here is the spoken answer.',
+    });
+    expect(res.summary).toBe('A short answer');
+  });
+
   it('renders the initial prompt once for the first request', async () => {
     class CountingPromptTemplate extends AxPromptTemplate {
       static renderCount = 0;

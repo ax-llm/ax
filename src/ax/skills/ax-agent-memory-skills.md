@@ -1,16 +1,17 @@
 ---
 name: ax-agent-memory-skills
-description: This skill helps an LLM generate correct AxAgent memory retrieval and dynamic skill-loading code using @ax-llm/ax. Use when the user asks about onMemoriesSearch, recall(...), inputs.memories, onLoadedMemories, onUsedMemories, onSkillsSearch, discover({ skills }), onLoadedSkills, onUsedSkills, preloaded skills, loaded memory/skill IDs, or carrying memories across forward() calls.
+description: This skill helps an LLM generate correct AxAgent memory retrieval, context-map, and dynamic skill-loading code using @ax-llm/ax. Use when the user asks about contextMap, AxAgentContextMap, onMemoriesSearch, recall(...), inputs.memories, onLoadedMemories, onUsedMemories, onSkillsSearch, discover({ skills }), onLoadedSkills, onUsedSkills, preloaded skills, loaded memory/skill IDs, or carrying memories across forward() calls.
 version: "__VERSION__"
 ---
 
 # AxAgent Memory And Skills Rules (@ax-llm/ax)
 
-Use this skill when an agent needs to retrieve task-relevant memories or load skill guides into the executor prompt on demand. For ordinary agent setup use `ax-agent`. For RLM runtime policy use `ax-agent-rlm`. For callbacks and telemetry use `ax-agent-observability`.
+Use this skill when an agent needs a persistent context map, task-relevant memory retrieval, or skill guides loaded into the executor prompt on demand. For ordinary agent setup use `ax-agent`. For RLM runtime policy use `ax-agent-rlm`. For callbacks and telemetry use `ax-agent-observability`.
 
 ## Use These Defaults
 
 - Use `onMemoriesSearch` when the agent should pull relevant context from an external store instead of stuffing everything into the prompt upfront.
+- Use `contextMap` when repeated runs inspect the same long external context and should accumulate a small orientation cache automatically.
 - Use `onSkillsSearch` when the agent should load usage guides, runbooks, or domain conventions into the executor prompt on demand.
 - `recall(...)` is available to distiller and executor stages when `onMemoriesSearch` is set.
 - `discover({ skills })` is available to the executor when `onSkillsSearch` is set.
@@ -18,6 +19,53 @@ Use this skill when an agent needs to retrieve task-relevant memories or load sk
 - Use `onLoadedMemories` / `onLoadedSkills` to observe what got loaded.
 - Use `onUsedMemories` / `onUsedSkills` to track what the actor says it actually relied on.
 - Child agents do not inherit memory or skills search callbacks; wire them explicitly on every agent that needs the capability.
+
+## Context Map
+
+Use `contextMap` when repeated runs ask different questions over the same long context, document set, or repository. The map is prompt-resident orientation knowledge: structure, concepts, constants, parsing schema, reusable aggregate results, and concrete error patterns. It is not a task-specific answer cache.
+
+Runnable example: [`src/examples/rlm-context-map.ts`](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-context-map.ts) demonstrates one update, `onUpdate` snapshot persistence, finite evolve, and frozen map reuse.
+
+When `contextMap` is configured:
+
+- Ax injects the current map into the distiller prompt.
+- Ax updates the map once after each successful completed `forward(...)`.
+- By default the map evolves forever. For a finite warmup, create the map with `{ infiniteEvolve: false, evolveSteps: N }`; after `N` successful updates it is still injected but no longer updated.
+- Failed runs, aborts, and clarification requests do not update the map.
+- Use `onUpdate` to persist `result.map.snapshot()` outside the agent.
+
+```typescript
+import { agent, AxAgentContextMap } from '@ax-llm/ax';
+
+const map = new AxAgentContextMap(savedSnapshot, {
+  maxChars: 4000,
+  infiniteEvolve: false,
+  evolveSteps: 10,
+});
+
+const myAgent = agent('context:string, query:string -> answer:string', {
+  contextFields: ['context'],
+  contextMap: {
+    map,
+    onUpdate: ({ map }) => saveSnapshot(map.snapshot()),
+  },
+});
+```
+
+Types:
+
+```typescript
+type AxAgentContextMapConfig = {
+  map?: AxAgentContextMap | AxAgentContextMapSnapshot | string;
+  onUpdate?: (result: AxAgentContextMapUpdateResult) => void | Promise<void>;
+};
+
+type AxAgentContextMapOptions = {
+  maxChars?: number;
+  infiniteEvolve?: boolean;
+  evolveSteps?: number;
+};
+```
 
 ## Memory Search
 
@@ -268,6 +316,7 @@ onUsedSkills?: (
   usedSkills: readonly AxAgentUsedSkill[]
 ) => void | Promise<void>;
 
+contextMap?: AxAgentContextMapConfig;
 skills?: readonly AxAgentSkillResult[];
 ```
 

@@ -9,7 +9,7 @@ import { defaultLogger } from '../dsp/loggers.js';
 import { getModelInfo } from '../dsp/modelinfo.js';
 import { axSpanAttributes, axSpanEvents } from '../trace/trace.js';
 import { mergeAbortSignals } from '../util/abort.js';
-import { apiCall } from '../util/apicall.js';
+import { AxMediaNotSupportedError, apiCall } from '../util/apicall.js';
 import { createHash, randomUUID } from '../util/crypto.js';
 import { RespTransformStream } from '../util/transform.js';
 import {
@@ -62,7 +62,11 @@ import type {
   AxModelInfo,
   AxModelUsage,
   AxProviderMetadata,
+  AxSpeechRequest,
+  AxSpeechResponse,
   AxTokenUsage,
+  AxTranscriptionRequest,
+  AxTranscriptionResponse,
 } from './types.js';
 import { axValidateChatRequestMessage } from './validate.js';
 
@@ -844,6 +848,44 @@ export class AxBaseAI<
 
   getLastUsedModelConfig(): AxModelConfig | undefined {
     return this.lastUsedModelConfig;
+  }
+
+  async transcribe(
+    req: Readonly<AxTranscriptionRequest<TModel | TModelKey>>,
+    options?: Readonly<AxAIServiceOptions>
+  ): Promise<AxTranscriptionResponse> {
+    const impl = this.aiImpl as unknown as {
+      transcribe?: (
+        req: Readonly<AxTranscriptionRequest<TModel | TModelKey>>,
+        options?: Readonly<AxAIServiceOptions>
+      ) => Promise<AxTranscriptionResponse>;
+    };
+    if (impl.transcribe) {
+      return await impl.transcribe(req, {
+        ...this.getOptions(),
+        ...(options ?? {}),
+      });
+    }
+    throw new AxMediaNotSupportedError('Audio transcription', this.name, false);
+  }
+
+  async speak(
+    req: Readonly<AxSpeechRequest<TModel | TModelKey>>,
+    options?: Readonly<AxAIServiceOptions>
+  ): Promise<AxSpeechResponse> {
+    const impl = this.aiImpl as unknown as {
+      speak?: (
+        req: Readonly<AxSpeechRequest<TModel | TModelKey>>,
+        options?: Readonly<AxAIServiceOptions>
+      ) => Promise<AxSpeechResponse>;
+    };
+    if (impl.speak) {
+      return await impl.speak(req, {
+        ...this.getOptions(),
+        ...(options ?? {}),
+      });
+    }
+    throw new AxMediaNotSupportedError('Audio speech', this.name, false);
   }
 
   // Method to calculate percentiles

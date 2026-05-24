@@ -457,6 +457,78 @@ describe('AxAIOpenAI audio chat', () => {
     });
   });
 
+  it('maps batch transcription requests', async () => {
+    const ai = new AxAIOpenAI({ apiKey: 'key' });
+    const capture: { url?: string; body?: BodyInit | null } = {};
+    const fetch = vi
+      .fn()
+      .mockImplementation(
+        async (url: RequestInfo | URL, init?: RequestInit) => {
+          capture.url = String(url);
+          capture.body = init?.body;
+          return new Response(JSON.stringify({ text: 'hello world' }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+      );
+
+    ai.setOptions({ fetch });
+
+    const res = await ai.transcribe({
+      audio: { data: 'UklGRg==', format: 'wav' },
+      language: 'en',
+    });
+
+    expect(capture.url).toBe('https://api.openai.com/v1/audio/transcriptions');
+    expect(capture.body).toBeInstanceOf(FormData);
+    const form = capture.body as FormData;
+    expect(form.get('model')).toBe('gpt-4o-mini-transcribe');
+    expect(form.get('language')).toBe('en');
+    expect(form.get('file')).toBeInstanceOf(Blob);
+    expect(res.text).toBe('hello world');
+  });
+
+  it('maps batch speech requests and normalizes binary audio', async () => {
+    const ai = new AxAIOpenAI({ apiKey: 'key' });
+    const capture: { url?: string; body?: any } = {};
+    const fetch = vi
+      .fn()
+      .mockImplementation(
+        async (url: RequestInfo | URL, init?: RequestInit) => {
+          capture.url = String(url);
+          capture.body =
+            typeof init?.body === 'string' ? JSON.parse(init.body) : init?.body;
+          return new Response(new Uint8Array([1, 2, 3]), {
+            status: 200,
+            headers: { 'Content-Type': 'audio/mpeg' },
+          });
+        }
+      );
+
+    ai.setOptions({ fetch });
+
+    const res = await ai.speak({
+      text: 'hello world',
+      voice: 'nova',
+      format: 'mp3',
+    });
+
+    expect(capture.url).toBe('https://api.openai.com/v1/audio/speech');
+    expect(capture.body).toEqual({
+      model: 'gpt-4o-mini-tts',
+      input: 'hello world',
+      voice: 'nova',
+      response_format: 'mp3',
+    });
+    expect(res).toEqual({
+      data: 'AQID',
+      format: 'mp3',
+      mimeType: 'audio/mpeg',
+      transcript: 'hello world',
+    });
+  });
+
   it('keeps assistant audio history as an audio reference', async () => {
     const ai = new AxAIOpenAI({
       apiKey: 'key',

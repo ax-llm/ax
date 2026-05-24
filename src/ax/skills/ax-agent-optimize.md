@@ -1,6 +1,6 @@
 ---
 name: ax-agent-optimize
-description: This skill helps an LLM generate correct AxAgent tuning and evaluation code using @ax-llm/ax. Use when the user asks about agent.optimize(...), judgeOptions, eval datasets, optimization targets, saved optimizedProgram artifacts, or recursive optimization guidance.
+description: This skill helps an LLM generate correct AxAgent tuning and evaluation code using @ax-llm/ax. Use when the user asks about agent.optimize(...), judgeOptions, eval datasets, optimization targets, saved optimizedProgram artifacts, or agent optimization guidance.
 version: "__VERSION__"
 ---
 
@@ -13,7 +13,7 @@ Your job is to help the model choose a good optimization setup for the user's ac
 - If the user wants better tool use, prefer action-aware tasks and either a deterministic metric or the built-in judge depending on how objective the scoring is.
 - If the user wants better wording only, responder optimization may be enough.
 - If the user wants reusable improvements, include artifact save/load.
-- If the user wants cost or recursion behavior improved, make the eval tasks expose those tradeoffs explicitly.
+- If the user wants cost, tool-use, or child-agent delegation behavior improved, make the eval tasks expose those tradeoffs explicitly.
 
 ## Use These Defaults
 
@@ -32,7 +32,7 @@ Your job is to help the model choose a good optimization setup for the user's ac
 - For first examples, pass a plain task array instead of splitting into `train` and `validation` unless the user already has a holdout set.
 - GEPA-backed `agent.optimize(...)` now optimizes generic components exposed by the selected target programs; `target: 'actor'` only tunes actor components, `target: 'responder'` only tunes responder components, and `target: 'all'` broadens the component set.
 - `result.optimizedProgram.componentMap` is the canonical saved artifact for agent GEPA runs. It may include actor instructions, descriptions, tool descriptions/names, templates, or runtime primitives depending on what the selected target exposes.
-- When recursive behavior matters, keep `mode: 'advanced'` on the agent and tune against realistic `recursionOptions`.
+- When child-agent delegation matters, expose the child agents as named functions and tune against realistic call/no-call tasks.
 
 ## Decision Guide
 
@@ -41,7 +41,7 @@ Pick the optimization shape from the user's need:
 - "Make the agent use tools correctly" -> keep the default actor target and use `expectedActions` and `forbiddenActions`.
 - "Make final answers read better" -> consider `target: 'responder'`, but only if the task is not mostly tool-selection or clarification behavior.
 - "Make the whole agent better" -> use the default actor target first; only broaden target selection when the user clearly wants that extra scope.
-- "Tune recursive delegation" -> keep `mode: 'advanced'` and use tasks that actually exercise recursion depth, fan-out, and termination choices.
+- "Tune child-agent delegation" -> use tasks that exercise when to call the child agent, when to call normal tools, and when to answer directly.
 - "Compare before and after" -> include a held-out task plus artifact save/load and replay.
 
 Choose task design carefully:
@@ -58,8 +58,8 @@ Optimization works much better when the agent and dataset remove avoidable ambig
 - Prefer typed tool outputs over free-form JSON blobs so the actor can rely on exact field names.
 - Tell the actor the exact tool fields it may use when payload shape matters.
 - Explicitly ban invented fields if the model has any reason to guess hidden IDs or alternate key names.
-- If recursive children only see explicit `llmQuery(..., context)` payloads, say that directly in the actor prompt.
-- For recursive synthesis, tell the agent what the narrowed context should look like before delegation.
+- If a child agent needs parent values, declare those fields in the child signature and pass them explicitly at the call site.
+- For specialist synthesis, tell the agent what narrowed context should be passed to the child agent.
 - Keep `maxSubAgentCalls` small in examples unless the user is explicitly testing broad fan-out behavior.
 - Use canonical, unambiguous task wording so the model does not burn turns asking for fake clarification.
 - In JS-runtime agents, require raw runnable JavaScript only. Ban `javascript:` prefixes, mixed prose/code, and multi-snippet turns.
@@ -68,14 +68,14 @@ Good pattern:
 
 - tool schema says exactly what fields exist
 - task names the exact entity to look up
-- actor prompt says which fields to extract before delegation
-- metric or judge penalizes unnecessary recursion and tool misuse
+- actor prompt says which fields to extract before calling a child agent
+- metric or judge penalizes unnecessary child-agent calls and tool misuse
 
 Bad pattern:
 
 - tool returns `json` with an underspecified shape
 - task uses overloaded names like `Atlas` without clarifying whether that is a project, team, or account
-- recursive child is expected to infer hidden parent state that was never passed in context
+- child agent is expected to infer hidden parent state that was never passed in its call arguments
 - code agent is allowed to mix natural language with JavaScript in the same turn
 
 ## Metric vs Judge
@@ -149,7 +149,7 @@ const assistant = agent('query:string -> answer:string', {
   judgeAI,
   contextFields: [],
   runtime: new AxJSRuntime(),
-  functions: { local: tools },
+  functions: tools,
   contextPolicy: { preset: 'checkpointed', budget: 'balanced' },
   judgeOptions: {
     description: 'Prefer correct tool use over polished wording.',
@@ -222,7 +222,7 @@ const result = await assistant.optimize(tasks, {
       score += 0.4;
     }
 
-    if ((prediction.recursiveStats?.recursiveCallCount ?? 0) === 0) {
+    if (prediction.turnCount <= 3) {
       score += 0.2;
     }
 
@@ -234,7 +234,7 @@ const result = await assistant.optimize(tasks, {
 Use this pattern when:
 
 - the task has a known correct answer or exact action pattern
-- recursion cost or tool count must be measured explicitly
+- tool count, child-agent calls, or turn count must be measured explicitly
 - you want repeatable, low-variance optimization runs
 
 ## Built-In Judge Pattern
@@ -247,7 +247,7 @@ const result = await assistant.optimize(tasks, {
   judgeOptions: {
     model: AxAIGoogleGeminiModel.Gemini3Pro,
     description:
-      'Be strict about unnecessary delegation, weak clarifications, and incorrect tool choices.',
+      'Be strict about unnecessary child-agent calls, weak clarifications, and incorrect tool choices.',
   },
   maxMetricCalls: 12,
 });
@@ -306,7 +306,6 @@ Use this pattern when:
 - Use `expectedActions` and `forbiddenActions` when tool correctness matters.
 - `judgeOptions` mirrors normal forward options and supports extra judge guidance through `description`.
 - The built-in judge scores from the full agent run, not just the final reply. It can see completion type, clarification payload, final output, action log, normalized function calls, tool errors, and turn count.
-- For recursive advanced-mode evals, the built-in judge can also see `recursiveTrace` and `recursiveStats`.
 - If the user provides a custom `metric`, that overrides the built-in judge path.
 - If the user provides an LLM-based custom metric, keep the output schema as small as possible and prefer a direct numeric score.
 
@@ -326,16 +325,13 @@ Decision rules:
 - For final outcomes in custom metrics, expect `prediction.completionType === 'final'` and populated `prediction.output`.
 - `target: 'responder'` still works, but clarification-heavy tasks are usually low-signal for responder optimization.
 
-## Recursive Optimization Notes
+## Delegation Optimization Notes
 
-- Recursive-slot artifacts require an agent configured for recursive advanced mode.
-- Keep `mode: 'advanced'` top-level; child recursion behavior still follows `recursionOptions`.
-- When recursive behavior matters, tune against the same `maxDepth` and tool/discovery structure you expect in production.
-- Use recursive traces and recursive stats when the user wants to diagnose where token or delegation cost is coming from.
-- For recursion-efficiency tuning, prefer a deterministic metric unless the user specifically needs a qualitative LLM review of decomposition quality.
-- Tell the actor that recursive children only see passed context, not parent globals or prior tool results.
-- For synthesis-style recursive tasks, specify the desired delegation pattern explicitly, for example "use at most one focused delegated child analysis after narrowing the tool output in JS."
-- Penalize over-decomposition directly in the metric or judge prompt.
+- Prefer explicit child agents in `functions: [...]` for specialist delegation. Their calls appear as normal function-call records.
+- When delegation behavior matters, tune against the same child-agent/tool structure you expect in production.
+- Tell the actor which fields to pass to the child agent and which tasks should stay local.
+- For synthesis-style tasks, specify the desired delegation pattern explicitly, for example "call `team.writer(...)` only after narrowing tool output in JS."
+- Penalize unnecessary child-agent calls directly in the metric or judge prompt.
 - If one training task keeps collapsing to zero, inspect that task first instead of adding more optimizer rounds. Most failures come from task ambiguity, weak tool schemas, or vague delegation guidance rather than GEPA itself.
 
 ## Artifacts And Replay
@@ -350,7 +346,6 @@ Decision rules:
 
 - [RLM Agent Optimize](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-agent-optimize.ts) — Gemini office-assistant tuning with save/load
 - [AxAgent GEPA Component Optimization](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/axagent-gepa-optimization.ts) — compact support-agent GEPA run with deterministic metric and artifact replay
-- [RLM Agent Recursive Optimize](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-agent-recursive-optimize.ts) — recursive-slot optimization artifacts
 
 ## Do Not Generate
 
@@ -358,6 +353,6 @@ Decision rules:
 - Do not recommend responder-only optimization by default for clarification-heavy workflows.
 - Do not omit artifact save/load steps when the user asks for reusable optimized configurations.
 - Do not introduce a dedicated judge class or helper abstraction in new agent-optimize examples; prefer the built-in judge path or a plain typed `AxGen`.
-- Do not rely on vague `json` tool returns when the agent must reason about specific fields across recursive steps.
-- Do not leave recursive child context implicit. If the child needs a fact, pass it explicitly.
+- Do not rely on vague `json` tool returns when the agent must reason about specific fields across tool or child-agent calls.
+- Do not leave child-agent inputs implicit. If the child needs a fact, pass it explicitly.
 - Do not let code-generation agents mix prose and JavaScript if the user is optimizing runtime behavior.

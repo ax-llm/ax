@@ -25,7 +25,7 @@ version: "__VERSION__"
 | DateRange | `:dateRange` | `{ start: Date; end: Date }` | `travelDates:dateRange` |
 | DateTimeRange | `:datetimeRange` | `{ start: Date; end: Date }` | `meetingWindow:datetimeRange` |
 | Image | `:image` | `{mimeType, data}` | `photo:image` (input only) |
-| Audio | `:audio` | `{format?, data}` | `recording:audio` (input only) |
+| Audio | `:audio` | input: `AxAudioInput`; output: `AxChatAudioOutput` | `recording:audio`, `speech:audio` |
 | File | `:file` | `{mimeType, data}` | `document:file` (input only) |
 | URL | `:url` | `string` | `website:url` |
 | Code | `:code` | `string` | `pythonScript:code` |
@@ -256,9 +256,11 @@ Bad: `text`, `data`, `input`, `output`, `a`, `x`, `val` (too generic), `1field` 
 
 ## Media Type Restrictions
 
-- Media types (image, audio, file) are **top-level input fields only**
-- Cannot be nested in objects
-- Cannot be output fields
+- Image and file fields are top-level input fields only.
+- Audio fields can be top-level inputs or single top-level outputs.
+- Audio output fields are scripted speech artifacts: the model returns plain text, then Ax synthesizes `AxChatAudioOutput`.
+- Media fields cannot be nested in objects.
+- Media arrays are supported for inputs only; output `audio[]` is not supported.
 
 ## Common Patterns
 
@@ -269,8 +271,11 @@ Bad: `text`, `data`, `input`, `output`, `a`, `x`, `val` (too generic), `1field` 
 // Classification
 'email:string -> priority:class "urgent, normal, low"'
 
-// Multi-modal
+// Multi-modal input
 'imageData:image, question?:string -> description:string, objects:string[]'
+
+// Scripted speech output
+'question:string -> speech:audio, summary:string'
 
 // Data Extraction
 'invoiceText:string -> invoiceNumber:string, totalAmount:number, lineItems:json[]'
@@ -283,13 +288,13 @@ Bad: `text`, `data`, `input`, `output`, `a`, `x`, `val` (too generic), `1field` 
 
 - Use `f()` fluent builder, NOT nested `f.array(f.string())` -- those are removed.
 - Field names must be descriptive (not generic like `text`, `data`, `input`).
-- Media types are input-only, top-level only.
+- Image/file media types are input-only, top-level only; audio may also be a single top-level output.
 - `.internal()` / `{ internal: true }` is output-only (for chain-of-thought reasoning).
 - `.cache()` / `{ cache: true }` is input-only (for prompt caching).
 - Validation errors trigger auto-retry with correction feedback.
 - `f.email()`, `f.url()`, `f.date()`, `f.datetime()` are shorthand for `f.string().email()` etc.; `f.dateRange()` and `f.datetimeRange()` return `{ start: Date; end: Date }`.
 - `z.enum()` maps to ax's `class` type — only valid on **output** fields.
-- For multimodal inputs (images, audio, files) use `f.image()` / `f.audio()` / `f.file()` — zod has no equivalent.
+- For multimodal inputs (images, audio, files) and scripted audio outputs, use `f.image()` / `f.audio()` / `f.file()` — zod has no equivalent.
 
 ## Examples
 

@@ -1,12 +1,12 @@
 ---
 name: ax-agent-rlm
-description: This skill helps an LLM generate correct AxAgent RLM/runtime code using @ax-llm/ax. Use when the user asks about RLM code execution, AxJSRuntime, contextFields, contextPolicy, liveRuntimeState, promptLevel, stage prompt controls, executorModelPolicy, maxRuntimeChars, agent.test(...), llmQuery(...), mode: 'advanced', recursionOptions, or long-running agent runtime behavior.
+description: This skill helps an LLM generate correct AxAgent RLM/runtime code using @ax-llm/ax. Use when the user asks about RLM code execution, AxJSRuntime, contextFields, contextPolicy, liveRuntimeState, promptLevel, stage prompt controls, executorModelPolicy, maxRuntimeChars, agent.test(...), llmQuery(...), recursionOptions, or long-running agent runtime behavior.
 version: "__VERSION__"
 ---
 
 # AxAgent RLM Runtime Rules (@ax-llm/ax)
 
-Use this skill for code-runtime agents and recursive/delegated runtime behavior. For ordinary agent setup, child agents, tool namespaces, clarification, and `bubbleErrors`, use `ax-agent`. For callbacks and logs, use `ax-agent-observability`. For memories and skill loading, use `ax-agent-memory-skills`.
+Use this skill for code-runtime agents and `llmQuery(...)` semantic-helper behavior. For ordinary agent setup, child agents, tool namespaces, clarification, and `bubbleErrors`, use `ax-agent`. For callbacks and logs, use `ax-agent-observability`. For memories and skill loading, use `ax-agent-memory-skills`.
 
 ## Use These Defaults
 
@@ -14,11 +14,13 @@ Use this skill for code-runtime agents and recursive/delegated runtime behavior.
 - In stdout-mode RLM, use one observable `console.log(...)` step per non-final actor turn.
 - Default to `contextPolicy: { preset: 'checkpointed', budget: 'balanced' }` for most RLM tasks.
 - Prefer `contextPolicy: { preset: 'adaptive', budget: 'balanced' }` when older successful turns should collapse sooner while live runtime state stays visible.
+- Use `contextMap` for recurring long-context corpora when the distiller should start future runs with a small persisted orientation cache.
 - Prefer `promptLevel: 'default'` for normal use.
 - Use `promptLevel: 'detailed'` when you want extra anti-pattern examples and tighter teaching scaffolding in the actor prompt.
 - Prefer `executorModelPolicy` when the actor may need to upgrade after repeated error turns or discovery in specific namespaces without also upgrading the responder.
-- Prefer `mode: 'simple'` unless recursive child agents materially improve the task.
-- Prefer `maxSubAgentCalls` only when advanced recursion is enabled or the user needs explicit delegation limits.
+- Use explicit child agents in `functions: [...]` when the task needs specialist agents with their own tools/runtime.
+- Use `llmQuery(...)` only for focused semantic questions over narrowed context; it does not spawn a tool-using child AxAgent.
+- Prefer `maxSubAgentCalls` only when you need an explicit cap on `llmQuery(...)` sub-query usage.
 
 ## Mental Model
 
@@ -131,14 +133,14 @@ Practical rule:
 
 Use these top-level controls consistently:
 
-- `mode`: controls whether `llmQuery(...)` stays simple or delegates to recursive child agents in advanced mode.
-- `recursionOptions.maxDepth`: limits recursive `llmQuery(...)` depth.
-- `recursionOptions.ai`: routes recursive `llmQuery(...)` sub-agent calls to a different AI service than the parent run.
-- `maxSubAgentCalls`: shared delegated-call budget across the whole run, including recursive children. Default is `100`.
+- `recursionOptions.ai`: routes `llmQuery(...)` sub-query calls to a different AI service than the parent run.
+- `recursionOptions.model`, `modelConfig`, and other forward options: tune the AxGen call used by `llmQuery(...)`.
+- `maxSubAgentCalls`: shared `llmQuery(...)` sub-query budget across the whole run. Default is `100`.
 - `maxBatchedLlmQueryConcurrency`: caps batched `llmQuery([...])` concurrency.
 - `maxRuntimeChars`: runtime/output truncation ceiling for console logs, tool results, and interpreter output replay. The effective limit is computed dynamically each turn based on remaining context budget.
 - `summarizerOptions`: default model/options for the internal checkpoint summarizer.
 - `contextPolicy`: replay/checkpointing/compression policy.
+- `contextMap`: optional persistent orientation cache injected into the distiller and updated once after each successful run. `AxAgentContextMap` evolves indefinitely by default; use `{ infiniteEvolve: false, evolveSteps: N }` on the map object for finite warmup followed by reuse.
 - `contextOptions`: distiller-stage forward options.
 - `executorOptions`: executor-stage forward options such as `description`, `model`, `modelConfig`, `thinkingTokenBudget`, and `showThoughts`.
 - `executorModelPolicy`: executor-only model override rules based on consecutive error turns or discovery fetches from listed namespaces.
@@ -151,9 +153,8 @@ Canonical shape:
 const researchAgent = agent('query:string -> answer:string', {
   contextFields: ['query'],
   runtime,
-  mode: 'advanced',
   recursionOptions: {
-    maxDepth: 2,
+    model: 'gpt-5.4-mini',
   },
   maxRuntimeChars: 3000,
   summarizerOptions: {
@@ -187,16 +188,14 @@ const researchAgent = agent('query:string -> answer:string', {
 
 Semantics:
 
-- `mode` stays top-level; there is no `recursionOptions.mode`.
 - `maxRuntimeChars` sets the truncation ceiling and is separate from `contextPolicy.budget`.
 - `summarizerOptions` tunes only the internal checkpoint summarizer. It does not change actor or responder model selection.
 - `executorModelPolicy` only switches the actor model. It does not change `responderOptions.model`.
-- Recursive child agents can inherit `executorModelPolicy`; use a child override only when that child needs different routing behavior.
-- Recursive child calls use `recursionOptions.ai` when set, otherwise they fall back to the parent `.forward(ai, ...)` service.
+- `llmQuery(...)` uses `recursionOptions.ai` when set, otherwise it falls back to the parent `.forward(ai, ...)` service.
+- `recursionOptions` configures the AxGen semantic sub-query used by `llmQuery(...)`; it does not create a child AxAgent and cannot give the sub-query tools.
 - `executorModelPolicy` entries are ordered from weaker to stronger. If multiple rules match, the last matching entry wins.
 - If one entry defines `namespaces`, any successful `discover(...)` function-definition fetch from one of those namespaces marks the rule as matched starting on the next actor turn.
-- Do not add `mode: 'advanced'` just because recursion exists as a feature. Add it only when delegated children need their own tool/discovery/runtime loop.
-- Do not add `recursionOptions` if the user does not need recursive delegation.
+- Do not add `recursionOptions` unless the user needs different model/options for `llmQuery(...)`.
 
 ## Dynamic Output Truncation
 
@@ -365,20 +364,12 @@ Available forms:
 Rules:
 
 - `llmQuery(...)` forwards only the explicit `context` argument.
-- Parent inputs are not automatically available to `llmQuery(...)` children.
-- In `mode: 'simple'`, `llmQuery(...)` is a direct semantic helper.
-- In `mode: 'advanced'`, `llmQuery(...)` delegates a focused subtask to a child `AxAgent` with its own runtime and action log while recursion depth remains.
-- In advanced mode, no parent `contextFields` are auto-inserted into recursive children. Only explicit `llmQuery(..., context)` payload is available there.
-- If `context` is a plain object, safe keys are exposed as child runtime globals and the full payload is also available as `context`.
-- In advanced mode, use `llmQuery(...)` to offload discovery-heavy, tool-heavy, or multi-turn semantic branches so the parent action log stays smaller and more focused.
-- In advanced mode, use batched `llmQuery([...])` only for independent subtasks. Use serial calls when later work depends on earlier results.
-- In advanced mode with discovery enabled, prefer putting noisy tool discovery, `discover(...)`, and branch-specific tool chatter inside delegated child calls when those branches are independent or semantically distinct.
-- In advanced mode, pass compact named object context to children instead of huge raw parent payloads.
-- In advanced mode, do not assume child-created variables, discovered docs, or action-log history come back to the parent. Only the child return value comes back.
-- In advanced mode, if a child calls `askClarification(...)`, that clarification bubbles up and ends the top-level run.
-- In advanced mode, recursion is depth-limited: `maxDepth: 0` makes top-level `llmQuery(...)` simple; `maxDepth: 1` makes top-level `llmQuery(...)` advanced and child `llmQuery(...)` simple.
-- In advanced mode, batched delegated children are cancelled when a sibling child asks for clarification or aborts, so use batched form only when branches are truly independent.
-- `maxSubAgentCalls` is a shared budget across the whole top-level run, including recursive children.
+- Parent inputs, runtime variables, tool results, and discovered docs are not automatically available to `llmQuery(...)`; include any needed facts in `context`.
+- `llmQuery(...)` is a direct semantic helper backed by an AxGen sub-query. It does not create a child AxAgent, does not run a JS runtime, and does not have access to tools or discovery.
+- Use batched `llmQuery([...])` only for independent semantic questions. Use serial calls when later work depends on earlier results.
+- Pass compact named object context instead of huge raw parent payloads.
+- Do not assume anything other than the returned string comes back from `llmQuery(...)`.
+- `maxSubAgentCalls` is a shared budget for `llmQuery(...)` sub-queries across the top-level run.
 - Single-call `llmQuery(...)` may return `[ERROR] ...` on non-abort failures.
 - Batched `llmQuery([...])` returns per-item `[ERROR] ...`.
 - If a result starts with `[ERROR]`, inspect or branch on it instead of assuming success.
@@ -394,7 +385,7 @@ if (summary.startsWith('[ERROR]')) {
 }
 ```
 
-Advanced recursive discovery example:
+Parallel semantic review example:
 
 ```javascript
 const narrowedIncidents = incidents.map((incident) => ({
@@ -436,23 +427,20 @@ Delegation decision guide:
 
 - **JS-only**: deterministic logic such as filter, sort, count, regex, or date math -> do it inline.
 - **Single-shot semantic**: needs LLM reasoning but no tools or multi-step exploration -> single `llmQuery(...)` with narrow context.
-- **Full delegation**: needs its own discovery, tool calls, or more than two turns of exploratory work -> `llmQuery(...)` as child agent.
-- **Parallel fan-out**: two or more independent subtasks each qualifying for delegation -> batched `llmQuery([...])`.
+- **Specialist/tool delegation**: needs its own tools, discovery, runtime, or reusable role -> create a child `agent(...)` and pass it in `functions: [...]`.
+- **Parallel semantic fan-out**: two or more independent semantic-only subtasks -> batched `llmQuery([...])`.
 
 Context handling:
 
-- In advanced mode, the `context` object is injected into the child's JS runtime as named globals. It does not go into the child's LLM prompt as raw data.
-- The child prompt sees only a compact metadata summary of the delegated context.
-- The child actor explores the delegated context with code, the same way the parent explores `inputs.*`.
 - Always narrow with JS before delegating. Never pass raw `inputs.*`.
 - Name context keys semantically, e.g. `{ emails: filtered, rubric: 'classify-urgency' }`.
-- Estimate total sub-agent calls before fanning out. `maxSubAgentCalls` is shared across all recursion levels.
+- Estimate total sub-query calls before fanning out. `maxSubAgentCalls` is shared across the run.
 
 Patterns:
 
-- Fan-Out / Fan-In: JS narrows into categories -> `llmQuery([...])` fans out per category -> JS or one more `llmQuery(...)` merges results.
+- Fan-Out / Fan-In: JS narrows into categories -> `llmQuery([...])` fans out per category -> JS or one more `llmQuery(...)` merges semantic results.
 - Pipeline: serial `llmQuery(...)` calls where each depends on the prior result.
-- Scout-then-Execute: first child explores, parent processes with JS, second child acts.
+- Specialist tool use: call child agents or tools via their namespaced function globals, e.g. `await team.writer({ draft })`.
 
 ## Examples
 
@@ -460,8 +448,7 @@ Fetch these for full working code:
 
 - [RLM](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm.ts) - RLM basic
 - [RLM Long Task](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-long-task.ts) - RLM context policy
-- [RLM Discovery](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-discovery.ts) - advanced recursive `llmQuery(...)` plus discovery-heavy delegated subtasks
-- [RLM Shared Fields](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-shared-fields.ts) - shared fields
+- [RLM Discovery](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-discovery.ts) - discovery mode, grouped tools, child agents as functions, and semantic `llmQuery(...)`
 - [RLM Adaptive Replay](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-adaptive-replay.ts) - adaptive replay
 - [RLM Live Runtime State](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-live-runtime-state.ts) - structured runtime-state rendering
 - [RLM Clarification Resume](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-clarification-resume.ts) - clarification exception plus `getState()` / `setState(...)`
@@ -472,7 +459,7 @@ Fetch these for full working code:
 - Do not combine `console.log(...)` with `final(...)`.
 - Do not assume old successful turns stay fully replayed under adaptive/checkpointed/lean policies.
 - Do not rebuild runtime state just because a prior turn was summarized.
-- Do not add `mode: 'advanced'` unless delegated children need their own tool/discovery/runtime loop.
-- Do not assume parent inputs are available in `llmQuery(...)` children unless passed in `context`.
+- Do not describe `llmQuery(...)` as spawning a tool-using child AxAgent.
+- Do not assume parent inputs are available to `llmQuery(...)` unless passed in `context`.
 - Do not ignore `[ERROR] ...` results from `llmQuery(...)`.
 - Do not grant `AxJSRuntime` permissions unless the user asked for the capability.

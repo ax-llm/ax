@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { AxAIAnthropicModel } from './anthropic/types.js';
 import { axGetSupportedAIModels } from './catalog.js';
+import { AxAIDeepSeekModel } from './deepseek/types.js';
 import {
   AxAIGoogleGeminiEmbedModel,
   AxAIGoogleGeminiModel,
@@ -182,6 +183,31 @@ describe('axGetSupportedAIModels', () => {
       isDefault: true,
       promptTokenCostPer1M: 0.2,
     });
+
+    const deepseek = providers.find((provider) => provider.name === 'deepseek');
+    const deepseekV4Flash = deepseek?.models.find(
+      (model) => model.name === AxAIDeepSeekModel.DeepSeekV4Flash
+    );
+
+    expect(deepseek?.defaultModel).toBe(AxAIDeepSeekModel.DeepSeekV4Flash);
+    expect(deepseekV4Flash).toMatchObject({
+      provider: 'deepseek',
+      type: 'text',
+      isDefault: true,
+      aliases: [
+        AxAIDeepSeekModel.DeepSeekChat,
+        AxAIDeepSeekModel.DeepSeekReasoner,
+      ],
+      capabilities: {
+        thinkingBudget: true,
+        showThoughts: true,
+      },
+    });
+    expect(
+      deepseek?.models.some(
+        (model) => model.name === AxAIDeepSeekModel.DeepSeekCoder
+      )
+    ).toBe(false);
   });
 
   it('returns cloned metadata on each call', () => {

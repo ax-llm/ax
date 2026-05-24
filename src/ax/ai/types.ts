@@ -6,13 +6,23 @@ import type {
   AxAudioFormat,
   AxChatAudioConfig,
   AxChatAudioOutput,
+  AxSpeechRequest,
+  AxSpeechResponse,
+  AxTranscriptionRequest,
+  AxTranscriptionResponse,
 } from './audio/types.js';
 import type { AxAIFeatures } from './base.js';
 
 export type {
   AxAudioFormat,
+  AxAudioInput,
   AxChatAudioConfig,
   AxChatAudioOutput,
+  AxSpeechConfig,
+  AxSpeechRequest,
+  AxSpeechResponse,
+  AxTranscriptionRequest,
+  AxTranscriptionResponse,
 } from './audio/types.js';
 
 export type AxAIInputModelList<TModel, TEmbedModel, TModelKey> =
@@ -561,6 +571,13 @@ export interface AxAIServiceMetrics {
 export type AxInternalChatRequest<TModel> = Omit<AxChatRequest, 'model'> &
   Required<Pick<AxChatRequest<TModel>, 'model'>>;
 
+export type AxInternalTranscriptionRequest<TModel> = Omit<
+  AxTranscriptionRequest,
+  'model'
+> & {
+  model?: TModel;
+};
+
 export type AxEmbedRequest<TEmbedModel = string> = {
   texts?: readonly string[];
   embedModel?: TEmbedModel;
@@ -571,6 +588,10 @@ export type AxInternalEmbedRequest<TEmbedModel> = Omit<
   'embedModel'
 > &
   Required<Pick<AxEmbedRequest<TEmbedModel>, 'embedModel'>>;
+
+export type AxInternalSpeechRequest<TModel> = Omit<AxSpeechRequest, 'model'> & {
+  model?: TModel;
+};
 
 export type AxRateLimiterFunction = <T = unknown>(
   reqFunc: () => Promise<T | ReadableStream<T>>,
@@ -886,7 +907,7 @@ export type AxAIServiceOptions = {
    * - Anthropic Claude: Full support with `claude-sonnet-4` and above
    * - OpenAI: Supported with o1/o3 models (uses `reasoning_effort`)
    * - Google: Supported with Gemini 2.0 Flash Thinking
-   * - DeepSeek: Supported with DeepSeek-R1
+   * - DeepSeek: Supported with DeepSeek V4 models
    *
    * @example
    * ```typescript
@@ -1015,6 +1036,14 @@ export interface AxAIService<
     req: Readonly<AxEmbedRequest<TEmbedModel | TModelKey>>,
     options?: Readonly<AxAIServiceOptions>
   ): Promise<AxEmbedResponse>;
+  transcribe(
+    req: Readonly<AxTranscriptionRequest<TModel | TModelKey>>,
+    options?: Readonly<AxAIServiceOptions>
+  ): Promise<AxTranscriptionResponse>;
+  speak(
+    req: Readonly<AxSpeechRequest<TModel | TModelKey>>,
+    options?: Readonly<AxAIServiceOptions>
+  ): Promise<AxSpeechResponse>;
 
   getEstimatedCost(modelUsage?: AxModelUsage): number;
 

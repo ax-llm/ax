@@ -48,6 +48,8 @@
 // provides complete functionality. This type system provides compile-time inference
 // for the vast majority of real-world use cases.
 
+import type { AxAudioInput, AxChatAudioOutput } from '../ai/types.js';
+
 /**
  * A map of string type names to their corresponding TypeScript types.
  * Maps signature type strings to actual TypeScript types for type inference.
@@ -61,7 +63,7 @@
  *
  * See: STRING_SIGNATURE_LIMITATIONS.md
  */
-export interface TypeMap {
+export interface InputTypeMap {
   string: string;
   number: number;
   boolean: boolean;
@@ -71,7 +73,7 @@ export interface TypeMap {
   datetime: Date;
   datetimeRange: { start: Date; end: Date };
   image: { mimeType: string; data: string };
-  audio: { format?: 'wav'; data: string };
+  audio: AxAudioInput;
   file:
     | { mimeType: string; data: string }
     | { mimeType: string; fileUri: string };
@@ -79,6 +81,14 @@ export interface TypeMap {
   code: string;
   // Note: 'object' is intentionally NOT here - it maps to 'any' like 'json'
 }
+
+export interface OutputTypeMap extends Omit<InputTypeMap, 'audio'> {
+  audio: AxChatAudioOutput;
+}
+
+type TypeMapForMode<TMode extends 'input' | 'output'> = TMode extends 'output'
+  ? OutputTypeMap
+  : InputTypeMap;
 
 // Helper type to parse class options from a string like "option1, option2, option3" or "option1 | option2 | option3"
 type ParseClassOptions<S extends string> =
@@ -93,11 +103,14 @@ type ParseClassOptions<S extends string> =
           : Trim<S>;
 
 // Helper type to resolve the actual TypeScript type from a parsed type string
-type ResolveType<T extends string> = T extends keyof TypeMap
-  ? TypeMap[T]
+type ResolveType<
+  T extends string,
+  TMode extends 'input' | 'output',
+> = T extends keyof TypeMapForMode<TMode>
+  ? TypeMapForMode<TMode>[T]
   : T extends `${infer BaseType}[]`
-    ? BaseType extends keyof TypeMap
-      ? TypeMap[BaseType][]
+    ? BaseType extends keyof TypeMapForMode<TMode>
+      ? TypeMapForMode<TMode>[BaseType][]
       : any[]
     : T extends `class[]|${infer Options}`
       ? ParseClassOptions<Options>[]
@@ -291,20 +304,21 @@ export type BuildObject<
     optional: boolean;
     internal?: boolean;
   }[],
+  TMode extends 'input' | 'output' = 'input',
 > = {
   // Map required properties (exclude internal fields)
   -readonly [K in T[number] as K['internal'] extends true
     ? never
     : K['optional'] extends false
       ? K['name']
-      : never]: ResolveType<K['type']>;
+      : never]: ResolveType<K['type'], TMode>;
 } & {
   // Map optional properties (exclude internal fields)
   -readonly [K in T[number] as K['internal'] extends true
     ? never
     : K['optional'] extends true
       ? K['name']
-      : never]?: ResolveType<K['type']>;
+      : never]?: ResolveType<K['type'], TMode>;
 };
 
 // Helper to strip signature description if present
@@ -343,7 +357,7 @@ export type ParseSignature<S extends string> = StripSignatureDescription<
   Trim<S>
 > extends `${infer Inputs} -> ${infer Outputs}`
   ? {
-      inputs: BuildObject<ParseFields<Trim<Inputs>>>;
-      outputs: BuildObject<ParseFields<Trim<Outputs>>>;
+      inputs: BuildObject<ParseFields<Trim<Inputs>>, 'input'>;
+      outputs: BuildObject<ParseFields<Trim<Outputs>>, 'output'>;
     }
   : { inputs: Record<string, any>; outputs: Record<string, any> }; // Fallback for invalid format

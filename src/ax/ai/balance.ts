@@ -23,6 +23,10 @@ import type {
   AxLoggerFunction,
   AxModelConfig,
   AxModelUsage,
+  AxSpeechRequest,
+  AxSpeechResponse,
+  AxTranscriptionRequest,
+  AxTranscriptionResponse,
 } from './types.js';
 
 // Helper type to extract model keys from a service
@@ -582,6 +586,20 @@ export class AxBalancer<
         }
       }
     }
+  }
+
+  async transcribe(
+    req: Readonly<AxTranscriptionRequest<TModelKey>>,
+    options?: Readonly<AxAIServiceOptions>
+  ): Promise<AxTranscriptionResponse> {
+    return await this.currentService.transcribe(req, options);
+  }
+
+  async speak(
+    req: Readonly<AxSpeechRequest<TModelKey>>,
+    options?: Readonly<AxAIServiceOptions>
+  ): Promise<AxSpeechResponse> {
+    return await this.currentService.speak(req, options);
   }
 
   setOptions(options: Readonly<AxAIServiceOptions>): void {

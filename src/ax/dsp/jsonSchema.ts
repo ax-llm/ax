@@ -134,6 +134,23 @@ function appendJsonStringDescription(
   return `${normalizedBase} ${jsonStringHint}`;
 }
 
+function appendAudioScriptDescription(
+  baseDescription: string | undefined
+): string {
+  const audioHint =
+    'Return plain text to synthesize as speech; do not return audio bytes or JSON audio objects.';
+
+  if (!baseDescription || baseDescription.trim().length === 0) {
+    return audioHint;
+  }
+
+  const normalizedBase = baseDescription.trim().endsWith('.')
+    ? baseDescription.trim()
+    : `${baseDescription.trim()}.`;
+
+  return `${normalizedBase} ${audioHint}`;
+}
+
 function shouldEncodeFlexibleJsonAsString(
   type: AxField['type'] | undefined,
   options?: ToJsonSchemaOptions
@@ -221,7 +238,7 @@ function fieldToSchema(
   ) {
     throw new Error(
       `Media type '${type.name}' is not allowed in nested object fields. ` +
-        `Media types (image, audio, file) can only be used as top-level input fields. ` +
+        `Media types (image, audio, file) can only be used as top-level fields. ` +
         `Field: ${field.name}`
     );
   }
@@ -371,6 +388,9 @@ function fieldToSchema(
 
     if (shouldEncodeFlexibleJsonAsString(type, options)) {
       schema.description = appendJsonStringDescription(schema.description);
+    }
+    if (type?.name === 'audio') {
+      schema.description = appendAudioScriptDescription(schema.description);
     }
 
     // Add constraints based on field type

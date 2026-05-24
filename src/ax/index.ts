@@ -1,6 +1,14 @@
 /* eslint import/order: 0 sort-imports: 0 */
 // Auto-generated index file - Do not edit
 
+import {
+  AxAgentContextMap,
+  type AxAgentContextMapConfig,
+  type AxAgentContextMapOperation,
+  type AxAgentContextMapOptions,
+  type AxAgentContextMapSnapshot,
+  type AxAgentContextMapUpdateResult,
+} from './agent/AxAgent.js';
 import type {
   AxAgentExecutorResultPayload,
   AxAgentFunctionCall,
@@ -177,6 +185,13 @@ import {
   type AxAIAnthropicWebSearchTool,
 } from './ai/anthropic/types.js';
 import {
+  axAudioInputFilename,
+  axAudioInputToBlob,
+  axFetchJsonSpeech,
+  axFetchMultipartTranscription,
+  axNormalizeTranscriptionResponse,
+} from './ai/audio/api.js';
+import {
   axGoogleGeminiLiveAudioDefaults,
   axIsAudioOutputEnabled,
   axMergeChatAudioConfig,
@@ -184,8 +199,15 @@ import {
 } from './ai/audio/defaults.js';
 import type {
   AxAudioFormat,
+  AxAudioInput,
   AxChatAudioConfig,
   AxChatAudioOutput,
+  AxSpeechConfig,
+  AxSpeechRequest,
+  AxSpeechResponse,
+  AxTranscriptionRequest,
+  AxTranscriptionResponse,
+  AxTranscriptionSegment,
 } from './ai/audio/types.js';
 import {
   axAudioFormatFromMimeType,
@@ -550,6 +572,8 @@ import type {
   AxFunctionResult,
   AxInternalChatRequest,
   AxInternalEmbedRequest,
+  AxInternalSpeechRequest,
+  AxInternalTranscriptionRequest,
   AxLoggerData,
   AxLoggerFunction,
   AxModelConfig,
@@ -1071,6 +1095,7 @@ export { AxAIWebLLM };
 export { AxAIWebLLMModel };
 export { AxAgent };
 export { AxAgentClarificationError };
+export { AxAgentContextMap };
 export { AxAgentProtocolCompletionSignal };
 export { AxApacheTika };
 export { AxAssertionError };
@@ -1180,6 +1205,8 @@ export { axAnalyzeChatPromptRequirements };
 export { axAnalyzeRequestRequirements };
 export { axApplyOpenAIChatAudioRequest };
 export { axAudioFormatFromMimeType };
+export { axAudioInputFilename };
+export { axAudioInputToBlob };
 export { axAudioMimeType };
 export { axBaseAIDefaultConfig };
 export { axBaseAIDefaultCreativeConfig };
@@ -1203,6 +1230,8 @@ export { axDefaultMetricsConfig };
 export { axDefaultOptimizerLogger };
 export { axDefaultOptimizerMetricsConfig };
 export { axDeserializeOptimizedProgram };
+export { axFetchJsonSpeech };
+export { axFetchMultipartTranscription };
 export { axGetCompatibilityReport };
 export { axGetFormatCompatibility };
 export { axGetMetricsConfig };
@@ -1236,6 +1265,7 @@ export { axModelInfoReka };
 export { axModelInfoTogether };
 export { axModelInfoWebLLM };
 export { axNormalizeOpenAIUsage };
+export { axNormalizeTranscriptionResponse };
 export { axOpenAIChatAudioDefaults };
 export { axOptimizableValidators };
 export { axProcessContentForProvider };
@@ -1495,6 +1525,11 @@ export type { AxAgentClarificationKind };
 export type { AxAgentCompletionProtocol };
 export type { AxAgentConfig };
 export type { AxAgentContextEvent };
+export type { AxAgentContextMapConfig };
+export type { AxAgentContextMapOperation };
+export type { AxAgentContextMapOptions };
+export type { AxAgentContextMapSnapshot };
+export type { AxAgentContextMapUpdateResult };
 export type { AxAgentContextPressure };
 export type { AxAgentContextStage };
 export type { AxAgentDemos };
@@ -1570,6 +1605,7 @@ export type { AxApacheTikaArgs };
 export type { AxApacheTikaConvertOptions };
 export type { AxAssertion };
 export type { AxAudioFormat };
+export type { AxAudioInput };
 export type { AxBalancerOptions };
 export type { AxBaseAIArgs };
 export type { AxBootstrapOptimizerOptions };
@@ -1704,6 +1740,8 @@ export type { AxIField };
 export type { AxInputFunctionType };
 export type { AxInternalChatRequest };
 export type { AxInternalEmbedRequest };
+export type { AxInternalSpeechRequest };
+export type { AxInternalTranscriptionRequest };
 export type { AxJSRuntimeNodePermissionAllowlist };
 export type { AxJSRuntimeOutputMode };
 export type { AxJSRuntimeResourceLimits };
@@ -1827,6 +1865,9 @@ export type { AxSerializedOptimizedProgram };
 export type { AxSetExamplesOptions };
 export type { AxSignatureConfig };
 export type { AxSimpleClassifierForwardOptions };
+export type { AxSpeechConfig };
+export type { AxSpeechRequest };
+export type { AxSpeechResponse };
 export type { AxStageDefinitionBuildOptions };
 export type { AxStageOptions };
 export type { AxStepContext };
@@ -1847,6 +1888,9 @@ export type { AxThoughtBlockItem };
 export type { AxTokenUsage };
 export type { AxTrace };
 export type { AxTraceLoggerOptions };
+export type { AxTranscriptionRequest };
+export type { AxTranscriptionResponse };
+export type { AxTranscriptionSegment };
 export type { AxTunable };
 export type { AxTypedExample };
 export type { AxUsable };
