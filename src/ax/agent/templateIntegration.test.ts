@@ -211,6 +211,18 @@ describe('template integration', () => {
       'Resolve follow-ups against prior conversation'
     );
     expect(actorDefinition).toContain(
+      'The `request` string must be self-contained'
+    );
+    expect(actorDefinition).toContain(
+      'restate the concrete user action, target, and important constraints'
+    );
+    expect(actorDefinition).toContain(
+      'do not collapse it to a generic instruction'
+    );
+    expect(actorDefinition).toContain(
+      'final("<concrete action and target>", {})'
+    );
+    expect(actorDefinition).toContain(
       'owns any available tools/functions and capability checks'
     );
     expect(actorDefinition).toContain('choose executor tools');
@@ -220,6 +232,9 @@ describe('template integration', () => {
     );
     expect(actorDefinition).not.toContain('shell, file system');
     expect(actorDefinition).not.toContain('ls -la');
+    expect(actorDefinition).not.toContain(
+      'Perform the requested action and report the actual result or failure'
+    );
   });
 
   it('keeps responder prompt content aligned with prior prompt text', () => {

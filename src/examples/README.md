@@ -104,6 +104,21 @@ What to look for:
 - The saved state contains runtime bindings and prior action-log history.
 - The resumed call succeeds after `setState(savedState)` and reuses values created before the clarification.
 
+## Distiller Handoff Example
+
+`rlm-distiller-handoff.ts` is a deterministic, no-API-key smoke test for the distiller contract. It checks that the distiller prompt requires a self-contained executor request, that a referential follow-up like "yes, do it" is forwarded as a concrete action with evidence, and that the executor can use that request to call a tool.
+
+**Quick Start:**
+```bash
+cd src/ax
+npm run tsx src/examples/rlm-distiller-handoff.ts
+```
+
+What to look for:
+- The distiller prompt contract check passes.
+- The executor receives the concrete password-reset request, not a generic fallback.
+- The support tool is called with `ada@example.com`.
+
 ## Context Management Example
 
 `rlm-context-management.ts` is a deterministic, no-API-key smoke test for AxAgent context management. It uses `AxMockAIService` plus a tiny custom runtime to force prompt pressure, a resolved runtime error, checkpoint summarization, and stale checkpoint clearing.
