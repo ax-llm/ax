@@ -7,8 +7,7 @@ import type {
   AxAIOpenAIChatRequest,
   AxAIOpenAIConfig,
 } from '../openai/chat_types.js';
-import type { AxChatResponse } from '../types.js';
-import type { AxAIServiceOptions } from '../types.js';
+import type { AxAIServiceOptions, AxChatResponse } from '../types.js';
 
 /**
  * Extracts <think>...</think> content from a full (non-streaming) response.
@@ -155,14 +154,19 @@ export class AxAIOllama<TModelKey> extends AxAIOpenAIBase<
       req: Readonly<AxAIOllamaChatRequest>,
       serviceOptions: Readonly<AxAIServiceOptions>
     ): AxAIOllamaChatRequest => {
-      if (!serviceOptions.thinkingTokenBudget) {
-        return req;
+      const updated = { ...req };
+
+      // Note: response_format is NOT converted here. The Ollama adapter uses
+      // the OpenAI-compatible /v1/chat/completions endpoint, which handles
+      // response_format natively (same as OpenAI's API). The `format` field
+      // is only used by Ollama's native /api/chat endpoint.
+
+      // Handle thinking budget
+      if (serviceOptions.thinkingTokenBudget) {
+        updated.think = serviceOptions.thinkingTokenBudget !== 'none';
       }
 
-      return {
-        ...req,
-        think: serviceOptions.thinkingTokenBudget !== 'none',
-      };
+      return updated;
     };
 
     const chatRespProcessor = (resp: AxChatResponse): AxChatResponse => ({
@@ -205,6 +209,7 @@ export class AxAIOllama<TModelKey> extends AxAIOpenAIBase<
       supportFor: {
         functions: true,
         streaming: true,
+        structuredOutputs: true,
         hasThinkingBudget: true,
         hasShowThoughts: true,
         media: {
