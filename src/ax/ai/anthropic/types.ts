@@ -1,6 +1,8 @@
 import type { AxModelConfig } from '../types.js';
 
 export enum AxAIAnthropicModel {
+  Claude48Opus = 'claude-opus-4-8',
+  Claude47Opus = 'claude-opus-4-7',
   Claude46Opus = 'claude-opus-4-6',
   Claude46Sonnet = 'claude-sonnet-4-6',
   Claude45Opus = 'claude-opus-4-5-20251101',
@@ -23,6 +25,8 @@ export enum AxAIAnthropicModel {
 }
 
 export enum AxAIAnthropicVertexModel {
+  Claude48Opus = 'claude-opus-4-8',
+  Claude47Opus = 'claude-opus-4-7',
   Claude46Opus = 'claude-opus-4-6',
   Claude46Sonnet = 'claude-sonnet-4-6',
   Claude45Opus = 'claude-opus-4-5@20251101',
@@ -51,11 +55,23 @@ export type AxAIAnthropicThinkingWire =
   | { type: 'enabled'; budget_tokens: number }
   | { type: 'adaptive' };
 
-export type AxAIAnthropicEffortLevel = 'low' | 'medium' | 'high' | 'max';
+export type AxAIAnthropicEffortLevel =
+  | 'low'
+  | 'medium'
+  | 'high'
+  | 'xhigh'
+  | 'max';
+
+export type AxAIAnthropicTaskBudget = {
+  type: 'tokens';
+  total: number;
+  remaining?: number;
+};
 
 export type AxAIAnthropicOutputConfig = {
   effort?: AxAIAnthropicEffortLevel;
   format?: { type: 'json_schema'; schema: object };
+  task_budget?: AxAIAnthropicTaskBudget;
 };
 
 export type AxAIAnthropicEffortLevelMapping = {
@@ -119,6 +135,15 @@ export type AxAIAnthropicChatRequest = {
   model?: string;
   anthropic_version?: string;
   messages: (
+    | {
+        role: 'system';
+        content:
+          | string
+          | ({
+              type: 'text';
+              text: string;
+            } & AxAIAnthropicChatRequestCacheParam)[];
+      }
     | {
         role: 'user';
         content:
@@ -197,9 +222,16 @@ export type AxAIAnthropicChatRequest = {
   top_k?: number; // Sample from the top K options
   thinking?: AxAIAnthropicThinkingWire; // Extended thinking configuration
   output_config?: AxAIAnthropicOutputConfig; // Effort level + structured output configuration
+  speed?: 'fast';
   metadata?: {
     user_id: string;
   };
+};
+
+export type AxAIAnthropicStopDetails = {
+  type: 'refusal';
+  category?: 'cyber' | 'bio' | string | null;
+  explanation?: string | null;
 };
 
 export type AxAIAnthropicChatResponse = {
@@ -231,13 +263,22 @@ export type AxAIAnthropicChatResponse = {
       }
   )[];
   model: string;
-  stop_reason: 'end_turn' | 'max_tokens' | 'stop_sequence' | 'tool_use';
+  stop_reason:
+    | 'end_turn'
+    | 'max_tokens'
+    | 'stop_sequence'
+    | 'tool_use'
+    | 'refusal'
+    | 'pause_turn'
+    | 'model_context_window_exceeded';
+  stop_details?: AxAIAnthropicStopDetails | null;
   stop_sequence?: string;
   usage: {
     input_tokens: number;
     output_tokens: number;
     cache_creation_input_tokens?: number;
     cache_read_input_tokens?: number;
+    speed?: 'fast' | 'standard';
   };
 };
 
@@ -265,6 +306,7 @@ export interface AxAIAnthropicMessageStartEvent {
       output_tokens: number;
       cache_creation_input_tokens?: number;
       cache_read_input_tokens?: number;
+      speed?: 'fast' | 'standard';
     };
   };
 }
@@ -336,11 +378,21 @@ export interface AxAIAnthropicContentBlockStopEvent {
 export interface AxAIAnthropicMessageDeltaEvent {
   type: 'message_delta';
   delta: {
-    stop_reason: 'end_turn' | 'max_tokens' | 'stop_sequence' | null;
+    stop_reason:
+      | 'end_turn'
+      | 'max_tokens'
+      | 'stop_sequence'
+      | 'tool_use'
+      | 'refusal'
+      | 'pause_turn'
+      | 'model_context_window_exceeded'
+      | null;
     stop_sequence: string | null;
+    stop_details?: AxAIAnthropicStopDetails | null;
   };
   usage: {
     output_tokens: number;
+    speed?: 'fast' | 'standard';
   };
 }
 

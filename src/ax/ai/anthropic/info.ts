@@ -3,6 +3,76 @@ import type { AxModelInfo } from '../types.js';
 import { AxAIAnthropicModel, AxAIAnthropicVertexModel } from './types.js';
 
 export const axModelInfoAnthropic: AxModelInfo[] = [
+  // 4.8 Opus (2026-05)
+  {
+    name: AxAIAnthropicModel.Claude48Opus,
+    currency: 'usd',
+    promptTokenCostPer1M: 5.0,
+    completionTokenCostPer1M: 25.0,
+    cacheReadTokenCostPer1M: 0.5,
+    cacheWriteTokenCostPer1M: 6.25,
+    fastPromptTokenCostPer1M: 10.0,
+    fastCompletionTokenCostPer1M: 50.0,
+    fastCacheReadTokenCostPer1M: 1.0,
+    fastCacheWriteTokenCostPer1M: 12.5,
+    maxTokens: 128000,
+    contextWindow: 1_000_000,
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: true,
+    },
+  },
+  {
+    name: AxAIAnthropicVertexModel.Claude48Opus,
+    currency: 'usd',
+    promptTokenCostPer1M: 5.0,
+    completionTokenCostPer1M: 25.0,
+    cacheReadTokenCostPer1M: 0.5,
+    cacheWriteTokenCostPer1M: 6.25,
+    maxTokens: 128000,
+    contextWindow: 1_000_000,
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: true,
+    },
+  },
+  // 4.7 Opus (2026-03)
+  {
+    name: AxAIAnthropicModel.Claude47Opus,
+    currency: 'usd',
+    promptTokenCostPer1M: 5.0,
+    completionTokenCostPer1M: 25.0,
+    cacheReadTokenCostPer1M: 0.5,
+    cacheWriteTokenCostPer1M: 6.25,
+    fastPromptTokenCostPer1M: 30.0,
+    fastCompletionTokenCostPer1M: 150.0,
+    fastCacheReadTokenCostPer1M: 3.0,
+    fastCacheWriteTokenCostPer1M: 37.5,
+    maxTokens: 128000,
+    contextWindow: 1_000_000,
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: true,
+    },
+  },
+  {
+    name: AxAIAnthropicVertexModel.Claude47Opus,
+    currency: 'usd',
+    promptTokenCostPer1M: 5.0,
+    completionTokenCostPer1M: 25.0,
+    cacheReadTokenCostPer1M: 0.5,
+    cacheWriteTokenCostPer1M: 6.25,
+    maxTokens: 128000,
+    contextWindow: 1_000_000,
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: true,
+    },
+  },
   // 4.6 Opus (2026-02)
   {
     name: AxAIAnthropicModel.Claude46Opus,
@@ -11,7 +81,12 @@ export const axModelInfoAnthropic: AxModelInfo[] = [
     completionTokenCostPer1M: 25.0,
     cacheReadTokenCostPer1M: 0.5,
     cacheWriteTokenCostPer1M: 6.25,
+    fastPromptTokenCostPer1M: 30.0,
+    fastCompletionTokenCostPer1M: 150.0,
+    fastCacheReadTokenCostPer1M: 3.0,
+    fastCacheWriteTokenCostPer1M: 37.5,
     maxTokens: 128000,
+    contextWindow: 1_000_000,
     supported: {
       thinkingBudget: true,
       showThoughts: true,
@@ -26,6 +101,7 @@ export const axModelInfoAnthropic: AxModelInfo[] = [
     cacheReadTokenCostPer1M: 0.5,
     cacheWriteTokenCostPer1M: 6.25,
     maxTokens: 128000,
+    contextWindow: 1_000_000,
     supported: {
       thinkingBudget: true,
       showThoughts: true,

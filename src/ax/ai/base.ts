@@ -1196,6 +1196,7 @@ export class AxBaseAI<
       thoughtsTokens = 0,
       cacheReadTokens = 0,
       cacheCreationTokens = 0,
+      speed,
     } = modelUsage.tokens;
 
     // Determine if long-context rates apply based on total input tokens
@@ -1204,23 +1205,39 @@ export class AxBaseAI<
       modelInfo.longContextThreshold !== undefined &&
       totalInputTokens > modelInfo.longContextThreshold;
 
-    const promptCostPer1M = isLongContext
-      ? (modelInfo.longContextPromptTokenCostPer1M ??
+    const useFastPricing = speed === 'fast';
+    const promptCostPer1M = useFastPricing
+      ? (modelInfo.fastPromptTokenCostPer1M ??
         modelInfo.promptTokenCostPer1M ??
         0)
-      : (modelInfo.promptTokenCostPer1M ?? 0);
-    const completionCostPer1M = isLongContext
-      ? (modelInfo.longContextCompletionTokenCostPer1M ??
+      : isLongContext
+        ? (modelInfo.longContextPromptTokenCostPer1M ??
+          modelInfo.promptTokenCostPer1M ??
+          0)
+        : (modelInfo.promptTokenCostPer1M ?? 0);
+    const completionCostPer1M = useFastPricing
+      ? (modelInfo.fastCompletionTokenCostPer1M ??
         modelInfo.completionTokenCostPer1M ??
         0)
-      : (modelInfo.completionTokenCostPer1M ?? 0);
-    const cacheReadCostPer1M = isLongContext
-      ? (modelInfo.longContextCacheReadTokenCostPer1M ??
+      : isLongContext
+        ? (modelInfo.longContextCompletionTokenCostPer1M ??
+          modelInfo.completionTokenCostPer1M ??
+          0)
+        : (modelInfo.completionTokenCostPer1M ?? 0);
+    const cacheReadCostPer1M = useFastPricing
+      ? (modelInfo.fastCacheReadTokenCostPer1M ??
         modelInfo.cacheReadTokenCostPer1M ??
         promptCostPer1M)
-      : (modelInfo.cacheReadTokenCostPer1M ?? promptCostPer1M);
-    const cacheWriteCostPer1M =
-      modelInfo.cacheWriteTokenCostPer1M ?? promptCostPer1M;
+      : isLongContext
+        ? (modelInfo.longContextCacheReadTokenCostPer1M ??
+          modelInfo.cacheReadTokenCostPer1M ??
+          promptCostPer1M)
+        : (modelInfo.cacheReadTokenCostPer1M ?? promptCostPer1M);
+    const cacheWriteCostPer1M = useFastPricing
+      ? (modelInfo.fastCacheWriteTokenCostPer1M ??
+        modelInfo.cacheWriteTokenCostPer1M ??
+        promptCostPer1M)
+      : (modelInfo.cacheWriteTokenCostPer1M ?? promptCostPer1M);
 
     // Thinking tokens are billed as output tokens
     const totalOutputTokens = completionTokens + thoughtsTokens;
@@ -2408,7 +2425,7 @@ export class AxBaseAI<
   private async buildHeaders(
     headers: Record<string, string> = {}
   ): Promise<Record<string, string>> {
-    return { ...headers, ...(await this.headers()) };
+    return { ...(await this.headers()), ...headers };
   }
 
   private getModelByKey(

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { AxAIRefusalError } from '../../util/apicall.js';
 import { AxAIAnthropic } from './api.js';
 import { AxAIAnthropicModel } from './types.js';
 
@@ -77,6 +78,59 @@ describe('AxAIAnthropic model key preset merging', () => {
       'msg_stream_123',
       'msg_stream_123',
     ]);
+  });
+
+  it('throws refusal errors with stop_details on streaming chunks', async () => {
+    const ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: { model: AxAIAnthropicModel.Claude48Opus },
+    });
+    const fetch = createMockStreamFetch([
+      {
+        type: 'message_start',
+        message: {
+          id: 'msg_stream_refusal',
+          type: 'message',
+          role: 'assistant',
+          content: [],
+          model: 'claude-opus-4-8',
+          stop_reason: null,
+          usage: { input_tokens: 1, output_tokens: 0 },
+        },
+      },
+      {
+        type: 'message_delta',
+        delta: {
+          stop_reason: 'refusal',
+          stop_sequence: null,
+          stop_details: {
+            type: 'refusal',
+            category: 'cyber',
+            explanation: 'Streaming cyber safety policy refusal.',
+          },
+        },
+        usage: { output_tokens: 4 },
+      },
+    ]);
+
+    ai.setOptions({ fetch });
+
+    const stream = (await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'unsafe request' }] },
+      { stream: true }
+    )) as ReadableStream<any>;
+    const reader = stream.getReader();
+
+    await expect(reader.read()).resolves.toMatchObject({
+      done: false,
+      value: { remoteId: 'msg_stream_refusal' },
+    });
+    await expect(reader.read()).rejects.toMatchObject({
+      name: 'AxAIRefusalError',
+      category: 'cyber',
+      explanation: 'Streaming cyber safety policy refusal.',
+      refusalMessage: 'Streaming cyber safety policy refusal.',
+    } satisfies Partial<AxAIRefusalError>);
   });
 
   it('merges model list item modelConfig into effective config', async () => {
@@ -468,24 +522,29 @@ describe('AxAIAnthropic trims trailing whitespace in assistant content', () => {
   });
 });
 
-function createCaptureFetch(modelResponse: string) {
-  const capture: { lastBody?: any } = {};
+function createCaptureFetch(modelResponse: string, response?: any) {
+  const capture: { lastBody?: any; lastHeaders?: Record<string, string> } = {};
   const fetch = vi
     .fn()
     .mockImplementation(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      capture.lastHeaders = Object.fromEntries(
+        new Headers(init?.headers).entries()
+      );
       if (init?.body && typeof init.body === 'string') {
         capture.lastBody = JSON.parse(init.body);
       }
       return new Response(
-        JSON.stringify({
-          id: 'id',
-          type: 'message',
-          role: 'assistant',
-          content: [{ type: 'text', text: 'ok' }],
-          model: modelResponse,
-          stop_reason: 'end_turn',
-          usage: { input_tokens: 1, output_tokens: 1 },
-        }),
+        JSON.stringify(
+          response ?? {
+            id: 'id',
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'text', text: 'ok' }],
+            model: modelResponse,
+            stop_reason: 'end_turn',
+            usage: { input_tokens: 1, output_tokens: 1 },
+          }
+        ),
         {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
@@ -496,6 +555,100 @@ function createCaptureFetch(modelResponse: string) {
 }
 
 describe('AxAIAnthropic thinking configuration', () => {
+  it('Opus 4.8 with high produces adaptive thinking + effort high', async () => {
+    const ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: { model: AxAIAnthropicModel.Claude48Opus },
+    });
+
+    const { capture, fetch } = createCaptureFetch('claude-opus-4-8');
+    ai.setOptions({ fetch });
+
+    await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'hi' }] },
+      { stream: false, thinkingTokenBudget: 'high' }
+    );
+
+    expect(fetch).toHaveBeenCalled();
+    const body = capture.lastBody;
+    expect(body.model).toBe('claude-opus-4-8');
+    expect(body.thinking).toEqual({ type: 'adaptive' });
+    expect(body.output_config).toEqual({ effort: 'high' });
+  });
+
+  it('Opus 4.7 with high produces adaptive thinking + effort high', async () => {
+    const ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: { model: AxAIAnthropicModel.Claude47Opus },
+    });
+
+    const { capture, fetch } = createCaptureFetch('claude-opus-4-7');
+    ai.setOptions({ fetch });
+
+    await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'hi' }] },
+      { stream: false, thinkingTokenBudget: 'high' }
+    );
+
+    expect(fetch).toHaveBeenCalled();
+    const body = capture.lastBody;
+    expect(body.model).toBe('claude-opus-4-7');
+    expect(body.thinking).toEqual({ type: 'adaptive' });
+    expect(body.output_config).toEqual({ effort: 'high' });
+  });
+
+  it('Opus 4.8 accepts direct xhigh effort and omits sampling params', async () => {
+    const ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: { model: AxAIAnthropicModel.Claude48Opus },
+    });
+
+    const { capture, fetch } = createCaptureFetch('claude-opus-4-8');
+    ai.setOptions({ fetch });
+
+    await ai.chat(
+      {
+        chatPrompt: [{ role: 'user', content: 'hi' }],
+        modelConfig: {
+          effort: 'xhigh',
+          temperature: 0.2,
+          topP: 0.9,
+          topK: 40,
+        },
+      },
+      { stream: false }
+    );
+
+    expect(fetch).toHaveBeenCalled();
+    const body = capture.lastBody;
+    expect(body.thinking).toBeUndefined();
+    expect(body.output_config).toEqual({ effort: 'xhigh' });
+    expect(body.temperature).toBeUndefined();
+    expect(body.top_p).toBeUndefined();
+    expect(body.top_k).toBeUndefined();
+  });
+
+  it('Opus 4.8 accepts provider config xhigh effort', async () => {
+    const ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: {
+        model: AxAIAnthropicModel.Claude48Opus,
+        effort: 'xhigh',
+      },
+    });
+
+    const { capture, fetch } = createCaptureFetch('claude-opus-4-8');
+    ai.setOptions({ fetch });
+
+    await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'hi' }] },
+      { stream: false }
+    );
+
+    expect(fetch).toHaveBeenCalled();
+    expect(capture.lastBody?.output_config).toEqual({ effort: 'xhigh' });
+  });
+
   it('Opus 4.6 with high produces adaptive thinking + effort high', async () => {
     const ai = new AxAIAnthropic({
       apiKey: 'key',
@@ -615,6 +768,134 @@ describe('AxAIAnthropic thinking configuration', () => {
     const body = capture.lastBody;
     expect(body.thinking).toEqual({ type: 'adaptive' });
     expect(body.output_config).toEqual({ effort: 'max' });
+  });
+
+  it('Opus 4.8 fast mode sends speed and merged beta headers', async () => {
+    const ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: { model: AxAIAnthropicModel.Claude48Opus },
+    });
+
+    const { capture, fetch } = createCaptureFetch('claude-opus-4-8', {
+      id: 'id',
+      type: 'message',
+      role: 'assistant',
+      content: [{ type: 'text', text: 'ok' }],
+      model: 'claude-opus-4-8',
+      stop_reason: 'end_turn',
+      usage: { input_tokens: 10, output_tokens: 5, speed: 'fast' },
+    });
+    ai.setOptions({ fetch });
+
+    const res = (await ai.chat(
+      {
+        chatPrompt: [{ role: 'user', content: 'hi' }],
+        modelConfig: { speed: 'fast' },
+      },
+      { stream: false }
+    )) as any;
+
+    expect(fetch).toHaveBeenCalled();
+    expect(capture.lastBody?.speed).toBe('fast');
+    expect(capture.lastHeaders?.['anthropic-beta']).toContain(
+      'structured-outputs-2025-11-13'
+    );
+    expect(capture.lastHeaders?.['anthropic-beta']).toContain(
+      'web-search-2025-03-05'
+    );
+    expect(capture.lastHeaders?.['anthropic-beta']).toContain(
+      'fast-mode-2026-02-01'
+    );
+    expect(res.modelUsage.tokens.speed).toBe('fast');
+  });
+
+  it('Opus 4.8 task budget sends output_config and beta header', async () => {
+    const ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: { model: AxAIAnthropicModel.Claude48Opus },
+    });
+
+    const { capture, fetch } = createCaptureFetch('claude-opus-4-8');
+    ai.setOptions({ fetch });
+
+    await ai.chat(
+      {
+        chatPrompt: [{ role: 'user', content: 'review this repo' }],
+        modelConfig: {
+          effort: 'high',
+          taskBudget: { type: 'tokens', total: 64_000, remaining: 32_000 },
+        },
+      },
+      { stream: false }
+    );
+
+    expect(fetch).toHaveBeenCalled();
+    expect(capture.lastBody?.output_config).toEqual({
+      effort: 'high',
+      task_budget: { type: 'tokens', total: 64_000, remaining: 32_000 },
+    });
+    expect(capture.lastHeaders?.['anthropic-beta']).toContain(
+      'task-budgets-2026-03-13'
+    );
+    expect(capture.lastHeaders?.['anthropic-beta']).toContain(
+      'structured-outputs-2025-11-13'
+    );
+  });
+
+  it('rejects task budgets below Anthropic minimum locally', async () => {
+    const ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: { model: AxAIAnthropicModel.Claude48Opus },
+    });
+
+    const { fetch } = createCaptureFetch('claude-opus-4-8');
+    ai.setOptions({ fetch });
+
+    await expect(
+      ai.chat(
+        {
+          chatPrompt: [{ role: 'user', content: 'review this repo' }],
+          modelConfig: { taskBudget: { type: 'tokens', total: 19_999 } },
+        },
+        { stream: false }
+      )
+    ).rejects.toThrow('taskBudget.total must be at least 20000');
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('throws refusal errors with Anthropic stop_details', async () => {
+    const ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: { model: AxAIAnthropicModel.Claude48Opus },
+    });
+
+    const { fetch } = createCaptureFetch('claude-opus-4-8', {
+      id: 'msg_refusal',
+      type: 'message',
+      role: 'assistant',
+      content: [{ type: 'text', text: 'I cannot help with that.' }],
+      model: 'claude-opus-4-8',
+      stop_reason: 'refusal',
+      stop_details: {
+        type: 'refusal',
+        category: 'cyber',
+        explanation: 'Cyber safety policy refusal.',
+      },
+      usage: { input_tokens: 10, output_tokens: 5 },
+    });
+    ai.setOptions({ fetch });
+
+    await expect(
+      ai.chat(
+        { chatPrompt: [{ role: 'user', content: 'unsafe request' }] },
+        { stream: false }
+      )
+    ).rejects.toMatchObject({
+      name: 'AxAIRefusalError',
+      category: 'cyber',
+      explanation: 'Cyber safety policy refusal.',
+      refusalMessage: 'Cyber safety policy refusal.',
+    } satisfies Partial<AxAIRefusalError>);
   });
 });
 

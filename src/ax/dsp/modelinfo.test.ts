@@ -18,6 +18,12 @@ const modelInfo = [
     completionTokenCostPer1M: 75000,
   },
   {
+    name: 'claude-opus-4-8',
+    currency: 'usd',
+    promptTokenCostPer1M: 5000,
+    completionTokenCostPer1M: 25000,
+  },
+  {
     name: 'gpt-4o-mini',
     currency: 'usd',
     promptTokenCostPer1M: 10000,
@@ -109,6 +115,15 @@ describe('getModelInfo', () => {
       });
       expect(result).not.toBeNull();
       expect(result?.name).toBe('claude-3-5-sonnet');
+    });
+
+    it('should handle prefixed dateless Claude Opus ids', () => {
+      const result = getModelInfo({
+        model: 'anthropic.claude-opus-4-8',
+        modelInfo,
+      });
+      expect(result).not.toBeNull();
+      expect(result?.name).toBe('claude-opus-4-8');
     });
   });
 

@@ -29,9 +29,26 @@ import {
   type AxAIAnthropicMessageStartEvent,
   AxAIAnthropicModel,
   type AxAIAnthropicOutputConfig,
+  type AxAIAnthropicTaskBudget,
   type AxAIAnthropicThinkingWire,
   AxAIAnthropicVertexModel,
 } from './types.js';
+
+const ANTHROPIC_BASE_BETAS = [
+  'structured-outputs-2025-11-13',
+  'web-search-2025-03-05',
+] as const;
+const ANTHROPIC_FAST_MODE_BETA = 'fast-mode-2026-02-01';
+const ANTHROPIC_TASK_BUDGET_BETA = 'task-budgets-2026-03-13';
+
+const buildAnthropicBetaHeader = (extraBetas: readonly string[] = []): string =>
+  [...new Set([...ANTHROPIC_BASE_BETAS, ...extraBetas])].join(', ');
+
+const isClaudeOpus47OrLater = (model: string): boolean =>
+  model.includes('claude-opus-4-7') || model.includes('claude-opus-4-8');
+
+const isClaudeOpus48 = (model: string): boolean =>
+  model.includes('claude-opus-4-8');
 
 const cleanSchemaForAnthropic = (schema: any): any => {
   if (!schema || typeof schema !== 'object') {
@@ -230,6 +247,9 @@ class AxAIAnthropicImpl
       presencePenalty: config.presencePenalty,
       frequencyPenalty: config.frequencyPenalty,
       n: config.n,
+      effort: config.effort,
+      speed: config.speed,
+      taskBudget: config.taskBudget,
     } as AxModelConfig;
   }
 
@@ -243,6 +263,7 @@ class AxAIAnthropicImpl
     this.currentPromptConfig = config;
 
     const model = req.model;
+    const modelStr = model as string;
     const stream = req.modelConfig?.stream ?? this.config.stream;
 
     let apiConfig: AxAPI;
@@ -293,10 +314,22 @@ class AxAIAnthropicImpl
       req.chatPrompt.some((msg) => 'cache' in msg && msg.cache) ||
       req.functions?.some((fn) => fn.cache);
 
-    // Cache system prompts - always cache last system message when caching is enabled
-    const systemMessages = req.chatPrompt.filter(
-      (msg) => msg.role === 'system'
+    const supportsMidConversationSystem =
+      !this.isVertex && isClaudeOpus48(modelStr);
+    const firstNonSystemIndex = req.chatPrompt.findIndex(
+      (msg) => msg.role !== 'system'
     );
+    const leadingSystemEnd =
+      firstNonSystemIndex === -1 ? req.chatPrompt.length : firstNonSystemIndex;
+
+    // Cache system prompts - always cache last system message when caching is enabled.
+    // Opus 4.8 can preserve later system entries in the messages array; older targets
+    // keep the historical Ax behavior and hoist all system prompts.
+    const systemMessages = (
+      supportsMidConversationSystem
+        ? req.chatPrompt.slice(0, leadingSystemEnd)
+        : req.chatPrompt
+    ).filter((msg) => msg.role === 'system');
     const system = systemMessages.map((msg, idx) => ({
       type: 'text' as const,
       text: msg.content,
@@ -306,7 +339,9 @@ class AxAIAnthropicImpl
         : {}),
     }));
 
-    const otherMessages = req.chatPrompt.filter((msg) => msg.role !== 'system');
+    const otherMessages = supportsMidConversationSystem
+      ? req.chatPrompt.slice(leadingSystemEnd)
+      : req.chatPrompt.filter((msg) => msg.role !== 'system');
 
     // Compose tools from request function definitions and static config tools
     const functionToolsFromReq: AxAIAnthropicChatRequest['tools'] | undefined =
@@ -398,6 +433,9 @@ class AxAIAnthropicImpl
     const topP = req.modelConfig?.topP; // do not fallback to config by default
     const topK = req.modelConfig?.topK ?? this.config.topK;
     const n = req.modelConfig?.n ?? this.config.n;
+    const directEffort = req.modelConfig?.effort ?? this.config.effort;
+    const speed = req.modelConfig?.speed ?? this.config.speed;
+    const taskBudget = req.modelConfig?.taskBudget ?? this.config.taskBudget;
 
     if (n && n > 1) {
       throw new Error('Anthropic does not support sampling (n > 1)');
@@ -406,12 +444,12 @@ class AxAIAnthropicImpl
     // Model detection helpers
     const isOpus46 = (m: string) => m.includes('claude-opus-4-6');
     const isOpus45 = (m: string) => m.includes('claude-opus-4-5');
+    const isOpus47Plus = isClaudeOpus47OrLater(modelStr);
+    const samplingUnsupported = isOpus47Plus;
 
     // Handle thinking configuration
     let thinkingWire: AxAIAnthropicThinkingWire | undefined;
     let outputConfig: AxAIAnthropicOutputConfig | undefined;
-
-    const modelStr = model as string;
 
     // Override based on prompt-specific config
     if (config?.thinkingTokenBudget) {
@@ -430,8 +468,8 @@ class AxAIAnthropicImpl
           | 'high'
           | 'highest';
 
-        if (isOpus46(modelStr)) {
-          // Opus 4.6: use adaptive thinking + effort
+        if (isOpus47Plus || isOpus46(modelStr)) {
+          // Opus 4.7+ and Opus 4.6: use adaptive thinking + effort
           thinkingWire = { type: 'adaptive' };
           const effort = effortMap?.[budgetLevel] ?? 'medium';
           outputConfig = { effort };
@@ -454,6 +492,51 @@ class AxAIAnthropicImpl
       }
     }
 
+    if (directEffort) {
+      const effort =
+        isOpus45(modelStr) &&
+        (directEffort === 'max' || directEffort === 'xhigh')
+          ? 'high'
+          : directEffort;
+      outputConfig = { ...outputConfig, effort };
+    }
+
+    if (taskBudget) {
+      if (taskBudget.total < 20_000) {
+        throw new Error(
+          'Anthropic taskBudget.total must be at least 20000 tokens'
+        );
+      }
+      if (this.isVertex) {
+        throw new Error(
+          'Anthropic task budgets are only supported on the first-party Anthropic API'
+        );
+      }
+      outputConfig = {
+        ...outputConfig,
+        task_budget: taskBudget as AxAIAnthropicTaskBudget,
+      };
+    }
+
+    const extraBetas: string[] = [];
+    if (speed === 'fast') {
+      if (this.isVertex) {
+        throw new Error(
+          'Anthropic fast mode is only supported on the first-party Anthropic API'
+        );
+      }
+      extraBetas.push(ANTHROPIC_FAST_MODE_BETA);
+    }
+    if (taskBudget) {
+      extraBetas.push(ANTHROPIC_TASK_BUDGET_BETA);
+    }
+
+    if (!this.isVertex && extraBetas.length > 0) {
+      apiConfig.headers = {
+        'anthropic-beta': buildAnthropicBetaHeader(extraBetas),
+      };
+    }
+
     // Alias for use in downstream logic (messages, request building)
     const thinkingEnabled = !!thinkingWire;
 
@@ -473,7 +556,19 @@ class AxAIAnthropicImpl
     );
     if (hasAssistantStartingWithToolUse) {
       thinkingWire = undefined;
-      outputConfig = undefined;
+      if (outputConfig) {
+        const nextOutputConfig: AxAIAnthropicOutputConfig = {};
+        if (directEffort && outputConfig.effort) {
+          nextOutputConfig.effort = outputConfig.effort;
+        }
+        if (outputConfig.task_budget) {
+          nextOutputConfig.task_budget = outputConfig.task_budget;
+        }
+        outputConfig =
+          Object.keys(nextOutputConfig).length > 0
+            ? nextOutputConfig
+            : undefined;
+      }
     }
 
     // Handle structured output via the GA output_config.format parameter
@@ -505,20 +600,25 @@ class AxAIAnthropicImpl
       ...(stopSequences && stopSequences.length > 0
         ? { stop_sequences: stopSequences }
         : {}),
-      // Only include temperature when thinking is not enabled
-      ...(temperature !== undefined && !thinkingWire ? { temperature } : {}),
+      // Only include sampling parameters on models that accept them.
+      ...(temperature !== undefined && !thinkingWire && !samplingUnsupported
+        ? { temperature }
+        : {}),
       // Only include top_p when thinking is not enabled, or when it's >= 0.95
-      ...(topP !== undefined && (!thinkingWire || topP >= 0.95)
+      ...(topP !== undefined &&
+      !samplingUnsupported &&
+      (!thinkingWire || topP >= 0.95)
         ? { top_p: topP }
         : {}),
       // Only include top_k when thinking is not enabled
-      ...(topK && !thinkingWire ? { top_k: topK } : {}),
+      ...(topK && !thinkingWire && !samplingUnsupported ? { top_k: topK } : {}),
       ...toolsChoice,
       ...(tools ? { tools } : {}),
       ...(stream ? { stream: true } : {}),
-      ...(system ? { system } : {}),
+      ...(system.length > 0 ? { system } : {}),
       ...(thinkingWire ? { thinking: thinkingWire } : {}),
       ...(outputConfig ? { output_config: outputConfig } : {}),
+      ...(speed === 'fast' ? { speed: 'fast' as const } : {}),
       messages,
     };
 
@@ -534,6 +634,24 @@ class AxAIAnthropicImpl
         resp.error.message,
         undefined, // model not specified in error response
         undefined // requestId not specified in error response
+      );
+    }
+
+    if (resp.stop_reason === 'refusal') {
+      const text = resp.content
+        .filter((block) => block.type === 'text')
+        .map((block) => ('text' in block ? block.text : ''))
+        .join('');
+      const details = resp.stop_details ?? undefined;
+      const message =
+        details?.explanation ??
+        (text.length > 0 ? text : 'Anthropic refused to fulfill this request');
+      throw new AxAIRefusalError(
+        message,
+        resp.model,
+        resp.id,
+        details?.category,
+        details?.explanation
       );
     }
 
@@ -648,6 +766,7 @@ class AxAIAnthropicImpl
         (resp.usage.cache_read_input_tokens || 0),
       cacheCreationTokens: resp.usage.cache_creation_input_tokens,
       cacheReadTokens: resp.usage.cache_read_input_tokens,
+      speed: resp.usage.speed,
     };
 
     return { results, remoteId: resp.id };
@@ -696,6 +815,7 @@ class AxAIAnthropicImpl
           (message.usage?.cache_read_input_tokens ?? 0),
         cacheCreationTokens: message.usage?.cache_creation_input_tokens,
         cacheReadTokens: message.usage?.cache_read_input_tokens,
+        speed: message.usage?.speed,
       };
       return { results, remoteId: message.id };
     }
@@ -908,7 +1028,19 @@ class AxAIAnthropicImpl
           (this.tokensUsed?.cacheReadTokens ?? 0),
         cacheCreationTokens: this.tokensUsed?.cacheCreationTokens,
         cacheReadTokens: this.tokensUsed?.cacheReadTokens,
+        speed: usage.speed ?? this.tokensUsed?.speed,
       };
+
+      if (delta.stop_reason === 'refusal') {
+        const details = delta.stop_details ?? undefined;
+        throw new AxAIRefusalError(
+          details?.explanation ?? 'Anthropic refused to fulfill this request',
+          undefined,
+          sstate.remoteId,
+          details?.category,
+          details?.explanation
+        );
+      }
 
       const results = [
         {
@@ -983,8 +1115,7 @@ export class AxAIAnthropic<TModelKey = string> extends AxBaseAI<
       apiURL = 'https://api.anthropic.com/v1';
       headers = async () => ({
         'anthropic-version': '2023-06-01',
-        'anthropic-beta':
-          'structured-outputs-2025-11-13, web-search-2025-03-05',
+        'anthropic-beta': buildAnthropicBetaHeader(),
         'x-api-key': typeof apiKey === 'function' ? await apiKey() : apiKey,
       });
     }
@@ -1075,6 +1206,9 @@ export class AxAIAnthropic<TModelKey = string> extends AxBaseAI<
         (modelConfig as any).endSequences = (cfg as any).endSequences;
       if (cfg.stream !== undefined) modelConfig.stream = cfg.stream as boolean;
       if (cfg.n !== undefined) modelConfig.n = cfg.n as number;
+      if (cfg.effort !== undefined) modelConfig.effort = cfg.effort;
+      if (cfg.speed !== undefined) modelConfig.speed = cfg.speed;
+      if (cfg.taskBudget !== undefined) modelConfig.taskBudget = cfg.taskBudget;
 
       const out: any = { ...anyItem };
       if (Object.keys(modelConfig).length > 0) {
@@ -1137,6 +1271,20 @@ function createMessages(
 ): AxAIAnthropicChatRequest['messages'] {
   const items: AxAIAnthropicChatRequest['messages'] = chatPrompt.map((msg) => {
     switch (msg.role) {
+      case 'system': {
+        return {
+          role: 'system' as const,
+          content: msg.cache
+            ? [
+                {
+                  type: 'text' as const,
+                  text: msg.content,
+                  cache_control: { type: 'ephemeral' as const },
+                },
+              ]
+            : msg.content,
+        };
+      }
       case 'function': {
         const content: AnthropicMsgRoleUserToolResult[] = [
           {
@@ -1395,10 +1543,14 @@ function mapFinishReason(
     case 'stop_sequence':
       return 'stop';
     case 'max_tokens':
+    case 'model_context_window_exceeded':
       return 'length';
     case 'tool_use':
       return 'function_call';
+    case 'refusal':
+      return 'content_filter';
     case 'end_turn':
+    case 'pause_turn':
       return 'stop';
     default:
       return 'stop';
