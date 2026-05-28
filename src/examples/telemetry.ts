@@ -1,4 +1,4 @@
-import { AxAI, type AxAIGoogleGeminiModel, AxGen } from '@ax-llm/ax';
+import { type AxAIGoogleGeminiModel, AxGen, ai as createAI } from '@ax-llm/ax';
 import { trace } from '@opentelemetry/api';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import {
@@ -54,7 +54,7 @@ trace.setGlobalTracerProvider(provider);
 const tracer = trace.getTracer('text-classification-example');
 
 // Initialize AI with tracer
-const ai = new AxAI({
+const ai = createAI({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY as string,
   config: {

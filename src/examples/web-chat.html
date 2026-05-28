@@ -64,8 +64,6 @@
                             <option value="openai">OpenAI</option>
                             <option value="anthropic">Anthropic</option>
                             <option value="google-gemini">Google</option>
-                            <option value="groq">Groq</option>
-                            <option value="together">Together</option>
                             <option value="cohere">Cohere</option>
                             <option value="mistral">Mistral</option>
                         </select>
@@ -156,16 +154,6 @@
             'google-gemini': {
                 info: 'Enter your Google AI Studio API key for Gemini models',
                 placeholder: 'AI...',
-                corsProxy: 'http://localhost:3001'
-            },
-            'groq': {
-                info: 'Enter your Groq API key for fast inference',
-                placeholder: 'gsk_...',
-                corsProxy: 'http://localhost:3001'
-            },
-            'together': {
-                info: 'Enter your Together AI API key',
-                placeholder: 'your-together-key',
                 corsProxy: 'http://localhost:3001'
             },
             'cohere': {
@@ -291,7 +279,7 @@
                 axModule = window.ax;
                 
                 // Initialize AI with selected provider
-                ai = new axModule.AxAI({
+                ai = axModule.ai({
                     name: provider,
                     apiKey: elements.apiKey.value,
                     options: {
@@ -304,11 +292,9 @@
                     }
                 });
                 
-                // Create AxGen using template literals
-                chatBot = axModule.ax`
-                    userMessage:${axModule.f.string('Message from the user')} -> 
-                    botReply:${axModule.f.string('Helpful and friendly response from the AI assistant')}
-                `;
+                chatBot = axModule.ax(
+                    'userMessage:string "Message from the user" -> botReply:string "Helpful and friendly response from the AI assistant"'
+                );
                 
                 // Test with a simple message
                 const testResponse = await chatBot.forward(ai, {

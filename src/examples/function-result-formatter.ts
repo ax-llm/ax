@@ -1,9 +1,9 @@
-import { AxAI, ax, axGlobals } from '@ax-llm/ax';
+import { ai, ax, axGlobals } from '@ax-llm/ax';
 
 console.log('=== Function Result Formatter Demo ===\n');
 
 // Create an AI instance (using openai for the example)
-const _ai = new AxAI({
+const _ai = ai({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY || 'test',
 });

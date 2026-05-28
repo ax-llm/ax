@@ -1,4 +1,4 @@
-import { AxAI, AxGen } from '@ax-llm/ax';
+import { AxGen, ai as createAI } from '@ax-llm/ax';
 
 // Create a text classifier with multiple output fields
 const classifier = new AxGen<
@@ -45,7 +45,7 @@ classifier.setExamples([
 ]);
 
 // Initialize AI
-const ai = new AxAI({
+const ai = createAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY as string,
   options: { debug: true },

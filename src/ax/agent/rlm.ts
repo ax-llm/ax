@@ -9,10 +9,7 @@ import type { AxFunctionJSONSchema } from '../ai/types.js';
 import { toFieldType } from '../dsp/prompt.js';
 import type { AxIField } from '../dsp/sig.js';
 import type { AxProgramForwardOptions } from '../dsp/types.js';
-import type {
-  AxAgentActorTurnCallback,
-  AxAgentExecutorTurnCallback,
-} from './agentInternal/agentStateTypes.js';
+import type { AxAgentActorTurnCallback } from './agentInternal/agentStateTypes.js';
 import type { AxAgentOnContextEvent } from './contextEvents.js';
 import { renderPrimitivesList } from './runtimePrimitives.js';
 import { renderPromptTemplate } from './templateEngine.js';
@@ -165,11 +162,6 @@ export interface AxCodeRuntime {
   getUsageInstructions(): string;
 }
 
-/**
- * @deprecated Use `AxCodeRuntime` instead.
- */
-export type AxCodeInterpreter = AxCodeRuntime;
-
 export type AxCodeSessionSnapshotEntry = {
   name: string;
   type: string;
@@ -280,10 +272,6 @@ export interface AxRLMConfig {
    * the formatted action-log output.
    */
   actorTurnCallback?: AxAgentActorTurnCallback;
-  /**
-   * @deprecated Use actorTurnCallback.
-   */
-  executorTurnCallback?: AxAgentExecutorTurnCallback;
   /**
    * Called when AxAgent measures context pressure or changes compacted context state.
    * Intended for observability; callback failures are ignored.

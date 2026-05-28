@@ -1,7 +1,6 @@
-import { AxAI } from '@ax-llm/ax';
-import { AxFlow } from '../ax/flow/flow.js';
+import { ai as createAI, flow as createFlow } from '@ax-llm/ax';
 
-const ai = new AxAI({
+const ai = createAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY || '',
 });
@@ -10,7 +9,7 @@ console.log('=== AxFlow Function Conversion Examples ===\n');
 
 // Example 1: Direct signature execution (no nodes)
 console.log('1. Direct signature execution (no nodes):');
-const directFlow = new AxFlow<
+const directFlow = createFlow<
   { userQuestion: string },
   { answerText: string }
 >();
@@ -24,7 +23,7 @@ console.log();
 
 // Example 2: Regular flow with nodes (existing test)
 console.log('2. Regular flow with nodes:');
-const flow = new AxFlow<{ inputText: string }, { outputText: string }>()
+const flow = createFlow<{ inputText: string }, { outputText: string }>()
   .node('processor', 'textContent:string -> processedText:string')
   .execute('processor', (state) => ({ textContent: state.inputText }))
   .map((state) => ({ outputText: state.processorResult.processedText }));
@@ -35,7 +34,7 @@ console.log();
 
 // Example 3: Named flow with function conversion capability
 console.log('3. Named flow with function conversion:');
-const namedFlow = new AxFlow<
+const namedFlow = createFlow<
   { userQuestion: string },
   { responseText: string }
 >().description(

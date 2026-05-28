@@ -9,10 +9,10 @@
  */
 
 import {
-  AxAI,
   type AxFunctionJSONSchema,
   AxJSRuntime,
   agent,
+  ai as createAI,
 } from '@ax-llm/ax';
 
 interface RoomState {
@@ -35,7 +35,7 @@ const state: HomeState = {
   dogLocation: 'livingRoom',
 };
 
-const ai = new AxAI({
+const ai = createAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY as string,
 });

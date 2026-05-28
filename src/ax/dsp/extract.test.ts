@@ -18,7 +18,7 @@ const createInitialState = (): extractionState => ({
 
 describe('extractValues', () => {
   test('extracts single output field', () => {
-    const sig = new AxSignature('userQuestion -> modelAnswer');
+    const sig = AxSignature.from('userQuestion -> modelAnswer');
     const values: Record<string, unknown> = {};
     const content = 'Model Answer:This is the output content!';
 
@@ -28,7 +28,7 @@ describe('extractValues', () => {
   });
 
   test('extracts multiple output fields', () => {
-    const sig = new AxSignature(
+    const sig = AxSignature.from(
       'userQuestion1, userQuestion2 -> modelAnswer1, modelAnswer2'
     );
     const values: Record<string, unknown> = {};
@@ -44,7 +44,7 @@ Model Answer 2: Second\noutput\ncontent`;
   });
 
   test('preserves existing values', () => {
-    const sig = new AxSignature(
+    const sig = AxSignature.from(
       'userQuestion1, userQuestion2 -> modelAnswer1, modelAnswer2'
     );
     const values: Record<string, unknown> = {
@@ -61,7 +61,7 @@ Model Answer 2: Second\noutput\ncontent`;
   });
 
   test('handles multiline output content', () => {
-    const sig = new AxSignature('userQuestion -> modelAnswer1, modelAnswer2');
+    const sig = AxSignature.from('userQuestion -> modelAnswer1, modelAnswer2');
     const values: Record<string, unknown> = {};
     const content = `Model Answer 1: This is a multi-line
 output content for field 1
@@ -77,7 +77,7 @@ multi-line content for field 2`;
   });
 
   test('handles array output JSON', () => {
-    const sig = new AxSignature('userQuestion -> modelAnswer1:string[]');
+    const sig = AxSignature.from('userQuestion -> modelAnswer1:string[]');
     const values: Record<string, unknown> = {};
     const content = 'Model Answer 1: ["test", "test2"]';
 
@@ -87,7 +87,7 @@ multi-line content for field 2`;
   });
 
   test('handles array output markdown', () => {
-    const sig = new AxSignature('userQuestion -> modelAnswer1:string[]');
+    const sig = AxSignature.from('userQuestion -> modelAnswer1:string[]');
     const values: Record<string, unknown> = {};
     const content = `Model Answer 1:
   - test
@@ -100,7 +100,7 @@ multi-line content for field 2`;
 
   // New test cases
   test('handles nested JSON objects', () => {
-    const sig = new AxSignature('userQuestion -> modelAnswer1:json');
+    const sig = AxSignature.from('userQuestion -> modelAnswer1:json');
     const values: Record<string, unknown> = {};
     const content = 'Model Answer 1: {"name": "test", "values": [1, 2, 3]}';
 
@@ -115,7 +115,7 @@ multi-line content for field 2`;
   });
 
   test('handles boolean values', () => {
-    const sig = new AxSignature(
+    const sig = AxSignature.from(
       'userQuestion -> modelAnswer1:boolean, modelAnswer2:boolean'
     );
     const values: Record<string, unknown> = {};
@@ -131,7 +131,7 @@ Model Answer 2: false`;
   });
 
   test('extractValues plan/restaurants scenario', () => {
-    const sig = new AxSignature({
+    const sig = AxSignature.from({
       inputs: [{ name: 'userInput' }],
       outputs: [
         { name: 'plan', title: 'Plan', type: { name: 'string' } },
@@ -188,7 +188,7 @@ findRestaurants priceRange: $$-$$$
 
 describe('streamingExtractValues', () => {
   test('handles streaming output fields', () => {
-    const sig = new AxSignature('userQuestion -> modelAnswer1, modelAnswer2');
+    const sig = AxSignature.from('userQuestion -> modelAnswer1, modelAnswer2');
     const values: Record<string, unknown> = {};
     const state = createInitialState();
 
@@ -212,7 +212,7 @@ describe('streamingExtractValues', () => {
   });
 
   test('handles partial output label', () => {
-    const sig = new AxSignature('userQuestion -> modelAnswer1');
+    const sig = AxSignature.from('userQuestion -> modelAnswer1');
     const values: Record<string, unknown> = {};
     const state = createInitialState();
 
@@ -231,7 +231,7 @@ describe('streamingExtractValues', () => {
   });
 
   test('handles incremental content with multiple fields', () => {
-    const sig = new AxSignature(
+    const sig = AxSignature.from(
       'userQuestion -> modelAnswer1, modelAnswer2, modelAnswer3'
     );
     const values: Record<string, unknown> = {};
@@ -265,7 +265,7 @@ describe('streamingExtractValues', () => {
 
   // New test case
   test('handles streaming JSON array content', () => {
-    const sig = new AxSignature('userQuestion -> modelAnswer1:string[]');
+    const sig = AxSignature.from('userQuestion -> modelAnswer1:string[]');
     const values: Record<string, unknown> = {};
     const state = createInitialState();
 
@@ -284,7 +284,7 @@ describe('streamingExtractValues', () => {
   });
 
   test('does not append next field content to previous field (restaurant plan scenario)', () => {
-    const sig = new AxSignature({
+    const sig = AxSignature.from({
       inputs: [{ name: 'userInput' }],
       outputs: [
         { name: 'plan', title: 'Plan', type: { name: 'string' } },
@@ -340,7 +340,9 @@ findRestaurants priceRange: $$-$$$`;
 
 describe('error handling', () => {
   test('handles empty and whitespace content', () => {
-    const sig = new AxSignature('userQuestion -> modelAnswer1?, modelAnswer2?');
+    const sig = AxSignature.from(
+      'userQuestion -> modelAnswer1?, modelAnswer2?'
+    );
     const values: Record<string, unknown> = {};
     const content = `Model Answer 1: 
 Model Answer 2:    
@@ -355,7 +357,7 @@ Model Answer:`;
   });
 
   test('handles malformed content', () => {
-    const sig = new AxSignature('userQuestion -> modelAnswer1, modelAnswer2');
+    const sig = AxSignature.from('userQuestion -> modelAnswer1, modelAnswer2');
     const values: Record<string, unknown> = {};
     const malformedContent = 'Some random content without output prefix';
 
@@ -366,7 +368,7 @@ Model Answer:`;
 
   // New test cases
   test('throws validation error for invalid markdown list', () => {
-    const sig = new AxSignature('userQuestion -> modelAnswer1:string[]');
+    const sig = AxSignature.from('userQuestion -> modelAnswer1:string[]');
     const values: Record<string, unknown> = {};
     const content = `Model Answer 1:
     - test
@@ -379,7 +381,7 @@ Model Answer:`;
   });
 
   test('handles missing optional fields', () => {
-    const sig = new AxSignature(
+    const sig = AxSignature.from(
       'userQuestion -> modelAnswer1, modelAnswer2?:string'
     );
     const values: Record<string, unknown> = {};
@@ -393,7 +395,7 @@ Model Answer:`;
   });
 
   test('Issue #432: correctly extracts top level array of objects', () => {
-    const sig = new AxSignature({
+    const sig = AxSignature.from({
       inputs: [{ name: 'document', type: { name: 'string' } }],
       outputs: [
         {

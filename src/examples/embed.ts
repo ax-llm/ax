@@ -1,7 +1,7 @@
-import { AxAI } from '@ax-llm/ax';
+import { ai as createAI } from '@ax-llm/ax';
 
 // Initialize the AI service with your API key
-const ai = new AxAI({
+const ai = createAI({
   name: 'openai', // You can use 'anthropic', 'google-gemini', etc.
   apiKey: process.env.OPENAI_APIKEY as string,
 });

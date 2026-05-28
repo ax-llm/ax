@@ -1,6 +1,6 @@
 ---
 name: ax-ai
-description: This skill helps an LLM generate correct AI provider setup and configuration code using @ax-llm/ax. Use when the user asks about ai(), providers, models, presets, embeddings, batch audio with ai.transcribe() or ai.speak(), extended thinking, context caching, or mentions OpenAI/Anthropic/Google/Azure/Groq/DeepSeek/Mistral/Cohere/Together/Ollama/HuggingFace/Reka/OpenRouter with @ax-llm/ax.
+description: This skill helps an LLM generate correct AI provider setup and configuration code using @ax-llm/ax. Use when the user asks about ai(), providers, models, presets, embeddings, batch audio with ai.transcribe() or ai.speak(), extended thinking, context caching, or mentions OpenAI/Anthropic/Google/Azure/DeepSeek/Mistral/Cohere/HuggingFace/Reka/Grok with @ax-llm/ax.
 version: "__VERSION__"
 ---
 
@@ -17,16 +17,13 @@ const openai = ai({ name: 'openai', apiKey: 'sk-...' });
 const claude = ai({ name: 'anthropic', apiKey: 'sk-ant-...' });
 const gemini = ai({ name: 'google-gemini', apiKey: 'AIza...' });
 const azure = ai({ name: 'azure-openai', apiKey: 'your-key', resourceName: 'your-resource', deploymentName: 'gpt-4' });
-const groq = ai({ name: 'groq', apiKey: 'gsk_...' });
 const deepseek = ai({ name: 'deepseek', apiKey: 'sk-...' });
 const mistral = ai({ name: 'mistral', apiKey: 'your-key' });
 const cohere = ai({ name: 'cohere', apiKey: 'your-key' });
-const together = ai({ name: 'together', apiKey: 'your-key' });
-const openrouter = ai({ name: 'openrouter', apiKey: 'your-key' });
-const ollama = ai({ name: 'ollama', url: 'http://localhost:11434' });
 const hf = ai({ name: 'huggingface', apiKey: 'hf_...' });
 const reka = ai({ name: 'reka', apiKey: 'your-key' });
 const grok = ai({ name: 'grok', apiKey: 'your-key' });
+const compatible = ai({ name: 'openai', apiKey: 'key', apiURL: 'https://api.example.com/v1', config: { model: 'provider/model' } });
 ```
 
 ## Model Presets
@@ -64,7 +61,7 @@ Use `axGetSupportedAIModels()` to build provider/model selectors before creating
 
 Filter with `{ type: 'all' | 'text' | 'embeddings' | 'code' | 'audio' }` or an array of those values. The `'text'` filter includes code-capable models; use `'code'` to show only code-first models.
 
-Dynamic providers such as Azure OpenAI deployments, OpenRouter, Ollama, and Hugging Face are marked with `isDynamic: true` and may have an empty or static-limited model list.
+Dynamic providers such as Azure OpenAI deployments and Hugging Face are marked with `isDynamic: true` and may have an empty or static-limited model list.
 
 ## Chat
 
@@ -300,7 +297,7 @@ const client = new AxMCPClient(transport);
 ## Critical Rules
 
 - Use `ai()` factory for all providers.
-- Provider names: `'openai'`, `'anthropic'`, `'google-gemini'`, `'azure-openai'`, `'mistral'`, `'groq'`, `'cohere'`, `'together'`, `'deepseek'`, `'ollama'`, `'huggingface'`, `'openrouter'`, `'reka'`, `'grok'`
+- Provider names: `'openai'`, `'openai-responses'`, `'anthropic'`, `'google-gemini'`, `'azure-openai'`, `'mistral'`, `'cohere'`, `'deepseek'`, `'huggingface'`, `'reka'`, `'grok'`
 - Thinking constraints on Anthropic: `temperature` and `topK` are ignored; `topP` only sent if >= 0.95.
 - Bedrock uses `new AxAIBedrock()`, not `ai()`.
 - Vercel AI SDK uses `AxAIProvider` wrapper.
@@ -319,7 +316,7 @@ Fetch these for full working code:
 - [Gemini Context Cache](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/gemini-context-cache.ts) — Gemini context caching
 - [Gemini Files](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/gemini-file-support.ts) — Gemini file handling
 - [Grok Live Search](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/grok-live-search.ts) — Grok live search
-- [OpenRouter](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/openrouter.ts) — OpenRouter provider
+- [OpenAI-Compatible](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/openai-compatible.ts) — custom OpenAI-compatible base URL
 - [Vertex AI Auth](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/vertex-auth-example.ts) — Vertex AI authentication
 - [MCP Stdio](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/mcp-client-memory.ts) — MCP stdio transport
 - [MCP HTTP](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/mcp-client-pipedream.ts) — MCP HTTP transport

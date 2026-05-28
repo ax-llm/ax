@@ -1,8 +1,11 @@
-import { AxAI, AxAIGoogleGeminiModel, AxGen, AxSignature } from '@ax-llm/ax';
+import {
+  AxAIGoogleGeminiModel,
+  AxGen,
+  AxSignature,
+  ai as createAI,
+} from '@ax-llm/ax';
 
-// const ai = new AxAI({ name: 'ollama', model: 'nous-hermes2' });
-
-const signature = new AxSignature(`\
+const signature = AxSignature.from(`\
     updates:string[] \
     -> \
     summary:string, summaryTitle:string, shortSummary:string`);
@@ -33,7 +36,7 @@ gen.setExamples([
 // }, 'Reason should not contain "the"')
 
 // Example with OpenAI using custom labels in place of model names
-// const ai = new AxAI({
+// const ai = createAI({
 //   name: 'openai',
 //   apiKey: process.env.OPENAI_APIKEY as string,
 //   config: { model: 'model-a' },
@@ -46,13 +49,13 @@ gen.setExamples([
 //   ],
 // })
 
-// const ai = new AxAI({
+// const ai = createAI({
 //     name: 'openai-responses',
 //     apiKey: process.env.OPENAI_APIKEY as string,
 //     config: { model: AxAIOpenAIResponsesModel.O3Mini },
 // })
 
-const ai = new AxAI({
+const ai = createAI({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY as string,
   config: { model: AxAIGoogleGeminiModel.Gemini3Flash },

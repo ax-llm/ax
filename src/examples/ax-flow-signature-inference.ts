@@ -1,7 +1,7 @@
-import { AxAI, flow } from '@ax-llm/ax';
+import { ai as createAI, flow } from '@ax-llm/ax';
 
 // Create an AI instance
-const ai = new AxAI({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! });
+const ai = createAI({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! });
 
 // Create a flow without explicitly passing a signature
 // The signature will be inferred from the flow structure

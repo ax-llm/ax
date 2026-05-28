@@ -407,7 +407,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       );
     }
 
-    let signature = new AxSignature(this.signature);
+    let signature = AxSignature.from(this.signature);
     if (signatureToolCallingManager) {
       signature = signatureToolCallingManager.processSignature(signature);
     }
@@ -439,7 +439,6 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       functions: signatureToolCallingManager ? [] : mutableFunctions,
       thoughtFieldName: this.thoughtFieldName,
       contextCache,
-      examplesInSystem: options?.examplesInSystem,
       ignoreBreakpoints: providerIgnoreBreakpoints,
       structuredOutputFunctionName: structuredOutputFunctionFallback
         ? STRUCTURED_OUTPUT_FUNCTION_NAME
@@ -1470,7 +1469,6 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       functions: this.signatureToolCallingManager ? [] : mutableFunctions,
       thoughtFieldName: this.thoughtFieldName,
       contextCache, // Pass through for system prompt caching
-      examplesInSystem: options.examplesInSystem,
       ignoreBreakpoints: providerIgnoreBreakpoints,
       structuredOutputFunctionName: this.structuredOutputFunctionFallback
         ? STRUCTURED_OUTPUT_FUNCTION_NAME

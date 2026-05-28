@@ -1,4 +1,4 @@
-import { AxAI, AxAIOpenAIModel, AxGEPA, ax } from '@ax-llm/ax';
+import { AxAIOpenAIModel, AxGEPA, ai, ax } from '@ax-llm/ax';
 
 // Two-objective demo: accuracy (classification) + brevity (short rationale)
 const emailClassifier = ax(
@@ -52,13 +52,13 @@ async function main() {
     process.exit(1);
   }
 
-  const student = new AxAI({
+  const student = ai({
     name: 'openai',
     apiKey: process.env.OPENAI_APIKEY!,
     config: { model: AxAIOpenAIModel.GPT4OMini },
   });
 
-  const teacher = new AxAI({
+  const teacher = ai({
     name: 'openai',
     apiKey: process.env.OPENAI_APIKEY!,
     config: { model: AxAIOpenAIModel.GPT4O },

@@ -1,7 +1,6 @@
-import { AxAI } from '@ax-llm/ax';
-import { AxFlow } from '../ax/flow/flow.js';
+import { ai as createAI, flow as createFlow } from '@ax-llm/ax';
 
-const ai = new AxAI({
+const ai = createAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY || '',
 });
@@ -11,7 +10,7 @@ console.log('1. Instance-Based Node Definition:');
 
 // For now, using signature strings is more type-safe than AxGen instances
 // TODO: Enhance type inference for AxGen instances in future
-const instanceFlow = new AxFlow<
+const instanceFlow = createFlow<
   { userInput: string },
   { finalOutput: string }
 >()
@@ -35,7 +34,7 @@ console.log();
 // Example 2: Error Handling Configuration
 console.log('2. Error Handling Configuration:');
 
-const errorHandlingFlow = new AxFlow<
+const errorHandlingFlow = createFlow<
   { userQuery: string },
   { queryResponse: string }
 >()
@@ -53,7 +52,7 @@ console.log();
 // Example 3: Performance Optimization Configuration
 console.log('3. Performance Optimization Configuration:');
 
-const performanceFlow = new AxFlow<
+const performanceFlow = createFlow<
   { inputData: string },
   { outputData: string }
 >({
@@ -77,7 +76,7 @@ console.log();
 // Example 3.5: Concurrency Control with Batching
 console.log('3.5. Concurrency Control with Batching:');
 
-const concurrencyFlow = new AxFlow<
+const concurrencyFlow = createFlow<
   { batchInput: string },
   { batchOutput: string }
 >({
@@ -126,7 +125,7 @@ console.log();
 // Example 4: Enhanced Type Safety with Explicit Merge Types
 console.log('4. Enhanced Type Safety with Explicit Merge Types:');
 
-const typeSafeFlow = new AxFlow<
+const typeSafeFlow = createFlow<
   { inputValue: string },
   { outputValue: string }
 >()
@@ -167,7 +166,7 @@ console.log();
 // Example 5: Execution Plan Analysis
 console.log('5. Execution Plan Analysis:');
 
-const complexFlow = new AxFlow<{ inputText: string }, { finalOutput: string }>()
+const complexFlow = createFlow<{ inputText: string }, { finalOutput: string }>()
   .node('tokenizer', 'inputText:string -> tokenCount:number')
   .node('processor1', 'tokens:number -> processedResult1:string')
   .node('processor2', 'tokens:number -> processedResult2:string')

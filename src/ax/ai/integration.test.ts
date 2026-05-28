@@ -3,15 +3,15 @@ import { describe, expect, it } from 'vitest';
 import { ai } from './wrap.js';
 
 describe('AI Factory Integration', () => {
-  describe('OpenRouter and Custom API URL Support', () => {
-    it('should configure OpenRouter API URL correctly', () => {
+  describe('OpenAI-compatible custom API URL support', () => {
+    it('should configure a custom API URL correctly', () => {
       const llm = ai({
         name: 'openai',
         apiKey: 'test-key',
-        apiURL: 'https://openrouter.ai/api/v1',
+        apiURL: 'https://api.example.com/v1',
       });
 
-      expect((llm as any).ai.apiURL).toBe('https://openrouter.ai/api/v1');
+      expect((llm as any).ai.apiURL).toBe('https://api.example.com/v1');
     });
 
     it('should configure custom OpenAI-compatible endpoints', () => {

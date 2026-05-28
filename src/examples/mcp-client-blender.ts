@@ -1,10 +1,10 @@
 import {
-  AxAI,
   AxAIOpenAIModel,
   type AxFunction,
   AxJSRuntime,
   AxMCPClient,
   agent,
+  ai as createAI,
 } from '@ax-llm/ax';
 import { AxMCPStdioTransport } from '@ax-llm/ax-tools';
 
@@ -33,7 +33,7 @@ const drawingAgent = agent(
 );
 
 // Initialize the AI model with OpenAI GPT-4 Mini
-const ai = new AxAI({
+const ai = createAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY as string,
   config: { model: AxAIOpenAIModel.GPT4OMini },

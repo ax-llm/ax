@@ -22,9 +22,6 @@ import type {
   AxDiscoveryTurnSummary,
   AxLlmQueryBudgetState,
   AxLlmQueryPromptMode,
-  AxMutableDiscoveryPromptState,
-  AxMutableSkillsPromptState,
-  AxPreparedRestoredState,
   AxResolvedContextPolicy,
   AxResolvedExecutorModelPolicy,
   AxResolvedExecutorModelPolicyEntry,
@@ -48,7 +45,6 @@ import type {
   AxAgentOptions,
   AxAgentRecursionOptions,
   AxAgentStreamingForwardOptions,
-  AxNormalizedAgentEvalDataset,
   AxStageOptions,
 } from './agent/agentInternal/agentOptimizeTypes.js';
 import {
@@ -59,8 +55,6 @@ import {
   AxAgentClarificationError,
   type AxAgentClarificationKind,
   type AxAgentDiscoveryPromptState,
-  type AxAgentExecutorTurnCallback,
-  type AxAgentExecutorTurnCallbackArgs,
   type AxAgentFunction,
   type AxAgentFunctionCollection,
   type AxAgentFunctionExample,
@@ -121,11 +115,9 @@ import type {
 } from './agent/agentRecursiveOptimize.js';
 import {
   type AxAgentGuidancePayload,
-  type AxAgentInternalCompletionPayload,
   AxAgentProtocolCompletionSignal,
 } from './agent/completion.js';
 import {
-  type AxCodeInterpreter,
   type AxCodeRuntime,
   type AxCodeSession,
   type AxCodeSessionSnapshot,
@@ -327,9 +319,6 @@ import {
   type AxAIGoogleVertexBatchEmbedRequest,
   type AxAIGoogleVertexBatchEmbedResponse,
 } from './ai/google-gemini/types.js';
-import { AxAIGroq, type AxAIGroqArgs } from './ai/groq/api.js';
-import { axModelInfoGroq } from './ai/groq/info.js';
-import { AxAIGroqModel } from './ai/groq/types.js';
 import {
   AxAIHuggingFace,
   type AxAIHuggingFaceArgs,
@@ -358,13 +347,6 @@ import {
 } from './ai/mistral/types.js';
 import { AxMockAIService, type AxMockAIServiceConfig } from './ai/mock/api.js';
 import { AxMultiServiceRouter } from './ai/multiservice.js';
-import {
-  AxAIOllama,
-  type AxAIOllamaAIConfig,
-  type AxAIOllamaArgs,
-  axAIOllamaDefaultConfig,
-  axAIOllamaDefaultCreativeConfig,
-} from './ai/ollama/api.js';
 import {
   AxAIOpenAI,
   type AxAIOpenAIArgs,
@@ -412,7 +394,6 @@ import {
   axResolveOpenAIRealtimeAudioConfig,
   axShouldUseOpenAIRealtime,
 } from './ai/openai/realtime.js';
-import { AxAIOpenAIResponsesImpl } from './ai/openai/responses_api.js';
 import {
   AxAIOpenAIResponses,
   type AxAIOpenAIResponsesArgs,
@@ -485,7 +466,6 @@ import {
   type AxAIOpenAIResponsesResponse,
   type AxAIOpenAIResponsesResponseCompletedEvent,
   type AxAIOpenAIResponsesResponseCreatedEvent,
-  type AxAIOpenAIResponsesResponseDelta,
   type AxAIOpenAIResponsesResponseFailedEvent,
   type AxAIOpenAIResponsesResponseIncompleteEvent,
   type AxAIOpenAIResponsesResponseInProgressEvent,
@@ -502,11 +482,6 @@ import {
   type AxAIOpenAIResponsesWebSearchToolCall,
 } from './ai/openai/responses_types.js';
 import { axNormalizeOpenAIUsage } from './ai/openai/usage.js';
-import {
-  AxAIOpenRouter,
-  type AxAIOpenRouterArgs,
-  axAIOpenRouterDefaultConfig,
-} from './ai/openrouter/api.js';
 import {
   axAnalyzeChatPromptRequirements,
   axProcessContentForProvider,
@@ -535,16 +510,6 @@ import {
   AxProviderRouter,
   type AxRoutingResult,
 } from './ai/router.js';
-import {
-  AxAITogether,
-  type AxAITogetherArgs,
-  axAITogetherDefaultConfig,
-} from './ai/together/api.js';
-import { axModelInfoTogether } from './ai/together/info.js';
-import {
-  type AxAITogetherChatModel,
-  AxAITogetherModel,
-} from './ai/together/types.js';
 import type {
   AxAgentCompletionProtocol,
   AxAIInputModelList,
@@ -570,17 +535,12 @@ import type {
   AxFunctionHandler,
   AxFunctionJSONSchema,
   AxFunctionResult,
-  AxInternalChatRequest,
-  AxInternalEmbedRequest,
-  AxInternalSpeechRequest,
-  AxInternalTranscriptionRequest,
   AxLoggerData,
   AxLoggerFunction,
   AxModelConfig,
   AxModelInfo,
   AxModelInfoWithProvider,
   AxModelUsage,
-  AxPreparedChatRequest,
   AxProviderMetadata,
   AxRateLimiterFunction,
   AxThoughtBlockItem,
@@ -590,23 +550,6 @@ import {
   axValidateChatRequestMessage,
   axValidateChatResponseResult,
 } from './ai/validate.js';
-import {
-  AxAIWebLLM,
-  type AxAIWebLLMArgs,
-  axAIWebLLMCreativeConfig,
-  axAIWebLLMDefaultConfig,
-} from './ai/webllm/api.js';
-import { axModelInfoWebLLM } from './ai/webllm/info.js';
-import {
-  type AxAIWebLLMChatRequest,
-  type AxAIWebLLMChatResponse,
-  type AxAIWebLLMChatResponseDelta,
-  type AxAIWebLLMConfig,
-  type AxAIWebLLMEmbedModel,
-  type AxAIWebLLMEmbedRequest,
-  type AxAIWebLLMEmbedResponse,
-  AxAIWebLLMModel,
-} from './ai/webllm/types.js';
 import {
   AxAI,
   type AxAIArgs,
@@ -631,66 +574,10 @@ import {
 import { axModelInfoGrok } from './ai/x-grok/info.js';
 import { AxAIGrokEmbedModels, AxAIGrokModel } from './ai/x-grok/types.js';
 import {
-  AxDBBase,
-  type AxDBBaseArgs,
-  type AxDBBaseOpOptions,
-} from './db/base.js';
-import {
-  AxDBCloudflare,
-  type AxDBCloudflareArgs,
-  type AxDBCloudflareOpOptions,
-} from './db/cloudflare.js';
-import {
-  AxDBMemory,
-  type AxDBMemoryArgs,
-  type AxDBMemoryOpOptions,
-  type AxDBState,
-} from './db/memory.js';
-import {
-  AxDBPinecone,
-  type AxDBPineconeArgs,
-  type AxDBPineconeOpOptions,
-} from './db/pinecone.js';
-import type {
-  AxDBQueryRequest,
-  AxDBQueryResponse,
-  AxDBQueryService,
-  AxDBService,
-  AxDBUpsertRequest,
-  AxDBUpsertResponse,
-} from './db/types.js';
-import {
-  AxDBWeaviate,
-  type AxDBWeaviateArgs,
-  type AxDBWeaviateOpOptions,
-} from './db/weaviate.js';
-import { AxDB, type AxDBArgs } from './db/wrap.js';
-import {
-  type AxDBLoaderOptions,
-  AxDBManager,
-  type AxDBManagerArgs,
-  type AxDBMatch,
-  type AxRerankerIn,
-  type AxRerankerOut,
-  type AxRewriteIn,
-  type AxRewriteOut,
-} from './docs/manager.js';
-import { AxDefaultResultReranker } from './docs/reranker.js';
-import {
-  AxApacheTika,
-  type AxApacheTikaArgs,
-  type AxApacheTikaConvertOptions,
-} from './docs/tika.js';
-import {
   type AxAssertion,
   AxAssertionError,
   type AxStreamingAssertion,
 } from './dsp/asserts.js';
-import {
-  AxSimpleClassifier,
-  AxSimpleClassifierClass,
-  type AxSimpleClassifierForwardOptions,
-} from './dsp/classifier.js';
 import type {
   AxCheckpointLoadFn,
   AxCheckpointSaveFn,
@@ -727,7 +614,6 @@ import {
   AxGenerateError,
   type AxGenerateErrorDetails,
   type AxGenerateResult,
-  type AxResponseHandlerArgs,
   type AxStreamingEvent,
 } from './dsp/generate.js';
 import { type AxFunctionResultFormatter, axGlobals } from './dsp/globals.js';
@@ -735,23 +621,6 @@ import type {
   AxJudgeForwardOptions,
   AxJudgeOptions,
 } from './dsp/judgeTypes.js';
-import {
-  AxLearn,
-  type AxLearnArtifact,
-  type AxLearnContinuousOptions,
-  type AxLearnMode,
-  type AxLearnOptimizeOptions,
-  type AxLearnOptions,
-  type AxLearnPlaybook,
-  type AxLearnPlaybookOptions,
-  type AxLearnPlaybookSummary,
-  type AxLearnProgress,
-  type AxLearnResult,
-  type AxLearnUpdateFeedback,
-  type AxLearnUpdateInput,
-  type AxLearnUpdateOptions,
-} from './dsp/learn.js';
-import { type AxDataRow, AxHFDataLoader } from './dsp/loader.js';
 import {
   axCreateDefaultColorLogger,
   axCreateDefaultTextLogger,
@@ -793,23 +662,6 @@ import {
   axCreateDefaultOptimizerTextLogger,
   axDefaultOptimizerLogger,
 } from './dsp/optimizerLogging.js';
-import {
-  AxACE,
-  AxACEOptimizedProgram,
-  type AxACEResult,
-} from './dsp/optimizers/ace.js';
-import type {
-  AxACEBullet,
-  AxACECuratorOperation,
-  AxACECuratorOperationType,
-  AxACECuratorOutput,
-  AxACEFeedbackEvent,
-  AxACEGeneratorOutput,
-  AxACEOptimizationArtifact,
-  AxACEOptions,
-  AxACEPlaybook,
-  AxACEReflectionOutput,
-} from './dsp/optimizers/aceTypes.js';
 import type { AxRolloutTrace } from './dsp/optimizers/axGenAdapter.js';
 import { AxBootstrapFewShot } from './dsp/optimizers/bootstrapFewshot.js';
 import {
@@ -846,7 +698,6 @@ import {
   type AxPromptTemplateOptions,
   type AxRenderedPrompt,
 } from './dsp/prompt.js';
-import { AxInstanceRegistry } from './dsp/registry.js';
 import type { AxSamplePickerOptions } from './dsp/samples.js';
 import {
   type AxDateRangeValue,
@@ -858,11 +709,11 @@ import {
   AxSignature,
   AxSignatureBuilder,
   type AxSignatureConfig,
+  type AxSignatureInput,
   f,
   fn,
 } from './dsp/sig.js';
 import type { AxFieldOptions } from './dsp/standardSchema.js';
-import { AxStepContextImpl } from './dsp/stepContext.js';
 import { AxStringUtil } from './dsp/strutil.js';
 import {
   AxSynth,
@@ -911,8 +762,6 @@ import type {
   AxTunable,
   AxUsable,
 } from './dsp/types.js';
-import { AxFlowDependencyAnalyzer } from './flow/dependencyAnalyzer.js';
-import { AxFlowExecutionPlanner } from './flow/executionPlanner.js';
 import { AxFlow, flow } from './flow/flow.js';
 import {
   type AxFlowBranchEvaluationData,
@@ -930,10 +779,6 @@ import {
   axCreateFlowTextLogger,
   axDefaultFlowLogger,
 } from './flow/logger.js';
-import {
-  AxFlowSubContextImpl,
-  AxFlowTypedSubContextImpl,
-} from './flow/subContext.js';
 import type {
   AxFlowAutoParallelConfig,
   AxFlowable,
@@ -941,11 +786,9 @@ import type {
   AxFlowDynamicContext,
   AxFlowExecutionStep,
   AxFlowNodeDefinition,
-  AxFlowParallelBranch,
   AxFlowParallelGroup,
   AxFlowState,
   AxFlowStepFunction,
-  AxFlowSubContext,
   AxFlowTypedParallelBranch,
   AxFlowTypedSubContext,
 } from './flow/types.js';
@@ -997,26 +840,11 @@ import type {
 } from './mcp/types.js';
 import { AxMemory } from './mem/memory.js';
 import type {
-  AxCheckpoint,
-  AxLearnCheckpointMode,
-  AxLearnCheckpointState,
-  AxStorage,
-  AxStorageQuery,
-  AxTrace,
-} from './mem/storage.js';
-import type {
   AxAIMemory,
   AxMemoryData,
   AxMemoryMessageValue,
 } from './mem/types.js';
-import { axRAG } from './prompts/rag.js';
-import { AxTraceLogger, type AxTraceLoggerOptions } from './trace/logger.js';
-import {
-  AxLLMRequestTypeValues,
-  AxSpanKindValues,
-  axSpanAttributes,
-  axSpanEvents,
-} from './trace/trace.js';
+import { axSpanAttributes, axSpanEvents } from './trace/trace.js';
 import {
   AxAIRefusalError,
   AxAIServiceAbortedError,
@@ -1040,8 +868,6 @@ import {
 } from './util/rate-limit.js';
 
 // Value exports
-export { AxACE };
-export { AxACEOptimizedProgram };
 export { AxAI };
 export { AxAIAnthropic };
 export { AxAIAnthropicModel };
@@ -1061,23 +887,18 @@ export { AxAIGoogleGeminiSafetyThreshold };
 export { AxAIGrok };
 export { AxAIGrokEmbedModels };
 export { AxAIGrokModel };
-export { AxAIGroq };
-export { AxAIGroqModel };
 export { AxAIHuggingFace };
 export { AxAIHuggingFaceModel };
 export { AxAIMistral };
 export { AxAIMistralEmbedModels };
 export { AxAIMistralModel };
-export { AxAIOllama };
 export { AxAIOpenAI };
 export { AxAIOpenAIBase };
 export { AxAIOpenAIEmbedModel };
 export { AxAIOpenAIModel };
 export { AxAIOpenAIResponses };
 export { AxAIOpenAIResponsesBase };
-export { AxAIOpenAIResponsesImpl };
 export { AxAIOpenAIResponsesModel };
-export { AxAIOpenRouter };
 export { AxAIRefusalError };
 export { AxAIReka };
 export { AxAIRekaModel };
@@ -1089,38 +910,21 @@ export { AxAIServiceResponseError };
 export { AxAIServiceStatusError };
 export { AxAIServiceStreamTerminatedError };
 export { AxAIServiceTimeoutError };
-export { AxAITogether };
-export { AxAITogetherModel };
-export { AxAIWebLLM };
-export { AxAIWebLLMModel };
 export { AxAgent };
 export { AxAgentClarificationError };
 export { AxAgentContextMap };
 export { AxAgentProtocolCompletionSignal };
-export { AxApacheTika };
 export { AxAssertionError };
 export { AxBalancer };
 export { AxBaseAI };
 export { AxBaseOptimizer };
 export { AxBootstrapFewShot };
 export { AxContentProcessingError };
-export { AxDB };
-export { AxDBBase };
-export { AxDBCloudflare };
-export { AxDBManager };
-export { AxDBMemory };
-export { AxDBPinecone };
-export { AxDBWeaviate };
 export { AxDefaultCostTracker };
-export { AxDefaultResultReranker };
 export { AxDockerSession };
 export { AxEmbeddingAdapter };
 export { AxEvalUtil };
 export { AxFlow };
-export { AxFlowDependencyAnalyzer };
-export { AxFlowExecutionPlanner };
-export { AxFlowSubContextImpl };
-export { AxFlowTypedSubContextImpl };
 export { AxFluentFieldType };
 export { AxFunctionError };
 export { AxFunctionProcessor };
@@ -1128,12 +932,8 @@ export { AxGEPA };
 export { AxGEPAComponentSelector };
 export { AxGen };
 export { AxGenerateError };
-export { AxHFDataLoader };
-export { AxInstanceRegistry };
 export { AxJSRuntime };
 export { AxJSRuntimePermission };
-export { AxLLMRequestTypeValues };
-export { AxLearn };
 export { AxMCPClient };
 export { AxMCPHTTPSSETransport };
 export { AxMCPStreambleHTTPTransport };
@@ -1148,16 +948,11 @@ export { AxProviderRouter };
 export { AxRateLimiterTokenUsage };
 export { AxSignature };
 export { AxSignatureBuilder };
-export { AxSimpleClassifier };
-export { AxSimpleClassifierClass };
-export { AxSpanKindValues };
-export { AxStepContextImpl };
 export { AxStopFunctionCallException };
 export { AxStringUtil };
 export { AxSynth };
 export { AxTestPrompt };
 export { AxTokenLimitError };
-export { AxTraceLogger };
 export { agent };
 export { ai };
 export { ax };
@@ -1181,8 +976,6 @@ export { axAIHuggingFaceCreativeConfig };
 export { axAIHuggingFaceDefaultConfig };
 export { axAIMistralBestConfig };
 export { axAIMistralDefaultConfig };
-export { axAIOllamaDefaultConfig };
-export { axAIOllamaDefaultCreativeConfig };
 export { axAIOpenAIAudioDefaultConfig };
 export { axAIOpenAIBestConfig };
 export { axAIOpenAICreativeConfig };
@@ -1193,14 +986,10 @@ export { axAIOpenAIRealtimeTranscriptionDefaultConfig };
 export { axAIOpenAIResponsesBestConfig };
 export { axAIOpenAIResponsesCreativeConfig };
 export { axAIOpenAIResponsesDefaultConfig };
-export { axAIOpenRouterDefaultConfig };
 export { axAIRekaBestConfig };
 export { axAIRekaCreativeConfig };
 export { axAIRekaDefaultConfig };
 export { axAIRekaFastConfig };
-export { axAITogetherDefaultConfig };
-export { axAIWebLLMCreativeConfig };
-export { axAIWebLLMDefaultConfig };
 export { axAnalyzeChatPromptRequirements };
 export { axAnalyzeRequestRequirements };
 export { axApplyOpenAIChatAudioRequest };
@@ -1256,20 +1045,16 @@ export { axModelInfoCohere };
 export { axModelInfoDeepSeek };
 export { axModelInfoGoogleGemini };
 export { axModelInfoGrok };
-export { axModelInfoGroq };
 export { axModelInfoHuggingFace };
 export { axModelInfoMistral };
 export { axModelInfoOpenAI };
 export { axModelInfoOpenAIResponses };
 export { axModelInfoReka };
-export { axModelInfoTogether };
-export { axModelInfoWebLLM };
 export { axNormalizeOpenAIUsage };
 export { axNormalizeTranscriptionResponse };
 export { axOpenAIChatAudioDefaults };
 export { axOptimizableValidators };
 export { axProcessContentForProvider };
-export { axRAG };
 export { axResolveGeminiLiveAudioConfig };
 export { axResolveGrokRealtimeAudioConfig };
 export { axResolveOpenAIChatAudioConfig };
@@ -1296,17 +1081,6 @@ export { fn };
 export { s };
 
 // Type exports
-export type { AxACEBullet };
-export type { AxACECuratorOperation };
-export type { AxACECuratorOperationType };
-export type { AxACECuratorOutput };
-export type { AxACEFeedbackEvent };
-export type { AxACEGeneratorOutput };
-export type { AxACEOptimizationArtifact };
-export type { AxACEOptions };
-export type { AxACEPlaybook };
-export type { AxACEReflectionOutput };
-export type { AxACEResult };
 export type { AxAIAnthropicArgs };
 export type { AxAIAnthropicChatError };
 export type { AxAIAnthropicChatRequest };
@@ -1377,7 +1151,6 @@ export type { AxAIGrokArgs };
 export type { AxAIGrokChatRequest };
 export type { AxAIGrokOptionsTools };
 export type { AxAIGrokSearchSource };
-export type { AxAIGroqArgs };
 export type { AxAIHuggingFaceArgs };
 export type { AxAIHuggingFaceConfig };
 export type { AxAIHuggingFaceRequest };
@@ -1398,8 +1171,6 @@ export type { AxAIModelCatalogProviderName };
 export type { AxAIModelList };
 export type { AxAIModelListBase };
 export type { AxAIModels };
-export type { AxAIOllamaAIConfig };
-export type { AxAIOllamaArgs };
 export type { AxAIOpenAIAnnotation };
 export type { AxAIOpenAIArgs };
 export type { AxAIOpenAIBaseArgs };
@@ -1474,7 +1245,6 @@ export type { AxAIOpenAIResponsesRequest };
 export type { AxAIOpenAIResponsesResponse };
 export type { AxAIOpenAIResponsesResponseCompletedEvent };
 export type { AxAIOpenAIResponsesResponseCreatedEvent };
-export type { AxAIOpenAIResponsesResponseDelta };
 export type { AxAIOpenAIResponsesResponseFailedEvent };
 export type { AxAIOpenAIResponsesResponseInProgressEvent };
 export type { AxAIOpenAIResponsesResponseIncompleteEvent };
@@ -1491,7 +1261,6 @@ export type { AxAIOpenAIResponsesWebSearchCallSearchingEvent };
 export type { AxAIOpenAIResponsesWebSearchToolCall };
 export type { AxAIOpenAIUrlCitation };
 export type { AxAIOpenAIUsage };
-export type { AxAIOpenRouterArgs };
 export type { AxAIRekaArgs };
 export type { AxAIRekaChatRequest };
 export type { AxAIRekaChatResponse };
@@ -1504,16 +1273,6 @@ export type { AxAIServiceImpl };
 export type { AxAIServiceMetrics };
 export type { AxAIServiceModelType };
 export type { AxAIServiceOptions };
-export type { AxAITogetherArgs };
-export type { AxAITogetherChatModel };
-export type { AxAIWebLLMArgs };
-export type { AxAIWebLLMChatRequest };
-export type { AxAIWebLLMChatResponse };
-export type { AxAIWebLLMChatResponseDelta };
-export type { AxAIWebLLMConfig };
-export type { AxAIWebLLMEmbedModel };
-export type { AxAIWebLLMEmbedRequest };
-export type { AxAIWebLLMEmbedResponse };
 export type { AxAPI };
 export type { AxAPIConfig };
 export type { AxAPIResponseMetadata };
@@ -1539,8 +1298,6 @@ export type { AxAgentEvalFunctionCall };
 export type { AxAgentEvalPrediction };
 export type { AxAgentEvalTask };
 export type { AxAgentExecutorResultPayload };
-export type { AxAgentExecutorTurnCallback };
-export type { AxAgentExecutorTurnCallbackArgs };
 export type { AxAgentForwardOptions };
 export type { AxAgentFunction };
 export type { AxAgentFunctionCall };
@@ -1554,7 +1311,6 @@ export type { AxAgentGuidancePayload };
 export type { AxAgentGuidanceState };
 export type { AxAgentIdentity };
 export type { AxAgentInputUpdateCallback };
-export type { AxAgentInternalCompletionPayload };
 export type { AxAgentJudgeEvalInput };
 export type { AxAgentJudgeEvalOutput };
 export type { AxAgentJudgeInput };
@@ -1601,8 +1357,6 @@ export type { AxAgentUsedSkill };
 export type { AxAgentUsedSkillsCallback };
 export type { AxAgentic };
 export type { AxAnyAgentic };
-export type { AxApacheTikaArgs };
-export type { AxApacheTikaConvertOptions };
 export type { AxAssertion };
 export type { AxAudioFormat };
 export type { AxAudioInput };
@@ -1617,11 +1371,9 @@ export type { AxChatRequest };
 export type { AxChatResponse };
 export type { AxChatResponseFunctionCall };
 export type { AxChatResponseResult };
-export type { AxCheckpoint };
 export type { AxCheckpointLoadFn };
 export type { AxCheckpointSaveFn };
 export type { AxCitation };
-export type { AxCodeInterpreter };
 export type { AxCodeRuntime };
 export type { AxCodeSession };
 export type { AxCodeSessionSnapshot };
@@ -1640,28 +1392,6 @@ export type { AxContextPolicyConfig };
 export type { AxContextPolicyPreset };
 export type { AxCostTracker };
 export type { AxCostTrackerOptions };
-export type { AxDBArgs };
-export type { AxDBBaseArgs };
-export type { AxDBBaseOpOptions };
-export type { AxDBCloudflareArgs };
-export type { AxDBCloudflareOpOptions };
-export type { AxDBLoaderOptions };
-export type { AxDBManagerArgs };
-export type { AxDBMatch };
-export type { AxDBMemoryArgs };
-export type { AxDBMemoryOpOptions };
-export type { AxDBPineconeArgs };
-export type { AxDBPineconeOpOptions };
-export type { AxDBQueryRequest };
-export type { AxDBQueryResponse };
-export type { AxDBQueryService };
-export type { AxDBService };
-export type { AxDBState };
-export type { AxDBUpsertRequest };
-export type { AxDBUpsertResponse };
-export type { AxDBWeaviateArgs };
-export type { AxDBWeaviateOpOptions };
-export type { AxDataRow };
 export type { AxDateRange };
 export type { AxDateRangeValue };
 export type { AxDebugChatResponseUsage };
@@ -1693,7 +1423,6 @@ export type { AxFlowLogData };
 export type { AxFlowLoggerData };
 export type { AxFlowLoggerFunction };
 export type { AxFlowNodeDefinition };
-export type { AxFlowParallelBranch };
 export type { AxFlowParallelGroup };
 export type { AxFlowParallelGroupCompleteData };
 export type { AxFlowParallelGroupStartData };
@@ -1702,7 +1431,6 @@ export type { AxFlowState };
 export type { AxFlowStepCompleteData };
 export type { AxFlowStepFunction };
 export type { AxFlowStepStartData };
-export type { AxFlowSubContext };
 export type { AxFlowTypedParallelBranch };
 export type { AxFlowTypedSubContext };
 export type { AxFlowable };
@@ -1738,30 +1466,11 @@ export type { AxGenerateErrorDetails };
 export type { AxGenerateResult };
 export type { AxIField };
 export type { AxInputFunctionType };
-export type { AxInternalChatRequest };
-export type { AxInternalEmbedRequest };
-export type { AxInternalSpeechRequest };
-export type { AxInternalTranscriptionRequest };
 export type { AxJSRuntimeNodePermissionAllowlist };
 export type { AxJSRuntimeOutputMode };
 export type { AxJSRuntimeResourceLimits };
 export type { AxJudgeForwardOptions };
 export type { AxJudgeOptions };
-export type { AxLearnArtifact };
-export type { AxLearnCheckpointMode };
-export type { AxLearnCheckpointState };
-export type { AxLearnContinuousOptions };
-export type { AxLearnMode };
-export type { AxLearnOptimizeOptions };
-export type { AxLearnOptions };
-export type { AxLearnPlaybook };
-export type { AxLearnPlaybookOptions };
-export type { AxLearnPlaybookSummary };
-export type { AxLearnProgress };
-export type { AxLearnResult };
-export type { AxLearnUpdateFeedback };
-export type { AxLearnUpdateInput };
-export type { AxLearnUpdateOptions };
 export type { AxLlmQueryBudgetState };
 export type { AxLlmQueryPromptMode };
 export type { AxLoggerData };
@@ -1805,10 +1514,7 @@ export type { AxModelInfoWithProvider };
 export type { AxModelUsage };
 export type { AxMultiMetricFn };
 export type { AxMultiProviderConfig };
-export type { AxMutableDiscoveryPromptState };
-export type { AxMutableSkillsPromptState };
 export type { AxNamedProgramInstance };
-export type { AxNormalizedAgentEvalDataset };
 export type { AxOptimizableComponent };
 export type { AxOptimizableValidator };
 export type { AxOptimizationCheckpoint };
@@ -1823,8 +1529,6 @@ export type { AxOptimizerMetricsConfig };
 export type { AxOptimizerMetricsInstruments };
 export type { AxOptimizerResult };
 export type { AxParetoResult };
-export type { AxPreparedChatRequest };
-export type { AxPreparedRestoredState };
 export type { AxProgramDemos };
 export type { AxProgramExamples };
 export type { AxProgramForwardOptions };
@@ -1842,17 +1546,12 @@ export type { AxRLMConfig };
 export type { AxRateLimiterFunction };
 export type { AxRateLimiterTokenUsageOptions };
 export type { AxRenderedPrompt };
-export type { AxRerankerIn };
-export type { AxRerankerOut };
 export type { AxResolvedContextPolicy };
 export type { AxResolvedExecutorModelPolicy };
 export type { AxResolvedExecutorModelPolicyEntry };
-export type { AxResponseHandlerArgs };
 export type { AxResultPickerFunction };
 export type { AxResultPickerFunctionFieldResults };
 export type { AxResultPickerFunctionFunctionResults };
-export type { AxRewriteIn };
-export type { AxRewriteOut };
 export type { AxRolloutTrace };
 export type { AxRoutingResult };
 export type { AxRuntimePrimitive };
@@ -1864,7 +1563,7 @@ export type { AxSelfTuningConfig };
 export type { AxSerializedOptimizedProgram };
 export type { AxSetExamplesOptions };
 export type { AxSignatureConfig };
-export type { AxSimpleClassifierForwardOptions };
+export type { AxSignatureInput };
 export type { AxSpeechConfig };
 export type { AxSpeechRequest };
 export type { AxSpeechResponse };
@@ -1873,8 +1572,6 @@ export type { AxStageOptions };
 export type { AxStepContext };
 export type { AxStepHooks };
 export type { AxStepUsage };
-export type { AxStorage };
-export type { AxStorageQuery };
 export type { AxStreamingAssertion };
 export type { AxStreamingEvent };
 export type { AxStreamingFieldProcessorProcess };
@@ -1886,8 +1583,6 @@ export type { AxSynthesizerOptions };
 export type { AxSynthesizerRole };
 export type { AxThoughtBlockItem };
 export type { AxTokenUsage };
-export type { AxTrace };
-export type { AxTraceLoggerOptions };
 export type { AxTranscriptionRequest };
 export type { AxTranscriptionResponse };
 export type { AxTranscriptionSegment };

@@ -31,11 +31,11 @@ import type {
   AxAIOpenAIResponsesOutputTextContentPart,
   AxAIOpenAIResponsesRequest,
   AxAIOpenAIResponsesResponse,
-  AxAIOpenAIResponsesResponseDelta,
   AxAIOpenAIResponsesStreamEvent,
   AxAIOpenAIResponsesToolDefinition,
   AxAIOpenAIResponsesWebSearchToolCall,
   Mutable,
+  OpenAIResponsesResponseDelta,
   RequestFunctionDefinition,
   ResponsesReqUpdater,
   UserMessageContentItem,
@@ -71,7 +71,7 @@ export class AxAIOpenAIResponsesImpl<
       Readonly<AxAIOpenAIResponsesRequest<TModel>>, // ChatReq (now ResponsesReq)
       Readonly<AxAIOpenAIEmbedRequest<TEmbedModel>>, // EmbedReq
       Readonly<AxAIOpenAIResponsesResponse>, // ChatResp (now ResponsesResp)
-      Readonly<AxAIOpenAIResponsesResponseDelta>, // ChatRespDelta (now ResponsesRespDelta)
+      Readonly<OpenAIResponsesResponseDelta>, // ChatRespDelta (now ResponsesRespDelta)
       Readonly<AxAIOpenAIEmbedResponse> // EmbedResp
     >
 {
@@ -713,7 +713,7 @@ export class AxAIOpenAIResponsesImpl<
 
   // Create Chat Stream Response from /v1/responses stream events
   createChatStreamResp = (
-    streamEvent: Readonly<AxAIOpenAIResponsesResponseDelta>,
+    streamEvent: Readonly<OpenAIResponsesResponseDelta>,
     state: object
   ): Readonly<AxChatResponse> => {
     // Handle new streaming event format

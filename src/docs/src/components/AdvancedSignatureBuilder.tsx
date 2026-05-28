@@ -443,46 +443,25 @@ export default function AdvancedSignatureBuilder() {
   const loadModel = useCallback(async () => {
     setModelStatus('loading');
     setLoadingProgress(0);
-    setLoadingText('Initializing...');
+    setLoadingText('Configuring model...');
     setExecutionError(null);
 
     try {
-      // Import WebLLM and Ax dynamically
-      const [{ CreateWebWorkerMLCEngine }, { ai }] = await Promise.all([
-        import('@mlc-ai/web-llm'),
-        import('@ax-llm/ax'),
-      ]);
-
-      // Initialize WebLLM engine with progress callback
-      const engine = await CreateWebWorkerMLCEngine(
-        new Worker(
-          new URL('@mlc-ai/web-llm/lib/webllm_lib.worker.js', import.meta.url),
-          { type: 'module' }
-        ),
-        selectedModel,
-        {
-          initProgressCallback: (progress) => {
-            const percentage = Math.round(progress.progress * 100);
-            setLoadingProgress(percentage);
-            setLoadingText(`${progress.text} (${percentage}%)`);
-          },
-        }
-      );
-
-      // Create Ax AI instance with the loaded engine
+      const { ai } = await import('@ax-llm/ax');
       const llm = ai({
-        name: 'webllm',
-        engine: engine,
+        name: 'openai',
+        apiKey: '',
         config: {
           model: selectedModel as any,
           stream: false,
         },
       });
 
-      setLoadedEngine(engine);
+      setLoadedEngine(null);
       setLoadedAI(llm);
       setModelStatus('ready');
-      setLoadingText('Model loaded and ready!');
+      setLoadingProgress(100);
+      setLoadingText('Configured. Provide a real AI service before executing.');
     } catch (error) {
       console.error('Failed to load model:', error);
       setModelStatus('error');
@@ -956,7 +935,7 @@ export default function AdvancedSignatureBuilder() {
                 </option>
               </select>
               <p className="text-xs text-muted-foreground mt-2">
-                Running locally in your browser with WebLLM
+                Uses an OpenAI-compatible model name
               </p>
             </div>
 

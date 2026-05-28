@@ -1,9 +1,13 @@
-import { AxFlow, AxMockAIService, axCreateFlowColorLogger } from '@ax-llm/ax';
+import {
+  AxMockAIService,
+  axCreateFlowColorLogger,
+  flow as createFlow,
+} from '@ax-llm/ax';
 
 // Create a simple flow with verbose logging enabled
 const logger = axCreateFlowColorLogger();
 
-const flow = new AxFlow<{ userInput: string }, { finalOutput: string }>({
+const flow = createFlow<{ userInput: string }, { finalOutput: string }>({
   logger: logger,
 })
   .map((state) => ({

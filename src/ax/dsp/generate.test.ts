@@ -986,7 +986,7 @@ describe('Error handling in AxGen', () => {
 describe('AxGen Signature Validation', () => {
   it('should validate signature on construction and fail for incomplete signature', () => {
     // This should throw when trying to create AxGen with a signature that has only input fields
-    const sig = new AxSignature();
+    const sig = AxSignature.from();
     sig.addInputField({
       name: 'userInput',
       type: { name: 'string', isArray: false },
@@ -997,7 +997,7 @@ describe('AxGen Signature Validation', () => {
   });
 
   it('should validate signature on construction and pass for complete signature', () => {
-    const sig = new AxSignature();
+    const sig = AxSignature.from();
     sig.addInputField({
       name: 'userInput',
       type: { name: 'string', isArray: false },

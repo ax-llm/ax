@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 
-import { AxAI, AxAIOpenAIModel, ax } from '@ax-llm/ax';
+import { AxAIOpenAIModel, ax, ai as createAI } from '@ax-llm/ax';
 
 const gen = ax('question, animalImage:image -> answer');
 
@@ -8,7 +8,7 @@ const image = fs
   .readFileSync('./src/examples/assets/kitten.jpeg')
   .toString('base64');
 
-const ai = new AxAI({
+const ai = createAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY as string,
   config: { model: AxAIOpenAIModel.GPT4O },

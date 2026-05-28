@@ -71,7 +71,7 @@ The signature system is the foundation of Ax's type safety:
 
 ```typescript
 // String-based signature
-const sig = AxSignature.create('question:string -> answer:string, confidence:number');
+const sig = s('question:string -> answer:string, confidence:number');
 
 // Fluent API signature
 const sig = f()

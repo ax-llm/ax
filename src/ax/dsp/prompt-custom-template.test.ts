@@ -3,11 +3,11 @@ import { describe, expect, it } from 'vitest';
 import { AxPromptTemplate } from './prompt.js';
 import { AxSignature } from './sig.js';
 
-const sig = new AxSignature(
+const sig = AxSignature.from(
   'userQuery:string -> aiResponse:string "the result"'
 );
 
-const sigWithDesc = new AxSignature(
+const sigWithDesc = AxSignature.from(
   'userQuery:string -> aiResponse:string "the result"'
 );
 sigWithDesc.setDescription('Analyze the user query carefully.');

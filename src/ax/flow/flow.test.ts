@@ -1005,7 +1005,7 @@ describe('AxFlow Signature Inference', () => {
     });
 
     // Create a flow without passing a signature
-    const flow = new AxFlow()
+    const flow = AxFlow.create()
       .node(
         'analyzer',
         'userText:string -> sentimentValue:string, confidenceScore:number'
@@ -1045,7 +1045,7 @@ describe('AxFlow Signature Inference', () => {
     });
 
     // Create a flow with just nodes but no executions
-    const flow = new AxFlow().node(
+    const flow = AxFlow.create().node(
       'standalone',
       'inputData:string -> outputData:string'
     );
@@ -1074,7 +1074,7 @@ describe('AxFlow Signature Inference', () => {
 
     // Create a flow with explicit signature (note: this test is about manual override, not inference)
     const _customSignature = 'customInput:string -> customOutput:string';
-    const flow = new AxFlow().node(
+    const flow = AxFlow.create().node(
       'processor',
       'dataIn:string -> dataOut:string'
     );
@@ -1187,7 +1187,7 @@ describe('AxFlow Signature Inference', () => {
     });
 
     // Create a complex flow with branching
-    const flow = new AxFlow()
+    const flow = AxFlow.create()
       .node('preprocessor', 'rawInput:string -> cleanedText:string')
       .node('analyzer1', 'textData:string -> sentiment:string')
       .node('analyzer2', 'textData:string -> topics:string[]')

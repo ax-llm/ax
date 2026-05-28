@@ -35,11 +35,6 @@ const providers = [
     apiKey: process.env.ANTHROPIC_API_KEY,
     config: { model: 'claude-sonnet-4-20250514' },
   },
-  {
-    name: 'openrouter',
-    apiKey: process.env.OPENROUTER_API_KEY,
-    config: { model: 'openai/gpt-5-mini' },
-  },
 ];
 
 async function testImageArraysWithProviders() {
@@ -59,7 +54,7 @@ async function testImageArraysWithProviders() {
       const llm = ai({
         name: provider.name as any,
         apiKey: provider.apiKey,
-        config: provider.config,
+        config: provider.config as any,
       });
 
       const result = await imageAnalyzer.forward(llm, {

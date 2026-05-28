@@ -11,7 +11,7 @@ describe('AxAI Wrapper', () => {
   describe('Interface Compatibility', () => {
     it('should implement all AxAIService methods', () => {
       // Create a mock AxAI instance
-      const mockAI = new AxAI({
+      const mockAI = ai({
         name: 'openai',
         apiKey: 'test-key',
         config: { model: 'gpt-4' as AxAIOpenAIModel },
@@ -38,7 +38,7 @@ describe('AxAI Wrapper', () => {
 
     it('should be assignable to AxAIService interface', () => {
       // Type-level test using TypeScript's structural typing
-      const axAI = new AxAI({
+      const axAI = ai({
         name: 'openai',
         apiKey: 'test-key',
         config: { model: 'gpt-4' as AxAIOpenAIModel },
@@ -51,7 +51,7 @@ describe('AxAI Wrapper', () => {
 
     it('should be assignable to specific AxAIService with concrete model types', () => {
       // Type-level test for the specific case mentioned in the error
-      const axAI = new AxAI({
+      const axAI = ai({
         name: 'google-gemini',
         apiKey: 'test-key',
         config: { model: 'gemini-2.0-flash-exp' as AxAIGoogleGeminiModel },
@@ -63,7 +63,7 @@ describe('AxAI Wrapper', () => {
     });
 
     it('should properly delegate getLastUsedChatModel return type', () => {
-      const axAI = new AxAI({
+      const axAI = ai({
         name: 'openai',
         apiKey: 'test-key',
         config: { model: 'gpt-4' as AxAIOpenAIModel },
@@ -78,7 +78,7 @@ describe('AxAI Wrapper', () => {
     });
 
     it('should properly delegate getLastUsedEmbedModel return type', () => {
-      const axAI = new AxAI({
+      const axAI = ai({
         name: 'openai',
         apiKey: 'test-key',
         config: {
@@ -92,7 +92,7 @@ describe('AxAI Wrapper', () => {
     });
 
     it('should properly delegate getLastUsedModelConfig return type', () => {
-      const axAI = new AxAI({
+      const axAI = ai({
         name: 'openai',
         apiKey: 'test-key',
         config: { model: 'gpt-4' as AxAIOpenAIModel },
@@ -104,8 +104,8 @@ describe('AxAI Wrapper', () => {
   });
 
   describe('Factory Methods', () => {
-    it('should create AxAI instance with constructor', () => {
-      const axAI = new AxAI({
+    it('should create AxAI instance with ai() factory', () => {
+      const axAI = ai({
         name: 'openai',
         apiKey: 'test-key',
         config: { model: 'gpt-4' as AxAIOpenAIModel },
@@ -140,7 +140,7 @@ describe('AxAI Wrapper', () => {
 
   describe('Method Delegation', () => {
     it('should delegate all methods to underlying AI service', () => {
-      const axAI = new AxAI({
+      const axAI = ai({
         name: 'openai',
         apiKey: 'test-key',
         config: { model: 'gpt-4' as AxAIOpenAIModel },
@@ -172,12 +172,11 @@ describe('AxAI Wrapper', () => {
           apiKey: 'test-key',
           config: { model: 'test-model' },
         },
-        { name: 'ollama', apiKey: 'test-key', config: { model: 'test-model' } },
       ] as const;
 
       providerConfigs.forEach((config) => {
         expect(() => {
-          const axAI = new AxAI(config);
+          const axAI = ai(config);
           // Just test that the instance is created successfully
           expect(axAI).toBeInstanceOf(AxAI);
           expect(typeof axAI.getName()).toBe('string');
@@ -189,7 +188,7 @@ describe('AxAI Wrapper', () => {
   describe('Type Safety', () => {
     it('should maintain type safety for model keys', () => {
       // This test ensures that the generic TModelKey type is preserved
-      const axAI = new AxAI({
+      const axAI = ai({
         name: 'openai',
         apiKey: 'test-key',
         config: { model: 'gpt-4' as AxAIOpenAIModel },
@@ -215,7 +214,7 @@ describe('AxAI Wrapper', () => {
   describe('Error Handling', () => {
     it('should throw error for unknown AI provider', () => {
       expect(() => {
-        new AxAI({
+        ai({
           // @ts-expect-error - Testing unknown provider
           name: 'unknown-provider',
           apiKey: 'test-key',

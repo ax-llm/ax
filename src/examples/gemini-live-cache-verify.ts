@@ -2,11 +2,11 @@ import fs from 'node:fs';
 
 import {
   AxAIGoogleGeminiModel,
+  type AxContextCacheRegistry,
+  type AxFunction,
   ai,
   ax,
   f,
-  type AxContextCacheRegistry,
-  type AxFunction,
 } from '@ax-llm/ax';
 
 const apiKey = process.env.GOOGLE_APIKEY;
@@ -144,7 +144,6 @@ const runLegacyMultimodalCheck = async () => {
     { imageInput: { mimeType: 'image/jpeg', data: imageData } },
     {
       stream: false,
-      examplesInSystem: true,
     }
   );
 

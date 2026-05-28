@@ -813,7 +813,6 @@ export interface AxOptimizedProgram<OUT = any> {
   stats: AxOptimizationStats;
 
   // Program configuration
-  instruction?: string;
   /**
    * Generic component map produced by reflective optimizers (e.g. GEPA).
    * Keys follow the `${programId}::${kind}[:${subKey}]` grammar from
@@ -862,7 +861,6 @@ export class AxOptimizedProgramImpl<OUT = any>
 {
   public readonly bestScore: number;
   public readonly stats: AxOptimizationStats;
-  public readonly instruction?: string;
   public readonly componentMap?: Record<string, string>;
   public readonly selectorState?: Record<string, AxGEPAComponentBanditState>;
   public readonly demos?: AxProgramDemos<any, OUT>[];
@@ -889,7 +887,6 @@ export class AxOptimizedProgramImpl<OUT = any>
   constructor(config: {
     bestScore: number;
     stats: AxOptimizationStats;
-    instruction?: string;
     componentMap?: Record<string, string>;
     selectorState?: Record<string, AxGEPAComponentBanditState>;
     demos?: AxProgramDemos<any, OUT>[];
@@ -906,7 +903,6 @@ export class AxOptimizedProgramImpl<OUT = any>
   }) {
     this.bestScore = config.bestScore;
     this.stats = config.stats;
-    this.instruction = config.instruction;
     this.componentMap = config.componentMap;
     this.selectorState = config.selectorState;
     this.demos = config.demos;

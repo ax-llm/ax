@@ -1,4 +1,4 @@
-import { AxAI, AxAIGoogleGeminiModel, ax } from '@ax-llm/ax';
+import { AxAIGoogleGeminiModel, ax, ai as createAI } from '@ax-llm/ax';
 
 // setup the prompt program
 const gen = ax('startNumber:number -> next10Numbers:number[]');
@@ -20,12 +20,12 @@ gen.addAssert(({ next10Numbers }: Readonly<{ next10Numbers: number[] }>) => {
   return true;
 });
 
-// const ai = new AxAI({
+// const ai = createAI({
 //   name: 'openai',
 //   apiKey: process.env.OPENAI_APIKEY as string,
 // })
 
-const ai = new AxAI({
+const ai = createAI({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY as string,
   config: { model: AxAIGoogleGeminiModel.Gemini20FlashLite },

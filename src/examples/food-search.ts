@@ -134,7 +134,7 @@ const functions: AxFunction[] = [
   },
 ];
 
-// const ai = new AxAI({
+// const ai = createAI({
 //   name: 'openai',
 //   apiKey: process.env.OPENAI_APIKEY as string,
 //   config: { stream: true },
@@ -148,25 +148,19 @@ const llm = ai({
   },
 });
 
-// const ai = new AxAI({
+// const ai = createAI({
 //     name: 'openai-responses',
 //     apiKey: process.env.OPENAI_APIKEY as string,
 //     config: { stream: true },
 // })
 
-// const ai = new AxAI({
-//   name: 'groq',
-//   apiKey: process.env.GROQ_APIKEY as string,
-//   config: { stream: false },
-// })
-
-// const ai = new AxAI({
+// const ai = createAI({
 //     name: 'cohere',
 //     apiKey: process.env.COHERE_APIKEY as string,
 //     config: { stream: false },
 // })
 
-// const ai = new AxAI({
+// const ai = createAI({
 //     name: 'anthropic',
 //     apiKey: process.env.ANTHROPIC_APIKEY as string,
 //     config: { stream: true },

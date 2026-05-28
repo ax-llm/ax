@@ -387,19 +387,6 @@ import {
   });
 }
 
-// Deprecated executorTurnCallback alias still exposes the staged actor payload
-{
-  const runtime = {} as AxCodeRuntime;
-  agent('query:string -> answer:string', {
-    contextFields: [] as const,
-    runtime,
-    executorTurnCallback: async (turn) => {
-      const _stage: 'distiller' | 'executor' = turn.stage;
-      const _code: string = turn.code;
-    },
-  });
-}
-
 // Agent onContextEvent exposes context pressure and compaction telemetry
 {
   const runtime = {} as AxCodeRuntime;

@@ -282,15 +282,14 @@ npm install @ax-llm/ax-tools
 
 ## Features
 
-- **15+ LLM Providers** – OpenAI, Anthropic, Google, Mistral, Ollama, and more
+- **Model-lab providers** – OpenAI, Anthropic, Google, Mistral, DeepSeek, Grok/xAI, and more
 - **Type-safe** – Full TypeScript support with auto-completion
 - **Standard Schema v1** – First-class zod / valibot / arktype on signatures and tools, no adapter
 - **Streaming** – Real-time responses with validation
 - **Multi-modal and audio** – Images, audio inputs, scripted speech outputs, and batch STT/TTS
-- **Optimization** – Automatic prompt tuning with MiPRO, ACE, GEPA
+- **Optimization** – Automatic prompt tuning with GEPA and bootstrap demos
 - **Observability** – OpenTelemetry tracing built-in
 - **Workflows** – Compose complex pipelines with AxFlow
-- **RAG** – Multi-hop retrieval with quality loops
 - **Agents** – Tools and multi-agent collaboration
 - **RLM in AxAgent** – Long-context analysis with recursive runtime loops
 - **Zero dependencies** – Lightweight, fast, reliable
@@ -306,9 +305,8 @@ npm install @ax-llm/ax-tools
 **Deep Dives**
 - [AI Providers](/ai/) – All providers, AWS Bedrock, Vercel AI SDK
 - [AxFlow Workflows](/axflow/) – Build complex AI systems
-- [Optimization (MiPRO, ACE, GEPA)](/optimize/) – Make programs smarter
+- [Optimization (GEPA)](/optimize/) – Make programs smarter
 - [AxAgent & RLM](/axagent/) – Agents, child agents, tools, and RLM for long contexts
-- [Advanced RAG](/axrag/) – Production search and retrieval
 
 ## Run Examples
 
@@ -318,7 +316,7 @@ OPENAI_APIKEY=your-key npm run tsx ./src/examples/[example-name].ts
 
 Core examples: `extract.ts`, `react.ts`, `agent.ts`, `streaming1.ts`, `multi-modal.ts`
 
-Production patterns: `customer-support.ts`, `food-search.ts`, `rlm.ts`, `ace-train-inference.ts`, `ax-flow-enhanced-demo.ts`
+Production patterns: `customer-support.ts`, `food-search.ts`, `rlm-memories-and-skills.ts`, `gepa-flow.ts`, `ax-flow-enhanced-demo.ts`
 
 [View all 70+ examples](https://github.com/ax-llm/ax/blob/main/src/examples/)
 

@@ -38,42 +38,34 @@ The `AxBootstrapFewShot` optimizer is a straightforward way to improve your prom
 
 ```typescript
 import {
-  AxAI,
-  AxChainOfThought,
   AxBootstrapFewShot,
   AxEvalUtil,
-  AxHFDataLoader,
+  ai,
+  ax,
   type AxMetricFn
 } from '@ax-llm/ax'
 
-// 1. Load your dataset (using HuggingFace data loader)
-const hf = new AxHFDataLoader({
-  dataset: 'hotpot_qa',
-  split: 'train'
-})
-
-const examples = await hf.getData<{ question: string; answer: string }>({
-  count: 100,
-  fields: ['question', 'answer']
-})
+// 1. Load or define your examples
+const examples = [
+  { question: 'Who wrote Hamlet?', answer: 'Shakespeare' },
+  { question: 'Capital of France?', answer: 'Paris' },
+]
 
 // 2. Create your AI service
-const ai = new AxAI({
+const llm = ai({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY as string
 })
 
 // 3. Setup the program you want to tune
-const program = new AxChainOfThought<{ question: string }, { answer: string }>(
-  `question -> answer "in short 2 or 3 words"`
-)
+const program = ax('question:string -> answer:string "in short 2 or 3 words"')
 
 // 4. Configure the optimizer
 const optimizer = new AxBootstrapFewShot<
   { question: string },
   { answer: string }
 >({
-  ai,
+  ai: llm,
   program,
   examples
 })
@@ -94,20 +86,18 @@ After tuning, load and apply your optimized configuration. The recommended appro
 
 ```typescript
 import fs from 'fs'
-import { AxAI, AxChainOfThought, AxOptimizedProgramImpl } from '@ax-llm/ax'
+import { ai, ax, AxOptimizedProgramImpl } from '@ax-llm/ax'
 
 // Load the AI service
-const ai = new AxAI({
+const llm = ai({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY as string
 })
 
 // Create your program
-const program = new AxChainOfThought<{ question: string }, { answer: string }>(
-  `question -> answer "in short 2 or 3 words"`
-)
+const program = ax('question:string -> answer:string "in short 2 or 3 words"')
 
-// Load and apply the complete optimization (demos + instruction + model config)
+// Load and apply the complete optimization (component map + demos + model config)
 const savedData = JSON.parse(
   await fs.promises.readFile('./tuned-optimization.json', 'utf8')
 )
@@ -115,7 +105,7 @@ const optimizedProgram = new AxOptimizedProgramImpl(savedData)
 program.applyOptimization(optimizedProgram)
 
 // Use the optimized program
-const result = await program.forward(ai, {
+const result = await program.forward(llm, {
   question: 'What castle did David Gregory inherit?'
 })
 console.log(result) // Optimized answer
@@ -150,8 +140,8 @@ For multi-program hierarchies (agents with children, flows with nodes), `program
 
 ```typescript
 import {
-  AxAI,
   AxGEPA,
+  ai,
   type AxMetricFn,
   ax,
 } from '@ax-llm/ax'
@@ -162,7 +152,7 @@ const trainingData = [
   { productReview: 'Best purchase ever.', label: 'positive' },
 ]
 
-const ai = new AxAI({
+const llm = ai({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY
 })
@@ -175,7 +165,7 @@ const metricFn: AxMetricFn = ({ prediction, example }) =>
   prediction.label === example.label ? 1 : 0
 
 const optimizer = new AxGEPA({
-  studentAI: ai,
+  studentAI: llm,
 })
 
 const result = await optimizer.compile(

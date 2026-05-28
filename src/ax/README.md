@@ -153,15 +153,14 @@ console.log(result.translation); // "Hola mundo"
 
 ## Powerful Features, Zero Complexity
 
-- ✅ **15+ LLM Providers** - OpenAI, Anthropic, Google, Mistral, Ollama, and
-  more
+- ✅ **Model-Lab Providers** - OpenAI, Anthropic, Google, Mistral, DeepSeek,
+  Grok/xAI, and more
 - ✅ **Type-Safe Everything** - Full TypeScript support with auto-completion
 - ✅ **Streaming First** - Real-time responses with validation
 - ✅ **Multi-Modal** - Images, audio, text in the same signature
 - ✅ **Smart Optimization** - Automatic prompt tuning with GEPA and bootstrap demos
 - ✅ **Production Observability** - OpenTelemetry tracing built-in
 - ✅ **Advanced Workflows** - Compose complex pipelines with AxFlow
-- ✅ **Enterprise RAG** - Multi-hop retrieval with quality loops
 - ✅ **Agent Framework** - Agents that can use tools and call other agents
 - ✅ **Zero Dependencies** - Lightweight, fast, reliable
 

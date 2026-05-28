@@ -1,10 +1,10 @@
 import {
-  AxAI,
   AxAIOpenAIModel,
   type AxFunction,
   AxJSRuntime,
   AxMCPClient,
   agent,
+  ai as createAI,
 } from '@ax-llm/ax';
 import { AxMCPStreambleHTTPTransport } from '@ax-llm/ax/mcp/transports/httpStreamTransport.js';
 import { createBackendClient } from '@pipedream/sdk/server';
@@ -107,7 +107,7 @@ Using streamable HTTP transport for real-time communication with Pipedream MCP s
 }
 
 // Initialize the AI model
-const ai = new AxAI({
+const ai = createAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY as string,
   config: { model: AxAIOpenAIModel.GPT4OMini },

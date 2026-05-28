@@ -1,6 +1,6 @@
 ---
 name: ax-agent-observability
-description: This skill helps an LLM generate correct AxAgent observability code using @ax-llm/ax. Use when the user asks about actorTurnCallback, executorTurnCallback, onContextEvent, agentStatusCallback, onFunctionCall, reportSuccess, reportFailure, getChatLog(), getUsage(), resetUsage(), debug traces, progress updates, or telemetry for AxAgent runs.
+description: This skill helps an LLM generate correct AxAgent observability code using @ax-llm/ax. Use when the user asks about actorTurnCallback, onContextEvent, agentStatusCallback, onFunctionCall, reportSuccess, reportFailure, getChatLog(), getUsage(), resetUsage(), debug traces, progress updates, or telemetry for AxAgent runs.
 version: "__VERSION__"
 ---
 
@@ -38,7 +38,7 @@ These globals are live defaults for future AI, AxGen, AxFlow, and agent-internal
 
 ## Actor Turn Callback
 
-Use `actorTurnCallback` when the caller needs structured telemetry for each actor turn. `executorTurnCallback` is still accepted as a deprecated alias for older code.
+Use `actorTurnCallback` when the caller needs structured telemetry for each actor turn.
 
 What it gives you:
 
@@ -127,7 +127,7 @@ actorTurnCallback?: (turn: {
   chatLogMessages?: ReadonlyArray<{ role: string; content: string }>;
 }) => void | Promise<void>;
 
-executorTurnCallback?: (turn: {
+actorTurnCallback?: (turn: {
   stage: 'distiller' | 'executor';
   turn: number;
   actionLogEntryCount: number;

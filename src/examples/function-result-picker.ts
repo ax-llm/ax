@@ -1,8 +1,8 @@
-import { AxAI, AxJSRuntime, ax } from '@ax-llm/ax';
+import { AxJSRuntime, ax, ai as createAI } from '@ax-llm/ax';
 
 // Example showing how to use result picker with function results from JS interpreter
 
-const ai = new AxAI({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! });
+const ai = createAI({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! });
 
 // Create a generator that solves math problems using JavaScript code
 const mathSolverGen = ax(

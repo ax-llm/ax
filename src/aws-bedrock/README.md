@@ -46,7 +46,7 @@ const response = await ai.chat({
 import { AxSignature, AxGen } from '@ax-llm/ax';
 
 const ai = new AxAIBedrock({ config: { model: AxAIBedrockModel.ClaudeSonnet4 } });
-const summarize = new AxSignature('document: string -> summary: string');
+const summarize = AxSignature.from('document: string -> summary: string');
 const program = new AxGen(summarize, { ai });
 
 const result = await program.forward({ document: 'Your text...' });

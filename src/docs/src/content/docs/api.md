@@ -15,8 +15,10 @@ Factory function to create an AI provider instance.
 
 ```typescript
 const llm = ai({
-  name: "openai" | "anthropic" | "google-gemini" | "mistral" | "groq" | "cohere" | "together" | "deepseek" | "ollama" | "huggingface" | "openrouter" | "azure-openai" | "reka" | "x-grok",
+  name: "openai" | "openai-responses" | "anthropic" | "google-gemini" | "mistral" | "cohere" | "deepseek" | "huggingface" | "azure-openai" | "reka" | "grok",
   apiKey?: string,
+  apiURL?: string,
+  models?: Array<{ key: string; model: string; description?: string }>,
   config?: {
     model?: string,
     baseURL?: string,
@@ -333,7 +335,7 @@ const models = llm.getModelList();
 ### Creating Workflows
 
 ```typescript
-const workflow = new AxFlow<InputState, OutputState>()
+const workflow = flow<InputState>()
   .node(name: string, signature: string | AxGen)
   .execute(nodeName: string, mapper: (state) => NodeInput)
   .decision(condition: (state) => boolean)
@@ -351,78 +353,6 @@ const result = await workflow.forward(
   input: InputState,
   options?: WorkflowOptions
 );
-```
-
-## Vector Database
-
-### AxDB - Vector Database Interface
-
-```typescript
-const db = new AxDB({
-  name: "memory" | "weaviate" | "pinecone" | "cloudflare",
-  apiKey?: string,
-  host?: string,
-  namespace?: string
-});
-
-// Insert vectors
-await db.upsert({
-  id: string,
-  table: string,
-  values: number[],
-  metadata?: Record<string, any>
-});
-
-// Query similar vectors
-const matches = await db.query({
-  table: string,
-  values: number[],
-  topK?: number,
-  where?: Record<string, any>
-});
-```
-
-### AxDBManager - Smart Document Management
-
-```typescript
-const manager = new AxDBManager({
-  ai: AxAI,
-  db: AxDB,
-  chunkSize?: number,
-  chunkOverlap?: number,
-  reranker?: AxReranker,
-  queryRewriter?: AxQueryRewriter
-});
-
-// Insert and chunk text
-await manager.insert(text: string, metadata?: Record<string, any>);
-
-// Query with reranking
-const results = await manager.query(
-  query: string,
-  options?: { topK?: number }
-);
-```
-
-## RAG - Retrieval Augmented Generation
-
-### axRAG - Advanced RAG Pipeline
-
-```typescript
-const rag = axRAG(
-  queryFunction: (query: string) => Promise<Array<Result>>,
-  options?: {
-    maxHops?: number,
-    maxIterations?: number,
-    qualityThreshold?: number,
-    qualityTarget?: number,
-    debug?: boolean
-  }
-);
-
-const result = await rag.forward(ai: AxAI, {
-  originalQuestion: string
-});
 ```
 
 ## Optimization
@@ -523,14 +453,6 @@ const balancer = AxBalancer.create([service1, service2]);
 
 // Automatically balances load and handles failures
 await balancer.chat({ ... });
-```
-
-### Document Processing
-
-```typescript
-// Apache Tika integration
-const tika = new AxApacheTika(url?: string);
-const text = await tika.convert(filePath: string);
 ```
 
 ### Telemetry
@@ -634,8 +556,6 @@ Common environment variables:
 - `ANTHROPIC_APIKEY` - Anthropic API key
 - `GOOGLE_APIKEY` - Google API key
 - `MISTRAL_APIKEY` - Mistral API key
-- `GROQ_APIKEY` - Groq API key
-- `TOGETHER_APIKEY` - Together API key
 - `DEEPSEEK_APIKEY` - DeepSeek API key
 - `HUGGINGFACE_APIKEY` - Hugging Face API key
 

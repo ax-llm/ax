@@ -270,7 +270,7 @@ export class AxSignatureBuilder<
       outputs: this.outputFields,
     };
 
-    const sig = new AxSignature(config) as AxSignature<_TInput, _TOutput>;
+    const sig = AxSignature.from(config) as AxSignature<_TInput, _TOutput>;
     if ((this as any)._useStructuredOutputs) {
       (sig as any)._forceComplexFields = true;
       // Invalidate the cached _hasComplexFields so it will be recomputed
@@ -1334,9 +1334,6 @@ export const f = Object.assign(
   }
 );
 
-// Backward compatibility alias (legacy API)
-export const createFieldType = f;
-
 export interface AxField {
   name: string;
   title?: string;
@@ -1843,19 +1840,6 @@ class AxFunctionBuilder<
     return this;
   }
 
-  /** @deprecated Alias for {@link AxFunctionBuilder.arg}. */
-  public args<
-    K extends string,
-    T extends
-      | AxFluentFieldInfo<any, any, any, any, any, any, any>
-      | AxFluentFieldType<any, any, any, any, any, any, any>,
-  >(
-    name: K,
-    fieldInfo: T
-  ): AxFunctionBuilder<AddFieldToShape<TArgs, K, T>, TReturn, THasExamples> {
-    return this.arg(name, fieldInfo);
-  }
-
   /**
    * Declare the tool return shape. Two shapes:
    *
@@ -2061,6 +2045,10 @@ export interface AxSignatureConfig {
   outputs: readonly AxField[];
 }
 
+export type AxSignatureInput = Readonly<
+  AxSignature | string | AxSignatureConfig
+>;
+
 export class AxSignature<
   _TInput extends Record<string, any> = Record<string, any>,
   _TOutput extends Record<string, any> = Record<string, any>,
@@ -2075,22 +2063,7 @@ export class AxSignature<
   // Validation caching - stores hash when validation last passed
   private validatedAtHash?: string;
 
-  /**
-   * @deprecated Use `AxSignature.create()` for better type safety instead of the constructor.
-   * This constructor will be removed in v15.0.0.
-   *
-   * Migration timeline:
-   * - v13.0.24+: Deprecation warnings (current)
-   * - v14.0.0: Runtime console warnings
-   * - v15.0.0: Complete removal
-   *
-   * @example
-   * ```typescript
-   * // Instead of: new AxSignature('userInput:string -> responseText:string')
-   * // Use: AxSignature.create('userInput:string -> responseText:string')
-   * ```
-   */
-  constructor(signature?: Readonly<AxSignature | string | AxSignatureConfig>) {
+  private constructor(signature?: AxSignatureInput) {
     if (!signature) {
       this.inputFields = [];
       this.outputFields = [];
@@ -2196,10 +2169,21 @@ export class AxSignature<
   public static create<const T extends string>(
     signature: T
   ): AxSignature<ParseSignature<T>['inputs'], ParseSignature<T>['outputs']> {
-    return new AxSignature(signature) as AxSignature<
+    return AxSignature.from(signature) as AxSignature<
       ParseSignature<T>['inputs'],
       ParseSignature<T>['outputs']
     >;
+  }
+
+  public static from<
+    TInput extends Record<string, any> = Record<string, any>,
+    TOutput extends Record<string, any> = Record<string, any>,
+  >(signature?: AxSignatureInput): AxSignature<TInput, TOutput> {
+    return new AxSignature(signature) as AxSignature<TInput, TOutput>;
+  }
+
+  public static empty(): AxSignature {
+    return new AxSignature();
   }
 
   private parseParsedField = (
@@ -2404,7 +2388,7 @@ export class AxSignature<
     _TInput & Record<K, InferFieldValueType<T, 'input'>>,
     _TOutput
   > => {
-    const newSig = new AxSignature(this);
+    const newSig = AxSignature.from(this);
     newSig.addInputField({
       name,
       ...convertFieldTypeToAxField(fieldType),
@@ -2422,7 +2406,7 @@ export class AxSignature<
     Record<K, InferFieldValueType<T, 'input'>> & _TInput,
     _TOutput
   > => {
-    const newSig = new AxSignature(this);
+    const newSig = AxSignature.from(this);
     const fieldToAdd = {
       name,
       ...convertFieldTypeToAxField(fieldType),
@@ -2472,7 +2456,7 @@ export class AxSignature<
     _TInput,
     _TOutput & Record<K, InferFieldValueType<T, 'output'>>
   > => {
-    const newSig = new AxSignature(this);
+    const newSig = AxSignature.from(this);
     newSig.addOutputField({
       name,
       ...convertFieldTypeToAxField(fieldType),
@@ -2490,7 +2474,7 @@ export class AxSignature<
     _TInput,
     Record<K, InferFieldValueType<T, 'output'>> & _TOutput
   > => {
-    const newSig = new AxSignature(this);
+    const newSig = AxSignature.from(this);
     const fieldToAdd = {
       name,
       ...convertFieldTypeToAxField(fieldType),

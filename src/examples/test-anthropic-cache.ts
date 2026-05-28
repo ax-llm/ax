@@ -1,8 +1,8 @@
-import { AxAIAnthropic } from '../ax/ai/anthropic/api.js';
-import { AxAIAnthropicModel } from '../ax/ai/anthropic/types.js';
+import { AxAIAnthropicModel, ai } from '@ax-llm/ax';
 import type { AxModelUsage } from '../ax/ai/types.js';
 
-const ai = new AxAIAnthropic({
+const llm = ai({
+  name: 'anthropic',
   apiKey: process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_APIKEY || '',
   config: {
     model: AxAIAnthropicModel.Claude3Haiku,
@@ -35,7 +35,7 @@ const req = {
 
 async function run() {
   console.log('Sending request 1...');
-  const result1 = await ai.chat(req);
+  const result1 = await llm.chat(req);
   let usage1: AxModelUsage | undefined;
   if (result1 instanceof ReadableStream) {
     const reader = result1.getReader();
@@ -56,7 +56,7 @@ async function run() {
   console.log('Response 1 Usage:', usage1?.tokens);
 
   console.log('Sending request 2 (should hit cache)...');
-  const result2 = await ai.chat(req);
+  const result2 = await llm.chat(req);
   let usage2: AxModelUsage | undefined;
   if (result2 instanceof ReadableStream) {
     const reader = result2.getReader();

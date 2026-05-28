@@ -14,7 +14,7 @@ describe('agent audio inputs', () => {
         text: `transcribed ${req.audio.format ?? 'audio'}`,
       }),
     });
-    const sig = new AxSignature(
+    const sig = AxSignature.from(
       'recording:audio, question:string -> answer:string'
     );
 
@@ -35,7 +35,7 @@ describe('agent audio inputs', () => {
   });
 
   it('converts agent stage audio fields to strings', () => {
-    const sig = new AxSignature('recording:audio -> answer:string');
+    const sig = AxSignature.from('recording:audio -> answer:string');
     const fields = transcribedAgentInputFields(sig.getInputFields());
 
     expect(fields[0]?.type?.name).toBe('string');

@@ -9,7 +9,7 @@ describe('AxPromptTemplate.render', () => {
 
   describe('Single AxGenIn input (existing behavior)', () => {
     it('should render a basic prompt with single AxGenIn', () => {
-      const signature = new AxSignature(
+      const signature = AxSignature.from(
         'userQuery:string -> aiResponse:string "the result"'
       );
       const template = new AxPromptTemplate(signature);
@@ -23,28 +23,8 @@ describe('AxPromptTemplate.render', () => {
       expect(userMessage?.content).toContain('User Query: test');
     });
 
-    it('should render with examples (legacy: examplesInSystem)', () => {
-      const signature = new AxSignature(
-        'userQuery:string -> aiResponse:string "the result"'
-      );
-      const template = new AxPromptTemplate(signature, {
-        examplesInSystem: true,
-      });
-
-      const examples = [{ userQuery: 'hello', aiResponse: 'world' }];
-      const result = template.render({ userQuery: 'test' }, { examples });
-
-      expect(result).toHaveLength(2);
-      expect(result[0]?.role).toBe('system');
-      const systemMessage = result[0] as
-        | { role: 'system'; content: string }
-        | undefined;
-      expect(systemMessage?.content).toContain('User Query: hello');
-      expect(systemMessage?.content).toContain('Ai Response: world');
-    });
-
     it('should render with examples as message pairs by default', () => {
-      const signature = new AxSignature(
+      const signature = AxSignature.from(
         'userQuery:string -> aiResponse:string "the result"'
       );
       const template = new AxPromptTemplate(signature);
@@ -222,7 +202,7 @@ describe('AxPromptTemplate.render', () => {
 
   describe('renderWithMetrics', () => {
     it('should report only mutable chat context when no examples are present', () => {
-      const signature = new AxSignature(
+      const signature = AxSignature.from(
         'userQuery:string -> aiResponse:string "the result"'
       );
       const template = new AxPromptTemplate(signature);
@@ -239,7 +219,7 @@ describe('AxPromptTemplate.render', () => {
     });
 
     it('should separate example and mutable chars for message-pair examples', () => {
-      const signature = new AxSignature(
+      const signature = AxSignature.from(
         'userQuery:string -> aiResponse:string "the result"'
       );
       const template = new AxPromptTemplate(signature);
@@ -265,39 +245,8 @@ describe('AxPromptTemplate.render', () => {
       );
     });
 
-    it('should keep examples separate in metrics when examples are embedded into the system prompt', () => {
-      const signature = new AxSignature(
-        'userQuery:string -> aiResponse:string "the result"'
-      );
-      const template = new AxPromptTemplate(signature, {
-        examplesInSystem: true,
-      });
-
-      const rendered = template.renderWithMetrics(
-        { userQuery: 'test' },
-        {
-          examples: [{ userQuery: 'hello', aiResponse: 'world' }],
-        }
-      );
-
-      expect(
-        rendered.promptMetrics.exampleChatContextCharacters
-      ).toBeGreaterThan(0);
-      expect(rendered.promptMetrics.mutableChatContextCharacters).toBe(
-        countChatPromptContentChars(rendered.chatPrompt.slice(1) as any)
-      );
-      expect(
-        rendered.promptMetrics.systemPromptCharacters +
-          rendered.promptMetrics.exampleChatContextCharacters +
-          rendered.promptMetrics.mutableChatContextCharacters
-      ).toBe(rendered.promptMetrics.totalPromptCharacters);
-      expect(rendered.promptMetrics.totalPromptCharacters).toBe(
-        countChatPromptContentChars(rendered.chatPrompt as any)
-      );
-    });
-
     it('should count only text parts for multimodal mutable user content', () => {
-      const signature = new AxSignature('note:string -> answer:string');
+      const signature = AxSignature.from('note:string -> answer:string');
       const template = new AxPromptTemplate(signature, undefined, {
         note: (_field, value) => [
           { type: 'text', text: `Note: ${String(value)}` },
@@ -319,7 +268,7 @@ describe('AxPromptTemplate.render', () => {
 
   describe('number fields with zero values', () => {
     it('should handle zero values correctly for number fields', () => {
-      const signature = new AxSignature(
+      const signature = AxSignature.from(
         'query:string, priority:number -> responseText:string, score:number'
       );
       const template = new AxPromptTemplate(signature);
@@ -332,29 +281,8 @@ describe('AxPromptTemplate.render', () => {
       expect(userMessage?.content).toContain('Priority: 0');
     });
 
-    it('should handle zero in examples correctly (legacy: examplesInSystem)', () => {
-      const signature = new AxSignature(
-        'query:string -> score:number, confidence:number'
-      );
-      const template = new AxPromptTemplate(signature, {
-        examplesInSystem: true,
-      });
-
-      const examples = [{ query: 'test', score: 0, confidence: 0.5 }];
-
-      const result = template.render({ query: 'hello' }, { examples });
-
-      expect(result).toHaveLength(2);
-      expect(result[0]?.role).toBe('system');
-      const systemMessage = result[0] as
-        | { role: 'system'; content: string }
-        | undefined;
-      expect(systemMessage?.content).toContain('Score: 0');
-      expect(systemMessage?.content).toContain('Confidence: 0.5');
-    });
-
     it('should handle zero in examples correctly (message pairs)', () => {
-      const signature = new AxSignature(
+      const signature = AxSignature.from(
         'query:string -> score:number, confidence:number'
       );
       const template = new AxPromptTemplate(signature);
@@ -375,7 +303,7 @@ describe('AxPromptTemplate.render', () => {
     });
 
     it('should handle negative numbers and special numeric values', () => {
-      const signature = new AxSignature(
+      const signature = AxSignature.from(
         'query:string, offset:number -> processedText:string'
       );
       const template = new AxPromptTemplate(signature);
@@ -390,7 +318,7 @@ describe('AxPromptTemplate.render', () => {
 
   describe('examples with missing fields', () => {
     it('should allow missing input fields in examples', () => {
-      const signature = new AxSignature(
+      const signature = AxSignature.from(
         'userQuery:string, isUserMessage:boolean -> aiResponse:string'
       );
       const template = new AxPromptTemplate(signature);
@@ -405,33 +333,8 @@ describe('AxPromptTemplate.render', () => {
       }).not.toThrow();
     });
 
-    it('should handle false boolean values correctly in examples (legacy: examplesInSystem)', () => {
-      const signature = new AxSignature(
-        'userQuery:string, isUserMessage:boolean -> aiResponse:string'
-      );
-      const template = new AxPromptTemplate(signature, {
-        examplesInSystem: true,
-      });
-
-      const examples = [
-        { userQuery: 'hello', isUserMessage: false, aiResponse: 'world' },
-      ];
-
-      const result = template.render(
-        { userQuery: 'test', isUserMessage: true },
-        { examples }
-      );
-
-      expect(result).toHaveLength(2);
-      expect(result[0]?.role).toBe('system');
-      const systemMessage = result[0] as
-        | { role: 'system'; content: string }
-        | undefined;
-      expect(systemMessage?.content).toContain('Is User Message: false');
-    });
-
     it('should handle false boolean values correctly in examples (message pairs)', () => {
-      const signature = new AxSignature(
+      const signature = AxSignature.from(
         'userQuery:string, isUserMessage:boolean -> aiResponse:string'
       );
       const template = new AxPromptTemplate(signature);
@@ -452,7 +355,7 @@ describe('AxPromptTemplate.render', () => {
     });
 
     it('should allow missing output fields in examples', () => {
-      const signature = new AxSignature(
+      const signature = AxSignature.from(
         'userQuery:string -> aiResponse:string, categoryType:string'
       );
       const template = new AxPromptTemplate(signature);
@@ -465,7 +368,7 @@ describe('AxPromptTemplate.render', () => {
     });
 
     it('should skip examples with all input fields missing (message pairs)', () => {
-      const signature = new AxSignature(
+      const signature = AxSignature.from(
         'userQuery:string -> aiResponse:string'
       );
       const template = new AxPromptTemplate(signature);
@@ -482,7 +385,7 @@ describe('AxPromptTemplate.render', () => {
     });
 
     it('should skip examples with all output fields missing (message pairs)', () => {
-      const signature = new AxSignature(
+      const signature = AxSignature.from(
         'userQuery:string -> aiResponse:string'
       );
       const template = new AxPromptTemplate(signature);
@@ -499,7 +402,7 @@ describe('AxPromptTemplate.render', () => {
     });
 
     it('should include valid examples and skip invalid ones (message pairs)', () => {
-      const signature = new AxSignature(
+      const signature = AxSignature.from(
         'userQuery:string -> aiResponse:string'
       );
       const template = new AxPromptTemplate(signature);
@@ -533,7 +436,7 @@ describe('AxPromptTemplate.render', () => {
 
   describe('File field handling', () => {
     it('should render file field with data (base64)', () => {
-      const sig = new AxSignature('fileInput:file -> responseText:string');
+      const sig = AxSignature.from('fileInput:file -> responseText:string');
       const pt = new AxPromptTemplate(sig);
 
       const result = pt.render(
@@ -564,7 +467,7 @@ describe('AxPromptTemplate.render', () => {
     });
 
     it('should render file field with fileUri (gs:// URL)', () => {
-      const sig = new AxSignature('fileInput:file -> responseText:string');
+      const sig = AxSignature.from('fileInput:file -> responseText:string');
       const pt = new AxPromptTemplate(sig);
 
       const result = pt.render(
@@ -595,7 +498,7 @@ describe('AxPromptTemplate.render', () => {
     });
 
     it('should render array of files with mixed formats', () => {
-      const sig = new AxSignature('fileInputs:file[] -> responseText:string');
+      const sig = AxSignature.from('fileInputs:file[] -> responseText:string');
       const pt = new AxPromptTemplate(sig);
 
       const result = pt.render(
@@ -643,7 +546,7 @@ describe('AxPromptTemplate.render', () => {
     });
 
     it('should validate file field requirements', () => {
-      const sig = new AxSignature('fileInput:file -> responseText:string');
+      const sig = AxSignature.from('fileInput:file -> responseText:string');
       const pt = new AxPromptTemplate(sig);
 
       // Missing mimeType
@@ -688,7 +591,7 @@ describe('AxPromptTemplate.render', () => {
 
   describe('Examples as alternating message pairs (new default behavior)', () => {
     it('should render multiple examples as alternating user/assistant pairs', () => {
-      const signature = new AxSignature(
+      const signature = AxSignature.from(
         'userQuery:string -> aiResponse:string'
       );
       const template = new AxPromptTemplate(signature);
@@ -721,7 +624,7 @@ describe('AxPromptTemplate.render', () => {
     });
 
     it('should render demos as alternating user/assistant pairs', () => {
-      const signature = new AxSignature(
+      const signature = AxSignature.from(
         'userQuery:string -> aiResponse:string'
       );
       const template = new AxPromptTemplate(signature);
@@ -745,7 +648,7 @@ describe('AxPromptTemplate.render', () => {
     });
 
     it('should render examples and demos in correct order', () => {
-      const signature = new AxSignature(
+      const signature = AxSignature.from(
         'userQuery:string -> aiResponse:string'
       );
       const template = new AxPromptTemplate(signature);
@@ -774,7 +677,7 @@ describe('AxPromptTemplate.render', () => {
     });
 
     it('should handle multimodal examples as message pairs', () => {
-      const signature = new AxSignature(
+      const signature = AxSignature.from(
         'imageInput:image -> description:string'
       );
       const template = new AxPromptTemplate(signature);
@@ -811,7 +714,7 @@ describe('AxPromptTemplate.render', () => {
     });
 
     it('should apply cache to last assistant demo message when contextCache is enabled', () => {
-      const signature = new AxSignature(
+      const signature = AxSignature.from(
         'userQuery:string -> aiResponse:string'
       );
       const template = new AxPromptTemplate(signature, {
@@ -835,7 +738,7 @@ describe('AxPromptTemplate.render', () => {
     });
 
     it('should skip output-only demos (no input fields)', () => {
-      const signature = new AxSignature(
+      const signature = AxSignature.from(
         'userQuery:string -> aiResponse:string'
       );
       const template = new AxPromptTemplate(signature);
@@ -851,7 +754,7 @@ describe('AxPromptTemplate.render', () => {
     });
 
     it('should skip output-only items when passed as examples', () => {
-      const signature = new AxSignature(
+      const signature = AxSignature.from(
         'userQuery:string -> aiResponse:string'
       );
       const template = new AxPromptTemplate(signature);
@@ -867,7 +770,7 @@ describe('AxPromptTemplate.render', () => {
     });
 
     it('should render without examples when none provided', () => {
-      const signature = new AxSignature(
+      const signature = AxSignature.from(
         'userQuery:string -> aiResponse:string'
       );
       const template = new AxPromptTemplate(signature);
@@ -883,7 +786,7 @@ describe('AxPromptTemplate.render', () => {
 
   describe('Example disclaimer and separator', () => {
     it('should add disclaimer to system prompt when examples exist', () => {
-      const signature = new AxSignature(
+      const signature = AxSignature.from(
         'userQuery:string -> aiResponse:string'
       );
       const template = new AxPromptTemplate(signature);
@@ -896,7 +799,7 @@ describe('AxPromptTemplate.render', () => {
     });
 
     it('should add separator before final user message when examples exist', () => {
-      const signature = new AxSignature(
+      const signature = AxSignature.from(
         'userQuery:string -> aiResponse:string'
       );
       const template = new AxPromptTemplate(signature);
@@ -915,7 +818,7 @@ describe('AxPromptTemplate.render', () => {
     });
 
     it('should NOT add disclaimer/separator when no examples exist', () => {
-      const signature = new AxSignature(
+      const signature = AxSignature.from(
         'userQuery:string -> aiResponse:string'
       );
       const template = new AxPromptTemplate(signature);
@@ -931,7 +834,7 @@ describe('AxPromptTemplate.render', () => {
     });
 
     it('should add disclaimer/separator when demos exist (not just examples)', () => {
-      const signature = new AxSignature(
+      const signature = AxSignature.from(
         'userQuery:string -> aiResponse:string'
       );
       const template = new AxPromptTemplate(signature);
@@ -950,7 +853,7 @@ describe('AxPromptTemplate.render', () => {
     });
 
     it('should NOT add disclaimer/separator when examples array is empty', () => {
-      const signature = new AxSignature(
+      const signature = AxSignature.from(
         'userQuery:string -> aiResponse:string'
       );
       const template = new AxPromptTemplate(signature);
@@ -963,41 +866,14 @@ describe('AxPromptTemplate.render', () => {
       const userMessage = result[1] as { role: 'user'; content: string };
       expect(userMessage.content).not.toContain('--- END OF EXAMPLES ---');
     });
-
-    it('should NOT add disclaimer/separator when examplesInSystem is true (legacy mode)', () => {
-      const signature = new AxSignature(
-        'userQuery:string -> aiResponse:string'
-      );
-      const template = new AxPromptTemplate(signature, {
-        examplesInSystem: true,
-      });
-
-      const examples = [{ userQuery: 'hello', aiResponse: 'world' }];
-      const result = template.render({ userQuery: 'test' }, { examples });
-
-      // In legacy mode, examples are in system prompt but WITHOUT the disclaimer
-      const systemMessage = result[0] as { role: 'system'; content: string };
-      expect(systemMessage.content).not.toContain('## Example Demonstrations');
-      expect(systemMessage.content).not.toContain('few-shot examples');
-      // But should still contain the example content
-      expect(systemMessage.content).toContain('User Query: hello');
-      expect(systemMessage.content).toContain('Ai Response: world');
-
-      // User message should NOT have separator
-      const userMessage = result[1] as { role: 'user'; content: string };
-      expect(userMessage.content).not.toContain('--- END OF EXAMPLES ---');
-      expect(userMessage.content).not.toContain('REAL USER QUERY:');
-      expect(userMessage.content).toContain('User Query: test');
-    });
   });
 
-  describe('Legacy multimodal cache boundaries', () => {
-    it('renders multimodal legacy examples as a separate cached user message', () => {
-      const signature = new AxSignature(
+  describe('Multimodal message-pair cache boundaries', () => {
+    it('caches the system prompt and final example assistant message', () => {
+      const signature = AxSignature.from(
         'imageInput:image -> description:string'
       );
       const template = new AxPromptTemplate(signature, {
-        examplesInSystem: true,
         contextCache: { ttlSeconds: 3600 },
       });
 
@@ -1013,30 +889,35 @@ describe('AxPromptTemplate.render', () => {
         { examples }
       );
 
-      expect(result).toHaveLength(3);
+      expect(result).toHaveLength(4);
       expect(result[0]?.role).toBe('system');
       expect(result[1]?.role).toBe('user');
-      expect(result[2]?.role).toBe('user');
+      expect(result[2]?.role).toBe('assistant');
+      expect(result[3]?.role).toBe('user');
+
+      const systemMsg = result[0] as { role: 'system'; cache?: boolean };
+      expect(systemMsg.cache).toBe(true);
 
       const exampleMsg = result[1] as {
         role: 'user';
         cache?: boolean;
         content: unknown[];
       };
-      expect(exampleMsg.cache).toBe(true);
+      expect(exampleMsg.cache).toBeUndefined();
       expect(Array.isArray(exampleMsg.content)).toBe(true);
       expect(exampleMsg.content.some((c: any) => c.type === 'image')).toBe(
         true
       );
-      expect(
-        exampleMsg.content.some(
-          (c: any) =>
-            c.type === 'text' &&
-            String(c.text).includes('Description: A beautiful sunset')
-        )
-      ).toBe(true);
 
-      const liveInputMsg = result[2] as {
+      const assistantMsg = result[2] as {
+        role: 'assistant';
+        cache?: boolean;
+        content: string;
+      };
+      expect(assistantMsg.cache).toBe(true);
+      expect(assistantMsg.content).toContain('Description: A beautiful sunset');
+
+      const liveInputMsg = result[3] as {
         role: 'user';
         cache?: boolean;
         content: unknown[];
@@ -1048,12 +929,11 @@ describe('AxPromptTemplate.render', () => {
       );
     });
 
-    it('still splits the boundary at the message level when examples are not cached', () => {
-      const signature = new AxSignature(
+    it('keeps example and live multimodal messages separate without example caching', () => {
+      const signature = AxSignature.from(
         'imageInput:image -> description:string'
       );
       const template = new AxPromptTemplate(signature, {
-        examplesInSystem: true,
         contextCache: { ttlSeconds: 3600, cacheBreakpoint: 'system' },
       });
 
@@ -1069,11 +949,13 @@ describe('AxPromptTemplate.render', () => {
         { examples }
       );
 
-      expect(result).toHaveLength(3);
+      expect(result).toHaveLength(4);
       expect(result[1]?.role).toBe('user');
-      expect(result[2]?.role).toBe('user');
+      expect(result[2]?.role).toBe('assistant');
+      expect(result[3]?.role).toBe('user');
       expect((result[1] as { cache?: boolean }).cache).toBeUndefined();
       expect((result[2] as { cache?: boolean }).cache).toBeUndefined();
+      expect((result[3] as { cache?: boolean }).cache).toBeUndefined();
     });
   });
 
@@ -1122,7 +1004,7 @@ describe('AxPromptTemplate.render', () => {
     });
 
     it('should set cache:true on last example by default (after-examples)', () => {
-      const signature = new AxSignature(
+      const signature = AxSignature.from(
         'userQuery:string -> aiResponse:string'
       );
       const template = new AxPromptTemplate(signature, {
@@ -1148,7 +1030,7 @@ describe('AxPromptTemplate.render', () => {
     });
 
     it('should NOT set cache:true on examples when cacheBreakpoint is after-functions', () => {
-      const signature = new AxSignature(
+      const signature = AxSignature.from(
         'userQuery:string -> aiResponse:string'
       );
       const template = new AxPromptTemplate(signature, {
@@ -1175,7 +1057,7 @@ describe('AxPromptTemplate.render', () => {
     });
 
     it('should NOT set cache:true on examples when cacheBreakpoint is system', () => {
-      const signature = new AxSignature(
+      const signature = AxSignature.from(
         'userQuery:string -> aiResponse:string'
       );
       const template = new AxPromptTemplate(signature, {
@@ -1197,7 +1079,7 @@ describe('AxPromptTemplate.render', () => {
     });
 
     it('should NOT set cache flags when no contextCache is configured', () => {
-      const signature = new AxSignature(
+      const signature = AxSignature.from(
         'userQuery:string -> aiResponse:string'
       );
       const template = new AxPromptTemplate(signature);
@@ -1386,7 +1268,7 @@ describe('AxPromptTemplate.render', () => {
     });
 
     it('preserves part-level cache metadata when adjacent text parts are merged', () => {
-      const sig = new AxSignature('note:string -> answer:string');
+      const sig = AxSignature.from('note:string -> answer:string');
       const template = new AxPromptTemplate(sig, undefined, {
         note: () => [
           { type: 'text', text: 'Cached prefix', cache: true },
@@ -1411,7 +1293,7 @@ describe('AxPromptTemplate.render', () => {
 
   describe('Field name references in descriptions', () => {
     it('should format field names in input field descriptions', () => {
-      const signature = new AxSignature(
+      const signature = AxSignature.from(
         'taskAnalysis:string "analyze the task", resultData:string "based on taskAnalysis" -> outputText:string'
       );
       const template = new AxPromptTemplate(signature);
@@ -1426,7 +1308,7 @@ describe('AxPromptTemplate.render', () => {
     });
 
     it('should format field names in output field descriptions', () => {
-      const signature = new AxSignature(
+      const signature = AxSignature.from(
         'inputText:string -> summaryText:string "summarizes inputText", analysisText:string "based on summaryText"'
       );
       const template = new AxPromptTemplate(signature);
@@ -1437,7 +1319,7 @@ describe('AxPromptTemplate.render', () => {
     });
 
     it('should format field names in signature description', () => {
-      const signature = new AxSignature(
+      const signature = AxSignature.from(
         'taskAnalysis:string -> resultText:string "Generate resultText from taskAnalysis"'
       );
       signature.setDescription(
@@ -1451,7 +1333,7 @@ describe('AxPromptTemplate.render', () => {
     });
 
     it('should format field names in backticks without double-wrapping', () => {
-      const signature = new AxSignature(
+      const signature = AxSignature.from(
         'taskAnalysis:string "the `taskAnalysis` field" -> resultText:string'
       );
       const template = new AxPromptTemplate(signature);
@@ -1467,7 +1349,7 @@ describe('AxPromptTemplate.render', () => {
     });
 
     it('should format field names in square brackets without adding backticks', () => {
-      const signature = new AxSignature(
+      const signature = AxSignature.from(
         'taskAnalysis:string "see [taskAnalysis] for details" -> resultText:string'
       );
       const template = new AxPromptTemplate(signature);
@@ -1479,7 +1361,7 @@ describe('AxPromptTemplate.render', () => {
     });
 
     it('should format field names in parentheses without adding backticks', () => {
-      const signature = new AxSignature(
+      const signature = AxSignature.from(
         'taskAnalysis:string "uses (taskAnalysis) internally" -> resultText:string'
       );
       const template = new AxPromptTemplate(signature);
@@ -1491,7 +1373,7 @@ describe('AxPromptTemplate.render', () => {
     });
 
     it('should handle multiple field references in one description', () => {
-      const signature = new AxSignature(
+      const signature = AxSignature.from(
         'fieldAlpha:string, fieldBeta:string -> resultText:string "combines fieldAlpha and fieldBeta"'
       );
       const template = new AxPromptTemplate(signature);
@@ -1503,7 +1385,7 @@ describe('AxPromptTemplate.render', () => {
     });
 
     it('should not replace partial word matches', () => {
-      const signature = new AxSignature(
+      const signature = AxSignature.from(
         'userId:string "the identifier" -> resultText:string "provides identity"'
       );
       const template = new AxPromptTemplate(signature);

@@ -4,12 +4,12 @@
  * Simple example demonstrating request abortion in Ax using AbortController
  */
 
-import { AxAI } from '@ax-llm/ax';
+import { ai as createAI } from '@ax-llm/ax';
 
 async function basicAbortExample() {
   console.log('\n=== Basic Abort Example ===');
 
-  const ai = new AxAI({
+  const ai = createAI({
     name: 'openai',
     apiKey: process.env.OPENAI_APIKEY || 'demo',
   });
@@ -48,7 +48,7 @@ async function basicAbortExample() {
 async function timeoutAbortExample() {
   console.log('\n=== Timeout Abort Example ===');
 
-  const ai = new AxAI({
+  const ai = createAI({
     name: 'openai',
     apiKey: process.env.OPENAI_APIKEY || 'demo',
   });
@@ -87,7 +87,7 @@ async function timeoutAbortExample() {
 async function embedAbortExample() {
   console.log('\n=== Embed Abort Example ===');
 
-  const ai = new AxAI({
+  const ai = createAI({
     name: 'openai',
     apiKey: process.env.OPENAI_APIKEY || 'demo',
   });
@@ -125,7 +125,7 @@ async function embedAbortExample() {
 async function multipleRequestsExample() {
   console.log('\n=== Multiple Requests with Shared AbortController ===');
 
-  const ai = new AxAI({
+  const ai = createAI({
     name: 'openai',
     apiKey: process.env.OPENAI_APIKEY || 'demo',
   });

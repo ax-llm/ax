@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import { AxGen } from './generate.js';
 import {
   axOptimizableValidators,
   formatComponentKey,
   parseComponentKey,
 } from './optimizable.js';
-import { AxGen } from './generate.js';
 import { AxOptimizedProgramImpl } from './optimizer.js';
 
 describe('AxOptimizable round-trip on AxGen', () => {
@@ -118,7 +118,7 @@ describe('AxOptimizable round-trip on AxGen', () => {
     );
   });
 
-  it('applies legacy instruction-only optimized programs', () => {
+  it('applies optimized instruction components from componentMap', () => {
     const gen = new AxGen<{ question: string }, { answer: string }>(
       'question:string -> answer:string'
     );
@@ -129,27 +129,6 @@ describe('AxOptimizable round-trip on AxGen', () => {
       new AxOptimizedProgramImpl({
         bestScore: 1,
         stats: {} as any,
-        instruction: 'legacy optimized instruction',
-        optimizerType: 'test',
-        optimizationTime: 0,
-      })
-    );
-
-    expect(gen.getInstruction()).toBe('legacy optimized instruction');
-  });
-
-  it('prefers componentMap over legacy instruction when both are present', () => {
-    const gen = new AxGen<{ question: string }, { answer: string }>(
-      'question:string -> answer:string'
-    );
-    gen.setId('root');
-    gen.setInstruction('before');
-
-    gen.applyOptimization(
-      new AxOptimizedProgramImpl({
-        bestScore: 1,
-        stats: {} as any,
-        instruction: 'legacy instruction',
         componentMap: { 'root::instruction': 'component instruction' },
         optimizerType: 'test',
         optimizationTime: 0,

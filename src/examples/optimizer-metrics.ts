@@ -1,4 +1,9 @@
-import { AxAI, AxBootstrapFewShot, type AxMetricFn, ax } from '@ax-llm/ax';
+import {
+  AxBootstrapFewShot,
+  type AxMetricFn,
+  ax,
+  ai as createAI,
+} from '@ax-llm/ax';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import { SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base';
@@ -17,7 +22,7 @@ const sdk = new NodeSDK({
 sdk.start();
 
 // Create AI service
-const ai = new AxAI({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! });
+const ai = createAI({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! });
 
 // Define a simple program to optimize
 const emailClassifier = ax(

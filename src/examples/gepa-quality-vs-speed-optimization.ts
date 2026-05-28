@@ -15,7 +15,7 @@
  * while faster responses may miss important details. GEPA finds the optimal trade-offs.
  */
 
-import { AxAI, AxAIOpenAIModel, AxGEPA, ax } from '../ax/index.js';
+import { AxAIOpenAIModel, AxGEPA, ai, ax } from '../ax/index.js';
 
 // Environment check
 if (!process.env.OPENAI_APIKEY) {
@@ -259,13 +259,13 @@ const evaluateCodeReview = async ({
 };
 
 // AI models
-const studentAI = new AxAI({
+const studentAI = ai({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY!,
   config: { model: AxAIOpenAIModel.GPT4OMini },
 });
 
-const teacherAI = new AxAI({
+const teacherAI = ai({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY!,
   config: { model: AxAIOpenAIModel.GPT4O },

@@ -25,8 +25,6 @@ export interface AxPromptTemplateOptions {
   functions?: Readonly<AxInputFunctionType>;
   thoughtFieldName?: string;
   contextCache?: AxContextCacheOptions;
-  /** When true, examples/demos are embedded in system prompt (legacy). When false (default), they are rendered as alternating user/assistant message pairs. */
-  examplesInSystem?: boolean;
   /** When true, cacheBreakpoint is ignored and cache is applied to all positions (for providers with auto-lookback like Anthropic) */
   ignoreBreakpoints?: boolean;
   /** When set, indicates structured output should be delivered via a function call with this name */
@@ -81,36 +79,6 @@ export type AxFieldTemplateFn = (
   value: Readonly<AxFieldValue>
 ) => ChatRequestUserMessage;
 
-function countUserContentChars(
-  content: string | ChatRequestUserMessage
-): number {
-  if (typeof content === 'string') {
-    return content.length;
-  }
-
-  let total = 0;
-  for (const part of content) {
-    if (part.type === 'text') {
-      total += part.text.length;
-    }
-  }
-
-  return total;
-}
-
-function countPromptPartsChars(
-  parts: Readonly<ChatRequestUserMessage>
-): number {
-  let total = 0;
-  for (const part of parts) {
-    if (part.type === 'text') {
-      total += part.text.length;
-    }
-  }
-
-  return total;
-}
-
 export class AxPromptTemplate {
   private sig: Readonly<AxSignature>;
   private fieldTemplates?: Record<string, AxFieldTemplateFn>;
@@ -137,7 +105,6 @@ export class AxPromptTemplate {
   private readonly thoughtFieldName: string;
   private readonly functions?: Readonly<AxInputFunctionType>;
   private readonly contextCache?: AxContextCacheOptions;
-  private readonly examplesInSystem: boolean;
   private readonly ignoreBreakpoints: boolean;
   private readonly structuredOutputFunctionName?: string;
   private readonly customTemplate?: string;
@@ -152,7 +119,6 @@ export class AxPromptTemplate {
     this.thoughtFieldName = options?.thoughtFieldName ?? 'thought';
     this.functions = options?.functions;
     this.contextCache = options?.contextCache;
-    this.examplesInSystem = options?.examplesInSystem ?? false;
     this.ignoreBreakpoints = options?.ignoreBreakpoints ?? false;
     this.structuredOutputFunctionName = options?.structuredOutputFunctionName;
     this.customTemplate = options?.customTemplate;
@@ -314,78 +280,12 @@ export class AxPromptTemplate {
     return `**Output Fields**: You must generate the following fields:\n\n${outputFields}`;
   }
 
-  private renderSingleValueUserContent = <T = any>(
-    values: T,
-    renderedExamples: ChatRequestUserMessage,
-    renderedDemos: ChatRequestUserMessage,
-    examplesInSystemPrompt: boolean
-  ): string | ChatRequestUserMessage => {
-    const completion = this.renderInputFields(values);
-
-    let promptList: ChatRequestUserMessage;
-
-    if (examplesInSystemPrompt) {
-      promptList = completion;
-    } else {
-      // Combine examples and demos
-      const examplesAndDemos = [...renderedExamples, ...renderedDemos];
-
-      // When caching is enabled and examples are in user message,
-      // mark the last item before completion with cache: true
-      // This creates a cache breakpoint after static examples
-      if (this.contextCache && examplesAndDemos.length > 0) {
-        const lastIdx = examplesAndDemos.length - 1;
-        const lastItem = examplesAndDemos[lastIdx];
-        if (lastItem) {
-          examplesAndDemos[lastIdx] = { ...lastItem, cache: true };
-        }
-      }
-
-      promptList = [...examplesAndDemos, ...completion];
-    }
-
-    const prompt = promptList.filter((v) => v !== undefined);
-
-    return this.formatUserContent(prompt);
-  };
-
   private formatUserContent = (
     prompt: ChatRequestUserMessage
   ): string | ChatRequestUserMessage =>
     prompt.every((v) => v.type === 'text')
       ? prompt.map((v) => v.text).join('\n')
       : prompt.reduce(combineConsecutiveStrings('\n'), []);
-
-  private buildLegacyMultimodalExampleMessage = (
-    renderedExamples: ChatRequestUserMessage,
-    renderedDemos: ChatRequestUserMessage
-  ):
-    | {
-        role: 'user';
-        content: string | ChatRequestUserMessage;
-        cache?: boolean;
-      }
-    | undefined => {
-    const examplesAndDemos = [...renderedExamples, ...renderedDemos].filter(
-      (v) => v !== undefined
-    );
-
-    if (examplesAndDemos.length === 0) {
-      return undefined;
-    }
-
-    const cacheBreakpoint =
-      this.contextCache?.cacheBreakpoint ?? 'after-examples';
-    const shouldCacheExamples =
-      !!this.contextCache &&
-      (this.ignoreBreakpoints || cacheBreakpoint === 'after-examples');
-
-    return {
-      role: 'user' as const,
-      content: this.formatUserContent(examplesAndDemos),
-      ...(shouldCacheExamples ? { cache: true } : {}),
-    };
-  };
 
   private renderInternal = <T = any>(
     values: T,
@@ -398,94 +298,7 @@ export class AxPromptTemplate {
       demos?: Record<string, AxFieldValue>[];
     }>
   ): AxRenderedPrompt => {
-    // New behavior: render examples/demos as alternating user/assistant message pairs
-    if (!this.examplesInSystem) {
-      return this.renderWithMessagePairs(values, { examples, demos });
-    }
-
-    // Legacy behavior: examples/demos in system prompt or user message
-    const renderedExamples = examples
-      ? [
-          { type: 'text' as const, text: '\n\n## Examples\n' },
-          ...this.renderExamples(examples),
-        ]
-      : [];
-
-    const renderedDemos = demos ? this.renderDemos(demos) : [];
-    const exampleChatContextCharacters =
-      countPromptPartsChars(renderedExamples) +
-      countPromptPartsChars(renderedDemos);
-
-    // Check if demos and examples are all text type
-    const allTextExamples = renderedExamples.every((v) => v.type === 'text');
-    const allTextDemos = renderedDemos.every((v) => v.type === 'text');
-    const examplesInSystemPrompt = allTextExamples && allTextDemos;
-
-    const baseSystemContent = this.customInstruction
-      ? this.task.text
-      : this.buildStructuredPrompt(false, values).text;
-    let systemContent = baseSystemContent;
-
-    if (examplesInSystemPrompt) {
-      const combinedItems = [
-        { type: 'text' as const, text: systemContent },
-        ...renderedExamples,
-        ...renderedDemos,
-      ];
-      combinedItems.reduce(combineConsecutiveStrings(''), []);
-
-      if (combinedItems[0]) {
-        systemContent = combinedItems[0].text;
-      }
-    }
-
-    const systemPrompt = {
-      role: 'system' as const,
-      content: systemContent,
-      cache: !!this.contextCache,
-    };
-    const systemPromptCharacters = baseSystemContent.length;
-    // In the legacy multimodal fallback, cached examples must be their own
-    // top-level message so provider adapters can cache them without pulling
-    // live input into the same boundary.
-    const useLegacyMultimodalCacheBoundary =
-      !examplesInSystemPrompt &&
-      !!this.contextCache &&
-      (renderedExamples.length > 0 || renderedDemos.length > 0);
-    const legacyExampleMessage = useLegacyMultimodalCacheBoundary
-      ? this.buildLegacyMultimodalExampleMessage(
-          renderedExamples,
-          renderedDemos
-        )
-      : undefined;
-
-    const userContent = useLegacyMultimodalCacheBoundary
-      ? this.renderSingleValueUserContent(values as T, [], [], false)
-      : this.renderSingleValueUserContent(
-          values as T,
-          renderedExamples,
-          renderedDemos,
-          examplesInSystemPrompt
-        );
-    const renderedMutableChars = countUserContentChars(userContent);
-    const mutableChatContextCharacters = examplesInSystemPrompt
-      ? renderedMutableChars
-      : Math.max(0, renderedMutableChars - exampleChatContextCharacters);
-
-    return {
-      chatPrompt: [
-        systemPrompt,
-        ...(legacyExampleMessage ? [legacyExampleMessage] : []),
-        { role: 'user' as const, content: userContent },
-      ],
-      promptMetrics: buildPromptMetrics(
-        systemPromptCharacters,
-        exampleChatContextCharacters,
-        legacyExampleMessage
-          ? renderedMutableChars
-          : mutableChatContextCharacters
-      ),
-    };
+    return this.renderWithMessagePairs(values, { examples, demos });
   };
 
   public render = <T = any>(

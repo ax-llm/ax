@@ -23,7 +23,10 @@ describe('AxFlow Parallel Execution and Merge', () => {
 
   describe('parallel execution with merge', () => {
     it('should handle parallel execution with merge correctly (regression test)', async () => {
-      const flow = new AxFlow<{ paperText: string }, { finalScore: number }>()
+      const flow = AxFlow.create<
+        { paperText: string },
+        { finalScore: number }
+      >()
         .node('scorer1', 'documentText:string -> qualityScore:number')
         .node('scorer2', 'documentText:string -> qualityScore:number')
         .parallel([
@@ -62,7 +65,7 @@ describe('AxFlow Parallel Execution and Merge', () => {
 
     it('should preserve _parallelResults field during execution', async () => {
       let capturedState: any = null;
-      const flow = new AxFlow<
+      const flow = AxFlow.create<
         { userInput: string },
         { processedResult: string }
       >()
@@ -84,7 +87,7 @@ describe('AxFlow Parallel Execution and Merge', () => {
     });
 
     it('should handle complex parallel merge with multiple branches', async () => {
-      const flow = new AxFlow<
+      const flow = AxFlow.create<
         { data: string },
         { combined: { scores: number[]; average: number } }
       >()
@@ -135,7 +138,10 @@ describe('AxFlow Parallel Execution and Merge', () => {
     });
 
     it('should handle parallel execution with custom merge functions', async () => {
-      const flow = new AxFlow<{ userInput: string }, { customMerge: string }>()
+      const flow = AxFlow.create<
+        { userInput: string },
+        { customMerge: string }
+      >()
         .node('transformer1', 'documentText:string -> transformedResult:string')
         .node('transformer2', 'documentText:string -> transformedResult:string')
         .parallel([
@@ -163,7 +169,7 @@ describe('AxFlow Parallel Execution and Merge', () => {
     });
 
     it('should handle merge with empty results gracefully', async () => {
-      const flow = new AxFlow<
+      const flow = AxFlow.create<
         { userInput: string },
         { processedResult: string }
       >()
@@ -199,7 +205,10 @@ describe('AxFlow Parallel Execution and Merge', () => {
 
   describe('autoParallel behavior', () => {
     it('should work with autoParallel: true (default)', async () => {
-      const flow = new AxFlow<{ paperText: string }, { qualityScore: number }>()
+      const flow = AxFlow.create<
+        { paperText: string },
+        { qualityScore: number }
+      >()
         .node('scorer', 'documentText:string -> qualityScore:number')
         .parallel([
           (subFlow: any) =>
@@ -227,7 +236,10 @@ describe('AxFlow Parallel Execution and Merge', () => {
     });
 
     it('should work with autoParallel: false', async () => {
-      const flow = new AxFlow<{ paperText: string }, { qualityScore: number }>({
+      const flow = AxFlow.create<
+        { paperText: string },
+        { qualityScore: number }
+      >({
         autoParallel: false,
       })
         .node('scorer', 'documentText:string -> qualityScore:number')
@@ -257,7 +269,10 @@ describe('AxFlow Parallel Execution and Merge', () => {
     });
 
     it('should handle autoParallel override in forward options', async () => {
-      const flow = new AxFlow<{ paperText: string }, { qualityScore: number }>({
+      const flow = AxFlow.create<
+        { paperText: string },
+        { qualityScore: number }
+      >({
         autoParallel: true,
       })
         .node('scorer', 'documentText:string -> qualityScore:number')
@@ -292,7 +307,10 @@ describe('AxFlow Parallel Execution and Merge', () => {
     });
 
     it('should provide execution plan information', async () => {
-      const flow = new AxFlow<{ paperText: string }, { qualityScore: number }>()
+      const flow = AxFlow.create<
+        { paperText: string },
+        { qualityScore: number }
+      >()
         .node('scorer1', 'documentText:string -> qualityScore:number')
         .node('scorer2', 'documentText:string -> qualityScore:number')
         .parallel([
@@ -321,7 +339,7 @@ describe('AxFlow Parallel Execution and Merge', () => {
 
   describe('error handling in parallel execution', () => {
     it('should handle errors in parallel branches gracefully', async () => {
-      const flow = new AxFlow<
+      const flow = AxFlow.create<
         { paperText: string },
         { processedResult: string }
       >()
@@ -347,7 +365,7 @@ describe('AxFlow Parallel Execution and Merge', () => {
     });
 
     it('should handle merge function errors', async () => {
-      const flow = new AxFlow<
+      const flow = AxFlow.create<
         { paperText: string },
         { processedResult: string }
       >()

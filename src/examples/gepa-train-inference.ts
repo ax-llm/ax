@@ -1,8 +1,8 @@
 import {
-  AxAI,
   AxAIOpenAIModel,
   AxGEPA,
   AxOptimizedProgramImpl,
+  ai,
   ax,
 } from '@ax-llm/ax';
 
@@ -64,13 +64,13 @@ async function main() {
   };
 
   // Student/Teacher AIs
-  const student = new AxAI({
+  const student = ai({
     name: 'openai',
     apiKey: process.env.OPENAI_APIKEY!,
     config: { model: AxAIOpenAIModel.GPT4OMini },
   });
 
-  const teacher = new AxAI({
+  const teacher = ai({
     name: 'openai',
     apiKey: process.env.OPENAI_APIKEY!,
     config: { model: AxAIOpenAIModel.GPT4O },

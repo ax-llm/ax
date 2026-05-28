@@ -1,12 +1,12 @@
 #!/usr/bin/env -S npx tsx
 import {
-  AxAI,
   AxAIGoogleGeminiModel,
   type AxFunction,
   AxGen,
+  ai as createAI,
 } from '@ax-llm/ax';
 
-const ai = new AxAI({
+const ai = createAI({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY!,
   config: { model: AxAIGoogleGeminiModel.Gemini20FlashLite },

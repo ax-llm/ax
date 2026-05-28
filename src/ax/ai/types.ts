@@ -981,16 +981,6 @@ export type AxAIServiceOptions = {
   contextCache?: AxContextCacheOptions;
 
   /**
-   * Render examples/demos in the system prompt instead of as message pairs.
-   *
-   * - `false` (default) - Examples rendered as alternating user/assistant messages
-   * - `true` - Examples embedded in system prompt (legacy behavior)
-   *
-   * Message pair rendering generally produces better results.
-   */
-  examplesInSystem?: boolean;
-
-  /**
    * Custom labels for OpenTelemetry metrics.
    *
    * These labels are merged with `axGlobals.customLabels` (service-level

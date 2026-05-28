@@ -1,6 +1,11 @@
 #!/usr/bin/env node
 
-import { AxAI, AxAIOpenAIResponsesModel, AxGen, AxSignature } from '@ax-llm/ax';
+import {
+  AxAIOpenAIResponsesModel,
+  AxGen,
+  AxSignature,
+  ai as createAI,
+} from '@ax-llm/ax';
 
 // Mathematical reasoning example with o3
 async function runMathExample() {
@@ -8,7 +13,7 @@ async function runMathExample() {
   console.log('----------------------------------------');
 
   try {
-    const ai = new AxAI({
+    const ai = createAI({
       name: 'openai-responses',
       apiKey: process.env.OPENAI_APIKEY || '',
       config: {
@@ -22,7 +27,7 @@ async function runMathExample() {
     console.log(`🤖 Using model: ${AxAIOpenAIResponsesModel.O3}`);
     console.log('🔧 Reasoning effort: medium');
 
-    const signature = new AxSignature(
+    const signature = AxSignature.from(
       `question:string -> answer:string "step-by-step solution", thought:string "reasoning process", usage:string "model usage stats"`
     );
 
@@ -67,7 +72,7 @@ async function runCodeExample() {
   console.log('-------------------------------------------');
 
   try {
-    const ai = new AxAI({
+    const ai = createAI({
       name: 'openai-responses',
       apiKey: process.env.OPENAI_APIKEY || '',
       config: {
@@ -81,7 +86,7 @@ async function runCodeExample() {
     console.log(`🤖 Using model: ${AxAIOpenAIResponsesModel.O4Mini}`);
     console.log('🔧 Reasoning effort: low');
 
-    const signature = new AxSignature(
+    const signature = AxSignature.from(
       `task:string -> code:string "typescript function", explanation:string "how it works", thought:string "reasoning process"`
     );
 
@@ -120,7 +125,7 @@ async function runLogicExample() {
   console.log('------------------------------------------');
 
   try {
-    const ai = new AxAI({
+    const ai = createAI({
       name: 'openai-responses',
       apiKey: process.env.OPENAI_APIKEY || '',
       config: {
@@ -134,7 +139,7 @@ async function runLogicExample() {
     console.log(`🤖 Using model: ${AxAIOpenAIResponsesModel.O3Mini}`);
     console.log('🔧 Reasoning effort: high');
 
-    const signature = new AxSignature(
+    const signature = AxSignature.from(
       `premise:string -> conclusion:string "logical deduction", confidence:string "high, medium, low", thought:string "reasoning process"`
     );
 

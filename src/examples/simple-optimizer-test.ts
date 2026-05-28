@@ -1,10 +1,10 @@
 import {
-  AxAI,
   AxAIOpenAIModel,
   AxBootstrapFewShot,
   type AxMetricFn,
   ax,
   axDefaultOptimizerLogger,
+  ai as createAI,
 } from '@ax-llm/ax';
 
 // Simple classification examples
@@ -28,7 +28,7 @@ const metric: AxMetricFn = ({ prediction, example }) => {
 
 console.log('=== Simple Optimizer Logging Demo ===\n');
 
-const ai = new AxAI({
+const ai = createAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY!,
   config: { model: AxAIOpenAIModel.GPT4OMini },

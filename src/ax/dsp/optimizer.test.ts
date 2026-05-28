@@ -1,12 +1,9 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import type { AxAIService } from '../ai/types.js';
 
 import type { AxOptimizer } from './optimizer.js';
 import { AxBootstrapFewShot } from './optimizers/bootstrapFewshot.js';
-import { AxACE } from './optimizers/ace.js';
-import { f } from './sig.js';
-import { ax } from './template.js';
 
 // Mock dependencies
 const mockAI = {
@@ -29,36 +26,6 @@ const mockExamples = [
   { input: 'test input', output: 'test output' },
   { input: 'test input 2', output: 'test output 2' },
 ];
-
-describe('AxACE', () => {
-  it('should call runCurator with the correct context', async () => {
-    const ace = new AxACE({
-      studentAI: mockAI,
-    });
-
-    const runCuratorSpy = vi
-      .spyOn(ace as any, 'runCurator')
-      .mockResolvedValue(undefined);
-
-    const program = ax(
-      f().input('question', f.string()).output('answer', f.string()).build()
-    );
-    const examples = [
-      { question: 'q1', answer: 'a1' },
-      { question: 'q2', answer: 'a2' },
-    ];
-    const metricFn = () => 1;
-
-    await ace.compile(program, examples, metricFn, {
-      aceOptions: { maxEpochs: 1, maxReflectorRounds: 1 },
-    });
-
-    expect(runCuratorSpy).toHaveBeenCalled();
-    const curatorCall = runCuratorSpy.mock.calls[0][0];
-    expect(curatorCall.example).toHaveProperty('question');
-    expect(curatorCall.example).toHaveProperty('answer');
-  });
-});
 
 describe('Optimizer Interface', () => {
   it('AxBootstrapFewShot implements AxOptimizer interface', () => {

@@ -1,4 +1,9 @@
-import { AxAI, AxAIGoogleGeminiModel, AxGen, AxSignature } from '@ax-llm/ax';
+import {
+  AxAIGoogleGeminiModel,
+  AxGen,
+  AxSignature,
+  ai as createAI,
+} from '@ax-llm/ax';
 import type { AxFieldProcessor } from '@ax-llm/ax/dsp/fieldProcessor.js';
 
 // Field processor that executes the code in a sandboxed environment.
@@ -19,7 +24,7 @@ async function executeCodeProcessor(code: string) {
 }
 
 // Define a signature.  Crucially, the *result* is a string.
-const sig = new AxSignature(`
+const sig = AxSignature.from(`
     "This is a two-step process:
     1. First, provide code to solve the task. The user will execute this code and return the result.
     2. Then, using the execution result, provide a friendly, conversational explanation of what was discovered.
@@ -45,7 +50,7 @@ gen.addFieldProcessor(
 );
 
 // Initialize the AI service.
-const ai = new AxAI({
+const ai = createAI({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY as string, // Ensure this is set!
   config: { model: AxAIGoogleGeminiModel.Gemini20Flash }, //Not stream.

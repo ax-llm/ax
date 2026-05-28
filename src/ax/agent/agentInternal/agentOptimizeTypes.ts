@@ -27,7 +27,6 @@ import type { AxAgentContextMapConfig } from '../contextMap.js';
 import type { AxContextPolicyConfig } from '../rlm.js';
 import type {
   AxAgentActorTurnCallback,
-  AxAgentExecutorTurnCallbackArgs,
   AxAgentFunctionCollection,
   AxAgentInputUpdateCallback,
   AxAgentStructuredClarification,
@@ -273,15 +272,6 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
    * result and the formatted action-log output.
    */
   actorTurnCallback?: AxAgentActorTurnCallback;
-  /**
-   * @deprecated Use actorTurnCallback.
-   *
-   * Called after each actor turn is recorded with both the raw runtime
-   * result and the formatted action-log output.
-   */
-  executorTurnCallback?: (
-    args: AxAgentExecutorTurnCallbackArgs
-  ) => void | Promise<void>;
   /**
    * Called when AxAgent measures context pressure or creates/clears compacted
    * context. Use for observability and evaluation; failures are ignored.

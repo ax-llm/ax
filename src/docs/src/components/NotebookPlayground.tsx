@@ -81,14 +81,16 @@ export default function NotebookPlayground() {
   const [cellSignatures, setCellSignatures] = useState<Record<string, any>>({});
 
   const [isDarkMode, setIsDarkMode] = useState(false);
-  const [providerType, setProviderType] = useState<'webllm' | 'openrouter'>(
-    'webllm'
+  const [providerType, setProviderType] =
+    useState<'openai-compatible'>('openai-compatible');
+  const [selectedModel, setSelectedModel] = useState('provider/model-name');
+  const [openAICompatibleModel, setOpenAICompatibleModel] = useState(
+    'provider/model-name'
   );
-  const [selectedModel, setSelectedModel] = useState(
-    'Llama-3.2-1B-Instruct-q4f32_1-MLC'
+  const [openAICompatibleApiKey, setOpenAICompatibleApiKey] = useState('');
+  const [openAICompatibleApiURL, setOpenAICompatibleApiURL] = useState(
+    'https://api.example.com/v1'
   );
-  const [openRouterModel, setOpenRouterModel] = useState('openrouter/auto');
-  const [openRouterApiKey, setOpenRouterApiKey] = useState('');
   const [rememberApiKey, setRememberApiKey] = useState(true);
   const [modelStatus, setModelStatus] = useState<
     'idle' | 'loading' | 'ready' | 'error'
@@ -150,7 +152,7 @@ export default function NotebookPlayground() {
     setLoadedAI(null);
     setLoadingProgress(0);
     setLoadingText('Ready');
-  }, [selectedModel, providerType, openRouterModel]);
+  }, [selectedModel, providerType, openAICompatibleModel]);
 
   // Load from localStorage
   useEffect(() => {
@@ -171,26 +173,26 @@ export default function NotebookPlayground() {
             }))
           );
         }
-        if (
-          parsed.providerType === 'openrouter' ||
-          parsed.providerType === 'webllm'
-        ) {
+        if (parsed.providerType === 'openai-compatible') {
           setProviderType(parsed.providerType);
         }
         if (typeof parsed.selectedModel === 'string') {
           setSelectedModel(parsed.selectedModel);
         }
-        if (typeof parsed.openRouterModel === 'string') {
-          setOpenRouterModel(parsed.openRouterModel);
+        if (typeof parsed.openAICompatibleModel === 'string') {
+          setOpenAICompatibleModel(parsed.openAICompatibleModel);
+        }
+        if (typeof parsed.openAICompatibleApiURL === 'string') {
+          setOpenAICompatibleApiURL(parsed.openAICompatibleApiURL);
         }
         if (typeof parsed.rememberApiKey === 'boolean') {
           setRememberApiKey(parsed.rememberApiKey);
         }
         if (
           parsed.rememberApiKey &&
-          typeof parsed.openRouterApiKey === 'string'
+          typeof parsed.openAICompatibleApiKey === 'string'
         ) {
-          setOpenRouterApiKey(parsed.openRouterApiKey);
+          setOpenAICompatibleApiKey(parsed.openAICompatibleApiKey);
         }
       }
     } catch (_e) {
@@ -211,9 +213,12 @@ export default function NotebookPlayground() {
           })),
           providerType,
           selectedModel,
-          openRouterModel,
+          openAICompatibleModel,
+          openAICompatibleApiURL,
           rememberApiKey,
-          openRouterApiKey: rememberApiKey ? openRouterApiKey : undefined,
+          openAICompatibleApiKey: rememberApiKey
+            ? openAICompatibleApiKey
+            : undefined,
         };
         localStorage.setItem(
           'ax-notebook-playground-v1',
@@ -230,8 +235,9 @@ export default function NotebookPlayground() {
     cells,
     providerType,
     selectedModel,
-    openRouterModel,
-    openRouterApiKey,
+    openAICompatibleModel,
+    openAICompatibleApiURL,
+    openAICompatibleApiKey,
     rememberApiKey,
   ]);
 
@@ -284,61 +290,37 @@ export default function NotebookPlayground() {
   const loadModel = useCallback(async () => {
     setModelStatus('loading');
     setLoadingProgress(0);
-    setLoadingText(
-      providerType === 'webllm'
-        ? 'Checking WebLLM availability...'
-        : 'Configuring OpenRouter...'
-    );
+    setLoadingText('Configuring OpenAI-compatible endpoint...');
 
     try {
-      if (providerType === 'webllm') {
-        if (typeof window === 'undefined') {
-          throw new Error('WebLLM requires a browser environment');
-        }
-        setLoadingText('Loading WebLLM library...');
-        const { MLCEngine } = await import('@mlc-ai/web-llm');
-        setLoadingText('Creating WebLLM engine...');
-        const engine = new MLCEngine();
-        engine.setInitProgressCallback((progress: any) => {
-          const percentage = Math.round(progress.progress * 100);
-          setLoadingProgress(percentage);
-          setLoadingText(`${progress.text} (${percentage}%)`);
-        });
-        await engine.reload(selectedModel);
-        setLoadingText('Creating AI instance...');
-        const llm = ai({
-          name: 'webllm',
-          engine,
-          config: { model: selectedModel as any, stream: false },
-          options: { debug: true },
-        });
-        setLoadedEngine(engine);
-        setLoadedAI(llm);
-        setModelStatus('ready');
-        setLoadingProgress(100);
-      } else {
-        if (!openRouterApiKey) {
-          throw new Error('OpenRouter API key is required');
-        }
-        setLoadingText('Connecting to OpenRouter...');
-        const llm = ai({
-          name: 'openrouter',
-          apiKey: openRouterApiKey,
-          config: { model: openRouterModel, stream: false },
-          options: { debug: true },
-        });
-        setLoadedAI(llm);
-        setModelStatus('ready');
-        setLoadingProgress(100);
-        setLoadingText('Connected');
+      if (!openAICompatibleApiKey) {
+        throw new Error('API key is required');
       }
+      setLoadingText('Connecting...');
+      const llm = ai({
+        name: 'openai',
+        apiKey: openAICompatibleApiKey,
+        apiURL: openAICompatibleApiURL,
+        models: [
+          {
+            key: 'default',
+            description: 'Configured OpenAI-compatible model',
+            model: openAICompatibleModel as any,
+          },
+        ],
+        config: { model: 'default' as any, stream: false },
+        options: { debug: true },
+      });
+      setLoadedEngine(null);
+      setLoadedAI(llm);
+      setModelStatus('ready');
+      setLoadingProgress(100);
+      setLoadingText('Connected');
     } catch (error) {
       setModelStatus('error');
       let errorMessage = 'Failed to load model';
       if (error instanceof Error) {
-        if (providerType === 'webllm' && error.message.includes('WebLLM')) {
-          errorMessage = `WebLLM library error: ${error.message}`;
-        } else if (error.message.includes('worker')) {
+        if (error.message.includes('worker')) {
           errorMessage = `Web Worker error: ${error.message}`;
         } else if (
           error.message.includes('network') ||
@@ -351,7 +333,7 @@ export default function NotebookPlayground() {
       }
       setLoadingText(errorMessage);
     }
-  }, [selectedModel, providerType, openRouterApiKey, openRouterModel]);
+  }, [openAICompatibleApiURL, openAICompatibleApiKey, openAICompatibleModel]);
 
   const updateCellSignature = useCallback((cellId: string, signature: any) => {
     setCellSignatures((prev) => ({ ...prev, [cellId]: signature }));
@@ -550,86 +532,67 @@ export default function NotebookPlayground() {
                         onChange={(e) => setProviderType(e.target.value as any)}
                         disabled={modelStatus === 'loading'}
                       >
-                        <option value="webllm">Local (WebLLM)</option>
-                        <option value="openrouter">OpenRouter (Cloud)</option>
+                        <option value="openai-compatible">
+                          OpenAI-Compatible
+                        </option>
                       </select>
                     </div>
 
                     {/* Model selection */}
-                    {providerType === 'webllm' ? (
-                      <div>
-                        <label className="text-xs font-medium text-gray-700 dark:text-gray-300 block mb-1.5">
-                          Model
-                        </label>
-                        <select
-                          className="w-full px-3 py-2 border border-gray-200 dark:border-white/20 rounded-lg bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-white"
-                          value={selectedModel}
-                          onChange={(e) => setSelectedModel(e.target.value)}
-                          disabled={modelStatus === 'loading'}
-                        >
-                          <option value="Llama-3.2-1B-Instruct-q4f32_1-MLC">
-                            Llama 3.2 1B (Fastest)
-                          </option>
-                          <option value="Llama-3.2-3B-Instruct-q4f32_1-MLC">
-                            Llama 3.2 3B
-                          </option>
-                          <option value="Llama-3.1-8B-Instruct-q4f32_1-MLC">
-                            Llama 3.1 8B (Better Quality)
-                          </option>
-                          <option value="Phi-3.5-mini-instruct-q4f32_1-MLC">
-                            Phi 3.5 Mini
-                          </option>
-                          <option value="gemma-2-2b-it-q4f32_1-MLC">
-                            Gemma 2 2B
-                          </option>
-                        </select>
-                        <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1.5">
-                          Runs locally in your browser via WebLLM
-                        </p>
-                      </div>
-                    ) : (
-                      <>
-                        <div>
-                          <label className="text-xs font-medium text-gray-700 dark:text-gray-300 block mb-1.5">
-                            API Key
-                          </label>
-                          <input
-                            className="w-full px-3 py-2 border border-gray-200 dark:border-white/20 rounded-lg bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-white"
-                            type="password"
-                            placeholder="Enter OpenRouter API key"
-                            value={openRouterApiKey}
-                            onChange={(e) =>
-                              setOpenRouterApiKey(e.target.value)
-                            }
-                            disabled={modelStatus === 'loading'}
-                          />
-                          <label className="flex items-center gap-1.5 mt-1.5 text-[11px] text-gray-400 dark:text-gray-500">
-                            <input
-                              type="checkbox"
-                              checked={rememberApiKey}
-                              onChange={(e) =>
-                                setRememberApiKey(e.target.checked)
-                              }
-                              className="rounded"
-                            />
-                            Remember in this browser
-                          </label>
-                        </div>
-                        <div>
-                          <label className="text-xs font-medium text-gray-700 dark:text-gray-300 block mb-1.5">
-                            Model
-                          </label>
-                          <input
-                            className="w-full px-3 py-2 border border-gray-200 dark:border-white/20 rounded-lg bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-white"
-                            type="text"
-                            placeholder="e.g. anthropic/claude-3.5-sonnet"
-                            value={openRouterModel}
-                            onChange={(e) => setOpenRouterModel(e.target.value)}
-                            disabled={modelStatus === 'loading'}
-                          />
-                        </div>
-                      </>
-                    )}
+                    <div>
+                      <label className="text-xs font-medium text-gray-700 dark:text-gray-300 block mb-1.5">
+                        Base URL
+                      </label>
+                      <input
+                        className="w-full px-3 py-2 border border-gray-200 dark:border-white/20 rounded-lg bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-white"
+                        type="url"
+                        placeholder="https://api.example.com/v1"
+                        value={openAICompatibleApiURL}
+                        onChange={(e) =>
+                          setOpenAICompatibleApiURL(e.target.value)
+                        }
+                        disabled={modelStatus === 'loading'}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-700 dark:text-gray-300 block mb-1.5">
+                        API Key
+                      </label>
+                      <input
+                        className="w-full px-3 py-2 border border-gray-200 dark:border-white/20 rounded-lg bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-white"
+                        type="password"
+                        placeholder="Enter API key"
+                        value={openAICompatibleApiKey}
+                        onChange={(e) =>
+                          setOpenAICompatibleApiKey(e.target.value)
+                        }
+                        disabled={modelStatus === 'loading'}
+                      />
+                      <label className="flex items-center gap-1.5 mt-1.5 text-[11px] text-gray-400 dark:text-gray-500">
+                        <input
+                          type="checkbox"
+                          checked={rememberApiKey}
+                          onChange={(e) => setRememberApiKey(e.target.checked)}
+                          className="rounded"
+                        />
+                        Remember in this browser
+                      </label>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-700 dark:text-gray-300 block mb-1.5">
+                        Model
+                      </label>
+                      <input
+                        className="w-full px-3 py-2 border border-gray-200 dark:border-white/20 rounded-lg bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-white"
+                        type="text"
+                        placeholder="provider/model-name"
+                        value={openAICompatibleModel}
+                        onChange={(e) =>
+                          setOpenAICompatibleModel(e.target.value)
+                        }
+                        disabled={modelStatus === 'loading'}
+                      />
+                    </div>
 
                     {/* Loading progress */}
                     {modelStatus === 'loading' && (
@@ -664,18 +627,10 @@ export default function NotebookPlayground() {
                       {modelStatus === 'loading' ? (
                         <>
                           <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-                          {providerType === 'webllm'
-                            ? 'Loading...'
-                            : 'Connecting...'}
+                          Connecting...
                         </>
                       ) : modelStatus === 'ready' ? (
-                        providerType === 'webllm' ? (
-                          'Reload Model'
-                        ) : (
-                          'Reconnect'
-                        )
-                      ) : providerType === 'webllm' ? (
-                        'Load Model'
+                        'Reconnect'
                       ) : (
                         'Connect'
                       )}

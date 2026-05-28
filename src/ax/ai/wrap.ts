@@ -19,8 +19,6 @@ import type {
   AxAIGoogleGeminiEmbedModel,
   AxAIGoogleGeminiModel,
 } from './google-gemini/types.js';
-import { AxAIGroq, type AxAIGroqArgs } from './groq/api.js';
-import type { AxAIGroqModel } from './groq/types.js';
 import {
   AxAIHuggingFace,
   type AxAIHuggingFaceArgs,
@@ -28,7 +26,6 @@ import {
 import type { AxAIHuggingFaceModel } from './huggingface/types.js';
 import { AxAIMistral, type AxAIMistralArgs } from './mistral/api.js';
 import type { AxAIMistralModel } from './mistral/types.js';
-import { AxAIOllama, type AxAIOllamaArgs } from './ollama/api.js';
 import { AxAIOpenAI, type AxAIOpenAIArgs } from './openai/api.js';
 import type {
   AxAIOpenAIEmbedModel,
@@ -39,9 +36,7 @@ import {
   type AxAIOpenAIResponsesArgs,
 } from './openai/responses_api_base.js';
 import type { AxAIOpenAIResponsesModel } from './openai/responses_types.js';
-import { AxAIOpenRouter, type AxAIOpenRouterArgs } from './openrouter/api.js';
 import { AxAIReka, type AxAIRekaArgs } from './reka/api.js';
-import { AxAITogether, type AxAITogetherArgs } from './together/api.js';
 import type {
   AxAIModelList,
   AxAIService,
@@ -58,8 +53,6 @@ import type {
   AxTranscriptionRequest,
   AxTranscriptionResponse,
 } from './types.js';
-import { AxAIWebLLM, type AxAIWebLLMArgs } from './webllm/api.js';
-import type { AxAIWebLLMModel } from './webllm/types.js';
 import { AxAIGrok, type AxAIGrokArgs } from './x-grok/api.js';
 import type { AxAIGrokModel } from './x-grok/types.js';
 
@@ -72,31 +65,24 @@ export type AxAIArgs<TModelKey> =
       TModelKey
     >
   | AxAIAzureOpenAIArgs<TModelKey>
-  | AxAITogetherArgs<TModelKey>
-  | AxAIOpenRouterArgs<TModelKey>
   | AxAIAnthropicArgs<TModelKey>
-  | AxAIGroqArgs<TModelKey>
   | AxAIGoogleGeminiArgs<TModelKey>
   | AxAICohereArgs<TModelKey>
   | AxAIHuggingFaceArgs<TModelKey>
   | AxAIMistralArgs<TModelKey>
   | AxAIDeepSeekArgs<TModelKey>
-  | AxAIOllamaArgs<TModelKey>
   | AxAIRekaArgs<TModelKey>
-  | AxAIGrokArgs<TModelKey>
-  | AxAIWebLLMArgs<TModelKey>;
+  | AxAIGrokArgs<TModelKey>;
 
 export type AxAIModels =
   | AxAIOpenAIModel
   | AxAIAnthropicModel
-  | AxAIGroqModel
   | AxAIGoogleGeminiModel
   | AxAICohereModel
   | AxAIHuggingFaceModel
   | AxAIMistralModel
   | AxAIDeepSeekModel
-  | AxAIGrokModel
-  | AxAIWebLLMModel;
+  | AxAIGrokModel;
 
 export type AxAIEmbedModels =
   | AxAIOpenAIEmbedModel
@@ -129,21 +115,16 @@ type InferTModelKey<T> = T extends { models: infer M }
  * - `'anthropic'` - Anthropic (Claude 3.5 Sonnet, Claude 3 Opus, etc.)
  * - `'google-gemini'` - Google (Gemini 1.5 Pro, Gemini 2.0 Flash, etc.)
  * - `'azure-openai'` - Azure OpenAI Service
- * - `'groq'` - Groq (Llama, Mixtral with fast inference)
  * - `'cohere'` - Cohere (Command R+, embeddings)
  * - `'mistral'` - Mistral AI (Mistral Large, Codestral)
  * - `'deepseek'` - DeepSeek (DeepSeek-V4-Flash, DeepSeek-V4-Pro)
- * - `'together'` - Together AI (various open models)
- * - `'openrouter'` - OpenRouter (unified API for many providers)
- * - `'ollama'` - Ollama (local models)
  * - `'huggingface'` - Hugging Face Inference API
  * - `'reka'` - Reka AI
  * - `'grok'` - xAI Grok
- * - `'webllm'` - WebLLM (browser-based inference)
  *
  * @param options - Provider-specific configuration. Must include `name` to identify the provider.
  * @param options.name - The provider identifier (see list above)
- * @param options.apiKey - API key for the provider (not needed for Ollama/WebLLM)
+ * @param options.apiKey - API key for the provider
  * @param options.config - Optional default model configuration (maxTokens, temperature, etc.)
  * @param options.models - Optional custom model aliases for type-safe model selection
  *
@@ -186,11 +167,13 @@ type InferTModelKey<T> = T extends { models: infer M }
  * // Now use ai with model: 'fast' or model: 'smart'
  * ```
  *
- * @example Local models with Ollama
+ * @example OpenAI-compatible endpoint
  * ```typescript
  * const ai = ai({
- *   name: 'ollama',
- *   config: { model: 'llama3.2' }
+ *   name: 'openai',
+ *   apiKey: process.env.PROVIDER_API_KEY,
+ *   apiURL: 'https://example.com/v1',
+ *   config: { model: 'provider/model-name' }
  * });
  * ```
  */
@@ -212,23 +195,7 @@ export class AxAI<TModelKey = string>
     return new AxAI(options) as any;
   }
 
-  /**
-   * @deprecated Use `AxAI.create()` or `ai()` function instead for better type safety.
-   * This constructor will be removed in v15.0.0.
-   *
-   * Migration timeline:
-   * - v13.0.24+: Deprecation warnings (current)
-   * - v14.0.0: Runtime console warnings
-   * - v15.0.0: Complete removal
-   *
-   * @example
-   * ```typescript
-   * // Instead of: new AxAI({ name: 'openai', apiKey: '...' })
-   * // Use: AxAI.create({ name: 'openai', apiKey: '...' })
-   * // Or: ai({ name: 'openai', apiKey: '...' })
-   * ```
-   */
-  constructor(options: Readonly<AxAIArgs<TModelKey>>) {
+  private constructor(options: Readonly<AxAIArgs<TModelKey>>) {
     switch (options.name) {
       case 'openai':
         this.ai = new AxAIOpenAI<TModelKey>(options);
@@ -245,15 +212,6 @@ export class AxAI<TModelKey = string>
       case 'huggingface':
         this.ai = new AxAIHuggingFace<TModelKey>(options);
         break;
-      case 'groq':
-        this.ai = new AxAIGroq<TModelKey>(options);
-        break;
-      case 'together':
-        this.ai = new AxAITogether<TModelKey>(options);
-        break;
-      case 'openrouter':
-        this.ai = new AxAIOpenRouter<TModelKey>(options);
-        break;
       case 'cohere':
         this.ai = new AxAICohere<TModelKey>(options);
         break;
@@ -269,14 +227,8 @@ export class AxAI<TModelKey = string>
       case 'deepseek':
         this.ai = new AxAIDeepSeek<TModelKey>(options);
         break;
-      case 'ollama':
-        this.ai = new AxAIOllama<TModelKey>(options);
-        break;
       case 'reka':
         this.ai = new AxAIReka<TModelKey>(options);
-        break;
-      case 'webllm':
-        this.ai = new AxAIWebLLM<TModelKey>(options);
         break;
       default:
         throw new Error('Unknown AI');

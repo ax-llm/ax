@@ -113,10 +113,9 @@ npm run fix:format --workspace=@ax-llm/ax         # Fix formatting only
 - **Purpose**: Test individual functions, classes, and modules
 - **Key Areas**:
   - Signature parsing and validation (`dsp/sig.test.ts`, `dsp/parser.test.ts`)
-  - Template literal functionality (`dsp/template.test.ts`)
   - AI service integrations (`ai/*.test.ts`)
   - Flow orchestration (`flow/*.test.ts`)
-  - Memory and database operations (`mem/*.test.ts`)
+  - Memory operations (`mem/*.test.ts`)
 
 ### 2. Type Definition Tests (`.test-d.ts` files)
 
@@ -254,7 +253,7 @@ npm run build --workspace=@ax-llm/ax
 // Good test example
 describe("AxSignature type inference", () => {
   it("should default missing types to string", () => {
-    const sig = AxSignature.create("question, image:image -> answer");
+    const sig = s("question, image:image -> answer");
     // Test both runtime behavior and type inference
     expect(sig.getInputFields()[0].type).toEqual({
       name: "string",
@@ -425,13 +424,11 @@ const dynamicSig = s("userInput:string -> responseText:string")
   .appendOutputField("confidence", f.number("Confidence score"));
 ```
 
-**DEPRECATED PATTERNS (will be removed in v15.0.0)**
+**REMOVED PATTERNS**
 
 ```typescript
-// ❌ DEPRECATED: Constructors, template literals
-const ai = new AxAI({ name: "openai", apiKey: "..." });
-const sig = s`userQuestion:${f.string()} -> responseText:${f.string()}`; // template literals
-const gen = ax`emailText:${f.string()} -> categoryType:${f.class(["a", "b"])}`; // template literals
+// ❌ Removed: constructors and tagged templates
+// Use ai({ name: "openai", apiKey: "..." }) instead of constructor calls.
 ```
 
 ## 🔧 Signatures and AxGen Deep Dive
@@ -450,7 +447,7 @@ Signatures define the input/output structure for LLM interactions. They specify:
 #### Current Recommended Approach
 
 ```typescript
-import { ax, f, s } from "@ax-llm/ax";
+import { ai, ax, f, s } from "@ax-llm/ax";
 
 // Basic signature structure
 const signature = s("inputField:string -> outputField:string");
@@ -666,14 +663,12 @@ const classification = await classifier.forward(llm, {
 
 #### 2. Core Components
 
-- **AxAI**: Main AI interface supporting 15+ LLM providers (use `ai()` factory
+- **AxAI**: Main AI interface for model-lab and core LLM providers (use `ai()` factory
   function)
 - **AxAgent**: Agent framework with inter-agent communication (use `agent()`
   factory function)
 - **AxFlow**: AI workflow orchestration engine for complex multi-step processes
-- **AxDB**: Vector database abstraction (Memory, Weaviate, Pinecone, Cloudflare)
-- **AxDBManager**: Smart chunking, embedding, and querying
-- **axRAG**: Modern RAG implementation built on AxFlow (replaces AxRAG)
+- **GEPA / BootstrapFewShot**: Optimizers for prompt and demo improvement
 
 #### 3. Streaming & Multi-modal
 
@@ -738,8 +733,8 @@ export * from "./prompts/index.js";
 - Comprehensive examples for all features
 - Each example should be runnable with `npm run tsx`
 - Include proper environment variable setup
-- **ALWAYS use template literals** (`ax` and `s`) in examples, not string-based
-  signatures
+- **ALWAYS use string-call forms** (`ax("...")` and `s("...")`) in examples, not
+  tagged template signatures
 - Use descriptive field names following the `emailText` not `text` pattern
 
 ## Dependencies & Constraints

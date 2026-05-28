@@ -1,15 +1,13 @@
-import type React from 'react';
 import { motion } from 'framer-motion';
 import {
-  Sparkles,
-  Brain,
   Bot,
-  GitBranch,
-  GraduationCap,
+  Brain,
   FileSignature,
-  Search,
+  GitBranch,
   Play,
+  Sparkles,
 } from 'lucide-react';
+import type React from 'react';
 import { GlowCard } from './GlowCard';
 
 interface Feature {
@@ -90,17 +88,6 @@ const features: Feature[] = [
     external: true,
   },
   {
-    name: 'AxLearn',
-    description: 'Self-improving optimization with teacher-student training.',
-    icon: GraduationCap,
-    glowColor: 'rgba(244, 114, 182, 0.15)',
-    iconBg: 'bg-pink-100 dark:bg-pink-500/20',
-    iconColor: 'text-pink-600 dark:text-pink-400',
-    span: 'md:col-span-2',
-    href: `${GITHUB_SKILL}/ax-learn.md`,
-    external: true,
-  },
-  {
     name: 'AxSignature',
     description: 'Type-safe I/O schemas with validation constraints.',
     icon: FileSignature,
@@ -110,18 +97,6 @@ const features: Feature[] = [
     span: 'md:col-span-2',
     href: `${GITHUB_SKILL}/ax-signature.md`,
     external: true,
-  },
-  {
-    name: 'AxRAG',
-    description:
-      'Retrieval-augmented generation with built-in chunking and reranking.',
-    icon: Search,
-    glowColor: 'rgba(99, 102, 241, 0.15)',
-    iconBg: 'bg-indigo-100 dark:bg-indigo-500/20',
-    iconColor: 'text-indigo-600 dark:text-indigo-400',
-    span: 'md:col-span-3',
-    href: '/axrag',
-    external: false,
   },
   {
     name: 'DSPy Notebook',

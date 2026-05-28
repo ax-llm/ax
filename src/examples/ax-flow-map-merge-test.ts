@@ -1,6 +1,6 @@
-import { AxAI, flow } from '@ax-llm/ax';
+import { ai as createAI, flow } from '@ax-llm/ax';
 
-const ai = new AxAI({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! });
+const ai = createAI({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! });
 
 const flowWithMap = flow()
   .node('processor', 'inputText:string -> processedData:string')

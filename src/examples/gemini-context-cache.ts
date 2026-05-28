@@ -22,12 +22,7 @@
  * automatically injecting cache_control for ephemeral caching.
  */
 
-import {
-  AxAIGoogleGemini,
-  AxAIGoogleGeminiModel,
-  AxGen,
-  AxMemory,
-} from '@ax-llm/ax';
+import { AxAIGoogleGeminiModel, AxGen, AxMemory, ai } from '@ax-llm/ax';
 
 // Large system prompt that benefits from caching
 const LARGE_SYSTEM_PROMPT = `
@@ -80,7 +75,8 @@ Your responses should be structured, clear, and actionable.
 
 async function runWithContextCache() {
   // Initialize Gemini with your API key
-  const ai = new AxAIGoogleGemini({
+  const llm = ai({
+    name: 'google-gemini',
     apiKey: process.env.GOOGLE_APIKEY,
     config: {
       model: AxAIGoogleGeminiModel.Gemini25Flash,
@@ -148,7 +144,7 @@ class UserService {
 
     const startTime = Date.now();
 
-    const result = await codeReviewer.forward(ai, snippet, {
+    const result = await codeReviewer.forward(llm, snippet, {
       mem,
       sessionId,
       // Enable context caching - presence of this object enables caching
@@ -183,7 +179,8 @@ class UserService {
 
 // Alternative: Using explicit cache management
 async function runWithExplicitCacheManagement() {
-  const ai = new AxAIGoogleGemini({
+  const llm = ai({
+    name: 'google-gemini',
     apiKey: process.env.GOOGLE_APIKEY,
     config: {
       model: AxAIGoogleGeminiModel.Gemini25Flash,
@@ -203,7 +200,7 @@ async function runWithExplicitCacheManagement() {
   // First call: Creates the cache automatically
   console.log('First call - cache will be created automatically...');
   const result1 = await gen.forward(
-    ai,
+    llm,
     { question: 'What is the SOLID principle?' },
     {
       sessionId,
@@ -217,7 +214,7 @@ async function runWithExplicitCacheManagement() {
   // Subsequent calls: Cache is reused automatically (same sessionId + content hash)
   console.log('\nSecond call - cache is reused automatically...');
   const result2 = await gen.forward(
-    ai,
+    llm,
     { question: 'Explain the Decorator pattern.' },
     {
       sessionId,
@@ -230,7 +227,7 @@ async function runWithExplicitCacheManagement() {
   // TTL is auto-refreshed when near expiration (within refreshWindowSeconds)
   console.log('\nThird call - cache continues to be reused...');
   const result3 = await gen.forward(
-    ai,
+    llm,
     { question: 'What are goroutines in Go?' },
     {
       sessionId,
