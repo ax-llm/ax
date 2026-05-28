@@ -226,6 +226,7 @@ export type AxProgramForwardOptions<MODEL> = AxAIServiceOptions & {
   description?: string;
   thoughtFieldName?: string;
   promptTemplate?: typeof AxPromptTemplate;
+  includeOptionalInputFieldsInSystemPrompt?: boolean;
   asserts?: AxAssertion<any>[];
   streamingAsserts?: AxStreamingAssertion[];
   excludeContentFromTrace?: boolean;

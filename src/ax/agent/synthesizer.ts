@@ -224,9 +224,12 @@ export class Synthesizer<OUT extends AxGenOut = AxGenOut> {
       this._stopRequested = false;
       throw new Error('Synthesizer stopped by user (pre-forward)');
     }
+    const { mem: _mem, ...callOptions } = args.options ?? {};
+    const { mem: _configuredMem, ...configuredOptions } =
+      this.options.forwardOptions ?? {};
     const merged: AxProgramForwardOptions<string> = {
-      ...(this.options.forwardOptions ?? {}),
-      ...(args.options ?? {}),
+      ...configuredOptions,
+      ...callOptions,
       maxSteps: 1,
     };
     return this.program.forward(
@@ -256,9 +259,12 @@ export class Synthesizer<OUT extends AxGenOut = AxGenOut> {
       this._stopRequested = false;
       throw new Error('Synthesizer stopped by user (pre-forward)');
     }
+    const { mem: _mem, ...callOptions } = args.options ?? {};
+    const { mem: _configuredMem, ...configuredOptions } =
+      this.options.forwardOptions ?? {};
     const merged: AxProgramForwardOptions<string> = {
-      ...(this.options.forwardOptions ?? {}),
-      ...(args.options ?? {}),
+      ...configuredOptions,
+      ...callOptions,
       maxSteps: 1,
     };
     yield* this.program.streamingForward(

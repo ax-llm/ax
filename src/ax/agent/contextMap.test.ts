@@ -320,6 +320,7 @@ describe('AxAgentContextMap', () => {
     );
     const onUpdate = vi.fn();
     const distillerPrompts: string[] = [];
+    const distillerUserPrompts: string[] = [];
     let distillerUpdaterCalls = 0;
     let cartographerCalls = 0;
 
@@ -363,6 +364,12 @@ describe('AxAgentContextMap', () => {
 
         if (systemPrompt.includes('You (`distiller`)')) {
           distillerPrompts.push(systemPrompt);
+          distillerUserPrompts.push(
+            req.chatPrompt
+              .filter((msg) => msg.role === 'user')
+              .map((msg) => String(msg.content ?? ''))
+              .join('\n')
+          );
           return {
             results: [
               {
@@ -421,7 +428,9 @@ describe('AxAgentContextMap', () => {
     expect(result.answer).toBe('ok');
     expect(frozenResult.answer).toBe('ok');
     expect(distillerPrompts[0]).toContain('### Context Map');
-    expect(distillerPrompts[0]).toContain('Existing billing orientation');
+    expect(distillerPrompts[0]).not.toContain('Existing billing orientation');
+    expect(distillerUserPrompts[0]).toContain('Context Map:');
+    expect(distillerUserPrompts[0]).toContain('Existing billing orientation');
     expect(distillerUpdaterCalls).toBe(1);
     expect(cartographerCalls).toBe(1);
     expect(onUpdate).toHaveBeenCalledTimes(1);
@@ -430,5 +439,84 @@ describe('AxAgentContextMap', () => {
       step: 1,
     });
     expect(map.text).toContain('Invoices are indexed by customer id.');
+  });
+
+  it('rebuilds the distiller actor inputs when a context map is attached after construction', async () => {
+    const distillerPrompts: string[] = [];
+    const distillerUserPrompts: string[] = [];
+
+    const ai = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req): Promise<AxChatResponse> => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('You (`distiller`)')) {
+          distillerPrompts.push(systemPrompt);
+          distillerUserPrompts.push(
+            req.chatPrompt
+              .filter((msg) => msg.role === 'user')
+              .map((msg) => String(msg.content ?? ''))
+              .join('\n')
+          );
+          return {
+            results: [
+              {
+                index: 0,
+                content:
+                  'Javascript Code: final("distilled", {"section":"billing"})',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('You (`executor`)')) {
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: final("done", {"answer":"ok"})',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            {
+              index: 0,
+              content: 'Answer: ok',
+              finishReason: 'stop',
+            },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const myAgent = agent('context:string, query:string -> answer:string', {
+      contextFields: ['context'],
+      runtime: contextMapRuntime,
+    });
+    myAgent.setContextMap(
+      new AxAgentContextMap(
+        '## CONTEXT UNDERSTANDING\n[cu-00001] Late billing orientation.\n',
+        { infiniteEvolve: false, evolveSteps: 0 }
+      )
+    );
+
+    const result = await myAgent.forward(ai, {
+      context: 'Long billing corpus',
+      query: 'How are invoices organized?',
+    });
+
+    expect(result.answer).toBe('ok');
+    expect(distillerPrompts[0]).toContain('### Context Map');
+    expect(distillerPrompts[0]).not.toContain('Late billing orientation');
+    expect(distillerUserPrompts[0]).toContain('Context Map:');
+    expect(distillerUserPrompts[0]).toContain('Late billing orientation');
   });
 });

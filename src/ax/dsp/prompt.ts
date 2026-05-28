@@ -25,6 +25,8 @@ export interface AxPromptTemplateOptions {
   functions?: Readonly<AxInputFunctionType>;
   thoughtFieldName?: string;
   contextCache?: AxContextCacheOptions;
+  /** When true, optional input fields stay in the system prompt field list even when values omit them. */
+  includeOptionalInputFieldsInSystemPrompt?: boolean;
   /** When true, cacheBreakpoint is ignored and cache is applied to all positions (for providers with auto-lookback like Anthropic) */
   ignoreBreakpoints?: boolean;
   /** When set, indicates structured output should be delivered via a function call with this name */
@@ -105,6 +107,7 @@ export class AxPromptTemplate {
   private readonly thoughtFieldName: string;
   private readonly functions?: Readonly<AxInputFunctionType>;
   private readonly contextCache?: AxContextCacheOptions;
+  private readonly includeOptionalInputFieldsInSystemPrompt: boolean;
   private readonly ignoreBreakpoints: boolean;
   private readonly structuredOutputFunctionName?: string;
   private readonly customTemplate?: string;
@@ -119,6 +122,8 @@ export class AxPromptTemplate {
     this.thoughtFieldName = options?.thoughtFieldName ?? 'thought';
     this.functions = options?.functions;
     this.contextCache = options?.contextCache;
+    this.includeOptionalInputFieldsInSystemPrompt =
+      options?.includeOptionalInputFieldsInSystemPrompt ?? false;
     this.ignoreBreakpoints = options?.ignoreBreakpoints ?? false;
     this.structuredOutputFunctionName = options?.structuredOutputFunctionName;
     this.customTemplate = options?.customTemplate;
@@ -253,6 +258,9 @@ export class AxPromptTemplate {
 
   private getInputFieldsForValues(values?: unknown): readonly AxField[] {
     const inputFields = this.sig.getInputFields();
+    if (this.includeOptionalInputFieldsInSystemPrompt) {
+      return inputFields;
+    }
     const records = getInputValueRecords(values);
     if (!records) {
       return inputFields;
@@ -423,9 +431,12 @@ export class AxPromptTemplate {
         cachedContent.every((v) => v.type === 'text')
           ? cachedContent.map((v) => v.text).join('\n')
           : cachedContent.reduce(combineConsecutiveStrings('\n'), []);
+      const hasFormattedCachedContent = hasUserMessageContent(
+        formattedCachedContent
+      );
 
       // Prepend separator if we had examples/demos
-      if (hasExamplesOrDemos) {
+      if (hasFormattedCachedContent && hasExamplesOrDemos) {
         if (typeof formattedCachedContent === 'string') {
           formattedCachedContent = exampleSeparator + formattedCachedContent;
         } else {
@@ -452,14 +463,23 @@ export class AxPromptTemplate {
           ? nonCachedContent.map((v) => v.text).join('\n')
           : nonCachedContent.reduce(combineConsecutiveStrings('\n'), []);
 
-      const mutableMessages = [
-        {
+      const mutableMessages: Extract<
+        AxChatRequest['chatPrompt'][number],
+        { role: 'user' }
+      >[] = [];
+      if (hasFormattedCachedContent) {
+        mutableMessages.push({
           role: 'user' as const,
           content: formattedCachedContent,
           cache: true,
-        },
-        { role: 'user' as const, content: formattedNonCachedContent },
-      ];
+        });
+      }
+      if (hasUserMessageContent(formattedNonCachedContent)) {
+        mutableMessages.push({
+          role: 'user' as const,
+          content: formattedNonCachedContent,
+        });
+      }
 
       return {
         chatPrompt: [systemPrompt, ...fewShotMessages, ...mutableMessages],
@@ -505,13 +525,17 @@ export class AxPromptTemplate {
     const allFieldsCached =
       hasCachedFields && nonCachedFields.length === 0 && this.contextCache;
 
-    const mutableMessages = [
-      {
+    const mutableMessages: Extract<
+      AxChatRequest['chatPrompt'][number],
+      { role: 'user' }
+    >[] = [];
+    if (hasUserMessageContent(formattedUserContent)) {
+      mutableMessages.push({
         role: 'user' as const,
         content: formattedUserContent,
         ...(allFieldsCached ? { cache: true } : {}),
-      },
-    ];
+      });
+    }
 
     return {
       chatPrompt: [systemPrompt, ...fewShotMessages, ...mutableMessages],
@@ -1418,6 +1442,21 @@ const isProvidedValue = (value: unknown) => {
   }
 
   return true;
+};
+
+const hasUserMessageContent = (
+  content: string | ChatRequestUserMessage
+): boolean => {
+  if (typeof content === 'string') {
+    return content.trim().length > 0;
+  }
+
+  return content.some((part) => {
+    if (part.type === 'text') {
+      return part.text.trim().length > 0;
+    }
+    return true;
+  });
 };
 
 const isEmptyValue = (

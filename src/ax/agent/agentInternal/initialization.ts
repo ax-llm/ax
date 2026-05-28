@@ -126,6 +126,7 @@ export function initializeAgentInternal(
     contextMap: _cm,
     contextMapText: _cmt,
     description: _desc,
+    mem: _mem,
     ...genOptions
   } = options as typeof options & { description?: string };
   s.program = new AxGen(signature, genOptions);

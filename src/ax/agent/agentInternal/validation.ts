@@ -69,9 +69,14 @@ export function validateConfiguredSignature(
   );
   const reservedInputFieldNames = new Set([
     'contextMetadata',
+    'contextMap',
+    'discoveredToolDocs',
     'guidanceLog',
+    'loadedSkills',
+    'summarizedActorLog',
     'actionLog',
     'liveRuntimeState',
+    'contextPressure',
     'contextData',
   ]);
   const reservedOutputFieldNames = new Set([

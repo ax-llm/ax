@@ -246,6 +246,14 @@ Model guidance:
 - For cost-sensitive setups, a common pattern is stronger actor plus cheaper responder.
 - Prefer `executorModelPolicy` over globally upgrading the whole agent when the actor only needs help after context grows or the run starts thrashing.
 
+Prompt/cache shape:
+
+- Actor turns are compact observable turns, not replayed chat transcripts.
+- Stable system prompt: role/stage rules, primitive descriptions, static module list, always-included callable signatures, output contract, and field definitions.
+- Cached working inputs: task inputs, inline context, `contextMetadata`, `contextMap`, `memories`, `executorRequest`, `distilledContext`, `discoveredToolDocs`, `loadedSkills`, and `summarizedActorLog`.
+- Dynamic turn tail: `guidanceLog`, `actionLog`, `liveRuntimeState`, and `contextPressure`.
+- Prefer one compact inspection per non-final turn. Never combine inspection output with `final(...)` or `askClarification(...)`.
+
 Invalid actor turn:
 
 ```javascript

@@ -80,6 +80,7 @@ const SHARED_KNOB_KEYS = [
   'onMemoriesSearch',
   'onLoadedMemories',
   'onUsedMemories',
+  'contextCache',
 ] as const;
 
 function pickShared<IN extends import('../../dsp/types.js').AxGenIn>(
@@ -249,8 +250,13 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     // .forward() calls — not just call-time debug (which flows via options).
     const debugOverride =
       options.debug !== undefined ? { debug: options.debug } : {};
+    const contextCacheOverride =
+      options.contextCache !== undefined
+        ? { contextCache: options.contextCache }
+        : {};
     const finalResponderForwardOptions = {
       ...debugOverride,
+      ...contextCacheOverride,
       ...finalResponderForwardOptionsFromUser,
     };
 
@@ -268,6 +274,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           .string(
             'Memories already loaded for this run, rendered as markdown blocks with `ID:` lines. In JS, read `inputs.memories` as `[{ id, content }]`. Call `recall(...)` to load more.'
           )
+          .cache()
           .optional()
       );
     }
@@ -319,6 +326,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           .string(
             'Memories loaded so far for this run, rendered as markdown blocks with `ID:` lines. In JS, read `inputs.memories` as `[{ id, content }]` (carried over from the distiller and any prior executor turns). Call `recall(...)` to load more.'
           )
+          .cache()
           .optional()
       );
     }
@@ -606,6 +614,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     (this.distiller as any).contextMapText = text
       ? this.contextMap?.text
       : undefined;
+    (this.distiller as any)._buildSplitPrograms?.();
   }
 
   public async _updateContextMapFromPipelineState(

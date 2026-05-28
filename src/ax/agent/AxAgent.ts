@@ -27,9 +27,9 @@ import type {
 import type { createCompletionBindings } from './completion.js';
 import type { ActionLogEntry } from './contextManager.js';
 import {
-  getRuntimePrimitiveOverrides,
   type AxCodeRuntime,
   type AxRLMConfig,
+  getRuntimePrimitiveOverrides,
 } from './rlm.js';
 import {
   type AxRuntimePrimitiveStage,
@@ -798,6 +798,7 @@ export class ActorAgentRLM<
       onUsedMemories: _oum,
       contextMap: _cm,
       contextMapText: _cmt,
+      mem: _mem,
       ...rest
     } = this.options as typeof this.options & { contextMapText?: string };
     return rest;

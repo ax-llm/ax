@@ -38,6 +38,13 @@ import type {
   AxAgentUsedSkill,
 } from './types.js';
 
+function stripInternalChatMemoryOptions<T extends Record<string, unknown>>(
+  options: T
+): Omit<T, 'mem'> {
+  const { mem: _mem, ...rest } = options;
+  return rest;
+}
+
 export async function runActorLoop<IN extends AxGenIn>(
   self: any,
   ai: AxAIService,
@@ -157,13 +164,13 @@ export async function runActorLoop<IN extends AxGenIn>(
     }
   };
 
-  const actorMergedOptions = {
+  const actorMergedOptions = stripInternalChatMemoryOptions({
     ...s._genOptions,
     ...s.executorForwardOptions,
     ...options,
     debug,
     abortSignal: effectiveAbortSignal,
-  };
+  });
   const explicitActorDebugHideSystemPrompt = [
     options,
     s.executorForwardOptions,

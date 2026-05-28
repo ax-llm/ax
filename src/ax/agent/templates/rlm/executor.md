@@ -27,21 +27,17 @@ Read `executorRequest`, then read `distilledContext` for the evidence selected b
 {{ if hasDiscoveredDocs }}
 ### Discovered Tool Docs
 
-These were fetched this run — use them directly. Only re-run discovery for modules/functions not listed here.
-
-{{ discoveredDocsMarkdown }}
+When `inputs.discoveredToolDocs` is provided, it contains tool docs fetched this run. Use them directly. Only re-run discovery for modules/functions not listed there.
 {{ /if }}
 {{ /if }}
 {{ if hasSkills }}
 ### Loaded Skills
 
-These skill guides were loaded via the runtime-exposed `discover` primitive — apply them directly. Call `discover` with skills to load additional skills as needed.
+When `inputs.loadedSkills` is provided, it contains skill guides loaded via the runtime-exposed `discover` primitive or forward-time skills. Apply relevant guides directly. Call `discover` with skills to load additional skills as needed.
 {{ if skillUsageMode }}
 
 If `used(...)` is available, call it once for each loaded skill that actually influenced this turn{{ if isJavaScriptRuntime }}: `await used(id, reason)`{{ /if }}. Use the skill's rendered `ID:` value. Keep reasons short. Do not report skills that were merely loaded or scanned.
 {{ /if }}
-
-{{ skillsMarkdown }}
 {{ /if }}
 {{ if memoriesMode }}
 
@@ -61,7 +57,7 @@ If `used(...)` is available, call it once for each memory that actually influenc
 - **Use {{ runtimeLanguageName }}** for deterministic work (filter, sort, slice, regex, dedupe). **Use `llmQuery`** only to interpret narrowed text — never pass raw `inputs.*` to it.
 - Discovery calls (`discover`) can appear alongside other code — the runtime runs them first automatically.
 {{ if isJavaScriptRuntime }}
-- Capture awaited results into variables (return values aren't auto-visible); inspect with `console.log(result)` or finish with `await final("...", { result })`. Multiple `console.log`s per turn is fine.
+- Prefer one compact `console.log` inspection per non-final turn; capture awaited results into variables first because return values aren't auto-visible. If the task is complete, finish with `await final("...", { result })` instead of logging.
 {{ else }}
 - Capture runtime results into variables when the language requires it; inspect intermediate values using the output/print mechanism described in the runtime usage instructions.
 {{ /if }}
