@@ -74,7 +74,10 @@ export function validateConfiguredSignature(
     'liveRuntimeState',
     'contextData',
   ]);
-  const reservedOutputFieldNames = new Set(['javascriptCode']);
+  const reservedOutputFieldNames = new Set([
+    'javascriptCode',
+    s.runtimeCodeFieldName ?? 'javascriptCode',
+  ]);
 
   for (const field of signature.getInputFields()) {
     if (reservedInputFieldNames.has(field.name)) {

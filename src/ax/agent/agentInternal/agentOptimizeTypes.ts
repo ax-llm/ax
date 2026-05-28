@@ -36,7 +36,8 @@ import type {
 
 /**
  * Demo traces for AxAgent's split architecture.
- * Actor demos use `{ javascriptCode }`.
+ * Actor demos use the runtime code field (`javascriptCode` for JavaScript,
+ * `<language>Code` for other runtimes such as `pythonCode`).
  * Responder demos use the agent's output type + optional input fields.
  */
 export type AxAgentDemos<
@@ -46,7 +47,7 @@ export type AxAgentDemos<
 > =
   | {
       programId: `${PREFIX}.actor`;
-      traces: (Record<string, AxFieldValue> & { javascriptCode: string })[];
+      traces: Record<string, AxFieldValue>[];
     }
   | {
       programId: `${PREFIX}.responder`;

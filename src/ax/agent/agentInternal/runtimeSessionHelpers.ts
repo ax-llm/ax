@@ -54,6 +54,7 @@ export interface InspectHelpersDeps {
   inspectReservedNames: readonly string[];
   bootstrapGlobalNames: ReadonlySet<string>;
   runtimeActionLogEntries: readonly ActionLogEntry[];
+  allowJavaScriptFallback?: boolean;
 }
 
 export interface InspectHelpers {
@@ -74,10 +75,14 @@ export function buildInspectHelpers(deps: InspectHelpersDeps): InspectHelpers {
     inspectReservedNames,
     bootstrapGlobalNames,
     runtimeActionLogEntries,
+    allowJavaScriptFallback = true,
   } = deps;
   let inspectBaselineNames: string[] | undefined;
 
   const loadInspectBaselineNames = async (): Promise<string[]> => {
+    if (!allowJavaScriptFallback) {
+      return [];
+    }
     try {
       const result = await sessionRef.current.execute(
         buildInspectRuntimeBaselineCode(),
@@ -116,6 +121,10 @@ export function buildInspectHelpers(deps: InspectHelpersDeps): InspectHelpers {
           signal: effectiveAbortSignal,
           reservedNames: inspectReservedNames,
         });
+      }
+
+      if (!allowJavaScriptFallback) {
+        return '[runtime state inspection unavailable: runtime session does not implement inspectGlobals()]';
       }
 
       const baselineNames = await ensureInspectBaselineNames();

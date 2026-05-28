@@ -26,7 +26,11 @@ import type {
 } from '../dsp/types.js';
 import type { createCompletionBindings } from './completion.js';
 import type { ActionLogEntry } from './contextManager.js';
-import type { AxCodeRuntime, AxRLMConfig } from './rlm.js';
+import {
+  getRuntimePrimitiveOverrides,
+  type AxCodeRuntime,
+  type AxRLMConfig,
+} from './rlm.js';
 import {
   type AxRuntimePrimitiveStage,
   renderRuntimePrimitive,
@@ -115,9 +119,9 @@ import {
 // ----- ActorAgentRLM Class -----
 
 /**
- * RLM actor stage: a single AxGen program driven in a JS-runtime loop.
+ * RLM actor stage: a single AxGen program driven in a code-runtime loop.
  *
- * The actor generates JavaScript, the TypeScript loop executes it in a
+ * The actor generates runtime-language code, the TypeScript loop executes it in a
  * pluggable `AxCodeRuntime`, the result is appended to an action log, and the
  * loop continues until the actor terminates with `final(...)` /
  * `askClarification(...)` (or hits `maxTurns`).
@@ -173,6 +177,11 @@ export class ActorAgentRLM<
   private contextPromptConfigByField: Map<string, AxContextFieldPromptConfig> =
     new Map();
   private functionDiscoveryEnabled = false;
+  private runtimeLanguageName = 'JavaScript';
+  private runtimeCodeFieldName = 'javascriptCode';
+  private runtimeCodeFieldTitle = 'Javascript Code';
+  private runtimeCodeFenceLanguage = 'js';
+  private isJavaScriptRuntime = true;
   private runtimeUsageInstructions = '';
   private enforceIncrementalConsoleTurns = false;
   private bubbleErrors?: ReadonlyArray<new (...args: any[]) => Error>;
@@ -262,11 +271,15 @@ export class ActorAgentRLM<
 
     const stage = this._actorPrimitiveStage();
     const flags = this._primitiveFlags();
+    const primitiveOverrides = getRuntimePrimitiveOverrides(
+      this.runtime,
+      this._primitiveOverrides
+    );
     for (const p of visibleRuntimePrimitives(stage, flags)) {
       const current = renderRuntimePrimitive(
         p,
         flags,
-        this._primitiveOverrides?.get(p.id)
+        primitiveOverrides?.get(p.id)
       );
       out.push({
         key: `${id}::primitive:${p.id}`,

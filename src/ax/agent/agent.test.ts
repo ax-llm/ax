@@ -1002,6 +1002,109 @@ describe('Split-architecture signature derivation', () => {
     );
   });
 
+  it('should derive non-JavaScript actor code field from runtime language', () => {
+    const pythonRuntime: AxCodeRuntime = {
+      language: 'Python',
+      getUsageInstructions: () => '- Use Python syntax for runtime code.',
+      createSession() {
+        return { execute: async () => 'ok', close: () => {} };
+      },
+    };
+
+    const testAgent = agent('query:string -> answer:string', {
+      contextFields: [],
+      runtime: pythonRuntime,
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const anyAgent = getInternal(testAgent) as any;
+    const actorSig = anyAgent.actorProgram.getSignature();
+    const outputs = actorSig.getOutputFields() as AxIField[];
+    const actorDesc = actorSig.getDescription() as string;
+
+    expect(outputs).toHaveLength(1);
+    expect(outputs[0].name).toBe('pythonCode');
+    expect(outputs[0].description).toContain(
+      'The value of this field must be executable Python only.'
+    );
+    expect(actorDesc).toContain('Python runtime');
+    expect(actorDesc).toContain('Python Runtime Usage Instructions');
+    expect(actorDesc).toContain('Python Code');
+    expect(actorDesc).not.toContain('```js');
+    expect(actorDesc).not.toContain('JavaScript Runtime Usage Instructions');
+  });
+
+  it('should reject the active non-JavaScript runtime code field name', () => {
+    const pythonRuntime: AxCodeRuntime = {
+      language: 'Python',
+      getUsageInstructions: () => '',
+      createSession() {
+        return { execute: async () => 'ok', close: () => {} };
+      },
+    };
+
+    expect(() =>
+      agent('query:string -> pythonCode:string', {
+        contextFields: [],
+        runtime: pythonRuntime,
+      })
+    ).toThrow(
+      'AxAgent reserves output field name "pythonCode" for internal actor wiring'
+    );
+  });
+
+  it('should execute actor code from a non-JavaScript runtime field without JS turn policy', async () => {
+    const executedCodes: string[] = [];
+    let globalsSeen: Record<string, unknown> | undefined;
+    const pythonRuntime: AxCodeRuntime = {
+      language: 'Python',
+      getUsageInstructions: () =>
+        '- Python runtime; console.log is mentioned only as text.',
+      createSession(globals) {
+        globalsSeen = globals;
+        return {
+          execute: async (code: string) => {
+            executedCodes.push(code);
+            (globals?.final as (...args: unknown[]) => void)('done', {
+              answer: 'ok',
+            });
+            return 'python-result';
+          },
+          patchGlobals: async () => {},
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('query:string -> answer:string', {
+      contextFields: [],
+      runtime: pythonRuntime,
+    });
+    const anyAgent = getInternal(testAgent) as any;
+    anyAgent.actorProgram.forward = async () => ({
+      pythonCode: 'value = 1',
+    });
+    anyAgent.responderProgram.forward = async () => {
+      throw new Error('Responder should not run in _runActorLoop test');
+    };
+
+    const actorState = await anyAgent._runActorLoop(
+      new AxMockAIService({
+        features: { functions: false, streaming: false },
+      }),
+      { query: 'hello' },
+      undefined,
+      undefined
+    );
+
+    expect(executedCodes).toEqual(['value = 1']);
+    expect(globalsSeen).toHaveProperty('final');
+    expect(actorState.executorResult).toEqual({
+      type: 'final',
+      args: ['done', { answer: 'ok' }],
+    });
+  });
+
   it('should include object-configured context field as optional Actor input', () => {
     const testAgent = agent('context:string, query:string -> answer:string', {
       contextFields: [{ field: 'context', promptMaxChars: 1200 }],

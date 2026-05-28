@@ -11,7 +11,10 @@ import type { AxIField } from '../dsp/sig.js';
 import type { AxProgramForwardOptions } from '../dsp/types.js';
 import type { AxAgentActorTurnCallback } from './agentInternal/agentStateTypes.js';
 import type { AxAgentOnContextEvent } from './contextEvents.js';
-import { renderPrimitivesList } from './runtimePrimitives.js';
+import {
+  axRuntimePrimitives,
+  renderPrimitivesList,
+} from './runtimePrimitives.js';
 import { renderPromptTemplate } from './templateEngine.js';
 
 // ----- Helpers for rendering function/agent signatures in the actor prompt -----
@@ -129,12 +132,160 @@ function renderReturnsSummary(
   return schemaTypeToShortString(schema);
 }
 
-function renderCallableBlock(args: {
+export type AxRuntimeCallableFormatArgs = Readonly<{
   qualifiedName: string;
   description?: string;
   parameters?: AxFunctionJSONSchema;
   returns?: AxFunctionJSONSchema;
-}): string {
+}>;
+
+export type AxRuntimePrimitiveOverrideMap =
+  | ReadonlyMap<string, readonly string[]>
+  | Readonly<Record<string, readonly string[]>>;
+
+export type AxRuntimeLanguageInfo = Readonly<{
+  languageName: string;
+  codeFieldName: string;
+  codeFieldTitle: string;
+  codeFenceLanguage: string;
+  isJavaScript: boolean;
+}>;
+
+const DEFAULT_RUNTIME_LANGUAGE = 'JavaScript';
+const JAVASCRIPT_LANGUAGE_ALIASES = new Set(['javascript', 'js', 'ecmascript']);
+
+function runtimeLanguageTokens(language: string): string[] {
+  return language
+    .trim()
+    .replace(/#/g, ' Sharp ')
+    .replace(/\+/g, ' Plus ')
+    .split(/[^A-Za-z0-9]+/)
+    .filter(Boolean);
+}
+
+function lowerCamelFromTokens(tokens: readonly string[]): string {
+  if (tokens.length === 0) return '';
+  const [first, ...rest] = tokens;
+  return [
+    first!.toLowerCase(),
+    ...rest.map((token) => {
+      const lower = token.toLowerCase();
+      return `${lower.charAt(0).toUpperCase()}${lower.slice(1)}`;
+    }),
+  ].join('');
+}
+
+function titleFromFieldName(fieldName: string): string {
+  const words = fieldName
+    .replace(/Code$/, ' Code')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+export function normalizeRuntimeLanguageName(language: unknown): string {
+  if (typeof language !== 'string') return DEFAULT_RUNTIME_LANGUAGE;
+  const trimmed = language.trim();
+  return trimmed || DEFAULT_RUNTIME_LANGUAGE;
+}
+
+export function isJavaScriptRuntimeLanguage(language: unknown): boolean {
+  const languageName = normalizeRuntimeLanguageName(language);
+  const aliasKey = runtimeLanguageTokens(languageName).join('').toLowerCase();
+  return JAVASCRIPT_LANGUAGE_ALIASES.has(aliasKey);
+}
+
+export function runtimeLanguageToCodeFieldName(language: unknown): string {
+  const languageName = normalizeRuntimeLanguageName(language);
+  const tokens = runtimeLanguageTokens(languageName);
+  const aliasKey = tokens.join('').toLowerCase();
+  if (JAVASCRIPT_LANGUAGE_ALIASES.has(aliasKey)) {
+    return 'javascriptCode';
+  }
+
+  const prefix = lowerCamelFromTokens(tokens);
+  return prefix ? `${prefix}Code` : 'runtimeCode';
+}
+
+export function runtimeLanguageToCodeFenceLanguage(language: unknown): string {
+  const languageName = normalizeRuntimeLanguageName(language);
+  if (isJavaScriptRuntimeLanguage(languageName)) return 'js';
+  const tokens = runtimeLanguageTokens(languageName);
+  return tokens.length > 0 ? tokens.join('').toLowerCase() : 'text';
+}
+
+export function getRuntimeLanguageInfo(
+  runtime?: Readonly<{ language?: string }>
+): AxRuntimeLanguageInfo {
+  const languageName = normalizeRuntimeLanguageName(runtime?.language);
+  const codeFieldName = runtimeLanguageToCodeFieldName(languageName);
+  return {
+    languageName,
+    codeFieldName,
+    codeFieldTitle: titleFromFieldName(codeFieldName),
+    codeFenceLanguage: runtimeLanguageToCodeFenceLanguage(languageName),
+    isJavaScript: isJavaScriptRuntimeLanguage(languageName),
+  };
+}
+
+function coercePrimitiveOverrideMap(
+  overrides: AxRuntimePrimitiveOverrideMap | undefined
+): Map<string, readonly string[]> {
+  const out = new Map<string, readonly string[]>();
+  if (!overrides) return out;
+
+  const entries =
+    overrides instanceof Map ? overrides.entries() : Object.entries(overrides);
+  for (const [key, value] of entries) {
+    if (typeof key !== 'string' || !Array.isArray(value)) continue;
+    const lines = value
+      .map((line) => String(line).trim())
+      .filter((line) => line.length > 0);
+    if (lines.length > 0) {
+      out.set(key, lines);
+    }
+  }
+  return out;
+}
+
+function genericPrimitiveOverridesForRuntime(
+  languageName: string
+): Map<string, readonly string[]> {
+  const out = new Map<string, readonly string[]>();
+  for (const primitive of axRuntimePrimitives) {
+    out.set(primitive.id, [
+      [
+        primitive.description,
+        `Use the ${languageName} runtime call syntax described in the runtime usage instructions for \`${primitive.id}\`.`,
+      ].join('\n'),
+    ]);
+  }
+  return out;
+}
+
+export function getRuntimePrimitiveOverrides(
+  runtime: Readonly<Pick<AxCodeRuntime, 'language' | 'getPrimitiveOverrides'>>,
+  localOverrides?: ReadonlyMap<string, readonly string[]>
+): ReadonlyMap<string, readonly string[]> | undefined {
+  const info = getRuntimeLanguageInfo(runtime);
+  const merged = info.isJavaScript
+    ? new Map<string, readonly string[]>()
+    : genericPrimitiveOverridesForRuntime(info.languageName);
+
+  for (const [key, value] of coercePrimitiveOverrideMap(
+    runtime.getPrimitiveOverrides?.()
+  )) {
+    merged.set(key, value);
+  }
+
+  for (const [key, value] of localOverrides ?? []) {
+    merged.set(key, value);
+  }
+
+  return merged.size > 0 ? merged : undefined;
+}
+
+function renderJavaScriptCallableBlock(args: AxRuntimeCallableFormatArgs) {
   const paramType = renderObjectType(args.parameters, {
     respectRequired: true,
   });
@@ -146,11 +297,64 @@ function renderCallableBlock(args: {
   return description ? `${description}\n${signature}` : signature;
 }
 
+function renderGenericCallableBlock(
+  args: AxRuntimeCallableFormatArgs,
+  languageName: string
+): string {
+  const parts: string[] = [];
+  const description = args.description?.trim();
+  if (description) {
+    parts.push(description);
+  }
+  parts.push(`Callable: \`${args.qualifiedName}\``);
+  parts.push(
+    `Arguments schema: \`${renderObjectType(args.parameters, {
+      respectRequired: true,
+    })}\``
+  );
+  if (args.returns) {
+    parts.push(`Returns: \`${renderReturnsSummary(args.returns)}\``);
+  }
+  parts.push(
+    `Use the ${languageName} runtime's tool-call syntax for this callable.`
+  );
+  return parts.join('\n');
+}
+
+function renderCallableBlock(
+  args: AxRuntimeCallableFormatArgs &
+    Readonly<{
+      languageName: string;
+      isJavaScriptRuntime: boolean;
+      formatCallable?: AxCodeRuntime['formatCallable'];
+    }>
+): string {
+  if (args.formatCallable) {
+    return args.formatCallable({
+      qualifiedName: args.qualifiedName,
+      description: args.description,
+      parameters: args.parameters,
+      returns: args.returns,
+    });
+  }
+
+  if (args.isJavaScriptRuntime) {
+    return renderJavaScriptCallableBlock(args);
+  }
+
+  return renderGenericCallableBlock(args, args.languageName);
+}
+
 /**
  * A code runtime that can create persistent sessions.
  * Implement this interface for your target runtime (Node.js, browser, WASM, etc.).
  */
 export interface AxCodeRuntime {
+  /**
+   * Human-readable language name for generated actor code.
+   * Defaults to JavaScript when omitted for backwards compatibility.
+   */
+  readonly language?: string;
   createSession(
     globals?: Record<string, unknown>,
     options?: { shouldBubbleError?: (err: unknown) => boolean }
@@ -160,6 +364,16 @@ export interface AxCodeRuntime {
    * Use this for execution semantics that differ by runtime/language.
    */
   getUsageInstructions(): string;
+  /**
+   * Optional language-native prompt text for built-in actor primitives such as
+   * final, askClarification, discover, and recall.
+   */
+  getPrimitiveOverrides?(): AxRuntimePrimitiveOverrideMap | undefined;
+  /**
+   * Optional language-native formatter for callable tools exposed in the
+   * runtime. Execution still happens inside the runtime session.
+   */
+  formatCallable?(args: AxRuntimeCallableFormatArgs): string;
 }
 
 export type AxCodeSessionSnapshotEntry = {
@@ -296,6 +510,10 @@ export function axBuildDistillerDefinition(
   contextFields: readonly AxIField[],
   options: Readonly<{
     runtimeUsageInstructions?: string;
+    runtimeLanguageName?: string;
+    runtimeCodeFieldTitle?: string;
+    runtimeCodeFenceLanguage?: string;
+    isJavaScriptRuntime?: boolean;
     promptLevel?: 'default' | 'detailed';
     hasInspectRuntime?: boolean;
     hasLiveRuntimeState?: boolean;
@@ -314,6 +532,12 @@ export function axBuildDistillerDefinition(
     primitiveOverrides?: ReadonlyMap<string, readonly string[]>;
   }>
 ): string {
+  const runtimeInfo = {
+    languageName: options.runtimeLanguageName ?? DEFAULT_RUNTIME_LANGUAGE,
+    codeFieldTitle: options.runtimeCodeFieldTitle ?? 'Javascript Code',
+    codeFenceLanguage: options.runtimeCodeFenceLanguage ?? 'js',
+    isJavaScript: options.isJavaScriptRuntime ?? true,
+  };
   const contextVarList =
     contextFields.length > 0
       ? contextFields
@@ -338,6 +562,10 @@ export function axBuildDistillerDefinition(
         },
         options.primitiveOverrides
       ),
+      runtimeLanguageName: runtimeInfo.languageName,
+      runtimeCodeFieldTitle: runtimeInfo.codeFieldTitle,
+      runtimeCodeFenceLanguage: runtimeInfo.codeFenceLanguage,
+      isJavaScriptRuntime: runtimeInfo.isJavaScript,
       memoriesMode: Boolean(options.memoriesMode),
       memoryUsageMode: Boolean(options.memoryUsageMode),
       usageTrackingMode: Boolean(options.usageTrackingMode),
@@ -364,6 +592,11 @@ export function axBuildExecutorDefinition(
   responderOutputFields: readonly AxIField[],
   options: Readonly<{
     runtimeUsageInstructions?: string;
+    runtimeLanguageName?: string;
+    runtimeCodeFieldTitle?: string;
+    runtimeCodeFenceLanguage?: string;
+    isJavaScriptRuntime?: boolean;
+    formatCallable?: AxCodeRuntime['formatCallable'];
     promptLevel?: 'default' | 'detailed';
     hasInspectRuntime?: boolean;
     hasLiveRuntimeState?: boolean;
@@ -405,6 +638,12 @@ export function axBuildExecutorDefinition(
     primitiveOverrides?: ReadonlyMap<string, readonly string[]>;
   }>
 ): string {
+  const runtimeInfo = {
+    languageName: options.runtimeLanguageName ?? DEFAULT_RUNTIME_LANGUAGE,
+    codeFieldTitle: options.runtimeCodeFieldTitle ?? 'Javascript Code',
+    codeFenceLanguage: options.runtimeCodeFenceLanguage ?? 'js',
+    isJavaScript: options.isJavaScriptRuntime ?? true,
+  };
   type AvailableModule = { namespace: string; selectionCriteria?: string };
 
   const contextVarList =
@@ -468,6 +707,9 @@ export function axBuildExecutorDefinition(
                   description: fn.description,
                   parameters: fn.parameters,
                   returns: fn.returns,
+                  languageName: runtimeInfo.languageName,
+                  isJavaScriptRuntime: runtimeInfo.isJavaScript,
+                  formatCallable: options.formatCallable,
                 })
               )
               .join('\n\n')
@@ -481,6 +723,10 @@ export function axBuildExecutorDefinition(
         )
         .join('\n'),
       runtimeUsageInstructions: String(options.runtimeUsageInstructions ?? ''),
+      runtimeLanguageName: runtimeInfo.languageName,
+      runtimeCodeFieldTitle: runtimeInfo.codeFieldTitle,
+      runtimeCodeFenceLanguage: runtimeInfo.codeFenceLanguage,
+      isJavaScriptRuntime: runtimeInfo.isJavaScript,
       hasDiscoveredDocs: Boolean(options.discoveredDocsMarkdown),
       discoveredDocsMarkdown: String(options.discoveredDocsMarkdown ?? ''),
       hasSkills: Boolean(options.skillsMarkdown),

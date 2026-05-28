@@ -262,9 +262,9 @@ export type AxAgentActorTurnCallbackArgs = {
   actionLogEntryCount: number;
   /** Number of guidance log entries recorded after processing this turn. */
   guidanceLogEntryCount: number;
-  /** Full actor AxGen output for the turn, including javascriptCode and any actor fields. */
+  /** Full actor AxGen output for the turn, including the runtime code field and any actor fields. */
   executorResult: Record<string, unknown>;
-  /** Normalized JavaScript that was executed for this turn. */
+  /** Normalized runtime code that was executed for this turn. */
   code: string;
   /**
    * Raw runtime execution result before formatting or truncation.

@@ -118,7 +118,7 @@ Use direct `ax(...)` or `.chat()` if the model should receive native audio inste
 
 ## Child Agents As Tools
 
-Child agents are passed in the parent's `functions` list. There is no separate `agents` option for new code. Each child agent's `agentIdentity.namespace` (or `utils`, the default) determines where it lands in the JS runtime:
+Child agents are passed in the parent's `functions` list. There is no separate `agents` option for new code. Each child agent's `agentIdentity.namespace` (or `utils`, the default) determines where it lands in the actor runtime. With `AxJSRuntime`, that produces JavaScript call sites such as `team.writer(...)`:
 
 ```typescript
 const writer = agent('draft:string -> revision:string', {
@@ -156,7 +156,7 @@ Rules:
 
 ### Reserved namespace names
 
-The agent runtime injects a fixed set of globals into the JS REPL. These names cannot be used as `agentIdentity.namespace` values or as agent-function namespaces.
+The agent runtime injects a fixed set of globals into the runtime session. These names cannot be used as `agentIdentity.namespace` values or as agent-function namespaces.
 
 ```text
 inputs
@@ -205,7 +205,7 @@ Rules:
 
 - Prefer namespaced functions.
 - Default function namespace is `utils` when no namespace is set.
-- Use the runtime call shape `await <namespace>.<name>({...})`.
+- With `AxJSRuntime`, use the runtime call shape `await <namespace>.<name>({...})`. Custom runtimes should expose equivalent namespaced calls through their own `formatCallable()` guidance.
 - `.arg()` and `.returns()` can use Ax field helpers or any Standard Schema v1 validator directly.
 
 ## Grouped Function Modules
@@ -279,7 +279,7 @@ Rules:
 
 - `extra.protocol` is only available when the function call comes from an active AxAgent actor runtime session.
 - Use `extra.protocol.final(...)`, `extra.protocol.askClarification(...)`, or `extra.protocol.guideAgent(...)` only inside host-side function handlers.
-- Inside actor-authored JavaScript, use the runtime globals `final(...)` and `askClarification(...)`.
+- Inside actor-authored runtime code, use the runtime globals `final(...)` and `askClarification(...)` with the syntax documented by the active runtime.
 - `extra.protocol.guideAgent(...)` is handler-only internal control flow. It stops the current actor turn and appends trusted guidance to `guidanceLog` for the next iteration.
 - `askClarification(...)` accepts either a simple string or a structured object with `question` plus optional UI hints such as `type: 'date' | 'number' | 'single_choice' | 'multiple_choice'` and `choices`.
 

@@ -997,8 +997,12 @@ export async function runWithConcurrency<TIn, TOut>(
 }
 
 export function shouldEnforceIncrementalConsoleTurns(
-  runtimeUsageInstructions: string
+  runtimeUsageInstructions: string,
+  options?: Readonly<{ isJavaScriptRuntime?: boolean }>
 ): boolean {
+  if (options?.isJavaScriptRuntime === false) {
+    return false;
+  }
   return runtimeUsageInstructions.includes('console.log');
 }
 

@@ -201,7 +201,7 @@ export function wrapFunction(
 
 /**
  * Wraps agent functions under namespaced globals and child agents under
- * a configurable `<module>.*` namespace for the JS runtime session.
+ * a configurable `<module>.*` namespace for the runtime session.
  */
 export function buildRuntimeGlobals(
   self: any,

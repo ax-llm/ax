@@ -126,6 +126,9 @@ import {
   type AxContextPolicyConfig,
   type AxContextPolicyPreset,
   type AxRLMConfig,
+  type AxRuntimeCallableFormatArgs,
+  type AxRuntimeLanguageInfo,
+  type AxRuntimePrimitiveOverrideMap,
   axBuildDistillerDefinition,
   axBuildExecutorDefinition,
   axBuildResponderDefinition,
@@ -1554,8 +1557,11 @@ export type { AxResultPickerFunctionFieldResults };
 export type { AxResultPickerFunctionFunctionResults };
 export type { AxRolloutTrace };
 export type { AxRoutingResult };
+export type { AxRuntimeCallableFormatArgs };
+export type { AxRuntimeLanguageInfo };
 export type { AxRuntimePrimitive };
 export type { AxRuntimePrimitiveExample };
+export type { AxRuntimePrimitiveOverrideMap };
 export type { AxRuntimePrimitiveSignature };
 export type { AxRuntimePrimitiveStage };
 export type { AxSamplePickerOptions };

@@ -8,6 +8,7 @@ import {
 import {
   axBuildDistillerDefinition,
   axBuildExecutorDefinition,
+  getRuntimePrimitiveOverrides,
 } from '../rlm.js';
 import { compareCanonicalDiscoveryStrings } from '../runtimeDiscovery.js';
 import type {
@@ -57,7 +58,13 @@ export function buildSplitPrograms(self: any): void {
     effectiveContextPolicy.errorPruning ||
     Boolean(effectiveContextPolicy.tombstoning);
 
-  // --- Actor signature: inputs (+ contextMetadata when context fields exist) + guidanceLog + actionLog -> javascriptCode ---
+  const runtimeLanguageName = s.runtimeLanguageName ?? 'JavaScript';
+  const runtimeCodeFieldName = s.runtimeCodeFieldName ?? 'javascriptCode';
+  const runtimeCodeFieldTitle = s.runtimeCodeFieldTitle ?? 'Javascript Code';
+  const runtimeCodeFenceLanguage = s.runtimeCodeFenceLanguage ?? 'js';
+  const isJavaScriptRuntime = s.isJavaScriptRuntime !== false;
+
+  // --- Actor signature: inputs (+ contextMetadata when context fields exist) + guidanceLog + actionLog -> runtime code field ---
   let actorSigBuilder = f()
     .addInputFields(nonContextInputs)
     .addInputFields(actorInlineContextInputs);
@@ -126,8 +133,11 @@ export function buildSplitPrograms(self: any): void {
   }
 
   actorSigBuilder = actorSigBuilder.output(
-    'javascriptCode',
-    f.code('The value of this field must be executable JavaScript only.')
+    runtimeCodeFieldName,
+    f.code(
+      runtimeLanguageName,
+      `The value of this field must be executable ${runtimeLanguageName} only.`
+    )
   ) as any;
 
   const actorSig = actorSigBuilder.build();
@@ -139,7 +149,7 @@ export function buildSplitPrograms(self: any): void {
 
   // Collect metadata from registered tool functions (which now includes
   // any agents that arrived via `options.functions`) so the actor prompt
-  // describes what's available in the JS runtime session.
+  // describes what's available in the runtime session.
   const agentFunctionMeta = s.agentFunctions.map((fn: any) => ({
     name: fn.name,
     description: fn.description,
@@ -171,6 +181,11 @@ export function buildSplitPrograms(self: any): void {
   void effectiveMaxTurns;
   const actorDefinitionBuildOptions: AxStageDefinitionBuildOptions = {
     runtimeUsageInstructions: s.runtimeUsageInstructions,
+    runtimeLanguageName,
+    runtimeCodeFieldTitle,
+    runtimeCodeFenceLanguage,
+    isJavaScriptRuntime,
+    formatCallable: s.runtime.formatCallable?.bind(s.runtime),
     promptLevel: s.rlmConfig.promptLevel,
     hasInspectRuntime: effectiveContextPolicy.stateInspection.enabled,
     hasLiveRuntimeState: liveRuntimeStateEnabled,
@@ -188,7 +203,10 @@ export function buildSplitPrograms(self: any): void {
     availableModules,
     agentFunctions: agentFunctionMeta,
     templateOverride: s._actorTemplateOverrides?.get(s._actorTemplateId()),
-    primitiveOverrides: s._primitiveOverrides,
+    primitiveOverrides: getRuntimePrimitiveOverrides(
+      s.runtime,
+      s._primitiveOverrides
+    ),
   };
 
   const variant = s.options?.stageVariant as

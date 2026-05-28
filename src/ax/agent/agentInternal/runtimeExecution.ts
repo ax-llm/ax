@@ -364,6 +364,7 @@ export function createRuntimeExecutionContext(
       inspectReservedNames,
       bootstrapGlobalNames,
       runtimeActionLogEntries,
+      allowJavaScriptFallback: s.isJavaScriptRuntime !== false,
     });
 
   const inspectRuntime = effectiveContextConfig.stateInspection.enabled
@@ -591,6 +592,7 @@ export function createRuntimeExecutionContext(
     completionState,
     getMaxRuntimeChars,
     waitForCompletionSignal,
+    detectCompletionSignalCalls: s.isJavaScriptRuntime !== false,
     createSession,
   });
 

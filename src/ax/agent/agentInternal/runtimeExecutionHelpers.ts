@@ -27,6 +27,7 @@ export interface ExecutionHelperDeps {
   completionState: AxAgentRuntimeCompletionState;
   getMaxRuntimeChars: () => number;
   waitForCompletionSignal: () => Promise<void>;
+  detectCompletionSignalCalls: boolean;
   createSession: () => AxCodeSession;
 }
 
@@ -48,6 +49,7 @@ export function buildExecutionHelpers(
     completionState,
     getMaxRuntimeChars,
     waitForCompletionSignal,
+    detectCompletionSignalCalls,
     createSession,
   } = deps;
 
@@ -69,6 +71,7 @@ export function buildExecutionHelpers(
         return completionOutput;
       }
       if (
+        detectCompletionSignalCalls &&
         hasCompletionSignalCall(code) &&
         looksLikePromisePlaceholder(result)
       ) {
@@ -187,6 +190,7 @@ export function buildExecutionHelpers(
         reservedNames: protectedRuntimeNames,
       });
       if (
+        detectCompletionSignalCalls &&
         hasCompletionSignalCall(code) &&
         looksLikePromisePlaceholder(result)
       ) {
