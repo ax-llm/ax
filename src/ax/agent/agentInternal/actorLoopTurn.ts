@@ -224,7 +224,7 @@ export async function runActorTurn<_IN extends AxGenIn>(
   };
 
   const usageBefore = s.actorProgram.getUsage()?.length ?? 0;
-  const actorTurnCallback = rlm.actorTurnCallback ?? rlm.executorTurnCallback;
+  const actorTurnCallback = rlm.actorTurnCallback;
 
   const executorResult = await s.actorProgram.forward(
     ai,

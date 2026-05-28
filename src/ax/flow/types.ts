@@ -1,7 +1,6 @@
 import type { AxAIService } from '../ai/types.js';
 import type { AxGen } from '../dsp/generate.js';
 import type {
-  AxFieldValue,
   AxProgramForwardOptions,
   AxProgrammable,
   ParseSignature,
@@ -100,29 +99,6 @@ export interface AxFlowTypedSubContext<
     context: Readonly<{
       mainAi: AxAIService;
       mainOptions?: AxProgramForwardOptions<string>;
-    }>
-  ): Promise<AxFlowState>;
-}
-
-// Legacy untyped interfaces for backward compatibility
-export type AxFlowParallelBranch = (
-  subFlow: AxFlowSubContext
-) => AxFlowSubContext;
-
-export interface AxFlowSubContext {
-  execute<TAI extends Readonly<AxAIService>>(
-    nodeName: string,
-    mapping: (state: AxFlowState) => Record<string, AxFieldValue>,
-    dynamicContext?: AxFlowDynamicContext<TAI>
-  ): this;
-  map(transform: (state: AxFlowState) => AxFlowState): this;
-  executeSteps<TAI extends Readonly<AxAIService>>(
-    initialState: AxFlowState,
-    context: Readonly<{
-      mainAi: TAI;
-      mainOptions?: AxProgramForwardOptions<
-        NonNullable<ReturnType<TAI['getModelList']>>[number]['key']
-      >;
     }>
   ): Promise<AxFlowState>;
 }

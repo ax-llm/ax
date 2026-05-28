@@ -22,7 +22,7 @@ class TestProgram
   public seenAbortSignal: AbortSignal | undefined;
 
   constructor() {
-    this.signature = new AxSignature('inputText:string -> outputText:string');
+    this.signature = AxSignature.from('inputText:string -> outputText:string');
   }
 
   getSignature(): AxSignature {
@@ -264,7 +264,7 @@ describe('AxFlow propagation and instrumentation', () => {
     class AbortAwareProgram
       implements AxProgrammable<{ inputText: string }, { outputText: string }>
     {
-      private signature = new AxSignature(
+      private signature = AxSignature.from(
         'inputText:string -> outputText:string'
       );
       getSignature(): AxSignature {

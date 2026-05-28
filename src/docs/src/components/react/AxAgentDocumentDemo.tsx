@@ -206,8 +206,7 @@
 //         await engineRef.current.unload();
 //       }
 
-//       const webllm = await import('@mlc-ai/web-llm');
-//       const engine = new webllm.MLCEngine();
+//       const engine = await createLocalEngine(selectedModel);
 //       engine.setInitProgressCallback((report) => {
 //         setLoadingProgress(Math.max(3, Math.round(report.progress * 100)));
 //         setLoadingText(report.text);
@@ -216,7 +215,7 @@
 
 //       engineRef.current = engine;
 //       aiRef.current = axModule.ai({
-//         name: 'webllm',
+//         name: 'openai',
 //         engine,
 //         config: {
 //           model: selectedModel as any,

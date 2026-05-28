@@ -1,14 +1,18 @@
 // AxFlow async map functionality examples
-import { AxAI, AxAIGoogleGeminiModel, AxFlow } from '@ax-llm/ax';
+import {
+  AxAIGoogleGeminiModel,
+  ai as createAI,
+  flow as createFlow,
+} from '@ax-llm/ax';
 
-const ai = new AxAI({
+const ai = createAI({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY!,
   config: { model: AxAIGoogleGeminiModel.Gemini20FlashLite },
 });
 
 // Example 1: Single async map - API data enrichment
-const enrichmentFlow = new AxFlow<
+const enrichmentFlow = createFlow<
   { userQuery: string },
   { enrichedData: string; apiCallDuration: number }
 >().map(async (state) => {
@@ -30,7 +34,7 @@ const enrichmentFlow = new AxFlow<
 });
 
 // Example 2: Parallel async maps - Multiple API calls
-const multiApiFlow = new AxFlow<
+const multiApiFlow = createFlow<
   { productId: string },
   {
     productId: string;
@@ -59,7 +63,7 @@ const multiApiFlow = new AxFlow<
   });
 
 // Example 3: Mixed sync/async transforms with workflow
-const dataProcessingFlow = new AxFlow<
+const dataProcessingFlow = createFlow<
   { rawData: string },
   { processedResult: string; validationStatus: string }
 >()
@@ -104,7 +108,7 @@ const dataProcessingFlow = new AxFlow<
   });
 
 // Example 4: Using short alias 'm()' with async functions
-const quickAsyncFlow = new AxFlow<
+const quickAsyncFlow = createFlow<
   { message: string },
   { response: string; timestamp: number }
 >().m(async (state) => {
@@ -118,7 +122,7 @@ const quickAsyncFlow = new AxFlow<
 });
 
 // Example 5: Complex workflow with multiple async steps
-const complexAsyncFlow = new AxFlow<
+const complexAsyncFlow = createFlow<
   { taskList: string[] },
   { completedTasks: string[]; summary: string }
 >()

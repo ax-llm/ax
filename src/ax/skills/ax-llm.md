@@ -8,13 +8,13 @@ version: "__VERSION__"
 
 Ax is a TypeScript library for building LLM-powered applications with type-safe signatures, streaming support, and multi-provider compatibility.
 
-> **Detailed skills available:** ax-ai (providers), ax-signature (signatures/types), ax-gen (generators), ax-agent (core agents/tools), ax-agent-rlm (agent runtime/RLM/delegation), ax-agent-observability (callbacks/logs/usage), ax-agent-memory-skills (recall and dynamic skill loading), ax-agent-optimize (agent tuning/eval), ax-flow (workflows), ax-gepa (Pareto optimization), ax-learn (self-improving agents).
+> **Detailed skills available:** ax-ai (providers), ax-signature (signatures/types), ax-gen (generators), ax-agent (core agents/tools), ax-agent-rlm (agent runtime/RLM/delegation), ax-agent-observability (callbacks/logs/usage), ax-agent-memory-skills (recall and dynamic skill loading), ax-agent-optimize (agent tuning/eval), ax-flow (workflows), ax-gepa (Pareto optimization).
 
 ## Imports & Factories
 
 ```typescript
 // Prefer factory functions: ax(), ai(), agent(), flow() — not new AxGen(), new AxAI(), etc.
-import { ax, ai, f, s, fn, agent, flow, AxMemory, AxMCPClient, AxLearn } from '@ax-llm/ax';
+import { ax, ai, f, s, fn, agent, flow, AxMemory, AxMCPClient } from '@ax-llm/ax';
 import { z } from 'zod'; // optional — any Standard Schema v1 library works
 
 // AI provider

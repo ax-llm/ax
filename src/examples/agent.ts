@@ -1,4 +1,4 @@
-import { AxAI, AxAIOpenAIModel, AxJSRuntime, agent } from '@ax-llm/ax';
+import { AxAIOpenAIModel, AxJSRuntime, agent, ai } from '@ax-llm/ax';
 
 const runtime = new AxJSRuntime();
 
@@ -51,7 +51,7 @@ const myAgent = agent('question -> answer', {
   ],
 });
 
-const llm = new AxAI({
+const llm = ai({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY as string,
   models: [

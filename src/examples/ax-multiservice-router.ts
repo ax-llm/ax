@@ -1,10 +1,10 @@
 import {
-  AxAI,
   AxAIAnthropicModel,
   AxAIGoogleGeminiModel,
   AxAIOpenAIModel,
   AxBalancer,
   AxMultiServiceRouter,
+  ai,
 } from '@ax-llm/ax';
 
 const apiKeys = {
@@ -16,7 +16,7 @@ const apiKeys = {
 console.log('=== Type-Safe Multi-Service Router & Balancer Demo ===\n');
 
 // Create AI services with specific model configurations
-const openaiService = AxAI.create({
+const openaiService = ai({
   name: 'openai',
   apiKey: apiKeys.openai,
   models: [
@@ -33,7 +33,7 @@ const openaiService = AxAI.create({
   ] as const,
 });
 
-const anthropicService = AxAI.create({
+const anthropicService = ai({
   name: 'anthropic',
   apiKey: apiKeys.anthropic,
   models: [
@@ -50,7 +50,7 @@ const anthropicService = AxAI.create({
   ] as const,
 });
 
-const googleService = AxAI.create({
+const googleService = ai({
   name: 'google-gemini',
   apiKey: apiKeys.google,
   models: [
@@ -77,7 +77,7 @@ const router = AxMultiServiceRouter.create([
 
 // Create type-safe balancer (for services with same model keys)
 // Let's create services with compatible models for balancing
-const openaiBalanceService = AxAI.create({
+const openaiBalanceService = ai({
   name: 'openai',
   apiKey: apiKeys.openai,
   models: [
@@ -94,7 +94,7 @@ const openaiBalanceService = AxAI.create({
   ] as const,
 });
 
-const anthropicBalanceService = AxAI.create({
+const anthropicBalanceService = ai({
   name: 'anthropic',
   apiKey: apiKeys.anthropic,
   models: [

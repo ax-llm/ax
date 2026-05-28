@@ -1,8 +1,8 @@
-import { AxAI, ax } from '@ax-llm/ax';
+import { ax, ai as createAI } from '@ax-llm/ax';
 
 // Example showing how to use result picker to select from multiple samples
 
-const ai = new AxAI({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! });
+const ai = createAI({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! });
 
 // Create a generator that produces creative responses
 const creativeGen = ax(

@@ -46,7 +46,7 @@ export class AxProgram<IN = any, OUT = any>
       | undefined,
     options?: Readonly<AxProgramOptions>
   ) {
-    this.signature = new AxSignature(signature);
+    this.signature = AxSignature.from(signature);
 
     if (options?.description) {
       this.signature.setDescription(options.description);
@@ -67,13 +67,13 @@ export class AxProgram<IN = any, OUT = any>
   }
 
   public getSignature(): AxSignature {
-    return new AxSignature(this.signature);
+    return AxSignature.from(this.signature);
   }
 
   public setSignature(
     signature: string | Readonly<AxSignatureConfig> | Readonly<AxSignature>
   ): void {
-    this.signature = new AxSignature(signature);
+    this.signature = AxSignature.from(signature);
 
     // Validate the new signature if it's provided
     if (signature) {
@@ -381,17 +381,6 @@ export class AxProgram<IN = any, OUT = any>
       Object.keys(optimizedProgram.componentMap).length > 0
     ) {
       this.applyOptimizedComponents(optimizedProgram.componentMap);
-    }
-
-    const instructionKey = `${this.key.id}::instruction`;
-    if (
-      typeof optimizedProgram.instruction === 'string' &&
-      optimizedProgram.instruction.length > 0 &&
-      optimizedProgram.componentMap?.[instructionKey] === undefined
-    ) {
-      this.applyOptimizedComponents({
-        [instructionKey]: optimizedProgram.instruction,
-      });
     }
   }
 

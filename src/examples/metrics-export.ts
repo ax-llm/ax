@@ -1,4 +1,9 @@
-import { AxAI, AxAIOpenAIModel, type AxChatResponse, ax } from '@ax-llm/ax';
+import {
+  AxAIOpenAIModel,
+  type AxChatResponse,
+  ax,
+  ai as createAI,
+} from '@ax-llm/ax';
 import { metrics } from '@opentelemetry/api';
 import {
   ConsoleMetricExporter,
@@ -23,7 +28,7 @@ const meterProvider = new MeterProvider({
 metrics.setGlobalMeterProvider(meterProvider);
 
 // Create AI instance with metrics enabled
-const ai = new AxAI({
+const ai = createAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY!,
   config: { model: AxAIOpenAIModel.GPT41Mini },

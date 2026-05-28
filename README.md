@@ -1,6 +1,6 @@
 # Ax — DSPy for TypeScript
 
-Automatic prompt generation, RLM agents, and a single API across 15+ providers. Production-tested.
+Automatic prompt generation, RLM agents, and a single API across model-lab providers. Production-tested.
 
 [![NPM](https://img.shields.io/npm/v/@ax-llm/ax?style=for-the-badge&color=222&label=npm)](https://www.npmjs.com/package/@ax-llm/ax)
 [![Discord](https://img.shields.io/discord/1078454354849304667?style=for-the-badge&color=5865F2&label=discord)](https://discord.gg/DSHg3dU7dW)
@@ -19,7 +19,7 @@ flowchart LR
   P --> AI["AI"]
   AI --> R["Streaming parser"]
   R --> O["Typed output"]
-  X["GEPA / ACE optimizer"] --> P
+  X["GEPA / Bootstrap optimizer"] --> P
 ```
 
 ## 30 seconds
@@ -39,7 +39,7 @@ const { sentiment } = await classify.forward(llm, {
 // sentiment: "positive" — typed as the literal union
 ```
 
-No prompt engineering. Switch `name: "openai"` to `"anthropic"`, `"google-gemini"`, `"mistral"`, `"ollama"`, etc. — same signature, same code.
+No prompt engineering. Switch `name: "openai"` to `"anthropic"`, `"google-gemini"`, `"mistral"`, `"deepseek"`, `"grok"`, etc. — same signature, same code.
 
 ## Provider-Native Speed
 
@@ -337,7 +337,7 @@ Runnable: [`src/examples/rlm-memories-and-skills.ts`](src/examples/rlm-memories-
 `AxFlow` is a typed, chainable workflow runner — define nodes, wire state through `execute`, finalize with `map`. State types evolve as you add nodes, so the final mapper is fully type-checked.
 
 ```typescript
-import { AxAI, AxAIOpenAIModel, AxGEPA, flow } from "@ax-llm/ax";
+import { ai, AxAIOpenAIModel, AxGEPA, flow } from "@ax-llm/ax";
 
 const emailFlow = flow<{ emailText: string }>()
   .description("Email Priority", "Classify priority and write a one-line rationale.")
@@ -354,9 +354,9 @@ const emailFlow = flow<{ emailText: string }>()
 Tune the whole flow with **GEPA** (multi-objective Pareto optimizer). Define a metric that returns one or more named scores; GEPA explores the prompt space and returns a Pareto front.
 
 ```typescript
-const student = new AxAI({ name: "openai", apiKey: process.env.OPENAI_APIKEY!,
+const student = ai({ name: "openai", apiKey: process.env.OPENAI_APIKEY!,
   config: { model: AxAIOpenAIModel.GPT4OMini } });
-const teacher = new AxAI({ name: "openai", apiKey: process.env.OPENAI_APIKEY!,
+const teacher = ai({ name: "openai", apiKey: process.env.OPENAI_APIKEY!,
   config: { model: AxAIOpenAIModel.GPT4O } });
 
 const optimizer = new AxGEPA({
@@ -380,8 +380,6 @@ const result = await optimizer.compile(
 // result.paretoFront, result.hypervolume, result.paretoFrontSize
 ```
 
-**ACE** (Automatic Curriculum Extraction) works the same way via `new AxACE({...}).compile(...)` — playbook-based iterative refinement. See [`src/examples/ace-train-inference.ts`](src/examples/ace-train-inference.ts) and [`src/examples/gepa-flow.ts`](src/examples/gepa-flow.ts).
-
 ## Capabilities
 
 | Capability | Entrypoint | Notes |
@@ -392,20 +390,20 @@ const result = await optimizer.compile(
 | Tools / function calling | `fn`, `functions:` option | typed args, typed return, async handler |
 | Streaming + validation | `.streamingForward()` | parses at field boundaries |
 | Multi-modal | `f.image`, `f.audio`, `.chat({ audio })` | OpenAI, Gemini, Anthropic |
-| Batch STT/TTS | `ai.transcribe`, `ai.speak` | OpenAI, xAI, Gemini, Groq, Mistral, Together where provider endpoints exist |
+| Batch STT/TTS | `ai.transcribe`, `ai.speak` | OpenAI, xAI, Gemini, Mistral where provider endpoints exist |
 | Signature audio artifacts | `speech:audio` outputs + `speech` options | model emits script text, Ax synthesizes audio after parsing |
 | Conversational audio | `.chat()` + `result.audio` | OpenAI `gpt-audio*`, `gpt-realtime-2`, `gpt-realtime-whisper`; Gemini Live native audio; Grok Voice |
-| Workflows | `flow`, `AxFlow` | typed DAG, parallelism, branching, sub-contexts |
-| Optimization | `AxGEPA`, `AxACE`, `AxBootstrapFewShot` | Pareto front, playbook curriculum, few-shot |
+| Workflows | `flow` | typed DAG, parallelism, branching, sub-contexts |
+| Optimization | `AxGEPA`, `AxBootstrapFewShot` | Pareto front, few-shot |
 | Agent loop | `agent`, `AxAgent` | distiller → executor → responder |
 | Context map | `contextMap`, `AxAgentContextMap` | persistent orientation cache for recurring long context |
 | Memories | `onMemoriesSearch`, `recall(...)` | vector/BM25-backed context loader |
 | Skills | `onSkillsSearch`, `consult(...)` | on-demand prompt-section loader |
 | Sandboxed JS | `AxJSRuntime`, `AxJSRuntimePermission` | Node, Bun, Deno, browser |
 | Recursive runtime (RLM) | `agent({ runtime, contextFields })` | long-context REPL with checkpointed replay |
-| Providers | `ai({ name: ... })` | OpenAI, Anthropic, Gemini, Mistral, Cohere, Groq, Together, Ollama, OpenRouter, Bedrock (separate pkg), Reka, DeepSeek, Grok, HuggingFace, WebLLM |
-| Observability | OpenTelemetry, `executorTurnCallback`, `onFunctionCall` | per-turn telemetry, tool-call tracing |
-| RAG | `AxDBManager`, `AxDefaultResultReranker` | multi-hop retrieval with quality loops |
+| Providers | `ai({ name: ... })` | OpenAI, OpenAI Responses, Azure OpenAI, Anthropic, Gemini, Mistral, Cohere, Reka, DeepSeek, Grok/xAI, HuggingFace, Bedrock (separate pkg) |
+| OpenAI-compatible endpoints | `ai({ name: "openai", apiURL, apiKey, models })` | one path for custom OpenAI-compatible gateways |
+| Observability | OpenTelemetry, `actorTurnCallback`, `onFunctionCall` | per-turn telemetry, tool-call tracing |
 | MCP | `AxMCPClient`, `AxMCPHTTPSSETransport`, `AxMCPStreambleHTTPTransport` | use any MCP server as a tool source |
 
 ## Install
@@ -444,7 +442,7 @@ npm install @ax-llm/ax-tools              # MCP stdio transport, JS runtime extr
 OPENAI_APIKEY=your-key npm run tsx ./src/examples/<name>.ts
 ```
 
-Highlights: `extract.ts`, `react.ts`, `agent.ts`, `streaming1.ts`, `multi-modal.ts`, `audio-chat.ts`, `audio-batch-and-agent.ts`, `standard-schema.ts`, `rlm-memories-and-skills.ts`, `rlm-discovery.ts`, `gepa-flow.ts`, `ace-train-inference.ts`, `ax-flow-enhanced-demo.ts`. [Browse all 70+ examples →](src/examples/)
+Highlights: `extract.ts`, `react.ts`, `agent.ts`, `streaming1.ts`, `multi-modal.ts`, `audio-chat.ts`, `audio-batch-and-agent.ts`, `standard-schema.ts`, `rlm-memories-and-skills.ts`, `rlm-discovery.ts`, `gepa-flow.ts`, `openai-compatible.ts`, `ax-flow-enhanced-demo.ts`. [Browse all examples →](src/examples/)
 
 ## Community
 

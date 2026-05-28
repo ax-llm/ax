@@ -1,5 +1,5 @@
 // AxFlow usage examples: full method names and aliases
-import { AxAIGoogleGeminiModel, AxFlow, ai, flow } from '@ax-llm/ax';
+import { AxAIGoogleGeminiModel, ai, flow } from '@ax-llm/ax';
 
 const llm = ai({
   name: 'google-gemini',
@@ -8,7 +8,7 @@ const llm = ai({
 });
 
 // Full method example - Document analysis pipeline with production configuration
-const flowFull = AxFlow.create<{ documentContent: string }>({
+const flowFull = flow<{ documentContent: string }>({
   autoParallel: true,
 })
   .description(
@@ -40,7 +40,7 @@ const flowFull = AxFlow.create<{ documentContent: string }>({
   });
 
 // Aliases example 1 - Customer support ticket processing with error handling
-const flowAlias1 = AxFlow.create<{ ticketMessage: string }>()
+const flowAlias1 = flow<{ ticketMessage: string }>()
   .description(
     'Support Ticket Processor',
     'Classifies incoming support messages and generates a suggested response.'
@@ -61,10 +61,7 @@ const flowAlias1 = AxFlow.create<{ ticketMessage: string }>()
   .m((state) => ({ supportResponse: state.responderResult.supportResponse }));
 
 // Aliases example 2 - Simplified code review system with auto-parallelization
-const flowAlias2 = AxFlow.create<
-  { codeSnippet: string },
-  { codeReview: string }
->({
+const flowAlias2 = flow<{ codeSnippet: string }, { codeReview: string }>({
   autoParallel: true,
 })
   .description(
@@ -87,7 +84,7 @@ const flowAlias2 = AxFlow.create<
   .m((s) => ({ codeReview: s.reviewGeneratorResult.codeReview }));
 
 // Branch example - Content moderation system
-const flowBranch = AxFlow.create<
+const flowBranch = flow<
   { userPost: string; postType: string },
   { moderationAction: string }
 >()
@@ -153,7 +150,7 @@ const flowParallel = flow<{ paperAbstract: string }>()
   });
 
 // While example - Iterative writing improvement with circuit breaker
-const flowWhile = AxFlow.create<{ draftArticle: string }>()
+const flowWhile = flow<{ draftArticle: string }>()
   .description(
     'Iterative Writing Improver',
     'Loops to improve article quality until the target is reached.'
@@ -183,7 +180,7 @@ const flowWhile = AxFlow.create<{ draftArticle: string }>()
   .map((state) => ({ finalArticle: state.currentDraft }));
 
 // Multi-hop RAG example - Research question answering with concurrency control
-const flowRAG = AxFlow.create<{ researchQuestion: string }>()
+const flowRAG = flow<{ researchQuestion: string }>()
   .description(
     'Multi-hop Research QA',
     'Generates a query, retrieves context, and answers a research question.'

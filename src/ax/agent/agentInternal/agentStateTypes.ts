@@ -289,15 +289,5 @@ export type AxAgentActorTurnCallback = (
   args: AxAgentActorTurnCallbackArgs
 ) => void | Promise<void>;
 
-/**
- * @deprecated Use AxAgentActorTurnCallbackArgs.
- */
-export type AxAgentExecutorTurnCallbackArgs = AxAgentActorTurnCallbackArgs;
-
-/**
- * @deprecated Use AxAgentActorTurnCallback.
- */
-export type AxAgentExecutorTurnCallback = AxAgentActorTurnCallback;
-
 // Re-export for consumers that only import from this module
 export type { AxFieldValue };

@@ -744,7 +744,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
         const error = responseBody as any;
         let isTokenLimit = false;
 
-        // OpenAI / Azure OpenAI / Groq
+        // OpenAI / Azure OpenAI and compatible endpoints
         if (error?.error?.code === 'context_length_exceeded') {
           isTokenLimit = true;
         }

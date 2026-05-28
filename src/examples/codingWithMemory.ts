@@ -1,11 +1,11 @@
 import {
-  AxAI,
   type AxFunction,
   AxJSRuntime,
   AxJSRuntimePermission,
   AxMCPClient,
   agent,
   axCreateJSRuntime,
+  ai as createAI,
 } from '@ax-llm/ax';
 import { axCreateMCPStdioTransport } from '@ax-llm/ax-tools';
 
@@ -44,7 +44,7 @@ const codingAssistant = agent(
 );
 
 // Initialize AI
-const ai = new AxAI({
+const ai = createAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY as string,
   config: { stream: true },

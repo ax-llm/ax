@@ -277,7 +277,7 @@ describe('signature parsing', () => {
 
 describe('AxSignature class validation', () => {
   it('throws error when adding invalid input field', () => {
-    const sig = new AxSignature();
+    const sig = AxSignature.from();
     expect(() =>
       sig.addInputField({
         name: 'text',
@@ -287,7 +287,7 @@ describe('AxSignature class validation', () => {
   });
 
   it('throws error when adding invalid output field', () => {
-    const sig = new AxSignature();
+    const sig = AxSignature.from();
     expect(() =>
       sig.addOutputField({
         name: 'outputImage',
@@ -297,44 +297,43 @@ describe('AxSignature class validation', () => {
   });
 
   it('allows adding a single audio output field', () => {
-    const sig = new AxSignature('prompt:string -> answer:string');
+    const sig = AxSignature.from('prompt:string -> answer:string');
     expect(() =>
       sig.appendOutputField('speech', { type: 'audio' })
     ).not.toThrow();
   });
 
   it('throws error when setting non-array input fields', () => {
-    const sig = new AxSignature();
+    const sig = AxSignature.from();
     expect(() =>
       sig.setInputFields('not an array' as unknown as readonly AxField[])
     ).toThrow('Input fields must be an array');
   });
 
   it('throws error when setting non-array output fields', () => {
-    const sig = new AxSignature();
+    const sig = AxSignature.from();
     expect(() =>
       sig.setOutputFields('not an array' as unknown as readonly AxField[])
     ).toThrow('Output fields must be an array');
   });
 
   it('throws error when setting non-string description', () => {
-    const sig = new AxSignature();
+    const sig = AxSignature.from();
     expect(() => sig.setDescription(123 as unknown as string)).toThrow(
       'Description must be a string'
     );
   });
 
   it('validates class options for duplicates', () => {
-    expect(
-      () =>
-        new AxSignature(
-          'userInput:string -> categoryType:class "positive, negative, positive"'
-        )
+    expect(() =>
+      AxSignature.from(
+        'userInput:string -> categoryType:class "positive, negative, positive"'
+      )
     ).toThrow('Duplicate class options found');
   });
 
   it('validates minimum signature requirements', () => {
-    const sig = new AxSignature();
+    const sig = AxSignature.from();
 
     // Setting fields individually should not trigger full validation
     sig.setOutputFields([
@@ -357,7 +356,7 @@ describe('AxSignature class validation', () => {
 
   it('provides helpful suggestions in error messages', () => {
     try {
-      new AxSignature('text:string -> response:string');
+      AxSignature.from('text:string -> response:string');
     } catch (error) {
       expect((error as Error).message).toContain('too generic');
       // The error should have some suggestion, let's check it's informative
@@ -368,7 +367,7 @@ describe('AxSignature class validation', () => {
 
 describe('extract values with signatures', () => {
   it('should extract simple answer value', () => {
-    const sig = new AxSignature('userQuestion:string -> responseText:string');
+    const sig = AxSignature.from('userQuestion:string -> responseText:string');
     const v1 = {};
     extractValues(sig, v1, `Response Text: "hello world"`);
 
@@ -376,7 +375,7 @@ describe('extract values with signatures', () => {
   });
 
   it('should not extract value with no prefix and single output', () => {
-    const sig = new AxSignature('userQuestion:string -> responseText:string');
+    const sig = AxSignature.from('userQuestion:string -> responseText:string');
     const v1 = {};
     extractValues(sig, v1, 'hello world');
 
@@ -384,7 +383,7 @@ describe('extract values with signatures', () => {
   });
 
   it('should extract and parse JSON values', () => {
-    const sig = new AxSignature('userQuestion:string -> analysisResult:json');
+    const sig = AxSignature.from('userQuestion:string -> analysisResult:json');
 
     const v1 = {};
     extractValues(sig, v1, 'Analysis Result: ```json\n{"hello": "world"}\n```');
@@ -393,7 +392,7 @@ describe('extract values with signatures', () => {
   });
 
   it('should extract multiple text values', () => {
-    const sig = new AxSignature(
+    const sig = AxSignature.from(
       'documentText:string -> titleText:string, keyPoints:string, descriptionText:string'
     );
     const v1 = {};
@@ -415,7 +414,7 @@ describe('extract values with signatures', () => {
 
 describe('AxSignature', () => {
   it('should create from a valid signature string', () => {
-    const sig = new AxSignature(
+    const sig = AxSignature.from(
       'userQuestion:string -> modelAnswer:string, certaintyValue:number'
     );
     expect(sig.getInputFields()).toHaveLength(1);
@@ -426,29 +425,29 @@ describe('AxSignature', () => {
   });
 
   it('should create from another AxSignature instance', () => {
-    const original = new AxSignature(
+    const original = AxSignature.from(
       'userQuestion:string -> modelAnswer:string, certaintyValue:number'
     );
-    const clone = new AxSignature(original);
+    const clone = AxSignature.from(original);
     expect(clone.toString()).toBe(original.toString());
     expect(clone.hash()).toBe(original.hash());
   });
 
   it('should throw AxSignatureValidationError for invalid string', () => {
-    expect(() => new AxSignature('invalid-signature')).toThrow(
+    expect(() => AxSignature.from('invalid-signature')).toThrow(
       'Invalid Signature'
     );
   });
 
   it('should set and get description', () => {
-    const sig = new AxSignature('userQuestion:string -> modelAnswer:string');
+    const sig = AxSignature.from('userQuestion:string -> modelAnswer:string');
     sig.setDescription('This is a Q&A signature.');
     expect(sig.getDescription()).toBe('This is a Q&A signature.');
     expect(sig.toString()).toContain('"This is a Q&A signature."');
   });
 
   it('should add input and output fields', () => {
-    const sig = new AxSignature('userQuestion:string -> modelAnswer:string');
+    const sig = AxSignature.from('userQuestion:string -> modelAnswer:string');
     sig.addInputField({
       name: 'userEmail',
       type: { name: 'string', isArray: false },
@@ -465,7 +464,7 @@ describe('AxSignature', () => {
   });
 
   it('should prevent adding fields with reserved names', () => {
-    const sig = new AxSignature();
+    const sig = AxSignature.from();
     expect(() =>
       sig.addInputField({
         name: 'string',
@@ -481,7 +480,7 @@ describe('AxSignature', () => {
   });
 
   it('should set input and output fields', () => {
-    const sig = new AxSignature('userQuestion:string -> modelAnswer:string');
+    const sig = AxSignature.from('userQuestion:string -> modelAnswer:string');
     sig.setInputFields([
       {
         name: 'userEmail',
@@ -502,7 +501,7 @@ describe('AxSignature', () => {
   });
 
   it('should handle complex field definitions', () => {
-    const sig = new AxSignature('userQuestion:string -> modelAnswer:string');
+    const sig = AxSignature.from('userQuestion:string -> modelAnswer:string');
     sig.addInputField({
       name: 'contextInfo',
       type: { name: 'string', isArray: false },
@@ -520,20 +519,20 @@ describe('AxSignature', () => {
   });
 
   it('should generate a consistent hash', () => {
-    const sig1 = new AxSignature(
+    const sig1 = AxSignature.from(
       'userQuestion:string -> modelAnswer:string, certaintyValue:number'
     );
-    const sig2 = new AxSignature(
+    const sig2 = AxSignature.from(
       'userQuestion:string -> modelAnswer:string, certaintyValue:number'
     );
-    const sig3 = new AxSignature('userQuestion:string -> modelAnswer:string');
+    const sig3 = AxSignature.from('userQuestion:string -> modelAnswer:string');
 
     expect(sig1.hash()).toBe(sig2.hash());
     expect(sig1.hash()).not.toBe(sig3.hash());
   });
 
   it('should update hash when modified', () => {
-    const sig = new AxSignature('userQuestion:string -> modelAnswer:string');
+    const sig = AxSignature.from('userQuestion:string -> modelAnswer:string');
     const initialHash = sig.hash();
     sig.addOutputField({
       name: 'certaintyValue',
@@ -545,7 +544,7 @@ describe('AxSignature', () => {
   });
 
   it('should return a JSON representation', () => {
-    const sig = new AxSignature(
+    const sig = AxSignature.from(
       '"Q&A" userQuestion:string -> modelAnswer:string, certaintyValue:number'
     );
     const json = sig.toJSON();
@@ -559,7 +558,7 @@ describe('AxSignature', () => {
 
 describe('extractValues with AxSignature', () => {
   it('should extract values based on a signature', () => {
-    const sig = new AxSignature('userQuestion:string -> modelAnswer:string');
+    const sig = AxSignature.from('userQuestion:string -> modelAnswer:string');
     const result: Record<string, unknown> = {};
     const content = 'Model Answer: The answer is 42.';
 
@@ -569,7 +568,7 @@ describe('extractValues with AxSignature', () => {
   });
 
   it('should handle missing optional fields', () => {
-    const sig = new AxSignature(
+    const sig = AxSignature.from(
       'userQuestion:string -> modelAnswer:string, memoText?:string'
     );
     const content = 'Model Answer: The answer is 42.';
@@ -580,7 +579,7 @@ describe('extractValues with AxSignature', () => {
   });
 
   it('should not return internal fields', () => {
-    const sig2 = new AxSignature(
+    const sig2 = AxSignature.from(
       'userQuestion:string -> modelAnswer:string, thoughtProcess!:string'
     );
     const result: Record<string, unknown> = {};
@@ -594,7 +593,7 @@ Thought Process: I am thinking.`;
 
   it('should create signature with mixed input fields and output field', () => {
     // Create a new empty AxSignature
-    const sig = new AxSignature();
+    const sig = AxSignature.from();
 
     // Add first input field (required)
     sig.addInputField({
@@ -643,7 +642,7 @@ Thought Process: I am thinking.`;
   });
 
   it('should fail when using generic field name "response"', () => {
-    const sig = new AxSignature();
+    const sig = AxSignature.from();
 
     // This should throw an error because "response" is too generic
     expect(() =>
@@ -655,7 +654,7 @@ Thought Process: I am thinking.`;
   });
 
   it('should validate full signature consistency when explicitly called', () => {
-    const sig = new AxSignature();
+    const sig = AxSignature.from();
 
     // Add only input field - should work without throwing
     sig.addInputField({
@@ -677,7 +676,7 @@ Thought Process: I am thinking.`;
   });
 
   it('should cache validation results and avoid redundant validation', () => {
-    const sig = new AxSignature();
+    const sig = AxSignature.from();
     sig.addInputField({
       name: 'userInput',
       type: { name: 'string', isArray: false },
@@ -950,7 +949,7 @@ describe('Type-safe field addition methods', () => {
 
 describe('File type union support', () => {
   it('should support file type with data field', () => {
-    const sig = new AxSignature('fileInput:file -> responseText:string');
+    const sig = AxSignature.from('fileInput:file -> responseText:string');
     const inputFields = sig.getInputFields();
     expect(inputFields).toHaveLength(1);
     expect(inputFields[0].name).toBe('fileInput');
@@ -958,7 +957,7 @@ describe('File type union support', () => {
   });
 
   it('should support file type with fileUri field', () => {
-    const sig = new AxSignature('fileInput:file -> responseText:string');
+    const sig = AxSignature.from('fileInput:file -> responseText:string');
     const inputFields = sig.getInputFields();
     expect(inputFields).toHaveLength(1);
     expect(inputFields[0].name).toBe('fileInput');
@@ -966,7 +965,7 @@ describe('File type union support', () => {
   });
 
   it('should support array of files with mixed formats', () => {
-    const sig = new AxSignature('fileInputs:file[] -> responseText:string');
+    const sig = AxSignature.from('fileInputs:file[] -> responseText:string');
     const inputFields = sig.getInputFields();
     expect(inputFields).toHaveLength(1);
     expect(inputFields[0].name).toBe('fileInputs');
@@ -1142,14 +1141,14 @@ describe('Media type restrictions', () => {
   describe('String-based signature validation', () => {
     it('should allow media types in string-based input signatures', () => {
       expect(() => {
-        new AxSignature(
+        AxSignature.from(
           'photo:image, recording:audio -> analysisResult:string'
         );
       }).not.toThrow();
     });
 
     it('should handle media types correctly in toJSONSchema for string-based sigs', () => {
-      const sig = new AxSignature('photo:image -> analysis:string');
+      const sig = AxSignature.from('photo:image -> analysis:string');
       const schema = sig.toJSONSchema();
 
       // Image input should not be in schema (media types are handled separately)
@@ -1162,14 +1161,14 @@ describe('Media type restrictions', () => {
 
 describe('AxSignature.toInputJSONSchema', () => {
   it('should include only input fields, not output fields', () => {
-    const sig = new AxSignature('question:string -> answer:string');
+    const sig = AxSignature.from('question:string -> answer:string');
     const schema = sig.toInputJSONSchema();
     expect(schema.properties?.question).toBeDefined();
     expect(schema.properties?.answer).toBeUndefined();
   });
 
   it('should include all input fields when there are multiple', () => {
-    const sig = new AxSignature(
+    const sig = AxSignature.from(
       'query:string, topic:string -> analysisText:string'
     );
     const schema = sig.toInputJSONSchema();
@@ -1191,7 +1190,7 @@ describe('AxSignature.toInputJSONSchema', () => {
   });
 
   it('should return only input field properties when there is one input and multiple outputs', () => {
-    const sig = new AxSignature(
+    const sig = AxSignature.from(
       'query:string -> outputA:string, outputB:string'
     );
     const schema = sig.toInputJSONSchema();
@@ -1200,7 +1199,7 @@ describe('AxSignature.toInputJSONSchema', () => {
   });
 
   it('should not include output-only fields in required', () => {
-    const sig = new AxSignature(
+    const sig = AxSignature.from(
       'inputA:string, inputB:string -> outputA:string, outputB:string'
     );
     const schema = sig.toInputJSONSchema();

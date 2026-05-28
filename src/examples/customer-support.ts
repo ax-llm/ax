@@ -1,4 +1,4 @@
-import { AxAI, AxAIGoogleGeminiModel, AxGen } from '@ax-llm/ax';
+import { AxAIGoogleGeminiModel, AxGen, ai as createAI } from '@ax-llm/ax';
 
 const gen = new AxGen<
   {
@@ -31,12 +31,12 @@ Best regards,
 John Doe.
   `;
 
-// const ai = new AxAI({
+// const ai = createAI({
 //   name: 'openai',
 //   apiKey: process.env.OPENAI_APIKEY as string
 // });
 
-const ai = new AxAI({
+const ai = createAI({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY as string,
   config: { model: AxAIGoogleGeminiModel.Gemini15Flash8B },

@@ -1,11 +1,11 @@
 import {
-  AxAI,
   AxAIAnthropicModel,
   type AxFunction,
   AxFunctionError,
   AxJSRuntime,
   AxSignature,
   agent,
+  ai as createAI,
 } from '@ax-llm/ax';
 
 // Restaurant booking function with validation
@@ -90,7 +90,7 @@ const functions: AxFunction[] = [
 ];
 
 // Define the signature for the booking agent
-const signature = new AxSignature(
+const signature = AxSignature.from(
   `customerQuery:string -> plan:string "detailed plan to book the restaurant", 
    confirmationNumber:string "reservation confirmation number", 
    details:string "booking details including date, time, and party size"`
@@ -103,13 +103,13 @@ const gen = agent(signature, {
   runtime: new AxJSRuntime(),
 });
 
-// const ai = new AxAI({
+// const ai = createAI({
 //   name: 'openai',
 //   apiKey: process.env.OPENAI_APIKEY as string,
 //   config: { stream: true },
 // })
 
-const ai = new AxAI({
+const ai = createAI({
   name: 'anthropic',
   apiKey: process.env.ANTHROPIC_APIKEY as string,
   config: {
@@ -119,13 +119,13 @@ const ai = new AxAI({
   },
 });
 
-// const ai = new AxAI({
+// const ai = createAI({
 //   name: 'google-gemini',
 //   apiKey: process.env.GOOGLE_APIKEY as string,
 //   config: { stream: true, model: AxAIGoogleGeminiModel.Gemini15Flash },
 // })
 
-// const ai = new AxAI({
+// const ai = createAI({
 //   name: 'cohere',
 //   apiKey: process.env.COHERE_APIKEY as string,
 //   config: { stream: false },

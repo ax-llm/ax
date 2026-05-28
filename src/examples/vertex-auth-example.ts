@@ -1,4 +1,4 @@
-import { AxAI, AxAIGoogleGeminiModel } from '@ax-llm/ax';
+import { AxAIGoogleGeminiModel, ai as createAI } from '@ax-llm/ax';
 import { GoogleAuth } from 'google-auth-library';
 
 // Example of using Google Vertex AI with dynamic authentication
@@ -29,7 +29,7 @@ const auth = new GoogleAuth({
   };
 
   // Create AI instance with function-based API key for Vertex
-  const ai = new AxAI({
+  const ai = createAI({
     name: 'google-gemini',
     apiKey, // Function that returns the cached token
     projectId: process.env.GOOGLE_PROJECT_ID!, // Your Google Cloud Project ID

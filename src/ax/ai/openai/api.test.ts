@@ -296,7 +296,7 @@ describe('AxAIOpenAI', () => {
     });
 
     it('should use custom API URL when apiURL is provided', () => {
-      const customUrl = 'https://openrouter.ai/api/v1';
+      const customUrl = 'https://api.example.com/v1';
       const llm = new AxAIOpenAI({
         apiKey: 'test-key',
         apiURL: customUrl,
@@ -328,10 +328,10 @@ describe('AxAIOpenAI', () => {
       // We'll test this via the AxAIOpenAI constructor which is what the factory uses
       const llm = new AxAIOpenAI({
         apiKey: 'test-key',
-        apiURL: 'https://openrouter.ai/api/v1',
+        apiURL: 'https://api.example.com/v1',
       });
 
-      expect((llm as any).apiURL).toBe('https://openrouter.ai/api/v1');
+      expect((llm as any).apiURL).toBe('https://api.example.com/v1');
     });
   });
 

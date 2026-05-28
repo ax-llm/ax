@@ -1,4 +1,4 @@
-import { AxAI, AxAIOpenAIModel, AxGEPA, flow } from '@ax-llm/ax';
+import { AxAIOpenAIModel, AxGEPA, ai, flow } from '@ax-llm/ax';
 
 // Two-objective flow: classify priority and produce a brief rationale
 const flowEmail = flow<{ emailText: string }>()
@@ -67,13 +67,13 @@ async function main() {
     process.exit(1);
   }
 
-  const student = new AxAI({
+  const student = ai({
     name: 'openai',
     apiKey: process.env.OPENAI_APIKEY!,
     config: { model: AxAIOpenAIModel.GPT4OMini },
   });
 
-  const teacher = new AxAI({
+  const teacher = ai({
     name: 'openai',
     apiKey: process.env.OPENAI_APIKEY!,
     config: { model: AxAIOpenAIModel.GPT4O },

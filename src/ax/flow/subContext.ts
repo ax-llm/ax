@@ -2,20 +2,16 @@ import type { AxAIService } from '../ai/types.js';
 import type { AxGen } from '../dsp/generate.js';
 import type { AxProgram } from '../dsp/program.js';
 import type {
-  AxFieldValue,
-  AxForwardable,
   AxGenIn,
   AxGenOut,
   AxProgramForwardOptions,
-  AxTunable,
-  AxUsable,
+  AxProgrammable,
 } from '../dsp/types.js';
 import type {
   AddNodeResult,
   AxFlowDynamicContext,
   AxFlowState,
   AxFlowStepFunction,
-  AxFlowSubContext,
   AxFlowTypedSubContext,
   GetGenIn,
   GetGenOut,
@@ -24,23 +20,28 @@ import type {
 /**
  * Implementation of the sub-context for parallel execution
  */
-export class AxFlowSubContextImpl implements AxFlowSubContext {
+export class AxFlowSubContextImpl<
+  TNodes extends Record<string, AxProgrammable<any, any>>,
+  TState extends AxFlowState,
+> implements AxFlowTypedSubContext<TNodes, TState>
+{
   private readonly steps: AxFlowStepFunction[] = [];
 
   constructor(
-    private readonly nodeGenerators: Map<
-      string,
-      AxForwardable<AxGenIn, AxGenOut, string> &
-        AxTunable<AxGenIn, AxGenOut> &
-        AxUsable
-    >
+    private readonly nodeGenerators: Map<string, AxProgrammable<any, any, any>>
   ) {}
 
-  execute<TAI extends Readonly<AxAIService>>(
-    nodeName: string,
-    mapping: (state: AxFlowState) => Record<string, AxFieldValue>,
+  execute<
+    TNodeName extends keyof TNodes & string,
+    TAI extends Readonly<AxAIService>,
+  >(
+    nodeName: TNodeName,
+    mapping: (state: TState) => GetGenIn<TNodes[TNodeName]>,
     dynamicContext?: AxFlowDynamicContext<TAI>
-  ): this {
+  ): AxFlowTypedSubContext<
+    TNodes,
+    AddNodeResult<TState, TNodeName, GetGenOut<TNodes[TNodeName]>>
+  > {
     const nodeProgram = this.nodeGenerators.get(nodeName);
     if (!nodeProgram) {
       throw new Error(`Node program for '${nodeName}' not found.`);
@@ -49,7 +50,7 @@ export class AxFlowSubContextImpl implements AxFlowSubContext {
     this.steps.push(async (state, context) => {
       const ai = dynamicContext?.ai ?? context.mainAi;
       const options = dynamicContext?.options ?? context.mainOptions;
-      const nodeInputs = mapping(state);
+      const nodeInputs = mapping(state as TState);
 
       // Create trace label for the node execution
       const traceLabel = options?.traceLabel
@@ -79,12 +80,17 @@ export class AxFlowSubContextImpl implements AxFlowSubContext {
       };
     });
 
-    return this;
+    return this as unknown as AxFlowTypedSubContext<
+      TNodes,
+      AddNodeResult<TState, TNodeName, GetGenOut<TNodes[TNodeName]>>
+    >;
   }
 
-  map(transform: (state: AxFlowState) => AxFlowState): this {
-    this.steps.push((state) => transform(state));
-    return this;
+  map<TNewState extends AxFlowState>(
+    transform: (state: TState) => TNewState
+  ): AxFlowTypedSubContext<TNodes, TNewState> {
+    this.steps.push((state) => transform(state as TState));
+    return this as unknown as AxFlowTypedSubContext<TNodes, TNewState>;
   }
 
   async executeSteps(

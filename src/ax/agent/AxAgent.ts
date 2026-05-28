@@ -9,7 +9,11 @@ import {
   type AxOptimizableComponent,
   axOptimizableValidators,
 } from '../dsp/optimizable.js';
-import type { AxIField, AxSignatureConfig } from '../dsp/sig.js';
+import type {
+  AxIField,
+  AxSignatureConfig,
+  AxSignatureInput,
+} from '../dsp/sig.js';
 import { AxSignature } from '../dsp/sig.js';
 import type {
   AxChatLogEntry,
@@ -511,10 +515,8 @@ export class ActorAgentRLM<
     return testAgent(this, code, values, options);
   }
 
-  public setSignature(
-    signature: NonNullable<ConstructorParameters<typeof AxSignature>[0]>
-  ) {
-    const nextSignature = new AxSignature(signature);
+  public setSignature(signature: AxSignatureInput) {
+    const nextSignature = AxSignature.from(signature);
     this._validateConfiguredSignature(nextSignature);
 
     const previousSignature = this.program.getSignature();

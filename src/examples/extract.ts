@@ -1,4 +1,4 @@
-import { AxAIGoogleGeminiModel, AxGen, ai } from '@ax-llm/ax';
+import { AxAIGoogleGeminiModel, AxGen, ai as createAI } from '@ax-llm/ax';
 
 const chatMessage =
   'Hello Mike, How are you set for a call tomorrow or Friday? I have a few things to discuss with you. Also the ticket number is 300. Let me know what time works best for you. Thanks!';
@@ -6,7 +6,7 @@ const chatMessage =
 const currentDate = new Date();
 
 // Example with OpenAI using custom labels in place of model names
-// const ai = new AxAI({
+// const ai = createAI({
 //   name: 'openai',
 //   apiKey: process.env.OPENAI_APIKEY as string,
 //   config: { model: 'model-a' },
@@ -19,7 +19,7 @@ const currentDate = new Date();
 //   ],
 // })
 
-const llm = ai({
+const llm = createAI({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY as string,
   config: {

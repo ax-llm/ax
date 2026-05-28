@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 
 interface Node {
   x: number;
@@ -17,9 +17,9 @@ const SUBSYSTEM_COLORS = [
   'rgba(34, 211, 238, 0.8)', // cyan — AxAI
   'rgba(52, 211, 153, 0.8)', // emerald — AxAgent
   'rgba(251, 191, 36, 0.8)', // amber — AxFlow
-  'rgba(244, 114, 182, 0.8)', // pink — AxLearn
+  'rgba(244, 114, 182, 0.8)', // pink — GEPA
   'rgba(45, 212, 191, 0.8)', // teal — AxSignature
-  'rgba(99, 102, 241, 0.8)', // indigo — AxRAG
+  'rgba(99, 102, 241, 0.8)', // indigo — AxMemory
   'rgba(250, 204, 21, 0.8)', // yellow — DSPy
 ];
 

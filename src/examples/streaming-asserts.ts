@@ -1,6 +1,6 @@
-import { AxAI, AxAIOpenAIModel, ax } from '@ax-llm/ax';
+import { AxAIOpenAIModel, ax, ai as createAI } from '@ax-llm/ax';
 
-// const ai = new AxAI({
+// const ai = createAI({
 //     name: 'anthropic'
 //     apiKey: process.env.ANTHROPIC_APIKEY as string
 // });
@@ -26,7 +26,7 @@ gen.addStreamingAssert(
   'Lines must start with a number and a dot. Eg: 1. This is a line.'
 );
 
-const ai = new AxAI({
+const ai = createAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY as string,
   config: { model: AxAIOpenAIModel.GPT4OMini },

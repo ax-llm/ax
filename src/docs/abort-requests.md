@@ -7,9 +7,9 @@ The Ax framework supports aborting ongoing LLM requests using the standard Web A
 ### Using AbortSignal
 
 ```typescript
-import { AxAI } from '@ax-llm/ax'
+import { ai, AxAIServiceAbortedError } from '@ax-llm/ax'
 
-const ai = new AxAI({
+const llm = ai({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY!
 })
@@ -17,7 +17,7 @@ const ai = new AxAI({
 const abortController = new AbortController()
 
 // Start a request with abort support
-const requestPromise = ai.chat(
+const requestPromise = llm.chat(
   {
     chatPrompt: [
       { role: 'user', content: 'Tell me a very long story.' }
@@ -48,7 +48,7 @@ try {
 ### Timeout-Based Abortion
 
 ```typescript
-const ai = new AxAI({
+const llm = ai({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY!
 })
@@ -62,7 +62,7 @@ const timeoutId = setTimeout(() => {
   abortController.abort(`Request timeout after ${timeoutMs}ms`)
 }, timeoutMs)
 
-const requestPromise = ai.chat({
+const requestPromise = llm.chat({
   chatPrompt: [
     { role: 'user', content: 'Explain quantum computing in detail.' }
   ]
@@ -89,15 +89,15 @@ const abortController = new AbortController()
 
 // Start multiple requests that share the same abort controller
 const requests = [
-  ai.chat({
+  llm.chat({
     chatPrompt: [{ role: 'user', content: 'What is machine learning?' }]
   }, { abortSignal: abortController.signal }),
   
-  ai.chat({
+  llm.chat({
     chatPrompt: [{ role: 'user', content: 'What is deep learning?' }]
   }, { abortSignal: abortController.signal }),
   
-  ai.embed({
+  llm.embed({
     texts: ['Machine learning', 'Deep learning']
   }, { abortSignal: abortController.signal })
 ]
@@ -128,7 +128,7 @@ Abort works with both regular and streaming requests:
 const abortController = new AbortController()
 
 try {
-  const stream = await ai.chat(
+  const stream = await llm.chat(
     {
       chatPrompt: [{ role: 'user', content: 'Stream a story.' }]
     },
@@ -177,7 +177,7 @@ abortController.signal.addEventListener('abort', () => {
   // Clean up resources, update UI, etc.
 })
 
-const requestPromise = ai.chat({
+const requestPromise = llm.chat({
   chatPrompt: [{ role: 'user', content: 'Hello' }]
 }, {
   abortSignal: abortController.signal
@@ -194,10 +194,9 @@ setTimeout(() => {
 When a request is aborted, an `AxAIServiceAbortedError` is thrown:
 
 ```typescript
-import { AxAIServiceAbortedError } from '@ax-llm/ax'
 
 try {
-  const response = await ai.chat({
+  const response = await llm.chat({
     chatPrompt: [{ role: 'user', content: 'Hello' }]
   }, {
     abortSignal: abortController.signal
@@ -254,7 +253,7 @@ setTimeout(() => {
 Abort signals work alongside all existing AI service options:
 
 ```typescript
-const response = await ai.chat(
+const response = await llm.chat(
   {
     chatPrompt: [{ role: 'user', content: 'Hello' }]
   },
@@ -268,7 +267,7 @@ const response = await ai.chat(
 )
 
 // Embed requests also support abort
-const embedResponse = await ai.embed(
+const embedResponse = await llm.embed(
   {
     texts: ['Text to embed']
   },
@@ -293,66 +292,6 @@ const embedResponse = await ai.embed(
 
 - `AxAIServiceAbortedError` - Thrown when a request is aborted
 - Contains `url`, `requestBody`, `context.abortReason`, and other debugging info
-
-## High-Level Component Support
-
-### AxDBManager
-
-Database operations support abort signals:
-
-```typescript
-import { AxDBManager } from '@ax-llm/ax'
-
-const dbManager = new AxDBManager({ ai, db })
-const abortController = new AbortController()
-
-// Insert with abort support
-await dbManager.insert(
-  ['Text 1', 'Text 2'],
-  { 
-    batchSize: 5,
-    abortSignal: abortController.signal 
-  }
-)
-
-// Query with abort support
-const results = await dbManager.query(
-  'search query',
-  { 
-    topPercent: 0.1,
-    abortSignal: abortController.signal 
-  }
-)
-```
-
-### AxSimpleClassifier
-
-Classification operations support abort signals:
-
-```typescript
-import { AxSimpleClassifier, AxSimpleClassifierClass } from '@ax-llm/ax'
-
-const classifier = new AxSimpleClassifier(ai)
-const abortController = new AbortController()
-
-// Set classes with abort support
-await classifier.setClasses(
-  [
-    new AxSimpleClassifierClass('positive', ['good', 'great', 'excellent']),
-    new AxSimpleClassifierClass('negative', ['bad', 'terrible', 'awful'])
-  ],
-  { abortSignal: abortController.signal }
-)
-
-// Classify with abort support
-const result = await classifier.forward(
-  'This is amazing!',
-  { 
-    cutoff: 0.8,
-    abortSignal: abortController.signal 
-  }
-)
-```
 
 ## Utility Patterns
 
@@ -389,7 +328,7 @@ async function raceWithAbort<T>(
 // Usage
 const abortController = new AbortController()
 const result = await raceWithAbort(
-  ai.chat({ chatPrompt: [{ role: 'user', content: 'Hello' }] }),
+  llm.chat({ chatPrompt: [{ role: 'user', content: 'Hello' }] }),
   abortController.signal
 )
 ``` 

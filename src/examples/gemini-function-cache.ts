@@ -12,12 +12,7 @@
  * Run: npx tsx src/examples/gemini-function-cache.ts
  */
 
-import {
-  AxAIGoogleGemini,
-  AxAIGoogleGeminiModel,
-  type AxFunction,
-  AxGen,
-} from '@ax-llm/ax';
+import { AxAIGoogleGeminiModel, type AxFunction, AxGen, ai } from '@ax-llm/ax';
 
 // Define tools for the agent
 const tools: AxFunction[] = [
@@ -116,7 +111,8 @@ Always be helpful and use your tools effectively.
 `.repeat(10); // Repeat to exceed minimum cache threshold
 
 async function runMultiTurnAgent() {
-  const ai = new AxAIGoogleGemini({
+  const llm = ai({
+    name: 'google-gemini',
     apiKey: process.env.GOOGLE_APIKEY,
     config: {
       model: AxAIGoogleGeminiModel.Gemini25Flash,
@@ -153,7 +149,7 @@ async function runMultiTurnAgent() {
     const startTime = Date.now();
 
     const result = await agent.forward(
-      ai,
+      llm,
       { question },
       {
         debug: true, // Enable to see cache usage in logs

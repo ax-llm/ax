@@ -23,11 +23,6 @@ const providers: Provider[] = [
     color: 'text-blue-600 dark:text-blue-400',
   },
   {
-    name: 'Ollama',
-    code: `ai({ name: 'ollama' })`,
-    color: 'text-gray-700 dark:text-gray-300',
-  },
-  {
     name: 'Cohere',
     code: `ai({ name: 'cohere' })`,
     color: 'text-purple-600 dark:text-purple-400',
@@ -36,16 +31,6 @@ const providers: Provider[] = [
     name: 'DeepSeek',
     code: `ai({ name: 'deepseek' })`,
     color: 'text-sky-600 dark:text-sky-400',
-  },
-  {
-    name: 'Groq',
-    code: `ai({ name: 'groq' })`,
-    color: 'text-red-600 dark:text-red-400',
-  },
-  {
-    name: 'Together',
-    code: `ai({ name: 'together' })`,
-    color: 'text-indigo-600 dark:text-indigo-400',
   },
   {
     name: 'Mistral',

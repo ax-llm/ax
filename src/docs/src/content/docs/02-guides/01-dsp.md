@@ -13,7 +13,7 @@ There are various prompts available in Ax, pick one based on your needs.
 
 1. **Generate** - Generic prompt that all other prompts inherit from.
 2. **ChainOfThough** - Increasing performance by reasoning before providing the answer
-3. **RAG** - Uses a vector database to add context and improve performance and accuracy.
+3. **Flow** - Composes multiple signatures into typed workflows.
 4. **Agent** - For agentic workflows
 
 
@@ -22,8 +22,9 @@ There are various prompts available in Ax, pick one based on your needs.
 A signature defines the task you want to do, the inputs you’ll provide, and the outputs you expect the LLM to generate.
 
 ```typescript
-const prompt = new AxGen(
-`"Extract customer query details" customerMessage:string -> customerName, customerIssue, ,productName:string, troubleshootingAttempted?:string`)
+const prompt = ax(
+  `"Extract customer query details" customerMessage:string -> customerName:string, customerIssue:string, productName:string, troubleshootingAttempted?:string`
+)
 ```
 
 The next optional but most important thing you can do to improve the performance of your prompts is to set examples. When we say “performance,” we mean the number of times the LLM does exactly what you expect correctly over the number of times it fails.
@@ -59,10 +60,10 @@ You are now ready to use this prompt in your workflows.
 
 ```typescript
 # Setup the ai
-const ai = new AxAI("openai", { apiKey: process.env.OPENAI_APIKEY })
+const llm = ai({ name: "openai", apiKey: process.env.OPENAI_APIKEY })
 
 # Execute the prompt
-const { customerName, productName, troubleshootingAttempted } = prompt.forward(ai, { customerMessage })
+const { customerName, productName, troubleshootingAttempted } = await prompt.forward(llm, { customerMessage })
 ```
 
 Easy enough! this is all you need
@@ -72,30 +73,17 @@ Easy enough! this is all you need
 What if I want more performance, or do I want to run this with a smaller model? I was told you can tune your prompts with DSPy. Yes, this is true. You can do this. In short, you can use a big LLM to generate better examples for every prompt you use in your entire flow of prompts.
 
 ```typescript
-// Use the HuggingFace data loader or create one for your own data
-const hf = new AxHFDataLoader({
-  dataset: 'yixuantt/MultiHopRAG',
-  split: 'train',
-  config: 'MultiHopRAG',
-  options: { length: 5 }
-});
-
-await hf.loadData();
-```
-
-```typescript
-// Fetch some rows, map the data columns to your prompts inputs
-const examples = await hf.getRows<{ question: string; answer: string }>({
-  count: 20,
-  fields: ['query', 'answer'],
-  renameMap: { query: 'question', answer: 'answer' }
-});
+// Bring your own examples from files, fixtures, or application data.
+const examples = [
+  { question: "What castle did David Gregory inherit?", answer: "Kinnairdy Castle" },
+  { question: "Who wrote The Hobbit?", answer: "J. R. R. Tolkien" },
+];
 ```
 
 
 ```typescript
 // Create your prompt
-const prompt = new AxGen(`question -> answer`)
+const prompt = ax("question:string -> answer:string")
 ```
 
 ```typescript
@@ -135,7 +123,6 @@ const demos = JSON.parse(values);
 // Your done now, use this prompt
 prompt.setDemos(demos);
 ```
-
 
 
 

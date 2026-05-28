@@ -153,7 +153,6 @@ export function buildInternalSummaryRequestOptions(
     corsProxy: options?.corsProxy,
     retry: options?.retry,
     contextCache: options?.contextCache,
-    examplesInSystem: options?.examplesInSystem,
     customLabels: options?.customLabels,
   };
 }

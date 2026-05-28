@@ -3,7 +3,7 @@ import type { AxChatResponse } from '../types.js';
 import { AxAIOpenAIResponsesImpl } from './responses_api.js';
 import type {
   AxAIOpenAIResponsesResponse,
-  AxAIOpenAIResponsesResponseDelta,
+  OpenAIResponsesResponseDelta,
 } from './responses_types.js';
 
 const config = {
@@ -74,7 +74,7 @@ describe('OpenAI Responses annotation mapping', () => {
           },
         ],
       },
-    } as unknown as AxAIOpenAIResponsesResponseDelta;
+    } as unknown as OpenAIResponsesResponseDelta;
 
     const out = impl.createChatStreamResp(event, {}) as AxChatResponse;
     expect(out.results[0]!.citations).toBeDefined();
@@ -154,7 +154,7 @@ describe('OpenAI Responses usage normalization', () => {
             input_tokens_details: { cached_tokens: 10 },
           },
         },
-      } as unknown as AxAIOpenAIResponsesResponseDelta,
+      } as unknown as OpenAIResponsesResponseDelta,
       {}
     );
 
@@ -175,7 +175,7 @@ describe('OpenAI Responses usage normalization', () => {
         type: 'response.created',
         sequence_number: 1,
         response: { id: 'res_persist' },
-      } as unknown as AxAIOpenAIResponsesResponseDelta,
+      } as unknown as OpenAIResponsesResponseDelta,
       state
     ) as AxChatResponse;
     const delta = impl.createChatStreamResp(
@@ -186,7 +186,7 @@ describe('OpenAI Responses usage normalization', () => {
         output_index: 0,
         content_index: 0,
         delta: 'hello',
-      } as unknown as AxAIOpenAIResponsesResponseDelta,
+      } as unknown as OpenAIResponsesResponseDelta,
       state
     ) as AxChatResponse;
 

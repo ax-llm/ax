@@ -17,7 +17,7 @@ export function injectToolFields<
   signature: AxSignature<TInput, TOutput>;
   toolParamFieldMap: Map<string, Map<string, AxField>>;
 } {
-  const newSig = new AxSignature(signature);
+  const newSig = AxSignature.from(signature);
 
   if (router) {
     // Use the router's pre-built toolParamFieldMap

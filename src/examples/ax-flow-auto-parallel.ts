@@ -1,7 +1,11 @@
 // AxFlow automatic parallelization example
-import { AxAI, AxAIGoogleGeminiModel, AxFlow } from '@ax-llm/ax';
+import {
+  AxAIGoogleGeminiModel,
+  ai as createAI,
+  flow as createFlow,
+} from '@ax-llm/ax';
 
-const ai = new AxAI({
+const ai = createAI({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY!,
   config: { model: AxAIGoogleGeminiModel.Gemini25FlashLite },
@@ -11,7 +15,7 @@ async function runAutoParallelDemo() {
   console.log('=== AxFlow Automatic Parallelization Demo ===');
 
   // Create a flow with automatic parallelization enabled (default)
-  const autoFlow = new AxFlow<
+  const autoFlow = createFlow<
     { documentText: string },
     { finalAnalysis: string }
   >()

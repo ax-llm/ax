@@ -1,13 +1,17 @@
-import { AxAI, AxFlow, axDefaultFlowLogger } from '@ax-llm/ax';
+import {
+  axDefaultFlowLogger,
+  ai as createAI,
+  flow as createFlow,
+} from '@ax-llm/ax';
 
 // Create an AI instance (using OpenAI as an example)
-const ai = new AxAI({
+const ai = createAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY ?? '',
 });
 
 // Create a flow with verbose logging enabled
-const flow = new AxFlow<{ userQuery: string }, { finalAnswer: string }>({
+const flow = createFlow<{ userQuery: string }, { finalAnswer: string }>({
   logger: axDefaultFlowLogger,
 })
   .node(

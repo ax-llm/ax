@@ -1,7 +1,7 @@
-import { AxAI, AxGen, AxSignature } from '@ax-llm/ax';
+import { AxGen, AxSignature, ai as createAI } from '@ax-llm/ax';
 
 // Create a simple text generator with a signature
-const textGenSignature = new AxSignature(
+const textGenSignature = AxSignature.from(
   'userPrompt:string -> generatedText:string'
 );
 
@@ -12,7 +12,7 @@ const textGenerator = new AxGen<
 
 // Initialize the AxAIOpenAIResponses client
 // Note: In production, use environment variables for API keys
-const ai = new AxAI({
+const ai = createAI({
   name: 'openai-responses',
   apiKey: process.env.OPENAI_APIKEY as string,
 });

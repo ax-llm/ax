@@ -4,7 +4,7 @@ import { AxSignature, f } from './sig.js';
 
 describe('AxGen setExamples with complex signatures', () => {
   it('should validate examples with complex object signatures', () => {
-    const sig = new AxSignature({
+    const sig = AxSignature.from({
       inputs: [
         {
           name: 'queryInput',
@@ -51,7 +51,7 @@ describe('AxGen setExamples with complex signatures', () => {
   });
 
   it('should validate examples with array of complex objects', () => {
-    const sig = new AxSignature({
+    const sig = AxSignature.from({
       inputs: [
         {
           name: 'queryInput',

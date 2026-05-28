@@ -10,7 +10,7 @@
  *     config: { model: AxAIBedrockModel.ClaudeSonnet4 }
  *   });
  *
- *   const sig = new AxSignature('input -> output');
+ *   const sig = AxSignature.from('input -> output');
  *   const gen = new AxGen(sig, { ai });
  *   const result = await gen.forward({ input: 'test' });
  */
@@ -23,11 +23,11 @@ import type {
   AxAIServiceImpl,
   AxAIServiceOptions,
   AxAPI,
+  AxChatRequest,
   AxChatResponse,
   AxChatResponseResult,
+  AxEmbedRequest,
   AxEmbedResponse,
-  AxInternalChatRequest,
-  AxInternalEmbedRequest,
   AxModelConfig,
   AxTokenUsage,
 } from '@ax-llm/ax';
@@ -50,6 +50,12 @@ import {
 // ============================================================================
 // IMPLEMENTATION - Converts between AX format and Bedrock format
 // ============================================================================
+
+type AxBedrockChatRequest = Omit<AxChatRequest, 'model'> &
+  Required<Pick<AxChatRequest<AxAIBedrockModel>, 'model'>>;
+
+type AxBedrockEmbedRequest = Omit<AxEmbedRequest, 'embedModel'> &
+  Required<Pick<AxEmbedRequest<AxAIBedrockEmbedModel>, 'embedModel'>>;
 
 type ModelFamily = 'claude' | 'gpt' | 'titan';
 
@@ -158,7 +164,7 @@ class AxAIBedrockImpl
    * Transform AX chat request → Bedrock request (Claude or GPT)
    */
   createChatReq = async (
-    req: Readonly<AxInternalChatRequest<AxAIBedrockModel>>,
+    req: Readonly<AxBedrockChatRequest>,
     _config: Readonly<AxAIServiceOptions>
   ): Promise<[AxAPI, BedrockChatRequest]> => {
     const family = this.getModelFamily(req.model);
@@ -392,7 +398,7 @@ class AxAIBedrockImpl
    * Create embed request for Titan
    */
   createEmbedReq = async (
-    req: Readonly<AxInternalEmbedRequest<AxAIBedrockEmbedModel>>
+    req: Readonly<AxBedrockEmbedRequest>
   ): Promise<[AxAPI, BedrockTitanEmbedRequest]> => {
     if (!req.texts || req.texts.length === 0) {
       throw new Error('No texts provided for embedding');

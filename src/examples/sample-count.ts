@@ -1,4 +1,4 @@
-import { AxAI, AxAIOpenAIModel, ax } from '@ax-llm/ax';
+import { AxAIOpenAIModel, ax, ai as createAI } from '@ax-llm/ax';
 
 // Create a simple generator for creative writing
 export const creativeGen = ax(
@@ -7,7 +7,7 @@ export const creativeGen = ax(
 
 console.log('=== Sample Count Demo ===');
 
-const ai = new AxAI({
+const ai = createAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY!,
   config: { model: AxAIOpenAIModel.GPT4OMini, stream: true },

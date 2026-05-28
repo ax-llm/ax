@@ -1,7 +1,7 @@
 #!/usr/bin/env -S npx tsx
-import { ax, AxAI, type AxFunction } from '@ax-llm/ax';
+import { type AxFunction, ax, ai as createAI } from '@ax-llm/ax';
 
-const ai = new AxAI({
+const ai = createAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY!,
 });

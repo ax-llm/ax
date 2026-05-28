@@ -1,4 +1,4 @@
-import { AxAI, AxAIGoogleGeminiModel, ax } from '@ax-llm/ax';
+import { AxAIGoogleGeminiModel, ax, ai as createAI } from '@ax-llm/ax';
 
 // Setup the prompt program for movie reviews
 const gen = ax(
@@ -61,13 +61,13 @@ gen.addAssert(
   }
 );
 
-const ai = new AxAI({
+const ai = createAI({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY as string,
   config: { model: AxAIGoogleGeminiModel.Gemini20FlashLite },
 });
 
-// const ai = new AxAI({
+// const ai = createAI({
 //   name: 'openai',
 //   apiKey: process.env.OPENAI_APIKEY as string,
 //   config: { model: AxAIOpenAIModel.GPT4OMini },

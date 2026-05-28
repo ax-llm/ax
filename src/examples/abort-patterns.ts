@@ -5,12 +5,12 @@
  * Shows best practices for different use cases
  */
 
-import { AxAI, AxAIServiceAbortedError } from '@ax-llm/ax';
+import { AxAIServiceAbortedError, ai as createAI } from '@ax-llm/ax';
 
 async function basicAbortPattern() {
   console.log('\n🚨 Basic Abort Pattern');
 
-  const ai = new AxAI({
+  const ai = createAI({
     name: 'openai',
     apiKey: process.env.OPENAI_APIKEY || 'demo',
   });
@@ -58,7 +58,7 @@ async function basicAbortPattern() {
 async function timeoutAbortPattern() {
   console.log('\n⏰ Timeout Abort Pattern');
 
-  const ai = new AxAI({
+  const ai = createAI({
     name: 'openai',
     apiKey: process.env.OPENAI_APIKEY || 'demo',
   });
@@ -105,7 +105,7 @@ async function multipleRequestsPattern() {
   console.log('\n🔄 Multiple Requests Pattern');
   console.log('=====================================');
 
-  const ai = new AxAI({
+  const ai = createAI({
     name: 'openai',
     apiKey: process.env.OPENAI_APIKEY || 'demo',
   });
@@ -162,7 +162,7 @@ async function streamingAbortPattern() {
   console.log('\n🌊 Streaming Abort Pattern');
   console.log('=====================================');
 
-  const ai = new AxAI({
+  const ai = createAI({
     name: 'openai',
     apiKey: process.env.OPENAI_APIKEY || 'demo',
   });
@@ -220,7 +220,7 @@ async function streamingAbortPattern() {
 async function eventHandlerPattern() {
   console.log('\n📡 Event Handler Pattern');
 
-  const ai = new AxAI({
+  const ai = createAI({
     name: 'openai',
     apiKey: process.env.OPENAI_APIKEY || 'demo',
   });
@@ -272,7 +272,7 @@ async function eventHandlerPattern() {
 async function conditionalAbortPattern() {
   console.log('\n🎯 Conditional Abort Pattern');
 
-  const ai = new AxAI({
+  const ai = createAI({
     name: 'openai',
     apiKey: process.env.OPENAI_APIKEY || 'demo',
   });
@@ -357,7 +357,7 @@ async function utilityRacePattern() {
   console.log('\n🏁 Utility Race Pattern');
   console.log('=====================================');
 
-  const ai = new AxAI({
+  const ai = createAI({
     name: 'openai',
     apiKey: process.env.OPENAI_APIKEY || 'demo',
   });

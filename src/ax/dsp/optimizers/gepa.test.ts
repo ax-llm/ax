@@ -134,7 +134,6 @@ describe('AxGEPA Optimizer', () => {
 
       expect(result.bestScore).toBe(1);
       expect(result.paretoFront[0]?.scores).toEqual({ score: 1 });
-      expect(result.optimizedProgram?.instruction).toBe('task');
       expect(result.optimizedProgram?.componentMap).toEqual({
         'root::instruction': 'task',
       });
@@ -305,7 +304,6 @@ describe('AxGEPA Optimizer', () => {
       );
 
       expect(result.bestScore).toBe(0);
-      expect(result.optimizedProgram?.instruction).toBe('task');
       expect(result.optimizedProgram?.componentMap).toEqual({
         'root::instruction': 'task',
       });
@@ -413,7 +411,6 @@ describe('AxGEPA Optimizer', () => {
       );
 
       expect(result.bestScore).toBe(2);
-      expect(result.optimizedProgram?.instruction).toBeUndefined();
       expect(result.optimizedProgram?.componentMap).toEqual({
         'root.classifier::instruction': 'better-classify',
         'root.rationale::instruction': 'better-rationale',

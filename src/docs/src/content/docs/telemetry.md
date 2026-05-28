@@ -47,7 +47,7 @@ guessing what's happening, you get:
 ### Step 1: Basic Setup with Console Export
 
 ```typescript
-import { ax, AxAI, f, AxAIOpenAIModel } from "@ax-llm/ax";
+import { ai, ax, AxAIOpenAIModel } from "@ax-llm/ax";
 import { metrics, trace } from "@opentelemetry/api";
 import {
   BasicTracerProvider,
@@ -87,7 +87,7 @@ const meter = metrics.getMeter("my-ai-app");
 
 ```typescript
 // Create AI instance with telemetry enabled
-const ai = new AxAI({
+const llm = ai({
   name: "openai",
   apiKey: process.env.OPENAI_APIKEY!,
   config: { model: AxAIOpenAIModel.GPT4OMini },
@@ -99,17 +99,16 @@ const ai = new AxAI({
 });
 
 // Create a simple generator
-const sentimentAnalyzer = ax`
-  reviewText:${f.string("Customer review")} -> 
-  sentiment:${f.class(["positive", "negative", "neutral"], "Sentiment")}
-`;
+const sentimentAnalyzer = ax(
+  'reviewText:string "Customer review" -> sentiment:class "positive, negative, neutral"'
+);
 ```
 
 ### Step 3: Run and Observe
 
 ```typescript
 // This will automatically generate traces and metrics
-const result = await sentimentAnalyzer.forward(ai, {
+const result = await sentimentAnalyzer.forward(llm, {
   reviewText: "This product is amazing! I love it!",
 });
 
@@ -235,15 +234,6 @@ you get:
 - `ax_optimizer_program_output_fields` - Output fields in optimized program
 - `ax_optimizer_examples_count` - Training examples used
 - `ax_optimizer_validation_set_size` - Validation set size
-
-### 📊 Database Metrics
-
-**Vector Operations**
-
-- `db_operations_total` - Total DB operations
-- `db_query_duration_ms` - Query latency
-- `db_upsert_duration_ms` - Upsert latency
-- `db_vector_dimensions` - Vector dimensions
 
 ### 📈 Example Metrics Output
 
@@ -508,7 +498,7 @@ const result = await summarize.forward(llm, { documentText: "..." }, {
 
 ```typescript
 // Monitor latency percentiles
-const ai = new AxAI({
+const llm = ai({
   name: "openai",
   apiKey: process.env.OPENAI_APIKEY!,
   options: {
@@ -527,7 +517,7 @@ const ai = new AxAI({
 
 ```typescript
 // Track costs by model and operation
-const costOptimizer = new AxAI({
+const costOptimizer = ai({
   name: "openai",
   apiKey: process.env.OPENAI_APIKEY!,
   config: { model: "gpt-4o-mini" }, // Cheaper model
@@ -542,7 +532,7 @@ const costOptimizer = new AxAI({
 
 ```typescript
 // Track error rates by service
-const reliableAI = new AxAI({
+const reliableAI = ai({
   name: "openai",
   apiKey: process.env.OPENAI_APIKEY!,
   options: {
@@ -561,7 +551,7 @@ const reliableAI = new AxAI({
 
 ```typescript
 // Monitor function call success rates
-const functionAI = new AxAI({
+const functionAI = ai({
   name: "openai",
   apiKey: process.env.OPENAI_APIKEY!,
   options: { tracer, meter },
@@ -575,7 +565,7 @@ const functionAI = new AxAI({
 
 ```typescript
 // Monitor streaming response times
-const streamingAI = new AxAI({
+const streamingAI = ai({
   name: "openai",
   apiKey: process.env.OPENAI_APIKEY!,
   config: { stream: true },
@@ -848,7 +838,7 @@ axGlobals.tracer = trace.getTracer("global-ax-tracer");
 axGlobals.meter = metrics.getMeter("global-ax-meter");
 
 // Now all Ax operations will use these by default
-const ai = new AxAI({
+const llm = ai({
   name: "openai",
   apiKey: process.env.OPENAI_APIKEY!,
   // No need to specify tracer/meter - uses globals
@@ -864,7 +854,7 @@ Add custom labels to metrics for better filtering and grouping in your observabi
 3. **Per-call labels** - Apply to a specific generation call
 
 ```typescript
-import { axGlobals, AxAI, ax } from "@ax-llm/ax";
+import { ai, axGlobals, ax } from "@ax-llm/ax";
 
 // 1. Global custom labels (lowest precedence)
 axGlobals.customLabels = {
@@ -873,7 +863,7 @@ axGlobals.customLabels = {
 };
 
 // 2. AI service level labels
-const ai = new AxAI({
+const llm = ai({
   name: "openai",
   apiKey: process.env.OPENAI_APIKEY!,
   options: {
@@ -887,7 +877,7 @@ const ai = new AxAI({
 // 3. Per-call labels (highest precedence)
 const gen = ax("question:string -> answer:string");
 
-const result = await gen.forward(ai, { question: "..." }, {
+const result = await gen.forward(llm, { question: "..." }, {
   customLabels: {
     feature: "sentiment-analysis",
     experiment_id: "exp-123",
@@ -977,7 +967,7 @@ const sampler = new TraceIdRatioBasedSampler(0.01); // Sample 1%
 
 ```typescript
 // Enable debug mode for detailed logging
-const ai = new AxAI({
+const llm = ai({
   name: "openai",
   apiKey: process.env.OPENAI_APIKEY!,
   options: {
@@ -1058,7 +1048,7 @@ const sampler = new ParentBasedSampler({
 
 ```typescript
 // Exclude sensitive content from traces
-const ai = new AxAI({
+const llm = ai({
   name: "openai",
   apiKey: process.env.OPENAI_APIKEY!,
   options: {
@@ -1084,7 +1074,7 @@ const secureExporter = new OTLPTraceExporter({
 
 ```typescript
 // examples/production-telemetry.ts
-import { ax, AxAI, f } from "@ax-llm/ax";
+import { ai, ax } from "@ax-llm/ax";
 import { metrics, trace } from "@opentelemetry/api";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http";
@@ -1125,7 +1115,7 @@ const setupProductionTelemetry = () => {
 setupProductionTelemetry();
 
 // Create AI with telemetry
-const ai = new AxAI({
+const llm = ai({
   name: "openai",
   apiKey: process.env.OPENAI_APIKEY!,
   config: { model: "gpt-4o-mini" },
@@ -1137,15 +1127,13 @@ const ai = new AxAI({
 });
 
 // Create generator
-const sentimentAnalyzer = ax`
-  reviewText:${f.string("Customer review")} -> 
-  sentiment:${f.class(["positive", "negative", "neutral"], "Sentiment")},
-  confidence:${f.number("Confidence score 0-1")}
-`;
+const sentimentAnalyzer = ax(
+  'reviewText:string "Customer review" -> sentiment:class "positive, negative, neutral", confidence:number "Confidence score 0-1"'
+);
 
 // Usage with full observability
 export const analyzeSentiment = async (review: string) => {
-  const result = await sentimentAnalyzer.forward(ai, { reviewText: review });
+  const result = await sentimentAnalyzer.forward(llm, { reviewText: review });
   return result;
 };
 ```
@@ -1154,20 +1142,20 @@ export const analyzeSentiment = async (review: string) => {
 
 ```typescript
 // examples/multi-service-tracing.ts
-import { AxAI, AxFlow } from "@ax-llm/ax";
+import { ai, flow } from "@ax-llm/ax";
 import { trace } from "@opentelemetry/api";
 
 const tracer = trace.getTracer("multi-service");
 
 // Create AI services
-const fastAI = new AxAI({
+const fastAI = ai({
   name: "openai",
   apiKey: process.env.OPENAI_APIKEY!,
   config: { model: "gpt-4o-mini" },
   options: { tracer },
 });
 
-const powerfulAI = new AxAI({
+const powerfulAI = ai({
   name: "openai",
   apiKey: process.env.OPENAI_APIKEY!,
   config: { model: "gpt-4o" },
@@ -1175,7 +1163,7 @@ const powerfulAI = new AxAI({
 });
 
 // Create multi-service workflow
-const documentProcessor = new AxFlow<
+const documentProcessor = flow<
   { document: string },
   { summary: string; analysis: string }
 >()
@@ -1198,7 +1186,7 @@ export const processDocument = async (document: string) => {
 
 ```typescript
 // examples/custom-business-metrics.ts
-import { ax, AxAI, f } from "@ax-llm/ax";
+import { ai, ax } from "@ax-llm/ax";
 import { metrics } from "@opentelemetry/api";
 
 const meter = metrics.getMeter("business-metrics");
@@ -1219,23 +1207,21 @@ const orderProcessingHistogram = meter.createHistogram(
   },
 );
 
-const ai = new AxAI({
+const llm = ai({
   name: "openai",
   apiKey: process.env.OPENAI_APIKEY!,
   options: { meter },
 });
 
-const orderAnalyzer = ax`
-  orderText:${f.string("Order description")} -> 
-  category:${f.class(["urgent", "normal", "low"], "Priority")},
-  estimatedTime:${f.number("Estimated processing time in hours")}
-`;
+const orderAnalyzer = ax(
+  'orderText:string "Order description" -> category:class "urgent, normal, low", estimatedTime:number "Estimated processing time in hours"'
+);
 
 export const processOrder = async (orderText: string) => {
   const startTime = performance.now();
 
   try {
-    const result = await orderAnalyzer.forward(ai, { orderText });
+    const result = await orderAnalyzer.forward(llm, { orderText });
 
     // Record business metrics
     const processingTime = performance.now() - startTime;

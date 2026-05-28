@@ -54,11 +54,9 @@ import type {
   AxFlowDynamicContext,
   AxFlowExecutionStep,
   AxFlowNodeDefinition,
-  AxFlowParallelBranch,
   AxFlowParallelGroup,
   AxFlowState,
   AxFlowStepFunction,
-  AxFlowSubContext,
   AxFlowTypedParallelBranch,
   AxFlowTypedSubContext,
   GetGenIn,
@@ -74,14 +72,14 @@ import type {
  *
  * @example
  * ```
- * const flow = new AxFlow<{ topic: string }, { finalAnswer: string }>()
+ * const workflow = flow<{ topic: string }, { finalAnswer: string }>()
  *   .node('summarizer', 'text:string -> summary:string')
  *   .node('critic', 'summary:string -> critique:string')
  *   .execute('summarizer', state => ({ text: `About ${state.topic}` })) // state is { topic: string }
  *   .execute('critic', state => ({ summary: state.summarizerResult.summary })) // state evolves!
  *   .map(state => ({ finalAnswer: state.criticResult.critique })) // fully typed!
  *
- * const result = await flow.forward(ai, { topic: "AI safety" })
+ * const result = await workflow.forward(ai, { topic: "AI safety" })
  * ```
  */
 export class AxFlow<
@@ -93,8 +91,6 @@ export class AxFlow<
   TState extends AxFlowState = IN, // Current evolving state type
 > implements AxFlowable<IN, OUT>
 {
-  private static _ctorWarned = false;
-  private static _constructingFromFactory = false;
   private readonly nodes: Map<string, AxFlowNodeDefinition> = new Map();
   private readonly flowDefinition: AxFlowStepFunction[] = [];
   private readonly nodeGenerators: Map<
@@ -620,7 +616,7 @@ export class AxFlow<
       }
 
       // Create signature from collected fields
-      const inferredSignature = new AxSignature();
+      const inferredSignature = AxSignature.from();
 
       // Add input fields or default
       if (inputFields.length > 0) {
@@ -649,7 +645,7 @@ export class AxFlow<
 
     // Build signature from identified input/output fields
     // This is the main path when we have clear input/output patterns
-    const inferredSignature = new AxSignature();
+    const inferredSignature = AxSignature.from();
 
     // Add input fields
     const inputFields: AxField[] = [];
@@ -699,7 +695,7 @@ export class AxFlow<
     return inferredSignature;
   }
 
-  constructor(options?: {
+  private constructor(options?: {
     autoParallel?: boolean;
     batchSize?: number;
     logger?: AxFlowLoggerFunction;
@@ -707,13 +703,6 @@ export class AxFlow<
     tracer?: Tracer;
     meter?: Meter;
   }) {
-    if (!AxFlow._constructingFromFactory && !AxFlow._ctorWarned) {
-      // eslint-disable-next-line no-console
-      console.warn(
-        '[AxFlow] new AxFlow() is deprecated. Use flow() factory instead.'
-      );
-      AxFlow._ctorWarned = true;
-    }
     // Initialize configuration with defaults
     this.autoParallelConfig = {
       enabled: options?.autoParallel !== false, // Default to true
@@ -764,12 +753,7 @@ export class AxFlow<
     logger?: AxFlowLoggerFunction;
     debug?: boolean;
   }): AxFlow<IN, OUT, TNodes, TState> {
-    AxFlow._constructingFromFactory = true;
-    try {
-      return new AxFlow<IN, OUT, TNodes, TState>(options);
-    } finally {
-      AxFlow._constructingFromFactory = false;
-    }
+    return new AxFlow<IN, OUT, TNodes, TState>(options);
   }
 
   /**
@@ -2254,12 +2238,7 @@ export class AxFlow<
    * ]).merge('documents', (docs1, docs2, docs3) => [...docs1, ...docs2, ...docs3])
    * ```
    */
-  public parallel(
-    branches: (
-      | AxFlowParallelBranch
-      | AxFlowTypedParallelBranch<TNodes, TState>
-    )[]
-  ): {
+  public parallel(branches: AxFlowTypedParallelBranch<TNodes, TState>[]): {
     merge<T, TResultKey extends string>(
       resultKey: TResultKey,
       mergeFunction: (..._results: unknown[]) => T
@@ -2279,13 +2258,14 @@ export class AxFlow<
         async (branchFn, _index) => {
           // Create a sub-context for this branch
           // This isolates each branch's operations from the others
-          const subContext = new AxFlowSubContextImpl(this.nodeGenerators);
+          const subContext = new AxFlowSubContextImpl<TNodes, TState>(
+            this.nodeGenerators
+          );
 
           // Type assertion needed because we support both typed and untyped branch functions
           // The runtime behavior is the same, but TypeScript needs this for type checking
           const populatedSubContext = branchFn(
-            subContext as AxFlowSubContext &
-              AxFlowTypedSubContext<TNodes, TState>
+            subContext as AxFlowTypedSubContext<TNodes, TState>
           );
 
           // Execute the sub-context steps and return the result
@@ -2383,12 +2363,7 @@ export class AxFlow<
   /**
    * Short alias for parallel()
    */
-  public p(
-    branches: (
-      | AxFlowParallelBranch
-      | AxFlowTypedParallelBranch<TNodes, TState>
-    )[]
-  ): {
+  public p(branches: AxFlowTypedParallelBranch<TNodes, TState>[]): {
     merge<T, TResultKey extends string>(
       resultKey: TResultKey,
       mergeFunction: (..._results: unknown[]) => T

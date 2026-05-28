@@ -1,4 +1,4 @@
-import { AxAI, AxGen } from '@ax-llm/ax';
+import { AxGen, ai as createAI } from '@ax-llm/ax';
 
 const product = {
   name: 'Acme Toilet Cleaning',
@@ -27,7 +27,7 @@ const gen = new AxGen<{
   'productName, productDescription, toName, toDescription, messageGuidelines -> message'
 );
 
-const ai = new AxAI({
+const ai = createAI({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY as string,
 });

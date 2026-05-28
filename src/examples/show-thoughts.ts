@@ -1,8 +1,8 @@
 import {
-  AxAI,
   AxAIGoogleGeminiModel,
   AxAIOpenAIResponsesModel,
   AxGen,
+  ai,
 } from '@ax-llm/ax';
 
 // Example demonstrating the showThoughts feature
@@ -10,7 +10,7 @@ import {
 
 const main = async () => {
   // For Gemini: includeThoughts config controls reasoning visibility
-  const gemini = new AxAI({
+  const gemini = ai({
     name: 'google-gemini',
     apiKey: process.env.GOOGLE_APIKEY || '',
     config: {
@@ -24,7 +24,7 @@ const main = async () => {
 
   // For OpenAI Responses API: encrypted_content provides reasoning when requested
   // Note: Regular OpenAI chat API doesn't support showThoughts, only the Responses API does
-  const openaiResponses = new AxAI({
+  const openaiResponses = ai({
     name: 'openai-responses',
     apiKey: process.env.OPENAI_APIKEY || '',
     config: {

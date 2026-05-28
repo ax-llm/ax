@@ -34,7 +34,7 @@ npm install @ax-llm/ax-tools
 ### Basic MCP Stdio Transport
 
 ```typescript
-import { AxMCPClient } from "@ax-llm/ax";
+import { ai, AxMCPClient } from "@ax-llm/ax";
 import { AxMCPStdioTransport } from "@ax-llm/ax-tools";
 
 // Create a stdio transport for an MCP server
@@ -69,7 +69,7 @@ const transport = axCreateMCPStdioTransport({
 Use `AxJSRuntime` from `@ax-llm/ax`:
 
 ```typescript
-import { AxJSRuntime, AxJSRuntimePermission } from "@ax-llm/ax";
+import { ai, AxJSRuntime, AxJSRuntimePermission } from "@ax-llm/ax";
 ```
 
 ### Configuration Options
@@ -93,7 +93,7 @@ See `@ax-llm/ax` docs for `AxJSRuntimePermission`.
 ### Memory Server
 
 ```typescript
-import { AxAgent, AxAI, AxMCPClient } from "@ax-llm/ax";
+import { ai, AxAgent, AxMCPClient } from "@ax-llm/ax";
 import { AxMCPStdioTransport } from "@ax-llm/ax-tools";
 
 // Initialize MCP client with memory server
@@ -114,7 +114,7 @@ const agent = new AxAgent({
 });
 
 // Use with AI
-const ai = new AxAI({
+const ai = ai({
   name: "openai",
   apiKey: process.env.OPENAI_APIKEY!,
 });

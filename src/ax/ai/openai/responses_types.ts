@@ -738,8 +738,8 @@ export type AxAIOpenAIResponsesStreamEvent =
   | AxAIOpenAIResponsesOutputTextAnnotationAddedEvent
   | AxAIOpenAIResponsesErrorEvent;
 
-// Legacy delta export interface for backward compatibility - now maps to the new streaming events
-export interface AxAIOpenAIResponsesResponseDelta {
+// Internal delta shape used while normalizing Responses API stream events
+export interface OpenAIResponsesResponseDelta {
   readonly id?: string; // Overall response ID, appears in first event usually
   readonly model?: string; // Model ID, might appear in first event
   readonly event?: string; // e.g., 'response.delta', 'response.item_delta', 'response.done'

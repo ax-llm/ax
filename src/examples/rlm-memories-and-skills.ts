@@ -18,10 +18,10 @@ import {
   type AxAgentMemoriesSearchFn,
   type AxAgentMemoryResult,
   type AxAgentSkillsSearchFn,
-  AxAI,
   AxAIOpenAIModel,
   AxJSRuntime,
   agent,
+  ai,
 } from '@ax-llm/ax';
 
 // ---------------------------------------------------------------------------
@@ -136,7 +136,7 @@ const myAgent = agent(
   }
 );
 
-const llm = new AxAI({
+const llm = ai({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY as string,
   config: { model: AxAIOpenAIModel.GPT4OMini },

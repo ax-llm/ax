@@ -22,16 +22,38 @@ interface ExportInfo {
 /**
  * Checks if a symbol name starts with the expected prefixes (ax or Ax) or is a special case
  */
+const internalExportNames = new Set([
+  'AxAIOpenAIResponsesImpl',
+  'AxAgentInternalCompletionPayload',
+  'AxFlowDependencyAnalyzer',
+  'AxFlowExecutionPlanner',
+  'AxFlowSubContextImpl',
+  'AxFlowTypedSubContextImpl',
+  'AxInstanceRegistry',
+  'AxInternalChatRequest',
+  'AxInternalEmbedRequest',
+  'AxInternalSpeechRequest',
+  'AxInternalTranscriptionRequest',
+  'AxMutableDiscoveryPromptState',
+  'AxMutableSkillsPromptState',
+  'AxNormalizedAgentEvalDataset',
+  'AxPreparedChatRequest',
+  'AxPreparedRestoredState',
+  'AxResponseHandlerArgs',
+  'AxStepContextImpl',
+]);
+
 function hasValidPrefix(name: string): boolean {
   return (
-    name.startsWith('ax') ||
-    name.startsWith('Ax') ||
-    name === 'f' ||
-    name === 'fn' ||
-    name === 's' ||
-    name === 'ai' ||
-    name === 'agent' ||
-    name === 'flow'
+    !internalExportNames.has(name) &&
+    (name.startsWith('ax') ||
+      name.startsWith('Ax') ||
+      name === 'f' ||
+      name === 'fn' ||
+      name === 's' ||
+      name === 'ai' ||
+      name === 'agent' ||
+      name === 'flow')
   );
 }
 

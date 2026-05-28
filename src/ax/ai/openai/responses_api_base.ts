@@ -18,7 +18,7 @@ import { AxAIOpenAIResponsesImpl } from './responses_api.js';
 import type {
   AxAIOpenAIResponsesRequest,
   AxAIOpenAIResponsesResponse,
-  AxAIOpenAIResponsesResponseDelta,
+  OpenAIResponsesResponseDelta,
 } from './responses_types.js';
 import { AxAIOpenAIResponsesModel } from './responses_types.js';
 
@@ -88,7 +88,7 @@ export class AxAIOpenAIResponsesBase<
   AxAIOpenAIResponsesRequest<TModel>,
   AxAIOpenAIEmbedRequest<TEmbedModel>,
   AxAIOpenAIResponsesResponse,
-  AxAIOpenAIResponsesResponseDelta,
+  OpenAIResponsesResponseDelta,
   AxAIOpenAIEmbedResponse,
   TModelKey
 > {

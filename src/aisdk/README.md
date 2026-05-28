@@ -23,7 +23,7 @@ This provider is fully compatible with **AI SDK v5** and implements the `Languag
 You can use it with the AI SDK, either with the AI provider or the Agent Provider
 
 ```typescript
-const ai = new AxAI({
+const ai = ai({
     name: "openai",
     apiKey: process.env["OPENAI_APIKEY"] ?? "",
 });

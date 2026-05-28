@@ -9,8 +9,6 @@ import {
   AxAIGoogleGeminiEmbedModel,
   AxAIGoogleGeminiModel,
 } from './google-gemini/types.js';
-import { axModelInfoGroq } from './groq/info.js';
-import { AxAIGroqModel } from './groq/types.js';
 import { axModelInfoHuggingFace } from './huggingface/info.js';
 import { AxAIHuggingFaceModel } from './huggingface/types.js';
 import { axModelInfoMistral } from './mistral/info.js';
@@ -23,11 +21,7 @@ import {
 import { AxAIOpenAIResponsesModel } from './openai/responses_types.js';
 import { axModelInfoReka } from './reka/info.js';
 import { AxAIRekaModel } from './reka/types.js';
-import { axModelInfoTogether } from './together/info.js';
-import { AxAITogetherModel } from './together/types.js';
 import type { AxModelInfo } from './types.js';
-import { axModelInfoWebLLM } from './webllm/info.js';
-import { AxAIWebLLMModel } from './webllm/types.js';
 import type { AxAIArgs } from './wrap.js';
 import { axModelInfoGrok } from './x-grok/info.js';
 import { AxAIGrokModel } from './x-grok/types.js';
@@ -123,23 +117,11 @@ const axAIModelCatalogProviderDefinitions = {
     isDynamic: false,
     modelInfo: axModelInfoGoogleGemini,
   },
-  groq: {
-    displayName: 'Groq',
-    defaultModel: AxAIGroqModel.Llama33_70B,
-    isDynamic: false,
-    modelInfo: axModelInfoGroq,
-  },
   cohere: {
     displayName: 'Cohere',
     defaultModel: AxAICohereModel.CommandRPlus,
     isDynamic: false,
     modelInfo: axModelInfoCohere,
-  },
-  together: {
-    displayName: 'Together AI',
-    defaultModel: AxAITogetherModel.Llama33_70B,
-    isDynamic: false,
-    modelInfo: axModelInfoTogether,
   },
   deepseek: {
     displayName: 'DeepSeek',
@@ -153,24 +135,11 @@ const axAIModelCatalogProviderDefinitions = {
     isDynamic: false,
     modelInfo: axModelInfoMistral,
   },
-  ollama: {
-    displayName: 'Ollama',
-    defaultModel: 'nous-hermes2',
-    defaultEmbedModel: 'all-minilm',
-    isDynamic: true,
-    modelInfo: [],
-  },
   huggingface: {
     displayName: 'Hugging Face',
     defaultModel: AxAIHuggingFaceModel.MetaLlama270BChatHF,
     isDynamic: true,
     modelInfo: axModelInfoHuggingFace,
-  },
-  openrouter: {
-    displayName: 'OpenRouter',
-    defaultModel: 'openrouter/auto',
-    isDynamic: true,
-    modelInfo: [],
   },
   reka: {
     displayName: 'Reka',
@@ -183,12 +152,6 @@ const axAIModelCatalogProviderDefinitions = {
     defaultModel: AxAIGrokModel.Grok3,
     isDynamic: false,
     modelInfo: axModelInfoGrok,
-  },
-  webllm: {
-    displayName: 'WebLLM',
-    defaultModel: AxAIWebLLMModel.Llama32_3B_Instruct,
-    isDynamic: false,
-    modelInfo: axModelInfoWebLLM,
   },
 } satisfies Record<
   AxAIModelCatalogProviderName,

@@ -68,20 +68,14 @@ Current public provider docs change quickly; verify production pricing before co
 | OpenAI | Yes | Yes | Audio API supports `/audio/transcriptions` and `/audio/speech`; pricing lists `gpt-4o-mini-transcribe` and `gpt-4o-mini-tts`. |
 | xAI | Yes | Yes | Voice APIs expose `/v1/stt` and `/v1/tts`; public docs list REST STT at `$0.10/hr` and TTS at `$15/1M characters`. |
 | Gemini | Yes | Yes | Audio understanding uses Gemini `generateContent`; TTS uses Gemini TTS models through `generateContent`. |
-| Groq | Yes | Yes | OpenAI-compatible `/audio/transcriptions` and `/audio/speech`; docs list `whisper-large-v3-turbo` at `$0.04/hr`. |
 | Mistral | Yes | Yes | Voxtral transcription uses `/v1/audio/transcriptions`; Voxtral TTS uses `/v1/audio/speech`. |
-| Together | Yes | Yes | OpenAI-compatible transcription and speech endpoints; docs list Orpheus TTS at `$15/1M characters` and Kokoro at `$4/1M characters`. |
 
 Official references:
 
 - [OpenAI audio guide](https://platform.openai.com/docs/guides/audio)
 - [OpenAI pricing](https://platform.openai.com/docs/pricing/)
 - [xAI voice APIs](https://docs.x.ai/docs/guides/voice)
-- [Groq speech to text](https://console.groq.com/docs/speech-to-text)
-- [Groq text to speech](https://console.groq.com/docs/text-to-speech)
 - [Mistral audio transcriptions](https://docs.mistral.ai/api/endpoint/audio/transcriptions)
 - [Mistral audio speech](https://docs.mistral.ai/api/endpoint/audio/speech)
-- [Together speech to text](https://docs.together.ai/docs/speech-to-text)
-- [Together text to speech](https://docs.together.ai/docs/text-to-speech)
 - [Gemini audio understanding](https://ai.google.dev/gemini-api/docs/audio)
 - [Gemini TTS](https://docs.cloud.google.com/text-to-speech/docs/gemini-tts)

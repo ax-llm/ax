@@ -15,22 +15,22 @@ import {
 } from '../optimizer.js';
 import { ax } from '../template.js';
 import type { AxGenOut, AxProgrammable } from '../types.js';
-import {
-  applyGEPAComponentConfig,
-  getGEPAOptimizationTargets,
-} from './gepaComponents.js';
+import type { AxGEPAAdapter } from './gepaAdapter.js';
 import {
   bootstrapGEPADemos,
   resolveBootstrapOptions,
 } from './gepaBootstrap.js';
+import {
+  applyGEPAComponentConfig,
+  getGEPAOptimizationTargets,
+} from './gepaComponents.js';
 import { getGEPAUpdateGroup } from './gepaDependencies.js';
 import {
+  type AxGEPABatchEvaluation,
   evaluateGEPABatch,
   normalizeGEPAScores,
   scalarizeGEPAScores,
-  type AxGEPABatchEvaluation,
 } from './gepaEvaluation.js';
-import type { AxGEPAAdapter } from './gepaAdapter.js';
 import {
   proposeGEPAComponentValue,
   renderReflectiveValue,
@@ -320,7 +320,6 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
         'AxGEPA: program exposes no optimizable components (implement getOptimizableComponents on AxProgram subclasses)'
       );
     }
-    const targetIds = targets.map((target) => target.id);
     const componentSelector = new AxGEPAComponentSelector(targets);
 
     const applyConfig = (cfg: Readonly<Record<string, string>>): void => {
@@ -981,10 +980,6 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
         ? new AxOptimizedProgramImpl<OUT>({
             bestScore,
             stats: this.stats,
-            instruction:
-              targets.length === 1
-                ? candidates[bestCandidateIdx]!.cfg[targetIds[0]!]
-                : undefined,
             componentMap: { ...candidates[bestCandidateIdx]!.cfg },
             selectorState: componentSelector.snapshot(),
             demos: bootstrappedDemos,
@@ -1015,9 +1010,6 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
         configuration: {
           candidate: p.idx,
           componentMap: { ...candidates[p.idx]!.cfg },
-          ...(targets.length === 1
-            ? { instruction: candidates[p.idx]!.cfg[targetIds[0]!] }
-            : {}),
         },
         dominatedSolutions: p.dominated,
       })),

@@ -739,10 +739,10 @@ const ${signature.name.replace(/\s+/g, '')} = ax\`
                   <CardContent>
                     <pre className="overflow-x-auto rounded-lg bg-muted p-4 text-sm">
                       <code>{`// Import Ax
-import { AxAI, ax, f } from '@ax-llm/ax';
+import { ai, ax, f } from '@ax-llm/ax';
 
 // Initialize AI provider
-const ai = new AxAI({
+const llm = ai({
   name: 'openai',
   apiKey: process.env.OPENAI_APIKEY
 });
@@ -750,7 +750,7 @@ const ai = new AxAI({
 ${generateSignatureCode()}
 
 // Execute the signature
-const result = await ${signature.name.replace(/\s+/g, '')}.forward(ai, {
+const result = await ${signature.name.replace(/\s+/g, '')}.forward(llm, {
 ${signature.inputFields.map((field) => `  ${field.name}: "your input here"`).join(',\n')}
 });
 

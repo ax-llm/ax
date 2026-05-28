@@ -142,7 +142,7 @@ This page lists every runnable example in [`src/examples/`](https://github.com/a
 ### Other Providers
 
 - **[grok-live-search.ts](https://github.com/ax-llm/ax/tree/main/src/examples/grok-live-search.ts)** - Query Grok with live search enabled.
-- **[openrouter.ts](https://github.com/ax-llm/ax/tree/main/src/examples/openrouter.ts)** - Route requests through OpenRouter.
+- **[openai-compatible.ts](https://github.com/ax-llm/ax/tree/main/src/examples/openai-compatible.ts)** - Use an OpenAI-compatible endpoint through the OpenAI provider.
 
 ## MCP Integrations
 
@@ -166,6 +166,5 @@ This page lists every runnable example in [`src/examples/`](https://github.com/a
 ## Browser, Local Runtime, and Deployment
 
 - **[web-chat.html](https://github.com/ax-llm/ax/tree/main/src/examples/web-chat.html)** - Browser chat UI using the Ax bundle.
-- **[webllm-chat.html](https://github.com/ax-llm/ax/tree/main/src/examples/webllm-chat.html)** - Browser chat example powered by WebLLM.
 - **[cors-proxy.js](https://github.com/ax-llm/ax/tree/main/src/examples/cors-proxy.js)** - Small CORS proxy helper for browser-based development.
 - **[docker.ts](https://github.com/ax-llm/ax/tree/main/src/examples/docker.ts)** - Run tool-like tasks inside a Docker session.

@@ -1,5 +1,5 @@
 import type { AxAIService, AxFunction } from '../../ai/types.js';
-import type { AxSignatureConfig } from '../../dsp/sig.js';
+import type { AxSignatureConfig, AxSignatureInput } from '../../dsp/sig.js';
 import { AxSignature, f } from '../../dsp/sig.js';
 import type { ParseSignature } from '../../dsp/sigtypes.js';
 import type {
@@ -197,7 +197,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         ? (AxSignature.create(init.signature) as AxSignature<IN, OUT>)
         : init.signature instanceof AxSignature
           ? (init.signature as AxSignature<IN, OUT>)
-          : (new AxSignature(init.signature) as AxSignature<IN, OUT>);
+          : (AxSignature.from(init.signature) as AxSignature<IN, OUT>);
     if (this.fullSignature.getDescription()?.trim()) {
       throw new Error(
         'AxAgent does not support signature-level descriptions; use contextOptions.description, executorOptions.description, or responderOptions.description instead'
@@ -640,10 +640,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     }
   }
 
-  public setSignature(
-    signature: NonNullable<ConstructorParameters<typeof AxSignature>[0]>
-  ): void {
-    const nextSig = new AxSignature(signature);
+  public setSignature(signature: AxSignatureInput): void {
+    const nextSig = AxSignature.from(signature);
     const allInputFields = nextSig.getInputFields();
     const allOutputFields = nextSig.getOutputFields();
     const ctxNames = this.contextFieldNames;
@@ -877,7 +875,7 @@ export function agent(
       ? AxSignature.create(signature)
       : signature instanceof AxSignature
         ? signature
-        : new AxSignature(signature);
+        : AxSignature.from(signature);
   const { ai, judgeAI, agentIdentity, ...options } = config;
 
   return new AxAgent(

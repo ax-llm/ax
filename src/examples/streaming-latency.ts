@@ -2,13 +2,12 @@ import type { AxAIService, AxChatResponse } from '@ax-llm/ax';
 import {
   AxAIAnthropicModel,
   AxAIGoogleGeminiModel,
-  AxAIGroqModel,
   AxAIOpenAIModel,
   ai,
   ax,
 } from '@ax-llm/ax';
 
-type SupportedProvider = 'openai' | 'anthropic' | 'google-gemini' | 'groq';
+type SupportedProvider = 'openai' | 'anthropic' | 'google-gemini';
 
 type BenchSample = {
   name: string;
@@ -236,13 +235,12 @@ function readProvider(): SupportedProvider {
   if (
     value === 'openai' ||
     value === 'anthropic' ||
-    value === 'google-gemini' ||
-    value === 'groq'
+    value === 'google-gemini'
   ) {
     return value;
   }
   throw new Error(
-    'AX_STREAM_BENCH_PROVIDER must be openai, anthropic, google-gemini, or groq'
+    'AX_STREAM_BENCH_PROVIDER must be openai, anthropic, or google-gemini'
   );
 }
 
@@ -287,20 +285,6 @@ function createLLM(selectedProvider: SupportedProvider): {
         llm: ai({
           name: 'google-gemini',
           apiKey: readRequiredEnv('GOOGLE_APIKEY'),
-          config: { model },
-          options: { timeout },
-        }),
-      };
-    }
-
-    case 'groq': {
-      const model = (process.env.AX_STREAM_BENCH_MODEL ??
-        AxAIGroqModel.Llama33_70B) as AxAIGroqModel;
-      return {
-        model,
-        llm: ai({
-          name: 'groq',
-          apiKey: readRequiredEnv('GROQ_APIKEY'),
           config: { model },
           options: { timeout },
         }),
