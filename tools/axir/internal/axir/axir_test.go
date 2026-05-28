@@ -361,6 +361,57 @@ func TestCoreBodyParseFormatRoundTrip(t *testing.T) {
 	}
 }
 
+func TestCompactCoreBodyParseFormatRoundTrip(t *testing.T) {
+	src := `module @bodytest version "0.1" {
+  dialect @core version "0.1"
+
+  op core.func @demo {
+    type signature = "(string) -> string throws"
+    body @entry(%input: string) {
+      %items = core.list
+      %ok = core.call intrinsic.is_not_none(%input)
+      core.if %ok {
+        core.append %items, %input
+      } else {
+        %fallback = core.let "fallback"
+        core.append %items, %fallback
+      }
+      %out = core.string_join %items sep ""
+      core.return %out
+    }
+  }
+}
+`
+	mod, err := ParseModule(src, "compact.axir")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := BuildCoreBody(mod.Ops[0]); err != nil {
+		t.Fatal(err)
+	}
+	text := FormatModuleCompact(mod)
+	for _, want := range []string{
+		"body @entry(%input: string) {",
+		"%items = core.list",
+		"%ok = core.call intrinsic.is_not_none(%input)",
+		"core.if %ok {",
+		"core.append %items, %input",
+		"%out = core.string_join %items sep \"\"",
+		"core.return %out",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("compact format missing %q:\n%s", want, text)
+		}
+	}
+	again, err := ParseModule(text, "compact.axir")
+	if err != nil {
+		t.Fatalf("compact formatted Core body did not parse:\n%s\n%v", text, err)
+	}
+	if _, err := BuildCoreBody(again.Ops[0]); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCheckerDiagnostics(t *testing.T) {
 	bundle := Bundle{
 		Root: "bad",
@@ -437,6 +488,20 @@ func TestCoreBodyCheckerDiagnostics(t *testing.T) {
 			name: "missing op attrs",
 			op:   badBodyOp([]Operation{{Name: "core.get", Line: 4}, {Name: "core.return", Line: 5}}),
 			want: "core.get missing result, target, or key",
+		},
+		{
+			name: "unknown op attr",
+			op: badBodyOp([]Operation{{
+				Name: "core.get",
+				Attributes: []Attribute{
+					{Kind: "attr", Name: "target", Value: "%input", Line: 4},
+					{Kind: "attr", Name: "key", Value: "x", Line: 4},
+					{Kind: "attr", Name: "result", Value: "%out", Line: 4},
+					{Kind: "attr", Name: "typo", Value: "x", Line: 4},
+				},
+				Line: 4,
+			}, {Name: "core.return", Attributes: []Attribute{{Kind: "attr", Name: "value", Value: "%out", Line: 5}}, Line: 5}}),
+			want: "unknown attr \"typo\"",
 		},
 		{
 			name: "invalid loop binding",
@@ -538,6 +603,30 @@ func TestCoreBodyCheckerDiagnostics(t *testing.T) {
 			want: "unknown Core intrinsic",
 		},
 		{
+			name: "unknown intrinsic suggestion",
+			op: badBodyOp([]Operation{{
+				Name: "core.call",
+				Attributes: []Attribute{
+					{Kind: "attr", Name: "callee", Value: "intrinsic.is_nonne", Line: 4},
+					{Kind: "attr", Name: "args", Values: []interface{}{"%input"}, Line: 4},
+				},
+				Line: 4,
+			}, {Name: "core.return", Line: 5}}),
+			want: "did you mean \"intrinsic.is_none\"",
+		},
+		{
+			name: "intrinsic arg count",
+			op: badBodyOp([]Operation{{
+				Name: "core.call",
+				Attributes: []Attribute{
+					{Kind: "attr", Name: "callee", Value: "intrinsic.eq", Line: 4},
+					{Kind: "attr", Name: "args", Values: []interface{}{"%input"}, Line: 4},
+				},
+				Line: 4,
+			}, {Name: "core.return", Line: 5}}),
+			want: "intrinsic.eq expects 2 args",
+		},
+		{
 			name: "forbidden signature intrinsic",
 			op: badBodyOp([]Operation{{
 				Name: "core.call",
@@ -614,6 +703,43 @@ func TestDumpJSON(t *testing.T) {
 		if !strings.Contains(string(out), want) {
 			t.Fatalf("JSON missing %s:\n%s", want, out)
 		}
+	}
+}
+
+func TestExplainSymbol(t *testing.T) {
+	bundle, err := LoadBundle(rootPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := Explain(bundle, "fold_stream")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"symbol @fold_stream",
+		"operation core.func",
+		"body_source core",
+		"calls",
+		"@stream_event_content_parts_impl",
+		"normalized_core",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("explain output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestLintLLMCoreProfile(t *testing.T) {
+	bundle, err := LoadBundle(rootPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ds := Lint(bundle, "llm-core")
+	if ds.HasErrors() {
+		t.Fatal(ds.Error())
+	}
+	if bad := Lint(bundle, "unknown"); !bad.HasErrors() {
+		t.Fatal("expected unknown lint profile to be an error")
 	}
 }
 

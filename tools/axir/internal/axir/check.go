@@ -45,6 +45,39 @@ var coreBodyOps = map[string]bool{
 	"core.type_is":      true,
 }
 
+var knownOperationNames = map[string]bool{
+	"core.package":          true,
+	"core.enum":             true,
+	"core.record":           true,
+	"core.interface":        true,
+	"core.func":             true,
+	"core.method":           true,
+	"core.error":            true,
+	"core.semantic":         true,
+	"ax.agent.stub":         true,
+	"ax.ai.interface":       true,
+	"ax.ai.record":          true,
+	"ax.ai.semantic":        true,
+	"ax.api.class":          true,
+	"ax.api.function":       true,
+	"ax.api.package":        true,
+	"ax.gen.semantic":       true,
+	"ax.provider.class":     true,
+	"ax.provider.semantic":  true,
+	"ax.schema.record":      true,
+	"ax.schema.semantic":    true,
+	"ax.signature.record":   true,
+	"ax.signature.semantic": true,
+	"ax.stream.semantic":    true,
+	"ax.template.record":    true,
+	"ax.template.semantic":  true,
+	"ax.tool.interface":     true,
+	"ax.tool.record":        true,
+	"ax.tool.semantic":      true,
+	"ax.validate.error":     true,
+	"ax.validate.semantic":  true,
+}
+
 func Check(bundle Bundle) Diagnostics {
 	var d Diagnostics
 	if len(bundle.Modules) == 0 {
@@ -96,11 +129,21 @@ func checkOp(file string, op Operation, symbols map[string]Operation) Diagnostic
 	} else if !knownDialects[dialect] {
 		d = append(d, diag("error", file, op.Line, "operation %q uses unknown dialect @%s", op.Name, dialect))
 	}
+	if !knownOperationNames[op.Name] && !coreBodyOps[op.Name] {
+		if suggestion := closestString(op.Name, sortedOperationNames()); suggestion != "" {
+			d = append(d, diag("error", file, op.Line, "unknown operation %q; did you mean %q?", op.Name, suggestion))
+		} else {
+			d = append(d, diag("error", file, op.Line, "unknown operation %q", op.Name))
+		}
+	}
 	if op.Name == "ax.agent.runtime" {
 		d = append(d, diag("error", file, op.Line, "ax.agent runtime lowering is reserved in V1"))
 	}
 	if op.Symbol == "" && AttrString(op, "public") == "true" {
 		d = append(d, diag("error", file, op.Line, "public operation %q must have a symbol", op.Name))
+	}
+	if strings.HasPrefix(op.Name, "ax.") && AttrString(op, "core_kind") == "" {
+		d = append(d, diag("error", file, op.Line, "Ax dialect operation %q must declare attr core_kind", op.Name))
 	}
 	for _, attr := range op.Attributes {
 		if attr.Kind == "ref" {
@@ -115,6 +158,14 @@ func checkOp(file string, op Operation, symbols map[string]Operation) Diagnostic
 				ref := strings.TrimPrefix(callee, "@")
 				if _, ok := symbols[ref]; !ok {
 					d = append(d, diag("error", file, attr.Line, "missing callee @%s", ref))
+				}
+			} else if strings.HasPrefix(callee, "intrinsic.") {
+				if !knownCoreIntrinsics[callee] {
+					d = append(d, diag("error", file, attr.Line, "%s", unknownCoreIntrinsicError(callee)))
+				}
+			} else if !strings.HasPrefix(callee, "_") {
+				if _, ok := symbols[callee]; !ok && !isGeneratedCoreFunctionName(callee) {
+					d = append(d, diag("error", file, attr.Line, "missing callee @%s; use @%s for symbol calls or define @%s", callee, callee, callee))
 				}
 			}
 		}
@@ -137,6 +188,44 @@ func checkOp(file string, op Operation, symbols map[string]Operation) Diagnostic
 		}
 	}
 	return d
+}
+
+func isGeneratedCoreFunctionName(name string) bool {
+	for _, group := range [][]pythonCoreFuncSpec{
+		pythonSignatureCoreFuncs,
+		pythonSchemaCoreFuncs,
+		pythonPromptCoreFuncs,
+		pythonAICoreFuncs,
+		pythonGenCoreFuncs,
+	} {
+		for _, spec := range group {
+			if spec.Name == name || spec.Symbol == name {
+				return true
+			}
+		}
+	}
+	for _, generated := range javaCoreFuncNames {
+		if generated == name {
+			return true
+		}
+	}
+	for _, generated := range cppCoreFuncNames {
+		if generated == name {
+			return true
+		}
+	}
+	return false
+}
+
+func sortedOperationNames() []string {
+	keys := make([]string, 0, len(knownOperationNames)+len(coreBodyOps))
+	for key := range knownOperationNames {
+		keys = append(keys, key)
+	}
+	for key := range coreBodyOps {
+		keys = append(keys, key)
+	}
+	return sortedStrings(keys)
 }
 
 func checkRegion(file string, parent Operation, region Region) Diagnostics {

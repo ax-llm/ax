@@ -2,6 +2,10 @@
 
 Backends emit Ax runtime libraries, not one-off user programs.
 
+The shared rules for source of truth, fixture-first semantics, Core-owned
+behavior, target-owned boundaries, and syntax direction live in
+`ir/spec/rules.md`.
+
 Every generated package must include:
 
 - `axir-capabilities.json`, the machine-readable target contract
@@ -52,6 +56,8 @@ C++ target:
 
 Backends must consume the lowered Core IR module or a target package model made
 from Core IR. They must not use high-level Ax dialects as their primary input.
+They must also avoid target-only semantic escapes for Core-owned behavior; see
+`ir/spec/rules.md` for the allowed intrinsic boundary.
 
 `axir verify --targets python,java,cpp ir/axcore/root.axir` is the portable
 gate. It compiles each target, validates the manifest, runs generated examples,

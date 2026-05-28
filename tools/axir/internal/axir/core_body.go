@@ -364,6 +364,12 @@ func parseCoreStmt(op Operation) (CoreStmt, error) {
 	if attr, ok := Attr(op, "default"); ok {
 		stmt.Default = attr.Value
 	}
+	if attr, ok := Attr(op, "args"); ok {
+		stmt.Args = append([]interface{}(nil), attr.Values...)
+	}
+	if err := validateCoreOpAttrs(op, stmt.Kind); err != nil {
+		return stmt, err
+	}
 	if stmt.Kind == "call" {
 		if stmt.Callee == "" {
 			return stmt, fmt.Errorf("core.call missing callee")
@@ -372,7 +378,12 @@ func parseCoreStmt(op Operation) (CoreStmt, error) {
 			return stmt, fmt.Errorf("core.call callee %q uses forbidden backend helper escape", stmt.Callee)
 		}
 		if strings.HasPrefix(stmt.Callee, "intrinsic.") && !knownCoreIntrinsics[stmt.Callee] {
-			return stmt, fmt.Errorf("unknown Core intrinsic %q", stmt.Callee)
+			return stmt, unknownCoreIntrinsicError(stmt.Callee)
+		}
+		if strings.HasPrefix(stmt.Callee, "intrinsic.") {
+			if err := validateCoreIntrinsicArgs(stmt.Callee, len(stmt.Args)); err != nil {
+				return stmt, err
+			}
 		}
 	}
 	switch stmt.Kind {
@@ -388,9 +399,6 @@ func parseCoreStmt(op Operation) (CoreStmt, error) {
 		if len(op.Regions) != 2 {
 			return stmt, fmt.Errorf("core.try must contain exactly try and catch regions")
 		}
-	}
-	if attr, ok := Attr(op, "args"); ok {
-		stmt.Args = append([]interface{}(nil), attr.Values...)
 	}
 	if err := validateCoreStmtShape(stmt); err != nil {
 		return stmt, err
@@ -411,6 +419,52 @@ func parseCoreStmt(op Operation) (CoreStmt, error) {
 		stmt.Regions = append(stmt.Regions, body)
 	}
 	return stmt, nil
+}
+
+func validateCoreOpAttrs(op Operation, kind string) error {
+	allowed, ok := coreOpAllowedAttrs[kind]
+	if !ok {
+		return nil
+	}
+	for _, attr := range op.Attributes {
+		if !allowed[attr.Name] {
+			return fmt.Errorf("core.%s has unknown attr %q; allowed attrs are %s", kind, attr.Name, strings.Join(sortedKeys(allowed), ", "))
+		}
+	}
+	return nil
+}
+
+var coreOpAllowedAttrs = map[string]map[string]bool{
+	"append":       attrSet("target", "value"),
+	"break":        attrSet(),
+	"call":         attrSet("args", "callee", "result"),
+	"const":        attrSet("result", "value"),
+	"continue":     attrSet(),
+	"for":          attrSet("in", "item"),
+	"get":          attrSet("default", "key", "result", "target"),
+	"if":           attrSet("condition"),
+	"let":          attrSet("result", "value"),
+	"list":         attrSet("result"),
+	"loop":         attrSet(),
+	"map":          attrSet("result"),
+	"raise":        attrSet("error", "message"),
+	"regex_match":  attrSet("pattern", "result", "value"),
+	"return":       attrSet("value"),
+	"set":          attrSet("key", "target", "value"),
+	"string_join":  attrSet("result", "sep", "value"),
+	"string_split": attrSet("result", "sep", "value"),
+	"string_trim":  attrSet("result", "value"),
+	"switch":       nil,
+	"try":          attrSet("error"),
+	"type_is":      attrSet("result", "type", "value"),
+}
+
+func attrSet(names ...string) map[string]bool {
+	out := map[string]bool{}
+	for _, name := range names {
+		out[name] = true
+	}
+	return out
 }
 
 func validateCoreStmtShape(stmt CoreStmt) error {
@@ -448,9 +502,15 @@ func validateCoreStmtShape(stmt CoreStmt) error {
 		if stmt.Result == "" || stmt.Target == "" || stmt.Key == "" {
 			return fmt.Errorf("core.get missing result, target, or key")
 		}
+		if !strings.HasPrefix(stmt.Target, "%") {
+			return fmt.Errorf("core.get target must be a value ref like %%target")
+		}
 	case "if":
 		if stmt.Cond == "" {
 			return fmt.Errorf("core.if missing condition")
+		}
+		if !strings.HasPrefix(stmt.Cond, "%") {
+			return fmt.Errorf("core.if condition must be a value ref like %%condition")
 		}
 	case "loop":
 	case "try":
@@ -474,6 +534,84 @@ func validateCoreStmtShape(stmt CoreStmt) error {
 		}
 	}
 	return nil
+}
+
+type CoreIntrinsicInfo struct {
+	Name         string
+	MinArgs      int
+	MaxArgs      int
+	HostBoundary bool
+	ReturnKind   string
+}
+
+var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
+	"intrinsic.not":                        intrinsicInfo("intrinsic.not", 1, 1, false, "bool"),
+	"intrinsic.and":                        intrinsicInfo("intrinsic.and", 2, 2, false, "bool"),
+	"intrinsic.or":                         intrinsicInfo("intrinsic.or", 2, 2, false, "bool"),
+	"intrinsic.eq":                         intrinsicInfo("intrinsic.eq", 2, 2, false, "bool"),
+	"intrinsic.ne":                         intrinsicInfo("intrinsic.ne", 2, 2, false, "bool"),
+	"intrinsic.lt":                         intrinsicInfo("intrinsic.lt", 2, 2, false, "bool"),
+	"intrinsic.lte":                        intrinsicInfo("intrinsic.lte", 2, 2, false, "bool"),
+	"intrinsic.gt":                         intrinsicInfo("intrinsic.gt", 2, 2, false, "bool"),
+	"intrinsic.gte":                        intrinsicInfo("intrinsic.gte", 2, 2, false, "bool"),
+	"intrinsic.len":                        intrinsicInfo("intrinsic.len", 1, 1, false, "i64"),
+	"intrinsic.contains":                   intrinsicInfo("intrinsic.contains", 2, 2, false, "bool"),
+	"intrinsic.is_none":                    intrinsicInfo("intrinsic.is_none", 1, 1, false, "bool"),
+	"intrinsic.is_not_none":                intrinsicInfo("intrinsic.is_not_none", 1, 1, false, "bool"),
+	"intrinsic.none":                       intrinsicInfo("intrinsic.none", 0, 0, false, "json"),
+	"intrinsic.coalesce":                   intrinsicInfo("intrinsic.coalesce", 2, 2, false, "json"),
+	"intrinsic.map.contains":               intrinsicInfo("intrinsic.map.contains", 2, 2, false, "bool"),
+	"intrinsic.map.get":                    intrinsicInfo("intrinsic.map.get", 2, 3, false, "json"),
+	"intrinsic.json.parse":                 intrinsicInfo("intrinsic.json.parse", 1, 1, false, "json"),
+	"intrinsic.json.stringify":             intrinsicInfo("intrinsic.json.stringify", 1, 1, false, "string"),
+	"intrinsic.tool.invoke":                intrinsicInfo("intrinsic.tool.invoke", 2, 2, true, "json"),
+	"intrinsic.object.call_method":         intrinsicInfo("intrinsic.object.call_method", 2, -1, true, "json"),
+	"intrinsic.ai.complete_once":           intrinsicInfo("intrinsic.ai.complete_once", 2, 2, true, "json"),
+	"intrinsic.retry.sleep":                intrinsicInfo("intrinsic.retry.sleep", 1, 1, true, "void"),
+	"intrinsic.exception.message":          intrinsicInfo("intrinsic.exception.message", 1, 1, true, "string"),
+	"intrinsic.string.format":              intrinsicInfo("intrinsic.string.format", 1, -1, false, "string"),
+	"intrinsic.string.join":                intrinsicInfo("intrinsic.string.join", 2, 2, false, "string"),
+	"intrinsic.string.slice":               intrinsicInfo("intrinsic.string.slice", 2, 3, false, "string"),
+	"intrinsic.string.replace":             intrinsicInfo("intrinsic.string.replace", 3, 3, false, "string"),
+	"intrinsic.string.split":               intrinsicInfo("intrinsic.string.split", 2, 2, false, "list<string>"),
+	"intrinsic.url.valid":                  intrinsicInfo("intrinsic.url.valid", 1, 1, false, "bool"),
+	"intrinsic.stream.event_content_parts": intrinsicInfo("intrinsic.stream.event_content_parts", 1, 1, false, "list<string>"),
+}
+
+func intrinsicInfo(name string, minArgs, maxArgs int, hostBoundary bool, returnKind string) CoreIntrinsicInfo {
+	return CoreIntrinsicInfo{Name: name, MinArgs: minArgs, MaxArgs: maxArgs, HostBoundary: hostBoundary, ReturnKind: returnKind}
+}
+
+func validateCoreIntrinsicArgs(name string, got int) error {
+	info, ok := coreIntrinsicInfo[name]
+	if !ok {
+		return nil
+	}
+	if got < info.MinArgs || (info.MaxArgs >= 0 && got > info.MaxArgs) {
+		if info.MinArgs == info.MaxArgs {
+			return fmt.Errorf("%s expects %d args, got %d", name, info.MinArgs, got)
+		}
+		if info.MaxArgs < 0 {
+			return fmt.Errorf("%s expects at least %d args, got %d", name, info.MinArgs, got)
+		}
+		return fmt.Errorf("%s expects %d-%d args, got %d", name, info.MinArgs, info.MaxArgs, got)
+	}
+	return nil
+}
+
+func unknownCoreIntrinsicError(name string) error {
+	if suggestion := closestString(name, sortedKnownIntrinsics()); suggestion != "" {
+		return fmt.Errorf("unknown Core intrinsic %q; did you mean %q?", name, suggestion)
+	}
+	return fmt.Errorf("unknown Core intrinsic %q", name)
+}
+
+func sortedKnownIntrinsics() []string {
+	keys := make([]string, 0, len(knownCoreIntrinsics))
+	for key := range knownCoreIntrinsics {
+		keys = append(keys, key)
+	}
+	return sortedStrings(keys)
 }
 
 func validateCoreBlock(block CoreBlock, parentScope map[string]bool, loopDepth int) error {

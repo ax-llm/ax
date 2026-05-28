@@ -30,6 +30,10 @@ func run(args []string) error {
 		return runDumpJSON(args[1:])
 	case "lower":
 		return runLower(args[1:])
+	case "lint":
+		return runLint(args[1:])
+	case "explain":
+		return runExplain(args[1:])
 	case "compile":
 		return runCompile(args[1:])
 	case "verify":
@@ -51,7 +55,7 @@ func runFmt(files []string) error {
 		if err != nil {
 			return err
 		}
-		if err := os.WriteFile(file, []byte(axir.FormatModule(m)), 0o644); err != nil {
+		if err := os.WriteFile(file, []byte(axir.FormatModuleCompact(m)), 0o644); err != nil {
 			return err
 		}
 	}
@@ -123,6 +127,68 @@ func runLower(args []string) error {
 		return ds
 	}
 	fmt.Print(axir.FormatModule(axir.LowerToCore(bundle)))
+	return nil
+}
+
+func runLint(args []string) error {
+	fs := flag.NewFlagSet("lint", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	profile := fs.String("profile", "llm-core", "lint profile")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() == 0 {
+		return fmt.Errorf("lint requires at least one .axir root file")
+	}
+	failed := false
+	for _, file := range fs.Args() {
+		bundle, err := axir.LoadBundle(file)
+		if err != nil {
+			return err
+		}
+		ds := axir.Lint(bundle, *profile)
+		if len(ds) == 0 {
+			fmt.Printf("%s: ok\n", file)
+			continue
+		}
+		for _, d := range ds {
+			fmt.Printf("%s: %s\n", file, d.Error())
+			if d.Severity == "error" {
+				failed = true
+			}
+		}
+	}
+	if failed {
+		return fmt.Errorf("axir lint failed")
+	}
+	return nil
+}
+
+func runExplain(args []string) error {
+	fs := flag.NewFlagSet("explain", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	symbol := fs.String("symbol", "", "symbol to explain")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return fmt.Errorf("explain requires exactly one .axir root file")
+	}
+	if *symbol == "" {
+		return fmt.Errorf("explain requires --symbol <name>")
+	}
+	bundle, err := axir.LoadBundle(fs.Arg(0))
+	if err != nil {
+		return err
+	}
+	if ds := axir.Check(bundle); ds.HasErrors() {
+		return ds
+	}
+	out, err := axir.Explain(bundle, *symbol)
+	if err != nil {
+		return err
+	}
+	fmt.Print(out)
 	return nil
 }
 
@@ -206,6 +272,8 @@ commands:
   check <roots...>                       parse and validate root bundles
   dump-json <root>                       print JSON AST for a bundle
   lower --to core <root>                 lower Ax dialects to Core IR
+  lint [--profile llm-core] <roots...>   lint for the LLM authoring profile
+  explain --symbol NAME <root>           explain a lowered symbol
   compile --target python|java|cpp --out DIR <file>
   verify [--targets python,java,cpp] [--workdir DIR] <root>
 `

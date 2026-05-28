@@ -22,8 +22,8 @@ until staged lowering.
 The `core_kind` attribute says how an Ax operation lowers to Core IR. Backends
 consume lowered Core IR, not raw Ax dialect operations.
 
-The Python AxAI + AxGen beta slice currently requires these semantic operations
-to be present in the lowered bundle:
+The executable AxAI + AxGen slice currently requires these semantic operations
+to be present in the lowered bundle for Python, Java, and C++:
 
 - `ai_factory`
 - `select_model`
@@ -44,3 +44,7 @@ to be present in the lowered bundle:
 - `strip_internal_fields`
 - `fold_stream`
 - `forward`
+
+The Ax dialects may evolve faster than Core. When a dialect operation becomes
+observable runtime behavior, add a fixture first, lower it into Core-owned
+symbols, and make each executable backend consume the same lowered contract.
