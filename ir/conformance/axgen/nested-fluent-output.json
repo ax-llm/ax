@@ -1,0 +1,42 @@
+{
+  "name": "nested-fluent-output",
+  "kind": "forward",
+  "signature_spec": {
+    "inputs": {
+      "document": {
+        "type": "string",
+        "cache": true
+      }
+    },
+    "outputs": {
+      "profile": {
+        "type": "object",
+        "fields": {
+          "displayName": {
+            "type": "string",
+            "min": 1
+          },
+          "email": {
+            "type": "string",
+            "email": true,
+            "optional": true
+          }
+        }
+      }
+    }
+  },
+  "input": {
+    "document": "Ada Lovelace wrote early computing notes."
+  },
+  "responses": [
+    {
+      "content": "{\"profile\":{\"displayName\":\"Ada Lovelace\"}}"
+    }
+  ],
+  "expected_output": {
+    "profile": {
+      "displayName": "Ada Lovelace"
+    }
+  },
+  "expected_request_count": 1
+}

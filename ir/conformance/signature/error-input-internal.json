@@ -1,0 +1,9 @@
+{
+  "expected_error_category": "signature",
+  "expected_error_contains": "cannot use the internal marker",
+  "kind": "signature_error",
+  "name": "error-input-internal",
+  "signature": "question!:string -> answer:string",
+  "ts_error_message": "Invalid Signature: Input field \"question\" cannot use the internal marker \"!\"",
+  "ts_error_name": "AxSignatureValidationError"
+}

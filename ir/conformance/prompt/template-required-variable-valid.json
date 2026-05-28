@@ -1,0 +1,7 @@
+{
+  "expected_result": true,
+  "kind": "template_validate",
+  "name": "template-required-variable-valid",
+  "required_variables": ["identityText", "inputFieldsSection"],
+  "template": "{{ identityText }} {{ inputFieldsSection }}"
+}

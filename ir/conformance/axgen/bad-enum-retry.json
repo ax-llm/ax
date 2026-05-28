@@ -1,0 +1,23 @@
+{
+  "name": "bad-enum-retry",
+  "kind": "forward",
+  "signature": "text:string -> sentiment:class \"positive, negative\"",
+  "input": {
+    "text": "I like it."
+  },
+  "options": {
+    "validation_retries": 1
+  },
+  "responses": [
+    {
+      "content": "{\"sentiment\":\"neutral\"}"
+    },
+    {
+      "content": "{\"sentiment\":\"positive\"}"
+    }
+  ],
+  "expected_output": {
+    "sentiment": "positive"
+  },
+  "expected_request_count": 2
+}

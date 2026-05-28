@@ -1,0 +1,9 @@
+{
+  "expected_error_category": "signature",
+  "expected_error_contains": "Unterminated string",
+  "kind": "signature_error",
+  "name": "error-unclosed-description",
+  "signature": "question:string \"unterminated -> answer:string",
+  "ts_error_message": "Invalid Signature: Unterminated string starting at position 16",
+  "ts_error_name": "AxSignatureValidationError"
+}

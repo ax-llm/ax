@@ -1,0 +1,35 @@
+{
+  "expected_output": {
+    "answer": "Cached text"
+  },
+  "expected_request_contains": ["Cached text", "cache"],
+  "expected_request_count": 1,
+  "input": {
+    "document": "Cached text",
+    "question": "What is inside?"
+  },
+  "kind": "forward",
+  "name": "cache-field-prompt-rendering",
+  "responses": [
+    {
+      "content": "{\"answer\":\"Cached text\"}"
+    }
+  ],
+  "signature_spec": {
+    "inputs": {
+      "document": {
+        "cache": true,
+        "description": "Cached document",
+        "type": "string"
+      },
+      "question": {
+        "type": "string"
+      }
+    },
+    "outputs": {
+      "answer": {
+        "type": "string"
+      }
+    }
+  }
+}

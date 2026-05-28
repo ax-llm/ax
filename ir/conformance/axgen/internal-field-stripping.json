@@ -1,0 +1,17 @@
+{
+  "name": "internal-field-stripping",
+  "kind": "forward",
+  "signature": "topic:string -> answer:string, notes!:string",
+  "input": {
+    "topic": "AxIR"
+  },
+  "responses": [
+    {
+      "content": "{\"answer\":\"compiler layer\",\"notes\":\"private rationale\"}"
+    }
+  ],
+  "expected_output": {
+    "answer": "compiler layer"
+  },
+  "expected_request_count": 1
+}

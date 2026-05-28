@@ -1,0 +1,23 @@
+{
+  "name": "malformed-provider-json",
+  "kind": "ai_error",
+  "request": {
+    "chat_prompt": [
+      {
+        "role": "user",
+        "content": "hello"
+      }
+    ]
+  },
+  "transport_responses": [
+    {
+      "status": 200,
+      "json": {
+        "id": "chatcmpl_bad",
+        "model": "gpt-4.1-mini"
+      }
+    }
+  ],
+  "expected_error_type": "AxAIServiceResponseError",
+  "expected_error_contains": "missing choices"
+}

@@ -1,0 +1,35 @@
+{
+  "expected_signature": {
+    "description": null,
+    "inputs": [
+      {
+        "name": "documentText",
+        "title": "Document Text",
+        "type": {
+          "isArray": false,
+          "name": "string"
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false
+      }
+    ],
+    "outputs": [
+      {
+        "name": "sentiment",
+        "title": "Sentiment",
+        "type": {
+          "isArray": false,
+          "name": "class",
+          "options": ["positive", "negative", "neutral"]
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false
+      }
+    ]
+  },
+  "kind": "signature",
+  "name": "class-comma-options",
+  "signature": "documentText:string -> sentiment:class \"positive, negative, neutral\""
+}

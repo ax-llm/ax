@@ -1,0 +1,17 @@
+{
+  "name": "class-output",
+  "kind": "forward",
+  "signature": "review:string -> sentiment:class \"positive, negative\"",
+  "input": {
+    "review": "Loved the documentation."
+  },
+  "responses": [
+    {
+      "content": "{\"sentiment\":\"positive\"}"
+    }
+  ],
+  "expected_output": {
+    "sentiment": "positive"
+  },
+  "expected_request_count": 1
+}

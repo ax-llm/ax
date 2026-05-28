@@ -1,0 +1,35 @@
+{
+  "expected_signature": {
+    "description": null,
+    "inputs": [
+      {
+        "name": "documentText",
+        "title": "Document Text",
+        "type": {
+          "isArray": false,
+          "name": "string"
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false
+      }
+    ],
+    "outputs": [
+      {
+        "name": "labels",
+        "title": "Labels",
+        "type": {
+          "isArray": true,
+          "name": "class",
+          "options": ["bug", "feature", "docs"]
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false
+      }
+    ]
+  },
+  "kind": "signature",
+  "name": "class-pipe-options-array",
+  "signature": "documentText:string -> labels:class[] \"bug | feature | docs\""
+}

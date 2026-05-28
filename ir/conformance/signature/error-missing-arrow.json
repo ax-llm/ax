@@ -1,0 +1,9 @@
+{
+  "expected_error_category": "signature",
+  "expected_error_contains": "Expected \"->\"",
+  "kind": "signature_error",
+  "name": "error-missing-arrow",
+  "signature": "question:string answer:string",
+  "ts_error_message": "Invalid Signature: Expected \"->\" but found \"answer:str...\"",
+  "ts_error_name": "AxSignatureValidationError"
+}

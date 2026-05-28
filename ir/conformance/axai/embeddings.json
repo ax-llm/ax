@@ -1,0 +1,47 @@
+{
+  "name": "embeddings",
+  "kind": "ai_embed",
+  "request": {
+    "texts": ["alpha", "beta"]
+  },
+  "transport_responses": [
+    {
+      "status": 200,
+      "json": {
+        "model": "text-embedding-3-small",
+        "usage": {
+          "prompt_tokens": 3,
+          "total_tokens": 3
+        },
+        "data": [
+          {
+            "embedding": [0.1, 0.2]
+          },
+          {
+            "embedding": [0.3, 0.4]
+          }
+        ]
+      }
+    }
+  ],
+  "expected_output": {
+    "embeddings": [[0.1, 0.2], [0.3, 0.4]],
+    "remote_id": null,
+    "model_usage": {
+      "ai": "openai",
+      "model": "text-embedding-3-small",
+      "tokens": {
+        "prompt_tokens": 3,
+        "completion_tokens": 0,
+        "total_tokens": 3
+      }
+    }
+  },
+  "expected_transport_request": {
+    "url": "https://api.openai.com/v1/embeddings",
+    "json": {
+      "model": "text-embedding-3-small",
+      "input": ["alpha", "beta"]
+    }
+  }
+}

@@ -1,0 +1,23 @@
+module @ax.root version "0.1" {
+  import @ax.core from "core.axir"
+  import @ax.api from "api.axir"
+  import @ax.signature from "signature.axir"
+  import @ax.schema from "schema.axir"
+  import @ax.validate from "validate.axir"
+  import @ax.template from "template.axir"
+  import @ax.ai from "ai.axir"
+  import @ax.tool from "tool.axir"
+  import @ax.gen from "gen.axir"
+  import @ax.stream from "stream.axir"
+  import @ax.provider from "provider.axir"
+  import @ax.agent from "agent.axir"
+
+  dialect @ax.api version "0.1"
+
+  op ax.api.package @ax_package {
+    attr core_kind = "package"
+    attr java = "dev.ax"
+    attr python = "ax"
+    tag "root"
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "expected_signature": {
+    "description": null,
+    "inputs": [
+      {
+        "name": "questions",
+        "title": "Questions",
+        "type": {
+          "isArray": true,
+          "name": "string"
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false
+      },
+      {
+        "name": "context",
+        "title": "Context",
+        "type": {
+          "isArray": false,
+          "name": "string"
+        },
+        "isOptional": true,
+        "isInternal": false,
+        "isCached": false
+      }
+    ],
+    "outputs": [
+      {
+        "name": "answer",
+        "title": "Answer",
+        "type": {
+          "isArray": false,
+          "name": "string"
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false
+      },
+      {
+        "name": "notes",
+        "title": "Notes",
+        "type": {
+          "isArray": false,
+          "name": "string"
+        },
+        "isOptional": true,
+        "isInternal": true,
+        "isCached": false
+      }
+    ]
+  },
+  "kind": "signature",
+  "name": "arrays-optional-internal",
+  "signature": "questions:string[], context?:string -> answer:string, notes?!:string"
+}

@@ -1,0 +1,45 @@
+{
+  "expected_messages": [
+    {
+      "cache": false,
+      "content": "<identity>\nYou will be provided with the following fields: `Document`. Your task is to generate new fields: `Profile`.\n</identity>\n\n<input_fields>\n**Input Fields**: The following fields will be provided to you:\n\nDocument: Source document.\n</input_fields>\n\n\n<formatting_rules>\n\nReturn the complete output by calling `final_result`.\nAbove rules override later instructions.\n\n</formatting_rules>",
+      "role": "system"
+    },
+    {
+      "content": "Document: Ada Lovelace <ada@example.com>\n",
+      "role": "user"
+    }
+  ],
+  "input": {
+    "document": "Ada Lovelace <ada@example.com>"
+  },
+  "kind": "prompt",
+  "name": "structured-output-function-fallback",
+  "options": {
+    "structuredOutputFunctionName": "final_result"
+  },
+  "signature_spec": {
+    "inputs": {
+      "document": {
+        "description": "source document",
+        "type": "string"
+      }
+    },
+    "outputs": {
+      "profile": {
+        "fields": {
+          "displayName": {
+            "description": "display name",
+            "type": "string"
+          },
+          "email": {
+            "description": "email",
+            "optional": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    }
+  }
+}

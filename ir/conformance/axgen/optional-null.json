@@ -1,0 +1,32 @@
+{
+  "name": "optional-null",
+  "kind": "forward",
+  "signature_spec": {
+    "inputs": {
+      "name": {
+        "type": "string"
+      }
+    },
+    "outputs": {
+      "displayName": {
+        "type": "string"
+      },
+      "middleName": {
+        "type": "string",
+        "optional": true
+      }
+    }
+  },
+  "input": {
+    "name": "Ada"
+  },
+  "responses": [
+    {
+      "content": "{\"displayName\":\"Ada\",\"middleName\":null}"
+    }
+  ],
+  "expected_output": {
+    "displayName": "Ada",
+    "middleName": null
+  }
+}

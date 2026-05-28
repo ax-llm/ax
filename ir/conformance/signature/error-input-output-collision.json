@@ -1,0 +1,9 @@
+{
+  "expected_error_category": "signature",
+  "expected_error_contains": "appears in both inputs and outputs",
+  "kind": "signature_error",
+  "name": "error-input-output-collision",
+  "signature": "question:string -> question:string",
+  "ts_error_message": "Invalid Signature: Field name \"question\" appears in both inputs and outputs",
+  "ts_error_name": "AxSignatureValidationError"
+}

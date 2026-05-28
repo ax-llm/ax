@@ -1,0 +1,14 @@
+{
+  "name": "request-validation-error",
+  "kind": "ai_error",
+  "request": {
+    "chat_prompt": [
+      {
+        "role": "narrator",
+        "content": "bad role"
+      }
+    ]
+  },
+  "expected_error_type": "AxAIServiceResponseError",
+  "expected_error_contains": "Invalid chat message role"
+}

@@ -1,0 +1,33 @@
+{
+  "expected_output": {
+    "optionalField": "maybe",
+    "publicField": "shown"
+  },
+  "kind": "strip_internal",
+  "name": "strip-internal-output",
+  "signature_spec": {
+    "inputs": {
+      "query": {
+        "type": "string"
+      }
+    },
+    "outputs": {
+      "publicField": {
+        "type": "string"
+      },
+      "optionalField": {
+        "optional": true,
+        "type": "string"
+      },
+      "internalField": {
+        "internal": true,
+        "type": "string"
+      }
+    }
+  },
+  "values": {
+    "internalField": "scratch",
+    "optionalField": "maybe",
+    "publicField": "shown"
+  }
+}

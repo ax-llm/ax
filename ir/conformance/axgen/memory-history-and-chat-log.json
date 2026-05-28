@@ -1,0 +1,38 @@
+{
+  "expected_chat_log_subset": [
+    {
+      "response": {
+        "content": "{\"answer\":\"remembered\"}"
+      },
+      "usage": {
+        "total_tokens": 12
+      }
+    }
+  ],
+  "expected_memory_history_subset": [
+    {
+      "role": "request"
+    },
+    {
+      "role": "assistant"
+    }
+  ],
+  "expected_output": {
+    "answer": "remembered"
+  },
+  "expected_request_count": 1,
+  "input": {
+    "question": "Remember?"
+  },
+  "kind": "forward",
+  "name": "memory-history-and-chat-log",
+  "responses": [
+    {
+      "content": "{\"answer\":\"remembered\"}",
+      "usage": {
+        "total_tokens": 12
+      }
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

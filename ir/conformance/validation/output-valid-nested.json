@@ -1,0 +1,48 @@
+{
+  "expected_values": {
+    "user": {
+      "age": 36,
+      "email": "ada@example.com",
+      "username": "adalovelace"
+    }
+  },
+  "kind": "validate_output",
+  "name": "output-valid-nested",
+  "signature_spec": {
+    "inputs": {
+      "query": {
+        "type": "string"
+      }
+    },
+    "outputs": {
+      "user": {
+        "description": "User profile",
+        "fields": {
+          "username": {
+            "max": 20,
+            "min": 3,
+            "type": "string"
+          },
+          "email": {
+            "email": true,
+            "optional": true,
+            "type": "string"
+          },
+          "age": {
+            "max": 120,
+            "min": 18,
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    }
+  },
+  "values": {
+    "user": {
+      "age": 36,
+      "email": "ada@example.com",
+      "username": "adalovelace"
+    }
+  }
+}

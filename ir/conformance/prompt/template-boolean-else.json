@@ -1,0 +1,9 @@
+{
+  "expected_output": "disabled",
+  "kind": "template",
+  "name": "template-boolean-else",
+  "template": "{{ if enabled }}enabled{{ else }}disabled{{ /if }}",
+  "vars": {
+    "enabled": false
+  }
+}

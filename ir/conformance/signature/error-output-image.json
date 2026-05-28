@@ -1,0 +1,9 @@
+{
+  "expected_error_category": "signature",
+  "expected_error_contains": "Image type is not supported in output fields",
+  "kind": "signature_error",
+  "name": "error-output-image",
+  "signature": "question:string -> picture:image",
+  "ts_error_message": "Invalid Signature: Output field \"picture\": Image type is not supported in output fields",
+  "ts_error_name": "AxSignatureValidationError"
+}

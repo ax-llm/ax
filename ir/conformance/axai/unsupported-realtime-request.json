@@ -1,0 +1,15 @@
+{
+  "name": "unsupported-realtime-request",
+  "kind": "ai_error",
+  "request": {
+    "realtime": true,
+    "chat_prompt": [
+      {
+        "role": "user",
+        "content": "hello"
+      }
+    ]
+  },
+  "expected_error_type": "AxUnsupportedCapabilityError",
+  "expected_error_contains": "realtime"
+}

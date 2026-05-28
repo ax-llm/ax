@@ -1,0 +1,8 @@
+{
+  "expected_error_contains": "must preserve template variable {{inputFieldsSection}}",
+  "kind": "template_error",
+  "name": "template-required-variable-preservation",
+  "operation": "validate",
+  "required_variables": ["identityText", "inputFieldsSection"],
+  "template": "{{ identityText }}"
+}

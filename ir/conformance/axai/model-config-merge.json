@@ -1,0 +1,46 @@
+{
+  "name": "model-config-merge",
+  "kind": "ai_chat",
+  "model_config": {
+    "temperature": 0.7,
+    "n": 2
+  },
+  "request": {
+    "chat_prompt": [
+      {
+        "role": "user",
+        "content": "config"
+      }
+    ],
+    "model_config": {
+      "temperature": 0.1,
+      "top_p": 0.8,
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "status": 200,
+      "json": {
+        "id": "chatcmpl_config",
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "content": "ok"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "expected_transport_request": {
+    "json": {
+      "temperature": 0.1,
+      "top_p": 0.8,
+      "n": 2
+    }
+  }
+}

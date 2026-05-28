@@ -1,0 +1,9 @@
+{
+  "expected_error_category": "signature",
+  "expected_error_contains": "Invalid type \"invalid\"",
+  "kind": "signature_error",
+  "name": "error-invalid-type",
+  "signature": "question:invalid -> answer:string",
+  "ts_error_message": "Invalid Signature: Invalid type \"invalid\"",
+  "ts_error_name": "AxSignatureValidationError"
+}

@@ -1,0 +1,19 @@
+{
+  "name": "default-prompt",
+  "kind": "prompt",
+  "signature": "\"Answer the question\" question:string -> answer:string",
+  "input": {
+    "question": "What is Ax?"
+  },
+  "expected_prompt_contains": [
+    "<identity>",
+    "You will be provided with the following fields: `Question`.",
+    "<input_fields>",
+    "Question:",
+    "<output_fields>",
+    "Answer: (This string field must be included)",
+    "<task_definition>",
+    "Answer the question.",
+    "<formatting_rules>"
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "expected_output": "fast",
+  "kind": "template",
+  "name": "template-string-equality",
+  "template": "{{ if mode === \"fast\" }}fast{{ else }}slow{{ /if }}",
+  "vars": {
+    "mode": "fast"
+  }
+}

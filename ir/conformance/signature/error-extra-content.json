@@ -1,0 +1,9 @@
+{
+  "expected_error_category": "signature",
+  "expected_error_contains": "Unexpected content after signature",
+  "kind": "signature_error",
+  "name": "error-extra-content",
+  "signature": "question:string -> answer:string extra content",
+  "ts_error_message": "Invalid Signature: Unexpected content after signature: \"extra content\"",
+  "ts_error_name": "AxSignatureValidationError"
+}

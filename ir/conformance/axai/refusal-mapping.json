@@ -1,0 +1,33 @@
+{
+  "name": "refusal-mapping",
+  "kind": "ai_error",
+  "request": {
+    "chat_prompt": [
+      {
+        "role": "user",
+        "content": "unsafe request"
+      }
+    ]
+  },
+  "transport_responses": [
+    {
+      "status": 200,
+      "json": {
+        "id": "chatcmpl_refusal",
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "role": "assistant",
+              "refusal": "I cannot help with that."
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "expected_error_type": "AxAIRefusalError",
+  "expected_error_contains": "I cannot help with that."
+}

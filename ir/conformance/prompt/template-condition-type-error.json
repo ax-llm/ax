@@ -1,0 +1,9 @@
+{
+  "expected_error_contains": "Condition 'mode' must be boolean",
+  "kind": "template_error",
+  "name": "template-condition-type-error",
+  "template": "{{ if mode }}fast{{ /if }}",
+  "vars": {
+    "mode": "fast"
+  }
+}

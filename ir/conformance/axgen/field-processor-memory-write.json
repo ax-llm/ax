@@ -1,0 +1,31 @@
+{
+  "expected_memory_history_subset": [
+    {
+      "output": {
+        "answer": "done"
+      },
+      "role": "processor"
+    }
+  ],
+  "expected_output": {
+    "answer": "done"
+  },
+  "expected_request_count": 1,
+  "field_processors": [
+    {
+      "field": "answer",
+      "op": "trim"
+    }
+  ],
+  "input": {
+    "question": "Process"
+  },
+  "kind": "forward",
+  "name": "field-processor-memory-write",
+  "responses": [
+    {
+      "content": "{\"answer\":\"  done  \"}"
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

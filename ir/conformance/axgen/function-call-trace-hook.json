@@ -1,0 +1,68 @@
+{
+  "expected_function_traces_subset": [
+    {
+      "id": "call_1",
+      "name": "search",
+      "status": "ok"
+    }
+  ],
+  "expected_memory_history_subset": [
+    {
+      "role": "function"
+    }
+  ],
+  "expected_output": {
+    "answer": "Docs"
+  },
+  "expected_request_count": 2,
+  "expected_tool_calls": [
+    {
+      "args": {
+        "query": "ax docs"
+      },
+      "name": "search"
+    }
+  ],
+  "input": {
+    "query": "ax docs"
+  },
+  "kind": "forward",
+  "name": "function-call-trace-hook",
+  "responses": [
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call_1",
+          "name": "search",
+          "params": {
+            "query": "ax docs"
+          }
+        }
+      ]
+    },
+    {
+      "content": "{\"answer\":\"Docs\"}"
+    }
+  ],
+  "signature": "query:string -> answer:string",
+  "tools": [
+    {
+      "args": {
+        "query": {
+          "type": "string"
+        }
+      },
+      "description": "Search docs",
+      "name": "search",
+      "result": {
+        "title": "Docs"
+      },
+      "returns": {
+        "title": {
+          "type": "string"
+        }
+      }
+    }
+  ]
+}

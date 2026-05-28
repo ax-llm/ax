@@ -1,0 +1,48 @@
+{
+  "expected_signature": {
+    "description": null,
+    "inputs": [
+      {
+        "name": "question",
+        "title": "Question",
+        "type": {
+          "isArray": false,
+          "name": "string"
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false,
+        "description": "double quote"
+      },
+      {
+        "name": "context",
+        "title": "Context",
+        "type": {
+          "isArray": false,
+          "name": "string"
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false,
+        "description": "single quote"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "answer",
+        "title": "Answer",
+        "type": {
+          "isArray": false,
+          "name": "string"
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false,
+        "description": "result"
+      }
+    ]
+  },
+  "kind": "signature",
+  "name": "descriptions-and-single-quotes",
+  "signature": "question:string \"double quote\", context:string 'single quote' -> answer:string \"result\""
+}

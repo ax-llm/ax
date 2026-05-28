@@ -1,0 +1,15 @@
+{
+  "expected_error_category": "validation",
+  "expected_error_contains": "mimeType",
+  "field": {
+    "type": "file"
+  },
+  "field_name": "sourceFile",
+  "kind": "validate_value",
+  "name": "value-file-invalid",
+  "ts_error_message": "Validation failed: Expected 'sourceFile' to be type 'object ({ mimeType: string; data: string } | { mimeType: string; fileUri: string })' instead got '[object Object]'",
+  "ts_error_name": "Error",
+  "value": {
+    "mimeType": "application/pdf"
+  }
+}

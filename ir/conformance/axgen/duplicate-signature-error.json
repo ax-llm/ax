@@ -1,0 +1,6 @@
+{
+  "name": "duplicate-signature-error",
+  "kind": "signature_error",
+  "signature": "question:string, question:string -> answer:string",
+  "expected_error_contains": "Duplicate input field name"
+}

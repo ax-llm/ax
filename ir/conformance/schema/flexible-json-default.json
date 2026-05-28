@@ -1,0 +1,38 @@
+{
+  "expected_schema": {
+    "additionalProperties": false,
+    "properties": {
+      "looseObject": {
+        "description": "Loose object",
+        "type": ["object", "array", "string", "number", "boolean", "null"]
+      },
+      "payloadData": {
+        "description": "Flexible payload",
+        "type": ["object", "array", "string", "number", "boolean", "null"]
+      }
+    },
+    "required": ["payloadData", "looseObject"],
+    "title": "Schema",
+    "type": "object"
+  },
+  "kind": "json_schema",
+  "name": "flexible-json-default",
+  "signature_spec": {
+    "inputs": {
+      "query": {
+        "type": "string"
+      }
+    },
+    "outputs": {
+      "payloadData": {
+        "description": "Flexible payload",
+        "type": "json"
+      },
+      "looseObject": {
+        "description": "Loose object",
+        "type": "object"
+      }
+    }
+  },
+  "target": "outputs"
+}

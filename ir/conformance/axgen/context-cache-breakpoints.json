@@ -1,0 +1,35 @@
+{
+  "examples": [
+    {
+      "input": {
+        "document": "doc example",
+        "question": "q"
+      },
+      "output": {
+        "answer": "a"
+      }
+    }
+  ],
+  "expected_chat_prompt_contains": ["cache", "Example Output"],
+  "expected_output": {
+    "answer": "cached"
+  },
+  "expected_request_count": 1,
+  "input": {
+    "document": "cache me",
+    "question": "ask"
+  },
+  "kind": "forward",
+  "name": "context-cache-breakpoints",
+  "options": {
+    "context_cache": {
+      "breakpoint": "after_examples"
+    }
+  },
+  "responses": [
+    {
+      "content": "{\"answer\":\"cached\"}"
+    }
+  ],
+  "signature": "document:string, question:string -> answer:string"
+}

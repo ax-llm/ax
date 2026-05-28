@@ -1,0 +1,87 @@
+{
+  "expected_signature": {
+    "description": null,
+    "inputs": [
+      {
+        "name": "user",
+        "title": "User",
+        "type": {
+          "fields": {
+            "name": {
+              "description": "User name",
+              "isCached": false,
+              "isInternal": false,
+              "isOptional": false,
+              "name": "name",
+              "title": "Name",
+              "type": {
+                "description": "User name",
+                "isArray": false,
+                "minLength": 2,
+                "name": "string"
+              }
+            },
+            "email": {
+              "isCached": false,
+              "isInternal": false,
+              "isOptional": true,
+              "name": "email",
+              "title": "Email",
+              "type": {
+                "format": "email",
+                "isArray": false,
+                "name": "string"
+              }
+            }
+          },
+          "isArray": false,
+          "name": "object"
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false,
+        "description": "User profile"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "responseText",
+        "title": "Response Text",
+        "type": {
+          "isArray": false,
+          "name": "string"
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false
+      }
+    ]
+  },
+  "kind": "signature",
+  "name": "fluent-nested-object",
+  "signature_spec": {
+    "inputs": {
+      "user": {
+        "description": "User profile",
+        "fields": {
+          "name": {
+            "description": "User name",
+            "min": 2,
+            "type": "string"
+          },
+          "email": {
+            "email": true,
+            "optional": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    "outputs": {
+      "responseText": {
+        "type": "string"
+      }
+    }
+  }
+}

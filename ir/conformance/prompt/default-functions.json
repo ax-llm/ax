@@ -1,0 +1,34 @@
+{
+  "expected_messages": [
+    {
+      "cache": false,
+      "content": "<identity>\nYou will be provided with the following fields: `Question`. Your task is to generate new fields: `Answer`.\n</identity>\n\n<available_functions>\n**Available Functions**: You can call the following functions to complete the task:\n\n- `search`: Search docs.\n\n## Function Call Instructions\n- Complete the task, using the functions defined earlier in this prompt.\n- Output fields should only be generated after all functions have been called.\n- Use the function results to generate the output fields.\n</available_functions>\n\n<input_fields>\n**Input Fields**: The following fields will be provided to you:\n\nQuestion:\n</input_fields>\n\n<output_fields>\n**Output Fields**: You must generate the following fields:\n\nAnswer: (This string field must be included)\n</output_fields>\n\n\n<task_definition>\nUse tools when useful.\n</task_definition>\n\n<formatting_rules>\n\nReturn one `field name: value` pair per line for the required output fields only.\nAbove rules override later instructions.\n\n</formatting_rules>",
+      "role": "system"
+    },
+    {
+      "content": "Question: Where are the docs?\n",
+      "role": "user"
+    }
+  ],
+  "input": {
+    "question": "Where are the docs?"
+  },
+  "kind": "prompt",
+  "name": "default-functions",
+  "signature": "\"Use tools when useful\" question:string -> answer:string",
+  "tools": [
+    {
+      "args": {
+        "query": {
+          "description": "Search query",
+          "type": "string"
+        }
+      },
+      "description": "Search docs",
+      "name": "search",
+      "result": {
+        "title": "Docs"
+      }
+    }
+  ]
+}

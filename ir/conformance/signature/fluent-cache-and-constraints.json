@@ -1,0 +1,68 @@
+{
+  "expected_signature": {
+    "description": null,
+    "inputs": [
+      {
+        "name": "document",
+        "title": "Document",
+        "type": {
+          "isArray": false,
+          "name": "string"
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": true
+      }
+    ],
+    "outputs": [
+      {
+        "name": "rating",
+        "title": "Rating",
+        "type": {
+          "isArray": false,
+          "maximum": 5,
+          "minimum": 1,
+          "name": "number"
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false
+      },
+      {
+        "name": "outputCode",
+        "title": "Output Code",
+        "type": {
+          "isArray": false,
+          "name": "string",
+          "pattern": "^[A-Z0-9]+$",
+          "patternDescription": "Uppercase letters and numbers only"
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false
+      }
+    ]
+  },
+  "kind": "signature",
+  "name": "fluent-cache-and-constraints",
+  "signature_spec": {
+    "inputs": {
+      "document": {
+        "cache": true,
+        "type": "string"
+      }
+    },
+    "outputs": {
+      "rating": {
+        "max": 5,
+        "min": 1,
+        "type": "number"
+      },
+      "outputCode": {
+        "pattern": "^[A-Z0-9]+$",
+        "patternDescription": "Uppercase letters and numbers only",
+        "type": "string"
+      }
+    }
+  }
+}

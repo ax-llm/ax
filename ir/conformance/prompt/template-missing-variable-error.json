@@ -1,0 +1,9 @@
+{
+  "expected_error_contains": "Missing template variable 'user.name'",
+  "kind": "template_error",
+  "name": "template-missing-variable-error",
+  "template": "Hello {{ user.name }}",
+  "vars": {
+    "user": {}
+  }
+}

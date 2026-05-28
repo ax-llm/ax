@@ -1,0 +1,26 @@
+{
+  "assertions": [
+    {
+      "field": "answer",
+      "return": false
+    }
+  ],
+  "expected_error_contains": "assertion failed without message",
+  "input": {
+    "question": "Assert"
+  },
+  "kind": "forward",
+  "name": "assertion-false-without-message-error",
+  "responses": [
+    {
+      "content": "{\"answer\":\"bad\"}"
+    },
+    {
+      "content": "{\"answer\":\"still bad\"}"
+    },
+    {
+      "content": "{\"answer\":\"again\"}"
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

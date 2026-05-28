@@ -1,0 +1,60 @@
+{
+  "expected_schema": {
+    "additionalProperties": false,
+    "properties": {
+      "birthDate": {
+        "description": "Format: YYYY-MM-DD",
+        "format": "date",
+        "type": "string"
+      },
+      "speech": {
+        "description": "Short spoken answer. Return plain text to synthesize as speech; do not return audio bytes or JSON audio objects.",
+        "type": "string"
+      },
+      "timestamp": {
+        "description": "Format: ISO 8601 date-time",
+        "format": "date-time",
+        "type": "string"
+      },
+      "travelDates": {
+        "description": "Format: JSON object with start and end dates, or YYYY-MM-DD/YYYY-MM-DD",
+        "type": "string"
+      },
+      "window": {
+        "description": "Format: JSON object with start and end ISO 8601 date-times, or ISO interval start/end",
+        "type": "string"
+      }
+    },
+    "required": ["birthDate", "timestamp", "travelDates", "window", "speech"],
+    "title": "Schema",
+    "type": "object"
+  },
+  "kind": "json_schema",
+  "name": "special-types-output",
+  "signature_spec": {
+    "inputs": {
+      "link": {
+        "type": "url"
+      }
+    },
+    "outputs": {
+      "birthDate": {
+        "type": "date"
+      },
+      "timestamp": {
+        "type": "datetime"
+      },
+      "travelDates": {
+        "type": "dateRange"
+      },
+      "window": {
+        "type": "datetimeRange"
+      },
+      "speech": {
+        "description": "Short spoken answer",
+        "type": "audio"
+      }
+    }
+  },
+  "target": "outputs"
+}

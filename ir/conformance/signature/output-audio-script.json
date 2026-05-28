@@ -1,0 +1,45 @@
+{
+  "expected_signature": {
+    "description": null,
+    "inputs": [
+      {
+        "name": "documentText",
+        "title": "Document Text",
+        "type": {
+          "isArray": false,
+          "name": "string"
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false
+      }
+    ],
+    "outputs": [
+      {
+        "name": "speechAudio",
+        "title": "Speech Audio",
+        "type": {
+          "isArray": false,
+          "name": "audio"
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false
+      },
+      {
+        "name": "summary",
+        "title": "Summary",
+        "type": {
+          "isArray": false,
+          "name": "string"
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false
+      }
+    ]
+  },
+  "kind": "signature",
+  "name": "output-audio-script",
+  "signature": "documentText:string -> speechAudio:audio, summary:string"
+}

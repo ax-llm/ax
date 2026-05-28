@@ -1,0 +1,25 @@
+{
+  "name": "status-retryable-error",
+  "kind": "ai_error",
+  "request": {
+    "chat_prompt": [
+      {
+        "role": "user",
+        "content": "rate limit"
+      }
+    ]
+  },
+  "transport_responses": [
+    {
+      "status": 429,
+      "json": {
+        "error": {
+          "message": "slow down"
+        }
+      }
+    }
+  ],
+  "expected_error_type": "AxAIServiceStatusError",
+  "expected_error_contains": "slow down",
+  "expected_status": 429
+}

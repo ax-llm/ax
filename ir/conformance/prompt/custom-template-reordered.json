@@ -1,0 +1,22 @@
+{
+  "expected_messages": [
+    {
+      "cache": false,
+      "content": "<task_definition>\nAnalyze the user query carefully.\n</task_definition>\n\n<identity>\nYou will be provided with the following fields: `User Query`. Your task is to generate new fields: `Ai Response`.\n</identity>\n\n<input_fields>\n**Input Fields**: The following fields will be provided to you:\n\nUser Query:\n</input_fields>\n\n<output_fields>\n**Output Fields**: You must generate the following fields:\n\nAi Response: (This string field must be included) The result.\n</output_fields>\n\n<formatting_rules>\nReturn `field name: value` pairs.\n</formatting_rules>",
+      "role": "system"
+    },
+    {
+      "content": "User Query: hello\n",
+      "role": "user"
+    }
+  ],
+  "input": {
+    "userQuery": "hello"
+  },
+  "kind": "prompt",
+  "name": "custom-template-reordered",
+  "options": {
+    "customTemplate": "<task_definition>\n{{ taskDefinitionText }}\n</task_definition>\n\n<identity>\n{{ identityText }}\n</identity>\n\n<input_fields>\n{{ inputFieldsSection }}\n</input_fields>{{ if hasOutputFields }}\n\n<output_fields>\n{{ outputFieldsSection }}\n</output_fields>{{ /if }}\n\n<formatting_rules>\nReturn `field name: value` pairs.\n</formatting_rules>"
+  },
+  "signature": "\"Analyze the user query carefully\" userQuery:string -> aiResponse:string \"the result\""
+}

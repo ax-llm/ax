@@ -1,0 +1,10 @@
+module @ax.agent version "0.1" {
+  dialect @ax.agent version "0.1"
+
+  op ax.agent.stub @AxAgent {
+    attr core_kind = "record"
+    attr public = false
+    attr reserved = true
+    tag "reserved-v1"
+  }
+}

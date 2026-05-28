@@ -1,0 +1,21 @@
+{
+  "name": "stream-termination-error",
+  "kind": "ai_error",
+  "method": "stream",
+  "request": {
+    "chat_prompt": [
+      {
+        "role": "user",
+        "content": "stream"
+      }
+    ],
+    "model_config": {
+      "stream": true
+    }
+  },
+  "transport_responses": [
+    "data: {\"error\":{\"message\":\"stream closed\"}}\n\n"
+  ],
+  "expected_error_type": "AxAIServiceStreamTerminatedError",
+  "expected_error_contains": "stream closed"
+}

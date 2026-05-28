@@ -1,0 +1,26 @@
+{
+  "expected_output": {
+    "answer": "traced"
+  },
+  "expected_request_count": 1,
+  "expected_trace": {
+    "input": {
+      "question": "Trace me"
+    },
+    "output": {
+      "answer": "traced"
+    },
+    "status": "ok"
+  },
+  "input": {
+    "question": "Trace me"
+  },
+  "kind": "forward",
+  "name": "trace-capture",
+  "responses": [
+    {
+      "content": "{\"answer\":\"traced\"}"
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

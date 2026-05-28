@@ -1,0 +1,68 @@
+module @ax.api version "0.1" {
+  dialect @ax.api version "0.1"
+
+  op ax.api.class @AxSignature {
+    attr core_kind = "record"
+    attr public = true
+    ref model = @Field
+    tag "public-api"
+  }
+
+  op ax.api.class @AxGen {
+    attr core_kind = "record"
+    attr public = true
+    ref signature = @AxSignature
+    tag "public-api"
+  }
+
+  op ax.api.class @AxMemory {
+    attr core_kind = "record"
+    attr public = true
+    tag "public-api"
+  }
+
+  op ax.api.class @AxAIService {
+    attr core_kind = "interface"
+    attr public = true
+    tag "public-api"
+  }
+
+  op ax.api.class @AxBaseAI {
+    attr core_kind = "record"
+    attr public = true
+    ref interface = @AxAIService
+    tag "public-api"
+  }
+
+  op ax.api.function @s {
+    attr core_kind = "func"
+    attr public = true
+    ref impl = @parse_signature
+    type signature = "(string) -> AxSignature throws"
+  }
+
+  op ax.api.function @f {
+    attr core_kind = "func"
+    attr public = true
+    type signature = "() -> SignatureBuilder"
+  }
+
+  op ax.api.function @fn {
+    attr core_kind = "func"
+    attr public = true
+    type signature = "(string) -> ToolBuilder"
+  }
+
+  op ax.api.function @ax {
+    attr core_kind = "func"
+    attr public = true
+    type signature = "(string|AxSignature, options?:json) -> AxGen"
+  }
+
+  op ax.api.function @ai {
+    attr core_kind = "func"
+    attr public = true
+    ref service = @AxAIService
+    type signature = "(provider:string, options?:json) -> AxAIService throws"
+  }
+}

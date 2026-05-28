@@ -1,0 +1,67 @@
+{
+  "name": "streaming-tool-call",
+  "kind": "ai_stream",
+  "request": {
+    "chat_prompt": [
+      {
+        "role": "user",
+        "content": "tool"
+      }
+    ]
+  },
+  "options": {
+    "stream": true
+  },
+  "transport_responses": [
+    {
+      "status": 200,
+      "body": "data: {\"id\":\"chatcmpl_tool_stream\",\"model\":\"gpt-4.1-mini\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"function\":{\"name\":\"search\",\"arguments\":\"{\\\"query\\\":\"}}]}}]}\n\ndata: {\"id\":\"chatcmpl_tool_stream\",\"model\":\"gpt-4.1-mini\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"\\\"docs\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n"
+    }
+  ],
+  "expected_output": [
+    {
+      "results": [
+        {
+          "index": 0,
+          "id": "0",
+          "content": null,
+          "function_calls": [
+            {
+              "id": "call_1",
+              "type": "function",
+              "function": {
+                "name": "search",
+                "params": "{\"query\":"
+              }
+            }
+          ],
+          "finish_reason": null
+        }
+      ],
+      "remote_id": "chatcmpl_tool_stream",
+      "model_usage": null
+    },
+    {
+      "results": [
+        {
+          "index": 0,
+          "id": "0",
+          "content": null,
+          "function_calls": [
+            {
+              "id": "call_1",
+              "type": "function",
+              "function": {
+                "name": null,
+                "params": "\"docs\"}"
+              }
+            }
+          ],
+          "finish_reason": "function_call"
+        }
+      ],
+      "remote_id": "chatcmpl_tool_stream",
+      "model_usage": null
+    }
+  ]
+}

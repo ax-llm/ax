@@ -1,0 +1,47 @@
+{
+  "name": "array-of-objects",
+  "kind": "forward",
+  "signature_spec": {
+    "inputs": {
+      "document": {
+        "type": "string"
+      }
+    },
+    "outputs": {
+      "items": {
+        "type": "object",
+        "array": true,
+        "fields": {
+          "title": {
+            "type": "string"
+          },
+          "score": {
+            "type": "number",
+            "min": 0,
+            "max": 1
+          }
+        }
+      }
+    }
+  },
+  "input": {
+    "document": "Two hits"
+  },
+  "responses": [
+    {
+      "content": "{\"items\":[{\"title\":\"First\",\"score\":0.9},{\"title\":\"Second\",\"score\":0.4}]}"
+    }
+  ],
+  "expected_output": {
+    "items": [
+      {
+        "title": "First",
+        "score": 0.9
+      },
+      {
+        "title": "Second",
+        "score": 0.4
+      }
+    ]
+  }
+}

@@ -1,0 +1,59 @@
+{
+  "name": "json-schema-request",
+  "kind": "ai_chat",
+  "request": {
+    "chat_prompt": [
+      {
+        "role": "user",
+        "content": "Classify this"
+      }
+    ],
+    "response_format": {
+      "type": "json_schema",
+      "schema": {
+        "name": "classification",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "label": {
+              "type": "string"
+            }
+          },
+          "required": ["label"]
+        }
+      }
+    },
+    "model_config": {
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "status": 200,
+      "json": {
+        "id": "chatcmpl_schema",
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "role": "assistant",
+              "content": "{\"label\":\"ok\"}"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "expected_transport_request": {
+    "json": {
+      "response_format": {
+        "type": "json_schema",
+        "json_schema": {
+          "name": "classification"
+        }
+      }
+    }
+  }
+}

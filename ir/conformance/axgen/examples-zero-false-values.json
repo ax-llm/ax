@@ -1,0 +1,34 @@
+{
+  "examples": [
+    {
+      "input": {
+        "count": 0,
+        "enabled": false
+      },
+      "output": {
+        "answer": "zero false kept"
+      }
+    }
+  ],
+  "expected_chat_prompt_contains": [
+    "Count: 0",
+    "Enabled: false",
+    "zero false kept"
+  ],
+  "expected_output": {
+    "answer": "ok"
+  },
+  "expected_request_count": 1,
+  "input": {
+    "count": 0,
+    "enabled": false
+  },
+  "kind": "forward",
+  "name": "examples-zero-false-values",
+  "responses": [
+    {
+      "content": "{\"answer\":\"ok\"}"
+    }
+  ],
+  "signature": "count:number, enabled:boolean -> answer:string"
+}

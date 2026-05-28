@@ -1,0 +1,57 @@
+{
+  "name": "native-tool-call",
+  "kind": "forward",
+  "signature": "query:string -> answer:string",
+  "input": {
+    "query": "ax docs"
+  },
+  "tools": [
+    {
+      "name": "search",
+      "description": "Search docs",
+      "args": {
+        "query": {
+          "type": "string",
+          "min": 1
+        }
+      },
+      "returns": {
+        "title": {
+          "type": "string"
+        }
+      },
+      "result": {
+        "title": "Ax docs"
+      }
+    }
+  ],
+  "responses": [
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call_1",
+          "name": "search",
+          "params": {
+            "query": "ax docs"
+          }
+        }
+      ]
+    },
+    {
+      "content": "{\"answer\":\"Found Ax docs\"}"
+    }
+  ],
+  "expected_output": {
+    "answer": "Found Ax docs"
+  },
+  "expected_tool_calls": [
+    {
+      "name": "search",
+      "args": {
+        "query": "ax docs"
+      }
+    }
+  ],
+  "expected_request_count": 2
+}

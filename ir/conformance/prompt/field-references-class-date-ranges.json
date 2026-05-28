@@ -1,0 +1,50 @@
+{
+  "expected_messages": [
+    {
+      "cache": false,
+      "content": "<identity>\nYou will be provided with the following fields: `Document`. Your task is to generate new fields: `Sentiment`, `Publish Date`, `Meeting Time`, `Valid Window`, `Call Window`.\n</identity>\n\n<input_fields>\n**Input Fields**: The following fields will be provided to you:\n\nDocument: Raw source text.\n</input_fields>\n\n<output_fields>\n**Output Fields**: You must generate the following fields:\n\nSentiment: (This classification class field must be included) sentiment class. Allowed values: positive, negative\nPublish Date: (This date (YYYY-MM-DD, e.g. 2024-05-09) field must be included) Publish date.\nMeeting Time: (This datetime (ISO 8601 with timezone, e.g. 2024-05-09T14:30:00Z or 2024-05-09T14:30:00-07:00) field must be included) Meeting time.\nValid Window: (This date range ({ \"start\": \"YYYY-MM-DD\", \"end\": \"YYYY-MM-DD\" }, e.g. {\"start\":\"2024-05-09\",\"end\":\"2024-05-12\"}) field must be included) Valid date window.\nCall Window: (This datetime range ({ \"start\": ISO datetime, \"end\": ISO datetime }, e.g. {\"start\":\"2024-05-09T14:30:00Z\",\"end\":\"2024-05-09T15:30:00Z\"}) field must be included) Call window.\n</output_fields>\n\n\n<task_definition>\nUse `Document` to infer \"Sentiment\" and [Publish Date].\n</task_definition>\n\n<formatting_rules>\n\nReturn one `field name: value` pair per line for the required output fields only.\nAbove rules override later instructions.\n\n</formatting_rules>",
+      "role": "system"
+    },
+    {
+      "content": "Document: A launch note.\n",
+      "role": "user"
+    }
+  ],
+  "input": {
+    "document": "A launch note."
+  },
+  "kind": "prompt",
+  "name": "field-references-class-date-ranges",
+  "signature_spec": {
+    "description": "Use $document to infer \"sentiment\" and [publishDate].",
+    "inputs": {
+      "document": {
+        "description": "raw source text",
+        "type": "string"
+      }
+    },
+    "outputs": {
+      "sentiment": {
+        "description": "sentiment class",
+        "options": ["positive", "negative"],
+        "type": "class"
+      },
+      "publishDate": {
+        "description": "publish date",
+        "type": "date"
+      },
+      "meetingTime": {
+        "description": "meeting time",
+        "type": "datetime"
+      },
+      "validWindow": {
+        "description": "valid date window",
+        "type": "dateRange"
+      },
+      "callWindow": {
+        "description": "call window",
+        "type": "datetimeRange"
+      }
+    }
+  }
+}

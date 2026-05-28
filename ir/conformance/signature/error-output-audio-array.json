@@ -1,0 +1,9 @@
+{
+  "expected_error_category": "signature",
+  "expected_error_contains": "Arrays of audio are not supported",
+  "kind": "signature_error",
+  "name": "error-output-audio-array",
+  "signature": "question:string -> clips:audio[]",
+  "ts_error_message": "Invalid Signature: Output field \"clips\": Arrays of audio are not supported",
+  "ts_error_name": "AxSignatureValidationError"
+}

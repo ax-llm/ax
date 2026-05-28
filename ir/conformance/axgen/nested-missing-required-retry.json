@@ -1,0 +1,46 @@
+{
+  "name": "nested-missing-required-retry",
+  "kind": "forward",
+  "signature_spec": {
+    "inputs": {
+      "document": {
+        "type": "string"
+      }
+    },
+    "outputs": {
+      "profile": {
+        "type": "object",
+        "fields": {
+          "displayName": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string",
+            "email": true
+          }
+        }
+      }
+    }
+  },
+  "input": {
+    "document": "Ada Lovelace <ada@example.com>"
+  },
+  "options": {
+    "validation_retries": 1
+  },
+  "responses": [
+    {
+      "content": "{\"profile\":{\"displayName\":\"Ada Lovelace\"}}"
+    },
+    {
+      "content": "{\"profile\":{\"displayName\":\"Ada Lovelace\",\"email\":\"ada@example.com\"}}"
+    }
+  ],
+  "expected_output": {
+    "profile": {
+      "displayName": "Ada Lovelace",
+      "email": "ada@example.com"
+    }
+  },
+  "expected_request_count": 2
+}

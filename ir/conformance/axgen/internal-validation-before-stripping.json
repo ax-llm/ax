@@ -1,0 +1,23 @@
+{
+  "name": "internal-validation-before-stripping",
+  "kind": "forward",
+  "signature": "question:string -> answer:string, notes!:string",
+  "input": {
+    "question": "What is Ax?"
+  },
+  "options": {
+    "validation_retries": 1
+  },
+  "responses": [
+    {
+      "content": "{\"answer\":\"Ax is a framework.\"}"
+    },
+    {
+      "content": "{\"answer\":\"Ax is a framework.\",\"notes\":\"validated internally\"}"
+    }
+  ],
+  "expected_output": {
+    "answer": "Ax is a framework."
+  },
+  "expected_request_count": 2
+}

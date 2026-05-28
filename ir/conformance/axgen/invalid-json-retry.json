@@ -1,0 +1,23 @@
+{
+  "name": "invalid-json-retry",
+  "kind": "forward",
+  "signature": "question:string -> answer:string",
+  "input": {
+    "question": "What is Ax?"
+  },
+  "options": {
+    "validation_retries": 1
+  },
+  "responses": [
+    {
+      "content": "not json"
+    },
+    {
+      "content": "{\"answer\":\"A TypeScript AI framework.\"}"
+    }
+  ],
+  "expected_output": {
+    "answer": "A TypeScript AI framework."
+  },
+  "expected_request_count": 2
+}

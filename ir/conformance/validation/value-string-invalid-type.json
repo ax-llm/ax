@@ -1,0 +1,13 @@
+{
+  "expected_error_category": "validation",
+  "expected_error_contains": "Expected",
+  "field": {
+    "type": "string"
+  },
+  "field_name": "personName",
+  "kind": "validate_value",
+  "name": "value-string-invalid-type",
+  "ts_error_message": "Validation failed: Expected 'personName' to be a string instead got 'number' (42)",
+  "ts_error_name": "Error",
+  "value": 42
+}

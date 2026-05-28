@@ -1,0 +1,43 @@
+{
+  "name": "unknown-tool-call-correction",
+  "kind": "forward",
+  "signature": "query:string -> answer:string",
+  "input": {
+    "query": "docs"
+  },
+  "tools": [
+    {
+      "name": "search",
+      "description": "Search docs",
+      "args": {
+        "query": {
+          "type": "string"
+        }
+      },
+      "result": {
+        "title": "Docs"
+      }
+    }
+  ],
+  "responses": [
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call_1",
+          "name": "lookup",
+          "params": {
+            "query": "docs"
+          }
+        }
+      ]
+    },
+    {
+      "content": "{\"answer\":\"No lookup tool is registered.\"}"
+    }
+  ],
+  "expected_output": {
+    "answer": "No lookup tool is registered."
+  },
+  "expected_tool_calls": []
+}

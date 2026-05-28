@@ -1,0 +1,34 @@
+{
+  "expected_values": {
+    "internalField": "scratch",
+    "optionalField": null,
+    "publicField": "shown"
+  },
+  "kind": "validate_output",
+  "name": "output-optional-null",
+  "signature_spec": {
+    "inputs": {
+      "query": {
+        "type": "string"
+      }
+    },
+    "outputs": {
+      "publicField": {
+        "type": "string"
+      },
+      "optionalField": {
+        "optional": true,
+        "type": "string"
+      },
+      "internalField": {
+        "internal": true,
+        "type": "string"
+      }
+    }
+  },
+  "values": {
+    "internalField": "scratch",
+    "optionalField": null,
+    "publicField": "shown"
+  }
+}

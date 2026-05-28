@@ -1,0 +1,60 @@
+# AxIR Backend Contract
+
+Backends emit Ax runtime libraries, not one-off user programs.
+
+Every generated package must include:
+
+- `axir-capabilities.json`, the machine-readable target contract
+- `README.md`, the human-readable package contract
+- runnable examples for signature/schema, AxGen with a fake client/tool, and
+  AxAI with a fake OpenAI-compatible transport
+- a conformance runner when the target is executable in V1
+
+Python target:
+
+- emits an `ax/` package
+- Python 3.10+
+- standard library only
+- idiomatic Python is primary: `snake_case`, sync-first methods, dict/list
+  request boundaries, and standard exception classes
+- public API: `ai`, `s`, `f`, `fn`, `ax`, `AxAIService`, `AxBaseAI`,
+  `AxSignature`, `AxGen`, `AIClient`, `OpenAICompatibleClient`
+- includes a generated `ax.conformance` module that can run backend-neutral
+  fixture JSON from all current `ir/conformance/*` suites
+- real OpenAI-compatible HTTP transport is implemented with the Python standard
+  library; default verification uses fake transport fixtures
+
+Java target:
+
+- emits `dev.ax` sources
+- Java 17
+- standard library only
+- public API: `Ax.s`, `Ax.f`, `Ax.fn`, `Ax.ax`, `AxSignature`, `AxGen`,
+  `OpenAICompatibleClient`
+- executable conformance target for signatures, schema, validation, prompt,
+  AxGen, and AxAI/OpenAI-compatible mapping
+- real OpenAI-compatible HTTP transport is implemented with `java.net.http`;
+  default verification uses fake transport fixtures
+- idiom contract: classes/builders for static shapes and `Map<String,Object>`
+  only at dynamic JSON/tool boundaries
+
+C++ target:
+
+- emits `ax/ax.hpp`, `ax/ax.cpp`, and a fixture conformance executable source
+- C++17
+- standard library only
+- executable conformance target for signatures, schema, validation, prompt,
+  AxGen, and AxAI/OpenAI-compatible mapping
+- idiom contract: value types, `namespace ax`, standard containers, and
+  explicit exceptions rather than TypeScript-shaped dynamic objects
+- OpenAI-compatible request/response mapping is Core-owned and executable
+  through fake transport; real C++ HTTP transport is deferred
+
+Backends must consume the lowered Core IR module or a target package model made
+from Core IR. They must not use high-level Ax dialects as their primary input.
+
+`axir verify --targets python,java,cpp ir/axcore/root.axir` is the portable
+gate. It compiles each target, validates the manifest, runs generated examples,
+and executes all conformance suites for each available local toolchain. Missing
+toolchains are reported as explicit skips for local development; CI jobs that
+install a toolchain should treat that target as required.

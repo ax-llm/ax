@@ -1,0 +1,7 @@
+{
+  "expected_error_contains": "Invalid tag 'user-name'",
+  "kind": "template_error",
+  "name": "template-invalid-tag-error",
+  "template": "Hello {{ user-name }}",
+  "vars": {}
+}

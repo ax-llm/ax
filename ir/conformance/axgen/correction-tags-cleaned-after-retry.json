@@ -1,0 +1,31 @@
+{
+  "expected_memory_history_subset": [
+    {
+      "role": "request"
+    },
+    {
+      "role": "assistant"
+    },
+    {
+      "role": "assistant"
+    }
+  ],
+  "expected_output": {
+    "answer": "fixed"
+  },
+  "expected_request_count": 2,
+  "input": {
+    "question": "Retry"
+  },
+  "kind": "forward",
+  "name": "correction-tags-cleaned-after-retry",
+  "responses": [
+    {
+      "content": "{\"wrong\":\"field\"}"
+    },
+    {
+      "content": "{\"answer\":\"fixed\"}"
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

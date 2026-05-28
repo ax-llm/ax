@@ -1,0 +1,26 @@
+{
+  "name": "auth-error",
+  "kind": "ai_error",
+  "request": {
+    "chat_prompt": [
+      {
+        "role": "user",
+        "content": "fail"
+      }
+    ]
+  },
+  "transport_responses": [
+    {
+      "status": 401,
+      "json": {
+        "error": {
+          "message": "bad key",
+          "code": "invalid_api_key"
+        }
+      }
+    }
+  ],
+  "expected_error_type": "AxAIServiceAuthenticationError",
+  "expected_error_contains": "bad key",
+  "expected_status": 401
+}

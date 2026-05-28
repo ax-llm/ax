@@ -1,0 +1,21 @@
+module @ax.core version "0.1" {
+  dialect @core version "0.1"
+
+  op core.package @core_runtime {
+    attr java = "dev.ax"
+    attr python = "ax"
+  }
+
+  op core.enum @Effect {
+    attr values = ["pure", "throws", "async", "stream"]
+  }
+
+  op core.record @Diagnostic {
+    type fields = "severity:string,message:string,file?:string,line?:i64"
+  }
+
+  op core.interface @JsonCodec {
+    type parse = "(string) -> json throws"
+    type stringify = "(json) -> string"
+  }
+}

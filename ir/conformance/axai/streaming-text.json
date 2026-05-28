@@ -1,0 +1,57 @@
+{
+  "name": "streaming-text",
+  "kind": "ai_stream",
+  "request": {
+    "chat_prompt": [
+      {
+        "role": "user",
+        "content": "stream"
+      }
+    ]
+  },
+  "options": {
+    "stream": true
+  },
+  "transport_responses": [
+    {
+      "status": 200,
+      "body": "data: {\"id\":\"chatcmpl_stream\",\"model\":\"gpt-4.1-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hel\"}}]}\n\ndata: {\"id\":\"chatcmpl_stream\",\"model\":\"gpt-4.1-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"lo\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
+    }
+  ],
+  "expected_output": [
+    {
+      "results": [
+        {
+          "index": 0,
+          "id": "0",
+          "content": "hel",
+          "function_calls": [],
+          "finish_reason": null
+        }
+      ],
+      "remote_id": "chatcmpl_stream",
+      "model_usage": null
+    },
+    {
+      "results": [
+        {
+          "index": 0,
+          "id": "0",
+          "content": "lo",
+          "function_calls": [],
+          "finish_reason": "stop"
+        }
+      ],
+      "remote_id": "chatcmpl_stream",
+      "model_usage": null
+    }
+  ],
+  "expected_transport_request": {
+    "json": {
+      "stream": true,
+      "stream_options": {
+        "include_usage": true
+      }
+    }
+  }
+}

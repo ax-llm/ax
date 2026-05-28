@@ -1,0 +1,44 @@
+{
+  "expected_error_category": "validation",
+  "expected_error_contains": "Required field is missing",
+  "kind": "validate_output",
+  "name": "output-missing-required",
+  "signature_spec": {
+    "inputs": {
+      "query": {
+        "type": "string"
+      }
+    },
+    "outputs": {
+      "user": {
+        "description": "User profile",
+        "fields": {
+          "username": {
+            "max": 20,
+            "min": 3,
+            "type": "string"
+          },
+          "email": {
+            "email": true,
+            "optional": true,
+            "type": "string"
+          },
+          "age": {
+            "max": 120,
+            "min": 18,
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    }
+  },
+  "ts_error_message": "Required field is missing: 'username'. After the \"username:\" label, provide a non-empty string. Do not use null, undefined, or leave it blank.",
+  "ts_error_name": "ValidationError",
+  "values": {
+    "user": {
+      "age": 36,
+      "email": "ada@example.com"
+    }
+  }
+}

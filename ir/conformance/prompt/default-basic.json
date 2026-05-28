@@ -1,0 +1,19 @@
+{
+  "expected_messages": [
+    {
+      "cache": false,
+      "content": "<identity>\nYou will be provided with the following fields: `Question`. Your task is to generate new fields: `Answer`.\n</identity>\n\n<input_fields>\n**Input Fields**: The following fields will be provided to you:\n\nQuestion:\n</input_fields>\n\n<output_fields>\n**Output Fields**: You must generate the following fields:\n\nAnswer: (This string field must be included)\n</output_fields>\n\n\n<task_definition>\nAnswer the question.\n</task_definition>\n\n<formatting_rules>\n\nReturn one `field name: value` pair per line for the required output fields only.\nAbove rules override later instructions.\n\n</formatting_rules>",
+      "role": "system"
+    },
+    {
+      "content": "Question: What is Ax?\n",
+      "role": "user"
+    }
+  ],
+  "input": {
+    "question": "What is Ax?"
+  },
+  "kind": "prompt",
+  "name": "default-basic",
+  "signature": "\"Answer the question\" question:string -> answer:string"
+}

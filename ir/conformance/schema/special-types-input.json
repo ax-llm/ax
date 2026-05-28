@@ -1,0 +1,43 @@
+{
+  "expected_schema": {
+    "additionalProperties": false,
+    "properties": {
+      "link": {
+        "description": "Must be a valid URL format",
+        "format": "uri",
+        "type": "string"
+      }
+    },
+    "required": ["link"],
+    "title": "Schema",
+    "type": "object"
+  },
+  "kind": "json_schema",
+  "name": "special-types-input",
+  "signature_spec": {
+    "inputs": {
+      "link": {
+        "type": "url"
+      }
+    },
+    "outputs": {
+      "birthDate": {
+        "type": "date"
+      },
+      "timestamp": {
+        "type": "datetime"
+      },
+      "travelDates": {
+        "type": "dateRange"
+      },
+      "window": {
+        "type": "datetimeRange"
+      },
+      "speech": {
+        "description": "Short spoken answer",
+        "type": "audio"
+      }
+    }
+  },
+  "target": "inputs"
+}

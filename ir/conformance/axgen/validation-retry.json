@@ -1,0 +1,23 @@
+{
+  "name": "validation-retry",
+  "kind": "forward",
+  "signature": "question:string -> answer:string",
+  "input": {
+    "question": "Say hello"
+  },
+  "options": {
+    "validation_retries": 1
+  },
+  "responses": [
+    {
+      "content": "{}"
+    },
+    {
+      "content": "{\"answer\":\"hello\"}"
+    }
+  ],
+  "expected_output": {
+    "answer": "hello"
+  },
+  "expected_request_count": 2
+}

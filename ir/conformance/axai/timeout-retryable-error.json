@@ -1,0 +1,26 @@
+{
+  "name": "timeout-retryable-error",
+  "kind": "ai_error",
+  "request": {
+    "chat_prompt": [
+      {
+        "role": "user",
+        "content": "hello"
+      }
+    ]
+  },
+  "transport_responses": [
+    {
+      "status": 504,
+      "json": {
+        "error": {
+          "message": "gateway timeout",
+          "code": "timeout"
+        }
+      }
+    }
+  ],
+  "expected_error_type": "AxAIServiceTimeoutError",
+  "expected_error_contains": "gateway timeout",
+  "expected_status": 504
+}

@@ -1,0 +1,34 @@
+{
+  "examples": [
+    {
+      "input": {
+        "question": "Example?"
+      },
+      "output": {
+        "answer": "Example answer"
+      }
+    }
+  ],
+  "expected_chat_prompt_contains": [
+    "Example Input",
+    "Question: Example?",
+    "Example Output",
+    "Answer: Example answer",
+    "Question: Live?"
+  ],
+  "expected_output": {
+    "answer": "Live answer"
+  },
+  "expected_request_count": 1,
+  "input": {
+    "question": "Live?"
+  },
+  "kind": "forward",
+  "name": "examples-message-pairs-exact",
+  "responses": [
+    {
+      "content": "{\"answer\":\"Live answer\"}"
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

@@ -1,0 +1,7 @@
+{
+  "expected_output": "AB",
+  "kind": "template",
+  "name": "template-comments",
+  "template": "A{{ ! ignore this }}B",
+  "vars": {}
+}

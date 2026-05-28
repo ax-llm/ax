@@ -1,0 +1,22 @@
+{
+  "name": "simple-forward",
+  "kind": "forward",
+  "signature": "question:string -> answer:string",
+  "input": {
+    "question": "What is the capital of France?"
+  },
+  "responses": [
+    {
+      "content": "{\"answer\":\"Paris\"}"
+    }
+  ],
+  "expected_output": {
+    "answer": "Paris"
+  },
+  "expected_request": {
+    "response_format": {
+      "type": "json_object"
+    }
+  },
+  "expected_request_count": 1
+}

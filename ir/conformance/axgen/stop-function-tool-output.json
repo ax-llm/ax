@@ -1,0 +1,55 @@
+{
+  "expected_output": {
+    "answer": "Found directly"
+  },
+  "expected_request_count": 1,
+  "expected_tool_calls": [
+    {
+      "args": {
+        "query": "ax docs"
+      },
+      "name": "search"
+    }
+  ],
+  "input": {
+    "query": "ax docs"
+  },
+  "kind": "forward",
+  "name": "stop-function-tool-output",
+  "responses": [
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call_1",
+          "name": "search",
+          "params": {
+            "query": "ax docs"
+          }
+        }
+      ]
+    }
+  ],
+  "signature": "query:string -> answer:string",
+  "stop_functions": ["search"],
+  "tools": [
+    {
+      "args": {
+        "query": {
+          "min": 1,
+          "type": "string"
+        }
+      },
+      "description": "Search docs",
+      "name": "search",
+      "result": {
+        "answer": "Found directly"
+      },
+      "returns": {
+        "answer": {
+          "type": "string"
+        }
+      }
+    }
+  ]
+}

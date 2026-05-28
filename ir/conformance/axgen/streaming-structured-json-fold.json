@@ -1,0 +1,28 @@
+{
+  "name": "streaming-structured-json-fold",
+  "kind": "stream",
+  "stream_events": [
+    {
+      "results": [
+        {
+          "content": "{\"profile\":"
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "{\"displayName\":\"Ada\"}"
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "}"
+        }
+      ]
+    }
+  ],
+  "expected_folded": "{\"profile\":{\"displayName\":\"Ada\"}}"
+}

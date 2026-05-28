@@ -1,0 +1,44 @@
+{
+  "demos": [
+    {
+      "input": {
+        "question": "Demo question?"
+      },
+      "output": {
+        "answer": "Demo answer"
+      }
+    }
+  ],
+  "examples": [
+    {
+      "input": {
+        "question": "Example question?"
+      },
+      "output": {
+        "answer": "Example answer"
+      }
+    }
+  ],
+  "expected_output": {
+    "answer": "Current answer"
+  },
+  "expected_request_contains": [
+    "Example question?",
+    "Example answer",
+    "Demo question?",
+    "Demo answer",
+    "Current question?"
+  ],
+  "expected_request_count": 1,
+  "input": {
+    "question": "Current question?"
+  },
+  "kind": "forward",
+  "name": "examples-demos-render",
+  "responses": [
+    {
+      "content": "{\"answer\":\"Current answer\"}"
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

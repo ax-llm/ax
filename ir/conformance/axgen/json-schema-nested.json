@@ -1,0 +1,52 @@
+{
+  "name": "json-schema-nested",
+  "kind": "json_schema",
+  "signature_spec": {
+    "inputs": {
+      "document": {
+        "type": "string"
+      }
+    },
+    "outputs": {
+      "profile": {
+        "type": "object",
+        "fields": {
+          "displayName": {
+            "type": "string",
+            "min": 1
+          },
+          "email": {
+            "type": "string",
+            "email": true,
+            "optional": true
+          }
+        }
+      }
+    }
+  },
+  "expected_schema": {
+    "type": "object",
+    "title": "Schema",
+    "additionalProperties": false,
+    "properties": {
+      "profile": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "displayName": {
+            "type": "string",
+            "description": "Minimum length: 1 characters",
+            "minLength": 1
+          },
+          "email": {
+            "type": "string",
+            "description": "Must be a valid email address format",
+            "format": "email"
+          }
+        },
+        "required": ["displayName"]
+      }
+    },
+    "required": ["profile"]
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "expected_error_category": "signature",
+  "expected_error_contains": "Missing class options",
+  "kind": "signature_error",
+  "name": "error-empty-class-options",
+  "signature": "question:string -> category:class \"\"",
+  "ts_error_message": "Invalid Signature: Output field \"category\": Missing class options after \"class\" type",
+  "ts_error_name": "AxSignatureValidationError"
+}

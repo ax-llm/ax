@@ -1,0 +1,14 @@
+{
+  "expected_ok": true,
+  "field": {
+    "type": "file"
+  },
+  "field_name": "sourceFile",
+  "kind": "validate_value",
+  "name": "value-file-valid",
+  "value": {
+    "data": "AAAA",
+    "filename": "a.pdf",
+    "mimeType": "application/pdf"
+  }
+}

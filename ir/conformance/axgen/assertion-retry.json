@@ -1,0 +1,31 @@
+{
+  "assertions": [
+    {
+      "contains": "good",
+      "field": "answer",
+      "message": "answer must contain good"
+    }
+  ],
+  "expected_output": {
+    "answer": "good"
+  },
+  "expected_request_contains": [
+    "answer must contain good",
+    "Return only corrected JSON"
+  ],
+  "expected_request_count": 2,
+  "input": {
+    "question": "Say the good word"
+  },
+  "kind": "forward",
+  "name": "assertion-retry",
+  "responses": [
+    {
+      "content": "{\"answer\":\"bad\"}"
+    },
+    {
+      "content": "{\"answer\":\"good\"}"
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

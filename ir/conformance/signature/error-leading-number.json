@@ -1,0 +1,9 @@
+{
+  "expected_error_category": "signature",
+  "expected_error_contains": "cannot start with a number",
+  "kind": "signature_error",
+  "name": "error-leading-number",
+  "signature": "1question:string -> answer:string",
+  "ts_error_message": "Invalid Signature: Invalid field name \"1question:string\" - cannot start with a number",
+  "ts_error_name": "AxSignatureValidationError"
+}

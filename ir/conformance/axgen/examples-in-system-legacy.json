@@ -1,0 +1,35 @@
+{
+  "examples": [
+    {
+      "input": {
+        "question": "Legacy example?"
+      },
+      "output": {
+        "answer": "Legacy answer"
+      }
+    }
+  ],
+  "expected_chat_prompt_contains": [
+    "--- EXAMPLES ---",
+    "Legacy example?",
+    "--- END OF EXAMPLES ---"
+  ],
+  "expected_output": {
+    "answer": "Current answer"
+  },
+  "expected_request_count": 1,
+  "input": {
+    "question": "Current?"
+  },
+  "kind": "forward",
+  "name": "examples-in-system-legacy",
+  "options": {
+    "examplesInSystem": true
+  },
+  "responses": [
+    {
+      "content": "{\"answer\":\"Current answer\"}"
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

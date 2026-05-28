@@ -1,0 +1,23 @@
+{
+  "expected_output": {
+    "answer": "PARIS"
+  },
+  "expected_request_count": 1,
+  "field_processors": [
+    {
+      "field": "answer",
+      "op": "uppercase"
+    }
+  ],
+  "input": {
+    "question": "Capital?"
+  },
+  "kind": "forward",
+  "name": "field-processor",
+  "responses": [
+    {
+      "content": "{\"answer\":\"paris\"}"
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

@@ -1,0 +1,60 @@
+{
+  "name": "model-config-aliases",
+  "kind": "ai_chat",
+  "request": {
+    "chat_prompt": [
+      {
+        "role": "user",
+        "content": "hello"
+      }
+    ],
+    "model_config": {
+      "maxTokens": 64,
+      "topP": 0.8,
+      "presencePenalty": 0.1,
+      "frequencyPenalty": 0.2,
+      "stopSequences": ["END"]
+    }
+  },
+  "transport_responses": [
+    {
+      "status": 200,
+      "json": {
+        "id": "chatcmpl_alias",
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "role": "assistant",
+              "content": "ok"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "expected_output": {
+    "results": [
+      {
+        "index": 0,
+        "id": "0",
+        "content": "ok",
+        "function_calls": [],
+        "finish_reason": "stop"
+      }
+    ],
+    "remote_id": "chatcmpl_alias",
+    "model_usage": null
+  },
+  "expected_transport_request": {
+    "json": {
+      "max_completion_tokens": 64,
+      "top_p": 0.8,
+      "presence_penalty": 0.1,
+      "frequency_penalty": 0.2,
+      "stop": ["END"]
+    }
+  }
+}

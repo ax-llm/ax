@@ -1,0 +1,12 @@
+{
+  "expected_output": "Hello Ada: 2",
+  "kind": "template",
+  "name": "template-variables",
+  "template": "Hello {{ user.name }}: {{ count }}",
+  "vars": {
+    "count": 2,
+    "user": {
+      "name": "Ada"
+    }
+  }
+}

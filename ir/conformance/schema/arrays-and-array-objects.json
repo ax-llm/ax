@@ -1,0 +1,80 @@
+{
+  "expected_schema": {
+    "additionalProperties": false,
+    "properties": {
+      "reviews": {
+        "description": "List of reviews",
+        "items": {
+          "additionalProperties": false,
+          "description": "Review item",
+          "properties": {
+            "comment": {
+              "description": "Minimum length: 10 characters, maximum length: 1000 characters",
+              "maxLength": 1000,
+              "minLength": 10,
+              "type": "string"
+            },
+            "rating": {
+              "description": "Minimum value: 1, maximum value: 5",
+              "maximum": 5,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          "required": ["rating", "comment"],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "tags": {
+        "description": "Minimum length: 2 characters, maximum length: 30 characters",
+        "items": {
+          "description": "Minimum length: 2 characters, maximum length: 30 characters",
+          "maxLength": 30,
+          "minLength": 2,
+          "type": "string"
+        },
+        "type": "array"
+      }
+    },
+    "required": ["tags", "reviews"],
+    "title": "Schema",
+    "type": "object"
+  },
+  "kind": "json_schema",
+  "name": "arrays-and-array-objects",
+  "signature_spec": {
+    "inputs": {
+      "query": {
+        "type": "string"
+      }
+    },
+    "outputs": {
+      "tags": {
+        "array": true,
+        "max": 30,
+        "min": 2,
+        "type": "string"
+      },
+      "reviews": {
+        "array": true,
+        "arrayDescription": "List of reviews",
+        "description": "Review item",
+        "fields": {
+          "rating": {
+            "max": 5,
+            "min": 1,
+            "type": "number"
+          },
+          "comment": {
+            "max": 1000,
+            "min": 10,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    }
+  },
+  "target": "outputs"
+}

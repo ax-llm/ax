@@ -1,0 +1,68 @@
+{
+  "expected_schema": {
+    "additionalProperties": false,
+    "properties": {
+      "user": {
+        "additionalProperties": false,
+        "description": "User profile",
+        "properties": {
+          "age": {
+            "description": "Minimum value: 18, maximum value: 120",
+            "maximum": 120,
+            "minimum": 18,
+            "type": "number"
+          },
+          "email": {
+            "description": "Must be a valid email address format",
+            "format": "email",
+            "type": "string"
+          },
+          "username": {
+            "description": "Minimum length: 3 characters, maximum length: 20 characters",
+            "maxLength": 20,
+            "minLength": 3,
+            "type": "string"
+          }
+        },
+        "required": ["username", "age"],
+        "type": "object"
+      }
+    },
+    "required": ["user"],
+    "title": "Schema",
+    "type": "object"
+  },
+  "kind": "json_schema",
+  "name": "nested-object-constraints",
+  "signature_spec": {
+    "inputs": {
+      "query": {
+        "type": "string"
+      }
+    },
+    "outputs": {
+      "user": {
+        "description": "User profile",
+        "fields": {
+          "username": {
+            "max": 20,
+            "min": 3,
+            "type": "string"
+          },
+          "email": {
+            "email": true,
+            "optional": true,
+            "type": "string"
+          },
+          "age": {
+            "max": 120,
+            "min": 18,
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    }
+  },
+  "target": "outputs"
+}

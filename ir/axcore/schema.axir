@@ -1,0 +1,2073 @@
+module @ax.schema version "0.1" {
+  dialect @ax.schema version "0.1"
+
+  op ax.schema.record @AxFunctionJSONSchema {
+    attr core_kind = "record"
+    tag "src/ax/ai/types.ts"
+    type fields = "type:string|list<string>,properties?:map<string,json>,required?:list<string>,items?:json,enum?:list<string>,additionalProperties?:bool"
+  }
+
+  op ax.schema.semantic @to_json_schema {
+    attr core_kind = "func"
+    attr emit_module = "schema"
+    tag "src/ax/dsp/jsonSchema.ts"
+    type signature = "(list<Field>) -> AxFunctionJSONSchema"
+    region @body {
+      block @entry(%fields: list<Field>, %schema_title: string, %options: json) {
+        op core.call {
+          attr args = [%fields, %schema_title, %options]
+          attr callee = @schema_to_json_schema_impl
+          attr result = %schema
+        }
+        op core.return {
+          attr value = %schema
+        }
+      }
+    }
+  }
+
+  op ax.schema.semantic @schema_required_impl {
+    attr core_kind = "func"
+    attr emit_module = "schema"
+    attr private = true
+    tag "json-schema-required-core-helper"
+    type signature = "(Field, json) -> bool"
+    region @body {
+      block @entry(%field: Field, %options: json) {
+        op core.get {
+          attr default = false
+          attr key = "strictStructuredOutputs"
+          attr result = %strict_camel
+          attr target = %options
+        }
+        op core.get {
+          attr default = false
+          attr key = "strict_structured_outputs"
+          attr result = %strict_snake
+          attr target = %options
+        }
+        op core.call {
+          attr args = [%strict_camel, %strict_snake]
+          attr callee = "intrinsic.or"
+          attr result = %strict
+        }
+        op core.get {
+          attr default = false
+          attr key = "is_optional"
+          attr result = %is_optional
+          attr target = %field
+        }
+        op core.call {
+          attr args = [%is_optional]
+          attr callee = "intrinsic.not"
+          attr result = %not_optional
+        }
+        op core.call {
+          attr args = [%strict, %not_optional]
+          attr callee = "intrinsic.or"
+          attr result = %required
+        }
+        op core.return {
+          attr value = %required
+        }
+      }
+    }
+  }
+
+  op ax.schema.semantic @schema_flexible_json_as_string_impl {
+    attr core_kind = "func"
+    attr emit_module = "schema"
+    attr private = true
+    tag "json-schema-flexible-json-string-core-helper"
+    type signature = "(FieldType, json) -> bool"
+    region @body {
+      block @entry(%typ: FieldType, %options: json) {
+        op core.get {
+          attr default = false
+          attr key = "flexibleJsonFieldsAsString"
+          attr result = %camel
+          attr target = %options
+        }
+        op core.get {
+          attr default = false
+          attr key = "flexible_json_fields_as_string"
+          attr result = %snake
+          attr target = %options
+        }
+        op core.call {
+          attr args = [%camel, %snake]
+          attr callee = "intrinsic.or"
+          attr result = %enabled
+        }
+        op core.get {
+          attr key = "name"
+          attr result = %type_name
+          attr target = %typ
+        }
+        op core.call {
+          attr args = [%type_name, "json"]
+          attr callee = "intrinsic.eq"
+          attr result = %is_json
+        }
+        op core.call {
+          attr args = [%type_name, "object"]
+          attr callee = "intrinsic.eq"
+          attr result = %is_object
+        }
+        op core.get {
+          attr key = "fields"
+          attr result = %fields
+          attr target = %typ
+        }
+        op core.call {
+          attr args = [%fields]
+          attr callee = "intrinsic.truthy"
+          attr result = %has_fields
+        }
+        op core.call {
+          attr args = [%has_fields]
+          attr callee = "intrinsic.not"
+          attr result = %unshaped
+        }
+        op core.call {
+          attr args = [%is_object, %unshaped]
+          attr callee = "intrinsic.and"
+          attr result = %unshaped_object
+        }
+        op core.call {
+          attr args = [%is_json, %unshaped_object]
+          attr callee = "intrinsic.or"
+          attr result = %flexible_type
+        }
+        op core.call {
+          attr args = [%enabled, %flexible_type]
+          attr callee = "intrinsic.and"
+          attr result = %as_string
+        }
+        op core.return {
+          attr value = %as_string
+        }
+      }
+    }
+  }
+
+  op ax.schema.semantic @schema_json_type_impl {
+    attr core_kind = "func"
+    attr emit_module = "schema"
+    attr private = true
+    tag "json-schema-type-core-helper"
+    type signature = "(string) -> json"
+    region @body {
+      block @entry(%type_name: string) {
+        op core.list {
+          attr result = %string_types
+        }
+        op core.append {
+          attr target = %string_types
+          attr value = "string"
+        }
+        op core.append {
+          attr target = %string_types
+          attr value = "code"
+        }
+        op core.append {
+          attr target = %string_types
+          attr value = "url"
+        }
+        op core.append {
+          attr target = %string_types
+          attr value = "date"
+        }
+        op core.append {
+          attr target = %string_types
+          attr value = "datetime"
+        }
+        op core.append {
+          attr target = %string_types
+          attr value = "dateRange"
+        }
+        op core.append {
+          attr target = %string_types
+          attr value = "datetimeRange"
+        }
+        op core.append {
+          attr target = %string_types
+          attr value = "image"
+        }
+        op core.append {
+          attr target = %string_types
+          attr value = "audio"
+        }
+        op core.append {
+          attr target = %string_types
+          attr value = "file"
+        }
+        op core.call {
+          attr args = [%string_types, %type_name]
+          attr callee = "intrinsic.contains"
+          attr result = %is_string
+        }
+        op core.if {
+          attr condition = %is_string
+          region @then {
+            block @then {
+              op core.return {
+                attr value = "string"
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.call {
+          attr args = [%type_name, "number"]
+          attr callee = "intrinsic.eq"
+          attr result = %is_number
+        }
+        op core.if {
+          attr condition = %is_number
+          region @then {
+            block @then {
+              op core.return {
+                attr value = "number"
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.call {
+          attr args = [%type_name, "boolean"]
+          attr callee = "intrinsic.eq"
+          attr result = %is_boolean
+        }
+        op core.if {
+          attr condition = %is_boolean
+          region @then {
+            block @then {
+              op core.return {
+                attr value = "boolean"
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.list {
+          attr result = %json_types
+        }
+        op core.append {
+          attr target = %json_types
+          attr value = "object"
+        }
+        op core.append {
+          attr target = %json_types
+          attr value = "array"
+        }
+        op core.append {
+          attr target = %json_types
+          attr value = "string"
+        }
+        op core.append {
+          attr target = %json_types
+          attr value = "number"
+        }
+        op core.append {
+          attr target = %json_types
+          attr value = "boolean"
+        }
+        op core.append {
+          attr target = %json_types
+          attr value = "null"
+        }
+        op core.list {
+          attr result = %flexible_names
+        }
+        op core.append {
+          attr target = %flexible_names
+          attr value = "json"
+        }
+        op core.append {
+          attr target = %flexible_names
+          attr value = "object"
+        }
+        op core.call {
+          attr args = [%flexible_names, %type_name]
+          attr callee = "intrinsic.contains"
+          attr result = %is_flexible
+        }
+        op core.if {
+          attr condition = %is_flexible
+          region @then {
+            block @then {
+              op core.return {
+                attr value = %json_types
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.return {
+          attr value = "string"
+        }
+      }
+    }
+  }
+
+  op ax.schema.semantic @schema_enhance_description_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "schema"
+    attr private = true
+    tag "json-schema-description-core-helper"
+    type signature = "(json, FieldType) -> json throws"
+    region @body {
+      block @entry(%base: json, %typ: FieldType) {
+        op core.list {
+          attr result = %constraints
+        }
+        op core.get {
+          attr key = "name"
+          attr result = %type_name
+          attr target = %typ
+        }
+        op core.get {
+          attr key = "format"
+          attr result = %format
+          attr target = %typ
+        }
+        op core.call {
+          attr args = [%format, "email"]
+          attr callee = "intrinsic.eq"
+          attr result = %is_email
+        }
+        op core.if {
+          attr condition = %is_email
+          region @then {
+            block @then {
+              op core.append {
+                attr target = %constraints
+                attr value = "Must be a valid email address format"
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.list {
+          attr result = %url_formats
+        }
+        op core.append {
+          attr target = %url_formats
+          attr value = "uri"
+        }
+        op core.append {
+          attr target = %url_formats
+          attr value = "url"
+        }
+        op core.call {
+          attr args = [%url_formats, %format]
+          attr callee = "intrinsic.contains"
+          attr result = %format_url
+        }
+        op core.call {
+          attr args = [%type_name, "url"]
+          attr callee = "intrinsic.eq"
+          attr result = %type_url
+        }
+        op core.call {
+          attr args = [%format_url, %type_url]
+          attr callee = "intrinsic.or"
+          attr result = %is_url
+        }
+        op core.if {
+          attr condition = %is_url
+          region @then {
+            block @then {
+              op core.append {
+                attr target = %constraints
+                attr value = "Must be a valid URL format"
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.list {
+          attr result = %length_types
+        }
+        op core.append {
+          attr target = %length_types
+          attr value = "string"
+        }
+        op core.append {
+          attr target = %length_types
+          attr value = "code"
+        }
+        op core.append {
+          attr target = %length_types
+          attr value = "url"
+        }
+        op core.append {
+          attr target = %length_types
+          attr value = "date"
+        }
+        op core.append {
+          attr target = %length_types
+          attr value = "dateRange"
+        }
+        op core.append {
+          attr target = %length_types
+          attr value = "datetime"
+        }
+        op core.append {
+          attr target = %length_types
+          attr value = "datetimeRange"
+        }
+        op core.call {
+          attr args = [%length_types, %type_name]
+          attr callee = "intrinsic.contains"
+          attr result = %has_length_constraints
+        }
+        op core.if {
+          attr condition = %has_length_constraints
+          region @then {
+            block @then {
+              op core.get {
+                attr key = "min_length"
+                attr result = %min_length
+                attr target = %typ
+              }
+              op core.get {
+                attr key = "max_length"
+                attr result = %max_length
+                attr target = %typ
+              }
+              op core.call {
+                attr args = [%min_length]
+                attr callee = "intrinsic.is_not_none"
+                attr result = %has_min
+              }
+              op core.call {
+                attr args = [%max_length]
+                attr callee = "intrinsic.is_not_none"
+                attr result = %has_max
+              }
+              op core.call {
+                attr args = [%has_min, %has_max]
+                attr callee = "intrinsic.and"
+                attr result = %has_both
+              }
+              op core.if {
+                attr condition = %has_both
+                region @then {
+                  block @then {
+                    op core.call {
+                      attr args = ["Minimum length: {} characters, maximum length: {} characters", %min_length, %max_length]
+                      attr callee = "intrinsic.string.format"
+                      attr result = %text
+                    }
+                    op core.append {
+                      attr target = %constraints
+                      attr value = %text
+                    }
+                  }
+                }
+                region @else {
+                  block @else {
+                    op core.if {
+                      attr condition = %has_min
+                      region @then {
+                        block @then {
+                          op core.call {
+                            attr args = ["Minimum length: {} characters", %min_length]
+                            attr callee = "intrinsic.string.format"
+                            attr result = %text
+                          }
+                          op core.append {
+                            attr target = %constraints
+                            attr value = %text
+                          }
+                        }
+                      }
+                      region @else {
+                        block @else {
+                          op core.if {
+                            attr condition = %has_max
+                            region @then {
+                              block @then {
+                                op core.call {
+                                  attr args = ["Maximum length: {} characters", %max_length]
+                                  attr callee = "intrinsic.string.format"
+                                  attr result = %text
+                                }
+                                op core.append {
+                                  attr target = %constraints
+                                  attr value = %text
+                                }
+                              }
+                            }
+                            region @else {
+                              block @else {
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.call {
+          attr args = [%type_name, "number"]
+          attr callee = "intrinsic.eq"
+          attr result = %is_number
+        }
+        op core.if {
+          attr condition = %is_number
+          region @then {
+            block @then {
+              op core.get {
+                attr key = "minimum"
+                attr result = %minimum
+                attr target = %typ
+              }
+              op core.get {
+                attr key = "maximum"
+                attr result = %maximum
+                attr target = %typ
+              }
+              op core.call {
+                attr args = [%minimum]
+                attr callee = "intrinsic.is_not_none"
+                attr result = %has_minimum
+              }
+              op core.call {
+                attr args = [%maximum]
+                attr callee = "intrinsic.is_not_none"
+                attr result = %has_maximum
+              }
+              op core.call {
+                attr args = [%has_minimum, %has_maximum]
+                attr callee = "intrinsic.and"
+                attr result = %has_both
+              }
+              op core.if {
+                attr condition = %has_both
+                region @then {
+                  block @then {
+                    op core.call {
+                      attr args = ["Minimum value: {}, maximum value: {}", %minimum, %maximum]
+                      attr callee = "intrinsic.string.format"
+                      attr result = %text
+                    }
+                    op core.append {
+                      attr target = %constraints
+                      attr value = %text
+                    }
+                  }
+                }
+                region @else {
+                  block @else {
+                    op core.if {
+                      attr condition = %has_minimum
+                      region @then {
+                        block @then {
+                          op core.call {
+                            attr args = ["Minimum value: {}", %minimum]
+                            attr callee = "intrinsic.string.format"
+                            attr result = %text
+                          }
+                          op core.append {
+                            attr target = %constraints
+                            attr value = %text
+                          }
+                        }
+                      }
+                      region @else {
+                        block @else {
+                          op core.if {
+                            attr condition = %has_maximum
+                            region @then {
+                              block @then {
+                                op core.call {
+                                  attr args = ["Maximum value: {}", %maximum]
+                                  attr callee = "intrinsic.string.format"
+                                  attr result = %text
+                                }
+                                op core.append {
+                                  attr target = %constraints
+                                  attr value = %text
+                                }
+                              }
+                            }
+                            region @else {
+                              block @else {
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.get {
+          attr key = "pattern"
+          attr result = %pattern
+          attr target = %typ
+        }
+        op core.call {
+          attr args = [%pattern]
+          attr callee = "intrinsic.is_not_none"
+          attr result = %has_pattern
+        }
+        op core.if {
+          attr condition = %has_pattern
+          region @then {
+            block @then {
+              op core.get {
+                attr key = "pattern_description"
+                attr result = %pattern_description
+                attr target = %typ
+              }
+              op core.call {
+                attr args = [%pattern_description]
+                attr callee = "intrinsic.is_none"
+                attr result = %missing_pattern_description
+              }
+              op core.if {
+                attr condition = %missing_pattern_description
+                region @then {
+                  block @then {
+                    op core.call {
+                      attr args = ["Field with pattern '{}' must include a patternDescription to explain the pattern to the LLM", %pattern]
+                      attr callee = "intrinsic.string.format"
+                      attr result = %message
+                    }
+                    op core.call {
+                      attr args = [%message]
+                      attr callee = "intrinsic.error.validation"
+                      attr result = %error
+                    }
+                    op core.raise {
+                      attr error = %error
+                    }
+                  }
+                }
+                region @else {
+                  block @else {
+                    op core.append {
+                      attr target = %constraints
+                      attr value = %pattern_description
+                    }
+                  }
+                }
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.call {
+          attr args = [%type_name, "date"]
+          attr callee = "intrinsic.eq"
+          attr result = %is_date
+        }
+        op core.if {
+          attr condition = %is_date
+          region @then {
+            block @then {
+              op core.append {
+                attr target = %constraints
+                attr value = "Format: YYYY-MM-DD"
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.call {
+          attr args = [%type_name, "dateRange"]
+          attr callee = "intrinsic.eq"
+          attr result = %is_date_range
+        }
+        op core.if {
+          attr condition = %is_date_range
+          region @then {
+            block @then {
+              op core.append {
+                attr target = %constraints
+                attr value = "Format: JSON object with start and end dates, or YYYY-MM-DD/YYYY-MM-DD"
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.call {
+          attr args = [%type_name, "datetime"]
+          attr callee = "intrinsic.eq"
+          attr result = %is_datetime
+        }
+        op core.if {
+          attr condition = %is_datetime
+          region @then {
+            block @then {
+              op core.append {
+                attr target = %constraints
+                attr value = "Format: ISO 8601 date-time"
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.call {
+          attr args = [%type_name, "datetimeRange"]
+          attr callee = "intrinsic.eq"
+          attr result = %is_datetime_range
+        }
+        op core.if {
+          attr condition = %is_datetime_range
+          region @then {
+            block @then {
+              op core.append {
+                attr target = %constraints
+                attr value = "Format: JSON object with start and end ISO 8601 date-times, or ISO interval start/end"
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.call {
+          attr args = [%constraints]
+          attr callee = "intrinsic.len"
+          attr result = %constraint_count
+        }
+        op core.call {
+          attr args = [%constraint_count, 0]
+          attr callee = "intrinsic.gt"
+          attr result = %has_constraints
+        }
+        op core.if {
+          attr condition = %has_constraints
+          region @then {
+            block @then {
+              op core.string_join {
+                attr sep = ". "
+                attr result = %constraint_text
+                attr value = %constraints
+              }
+              op core.call {
+                attr args = [%base, %constraint_text]
+                attr callee = "intrinsic.description.append"
+                attr result = %description
+              }
+              op core.return {
+                attr value = %description
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.return {
+          attr value = %base
+        }
+      }
+    }
+  }
+
+  op ax.schema.semantic @schema_apply_constraints_impl {
+    attr core_kind = "func"
+    attr emit_module = "schema"
+    attr private = true
+    tag "json-schema-constraints-core-helper"
+    type signature = "(json, FieldType) -> json"
+    region @body {
+      block @entry(%schema: json, %typ: FieldType) {
+        op core.get {
+          attr key = "name"
+          attr result = %type_name
+          attr target = %typ
+        }
+        op core.list {
+          attr result = %string_types
+        }
+        op core.append {
+          attr target = %string_types
+          attr value = "string"
+        }
+        op core.append {
+          attr target = %string_types
+          attr value = "code"
+        }
+        op core.append {
+          attr target = %string_types
+          attr value = "url"
+        }
+        op core.append {
+          attr target = %string_types
+          attr value = "date"
+        }
+        op core.append {
+          attr target = %string_types
+          attr value = "dateRange"
+        }
+        op core.append {
+          attr target = %string_types
+          attr value = "datetime"
+        }
+        op core.append {
+          attr target = %string_types
+          attr value = "datetimeRange"
+        }
+        op core.call {
+          attr args = [%string_types, %type_name]
+          attr callee = "intrinsic.contains"
+          attr result = %is_string_type
+        }
+        op core.if {
+          attr condition = %is_string_type
+          region @then {
+            block @then {
+              op core.get {
+                attr key = "min_length"
+                attr result = %min_length
+                attr target = %typ
+              }
+              op core.call {
+                attr args = [%min_length]
+                attr callee = "intrinsic.is_not_none"
+                attr result = %has_min
+              }
+              op core.if {
+                attr condition = %has_min
+                region @then {
+                  block @then {
+                    op core.set {
+                      attr key = "minLength"
+                      attr target = %schema
+                      attr value = %min_length
+                    }
+                  }
+                }
+                region @else {
+                  block @else {
+                  }
+                }
+              }
+              op core.get {
+                attr key = "max_length"
+                attr result = %max_length
+                attr target = %typ
+              }
+              op core.call {
+                attr args = [%max_length]
+                attr callee = "intrinsic.is_not_none"
+                attr result = %has_max
+              }
+              op core.if {
+                attr condition = %has_max
+                region @then {
+                  block @then {
+                    op core.set {
+                      attr key = "maxLength"
+                      attr target = %schema
+                      attr value = %max_length
+                    }
+                  }
+                }
+                region @else {
+                  block @else {
+                  }
+                }
+              }
+              op core.get {
+                attr key = "pattern"
+                attr result = %pattern
+                attr target = %typ
+              }
+              op core.call {
+                attr args = [%pattern]
+                attr callee = "intrinsic.is_not_none"
+                attr result = %has_pattern
+              }
+              op core.if {
+                attr condition = %has_pattern
+                region @then {
+                  block @then {
+                    op core.set {
+                      attr key = "pattern"
+                      attr target = %schema
+                      attr value = %pattern
+                    }
+                  }
+                }
+                region @else {
+                  block @else {
+                  }
+                }
+              }
+              op core.get {
+                attr key = "format"
+                attr result = %format
+                attr target = %typ
+              }
+              op core.call {
+                attr args = [%format]
+                attr callee = "intrinsic.is_not_none"
+                attr result = %has_format
+              }
+              op core.if {
+                attr condition = %has_format
+                region @then {
+                  block @then {
+                    op core.set {
+                      attr key = "format"
+                      attr target = %schema
+                      attr value = %format
+                    }
+                  }
+                }
+                region @else {
+                  block @else {
+                  }
+                }
+              }
+              op core.call {
+                attr args = [%type_name, "url"]
+                attr callee = "intrinsic.eq"
+                attr result = %is_url
+              }
+              op core.call {
+                attr args = [%has_format]
+                attr callee = "intrinsic.not"
+                attr result = %missing_format
+              }
+              op core.call {
+                attr args = [%is_url, %missing_format]
+                attr callee = "intrinsic.and"
+                attr result = %default_url_format
+              }
+              op core.if {
+                attr condition = %default_url_format
+                region @then {
+                  block @then {
+                    op core.set {
+                      attr key = "format"
+                      attr target = %schema
+                      attr value = "uri"
+                    }
+                  }
+                }
+                region @else {
+                  block @else {
+                  }
+                }
+              }
+              op core.call {
+                attr args = [%type_name, "date"]
+                attr callee = "intrinsic.eq"
+                attr result = %is_date
+              }
+              op core.call {
+                attr args = [%is_date, %missing_format]
+                attr callee = "intrinsic.and"
+                attr result = %default_date_format
+              }
+              op core.if {
+                attr condition = %default_date_format
+                region @then {
+                  block @then {
+                    op core.set {
+                      attr key = "format"
+                      attr target = %schema
+                      attr value = "date"
+                    }
+                  }
+                }
+                region @else {
+                  block @else {
+                  }
+                }
+              }
+              op core.call {
+                attr args = [%type_name, "datetime"]
+                attr callee = "intrinsic.eq"
+                attr result = %is_datetime
+              }
+              op core.call {
+                attr args = [%is_datetime, %missing_format]
+                attr callee = "intrinsic.and"
+                attr result = %default_datetime_format
+              }
+              op core.if {
+                attr condition = %default_datetime_format
+                region @then {
+                  block @then {
+                    op core.set {
+                      attr key = "format"
+                      attr target = %schema
+                      attr value = "date-time"
+                    }
+                  }
+                }
+                region @else {
+                  block @else {
+                  }
+                }
+              }
+            }
+          }
+          region @else {
+            block @else {
+              op core.call {
+                attr args = [%type_name, "number"]
+                attr callee = "intrinsic.eq"
+                attr result = %is_number
+              }
+              op core.if {
+                attr condition = %is_number
+                region @then {
+                  block @then {
+                    op core.get {
+                      attr key = "minimum"
+                      attr result = %minimum
+                      attr target = %typ
+                    }
+                    op core.call {
+                      attr args = [%minimum]
+                      attr callee = "intrinsic.is_not_none"
+                      attr result = %has_minimum
+                    }
+                    op core.if {
+                      attr condition = %has_minimum
+                      region @then {
+                        block @then {
+                          op core.set {
+                            attr key = "minimum"
+                            attr target = %schema
+                            attr value = %minimum
+                          }
+                        }
+                      }
+                      region @else {
+                        block @else {
+                        }
+                      }
+                    }
+                    op core.get {
+                      attr key = "maximum"
+                      attr result = %maximum
+                      attr target = %typ
+                    }
+                    op core.call {
+                      attr args = [%maximum]
+                      attr callee = "intrinsic.is_not_none"
+                      attr result = %has_maximum
+                    }
+                    op core.if {
+                      attr condition = %has_maximum
+                      region @then {
+                        block @then {
+                          op core.set {
+                            attr key = "maximum"
+                            attr target = %schema
+                            attr value = %maximum
+                          }
+                        }
+                      }
+                      region @else {
+                        block @else {
+                        }
+                      }
+                    }
+                  }
+                }
+                region @else {
+                  block @else {
+                  }
+                }
+              }
+            }
+          }
+        }
+        op core.return {
+          attr value = %schema
+        }
+      }
+    }
+  }
+
+  op ax.schema.semantic @schema_nullable_optional_impl {
+    attr core_kind = "func"
+    attr emit_module = "schema"
+    attr private = true
+    tag "json-schema-nullable-optional-core-helper"
+    type signature = "(json, Field, json) -> json"
+    region @body {
+      block @entry(%schema: json, %field: Field, %options: json) {
+        op core.get {
+          attr default = false
+          attr key = "is_optional"
+          attr result = %is_optional
+          attr target = %field
+        }
+        op core.get {
+          attr default = false
+          attr key = "strictStructuredOutputs"
+          attr result = %strict_camel
+          attr target = %options
+        }
+        op core.get {
+          attr default = false
+          attr key = "strict_structured_outputs"
+          attr result = %strict_snake
+          attr target = %options
+        }
+        op core.call {
+          attr args = [%strict_camel, %strict_snake]
+          attr callee = "intrinsic.or"
+          attr result = %strict
+        }
+        op core.call {
+          attr args = [%is_optional, %strict]
+          attr callee = "intrinsic.and"
+          attr result = %make_nullable
+        }
+        op core.if {
+          attr condition = %make_nullable
+          region @then {
+            block @then {
+              op core.get {
+                attr key = "type"
+                attr result = %schema_type
+                attr target = %schema
+              }
+              op core.type_is {
+                attr result = %type_is_list
+                attr type = "list"
+                attr value = %schema_type
+              }
+              op core.if {
+                attr condition = %type_is_list
+                region @then {
+                  block @then {
+                    op core.call {
+                      attr args = [%schema_type, "null"]
+                      attr callee = "intrinsic.contains"
+                      attr result = %has_null_type
+                    }
+                    op core.call {
+                      attr args = [%has_null_type]
+                      attr callee = "intrinsic.not"
+                      attr result = %needs_null_type
+                    }
+                    op core.if {
+                      attr condition = %needs_null_type
+                      region @then {
+                        block @then {
+                          op core.append {
+                            attr target = %schema_type
+                            attr value = "null"
+                          }
+                        }
+                      }
+                      region @else {
+                        block @else {
+                        }
+                      }
+                    }
+                  }
+                }
+                region @else {
+                  block @else {
+                    op core.list {
+                      attr result = %nullable_type
+                    }
+                    op core.append {
+                      attr target = %nullable_type
+                      attr value = %schema_type
+                    }
+                    op core.append {
+                      attr target = %nullable_type
+                      attr value = "null"
+                    }
+                    op core.set {
+                      attr key = "type"
+                      attr target = %schema
+                      attr value = %nullable_type
+                    }
+                  }
+                }
+              }
+              op core.get {
+                attr key = "enum"
+                attr result = %enum_values
+                attr target = %schema
+              }
+              op core.type_is {
+                attr result = %enum_is_list
+                attr type = "list"
+                attr value = %enum_values
+              }
+              op core.if {
+                attr condition = %enum_is_list
+                region @then {
+                  block @then {
+                    op core.call {
+                      attr callee = "intrinsic.none"
+                      attr result = %none
+                    }
+                    op core.call {
+                      attr args = [%enum_values, %none]
+                      attr callee = "intrinsic.contains"
+                      attr result = %enum_has_null
+                    }
+                    op core.call {
+                      attr args = [%enum_has_null]
+                      attr callee = "intrinsic.not"
+                      attr result = %enum_needs_null
+                    }
+                    op core.if {
+                      attr condition = %enum_needs_null
+                      region @then {
+                        block @then {
+                          op core.append {
+                            attr target = %enum_values
+                            attr value = %none
+                          }
+                        }
+                      }
+                      region @else {
+                        block @else {
+                        }
+                      }
+                    }
+                  }
+                }
+                region @else {
+                  block @else {
+                  }
+                }
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.return {
+          attr value = %schema
+        }
+      }
+    }
+  }
+
+  op ax.schema.semantic @schema_object_from_fields_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "schema"
+    attr private = true
+    tag "json-schema-object-core-helper"
+    type signature = "(json, bool, json) -> json throws"
+    region @body {
+      block @entry(%fields_map: json, %is_nested: bool, %options: json) {
+        op core.map {
+          attr result = %schema
+        }
+        op core.map {
+          attr result = %properties
+        }
+        op core.list {
+          attr result = %required
+        }
+        op core.set {
+          attr key = "type"
+          attr target = %schema
+          attr value = "object"
+        }
+        op core.set {
+          attr key = "properties"
+          attr target = %schema
+          attr value = %properties
+        }
+        op core.set {
+          attr key = "required"
+          attr target = %schema
+          attr value = %required
+        }
+        op core.set {
+          attr key = "additionalProperties"
+          attr target = %schema
+          attr value = false
+        }
+        op core.call {
+          attr args = [%fields_map]
+          attr callee = "intrinsic.fields.from_map"
+          attr result = %fields
+        }
+        op core.for {
+          attr in = %fields
+          attr item = %field
+          region @body {
+            block @each {
+              op core.get {
+                attr default = false
+                attr key = "is_internal"
+                attr result = %is_internal
+                attr target = %field
+              }
+              op core.call {
+                attr args = [%is_internal]
+                attr callee = "intrinsic.not"
+                attr result = %include
+              }
+              op core.if {
+                attr condition = %include
+                region @then {
+                  block @then {
+                    op core.get {
+                      attr key = "name"
+                      attr result = %field_name
+                      attr target = %field
+                    }
+                    op core.call {
+                      attr args = [%field, %is_nested, %options]
+                      attr callee = @schema_field_schema_impl
+                      attr result = %field_schema
+                    }
+                    op core.set {
+                      attr key = %field_name
+                      attr target = %properties
+                      attr value = %field_schema
+                    }
+                    op core.call {
+                      attr args = [%field, %options]
+                      attr callee = @schema_required_impl
+                      attr result = %is_required
+                    }
+                    op core.if {
+                      attr condition = %is_required
+                      region @then {
+                        block @then {
+                          op core.append {
+                            attr target = %required
+                            attr value = %field_name
+                          }
+                        }
+                      }
+                      region @else {
+                        block @else {
+                        }
+                      }
+                    }
+                  }
+                }
+                region @else {
+                  block @else {
+                  }
+                }
+              }
+            }
+          }
+        }
+        op core.return {
+          attr value = %schema
+        }
+      }
+    }
+  }
+
+  op ax.schema.semantic @schema_field_schema_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "schema"
+    attr private = true
+    tag "json-schema-field-core-helper"
+    type signature = "(Field, bool, json) -> json throws"
+    region @body {
+      block @entry(%field: Field, %is_nested: bool, %options: json) {
+        op core.get {
+          attr key = "type"
+          attr result = %typ
+          attr target = %field
+        }
+        op core.get {
+          attr key = "name"
+          attr result = %type_name
+          attr target = %typ
+        }
+        op core.list {
+          attr result = %media_types
+        }
+        op core.append {
+          attr target = %media_types
+          attr value = "image"
+        }
+        op core.append {
+          attr target = %media_types
+          attr value = "audio"
+        }
+        op core.append {
+          attr target = %media_types
+          attr value = "file"
+        }
+        op core.call {
+          attr args = [%media_types, %type_name]
+          attr callee = "intrinsic.contains"
+          attr result = %is_media
+        }
+        op core.call {
+          attr args = [%is_nested, %is_media]
+          attr callee = "intrinsic.and"
+          attr result = %nested_media
+        }
+        op core.if {
+          attr condition = %nested_media
+          region @then {
+            block @then {
+              op core.call {
+                attr args = ["Media type '{}' is not allowed in nested object fields", %type_name]
+                attr callee = "intrinsic.string.format"
+                attr result = %message
+              }
+              op core.call {
+                attr args = [%message]
+                attr callee = "intrinsic.error.validation"
+                attr result = %error
+              }
+              op core.raise {
+                attr error = %error
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.map {
+          attr result = %schema
+        }
+        op core.get {
+          attr key = "description"
+          attr result = %field_description
+          attr target = %field
+        }
+        op core.call {
+          attr args = [%field_description, %typ]
+          attr callee = @schema_enhance_description_impl
+          attr result = %description
+        }
+        op core.call {
+          attr args = [%description]
+          attr callee = "intrinsic.truthy"
+          attr result = %has_description
+        }
+        op core.if {
+          attr condition = %has_description
+          region @then {
+            block @then {
+              op core.set {
+                attr key = "description"
+                attr target = %schema
+                attr value = %description
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.get {
+          attr default = false
+          attr key = "is_array"
+          attr result = %is_array
+          attr target = %typ
+        }
+        op core.if {
+          attr condition = %is_array
+          region @then {
+            block @then {
+              op core.set {
+                attr key = "type"
+                attr target = %schema
+                attr value = "array"
+              }
+              op core.get {
+                attr key = "fields"
+                attr result = %fields_map
+                attr target = %typ
+              }
+              op core.call {
+                attr args = [%fields_map]
+                attr callee = "intrinsic.truthy"
+                attr result = %has_fields
+              }
+              op core.if {
+                attr condition = %has_fields
+                region @then {
+                  block @then {
+                    op core.call {
+                      attr args = [%fields_map, true, %options]
+                      attr callee = @schema_object_from_fields_impl
+                      attr result = %items
+                    }
+                    op core.get {
+                      attr key = "description"
+                      attr result = %type_description
+                      attr target = %typ
+                    }
+                    op core.call {
+                      attr args = [%type_description]
+                      attr callee = "intrinsic.truthy"
+                      attr result = %has_type_description
+                    }
+                    op core.if {
+                      attr condition = %has_type_description
+                      region @then {
+                        block @then {
+                          op core.set {
+                            attr key = "description"
+                            attr target = %items
+                            attr value = %type_description
+                          }
+                        }
+                      }
+                      region @else {
+                        block @else {
+                        }
+                      }
+                    }
+                    op core.set {
+                      attr key = "items"
+                      attr target = %schema
+                      attr value = %items
+                    }
+                    op core.call {
+                      attr args = [%schema, %field, %options]
+                      attr callee = @schema_nullable_optional_impl
+                      attr result = %nullable
+                    }
+                    op core.return {
+                      attr value = %nullable
+                    }
+                  }
+                }
+                region @else {
+                  block @else {
+                  }
+                }
+              }
+              op core.call {
+                attr args = [%type_name, "class"]
+                attr callee = "intrinsic.eq"
+                attr result = %is_class
+              }
+              op core.if {
+                attr condition = %is_class
+                region @then {
+                  block @then {
+                    op core.map {
+                      attr result = %items
+                    }
+                    op core.set {
+                      attr key = "type"
+                      attr target = %items
+                      attr value = "string"
+                    }
+                    op core.get {
+                      attr key = "options"
+                      attr result = %class_options
+                      attr target = %typ
+                    }
+                    op core.set {
+                      attr key = "enum"
+                      attr target = %items
+                      attr value = %class_options
+                    }
+                    op core.set {
+                      attr key = "items"
+                      attr target = %schema
+                      attr value = %items
+                    }
+                    op core.call {
+                      attr args = [%schema, %field, %options]
+                      attr callee = @schema_nullable_optional_impl
+                      attr result = %nullable
+                    }
+                    op core.return {
+                      attr value = %nullable
+                    }
+                  }
+                }
+                region @else {
+                  block @else {
+                  }
+                }
+              }
+              op core.map {
+                attr result = %items
+              }
+              op core.call {
+                attr args = [%typ, %options]
+                attr callee = @schema_flexible_json_as_string_impl
+                attr result = %flexible_string
+              }
+              op core.if {
+                attr condition = %flexible_string
+                region @then {
+                  block @then {
+                    op core.set {
+                      attr key = "type"
+                      attr target = %items
+                      attr value = "string"
+                    }
+                    op core.get {
+                      attr key = "description"
+                      attr result = %type_description
+                      attr target = %typ
+                    }
+                    op core.call {
+                      attr args = [%type_description, %field_description]
+                      attr callee = "intrinsic.coalesce"
+                      attr result = %item_base_description
+                    }
+                    op core.call {
+                      attr args = [%item_base_description, %typ]
+                      attr callee = @schema_enhance_description_impl
+                      attr result = %item_description
+                    }
+                    op core.call {
+                      attr args = [%item_description, "Return this field as a JSON-encoded string that can be parsed with JSON.parse."]
+                      attr callee = "intrinsic.description.append"
+                      attr result = %json_description
+                    }
+                    op core.set {
+                      attr key = "description"
+                      attr target = %items
+                      attr value = %json_description
+                    }
+                  }
+                }
+                region @else {
+                  block @else {
+                    op core.call {
+                      attr args = [%type_name]
+                      attr callee = @schema_json_type_impl
+                      attr result = %json_type
+                    }
+                    op core.set {
+                      attr key = "type"
+                      attr target = %items
+                      attr value = %json_type
+                    }
+                    op core.get {
+                      attr key = "description"
+                      attr result = %type_description
+                      attr target = %typ
+                    }
+                    op core.call {
+                      attr args = [%type_description, %field_description]
+                      attr callee = "intrinsic.coalesce"
+                      attr result = %item_base_description
+                    }
+                    op core.call {
+                      attr args = [%item_base_description, %typ]
+                      attr callee = @schema_enhance_description_impl
+                      attr result = %item_description
+                    }
+                    op core.call {
+                      attr args = [%item_description]
+                      attr callee = "intrinsic.truthy"
+                      attr result = %has_item_description
+                    }
+                    op core.if {
+                      attr condition = %has_item_description
+                      region @then {
+                        block @then {
+                          op core.set {
+                            attr key = "description"
+                            attr target = %items
+                            attr value = %item_description
+                          }
+                        }
+                      }
+                      region @else {
+                        block @else {
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+              op core.call {
+                attr args = [%items, %typ]
+                attr callee = @schema_apply_constraints_impl
+                attr result = %items_with_constraints
+              }
+              op core.set {
+                attr key = "items"
+                attr target = %schema
+                attr value = %items_with_constraints
+              }
+              op core.call {
+                attr args = [%schema, %field, %options]
+                attr callee = @schema_nullable_optional_impl
+                attr result = %nullable
+              }
+              op core.return {
+                attr value = %nullable
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.get {
+          attr key = "fields"
+          attr result = %fields_map
+          attr target = %typ
+        }
+        op core.call {
+          attr args = [%type_name, "object"]
+          attr callee = "intrinsic.eq"
+          attr result = %is_object
+        }
+        op core.call {
+          attr args = [%fields_map]
+          attr callee = "intrinsic.truthy"
+          attr result = %has_fields
+        }
+        op core.call {
+          attr args = [%is_object, %has_fields]
+          attr callee = "intrinsic.and"
+          attr result = %is_shaped_object
+        }
+        op core.if {
+          attr condition = %is_shaped_object
+          region @then {
+            block @then {
+              op core.call {
+                attr args = [%fields_map, true, %options]
+                attr callee = @schema_object_from_fields_impl
+                attr result = %object_schema
+              }
+              op core.call {
+                attr args = [%schema, %object_schema]
+                attr callee = "intrinsic.map.update"
+                attr result = %updated
+              }
+              op core.call {
+                attr args = [%updated, %field, %options]
+                attr callee = @schema_nullable_optional_impl
+                attr result = %nullable
+              }
+              op core.return {
+                attr value = %nullable
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.call {
+          attr args = [%type_name, "class"]
+          attr callee = "intrinsic.eq"
+          attr result = %is_class
+        }
+        op core.if {
+          attr condition = %is_class
+          region @then {
+            block @then {
+              op core.set {
+                attr key = "type"
+                attr target = %schema
+                attr value = "string"
+              }
+              op core.get {
+                attr key = "options"
+                attr result = %class_options
+                attr target = %typ
+              }
+              op core.set {
+                attr key = "enum"
+                attr target = %schema
+                attr value = %class_options
+              }
+              op core.call {
+                attr args = [%schema, %field, %options]
+                attr callee = @schema_nullable_optional_impl
+                attr result = %nullable
+              }
+              op core.return {
+                attr value = %nullable
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.call {
+          attr args = [%typ, %options]
+          attr callee = @schema_flexible_json_as_string_impl
+          attr result = %flexible_string
+        }
+        op core.if {
+          attr condition = %flexible_string
+          region @then {
+            block @then {
+              op core.set {
+                attr key = "type"
+                attr target = %schema
+                attr value = "string"
+              }
+              op core.call {
+                attr args = [%description, "Return this field as a JSON-encoded string that can be parsed with JSON.parse."]
+                attr callee = "intrinsic.description.append"
+                attr result = %json_description
+              }
+              op core.set {
+                attr key = "description"
+                attr target = %schema
+                attr value = %json_description
+              }
+              op core.call {
+                attr args = [%schema, %field, %options]
+                attr callee = @schema_nullable_optional_impl
+                attr result = %nullable
+              }
+              op core.return {
+                attr value = %nullable
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.call {
+          attr args = [%type_name]
+          attr callee = @schema_json_type_impl
+          attr result = %json_type
+        }
+        op core.set {
+          attr key = "type"
+          attr target = %schema
+          attr value = %json_type
+        }
+        op core.call {
+          attr args = [%type_name, "audio"]
+          attr callee = "intrinsic.eq"
+          attr result = %is_audio
+        }
+        op core.if {
+          attr condition = %is_audio
+          region @then {
+            block @then {
+              op core.call {
+                attr args = [%description, "Return plain text to synthesize as speech; do not return audio bytes or JSON audio objects."]
+                attr callee = "intrinsic.description.append"
+                attr result = %audio_description
+              }
+              op core.set {
+                attr key = "description"
+                attr target = %schema
+                attr value = %audio_description
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.call {
+          attr args = [%schema, %typ]
+          attr callee = @schema_apply_constraints_impl
+          attr result = %schema_with_constraints
+        }
+        op core.call {
+          attr args = [%schema_with_constraints, %field, %options]
+          attr callee = @schema_nullable_optional_impl
+          attr result = %nullable
+        }
+        op core.return {
+          attr value = %nullable
+        }
+      }
+    }
+  }
+
+  op ax.schema.semantic @schema_to_json_schema_impl {
+    attr core_kind = "func"
+    attr emit_module = "schema"
+    attr private = true
+    tag "json-schema-core-helper"
+    type signature = "(list<Field>, string, json) -> AxFunctionJSONSchema"
+    region @body {
+      block @entry(%fields: list<Field>, %schema_title: string, %options: json) {
+        op core.map {
+          attr result = %schema
+        }
+        op core.map {
+          attr result = %properties
+        }
+        op core.list {
+          attr result = %required
+        }
+        op core.set {
+          attr key = "type"
+          attr target = %schema
+          attr value = "object"
+        }
+        op core.set {
+          attr key = "title"
+          attr target = %schema
+          attr value = %schema_title
+        }
+        op core.set {
+          attr key = "properties"
+          attr target = %schema
+          attr value = %properties
+        }
+        op core.set {
+          attr key = "required"
+          attr target = %schema
+          attr value = %required
+        }
+        op core.set {
+          attr key = "additionalProperties"
+          attr target = %schema
+          attr value = false
+        }
+        op core.for {
+          attr in = %fields
+          attr item = %field
+          region @body {
+            block @each {
+              op core.get {
+                attr default = false
+                attr key = "is_internal"
+                attr result = %is_internal
+                attr target = %field
+              }
+              op core.call {
+                attr args = [%is_internal]
+                attr callee = "intrinsic.not"
+                attr result = %include
+              }
+              op core.if {
+                attr condition = %include
+                region @then {
+                  block @then {
+                    op core.get {
+                      attr key = "name"
+                      attr result = %field_name
+                      attr target = %field
+                    }
+                    op core.call {
+                      attr args = [%field, false, %options]
+                      attr callee = @schema_field_schema_impl
+                      attr result = %field_schema
+                    }
+                    op core.set {
+                      attr key = %field_name
+                      attr target = %properties
+                      attr value = %field_schema
+                    }
+                    op core.call {
+                      attr args = [%field, %options]
+                      attr callee = @schema_required_impl
+                      attr result = %is_required
+                    }
+                    op core.if {
+                      attr condition = %is_required
+                      region @then {
+                        block @then {
+                          op core.append {
+                            attr target = %required
+                            attr value = %field_name
+                          }
+                        }
+                      }
+                      region @else {
+                        block @else {
+                        }
+                      }
+                    }
+                  }
+                }
+                region @else {
+                  block @else {
+                  }
+                }
+              }
+            }
+          }
+        }
+        op core.return {
+          attr value = %schema
+        }
+      }
+    }
+  }
+
+  op ax.schema.semantic @standard_schema_bridge {
+    attr core_kind = "semantic"
+    tag "src/ax/dsp/standardSchema.ts"
+    type signature = "(external) -> list<Field>"
+  }
+}

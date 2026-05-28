@@ -1,0 +1,34 @@
+{
+  "expected_folded": "{\"items\":[{\"name\":\"alpha\"},{\"name\":\"beta\"}]}",
+  "kind": "stream",
+  "name": "structured-stream-rich",
+  "stream_events": [
+    {
+      "data": {
+        "results": [
+          {
+            "content": "{\"items\":["
+          }
+        ]
+      }
+    },
+    {
+      "data": {
+        "delta": "{\"name\":\"alpha\"}"
+      }
+    },
+    {
+      "data": {
+        "content_delta": ",{\"name\":\"beta\"}"
+      }
+    },
+    {
+      "data": {
+        "contentDelta": "]}"
+      }
+    },
+    {
+      "type": "message_stop"
+    }
+  ]
+}

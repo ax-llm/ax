@@ -1,0 +1,333 @@
+module @ax.template version "0.1" {
+  dialect @ax.template version "0.1"
+
+  op ax.template.semantic @prompt_features {
+    attr core_kind = "semantic"
+    attr custom_prompt_template = true
+    attr default_prompt = true
+    attr prompt_conformance = true
+    attr template_engine = true
+    tag "prompt-feature-flags"
+  }
+
+  op ax.template.semantic @default_dspy_template {
+    attr core_kind = "semantic"
+    tag "src/ax/dsp/prompt.ts"
+    type value = "DEFAULT_DSPY_TEMPLATE"
+  }
+
+  op ax.template.record @AxPromptTemplate {
+    attr core_kind = "record"
+    ref signature = @AxSignature
+    tag "src/ax/dsp/prompt.ts"
+  }
+
+  op ax.template.semantic @render_template_content {
+    attr core_kind = "func"
+    attr emit_module = "prompt"
+    tag "src/ax/agent/templateEngine.ts"
+    type signature = "(template:string, vars:json, context:string) -> string throws"
+    region @body {
+      block @entry(%template: string, %vars: json, %context: string) {
+        op core.call {
+          attr args = [%template, %context]
+          attr callee = @template_parse_impl
+          attr result = %nodes
+        }
+        op core.call {
+          attr args = [%nodes, %vars, %template, %context]
+          attr callee = @template_render_tree_impl
+          attr result = %rendered
+        }
+        op core.return {
+          attr value = %rendered
+        }
+      }
+    }
+  }
+
+  op ax.template.semantic @collect_template_variable_names {
+    attr core_kind = "func"
+    attr emit_module = "prompt"
+    tag "src/ax/agent/templateEngine.ts"
+    type signature = "(source:string, context:string) -> list<string> throws"
+    region @body {
+      block @entry(%source: string, %context: string) {
+        op core.call {
+          attr args = [%source, %context]
+          attr callee = @template_parse_impl
+          attr result = %nodes
+        }
+        op core.call {
+          attr args = [%nodes]
+          attr callee = @template_collect_vars_impl
+          attr result = %names
+        }
+        op core.return {
+          attr value = %names
+        }
+      }
+    }
+  }
+
+  op ax.template.semantic @validate_prompt_template_syntax {
+    attr core_kind = "func"
+    attr emit_module = "prompt"
+    tag "src/ax/agent/templateEngine.ts"
+    type signature = "(source:string, context:string, requiredVariables:json) -> json"
+    region @body {
+      block @entry(%source: string, %context: string, %required_variables: json) {
+        op core.call {
+          attr args = [%source, %context, %required_variables]
+          attr callee = @template_validate_impl
+          attr result = %result
+        }
+        op core.return {
+          attr value = %result
+        }
+      }
+    }
+  }
+
+  op ax.template.semantic @template_parse_impl {
+    attr core_kind = "func"
+    attr emit_module = "prompt"
+    attr private = true
+    tag "template-parse-core-helper"
+    type signature = "(template:string, context:string) -> json throws"
+    region @body {
+      block @entry(%template: string, %context: string) {
+        op core.call {
+          attr args = [%template, %context]
+          attr callee = "intrinsic.template.parse"
+          attr result = %nodes
+        }
+        op core.return {
+          attr value = %nodes
+        }
+      }
+    }
+  }
+
+  op ax.template.semantic @template_render_tree_impl {
+    attr core_kind = "func"
+    attr emit_module = "prompt"
+    attr private = true
+    tag "template-render-core-helper"
+    type signature = "(nodes:json, vars:json, source:string, context:string) -> string throws"
+    region @body {
+      block @entry(%nodes: json, %vars: json, %source: string, %context: string) {
+        op core.call {
+          attr args = [%nodes, %vars, %source, %context]
+          attr callee = "intrinsic.template.render_tree"
+          attr result = %rendered
+        }
+        op core.return {
+          attr value = %rendered
+        }
+      }
+    }
+  }
+
+  op ax.template.semantic @template_collect_vars_impl {
+    attr core_kind = "func"
+    attr emit_module = "prompt"
+    attr private = true
+    tag "template-collect-vars-core-helper"
+    type signature = "(nodes:json) -> list<string>"
+    region @body {
+      block @entry(%nodes: json) {
+        op core.call {
+          attr args = [%nodes]
+          attr callee = "intrinsic.template.collect_vars"
+          attr result = %names
+        }
+        op core.return {
+          attr value = %names
+        }
+      }
+    }
+  }
+
+  op ax.template.semantic @template_validate_impl {
+    attr core_kind = "func"
+    attr emit_module = "prompt"
+    attr private = true
+    tag "template-validate-core-helper"
+    type signature = "(source:string, context:string, requiredVariables:json) -> json"
+    region @body {
+      block @entry(%source: string, %context: string, %required_variables: json) {
+        op core.call {
+          attr args = [%source, %context, %required_variables]
+          attr callee = "intrinsic.template.validate"
+          attr result = %result
+        }
+        op core.return {
+          attr value = %result
+        }
+      }
+    }
+  }
+
+  op ax.template.semantic @render_prompt {
+    attr core_kind = "func"
+    attr emit_module = "prompt"
+    tag "prompt-render"
+    type signature = "(AxSignature, json, list<Tool>, options?:json) -> list<ChatMessage>"
+    region @body {
+      block @entry(%signature: AxSignature, %values: json, %functions: list<Tool>, %options: json) {
+        op core.get {
+          attr key = "instruction"
+          attr result = %instruction
+          attr target = %options
+        }
+        op core.call {
+          attr args = [%instruction]
+          attr callee = "intrinsic.is_not_none"
+          attr result = %has_instruction
+        }
+        op core.if {
+          attr condition = %has_instruction
+          region @then {
+            block @then {
+              op core.call {
+                attr args = [%signature, %values]
+                attr callee = @prompt_user_content_impl
+                attr result = %user_content
+              }
+              op core.call {
+                attr args = [%instruction, %user_content]
+                attr callee = @prompt_messages_impl
+                attr result = %messages
+              }
+              op core.return {
+                attr value = %messages
+              }
+            }
+          }
+          region @else {
+            block @else {
+              op core.call {
+                attr args = [%signature, %values, %functions, %options]
+                attr callee = @prompt_structured_impl
+                attr result = %system_content
+              }
+              op core.call {
+                attr args = [%signature, %values]
+                attr callee = @prompt_user_content_impl
+                attr result = %user_content
+              }
+              op core.call {
+                attr args = [%system_content, %user_content]
+                attr callee = @prompt_messages_impl
+                attr result = %messages
+              }
+              op core.return {
+                attr value = %messages
+              }
+            }
+          }
+        }
+        op core.return {
+        }
+      }
+    }
+  }
+
+  op ax.template.semantic @prompt_structured_impl {
+    attr core_kind = "func"
+    attr emit_module = "prompt"
+    attr private = true
+    tag "prompt-structured-core-helper"
+    type signature = "(AxSignature, json, list<Tool>, options?:json) -> string throws"
+    region @body {
+      block @entry(%signature: AxSignature, %values: json, %functions: list<Tool>, %options: json) {
+        op core.call {
+          attr args = [%signature, %values, %functions, %options]
+          attr callee = "intrinsic.prompt.structured"
+          attr result = %content
+        }
+        op core.return {
+          attr value = %content
+        }
+      }
+    }
+  }
+
+  op ax.template.semantic @prompt_user_content_impl {
+    attr core_kind = "func"
+    attr emit_module = "prompt"
+    attr private = true
+    tag "prompt-user-content-core-helper"
+    type signature = "(AxSignature, json) -> json throws"
+    region @body {
+      block @entry(%signature: AxSignature, %values: json) {
+        op core.call {
+          attr args = [%signature, %values]
+          attr callee = "intrinsic.prompt.user_content"
+          attr result = %content
+        }
+        op core.return {
+          attr value = %content
+        }
+      }
+    }
+  }
+
+  op ax.template.semantic @prompt_messages_impl {
+    attr core_kind = "func"
+    attr emit_module = "prompt"
+    attr private = true
+    tag "prompt-message-core-helper"
+    type signature = "(system:string, user:json) -> list<ChatMessage>"
+    region @body {
+      block @entry(%system: string, %user: json) {
+        op core.map {
+          attr result = %system_message
+        }
+        op core.set {
+          attr key = "role"
+          attr target = %system_message
+          attr value = "system"
+        }
+        op core.set {
+          attr key = "content"
+          attr target = %system_message
+          attr value = %system
+        }
+        op core.set {
+          attr key = "cache"
+          attr target = %system_message
+          attr value = false
+        }
+        op core.map {
+          attr result = %user_message
+        }
+        op core.set {
+          attr key = "role"
+          attr target = %user_message
+          attr value = "user"
+        }
+        op core.set {
+          attr key = "content"
+          attr target = %user_message
+          attr value = %user
+        }
+        op core.list {
+          attr result = %messages
+        }
+        op core.append {
+          attr target = %messages
+          attr value = %system_message
+        }
+        op core.append {
+          attr target = %messages
+          attr value = %user_message
+        }
+        op core.return {
+          attr value = %messages
+        }
+      }
+    }
+  }
+}

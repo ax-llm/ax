@@ -1,0 +1,11 @@
+{
+  "expected_ok": true,
+  "field": {
+    "min": 3,
+    "type": "string"
+  },
+  "field_name": "personName",
+  "kind": "validate_value",
+  "name": "value-string-valid",
+  "value": "Ada"
+}

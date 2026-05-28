@@ -1,0 +1,49 @@
+{
+  "name": "tool-handler-exception-correction",
+  "kind": "forward",
+  "signature": "query:string -> answer:string",
+  "input": {
+    "query": "docs"
+  },
+  "tools": [
+    {
+      "name": "search",
+      "description": "Search docs",
+      "args": {
+        "query": {
+          "type": "string",
+          "min": 1
+        }
+      },
+      "error": "backend unavailable"
+    }
+  ],
+  "responses": [
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call_1",
+          "name": "search",
+          "params": {
+            "query": "docs"
+          }
+        }
+      ]
+    },
+    {
+      "content": "{\"answer\":\"The search backend is unavailable.\"}"
+    }
+  ],
+  "expected_output": {
+    "answer": "The search backend is unavailable."
+  },
+  "expected_tool_calls": [
+    {
+      "name": "search",
+      "args": {
+        "query": "docs"
+      }
+    }
+  ]
+}

@@ -1,0 +1,2396 @@
+module @ax.provider version "0.1" {
+  dialect @ax.provider version "0.1"
+
+  op ax.provider.class @OpenAICompatibleClient {
+    attr core_kind = "record"
+    attr public = true
+    ref interface = @AxAIService
+    tag "openai-compatible"
+    type default_base_url = "https://api.openai.com/v1"
+  }
+
+  op ax.provider.semantic @openai_build_chat_request {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    ref generic = @build_chat_request
+    tag "src/ax/ai/openai/api.ts"
+    type signature = "(AxChatRequest) -> json throws"
+    region @body {
+      block @entry(%request: AxChatRequest) {
+        op core.map {
+          attr result = %payload
+        }
+        op core.get {
+          attr key = "model"
+          attr result = %model
+          attr target = %request
+        }
+        op core.set {
+          attr key = "model"
+          attr target = %payload
+          attr value = %model
+        }
+        op core.list {
+          attr result = %messages
+        }
+        op core.get {
+          attr key = "chat_prompt"
+          attr result = %chat_prompt
+          attr target = %request
+        }
+        op core.for {
+          attr in = %chat_prompt
+          attr item = %message
+          region @body {
+            block @each {
+              op core.call {
+                attr args = [%message]
+                attr callee = @openai_message_impl
+                attr result = %provider_message
+              }
+              op core.append {
+                attr target = %messages
+                attr value = %provider_message
+              }
+            }
+          }
+        }
+        op core.set {
+          attr key = "messages"
+          attr target = %payload
+          attr value = %messages
+        }
+        op core.list {
+          attr result = %empty_functions
+        }
+        op core.get {
+          attr default = %empty_functions
+          attr key = "functions"
+          attr result = %functions
+          attr target = %request
+        }
+        op core.call {
+          attr args = [%functions]
+          attr callee = "intrinsic.truthy"
+          attr result = %has_functions
+        }
+        op core.if {
+          attr condition = %has_functions
+          region @then {
+            block @then {
+              op core.list {
+                attr result = %tools
+              }
+              op core.for {
+                attr in = %functions
+                attr item = %fn
+                region @body {
+                  block @each {
+                    op core.call {
+                      attr args = [%fn]
+                      attr callee = @openai_tool_spec_impl
+                      attr result = %tool
+                    }
+                    op core.append {
+                      attr target = %tools
+                      attr value = %tool
+                    }
+                  }
+                }
+              }
+              op core.set {
+                attr key = "tools"
+                attr target = %payload
+                attr value = %tools
+              }
+              op core.get {
+                attr default = "auto"
+                attr key = "function_call"
+                attr result = %tool_choice
+                attr target = %request
+              }
+              op core.set {
+                attr key = "tool_choice"
+                attr target = %payload
+                attr value = %tool_choice
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.get {
+          attr key = "response_format"
+          attr result = %response_format
+          attr target = %request
+        }
+        op core.call {
+          attr args = [%response_format]
+          attr callee = "intrinsic.truthy"
+          attr result = %has_response_format
+        }
+        op core.if {
+          attr condition = %has_response_format
+          region @then {
+            block @then {
+              op core.get {
+                attr key = "type"
+                attr result = %response_format_type
+                attr target = %response_format
+              }
+              op core.call {
+                attr args = [%response_format_type, "json_schema"]
+                attr callee = "intrinsic.eq"
+                attr result = %is_json_schema
+              }
+              op core.if {
+                attr condition = %is_json_schema
+                region @then {
+                  block @then {
+                    op core.map {
+                      attr result = %json_schema_format
+                    }
+                    op core.get {
+                      attr key = "schema"
+                      attr result = %schema
+                      attr target = %response_format
+                    }
+                    op core.set {
+                      attr key = "type"
+                      attr target = %json_schema_format
+                      attr value = "json_schema"
+                    }
+                    op core.set {
+                      attr key = "json_schema"
+                      attr target = %json_schema_format
+                      attr value = %schema
+                    }
+                    op core.set {
+                      attr key = "response_format"
+                      attr target = %payload
+                      attr value = %json_schema_format
+                    }
+                  }
+                }
+                region @else {
+                  block @else {
+                    op core.set {
+                      attr key = "response_format"
+                      attr target = %payload
+                      attr value = %response_format
+                    }
+                  }
+                }
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.get {
+          attr key = "model_config"
+          attr result = %model_config
+          attr target = %request
+        }
+        op core.call {
+          attr args = [%payload, %model_config]
+          attr callee = @openai_apply_model_config_impl
+        }
+        op core.return {
+          attr value = %payload
+        }
+      }
+    }
+  }
+
+  op ax.provider.semantic @openai_apply_model_config_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "openai-model-config-core-helper"
+    type signature = "(json, json) -> void"
+    region @body {
+      block @entry(%payload: json, %model_config: json) {
+        op core.call {
+          attr args = [%payload, %model_config, "max_tokens", "max_completion_tokens"]
+          attr callee = @openai_copy_config_key_impl
+        }
+        op core.call {
+          attr args = [%payload, %model_config, "maxTokens", "max_completion_tokens"]
+          attr callee = @openai_copy_config_key_impl
+        }
+        op core.call {
+          attr args = [%payload, %model_config, "temperature", "temperature"]
+          attr callee = @openai_copy_config_key_impl
+        }
+        op core.call {
+          attr args = [%payload, %model_config, "top_p", "top_p"]
+          attr callee = @openai_copy_config_key_impl
+        }
+        op core.call {
+          attr args = [%payload, %model_config, "topP", "top_p"]
+          attr callee = @openai_copy_config_key_impl
+        }
+        op core.call {
+          attr args = [%payload, %model_config, "n", "n"]
+          attr callee = @openai_copy_config_key_impl
+        }
+        op core.call {
+          attr args = [%payload, %model_config, "presence_penalty", "presence_penalty"]
+          attr callee = @openai_copy_config_key_impl
+        }
+        op core.call {
+          attr args = [%payload, %model_config, "presencePenalty", "presence_penalty"]
+          attr callee = @openai_copy_config_key_impl
+        }
+        op core.call {
+          attr args = [%payload, %model_config, "frequency_penalty", "frequency_penalty"]
+          attr callee = @openai_copy_config_key_impl
+        }
+        op core.call {
+          attr args = [%payload, %model_config, "frequencyPenalty", "frequency_penalty"]
+          attr callee = @openai_copy_config_key_impl
+        }
+        op core.get {
+          attr key = "stop_sequences"
+          attr result = %stop_snake
+          attr target = %model_config
+        }
+        op core.get {
+          attr default = %stop_snake
+          attr key = "stopSequences"
+          attr result = %stop
+          attr target = %model_config
+        }
+        op core.call {
+          attr args = [%stop]
+          attr callee = "intrinsic.truthy"
+          attr result = %has_stop
+        }
+        op core.if {
+          attr condition = %has_stop
+          region @then {
+            block @then {
+              op core.set {
+                attr key = "stop"
+                attr target = %payload
+                attr value = %stop
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.get {
+          attr key = "stream"
+          attr result = %stream
+          attr target = %model_config
+        }
+        op core.call {
+          attr args = [%stream]
+          attr callee = "intrinsic.truthy"
+          attr result = %is_stream
+        }
+        op core.if {
+          attr condition = %is_stream
+          region @then {
+            block @then {
+              op core.set {
+                attr key = "stream"
+                attr target = %payload
+                attr value = true
+              }
+              op core.map {
+                attr result = %stream_options
+              }
+              op core.set {
+                attr key = "include_usage"
+                attr target = %stream_options
+                attr value = true
+              }
+              op core.set {
+                attr key = "stream_options"
+                attr target = %payload
+                attr value = %stream_options
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.return {
+        }
+      }
+    }
+  }
+
+  op ax.provider.semantic @openai_copy_config_key_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "openai-config-copy-core-helper"
+    type signature = "(json, json, string, string) -> void"
+    region @body {
+      block @entry(%payload: json, %model_config: json, %source: string, %target: string) {
+        op core.call {
+          attr args = [%model_config, %source]
+          attr callee = "intrinsic.map.contains"
+          attr result = %has_source
+        }
+        op core.if {
+          attr condition = %has_source
+          region @then {
+            block @then {
+              op core.get {
+                attr key = %source
+                attr result = %value
+                attr target = %model_config
+              }
+              op core.set {
+                attr key = %target
+                attr target = %payload
+                attr value = %value
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.return {
+        }
+      }
+    }
+  }
+
+  op ax.provider.semantic @openai_message_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "openai-message-core-helper"
+    type signature = "(json) -> json throws"
+    region @body {
+      block @entry(%message: json) {
+        op core.get {
+          attr key = "role"
+          attr result = %role
+          attr target = %message
+        }
+        op core.get {
+          attr default = ""
+          attr key = "content"
+          attr result = %content
+          attr target = %message
+        }
+        op core.call {
+          attr args = [%role, "system"]
+          attr callee = "intrinsic.eq"
+          attr result = %is_system
+        }
+        op core.if {
+          attr condition = %is_system
+          region @then {
+            block @then {
+              op core.map {
+                attr result = %out
+              }
+              op core.set {
+                attr key = "role"
+                attr target = %out
+                attr value = "system"
+              }
+              op core.set {
+                attr key = "content"
+                attr target = %out
+                attr value = %content
+              }
+              op core.return {
+                attr value = %out
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.call {
+          attr args = [%role, "user"]
+          attr callee = "intrinsic.eq"
+          attr result = %is_user
+        }
+        op core.if {
+          attr condition = %is_user
+          region @then {
+            block @then {
+              op core.type_is {
+                attr result = %content_is_list
+                attr type = "list"
+                attr value = %content
+              }
+              op core.if {
+                attr condition = %content_is_list
+                region @then {
+                  block @then {
+                    op core.list {
+                      attr result = %parts
+                    }
+                    op core.for {
+                      attr in = %content
+                      attr item = %part
+                      region @body {
+                        block @each {
+                          op core.call {
+                            attr args = [%part]
+                            attr callee = @openai_content_part_impl
+                            attr result = %provider_part
+                          }
+                          op core.append {
+                            attr target = %parts
+                            attr value = %provider_part
+                          }
+                        }
+                      }
+                    }
+                    op core.let {
+                      attr result = %content
+                      attr value = %parts
+                    }
+                  }
+                }
+                region @else {
+                  block @else {
+                  }
+                }
+              }
+              op core.map {
+                attr result = %out
+              }
+              op core.set {
+                attr key = "role"
+                attr target = %out
+                attr value = "user"
+              }
+              op core.set {
+                attr key = "content"
+                attr target = %out
+                attr value = %content
+              }
+              op core.get {
+                attr key = "name"
+                attr result = %name
+                attr target = %message
+              }
+              op core.call {
+                attr args = [%name]
+                attr callee = "intrinsic.truthy"
+                attr result = %has_name
+              }
+              op core.if {
+                attr condition = %has_name
+                region @then {
+                  block @then {
+                    op core.set {
+                      attr key = "name"
+                      attr target = %out
+                      attr value = %name
+                    }
+                  }
+                }
+                region @else {
+                  block @else {
+                  }
+                }
+              }
+              op core.return {
+                attr value = %out
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.call {
+          attr args = [%role, "assistant"]
+          attr callee = "intrinsic.eq"
+          attr result = %is_assistant
+        }
+        op core.if {
+          attr condition = %is_assistant
+          region @then {
+            block @then {
+              op core.list {
+                attr result = %empty_calls
+              }
+              op core.get {
+                attr default = %empty_calls
+                attr key = "function_calls"
+                attr result = %calls_snake
+                attr target = %message
+              }
+              op core.get {
+                attr default = %calls_snake
+                attr key = "functionCalls"
+                attr result = %calls
+                attr target = %message
+              }
+              op core.call {
+                attr args = [%calls]
+                attr callee = "intrinsic.truthy"
+                attr result = %has_calls
+              }
+              op core.map {
+                attr result = %out
+              }
+              op core.set {
+                attr key = "role"
+                attr target = %out
+                attr value = "assistant"
+              }
+              op core.if {
+                attr condition = %has_calls
+                region @then {
+                  block @then {
+                    op core.get {
+                      attr key = "content"
+                      attr result = %assistant_content
+                      attr target = %message
+                    }
+                    op core.call {
+                      attr args = [%assistant_content]
+                      attr callee = "intrinsic.is_not_none"
+                      attr result = %has_assistant_content
+                    }
+                    op core.if {
+                      attr condition = %has_assistant_content
+                      region @then {
+                        block @then {
+                          op core.set {
+                            attr key = "content"
+                            attr target = %out
+                            attr value = %assistant_content
+                          }
+                        }
+                      }
+                      region @else {
+                        block @else {
+                        }
+                      }
+                    }
+                    op core.list {
+                      attr result = %tool_calls
+                    }
+                    op core.for {
+                      attr in = %calls
+                      attr item = %call
+                      region @body {
+                        block @each {
+                          op core.call {
+                            attr args = [%call]
+                            attr callee = @openai_tool_call_to_provider_impl
+                            attr result = %provider_call
+                          }
+                          op core.append {
+                            attr target = %tool_calls
+                            attr value = %provider_call
+                          }
+                        }
+                      }
+                    }
+                    op core.set {
+                      attr key = "tool_calls"
+                      attr target = %out
+                      attr value = %tool_calls
+                    }
+                  }
+                }
+                region @else {
+                  block @else {
+                    op core.set {
+                      attr key = "content"
+                      attr target = %out
+                      attr value = %content
+                    }
+                  }
+                }
+              }
+              op core.return {
+                attr value = %out
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.call {
+          attr args = [%role, "function"]
+          attr callee = "intrinsic.eq"
+          attr result = %is_function
+        }
+        op core.if {
+          attr condition = %is_function
+          region @then {
+            block @then {
+              op core.map {
+                attr result = %out
+              }
+              op core.get {
+                attr default = ""
+                attr key = "result"
+                attr result = %result
+                attr target = %message
+              }
+              op core.get {
+                attr key = "function_id"
+                attr result = %function_id_snake
+                attr target = %message
+              }
+              op core.get {
+                attr default = %function_id_snake
+                attr key = "functionId"
+                attr result = %function_id
+                attr target = %message
+              }
+              op core.set {
+                attr key = "role"
+                attr target = %out
+                attr value = "tool"
+              }
+              op core.set {
+                attr key = "content"
+                attr target = %out
+                attr value = %result
+              }
+              op core.set {
+                attr key = "tool_call_id"
+                attr target = %out
+                attr value = %function_id
+              }
+              op core.return {
+                attr value = %out
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.call {
+          attr args = ["Invalid role: {}", %role]
+          attr callee = "intrinsic.string.format"
+          attr result = %message_text
+        }
+        op core.call {
+          attr args = [%message_text]
+          attr callee = "intrinsic.ai.error.response"
+          attr result = %error
+        }
+        op core.raise {
+          attr error = %error
+        }
+      }
+    }
+  }
+
+  op ax.provider.semantic @openai_content_part_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "openai-content-part-core-helper"
+    type signature = "(json) -> json throws"
+    region @body {
+      block @entry(%part: json) {
+        op core.get {
+          attr key = "type"
+          attr result = %type
+          attr target = %part
+        }
+        op core.call {
+          attr args = [%type, "text"]
+          attr callee = "intrinsic.eq"
+          attr result = %is_text
+        }
+        op core.if {
+          attr condition = %is_text
+          region @then {
+            block @then {
+              op core.get {
+                attr default = ""
+                attr key = "text"
+                attr result = %text
+                attr target = %part
+              }
+              op core.map {
+                attr result = %out
+              }
+              op core.set {
+                attr key = "type"
+                attr target = %out
+                attr value = "text"
+              }
+              op core.set {
+                attr key = "text"
+                attr target = %out
+                attr value = %text
+              }
+              op core.return {
+                attr value = %out
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.call {
+          attr args = [%type, "image"]
+          attr callee = "intrinsic.eq"
+          attr result = %is_image
+        }
+        op core.if {
+          attr condition = %is_image
+          region @then {
+            block @then {
+              op core.get {
+                attr key = "mime_type"
+                attr result = %mime_snake
+                attr target = %part
+              }
+              op core.get {
+                attr default = %mime_snake
+                attr key = "mimeType"
+                attr result = %mime_raw
+                attr target = %part
+              }
+              op core.call {
+                attr args = [%mime_raw, "image/png"]
+                attr callee = "intrinsic.coalesce"
+                attr result = %mime
+              }
+              op core.get {
+                attr key = "image"
+                attr result = %image_value
+                attr target = %part
+              }
+              op core.get {
+                attr default = %image_value
+                attr key = "data"
+                attr result = %image_raw
+                attr target = %part
+              }
+              op core.call {
+                attr args = [%image_raw, ""]
+                attr callee = "intrinsic.coalesce"
+                attr result = %image
+              }
+              op core.call {
+                attr args = [%image, "data:"]
+                attr callee = "intrinsic.string.starts_with"
+                attr result = %is_data_url
+              }
+              op core.const {
+                attr result = %url
+                attr value = ""
+              }
+              op core.if {
+                attr condition = %is_data_url
+                region @then {
+                  block @then {
+                    op core.let {
+                      attr result = %url
+                      attr value = %image
+                    }
+                  }
+                }
+                region @else {
+                  block @else {
+                    op core.call {
+                      attr args = ["data:{};base64,{}", %mime, %image]
+                      attr callee = "intrinsic.string.format"
+                      attr result = %url
+                    }
+                  }
+                }
+              }
+              op core.get {
+                attr default = "auto"
+                attr key = "details"
+                attr result = %details
+                attr target = %part
+              }
+              op core.map {
+                attr result = %image_url
+              }
+              op core.set {
+                attr key = "url"
+                attr target = %image_url
+                attr value = %url
+              }
+              op core.set {
+                attr key = "detail"
+                attr target = %image_url
+                attr value = %details
+              }
+              op core.map {
+                attr result = %out
+              }
+              op core.set {
+                attr key = "type"
+                attr target = %out
+                attr value = "image_url"
+              }
+              op core.set {
+                attr key = "image_url"
+                attr target = %out
+                attr value = %image_url
+              }
+              op core.return {
+                attr value = %out
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.call {
+          attr args = ["OpenAI-compatible beta does not support content part type: {}", %type]
+          attr callee = "intrinsic.string.format"
+          attr result = %message
+        }
+        op core.call {
+          attr args = [%message]
+          attr callee = "intrinsic.ai.error.unsupported"
+          attr result = %error
+        }
+        op core.raise {
+          attr error = %error
+        }
+      }
+    }
+  }
+
+  op ax.provider.semantic @openai_tool_call_to_provider_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "openai-tool-call-provider-core-helper"
+    type signature = "(json) -> json"
+    region @body {
+      block @entry(%call: json) {
+        op core.get {
+          attr key = "function"
+          attr result = %fn
+          attr target = %call
+        }
+        op core.get {
+          attr key = "params"
+          attr result = %params
+          attr target = %fn
+        }
+        op core.type_is {
+          attr result = %params_is_string
+          attr type = "string"
+          attr value = %params
+        }
+        op core.if {
+          attr condition = %params_is_string
+          region @then {
+            block @then {
+            }
+          }
+          region @else {
+            block @else {
+              op core.call {
+                attr args = [%params]
+                attr callee = "intrinsic.json.stringify"
+                attr result = %params_json
+              }
+              op core.let {
+                attr result = %params
+                attr value = %params_json
+              }
+            }
+          }
+        }
+        op core.get {
+          attr key = "id"
+          attr result = %id
+          attr target = %call
+        }
+        op core.get {
+          attr key = "name"
+          attr result = %name
+          attr target = %fn
+        }
+        op core.map {
+          attr result = %function
+        }
+        op core.set {
+          attr key = "name"
+          attr target = %function
+          attr value = %name
+        }
+        op core.set {
+          attr key = "arguments"
+          attr target = %function
+          attr value = %params
+        }
+        op core.map {
+          attr result = %out
+        }
+        op core.set {
+          attr key = "id"
+          attr target = %out
+          attr value = %id
+        }
+        op core.set {
+          attr key = "type"
+          attr target = %out
+          attr value = "function"
+        }
+        op core.set {
+          attr key = "function"
+          attr target = %out
+          attr value = %function
+        }
+        op core.return {
+          attr value = %out
+        }
+      }
+    }
+  }
+
+  op ax.provider.semantic @openai_tool_spec_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "openai-tool-spec-core-helper"
+    type signature = "(json) -> json"
+    region @body {
+      block @entry(%fn: json) {
+        op core.get {
+          attr key = "name"
+          attr result = %name
+          attr target = %fn
+        }
+        op core.get {
+          attr default = ""
+          attr key = "description"
+          attr result = %description
+          attr target = %fn
+        }
+        op core.get {
+          attr key = "parameters"
+          attr result = %parameters
+          attr target = %fn
+        }
+        op core.map {
+          attr result = %function
+        }
+        op core.set {
+          attr key = "name"
+          attr target = %function
+          attr value = %name
+        }
+        op core.set {
+          attr key = "description"
+          attr target = %function
+          attr value = %description
+        }
+        op core.call {
+          attr args = [%parameters]
+          attr callee = "intrinsic.truthy"
+          attr result = %has_parameters
+        }
+        op core.if {
+          attr condition = %has_parameters
+          region @then {
+            block @then {
+              op core.set {
+                attr key = "parameters"
+                attr target = %function
+                attr value = %parameters
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.map {
+          attr result = %out
+        }
+        op core.set {
+          attr key = "type"
+          attr target = %out
+          attr value = "function"
+        }
+        op core.set {
+          attr key = "function"
+          attr target = %out
+          attr value = %function
+        }
+        op core.return {
+          attr value = %out
+        }
+      }
+    }
+  }
+
+  op ax.provider.semantic @openai_build_embed_request {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    ref generic = @build_embed_request
+    tag "src/ax/ai/openai/api.ts"
+    type signature = "(AxEmbedRequest) -> json throws"
+    region @body {
+      block @entry(%request: AxEmbedRequest) {
+        op core.get {
+          attr key = "embed_model"
+          attr result = %embed_model_snake
+          attr target = %request
+        }
+        op core.get {
+          attr default = %embed_model_snake
+          attr key = "embedModel"
+          attr result = %model
+          attr target = %request
+        }
+        op core.list {
+          attr result = %empty_texts
+        }
+        op core.get {
+          attr default = %empty_texts
+          attr key = "texts"
+          attr result = %texts
+          attr target = %request
+        }
+        op core.map {
+          attr result = %payload
+        }
+        op core.set {
+          attr key = "model"
+          attr target = %payload
+          attr value = %model
+        }
+        op core.set {
+          attr key = "input"
+          attr target = %payload
+          attr value = %texts
+        }
+        op core.get {
+          attr key = "dimensions"
+          attr result = %dimensions
+          attr target = %request
+        }
+        op core.call {
+          attr args = [%dimensions]
+          attr callee = "intrinsic.truthy"
+          attr result = %has_dimensions
+        }
+        op core.if {
+          attr condition = %has_dimensions
+          region @then {
+            block @then {
+              op core.set {
+                attr key = "dimensions"
+                attr target = %payload
+                attr value = %dimensions
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.return {
+          attr value = %payload
+        }
+      }
+    }
+  }
+
+  op ax.provider.semantic @openai_normalize_chat_response {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    ref generic = @normalize_chat_response
+    tag "src/ax/ai/openai/api.ts"
+    type signature = "(json, string, string) -> AxChatResponse throws"
+    region @body {
+      block @entry(%raw: json, %ai_name: string, %model: string) {
+        op core.type_is {
+          attr result = %raw_is_object
+          attr type = "object"
+          attr value = %raw
+        }
+        op core.call {
+          attr args = [%raw_is_object]
+          attr callee = "intrinsic.not"
+          attr result = %raw_not_object
+        }
+        op core.if {
+          attr condition = %raw_not_object
+          region @then {
+            block @then {
+              op core.call {
+                attr args = ["provider response must be a JSON object", %raw]
+                attr callee = "intrinsic.ai.error.response"
+                attr result = %error
+              }
+              op core.raise {
+                attr error = %error
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.get {
+          attr key = "error"
+          attr result = %provider_error
+          attr target = %raw
+        }
+        op core.call {
+          attr args = [%provider_error]
+          attr callee = "intrinsic.truthy"
+          attr result = %has_provider_error
+        }
+        op core.if {
+          attr condition = %has_provider_error
+          region @then {
+            block @then {
+              op core.get {
+                attr default = "provider response error"
+                attr key = "message"
+                attr result = %message
+                attr target = %provider_error
+              }
+              op core.call {
+                attr args = [%message, %raw]
+                attr callee = "intrinsic.ai.error.response"
+                attr result = %error
+              }
+              op core.raise {
+                attr error = %error
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.get {
+          attr key = "choices"
+          attr result = %choices
+          attr target = %raw
+        }
+        op core.type_is {
+          attr result = %choices_is_list
+          attr type = "list"
+          attr value = %choices
+        }
+        op core.call {
+          attr args = [%choices_is_list]
+          attr callee = "intrinsic.not"
+          attr result = %bad_choices
+        }
+        op core.if {
+          attr condition = %bad_choices
+          region @then {
+            block @then {
+              op core.call {
+                attr args = ["provider response missing choices", %raw]
+                attr callee = "intrinsic.ai.error.response"
+                attr result = %error
+              }
+              op core.raise {
+                attr error = %error
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.list {
+          attr result = %results
+        }
+        op core.for {
+          attr in = %choices
+          attr item = %choice
+          region @body {
+            block @each {
+              op core.call {
+                attr args = [%choice, %raw]
+                attr callee = @openai_normalize_choice_impl
+                attr result = %result
+              }
+              op core.append {
+                attr target = %results
+                attr value = %result
+              }
+            }
+          }
+        }
+        op core.get {
+          attr key = "model"
+          attr result = %raw_model
+          attr target = %raw
+        }
+        op core.call {
+          attr args = [%raw_model, %model]
+          attr callee = "intrinsic.coalesce"
+          attr result = %used_model
+        }
+        op core.get {
+          attr key = "usage"
+          attr result = %usage
+          attr target = %raw
+        }
+        op core.call {
+          attr args = [%ai_name, %used_model, %usage]
+          attr callee = @ai_model_usage_impl
+          attr result = %model_usage
+        }
+        op core.get {
+          attr key = "id"
+          attr result = %remote_id
+          attr target = %raw
+        }
+        op core.map {
+          attr result = %out
+        }
+        op core.set {
+          attr key = "results"
+          attr target = %out
+          attr value = %results
+        }
+        op core.set {
+          attr key = "remote_id"
+          attr target = %out
+          attr value = %remote_id
+        }
+        op core.set {
+          attr key = "model_usage"
+          attr target = %out
+          attr value = %model_usage
+        }
+        op core.return {
+          attr value = %out
+        }
+      }
+    }
+  }
+
+  op ax.provider.semantic @openai_normalize_choice_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "openai-choice-core-helper"
+    type signature = "(json, json) -> json throws"
+    region @body {
+      block @entry(%choice: json, %raw: json) {
+        op core.map {
+          attr result = %empty_message
+        }
+        op core.get {
+          attr default = %empty_message
+          attr key = "message"
+          attr result = %message
+          attr target = %choice
+        }
+        op core.get {
+          attr key = "refusal"
+          attr result = %refusal
+          attr target = %message
+        }
+        op core.call {
+          attr args = [%refusal]
+          attr callee = "intrinsic.truthy"
+          attr result = %has_refusal
+        }
+        op core.if {
+          attr condition = %has_refusal
+          region @then {
+            block @then {
+              op core.call {
+                attr args = [%refusal, %raw]
+                attr callee = "intrinsic.ai.error.refusal"
+                attr result = %error
+              }
+              op core.raise {
+                attr error = %error
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.get {
+          attr default = 0
+          attr key = "index"
+          attr result = %index
+          attr target = %choice
+        }
+        op core.call {
+          attr args = [%index]
+          attr callee = "intrinsic.string.str"
+          attr result = %id
+        }
+        op core.get {
+          attr key = "content"
+          attr result = %content_raw
+          attr target = %message
+        }
+        op core.call {
+          attr callee = "intrinsic.none"
+          attr result = %content
+        }
+        op core.call {
+          attr args = [%content_raw]
+          attr callee = "intrinsic.truthy"
+          attr result = %has_content
+        }
+        op core.if {
+          attr condition = %has_content
+          region @then {
+            block @then {
+              op core.let {
+                attr result = %content
+                attr value = %content_raw
+              }
+            }
+          }
+          region @else {
+            block @else {
+              op core.call {
+                attr callee = "intrinsic.none"
+                attr result = %content
+              }
+            }
+          }
+        }
+        op core.list {
+          attr result = %empty_calls
+        }
+        op core.get {
+          attr default = %empty_calls
+          attr key = "tool_calls"
+          attr result = %tool_calls
+          attr target = %message
+        }
+        op core.call {
+          attr args = [%tool_calls]
+          attr callee = @openai_normalize_tool_calls_impl
+          attr result = %function_calls
+        }
+        op core.get {
+          attr key = "finish_reason"
+          attr result = %finish_reason_raw
+          attr target = %choice
+        }
+        op core.call {
+          attr args = [%finish_reason_raw]
+          attr callee = @openai_finish_reason_impl
+          attr result = %finish_reason
+        }
+        op core.map {
+          attr result = %out
+        }
+        op core.set {
+          attr key = "index"
+          attr target = %out
+          attr value = %index
+        }
+        op core.set {
+          attr key = "id"
+          attr target = %out
+          attr value = %id
+        }
+        op core.set {
+          attr key = "content"
+          attr target = %out
+          attr value = %content
+        }
+        op core.set {
+          attr key = "function_calls"
+          attr target = %out
+          attr value = %function_calls
+        }
+        op core.set {
+          attr key = "finish_reason"
+          attr target = %out
+          attr value = %finish_reason
+        }
+        op core.return {
+          attr value = %out
+        }
+      }
+    }
+  }
+
+  op ax.provider.semantic @openai_normalize_tool_calls_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "openai-tool-call-normalize-core-helper"
+    type signature = "(list<json>) -> list<json>"
+    region @body {
+      block @entry(%calls: list<json>) {
+        op core.list {
+          attr result = %out
+        }
+        op core.for {
+          attr in = %calls
+          attr item = %call
+          region @body {
+            block @each {
+              op core.get {
+                attr key = "function"
+                attr result = %fn
+                attr target = %call
+              }
+              op core.get {
+                attr key = "arguments"
+                attr result = %params
+                attr target = %fn
+              }
+              op core.type_is {
+                attr result = %params_is_string
+                attr type = "string"
+                attr value = %params
+              }
+              op core.if {
+                attr condition = %params_is_string
+                region @then {
+                  block @then {
+                    op core.try {
+                      attr error = %parse_error
+                      region @try {
+                        block @try {
+                          op core.call {
+                            attr args = [%params]
+                            attr callee = "intrinsic.json.parse"
+                            attr result = %parsed_params
+                          }
+                          op core.let {
+                            attr result = %params
+                            attr value = %parsed_params
+                          }
+                        }
+                      }
+                      region @catch {
+                        block @catch {
+                        }
+                      }
+                    }
+                  }
+                }
+                region @else {
+                  block @else {
+                  }
+                }
+              }
+              op core.get {
+                attr key = "id"
+                attr result = %id
+                attr target = %call
+              }
+              op core.get {
+                attr key = "name"
+                attr result = %name
+                attr target = %fn
+              }
+              op core.map {
+                attr result = %function
+              }
+              op core.set {
+                attr key = "name"
+                attr target = %function
+                attr value = %name
+              }
+              op core.set {
+                attr key = "params"
+                attr target = %function
+                attr value = %params
+              }
+              op core.map {
+                attr result = %normalized
+              }
+              op core.set {
+                attr key = "id"
+                attr target = %normalized
+                attr value = %id
+              }
+              op core.set {
+                attr key = "type"
+                attr target = %normalized
+                attr value = "function"
+              }
+              op core.set {
+                attr key = "function"
+                attr target = %normalized
+                attr value = %function
+              }
+              op core.append {
+                attr target = %out
+                attr value = %normalized
+              }
+            }
+          }
+        }
+        op core.return {
+          attr value = %out
+        }
+      }
+    }
+  }
+
+  op ax.provider.semantic @openai_finish_reason_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "openai-finish-reason-core-helper"
+    type signature = "(json) -> json"
+    region @body {
+      block @entry(%value: json) {
+        op core.call {
+          attr args = [%value, "stop"]
+          attr callee = "intrinsic.eq"
+          attr result = %is_stop
+        }
+        op core.if {
+          attr condition = %is_stop
+          region @then {
+            block @then {
+              op core.return {
+                attr value = "stop"
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.call {
+          attr args = [%value, "length"]
+          attr callee = "intrinsic.eq"
+          attr result = %is_length
+        }
+        op core.if {
+          attr condition = %is_length
+          region @then {
+            block @then {
+              op core.return {
+                attr value = "length"
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.call {
+          attr args = [%value, "content_filter"]
+          attr callee = "intrinsic.eq"
+          attr result = %is_content_filter
+        }
+        op core.if {
+          attr condition = %is_content_filter
+          region @then {
+            block @then {
+              op core.return {
+                attr value = "error"
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.call {
+          attr args = [%value, "tool_calls"]
+          attr callee = "intrinsic.eq"
+          attr result = %is_tool_calls
+        }
+        op core.call {
+          attr args = [%value, "function_call"]
+          attr callee = "intrinsic.eq"
+          attr result = %is_function_call
+        }
+        op core.call {
+          attr args = [%is_tool_calls, %is_function_call]
+          attr callee = "intrinsic.or"
+          attr result = %is_call
+        }
+        op core.if {
+          attr condition = %is_call
+          region @then {
+            block @then {
+              op core.return {
+                attr value = "function_call"
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.call {
+          attr callee = "intrinsic.none"
+          attr result = %none
+        }
+        op core.return {
+          attr value = %none
+        }
+      }
+    }
+  }
+
+  op ax.provider.semantic @openai_normalize_embed_response {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    ref generic = @normalize_embed_response
+    tag "src/ax/ai/openai/api.ts"
+    type signature = "(json, string, string) -> AxEmbedResponse throws"
+    region @body {
+      block @entry(%raw: json, %ai_name: string, %model: string) {
+        op core.list {
+          attr result = %embeddings
+        }
+        op core.list {
+          attr result = %empty_data
+        }
+        op core.get {
+          attr default = %empty_data
+          attr key = "data"
+          attr result = %data
+          attr target = %raw
+        }
+        op core.for {
+          attr in = %data
+          attr item = %item
+          region @body {
+            block @each {
+              op core.get {
+                attr key = "embedding"
+                attr result = %embedding
+                attr target = %item
+              }
+              op core.append {
+                attr target = %embeddings
+                attr value = %embedding
+              }
+            }
+          }
+        }
+        op core.get {
+          attr key = "model"
+          attr result = %raw_model
+          attr target = %raw
+        }
+        op core.call {
+          attr args = [%raw_model, %model]
+          attr callee = "intrinsic.coalesce"
+          attr result = %used_model
+        }
+        op core.get {
+          attr key = "usage"
+          attr result = %usage
+          attr target = %raw
+        }
+        op core.call {
+          attr args = [%ai_name, %used_model, %usage]
+          attr callee = @ai_model_usage_impl
+          attr result = %model_usage
+        }
+        op core.get {
+          attr key = "id"
+          attr result = %remote_id
+          attr target = %raw
+        }
+        op core.map {
+          attr result = %out
+        }
+        op core.set {
+          attr key = "embeddings"
+          attr target = %out
+          attr value = %embeddings
+        }
+        op core.set {
+          attr key = "remote_id"
+          attr target = %out
+          attr value = %remote_id
+        }
+        op core.set {
+          attr key = "model_usage"
+          attr target = %out
+          attr value = %model_usage
+        }
+        op core.return {
+          attr value = %out
+        }
+      }
+    }
+  }
+
+  op ax.provider.semantic @openai_normalize_stream_delta {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    ref generic = @normalize_stream_delta
+    tag "src/ax/ai/openai/api.ts"
+    type signature = "(json, json, string, string) -> AxChatResponse throws"
+    region @body {
+      block @entry(%raw: json, %state: json, %ai_name: string, %model: string) {
+        op core.type_is {
+          attr result = %raw_is_object
+          attr type = "object"
+          attr value = %raw
+        }
+        op core.call {
+          attr args = [%raw_is_object]
+          attr callee = "intrinsic.not"
+          attr result = %raw_not_object
+        }
+        op core.if {
+          attr condition = %raw_not_object
+          region @then {
+            block @then {
+              op core.call {
+                attr args = ["provider stream event must be a JSON object", %raw, true]
+                attr callee = "intrinsic.ai.error.stream"
+                attr result = %error
+              }
+              op core.raise {
+                attr error = %error
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.get {
+          attr key = "error"
+          attr result = %provider_error
+          attr target = %raw
+        }
+        op core.call {
+          attr args = [%provider_error]
+          attr callee = "intrinsic.truthy"
+          attr result = %has_provider_error
+        }
+        op core.if {
+          attr condition = %has_provider_error
+          region @then {
+            block @then {
+              op core.get {
+                attr default = "provider stream error"
+                attr key = "message"
+                attr result = %message
+                attr target = %provider_error
+              }
+              op core.call {
+                attr args = [%message, %raw, true]
+                attr callee = "intrinsic.ai.error.stream"
+                attr result = %error
+              }
+              op core.raise {
+                attr error = %error
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.get {
+          attr key = "index_ids"
+          attr result = %index_ids
+          attr target = %state
+        }
+        op core.call {
+          attr args = [%index_ids]
+          attr callee = "intrinsic.is_none"
+          attr result = %missing_index_ids
+        }
+        op core.if {
+          attr condition = %missing_index_ids
+          region @then {
+            block @then {
+              op core.map {
+                attr result = %new_index_ids
+              }
+              op core.set {
+                attr key = "index_ids"
+                attr target = %state
+                attr value = %new_index_ids
+              }
+              op core.let {
+                attr result = %index_ids
+                attr value = %new_index_ids
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.get {
+          attr key = "id"
+          attr result = %raw_remote_id
+          attr target = %raw
+        }
+        op core.call {
+          attr args = [%raw_remote_id]
+          attr callee = "intrinsic.truthy"
+          attr result = %has_raw_remote_id
+        }
+        op core.if {
+          attr condition = %has_raw_remote_id
+          region @then {
+            block @then {
+              op core.set {
+                attr key = "remote_id"
+                attr target = %state
+                attr value = %raw_remote_id
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.get {
+          attr default = %raw_remote_id
+          attr key = "remote_id"
+          attr result = %remote_id
+          attr target = %state
+        }
+        op core.list {
+          attr result = %results
+        }
+        op core.list {
+          attr result = %empty_choices
+        }
+        op core.get {
+          attr default = %empty_choices
+          attr key = "choices"
+          attr result = %choices
+          attr target = %raw
+        }
+        op core.for {
+          attr in = %choices
+          attr item = %choice
+          region @body {
+            block @each {
+              op core.call {
+                attr args = [%choice, %index_ids]
+                attr callee = @openai_stream_choice_impl
+                attr result = %result
+              }
+              op core.append {
+                attr target = %results
+                attr value = %result
+              }
+            }
+          }
+        }
+        op core.get {
+          attr key = "model"
+          attr result = %raw_model
+          attr target = %raw
+        }
+        op core.call {
+          attr args = [%raw_model, %model]
+          attr callee = "intrinsic.coalesce"
+          attr result = %used_model
+        }
+        op core.get {
+          attr key = "usage"
+          attr result = %usage
+          attr target = %raw
+        }
+        op core.call {
+          attr args = [%ai_name, %used_model, %usage]
+          attr callee = @ai_model_usage_impl
+          attr result = %model_usage
+        }
+        op core.map {
+          attr result = %out
+        }
+        op core.set {
+          attr key = "results"
+          attr target = %out
+          attr value = %results
+        }
+        op core.set {
+          attr key = "remote_id"
+          attr target = %out
+          attr value = %remote_id
+        }
+        op core.set {
+          attr key = "model_usage"
+          attr target = %out
+          attr value = %model_usage
+        }
+        op core.return {
+          attr value = %out
+        }
+      }
+    }
+  }
+
+  op ax.provider.semantic @openai_stream_choice_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "openai-stream-choice-core-helper"
+    type signature = "(json, json) -> json"
+    region @body {
+      block @entry(%choice: json, %index_ids: json) {
+        op core.map {
+          attr result = %empty_delta
+        }
+        op core.get {
+          attr default = %empty_delta
+          attr key = "delta"
+          attr result = %delta
+          attr target = %choice
+        }
+        op core.list {
+          attr result = %calls
+        }
+        op core.list {
+          attr result = %empty_tool_calls
+        }
+        op core.get {
+          attr default = %empty_tool_calls
+          attr key = "tool_calls"
+          attr result = %tool_calls
+          attr target = %delta
+        }
+        op core.for {
+          attr in = %tool_calls
+          attr item = %call
+          region @body {
+            block @each {
+              op core.get {
+                attr default = 0
+                attr key = "index"
+                attr result = %call_index
+                attr target = %call
+              }
+              op core.get {
+                attr key = "id"
+                attr result = %call_id
+                attr target = %call
+              }
+              op core.call {
+                attr args = [%call_id]
+                attr callee = "intrinsic.truthy"
+                attr result = %has_call_id
+              }
+              op core.if {
+                attr condition = %has_call_id
+                region @then {
+                  block @then {
+                    op core.set {
+                      attr key = %call_index
+                      attr target = %index_ids
+                      attr value = %call_id
+                    }
+                  }
+                }
+                region @else {
+                  block @else {
+                  }
+                }
+              }
+              op core.get {
+                attr key = %call_index
+                attr result = %stable_id
+                attr target = %index_ids
+              }
+              op core.call {
+                attr args = [%stable_id]
+                attr callee = "intrinsic.truthy"
+                attr result = %has_stable_id
+              }
+              op core.if {
+                attr condition = %has_stable_id
+                region @then {
+                  block @then {
+                    op core.get {
+                      attr key = "function"
+                      attr result = %fn
+                      attr target = %call
+                    }
+                    op core.get {
+                      attr key = "name"
+                      attr result = %name
+                      attr target = %fn
+                    }
+                    op core.get {
+                      attr key = "arguments"
+                      attr result = %arguments
+                      attr target = %fn
+                    }
+                    op core.map {
+                      attr result = %function
+                    }
+                    op core.set {
+                      attr key = "name"
+                      attr target = %function
+                      attr value = %name
+                    }
+                    op core.set {
+                      attr key = "params"
+                      attr target = %function
+                      attr value = %arguments
+                    }
+                    op core.map {
+                      attr result = %normalized
+                    }
+                    op core.set {
+                      attr key = "id"
+                      attr target = %normalized
+                      attr value = %stable_id
+                    }
+                    op core.set {
+                      attr key = "type"
+                      attr target = %normalized
+                      attr value = "function"
+                    }
+                    op core.set {
+                      attr key = "function"
+                      attr target = %normalized
+                      attr value = %function
+                    }
+                    op core.append {
+                      attr target = %calls
+                      attr value = %normalized
+                    }
+                  }
+                }
+                region @else {
+                  block @else {
+                  }
+                }
+              }
+            }
+          }
+        }
+        op core.get {
+          attr default = 0
+          attr key = "index"
+          attr result = %index
+          attr target = %choice
+        }
+        op core.call {
+          attr args = [%index]
+          attr callee = "intrinsic.string.str"
+          attr result = %id
+        }
+        op core.get {
+          attr key = "content"
+          attr result = %content
+          attr target = %delta
+        }
+        op core.get {
+          attr key = "finish_reason"
+          attr result = %finish_reason_raw
+          attr target = %choice
+        }
+        op core.call {
+          attr args = [%finish_reason_raw]
+          attr callee = @openai_finish_reason_impl
+          attr result = %finish_reason
+        }
+        op core.map {
+          attr result = %out
+        }
+        op core.set {
+          attr key = "index"
+          attr target = %out
+          attr value = %index
+        }
+        op core.set {
+          attr key = "id"
+          attr target = %out
+          attr value = %id
+        }
+        op core.set {
+          attr key = "content"
+          attr target = %out
+          attr value = %content
+        }
+        op core.set {
+          attr key = "function_calls"
+          attr target = %out
+          attr value = %calls
+        }
+        op core.set {
+          attr key = "finish_reason"
+          attr target = %out
+          attr value = %finish_reason
+        }
+        op core.return {
+          attr value = %out
+        }
+      }
+    }
+  }
+
+  op ax.provider.semantic @openai_normalize_error {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "src/ax/util/apicall.ts"
+    type signature = "(i64, json, request?:json) -> AxAIServiceError throws"
+    region @body {
+      block @entry(%status: i64, %body: json, %request: json) {
+        op core.let {
+          attr result = %message
+          attr value = %body
+        }
+        op core.call {
+          attr callee = "intrinsic.none"
+          attr result = %code
+        }
+        op core.type_is {
+          attr result = %body_is_object
+          attr type = "object"
+          attr value = %body
+        }
+        op core.if {
+          attr condition = %body_is_object
+          region @then {
+            block @then {
+              op core.get {
+                attr default = %body
+                attr key = "error"
+                attr result = %error_body
+                attr target = %body
+              }
+              op core.type_is {
+                attr result = %error_is_object
+                attr type = "object"
+                attr value = %error_body
+              }
+              op core.if {
+                attr condition = %error_is_object
+                region @then {
+                  block @then {
+                    op core.call {
+                      attr args = [%body]
+                      attr callee = "intrinsic.string.str"
+                      attr result = %body_text
+                    }
+                    op core.get {
+                      attr default = %body_text
+                      attr key = "message"
+                      attr result = %message_value
+                      attr target = %error_body
+                    }
+                    op core.get {
+                      attr key = "code"
+                      attr result = %code_value
+                      attr target = %error_body
+                    }
+                    op core.let {
+                      attr result = %message
+                      attr value = %message_value
+                    }
+                    op core.let {
+                      attr result = %code
+                      attr value = %code_value
+                    }
+                  }
+                }
+                region @else {
+                  block @else {
+                    op core.call {
+                      attr args = [%error_body]
+                      attr callee = "intrinsic.string.str"
+                      attr result = %message_value
+                    }
+                    op core.let {
+                      attr result = %message
+                      attr value = %message_value
+                    }
+                  }
+                }
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.call {
+          attr args = [%status, 401]
+          attr callee = "intrinsic.eq"
+          attr result = %is_401
+        }
+        op core.call {
+          attr args = [%status, 403]
+          attr callee = "intrinsic.eq"
+          attr result = %is_403
+        }
+        op core.call {
+          attr args = [%is_401, %is_403]
+          attr callee = "intrinsic.or"
+          attr result = %is_auth
+        }
+        op core.if {
+          attr condition = %is_auth
+          region @then {
+            block @then {
+              op core.call {
+                attr args = [%message, %status, %code, %body, %request]
+                attr callee = "intrinsic.ai.error.auth"
+                attr result = %error
+              }
+              op core.return {
+                attr value = %error
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.call {
+          attr args = [%status, 408]
+          attr callee = "intrinsic.eq"
+          attr result = %is_408
+        }
+        op core.call {
+          attr args = [%status, 504]
+          attr callee = "intrinsic.eq"
+          attr result = %is_504
+        }
+        op core.call {
+          attr args = [%is_408, %is_504]
+          attr callee = "intrinsic.or"
+          attr result = %is_timeout
+        }
+        op core.if {
+          attr condition = %is_timeout
+          region @then {
+            block @then {
+              op core.call {
+                attr args = [%message, %status, %code, %body, %request, true]
+                attr callee = "intrinsic.ai.error.timeout"
+                attr result = %error
+              }
+              op core.return {
+                attr value = %error
+              }
+            }
+          }
+          region @else {
+            block @else {
+            }
+          }
+        }
+        op core.call {
+          attr args = [%status, 429]
+          attr callee = "intrinsic.eq"
+          attr result = %is_429
+        }
+        op core.call {
+          attr args = [%status, 500]
+          attr callee = "intrinsic.eq"
+          attr result = %is_500
+        }
+        op core.call {
+          attr args = [%status, 502]
+          attr callee = "intrinsic.eq"
+          attr result = %is_502
+        }
+        op core.call {
+          attr args = [%status, 503]
+          attr callee = "intrinsic.eq"
+          attr result = %is_503
+        }
+        op core.call {
+          attr args = [%is_429, %is_500]
+          attr callee = "intrinsic.or"
+          attr result = %retry_left
+        }
+        op core.call {
+          attr args = [%is_502, %is_503]
+          attr callee = "intrinsic.or"
+          attr result = %retry_right
+        }
+        op core.call {
+          attr args = [%retry_left, %retry_right]
+          attr callee = "intrinsic.or"
+          attr result = %retry_some
+        }
+        op core.call {
+          attr args = [%retry_some, %is_504]
+          attr callee = "intrinsic.or"
+          attr result = %retryable
+        }
+        op core.call {
+          attr args = [%message, %status, %code, %body, %request, %retryable]
+          attr callee = "intrinsic.ai.error.status"
+          attr result = %error
+        }
+        op core.return {
+          attr value = %error
+        }
+      }
+    }
+  }
+
+  op ax.provider.semantic @openai_fold_sse {
+    attr core_kind = "func"
+    attr effect = "throws"
+    tag "streaming-sse"
+    type signature = "(bytes) -> stream<json> throws"
+  }
+}

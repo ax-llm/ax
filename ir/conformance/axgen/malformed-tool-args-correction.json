@@ -1,0 +1,44 @@
+{
+  "name": "malformed-tool-args-correction",
+  "kind": "forward",
+  "signature": "query:string -> answer:string",
+  "input": {
+    "query": "docs"
+  },
+  "tools": [
+    {
+      "name": "search",
+      "description": "Search docs",
+      "args": {
+        "query": {
+          "type": "string",
+          "min": 1
+        }
+      },
+      "result": {
+        "title": "Docs"
+      }
+    }
+  ],
+  "responses": [
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call_1",
+          "name": "search",
+          "params": {
+            "query": ""
+          }
+        }
+      ]
+    },
+    {
+      "content": "{\"answer\":\"Search args were corrected.\"}"
+    }
+  ],
+  "expected_output": {
+    "answer": "Search args were corrected."
+  },
+  "expected_tool_calls": []
+}

@@ -1,0 +1,117 @@
+{
+  "name": "tool-json-object-request",
+  "kind": "ai_chat",
+  "request": {
+    "chat_prompt": [
+      {
+        "role": "user",
+        "content": "Search docs"
+      }
+    ],
+    "functions": [
+      {
+        "name": "search",
+        "description": "Search docs",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string"
+            }
+          },
+          "required": ["query"]
+        }
+      }
+    ],
+    "function_call": "auto",
+    "response_format": {
+      "type": "json_object"
+    },
+    "model_config": {
+      "temperature": 0.2,
+      "max_tokens": 64,
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "status": 200,
+      "json": {
+        "id": "chatcmpl_tool",
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "tool_calls",
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_1",
+                  "type": "function",
+                  "function": {
+                    "name": "search",
+                    "arguments": "{\"query\":\"Search docs\"}"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "expected_output": {
+    "results": [
+      {
+        "index": 0,
+        "id": "0",
+        "content": null,
+        "function_calls": [
+          {
+            "id": "call_1",
+            "type": "function",
+            "function": {
+              "name": "search",
+              "params": {
+                "query": "Search docs"
+              }
+            }
+          }
+        ],
+        "finish_reason": "function_call"
+      }
+    ],
+    "remote_id": "chatcmpl_tool",
+    "model_usage": null
+  },
+  "expected_transport_request": {
+    "json": {
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "search",
+            "description": "Search docs",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "query": {
+                  "type": "string"
+                }
+              },
+              "required": ["query"]
+            }
+          }
+        }
+      ],
+      "tool_choice": "auto",
+      "response_format": {
+        "type": "json_object"
+      },
+      "temperature": 0.2,
+      "max_completion_tokens": 64
+    }
+  }
+}
