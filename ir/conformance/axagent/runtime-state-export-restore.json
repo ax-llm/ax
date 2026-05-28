@@ -1,0 +1,55 @@
+{
+  "expected_exported_state_subset": {
+    "discovered_tool_docs": [
+      {
+        "name": "search",
+        "namespace": "docs",
+        "qualified_name": "docs.search"
+      }
+    ],
+    "loaded_skill_docs": [
+      {
+        "content": "Skill docs loaded for sql",
+        "name": "sql"
+      }
+    ],
+    "policy_trace": [
+      {
+        "skills": ["sql"],
+        "tools": ["docs"],
+        "type": "discover"
+      }
+    ],
+    "runtime_state": {
+      "session": "restored"
+    }
+  },
+  "kind": "agent_runtime_policy",
+  "name": "runtime-state-export-restore",
+  "restore_runtime_state": {
+    "discovered_tool_docs": [
+      {
+        "name": "search",
+        "namespace": "docs",
+        "qualified_name": "docs.search"
+      }
+    ],
+    "loaded_skill_docs": [
+      {
+        "content": "Skill docs loaded for sql",
+        "name": "sql"
+      }
+    ],
+    "policy_trace": [
+      {
+        "skills": ["sql"],
+        "tools": ["docs"],
+        "type": "discover"
+      }
+    ],
+    "runtime_state": {
+      "session": "restored"
+    }
+  },
+  "signature": "question:string -> answer:string"
+}

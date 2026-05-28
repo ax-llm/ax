@@ -1,0 +1,24 @@
+{
+  "expected_clarification": {
+    "question": "Which city?",
+    "type": "text"
+  },
+  "expected_error_contains": "Which city",
+  "input": {
+    "question": "Book it"
+  },
+  "kind": "agent_forward",
+  "name": "clarification",
+  "options": {
+    "contextFields": []
+  },
+  "responses": [
+    {
+      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Clarify booking\",{}]}}"
+    },
+    {
+      "content": "{\"completion\":{\"type\":\"askClarification\",\"args\":[{\"question\":\"Which city?\",\"type\":\"text\"}]}}"
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

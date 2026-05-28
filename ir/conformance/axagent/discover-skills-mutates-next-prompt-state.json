@@ -1,0 +1,23 @@
+{
+  "discover": {
+    "skills": ["sql"]
+  },
+  "expected_discover_result": null,
+  "expected_loaded_skill_docs_subset": [
+    {
+      "content": "Skill docs loaded for sql",
+      "name": "sql"
+    }
+  ],
+  "expected_policy_trace_subset": [
+    {
+      "skills": ["sql"],
+      "tools": [],
+      "type": "discover"
+    }
+  ],
+  "kind": "agent_runtime_policy",
+  "name": "discover-skills-mutates-next-prompt-state",
+  "options": {},
+  "signature": "question:string -> answer:string"
+}

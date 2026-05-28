@@ -8,12 +8,21 @@ import {
 import {
   axBuildDistillerDefinition,
   axBuildExecutorDefinition,
+  getRuntimePrimitiveOverrides,
 } from '../rlm.js';
 import { compareCanonicalDiscoveryStrings } from '../runtimeDiscovery.js';
 import type {
   AxLlmQueryPromptMode,
   AxStageDefinitionBuildOptions,
 } from './types.js';
+
+function cachedActorInputField(field: AxIField): AxIField {
+  return { ...field, isCached: true };
+}
+
+function optionalCachedActorInputField(field: AxIField): AxIField {
+  return { ...field, isCached: true, isOptional: true };
+}
 
 /**
  * Build (or rebuild) the Actor program for an `ActorAgentRLM`. The Responder
@@ -32,11 +41,11 @@ export function buildSplitPrograms(self: any): void {
   );
   const actorInlineContextInputs = contextFieldMeta
     .filter((fld: FieldLike) => s.contextPromptConfigByField.has(fld.name))
-    .map((fld: FieldLike) => ({ ...fld, isOptional: true }));
+    .map((fld: FieldLike) => optionalCachedActorInputField(fld));
   // Non-context inputs (visible to Actor)
-  const nonContextInputs = inputFields.filter(
-    (fld: FieldLike) => !contextFields.includes(fld.name)
-  );
+  const nonContextInputs = inputFields
+    .filter((fld: FieldLike) => !contextFields.includes(fld.name))
+    .map((fld: FieldLike) => cachedActorInputField(fld));
 
   const originalOutputs = s.program
     .getSignature()
@@ -57,7 +66,20 @@ export function buildSplitPrograms(self: any): void {
     effectiveContextPolicy.errorPruning ||
     Boolean(effectiveContextPolicy.tombstoning);
 
-  // --- Actor signature: inputs (+ contextMetadata when context fields exist) + guidanceLog + actionLog -> javascriptCode ---
+  const runtimeLanguageName = s.runtimeLanguageName ?? 'JavaScript';
+  const runtimeCodeFieldName = s.runtimeCodeFieldName ?? 'javascriptCode';
+  const runtimeCodeFieldTitle = s.runtimeCodeFieldTitle ?? 'Javascript Code';
+  const runtimeCodeFenceLanguage = s.runtimeCodeFenceLanguage ?? 'js';
+  const isJavaScriptRuntime = s.isJavaScriptRuntime !== false;
+
+  const variant = s.options?.stageVariant as
+    | 'distiller'
+    | 'executor'
+    | undefined;
+  const isDistillerStage = variant === 'distiller';
+  const isExecutorStage = variant !== 'distiller';
+
+  // --- Actor signature: cached working set + dynamic loop tail -> runtime code field ---
   let actorSigBuilder = f()
     .addInputFields(nonContextInputs)
     .addInputFields(actorInlineContextInputs);
@@ -67,19 +89,48 @@ export function buildSplitPrograms(self: any): void {
       'contextMetadata',
       f
         .string('Metadata about pre-loaded context variables (type and size)')
+        .cache()
+        .optional()
+    );
+  }
+
+  if (isDistillerStage && s.contextMapText) {
+    actorSigBuilder = actorSigBuilder.input(
+      'contextMap',
+      f
+        .string(
+          'Stable orientation cache for recurring external context. Treat it as helpful but possibly stale; current inputs and runtime evidence override it.'
+        )
+        .cache()
+        .optional()
+    );
+  }
+
+  if (isExecutorStage && s.functionDiscoveryEnabled) {
+    actorSigBuilder = actorSigBuilder.input(
+      'discoveredToolDocs',
+      f
+        .string(
+          'Tool and module documentation loaded through discovery in this run. Use it directly; only re-run discovery for modules/functions not listed here.'
+        )
+        .cache()
+        .optional()
+    );
+  }
+
+  if (isExecutorStage) {
+    actorSigBuilder = actorSigBuilder.input(
+      'loadedSkills',
+      f
+        .string(
+          'Skill guides loaded for this run. Apply the guides that are relevant, and call `used(id, reason)` for loaded skills that actually influenced the turn when usage tracking is enabled.'
+        )
+        .cache()
         .optional()
     );
   }
 
   actorSigBuilder = actorSigBuilder
-    .input(
-      'guidanceLog',
-      f
-        .string(
-          'Trusted runtime guidance for the actor loop. Chronological, newest entry last. Follow the latest relevant guidance while continuing from the current runtime state.'
-        )
-        .optional()
-    )
     .input(
       'summarizedActorLog',
       f
@@ -87,6 +138,14 @@ export function buildSplitPrograms(self: any): void {
           'Stable compacted context from prior turns (restore notice, delegated context summary, and checkpoint summary). Changes only at compaction boundaries — carries a prompt-cache breakpoint so the preceding prefix can be reused across turns.'
         )
         .cache()
+        .optional()
+    )
+    .input(
+      'guidanceLog',
+      f
+        .string(
+          'Trusted runtime guidance for the actor loop. Chronological, newest entry last. Follow the latest relevant guidance while continuing from the current runtime state.'
+        )
         .optional()
     )
     .input(
@@ -126,8 +185,11 @@ export function buildSplitPrograms(self: any): void {
   }
 
   actorSigBuilder = actorSigBuilder.output(
-    'javascriptCode',
-    f.code('The value of this field must be executable JavaScript only.')
+    runtimeCodeFieldName,
+    f.code(
+      runtimeLanguageName,
+      `The value of this field must be executable ${runtimeLanguageName} only.`
+    )
   ) as any;
 
   const actorSig = actorSigBuilder.build();
@@ -139,7 +201,7 @@ export function buildSplitPrograms(self: any): void {
 
   // Collect metadata from registered tool functions (which now includes
   // any agents that arrived via `options.functions`) so the actor prompt
-  // describes what's available in the JS runtime session.
+  // describes what's available in the runtime session.
   const agentFunctionMeta = s.agentFunctions.map((fn: any) => ({
     name: fn.name,
     description: fn.description,
@@ -171,6 +233,11 @@ export function buildSplitPrograms(self: any): void {
   void effectiveMaxTurns;
   const actorDefinitionBuildOptions: AxStageDefinitionBuildOptions = {
     runtimeUsageInstructions: s.runtimeUsageInstructions,
+    runtimeLanguageName,
+    runtimeCodeFieldTitle,
+    runtimeCodeFenceLanguage,
+    isJavaScriptRuntime,
+    formatCallable: s.runtime.formatCallable?.bind(s.runtime),
     promptLevel: s.rlmConfig.promptLevel,
     hasInspectRuntime: effectiveContextPolicy.stateInspection.enabled,
     hasLiveRuntimeState: liveRuntimeStateEnabled,
@@ -179,7 +246,10 @@ export function buildSplitPrograms(self: any): void {
     enforceIncrementalConsoleTurns: s.enforceIncrementalConsoleTurns,
     hasAgentStatusCallback: Boolean(s.agentStatusCallback),
     discoveryMode: s.functionDiscoveryEnabled,
-    skillsMode: typeof s.onSkillsSearch === 'function',
+    skillsMode:
+      typeof s.onSkillsSearch === 'function' ||
+      s.skillUsageTrackingEnabled === true ||
+      (s.currentSkillsPromptState?.loaded?.size ?? 0) > 0,
     memoriesMode: typeof s.onMemoriesSearch === 'function',
     memoryUsageMode: s.memoryUsageTrackingEnabled === true,
     skillUsageMode: s.skillUsageTrackingEnabled === true,
@@ -188,13 +258,12 @@ export function buildSplitPrograms(self: any): void {
     availableModules,
     agentFunctions: agentFunctionMeta,
     templateOverride: s._actorTemplateOverrides?.get(s._actorTemplateId()),
-    primitiveOverrides: s._primitiveOverrides,
+    primitiveOverrides: getRuntimePrimitiveOverrides(
+      s.runtime,
+      s._primitiveOverrides
+    ),
   };
 
-  const variant = s.options?.stageVariant as
-    | 'distiller'
-    | 'executor'
-    | undefined;
   let actorDef: string;
   if (variant === 'distiller') {
     actorDef = axBuildDistillerDefinition(
@@ -223,6 +292,7 @@ export function buildSplitPrograms(self: any): void {
     s.actorProgram = new AxGen(actorSig, {
       ...s._genOptions,
       description: actorDef,
+      includeOptionalInputFieldsInSystemPrompt: true,
     });
   }
 }

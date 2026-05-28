@@ -1,0 +1,45 @@
+{
+  "expected_output": {
+    "answer": "safe"
+  },
+  "expected_request_count": 3,
+  "expected_stage_request_not_contains": [
+    {
+      "absent": ["do-not-send-to-executor"],
+      "index": 1
+    },
+    {
+      "absent": ["do-not-send-to-responder"],
+      "index": 2
+    }
+  ],
+  "input": {
+    "question": "Answer safely",
+    "document": "public context",
+    "secret": "do-not-send-to-executor",
+    "scratch": "do-not-send-to-responder"
+  },
+  "kind": "agent_forward",
+  "name": "exclude-fields",
+  "options": {
+    "contextFields": ["document"],
+    "executorOptions": {
+      "excludeFields": ["secret"]
+    },
+    "responderOptions": {
+      "excludeFields": ["scratch"]
+    }
+  },
+  "responses": [
+    {
+      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer safely\",{\"evidence\":\"public\"}]}}"
+    },
+    {
+      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer safely\",{\"answer\":\"safe\"}]}}"
+    },
+    {
+      "content": "{\"answer\":\"safe\"}"
+    }
+  ],
+  "signature": "question:string, document:string, secret:string, scratch?:string -> answer:string"
+}

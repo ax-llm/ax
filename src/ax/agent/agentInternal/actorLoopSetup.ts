@@ -20,8 +20,10 @@ import {
   generateCheckpointSummaryAsync,
   getPromptFacingActionLogEntries,
 } from '../contextManager.js';
+import { renderDiscoveryPromptMarkdown } from './discoveryHelpers.js';
 import { renderGuidanceLog } from './guidanceHelpers.js';
 import { renderMemoriesPromptMarkdown } from './memoriesHelpers.js';
+import { renderSkillsPromptMarkdown } from './skillsHelpers.js';
 import type {
   AxAgentContextStage,
   AxAgentGuidanceState,
@@ -153,6 +155,23 @@ export function buildActorLoopSetup(
       ...inputState.getActorInlineContextValues(),
       actionLog,
     };
+    if (s.options?.stageVariant === 'distiller' && s.contextMapText) {
+      values.contextMap = s.contextMapText;
+    }
+    if (s.options?.stageVariant !== 'distiller') {
+      const discoveredToolDocs = renderDiscoveryPromptMarkdown(
+        s.currentDiscoveryPromptState
+      );
+      if (discoveredToolDocs) {
+        values.discoveredToolDocs = discoveredToolDocs;
+      }
+      const loadedSkills = renderSkillsPromptMarkdown(
+        s.currentSkillsPromptState
+      );
+      if (loadedSkills) {
+        values.loadedSkills = loadedSkills;
+      }
+    }
     const contextMetadata = inputState.getContextMetadata();
     if (contextMetadata) {
       values.contextMetadata = contextMetadata;

@@ -2,6 +2,7 @@ package axir
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,6 +21,10 @@ func axgenConformancePath() string {
 
 func axaiConformancePath() string {
 	return filepath.Join("..", "..", "..", "..", "ir", "conformance", "axai")
+}
+
+func axagentConformancePath() string {
+	return filepath.Join("..", "..", "..", "..", "ir", "conformance", "axagent")
 }
 
 func promptConformancePath() string {
@@ -72,6 +77,24 @@ func TestLoadCheckLowerAxCore(t *testing.T) {
 		"op core.func @openai_normalize_chat_response",
 		"op core.func @openai_normalize_stream_delta",
 		"op core.func @openai_normalize_error",
+		"op core.func @agent",
+		"op core.record @AxAgent",
+		"op core.error @AxAgentClarificationError",
+		"op core.interface @AxCodeRuntime",
+		"op core.interface @AxCodeSession",
+		"op core.func @agent_factory",
+		"op core.func @agent_forward",
+		"op core.func @normalize_agent_runtime",
+		"op core.func @normalize_agent_policy",
+		"op core.func @normalize_agent_callable_inventory",
+		"op core.func @agent_discover",
+		"op core.func @agent_optimizer_metadata",
+		"op core.func @agent_runtime_test",
+		"op core.func @agent_runtime_execute_step",
+		"op core.func @normalize_agent_runtime_step_result",
+		"op core.func @split_context_values",
+		"op core.func @normalize_agent_completion_payload",
+		"op core.func @merge_agent_chat_log",
 		"op core.func @validate_output",
 		"op core.func @render_prompt",
 		"op core.func @render_template_content",
@@ -141,12 +164,25 @@ func TestBuildRuntimeModel(t *testing.T) {
 		"axgen_trace",
 		"axgen_stop_functions",
 		"cache_aware_prompt_inputs",
+		"axagent_pipeline",
+		"axagent_context_fields",
+		"axagent_clarification",
+		"axagent_chat_log",
+		"axagent_state_alpha",
+		"axagent_runtime_contract",
+		"axagent_discovery_policy",
+		"axagent_delegation_policy",
+		"axagent_optimizer_metadata",
+		"axagent_runtime_session",
+		"axagent_agent_test",
+		"axagent_runtime_state_restore",
+		"axagent_actor_step_alpha",
 	} {
 		if !model.Features[feature] {
 			t.Fatalf("runtime model missing prompt feature flag %s: %#v", feature, model.Features)
 		}
 	}
-	for _, want := range []string{"ai", "AxAIService", "AxBaseAI", "OpenAICompatibleClient"} {
+	for _, want := range []string{"ai", "AxAIService", "AxBaseAI", "OpenAICompatibleClient", "agent", "AxAgent", "AxAgentClarificationError"} {
 		if _, ok := model.Symbols[want]; !ok {
 			t.Fatalf("runtime model missing symbol %s", want)
 		}
@@ -177,6 +213,29 @@ func TestBuildRuntimeModel(t *testing.T) {
 		"openai_normalize_chat_response",
 		"openai_normalize_stream_delta",
 		"openai_normalize_error",
+		"agent_factory",
+		"normalize_agent_runtime",
+		"normalize_agent_policy",
+		"normalize_agent_callable_inventory",
+		"split_agent_callable_inventory",
+		"render_agent_discovery_catalog",
+		"agent_discover",
+		"normalize_agent_final_payload",
+		"normalize_agent_clarification_payload",
+		"agent_optimizer_metadata",
+		"agent_export_runtime_state",
+		"agent_restore_runtime_state",
+		"split_context_values",
+		"build_distiller_inputs",
+		"build_executor_inputs",
+		"build_responder_inputs",
+		"normalize_agent_completion_payload",
+		"throw_agent_clarification",
+		"merge_agent_chat_log",
+		"merge_agent_usage",
+		"agent_get_state",
+		"agent_set_state",
+		"agent_forward",
 	} {
 		if model.BodySources[want] != "core" {
 			t.Fatalf("runtime model missing core body source for %s: %#v", want, model.BodySources)
@@ -187,7 +246,7 @@ func TestBuildRuntimeModel(t *testing.T) {
 			t.Fatalf("runtime model missing private core helper %s: body=%#v private=%#v", want, model.BodySources, model.PrivateSymbols)
 		}
 	}
-	if model.EmitModules["signature_parse_impl"] != "signature" || model.EmitModules["validate_value_impl"] != "schema" || model.EmitModules["render_prompt"] != "prompt" || model.EmitModules["fold_stream"] != "gen" || model.EmitModules["forward"] != "gen" || model.EmitModules["execute_tool_call"] != "gen" || model.EmitModules["openai_build_chat_request"] != "ai" {
+	if model.EmitModules["signature_parse_impl"] != "signature" || model.EmitModules["validate_value_impl"] != "schema" || model.EmitModules["render_prompt"] != "prompt" || model.EmitModules["fold_stream"] != "gen" || model.EmitModules["forward"] != "gen" || model.EmitModules["execute_tool_call"] != "gen" || model.EmitModules["openai_build_chat_request"] != "ai" || model.EmitModules["agent_forward"] != "agent" || model.EmitModules["normalize_agent_runtime"] != "agent" || model.EmitModules["agent_discover"] != "agent" {
 		t.Fatalf("runtime model missing emit module hints: %#v", model.EmitModules)
 	}
 }
@@ -209,11 +268,13 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"axir-capabilities.json",
 				"ax/__init__.py",
 				"ax/ai.py",
+				"ax/agent.py",
 				"ax/gen.py",
 				"ax/conformance.py",
 				"examples/signature_schema.py",
 				"examples/axgen_fake_client_tool.py",
 				"examples/axai_fake_transport.py",
+				"examples/axagent_pipeline.py",
 			},
 			wantReadme: "Generated Ax PYTHON Library",
 		},
@@ -224,11 +285,16 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"axir-capabilities.json",
 				"dev/ax/Ax.java",
 				"dev/ax/Core.java",
+				"dev/ax/AxAgent.java",
+				"dev/ax/AxAgentClarificationException.java",
+				"dev/ax/AxCodeRuntime.java",
+				"dev/ax/AxCodeSession.java",
 				"dev/ax/OpenAICompatibleClient.java",
 				"dev/ax/Conformance.java",
 				"examples/SignatureSchemaExample.java",
 				"examples/AxGenFakeClientToolExample.java",
 				"examples/AxAIFakeTransportExample.java",
+				"examples/AxAgentPipelineExample.java",
 			},
 			wantReadme: "Generated Ax JAVA Library",
 		},
@@ -243,6 +309,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/signature_schema.cpp",
 				"examples/axgen_fake_client_tool.cpp",
 				"examples/axai_fake_transport.cpp",
+				"examples/axagent_pipeline.cpp",
 			},
 			wantReadme: "Generated Ax CPP Library",
 		},
@@ -272,12 +339,12 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 			if tc.target == "cpp" && manifest.RealNetworkSupport {
 				t.Fatalf("C++ manifest should not claim real network support: %#v", manifest)
 			}
-			for _, want := range []string{"signature", "schema", "validation", "prompt", "axgen", "axai"} {
+			for _, want := range []string{"signature", "schema", "validation", "prompt", "axgen", "axai", "axagent"} {
 				if !containsString(manifest.SupportedSuites, want) {
 					t.Fatalf("manifest missing suite %s: %#v", want, manifest.SupportedSuites)
 				}
 			}
-			for _, want := range []string{"AxGen", "AxSignature", "OpenAICompatibleClient"} {
+			for _, want := range []string{"AxGen", "AxSignature", "OpenAICompatibleClient", "AxAgent"} {
 				if !containsString(manifest.PublicSymbols, want) {
 					t.Fatalf("manifest missing public symbol %s: %#v", want, manifest.PublicSymbols)
 				}
@@ -786,6 +853,83 @@ func TestPromptConformanceFixturesLoad(t *testing.T) {
 	}
 }
 
+func TestAxAgentConformanceFixturesLoad(t *testing.T) {
+	files, err := filepath.Glob(filepath.Join(axagentConformancePath(), "*.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) < 6 {
+		t.Fatalf("expected axagent fixtures, got %d", len(files))
+	}
+	for _, file := range files {
+		data, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fixture map[string]any
+		if err := json.Unmarshal(data, &fixture); err != nil {
+			t.Fatalf("%s: %v", file, err)
+		}
+		if fixture["name"] == "" {
+			t.Fatalf("%s missing name", file)
+		}
+		kind := fmt.Sprint(fixture["kind"])
+		switch kind {
+		case "agent_forward":
+			if _, ok := fixture["signature"]; !ok {
+				t.Fatalf("%s missing signature", file)
+			}
+			if _, ok := fixture["input"]; !ok {
+				t.Fatalf("%s missing input", file)
+			}
+			if _, ok := fixture["expected_output"]; !ok {
+				if _, ok := fixture["expected_error_contains"]; !ok {
+					t.Fatalf("%s missing expected output or expected error", file)
+				}
+			}
+		case "agent_runtime_policy":
+			if _, ok := fixture["expected_runtime_contract_subset"]; !ok {
+				if _, ok := fixture["expected_policy_subset"]; !ok {
+					if _, ok := fixture["expected_callable_inventory_subset"]; !ok {
+						if _, ok := fixture["expected_discovery_catalog_subset"]; !ok {
+							if _, ok := fixture["expected_discovered_tool_docs_subset"]; !ok {
+								if _, ok := fixture["expected_loaded_skill_docs_subset"]; !ok {
+									if _, ok := fixture["expected_final_payload"]; !ok {
+										if _, ok := fixture["expected_clarification_payload"]; !ok {
+											if _, ok := fixture["expected_exported_state_subset"]; !ok {
+												if _, ok := fixture["expected_optimizer_metadata_subset"]; !ok {
+													if _, ok := fixture["expected_error_contains"]; !ok {
+														t.Fatalf("%s missing runtime policy expectation", file)
+													}
+												}
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		case "agent_runtime_session":
+			if _, ok := fixture["runtime_script"]; !ok {
+				t.Fatalf("%s missing runtime_script", file)
+			}
+			if _, ok := fixture["expected_result_subset"]; !ok {
+				if _, ok := fixture["expected_action_log_subset"]; !ok {
+					if _, ok := fixture["expected_exported_state_subset"]; !ok {
+						if _, ok := fixture["expected_error_contains"]; !ok {
+							t.Fatalf("%s missing runtime session expectation", file)
+						}
+					}
+				}
+			}
+		default:
+			t.Fatalf("%s has unknown axagent kind %v", file, fixture["kind"])
+		}
+	}
+}
+
 func TestSignatureSchemaValidationConformanceFixturesLoad(t *testing.T) {
 	cases := []struct {
 		dir      string
@@ -885,7 +1029,7 @@ func TestCompilePythonGeneratedAxLibrary(t *testing.T) {
 	script := filepath.Join(dir, "smoke.py")
 	err = os.WriteFile(script, []byte(`import sys
 sys.path.insert(0, sys.argv[1])
-from ax import AIClient, AxBaseAI, OpenAICompatibleClient, ai, ax, f, fn, s
+from ax import AIClient, AxBaseAI, OpenAICompatibleClient, agent, ai, ax, f, fn, s
 
 sig = s('question:string -> answer:string')
 assert sig.get_input_fields()[0].name == 'question'
@@ -917,6 +1061,22 @@ class Fake(AIClient):
 gen = ax('query:string -> answer:string', {'functions': [search], 'validation_retries': 2})
 out = gen.forward(Fake(), {'query': 'q'})
 assert out == {'answer': 'done'}, out
+
+class AgentFake(AIClient):
+    def __init__(self):
+        self.calls = 0
+    def complete(self, request):
+        self.calls += 1
+        if self.calls == 1:
+            return {'content': '{"completion":{"type":"final","args":["Answer",{}]}}'}
+        if self.calls == 2:
+            return {'content': '{"completion":{"type":"final","args":["Answer",{"answer":"done"}]}}'}
+        return {'content': '{"answer": "done"}'}
+
+ag = agent('question:string -> answer:string', {'contextFields': []})
+agent_out = ag.forward(AgentFake(), {'question': 'q'})
+assert agent_out == {'answer': 'done'}, agent_out
+assert len(ag.get_chat_log()) == 3
 
 service = ai('openai', api_key='test', transport=lambda req: {
     'status': 200,
@@ -1012,6 +1172,29 @@ func TestPythonAxAIConformanceFixtures(t *testing.T) {
 	}
 	if !strings.Contains(string(out), "ok simple-chat") {
 		t.Fatalf("unexpected AxAI conformance output: %s", out)
+	}
+}
+
+func TestPythonAxAgentConformanceFixtures(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	bundle, err := LoadBundle(rootPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := Compile(bundle, "python", dir); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("python3", "-m", "ax.conformance", axagentConformancePath())
+	cmd.Env = append(os.Environ(), "PYTHONPATH="+dir)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("python AxAgent conformance fixtures failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "ok simple-pipeline") {
+		t.Fatalf("unexpected AxAgent conformance output: %s", out)
 	}
 }
 
@@ -1175,6 +1358,50 @@ func TestPythonGeneratedIdioms(t *testing.T) {
 			t.Fatalf("generated Python gen runtime still contains old hand-authored fold_stream body %q", forbidden)
 		}
 	}
+	agentFile, err := os.ReadFile(filepath.Join(dir, "ax", "agent.py"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentText := string(agentFile)
+	for _, want := range []string{
+		"class AxAgent",
+		"class AxAgentClarificationError",
+		"class AxCodeRuntime",
+		"class AxCodeSession",
+		"def agent(",
+		"def test(",
+		"def execute_actor_step(",
+		"# BEGIN AXIR CORE EMITTED FUNCTIONS",
+		"def _normalize_agent_runtime(",
+		"def _normalize_agent_policy(",
+		"def _normalize_agent_callable_inventory(",
+		"def _agent_discover(",
+		"def _agent_optimizer_metadata(",
+		"def _agent_runtime_test(",
+		"def _agent_runtime_execute_step(",
+		"def _normalize_agent_runtime_step_result(",
+		"def _agent_factory(",
+		"def _split_context_values(",
+		"def _normalize_agent_completion_payload(",
+		"def _merge_agent_chat_log(",
+		"def _agent_forward(",
+		"return _agent_forward(",
+	} {
+		if !strings.Contains(agentText, want) {
+			t.Fatalf("generated Python agent runtime missing Core-emitted marker %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"_core_agent_forward_impl",
+		"_core_agent_runtime_impl",
+		"_core_agent_discover_impl",
+		"_axir_agent",
+		"intrinsic.agent.forward",
+	} {
+		if strings.Contains(agentText, forbidden) {
+			t.Fatalf("generated Python agent runtime contains forbidden semantic escape %q", forbidden)
+		}
+	}
 	signatureFile, err := os.ReadFile(filepath.Join(dir, "ax", "signature.py"))
 	if err != nil {
 		t.Fatal(err)
@@ -1282,6 +1509,17 @@ func TestJavaGeneratedCoreRuntime(t *testing.T) {
 		"static Object openai_build_chat_request(",
 		"static Object openai_normalize_chat_response(",
 		"static Object openai_normalize_stream_delta(",
+		"static Object _normalize_agent_runtime(",
+		"static Object _normalize_agent_policy(",
+		"static Object _normalize_agent_callable_inventory(",
+		"static Object _agent_discover(",
+		"static Object _agent_optimizer_metadata(",
+		"static Object _agent_runtime_test(",
+		"static Object _agent_runtime_execute_step(",
+		"static Object _normalize_agent_runtime_step_result(",
+		"static Object _agent_forward(",
+		"static Object _split_context_values(",
+		"static Object _normalize_agent_completion_payload(",
 		"class TemplateEngine",
 		"class PromptRuntime",
 	} {
@@ -1309,6 +1547,29 @@ func TestJavaGeneratedCoreRuntime(t *testing.T) {
 	if !strings.Contains(string(axGenFile), "Core._forward_impl(") {
 		t.Fatal("generated Java AxGen does not delegate forward to Core")
 	}
+	axAgentFile, err := os.ReadFile(filepath.Join(dir, "dev", "ax", "AxAgent.java"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	axAgentText := string(axAgentFile)
+	for _, want := range []string{
+		"public final class AxAgent",
+		"Core._agent_factory(",
+		"Core._agent_forward(",
+		"Core._agent_runtime_test(",
+		"Core._agent_runtime_execute_step(",
+		"Core._agent_discover(",
+		"executeActorStep",
+		"AxCodeRuntime",
+		"getRuntimeContract",
+		"getPolicy",
+		"getChatLog",
+		"getState",
+	} {
+		if !strings.Contains(axAgentText, want) {
+			t.Fatalf("generated Java AxAgent missing marker %q", want)
+		}
+	}
 	openAIFile, err := os.ReadFile(filepath.Join(dir, "dev", "ax", "OpenAICompatibleClient.java"))
 	if err != nil {
 		t.Fatal(err)
@@ -1329,7 +1590,7 @@ func TestJavaGeneratedCoreRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(conformanceFile), "public final class Conformance") || !strings.Contains(string(conformanceFile), "case \"ai_chat\"") {
+	if !strings.Contains(string(conformanceFile), "public final class Conformance") || !strings.Contains(string(conformanceFile), "case \"ai_chat\"") || !strings.Contains(string(conformanceFile), "case \"agent_forward\"") || !strings.Contains(string(conformanceFile), "case \"agent_runtime_policy\"") || !strings.Contains(string(conformanceFile), "case \"agent_runtime_session\"") {
 		t.Fatal("generated Java conformance runner is missing expected fixture dispatch")
 	}
 }
@@ -1366,6 +1627,18 @@ public class Smoke {
     AxGen qa = Ax.ax(sig);
     Map<String, Object> out = qa.forward(new Fake(), Map.of("question", "Capital?"));
     if (!"Paris".equals(out.get("answer"))) throw new RuntimeException("bad output: " + out);
+    final class AgentFake implements AiClient {
+      int calls = 0;
+      public Map<String, Object> complete(Map<String, Object> request) {
+        calls++;
+        if (calls == 1) return Map.of("content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{}]}}");
+        if (calls == 2) return Map.of("content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{\"answer\":\"Paris\"}]}}");
+        return Map.of("content", "{\"answer\":\"Paris\"}");
+      }
+    }
+    AxAgent agent = Ax.agent("question:string -> answer:string", Map.of("contextFields", List.of()));
+    Map<String, Object> agentOut = agent.forward(new AgentFake(), Map.of("question", "Capital?"));
+    if (!"Paris".equals(agentOut.get("answer"))) throw new RuntimeException("bad agent output: " + agentOut);
     System.out.println("java-ok");
   }
 }
@@ -1397,7 +1670,7 @@ public class Smoke {
 	if !strings.Contains(string(out), "java-ok") {
 		t.Fatalf("unexpected java output: %s", out)
 	}
-	java = exec.Command(javaPath, "-cp", dir, "dev.ax.Conformance", signatureConformancePath(), schemaConformancePath(), validationConformancePath(), promptConformancePath(), axgenConformancePath(), axaiConformancePath())
+	java = exec.Command(javaPath, "-cp", dir, "dev.ax.Conformance", signatureConformancePath(), schemaConformancePath(), validationConformancePath(), promptConformancePath(), axgenConformancePath(), axaiConformancePath(), axagentConformancePath())
 	out, err = java.CombinedOutput()
 	if err != nil {
 		if strings.Contains(string(out), "Unable to locate a Java Runtime") {
@@ -1432,10 +1705,18 @@ func TestCppGeneratedCoreRuntime(t *testing.T) {
 		"class OpenAICompatibleClient",
 		"class Tool",
 		"class AxGen",
+		"class AxAgent",
+		"class AxCodeRuntime",
+		"class AxCodeSession",
 		"Value to_json_schema(",
 		"Value validate_output(",
 		"Value render_prompt(",
 		"Value fold_stream(",
+		"AxAgent agent(",
+		"Value test(AxCodeRuntime& runtime",
+		"Value execute_actor_step(AxCodeRuntime& runtime",
+		"Value get_runtime_contract() const",
+		"Value discover(Value request)",
 	} {
 		if !strings.Contains(headerText, want) {
 			t.Fatalf("generated C++ header missing %q", want)
@@ -1460,6 +1741,18 @@ func TestCppGeneratedCoreRuntime(t *testing.T) {
 		"Value Core::openai_normalize_stream_delta(",
 		"Value Core::openai_build_embed_request(",
 		"Value Core::openai_normalize_error(",
+		"Value Core::_normalize_agent_runtime(",
+		"Value Core::_normalize_agent_policy(",
+		"Value Core::_normalize_agent_callable_inventory(",
+		"Value Core::_agent_discover(",
+		"Value Core::_agent_optimizer_metadata(",
+		"Value Core::_agent_runtime_test(",
+		"Value Core::_agent_runtime_execute_step(",
+		"Value Core::_normalize_agent_runtime_step_result(",
+		"Value Core::_agent_forward(",
+		"Value Core::_split_context_values(",
+		"Value Core::_normalize_agent_completion_payload(",
+		"Value Core::agent_stage_forward(",
 	} {
 		if !strings.Contains(sourceText, want) {
 			t.Fatalf("generated C++ source missing Core marker %q", want)
@@ -1495,6 +1788,9 @@ func TestCppGeneratedCoreRuntime(t *testing.T) {
 		`kind == "ai_stream"`,
 		`kind == "ai_error"`,
 		`kind == "ai_unsupported"`,
+		`kind == "agent_forward"`,
+		`kind == "agent_runtime_policy"`,
+		`kind == "agent_runtime_session"`,
 	} {
 		if !strings.Contains(conformanceText, want) {
 			t.Fatalf("generated C++ conformance runner missing %q", want)
@@ -1537,6 +1833,18 @@ int main() {
   auto qa = ax::ax("question:string -> answer:string");
   ax::Value out = qa.forward(client, ax::object({{"question", "Capital?"}}));
   if (!ax::equal(ax::Core::get(out, "answer"), "Paris")) return 2;
+  struct AgentFakeClient : ax::AIClient {
+    int calls = 0;
+    ax::Value complete(ax::Value) override {
+      ++calls;
+      if (calls == 1) return ax::object({{"content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{}]}}"}});
+      if (calls == 2) return ax::object({{"content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{\"answer\":\"Paris\"}]}}"}});
+      return ax::object({{"content", "{\"answer\":\"Paris\"}"}});
+    }
+  } agent_client;
+  auto ag = ax::agent("question:string -> answer:string", ax::object({{"contextFields", ax::array({})}}));
+  ax::Value agent_out = ag.forward(agent_client, ax::object({{"question", "Capital?"}}));
+  if (!ax::equal(ax::Core::get(agent_out, "answer"), "Paris")) return 3;
   auto service = ax::ai("openai", ax::object({{"model", "gpt-4.1-mini"}, {"api_key", "test-key"}}));
   (void)service;
   std::cout << "cpp-ok\n";
@@ -1574,6 +1882,7 @@ int main() {
 		promptConformancePath(),
 		axgenConformancePath(),
 		axaiConformancePath(),
+		axagentConformancePath(),
 	).CombinedOutput()
 	if err != nil {
 		t.Fatalf("C++ conformance failed: %v\n%s", err, out)

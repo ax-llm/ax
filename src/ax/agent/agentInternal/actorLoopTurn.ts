@@ -20,7 +20,7 @@ import {
   renderContextPressure,
 } from '../contextEvents.js';
 import { manageContext } from '../contextManager.js';
-import { normalizeActorJavascriptCode } from '../optimize.js';
+import { normalizeActorCode } from '../optimize.js';
 import {
   formatBubbledActorTurnOutput,
   validateActorTurnCodePolicy,
@@ -259,13 +259,14 @@ export async function runActorTurn<_IN extends AxGenIn>(
     mutableState.restoreNotice = undefined;
   }
 
-  let code = executorResult.javascriptCode as string | undefined;
+  const runtimeCodeFieldName = s.runtimeCodeFieldName ?? 'javascriptCode';
+  let code = executorResult[runtimeCodeFieldName] as string | undefined;
   const trimmedCode = code?.trim();
   if (!code || !trimmedCode) {
     return { shouldBreak: true, shouldContinue: false };
   }
-  code = normalizeActorJavascriptCode(trimmedCode);
-  executorResult.javascriptCode = code;
+  code = normalizeActorCode(trimmedCode);
+  executorResult[runtimeCodeFieldName] = code;
 
   completionState.payload = undefined;
   const functionCallStartIndex = functionCallRecords?.length ?? 0;

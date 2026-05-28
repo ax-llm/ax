@@ -30,11 +30,11 @@ Use this skill for code-runtime agents and `llmQuery(...)` semantic-helper behav
 distiller (RLM actor) -> executor (RLM actor) -> responder (synthesizer)
 ```
 
-- **distiller** always runs first. It sees all original inputs so it can understand and normalize the task; declared `contextFields` stay runtime-only when present. It distils relevant evidence by writing JS code in a multi-turn loop, then calls `final(request, evidence)`. The request becomes the executor's `inputs.executorRequest`; it must be self-contained and restate the concrete action, target, and constraints, not vague wording like "do it". The distiller should expand the original user task with facts found in context, including follow-ups like "yes, do it". When no `contextFields` are configured, it still performs request normalization over the original inputs with `contextFields: []`. **The distiller has no tools and is not a capability gate.**
+- **distiller** always runs first. It sees all original inputs so it can understand and normalize the task; declared `contextFields` stay runtime-only when present. It distils relevant evidence by writing runtime-language code in a multi-turn loop, then calls the runtime-exposed `final(request, evidence)` primitive. The request becomes the executor's `inputs.executorRequest`; it must be self-contained and restate the concrete action, target, and constraints, not vague wording like "do it". The distiller should expand the original user task with facts found in context, including follow-ups like "yes, do it". When no `contextFields` are configured, it still performs request normalization over the original inputs with `contextFields: []`. **The distiller has no tools and is not a capability gate.**
 - **executor** always runs. It receives non-context inputs plus `inputs.executorRequest` and `inputs.distilledContext` from the distiller's `final(request, evidence)` payload. Raw context fields are not present in the executor stage. The executor owns tool use, decides whether to call its available functions or finish directly from distilled evidence, and reports actual tool results or failures.
 - **responder** always runs last. It synthesizes the user's output signature from whichever upstream actor finished the run and must not contradict tool evidence gathered upstream.
 
-Treat both actor stages as long-running JavaScript REPLs that the actor steers over multiple turns, not as fresh script generators on every turn.
+Treat both actor stages as long-running code runtime sessions that the actor steers over multiple turns, not as fresh script generators on every turn. `AxJSRuntime` is the default; custom runtimes set `language` so the actor code field becomes `<language>Code` such as `pythonCode` while JavaScript keeps the legacy `javascriptCode`.
 
 - Successful code leaves variables, functions, imports, and computed values available in the runtime session.
 - The actor should continue from existing runtime state instead of recreating prior work.
@@ -43,7 +43,7 @@ Treat both actor stages as long-running JavaScript REPLs that the actor steers o
 
 ## RLM Actor Code Rules
 
-Use these rules when generating actor JavaScript for RLM in stdout mode:
+Use these rules when generating actor JavaScript for RLM in `AxJSRuntime` stdout mode. For custom runtimes, follow the runtime's `getUsageInstructions()`, primitive overrides, and callable formatter instead.
 
 - Treat each actor turn as exactly one observable step.
 - Inspect what already exists before recomputing it. If a prior turn successfully created a value, prefer reusing that runtime value.
@@ -246,6 +246,14 @@ Model guidance:
 - For cost-sensitive setups, a common pattern is stronger actor plus cheaper responder.
 - Prefer `executorModelPolicy` over globally upgrading the whole agent when the actor only needs help after context grows or the run starts thrashing.
 
+Prompt/cache shape:
+
+- Actor turns are compact observable turns, not replayed chat transcripts.
+- Stable system prompt: role/stage rules, primitive descriptions, static module list, always-included callable signatures, output contract, and field definitions.
+- Cached working inputs: task inputs, inline context, `contextMetadata`, `contextMap`, `memories`, `executorRequest`, `distilledContext`, `discoveredToolDocs`, `loadedSkills`, and `summarizedActorLog`.
+- Dynamic turn tail: `guidanceLog`, `actionLog`, `liveRuntimeState`, and `contextPressure`.
+- Prefer one compact inspection per non-final turn. Never combine inspection output with `final(...)` or `askClarification(...)`.
+
 Invalid actor turn:
 
 ```javascript
@@ -306,9 +314,19 @@ Rules for the LLM author:
 - `preventGlobalThisExtensions: true` breaks top-level `var`/`let`/`const` persistence across turns; never set it for stdout-mode RLM where persistence is load-bearing.
 - On Deno, `blockDynamicImport` is a no-op; the defense is the worker permission sandbox. Pass `allowDenoRemoteImport: true` only if remote module loading is genuinely required.
 
+## Custom Code Runtimes
+
+Implement `AxCodeRuntime` when the actor should write a language other than JavaScript.
+
+- Set `language` to the model-facing language name. JavaScript aliases (`JavaScript`, `js`, `ecmascript`) keep `javascriptCode`; other values derive lower-camel code fields such as `pythonCode` or `cSharpCode`.
+- Keep execution inside `createSession(globals, options)`. AxAgent passes `inputs`, `llmQuery`, `final`, `askClarification`, progress callbacks, memory/discovery primitives, and namespaced tools as host globals; the runtime decides how those globals appear in the target language.
+- Put language syntax, output behavior, persistence semantics, and completion-call examples in `getUsageInstructions()`.
+- Use `getPrimitiveOverrides()` to describe language-native calls for built-in primitives, and `formatCallable()` to describe language-native calls for tools and child agents.
+- Implement `inspectGlobals()` on sessions when `contextPolicy` should show live runtime state for non-JavaScript runtimes; otherwise AxAgent will not run JavaScript fallback inspection snippets.
+
 ## RLM Test Harness
 
-Use `agent.test(code, contextFieldValues?, options?)` when the user wants to validate JavaScript snippets against the actual AxAgent runtime environment without running the full actor/responder loop.
+Use `agent.test(code, contextFieldValues?, options?)` when the user wants to validate runtime snippets against the actual AxAgent runtime environment without running the full actor/responder loop. With `AxJSRuntime`, those snippets are JavaScript.
 
 ```typescript
 import { AxJSRuntime, agent, f, fn } from '@ax-llm/ax';
@@ -365,7 +383,7 @@ Rules:
 
 - `llmQuery(...)` forwards only the explicit `context` argument.
 - Parent inputs, runtime variables, tool results, and discovered docs are not automatically available to `llmQuery(...)`; include any needed facts in `context`.
-- `llmQuery(...)` is a direct semantic helper backed by an AxGen sub-query. It does not create a child AxAgent, does not run a JS runtime, and does not have access to tools or discovery.
+- `llmQuery(...)` is a direct semantic helper backed by an AxGen sub-query. It does not create a child AxAgent, does not run an actor runtime session, and does not have access to tools or discovery.
 - Use batched `llmQuery([...])` only for independent semantic questions. Use serial calls when later work depends on earlier results.
 - Pass compact named object context instead of huge raw parent payloads.
 - Do not assume anything other than the returned string comes back from `llmQuery(...)`.

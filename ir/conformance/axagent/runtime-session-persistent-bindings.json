@@ -1,0 +1,75 @@
+{
+  "context_values": {
+    "question": "remember"
+  },
+  "expected_executed": [
+    "scratch = inputs.question",
+    "final({ answer: scratch })"
+  ],
+  "expected_exported_state_subset": {
+    "runtime_session_state": {
+      "closed": false,
+      "globals": {
+        "scratch": "remember"
+      }
+    }
+  },
+  "expected_result_subset": {
+    "completion_payload": {
+      "args": [
+        {
+          "answer": "remember"
+        }
+      ],
+      "type": "final"
+    },
+    "kind": "final"
+  },
+  "expected_session_count": 1,
+  "expected_status_log_subset": [
+    {
+      "message": "stored scratch",
+      "type": "success"
+    }
+  ],
+  "kind": "agent_runtime_session",
+  "name": "runtime-session-persistent-bindings",
+  "operation": "steps",
+  "runtime_script": [
+    {
+      "bindings_patch": {
+        "scratch": "remember"
+      },
+      "expected_code": "scratch = inputs.question",
+      "result": {
+        "kind": "status",
+        "status": {
+          "message": "stored scratch",
+          "type": "success"
+        }
+      }
+    },
+    {
+      "expected_code": "final({ answer: scratch })",
+      "result": {
+        "args": [
+          {
+            "answer": "remember"
+          }
+        ],
+        "type": "final"
+      }
+    }
+  ],
+  "signature": "question:string -> answer:string",
+  "steps": [
+    {
+      "code": "scratch = inputs.question"
+    },
+    {
+      "code": "final({ answer: scratch })",
+      "export_session_state": true,
+      "inspect": true
+    }
+  ]
+}

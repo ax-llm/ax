@@ -69,12 +69,20 @@ export function validateConfiguredSignature(
   );
   const reservedInputFieldNames = new Set([
     'contextMetadata',
+    'contextMap',
+    'discoveredToolDocs',
     'guidanceLog',
+    'loadedSkills',
+    'summarizedActorLog',
     'actionLog',
     'liveRuntimeState',
+    'contextPressure',
     'contextData',
   ]);
-  const reservedOutputFieldNames = new Set(['javascriptCode']);
+  const reservedOutputFieldNames = new Set([
+    'javascriptCode',
+    s.runtimeCodeFieldName ?? 'javascriptCode',
+  ]);
 
   for (const field of signature.getInputFields()) {
     if (reservedInputFieldNames.has(field.name)) {

@@ -71,6 +71,52 @@ assert response["results"][0]["content"] == "hello from fake transport", respons
 print("python-axai-ok")
 `
 
+const pyAxAgentPipelineExample = `from ax import AxCodeRuntime, AxCodeSession, agent
+
+
+class FakeService:
+    def __init__(self):
+        self.responses = [
+            {"content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{}]}}"},
+            {"content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{\"answer\":\"Paris\"}]}}"},
+            {"content": "{\"answer\":\"Paris\"}"},
+        ]
+
+    def chat(self, request):
+        if not self.responses:
+            raise RuntimeError("fake service exhausted")
+        raw = self.responses.pop(0)
+        return {"results": [{"content": raw["content"], "function_calls": []}]}
+
+
+class FakeSession(AxCodeSession):
+    def execute(self, code, options=None):
+        return {"type": "final", "args": [{"answer": "runtime"}]}
+
+    def inspect_globals(self, options=None):
+        return {}
+
+    def export_state(self, options=None):
+        return {"globals": {}}
+
+    def restore_state(self, snapshot, options=None):
+        return snapshot
+
+
+class FakeRuntime(AxCodeRuntime):
+    def create_session(self, globals, options=None):
+        return FakeSession()
+
+
+qa = agent("question:string -> answer:string", {"contextFields": []})
+out = qa.forward(FakeService(), {"question": "Capital of France?"})
+assert out == {"answer": "Paris"}, out
+assert qa.get_chat_log()[-1]["name"] == "responder"
+runtime_out = qa.test(FakeRuntime(), "final({answer: 'runtime'})", {"question": "runtime?"})
+assert runtime_out["kind"] == "final", runtime_out
+print("python-axagent-ok")
+`
+
 const javaSignatureSchemaExample = `import dev.ax.*;
 import java.util.*;
 
@@ -148,6 +194,51 @@ public final class AxAIFakeTransportExample {
       throw new RuntimeException("bad response: " + response);
     }
     System.out.println("java-axai-ok");
+  }
+}
+`
+
+const javaAxAgentPipelineExample = `import dev.ax.*;
+import java.util.*;
+
+public final class AxAgentPipelineExample {
+  static final class FakeService implements AiClient {
+    final List<Map<String, Object>> responses = new ArrayList<>(List.of(
+      Map.of("content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{}]}}"),
+      Map.of("content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{\"answer\":\"Paris\"}]}}"),
+      Map.of("content", "{\"answer\":\"Paris\"}")
+    ));
+
+    public Map<String, Object> complete(Map<String, Object> request) {
+      if (responses.isEmpty()) throw new RuntimeException("fake service exhausted");
+      return responses.remove(0);
+    }
+  }
+
+  static final class FakeRuntime implements AxCodeRuntime {
+    public AxCodeSession createSession(Map<String, Object> globals, Map<String, Object> options) {
+      return new FakeSession();
+    }
+  }
+
+  static final class FakeSession implements AxCodeSession {
+    public Object execute(String code, Map<String, Object> options) {
+      return Map.of("type", "final", "args", List.of(Map.of("answer", "runtime")));
+    }
+    public Object inspectGlobals(Map<String, Object> options) { return Map.of(); }
+    public Object exportState(Map<String, Object> options) { return Map.of("globals", Map.of()); }
+    public Object restoreState(Object snapshot, Map<String, Object> options) { return snapshot; }
+    public Object close() { return Map.of("closed", true); }
+  }
+
+  public static void main(String[] args) {
+    AxAgent qa = Ax.agent("question:string -> answer:string", Map.of("contextFields", List.of()));
+    Map<String, Object> out = qa.forward(new FakeService(), Map.of("question", "Capital of France?"));
+    if (!"Paris".equals(out.get("answer"))) throw new RuntimeException("bad output: " + out);
+    if (!"responder".equals(((Map<?, ?>) qa.getChatLog().get(qa.getChatLog().size() - 1)).get("name"))) throw new RuntimeException("bad chat log");
+    Map<String, Object> runtimeOut = qa.test(new FakeRuntime(), "final({answer:'runtime'})");
+    if (!"final".equals(runtimeOut.get("kind"))) throw new RuntimeException("bad runtime output: " + runtimeOut);
+    System.out.println("java-axagent-ok");
   }
 }
 `
@@ -236,5 +327,52 @@ int main() {
   ax::Value first = ax::Core::get(ax::Core::get(response, "results"), 0);
   if (!ax::equal(ax::Core::get(first, "content"), "hello from fake transport")) return 1;
   std::cout << "cpp-axai-ok\n";
+}
+`
+
+const cppAxAgentPipelineExample = `#include "ax/ax.hpp"
+#include <iostream>
+
+struct FakeService : ax::AIClient {
+  ax::Array responses = {
+    ax::object({{"content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{}]}}"}}),
+    ax::object({{"content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{\"answer\":\"Paris\"}]}}"}}),
+    ax::object({{"content", "{\"answer\":\"Paris\"}"}})
+  };
+
+  ax::Value complete(ax::Value) override {
+    if (responses.empty()) throw ax::AxError("fixture", "fake service exhausted");
+    ax::Value out = responses.front();
+    responses.erase(responses.begin());
+    return out;
+  }
+};
+
+struct FakeSession : ax::AxCodeSession {
+  ax::Value execute(ax::Value, ax::Value = ax::Value::object()) override {
+    return ax::object({{"type", "final"}, {"args", ax::array({ax::object({{"answer", "runtime"}})})}});
+  }
+  ax::Value inspect(ax::Value = ax::Value::object()) override { return ax::Value::object(); }
+  ax::Value export_state(ax::Value = ax::Value::object()) override { return ax::object({{"globals", ax::Value::object()}}); }
+  ax::Value restore_state(ax::Value snapshot, ax::Value = ax::Value::object()) override { return snapshot; }
+  ax::Value close() override { return ax::object({{"closed", true}}); }
+};
+
+struct FakeRuntime : ax::AxCodeRuntime {
+  FakeSession session;
+  ax::AxCodeSession* create_session(ax::Value, ax::Value = ax::Value::object()) override { return &session; }
+};
+
+int main() {
+  auto qa = ax::agent("question:string -> answer:string", ax::object({{"contextFields", ax::array({})}}));
+  FakeService service;
+  ax::Value out = qa.forward(service, ax::object({{"question", "Capital of France?"}}));
+  if (!ax::equal(ax::Core::get(out, "answer"), "Paris")) return 1;
+  ax::Value last = ax::Core::get(qa.get_chat_log(), 2);
+  if (!ax::equal(ax::Core::get(last, "name"), "responder")) return 2;
+  FakeRuntime runtime;
+  ax::Value runtime_out = qa.test(runtime, "final({answer:'runtime'})");
+  if (!ax::equal(ax::Core::get(runtime_out, "kind"), "final")) return 3;
+  std::cout << "cpp-axagent-ok\n";
 }
 `

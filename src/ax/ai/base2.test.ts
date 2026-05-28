@@ -500,6 +500,49 @@ describe('AxBaseAI - Cost Estimation', () => {
     expect(costEntries[0]!.value).toBeCloseTo(0.02925, 6);
   });
 
+  it('should estimate cost with provider fast-mode pricing', async () => {
+    const mockMeter = createMockMeter();
+    const ai = createCostTestAI(
+      [
+        {
+          name: 'model-fast',
+          promptTokenCostPer1M: 5.0,
+          completionTokenCostPer1M: 25.0,
+          cacheReadTokenCostPer1M: 0.5,
+          cacheWriteTokenCostPer1M: 6.25,
+          fastPromptTokenCostPer1M: 10.0,
+          fastCompletionTokenCostPer1M: 50.0,
+          fastCacheReadTokenCostPer1M: 1.0,
+          fastCacheWriteTokenCostPer1M: 12.5,
+        } as AxModelInfo,
+      ],
+      {
+        promptTokens: 1000,
+        completionTokens: 500,
+        totalTokens: 13_500,
+        cacheReadTokens: 10_000,
+        cacheCreationTokens: 2000,
+        speed: 'fast',
+      },
+      mockMeter
+    );
+
+    await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'hi' }] },
+      { stream: false }
+    );
+
+    const costEntries =
+      mockMeter.counters.ax_llm_estimated_cost_total?.values ?? [];
+    expect(costEntries.length).toBe(1);
+    // prompt: 1000 * 10.0 / 1M = 0.01
+    // completion: 500 * 50.0 / 1M = 0.025
+    // cache read: 10000 * 1.0 / 1M = 0.01
+    // cache write: 2000 * 12.5 / 1M = 0.025
+    // total = 0.07
+    expect(costEntries[0]!.value).toBeCloseTo(0.07, 6);
+  });
+
   it('should fall back to prompt rate when cache pricing is not configured', async () => {
     const mockMeter = createMockMeter();
     const ai = createCostTestAI(

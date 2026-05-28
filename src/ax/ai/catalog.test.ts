@@ -133,10 +133,29 @@ describe('axGetSupportedAIModels', () => {
     const claude = anthropic?.models.find(
       (model) => model.name === AxAIAnthropicModel.Claude37Sonnet
     );
+    const claude48Opus = anthropic?.models.find(
+      (model) => model.name === AxAIAnthropicModel.Claude48Opus
+    );
 
+    expect(anthropic?.defaultModel).toBe(AxAIAnthropicModel.Claude37Sonnet);
     expect(claude?.capabilities).toMatchObject({
       thinkingBudget: true,
       showThoughts: true,
+    });
+    expect(claude48Opus).toMatchObject({
+      provider: 'anthropic',
+      type: 'text',
+      promptTokenCostPer1M: 5,
+      completionTokenCostPer1M: 25,
+      fastPromptTokenCostPer1M: 10,
+      fastCompletionTokenCostPer1M: 50,
+      maxTokens: 128000,
+      contextWindow: 1_000_000,
+      capabilities: {
+        thinkingBudget: true,
+        showThoughts: true,
+        structuredOutputs: true,
+      },
     });
 
     const gemini = providers.find(

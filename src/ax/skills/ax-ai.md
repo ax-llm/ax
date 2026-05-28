@@ -162,7 +162,7 @@ import { ai, AxAIAnthropicModel } from '@ax-llm/ax';
 const claude = ai({
   name: 'anthropic',
   apiKey: process.env.ANTHROPIC_APIKEY!,
-  config: { model: AxAIAnthropicModel.Claude46Opus },
+  config: { model: AxAIAnthropicModel.Claude48Opus },
 });
 
 const res = await claude.chat(
@@ -186,9 +186,26 @@ console.log(res.results[0]?.content);
 
 ### Anthropic Model-Specific Behavior
 
+- Opus 4.8 and 4.7: adaptive thinking, effort levels including `'xhigh'`,
+  no manual `budget_tokens`, and no `temperature` / `topP` / `topK`.
 - Opus 4.6: adaptive thinking, effort levels
 - Opus 4.5: budget_tokens + effort levels (capped at `'high'`)
 - Other thinking models: budget tokens only
+
+Anthropic `modelConfig.effort` can be set directly on a request. Fast mode and
+task budgets are Anthropic-only opt-ins; `taskBudget.total` must be at least
+20,000 tokens.
+
+```typescript
+const res = await claude.chat({
+  chatPrompt: [{ role: 'user', content: 'Review this migration plan.' }],
+  modelConfig: {
+    effort: 'xhigh',
+    speed: 'fast',
+    taskBudget: { type: 'tokens', total: 64_000 },
+  },
+});
+```
 
 ### Custom Thinking Levels
 
@@ -197,7 +214,7 @@ const claude = ai({
   name: 'anthropic',
   apiKey: '...',
   config: {
-    model: AxAIAnthropicModel.Claude46Opus,
+    model: AxAIAnthropicModel.Claude48Opus,
     thinkingTokenBudgetLevels: {
       minimal: 2048,
       low: 8000,
@@ -298,7 +315,9 @@ const client = new AxMCPClient(transport);
 
 - Use `ai()` factory for all providers.
 - Provider names: `'openai'`, `'openai-responses'`, `'anthropic'`, `'google-gemini'`, `'azure-openai'`, `'mistral'`, `'cohere'`, `'deepseek'`, `'huggingface'`, `'reka'`, `'grok'`
-- Thinking constraints on Anthropic: `temperature` and `topK` are ignored; `topP` only sent if >= 0.95.
+- Thinking constraints on Anthropic: Opus 4.8/4.7 omit `temperature`, `topP`,
+  and `topK`; older thinking models ignore `temperature` and `topK`, with
+  `topP` only sent if >= 0.95.
 - Bedrock uses `new AxAIBedrock()`, not `ai()`.
 - Vercel AI SDK uses `AxAIProvider` wrapper.
 

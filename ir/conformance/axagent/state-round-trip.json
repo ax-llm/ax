@@ -1,0 +1,32 @@
+{
+  "expected_output": {
+    "answer": "ok"
+  },
+  "expected_request_count": 3,
+  "expected_state": {
+    "session": "alpha"
+  },
+  "input": {
+    "question": "Remember session"
+  },
+  "kind": "agent_forward",
+  "name": "state-round-trip",
+  "options": {
+    "contextFields": []
+  },
+  "responses": [
+    {
+      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{}]}}"
+    },
+    {
+      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{\"answer\":\"ok\"}]}}"
+    },
+    {
+      "content": "{\"answer\":\"ok\"}"
+    }
+  ],
+  "set_state": {
+    "session": "alpha"
+  },
+  "signature": "question:string -> answer:string"
+}

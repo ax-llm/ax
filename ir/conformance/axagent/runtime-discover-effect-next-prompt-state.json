@@ -1,0 +1,58 @@
+{
+  "code": "discover({ tools: [\"docs\"], skills: [\"sql\"] })",
+  "context_values": {
+    "question": "need tools"
+  },
+  "expected_action_log_subset": [
+    {
+      "kind": "discover"
+    }
+  ],
+  "expected_exported_state_subset": {
+    "discovered_tool_docs": [
+      {
+        "description": "Search docs",
+        "kind": "tool",
+        "name": "search",
+        "namespace": "docs",
+        "qualified_name": "docs.search"
+      }
+    ],
+    "loaded_skill_docs": [
+      {
+        "content": "Skill docs loaded for sql",
+        "name": "sql"
+      }
+    ]
+  },
+  "kind": "agent_runtime_session",
+  "name": "runtime-discover-effect-next-prompt-state",
+  "operation": "test",
+  "options": {
+    "functions": [
+      {
+        "functions": [
+          {
+            "description": "Search docs",
+            "name": "search"
+          }
+        ],
+        "name": "docs",
+        "namespace": "docs"
+      }
+    ]
+  },
+  "runtime_script": [
+    {
+      "expected_code": "discover({ tools: [\"docs\"], skills: [\"sql\"] })",
+      "result": {
+        "discover": {
+          "skills": ["sql"],
+          "tools": ["docs"]
+        },
+        "kind": "discover"
+      }
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

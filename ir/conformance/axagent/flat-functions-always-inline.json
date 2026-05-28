@@ -1,0 +1,50 @@
+{
+  "expected_callable_inventory_subset": [
+    {
+      "always_include": true,
+      "callables": [
+        {
+          "always_include": false,
+          "description": "Search docs",
+          "kind": "tool",
+          "name": "search",
+          "namespace": "tools",
+          "parameters": null,
+          "qualified_name": "tools.search"
+        },
+        {
+          "always_include": false,
+          "description": "Look up an id",
+          "kind": "tool",
+          "name": "lookup",
+          "namespace": "tools",
+          "parameters": null,
+          "qualified_name": "tools.lookup"
+        }
+      ],
+      "namespace": "tools"
+    }
+  ],
+  "expected_discovery_catalog_subset": [
+    {
+      "callables": ["tools.search", "tools.lookup"],
+      "namespace": "tools",
+      "placement": "actor_prompt"
+    }
+  ],
+  "kind": "agent_runtime_policy",
+  "name": "flat-functions-always-inline",
+  "options": {
+    "functions": [
+      {
+        "description": "Search docs",
+        "name": "search"
+      },
+      {
+        "description": "Look up an id",
+        "name": "lookup"
+      }
+    ]
+  },
+  "signature": "question:string -> answer:string"
+}

@@ -106,6 +106,8 @@ const map = new AxAgentContextMap(undefined, {
 
 const policyCalls: string[] = [];
 const distillerPrompts: string[] = [];
+const distillerUserPrompts: string[] = [];
+const distillerCachedUserPrompts: string[] = [];
 const executorPrompts: string[] = [];
 let updateCount = 0;
 
@@ -149,6 +151,16 @@ const ai = new AxMockAIService<string>({
 
     if (systemPrompt.includes('You (`distiller`)')) {
       distillerPrompts.push(systemPrompt);
+      const userPrompts = req.chatPrompt
+        .filter((msg) => msg.role === 'user')
+        .map((msg) => getPromptText(msg));
+      distillerUserPrompts.push(userPrompts.join('\n'));
+      distillerCachedUserPrompts.push(
+        req.chatPrompt
+          .filter((msg) => msg.role === 'user' && msg.cache === true)
+          .map((msg) => getPromptText(msg))
+          .join('\n')
+      );
       return {
         results: [
           {
@@ -194,6 +206,7 @@ const ai = new AxMockAIService<string>({
 const analyzer = agent('context:string, query:string -> answer:string', {
   contextFields: ['context'],
   runtime,
+  contextCache: { ttlSeconds: 3600 },
   contextMap: {
     map,
     onUpdate: ({ map: updatedMap }) => {
@@ -241,8 +254,19 @@ assert(
   'context map leaked into executor prompt'
 );
 assert(
-  distillerPrompts[1]?.includes('newline-delimited JSON'),
-  'frozen context map was not injected into the second distiller prompt'
+  distillerPrompts[1]?.includes('### Context Map') &&
+    !distillerPrompts[1]?.includes('newline-delimited JSON'),
+  'context map body should not be injected into the distiller system prompt'
+);
+assert(
+  distillerUserPrompts[1]?.includes('Context Map:') &&
+    distillerUserPrompts[1]?.includes('newline-delimited JSON'),
+  'frozen context map was not injected into the second distiller input prompt'
+);
+assert(
+  distillerCachedUserPrompts[1]?.includes('Context Map:') &&
+    distillerCachedUserPrompts[1]?.includes('newline-delimited JSON'),
+  'context map input was not rendered in the cached user prompt'
 );
 
 console.log('Context map example: PASS');

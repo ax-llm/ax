@@ -1,9 +1,8 @@
 import {
   axBuildDistillerDefinition,
   axBuildExecutorDefinition,
+  getRuntimePrimitiveOverrides,
 } from '../rlm.js';
-import { renderDiscoveryPromptMarkdown } from './discoveryHelpers.js';
-import { renderSkillsPromptMarkdown } from './skillsHelpers.js';
 
 export function renderActorDefinition(self: any): string {
   const s = self as any;
@@ -11,22 +10,13 @@ export function renderActorDefinition(self: any): string {
     return s.baseActorDefinition;
   }
 
-  const skillsEnabled =
-    typeof s.onSkillsSearch === 'function' ||
-    (s.currentSkillsPromptState && s.currentSkillsPromptState.loaded.size > 0);
-  const skillsMarkdown =
-    skillsEnabled && s.currentSkillsPromptState
-      ? renderSkillsPromptMarkdown(s.currentSkillsPromptState)
-      : undefined;
-
   const buildOptions = {
     ...s.actorDefinitionBuildOptions,
-    contextMapText: s.contextMapText,
-    discoveredDocsMarkdown: renderDiscoveryPromptMarkdown(
-      s.currentDiscoveryPromptState
-    ),
     templateOverride: s._actorTemplateOverrides?.get(s._actorTemplateId()),
-    primitiveOverrides: s._primitiveOverrides,
+    primitiveOverrides: getRuntimePrimitiveOverrides(
+      s.runtime,
+      s._primitiveOverrides
+    ),
   };
   const variant = s.options?.stageVariant as
     | 'distiller'
@@ -43,10 +33,7 @@ export function renderActorDefinition(self: any): string {
     s.actorDefinitionBaseDescription,
     s.actorDefinitionContextFields,
     s.actorDefinitionResponderOutputFields,
-    {
-      ...buildOptions,
-      skillsMarkdown,
-    }
+    buildOptions
   );
 }
 

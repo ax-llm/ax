@@ -1,0 +1,33 @@
+{
+  "code": "raise Error(\"boom\")",
+  "context_values": {
+    "question": "fail"
+  },
+  "expected_action_log_subset": [
+    {
+      "error_category": "runtime_error",
+      "kind": "error"
+    }
+  ],
+  "expected_result_subset": {
+    "error": "boom",
+    "error_category": "runtime_error",
+    "is_error": true,
+    "kind": "error"
+  },
+  "kind": "agent_runtime_session",
+  "name": "runtime-error-action-log",
+  "operation": "test",
+  "runtime_script": [
+    {
+      "expected_code": "raise Error(\"boom\")",
+      "result": {
+        "error": "boom",
+        "error_category": "runtime_error",
+        "is_error": true,
+        "kind": "error"
+      }
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

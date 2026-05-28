@@ -100,6 +100,42 @@ var cppCoreFuncs = []cppCoreFuncSpec{
 	{Symbol: "normalize_stream_delta", Name: "normalize_stream_delta"},
 	{Symbol: "build_embed_request", Name: "build_embed_request"},
 	{Symbol: "normalize_embed_response", Name: "normalize_embed_response"},
+	{Symbol: "agent_reserved_runtime_names", Name: "_agent_reserved_runtime_names"},
+	{Symbol: "normalize_agent_runtime", Name: "_normalize_agent_runtime"},
+	{Symbol: "normalize_agent_policy", Name: "_normalize_agent_policy"},
+	{Symbol: "normalize_agent_callable", Name: "_normalize_agent_callable"},
+	{Symbol: "normalize_agent_group", Name: "_normalize_agent_group"},
+	{Symbol: "normalize_agent_callable_inventory", Name: "_normalize_agent_callable_inventory"},
+	{Symbol: "split_agent_callable_inventory", Name: "_split_agent_callable_inventory"},
+	{Symbol: "render_agent_discovery_catalog", Name: "_render_agent_discovery_catalog"},
+	{Symbol: "agent_discover", Name: "_agent_discover"},
+	{Symbol: "normalize_agent_final_payload", Name: "_normalize_agent_final_payload"},
+	{Symbol: "normalize_agent_clarification_payload", Name: "_normalize_agent_clarification_payload"},
+	{Symbol: "agent_optimizer_metadata", Name: "_agent_optimizer_metadata"},
+	{Symbol: "agent_export_runtime_state", Name: "_agent_export_runtime_state"},
+	{Symbol: "agent_restore_runtime_state", Name: "_agent_restore_runtime_state"},
+	{Symbol: "agent_runtime_build_globals", Name: "_agent_runtime_build_globals"},
+	{Symbol: "agent_runtime_append_action_log", Name: "_agent_runtime_append_action_log"},
+	{Symbol: "normalize_agent_runtime_step_result", Name: "_normalize_agent_runtime_step_result"},
+	{Symbol: "agent_runtime_create_session", Name: "_agent_runtime_create_session"},
+	{Symbol: "agent_runtime_execute_step", Name: "_agent_runtime_execute_step"},
+	{Symbol: "agent_runtime_inspect_state", Name: "_agent_runtime_inspect_state"},
+	{Symbol: "agent_runtime_export_session_state", Name: "_agent_runtime_export_session_state"},
+	{Symbol: "agent_runtime_restore_session_state", Name: "_agent_runtime_restore_session_state"},
+	{Symbol: "agent_runtime_close_session", Name: "_agent_runtime_close_session"},
+	{Symbol: "agent_runtime_test", Name: "_agent_runtime_test"},
+	{Symbol: "agent_factory", Name: "_agent_factory"},
+	{Symbol: "split_context_values", Name: "_split_context_values"},
+	{Symbol: "build_distiller_inputs", Name: "_build_distiller_inputs"},
+	{Symbol: "build_executor_inputs", Name: "_build_executor_inputs"},
+	{Symbol: "build_responder_inputs", Name: "_build_responder_inputs"},
+	{Symbol: "normalize_agent_completion_payload", Name: "_normalize_agent_completion_payload"},
+	{Symbol: "throw_agent_clarification", Name: "_throw_agent_clarification"},
+	{Symbol: "merge_agent_chat_log", Name: "_merge_agent_chat_log"},
+	{Symbol: "merge_agent_usage", Name: "_merge_agent_usage"},
+	{Symbol: "agent_get_state", Name: "_agent_get_state"},
+	{Symbol: "agent_set_state", Name: "_agent_set_state"},
+	{Symbol: "agent_forward", Name: "_agent_forward"},
 }
 
 var cppCoreFuncNames = func() map[string]string {
@@ -413,6 +449,7 @@ var coreIntrinsicCpp = map[CoreIntrinsic]string{
 	IntrinsicMapMerge:               "Core::map_merge",
 	IntrinsicMapContains:            "Core::map_contains",
 	IntrinsicMapGet:                 "Core::map_get",
+	IntrinsicMapDelete:              "Core::map_delete",
 	IntrinsicMapUpdate:              "Core::map_update",
 	IntrinsicMapValues:              "Core::map_values",
 	IntrinsicRecordNew:              "Core::record_new",
@@ -471,6 +508,15 @@ var coreIntrinsicCpp = map[CoreIntrinsic]string{
 	IntrinsicAxGenCleanupCorrection: "Core::axgen_memory_cleanup_corrections",
 	IntrinsicAxGenRecordChatLog:     "Core::axgen_record_chat_log",
 	IntrinsicAxGenRecordFunction:    "Core::axgen_record_function_call",
+	IntrinsicAgentStageForward:      "Core::agent_stage_forward",
+	IntrinsicAgentStageChatLog:      "Core::agent_stage_chat_log",
+	IntrinsicAgentClarificationErr:  "Core::agent_clarification_error",
+	IntrinsicAgentRuntimeCreate:     "Core::agent_runtime_create_session",
+	IntrinsicAgentRuntimeExecute:    "Core::agent_runtime_execute",
+	IntrinsicAgentRuntimeInspect:    "Core::agent_runtime_inspect",
+	IntrinsicAgentRuntimeExport:     "Core::agent_runtime_export_state",
+	IntrinsicAgentRuntimeRestore:    "Core::agent_runtime_restore_state",
+	IntrinsicAgentRuntimeClose:      "Core::agent_runtime_close",
 	IntrinsicStreamEventParts:       "Core::stream_event_content_parts",
 	IntrinsicDescriptionAppend:      "Core::description_append",
 	IntrinsicURLValid:               "Core::url_valid",
@@ -495,6 +541,8 @@ func cppAttrValue(op Operation, name string) string {
 
 func cppLiteral(value interface{}) string {
 	switch v := value.(type) {
+	case nil:
+		return "Value()"
 	case string:
 		if strings.HasPrefix(v, "%") {
 			return cppName(v)
@@ -517,7 +565,7 @@ func cppLiteral(value interface{}) string {
 func cppName(value string) string {
 	name := strings.TrimPrefix(value, "%")
 	switch name {
-	case "template", "class", "typename", "operator", "return", "for", "if", "else":
+	case "template", "class", "typename", "namespace", "operator", "return", "for", "if", "else", "inline":
 		return name + "_"
 	default:
 		return name

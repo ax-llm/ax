@@ -20,6 +20,7 @@ import { toFieldType } from '../dsp/prompt.js';
 import type { AxIField } from '../dsp/sig.js';
 import { s } from '../dsp/template.js';
 import { AxJSRuntime } from '../funcs/jsRuntime.js';
+import { AxMemory } from '../mem/memory.js';
 import { AxAIServiceAbortedError } from '../util/apicall.js';
 import {
   AX_AGENT_RECURSIVE_ARTIFACT_FORMAT_VERSION,
@@ -167,6 +168,13 @@ const getLoggedSystemPrompt = (
     ? systemMessage.content
     : undefined;
 };
+
+const getPromptText = (prompt: Readonly<AxChatRequest['chatPrompt']>) =>
+  prompt
+    .map((msg) =>
+      typeof msg.content === 'string' ? msg.content : JSON.stringify(msg)
+    )
+    .join('\n');
 
 const getLoggedChatPromptsFromCalls = (
   calls: readonly [
@@ -943,6 +951,124 @@ describe('Split-architecture signature derivation', () => {
     expect(outputs[0].name).toBe('javascriptCode');
   });
 
+  it('should mark actor stable working-set fields cached and dynamic loop fields uncached', () => {
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      contextFields: ['context'],
+      runtime,
+      functionDiscovery: true,
+      contextPolicy: { preset: 'adaptive' },
+      onMemoriesSearch: async () => [],
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const actorSig = getInternal(testAgent).actorProgram.getSignature();
+    const fieldsByName = new Map(
+      actorSig
+        .getInputFields()
+        .map((field: AxIField) => [field.name, field] as const)
+    );
+
+    for (const name of [
+      'query',
+      'executorRequest',
+      'distilledContext',
+      'memories',
+      'discoveredToolDocs',
+      'loadedSkills',
+      'summarizedActorLog',
+    ]) {
+      expect(fieldsByName.get(name)?.isCached).toBe(true);
+    }
+
+    for (const name of [
+      'guidanceLog',
+      'actionLog',
+      'liveRuntimeState',
+      'contextPressure',
+    ]) {
+      expect(fieldsByName.get(name)?.isCached).not.toBe(true);
+    }
+  });
+
+  it('should keep actor system prompt stable when optional loop fields appear', async () => {
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      contextFields: ['context'],
+      runtime,
+      contextPolicy: { preset: 'adaptive' },
+    });
+    const actorProgram = getInternal(testAgent).actorProgram as any;
+    const ai = new AxMockAIService({
+      features: { functions: false, streaming: false },
+    });
+    const contextCache = { ttlSeconds: 3600 };
+
+    const first = await actorProgram.renderPromptWithMetricsForInternalUse(
+      ai,
+      {
+        query: 'root question',
+        executorRequest: 'answer the root question',
+        distilledContext: { facts: ['one'] },
+        actionLog: 'No prior actions.',
+      },
+      { contextCache }
+    );
+    const second = await actorProgram.renderPromptWithMetricsForInternalUse(
+      ai,
+      {
+        query: 'root question',
+        executorRequest: 'answer the root question',
+        distilledContext: { facts: ['one'] },
+        summarizedActorLog: 'Checkpoint Summary: useful prior context.',
+        guidanceLog: 'Turn 1: prefer compact inspections.',
+        actionLog: 'Turn 1: console output captured.',
+        liveRuntimeState: 'total: number = 5',
+        contextPressure: '[HINT: Actor prompt is large.]',
+      },
+      { contextCache }
+    );
+
+    expect(first.prompt[0]?.content).toBe(second.prompt[0]?.content);
+  });
+
+  it('should render cached actor inputs before summarizedActorLog', async () => {
+    const testAgent = agent('context:string, query:string -> answer:string', {
+      contextFields: ['context'],
+      runtime,
+    });
+    const actorProgram = getInternal(testAgent).actorProgram as any;
+    const ai = new AxMockAIService({
+      features: { functions: false, streaming: false },
+    });
+
+    const rendered = await actorProgram.renderPromptWithMetricsForInternalUse(
+      ai,
+      {
+        query: 'root question',
+        executorRequest: 'answer the root question',
+        distilledContext: { facts: ['one'] },
+        summarizedActorLog: 'Checkpoint Summary: useful prior context.',
+        actionLog: 'No prior actions.',
+      },
+      { contextCache: { ttlSeconds: 3600 } }
+    );
+
+    const cachedUser = rendered.prompt.find(
+      (msg: AxChatRequest['chatPrompt'][number]) =>
+        msg.role === 'user' && msg.cache === true
+    ) as { role: 'user'; content: string } | undefined;
+
+    expect(cachedUser?.content).toContain('Query: root question');
+    expect(cachedUser?.content).toContain('Executor Request:');
+    expect(cachedUser?.content).toContain('Distilled Context:');
+    expect(cachedUser?.content).toContain('Summarized Actor Log:');
+    expect(cachedUser!.content.indexOf('Query:')).toBeLessThan(
+      cachedUser!.content.indexOf('Summarized Actor Log:')
+    );
+    expect(cachedUser!.content.indexOf('Executor Request:')).toBeLessThan(
+      cachedUser!.content.indexOf('Summarized Actor Log:')
+    );
+  });
+
   it('should not tell the actor that every code turn must end in console.log', () => {
     const testAgent = agent('context:string, query:string -> answer:string', {
       contextFields: ['context'],
@@ -989,6 +1115,23 @@ describe('Split-architecture signature derivation', () => {
     ).toThrow(
       'AxAgent reserves input field name "contextData" for internal actor/responder wiring'
     );
+
+    for (const name of [
+      'contextMap',
+      'discoveredToolDocs',
+      'loadedSkills',
+      'summarizedActorLog',
+      'contextPressure',
+    ]) {
+      expect(() =>
+        agent(`${name}:string, query:string -> answer:string`, {
+          contextFields: [],
+          runtime,
+        })
+      ).toThrow(
+        `AxAgent reserves input field name "${name}" for internal actor/responder wiring`
+      );
+    }
   });
 
   it('should reject reserved synthetic output field names', () => {
@@ -1000,6 +1143,109 @@ describe('Split-architecture signature derivation', () => {
     ).toThrow(
       'AxAgent reserves output field name "javascriptCode" for internal actor wiring'
     );
+  });
+
+  it('should derive non-JavaScript actor code field from runtime language', () => {
+    const pythonRuntime: AxCodeRuntime = {
+      language: 'Python',
+      getUsageInstructions: () => '- Use Python syntax for runtime code.',
+      createSession() {
+        return { execute: async () => 'ok', close: () => {} };
+      },
+    };
+
+    const testAgent = agent('query:string -> answer:string', {
+      contextFields: [],
+      runtime: pythonRuntime,
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const anyAgent = getInternal(testAgent) as any;
+    const actorSig = anyAgent.actorProgram.getSignature();
+    const outputs = actorSig.getOutputFields() as AxIField[];
+    const actorDesc = actorSig.getDescription() as string;
+
+    expect(outputs).toHaveLength(1);
+    expect(outputs[0].name).toBe('pythonCode');
+    expect(outputs[0].description).toContain(
+      'The value of this field must be executable Python only.'
+    );
+    expect(actorDesc).toContain('Python runtime');
+    expect(actorDesc).toContain('Python Runtime Usage Instructions');
+    expect(actorDesc).toContain('Python Code');
+    expect(actorDesc).not.toContain('```js');
+    expect(actorDesc).not.toContain('JavaScript Runtime Usage Instructions');
+  });
+
+  it('should reject the active non-JavaScript runtime code field name', () => {
+    const pythonRuntime: AxCodeRuntime = {
+      language: 'Python',
+      getUsageInstructions: () => '',
+      createSession() {
+        return { execute: async () => 'ok', close: () => {} };
+      },
+    };
+
+    expect(() =>
+      agent('query:string -> pythonCode:string', {
+        contextFields: [],
+        runtime: pythonRuntime,
+      })
+    ).toThrow(
+      'AxAgent reserves output field name "pythonCode" for internal actor wiring'
+    );
+  });
+
+  it('should execute actor code from a non-JavaScript runtime field without JS turn policy', async () => {
+    const executedCodes: string[] = [];
+    let globalsSeen: Record<string, unknown> | undefined;
+    const pythonRuntime: AxCodeRuntime = {
+      language: 'Python',
+      getUsageInstructions: () =>
+        '- Python runtime; console.log is mentioned only as text.',
+      createSession(globals) {
+        globalsSeen = globals;
+        return {
+          execute: async (code: string) => {
+            executedCodes.push(code);
+            (globals?.final as (...args: unknown[]) => void)('done', {
+              answer: 'ok',
+            });
+            return 'python-result';
+          },
+          patchGlobals: async () => {},
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('query:string -> answer:string', {
+      contextFields: [],
+      runtime: pythonRuntime,
+    });
+    const anyAgent = getInternal(testAgent) as any;
+    anyAgent.actorProgram.forward = async () => ({
+      pythonCode: 'value = 1',
+    });
+    anyAgent.responderProgram.forward = async () => {
+      throw new Error('Responder should not run in _runActorLoop test');
+    };
+
+    const actorState = await anyAgent._runActorLoop(
+      new AxMockAIService({
+        features: { functions: false, streaming: false },
+      }),
+      { query: 'hello' },
+      undefined,
+      undefined
+    );
+
+    expect(executedCodes).toEqual(['value = 1']);
+    expect(globalsSeen).toHaveProperty('final');
+    expect(actorState.executorResult).toEqual({
+      type: 'final',
+      args: ['done', { answer: 'ok' }],
+    });
   });
 
   it('should include object-configured context field as optional Actor input', () => {
@@ -3621,7 +3867,7 @@ describe('Actor/Responder execution loop', () => {
     });
   });
 
-  it('should render discovery docs in the actor system prompt and keep actionLog non-instructional', async () => {
+  it('should render discovery docs as actor input and keep actionLog non-instructional', async () => {
     const { actorActionLogPrompt, actorSystemPrompt, result } =
       await runDiscoveryPromptScenario({
         contextPolicy: { preset: 'adaptive' },
@@ -3629,15 +3875,18 @@ describe('Actor/Responder execution loop', () => {
 
     expect(result.answer).toBe('done');
     expect(actorSystemPrompt).toContain('### Discovered Tool Docs');
-    expect(actorSystemPrompt).toContain('### Module `db`');
-    expect(actorSystemPrompt).toContain('### Module `kb`');
-    expect(actorSystemPrompt).toContain('### `db.search`');
-    expect(actorSystemPrompt).toContain('### `kb.lookup`');
-    expect(actorSystemPrompt.indexOf('### Module `db`')).toBeLessThan(
-      actorSystemPrompt.indexOf('### Module `kb`')
+    expect(actorSystemPrompt).not.toContain('### Module `db`');
+    expect(actorSystemPrompt).not.toContain('### `db.search`');
+    expect(actorActionLogPrompt).toContain('Discovered Tool Docs:');
+    expect(actorActionLogPrompt).toContain('### Module `db`');
+    expect(actorActionLogPrompt).toContain('### Module `kb`');
+    expect(actorActionLogPrompt).toContain('### `db.search`');
+    expect(actorActionLogPrompt).toContain('### `kb.lookup`');
+    expect(actorActionLogPrompt.indexOf('### Module `db`')).toBeLessThan(
+      actorActionLogPrompt.indexOf('### Module `kb`')
     );
-    expect(actorSystemPrompt.indexOf('### `db.search`')).toBeLessThan(
-      actorSystemPrompt.indexOf('### `kb.lookup`')
+    expect(actorActionLogPrompt.indexOf('### `db.search`')).toBeLessThan(
+      actorActionLogPrompt.indexOf('### `kb.lookup`')
     );
     expect(actorActionLogPrompt).toContain(
       'Discovery docs now available for modules: db, kb'
@@ -3645,8 +3894,14 @@ describe('Actor/Responder execution loop', () => {
     expect(actorActionLogPrompt).toContain(
       'Discovery docs now available for functions: db.search, kb.lookup'
     );
-    expect(actorActionLogPrompt).not.toContain('### Module `db`');
-    expect(actorActionLogPrompt).not.toContain('### `db.search`');
+    const actionLogIndex = actorActionLogPrompt.indexOf('Action Log:');
+    expect(actionLogIndex).toBeGreaterThan(-1);
+    expect(actorActionLogPrompt.slice(actionLogIndex)).not.toContain(
+      '### Module `db`'
+    );
+    expect(actorActionLogPrompt.slice(actionLogIndex)).not.toContain(
+      '### `db.search`'
+    );
   });
 
   it('should append discovery summaries without clobbering other successful turn output', async () => {
@@ -3728,17 +3983,22 @@ describe('Actor/Responder execution loop', () => {
     );
   });
 
-  it('should restore discovered docs into the actor system prompt from saved state', async () => {
+  it('should restore discovered docs into actor input from saved state', async () => {
     const initialRun = await runDiscoveryPromptScenario({
       contextPolicy: { preset: 'full' },
     });
-    const restoredPrompts: string[] = [];
+    const restoredPrompts: { system: string; user: string }[] = [];
     const restoredAI = new AxMockAIService({
       features: { functions: false, streaming: false },
       chatResponse: async (req) => {
         const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
         if (systemPrompt.includes('You (`executor`)')) {
-          restoredPrompts.push(systemPrompt);
+          restoredPrompts.push({
+            system: systemPrompt,
+            user: getPromptText(
+              req.chatPrompt.filter((msg) => msg.role === 'user') as any
+            ),
+          });
           return {
             results: [
               {
@@ -3779,19 +4039,26 @@ describe('Actor/Responder execution loop', () => {
     });
 
     expect(result.answer).toBe('done');
-    expect(restoredPrompts[0]).toContain('### Discovered Tool Docs');
-    expect(restoredPrompts[0]).toContain('### Module `db`');
-    expect(restoredPrompts[0]).toContain('### `db.search`');
+    expect(restoredPrompts[0]?.system).toContain('### Discovered Tool Docs');
+    expect(restoredPrompts[0]?.system).not.toContain('### Module `db`');
+    expect(restoredPrompts[0]?.user).toContain('Discovered Tool Docs:');
+    expect(restoredPrompts[0]?.user).toContain('### Module `db`');
+    expect(restoredPrompts[0]?.user).toContain('### `db.search`');
   });
 
   it('should normalize and dedupe restored discovery state before rendering', async () => {
-    const restoredPrompts: string[] = [];
+    const restoredPrompts: { system: string; user: string }[] = [];
     const restoredAI = new AxMockAIService({
       features: { functions: false, streaming: false },
       chatResponse: async (req) => {
         const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
         if (systemPrompt.includes('You (`executor`)')) {
-          restoredPrompts.push(systemPrompt);
+          restoredPrompts.push({
+            system: systemPrompt,
+            user: getPromptText(
+              req.chatPrompt.filter((msg) => msg.role === 'user') as any
+            ),
+          });
           return {
             results: [
               {
@@ -3888,25 +4155,28 @@ describe('Actor/Responder execution loop', () => {
     });
 
     expect(result.answer).toBe('done');
-    expect(restoredPrompts[0]).toContain('### Module `db`');
-    expect(restoredPrompts[0]).toContain('### Module `kb`');
-    expect(restoredPrompts[0].indexOf('### Module `db`')).toBeLessThan(
-      restoredPrompts[0].indexOf('### Module `kb`')
+    expect(restoredPrompts[0]?.system).toContain('### Discovered Tool Docs');
+    expect(restoredPrompts[0]?.system).not.toContain('### Module `db`');
+    const restoredUserPrompt = restoredPrompts[0]?.user ?? '';
+    expect(restoredUserPrompt).toContain('### Module `db`');
+    expect(restoredUserPrompt).toContain('### Module `kb`');
+    expect(restoredUserPrompt.indexOf('### Module `db`')).toBeLessThan(
+      restoredUserPrompt.indexOf('### Module `kb`')
     );
-    expect(restoredPrompts[0]).toContain('### `kb.lookup`');
-    expect(restoredPrompts[0]).toContain('### `utils.search`');
-    expect(restoredPrompts[0].indexOf('### `kb.lookup`')).toBeLessThan(
-      restoredPrompts[0].indexOf('### `utils.search`')
+    expect(restoredUserPrompt).toContain('### `kb.lookup`');
+    expect(restoredUserPrompt).toContain('### `utils.search`');
+    expect(restoredUserPrompt.indexOf('### `kb.lookup`')).toBeLessThan(
+      restoredUserPrompt.indexOf('### `utils.search`')
     );
-    expect(restoredPrompts[0]).toContain('- `search updated`');
-    expect(restoredPrompts[0]).toContain('- canonical new');
-    expect(restoredPrompts[0]).not.toContain('- canonical old');
-    expect(restoredPrompts[0].match(/### `utils\.search`/g) ?? []).toHaveLength(
+    expect(restoredUserPrompt).toContain('- `search updated`');
+    expect(restoredUserPrompt).toContain('- canonical new');
+    expect(restoredUserPrompt).not.toContain('- canonical old');
+    expect(restoredUserPrompt.match(/### `utils\.search`/g) ?? []).toHaveLength(
       1
     );
   });
 
-  it('should keep discovery docs in the system prompt when checkpoint summaries are enabled', async () => {
+  it('should keep discovery docs in cached actor input when checkpoint summaries are enabled', async () => {
     const { actorActionLogPrompt, actorSystemPrompt, chatSpy, result } =
       await runDiscoveryPromptScenario({
         contextPolicy: {
@@ -3919,9 +4189,17 @@ describe('Actor/Responder execution loop', () => {
 
     expect(result.answer).toBe('done');
     expect(actorActionLogPrompt).toContain('Checkpoint Summary:');
-    expect(actorActionLogPrompt).not.toContain('### Module `db`');
-    expect(actorSystemPrompt).toContain('### Module `db`');
-    expect(actorSystemPrompt).toContain('### `db.search`');
+    expect(actorSystemPrompt).toContain('### Discovered Tool Docs');
+    expect(actorSystemPrompt).not.toContain('### Module `db`');
+    expect(actorSystemPrompt).not.toContain('### `db.search`');
+    expect(actorActionLogPrompt).toContain('Discovered Tool Docs:');
+    expect(actorActionLogPrompt).toContain('### Module `db`');
+    expect(actorActionLogPrompt).toContain('### `db.search`');
+    const actionLogIndex = actorActionLogPrompt.indexOf('Action Log:');
+    expect(actionLogIndex).toBeGreaterThan(-1);
+    expect(actorActionLogPrompt.slice(actionLogIndex)).not.toContain(
+      '### Module `db`'
+    );
 
     // With state separation, if all checkpoint entries fit in working state
     // (<=2 non-error entries), the LLM is not called — only working code
@@ -10030,6 +10308,207 @@ describe('executorOptions / responderOptions', () => {
 
     expect(capturedResponderModel).toBe('responder-model');
   });
+
+  it('should propagate top-level contextCache to distiller, executor, and responder', async () => {
+    const topLevelContextCache = { ttlSeconds: 1111 } as const;
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = getPromptText(req.chatPrompt);
+        if (
+          systemPrompt.includes('You (`distiller`)') ||
+          systemPrompt.includes('You (`executor`)')
+        ) {
+          return {
+            results: [
+              {
+                index: 0,
+                content:
+                  'Javascript Code: final("generate output", { data: "done" })',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+    const chatSpy = vi.spyOn(testMockAI, 'chat');
+
+    const testAgent = agent('docText:string, query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: ['docText'],
+      runtime: defaultRuntime,
+      contextCache: topLevelContextCache,
+    });
+
+    await testAgent.forward(testMockAI, { docText: 'ctx', query: 'q' });
+
+    const cacheForStage = (needle: string) =>
+      chatSpy.mock.calls.find(([req]) =>
+        getPromptText(req.chatPrompt).includes(needle)
+      )?.[1]?.contextCache;
+
+    expect(cacheForStage('You (`distiller`)')).toEqual(topLevelContextCache);
+    expect(cacheForStage('You (`executor`)')).toEqual(topLevelContextCache);
+    expect(cacheForStage('Answer Synthesis Agent')).toEqual(
+      topLevelContextCache
+    );
+  });
+
+  it('should let stage-specific and call-time contextCache options take precedence', async () => {
+    const topLevelContextCache = { ttlSeconds: 1111 } as const;
+    const contextStageCache = {
+      ttlSeconds: 2222,
+      cacheBreakpoint: 'system',
+    } as const;
+    const executorStageCache = {
+      ttlSeconds: 3333,
+      cacheBreakpoint: 'after-functions',
+    } as const;
+    const responderStageCache = {
+      ttlSeconds: 4444,
+      cacheBreakpoint: 'after-examples',
+    } as const;
+    const callTimeCache = {
+      ttlSeconds: 5555,
+      cacheBreakpoint: 'system',
+    } as const;
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = getPromptText(req.chatPrompt);
+        if (
+          systemPrompt.includes('You (`distiller`)') ||
+          systemPrompt.includes('You (`executor`)')
+        ) {
+          return {
+            results: [
+              {
+                index: 0,
+                content:
+                  'Javascript Code: final("generate output", { data: "done" })',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+    const chatSpy = vi.spyOn(testMockAI, 'chat');
+
+    const testAgent = agent('docText:string, query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: ['docText'],
+      runtime: defaultRuntime,
+      contextCache: topLevelContextCache,
+      contextOptions: { contextCache: contextStageCache },
+      executorOptions: { contextCache: executorStageCache },
+      responderOptions: { contextCache: responderStageCache },
+    });
+
+    const cacheForStage = (needle: string) =>
+      chatSpy.mock.calls.find(([req]) =>
+        getPromptText(req.chatPrompt).includes(needle)
+      )?.[1]?.contextCache;
+
+    await testAgent.forward(testMockAI, { docText: 'ctx', query: 'q' });
+
+    expect(cacheForStage('You (`distiller`)')).toEqual(contextStageCache);
+    expect(cacheForStage('You (`executor`)')).toEqual(executorStageCache);
+    expect(cacheForStage('Answer Synthesis Agent')).toEqual(
+      responderStageCache
+    );
+
+    chatSpy.mockClear();
+
+    await testAgent.forward(
+      testMockAI,
+      { docText: 'ctx', query: 'q' },
+      { contextCache: callTimeCache }
+    );
+
+    expect(cacheForStage('You (`distiller`)')).toEqual(callTimeCache);
+    expect(cacheForStage('You (`executor`)')).toEqual(callTimeCache);
+    expect(cacheForStage('Answer Synthesis Agent')).toEqual(callTimeCache);
+  });
+
+  it('should isolate internal actor and responder calls from shared AxMemory chat history', async () => {
+    const sharedMemory = new AxMemory();
+    sharedMemory.addRequest([
+      {
+        role: 'user',
+        content: 'SHARED-MEMORY-SENTINEL: prior public conversation',
+      },
+    ]);
+    const seenPrompts: string[] = [];
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const promptText = getPromptText(req.chatPrompt);
+        seenPrompts.push(promptText);
+
+        if (
+          promptText.includes('You (`distiller`)') ||
+          promptText.includes('You (`executor`)')
+        ) {
+          return {
+            results: [
+              {
+                index: 0,
+                content:
+                  'Javascript Code: final("generate output", { data: "done" })',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            { index: 0, content: 'Answer: done', finishReason: 'stop' },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const testAgent = agent('docText:string, query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: ['docText'],
+      runtime: defaultRuntime,
+    });
+
+    const result = await testAgent.forward(
+      testMockAI,
+      { docText: 'ctx', query: 'q' },
+      { mem: sharedMemory }
+    );
+
+    expect(result.answer).toBe('done');
+    expect(seenPrompts).toHaveLength(3);
+    for (const prompt of seenPrompts) {
+      expect(prompt).not.toContain('SHARED-MEMORY-SENTINEL');
+    }
+  });
 });
 
 describe('executorOptions.excludeFields / responderOptions.excludeFields', () => {
@@ -14378,7 +14857,7 @@ describe('AxFunction', () => {
     expect(getLoggedSystemPrompt(chatLogs[2]!)).toContain('Executor');
   });
 
-  it('should re-show the actor system prompt in debug logs after discovery updates it', async () => {
+  it('should keep the actor system prompt hidden in debug logs after discovery updates actor inputs', async () => {
     let actorTurn = 0;
 
     const runtime: AxCodeRuntime = {
@@ -14458,14 +14937,21 @@ describe('AxFunction', () => {
       chatSpy.mock.calls as Parameters<typeof getLoggedChatPromptsFromCalls>[0],
       (req) => String(req.chatPrompt[0]?.content ?? '').includes('Executor')
     );
+    const executorCalls = chatSpy.mock.calls.filter(([req]) =>
+      String(req.chatPrompt[0]?.content ?? '').includes('Executor')
+    );
+    const secondActorUserPrompt = getPromptText(
+      executorCalls[1]![0].chatPrompt.filter(
+        (msg) => msg.role === 'user'
+      ) as any
+    );
     expect(chatLogs).toHaveLength(3);
     expect(getLoggedSystemPrompt(chatLogs[0]!)).toContain('Executor');
-    expect(getLoggedSystemPrompt(chatLogs[1]!)).toContain(
-      '### Discovered Tool Docs'
-    );
-    expect(getLoggedSystemPrompt(chatLogs[1]!)).toContain('### Module `db`');
-    expect(getLoggedSystemPrompt(chatLogs[1]!)).toContain('### `db.search`');
+    expect(getLoggedSystemPrompt(chatLogs[1]!)).toBeUndefined();
     expect(getLoggedSystemPrompt(chatLogs[2]!)).toBeUndefined();
+    expect(secondActorUserPrompt).toContain('Discovered Tool Docs:');
+    expect(secondActorUserPrompt).toContain('### Module `db`');
+    expect(secondActorUserPrompt).toContain('### `db.search`');
   });
 
   it('should keep the actor system prompt hidden in debug logs after guideAgent updates only guidanceLog', async () => {
@@ -14579,7 +15065,7 @@ describe('AxFunction', () => {
     expect(getLoggedSystemPrompt(chatLogs[2]!)).toBeUndefined();
   });
 
-  it('should re-show the actor system prompt once when discovery and guidance update it together', async () => {
+  it('should keep the actor system prompt hidden when discovery and guidance update actor inputs together', async () => {
     let actorTurn = 0;
 
     const guideFunctionGroup = {
@@ -14694,15 +15180,24 @@ describe('AxFunction', () => {
       chatSpy.mock.calls as Parameters<typeof getLoggedChatPromptsFromCalls>[0],
       (req) => String(req.chatPrompt[0]?.content ?? '').includes('Executor')
     );
+    const executorCalls = chatSpy.mock.calls.filter(([req]) =>
+      String(req.chatPrompt[0]?.content ?? '').includes('Executor')
+    );
+    const secondActorUserPrompt = getPromptText(
+      executorCalls[1]![0].chatPrompt.filter(
+        (msg) => msg.role === 'user'
+      ) as any
+    );
     expect(chatLogs).toHaveLength(3);
     expect(getLoggedSystemPrompt(chatLogs[0]!)).toContain('Executor');
-    expect(getLoggedSystemPrompt(chatLogs[1]!)).toContain(
-      '### Discovered Tool Docs'
-    );
-    expect(getLoggedSystemPrompt(chatLogs[1]!)).not.toContain(
-      '### Trust Boundaries'
-    );
+    expect(getLoggedSystemPrompt(chatLogs[1]!)).toBeUndefined();
     expect(getLoggedSystemPrompt(chatLogs[2]!)).toBeUndefined();
+    expect(secondActorUserPrompt).toContain('Discovered Tool Docs:');
+    expect(secondActorUserPrompt).toContain('### Module `db`');
+    expect(secondActorUserPrompt).toContain('Guidance Log:');
+    expect(secondActorUserPrompt).toContain(
+      'Do not send email yet. Gather one more detail first.'
+    );
   });
 
   it('should leave extra.protocol undefined outside AxAgent actor runtime calls', async () => {

@@ -1,0 +1,37 @@
+{
+  "discover": {
+    "tools": ["docs"]
+  },
+  "expected_discover_result": null,
+  "expected_discovered_tool_docs_subset": [
+    {
+      "description": "Search documentation",
+      "name": "search",
+      "namespace": "docs",
+      "qualified_name": "docs.search"
+    }
+  ],
+  "expected_policy_trace_subset": [
+    {
+      "skills": [],
+      "tools": ["docs"],
+      "type": "discover"
+    }
+  ],
+  "kind": "agent_runtime_policy",
+  "name": "discover-tools-mutates-next-prompt-state",
+  "options": {
+    "functions": [
+      {
+        "functions": [
+          {
+            "description": "Search documentation",
+            "name": "search"
+          }
+        ],
+        "namespace": "docs"
+      }
+    ]
+  },
+  "signature": "question:string -> answer:string"
+}

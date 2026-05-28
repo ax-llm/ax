@@ -31,6 +31,9 @@ class Transport;
 class Tool;
 class AxMemory;
 class AxGen;
+class AxAgent;
+class AxCodeRuntime;
+class AxCodeSession;
 class AxAIService;
 class OpenAICompatibleClient;
 
@@ -94,6 +97,7 @@ struct Core {
   static Array iter(Value value);
   static Value map_contains(Value values, Value key);
   static Value map_get(Value values, Value key);
+  static Value map_delete(Value values, Value key);
   static Value map_update(Value target, Value values);
   static Value map_values(Value values);
   static Value list_get(Value values, Value index, Value default_value);
@@ -137,6 +141,8 @@ struct Core {
   static AxError as_error(Value error);
   static Value coerce_chat_request(Value request);
   static Value client_ref(AIClient& client);
+  static Value agent_stage_ref(AxGen& stage);
+  static Value code_runtime_ref(AxCodeRuntime& runtime);
   static Value object_call_method(Value target, Value method_name, Value arg = Value());
   static Value ai_complete_once(Value client, Value request);
   static Value retry_sleep(Value attempt);
@@ -171,6 +177,15 @@ struct Core {
   static Value axgen_memory_cleanup_corrections(Value gen);
   static Value axgen_record_chat_log(Value gen, Value request, Value response);
   static Value axgen_record_function_call(Value gen, Value call, Value result, Value status);
+  static Value agent_stage_forward(Value stage, Value client, Value values, Value options);
+  static Value agent_stage_chat_log(Value stage);
+  static Value agent_clarification_error(Value payload, Value state);
+  static Value agent_runtime_create_session(Value runtime, Value globals, Value options);
+  static Value agent_runtime_execute(Value session, Value code, Value options);
+  static Value agent_runtime_inspect(Value session, Value options);
+  static Value agent_runtime_export_state(Value session, Value options);
+  static Value agent_runtime_restore_state(Value session, Value snapshot, Value options);
+  static Value agent_runtime_close(Value session);
   static Value stream_event_content_parts(Value event);
 
   static Value _signature_parse_fields_impl(Value text, Value output);
@@ -264,6 +279,42 @@ struct Core {
   static Value normalize_stream_delta(Value raw, Value state);
   static Value build_embed_request(Value service, Value request, Value options);
   static Value normalize_embed_response(Value raw);
+  static Value _agent_reserved_runtime_names();
+  static Value _normalize_agent_runtime(Value options);
+  static Value _normalize_agent_policy(Value options);
+  static Value _normalize_agent_callable(Value raw, Value namespace_);
+  static Value _normalize_agent_group(Value raw);
+  static Value _normalize_agent_callable_inventory(Value options);
+  static Value _split_agent_callable_inventory(Value inventory);
+  static Value _render_agent_discovery_catalog(Value split);
+  static Value _agent_discover(Value state, Value request);
+  static Value _normalize_agent_final_payload(Value value);
+  static Value _normalize_agent_clarification_payload(Value value);
+  static Value _agent_optimizer_metadata(Value state);
+  static Value _agent_export_runtime_state(Value state);
+  static Value _agent_restore_runtime_state(Value state, Value snapshot);
+  static Value _agent_runtime_build_globals(Value state, Value values);
+  static Value _agent_runtime_append_action_log(Value state, Value entry);
+  static Value _normalize_agent_runtime_step_result(Value raw, Value code);
+  static Value _agent_runtime_create_session(Value state, Value runtime, Value globals, Value options);
+  static Value _agent_runtime_execute_step(Value state, Value runtime, Value session, Value code, Value options);
+  static Value _agent_runtime_inspect_state(Value state, Value session, Value options);
+  static Value _agent_runtime_export_session_state(Value state, Value session, Value options);
+  static Value _agent_runtime_restore_session_state(Value state, Value session, Value snapshot, Value options);
+  static Value _agent_runtime_close_session(Value state, Value session);
+  static Value _agent_runtime_test(Value state, Value runtime, Value code, Value values, Value options);
+  static Value _agent_factory(Value signature, Value options);
+  static Value _split_context_values(Value state, Value values);
+  static Value _build_distiller_inputs(Value state, Value values);
+  static Value _build_executor_inputs(Value state, Value values, Value distiller_payload);
+  static Value _build_responder_inputs(Value state, Value values, Value executor_payload);
+  static Value _normalize_agent_completion_payload(Value output);
+  static Value _throw_agent_clarification(Value payload, Value state);
+  static Value _merge_agent_chat_log(Value state, Value distiller, Value executor, Value responder);
+  static Value _merge_agent_usage(Value state);
+  static Value _agent_get_state(Value state);
+  static Value _agent_set_state(Value state, Value runtime_state);
+  static Value _agent_forward(Value state, Value distiller, Value executor, Value responder, Value client, Value values, Value options);
 };
 
 class AIClient {
@@ -404,6 +455,52 @@ class AxGen {
   void refresh_prompt_template();
 };
 
+class AxCodeSession {
+ public:
+  virtual ~AxCodeSession() = default;
+  virtual Value execute(Value code, Value options = Value::object()) = 0;
+  virtual Value inspect(Value options = Value::object()) = 0;
+  virtual Value export_state(Value options = Value::object()) = 0;
+  virtual Value restore_state(Value snapshot, Value options = Value::object()) = 0;
+  virtual Value close() = 0;
+};
+
+class AxCodeRuntime {
+ public:
+  virtual ~AxCodeRuntime() = default;
+  virtual AxCodeSession* create_session(Value globals, Value options = Value::object()) = 0;
+};
+
+class AxAgent {
+ public:
+  explicit AxAgent(Value signature, Value options = Value::object());
+  Value forward(AIClient& client, Value values, Value options = Value::object());
+  Value test(AxCodeRuntime& runtime, Value code, Value context_values = Value::object(), Value options = Value::object());
+  Value execute_actor_step(AxCodeRuntime& runtime, Value code, Value values = Value::object(), Value options = Value::object());
+  Value inspect_runtime(Value options = Value::object());
+  Value export_session_state(Value options = Value::object());
+  Value restore_session_state(Value snapshot, Value options = Value::object());
+  Value close_runtime_session();
+  Value get_state() const;
+  void set_state(Value state);
+  Value get_chat_log() const;
+  Value get_usage() const;
+  Value get_runtime_contract() const;
+  Value get_policy() const;
+  Value get_callable_inventory() const;
+  Value get_discovery_catalog() const;
+  Value discover(Value request);
+  Value export_runtime_state() const;
+  Value restore_runtime_state(Value snapshot);
+  Value get_optimizer_metadata() const;
+
+ private:
+  Value state_;
+  std::unique_ptr<AxGen> distiller_;
+  std::unique_ptr<AxGen> executor_;
+  std::unique_ptr<AxGen> responder_;
+};
+
 std::string stringify(const Value& value);
 Value parse_json(const std::string& source);
 bool equal(const Value& left, const Value& right);
@@ -415,6 +512,9 @@ Value signature(const std::string& source);
 AxGen ax(const std::string& signature, Value options = Value::object());
 AxGen ax(const char* signature, Value options = Value::object());
 AxGen ax(Value signature, Value options = Value::object());
+AxAgent agent(const std::string& signature, Value options = Value::object());
+AxAgent agent(const char* signature, Value options = Value::object());
+AxAgent agent(Value signature, Value options = Value::object());
 std::shared_ptr<AxAIService> ai(const std::string& provider, Value options = Value::object());
 std::shared_ptr<AxAIService> ai(const char* provider, Value options = Value::object());
 Value to_json_schema(Value fields, const std::string& title = "Schema", Value options = Value::object());
@@ -466,6 +566,21 @@ AxError::AxError(std::string category, std::string message, std::string type_, i
 static std::map<std::string, AIClient*>& client_registry() {
   static std::map<std::string, AIClient*> clients;
   return clients;
+}
+
+static std::map<std::string, AxGen*>& agent_stage_registry() {
+  static std::map<std::string, AxGen*> stages;
+  return stages;
+}
+
+static std::map<std::string, AxCodeRuntime*>& code_runtime_registry() {
+  static std::map<std::string, AxCodeRuntime*> runtimes;
+  return runtimes;
+}
+
+static std::map<std::string, AxCodeSession*>& code_session_registry() {
+  static std::map<std::string, AxCodeSession*> sessions;
+  return sessions;
 }
 
 static std::map<std::string, std::function<Value(Value)>>& tool_registry() {
@@ -664,6 +779,17 @@ Array Core::iter(Value value) {
 }
 Value Core::map_contains(Value values, Value key) { return Value(has_key(values, key_string(key))); }
 Value Core::map_get(Value values, Value key) { return get(values, key); }
+Value Core::map_delete(Value values, Value key) {
+  std::string k = key_string(key);
+  Object& out = object_mut(values);
+  out.erase(k);
+  Array order;
+  for (const auto& item : array_ref(out["__order"])) {
+    if (str(item) != k) order.push_back(item);
+  }
+  out["__order"] = order;
+  return values;
+}
 Value Core::map_update(Value target, Value values) {
   auto out = object_ref(target);
   Array order = array_ref(out["__order"]);
@@ -976,6 +1102,16 @@ Value Core::client_ref(AIClient& client) {
   client_registry()[id] = &client;
   return Value(Object{{"__client_id", id}});
 }
+Value Core::agent_stage_ref(AxGen& stage) {
+  std::string id = pointer_id(&stage);
+  agent_stage_registry()[id] = &stage;
+  return Value(Object{{"__agent_stage_id", id}});
+}
+Value Core::code_runtime_ref(AxCodeRuntime& runtime) {
+  std::string id = pointer_id(&runtime);
+  code_runtime_registry()[id] = &runtime;
+  return Value(Object{{"__code_runtime_id", id}});
+}
 Value Core::legacy_response_to_chat_response(Value raw) {
   if (!get_key(raw, "results").is_null()) return raw;
   Array calls;
@@ -1024,6 +1160,81 @@ Value Core::tool_invoke(Value fn, Value params) {
   Value returns = get_key(fn, "returns", Value::array());
   if (truthy(returns) && result.is_object()) validate_fields(returns, result, "tool." + str(get_key(fn, "name")) + ".return");
   return result;
+}
+Value Core::agent_stage_forward(Value stage, Value client, Value values, Value options) {
+  std::string stage_id = str(get_key(stage, "__agent_stage_id"));
+  auto stage_it = agent_stage_registry().find(stage_id);
+  if (stage_it == agent_stage_registry().end() || stage_it->second == nullptr) {
+    throw AxError("runtime", "agent stage is not AxGen");
+  }
+  std::string client_id = str(get_key(client, "__client_id"));
+  auto client_it = client_registry().find(client_id);
+  if (client_it == client_registry().end() || client_it->second == nullptr) {
+    throw AxError("runtime", "client does not implement AIClient");
+  }
+  return stage_it->second->forward(*client_it->second, values, options);
+}
+Value Core::agent_stage_chat_log(Value stage) {
+  std::string stage_id = str(get_key(stage, "__agent_stage_id"));
+  auto it = agent_stage_registry().find(stage_id);
+  if (it == agent_stage_registry().end() || it->second == nullptr) return Value::array();
+  return it->second->get_chat_log();
+}
+Value Core::agent_clarification_error(Value payload, Value state) {
+  Value args = get_key(payload, "args", Value::array());
+  Value clarification = array_ref(args).empty() ? payload : array_ref(args)[0];
+  std::string message = str(get_key(clarification, "question", get_key(clarification, "message", clarification)));
+  return Value(Object{
+      {"__error", "AxAgentClarificationError"},
+      {"message", message},
+      {"clarification", clarification},
+      {"state", get_key(state, "runtime_state", Value::object())},
+      {"payload", payload},
+  });
+}
+Value Core::agent_runtime_create_session(Value runtime, Value globals, Value options) {
+  std::string runtime_id = str(get_key(runtime, "__code_runtime_id"));
+  auto it = code_runtime_registry().find(runtime_id);
+  if (it == code_runtime_registry().end() || it->second == nullptr) {
+    throw AxError("runtime", "agent runtime does not implement AxCodeRuntime");
+  }
+  AxCodeSession* session = it->second->create_session(globals, options);
+  if (session == nullptr) throw AxError("runtime", "agent runtime returned no session");
+  std::string session_id = pointer_id(session);
+  code_session_registry()[session_id] = session;
+  return Value(Object{{"__code_session_id", session_id}});
+}
+Value Core::agent_runtime_execute(Value session, Value code, Value options) {
+  std::string session_id = str(get_key(session, "__code_session_id"));
+  auto it = code_session_registry().find(session_id);
+  if (it == code_session_registry().end() || it->second == nullptr) throw AxError("runtime", "agent code session is not active");
+  return it->second->execute(code, options);
+}
+Value Core::agent_runtime_inspect(Value session, Value options) {
+  std::string session_id = str(get_key(session, "__code_session_id"));
+  auto it = code_session_registry().find(session_id);
+  if (it == code_session_registry().end() || it->second == nullptr) throw AxError("runtime", "agent code session is not active");
+  return it->second->inspect(options);
+}
+Value Core::agent_runtime_export_state(Value session, Value options) {
+  std::string session_id = str(get_key(session, "__code_session_id"));
+  auto it = code_session_registry().find(session_id);
+  if (it == code_session_registry().end() || it->second == nullptr) throw AxError("runtime", "agent code session is not active");
+  return it->second->export_state(options);
+}
+Value Core::agent_runtime_restore_state(Value session, Value snapshot, Value options) {
+  std::string session_id = str(get_key(session, "__code_session_id"));
+  auto it = code_session_registry().find(session_id);
+  if (it == code_session_registry().end() || it->second == nullptr) throw AxError("runtime", "agent code session is not active");
+  return it->second->restore_state(snapshot, options);
+}
+Value Core::agent_runtime_close(Value session) {
+  std::string session_id = str(get_key(session, "__code_session_id"));
+  auto it = code_session_registry().find(session_id);
+  if (it == code_session_registry().end() || it->second == nullptr) return Value(Object{{"closed", true}});
+  Value result = it->second->close();
+  code_session_registry().erase(it);
+  return result.is_null() ? Value(Object{{"closed", true}}) : result;
 }
 
 static std::string titleize(const std::string& name) {
@@ -2246,6 +2457,64 @@ Value AxGen::forward(AIClient& client, Value values, Value options) {
 
 Value AxGen::value() const { return state_; }
 
+AxAgent::AxAgent(Value signature, Value options) {
+  state_ = Core::_agent_factory(std::move(signature), options);
+  Value stage_options = object({{"validation_retries", 0}});
+  distiller_ = std::make_unique<AxGen>(s(str(Core::get(state_, "distiller_signature"))), stage_options);
+  executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), stage_options);
+  responder_ = std::make_unique<AxGen>(Core::get(state_, "signature"), object({{"validation_retries", Core::get(options, "validation_retries", 2)}}));
+}
+
+Value AxAgent::forward(AIClient& client, Value values, Value options) {
+  return Core::_agent_forward(
+      state_,
+      Core::agent_stage_ref(*distiller_),
+      Core::agent_stage_ref(*executor_),
+      Core::agent_stage_ref(*responder_),
+      Core::client_ref(client),
+      std::move(values),
+      std::move(options));
+}
+
+Value AxAgent::test(AxCodeRuntime& runtime, Value code, Value context_values, Value options) {
+  return Core::_agent_runtime_test(state_, Core::code_runtime_ref(runtime), std::move(code), std::move(context_values), std::move(options));
+}
+
+Value AxAgent::execute_actor_step(AxCodeRuntime& runtime, Value code, Value values, Value options) {
+  Core::_agent_runtime_build_globals(state_, std::move(values));
+  Value session = Core::get(state_, "runtime_session", Value());
+  return Core::_agent_runtime_execute_step(state_, Core::code_runtime_ref(runtime), session, std::move(code), std::move(options));
+}
+
+Value AxAgent::inspect_runtime(Value options) {
+  return Core::_agent_runtime_inspect_state(state_, Core::get(state_, "runtime_session", Value()), std::move(options));
+}
+
+Value AxAgent::export_session_state(Value options) {
+  return Core::_agent_runtime_export_session_state(state_, Core::get(state_, "runtime_session", Value()), std::move(options));
+}
+
+Value AxAgent::restore_session_state(Value snapshot, Value options) {
+  return Core::_agent_runtime_restore_session_state(state_, Core::get(state_, "runtime_session", Value()), std::move(snapshot), std::move(options));
+}
+
+Value AxAgent::close_runtime_session() {
+  return Core::_agent_runtime_close_session(state_, Core::get(state_, "runtime_session", Value()));
+}
+
+Value AxAgent::get_state() const { return Core::_agent_get_state(state_); }
+void AxAgent::set_state(Value state) { Core::_agent_set_state(state_, std::move(state)); }
+Value AxAgent::get_chat_log() const { return Core::get(state_, "chat_log", Value::array()); }
+Value AxAgent::get_usage() const { return Core::get(state_, "usage", Value::object()); }
+Value AxAgent::get_runtime_contract() const { return Core::get(state_, "runtime_contract", Value::object()); }
+Value AxAgent::get_policy() const { return Core::get(state_, "policy", Value::object()); }
+Value AxAgent::get_callable_inventory() const { return Core::get(state_, "callable_inventory", Value::array()); }
+Value AxAgent::get_discovery_catalog() const { return Core::get(state_, "discovery_catalog", Value::array()); }
+Value AxAgent::discover(Value request) { return Core::_agent_discover(state_, std::move(request)); }
+Value AxAgent::export_runtime_state() const { return Core::_agent_export_runtime_state(state_); }
+Value AxAgent::restore_runtime_state(Value snapshot) { return Core::_agent_restore_runtime_state(state_, std::move(snapshot)); }
+Value AxAgent::get_optimizer_metadata() const { return Core::_agent_optimizer_metadata(state_); }
+
 Value object(std::initializer_list<std::pair<std::string, Value>> items) {
   Value out = Value::object();
   for (const auto& item : items) Core::set(out, item.first, item.second);
@@ -2267,6 +2536,9 @@ Value signature(const std::string& source) { return s(source); }
 AxGen ax(const std::string& source, Value options) { return AxGen(s(source), std::move(options)); }
 AxGen ax(const char* source, Value options) { return ax(std::string(source == nullptr ? "" : source), std::move(options)); }
 AxGen ax(Value signature, Value options) { return AxGen(std::move(signature), std::move(options)); }
+AxAgent agent(const std::string& source, Value options) { return AxAgent(Value(source), std::move(options)); }
+AxAgent agent(const char* source, Value options) { return agent(std::string(source == nullptr ? "" : source), std::move(options)); }
+AxAgent agent(Value signature, Value options) { return AxAgent(std::move(signature), std::move(options)); }
 std::shared_ptr<AxAIService> ai(const std::string& provider, Value options) {
   std::string normalized;
   for (char ch : provider) normalized.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(ch == '-' ? '_' : ch))));
@@ -2337,6 +2609,63 @@ struct FakeTransport : Transport {
     return out;
   }
 };
+
+struct FakeCodeRuntime;
+
+struct FakeCodeSession : AxCodeSession {
+  FakeCodeRuntime* runtime;
+  Value globals;
+  bool closed = false;
+
+  FakeCodeSession(FakeCodeRuntime* runtime_, Value globals_) : runtime(runtime_), globals(std::move(globals_)) {}
+
+  Value execute(Value code, Value options = Value::object()) override;
+  Value inspect(Value options = Value::object()) override { return globals; }
+  Value export_state(Value options = Value::object()) override {
+    return object({{"globals", globals}, {"closed", closed}});
+  }
+  Value restore_state(Value snapshot, Value options = Value::object()) override {
+    globals = Core::get(snapshot, "globals", Value::object());
+    closed = Core::truthy(Core::get(snapshot, "closed", false));
+    return export_state(options);
+  }
+  Value close() override {
+    closed = true;
+    return object({{"closed", true}});
+  }
+};
+
+struct FakeCodeRuntime : AxCodeRuntime {
+  Array script;
+  std::vector<std::unique_ptr<FakeCodeSession>> sessions;
+  std::vector<Value> executed;
+
+  explicit FakeCodeRuntime(Value script_value) : script(as_array(script_value)) {}
+
+  AxCodeSession* create_session(Value globals, Value options = Value::object()) override {
+    sessions.push_back(std::make_unique<FakeCodeSession>(this, std::move(globals)));
+    return sessions.back().get();
+  }
+};
+
+Value FakeCodeSession::execute(Value code, Value) {
+  if (closed) return object({{"is_error", true}, {"error_category", "session_closed"}, {"error", "session closed"}});
+  if (runtime->script.empty()) throw AxError("fixture", "fake runtime exhausted");
+  Value step = runtime->script.front();
+  runtime->script.erase(runtime->script.begin());
+  Value expected = Core::get(step, "expected_code", Value());
+  if (!expected.is_null() && display(expected) != display(code)) {
+    throw AxError("fixture", "expected code " + display(expected) + ", got " + display(code));
+  }
+  runtime->executed.emplace_back(display(code));
+  Value patch = Core::get(step, "bindings_patch", Value::object());
+  for (const auto& kv : as_object(patch)) {
+    if (kv.first != "__order") Core::set(globals, kv.first, kv.second);
+  }
+  if (Core::truthy(Core::get(step, "close_before_result", false))) closed = true;
+  Value default_result = object({{"kind", "result"}, {"result", globals}});
+  return Core::get(step, "result", default_result);
+}
 
 static std::vector<std::pair<std::string, Value>> conf_entries(Value value) {
   Object obj = as_object(value);
@@ -2654,6 +2983,117 @@ static void run_forward(Value fixture) {
   }
 }
 
+static void run_agent_forward(Value fixture) {
+  FakeAIClient client(Core::get(fixture, "responses", Value::array()));
+  std::unique_ptr<AxAgent> ag;
+  try {
+    ag = std::make_unique<AxAgent>(Core::get(fixture, "signature"), Core::get(fixture, "options", Value::object()));
+    if (!Core::get(fixture, "set_state").is_null()) ag->set_state(Core::get(fixture, "set_state"));
+    Value output = ag->forward(client, Core::get(fixture, "input", Value::object()), Core::get(fixture, "forward_options", Value::object()));
+    if (!Core::get(fixture, "expected_error_contains").is_null()) throw AxError("fixture", "expected agent forward to fail");
+    if (!Core::get(fixture, "expected_output").is_null()) assert_equal(output, Core::get(fixture, "expected_output"), "agent output");
+  } catch (const AxError& error) {
+    Value expected = Core::get(fixture, "expected_error_contains");
+    if (expected.is_null()) throw;
+    if (std::string(error.what()).find(display(expected)) == std::string::npos) throw AxError("fixture", std::string("expected error containing ") + display(expected) + ", got " + error.what());
+    return;
+  }
+  Value expected_count = Core::get(fixture, "expected_request_count");
+  if (!expected_count.is_null() && client.requests.size() != static_cast<size_t>(std::stoul(display(expected_count)))) {
+    throw AxError("fixture", "expected agent request count mismatch");
+  }
+  Value expected_contains = Core::get(fixture, "expected_request_contains");
+  if (!expected_contains.is_null()) {
+    std::string request_text = stringify(Value(client.requests));
+    for (const auto& item : Core::iter(expected_contains)) {
+      if (request_text.find(display(item)) == std::string::npos) throw AxError("fixture", "agent request missing " + display(item) + ": " + request_text);
+    }
+  }
+  Value expected_absent = Core::get(fixture, "expected_stage_request_not_contains");
+  if (!expected_absent.is_null()) {
+    for (const auto& raw : Core::iter(expected_absent)) {
+      int index = static_cast<int>(std::stoul(display(Core::get(raw, "index", 0))));
+      std::string text = index < static_cast<int>(client.requests.size()) ? stringify(client.requests[static_cast<size_t>(index)]) : "";
+      for (const auto& item : Core::iter(Core::get(raw, "absent", Value::array()))) {
+        if (text.find(display(item)) != std::string::npos) throw AxError("fixture", "agent request unexpectedly contained " + display(item));
+      }
+    }
+  }
+  if (!Core::get(fixture, "expected_chat_log_subset").is_null()) assert_list_subset(ag->get_chat_log(), Core::get(fixture, "expected_chat_log_subset"), "agent chat log");
+  if (!Core::get(fixture, "expected_state").is_null()) assert_subset(ag->get_state(), Core::get(fixture, "expected_state"), "agent state");
+}
+
+static void run_agent_runtime_policy(Value fixture) {
+  std::unique_ptr<AxAgent> ag;
+  try {
+    ag = std::make_unique<AxAgent>(Core::get(fixture, "signature", "question:string -> answer:string"), Core::get(fixture, "options", Value::object()));
+    if (!Core::get(fixture, "discover").is_null()) {
+      Value result = ag->discover(Core::get(fixture, "discover", Value::object()));
+      if (!Core::get(fixture, "expected_discover_result").is_null()) assert_equal(result, Core::get(fixture, "expected_discover_result"), "discover result");
+    }
+    if (!Core::get(fixture, "restore_runtime_state").is_null()) ag->restore_runtime_state(Core::get(fixture, "restore_runtime_state"));
+    if (!Core::get(fixture, "final_payload").is_null()) assert_equal(Core::_normalize_agent_final_payload(Core::get(fixture, "final_payload")), Core::get(fixture, "expected_final_payload"), "final payload");
+    if (!Core::get(fixture, "clarification_payload").is_null()) assert_equal(Core::_normalize_agent_clarification_payload(Core::get(fixture, "clarification_payload")), Core::get(fixture, "expected_clarification_payload"), "clarification payload");
+  } catch (const AxError& error) {
+    Value expected = Core::get(fixture, "expected_error_contains");
+    if (expected.is_null()) throw;
+    if (std::string(error.what()).find(display(expected)) == std::string::npos) throw AxError("fixture", std::string("expected error containing ") + display(expected) + ", got " + error.what());
+    return;
+  }
+  if (!Core::get(fixture, "expected_error_contains").is_null()) throw AxError("fixture", "expected agent runtime policy fixture to fail");
+  if (!Core::get(fixture, "expected_runtime_contract_subset").is_null()) assert_subset(ag->get_runtime_contract(), Core::get(fixture, "expected_runtime_contract_subset"), "runtime contract");
+  if (!Core::get(fixture, "expected_policy_subset").is_null()) assert_subset(ag->get_policy(), Core::get(fixture, "expected_policy_subset"), "agent policy");
+  if (!Core::get(fixture, "expected_callable_inventory_subset").is_null()) assert_list_subset(ag->get_callable_inventory(), Core::get(fixture, "expected_callable_inventory_subset"), "callable inventory");
+  if (!Core::get(fixture, "expected_discovery_catalog_subset").is_null()) assert_list_subset(ag->get_discovery_catalog(), Core::get(fixture, "expected_discovery_catalog_subset"), "discovery catalog");
+  Value exported = ag->export_runtime_state();
+  if (!Core::get(fixture, "expected_discovered_tool_docs_subset").is_null()) assert_list_subset(Core::get(exported, "discovered_tool_docs", Value::array()), Core::get(fixture, "expected_discovered_tool_docs_subset"), "discovered tools");
+  if (!Core::get(fixture, "expected_loaded_skill_docs_subset").is_null()) assert_list_subset(Core::get(exported, "loaded_skill_docs", Value::array()), Core::get(fixture, "expected_loaded_skill_docs_subset"), "loaded skills");
+  if (!Core::get(fixture, "expected_policy_trace_subset").is_null()) assert_list_subset(Core::get(exported, "policy_trace", Value::array()), Core::get(fixture, "expected_policy_trace_subset"), "policy trace");
+  if (!Core::get(fixture, "expected_exported_state_subset").is_null()) assert_subset(exported, Core::get(fixture, "expected_exported_state_subset"), "exported runtime state");
+  if (!Core::get(fixture, "expected_optimizer_metadata_subset").is_null()) assert_subset(ag->get_optimizer_metadata(), Core::get(fixture, "expected_optimizer_metadata_subset"), "optimizer metadata");
+}
+
+static void run_agent_runtime_session(Value fixture) {
+  AxAgent ag(Core::get(fixture, "signature", "question:string -> answer:string"), Core::get(fixture, "options", Value::object()));
+  FakeCodeRuntime runtime(Core::get(fixture, "runtime_script", Value::array()));
+  Value result;
+  try {
+    std::string operation = display(Core::get(fixture, "operation", "test"));
+    if (operation == "test") {
+      result = ag.test(runtime, Core::get(fixture, "code", ""), Core::get(fixture, "context_values", Core::get(fixture, "input", Value::object())), Core::get(fixture, "runtime_options", Value::object()));
+    } else if (operation == "steps") {
+      for (const auto& raw_step : as_array(Core::get(fixture, "steps", Value::array()))) {
+        Value step = raw_step;
+        if (!Core::get(step, "restore_session_state").is_null()) ag.restore_session_state(Core::get(step, "restore_session_state"));
+        result = ag.execute_actor_step(runtime, Core::get(step, "code", ""), Core::get(step, "values", Core::get(fixture, "context_values", Core::get(fixture, "input", Value::object()))), Core::get(step, "options", Value::object()));
+        if (Core::truthy(Core::get(step, "inspect", false))) ag.inspect_runtime();
+        if (Core::truthy(Core::get(step, "export_session_state", false))) ag.export_session_state();
+      }
+      if (Core::truthy(Core::get(fixture, "close_runtime_session", false))) ag.close_runtime_session();
+    } else if (operation == "reserved") {
+      result = ag.test(runtime, Core::get(fixture, "code", ""), Core::get(fixture, "context_values", Value::object()), Value::object());
+    } else {
+      throw AxError("fixture", "unknown agent runtime session operation " + operation);
+    }
+  } catch (const AxError& error) {
+    Value expected = Core::get(fixture, "expected_error_contains");
+    if (expected.is_null()) throw;
+    if (std::string(error.what()).find(display(expected)) == std::string::npos) throw AxError("fixture", std::string("expected error containing ") + display(expected) + ", got " + error.what());
+    return;
+  }
+  if (!Core::get(fixture, "expected_error_contains").is_null()) throw AxError("fixture", "expected agent runtime session fixture to fail");
+  if (!Core::get(fixture, "expected_result_subset").is_null()) assert_subset(result, Core::get(fixture, "expected_result_subset"), "runtime result");
+  if (!Core::get(fixture, "expected_result").is_null()) assert_equal(result, Core::get(fixture, "expected_result"), "runtime result");
+  Value exported = ag.export_runtime_state();
+  if (!Core::get(fixture, "expected_exported_state_subset").is_null()) assert_subset(exported, Core::get(fixture, "expected_exported_state_subset"), "runtime state");
+  if (!Core::get(fixture, "expected_action_log_subset").is_null()) assert_list_subset(Core::get(exported, "action_log", Value::array()), Core::get(fixture, "expected_action_log_subset"), "action log");
+  if (!Core::get(fixture, "expected_status_log_subset").is_null()) assert_list_subset(Core::get(exported, "status_log", Value::array()), Core::get(fixture, "expected_status_log_subset"), "status log");
+  if (!Core::get(fixture, "expected_session_count").is_null() && runtime.sessions.size() != static_cast<size_t>(std::stoi(display(Core::get(fixture, "expected_session_count"))))) {
+    throw AxError("fixture", "expected session count mismatch");
+  }
+  if (!Core::get(fixture, "expected_executed").is_null()) assert_equal(Value(runtime.executed), Core::get(fixture, "expected_executed"), "executed code");
+}
+
 struct ClientFixture {
   FakeTransport transport;
   OpenAICompatibleClient client;
@@ -2800,6 +3240,12 @@ static void run(Value fixture) {
     assert_equal(Core::fold_stream(Core::get(fixture, "stream_events", Value::array())), Core::get(fixture, "expected_folded", ""), "stream");
   } else if (kind == "forward") {
     run_forward(fixture);
+  } else if (kind == "agent_forward") {
+    run_agent_forward(fixture);
+  } else if (kind == "agent_runtime_policy") {
+    run_agent_runtime_policy(fixture);
+  } else if (kind == "agent_runtime_session") {
+    run_agent_runtime_session(fixture);
   } else if (kind == "ai_chat") {
     run_ai_chat(fixture);
   } else if (kind == "ai_embed") {

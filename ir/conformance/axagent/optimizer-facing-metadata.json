@@ -1,0 +1,28 @@
+{
+  "expected_optimizer_metadata_subset": {
+    "optimizable_components": [
+      {
+        "id": "agent.actor.runtime_instructions",
+        "kind": "runtime_instruction"
+      },
+      {
+        "id": "agent.actor.discovery_policy",
+        "kind": "policy"
+      },
+      {
+        "id": "agent.actor.delegation_policy",
+        "kind": "policy"
+      },
+      {
+        "id": "agent.responder.signature",
+        "kind": "stage"
+      }
+    ],
+    "policy_version": "agent-runtime-decision-v1",
+    "stage_ids": ["distiller", "executor", "responder"]
+  },
+  "kind": "agent_runtime_policy",
+  "name": "optimizer-facing-metadata",
+  "options": {},
+  "signature": "question:string -> answer:string"
+}

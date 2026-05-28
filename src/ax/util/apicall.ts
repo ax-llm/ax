@@ -328,7 +328,9 @@ export class AxAIRefusalError extends Error {
   constructor(
     public readonly refusalMessage: string,
     public readonly model?: string,
-    public readonly requestId?: string
+    public readonly requestId?: string,
+    public readonly category?: string | null,
+    public readonly explanation?: string | null
   ) {
     super(`Model refused to fulfill request: ${refusalMessage}`);
     this.name = 'AxAIRefusalError';
@@ -342,6 +344,8 @@ export class AxAIRefusalError extends Error {
       `Refusal: ${this.refusalMessage}`,
       this.model ? `Model: ${this.model}` : '',
       this.requestId ? `Request ID: ${this.requestId}` : '',
+      this.category ? `Category: ${this.category}` : '',
+      this.explanation ? `Explanation: ${this.explanation}` : '',
       `Timestamp: ${this.timestamp}`,
       `Error ID: ${this.errorId}`,
     ]

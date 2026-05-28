@@ -20,6 +20,7 @@ from .ai import (
     ai,
 )
 from .gen import AxGen, AxMemory, ax
+from .agent import AxAgent, AxAgentClarificationError, AxCodeRuntime, AxCodeSession, agent
 from .prompt import AxPromptTemplate, TemplateError, render_template_content, validate_prompt_template_syntax
 
 __all__ = [
@@ -35,6 +36,10 @@ __all__ = [
     "AxAIServiceTimeoutError",
     "AxBaseAI",
     "AxGen",
+    "AxAgent",
+    "AxAgentClarificationError",
+    "AxCodeRuntime",
+    "AxCodeSession",
     "AxMemory",
     "AxPromptTemplate",
     "AxSignature",
@@ -48,6 +53,7 @@ __all__ = [
     "TemplateError",
     "Tool",
     "ai",
+    "agent",
     "ax",
     "f",
     "fn",
@@ -2515,6 +2521,268 @@ def _core_axgen_record_function_call(gen, call, result, status):
 # AXIR_CORE_GEN_FUNCTIONS
 `
 
+const pyAgent = `from __future__ import annotations
+
+from typing import Any
+
+from .gen import AxGen
+from .signature import AxSignature
+
+
+class AxAgentClarificationError(RuntimeError):
+    def __init__(self, clarification: Any, *, state: Any = None, payload: Any = None):
+        if isinstance(clarification, dict):
+            message = str(clarification.get("question") or clarification.get("message") or clarification)
+        else:
+            message = str(clarification)
+        super().__init__(message)
+        self.clarification = clarification
+        self.state = state
+        self.payload = payload
+
+
+class AxCodeSession:
+    def execute(self, code: str, options: dict[str, Any] | None = None) -> Any:
+        raise NotImplementedError
+
+    def inspect_globals(self, options: dict[str, Any] | None = None) -> Any:
+        raise NotImplementedError
+
+    def export_state(self, options: dict[str, Any] | None = None) -> Any:
+        raise NotImplementedError
+
+    def restore_state(self, snapshot: Any, options: dict[str, Any] | None = None) -> Any:
+        raise NotImplementedError
+
+    def close(self) -> Any:
+        return {"closed": True}
+
+
+class AxCodeRuntime:
+    def create_session(self, globals: dict[str, Any], options: dict[str, Any] | None = None) -> AxCodeSession:
+        raise NotImplementedError
+
+
+class AxAgent:
+    def __init__(self, signature, options: dict[str, Any] | None = None):
+        self.options = dict(options or {})
+        self.state = _agent_factory(signature, self.options)
+        self.signature = _core_get(self.state, "signature")
+        self.distiller = AxGen(_core_get(self.state, "distiller_signature"), {"validation_retries": 0})
+        self.executor = AxGen(_core_get(self.state, "executor_signature"), {"validation_retries": 0})
+        self.responder = AxGen(self.signature, {"validation_retries": self.options.get("validation_retries", 2)})
+
+    def forward(self, client, values: dict[str, Any], options: dict[str, Any] | None = None):
+        return _agent_forward(
+            self.state,
+            self.distiller,
+            self.executor,
+            self.responder,
+            client,
+            values or {},
+            options or {},
+        )
+
+    def test(self, runtime: AxCodeRuntime, code: str, context_field_values: dict[str, Any] | None = None, options: dict[str, Any] | None = None):
+        return _agent_runtime_test(
+            self.state,
+            runtime,
+            code,
+            context_field_values or {},
+            options or {},
+        )
+
+    def execute_actor_step(self, runtime: AxCodeRuntime, code: str, values: dict[str, Any] | None = None, options: dict[str, Any] | None = None):
+        _agent_runtime_build_globals(self.state, values or {})
+        session = _core_get(self.state, "runtime_session")
+        return _agent_runtime_execute_step(self.state, runtime, session, code, options or {})
+
+    def inspect_runtime(self, options: dict[str, Any] | None = None):
+        return _agent_runtime_inspect_state(self.state, _core_get(self.state, "runtime_session"), options or {})
+
+    def export_session_state(self, options: dict[str, Any] | None = None):
+        return _agent_runtime_export_session_state(self.state, _core_get(self.state, "runtime_session"), options or {})
+
+    def restore_session_state(self, snapshot: Any, options: dict[str, Any] | None = None):
+        return _agent_runtime_restore_session_state(self.state, _core_get(self.state, "runtime_session"), snapshot or {}, options or {})
+
+    def close_runtime_session(self):
+        return _agent_runtime_close_session(self.state, _core_get(self.state, "runtime_session"))
+
+    def get_state(self):
+        return _agent_get_state(self.state)
+
+    def set_state(self, state):
+        return _agent_set_state(self.state, state or {})
+
+    def get_chat_log(self):
+        return list(_core_get(self.state, "chat_log", []) or [])
+
+    def get_usage(self):
+        return dict(_core_get(self.state, "usage", {}) or {})
+
+    def get_runtime_contract(self):
+        return dict(_core_get(self.state, "runtime_contract", {}) or {})
+
+    def get_policy(self):
+        return dict(_core_get(self.state, "policy", {}) or {})
+
+    def get_callable_inventory(self):
+        return list(_core_get(self.state, "callable_inventory", []) or [])
+
+    def get_discovery_catalog(self):
+        return list(_core_get(self.state, "discovery_catalog", []) or [])
+
+    def discover(self, request):
+        return _agent_discover(self.state, request or {})
+
+    def export_runtime_state(self):
+        return _agent_export_runtime_state(self.state)
+
+    def restore_runtime_state(self, snapshot):
+        return _agent_restore_runtime_state(self.state, snapshot or {})
+
+    def get_optimizer_metadata(self):
+        return _agent_optimizer_metadata(self.state)
+
+
+def agent(signature, config: dict[str, Any] | None = None) -> AxAgent:
+    return AxAgent(signature, config)
+
+
+def _parse_signature(signature):
+    return AxSignature(signature)
+
+
+def _core_not(value): return not value
+def _core_or(left, right): return bool(left or right)
+def _core_eq(left, right): return left == right
+def _core_gt(left, right): return left > right
+def _core_len(value): return len(value or [])
+def _core_contains(container, item): return False if container is None else item in container
+def _core_is_none(value): return value is None
+def _core_is_not_none(value): return value is not None
+def _core_none(): return None
+
+
+def _core_get(target, key, default=None):
+    if target is None:
+        return default
+    if isinstance(target, dict):
+        return target.get(key, default)
+    if isinstance(target, (list, tuple)) and isinstance(key, int):
+        return target[key] if 0 <= key < len(target) else default
+    return getattr(target, key, default)
+
+
+def _core_type_is(value, type_name):
+    if type_name == "string":
+        return isinstance(value, str)
+    if type_name == "object":
+        return isinstance(value, dict)
+    if type_name == "list":
+        return isinstance(value, list)
+    if type_name == "null":
+        return value is None
+    if type_name == "json":
+        return value is None or isinstance(value, (dict, list, str, int, float, bool))
+    return False
+
+
+def _core_map_merge(left, right):
+    out = dict(left or {})
+    out.update(right or {})
+    return out
+
+
+def _core_map_delete(target, key):
+    if isinstance(target, dict):
+        target.pop(key, None)
+    return target
+
+
+def _core_list_get(values, index, default=None):
+    return values[index] if isinstance(values, list) and 0 <= int(index) < len(values) else default
+
+
+def _core_json_stringify(value):
+    import json
+    return json.dumps(value or {}, sort_keys=True)
+
+
+def _core_string_format(template, *args):
+    return str(template).format(*args)
+
+
+def _core_runtime_error(message):
+    return RuntimeError(str(message))
+
+
+def _core_agent_stage_forward(stage, client, values, options):
+    return stage.forward(client, values or {}, options or {})
+
+
+def _core_agent_stage_chat_log(stage):
+    if hasattr(stage, "get_chat_log"):
+        return stage.get_chat_log()
+    return []
+
+
+def _core_agent_clarification_error(payload, state):
+    args = _core_get(payload, "args", []) or []
+    clarification = args[0] if args else payload
+    return AxAgentClarificationError(
+        clarification,
+        state=_core_get(state, "runtime_state", {}),
+        payload=payload,
+    )
+
+
+def _core_agent_runtime_create_session(runtime, globals_, options):
+    if not hasattr(runtime, "create_session"):
+        raise RuntimeError("agent runtime does not implement AxCodeRuntime")
+    session = runtime.create_session(globals_ or {}, options or {})
+    if session is None:
+        raise RuntimeError("agent runtime returned no session")
+    return session
+
+
+def _core_agent_runtime_execute(session, code, options):
+    if not hasattr(session, "execute"):
+        raise RuntimeError("agent code session is not active")
+    return session.execute(str(code), options or {})
+
+
+def _core_agent_runtime_inspect(session, options):
+    if hasattr(session, "inspect_globals"):
+        return session.inspect_globals(options or {})
+    if hasattr(session, "inspect"):
+        return session.inspect(options or {})
+    return {}
+
+
+def _core_agent_runtime_export_state(session, options):
+    if hasattr(session, "export_state"):
+        return session.export_state(options or {})
+    return {}
+
+
+def _core_agent_runtime_restore_state(session, snapshot, options):
+    if hasattr(session, "restore_state"):
+        return session.restore_state(snapshot or {}, options or {})
+    return snapshot or {}
+
+
+def _core_agent_runtime_close(session):
+    if hasattr(session, "close"):
+        result = session.close()
+        return {"closed": True} if result is None else result
+    return {"closed": True}
+
+
+# AXIR_CORE_AGENT_FUNCTIONS
+`
+
 const pyConformance = `from __future__ import annotations
 
 import copy
@@ -2525,6 +2793,14 @@ from typing import Any
 
 from .ai import AxAIServiceError, AxBaseAI, OpenAICompatibleClient
 from .gen import ax, fold_stream
+from .agent import (
+    AxAgentClarificationError,
+    AxCodeRuntime,
+    AxCodeSession,
+    _normalize_agent_clarification_payload,
+    _normalize_agent_final_payload,
+    agent,
+)
 from .prompt import AxPromptTemplate, render_template_content, validate_prompt_template_syntax
 from .schema import strip_internal, to_json_schema, validate_output, validate_value
 from .signature import AxSignature, f, s
@@ -2572,6 +2848,56 @@ class FakeTransport:
         if not self.responses:
             raise RuntimeError("fake transport exhausted")
         return copy.deepcopy(self.responses.pop(0))
+
+
+class FakeCodeSession(AxCodeSession):
+    def __init__(self, runtime, globals_):
+        self.runtime = runtime
+        self.globals = copy.deepcopy(globals_ or {})
+        self.closed = False
+
+    def execute(self, code: str, options: dict[str, Any] | None = None) -> Any:
+        if self.closed:
+            return {"is_error": True, "error_category": "session_closed", "error": "session closed"}
+        if not self.runtime.script:
+            raise RuntimeError("fake runtime exhausted")
+        step = copy.deepcopy(self.runtime.script.pop(0))
+        expected = step.get("expected_code")
+        if expected is not None and expected != code:
+            raise RuntimeError(f"expected code {expected!r}, got {code!r}")
+        self.runtime.executed.append(code)
+        self.globals.update(step.get("bindings_patch") or {})
+        if step.get("close_before_result"):
+            self.closed = True
+        return copy.deepcopy(step.get("result", {"kind": "result", "result": dict(self.globals)}))
+
+    def inspect_globals(self, options: dict[str, Any] | None = None) -> Any:
+        return copy.deepcopy(self.globals)
+
+    def export_state(self, options: dict[str, Any] | None = None) -> Any:
+        return {"globals": copy.deepcopy(self.globals), "closed": self.closed}
+
+    def restore_state(self, snapshot: Any, options: dict[str, Any] | None = None) -> Any:
+        snap = copy.deepcopy(snapshot or {})
+        self.globals = dict(snap.get("globals") or {})
+        self.closed = bool(snap.get("closed", False))
+        return self.export_state(options or {})
+
+    def close(self) -> Any:
+        self.closed = True
+        return {"closed": True}
+
+
+class FakeCodeRuntime(AxCodeRuntime):
+    def __init__(self, script=None):
+        self.script = list(script or [])
+        self.sessions = []
+        self.executed = []
+
+    def create_session(self, globals: dict[str, Any], options: dict[str, Any] | None = None) -> FakeCodeSession:
+        session = FakeCodeSession(self, globals)
+        self.sessions.append(session)
+        return session
 
 
 def run_fixtures(paths):
@@ -2624,6 +2950,12 @@ def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
             _run_ai_error(fixture)
         elif kind == "ai_unsupported":
             _run_ai_unsupported(fixture)
+        elif kind == "agent_forward":
+            _run_agent_forward(fixture)
+        elif kind == "agent_runtime_policy":
+            _run_agent_runtime_policy(fixture)
+        elif kind == "agent_runtime_session":
+            _run_agent_runtime_session(fixture)
         else:
             raise FixtureError(f"unknown fixture kind {kind!r}")
     except Exception as exc:
@@ -2831,6 +3163,157 @@ def _run_forward(fixture):
         for item in fixture.get("expected_chat_prompt_contains") or []:
             if str(item) not in prompt_text:
                 raise FixtureError(f"chat prompt missing {item!r}: {prompt_text}")
+
+
+def _run_agent_forward(fixture):
+    client = FakeAIService(fixture.get("responses") or [], fixture.get("stream_events") or [])
+    ag = None
+    try:
+        ag = agent(fixture.get("signature"), fixture.get("options") or {})
+        if "set_state" in fixture:
+            ag.set_state(fixture.get("set_state") or {})
+        output = ag.forward(client, fixture.get("input") or {}, fixture.get("forward_options"))
+    except AxAgentClarificationError as exc:
+        expected = fixture.get("expected_error_contains")
+        if expected and expected in str(exc):
+            if "expected_clarification" in fixture:
+                _assert_subset(exc.clarification, fixture["expected_clarification"], "clarification")
+            return
+        raise
+    except Exception as exc:
+        expected = fixture.get("expected_error_contains")
+        if expected and expected in str(exc):
+            return
+        raise
+    if "expected_error_contains" in fixture:
+        raise FixtureError("expected agent forward to fail")
+    if "expected_output" in fixture:
+        _assert_equal(output, fixture["expected_output"], "agent output")
+    if "expected_request_count" in fixture and len(client.requests) != fixture["expected_request_count"]:
+        raise FixtureError(f"expected {fixture['expected_request_count']} requests, got {len(client.requests)}")
+    if "expected_request_contains" in fixture:
+        request_text = json.dumps(client.requests, sort_keys=True)
+        for item in fixture.get("expected_request_contains") or []:
+            if str(item) not in request_text:
+                raise FixtureError(f"agent request missing {item!r}: {request_text}")
+    if "expected_stage_request_not_contains" in fixture:
+        for raw in fixture["expected_stage_request_not_contains"]:
+            index = int(raw.get("index", 0))
+            text = json.dumps(client.requests[index], sort_keys=True) if index < len(client.requests) else ""
+            for item in raw.get("absent") or []:
+                if str(item) in text:
+                    raise FixtureError(f"agent request {index} unexpectedly contained {item!r}: {text}")
+    if "expected_stage_request_subset" in fixture:
+        for raw in fixture["expected_stage_request_subset"]:
+            index = int(raw.get("index", 0))
+            if index >= len(client.requests):
+                raise FixtureError(f"missing agent request index {index}")
+            _assert_subset(client.requests[index], raw.get("request") or {}, f"agent request {index}")
+    if "expected_chat_log_subset" in fixture:
+        _assert_list_subset(ag.get_chat_log(), fixture["expected_chat_log_subset"], "agent chat log")
+    if "expected_state" in fixture:
+        _assert_subset(ag.get_state(), fixture["expected_state"], "agent state")
+
+
+def _run_agent_runtime_policy(fixture):
+    ag = None
+    try:
+        ag = agent(fixture.get("signature", "question:string -> answer:string"), fixture.get("options") or {})
+        if "discover" in fixture:
+            result = ag.discover(fixture.get("discover") or {})
+            if "expected_discover_result" in fixture:
+                _assert_equal(result, fixture.get("expected_discover_result"), "discover result")
+        if "restore_runtime_state" in fixture:
+            ag.restore_runtime_state(fixture.get("restore_runtime_state") or {})
+        if "final_payload" in fixture:
+            payload = _normalize_agent_final_payload(fixture.get("final_payload"))
+            _assert_equal(payload, fixture.get("expected_final_payload"), "final payload")
+        if "clarification_payload" in fixture:
+            payload = _normalize_agent_clarification_payload(fixture.get("clarification_payload"))
+            _assert_equal(payload, fixture.get("expected_clarification_payload"), "clarification payload")
+    except Exception as exc:
+        expected = fixture.get("expected_error_contains")
+        if expected and expected in str(exc):
+            return
+        raise
+    if "expected_error_contains" in fixture:
+        raise FixtureError("expected agent runtime policy fixture to fail")
+    if "expected_runtime_contract_subset" in fixture:
+        _assert_subset(ag.get_runtime_contract(), fixture["expected_runtime_contract_subset"], "runtime contract")
+    if "expected_policy_subset" in fixture:
+        _assert_subset(ag.get_policy(), fixture["expected_policy_subset"], "agent policy")
+    if "expected_callable_inventory_subset" in fixture:
+        _assert_list_subset(ag.get_callable_inventory(), fixture["expected_callable_inventory_subset"], "callable inventory")
+    if "expected_discovery_catalog_subset" in fixture:
+        _assert_list_subset(ag.get_discovery_catalog(), fixture["expected_discovery_catalog_subset"], "discovery catalog")
+    state = ag.export_runtime_state()
+    if "expected_discovered_tool_docs_subset" in fixture:
+        _assert_list_subset(state.get("discovered_tool_docs") or [], fixture["expected_discovered_tool_docs_subset"], "discovered tools")
+    if "expected_loaded_skill_docs_subset" in fixture:
+        _assert_list_subset(state.get("loaded_skill_docs") or [], fixture["expected_loaded_skill_docs_subset"], "loaded skills")
+    if "expected_policy_trace_subset" in fixture:
+        _assert_list_subset(state.get("policy_trace") or [], fixture["expected_policy_trace_subset"], "policy trace")
+    if "expected_exported_state_subset" in fixture:
+        _assert_subset(state, fixture["expected_exported_state_subset"], "exported runtime state")
+    if "expected_optimizer_metadata_subset" in fixture:
+        _assert_subset(ag.get_optimizer_metadata(), fixture["expected_optimizer_metadata_subset"], "optimizer metadata")
+
+
+def _run_agent_runtime_session(fixture):
+    ag = agent(fixture.get("signature", "question:string -> answer:string"), fixture.get("options") or {})
+    runtime = FakeCodeRuntime(fixture.get("runtime_script") or [])
+    try:
+        operation = fixture.get("operation", "test")
+        if operation == "test":
+            result = ag.test(
+                runtime,
+                fixture.get("code", ""),
+                fixture.get("context_values") or fixture.get("input") or {},
+                fixture.get("runtime_options") or {},
+            )
+        elif operation == "steps":
+            result = None
+            for step in fixture.get("steps") or []:
+                if "restore_session_state" in step:
+                    ag.restore_session_state(step.get("restore_session_state") or {})
+                result = ag.execute_actor_step(
+                    runtime,
+                    step.get("code", ""),
+                    step.get("values") or fixture.get("context_values") or fixture.get("input") or {},
+                    step.get("options") or {},
+                )
+                if step.get("inspect"):
+                    ag.inspect_runtime()
+                if step.get("export_session_state"):
+                    ag.export_session_state()
+            if fixture.get("close_runtime_session"):
+                ag.close_runtime_session()
+        elif operation == "reserved":
+            result = ag.test(runtime, fixture.get("code", ""), fixture.get("context_values") or {}, {})
+        else:
+            raise FixtureError(f"unknown agent runtime session operation {operation!r}")
+    except Exception as exc:
+        expected = fixture.get("expected_error_contains")
+        if expected and expected in str(exc):
+            return
+        raise
+    if "expected_error_contains" in fixture:
+        raise FixtureError("expected agent runtime session fixture to fail")
+    if "expected_result_subset" in fixture:
+        _assert_subset(result, fixture["expected_result_subset"], "runtime result")
+    if "expected_result" in fixture:
+        _assert_equal(result, fixture["expected_result"], "runtime result")
+    exported = ag.export_runtime_state()
+    if "expected_exported_state_subset" in fixture:
+        _assert_subset(exported, fixture["expected_exported_state_subset"], "runtime state")
+    if "expected_action_log_subset" in fixture:
+        _assert_list_subset(exported.get("action_log") or [], fixture["expected_action_log_subset"], "action log")
+    if "expected_status_log_subset" in fixture:
+        _assert_list_subset(exported.get("status_log") or [], fixture["expected_status_log_subset"], "status log")
+    if "expected_session_count" in fixture and len(runtime.sessions) != fixture["expected_session_count"]:
+        raise FixtureError(f"expected {fixture['expected_session_count']} sessions, got {len(runtime.sessions)}")
+    if "expected_executed" in fixture:
+        _assert_equal(runtime.executed, fixture["expected_executed"], "executed code")
 
 
 def _run_ai_chat(fixture):

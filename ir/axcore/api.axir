@@ -15,6 +15,31 @@ module @ax.api version "0.1" {
     tag "public-api"
   }
 
+  op ax.api.class @AxAgent {
+    attr core_kind = "record"
+    attr public = true
+    ref signature = @AxSignature
+    tag "public-api"
+  }
+
+  op ax.api.class @AxAgentClarificationError {
+    attr core_kind = "error"
+    attr public = true
+    tag "public-api"
+  }
+
+  op ax.api.class @AxCodeRuntime {
+    attr core_kind = "interface"
+    attr public = true
+    tag "public-api"
+  }
+
+  op ax.api.class @AxCodeSession {
+    attr core_kind = "interface"
+    attr public = true
+    tag "public-api"
+  }
+
   op ax.api.class @AxMemory {
     attr core_kind = "record"
     attr public = true
@@ -57,6 +82,12 @@ module @ax.api version "0.1" {
     attr core_kind = "func"
     attr public = true
     type signature = "(string|AxSignature, options?:json) -> AxGen"
+  }
+
+  op ax.api.function @agent {
+    attr core_kind = "func"
+    attr public = true
+    type signature = "(string|AxSignature, options?:json) -> AxAgent throws"
   }
 
   op ax.api.function @ai {

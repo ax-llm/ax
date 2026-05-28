@@ -63,6 +63,14 @@ export type AxModelInfo = {
   longContextCacheReadTokenCostPer1M?: number;
   /** Total input token count (including cached) above which long-context rates apply */
   longContextThreshold?: number;
+  /** Prompt token cost when a provider speed tier such as Anthropic fast mode is active. */
+  fastPromptTokenCostPer1M?: number;
+  /** Completion token cost when a provider speed tier such as Anthropic fast mode is active. */
+  fastCompletionTokenCostPer1M?: number;
+  /** Cache read token cost when a provider speed tier such as Anthropic fast mode is active. */
+  fastCacheReadTokenCostPer1M?: number;
+  /** Cache write token cost when a provider speed tier such as Anthropic fast mode is active. */
+  fastCacheWriteTokenCostPer1M?: number;
   aliases?: string[];
   supported?: {
     thinkingBudget?: boolean;
@@ -94,6 +102,7 @@ export type AxTokenUsage = {
   cacheCreationTokens?: number; // Cost of creating cache entries
   cacheReadTokens?: number; // Tokens read from cache (often free)
   serviceTier?: 'standard' | 'priority' | 'batch'; // Service level used
+  speed?: 'standard' | 'fast'; // Provider speed tier used when reported
 };
 
 /**
@@ -229,6 +238,19 @@ export type AxModelConfig = {
    * @example 3 to generate three alternatives and pick the best
    */
   n?: number;
+
+  /** Provider reasoning/effort hint. Currently used by Anthropic. */
+  effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
+  /** Provider speed tier. Currently used by Anthropic fast mode. */
+  speed?: 'standard' | 'fast';
+
+  /** Advisory full-task token budget. Currently used by Anthropic Opus task budgets. */
+  taskBudget?: {
+    type: 'tokens';
+    total: number;
+    remaining?: number;
+  };
 };
 
 export type AxFunctionHandler = (

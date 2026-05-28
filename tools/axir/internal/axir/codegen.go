@@ -70,6 +70,10 @@ func EmitPython(model AxRuntimeModel, outDir string) error {
 	if err != nil {
 		return err
 	}
+	agent, err := BuildPythonAgent(model)
+	if err != nil {
+		return err
+	}
 	files := map[string]string{
 		"ax/__init__.py":                     pyInit,
 		"ax/signature.py":                    signature,
@@ -78,6 +82,7 @@ func EmitPython(model AxRuntimeModel, outDir string) error {
 		"ax/prompt.py":                       prompt,
 		"ax/ai.py":                           ai,
 		"ax/gen.py":                          gen,
+		"ax/agent.py":                        agent,
 		"ax/conformance.py":                  pyConformance,
 		"ax/providers/__init__.py":           pyProvidersInit,
 		"ax/providers/openai.py":             pyOpenAIProvider,
@@ -85,6 +90,7 @@ func EmitPython(model AxRuntimeModel, outDir string) error {
 		"examples/signature_schema.py":       pySignatureSchemaExample,
 		"examples/axgen_fake_client_tool.py": pyAxGenFakeClientToolExample,
 		"examples/axai_fake_transport.py":    pyAxAIFakeTransportExample,
+		"examples/axagent_pipeline.py":       pyAxAgentPipelineExample,
 		"README.md":                          packageREADME(model, "python"),
 	}
 	return writeFiles(outDir, files)
@@ -96,27 +102,32 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 		return err
 	}
 	files := map[string]string{
-		"dev/ax/Ax.java":                           javaAx,
-		"dev/ax/AxSignature.java":                  javaSignature,
-		"dev/ax/Field.java":                        javaField,
-		"dev/ax/FieldType.java":                    javaFieldType,
-		"dev/ax/Tool.java":                         javaTool,
-		"dev/ax/PromptTemplate.java":               javaPromptTemplate,
-		"dev/ax/Core.java":                         core,
-		"dev/ax/AiClient.java":                     javaAiClient,
-		"dev/ax/AxAIService.java":                  javaAxAIService,
-		"dev/ax/AxBaseAI.java":                     javaAxBaseAI,
-		"dev/ax/AxAIServiceError.java":             javaAxAIServiceError,
-		"dev/ax/AxMemory.java":                     javaAxMemory,
-		"dev/ax/OpenAICompatibleClient.java":       javaOpenAI,
-		"dev/ax/AxGen.java":                        javaAxGen,
-		"dev/ax/Json.java":                         javaJson,
-		"dev/ax/Conformance.java":                  javaConformance,
-		"axir-capabilities.json":                   mustCapabilityManifest(model, "java"),
-		"examples/SignatureSchemaExample.java":     javaSignatureSchemaExample,
-		"examples/AxGenFakeClientToolExample.java": javaAxGenFakeClientToolExample,
-		"examples/AxAIFakeTransportExample.java":   javaAxAIFakeTransportExample,
-		"README.md":                                packageREADME(model, "java"),
+		"dev/ax/Ax.java":                            javaAx,
+		"dev/ax/AxSignature.java":                   javaSignature,
+		"dev/ax/Field.java":                         javaField,
+		"dev/ax/FieldType.java":                     javaFieldType,
+		"dev/ax/Tool.java":                          javaTool,
+		"dev/ax/PromptTemplate.java":                javaPromptTemplate,
+		"dev/ax/Core.java":                          core,
+		"dev/ax/AiClient.java":                      javaAiClient,
+		"dev/ax/AxAIService.java":                   javaAxAIService,
+		"dev/ax/AxBaseAI.java":                      javaAxBaseAI,
+		"dev/ax/AxAIServiceError.java":              javaAxAIServiceError,
+		"dev/ax/AxMemory.java":                      javaAxMemory,
+		"dev/ax/AxAgent.java":                       javaAxAgent,
+		"dev/ax/AxAgentClarificationException.java": javaAxAgentClarificationException,
+		"dev/ax/AxCodeRuntime.java":                 javaAxCodeRuntime,
+		"dev/ax/AxCodeSession.java":                 javaAxCodeSession,
+		"dev/ax/OpenAICompatibleClient.java":        javaOpenAI,
+		"dev/ax/AxGen.java":                         javaAxGen,
+		"dev/ax/Json.java":                          javaJson,
+		"dev/ax/Conformance.java":                   javaConformance,
+		"axir-capabilities.json":                    mustCapabilityManifest(model, "java"),
+		"examples/SignatureSchemaExample.java":      javaSignatureSchemaExample,
+		"examples/AxGenFakeClientToolExample.java":  javaAxGenFakeClientToolExample,
+		"examples/AxAIFakeTransportExample.java":    javaAxAIFakeTransportExample,
+		"examples/AxAgentPipelineExample.java":      javaAxAgentPipelineExample,
+		"README.md":                                 packageREADME(model, "java"),
 	}
 	return writeFiles(outDir, files)
 }
@@ -134,6 +145,7 @@ func EmitCpp(model AxRuntimeModel, outDir string) error {
 		"examples/signature_schema.cpp":       cppSignatureSchemaExample,
 		"examples/axgen_fake_client_tool.cpp": cppAxGenFakeClientToolExample,
 		"examples/axai_fake_transport.cpp":    cppAxAIFakeTransportExample,
+		"examples/axagent_pipeline.cpp":       cppAxAgentPipelineExample,
 		"README.md":                           packageREADME(model, "cpp"),
 	}
 	return writeFiles(outDir, files)
@@ -172,7 +184,6 @@ func BuildCapabilityManifest(model AxRuntimeModel, target string) (CapabilityMan
 		return CapabilityManifest{}, fmt.Errorf("unknown target %q", target)
 	}
 	unsupported := []string{
-		"AxAgent execution",
 		"provider balancing",
 		"OpenTelemetry",
 		"realtime",
@@ -186,7 +197,7 @@ func BuildCapabilityManifest(model AxRuntimeModel, target string) (CapabilityMan
 		AxIRVersion:             "0.1",
 		Target:                  target,
 		PackageName:             packageNameForTarget(target),
-		SupportedSuites:         []string{"signature", "schema", "validation", "prompt", "axgen", "axai"},
+		SupportedSuites:         []string{"signature", "schema", "validation", "prompt", "axgen", "axai", "axagent"},
 		ProviderMode:            "openai-compatible-mapping",
 		FakeTransportSupport:    true,
 		RealNetworkSupport:      realNetwork,
@@ -212,6 +223,20 @@ func BuildCapabilityManifest(model AxRuntimeModel, target string) (CapabilityMan
 			"cache-aware-prompt-inputs",
 			"axai",
 			"openai-compatible-provider-mapping",
+			"axagent",
+			"axagent-pipeline",
+			"axagent-context-fields",
+			"axagent-clarification",
+			"axagent-chat-log",
+			"axagent-state-alpha",
+			"axagent-runtime-contract",
+			"axagent-discovery-policy",
+			"axagent-delegation-policy",
+			"axagent-optimizer-metadata",
+			"axagent-runtime-session",
+			"axagent-agent-test",
+			"axagent-runtime-state-restore",
+			"axagent-actor-step-alpha",
 		},
 		PublicSymbols: append([]string(nil), model.PublicSymbols...),
 		TargetIdiom:   idiom,
@@ -283,5 +308,6 @@ See the files in `+"`examples/`"+` for:
 - signature parsing and JSON schema generation
 - AxGen forward with a fake client and tool
 - AxAI/OpenAI-compatible mapping with a fake transport
+- AxAgent pipeline alpha with a fake service
 `, strings.ToUpper(target), manifest.AxIRVersion, manifest.PackageName, strings.Join(manifest.SupportedSuites, ", "), manifest.ProviderMode, manifest.FakeTransportSupport, network)
 }

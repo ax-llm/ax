@@ -1,0 +1,10 @@
+{
+  "expected_final_payload": {
+    "args": ["done"],
+    "type": "final"
+  },
+  "final_payload": "done",
+  "kind": "agent_runtime_policy",
+  "name": "final-payload-normalization",
+  "signature": "question:string -> answer:string"
+}

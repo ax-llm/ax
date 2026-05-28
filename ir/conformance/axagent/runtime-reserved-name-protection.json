@@ -1,0 +1,12 @@
+{
+  "code": "inputs = 1",
+  "context_values": {
+    "inputs": "bad"
+  },
+  "expected_error_contains": "agent runtime global conflicts with reserved name: inputs",
+  "kind": "agent_runtime_session",
+  "name": "runtime-reserved-name-protection",
+  "operation": "reserved",
+  "runtime_script": [],
+  "signature": "question:string -> answer:string"
+}

@@ -1,0 +1,28 @@
+{
+  "code": "final(\"done\")",
+  "context_values": {
+    "question": "finish"
+  },
+  "expected_result_subset": {
+    "completion_payload": {
+      "args": ["done"],
+      "type": "final"
+    },
+    "kind": "final"
+  },
+  "kind": "agent_runtime_session",
+  "name": "runtime-final-payload-normalization-session",
+  "operation": "test",
+  "runtime_script": [
+    {
+      "expected_code": "final(\"done\")",
+      "result": {
+        "completion_payload": {
+          "args": ["done"],
+          "type": "final"
+        }
+      }
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

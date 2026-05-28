@@ -1,0 +1,18 @@
+{
+  "clarification_payload": {
+    "question": "Which city?",
+    "type": "text"
+  },
+  "expected_clarification_payload": {
+    "args": [
+      {
+        "question": "Which city?",
+        "type": "text"
+      }
+    ],
+    "type": "askClarification"
+  },
+  "kind": "agent_runtime_policy",
+  "name": "clarification-payload-normalization",
+  "signature": "question:string -> answer:string"
+}

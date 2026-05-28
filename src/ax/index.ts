@@ -126,6 +126,9 @@ import {
   type AxContextPolicyConfig,
   type AxContextPolicyPreset,
   type AxRLMConfig,
+  type AxRuntimeCallableFormatArgs,
+  type AxRuntimeLanguageInfo,
+  type AxRuntimePrimitiveOverrideMap,
   axBuildDistillerDefinition,
   axBuildExecutorDefinition,
   axBuildResponderDefinition,
@@ -170,6 +173,8 @@ import {
   type AxAIAnthropicOutputConfig,
   type AxAIAnthropicPingEvent,
   type AxAIAnthropicRequestTool,
+  type AxAIAnthropicStopDetails,
+  type AxAIAnthropicTaskBudget,
   type AxAIAnthropicThinkingConfig,
   type AxAIAnthropicThinkingTokenBudgetLevels,
   type AxAIAnthropicThinkingWire,
@@ -1101,6 +1106,8 @@ export type { AxAIAnthropicMessageStopEvent };
 export type { AxAIAnthropicOutputConfig };
 export type { AxAIAnthropicPingEvent };
 export type { AxAIAnthropicRequestTool };
+export type { AxAIAnthropicStopDetails };
+export type { AxAIAnthropicTaskBudget };
 export type { AxAIAnthropicThinkingConfig };
 export type { AxAIAnthropicThinkingTokenBudgetLevels };
 export type { AxAIAnthropicThinkingWire };
@@ -1554,8 +1561,11 @@ export type { AxResultPickerFunctionFieldResults };
 export type { AxResultPickerFunctionFunctionResults };
 export type { AxRolloutTrace };
 export type { AxRoutingResult };
+export type { AxRuntimeCallableFormatArgs };
+export type { AxRuntimeLanguageInfo };
 export type { AxRuntimePrimitive };
 export type { AxRuntimePrimitiveExample };
+export type { AxRuntimePrimitiveOverrideMap };
 export type { AxRuntimePrimitiveSignature };
 export type { AxRuntimePrimitiveStage };
 export type { AxSamplePickerOptions };

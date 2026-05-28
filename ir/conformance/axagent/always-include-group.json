@@ -1,0 +1,26 @@
+{
+  "expected_discovery_catalog_subset": [
+    {
+      "callables": ["math.sum"],
+      "namespace": "math",
+      "placement": "actor_prompt"
+    }
+  ],
+  "kind": "agent_runtime_policy",
+  "name": "always-include-group",
+  "options": {
+    "functions": [
+      {
+        "alwaysInclude": true,
+        "functions": [
+          {
+            "description": "Add numbers",
+            "name": "sum"
+          }
+        ],
+        "namespace": "math"
+      }
+    ]
+  },
+  "signature": "question:string -> answer:string"
+}

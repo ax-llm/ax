@@ -1,0 +1,13 @@
+{
+  "expected_error_contains": "context field not found: missing",
+  "input": {
+    "question": "hello"
+  },
+  "kind": "agent_forward",
+  "name": "config-validation",
+  "options": {
+    "contextFields": ["missing"]
+  },
+  "responses": [],
+  "signature": "question:string -> answer:string"
+}

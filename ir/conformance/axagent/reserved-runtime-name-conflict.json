@@ -1,0 +1,19 @@
+{
+  "expected_error_contains": "agent callable namespace conflicts with reserved runtime name: final",
+  "kind": "agent_runtime_policy",
+  "name": "reserved-runtime-name-conflict",
+  "options": {
+    "functions": [
+      {
+        "functions": [
+          {
+            "description": "Save a result",
+            "name": "save"
+          }
+        ],
+        "namespace": "final"
+      }
+    ]
+  },
+  "signature": "question:string -> answer:string"
+}

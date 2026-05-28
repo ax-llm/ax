@@ -1,0 +1,59 @@
+{
+  "expected_callable_inventory_subset": [
+    {
+      "always_include": false,
+      "callables": [
+        {
+          "always_include": false,
+          "description": "Search documentation",
+          "kind": "tool",
+          "name": "search",
+          "namespace": "docs",
+          "parameters": null,
+          "qualified_name": "docs.search"
+        },
+        {
+          "always_include": false,
+          "description": "Read a page",
+          "kind": "tool",
+          "name": "read",
+          "namespace": "docs",
+          "parameters": null,
+          "qualified_name": "docs.read"
+        }
+      ],
+      "namespace": "docs",
+      "selection_criteria": "Use when answering from documentation",
+      "title": "Docs"
+    }
+  ],
+  "expected_discovery_catalog_subset": [
+    {
+      "hint": "discover tools docs",
+      "namespace": "docs",
+      "placement": "discover"
+    }
+  ],
+  "kind": "agent_runtime_policy",
+  "name": "grouped-discoverable-module",
+  "options": {
+    "functions": [
+      {
+        "functions": [
+          {
+            "description": "Search documentation",
+            "name": "search"
+          },
+          {
+            "description": "Read a page",
+            "name": "read"
+          }
+        ],
+        "namespace": "docs",
+        "selectionCriteria": "Use when answering from documentation",
+        "title": "Docs"
+      }
+    ]
+  },
+  "signature": "question:string -> answer:string"
+}

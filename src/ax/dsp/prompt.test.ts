@@ -1137,6 +1137,67 @@ describe('AxPromptTemplate.render', () => {
       expect(secondUser.content).toContain('User Query');
     });
 
+    it('should not emit an empty cached user message when optional cached fields are absent', () => {
+      const sig = f()
+        .input('stableContext', f.string('Stable').cache().optional())
+        .input('userQuery', f.string('Dynamic'))
+        .output('answer', f.string())
+        .build();
+
+      const template = new AxPromptTemplate(sig, {
+        contextCache: { ttlSeconds: 3600 },
+      });
+
+      const result = template.render({ userQuery: 'question' }, {});
+
+      expect(result.map((msg) => msg.role)).toEqual(['system', 'user']);
+      const userMsg = result[1] as {
+        role: 'user';
+        content: string;
+        cache?: boolean;
+      };
+      expect(userMsg.cache).toBeUndefined();
+      expect(userMsg.content).toContain('User Query: question');
+      expect(userMsg.content).not.toContain('Stable Context:');
+    });
+
+    it('should omit the user message entirely when only absent cached optional fields exist', () => {
+      const sig = f()
+        .input('stableContext', f.string('Stable').cache().optional())
+        .output('answer', f.string())
+        .build();
+
+      const template = new AxPromptTemplate(sig, {
+        contextCache: { ttlSeconds: 3600 },
+      });
+
+      const result = template.render({}, {});
+
+      expect(result.map((msg) => msg.role)).toEqual(['system']);
+      expect(result[0]).toHaveProperty('cache', true);
+    });
+
+    it('can keep absent optional input field definitions stable in the system prompt', () => {
+      const sig = f()
+        .input('userQuery', f.string('Dynamic'))
+        .input('stableContext', f.string('Stable').cache().optional())
+        .output('answer', f.string())
+        .build();
+
+      const template = new AxPromptTemplate(sig, {
+        includeOptionalInputFieldsInSystemPrompt: true,
+        contextCache: { ttlSeconds: 3600 },
+      });
+
+      const result = template.render({ userQuery: 'question' }, {});
+      const systemMsg = result[0] as { role: 'system'; content: string };
+      const userMsg = result[1] as { role: 'user'; content: string };
+
+      expect(systemMsg.content).toContain('Stable Context: Stable');
+      expect(userMsg.content).toContain('User Query: question');
+      expect(userMsg.content).not.toContain('Stable Context:');
+    });
+
     it('should not separate fields when contextCache is not configured', () => {
       const sig = f()
         .input('staticContext', f.string('Static').cache())

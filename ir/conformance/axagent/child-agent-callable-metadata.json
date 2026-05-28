@@ -1,0 +1,36 @@
+{
+  "expected_callable_inventory_subset": [
+    {
+      "callables": [
+        {
+          "always_include": false,
+          "description": "Delegate research tasks",
+          "kind": "agent",
+          "name": "researcher",
+          "namespace": "agents",
+          "parameters": null,
+          "qualified_name": "agents.researcher"
+        }
+      ],
+      "namespace": "agents"
+    }
+  ],
+  "kind": "agent_runtime_policy",
+  "name": "child-agent-callable-metadata",
+  "options": {
+    "functions": [
+      {
+        "alwaysInclude": true,
+        "functions": [
+          {
+            "description": "Delegate research tasks",
+            "kind": "agent",
+            "name": "researcher"
+          }
+        ],
+        "namespace": "agents"
+      }
+    ]
+  },
+  "signature": "question:string -> answer:string"
+}

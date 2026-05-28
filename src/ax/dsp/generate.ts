@@ -190,6 +190,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       functions: options?.functions,
       thoughtFieldName: this.thoughtFieldName,
       customTemplate: options?.customTemplate,
+      includeOptionalInputFieldsInSystemPrompt:
+        options?.includeOptionalInputFieldsInSystemPrompt,
     };
     this.promptTemplate = new (options?.promptTemplate ?? AxPromptTemplate)(
       this.signature,
@@ -440,6 +442,9 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       thoughtFieldName: this.thoughtFieldName,
       contextCache,
       ignoreBreakpoints: providerIgnoreBreakpoints,
+      includeOptionalInputFieldsInSystemPrompt:
+        options?.includeOptionalInputFieldsInSystemPrompt ??
+        this.options?.includeOptionalInputFieldsInSystemPrompt,
       structuredOutputFunctionName: structuredOutputFunctionFallback
         ? STRUCTURED_OUTPUT_FUNCTION_NAME
         : undefined,
@@ -1470,6 +1475,9 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       thoughtFieldName: this.thoughtFieldName,
       contextCache, // Pass through for system prompt caching
       ignoreBreakpoints: providerIgnoreBreakpoints,
+      includeOptionalInputFieldsInSystemPrompt:
+        options.includeOptionalInputFieldsInSystemPrompt ??
+        this.options?.includeOptionalInputFieldsInSystemPrompt,
       structuredOutputFunctionName: this.structuredOutputFunctionFallback
         ? STRUCTURED_OUTPUT_FUNCTION_NAME
         : undefined,

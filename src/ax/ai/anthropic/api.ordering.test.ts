@@ -78,4 +78,68 @@ describe('Anthropic assistant content ordering with thinking and tool_use', () =
       }
     }
   });
+
+  it('preserves Opus 4.8 mid-conversation system messages in messages', async () => {
+    const ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: { model: AxAIAnthropicModel.Claude48Opus },
+    });
+
+    const capture: { lastBody?: any } = {};
+    const fetch = createMockFetch(capture);
+    ai.setOptions({ fetch });
+
+    await ai.chat(
+      {
+        chatPrompt: [
+          { role: 'system', content: 'Initial policy.' },
+          { role: 'user', content: 'Start.' },
+          { role: 'system', content: 'From now on, be terse.' },
+        ],
+      },
+      { stream: false }
+    );
+
+    expect(fetch).toHaveBeenCalled();
+    expect(capture.lastBody.system).toEqual([
+      { type: 'text', text: 'Initial policy.' },
+    ]);
+    expect(capture.lastBody.messages.map((m: any) => m.role)).toEqual([
+      'user',
+      'system',
+    ]);
+    expect(capture.lastBody.messages[1]).toEqual({
+      role: 'system',
+      content: 'From now on, be terse.',
+    });
+  });
+
+  it('hoists all system messages on older Anthropic models', async () => {
+    const ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: { model: AxAIAnthropicModel.Claude37Sonnet },
+    });
+
+    const capture: { lastBody?: any } = {};
+    const fetch = createMockFetch(capture);
+    ai.setOptions({ fetch });
+
+    await ai.chat(
+      {
+        chatPrompt: [
+          { role: 'system', content: 'Initial policy.' },
+          { role: 'user', content: 'Start.' },
+          { role: 'system', content: 'Later policy.' },
+        ],
+      },
+      { stream: false }
+    );
+
+    expect(fetch).toHaveBeenCalled();
+    expect(capture.lastBody.system).toEqual([
+      { type: 'text', text: 'Initial policy.' },
+      { type: 'text', text: 'Later policy.' },
+    ]);
+    expect(capture.lastBody.messages.map((m: any) => m.role)).toEqual(['user']);
+  });
 });

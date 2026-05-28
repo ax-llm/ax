@@ -1,0 +1,75 @@
+{
+  "context_values": {
+    "question": "state"
+  },
+  "expected_exported_state_subset": {
+    "runtime_session_state": {
+      "closed": false,
+      "globals": {
+        "counter": 10,
+        "restored": true
+      }
+    }
+  },
+  "expected_status_log_subset": [
+    {
+      "message": "counter saved",
+      "type": "success"
+    },
+    {
+      "message": "counter restored",
+      "type": "success"
+    }
+  ],
+  "kind": "agent_runtime_session",
+  "name": "runtime-inspect-export-restore",
+  "operation": "steps",
+  "runtime_script": [
+    {
+      "bindings_patch": {
+        "counter": 1
+      },
+      "expected_code": "counter = 1",
+      "result": {
+        "kind": "status",
+        "status": {
+          "message": "counter saved",
+          "type": "success"
+        }
+      }
+    },
+    {
+      "bindings_patch": {
+        "counter": 10
+      },
+      "expected_code": "counter = restored",
+      "result": {
+        "kind": "status",
+        "status": {
+          "message": "counter restored",
+          "type": "success"
+        }
+      }
+    }
+  ],
+  "signature": "question:string -> answer:string",
+  "steps": [
+    {
+      "code": "counter = 1",
+      "export_session_state": true,
+      "inspect": true
+    },
+    {
+      "code": "counter = restored",
+      "export_session_state": true,
+      "inspect": true,
+      "restore_session_state": {
+        "closed": false,
+        "globals": {
+          "counter": 9,
+          "restored": true
+        }
+      }
+    }
+  ]
+}

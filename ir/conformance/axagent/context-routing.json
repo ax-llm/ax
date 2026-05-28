@@ -1,0 +1,46 @@
+{
+  "expected_chat_log_subset": [
+    {
+      "name": "distiller",
+      "stage": "ctx"
+    },
+    {
+      "name": "executor",
+      "stage": "task"
+    },
+    {
+      "name": "responder",
+      "stage": "task"
+    }
+  ],
+  "expected_output": {
+    "answer": "AxIR is portable"
+  },
+  "expected_request_contains": [
+    "Large document",
+    "Distilled Context",
+    "AxIR is portable"
+  ],
+  "expected_request_count": 3,
+  "input": {
+    "question": "What does the document say?",
+    "document": "Large document: AxIR is portable."
+  },
+  "kind": "agent_forward",
+  "name": "context-routing",
+  "options": {
+    "contextFields": ["document"]
+  },
+  "responses": [
+    {
+      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Use distilled context\",{\"summary\":\"AxIR is portable\"}]}}"
+    },
+    {
+      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer from evidence\",{\"answer\":\"AxIR is portable\"}]}}"
+    },
+    {
+      "content": "{\"answer\":\"AxIR is portable\"}"
+    }
+  ],
+  "signature": "question:string, document:string -> answer:string"
+}

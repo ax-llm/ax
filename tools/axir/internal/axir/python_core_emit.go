@@ -114,6 +114,45 @@ var pythonGenCoreFuncs = []pythonCoreFuncSpec{
 	{Symbol: "fold_stream", Name: "fold_stream"},
 }
 
+var pythonAgentCoreFuncs = []pythonCoreFuncSpec{
+	{Symbol: "agent_reserved_runtime_names", Name: "_agent_reserved_runtime_names"},
+	{Symbol: "normalize_agent_runtime", Name: "_normalize_agent_runtime"},
+	{Symbol: "normalize_agent_policy", Name: "_normalize_agent_policy"},
+	{Symbol: "normalize_agent_callable", Name: "_normalize_agent_callable"},
+	{Symbol: "normalize_agent_group", Name: "_normalize_agent_group"},
+	{Symbol: "normalize_agent_callable_inventory", Name: "_normalize_agent_callable_inventory"},
+	{Symbol: "split_agent_callable_inventory", Name: "_split_agent_callable_inventory"},
+	{Symbol: "render_agent_discovery_catalog", Name: "_render_agent_discovery_catalog"},
+	{Symbol: "agent_discover", Name: "_agent_discover"},
+	{Symbol: "normalize_agent_final_payload", Name: "_normalize_agent_final_payload"},
+	{Symbol: "normalize_agent_clarification_payload", Name: "_normalize_agent_clarification_payload"},
+	{Symbol: "agent_optimizer_metadata", Name: "_agent_optimizer_metadata"},
+	{Symbol: "agent_export_runtime_state", Name: "_agent_export_runtime_state"},
+	{Symbol: "agent_restore_runtime_state", Name: "_agent_restore_runtime_state"},
+	{Symbol: "agent_runtime_build_globals", Name: "_agent_runtime_build_globals"},
+	{Symbol: "agent_runtime_append_action_log", Name: "_agent_runtime_append_action_log"},
+	{Symbol: "normalize_agent_runtime_step_result", Name: "_normalize_agent_runtime_step_result"},
+	{Symbol: "agent_runtime_create_session", Name: "_agent_runtime_create_session"},
+	{Symbol: "agent_runtime_execute_step", Name: "_agent_runtime_execute_step"},
+	{Symbol: "agent_runtime_inspect_state", Name: "_agent_runtime_inspect_state"},
+	{Symbol: "agent_runtime_export_session_state", Name: "_agent_runtime_export_session_state"},
+	{Symbol: "agent_runtime_restore_session_state", Name: "_agent_runtime_restore_session_state"},
+	{Symbol: "agent_runtime_close_session", Name: "_agent_runtime_close_session"},
+	{Symbol: "agent_runtime_test", Name: "_agent_runtime_test"},
+	{Symbol: "agent_factory", Name: "_agent_factory"},
+	{Symbol: "split_context_values", Name: "_split_context_values"},
+	{Symbol: "build_distiller_inputs", Name: "_build_distiller_inputs"},
+	{Symbol: "build_executor_inputs", Name: "_build_executor_inputs"},
+	{Symbol: "build_responder_inputs", Name: "_build_responder_inputs"},
+	{Symbol: "normalize_agent_completion_payload", Name: "_normalize_agent_completion_payload"},
+	{Symbol: "throw_agent_clarification", Name: "_throw_agent_clarification"},
+	{Symbol: "merge_agent_chat_log", Name: "_merge_agent_chat_log"},
+	{Symbol: "merge_agent_usage", Name: "_merge_agent_usage"},
+	{Symbol: "agent_get_state", Name: "_agent_get_state"},
+	{Symbol: "agent_set_state", Name: "_agent_set_state"},
+	{Symbol: "agent_forward", Name: "_agent_forward"},
+}
+
 func BuildPythonSignature(model AxRuntimeModel) (string, error) {
 	body, err := emitPythonCoreFunctions(model, pythonSignatureCoreFuncs)
 	if err != nil {
@@ -152,6 +191,14 @@ func BuildPythonGen(model AxRuntimeModel) (string, error) {
 		return "", err
 	}
 	return strings.Replace(pyGen, "# AXIR_CORE_GEN_FUNCTIONS\n", body, 1), nil
+}
+
+func BuildPythonAgent(model AxRuntimeModel) (string, error) {
+	body, err := emitPythonCoreFunctions(model, pythonAgentCoreFuncs)
+	if err != nil {
+		return "", err
+	}
+	return strings.Replace(pyAgent, "# AXIR_CORE_AGENT_FUNCTIONS\n", body, 1), nil
 }
 
 func emitPythonCoreFunctions(model AxRuntimeModel, specs []pythonCoreFuncSpec) (string, error) {
@@ -492,6 +539,8 @@ func pythonAttrValue(op Operation, name string) string {
 
 func pythonLiteral(value interface{}) string {
 	switch v := value.(type) {
+	case nil:
+		return "None"
 	case string:
 		if strings.HasPrefix(v, "%") {
 			return pyName(v)

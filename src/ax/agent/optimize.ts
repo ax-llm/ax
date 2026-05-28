@@ -253,7 +253,7 @@ export function serializeForEval(value: unknown): AxFieldValue {
   return String(value) as AxFieldValue;
 }
 
-export function normalizeActorJavascriptCode(code: string): string {
+export function normalizeActorCode(code: string): string {
   let normalized = code.trim();
 
   // Strip <think>...</think> reasoning blocks (some models leak them into
@@ -287,6 +287,10 @@ export function normalizeActorJavascriptCode(code: string): string {
       return normalized;
     }
   }
+}
+
+export function normalizeActorJavascriptCode(code: string): string {
+  return normalizeActorCode(code);
 }
 
 export function buildAgentJudgeCriteria(additionalCriteria?: string): string {

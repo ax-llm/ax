@@ -1,0 +1,17 @@
+{
+  "expected_runtime_contract_subset": {
+    "code_fence_language": "python",
+    "code_field_name": "pythonCode",
+    "language": "python",
+    "usage_instructions": "Use pythonCode to call tools through namespaced runtime functions."
+  },
+  "kind": "agent_runtime_policy",
+  "name": "runtime-metadata-python",
+  "options": {
+    "runtime": {
+      "language": "python",
+      "usageInstructions": "Use pythonCode to call tools through namespaced runtime functions."
+    }
+  },
+  "signature": "question:string -> answer:string"
+}

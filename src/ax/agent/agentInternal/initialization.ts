@@ -5,6 +5,7 @@ import {
   DEFAULT_CONTEXT_FIELD_PROMPT_MAX_CHARS,
   resolveExecutorModelPolicy,
 } from '../config.js';
+import { getRuntimeLanguageInfo } from '../rlm.js';
 import {
   normalizeContextFields,
   shouldEnforceIncrementalConsoleTurns,
@@ -81,9 +82,16 @@ export function initializeAgentInternal(
       ? contextMapText
       : undefined;
   s.runtime = runtime ?? new AxJSRuntime();
+  const runtimeLanguageInfo = getRuntimeLanguageInfo(s.runtime);
+  s.runtimeLanguageName = runtimeLanguageInfo.languageName;
+  s.runtimeCodeFieldName = runtimeLanguageInfo.codeFieldName;
+  s.runtimeCodeFieldTitle = runtimeLanguageInfo.codeFieldTitle;
+  s.runtimeCodeFenceLanguage = runtimeLanguageInfo.codeFenceLanguage;
+  s.isJavaScriptRuntime = runtimeLanguageInfo.isJavaScript;
   s.runtimeUsageInstructions = s.runtime.getUsageInstructions();
   s.enforceIncrementalConsoleTurns = shouldEnforceIncrementalConsoleTurns(
-    s.runtimeUsageInstructions
+    s.runtimeUsageInstructions,
+    { isJavaScriptRuntime: s.isJavaScriptRuntime }
   );
 
   const reservedAgentFunctionNamespaces = s._reservedAgentFunctionNamespaces();
@@ -118,6 +126,7 @@ export function initializeAgentInternal(
     contextMap: _cm,
     contextMapText: _cmt,
     description: _desc,
+    mem: _mem,
     ...genOptions
   } = options as typeof options & { description?: string };
   s.program = new AxGen(signature, genOptions);

@@ -54,6 +54,11 @@ var knownOperationNames = map[string]bool{
 	"core.method":           true,
 	"core.error":            true,
 	"core.semantic":         true,
+	"ax.agent.error":        true,
+	"ax.agent.policy":       true,
+	"ax.agent.record":       true,
+	"ax.agent.runtime":      true,
+	"ax.agent.semantic":     true,
 	"ax.agent.stub":         true,
 	"ax.ai.interface":       true,
 	"ax.ai.record":          true,
@@ -136,9 +141,6 @@ func checkOp(file string, op Operation, symbols map[string]Operation) Diagnostic
 			d = append(d, diag("error", file, op.Line, "unknown operation %q", op.Name))
 		}
 	}
-	if op.Name == "ax.agent.runtime" {
-		d = append(d, diag("error", file, op.Line, "ax.agent runtime lowering is reserved in V1"))
-	}
 	if op.Symbol == "" && AttrString(op, "public") == "true" {
 		d = append(d, diag("error", file, op.Line, "public operation %q must have a symbol", op.Name))
 	}
@@ -197,6 +199,7 @@ func isGeneratedCoreFunctionName(name string) bool {
 		pythonPromptCoreFuncs,
 		pythonAICoreFuncs,
 		pythonGenCoreFuncs,
+		pythonAgentCoreFuncs,
 	} {
 		for _, spec := range group {
 			if spec.Name == name || spec.Symbol == name {
