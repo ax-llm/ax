@@ -49,43 +49,21 @@ export const validateValue = (
     }
   };
 
-  const validImage = (val: Readonly<AxFieldValue>): boolean => {
+  // image and file share the same shape: mimeType + exactly one of data | fileUri
+  const validMediaContent = (val: Readonly<AxFieldValue>): boolean => {
     if (!val || typeof val !== 'object' || !('mimeType' in val)) {
       return false;
     }
-
-    // Support both data and fileUri formats
-    const hasData = 'data' in val;
-    const hasFileUri = 'fileUri' in val;
-
-    if (!hasData && !hasFileUri) {
-      return false;
-    }
-    if (hasData && hasFileUri) {
-      return false; // Cannot have both
-    }
-
-    return true;
+    return 'data' in val !== 'fileUri' in val;
   };
 
-  if (field.type?.name === 'image') {
-    let msg: string | undefined;
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        if (!validImage(item)) {
-          msg =
-            'object ({ mimeType: string; data: string } | { mimeType: string; fileUri: string })';
-          break;
-        }
-      }
-    } else if (!validImage(value)) {
-      msg =
-        'object ({ mimeType: string; data: string } | { mimeType: string; fileUri: string })';
-    }
-
-    if (msg) {
+  if (field.type?.name === 'image' || field.type?.name === 'file') {
+    const mediaMsg =
+      'object ({ mimeType: string; data: string } | { mimeType: string; fileUri: string })';
+    const items = Array.isArray(value) ? value : [value];
+    if (items.some((item) => !validMediaContent(item))) {
       throw new Error(
-        `Validation failed: Expected '${field.name}' to be type '${msg}' instead got '${value}'`
+        `Validation failed: Expected '${field.name}' to be type '${mediaMsg}' instead got '${value}'`
       );
     }
     return;
@@ -116,48 +94,6 @@ export const validateValue = (
       }
     } else if (!validAudio(value)) {
       msg = 'string or object ({ data: string; format?: string })';
-    }
-
-    if (msg) {
-      throw new Error(
-        `Validation failed: Expected '${field.name}' to be type '${msg}' instead got '${value}'`
-      );
-    }
-    return;
-  }
-
-  const validFile = (val: Readonly<AxFieldValue>): boolean => {
-    if (!val || typeof val !== 'object' || !('mimeType' in val)) {
-      return false;
-    }
-
-    // Support both data and fileUri formats
-    const hasData = 'data' in val;
-    const hasFileUri = 'fileUri' in val;
-
-    if (!hasData && !hasFileUri) {
-      return false;
-    }
-    if (hasData && hasFileUri) {
-      return false; // Cannot have both
-    }
-
-    return true;
-  };
-
-  if (field.type?.name === 'file') {
-    let msg: string | undefined;
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        if (!validFile(item)) {
-          msg =
-            'object ({ mimeType: string; data: string } | { mimeType: string; fileUri: string })';
-          break;
-        }
-      }
-    } else if (!validFile(value)) {
-      msg =
-        'object ({ mimeType: string; data: string } | { mimeType: string; fileUri: string })';
     }
 
     if (msg) {
