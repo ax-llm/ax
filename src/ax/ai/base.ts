@@ -338,7 +338,11 @@ function hashContentPart(
   if (part.type === 'text') {
     hasher.update(`text:${part.text}`);
   } else if (part.type === 'image') {
-    hasher.update(`image:${part.mimeType}:${part.image.slice(0, 100)}`);
+    if ('fileUri' in part) {
+      hasher.update(`image:${part.mimeType}:${part.fileUri}`);
+    } else {
+      hasher.update(`image:${part.mimeType}:${part.image.slice(0, 100)}`);
+    }
   } else if (part.type === 'audio') {
     hasher.update(`audio:${part.format}:${part.data.slice(0, 100)}`);
   } else if (part.type === 'file') {

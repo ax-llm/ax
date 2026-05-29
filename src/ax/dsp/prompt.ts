@@ -1157,7 +1157,9 @@ export class AxPromptTemplate {
     if (field.type?.name === 'image') {
       const validateImage = (
         value: Readonly<AxFieldValue>
-      ): { mimeType: string; data: string } => {
+      ):
+        | { mimeType: string; data: string }
+        | { mimeType: string; fileUri: string } => {
         if (!value) {
           throw new Error('Image field value is required.');
         }
@@ -1168,10 +1170,21 @@ export class AxPromptTemplate {
         if (!('mimeType' in value)) {
           throw new Error('Image field must have mimeType');
         }
-        if (!('data' in value)) {
-          throw new Error('Image field must have data');
+
+        // Support both data and fileUri formats
+        const hasData = 'data' in value;
+        const hasFileUri = 'fileUri' in value;
+
+        if (!hasData && !hasFileUri) {
+          throw new Error('Image field must have either data or fileUri');
         }
-        return value as { mimeType: string; data: string };
+        if (hasData && hasFileUri) {
+          throw new Error('Image field cannot have both data and fileUri');
+        }
+
+        return value as
+          | { mimeType: string; data: string }
+          | { mimeType: string; fileUri: string };
       };
 
       let result: ChatRequestUserMessage = [
@@ -1186,20 +1199,34 @@ export class AxPromptTemplate {
           (value as unknown[]).map((v) => {
             // Cast to unknown[] before map
             const validated = validateImage(v as AxFieldValue);
-            return {
-              type: 'image',
-              mimeType: validated.mimeType,
-              image: validated.data,
-            };
+            return 'fileUri' in validated
+              ? {
+                  type: 'image',
+                  mimeType: validated.mimeType,
+                  fileUri: validated.fileUri,
+                }
+              : {
+                  type: 'image',
+                  mimeType: validated.mimeType,
+                  image: validated.data,
+                };
           })
         );
       } else {
         const validated = validateImage(value);
-        result.push({
-          type: 'image',
-          mimeType: validated.mimeType,
-          image: validated.data,
-        });
+        result.push(
+          'fileUri' in validated
+            ? {
+                type: 'image',
+                mimeType: validated.mimeType,
+                fileUri: validated.fileUri,
+              }
+            : {
+                type: 'image',
+                mimeType: validated.mimeType,
+                image: validated.data,
+              }
+        );
       }
       return result;
     }

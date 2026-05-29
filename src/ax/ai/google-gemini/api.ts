@@ -772,9 +772,19 @@ class AxAIGoogleGeminiImpl
                   case 'text':
                     return { text: c.text };
                   case 'image':
-                    return {
-                      inlineData: { mimeType: c.mimeType, data: c.image },
-                    };
+                    // Support both inline data and fileUri formats
+                    if ('fileUri' in c) {
+                      return {
+                        fileData: {
+                          mimeType: c.mimeType,
+                          fileUri: c.fileUri,
+                        },
+                      };
+                    } else {
+                      return {
+                        inlineData: { mimeType: c.mimeType, data: c.image },
+                      };
+                    }
                   case 'audio':
                     return {
                       inlineData: {
@@ -1837,9 +1847,15 @@ class AxAIGoogleGeminiImpl
                   parts.push({ text: c.text });
                   break;
                 case 'image':
-                  parts.push({
-                    inlineData: { mimeType: c.mimeType, data: c.image },
-                  });
+                  if ('fileUri' in c) {
+                    parts.push({
+                      fileData: { mimeType: c.mimeType, fileUri: c.fileUri },
+                    });
+                  } else {
+                    parts.push({
+                      inlineData: { mimeType: c.mimeType, data: c.image },
+                    });
+                  }
                   break;
                 case 'audio':
                   parts.push({
@@ -1996,9 +2012,15 @@ class AxAIGoogleGeminiImpl
                 parts.push({ text: c.text });
                 break;
               case 'image':
-                parts.push({
-                  inlineData: { mimeType: c.mimeType, data: c.image },
-                });
+                if ('fileUri' in c) {
+                  parts.push({
+                    fileData: { mimeType: c.mimeType, fileUri: c.fileUri },
+                  });
+                } else {
+                  parts.push({
+                    inlineData: { mimeType: c.mimeType, data: c.image },
+                  });
+                }
                 break;
               case 'audio':
                 parts.push({

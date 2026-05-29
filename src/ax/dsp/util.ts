@@ -50,14 +50,21 @@ export const validateValue = (
   };
 
   const validImage = (val: Readonly<AxFieldValue>): boolean => {
-    if (
-      !val ||
-      typeof val !== 'object' ||
-      !('mimeType' in val) ||
-      !('data' in val)
-    ) {
+    if (!val || typeof val !== 'object' || !('mimeType' in val)) {
       return false;
     }
+
+    // Support both data and fileUri formats
+    const hasData = 'data' in val;
+    const hasFileUri = 'fileUri' in val;
+
+    if (!hasData && !hasFileUri) {
+      return false;
+    }
+    if (hasData && hasFileUri) {
+      return false; // Cannot have both
+    }
+
     return true;
   };
 
@@ -66,12 +73,14 @@ export const validateValue = (
     if (Array.isArray(value)) {
       for (const item of value) {
         if (!validImage(item)) {
-          msg = 'object ({ mimeType: string; data: string })';
+          msg =
+            'object ({ mimeType: string; data: string } | { mimeType: string; fileUri: string })';
           break;
         }
       }
     } else if (!validImage(value)) {
-      msg = 'object ({ mimeType: string; data: string })';
+      msg =
+        'object ({ mimeType: string; data: string } | { mimeType: string; fileUri: string })';
     }
 
     if (msg) {

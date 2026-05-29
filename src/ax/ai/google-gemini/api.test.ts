@@ -2174,3 +2174,87 @@ describe('AxAIGoogleGemini Live audio chat', () => {
     }
   });
 });
+
+describe('AxAIGoogleGemini image content mapping', () => {
+  it('maps inline base64 images to inlineData', async () => {
+    const ai = new AxAIGoogleGemini({
+      apiKey: 'key',
+      config: { model: AxAIGoogleGeminiModel.Gemini25Flash },
+      models: [],
+    });
+
+    const capture: { lastBody?: any } = {};
+    ai.setOptions({
+      fetch: createMockFetch(
+        {
+          candidates: [
+            { content: { parts: [{ text: 'ok' }] }, finishReason: 'STOP' },
+          ],
+        },
+        capture
+      ),
+    });
+
+    await ai.chat(
+      {
+        chatPrompt: [
+          {
+            role: 'user',
+            content: [
+              { type: 'image', mimeType: 'image/png', image: 'base64data' },
+            ],
+          },
+        ],
+      },
+      { stream: false }
+    );
+
+    const parts = capture.lastBody?.contents?.[0]?.parts;
+    expect(parts).toContainEqual({
+      inlineData: { mimeType: 'image/png', data: 'base64data' },
+    });
+  });
+
+  it('maps fileUri images to fileData', async () => {
+    const ai = new AxAIGoogleGemini({
+      apiKey: 'key',
+      config: { model: AxAIGoogleGeminiModel.Gemini25Flash },
+      models: [],
+    });
+
+    const capture: { lastBody?: any } = {};
+    ai.setOptions({
+      fetch: createMockFetch(
+        {
+          candidates: [
+            { content: { parts: [{ text: 'ok' }] }, finishReason: 'STOP' },
+          ],
+        },
+        capture
+      ),
+    });
+
+    await ai.chat(
+      {
+        chatPrompt: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'image',
+                mimeType: 'image/png',
+                fileUri: 'gs://my-bucket/cat.png',
+              },
+            ],
+          },
+        ],
+      },
+      { stream: false }
+    );
+
+    const parts = capture.lastBody?.contents?.[0]?.parts;
+    expect(parts).toContainEqual({
+      fileData: { mimeType: 'image/png', fileUri: 'gs://my-bucket/cat.png' },
+    });
+  });
+});
