@@ -1187,6 +1187,21 @@ export class AxPromptTemplate {
           | { mimeType: string; fileUri: string };
       };
 
+      const toImagePart = (value: Readonly<AxFieldValue>) => {
+        const validated = validateImage(value);
+        return 'fileUri' in validated
+          ? {
+              type: 'image' as const,
+              mimeType: validated.mimeType,
+              fileUri: validated.fileUri,
+            }
+          : {
+              type: 'image' as const,
+              mimeType: validated.mimeType,
+              image: validated.data,
+            };
+      };
+
       let result: ChatRequestUserMessage = [
         { type: 'text', text: `${field.title}: ` as string },
       ];
@@ -1196,37 +1211,10 @@ export class AxPromptTemplate {
           throw new Error('Image field value must be an array.');
         }
         result = result.concat(
-          (value as unknown[]).map((v) => {
-            // Cast to unknown[] before map
-            const validated = validateImage(v as AxFieldValue);
-            return 'fileUri' in validated
-              ? {
-                  type: 'image',
-                  mimeType: validated.mimeType,
-                  fileUri: validated.fileUri,
-                }
-              : {
-                  type: 'image',
-                  mimeType: validated.mimeType,
-                  image: validated.data,
-                };
-          })
+          (value as unknown[]).map((v) => toImagePart(v as AxFieldValue))
         );
       } else {
-        const validated = validateImage(value);
-        result.push(
-          'fileUri' in validated
-            ? {
-                type: 'image',
-                mimeType: validated.mimeType,
-                fileUri: validated.fileUri,
-              }
-            : {
-                type: 'image',
-                mimeType: validated.mimeType,
-                image: validated.data,
-              }
-        );
+        result.push(toImagePart(value));
       }
       return result;
     }
