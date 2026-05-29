@@ -3,8 +3,8 @@ import { ai as createAI, flow } from '@ax-llm/ax';
 // Create an AI instance
 const ai = createAI({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! });
 
-// Create a flow without explicitly passing a signature
-// The signature will be inferred from the flow structure
+// Create a flow without explicitly passing a signature.
+// AxFlow derives a conservative signature from node metadata and final returns.
 const myFlow = flow()
   .node(
     'analyzer',
@@ -20,9 +20,11 @@ const myFlow = flow()
   .execute('formatter', (state: any) => ({
     rawSentiment: state.analyzerResult.sentimentValue,
     score: state.analyzerResult.confidenceScore,
+  }))
+  .returns((state) => ({
+    formattedOutput: state.formatterResult.formattedOutput,
   }));
 
-// Execute the flow - this will trigger signature inference
 await myFlow.forward(ai, {
   userInput:
     'I absolutely love this new feature! It makes development so much easier.',
@@ -49,6 +51,9 @@ const complexFlow = flow()
     sentimentData: state.sentimentAnalyzerResult.sentiment,
     topicData: state.topicExtractorResult.topics,
     originalText: state.userInput,
+  }))
+  .returns((state) => ({
+    finalReport: state.reportGeneratorResult.finalReport,
   }));
 
 await complexFlow.forward(ai, {
@@ -63,6 +68,11 @@ const multiOutputFlow = flow()
   )
   .execute('processor', (state: any) => ({
     inputText: state.userInput,
+  }))
+  .returns((state) => ({
+    summary: state.processorResult.summary,
+    keywords: state.processorResult.keywords,
+    confidence: state.processorResult.confidence,
   }));
 
 await multiOutputFlow.forward(ai, {

@@ -134,8 +134,8 @@ Type-safe Output
 
 AxFlow provides DAG-based workflow orchestration with:
 
-- Automatic parallelization
-- Dependency analysis
+- Metadata-driven automatic parallelization
+- Safe read/write dependency planning
 - State management
 - Type-safe chaining
 - Conditional branching
@@ -143,8 +143,8 @@ AxFlow provides DAG-based workflow orchestration with:
 **Key Components:**
 
 - `AxFlow` - Main workflow class with fluent API
-- `AxFlowExecutionPlanner` - Analyzes dependencies for parallel execution
-- `AxFlowDependencyAnalyzer` - Identifies independent operations
+- Internal step registry - Represents execute, map, returns, control-flow, parallel, and derive steps with explicit metadata
+- Internal execution planner - Groups adjacent non-conflicting execute/derive steps and treats maps, returns, and control-flow as planning barriers
 
 **Workflow Patterns:**
 

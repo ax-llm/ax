@@ -5,9 +5,12 @@ import { axGlobals } from '../dsp/globals.js';
 import { AxSignature } from '../dsp/sig.js';
 import { ax } from '../dsp/template.js';
 import type {
+  AxChatLogEntry,
   AxProgramDemos,
   AxProgramForwardOptions,
   AxProgrammable,
+  AxProgramTrace,
+  AxProgramUsage,
 } from '../dsp/types.js';
 import { AxAIServiceAbortedError } from '../util/apicall.js';
 import { flow } from './flow.js';
@@ -17,9 +20,13 @@ class TestProgram
 {
   private signature: AxSignature;
   public optimizedApplied = false;
+  public seenAI: AxAIService | undefined;
   public seenTracer: unknown | undefined;
   public seenTraceContext: unknown | undefined;
   public seenAbortSignal: AbortSignal | undefined;
+  public usage: AxProgramUsage[] = [];
+  public traces: AxProgramTrace<any, any>[] = [];
+  public chatLog: AxChatLogEntry[] = [];
 
   constructor() {
     this.signature = AxSignature.from('inputText:string -> outputText:string');
@@ -31,10 +38,11 @@ class TestProgram
 
   // minimal surface needed by AxFlow.execute()
   async forward<T extends Readonly<AxAIService>>(
-    _ai: T,
+    ai: T,
     values: { inputText: string },
     options?: Readonly<AxProgramForwardOptions<string>>
   ): Promise<{ outputText: string }> {
+    this.seenAI = ai as AxAIService;
     this.seenTracer = (options as any)?.tracer;
     this.seenTraceContext = (options as any)?.traceContext;
     this.seenAbortSignal = options?.abortSignal;
@@ -54,13 +62,16 @@ class TestProgram
     this._id = id;
   }
   setDemos(): void {}
-  getTraces(): any[] {
-    return [];
+  getTraces(): AxProgramTrace<any, any>[] {
+    return this.traces;
   }
-  getUsage(): any[] {
-    return [];
+  getUsage(): AxProgramUsage[] {
+    return this.usage;
   }
   resetUsage(): void {}
+  getChatLog(): readonly AxChatLogEntry[] {
+    return this.chatLog;
+  }
   getOptimizableComponents(): readonly any[] {
     return [];
   }
@@ -223,6 +234,81 @@ describe('AxFlow propagation and instrumentation', () => {
     const out = await wf.forward(ai, { a: 1 });
     expect((out as any).x).toBe(2);
     expect((out as any).y).toBe(3);
+  });
+
+  it('explicit parallel subflows preserve telemetry and dynamic AI/options', async () => {
+    const left = new TestProgram();
+    const right = new TestProgram();
+    left.usage = [
+      {
+        ai: 'left-ai',
+        model: 'left-model',
+        tokens: { promptTokens: 1, completionTokens: 2, totalTokens: 3 },
+      } as AxProgramUsage,
+    ];
+    right.usage = [
+      {
+        ai: 'right-ai',
+        model: 'right-model',
+        tokens: { promptTokens: 2, completionTokens: 3, totalTokens: 5 },
+      } as AxProgramUsage,
+    ];
+    left.traces = [{ programId: 'left-trace', trace: { outputText: 'left' } }];
+    right.traces = [
+      { programId: 'right-trace', trace: { outputText: 'right' } },
+    ];
+    left.chatLog = [
+      {
+        name: 'round',
+        model: 'left-model',
+        messages: [{ role: 'user', content: 'left' }],
+      },
+    ];
+    right.chatLog = [
+      {
+        name: 'round',
+        model: 'right-model',
+        messages: [{ role: 'user', content: 'right' }],
+      },
+    ];
+
+    const tracer = trace.getTracer('axflow-parallel-test');
+    const mainAI = { name: 'main' } as unknown as AxAIService;
+    const overrideAI = { name: 'override' } as unknown as AxAIService;
+
+    const wf = flow<{ userInput: string }>()
+      .node('left', left)
+      .node('right', right)
+      .parallel([
+        (sub) =>
+          sub.execute('left', (s) => ({ inputText: s.userInput }), {
+            ai: overrideAI,
+          } as any),
+        (sub) => sub.execute('right', (s) => ({ inputText: s.userInput })),
+      ])
+      .merge('combined', (leftResult, rightResult) => {
+        const l = leftResult as { leftResult: { outputText: string } };
+        const r = rightResult as { rightResult: { outputText: string } };
+        return `${l.leftResult.outputText}:${r.rightResult.outputText}`;
+      })
+      .returns((s) => ({ combined: s.combined }));
+
+    const result = await wf.forward(mainAI, { userInput: 'hello' }, { tracer });
+
+    expect(result.combined).toBe('seen:hello:seen:hello');
+    expect(left.seenAI).toBe(overrideAI);
+    expect(right.seenAI).toBe(mainAI);
+    expect(left.seenTracer).toBe(tracer);
+    expect(right.seenTracer).toBe(tracer);
+    expect(wf.getUsage().map((usage) => usage.ai)).toEqual(
+      expect.arrayContaining(['left-ai', 'right-ai'])
+    );
+    expect(wf.getTraces().map((entry) => entry.programId)).toEqual(
+      expect.arrayContaining(['left-trace', 'right-trace'])
+    );
+    expect(wf.getChatLog().map((entry) => entry.name)).toEqual(
+      expect.arrayContaining(['left.round', 'right.round'])
+    );
   });
 
   it('ends parent tracing span when flow throws', async () => {

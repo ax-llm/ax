@@ -767,6 +767,7 @@ import type {
   AxTunable,
   AxUsable,
 } from './dsp/types.js';
+import type { AxFlowStateDependencyAnalysis } from './flow/dependencyAnalyzer.js';
 import { AxFlow, flow } from './flow/flow.js';
 import {
   type AxFlowBranchEvaluationData,
@@ -785,15 +786,14 @@ import {
   axDefaultFlowLogger,
 } from './flow/logger.js';
 import type {
-  AxFlowAutoParallelConfig,
   AxFlowable,
-  AxFlowBranchContext,
   AxFlowDynamicContext,
-  AxFlowExecutionStep,
-  AxFlowNodeDefinition,
-  AxFlowParallelGroup,
+  AxFlowExecutionPlan,
+  AxFlowExecutionPlanGroup,
+  AxFlowExecutionPlanStep,
+  AxFlowForwardOptions,
+  AxFlowOptions,
   AxFlowState,
-  AxFlowStepFunction,
   AxFlowTypedParallelBranch,
   AxFlowTypedSubContext,
 } from './flow/types.js';
@@ -1419,24 +1419,24 @@ export type { AxFieldProcessorProcess };
 export type { AxFieldTemplateFn };
 export type { AxFieldType };
 export type { AxFieldValue };
-export type { AxFlowAutoParallelConfig };
-export type { AxFlowBranchContext };
 export type { AxFlowBranchEvaluationData };
 export type { AxFlowCompleteData };
 export type { AxFlowDynamicContext };
 export type { AxFlowErrorData };
-export type { AxFlowExecutionStep };
+export type { AxFlowExecutionPlan };
+export type { AxFlowExecutionPlanGroup };
+export type { AxFlowExecutionPlanStep };
+export type { AxFlowForwardOptions };
 export type { AxFlowLogData };
 export type { AxFlowLoggerData };
 export type { AxFlowLoggerFunction };
-export type { AxFlowNodeDefinition };
-export type { AxFlowParallelGroup };
+export type { AxFlowOptions };
 export type { AxFlowParallelGroupCompleteData };
 export type { AxFlowParallelGroupStartData };
 export type { AxFlowStartData };
 export type { AxFlowState };
+export type { AxFlowStateDependencyAnalysis };
 export type { AxFlowStepCompleteData };
-export type { AxFlowStepFunction };
 export type { AxFlowStepStartData };
 export type { AxFlowTypedParallelBranch };
 export type { AxFlowTypedSubContext };

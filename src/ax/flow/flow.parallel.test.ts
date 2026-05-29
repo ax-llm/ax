@@ -335,6 +335,25 @@ describe('AxFlow Parallel Execution and Merge', () => {
       expect(planInfo.parallelGroups).toBeGreaterThanOrEqual(0);
       expect(planInfo.maxParallelism).toBeGreaterThanOrEqual(0);
     });
+
+    it('should keep unknown state reads as planning barriers', () => {
+      const inputKey = 'paperText';
+      const resultKey = 'scorer1Result';
+      const flow = AxFlow.create<{ paperText: string }>()
+        .node('scorer1', 'documentText:string -> qualityScore:number')
+        .node('scorer2', 'score:number -> normalizedScore:number')
+        .execute('scorer1', (state: any) => ({
+          documentText: state[inputKey],
+        }))
+        .execute('scorer2', (state: any) => ({
+          score: state[resultKey].qualityScore,
+        }));
+
+      const planInfo = flow.getExecutionPlan();
+      expect(planInfo.groups.map((group) => group.steps.length)).toEqual([
+        1, 1,
+      ]);
+    });
   });
 
   describe('error handling in parallel execution', () => {

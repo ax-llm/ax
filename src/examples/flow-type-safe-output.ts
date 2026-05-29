@@ -1,4 +1,4 @@
-// Example: Type-safe output with AxFlow using mapOutput()
+// Example: Type-safe output with AxFlow using returns()
 // This example shows how to achieve end-to-end type safety in AxFlow
 
 import { ai, flow } from '@ax-llm/ax';
@@ -32,9 +32,9 @@ const documentAnalyzer = flow<{ documentText: string }>()
     textContent: state.summarizerResult.summaryText,
   }))
 
-  // Use mapOutput() for the final transformation that shapes the output type
+  // Use returns() for the final transformation that shapes the output type
   // Note: Node results are typed as AxFieldValue, so we need to cast to specific types
-  .mapOutput((state) => ({
+  .returns((state) => ({
     analysis: {
       summary: state.summarizerResult.summaryText as string,
       sentiment: state.sentimentAnalyzerResult.sentiment as string,
