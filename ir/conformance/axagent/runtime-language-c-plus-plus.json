@@ -1,0 +1,17 @@
+{
+  "expected_runtime_contract_subset": {
+    "code_fence_language": "cplusplus",
+    "code_field_name": "cPlusPlusCode",
+    "code_field_title": "C Plus Plus Code",
+    "is_javascript": false,
+    "language": "C++"
+  },
+  "kind": "agent_runtime_policy",
+  "name": "runtime-language-c-plus-plus",
+  "options": {
+    "runtime": {
+      "language": "C++"
+    }
+  },
+  "signature": "question:string -> answer:string"
+}

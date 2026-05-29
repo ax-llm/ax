@@ -1,0 +1,17 @@
+{
+  "expected_runtime_contract_subset": {
+    "code_fence_language": "typescript",
+    "code_field_name": "typescriptCode",
+    "code_field_title": "Typescript Code",
+    "is_javascript": false,
+    "language": "TypeScript"
+  },
+  "kind": "agent_runtime_policy",
+  "name": "runtime-language-typescript",
+  "options": {
+    "runtime": {
+      "language": "TypeScript"
+    }
+  },
+  "signature": "question:string -> answer:string"
+}

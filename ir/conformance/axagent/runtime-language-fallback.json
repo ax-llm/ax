@@ -1,0 +1,17 @@
+{
+  "expected_runtime_contract_subset": {
+    "code_fence_language": "text",
+    "code_field_name": "runtimeCode",
+    "code_field_title": "Runtime Code",
+    "is_javascript": false,
+    "language": "!!!"
+  },
+  "kind": "agent_runtime_policy",
+  "name": "runtime-language-fallback",
+  "options": {
+    "runtime": {
+      "language": "!!!"
+    }
+  },
+  "signature": "question:string -> answer:string"
+}

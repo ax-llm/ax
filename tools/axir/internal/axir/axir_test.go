@@ -177,6 +177,9 @@ func TestBuildRuntimeModel(t *testing.T) {
 		"axagent_agent_test",
 		"axagent_runtime_state_restore",
 		"axagent_actor_step_alpha",
+		"axagent_runtime_language",
+		"axagent_actor_prompt_cache",
+		"axagent_context_cache_precedence",
 	} {
 		if !model.Features[feature] {
 			t.Fatalf("runtime model missing prompt feature flag %s: %#v", feature, model.Features)

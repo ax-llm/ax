@@ -116,8 +116,14 @@ var pythonGenCoreFuncs = []pythonCoreFuncSpec{
 
 var pythonAgentCoreFuncs = []pythonCoreFuncSpec{
 	{Symbol: "agent_reserved_runtime_names", Name: "_agent_reserved_runtime_names"},
+	{Symbol: "agent_runtime_language_tokens", Name: "_agent_runtime_language_tokens"},
+	{Symbol: "agent_runtime_language_alias_key", Name: "_agent_runtime_language_alias_key"},
+	{Symbol: "agent_runtime_is_javascript_alias", Name: "_agent_runtime_is_javascript_alias"},
+	{Symbol: "agent_runtime_code_field_name", Name: "_agent_runtime_code_field_name"},
+	{Symbol: "agent_runtime_code_fence_language", Name: "_agent_runtime_code_fence_language"},
 	{Symbol: "normalize_agent_runtime", Name: "_normalize_agent_runtime"},
 	{Symbol: "normalize_agent_policy", Name: "_normalize_agent_policy"},
+	{Symbol: "build_agent_actor_prompt_policy", Name: "_build_agent_actor_prompt_policy"},
 	{Symbol: "normalize_agent_callable", Name: "_normalize_agent_callable"},
 	{Symbol: "normalize_agent_group", Name: "_normalize_agent_group"},
 	{Symbol: "normalize_agent_callable_inventory", Name: "_normalize_agent_callable_inventory"},
@@ -150,6 +156,8 @@ var pythonAgentCoreFuncs = []pythonCoreFuncSpec{
 	{Symbol: "merge_agent_usage", Name: "_merge_agent_usage"},
 	{Symbol: "agent_get_state", Name: "_agent_get_state"},
 	{Symbol: "agent_set_state", Name: "_agent_set_state"},
+	{Symbol: "agent_stage_options", Name: "_agent_stage_options"},
+	{Symbol: "extract_agent_runtime_code", Name: "_extract_agent_runtime_code"},
 	{Symbol: "agent_forward", Name: "_agent_forward"},
 }
 

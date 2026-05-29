@@ -1,0 +1,80 @@
+{
+  "expected_action_log_subset": [
+    {
+      "code": "discover({\"tools\":[\"search\"]})",
+      "kind": "result"
+    },
+    {
+      "request": {
+        "tools": ["search"]
+      },
+      "type": "discover"
+    },
+    {
+      "code": "final(\"Answer\", {\"answer\": \"Docs found\"})",
+      "kind": "final"
+    }
+  ],
+  "expected_executed": [
+    "discover({\"tools\":[\"search\"]})",
+    "final(\"Answer\", {\"answer\": \"Docs found\"})"
+  ],
+  "expected_output": {
+    "answer": "Docs found"
+  },
+  "expected_request_contains": ["Search docs", "Discovered Tool Docs"],
+  "expected_request_count": 4,
+  "input": {
+    "question": "Find docs"
+  },
+  "kind": "agent_forward",
+  "name": "runtime-forward-discover-continues",
+  "options": {
+    "runtime": {
+      "language": "Python"
+    },
+    "functions": [
+      {
+        "description": "Search docs",
+        "name": "search"
+      }
+    ]
+  },
+  "responses": [
+    {
+      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Discover tools first\",{}]}}"
+    },
+    {
+      "content": "{\"pythonCode\":\"discover({\\\"tools\\\":[\\\"search\\\"]})\"}"
+    },
+    {
+      "content": "{\"pythonCode\":\"final(\\\"Answer\\\", {\\\"answer\\\": \\\"Docs found\\\"})\"}"
+    },
+    {
+      "content": "{\"answer\":\"Docs found\"}"
+    }
+  ],
+  "runtime_script": [
+    {
+      "expected_code": "discover({\"tools\":[\"search\"]})",
+      "result": {
+        "discover": {
+          "tools": ["search"]
+        }
+      }
+    },
+    {
+      "expected_code": "final(\"Answer\", {\"answer\": \"Docs found\"})",
+      "result": {
+        "args": [
+          "Answer",
+          {
+            "answer": "Docs found"
+          }
+        ],
+        "type": "final"
+      }
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

@@ -1,0 +1,17 @@
+{
+  "expected_runtime_contract_subset": {
+    "code_fence_language": "csharp",
+    "code_field_name": "cSharpCode",
+    "code_field_title": "C Sharp Code",
+    "is_javascript": false,
+    "language": "C#"
+  },
+  "kind": "agent_runtime_policy",
+  "name": "runtime-language-c-sharp",
+  "options": {
+    "runtime": {
+      "language": "C#"
+    }
+  },
+  "signature": "question:string -> answer:string"
+}

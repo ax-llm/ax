@@ -2323,9 +2323,9 @@ def _core_axgen_render_demos(gen):
     return messages
 
 
-def _core_axgen_apply_context_cache(gen, messages):
+def _core_axgen_apply_context_cache(gen, messages, runtime_options=None):
     messages = [dict(item) if isinstance(item, dict) else item for item in (messages or [])]
-    options = _core_get(gen, "options", {}) or {}
+    options = {**(_core_get(gen, "options", {}) or {}), **(runtime_options or {})}
     if options.get("examplesInSystem") and messages:
         blocks = []
         for item in _core_get(gen, "examples", []) or []:
@@ -2523,6 +2523,7 @@ def _core_axgen_record_function_call(gen, call, result, status):
 
 const pyAgent = `from __future__ import annotations
 
+import re
 from typing import Any
 
 from .gen import AxGen
@@ -2559,6 +2560,11 @@ class AxCodeSession:
 
 
 class AxCodeRuntime:
+    language = "JavaScript"
+
+    def get_usage_instructions(self) -> str:
+        return ""
+
     def create_session(self, globals: dict[str, Any], options: dict[str, Any] | None = None) -> AxCodeSession:
         raise NotImplementedError
 
@@ -2618,6 +2624,9 @@ class AxAgent:
     def get_chat_log(self):
         return list(_core_get(self.state, "chat_log", []) or [])
 
+    def get_action_log(self):
+        return list(_core_get(self.state, "action_log", []) or [])
+
     def get_usage(self):
         return dict(_core_get(self.state, "usage", {}) or {})
 
@@ -2658,6 +2667,8 @@ def _core_not(value): return not value
 def _core_or(left, right): return bool(left or right)
 def _core_eq(left, right): return left == right
 def _core_gt(left, right): return left > right
+def _core_gte(left, right): return left >= right
+def _core_add(left, right): return left + right
 def _core_len(value): return len(value or [])
 def _core_contains(container, item): return False if container is None else item in container
 def _core_is_none(value): return value is None
@@ -2701,6 +2712,10 @@ def _core_map_delete(target, key):
     return target
 
 
+def _core_map_contains(target, key):
+    return isinstance(target, dict) and key in target
+
+
 def _core_list_get(values, index, default=None):
     return values[index] if isinstance(values, list) and 0 <= int(index) < len(values) else default
 
@@ -2712,6 +2727,36 @@ def _core_json_stringify(value):
 
 def _core_string_format(template, *args):
     return str(template).format(*args)
+
+
+def _core_regex_replace(pattern, repl, value):
+    return re.sub(str(pattern), str(repl), str(value))
+
+
+def _core_string_words(value):
+    return str(value).split()
+
+
+def _core_string_join(sep, values):
+    return str(sep).join(str(item) for item in (values or []))
+
+
+def _core_string_lower(value):
+    return str(value).lower()
+
+
+def _core_string_lower_camel(words):
+    items = [str(item) for item in (words or []) if str(item)]
+    if not items:
+        return ""
+    first, rest = items[0].lower(), items[1:]
+    return first + "".join(item.lower().capitalize() for item in rest)
+
+
+def _core_string_title_from_camel(value):
+    text = re.sub(r"Code$", " Code", str(value))
+    text = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", text).strip()
+    return text[:1].upper() + text[1:]
 
 
 def _core_runtime_error(message):
@@ -2889,10 +2934,15 @@ class FakeCodeSession(AxCodeSession):
 
 
 class FakeCodeRuntime(AxCodeRuntime):
-    def __init__(self, script=None):
+    def __init__(self, script=None, language="JavaScript", usage_instructions=""):
         self.script = list(script or [])
         self.sessions = []
         self.executed = []
+        self.language = language
+        self._usage_instructions = usage_instructions
+
+    def get_usage_instructions(self) -> str:
+        return self._usage_instructions
 
     def create_session(self, globals: dict[str, Any], options: dict[str, Any] | None = None) -> FakeCodeSession:
         session = FakeCodeSession(self, globals)
@@ -3167,9 +3217,19 @@ def _run_forward(fixture):
 
 def _run_agent_forward(fixture):
     client = FakeAIService(fixture.get("responses") or [], fixture.get("stream_events") or [])
+    runtime = None
+    agent_options = copy.deepcopy(fixture.get("options") or {})
+    if "runtime_script" in fixture:
+        runtime_config = agent_options.get("runtime") if isinstance(agent_options.get("runtime"), dict) else {}
+        runtime = FakeCodeRuntime(
+            fixture.get("runtime_script") or [],
+            language=runtime_config.get("language", fixture.get("runtime_language", "JavaScript")),
+            usage_instructions=runtime_config.get("usageInstructions", runtime_config.get("usage_instructions", "")),
+        )
+        agent_options["runtime"] = runtime
     ag = None
     try:
-        ag = agent(fixture.get("signature"), fixture.get("options") or {})
+        ag = agent(fixture.get("signature"), agent_options)
         if "set_state" in fixture:
             ag.set_state(fixture.get("set_state") or {})
         output = ag.forward(client, fixture.get("input") or {}, fixture.get("forward_options"))
@@ -3209,10 +3269,27 @@ def _run_agent_forward(fixture):
             if index >= len(client.requests):
                 raise FixtureError(f"missing agent request index {index}")
             _assert_subset(client.requests[index], raw.get("request") or {}, f"agent request {index}")
+    if "expected_cached_request_indices" in fixture:
+        for index in fixture.get("expected_cached_request_indices") or []:
+            idx = int(index)
+            if idx >= len(client.requests):
+                raise FixtureError(f"missing cached request index {idx}")
+            prompt = client.requests[idx].get("chat_prompt") or []
+            if not any(isinstance(message, dict) and message.get("cache") is True for message in prompt):
+                raise FixtureError(f"agent request {idx} did not contain a cached prompt message: {prompt!r}")
     if "expected_chat_log_subset" in fixture:
         _assert_list_subset(ag.get_chat_log(), fixture["expected_chat_log_subset"], "agent chat log")
     if "expected_state" in fixture:
         _assert_subset(ag.get_state(), fixture["expected_state"], "agent state")
+    exported = ag.export_runtime_state()
+    if "expected_runtime_contract_subset" in fixture:
+        _assert_subset(ag.get_runtime_contract(), fixture["expected_runtime_contract_subset"], "runtime contract")
+    if "expected_exported_state_subset" in fixture:
+        _assert_subset(exported, fixture["expected_exported_state_subset"], "runtime state")
+    if "expected_action_log_subset" in fixture:
+        _assert_list_subset(exported.get("action_log") or [], fixture["expected_action_log_subset"], "action log")
+    if runtime is not None and "expected_executed" in fixture:
+        _assert_equal(runtime.executed, fixture["expected_executed"], "executed code")
 
 
 def _run_agent_runtime_policy(fixture):

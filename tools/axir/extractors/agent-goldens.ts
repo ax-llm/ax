@@ -1,6 +1,7 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { getRuntimeLanguageInfo } from '../../../src/ax/agent/rlm.js';
 import { AxSignature } from '../../../src/ax/dsp/sig.js';
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
@@ -38,7 +39,22 @@ function touchReferenceBehavior(): void {
   AxSignature.create('question:string, document:string -> answer:string');
 }
 
+function runtimeContractSubset(language: string, usageInstructions?: string) {
+  const info = getRuntimeLanguageInfo({ language });
+  return {
+    language: info.languageName,
+    code_field_name: info.codeFieldName,
+    code_field_title: info.codeFieldTitle,
+    code_fence_language: info.codeFenceLanguage,
+    is_javascript: info.isJavaScript,
+    ...(usageInstructions ? { usage_instructions: usageInstructions } : {}),
+  };
+}
+
 mkdirSync(outDir, { recursive: true });
+for (const file of readdirSync(outDir)) {
+  if (file.endsWith('.json')) rmSync(join(outDir, file));
+}
 touchReferenceBehavior();
 
 writeFixture('simple-pipeline', {
@@ -195,10 +211,7 @@ writeFixture('runtime-metadata-javascript', {
     },
   },
   expected_runtime_contract_subset: {
-    language: 'javascript',
-    code_field_name: 'javascriptCode',
-    code_field_title: 'Javascript Code',
-    code_fence_language: 'javascript',
+    ...runtimeContractSubset('javascript'),
     callable_format: 'namespaced_runtime_call',
   },
   expected_policy_subset: {
@@ -220,12 +233,197 @@ writeFixture('runtime-metadata-python', {
     },
   },
   expected_runtime_contract_subset: {
-    language: 'python',
-    code_field_name: 'pythonCode',
-    code_fence_language: 'python',
-    usage_instructions:
-      'Use pythonCode to call tools through namespaced runtime functions.',
+    ...runtimeContractSubset(
+      'python',
+      'Use pythonCode to call tools through namespaced runtime functions.'
+    ),
   },
+});
+
+for (const language of [
+  'JavaScript',
+  'js',
+  'ecmascript',
+  'Python',
+  'TypeScript',
+  'C#',
+  'C++',
+  '!!!',
+]) {
+  const name = `runtime-language-${
+    language
+      .replace(/#/g, '-sharp-')
+      .replace(/\+/g, '-plus-')
+      .replace(/[^A-Za-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .toLowerCase() || 'fallback'
+  }`;
+  writeFixture(name, {
+    kind: 'agent_runtime_policy',
+    signature: 'question:string -> answer:string',
+    options: {
+      runtime: { language },
+    },
+    expected_runtime_contract_subset: runtimeContractSubset(language),
+  });
+}
+
+writeFixture('actor-prompt-cache-policy-python', {
+  kind: 'agent_runtime_policy',
+  signature: 'document:string, question:string -> answer:string',
+  options: {
+    contextFields: ['document'],
+    functionDiscovery: true,
+    runtime: { language: 'Python' },
+  },
+  expected_runtime_contract_subset: runtimeContractSubset('Python'),
+  expected_exported_state_subset: {
+    actor_prompt_policy: {
+      stable_cached_fields: [
+        'input',
+        'executorRequest',
+        'distilledContext',
+        'contextMetadata',
+        'contextMap',
+        'memories',
+        'discoveredToolDocs',
+        'loadedSkills',
+        'summarizedActorLog',
+      ],
+      dynamic_uncached_fields: [
+        'guidanceLog',
+        'actionLog',
+        'liveRuntimeState',
+        'contextPressure',
+      ],
+      code_field_name: 'pythonCode',
+      code_field_title: 'Python Code',
+      code_fence_language: 'python',
+      cache_order: 'stable_before_dynamic',
+    },
+  },
+});
+
+writeFixture('runtime-forward-python-final', {
+  kind: 'agent_forward',
+  signature: 'question:string -> answer:string',
+  options: {
+    runtime: { language: 'Python' },
+  },
+  input: { question: 'Use runtime' },
+  responses: [
+    {
+      content:
+        '{"completion":{"type":"final","args":["Execute runtime code",{}]}}',
+    },
+    {
+      content:
+        '{"pythonCode":"final(\\"Answer\\", {\\"answer\\": \\"from runtime\\"})"}',
+    },
+    { content: '{"answer":"from runtime"}' },
+  ],
+  runtime_script: [
+    {
+      expected_code: 'final("Answer", {"answer": "from runtime"})',
+      result: {
+        type: 'final',
+        args: ['Answer', { answer: 'from runtime' }],
+      },
+    },
+  ],
+  expected_output: { answer: 'from runtime' },
+  expected_request_count: 3,
+  expected_executed: ['final("Answer", {"answer": "from runtime"})'],
+  expected_runtime_contract_subset: runtimeContractSubset('Python'),
+  expected_action_log_subset: [
+    { type: 'runtime_session', action: 'create_session' },
+    { kind: 'final', code: 'final("Answer", {"answer": "from runtime"})' },
+  ],
+});
+
+writeFixture('runtime-forward-discover-continues', {
+  kind: 'agent_forward',
+  signature: 'question:string -> answer:string',
+  options: {
+    runtime: { language: 'Python' },
+    functions: [{ name: 'search', description: 'Search docs' }],
+  },
+  input: { question: 'Find docs' },
+  responses: [
+    {
+      content:
+        '{"completion":{"type":"final","args":["Discover tools first",{}]}}',
+    },
+    {
+      content: '{"pythonCode":"discover({\\"tools\\":[\\"search\\"]})"}',
+    },
+    {
+      content:
+        '{"pythonCode":"final(\\"Answer\\", {\\"answer\\": \\"Docs found\\"})"}',
+    },
+    { content: '{"answer":"Docs found"}' },
+  ],
+  runtime_script: [
+    {
+      expected_code: 'discover({"tools":["search"]})',
+      result: { discover: { tools: ['search'] } },
+    },
+    {
+      expected_code: 'final("Answer", {"answer": "Docs found"})',
+      result: {
+        type: 'final',
+        args: ['Answer', { answer: 'Docs found' }],
+      },
+    },
+  ],
+  expected_output: { answer: 'Docs found' },
+  expected_request_count: 4,
+  expected_request_contains: ['Search docs', 'Discovered Tool Docs'],
+  expected_executed: [
+    'discover({"tools":["search"]})',
+    'final("Answer", {"answer": "Docs found"})',
+  ],
+  expected_action_log_subset: [
+    { kind: 'result', code: 'discover({"tools":["search"]})' },
+    { type: 'discover', request: { tools: ['search'] } },
+    { kind: 'final', code: 'final("Answer", {"answer": "Docs found"})' },
+  ],
+});
+
+writeFixture('agent-context-cache-precedence', {
+  kind: 'agent_forward',
+  signature: 'document:string, question:string -> answer:string',
+  options: {
+    contextFields: ['document'],
+    contextCache: { ttlSeconds: 1111 },
+    contextOptions: {
+      contextCache: { ttlSeconds: 2222, cacheBreakpoint: 'system' },
+    },
+    executorOptions: {
+      contextCache: { ttlSeconds: 3333, cacheBreakpoint: 'after-functions' },
+    },
+    responderOptions: {
+      contextCache: { ttlSeconds: 4444, cacheBreakpoint: 'after-examples' },
+    },
+  },
+  forward_options: {
+    contextCache: { ttlSeconds: 5555, cacheBreakpoint: 'system' },
+  },
+  input: { document: 'cached context', question: 'q' },
+  responses: [
+    {
+      content:
+        '{"completion":{"type":"final","args":["Answer with cache",{"summary":"cached"}]}}',
+    },
+    {
+      content:
+        '{"completion":{"type":"final","args":["Answer with cache",{"answer":"cached"}]}}',
+    },
+    { content: '{"answer":"cached"}' },
+  ],
+  expected_output: { answer: 'cached' },
+  expected_request_count: 3,
+  expected_cached_request_indices: [0, 1, 2],
 });
 
 writeFixture('reserved-runtime-name-conflict', {

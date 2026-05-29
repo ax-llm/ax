@@ -4,15 +4,13 @@
     "code_field_name": "pythonCode",
     "code_field_title": "Python Code",
     "is_javascript": false,
-    "language": "python",
-    "usage_instructions": "Use pythonCode to call tools through namespaced runtime functions."
+    "language": "Python"
   },
   "kind": "agent_runtime_policy",
-  "name": "runtime-metadata-python",
+  "name": "runtime-language-python",
   "options": {
     "runtime": {
-      "language": "python",
-      "usageInstructions": "Use pythonCode to call tools through namespaced runtime functions."
+      "language": "Python"
     }
   },
   "signature": "question:string -> answer:string"

@@ -53,6 +53,11 @@ module @ax.agent version "0.1" {
       %status_log = core.list
       %state = core.map
       %runtime_contract = core.call @normalize_agent_runtime(%options)
+      %has_runtime_direct = core.call intrinsic.map.contains(%options, "runtime")
+      %has_runtime_config = core.call intrinsic.map.contains(%options, "runtimeConfig")
+      %has_runtime_config_snake = core.call intrinsic.map.contains(%options, "runtime_config")
+      %has_any_runtime_config = core.call intrinsic.or(%has_runtime_config, %has_runtime_config_snake)
+      %runtime_enabled = core.call intrinsic.or(%has_runtime_direct, %has_any_runtime_config)
       %policy = core.call @normalize_agent_policy(%options)
       %callable_inventory = core.call @normalize_agent_callable_inventory(%options)
       %callable_split = core.call @split_agent_callable_inventory(%callable_inventory)
@@ -66,13 +71,21 @@ module @ax.agent version "0.1" {
       core.set %state["executor_exclude_fields"] = %executor_exclude
       core.set %state["responder_exclude_fields"] = %responder_exclude
       core.set %state["distiller_signature"] = "input:json, context:json -> completion:json"
-      core.set %state["executor_signature"] = "input:json, executorRequest:string, distilledContext:json -> completion:json"
+      %code_field_name = core.get %runtime_contract["code_field_name"] default "javascriptCode"
+      %runtime_executor_signature = core.call intrinsic.string.format("input:json, executorRequest:string, distilledContext:json, discoveredToolDocs?:string, loadedSkills?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string -> {}:code", %code_field_name)
+      %executor_signature = core.let "input:json, executorRequest:string, distilledContext:json -> completion:json"
+      core.if %runtime_enabled {
+        %executor_signature = core.let %runtime_executor_signature
+      } else {
+      }
+      core.set %state["executor_signature"] = %executor_signature
       core.set %state["chat_log"] = %chat_log
       core.set %state["usage"] = %usage
       core.set %state["runtime_state"] = %state_alpha
       core.set %state["action_log"] = %action_log
       core.set %state["status_log"] = %status_log
       core.set %state["runtime_contract"] = %runtime_contract
+      core.set %state["runtime_enabled"] = %runtime_enabled
       core.set %state["policy"] = %policy
       core.set %state["callable_inventory"] = %callable_inventory
       core.set %state["callable_split"] = %callable_split
@@ -82,6 +95,8 @@ module @ax.agent version "0.1" {
       core.set %state["policy_trace"] = %policy_trace
       %optimizer_metadata = core.call @agent_optimizer_metadata(%state)
       core.set %state["optimizer_metadata"] = %optimizer_metadata
+      %actor_prompt_policy = core.call @build_agent_actor_prompt_policy(%state)
+      core.set %state["actor_prompt_policy"] = %actor_prompt_policy
       core.return %state
     }
   }
@@ -105,6 +120,93 @@ module @ax.agent version "0.1" {
     }
   }
 
+  op ax.agent.runtime @agent_runtime_language_tokens {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(string) -> list<string>"
+    body @entry(%language: string) {
+      %trimmed = core.string_trim %language
+      %sharp_spaced = core.call intrinsic.regex.replace("#", " Sharp ", %trimmed)
+      %plus_spaced = core.call intrinsic.regex.replace("\\+", " Plus ", %sharp_spaced)
+      %word_spaced = core.call intrinsic.regex.replace("[^A-Za-z0-9]+", " ", %plus_spaced)
+      %tokens = core.call intrinsic.string.words(%word_spaced)
+      core.return %tokens
+    }
+  }
+
+  op ax.agent.runtime @agent_runtime_language_alias_key {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(list<string>) -> string"
+    body @entry(%tokens: json) {
+      %joined = core.call intrinsic.string.join("", %tokens)
+      %alias_key = core.call intrinsic.string.lower(%joined)
+      core.return %alias_key
+    }
+  }
+
+  op ax.agent.runtime @agent_runtime_is_javascript_alias {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(string) -> bool"
+    body @entry(%alias_key: string) {
+      %is_javascript = core.call intrinsic.eq(%alias_key, "javascript")
+      %is_js = core.call intrinsic.eq(%alias_key, "js")
+      %is_ecmascript = core.call intrinsic.eq(%alias_key, "ecmascript")
+      %is_js_or_javascript = core.call intrinsic.or(%is_javascript, %is_js)
+      %out = core.call intrinsic.or(%is_js_or_javascript, %is_ecmascript)
+      core.return %out
+    }
+  }
+
+  op ax.agent.runtime @agent_runtime_code_field_name {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(list<string>, bool) -> string"
+    body @entry(%tokens: json, %is_javascript: bool) {
+      %out = core.let "javascriptCode"
+      core.if %is_javascript {
+        %out = core.let "javascriptCode"
+      } else {
+        %count = core.call intrinsic.len(%tokens)
+        %has_tokens = core.call intrinsic.gt(%count, 0)
+        core.if %has_tokens {
+          %prefix = core.call intrinsic.string.lower_camel(%tokens)
+          %out = core.call intrinsic.string.format("{}Code", %prefix)
+        } else {
+          %out = core.let "runtimeCode"
+        }
+      }
+      core.return %out
+    }
+  }
+
+  op ax.agent.runtime @agent_runtime_code_fence_language {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(list<string>, string, bool) -> string"
+    body @entry(%tokens: json, %alias_key: string, %is_javascript: bool) {
+      %out = core.let "js"
+      core.if %is_javascript {
+        %out = core.let "js"
+      } else {
+        %count = core.call intrinsic.len(%tokens)
+        %has_tokens = core.call intrinsic.gt(%count, 0)
+        core.if %has_tokens {
+          %out = core.let %alias_key
+        } else {
+          %out = core.let "text"
+        }
+      }
+      core.return %out
+    }
+  }
+
   op ax.agent.runtime @normalize_agent_runtime {
     attr core_kind = "func"
     attr emit_module = "agent"
@@ -113,35 +215,36 @@ module @ax.agent version "0.1" {
       %empty_map = core.map
       %runtime_camel = core.get %options["runtimeConfig"] default %empty_map
       %runtime = core.get %options["runtime"] default %runtime_camel
-      %language = core.get %runtime["language"] default "javascript"
-      %is_js = core.call intrinsic.eq(%language, "javascript")
+      %raw_language = core.get %runtime["language"] default "JavaScript"
+      %trimmed_language = core.string_trim %raw_language
+      %language_missing = core.call intrinsic.eq(%trimmed_language, "")
+      %language = core.let %trimmed_language
+      core.if %language_missing {
+        %language = core.let "JavaScript"
+      } else {
+      }
+      %language_tokens = core.call @agent_runtime_language_tokens(%language)
+      %alias_key = core.call @agent_runtime_language_alias_key(%language_tokens)
+      %is_js = core.call @agent_runtime_is_javascript_alias(%alias_key)
       %code_field_camel = core.get %runtime["codeFieldName"] default ""
       %code_field_name = core.get %runtime["code_field_name"] default %code_field_camel
       %missing_code_field = core.call intrinsic.eq(%code_field_name, "")
       core.if %missing_code_field {
-        core.if %is_js {
-          %code_field_name = core.let "javascriptCode"
-        } else {
-          %code_field_name = core.call intrinsic.string.format("{}Code", %language)
-        }
+        %code_field_name = core.call @agent_runtime_code_field_name(%language_tokens, %is_js)
       } else {
       }
       %code_title_camel = core.get %runtime["codeFieldTitle"] default ""
       %code_field_title = core.get %runtime["code_field_title"] default %code_title_camel
       %missing_title = core.call intrinsic.eq(%code_field_title, "")
       core.if %missing_title {
-        core.if %is_js {
-          %code_field_title = core.let "Javascript Code"
-        } else {
-          %code_field_title = core.call intrinsic.string.format("{} Code", %language)
-        }
+        %code_field_title = core.call intrinsic.string.title_from_camel(%code_field_name)
       } else {
       }
       %code_fence_camel = core.get %runtime["codeFenceLanguage"] default ""
       %code_fence_language = core.get %runtime["code_fence_language"] default %code_fence_camel
       %missing_fence = core.call intrinsic.eq(%code_fence_language, "")
       core.if %missing_fence {
-        %code_fence_language = core.let %language
+        %code_fence_language = core.call @agent_runtime_code_fence_language(%language_tokens, %alias_key, %is_js)
       } else {
       }
       %usage_camel = core.get %runtime["usageInstructions"] default ""
@@ -164,6 +267,7 @@ module @ax.agent version "0.1" {
       core.set %out["code_field_name"] = %code_field_name
       core.set %out["code_field_title"] = %code_field_title
       core.set %out["code_fence_language"] = %code_fence_language
+      core.set %out["is_javascript"] = %is_js
       core.set %out["usage_instructions"] = %usage_instructions
       core.set %out["callable_format"] = "namespaced_runtime_call"
       core.set %out["primitives"] = %primitives
@@ -191,6 +295,41 @@ module @ax.agent version "0.1" {
       core.set %out["skills_default"] = %skills_default
       core.set %out["prompt_placement"] = %prompt_placement
       core.set %out["discover_returns"] = "void"
+      core.return %out
+    }
+  }
+
+  op ax.agent.policy @build_agent_actor_prompt_policy {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(json) -> json"
+    body @entry(%state: json) {
+      %runtime_contract = core.get %state["runtime_contract"]
+      %code_field_name = core.get %runtime_contract["code_field_name"] default "javascriptCode"
+      %code_field_title = core.get %runtime_contract["code_field_title"] default "Javascript Code"
+      %code_fence_language = core.get %runtime_contract["code_fence_language"] default "js"
+      %stable = core.list
+      core.append %stable, "input"
+      core.append %stable, "executorRequest"
+      core.append %stable, "distilledContext"
+      core.append %stable, "contextMetadata"
+      core.append %stable, "contextMap"
+      core.append %stable, "memories"
+      core.append %stable, "discoveredToolDocs"
+      core.append %stable, "loadedSkills"
+      core.append %stable, "summarizedActorLog"
+      %dynamic = core.list
+      core.append %dynamic, "guidanceLog"
+      core.append %dynamic, "actionLog"
+      core.append %dynamic, "liveRuntimeState"
+      core.append %dynamic, "contextPressure"
+      %out = core.map
+      core.set %out["stable_cached_fields"] = %stable
+      core.set %out["dynamic_uncached_fields"] = %dynamic
+      core.set %out["code_field_name"] = %code_field_name
+      core.set %out["code_field_title"] = %code_field_title
+      core.set %out["code_fence_language"] = %code_fence_language
+      core.set %out["cache_order"] = "stable_before_dynamic"
       core.return %out
     }
   }
@@ -383,6 +522,7 @@ module @ax.agent version "0.1" {
       %docs = core.get %state["discovered_tool_docs"] default %empty_list
       %skill_docs = core.get %state["loaded_skill_docs"] default %empty_list
       %trace = core.get %state["policy_trace"] default %empty_list
+      %action_log = core.get %state["action_log"] default %empty_list
       %tools = core.get %request["tools"] default %empty_list
       %skills = core.get %request["skills"] default %empty_list
       core.for %wanted in %tools {
@@ -439,9 +579,16 @@ module @ax.agent version "0.1" {
       core.set %event["tools"] = %tools
       core.set %event["skills"] = %skills
       core.append %trace, %event
+      %action_event = core.map
+      core.set %action_event["type"] = "discover"
+      core.set %action_event["request"] = %request
+      core.set %action_event["tools"] = %tools
+      core.set %action_event["skills"] = %skills
+      core.append %action_log, %action_event
       core.set %state["discovered_tool_docs"] = %docs
       core.set %state["loaded_skill_docs"] = %skill_docs
       core.set %state["policy_trace"] = %trace
+      core.set %state["action_log"] = %action_log
       %none = core.call intrinsic.none()
       core.return %none
     }
@@ -560,6 +707,7 @@ module @ax.agent version "0.1" {
       %status_log = core.get %state["status_log"] default %empty_list
       %runtime_session_state = core.get %state["runtime_session_state"] default %empty_map
       %runtime_globals = core.get %state["runtime_globals"] default %empty_map
+      %actor_prompt_policy = core.get %state["actor_prompt_policy"] default %empty_map
       core.set %out["runtime_state"] = %runtime_state
       core.set %out["discovered_tool_docs"] = %discovered
       core.set %out["loaded_skill_docs"] = %skills
@@ -568,6 +716,7 @@ module @ax.agent version "0.1" {
       core.set %out["status_log"] = %status_log
       core.set %out["runtime_session_state"] = %runtime_session_state
       core.set %out["runtime_globals"] = %runtime_globals
+      core.set %out["actor_prompt_policy"] = %actor_prompt_policy
       core.return %out
     }
   }
@@ -927,6 +1076,17 @@ module @ax.agent version "0.1" {
       core.set %out["input"] = %non_ctx
       core.set %out["executorRequest"] = %executor_request
       core.set %out["distilledContext"] = %distilled_context
+      %discovered_docs = core.get %state["discovered_tool_docs"] default %empty_list
+      %loaded_skills = core.get %state["loaded_skill_docs"] default %empty_list
+      %action_log = core.get %state["action_log"] default %empty_list
+      %discovered_text = core.call intrinsic.json.stringify(%discovered_docs)
+      %skills_text = core.call intrinsic.json.stringify(%loaded_skills)
+      %action_text = core.call intrinsic.json.stringify(%action_log)
+      core.set %out["discoveredToolDocs"] = %discovered_text
+      core.set %out["loadedSkills"] = %skills_text
+      core.set %out["summarizedActorLog"] = ""
+      core.set %out["guidanceLog"] = ""
+      core.set %out["actionLog"] = %action_text
       %exclude = core.get %state["executor_exclude_fields"] default %empty_list
       core.for %key in %exclude {
         core.call intrinsic.map.delete(%out, %key)
@@ -1066,21 +1226,134 @@ module @ax.agent version "0.1" {
     }
   }
 
+  op ax.agent.semantic @agent_stage_options {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(json, string, json) -> json"
+    body @entry(%state: json, %stage: string, %forward_options: json) {
+      %empty_map = core.map
+      %base_options = core.get %state["options"] default %empty_map
+      %stage_options = core.map
+      %is_distiller = core.call intrinsic.eq(%stage, "distiller")
+      %is_executor = core.call intrinsic.eq(%stage, "executor")
+      %is_responder = core.call intrinsic.eq(%stage, "responder")
+      core.if %is_distiller {
+        %context_opts_camel = core.get %base_options["contextOptions"] default %empty_map
+        %stage_options = core.get %base_options["context_options"] default %context_opts_camel
+      } else {
+      }
+      core.if %is_executor {
+        %executor_opts_camel = core.get %base_options["executorOptions"] default %empty_map
+        %stage_options = core.get %base_options["executor_options"] default %executor_opts_camel
+      } else {
+      }
+      core.if %is_responder {
+        %responder_opts_camel = core.get %base_options["responderOptions"] default %empty_map
+        %stage_options = core.get %base_options["responder_options"] default %responder_opts_camel
+      } else {
+      }
+      %out = core.call intrinsic.map.merge(%stage_options, %forward_options)
+      %top_cache_snake = core.get %base_options["context_cache"] default null
+      %top_cache = core.get %base_options["contextCache"] default %top_cache_snake
+      %stage_cache_snake = core.get %stage_options["context_cache"] default null
+      %stage_cache = core.get %stage_options["contextCache"] default %stage_cache_snake
+      %call_cache_snake = core.get %forward_options["context_cache"] default null
+      %call_cache = core.get %forward_options["contextCache"] default %call_cache_snake
+      %cache = core.let %top_cache
+      %has_stage_cache = core.call intrinsic.is_not_none(%stage_cache)
+      core.if %has_stage_cache {
+        %cache = core.let %stage_cache
+      } else {
+      }
+      %has_call_cache = core.call intrinsic.is_not_none(%call_cache)
+      core.if %has_call_cache {
+        %cache = core.let %call_cache
+      } else {
+      }
+      %has_cache = core.call intrinsic.is_not_none(%cache)
+      core.if %has_cache {
+        core.set %out["context_cache"] = %cache
+        core.set %out["contextCache"] = %cache
+      } else {
+      }
+      core.return %out
+    }
+  }
+
+  op ax.agent.semantic @extract_agent_runtime_code {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(json, json) -> string throws"
+    body @entry(%state: json, %executor_output: json) {
+      %runtime_contract = core.get %state["runtime_contract"]
+      %code_field_name = core.get %runtime_contract["code_field_name"] default "javascriptCode"
+      %code = core.get %executor_output[%code_field_name] default ""
+      %completion = core.get %executor_output["completion"] default %executor_output
+      %completion_code = core.get %completion[%code_field_name] default %code
+      %code = core.let %completion_code
+      %missing = core.call intrinsic.eq(%code, "")
+      core.if %missing {
+        %message = core.call intrinsic.string.format("agent executor did not return runtime code field: {}", %code_field_name)
+        %error = core.call intrinsic.error.runtime(%message)
+        core.raise %error
+      } else {
+      }
+      core.return %code
+    }
+  }
+
   op ax.agent.semantic @agent_forward {
     attr core_kind = "func"
     attr emit_module = "agent"
     type signature = "(json, json, json, json, json, json, json) -> json throws"
     body @entry(%state: json, %distiller: json, %executor: json, %responder: json, %client: json, %values: json, %options: json) {
+      %state_options = core.get %state["options"]
+      %runtime_from_state = core.get %state_options["runtime"] default null
+      %runtime_from_options = core.get %options["runtime"] default %runtime_from_state
+      %runtime_enabled = core.call intrinsic.is_not_none(%runtime_from_options)
+      %distiller_options = core.call @agent_stage_options(%state, "distiller", %options)
+      %executor_options = core.call @agent_stage_options(%state, "executor", %options)
+      %responder_options = core.call @agent_stage_options(%state, "responder", %options)
       %distiller_values = core.call @build_distiller_inputs(%state, %values)
-      %distiller_output = core.call intrinsic.agent.stage_forward(%distiller, %client, %distiller_values, %options)
+      %distiller_output = core.call intrinsic.agent.stage_forward(%distiller, %client, %distiller_values, %distiller_options)
       %distiller_payload = core.call @normalize_agent_completion_payload(%distiller_output)
       core.call @throw_agent_clarification(%distiller_payload, %state)
-      %executor_values = core.call @build_executor_inputs(%state, %values, %distiller_payload)
-      %executor_output = core.call intrinsic.agent.stage_forward(%executor, %client, %executor_values, %options)
-      %executor_payload = core.call @normalize_agent_completion_payload(%executor_output)
-      core.call @throw_agent_clarification(%executor_payload, %state)
+      %executor_payload = core.call intrinsic.none()
+      core.if %runtime_enabled {
+        %globals = core.call @agent_runtime_build_globals(%state, %values)
+        %session = core.get %state["runtime_session"] default null
+        %max_steps = core.get %options["max_actor_steps"] default 4
+        %step = core.let 0
+        core.loop {
+          %too_many = core.call intrinsic.gte(%step, %max_steps)
+          core.if %too_many {
+            %error = core.call intrinsic.error.runtime("agent actor loop exceeded max steps")
+            core.raise %error
+          } else {
+          }
+          %executor_values = core.call @build_executor_inputs(%state, %values, %distiller_payload)
+          %executor_output = core.call intrinsic.agent.stage_forward(%executor, %client, %executor_values, %executor_options)
+          %code = core.call @extract_agent_runtime_code(%state, %executor_output)
+          %runtime_step = core.call @agent_runtime_execute_step(%state, %runtime_from_options, %session, %code, %options)
+          %session = core.get %state["runtime_session"] default %session
+          %completion_payload = core.get %runtime_step["completion_payload"] default null
+          %has_completion = core.type_is %completion_payload type "object"
+          core.if %has_completion {
+            core.call @throw_agent_clarification(%completion_payload, %state)
+            %executor_payload = core.let %completion_payload
+            core.break
+          } else {
+          }
+          %step = core.call intrinsic.add(%step, 1)
+        }
+      } else {
+        %executor_values = core.call @build_executor_inputs(%state, %values, %distiller_payload)
+        %executor_output = core.call intrinsic.agent.stage_forward(%executor, %client, %executor_values, %executor_options)
+        %executor_payload = core.call @normalize_agent_completion_payload(%executor_output)
+        core.call @throw_agent_clarification(%executor_payload, %state)
+      }
       %responder_values = core.call @build_responder_inputs(%state, %values, %executor_payload)
-      %responder_output = core.call intrinsic.agent.stage_forward(%responder, %client, %responder_values, %options)
+      %responder_output = core.call intrinsic.agent.stage_forward(%responder, %client, %responder_values, %responder_options)
       %logs = core.call @merge_agent_chat_log(%state, %distiller, %executor, %responder)
       %usage = core.call @merge_agent_usage(%state)
       core.set %state["last_output"] = %responder_output

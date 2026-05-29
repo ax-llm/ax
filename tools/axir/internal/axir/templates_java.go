@@ -960,6 +960,8 @@ const javaAxCodeRuntime = `package dev.ax;
 import java.util.Map;
 
 public interface AxCodeRuntime {
+  default String language() { return "JavaScript"; }
+  default String getUsageInstructions() { return ""; }
   AxCodeSession createSession(Map<String, Object> globals, Map<String, Object> options);
 }
 `
@@ -1093,6 +1095,10 @@ public final class AxAgent {
 
   public List<Object> getChatLog() {
     return Core.asList(Core.get(state, "chat_log", List.of()));
+  }
+
+  public List<Object> getActionLog() {
+    return Core.asList(Core.get(state, "action_log", List.of()));
   }
 
   public Map<String, Object> getUsage() {
@@ -1402,6 +1408,13 @@ final class Core {
         default -> defaultValue;
       };
     }
+    if (target instanceof AxCodeRuntime r) {
+      return switch (k) {
+        case "language" -> r.language();
+        case "usageInstructions", "usage_instructions" -> r.getUsageInstructions();
+        default -> defaultValue;
+      };
+    }
     if (target instanceof Tool t) {
       return switch (k) {
         case "name" -> t.name;
@@ -1468,6 +1481,21 @@ final class Core {
   static boolean regexMatch(Object pattern, Object value) { return value instanceof String s && Pattern.compile(String.valueOf(pattern)).matcher(s).find(); }
   static Object stringTrim(Object value) { return String.valueOf(value).trim(); }
   static Object stringJoin(Object sep, Object values) { List<String> parts = new ArrayList<>(); for (Object item : asList(values)) parts.add(String.valueOf(item)); return String.join(String.valueOf(sep), parts); }
+  static Object stringLower(Object value) { return String.valueOf(value).toLowerCase(java.util.Locale.ROOT); }
+  static Object stringLowerCamel(Object values) {
+    List<Object> words = asList(values);
+    if (words.isEmpty()) return "";
+    StringBuilder out = new StringBuilder(String.valueOf(words.get(0)).toLowerCase(java.util.Locale.ROOT));
+    for (int i = 1; i < words.size(); i++) {
+      String lower = String.valueOf(words.get(i)).toLowerCase(java.util.Locale.ROOT);
+      if (!lower.isEmpty()) out.append(Character.toUpperCase(lower.charAt(0))).append(lower.substring(1));
+    }
+    return out.toString();
+  }
+  static Object stringTitleFromCamel(Object value) {
+    String text = String.valueOf(value).replaceAll("Code$", " Code").replaceAll("([a-z0-9])([A-Z])", "$1 $2").trim();
+    return text.isEmpty() ? text : Character.toUpperCase(text.charAt(0)) + text.substring(1);
+  }
   static Object stringEndsWith(Object value, Object suffix) { return String.valueOf(value).endsWith(String.valueOf(suffix)); }
   static Object stringStartsWith(Object value, Object prefix) { return value instanceof String s && s.startsWith(String.valueOf(prefix)); }
   static Object stringReplace(Object value, Object oldValue, Object newValue) { return String.valueOf(value).replace(String.valueOf(oldValue), String.valueOf(newValue)); }
@@ -1789,10 +1817,11 @@ final class Core {
     }
     return out;
   }
-  static Object axgenApplyContextCache(Object gen, Object rawMessages) {
+  static Object axgenApplyContextCache(Object gen, Object rawMessages, Object runtimeOptions) {
     List<Object> messages = new ArrayList<>();
     for (Object raw : asList(rawMessages)) messages.add(new LinkedHashMap<>(asMap(raw)));
-    Map<String, Object> options = asMap(get(gen, "options", Map.of()));
+    Map<String, Object> options = new LinkedHashMap<>(asMap(get(gen, "options", Map.of())));
+    options.putAll(asMap(runtimeOptions));
     if (truthy(options.get("examplesInSystem")) && !messages.isEmpty()) {
       List<String> blocks = new ArrayList<>();
       for (Object message : asList(axgenRenderTurns(gen, asList(get(gen, "examples", List.of())), "Example"))) blocks.add(String.valueOf(asMap(message).getOrDefault("content", "")));
@@ -2320,10 +2349,21 @@ public final class Conformance {
     final List<Object> script;
     final List<FakeCodeSession> sessions = new ArrayList<>();
     final List<String> executed = new ArrayList<>();
+    final String language;
+    final String usageInstructions;
 
     FakeCodeRuntime(List<Object> script) {
-      this.script = new ArrayList<>(script == null ? List.of() : script);
+      this(script, "JavaScript", "");
     }
+
+    FakeCodeRuntime(List<Object> script, String language, String usageInstructions) {
+      this.script = new ArrayList<>(script == null ? List.of() : script);
+      this.language = language == null || language.isBlank() ? "JavaScript" : language;
+      this.usageInstructions = usageInstructions == null ? "" : usageInstructions;
+    }
+
+    public String language() { return language; }
+    public String getUsageInstructions() { return usageInstructions; }
 
     public AxCodeSession createSession(Map<String, Object> globals, Map<String, Object> options) {
       FakeCodeSession session = new FakeCodeSession(this, globals);
@@ -2533,9 +2573,20 @@ public final class Conformance {
 
   static void runAgentForward(Map<String, Object> fixture) {
     FakeAIService client = new FakeAIService(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())));
+    Map<String, Object> agentOptions = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("options", Map.of())));
+    FakeCodeRuntime runtime = null;
+    if (fixture.containsKey("runtime_script")) {
+      Map<String, Object> runtimeConfig = Core.asMap(agentOptions.getOrDefault("runtime", Map.of()));
+      runtime = new FakeCodeRuntime(
+        Core.asList(fixture.getOrDefault("runtime_script", List.of())),
+        String.valueOf(runtimeConfig.getOrDefault("language", fixture.getOrDefault("runtime_language", "JavaScript"))),
+        String.valueOf(runtimeConfig.getOrDefault("usageInstructions", runtimeConfig.getOrDefault("usage_instructions", "")))
+      );
+      agentOptions.put("runtime", runtime);
+    }
     AxAgent agent = null;
     try {
-      agent = Ax.agent(String.valueOf(fixture.get("signature")), Core.asMap(fixture.getOrDefault("options", Map.of())));
+      agent = Ax.agent(String.valueOf(fixture.get("signature")), agentOptions);
       if (fixture.containsKey("set_state")) agent.setState(Core.asMap(fixture.get("set_state")));
       Object output = agent.forward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), Core.asMap(fixture.getOrDefault("forward_options", Map.of())));
       if (fixture.containsKey("expected_error_contains")) throw new FixtureError("expected agent forward to fail");
@@ -2563,8 +2614,27 @@ public final class Conformance {
         for (Object item : Core.asList(spec.getOrDefault("absent", List.of()))) if (text.contains(String.valueOf(item))) throw new FixtureError("agent request " + index + " unexpectedly contained " + item + ": " + text);
       }
     }
+    if (fixture.containsKey("expected_cached_request_indices")) {
+      for (Object rawIndex : Core.asList(fixture.get("expected_cached_request_indices"))) {
+        int index = Core.asInt(rawIndex);
+        if (index >= client.requests.size()) throw new FixtureError("missing cached request index " + index);
+        boolean hasCache = false;
+        for (Object rawMessage : Core.asList(client.requests.get(index).get("chat_prompt"))) {
+          if (Boolean.TRUE.equals(Core.asMap(rawMessage).get("cache"))) {
+            hasCache = true;
+            break;
+          }
+        }
+        if (!hasCache) throw new FixtureError("agent request " + index + " did not contain a cached prompt message");
+      }
+    }
     if (fixture.containsKey("expected_chat_log_subset")) assertListSubset(agent.getChatLog(), fixture.get("expected_chat_log_subset"), "agent chat log");
     if (fixture.containsKey("expected_state")) assertSubset(agent.getState(), fixture.get("expected_state"), "agent state");
+    Map<String, Object> exported = agent.exportRuntimeState();
+    if (fixture.containsKey("expected_runtime_contract_subset")) assertSubset(agent.getRuntimeContract(), fixture.get("expected_runtime_contract_subset"), "runtime contract");
+    if (fixture.containsKey("expected_exported_state_subset")) assertSubset(exported, fixture.get("expected_exported_state_subset"), "runtime state");
+    if (fixture.containsKey("expected_action_log_subset")) assertListSubset(Core.asList(exported.get("action_log")), fixture.get("expected_action_log_subset"), "action log");
+    if (runtime != null && fixture.containsKey("expected_executed")) assertEqual(runtime.executed, fixture.get("expected_executed"), "executed code");
   }
 
   static void runAgentRuntimePolicy(Map<String, Object> fixture) {

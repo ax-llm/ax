@@ -1,0 +1,44 @@
+{
+  "expected_exported_state_subset": {
+    "actor_prompt_policy": {
+      "cache_order": "stable_before_dynamic",
+      "code_fence_language": "python",
+      "code_field_name": "pythonCode",
+      "code_field_title": "Python Code",
+      "dynamic_uncached_fields": [
+        "guidanceLog",
+        "actionLog",
+        "liveRuntimeState",
+        "contextPressure"
+      ],
+      "stable_cached_fields": [
+        "input",
+        "executorRequest",
+        "distilledContext",
+        "contextMetadata",
+        "contextMap",
+        "memories",
+        "discoveredToolDocs",
+        "loadedSkills",
+        "summarizedActorLog"
+      ]
+    }
+  },
+  "expected_runtime_contract_subset": {
+    "code_fence_language": "python",
+    "code_field_name": "pythonCode",
+    "code_field_title": "Python Code",
+    "is_javascript": false,
+    "language": "Python"
+  },
+  "kind": "agent_runtime_policy",
+  "name": "actor-prompt-cache-policy-python",
+  "options": {
+    "contextFields": ["document"],
+    "functionDiscovery": true,
+    "runtime": {
+      "language": "Python"
+    }
+  },
+  "signature": "document:string, question:string -> answer:string"
+}

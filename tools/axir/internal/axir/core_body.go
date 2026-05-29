@@ -79,6 +79,9 @@ const (
 	IntrinsicAIErrorStatus          CoreIntrinsic = "intrinsic.ai.error.status"
 	IntrinsicStringEndsWith         CoreIntrinsic = "intrinsic.string.ends_with"
 	IntrinsicStringJoin             CoreIntrinsic = "intrinsic.string.join"
+	IntrinsicStringLower            CoreIntrinsic = "intrinsic.string.lower"
+	IntrinsicStringLowerCamel       CoreIntrinsic = "intrinsic.string.lower_camel"
+	IntrinsicStringTitleFromCamel   CoreIntrinsic = "intrinsic.string.title_from_camel"
 	IntrinsicStringFormat           CoreIntrinsic = "intrinsic.string.format"
 	IntrinsicStringSlice            CoreIntrinsic = "intrinsic.string.slice"
 	IntrinsicStringReplace          CoreIntrinsic = "intrinsic.string.replace"
@@ -182,6 +185,9 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicAIErrorStatus:          "_core_ai_error_status",
 	IntrinsicStringEndsWith:         "_core_string_ends_with",
 	IntrinsicStringJoin:             "_core_string_join",
+	IntrinsicStringLower:            "_core_string_lower",
+	IntrinsicStringLowerCamel:       "_core_string_lower_camel",
+	IntrinsicStringTitleFromCamel:   "_core_string_title_from_camel",
 	IntrinsicStringFormat:           "_core_string_format",
 	IntrinsicStringSlice:            "_core_string_slice",
 	IntrinsicStringReplace:          "_core_string_replace",
@@ -293,6 +299,8 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.media.valid_image":                     true,
 	"intrinsic.media.valid_url_shape":                 true,
 	"intrinsic.string.lower":                          true,
+	"intrinsic.string.lower_camel":                    true,
+	"intrinsic.string.title_from_camel":               true,
 	"intrinsic.string.replace":                        true,
 	"intrinsic.string.join":                           true,
 	"intrinsic.string.slice":                          true,

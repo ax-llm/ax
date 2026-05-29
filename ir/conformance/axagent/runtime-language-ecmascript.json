@@ -1,0 +1,17 @@
+{
+  "expected_runtime_contract_subset": {
+    "code_fence_language": "js",
+    "code_field_name": "javascriptCode",
+    "code_field_title": "Javascript Code",
+    "is_javascript": true,
+    "language": "ecmascript"
+  },
+  "kind": "agent_runtime_policy",
+  "name": "runtime-language-ecmascript",
+  "options": {
+    "runtime": {
+      "language": "ecmascript"
+    }
+  },
+  "signature": "question:string -> answer:string"
+}

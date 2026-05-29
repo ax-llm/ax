@@ -105,6 +105,9 @@ struct Core {
   static Value regex_match(Value pattern, Value value);
   static Value string_trim(Value value);
   static Value string_join(Value sep, Value values);
+  static Value string_lower(Value value);
+  static Value string_lower_camel(Value values);
+  static Value string_title_from_camel(Value value);
   static Value string_ends_with(Value value, Value suffix);
   static Value string_starts_with(Value value, Value prefix);
   static Value string_replace(Value value, Value old_value, Value new_value);
@@ -169,7 +172,7 @@ struct Core {
   static Value axgen_run_assertions(Value gen, Value output);
   static Value axgen_record_trace(Value gen, Value input, Value output, Value status);
   static Value axgen_should_continue_steps(Value gen, Value calls);
-  static Value axgen_apply_context_cache(Value gen, Value messages);
+  static Value axgen_apply_context_cache(Value gen, Value messages, Value options);
   static Value axgen_memory_add_request(Value gen, Value messages);
   static Value axgen_memory_add_response(Value gen, Value request, Value response);
   static Value axgen_memory_add_function_result(Value gen, Value call, Value result, Value ok);
@@ -280,8 +283,14 @@ struct Core {
   static Value build_embed_request(Value service, Value request, Value options);
   static Value normalize_embed_response(Value raw);
   static Value _agent_reserved_runtime_names();
+  static Value _agent_runtime_language_tokens(Value language);
+  static Value _agent_runtime_language_alias_key(Value tokens);
+  static Value _agent_runtime_is_javascript_alias(Value alias_key);
+  static Value _agent_runtime_code_field_name(Value tokens, Value is_javascript);
+  static Value _agent_runtime_code_fence_language(Value tokens, Value alias_key, Value is_javascript);
   static Value _normalize_agent_runtime(Value options);
   static Value _normalize_agent_policy(Value options);
+  static Value _build_agent_actor_prompt_policy(Value state);
   static Value _normalize_agent_callable(Value raw, Value namespace_);
   static Value _normalize_agent_group(Value raw);
   static Value _normalize_agent_callable_inventory(Value options);
@@ -314,6 +323,8 @@ struct Core {
   static Value _merge_agent_usage(Value state);
   static Value _agent_get_state(Value state);
   static Value _agent_set_state(Value state, Value runtime_state);
+  static Value _agent_stage_options(Value state, Value stage, Value forward_options);
+  static Value _extract_agent_runtime_code(Value state, Value executor_output);
   static Value _agent_forward(Value state, Value distiller, Value executor, Value responder, Value client, Value values, Value options);
 };
 
@@ -468,6 +479,8 @@ class AxCodeSession {
 class AxCodeRuntime {
  public:
   virtual ~AxCodeRuntime() = default;
+  virtual std::string language() const { return "JavaScript"; }
+  virtual std::string usage_instructions() const { return ""; }
   virtual AxCodeSession* create_session(Value globals, Value options = Value::object()) = 0;
 };
 
@@ -484,6 +497,7 @@ class AxAgent {
   Value get_state() const;
   void set_state(Value state);
   Value get_chat_log() const;
+  Value get_action_log() const;
   Value get_usage() const;
   Value get_runtime_contract() const;
   Value get_policy() const;
@@ -841,6 +855,30 @@ Value Core::string_join(Value sep, Value values) {
   }
   return Value(out);
 }
+Value Core::string_lower(Value value) {
+  std::string out = str(value);
+  std::transform(out.begin(), out.end(), out.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  return Value(out);
+}
+Value Core::string_lower_camel(Value values) {
+  const auto& items = array_ref(values);
+  if (items.empty()) return Value("");
+  std::string out = str(string_lower(items[0]));
+  for (size_t i = 1; i < items.size(); ++i) {
+    std::string part = str(string_lower(items[i]));
+    if (!part.empty()) part[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(part[0])));
+    out += part;
+  }
+  return Value(out);
+}
+Value Core::string_title_from_camel(Value value) {
+  std::string text = std::regex_replace(str(value), std::regex("Code$"), " Code");
+  text = std::regex_replace(text, std::regex("([a-z0-9])([A-Z])"), "$1 $2");
+  while (!text.empty() && std::isspace(static_cast<unsigned char>(text.front()))) text.erase(text.begin());
+  while (!text.empty() && std::isspace(static_cast<unsigned char>(text.back()))) text.pop_back();
+  if (!text.empty()) text[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(text[0])));
+  return Value(text);
+}
 Value Core::string_ends_with(Value value, Value suffix) {
   std::string s = str(value), suf = str(suffix);
   return Value(s.size() >= suf.size() && s.compare(s.size() - suf.size(), suf.size(), suf) == 0);
@@ -1110,7 +1148,7 @@ Value Core::agent_stage_ref(AxGen& stage) {
 Value Core::code_runtime_ref(AxCodeRuntime& runtime) {
   std::string id = pointer_id(&runtime);
   code_runtime_registry()[id] = &runtime;
-  return Value(Object{{"__code_runtime_id", id}});
+  return Value(Object{{"__code_runtime_id", id}, {"language", runtime.language()}, {"usageInstructions", runtime.usage_instructions()}});
 }
 Value Core::legacy_response_to_chat_response(Value raw) {
   if (!get_key(raw, "results").is_null()) return raw;
@@ -1698,10 +1736,10 @@ Value Core::axgen_render_demos(Value gen) {
   if (truthy(get(get(gen, "options", Value::object()), "examplesInSystem"))) return Value::array();
   return axgen_render_turns(gen, get(gen, "demos", Value::array()), "Demo");
 }
-Value Core::axgen_apply_context_cache(Value gen, Value raw_messages) {
+Value Core::axgen_apply_context_cache(Value gen, Value raw_messages, Value runtime_options) {
   Value messages = Value::array();
   for (const auto& raw : array_ref(raw_messages)) append(messages, Value(object_ref(raw)));
-  Value options = get(gen, "options", Value::object());
+  Value options = map_merge(get(gen, "options", Value::object()), runtime_options);
   if (truthy(get_key(options, "examplesInSystem")) && !array_ref(messages).empty()) {
     std::vector<std::string> blocks;
     for (const auto& message : array_ref(axgen_render_turns(gen, get(gen, "examples", Value::array()), "Example"))) blocks.push_back(str(get_key(message, "content", "")));
@@ -2505,6 +2543,7 @@ Value AxAgent::close_runtime_session() {
 Value AxAgent::get_state() const { return Core::_agent_get_state(state_); }
 void AxAgent::set_state(Value state) { Core::_agent_set_state(state_, std::move(state)); }
 Value AxAgent::get_chat_log() const { return Core::get(state_, "chat_log", Value::array()); }
+Value AxAgent::get_action_log() const { return Core::get(state_, "action_log", Value::array()); }
 Value AxAgent::get_usage() const { return Core::get(state_, "usage", Value::object()); }
 Value AxAgent::get_runtime_contract() const { return Core::get(state_, "runtime_contract", Value::object()); }
 Value AxAgent::get_policy() const { return Core::get(state_, "policy", Value::object()); }
@@ -2639,8 +2678,14 @@ struct FakeCodeRuntime : AxCodeRuntime {
   Array script;
   std::vector<std::unique_ptr<FakeCodeSession>> sessions;
   std::vector<Value> executed;
+  std::string runtime_language;
+  std::string runtime_usage;
 
-  explicit FakeCodeRuntime(Value script_value) : script(as_array(script_value)) {}
+  explicit FakeCodeRuntime(Value script_value, std::string language = "JavaScript", std::string usage = "")
+      : script(as_array(script_value)), runtime_language(std::move(language)), runtime_usage(std::move(usage)) {}
+
+  std::string language() const override { return runtime_language.empty() ? "JavaScript" : runtime_language; }
+  std::string usage_instructions() const override { return runtime_usage; }
 
   AxCodeSession* create_session(Value globals, Value options = Value::object()) override {
     sessions.push_back(std::make_unique<FakeCodeSession>(this, std::move(globals)));
@@ -2985,9 +3030,19 @@ static void run_forward(Value fixture) {
 
 static void run_agent_forward(Value fixture) {
   FakeAIClient client(Core::get(fixture, "responses", Value::array()));
+  Value agent_options = Core::get(fixture, "options", Value::object());
+  std::unique_ptr<FakeCodeRuntime> runtime;
+  if (!Core::get(fixture, "runtime_script").is_null()) {
+    Value runtime_config = Core::get(agent_options, "runtime", Value::object());
+    runtime = std::make_unique<FakeCodeRuntime>(
+        Core::get(fixture, "runtime_script", Value::array()),
+        display(Core::get(runtime_config, "language", Core::get(fixture, "runtime_language", "JavaScript"))),
+        display(Core::get(runtime_config, "usageInstructions", Core::get(runtime_config, "usage_instructions", ""))));
+    Core::set(agent_options, "runtime", Core::code_runtime_ref(*runtime));
+  }
   std::unique_ptr<AxAgent> ag;
   try {
-    ag = std::make_unique<AxAgent>(Core::get(fixture, "signature"), Core::get(fixture, "options", Value::object()));
+    ag = std::make_unique<AxAgent>(Core::get(fixture, "signature"), agent_options);
     if (!Core::get(fixture, "set_state").is_null()) ag->set_state(Core::get(fixture, "set_state"));
     Value output = ag->forward(client, Core::get(fixture, "input", Value::object()), Core::get(fixture, "forward_options", Value::object()));
     if (!Core::get(fixture, "expected_error_contains").is_null()) throw AxError("fixture", "expected agent forward to fail");
@@ -3019,8 +3074,28 @@ static void run_agent_forward(Value fixture) {
       }
     }
   }
+  Value expected_cached = Core::get(fixture, "expected_cached_request_indices");
+  if (!expected_cached.is_null()) {
+    for (const auto& raw_index : Core::iter(expected_cached)) {
+      int index = static_cast<int>(std::stoul(display(raw_index)));
+      if (index >= static_cast<int>(client.requests.size())) throw AxError("fixture", "missing cached request index " + std::to_string(index));
+      bool has_cache = false;
+      for (const auto& raw_message : Core::iter(Core::get(client.requests[static_cast<size_t>(index)], "chat_prompt", Value::array()))) {
+        if (Core::truthy(Core::get(raw_message, "cache", false))) {
+          has_cache = true;
+          break;
+        }
+      }
+      if (!has_cache) throw AxError("fixture", "agent request did not contain a cached prompt message");
+    }
+  }
   if (!Core::get(fixture, "expected_chat_log_subset").is_null()) assert_list_subset(ag->get_chat_log(), Core::get(fixture, "expected_chat_log_subset"), "agent chat log");
   if (!Core::get(fixture, "expected_state").is_null()) assert_subset(ag->get_state(), Core::get(fixture, "expected_state"), "agent state");
+  Value exported = ag->export_runtime_state();
+  if (!Core::get(fixture, "expected_runtime_contract_subset").is_null()) assert_subset(ag->get_runtime_contract(), Core::get(fixture, "expected_runtime_contract_subset"), "runtime contract");
+  if (!Core::get(fixture, "expected_exported_state_subset").is_null()) assert_subset(exported, Core::get(fixture, "expected_exported_state_subset"), "runtime state");
+  if (!Core::get(fixture, "expected_action_log_subset").is_null()) assert_list_subset(Core::get(exported, "action_log", Value::array()), Core::get(fixture, "expected_action_log_subset"), "action log");
+  if (runtime && !Core::get(fixture, "expected_executed").is_null()) assert_equal(Value(runtime->executed), Core::get(fixture, "expected_executed"), "executed code");
 }
 
 static void run_agent_runtime_policy(Value fixture) {

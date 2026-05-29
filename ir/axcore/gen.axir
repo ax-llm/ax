@@ -404,7 +404,7 @@ module @ax.gen version "0.1" {
           attr value = %user_message
         }
         op core.call {
-          attr args = [%gen, %ordered_messages]
+          attr args = [%gen, %ordered_messages, %options]
           attr callee = "intrinsic.axgen.apply_context_cache"
           attr result = %cached_messages
         }

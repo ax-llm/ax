@@ -7,9 +7,10 @@
   },
   "expected_runtime_contract_subset": {
     "callable_format": "namespaced_runtime_call",
-    "code_fence_language": "javascript",
+    "code_fence_language": "js",
     "code_field_name": "javascriptCode",
     "code_field_title": "Javascript Code",
+    "is_javascript": true,
     "language": "javascript"
   },
   "kind": "agent_runtime_policy",
