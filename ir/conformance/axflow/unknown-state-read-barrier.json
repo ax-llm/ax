@@ -1,0 +1,91 @@
+{
+  "kind": "flow",
+  "name": "unknown-state-read-barrier",
+  "operation": "plan",
+  "source": {
+    "tsDerived": true,
+    "extractor": "tools/axir/extractors/flow-goldens.ts",
+    "reference": [
+      "src/ax/flow/flow.ts",
+      "src/ax/flow/steps.ts",
+      "src/ax/flow/executor.ts",
+      "src/ax/flow/executionPlanner.ts",
+      "src/ax/dsp/program.ts"
+    ],
+    "name": "unknown-state-read-barrier",
+    "observed": {
+      "plan": {
+        "totalSteps": 1,
+        "parallelGroups": 1,
+        "maxParallelism": 1,
+        "steps": [
+          {
+            "name": "unsafe",
+            "kind": "execute",
+            "reads": [],
+            "writes": ["unsafeResult"],
+            "barrier": true,
+            "stepIndex": 0
+          }
+        ],
+        "groups": [
+          {
+            "level": 0,
+            "steps": [
+              {
+                "name": "unsafe",
+                "kind": "execute",
+                "reads": [],
+                "writes": ["unsafeResult"],
+                "barrier": true,
+                "stepIndex": 0
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "kind": "execute",
+      "name": "unsafe",
+      "signature": "question:string -> answer:string",
+      "options": {
+        "reads": [],
+        "writes": ["unsafeResult"],
+        "isBarrier": true
+      }
+    }
+  ],
+  "expected_plan": {
+    "totalSteps": 1,
+    "parallelGroups": 1,
+    "maxParallelism": 1,
+    "steps": [
+      {
+        "name": "unsafe",
+        "kind": "execute",
+        "reads": [],
+        "writes": ["unsafeResult"],
+        "barrier": true,
+        "stepIndex": 0
+      }
+    ],
+    "groups": [
+      {
+        "level": 0,
+        "steps": [
+          {
+            "name": "unsafe",
+            "kind": "execute",
+            "reads": [],
+            "writes": ["unsafeResult"],
+            "barrier": true,
+            "stepIndex": 0
+          }
+        ]
+      }
+    ]
+  }
+}

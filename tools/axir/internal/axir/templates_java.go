@@ -1175,6 +1175,10 @@ public final class AxFlow implements AxProgram {
     return addStep("map", name, mapper, Map.of());
   }
 
+  public AxFlow map(String name, Mapper mapper, Map<String, Object> options) {
+    return addStep("map", name, mapper, options == null ? Map.of() : options);
+  }
+
   public AxFlow parallel(List<Map<String, Object>> steps) {
     for (Map<String, Object> step : steps == null ? List.<Map<String, Object>>of() : steps) {
       addStep(String.valueOf(step.getOrDefault("kind", "execute")), String.valueOf(step.get("name")), step.get("program"), Core.asMap(step.getOrDefault("options", Map.of())));
@@ -1232,8 +1236,8 @@ public final class AxFlow implements AxProgram {
     return this;
   }
 
-  public List<Object> getPlan() {
-    return Core.asList(Core._flow_plan(state));
+  public Map<String, Object> getPlan() {
+    return Core.asMap(Core._flow_plan(state));
   }
 
   public List<Map<String, Object>> getTraces() {
@@ -3270,18 +3274,24 @@ public final class Conformance {
       Map<String, Object> step = Core.asMap(rawStep);
       String kind = String.valueOf(step.getOrDefault("kind", "execute"));
       String name = String.valueOf(step.get("name"));
-      if ("parallel".equals(kind)) {
-        fl.parallel(List.of(Map.of("kind", "parallel", "name", name)));
+      if ("parallel".equals(kind) || "parallelMerge".equals(kind)) {
+        fl.parallel(List.of(Map.of(
+          "kind", kind,
+          "name", name,
+          "options", Core.asMap(step.getOrDefault("options", Map.of()))
+        )));
         continue;
       }
       if ("map".equals(kind)) {
         Object output = step.getOrDefault("output", Map.of());
-        fl.map(name, state -> output);
+        fl.map(name, state -> output, Core.asMap(step.getOrDefault("options", Map.of())));
         continue;
       }
       AxGen program = Ax.ax(String.valueOf(step.getOrDefault("signature", fixture.getOrDefault("signature", "question:string -> answer:string"))));
-      if ("derive".equals(kind)) fl.derive(name, program, Core.asMap(step.getOrDefault("forward_options", Map.of())));
-      else fl.execute(name, program, Core.asMap(step.getOrDefault("forward_options", Map.of())));
+      Map<String, Object> stepOptions = new LinkedHashMap<>(Core.asMap(step.getOrDefault("forward_options", Map.of())));
+      stepOptions.putAll(Core.asMap(step.getOrDefault("options", Map.of())));
+      if ("derive".equals(kind)) fl.derive(name, program, stepOptions);
+      else fl.execute(name, program, stepOptions);
     }
     if (fixture.containsKey("returns")) fl.returns(Core.asMap(fixture.getOrDefault("returns", Map.of())));
     if (fixture.containsKey("demos")) fl.setDemos(fixture.get("demos"));

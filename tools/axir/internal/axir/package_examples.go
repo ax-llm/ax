@@ -129,7 +129,7 @@ qa = ax("question:string -> answer:string")
 program = flow({"id": "example.flow"}).execute("qa", qa).returns({"answer": "answer"})
 out = program.forward(FakeClient(), {"question": "Capital of France?"})
 assert out == {"answer": "Paris"}, out
-assert program.get_plan()[0]["name"] == "qa"
+assert program.get_plan()["steps"][0]["name"] == "qa"
 print("python-axflow-ok")
 `
 
@@ -274,7 +274,7 @@ public final class AxFlowProgramGraphExample {
     AxFlow program = Ax.flow(Map.of("id", "example.flow")).execute("qa", qa).returns(Map.of("answer", "answer"));
     Map<String, Object> out = program.forward(new FakeClient(), Map.of("question", "Capital of France?"));
     if (!"Paris".equals(out.get("answer"))) throw new RuntimeException("bad output: " + out);
-    if (!"qa".equals(((Map<?, ?>) program.getPlan().get(0)).get("name"))) throw new RuntimeException("bad plan");
+    if (!"qa".equals(((Map<?, ?>) ((List<?>) program.getPlan().get("steps")).get(0)).get("name"))) throw new RuntimeException("bad plan");
     System.out.println("java-axflow-ok");
   }
 }
@@ -429,7 +429,7 @@ int main() {
   FakeClient client;
   ax::Value out = program.forward(client, ax::object({{"question", "Capital of France?"}}));
   if (!ax::equal(ax::Core::get(out, "answer"), "Paris")) return 1;
-  if (!ax::equal(ax::Core::get(ax::Core::get(program.get_plan(), 0), "name"), "qa")) return 2;
+  if (!ax::equal(ax::Core::get(ax::Core::get(ax::Core::get(program.get_plan(), "steps"), 0), "name"), "qa")) return 2;
   std::cout << "cpp-axflow-ok\n";
 }
 `

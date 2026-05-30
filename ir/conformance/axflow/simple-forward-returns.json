@@ -7,6 +7,8 @@
     "extractor": "tools/axir/extractors/flow-goldens.ts",
     "reference": [
       "src/ax/flow/flow.ts",
+      "src/ax/flow/steps.ts",
+      "src/ax/flow/executor.ts",
       "src/ax/flow/executionPlanner.ts",
       "src/ax/dsp/program.ts"
     ],
@@ -15,18 +17,57 @@
       "output": {
         "answer": "Paris"
       },
-      "plan": [
-        {
-          "name": "qa",
-          "kind": "execute",
-          "barrier": false
-        },
-        {
-          "name": "map",
-          "kind": "map",
-          "barrier": true
-        }
-      ],
+      "plan": {
+        "totalSteps": 2,
+        "parallelGroups": 2,
+        "maxParallelism": 1,
+        "steps": [
+          {
+            "name": "qa",
+            "kind": "execute",
+            "reads": ["question"],
+            "writes": ["qaResult"],
+            "barrier": false,
+            "stepIndex": 0
+          },
+          {
+            "name": "returns",
+            "kind": "returns",
+            "reads": [],
+            "writes": [],
+            "barrier": true,
+            "stepIndex": 1
+          }
+        ],
+        "groups": [
+          {
+            "level": 0,
+            "steps": [
+              {
+                "name": "qa",
+                "kind": "execute",
+                "reads": ["question"],
+                "writes": ["qaResult"],
+                "barrier": false,
+                "stepIndex": 0
+              }
+            ]
+          },
+          {
+            "level": 1,
+            "steps": [
+              {
+                "name": "returns",
+                "kind": "returns",
+                "reads": [],
+                "writes": [],
+                "barrier": true,
+                "stepIndex": 1
+              }
+            ]
+          }
+        ]
+      },
       "chatLogNames": ["qa"],
       "usageCount": 1,
       "traceCount": 1
@@ -39,7 +80,12 @@
     {
       "kind": "execute",
       "name": "qa",
-      "signature": "question:string -> answer:string"
+      "signature": "question:string -> answer:string",
+      "options": {
+        "reads": ["question"],
+        "writes": ["qaResult"],
+        "isBarrier": false
+      }
     }
   ],
   "returns": {

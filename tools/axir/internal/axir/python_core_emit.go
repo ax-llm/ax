@@ -130,6 +130,8 @@ var pythonProgramCoreFuncs = []pythonCoreFuncSpec{
 	{Symbol: "flow_step", Name: "_flow_step"},
 	{Symbol: "flow_add_step", Name: "_flow_add_step"},
 	{Symbol: "flow_set_returns", Name: "_flow_set_returns"},
+	{Symbol: "flow_plan_entry", Name: "_flow_plan_entry"},
+	{Symbol: "flow_plan_can_share_group", Name: "_flow_plan_can_share_group"},
 	{Symbol: "flow_plan", Name: "_flow_plan"},
 	{Symbol: "flow_cache_key", Name: "_flow_cache_key"},
 	{Symbol: "flow_forward", Name: "_flow_forward"},

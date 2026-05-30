@@ -7,49 +7,132 @@
     "extractor": "tools/axir/extractors/flow-goldens.ts",
     "reference": [
       "src/ax/flow/flow.ts",
+      "src/ax/flow/steps.ts",
+      "src/ax/flow/executor.ts",
       "src/ax/flow/executionPlanner.ts",
       "src/ax/dsp/program.ts"
     ],
     "name": "plan-barriers",
     "observed": {
-      "plan": [
-        {
-          "name": "extract",
-          "kind": "execute",
-          "barrier": false
-        },
-        {
-          "name": "derive",
-          "kind": "derive",
-          "barrier": false
-        },
-        {
-          "name": "map",
-          "kind": "map",
-          "barrier": true
-        },
-        {
-          "name": "map",
-          "kind": "map",
-          "barrier": true
-        }
-      ]
+      "plan": {
+        "totalSteps": 4,
+        "parallelGroups": 4,
+        "maxParallelism": 1,
+        "steps": [
+          {
+            "name": "extract",
+            "kind": "execute",
+            "reads": ["question"],
+            "writes": ["extractResult"],
+            "barrier": false,
+            "stepIndex": 0
+          },
+          {
+            "name": "draft",
+            "kind": "derive",
+            "reads": ["extractResult"],
+            "writes": ["draft"],
+            "barrier": false,
+            "stepIndex": 1
+          },
+          {
+            "name": "map",
+            "kind": "map",
+            "reads": [],
+            "writes": [],
+            "barrier": true,
+            "stepIndex": 2
+          },
+          {
+            "name": "returns",
+            "kind": "returns",
+            "reads": [],
+            "writes": [],
+            "barrier": true,
+            "stepIndex": 3
+          }
+        ],
+        "groups": [
+          {
+            "level": 0,
+            "steps": [
+              {
+                "name": "extract",
+                "kind": "execute",
+                "reads": ["question"],
+                "writes": ["extractResult"],
+                "barrier": false,
+                "stepIndex": 0
+              }
+            ]
+          },
+          {
+            "level": 1,
+            "steps": [
+              {
+                "name": "draft",
+                "kind": "derive",
+                "reads": ["extractResult"],
+                "writes": ["draft"],
+                "barrier": false,
+                "stepIndex": 1
+              }
+            ]
+          },
+          {
+            "level": 2,
+            "steps": [
+              {
+                "name": "map",
+                "kind": "map",
+                "reads": [],
+                "writes": [],
+                "barrier": true,
+                "stepIndex": 2
+              }
+            ]
+          },
+          {
+            "level": 3,
+            "steps": [
+              {
+                "name": "returns",
+                "kind": "returns",
+                "reads": [],
+                "writes": [],
+                "barrier": true,
+                "stepIndex": 3
+              }
+            ]
+          }
+        ]
+      }
     }
   },
   "steps": [
     {
       "kind": "execute",
       "name": "extract",
-      "signature": "question:string -> facts:string"
+      "signature": "question:string -> facts:string",
+      "options": {
+        "reads": ["question"],
+        "writes": ["extractResult"],
+        "isBarrier": false
+      }
     },
     {
       "kind": "derive",
       "name": "draft",
-      "signature": "facts:string -> draft:string"
+      "signature": "facts:string -> draft:string",
+      "options": {
+        "reads": ["extractResult"],
+        "writes": ["draft"],
+        "isBarrier": false
+      }
     },
     {
       "kind": "map",
-      "name": "shape",
+      "name": "map",
       "output": {
         "shaped": true
       }
@@ -58,26 +141,97 @@
   "returns": {
     "final": "draft"
   },
-  "expected_plan": [
-    {
-      "name": "extract",
-      "kind": "execute",
-      "barrier": false
-    },
-    {
-      "name": "draft",
-      "kind": "derive",
-      "barrier": false
-    },
-    {
-      "name": "shape",
-      "kind": "map",
-      "barrier": true
-    },
-    {
-      "name": "returns",
-      "kind": "returns",
-      "barrier": true
-    }
-  ]
+  "expected_plan": {
+    "totalSteps": 4,
+    "parallelGroups": 4,
+    "maxParallelism": 1,
+    "steps": [
+      {
+        "name": "extract",
+        "kind": "execute",
+        "reads": ["question"],
+        "writes": ["extractResult"],
+        "barrier": false,
+        "stepIndex": 0
+      },
+      {
+        "name": "draft",
+        "kind": "derive",
+        "reads": ["extractResult"],
+        "writes": ["draft"],
+        "barrier": false,
+        "stepIndex": 1
+      },
+      {
+        "name": "map",
+        "kind": "map",
+        "reads": [],
+        "writes": [],
+        "barrier": true,
+        "stepIndex": 2
+      },
+      {
+        "name": "returns",
+        "kind": "returns",
+        "reads": [],
+        "writes": [],
+        "barrier": true,
+        "stepIndex": 3
+      }
+    ],
+    "groups": [
+      {
+        "level": 0,
+        "steps": [
+          {
+            "name": "extract",
+            "kind": "execute",
+            "reads": ["question"],
+            "writes": ["extractResult"],
+            "barrier": false,
+            "stepIndex": 0
+          }
+        ]
+      },
+      {
+        "level": 1,
+        "steps": [
+          {
+            "name": "draft",
+            "kind": "derive",
+            "reads": ["extractResult"],
+            "writes": ["draft"],
+            "barrier": false,
+            "stepIndex": 1
+          }
+        ]
+      },
+      {
+        "level": 2,
+        "steps": [
+          {
+            "name": "map",
+            "kind": "map",
+            "reads": [],
+            "writes": [],
+            "barrier": true,
+            "stepIndex": 2
+          }
+        ]
+      },
+      {
+        "level": 3,
+        "steps": [
+          {
+            "name": "returns",
+            "kind": "returns",
+            "reads": [],
+            "writes": [],
+            "barrier": true,
+            "stepIndex": 3
+          }
+        ]
+      }
+    ]
+  }
 }

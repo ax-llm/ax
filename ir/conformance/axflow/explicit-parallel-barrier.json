@@ -7,36 +7,134 @@
     "extractor": "tools/axir/extractors/flow-goldens.ts",
     "reference": [
       "src/ax/flow/flow.ts",
+      "src/ax/flow/steps.ts",
+      "src/ax/flow/executor.ts",
       "src/ax/flow/executionPlanner.ts",
       "src/ax/dsp/program.ts"
     ],
     "name": "explicit-parallel-barrier",
     "observed": {
-      "plan": [
-        {
-          "name": "parallel",
-          "kind": "parallel",
-          "barrier": true
-        },
-        {
-          "name": "merge",
-          "kind": "merge",
-          "barrier": true
-        }
-      ]
+      "plan": {
+        "totalSteps": 2,
+        "parallelGroups": 2,
+        "maxParallelism": 1,
+        "steps": [
+          {
+            "name": "_parallelResults",
+            "kind": "parallel",
+            "reads": [],
+            "writes": ["_parallelResults"],
+            "barrier": true,
+            "stepIndex": 0
+          },
+          {
+            "name": "combined",
+            "kind": "parallelMerge",
+            "reads": ["_parallelResults"],
+            "writes": ["combined"],
+            "barrier": true,
+            "stepIndex": 1
+          }
+        ],
+        "groups": [
+          {
+            "level": 0,
+            "steps": [
+              {
+                "name": "_parallelResults",
+                "kind": "parallel",
+                "reads": [],
+                "writes": ["_parallelResults"],
+                "barrier": true,
+                "stepIndex": 0
+              }
+            ]
+          },
+          {
+            "level": 1,
+            "steps": [
+              {
+                "name": "combined",
+                "kind": "parallelMerge",
+                "reads": ["_parallelResults"],
+                "writes": ["combined"],
+                "barrier": true,
+                "stepIndex": 1
+              }
+            ]
+          }
+        ]
+      }
     }
   },
   "steps": [
     {
       "kind": "parallel",
-      "name": "parallelGroup"
+      "name": "_parallelResults",
+      "options": {
+        "writes": ["_parallelResults"],
+        "isBarrier": true
+      }
+    },
+    {
+      "kind": "parallelMerge",
+      "name": "combined",
+      "options": {
+        "reads": ["_parallelResults"],
+        "writes": ["combined"],
+        "isBarrier": true
+      }
     }
   ],
-  "expected_plan": [
-    {
-      "name": "parallelGroup",
-      "kind": "parallel",
-      "barrier": true
-    }
-  ]
+  "expected_plan": {
+    "totalSteps": 2,
+    "parallelGroups": 2,
+    "maxParallelism": 1,
+    "steps": [
+      {
+        "name": "_parallelResults",
+        "kind": "parallel",
+        "reads": [],
+        "writes": ["_parallelResults"],
+        "barrier": true,
+        "stepIndex": 0
+      },
+      {
+        "name": "combined",
+        "kind": "parallelMerge",
+        "reads": ["_parallelResults"],
+        "writes": ["combined"],
+        "barrier": true,
+        "stepIndex": 1
+      }
+    ],
+    "groups": [
+      {
+        "level": 0,
+        "steps": [
+          {
+            "name": "_parallelResults",
+            "kind": "parallel",
+            "reads": [],
+            "writes": ["_parallelResults"],
+            "barrier": true,
+            "stepIndex": 0
+          }
+        ]
+      },
+      {
+        "level": 1,
+        "steps": [
+          {
+            "name": "combined",
+            "kind": "parallelMerge",
+            "reads": ["_parallelResults"],
+            "writes": ["combined"],
+            "barrier": true,
+            "stepIndex": 1
+          }
+        ]
+      }
+    ]
+  }
 }

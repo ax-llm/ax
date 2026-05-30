@@ -1,0 +1,105 @@
+{
+  "kind": "flow",
+  "name": "executor-step-contract",
+  "operation": "plan",
+  "source": {
+    "tsDerived": true,
+    "extractor": "tools/axir/extractors/flow-goldens.ts",
+    "reference": [
+      "src/ax/flow/flow.ts",
+      "src/ax/flow/steps.ts",
+      "src/ax/flow/executor.ts",
+      "src/ax/flow/executionPlanner.ts",
+      "src/ax/dsp/program.ts"
+    ],
+    "name": "executor-step-contract",
+    "observed": {
+      "plan": {
+        "totalSteps": 1,
+        "parallelGroups": 1,
+        "maxParallelism": 1,
+        "steps": [
+          {
+            "name": "fullName",
+            "kind": "map",
+            "reads": ["firstName", "lastName"],
+            "writes": ["fullName"],
+            "barrier": true,
+            "stepIndex": 0
+          }
+        ],
+        "groups": [
+          {
+            "level": 0,
+            "steps": [
+              {
+                "name": "fullName",
+                "kind": "map",
+                "reads": ["firstName", "lastName"],
+                "writes": ["fullName"],
+                "barrier": true,
+                "stepIndex": 0
+              }
+            ]
+          }
+        ]
+      },
+      "firstPlanStep": {
+        "type": "map",
+        "dependencies": ["firstName", "lastName"],
+        "produces": ["fullName"],
+        "stepIndex": 0,
+        "isBarrier": true
+      },
+      "executorResult": {
+        "firstName": "Ada",
+        "lastName": "Lovelace",
+        "fullName": "Ada Lovelace"
+      }
+    }
+  },
+  "steps": [
+    {
+      "kind": "map",
+      "name": "fullName",
+      "output": {
+        "fullName": "Ada Lovelace"
+      },
+      "options": {
+        "reads": ["firstName", "lastName"],
+        "writes": ["fullName"],
+        "isBarrier": true
+      }
+    }
+  ],
+  "expected_plan": {
+    "totalSteps": 1,
+    "parallelGroups": 1,
+    "maxParallelism": 1,
+    "steps": [
+      {
+        "name": "fullName",
+        "kind": "map",
+        "reads": ["firstName", "lastName"],
+        "writes": ["fullName"],
+        "barrier": true,
+        "stepIndex": 0
+      }
+    ],
+    "groups": [
+      {
+        "level": 0,
+        "steps": [
+          {
+            "name": "fullName",
+            "kind": "map",
+            "reads": ["firstName", "lastName"],
+            "writes": ["fullName"],
+            "barrier": true,
+            "stepIndex": 0
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -55,8 +55,46 @@ module @ax.flow version "0.1" {
       %step = core.map
       core.set %step["kind"] = %kind
       core.set %step["name"] = %trimmed
+      core.set %step["nodeName"] = %trimmed
       core.set %step["program"] = %program
       core.set %step["options"] = %opts
+      %reads_empty = core.list
+      %reads = core.get %opts["reads"] default %reads_empty
+      %writes_default = core.list
+      %is_execute = core.call intrinsic.eq(%kind, "execute")
+      %is_derive = core.call intrinsic.eq(%kind, "derive")
+      %is_parallel = core.call intrinsic.eq(%kind, "parallel")
+      %is_parallel_merge = core.call intrinsic.eq(%kind, "parallelMerge")
+      core.if %is_execute {
+        %execute_write = core.call intrinsic.string.format("{}Result", %trimmed)
+        core.append %writes_default, %execute_write
+      } else {
+      }
+      core.if %is_derive {
+        core.append %writes_default, %trimmed
+      } else {
+      }
+      core.if %is_parallel {
+        core.append %writes_default, "_parallelResults"
+      } else {
+      }
+      core.if %is_parallel_merge {
+        core.append %writes_default, %trimmed
+      } else {
+      }
+      %writes = core.get %opts["writes"] default %writes_default
+      %default_barrier = core.let true
+      %may_parallel = core.call intrinsic.or(%is_execute, %is_derive)
+      core.if %may_parallel {
+        %default_barrier = core.let false
+      } else {
+      }
+      %barrier_from_snake = core.get %opts["is_barrier"] default %default_barrier
+      %barrier_from_camel = core.get %opts["isBarrier"] default %barrier_from_snake
+      %barrier = core.get %opts["barrier"] default %barrier_from_camel
+      core.set %step["reads"] = %reads
+      core.set %step["writes"] = %writes
+      core.set %step["isBarrier"] = %barrier
       core.return %step
     }
   }
@@ -101,41 +139,188 @@ module @ax.flow version "0.1" {
     }
   }
 
+  op ax.flow.semantic @flow_plan_entry {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    attr private = true
+    type signature = "(step:json, step_index:i64) -> json"
+    body @entry(%step: json, %step_index: i64) {
+      %empty_list = core.list
+      %kind = core.get %step["kind"] default "execute"
+      %name = core.get %step["name"] default ""
+      %reads = core.get %step["reads"] default %empty_list
+      %writes = core.get %step["writes"] default %empty_list
+      %barrier_snake = core.get %step["is_barrier"] default false
+      %barrier_camel = core.get %step["isBarrier"] default %barrier_snake
+      %barrier = core.get %step["barrier"] default %barrier_camel
+      %entry = core.map
+      core.set %entry["name"] = %name
+      core.set %entry["kind"] = %kind
+      core.set %entry["reads"] = %reads
+      core.set %entry["writes"] = %writes
+      core.set %entry["barrier"] = %barrier
+      core.set %entry["stepIndex"] = %step_index
+      core.return %entry
+    }
+  }
+
+  op ax.flow.semantic @flow_plan_can_share_group {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    attr private = true
+    type signature = "(group:list<json>, candidate:json) -> bool"
+    body @entry(%group: json, %candidate: json) {
+      %empty_list = core.list
+      %candidate_barrier = core.get %candidate["barrier"] default true
+      %candidate_writes = core.get %candidate["writes"] default %empty_list
+      %candidate_reads = core.get %candidate["reads"] default %empty_list
+      %write_count = core.call intrinsic.len(%candidate_writes)
+      %no_writes = core.call intrinsic.eq(%write_count, 0)
+      %can_share = core.let true
+      core.if %candidate_barrier {
+        %can_share = core.let false
+      } else {
+      }
+      core.if %no_writes {
+        %can_share = core.let false
+      } else {
+      }
+      core.for %existing in %group {
+        %existing_barrier = core.get %existing["barrier"] default true
+        core.if %existing_barrier {
+          %can_share = core.let false
+        } else {
+        }
+        %existing_writes = core.get %existing["writes"] default %empty_list
+        %existing_reads = core.get %existing["reads"] default %empty_list
+        core.for %read in %candidate_reads {
+          %read_conflict = core.call intrinsic.contains(%existing_writes, %read)
+          core.if %read_conflict {
+            %can_share = core.let false
+          } else {
+          }
+        }
+        core.for %existing_read in %existing_reads {
+          %reverse_read_conflict = core.call intrinsic.contains(%candidate_writes, %existing_read)
+          core.if %reverse_read_conflict {
+            %can_share = core.let false
+          } else {
+          }
+        }
+        core.for %write in %candidate_writes {
+          %write_conflict = core.call intrinsic.contains(%existing_writes, %write)
+          core.if %write_conflict {
+            %can_share = core.let false
+          } else {
+          }
+        }
+      }
+      core.return %can_share
+    }
+  }
+
   op ax.flow.semantic @flow_plan {
     attr core_kind = "func"
     attr emit_module = "flow"
-    type signature = "(flow:json) -> list<json>"
+    type signature = "(flow:json) -> json"
     body @entry(%flow: json) {
       %steps = core.get %flow["steps"]
-      %plan = core.list
+      %plan_steps = core.list
+      %step_index = core.let 0
       core.for %step in %steps {
-        %name = core.get %step["name"] default ""
-        %kind = core.get %step["kind"] default "execute"
-        %barrier = core.let true
-        %is_execute = core.call intrinsic.eq(%kind, "execute")
-        %is_derive = core.call intrinsic.eq(%kind, "derive")
-        %may_parallel = core.call intrinsic.or(%is_execute, %is_derive)
-        core.if %may_parallel {
-          %barrier = core.let false
-        } else {
-        }
-        %entry = core.map
-        core.set %entry["name"] = %name
-        core.set %entry["kind"] = %kind
-        core.set %entry["barrier"] = %barrier
-        core.append %plan, %entry
+        %entry = core.call @flow_plan_entry(%step, %step_index)
+        core.append %plan_steps, %entry
+        %next_step_index = core.call intrinsic.add(%step_index, 1)
+        %step_index = core.let %next_step_index
       }
       %empty_map = core.map
       %returns = core.get %flow["returns"] default %empty_map
       %has_returns = core.call intrinsic.truthy(%returns)
       core.if %has_returns {
+        %return_reads = core.list
+        %return_writes = core.list
         %returns_entry = core.map
         core.set %returns_entry["name"] = "returns"
         core.set %returns_entry["kind"] = "returns"
+        core.set %returns_entry["reads"] = %return_reads
+        core.set %returns_entry["writes"] = %return_writes
         core.set %returns_entry["barrier"] = true
-        core.append %plan, %returns_entry
+        core.set %returns_entry["stepIndex"] = %step_index
+        core.append %plan_steps, %returns_entry
+        %return_next_step_index = core.call intrinsic.add(%step_index, 1)
+        %step_index = core.let %return_next_step_index
       } else {
       }
+      %groups = core.list
+      %current_group = core.list
+      core.for %plan_step in %plan_steps {
+        %barrier = core.get %plan_step["barrier"] default true
+        %current_count = core.call intrinsic.len(%current_group)
+        %has_current = core.call intrinsic.gt(%current_count, 0)
+        core.if %barrier {
+          core.if %has_current {
+            %group = core.map
+            %level = core.call intrinsic.len(%groups)
+            core.set %group["level"] = %level
+            core.set %group["steps"] = %current_group
+            core.append %groups, %group
+            %current_group = core.list
+          } else {
+          }
+          %single_steps = core.list
+          core.append %single_steps, %plan_step
+          %single_group = core.map
+          %single_level = core.call intrinsic.len(%groups)
+          core.set %single_group["level"] = %single_level
+          core.set %single_group["steps"] = %single_steps
+          core.append %groups, %single_group
+        } else {
+          %can_add = core.let true
+          core.if %has_current {
+            %can_add = core.call @flow_plan_can_share_group(%current_group, %plan_step)
+          } else {
+          }
+          core.if %can_add {
+            core.append %current_group, %plan_step
+          } else {
+            %group = core.map
+            %level = core.call intrinsic.len(%groups)
+            core.set %group["level"] = %level
+            core.set %group["steps"] = %current_group
+            core.append %groups, %group
+            %current_group = core.list
+            core.append %current_group, %plan_step
+          }
+        }
+      }
+      %remaining_count = core.call intrinsic.len(%current_group)
+      %has_remaining = core.call intrinsic.gt(%remaining_count, 0)
+      core.if %has_remaining {
+        %group = core.map
+        %level = core.call intrinsic.len(%groups)
+        core.set %group["level"] = %level
+        core.set %group["steps"] = %current_group
+        core.append %groups, %group
+      } else {
+      }
+      %max_parallelism = core.let 1
+      core.for %group in %groups {
+        %group_steps = core.get %group["steps"]
+        %group_count = core.call intrinsic.len(%group_steps)
+        %bigger = core.call intrinsic.gt(%group_count, %max_parallelism)
+        core.if %bigger {
+          %max_parallelism = core.let %group_count
+        } else {
+        }
+      }
+      %plan = core.map
+      %total_steps = core.call intrinsic.len(%plan_steps)
+      %parallel_groups = core.call intrinsic.len(%groups)
+      core.set %plan["totalSteps"] = %total_steps
+      core.set %plan["parallelGroups"] = %parallel_groups
+      core.set %plan["maxParallelism"] = %max_parallelism
+      core.set %plan["steps"] = %plan_steps
+      core.set %plan["groups"] = %groups
       core.return %plan
     }
   }

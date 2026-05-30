@@ -466,6 +466,12 @@ func TestFlowGoldensExtractorUsesTSReference(t *testing.T) {
 	text := string(data)
 	for _, want := range []string{
 		"../../../src/ax/flow/flow.js",
+		"../../../src/ax/flow/steps.js",
+		"../../../src/ax/flow/executor.js",
+		"../../../src/ax/flow/executionPlanner.js",
+		"createFlowStep",
+		"executeFlowSteps",
+		"AxFlowExecutionPlanner",
 		"flow<",
 		"getExecutionPlan()",
 		"forward(",

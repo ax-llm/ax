@@ -7,6 +7,8 @@
     "extractor": "tools/axir/extractors/flow-goldens.ts",
     "reference": [
       "src/ax/flow/flow.ts",
+      "src/ax/flow/steps.ts",
+      "src/ax/flow/executor.ts",
       "src/ax/flow/executionPlanner.ts",
       "src/ax/dsp/program.ts"
     ],

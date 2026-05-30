@@ -2788,8 +2788,8 @@ class AxFlow(AxProgram):
     def derive(self, name: str, program, options: dict[str, Any] | None = None):
         return self._add_step("derive", name, program, options)
 
-    def map(self, name: str, mapper: Callable[[dict[str, Any]], Any]):
-        return self._add_step("map", name, _FlowCallable(mapper), {})
+    def map(self, name: str, mapper: Callable[[dict[str, Any]], Any], options: dict[str, Any] | None = None):
+        return self._add_step("map", name, _FlowCallable(mapper), options or {})
 
     def parallel(self, steps):
         for step in steps or []:
@@ -2898,6 +2898,22 @@ def flow(options: dict[str, Any] | None = None) -> AxFlow:
 
 def _core_map_get(values, key):
     return _core_get(values, key)
+
+
+def _core_add(left, right):
+    return left + right
+
+
+def _core_len(value):
+    return len(value or [])
+
+
+def _core_gt(left, right):
+    return left > right
+
+
+def _core_contains(container, item):
+    return False if container is None else item in container
 
 
 def _core_map_update(target, values):
@@ -3951,18 +3967,19 @@ def _build_flow(fixture):
     for step in fixture.get("steps") or []:
         kind = step.get("kind", "execute")
         name = step.get("name")
-        if kind == "parallel":
-            fl.parallel([{"kind": "parallel", "name": name, "program": None, "options": step.get("options") or {}}])
+        if kind == "parallel" or kind == "parallelMerge":
+            fl.parallel([{"kind": kind, "name": name, "program": None, "options": step.get("options") or {}}])
             continue
         if kind == "map":
             output = copy.deepcopy(step.get("output") or {})
-            fl.map(name, lambda _state, output=output: copy.deepcopy(output))
+            fl.map(name, lambda _state, output=output: copy.deepcopy(output), step.get("options") or {})
             continue
         program = ax(step.get("signature", fixture.get("signature", "question:string -> answer:string")), step.get("options") or {})
+        step_options = {**(step.get("forward_options") or {}), **(step.get("options") or {})}
         if kind == "derive":
-            fl.derive(name, program, step.get("forward_options") or {})
+            fl.derive(name, program, step_options)
         else:
-            fl.execute(name, program, step.get("forward_options") or {})
+            fl.execute(name, program, step_options)
     if "returns" in fixture:
         fl.returns(fixture.get("returns") or {})
     if "demos" in fixture:

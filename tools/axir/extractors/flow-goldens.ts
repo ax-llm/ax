@@ -6,7 +6,10 @@ import type {
   AxChatLogEntry,
   AxProgramUsage,
 } from '../../../src/ax/dsp/types.js';
+import { AxFlowExecutionPlanner } from '../../../src/ax/flow/executionPlanner.js';
+import { executeFlowSteps } from '../../../src/ax/flow/executor.js';
 import { flow } from '../../../src/ax/flow/flow.js';
+import { createFlowStep, toPlanStep } from '../../../src/ax/flow/steps.js';
 
 type Fixture = Record<string, unknown>;
 
@@ -24,6 +27,8 @@ const source = (name: string, observed: Record<string, unknown> = {}) => ({
   extractor: 'tools/axir/extractors/flow-goldens.ts',
   reference: [
     'src/ax/flow/flow.ts',
+    'src/ax/flow/steps.ts',
+    'src/ax/flow/executor.ts',
     'src/ax/flow/executionPlanner.ts',
     'src/ax/dsp/program.ts',
   ],
@@ -125,12 +130,26 @@ class ScriptedProgram {
 
 const normalizePlan = (
   plan: ReturnType<ReturnType<typeof flow>['getExecutionPlan']>
-) =>
-  (plan.steps ?? []).map((step) => ({
-    name: step.nodeName ?? (step.type === 'map' ? 'map' : step.type),
+) => {
+  const toPortableStep = (step: NonNullable<typeof plan.steps>[number]) => ({
+    name: step.nodeName ?? step.produces[0] ?? step.type,
     kind: step.type,
-    barrier: !['execute', 'derive'].includes(step.type),
-  }));
+    reads: step.dependencies,
+    writes: step.produces,
+    barrier: step.isBarrier,
+    stepIndex: step.stepIndex,
+  });
+  return {
+    totalSteps: plan.totalSteps,
+    parallelGroups: plan.parallelGroups,
+    maxParallelism: plan.maxParallelism,
+    steps: (plan.steps ?? []).map(toPortableStep),
+    groups: (plan.groups ?? []).map((group) => ({
+      level: group.level,
+      steps: group.steps.map((step) => toPortableStep(step)),
+    })),
+  };
+};
 
 const runSimpleForward = async () => {
   const program = new ScriptedProgram('question:string -> answer:string', {
@@ -165,6 +184,11 @@ const runSimpleForward = async () => {
         kind: 'execute',
         name: 'qa',
         signature: 'question:string -> answer:string',
+        options: {
+          reads: ['question'],
+          writes: ['qaResult'],
+          isBarrier: false,
+        },
       },
     ],
     returns: { answer: 'answer' },
@@ -202,21 +226,101 @@ const writePlanFixtures = () => {
         kind: 'execute',
         name: 'extract',
         signature: 'question:string -> facts:string',
+        options: {
+          reads: ['question'],
+          writes: ['extractResult'],
+          isBarrier: false,
+        },
       },
       {
         kind: 'derive',
         name: 'draft',
         signature: 'facts:string -> draft:string',
+        options: {
+          reads: ['extractResult'],
+          writes: ['draft'],
+          isBarrier: false,
+        },
       },
-      { kind: 'map', name: 'shape', output: { shaped: true } },
+      { kind: 'map', name: 'map', output: { shaped: true } },
     ],
     returns: { final: 'draft' },
-    expected_plan: [
-      { name: 'extract', kind: 'execute', barrier: false },
-      { name: 'draft', kind: 'derive', barrier: false },
-      { name: 'shape', kind: 'map', barrier: true },
-      { name: 'returns', kind: 'returns', barrier: true },
+    expected_plan: normalizePlan(plannerFlow.getExecutionPlan()),
+  });
+
+  const independentFlow = flow<{ question: string }>({ autoParallel: true })
+    .node(
+      'left',
+      new ScriptedProgram('question:string -> left:string', { left: 'l' })
+    )
+    .node(
+      'right',
+      new ScriptedProgram('question:string -> right:string', { right: 'r' })
+    )
+    .execute('left', (state) => ({ question: state.question }))
+    .execute('right', (state) => ({ question: state.question }));
+
+  writeFixture(flowDir, 'auto-parallel-independent-executes.json', {
+    kind: 'flow',
+    name: 'auto-parallel-independent-executes',
+    operation: 'plan',
+    source: source('auto-parallel-independent-executes', {
+      plan: normalizePlan(independentFlow.getExecutionPlan()),
+    }),
+    steps: [
+      {
+        kind: 'execute',
+        name: 'left',
+        signature: 'question:string -> left:string',
+        options: {
+          reads: ['question'],
+          writes: ['leftResult'],
+          isBarrier: false,
+        },
+      },
+      {
+        kind: 'execute',
+        name: 'right',
+        signature: 'question:string -> right:string',
+        options: {
+          reads: ['question'],
+          writes: ['rightResult'],
+          isBarrier: false,
+        },
+      },
     ],
+    expected_plan: normalizePlan(independentFlow.getExecutionPlan()),
+  });
+
+  const unknownReadFlow = flow<{ question: string }>({ autoParallel: true })
+    .node(
+      'unsafe',
+      new ScriptedProgram('question:string -> answer:string', { answer: 'x' })
+    )
+    .execute('unsafe', (state) => ({
+      question: (state as any)[String('question')],
+    }));
+
+  writeFixture(flowDir, 'unknown-state-read-barrier.json', {
+    kind: 'flow',
+    name: 'unknown-state-read-barrier',
+    operation: 'plan',
+    source: source('unknown-state-read-barrier', {
+      plan: normalizePlan(unknownReadFlow.getExecutionPlan()),
+    }),
+    steps: [
+      {
+        kind: 'execute',
+        name: 'unsafe',
+        signature: 'question:string -> answer:string',
+        options: {
+          reads: [],
+          writes: ['unsafeResult'],
+          isBarrier: true,
+        },
+      },
+    ],
+    expected_plan: normalizePlan(unknownReadFlow.getExecutionPlan()),
   });
 
   const parallelFlow = flow<{ question: string }>({ autoParallel: true })
@@ -242,8 +346,26 @@ const writePlanFixtures = () => {
     source: source('explicit-parallel-barrier', {
       plan: normalizePlan(parallelFlow.getExecutionPlan()),
     }),
-    steps: [{ kind: 'parallel', name: 'parallelGroup' }],
-    expected_plan: [{ name: 'parallelGroup', kind: 'parallel', barrier: true }],
+    steps: [
+      {
+        kind: 'parallel',
+        name: '_parallelResults',
+        options: {
+          writes: ['_parallelResults'],
+          isBarrier: true,
+        },
+      },
+      {
+        kind: 'parallelMerge',
+        name: 'combined',
+        options: {
+          reads: ['_parallelResults'],
+          writes: ['combined'],
+          isBarrier: true,
+        },
+      },
+    ],
+    expected_plan: normalizePlan(parallelFlow.getExecutionPlan()),
   });
 };
 
@@ -282,6 +404,55 @@ const writeMapAndCacheFixtures = async () => {
     returns: { fullName: 'fullName' },
     expected_output: { fullName: 'Ada Lovelace' },
     expected_request_count: 0,
+  });
+
+  const directStep = createFlowStep({
+    kind: 'map',
+    reads: ['firstName', 'lastName'],
+    writes: ['fullName'],
+    isBarrier: true,
+    run: (state) => ({
+      ...state,
+      fullName: `${state.firstName} ${state.lastName}`,
+    }),
+  });
+  const directPlan = new AxFlowExecutionPlanner([
+    directStep,
+  ]).getExecutionPlan();
+  const directResult = await executeFlowSteps(
+    [directStep],
+    { firstName: 'Ada', lastName: 'Lovelace' },
+    {
+      mainAi: { name: 'mock' } as unknown as AxAIService,
+      autoParallel: true,
+      executeSteps: async () => ({}),
+      checkAbort: () => {},
+    },
+    { autoParallel: true }
+  );
+
+  writeFixture(flowDir, 'executor-step-contract.json', {
+    kind: 'flow',
+    name: 'executor-step-contract',
+    operation: 'plan',
+    source: source('executor-step-contract', {
+      plan: normalizePlan(directPlan),
+      firstPlanStep: toPlanStep(directStep, 0),
+      executorResult: directResult.finalState,
+    }),
+    steps: [
+      {
+        kind: 'map',
+        name: 'fullName',
+        output: { fullName: 'Ada Lovelace' },
+        options: {
+          reads: ['firstName', 'lastName'],
+          writes: ['fullName'],
+          isBarrier: true,
+        },
+      },
+    ],
+    expected_plan: normalizePlan(directPlan),
   });
 
   writeFixture(flowDir, 'cache-key-stable-input-order.json', {

@@ -393,6 +393,8 @@ struct Core {
   static Value _flow_step(Value kind, Value name, Value program, Value options);
   static Value _flow_add_step(Value flow, Value step);
   static Value _flow_set_returns(Value flow, Value returns);
+  static Value _flow_plan_entry(Value step, Value step_index);
+  static Value _flow_plan_can_share_group(Value group, Value candidate);
   static Value _flow_plan(Value flow);
   static Value _flow_cache_key(Value values);
   static Value _flow_forward(Value flow, Value client, Value values, Value options);
@@ -558,6 +560,7 @@ class AxFlow : public AxProgram {
   AxFlow& execute(std::string name, AxGen& program, Value options = Value::object());
   AxFlow& derive(std::string name, AxGen& program, Value options = Value::object());
   AxFlow& map(std::string name, std::function<Value(Value)> mapper);
+  AxFlow& map(std::string name, std::function<Value(Value)> mapper, Value options);
   AxFlow& parallel(Value steps);
   AxFlow& returns(Value spec);
   AxFlow& set_demos(Value demos);
@@ -2959,9 +2962,13 @@ AxFlow& AxFlow::derive(std::string name, AxGen& program, Value options) {
 }
 
 AxFlow& AxFlow::map(std::string name, std::function<Value(Value)> mapper) {
+  return map(std::move(name), std::move(mapper), Value::object());
+}
+
+AxFlow& AxFlow::map(std::string name, std::function<Value(Value)> mapper, Value options) {
   std::string id = pointer_id(this) + ":flow_mapper:" + std::to_string(flow_mapper_registry().size());
   flow_mapper_registry()[id] = std::move(mapper);
-  return add_step(Value("map"), Value(std::move(name)), object({{"__flow_mapper_id", Value(id)}}), Value::object());
+  return add_step(Value("map"), Value(std::move(name)), object({{"__flow_mapper_id", Value(id)}}), std::move(options));
 }
 
 AxFlow& AxFlow::parallel(Value steps) {
@@ -4229,19 +4236,24 @@ static AxFlow build_flow(Value fixture, std::vector<std::unique_ptr<AxGen>>& pro
     Value step = raw_step;
     std::string kind = display(Core::get(step, "kind", Value("execute")));
     std::string name = display(Core::get(step, "name"));
-    if (kind == "parallel") {
-      fl.parallel(array({object({{"kind", Value("parallel")}, {"name", Value(name)}})}));
+    if (kind == "parallel" || kind == "parallelMerge") {
+      fl.parallel(array({object({
+        {"kind", Value(kind)},
+        {"name", Value(name)},
+        {"options", Core::get(step, "options", Value::object())}
+      })}));
       continue;
     }
     if (kind == "map") {
       Value output = Core::get(step, "output", Value::object());
-      fl.map(name, [output](Value) { return output; });
+      fl.map(name, [output](Value) { return output; }, Core::get(step, "options", Value::object()));
       continue;
     }
     Value sig = Core::parse_signature(Core::get(step, "signature", Core::get(fixture, "signature", Value("question:string -> answer:string"))));
     programs.push_back(std::make_unique<AxGen>(sig, Core::get(step, "options", Value::object())));
-    if (kind == "derive") fl.derive(name, *programs.back(), Core::get(step, "forward_options", Value::object()));
-    else fl.execute(name, *programs.back(), Core::get(step, "forward_options", Value::object()));
+    Value step_options = Core::map_merge(Core::get(step, "forward_options", Value::object()), Core::get(step, "options", Value::object()));
+    if (kind == "derive") fl.derive(name, *programs.back(), step_options);
+    else fl.execute(name, *programs.back(), step_options);
   }
   if (!Core::get(fixture, "returns").is_null()) fl.returns(Core::get(fixture, "returns", Value::object()));
   if (!Core::get(fixture, "demos").is_null()) fl.set_demos(Core::get(fixture, "demos", Value::object()));
