@@ -1,0 +1,35 @@
+{
+  "discover": {
+    "skills": ["sql"]
+  },
+  "expected_used_result": null,
+  "expected_used_skills_subset": [
+    {
+      "id": "skill.sql",
+      "name": "sql",
+      "reason": "query planning",
+      "stage": "executor"
+    }
+  ],
+  "kind": "agent_runtime_policy",
+  "name": "used-records-loaded-skill",
+  "options": {
+    "skillsMode": true,
+    "usageTrackingMode": true,
+    "skill_search_results": {
+      "sql": [
+        {
+          "content": "Use SQL safely.",
+          "id": "skill.sql",
+          "name": "sql"
+        }
+      ]
+    }
+  },
+  "signature": "question:string -> answer:string",
+  "used": {
+    "id": "skill.sql",
+    "reason": "query planning",
+    "stage": "executor"
+  }
+}

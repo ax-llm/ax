@@ -1,0 +1,29 @@
+{
+  "expected_prediction_subset": {
+    "completionType": "final",
+    "output": {
+      "answer": "Paris"
+    }
+  },
+  "kind": "optimize",
+  "name": "eval-prediction-final",
+  "operation": "eval",
+  "program": "agent",
+  "responses": [
+    {
+      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer the question\",{}]}}"
+    },
+    {
+      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer the question\",{\"answer\":\"Paris\"}]}}"
+    },
+    {
+      "content": "{\"answer\":\"Paris\"}"
+    }
+  ],
+  "signature": "question:string -> answer:string",
+  "task": {
+    "input": {
+      "question": "Capital of France?"
+    }
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "expected_error_contains": "agent actor loop exceeded max steps",
+  "expected_trace_event_kinds": [
+    "stage_request",
+    "stage_response",
+    "stage_request",
+    "stage_response",
+    "runtime_execute",
+    "status",
+    "error"
+  ],
+  "forward_options": {
+    "max_actor_steps": 1
+  },
+  "input": {
+    "question": "Never finish"
+  },
+  "kind": "agent_forward",
+  "name": "trace-max-step-error",
+  "options": {
+    "runtime": {
+      "language": "Python"
+    }
+  },
+  "replay_trace": true,
+  "responses": [
+    {
+      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Try runtime\",{}]}}"
+    },
+    {
+      "content": "{\"pythonCode\":\"reportSuccess(\\\"still working\\\")\"}"
+    }
+  ],
+  "runtime_script": [
+    {
+      "expected_code": "reportSuccess(\"still working\")",
+      "result": {
+        "kind": "status",
+        "status": {
+          "message": "still working",
+          "type": "success"
+        }
+      }
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

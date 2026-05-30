@@ -14,9 +14,11 @@
     },
     "kind": "askClarification"
   },
+  "expected_trace_event_kinds": ["runtime_execute", "clarification"],
   "kind": "agent_runtime_session",
   "name": "runtime-clarification-payload-normalization-session",
   "operation": "test",
+  "replay_trace": true,
   "runtime_script": [
     {
       "expected_code": "askClarification({ question: \"Which city?\" })",

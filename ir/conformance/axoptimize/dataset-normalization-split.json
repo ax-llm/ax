@@ -1,0 +1,41 @@
+{
+  "dataset": {
+    "train": [
+      {
+        "input": {
+          "question": "Train?"
+        },
+        "score": 0.7
+      }
+    ],
+    "validation": [
+      {
+        "input": {
+          "question": "Validation?"
+        },
+        "score": 0.4
+      }
+    ]
+  },
+  "expected_dataset": {
+    "train": [
+      {
+        "input": {
+          "question": "Train?"
+        },
+        "score": 0.7
+      }
+    ],
+    "validation": [
+      {
+        "input": {
+          "question": "Validation?"
+        },
+        "score": 0.4
+      }
+    ]
+  },
+  "kind": "optimize",
+  "name": "dataset-normalization-split",
+  "operation": "dataset"
+}

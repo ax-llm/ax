@@ -117,6 +117,22 @@ assert runtime_out["kind"] == "final", runtime_out
 print("python-axagent-ok")
 `
 
+const pyAxFlowProgramGraphExample = `from ax import ax, flow
+
+
+class FakeClient:
+    def complete(self, request):
+        return {"content": "{\"answer\":\"Paris\"}"}
+
+
+qa = ax("question:string -> answer:string")
+program = flow({"id": "example.flow"}).execute("qa", qa).returns({"answer": "answer"})
+out = program.forward(FakeClient(), {"question": "Capital of France?"})
+assert out == {"answer": "Paris"}, out
+assert program.get_plan()[0]["name"] == "qa"
+print("python-axflow-ok")
+`
+
 const javaSignatureSchemaExample = `import dev.ax.*;
 import java.util.*;
 
@@ -239,6 +255,27 @@ public final class AxAgentPipelineExample {
     Map<String, Object> runtimeOut = qa.test(new FakeRuntime(), "final({answer:'runtime'})");
     if (!"final".equals(runtimeOut.get("kind"))) throw new RuntimeException("bad runtime output: " + runtimeOut);
     System.out.println("java-axagent-ok");
+  }
+}
+`
+
+const javaAxFlowProgramGraphExample = `import dev.ax.*;
+import java.util.*;
+
+public final class AxFlowProgramGraphExample {
+  static final class FakeClient implements AiClient {
+    public Map<String, Object> complete(Map<String, Object> request) {
+      return Map.of("content", "{\"answer\":\"Paris\"}");
+    }
+  }
+
+  public static void main(String[] args) {
+    AxGen qa = Ax.ax("question:string -> answer:string");
+    AxFlow program = Ax.flow(Map.of("id", "example.flow")).execute("qa", qa).returns(Map.of("answer", "answer"));
+    Map<String, Object> out = program.forward(new FakeClient(), Map.of("question", "Capital of France?"));
+    if (!"Paris".equals(out.get("answer"))) throw new RuntimeException("bad output: " + out);
+    if (!"qa".equals(((Map<?, ?>) program.getPlan().get(0)).get("name"))) throw new RuntimeException("bad plan");
+    System.out.println("java-axflow-ok");
   }
 }
 `
@@ -374,5 +411,25 @@ int main() {
   ax::Value runtime_out = qa.test(runtime, "final({answer:'runtime'})");
   if (!ax::equal(ax::Core::get(runtime_out, "kind"), "final")) return 3;
   std::cout << "cpp-axagent-ok\n";
+}
+`
+
+const cppAxFlowProgramGraphExample = `#include "ax/ax.hpp"
+#include <iostream>
+
+struct FakeClient : ax::AIClient {
+  ax::Value complete(ax::Value) override {
+    return ax::object({{"content", "{\"answer\":\"Paris\"}"}});
+  }
+};
+
+int main() {
+  ax::AxGen qa = ax::ax("question:string -> answer:string");
+  ax::AxFlow program = ax::flow(ax::object({{"id", "example.flow"}})).execute("qa", qa).returns(ax::object({{"answer", "answer"}}));
+  FakeClient client;
+  ax::Value out = program.forward(client, ax::object({{"question", "Capital of France?"}}));
+  if (!ax::equal(ax::Core::get(out, "answer"), "Paris")) return 1;
+  if (!ax::equal(ax::Core::get(ax::Core::get(program.get_plan(), 0), "name"), "qa")) return 2;
+  std::cout << "cpp-axflow-ok\n";
 }
 `

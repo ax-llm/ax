@@ -1,0 +1,9 @@
+{
+  "expected_component_ids": ["task.root.responder::instruction"],
+  "kind": "optimize",
+  "name": "agent-target-filter-responder",
+  "operation": "filter",
+  "program": "agent",
+  "signature": "question:string -> answer:string",
+  "target": "responder"
+}

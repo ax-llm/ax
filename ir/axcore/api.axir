@@ -22,6 +22,12 @@ module @ax.api version "0.1" {
     tag "public-api"
   }
 
+  op ax.api.class @AxFlow {
+    attr core_kind = "record"
+    attr public = true
+    tag "public-api"
+  }
+
   op ax.api.class @AxAgentClarificationError {
     attr core_kind = "error"
     attr public = true
@@ -41,6 +47,24 @@ module @ax.api version "0.1" {
   }
 
   op ax.api.class @AxMemory {
+    attr core_kind = "record"
+    attr public = true
+    tag "public-api"
+  }
+
+  op ax.api.class @OptimizerEngine {
+    attr core_kind = "interface"
+    attr public = true
+    tag "public-api"
+  }
+
+  op ax.api.class @OptimizerEvaluator {
+    attr core_kind = "interface"
+    attr public = true
+    tag "public-api"
+  }
+
+  op ax.api.class @OptimizedArtifact {
     attr core_kind = "record"
     attr public = true
     tag "public-api"
@@ -88,6 +112,12 @@ module @ax.api version "0.1" {
     attr core_kind = "func"
     attr public = true
     type signature = "(string|AxSignature, options?:json) -> AxAgent throws"
+  }
+
+  op ax.api.function @flow {
+    attr core_kind = "func"
+    attr public = true
+    type signature = "(options?:json) -> AxFlow"
   }
 
   op ax.api.function @ai {

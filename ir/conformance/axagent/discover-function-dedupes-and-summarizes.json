@@ -1,0 +1,58 @@
+{
+  "discover": {
+    "tools": ["docs.search", "search", "docs"]
+  },
+  "expected_action_log_subset": [
+    {
+      "skills": [],
+      "tools": ["docs.search", "search", "docs"],
+      "type": "discover"
+    }
+  ],
+  "expected_discover_result": null,
+  "expected_discovered_tool_docs_subset": [
+    {
+      "description": "Search documentation",
+      "kind": "tool",
+      "name": "search",
+      "namespace": "docs",
+      "qualified_name": "docs.search"
+    },
+    {
+      "description": "Read a page",
+      "kind": "tool",
+      "name": "read",
+      "namespace": "docs",
+      "qualified_name": "docs.read"
+    }
+  ],
+  "expected_policy_trace_subset": [
+    {
+      "skills": [],
+      "tools": ["docs.search", "search", "docs"],
+      "type": "discover"
+    }
+  ],
+  "kind": "agent_runtime_policy",
+  "name": "discover-function-dedupes-and-summarizes",
+  "options": {
+    "functionDiscovery": true,
+    "functions": [
+      {
+        "functions": [
+          {
+            "description": "Search documentation",
+            "name": "search"
+          },
+          {
+            "description": "Read a page",
+            "name": "read"
+          }
+        ],
+        "namespace": "docs",
+        "title": "Docs"
+      }
+    ]
+  },
+  "signature": "question:string -> answer:string"
+}

@@ -1,0 +1,62 @@
+{
+  "criteria": "Use the input field named \"criteria\" as the task-specific rubric for success.\n- Reward actual task completion over polished wording.\n- Reward correct tool choice and correct arguments.\n- Penalize wrong tools, unnecessary retries, ignored tool errors, and contradictions between the final output and the function call trace.\n- If completionType is askClarification, judge whether the clarification was necessary, precise, and limited to the missing information.\n- Reward clarifications that identify the exact missing information instead of guessing.\n- Penalize clarifications that are vague, unnecessary, or ask for information the agent could have gathered from available tools or context.\n- If expectedOutput is present and completionType is final, compare the final output against it.\n- If expectedActions is present, confirm that the functionCalls align with them.\n- If forbiddenActions is present, strongly penalize any matching function calls.\n- If recursiveTrace or recursiveStats are present, use them to judge decomposition quality, unnecessary fan-out, missed direct-answer opportunities, and cost efficiency.\n\nAdditional Evaluation Guidance:\nPrefer concise grounded answers.",
+  "expected_judge_payload_subset": {
+    "completionType": "final",
+    "criteria": "Answer correctly.",
+    "expectedActions": ["search_docs"],
+    "expectedOutput": {
+      "answer": "Paris"
+    },
+    "finalOutput": {
+      "answer": "Paris"
+    },
+    "functionCalls": [
+      {
+        "name": "search_docs",
+        "qualifiedName": "tools.search_docs"
+      }
+    ],
+    "metadata": {
+      "split": "train"
+    },
+    "taskInput": {
+      "question": "Capital?"
+    },
+    "turnCount": 2
+  },
+  "expected_quality_score": 0.8,
+  "kind": "optimize",
+  "name": "judge-payload-quality-mapping",
+  "operation": "judge_payload",
+  "prediction": {
+    "actionLog": ["runtime final"],
+    "completionType": "final",
+    "functionCalls": [
+      {
+        "name": "search_docs",
+        "qualifiedName": "tools.search_docs"
+      }
+    ],
+    "output": {
+      "answer": "Paris"
+    },
+    "turnCount": 2,
+    "usage": {
+      "requests": 2
+    }
+  },
+  "quality": "good",
+  "task": {
+    "criteria": "Answer correctly.",
+    "expectedActions": ["search_docs"],
+    "expectedOutput": {
+      "answer": "Paris"
+    },
+    "input": {
+      "question": "Capital?"
+    },
+    "metadata": {
+      "split": "train"
+    }
+  }
+}

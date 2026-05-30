@@ -1,0 +1,21 @@
+{
+  "kind": "program_contract",
+  "name": "axgen-component-contract",
+  "source": {
+    "tsDerived": true,
+    "extractor": "tools/axir/extractors/flow-goldens.ts",
+    "reference": [
+      "src/ax/flow/flow.ts",
+      "src/ax/flow/executionPlanner.ts",
+      "src/ax/dsp/program.ts"
+    ],
+    "name": "axgen-component-contract",
+    "observed": {}
+  },
+  "program": "axgen",
+  "signature": "\"Answer questions.\" question:string -> answer:string",
+  "options": {
+    "id": "qa"
+  },
+  "expected_component_ids": ["qa::description", "qa::instruction"]
+}

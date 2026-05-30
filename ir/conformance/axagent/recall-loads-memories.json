@@ -1,0 +1,36 @@
+{
+  "expected_action_log_subset": [
+    {
+      "searches": ["user prefs"],
+      "type": "recall"
+    }
+  ],
+  "expected_loaded_memories_subset": [
+    {
+      "content": "User likes concise answers.",
+      "id": "mem-1"
+    }
+  ],
+  "expected_policy_trace_subset": [
+    {
+      "searches": ["user prefs"],
+      "type": "recall"
+    }
+  ],
+  "expected_recall_result": null,
+  "kind": "agent_runtime_policy",
+  "name": "recall-loads-memories",
+  "options": {
+    "memoriesMode": true,
+    "memory_search_results": {
+      "user prefs": [
+        {
+          "content": "User likes concise answers.",
+          "id": "mem-1"
+        }
+      ]
+    }
+  },
+  "recall": "user prefs",
+  "signature": "question:string -> answer:string"
+}

@@ -1,0 +1,8 @@
+{
+  "expected_error_contains": "recall(...) requires memory search to be enabled",
+  "kind": "agent_runtime_policy",
+  "name": "recall-requires-memory-mode",
+  "options": {},
+  "recall": "user prefs",
+  "signature": "question:string -> answer:string"
+}

@@ -2,6 +2,7 @@ import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { getRuntimeLanguageInfo } from '../../../src/ax/agent/rlm.js';
+import { visibleRuntimePrimitives } from '../../../src/ax/agent/runtimePrimitives.js';
 import { AxSignature } from '../../../src/ax/dsp/sig.js';
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
@@ -49,6 +50,19 @@ function runtimeContractSubset(language: string, usageInstructions?: string) {
     is_javascript: info.isJavaScript,
     ...(usageInstructions ? { usage_instructions: usageInstructions } : {}),
   };
+}
+
+function visiblePrimitiveIds(
+  stage: 'distiller' | 'executor',
+  flags: Record<string, boolean>
+): string[] {
+  return visibleRuntimePrimitives(stage, flags).map(
+    (primitive) => primitive.id
+  );
+}
+
+function primitiveSubset(ids: string[]): Json[] {
+  return ids.map((id) => ({ id }));
 }
 
 mkdirSync(outDir, { recursive: true });
@@ -240,6 +254,126 @@ writeFixture('runtime-metadata-python', {
   },
 });
 
+writeFixture('policy-registry-baseline', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  options: {
+    runtime: { language: 'JavaScript' },
+  },
+  expected_policy_subset: {
+    policy_version: 'agent-runtime-decision-v1',
+    policy_schema_version: 'axir-agent-policy-v1',
+  },
+  expected_policy_registry_subset: {
+    policy_version: 'agent-runtime-decision-v1',
+    policy_schema_version: 'axir-agent-policy-v1',
+    flags: {
+      discoveryMode: false,
+      skillsMode: false,
+      memoriesMode: false,
+      usageTrackingMode: false,
+      hasAgentStatusCallback: false,
+      hasInspectRuntime: false,
+    },
+  },
+  expected_actor_primitives_subset: primitiveSubset(
+    visiblePrimitiveIds('executor', {})
+  ),
+  expected_protocol_actions_subset: [
+    { id: 'final', category: 'protocol_action', actor_visible: false },
+    {
+      id: 'askClarification',
+      category: 'protocol_action',
+      actor_visible: false,
+    },
+    { id: 'guideAgent', category: 'protocol_action', actor_visible: false },
+  ],
+  expected_runtime_globals_subset: [
+    { id: 'inputs', category: 'runtime_global' },
+  ],
+});
+
+writeFixture('policy-registry-all-enabled', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  options: {
+    functionDiscovery: true,
+    skillsMode: true,
+    memoriesMode: true,
+    usageTrackingMode: true,
+    hasAgentStatusCallback: true,
+    hasInspectRuntime: true,
+    runtime: { language: 'JavaScript' },
+  },
+  expected_policy_registry_subset: {
+    flags: {
+      discoveryMode: true,
+      skillsMode: true,
+      memoriesMode: true,
+      usageTrackingMode: true,
+      hasAgentStatusCallback: true,
+      hasInspectRuntime: true,
+    },
+  },
+  expected_actor_primitives_subset: primitiveSubset(
+    visiblePrimitiveIds('executor', {
+      discoveryMode: true,
+      skillsMode: true,
+      memoriesMode: true,
+      usageTrackingMode: true,
+      hasAgentStatusCallback: true,
+      hasInspectRuntime: true,
+    })
+  ),
+  expected_protocol_actions_subset: [
+    { id: 'guideAgent', category: 'protocol_action', actor_visible: false },
+    { id: 'success', category: 'protocol_action', actor_visible: false },
+    { id: 'failed', category: 'protocol_action', actor_visible: false },
+  ],
+  expected_host_boundaries_subset: [
+    { id: 'memory_search', category: 'host_boundary' },
+    { id: 'skill_search', category: 'host_boundary' },
+    { id: 'status_callback', category: 'host_boundary' },
+    { id: 'runtime_inspection', category: 'host_boundary' },
+  ],
+});
+
+writeFixture('policy-registry-used-namespace-currently-allowed', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  options: {
+    usageTrackingMode: true,
+    functions: [
+      {
+        namespace: 'used',
+        title: 'Used Namespace',
+        functions: [
+          { name: 'mark', description: 'Current TS allows this edge' },
+        ],
+      },
+    ],
+  },
+  expected_callable_inventory_subset: [
+    {
+      namespace: 'used',
+      callables: [
+        {
+          name: 'mark',
+          namespace: 'used',
+          qualified_name: 'used.mark',
+          kind: 'tool',
+          description: 'Current TS allows this edge',
+          parameters: null,
+          always_include: false,
+        },
+      ],
+    },
+  ],
+  expected_policy_registry_subset: {
+    flags: { usageTrackingMode: true },
+  },
+});
+
 for (const language of [
   'JavaScript',
   'js',
@@ -341,10 +475,69 @@ writeFixture('runtime-forward-python-final', {
   ],
 });
 
+writeFixture('trace-replay-runtime-final', {
+  kind: 'agent_forward',
+  signature: 'question:string -> answer:string',
+  options: {
+    runtime: { language: 'Python' },
+  },
+  input: { question: 'Trace runtime' },
+  responses: [
+    {
+      content:
+        '{"completion":{"type":"final","args":["Execute runtime code",{}]}}',
+    },
+    {
+      content:
+        '{"pythonCode":"final(\\"Answer\\", {\\"answer\\": \\"trace ok\\"})"}',
+    },
+    { content: '{"answer":"trace ok"}' },
+  ],
+  runtime_script: [
+    {
+      expected_code: 'final("Answer", {"answer": "trace ok"})',
+      result: {
+        type: 'final',
+        args: ['Answer', { answer: 'trace ok' }],
+      },
+    },
+  ],
+  expected_output: { answer: 'trace ok' },
+  expected_request_count: 3,
+  expected_trace_subset: {
+    schema_version: 'axir-agent-trace-v1',
+    kind: 'agent_run',
+    status: 'completed',
+    replayable: true,
+    final_output: { answer: 'trace ok' },
+    optimizer_metadata: {
+      policy_version: 'agent-runtime-decision-v1',
+    },
+  },
+  expected_trace_event_kinds: [
+    'stage_request',
+    'stage_response',
+    'stage_request',
+    'stage_response',
+    'runtime_execute',
+    'final',
+    'stage_request',
+    'stage_response',
+    'final',
+  ],
+  replay_trace: true,
+  expected_replay_result_subset: {
+    ok: true,
+    status: 'replayed',
+    output: { answer: 'trace ok' },
+  },
+});
+
 writeFixture('runtime-forward-discover-continues', {
   kind: 'agent_forward',
   signature: 'question:string -> answer:string',
   options: {
+    functionDiscovery: true,
     runtime: { language: 'Python' },
     functions: [{ name: 'search', description: 'Search docs' }],
   },
@@ -388,6 +581,46 @@ writeFixture('runtime-forward-discover-continues', {
     { type: 'discover', request: { tools: ['search'] } },
     { kind: 'final', code: 'final("Answer", {"answer": "Docs found"})' },
   ],
+});
+
+writeFixture('trace-max-step-error', {
+  kind: 'agent_forward',
+  signature: 'question:string -> answer:string',
+  options: {
+    runtime: { language: 'Python' },
+  },
+  forward_options: {
+    max_actor_steps: 1,
+  },
+  input: { question: 'Never finish' },
+  responses: [
+    {
+      content: '{"completion":{"type":"final","args":["Try runtime",{}]}}',
+    },
+    {
+      content: '{"pythonCode":"reportSuccess(\\"still working\\")"}',
+    },
+  ],
+  runtime_script: [
+    {
+      expected_code: 'reportSuccess("still working")',
+      result: {
+        kind: 'status',
+        status: { type: 'success', message: 'still working' },
+      },
+    },
+  ],
+  expected_error_contains: 'agent actor loop exceeded max steps',
+  expected_trace_event_kinds: [
+    'stage_request',
+    'stage_response',
+    'stage_request',
+    'stage_response',
+    'runtime_execute',
+    'status',
+    'error',
+  ],
+  replay_trace: true,
 });
 
 writeFixture('agent-context-cache-precedence', {
@@ -591,6 +824,7 @@ writeFixture('discover-tools-mutates-next-prompt-state', {
   kind: 'agent_runtime_policy',
   signature: 'question:string -> answer:string',
   options: {
+    functionDiscovery: true,
     functions: [
       {
         namespace: 'docs',
@@ -616,7 +850,9 @@ writeFixture('discover-tools-mutates-next-prompt-state', {
 writeFixture('discover-skills-mutates-next-prompt-state', {
   kind: 'agent_runtime_policy',
   signature: 'question:string -> answer:string',
-  options: {},
+  options: {
+    skillsMode: true,
+  },
   discover: { skills: ['sql'] },
   expected_discover_result: null,
   expected_loaded_skill_docs_subset: [
@@ -625,6 +861,379 @@ writeFixture('discover-skills-mutates-next-prompt-state', {
   expected_policy_trace_subset: [
     { type: 'discover', tools: [], skills: ['sql'] },
   ],
+});
+
+writeFixture('discover-function-dedupes-and-summarizes', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  options: {
+    functionDiscovery: true,
+    functions: [
+      {
+        namespace: 'docs',
+        title: 'Docs',
+        functions: [
+          { name: 'search', description: 'Search documentation' },
+          { name: 'read', description: 'Read a page' },
+        ],
+      },
+    ],
+  },
+  discover: { tools: ['docs.search', 'search', 'docs'] },
+  expected_discover_result: null,
+  expected_discovered_tool_docs_subset: [
+    {
+      namespace: 'docs',
+      name: 'search',
+      qualified_name: 'docs.search',
+      kind: 'tool',
+      description: 'Search documentation',
+    },
+    {
+      namespace: 'docs',
+      name: 'read',
+      qualified_name: 'docs.read',
+      kind: 'tool',
+      description: 'Read a page',
+    },
+  ],
+  expected_policy_trace_subset: [
+    { type: 'discover', tools: ['docs.search', 'search', 'docs'], skills: [] },
+  ],
+  expected_action_log_subset: [
+    { type: 'discover', tools: ['docs.search', 'search', 'docs'], skills: [] },
+  ],
+});
+
+writeFixture('discover-skills-host-results-dedupe', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  options: {
+    skillsMode: true,
+    skill_search_results: {
+      sql: [
+        { id: 'skill.sql', name: 'sql', content: 'Use SELECT carefully.' },
+        { id: 'skill.sql', name: 'sql', content: 'Duplicate should dedupe.' },
+      ],
+    },
+  },
+  discover: { skills: ['sql'] },
+  expected_discover_result: null,
+  expected_loaded_skill_docs_subset: [
+    { id: 'skill.sql', name: 'sql', content: 'Use SELECT carefully.' },
+  ],
+  expected_policy_trace_subset: [
+    { type: 'discover', tools: [], skills: ['sql'] },
+  ],
+});
+
+writeFixture('discover-tools-requires-discovery-mode', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  options: {
+    functions: [{ name: 'search', description: 'Search docs' }],
+  },
+  discover: { tools: ['search'] },
+  expected_error_contains:
+    'discover({ tools }) requires function discovery to be enabled',
+});
+
+writeFixture('discover-skills-requires-skills-mode', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  options: {},
+  discover: { skills: ['sql'] },
+  expected_error_contains:
+    'discover({ skills }) requires skill discovery to be enabled',
+});
+
+writeFixture('recall-loads-memories', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  options: {
+    memoriesMode: true,
+    memory_search_results: {
+      'user prefs': [{ id: 'mem-1', content: 'User likes concise answers.' }],
+    },
+  },
+  recall: 'user prefs',
+  expected_recall_result: null,
+  expected_loaded_memories_subset: [
+    { id: 'mem-1', content: 'User likes concise answers.' },
+  ],
+  expected_policy_trace_subset: [{ type: 'recall', searches: ['user prefs'] }],
+  expected_action_log_subset: [{ type: 'recall', searches: ['user prefs'] }],
+});
+
+writeFixture('recall-invalid-search-error', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  options: {
+    memoriesMode: true,
+  },
+  recall: [''],
+  expected_error_contains: 'recall searches entries must be non-empty strings',
+});
+
+writeFixture('recall-requires-memory-mode', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  options: {},
+  recall: 'user prefs',
+  expected_error_contains: 'recall(...) requires memory search to be enabled',
+});
+
+writeFixture('used-records-loaded-memory', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  options: {
+    memoriesMode: true,
+    usageTrackingMode: true,
+    memory_search_results: {
+      prefs: [{ id: 'mem-1', content: 'User prefers examples.' }],
+    },
+  },
+  recall: 'prefs',
+  used: { id: 'mem-1', reason: 'answered from memory', stage: 'executor' },
+  expected_used_result: null,
+  expected_used_memories_subset: [
+    {
+      id: 'mem-1',
+      reason: 'answered from memory',
+      stage: 'executor',
+    },
+  ],
+  expected_policy_trace_subset: [
+    {
+      type: 'used',
+      id: 'mem-1',
+      reason: 'answered from memory',
+      matched: true,
+    },
+  ],
+});
+
+writeFixture('used-records-loaded-skill', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  options: {
+    skillsMode: true,
+    usageTrackingMode: true,
+    skill_search_results: {
+      sql: [{ id: 'skill.sql', name: 'sql', content: 'Use SQL safely.' }],
+    },
+  },
+  discover: { skills: ['sql'] },
+  used: { id: 'skill.sql', reason: 'query planning', stage: 'executor' },
+  expected_used_result: null,
+  expected_used_skills_subset: [
+    {
+      id: 'skill.sql',
+      name: 'sql',
+      reason: 'query planning',
+      stage: 'executor',
+    },
+  ],
+});
+
+writeFixture('used-unknown-id-is-ignored', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  options: {
+    memoriesMode: true,
+    usageTrackingMode: true,
+    memory_search_results: {
+      prefs: [{ id: 'mem-1', content: 'Known memory.' }],
+    },
+  },
+  recall: 'prefs',
+  used: { id: 'missing', reason: 'not loaded', stage: 'executor' },
+  expected_used_result: null,
+  expected_exported_state_subset: {
+    used_memories: [],
+    used_skills: [],
+  },
+  expected_policy_trace_subset: [
+    { type: 'used', id: 'missing', reason: 'not loaded', matched: false },
+  ],
+});
+
+writeFixture('used-requires-usage-tracking', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  options: {},
+  used: { id: 'mem-1' },
+  expected_error_contains: 'used(...) requires usage tracking to be enabled',
+});
+
+writeFixture('child-agent-call-executes-host-boundary', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  options: {
+    functions: [
+      {
+        namespace: 'agents',
+        functions: [
+          {
+            name: 'researcher',
+            kind: 'agent',
+            description: 'Delegate research',
+          },
+        ],
+      },
+    ],
+    callable_results: {
+      'agents.researcher': { value: { answer: 'child result' } },
+    },
+  },
+  invoke_callable: {
+    qualified_name: 'agents.researcher',
+    args: { question: 'Find docs' },
+  },
+  expected_callable_result_subset: {
+    status: 'ok',
+    value: { answer: 'child result' },
+  },
+  expected_function_call_traces_subset: [
+    { qualified_name: 'agents.researcher', status: 'ok' },
+  ],
+  expected_action_log_subset: [
+    {
+      type: 'function_call',
+      qualified_name: 'agents.researcher',
+      status: 'ok',
+    },
+  ],
+});
+
+writeFixture('tool-call-guide-agent-protocol', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  options: {
+    functions: [
+      {
+        namespace: 'tools',
+        functions: [{ name: 'review', description: 'Review plan' }],
+      },
+    ],
+    callable_results: {
+      'tools.review': {
+        guidance: 'Use the approved template before answering.',
+      },
+    },
+  },
+  invoke_callable: {
+    qualified_name: 'tools.review',
+    args: { draft: 'rough answer' },
+  },
+  expected_callable_result_subset: {
+    status: 'ok',
+    guidance_payload: {
+      type: 'guide_agent',
+      guidance: 'Use the approved template before answering.',
+      triggeredBy: 'tools.review',
+    },
+  },
+  expected_guidance_log_subset: [
+    {
+      guidance: 'Use the approved template before answering.',
+      triggeredBy: 'tools.review',
+    },
+  ],
+  expected_action_log_subset: [
+    {
+      type: 'guide_agent',
+      guidance: 'Use the approved template before answering.',
+    },
+  ],
+  expected_trace_event_kinds: ['function_call', 'guide_agent'],
+  replay_trace: true,
+});
+
+writeFixture('tool-call-error-records-trace', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  options: {
+    functions: [
+      {
+        namespace: 'tools',
+        functions: [{ name: 'fail', description: 'Fails deterministically' }],
+      },
+    ],
+    callable_results: {
+      'tools.fail': { error: 'handler failed' },
+    },
+  },
+  invoke_callable: {
+    qualified_name: 'tools.fail',
+    args: { input: 'x' },
+  },
+  expected_callable_result_subset: {
+    status: 'error',
+    error: 'handler failed',
+  },
+  expected_function_call_traces_subset: [
+    { qualified_name: 'tools.fail', status: 'error' },
+  ],
+  expected_trace_event_kinds: ['function_call'],
+  replay_trace: true,
+});
+
+writeFixture('trace-replay-discovery-recall-used', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  options: {
+    functionDiscovery: true,
+    skillsMode: true,
+    memoriesMode: true,
+    usageTrackingMode: true,
+    functions: [
+      {
+        namespace: 'docs',
+        functions: [{ name: 'search', description: 'Search documentation' }],
+      },
+    ],
+    skill_search_results: {
+      sql: [{ id: 'skill.sql', name: 'sql', content: 'Use SQL safely.' }],
+    },
+    memory_search_results: {
+      prefs: [{ id: 'mem-1', content: 'User prefers compact answers.' }],
+    },
+  },
+  discover: { tools: ['docs'], skills: ['sql'] },
+  recall: 'prefs',
+  used: { id: 'mem-1', reason: 'personalization', stage: 'executor' },
+  expected_discovered_tool_docs_subset: [
+    { qualified_name: 'docs.search', description: 'Search documentation' },
+  ],
+  expected_loaded_skill_docs_subset: [
+    { id: 'skill.sql', name: 'sql', content: 'Use SQL safely.' },
+  ],
+  expected_loaded_memories_subset: [
+    { id: 'mem-1', content: 'User prefers compact answers.' },
+  ],
+  expected_used_memories_subset: [
+    { id: 'mem-1', reason: 'personalization', stage: 'executor' },
+  ],
+  expected_trace_event_kinds: ['discover', 'recall', 'used'],
+  replay_trace: true,
+});
+
+writeFixture('trace-replay-output-mismatch-error', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  replay_trace_input: {
+    schema_version: 'axir-agent-trace-v1',
+    kind: 'agent_run',
+    status: 'completed',
+    final_output: { answer: 'old' },
+    events: [{ index: 0, kind: 'final', payload: { answer: 'old' } }],
+  },
+  replay_fixtures: {
+    expected_event_kinds: ['final'],
+    expected_output: { answer: 'new' },
+  },
+  expected_error_contains: 'agent replay output mismatch',
 });
 
 writeFixture('final-payload-normalization', {
@@ -839,6 +1448,28 @@ writeFixture('runtime-error-action-log', {
   expected_action_log_subset: [
     { kind: 'error', error_category: 'runtime_error' },
   ],
+  expected_trace_event_kinds: ['runtime_execute', 'error'],
+  replay_trace: true,
+});
+
+writeFixture('trace-malformed-runtime-protocol', {
+  kind: 'agent_runtime_session',
+  operation: 'test',
+  signature: 'question:string -> answer:string',
+  code: 'return raw',
+  context_values: { question: 'raw' },
+  runtime_script: [
+    {
+      expected_code: 'return raw',
+      result: 'not a protocol object',
+    },
+  ],
+  expected_result_subset: {
+    kind: 'result',
+    result: 'not a protocol object',
+  },
+  expected_trace_event_kinds: ['runtime_execute'],
+  replay_trace: true,
 });
 
 writeFixture('runtime-session-closed-restart-notice', {
@@ -917,6 +1548,8 @@ writeFixture('runtime-clarification-payload-normalization-session', {
       args: [{ question: 'Which city?' }],
     },
   },
+  expected_trace_event_kinds: ['runtime_execute', 'clarification'],
+  replay_trace: true,
 });
 
 writeFixture('runtime-discover-effect-next-prompt-state', {
@@ -924,6 +1557,8 @@ writeFixture('runtime-discover-effect-next-prompt-state', {
   operation: 'test',
   signature: 'question:string -> answer:string',
   options: {
+    functionDiscovery: true,
+    skillsMode: true,
     functions: [
       {
         name: 'docs',
@@ -954,7 +1589,9 @@ writeFixture('runtime-discover-effect-next-prompt-state', {
         description: 'Search docs',
       },
     ],
-    loaded_skill_docs: [{ name: 'sql', content: 'Skill docs loaded for sql' }],
+    loaded_skill_docs: [
+      { id: 'sql', name: 'sql', content: 'Skill docs loaded for sql' },
+    ],
   },
 });
 

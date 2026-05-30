@@ -1,0 +1,29 @@
+{
+  "expected_error_contains": "agent replay output mismatch",
+  "kind": "agent_runtime_policy",
+  "name": "trace-replay-output-mismatch-error",
+  "replay_fixtures": {
+    "expected_event_kinds": ["final"],
+    "expected_output": {
+      "answer": "new"
+    }
+  },
+  "replay_trace_input": {
+    "events": [
+      {
+        "index": 0,
+        "kind": "final",
+        "payload": {
+          "answer": "old"
+        }
+      }
+    ],
+    "final_output": {
+      "answer": "old"
+    },
+    "kind": "agent_run",
+    "schema_version": "axir-agent-trace-v1",
+    "status": "completed"
+  },
+  "signature": "question:string -> answer:string"
+}

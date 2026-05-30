@@ -22,7 +22,8 @@ Python target:
 - idiomatic Python is primary: `snake_case`, sync-first methods, dict/list
   request boundaries, and standard exception classes
 - public API: `ai`, `s`, `f`, `fn`, `ax`, `AxAIService`, `AxBaseAI`,
-  `AxSignature`, `AxGen`, `AIClient`, `OpenAICompatibleClient`
+  `AxSignature`, `AxGen`, `AIClient`, `OpenAICompatibleClient`,
+  `OptimizerEngine`, `OptimizerEvaluator`
 - includes a generated `ax.conformance` module that can run backend-neutral
   fixture JSON from all current `ir/conformance/*` suites
 - real OpenAI-compatible HTTP transport is implemented with the Python standard
@@ -34,9 +35,9 @@ Java target:
 - Java 17
 - standard library only
 - public API: `Ax.s`, `Ax.f`, `Ax.fn`, `Ax.ax`, `AxSignature`, `AxGen`,
-  `OpenAICompatibleClient`
+  `OpenAICompatibleClient`, `OptimizerEngine`, `OptimizerEvaluator`
 - executable conformance target for signatures, schema, validation, prompt,
-  AxGen, and AxAI/OpenAI-compatible mapping
+  AxGen, AxAI/OpenAI-compatible mapping, and the prompt optimizer contract
 - real OpenAI-compatible HTTP transport is implemented with `java.net.http`;
   default verification uses fake transport fixtures
 - idiom contract: classes/builders for static shapes and `Map<String,Object>`
@@ -48,11 +49,18 @@ C++ target:
 - C++17
 - standard library only
 - executable conformance target for signatures, schema, validation, prompt,
-  AxGen, and AxAI/OpenAI-compatible mapping
+  AxGen, AxAI/OpenAI-compatible mapping, and the prompt optimizer contract
 - idiom contract: value types, `namespace ax`, standard containers, and
   explicit exceptions rather than TypeScript-shaped dynamic objects
 - OpenAI-compatible request/response mapping is Core-owned and executable
   through fake transport; real C++ HTTP transport is deferred
+
+All executable targets expose the same optimizer-ready boundary: component
+inventory, optimized artifact validation/serialization, component-map apply,
+candidate rollout evaluation, metric/judge payload shaping, and
+`OptimizerEngine.optimize(request, evaluator?)` host integration. This is a
+prompt/component optimization contract, not a GEPA runtime; optimizer algorithms
+remain engine-owned and may call back through the evaluator to score proposals.
 
 Backends must consume the lowered Core IR module or a target package model made
 from Core IR. They must not use high-level Ax dialects as their primary input.

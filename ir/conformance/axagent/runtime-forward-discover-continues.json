@@ -30,6 +30,7 @@
   "kind": "agent_forward",
   "name": "runtime-forward-discover-continues",
   "options": {
+    "functionDiscovery": true,
     "runtime": {
       "language": "Python"
     },

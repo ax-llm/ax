@@ -1,0 +1,36 @@
+{
+  "expected_exported_state_subset": {
+    "used_memories": [],
+    "used_skills": []
+  },
+  "expected_policy_trace_subset": [
+    {
+      "id": "missing",
+      "matched": false,
+      "reason": "not loaded",
+      "type": "used"
+    }
+  ],
+  "expected_used_result": null,
+  "kind": "agent_runtime_policy",
+  "name": "used-unknown-id-is-ignored",
+  "options": {
+    "memoriesMode": true,
+    "usageTrackingMode": true,
+    "memory_search_results": {
+      "prefs": [
+        {
+          "content": "Known memory.",
+          "id": "mem-1"
+        }
+      ]
+    }
+  },
+  "recall": "prefs",
+  "signature": "question:string -> answer:string",
+  "used": {
+    "id": "missing",
+    "reason": "not loaded",
+    "stage": "executor"
+  }
+}

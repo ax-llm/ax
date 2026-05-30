@@ -1,0 +1,554 @@
+module @ax.optimize version "0.1" {
+  dialect @ax.optimize version "0.1"
+
+  op ax.optimize.component @optimization_component {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(id:string, owner:string, kind:string, current:json, description:string, constraints:list<string>, depends_on:list<string>, preserve:bool, format:string, validation:json) -> json"
+    body @entry(%id: string, %owner: string, %kind: string, %current: json, %description: string, %constraints: json, %depends_on: json, %preserve: bool, %format: string, %validation: json) {
+      %out = core.map
+      core.set %out["id"] = %id
+      core.set %out["owner"] = %owner
+      core.set %out["kind"] = %kind
+      core.set %out["current"] = %current
+      core.set %out["description"] = %description
+      core.set %out["constraints"] = %constraints
+      core.set %out["dependsOn"] = %depends_on
+      core.set %out["preserve"] = %preserve
+      core.set %out["format"] = %format
+      core.set %out["validation"] = %validation
+      core.return %out
+    }
+  }
+
+  op ax.optimize.artifact @optimized_artifact {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(optimizer_name:string, optimizer_version:string, component_map:json, metadata:json) -> json"
+    body @entry(%optimizer_name: string, %optimizer_version: string, %component_map: json, %metadata: json) {
+      %empty_map = core.map
+      %out = core.map
+      core.set %out["artifactVersion"] = "axir-optimized-artifact-v1"
+      core.set %out["optimizerName"] = %optimizer_name
+      core.set %out["optimizerVersion"] = %optimizer_version
+      core.set %out["componentMap"] = %component_map
+      %meta = core.let %metadata
+      %meta_missing = core.call intrinsic.is_none(%metadata)
+      core.if %meta_missing {
+        %meta = core.let %empty_map
+      } else {
+      }
+      core.set %out["metadata"] = %meta
+      core.return %out
+    }
+  }
+
+  op ax.optimize.semantic @validate_optimization_component_map {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(components:list<json>, component_map:json) -> bool throws"
+    body @entry(%components: json, %component_map: json) {
+      %known = core.list
+      core.for %component in %components {
+        %id = core.get %component["id"] default ""
+        core.append %known, %id
+      }
+      %keys = core.call intrinsic.map.keys(%component_map)
+      core.for %id in %keys {
+        %ok = core.call intrinsic.contains(%known, %id)
+        %bad = core.call intrinsic.not(%ok)
+        core.if %bad {
+          %message = core.call intrinsic.string.format("unknown optimized component id: {}", %id)
+          %error = core.call intrinsic.error.runtime(%message)
+          core.raise %error
+        } else {
+        }
+      }
+      core.return true
+    }
+  }
+
+  op ax.optimize.semantic @validate_optimized_artifact {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(artifact:json, components:list<json>) -> json throws"
+    body @entry(%artifact: json, %components: json) {
+      %is_object = core.type_is %artifact type "object"
+      %not_object = core.call intrinsic.not(%is_object)
+      core.if %not_object {
+        %error = core.call intrinsic.error.runtime("optimized artifact must be an object")
+        core.raise %error
+      } else {
+      }
+      %version = core.get %artifact["artifactVersion"] default ""
+      %version_ok = core.call intrinsic.eq(%version, "axir-optimized-artifact-v1")
+      %bad_version = core.call intrinsic.not(%version_ok)
+      core.if %bad_version {
+        %error_version = core.call intrinsic.error.runtime("unsupported optimized artifact version")
+        core.raise %error_version
+      } else {
+      }
+      %empty_map = core.map
+      %component_map = core.get %artifact["componentMap"] default %empty_map
+      %component_map_is_object = core.type_is %component_map type "object"
+      %bad_component_map = core.call intrinsic.not(%component_map_is_object)
+      core.if %bad_component_map {
+        %error_map = core.call intrinsic.error.runtime("optimized artifact componentMap must be an object")
+        core.raise %error_map
+      } else {
+      }
+      core.call @validate_optimization_component_map(%components, %component_map)
+      core.return %artifact
+    }
+  }
+
+  op ax.optimize.semantic @serialize_optimized_artifact {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(artifact:json) -> string"
+    body @entry(%artifact: json) {
+      %text = core.call intrinsic.json.stringify(%artifact)
+      core.return %text
+    }
+  }
+
+  op ax.optimize.semantic @deserialize_optimized_artifact {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(text:string, components:list<json>) -> json throws"
+    body @entry(%text: string, %components: json) {
+      %artifact = core.call intrinsic.json.parse(%text)
+      %validated = core.call @validate_optimized_artifact(%artifact, %components)
+      core.return %validated
+    }
+  }
+
+  op ax.optimize.semantic @optimization_changed_components {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(components:list<json>, component_map:json) -> list<json>"
+    body @entry(%components: json, %component_map: json) {
+      %changes = core.list
+      core.for %component in %components {
+        %id = core.get %component["id"] default ""
+        %current = core.get %component["current"]
+        %next = core.get %component_map[%id] default %current
+        %same = core.call intrinsic.eq(%current, %next)
+        %changed = core.call intrinsic.not(%same)
+        core.if %changed {
+          %entry = core.map
+          core.set %entry["id"] = %id
+          core.set %entry["current"] = %current
+          core.set %entry["next"] = %next
+          core.append %changes, %entry
+        } else {
+        }
+      }
+      core.return %changes
+    }
+  }
+
+  op ax.optimize.semantic @optimization_component_current_map {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(components:list<json>) -> json"
+    body @entry(%components: json) {
+      %out = core.map
+      core.for %component in %components {
+        %id = core.get %component["id"] default ""
+        %current = core.get %component["current"]
+        core.set %out[%id] = %current
+      }
+      core.return %out
+    }
+  }
+
+  op ax.optimize.semantic @normalize_optimization_dataset {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(dataset:json) -> json"
+    body @entry(%dataset: json) {
+      %empty_list = core.list
+      %is_object = core.type_is %dataset type "object"
+      core.if %is_object {
+        %train = core.get %dataset["train"] default %empty_list
+        %validation = core.get %dataset["validation"] default %empty_list
+        %out_obj = core.map
+        core.set %out_obj["train"] = %train
+        core.set %out_obj["validation"] = %validation
+        core.return %out_obj
+      } else {
+      }
+      %out_list = core.map
+      core.set %out_list["train"] = %dataset
+      core.set %out_list["validation"] = %empty_list
+      core.return %out_list
+    }
+  }
+
+  op ax.optimize.semantic @normalize_optimization_metric_scores {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(raw:json) -> json"
+    body @entry(%raw: json) {
+      %is_number = core.type_is %raw type "number"
+      core.if %is_number {
+        %out_number = core.map
+        core.set %out_number["score"] = %raw
+        core.return %out_number
+      } else {
+      }
+      %is_object = core.type_is %raw type "object"
+      core.if %is_object {
+        core.return %raw
+      } else {
+      }
+      %out_zero = core.map
+      core.set %out_zero["score"] = 0
+      core.return %out_zero
+    }
+  }
+
+  op ax.optimize.semantic @scalarize_optimization_scores {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(scores:json, options:json) -> f64"
+    body @entry(%scores: json, %options: json) {
+      %metric_key = core.get %options["paretoMetricKey"] default ""
+      %has_metric = core.call intrinsic.ne(%metric_key, "")
+      core.if %has_metric {
+        %picked = core.get %scores[%metric_key] default 0
+        core.return %picked
+      } else {
+      }
+      %values = core.call intrinsic.map.values(%scores)
+      %sum = core.let 0
+      %count = core.let 0
+      core.for %value in %values {
+        %sum_next = core.call intrinsic.add(%sum, %value)
+        %count_next = core.call intrinsic.add(%count, 1)
+        %sum = core.let %sum_next
+        %count = core.let %count_next
+      }
+      %empty = core.call intrinsic.eq(%count, 0)
+      core.if %empty {
+        core.return 0
+      } else {
+      }
+      %avg = core.call intrinsic.div(%sum, %count)
+      core.return %avg
+    }
+  }
+
+  op ax.optimize.semantic @optimization_action_name_matches {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(expected:string, call:json) -> bool"
+    body @entry(%expected: string, %call: json) {
+      %qualified = core.get %call["qualifiedName"] default ""
+      %name = core.get %call["name"] default ""
+      %qualified_match = core.call intrinsic.eq(%qualified, %expected)
+      %name_match = core.call intrinsic.eq(%name, %expected)
+      %dot_expected = core.call intrinsic.add(".", %expected)
+      %suffix_match = core.call intrinsic.string.ends_with(%qualified, %dot_expected)
+      %direct_match = core.call intrinsic.or(%qualified_match, %name_match)
+      %any_match = core.call intrinsic.or(%direct_match, %suffix_match)
+      core.return %any_match
+    }
+  }
+
+  op ax.optimize.semantic @adjust_optimization_score_for_actions {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(score:f64, task:json, prediction:json) -> f64"
+    body @entry(%score: json, %task: json, %prediction: json) {
+      %empty_list = core.list
+      %function_calls = core.get %prediction["functionCalls"] default %empty_list
+      %expected_actions = core.get %task["expectedActions"] default %empty_list
+      %forbidden_actions = core.get %task["forbiddenActions"] default %empty_list
+      %adjusted = core.let %score
+      %expected_count = core.call intrinsic.len(%expected_actions)
+      %has_expected = core.call intrinsic.gt(%expected_count, 0)
+      core.if %has_expected {
+        %matched = core.let 0
+        core.for %expected in %expected_actions {
+          %found = core.let false
+          core.for %call in %function_calls {
+            %call_matches = core.call @optimization_action_name_matches(%expected, %call)
+            core.if %call_matches {
+              %found = core.let true
+            } else {
+            }
+          }
+          core.if %found {
+            %matched_next = core.call intrinsic.add(%matched, 1)
+            %matched = core.let %matched_next
+          } else {
+          }
+        }
+        %ratio = core.call intrinsic.div(%matched, %expected_count)
+        %half_ratio = core.call intrinsic.mul(0.5, %ratio)
+        %factor = core.call intrinsic.add(0.5, %half_ratio)
+        %adjusted_next = core.call intrinsic.mul(%adjusted, %factor)
+        %adjusted = core.let %adjusted_next
+      } else {
+      }
+      core.for %forbidden in %forbidden_actions {
+        %bad_found = core.let false
+        core.for %call in %function_calls {
+          %bad_match = core.call @optimization_action_name_matches(%forbidden, %call)
+          core.if %bad_match {
+            %bad_found = core.let true
+          } else {
+          }
+        }
+        core.if %bad_found {
+          %penalized = core.call intrinsic.mul(%adjusted, 0.2)
+          %adjusted = core.let %penalized
+        } else {
+        }
+      }
+      core.return %adjusted
+    }
+  }
+
+  op ax.optimize.semantic @map_optimization_judge_quality_to_score {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(quality:string) -> f64"
+    body @entry(%quality: string) {
+      %normalized = core.call intrinsic.string.lower(%quality)
+      %is_excellent = core.call intrinsic.eq(%normalized, "excellent")
+      core.if %is_excellent {
+        core.return 1
+      } else {
+      }
+      %is_good = core.call intrinsic.eq(%normalized, "good")
+      core.if %is_good {
+        core.return 0.8
+      } else {
+      }
+      %is_acceptable = core.call intrinsic.eq(%normalized, "acceptable")
+      core.if %is_acceptable {
+        core.return 0.5
+      } else {
+      }
+      %is_poor = core.call intrinsic.eq(%normalized, "poor")
+      core.if %is_poor {
+        core.return 0.2
+      } else {
+      }
+      %is_unacceptable = core.call intrinsic.eq(%normalized, "unacceptable")
+      core.if %is_unacceptable {
+        core.return 0
+      } else {
+      }
+      core.return 0.5
+    }
+  }
+
+  op ax.optimize.semantic @build_optimization_judge_payload {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(task:json, prediction:json, criteria:string) -> json"
+    body @entry(%task: json, %prediction: json, %criteria: string) {
+      %empty_list = core.list
+      %out = core.map
+      %task_input = core.get %task["input"] default %task
+      core.set %out["taskInput"] = %task_input
+      %task_criteria = core.get %task["criteria"] default %criteria
+      core.set %out["criteria"] = %task_criteria
+      %expected_output = core.get %task["expectedOutput"]
+      core.set %out["expectedOutput"] = %expected_output
+      %expected_actions = core.get %task["expectedActions"] default %empty_list
+      core.set %out["expectedActions"] = %expected_actions
+      %forbidden_actions = core.get %task["forbiddenActions"] default %empty_list
+      core.set %out["forbiddenActions"] = %forbidden_actions
+      %metadata = core.get %task["metadata"]
+      core.set %out["metadata"] = %metadata
+      %completion_type = core.get %prediction["completionType"] default "error"
+      core.set %out["completionType"] = %completion_type
+      %clarification = core.get %prediction["clarification"]
+      core.set %out["clarification"] = %clarification
+      %final_output = core.get %prediction["output"] default %prediction
+      core.set %out["finalOutput"] = %final_output
+      %guidance_log = core.get %prediction["guidanceLog"] default ""
+      core.set %out["guidanceLog"] = %guidance_log
+      %action_log = core.get %prediction["actionLog"] default %empty_list
+      core.set %out["actionLog"] = %action_log
+      %function_calls = core.get %prediction["functionCalls"] default %empty_list
+      core.set %out["functionCalls"] = %function_calls
+      %tool_errors = core.get %prediction["toolErrors"] default %empty_list
+      core.set %out["toolErrors"] = %tool_errors
+      %turn_count = core.get %prediction["turnCount"] default 0
+      core.set %out["turnCount"] = %turn_count
+      %usage = core.get %prediction["usage"] default %empty_list
+      core.set %out["usage"] = %usage
+      %trace = core.get %prediction["trace"]
+      core.set %out["trace"] = %trace
+      core.return %out
+    }
+  }
+
+  op ax.optimize.semantic @build_optimization_eval_row {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(task:json, prediction:json, scores:json, scalar:f64, trace:json, error:json) -> json"
+    body @entry(%task: json, %prediction: json, %scores: json, %scalar: json, %trace: json, %error: json) {
+      %out = core.map
+      core.set %out["input"] = %task
+      core.set %out["prediction"] = %prediction
+      core.set %out["scores"] = %scores
+      core.set %out["scalar"] = %scalar
+      core.set %out["trace"] = %trace
+      %has_error = core.call intrinsic.is_not_none(%error)
+      core.if %has_error {
+        core.set %out["error"] = %error
+      } else {
+      }
+      core.return %out
+    }
+  }
+
+  op ax.optimize.semantic @build_optimization_eval_result {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(rows:list<json>, candidate_map:json, phase:string) -> json"
+    body @entry(%rows: json, %candidate_map: json, %phase: string) {
+      %sum = core.let 0
+      %count = core.let 0
+      core.for %row in %rows {
+        %scalar = core.get %row["scalar"] default 0
+        %sum_next = core.call intrinsic.add(%sum, %scalar)
+        %count_next = core.call intrinsic.add(%count, 1)
+        %sum = core.let %sum_next
+        %count = core.let %count_next
+      }
+      %avg = core.let 0
+      %has_rows = core.call intrinsic.gt(%count, 0)
+      core.if %has_rows {
+        %avg_next = core.call intrinsic.div(%sum, %count)
+        %avg = core.let %avg_next
+      } else {
+      }
+      %out = core.map
+      core.set %out["phase"] = %phase
+      core.set %out["candidateMap"] = %candidate_map
+      core.set %out["rows"] = %rows
+      core.set %out["sum"] = %sum
+      core.set %out["avg"] = %avg
+      core.set %out["count"] = %count
+      core.return %out
+    }
+  }
+
+  op ax.optimize.semantic @filter_optimization_components {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(components:list<json>, target:json) -> list<json> throws"
+    body @entry(%components: json, %target: json) {
+      %out = core.list
+      %is_list = core.type_is %target type "list"
+      %is_all = core.call intrinsic.eq(%target, "all")
+      %is_actor = core.call intrinsic.eq(%target, "actor")
+      %is_responder = core.call intrinsic.eq(%target, "responder")
+      core.for %component in %components {
+        %id = core.get %component["id"] default ""
+        %include = core.let false
+        core.if %is_all {
+          %include = core.let true
+        } else {
+        }
+        core.if %is_list {
+          %listed = core.call intrinsic.contains(%target, %id)
+          core.if %listed {
+            %include = core.let true
+          } else {
+          }
+        } else {
+        }
+        core.if %is_actor {
+          %actor_match = core.call intrinsic.string.ends_with(%id, ".actor")
+          %actor_component_match = core.call intrinsic.contains(%id, ".actor::")
+          %actor_any_match = core.call intrinsic.or(%actor_match, %actor_component_match)
+          core.if %actor_any_match {
+            %include = core.let true
+          } else {
+          }
+        } else {
+        }
+        core.if %is_responder {
+          %responder_match = core.call intrinsic.string.ends_with(%id, ".responder")
+          %responder_component_match = core.call intrinsic.contains(%id, ".responder::")
+          %responder_any_match = core.call intrinsic.or(%responder_match, %responder_component_match)
+          core.if %responder_any_match {
+            %include = core.let true
+          } else {
+          }
+        } else {
+        }
+        %explicit_match = core.call intrinsic.eq(%target, %id)
+        core.if %explicit_match {
+          %include = core.let true
+        } else {
+        }
+        core.if %include {
+          core.append %out, %component
+        } else {
+        }
+      }
+      %count = core.call intrinsic.len(%out)
+      %empty = core.call intrinsic.eq(%count, 0)
+      core.if %empty {
+        %message = core.call intrinsic.string.format("no optimizable components match target: {}", %target)
+        %error = core.call intrinsic.error.runtime(%message)
+        core.raise %error
+      } else {
+      }
+      core.return %out
+    }
+  }
+
+  op ax.optimize.semantic @build_optimizer_request {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(program_kind:string, components:list<json>, dataset:list<json>, options:json, trace:json) -> json"
+    body @entry(%program_kind: string, %components: json, %dataset: json, %options: json, %trace: json) {
+      %out = core.map
+      core.set %out["contractVersion"] = "axir-optimize-contract-v1"
+      core.set %out["programKind"] = %program_kind
+      core.set %out["components"] = %components
+      core.set %out["dataset"] = %dataset
+      core.set %out["options"] = %options
+      core.set %out["trace"] = %trace
+      %evaluator = core.map
+      %methods = core.list
+      core.append %methods, "evaluate"
+      core.set %evaluator["available"] = true
+      core.set %evaluator["contractVersion"] = "axir-optimizer-evaluator-v1"
+      core.set %evaluator["methods"] = %methods
+      core.set %out["evaluator"] = %evaluator
+      core.return %out
+    }
+  }
+
+  op ax.optimize.semantic @build_agent_eval_prediction {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(output:json, action_log:list<json>, usage:json, trace:json) -> json"
+    body @entry(%output: json, %action_log: json, %usage: json, %trace: json) {
+      %out = core.map
+      core.set %out["completionType"] = "final"
+      core.set %out["output"] = %output
+      core.set %out["finalOutput"] = %output
+      core.set %out["actionLog"] = %action_log
+      core.set %out["usage"] = %usage
+      core.set %out["trace"] = %trace
+      %empty_list = core.list
+      core.set %out["functionCalls"] = %empty_list
+      core.set %out["toolErrors"] = %empty_list
+      core.set %out["turnCount"] = 0
+      core.return %out
+    }
+  }
+}

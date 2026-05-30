@@ -1,0 +1,41 @@
+{
+  "expected_callable_inventory_subset": [
+    {
+      "callables": [
+        {
+          "always_include": false,
+          "description": "Current TS allows this edge",
+          "kind": "tool",
+          "name": "mark",
+          "namespace": "used",
+          "parameters": null,
+          "qualified_name": "used.mark"
+        }
+      ],
+      "namespace": "used"
+    }
+  ],
+  "expected_policy_registry_subset": {
+    "flags": {
+      "usageTrackingMode": true
+    }
+  },
+  "kind": "agent_runtime_policy",
+  "name": "policy-registry-used-namespace-currently-allowed",
+  "options": {
+    "usageTrackingMode": true,
+    "functions": [
+      {
+        "functions": [
+          {
+            "description": "Current TS allows this edge",
+            "name": "mark"
+          }
+        ],
+        "namespace": "used",
+        "title": "Used Namespace"
+      }
+    ]
+  },
+  "signature": "question:string -> answer:string"
+}

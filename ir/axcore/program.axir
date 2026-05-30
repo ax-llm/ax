@@ -1,0 +1,50 @@
+module @ax.program version "0.1" {
+  dialect @ax.program version "0.1"
+
+  op ax.program.interface @AxProgram {
+    attr core_kind = "interface"
+    attr public = "true"
+    type signature = "program"
+    tag "ax-program"
+  }
+
+  op ax.program.semantic @program_descriptor {
+    attr core_kind = "func"
+    attr emit_module = "program"
+    type signature = "(kind:string, id:string, metadata:json) -> json"
+    body @entry(%kind: string, %id: string, %metadata: json) {
+      %empty_map = core.map
+      %meta_missing = core.call intrinsic.is_none(%metadata)
+      %meta = core.let %metadata
+      core.if %meta_missing {
+        %meta = core.let %empty_map
+      } else {
+      }
+      %out = core.map
+      core.set %out["kind"] = %kind
+      core.set %out["id"] = %id
+      core.set %out["metadata"] = %meta
+      core.return %out
+    }
+  }
+
+  op ax.program.semantic @program_trace_event {
+    attr core_kind = "func"
+    attr emit_module = "program"
+    type signature = "(program_id:string, kind:string, payload:json) -> json"
+    body @entry(%program_id: string, %kind: string, %payload: json) {
+      %empty_map = core.map
+      %payload_missing = core.call intrinsic.is_none(%payload)
+      %data = core.let %payload
+      core.if %payload_missing {
+        %data = core.let %empty_map
+      } else {
+      }
+      %event = core.map
+      core.set %event["programId"] = %program_id
+      core.set %event["kind"] = %kind
+      core.set %event["payload"] = %data
+      core.return %event
+    }
+  }
+}

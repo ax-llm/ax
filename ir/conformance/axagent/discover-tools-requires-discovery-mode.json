@@ -1,0 +1,17 @@
+{
+  "discover": {
+    "tools": ["search"]
+  },
+  "expected_error_contains": "discover({ tools }) requires function discovery to be enabled",
+  "kind": "agent_runtime_policy",
+  "name": "discover-tools-requires-discovery-mode",
+  "options": {
+    "functions": [
+      {
+        "description": "Search docs",
+        "name": "search"
+      }
+    ]
+  },
+  "signature": "question:string -> answer:string"
+}

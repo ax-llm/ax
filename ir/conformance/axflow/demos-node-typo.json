@@ -1,0 +1,31 @@
+{
+  "kind": "flow",
+  "name": "demos-node-typo",
+  "source": {
+    "tsDerived": true,
+    "extractor": "tools/axir/extractors/flow-goldens.ts",
+    "reference": [
+      "src/ax/flow/flow.ts",
+      "src/ax/flow/executionPlanner.ts",
+      "src/ax/dsp/program.ts"
+    ],
+    "name": "demos-node-typo",
+    "observed": {
+      "error": "Unknown program ID(s) in demos: root.missing. Valid IDs: root, root.qa. Use namedPrograms() to discover available IDs."
+    }
+  },
+  "steps": [
+    {
+      "kind": "execute",
+      "name": "qa",
+      "signature": "question:string -> answer:string"
+    }
+  ],
+  "demos": [
+    {
+      "programId": "root.missing",
+      "traces": []
+    }
+  ],
+  "expected_error_contains": "Unknown program ID"
+}

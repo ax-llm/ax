@@ -27,6 +27,10 @@ func axagentConformancePath() string {
 	return filepath.Join("..", "..", "..", "..", "ir", "conformance", "axagent")
 }
 
+func axoptimizeConformancePath() string {
+	return filepath.Join("..", "..", "..", "..", "ir", "conformance", "axoptimize")
+}
+
 func promptConformancePath() string {
 	return filepath.Join("..", "..", "..", "..", "ir", "conformance", "prompt")
 }
@@ -86,9 +90,37 @@ func TestLoadCheckLowerAxCore(t *testing.T) {
 		"op core.func @agent_forward",
 		"op core.func @normalize_agent_runtime",
 		"op core.func @normalize_agent_policy",
+		"op core.func @agent_policy_registry",
+		"op core.func @select_actor_primitives",
+		"op core.func @render_actor_primitive_guidance",
 		"op core.func @normalize_agent_callable_inventory",
 		"op core.func @agent_discover",
+		"op core.func @agent_recall",
+		"op core.func @agent_used",
+		"op core.func @agent_execute_callable",
+		"op core.func @agent_append_guidance",
 		"op core.func @agent_optimizer_metadata",
+		"op core.func @agent_begin_trace",
+		"op core.func @agent_record_trace_event",
+		"op core.func @agent_export_trace",
+		"op core.func @agent_replay_trace",
+		"op core.func @optimization_component",
+		"op core.func @optimized_artifact",
+		"op core.func @validate_optimized_artifact",
+		"op core.func @filter_optimization_components",
+		"op core.func @build_optimizer_request",
+		"op core.func @normalize_optimization_dataset",
+		"op core.func @build_optimization_eval_result",
+		"op core.func @build_optimization_judge_payload",
+		"op core.func @build_agent_eval_prediction",
+		"op core.interface @AxProgram",
+		"op core.func @program_descriptor",
+		"op core.func @program_trace_event",
+		"op core.record @AxFlow",
+		"op core.func @flow",
+		"op core.func @flow_factory",
+		"op core.func @flow_plan",
+		"op core.func @flow_forward",
 		"op core.func @agent_runtime_test",
 		"op core.func @agent_runtime_execute_step",
 		"op core.func @normalize_agent_runtime_step_result",
@@ -180,12 +212,46 @@ func TestBuildRuntimeModel(t *testing.T) {
 		"axagent_runtime_language",
 		"axagent_actor_prompt_cache",
 		"axagent_context_cache_precedence",
+		"axagent_policy_registry",
+		"axagent_policy_versioning",
+		"axagent_dynamic_primitives",
+		"axagent_host_boundaries",
+		"axagent_policy_trace",
+		"axagent_policy_execution",
+		"axagent_tool_discovery",
+		"axagent_skill_discovery",
+		"axagent_memory_recall",
+		"axagent_usage_tracking",
+		"axagent_child_delegation",
+		"axagent_guidance_protocol",
+		"axagent_trace_export",
+		"axagent_deterministic_replay",
+		"axagent_host_boundary_contract",
+		"axagent_optimizer_trace_artifact",
+		"axoptimize_contract",
+		"axoptimize_engine_boundary",
+		"axoptimize_artifacts",
+		"axoptimize_agent_eval",
+		"axoptimize_prompt_components",
+		"axoptimize_evaluator_boundary",
+		"axoptimize_candidate_rollouts",
+		"axoptimize_metric_scoring",
+		"axoptimize_judge_payloads",
+		"axoptimize_state_isolation",
+		"axprogram_contract",
+		"axprogram_trace_events",
+		"axflow_program_graph",
+		"axflow_program_contract",
+		"axflow_shared_executor",
+		"axflow_auto_parallel_barriers",
+		"axflow_actual_input_cache_key",
+		"axflow_optimizer_components",
 	} {
 		if !model.Features[feature] {
 			t.Fatalf("runtime model missing prompt feature flag %s: %#v", feature, model.Features)
 		}
 	}
-	for _, want := range []string{"ai", "AxAIService", "AxBaseAI", "OpenAICompatibleClient", "agent", "AxAgent", "AxAgentClarificationError"} {
+	for _, want := range []string{"ai", "AxAIService", "AxBaseAI", "OpenAICompatibleClient", "agent", "AxAgent", "AxAgentClarificationError", "flow", "AxFlow", "AxProgram"} {
 		if _, ok := model.Symbols[want]; !ok {
 			t.Fatalf("runtime model missing symbol %s", want)
 		}
@@ -223,9 +289,19 @@ func TestBuildRuntimeModel(t *testing.T) {
 		"split_agent_callable_inventory",
 		"render_agent_discovery_catalog",
 		"agent_discover",
+		"agent_recall",
+		"agent_used",
+		"agent_execute_callable",
+		"agent_append_guidance",
 		"normalize_agent_final_payload",
 		"normalize_agent_clarification_payload",
 		"agent_optimizer_metadata",
+		"agent_begin_trace",
+		"agent_record_trace_event",
+		"agent_normalize_host_boundary_event",
+		"agent_finalize_trace",
+		"agent_export_trace",
+		"agent_replay_trace",
 		"agent_export_runtime_state",
 		"agent_restore_runtime_state",
 		"split_context_values",
@@ -239,6 +315,15 @@ func TestBuildRuntimeModel(t *testing.T) {
 		"agent_get_state",
 		"agent_set_state",
 		"agent_forward",
+		"program_descriptor",
+		"program_trace_event",
+		"flow_factory",
+		"flow_step",
+		"flow_add_step",
+		"flow_set_returns",
+		"flow_plan",
+		"flow_cache_key",
+		"flow_forward",
 	} {
 		if model.BodySources[want] != "core" {
 			t.Fatalf("runtime model missing core body source for %s: %#v", want, model.BodySources)
@@ -249,7 +334,7 @@ func TestBuildRuntimeModel(t *testing.T) {
 			t.Fatalf("runtime model missing private core helper %s: body=%#v private=%#v", want, model.BodySources, model.PrivateSymbols)
 		}
 	}
-	if model.EmitModules["signature_parse_impl"] != "signature" || model.EmitModules["validate_value_impl"] != "schema" || model.EmitModules["render_prompt"] != "prompt" || model.EmitModules["fold_stream"] != "gen" || model.EmitModules["forward"] != "gen" || model.EmitModules["execute_tool_call"] != "gen" || model.EmitModules["openai_build_chat_request"] != "ai" || model.EmitModules["agent_forward"] != "agent" || model.EmitModules["normalize_agent_runtime"] != "agent" || model.EmitModules["agent_discover"] != "agent" {
+	if model.EmitModules["signature_parse_impl"] != "signature" || model.EmitModules["validate_value_impl"] != "schema" || model.EmitModules["render_prompt"] != "prompt" || model.EmitModules["fold_stream"] != "gen" || model.EmitModules["forward"] != "gen" || model.EmitModules["execute_tool_call"] != "gen" || model.EmitModules["openai_build_chat_request"] != "ai" || model.EmitModules["agent_forward"] != "agent" || model.EmitModules["normalize_agent_runtime"] != "agent" || model.EmitModules["agent_discover"] != "agent" || model.EmitModules["agent_recall"] != "agent" || model.EmitModules["agent_used"] != "agent" || model.EmitModules["agent_export_trace"] != "agent" || model.EmitModules["agent_replay_trace"] != "agent" || model.EmitModules["flow_forward"] != "flow" || model.EmitModules["program_trace_event"] != "program" {
 		t.Fatalf("runtime model missing emit module hints: %#v", model.EmitModules)
 	}
 }
@@ -272,12 +357,14 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"ax/__init__.py",
 				"ax/ai.py",
 				"ax/agent.py",
+				"ax/flow.py",
 				"ax/gen.py",
 				"ax/conformance.py",
 				"examples/signature_schema.py",
 				"examples/axgen_fake_client_tool.py",
 				"examples/axai_fake_transport.py",
 				"examples/axagent_pipeline.py",
+				"examples/axflow_program_graph.py",
 			},
 			wantReadme: "Generated Ax PYTHON Library",
 		},
@@ -287,17 +374,22 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"README.md",
 				"axir-capabilities.json",
 				"dev/ax/Ax.java",
+				"dev/ax/AxProgram.java",
 				"dev/ax/Core.java",
 				"dev/ax/AxAgent.java",
+				"dev/ax/AxFlow.java",
 				"dev/ax/AxAgentClarificationException.java",
 				"dev/ax/AxCodeRuntime.java",
 				"dev/ax/AxCodeSession.java",
+				"dev/ax/OptimizerEngine.java",
+				"dev/ax/OptimizerEvaluator.java",
 				"dev/ax/OpenAICompatibleClient.java",
 				"dev/ax/Conformance.java",
 				"examples/SignatureSchemaExample.java",
 				"examples/AxGenFakeClientToolExample.java",
 				"examples/AxAIFakeTransportExample.java",
 				"examples/AxAgentPipelineExample.java",
+				"examples/AxFlowProgramGraphExample.java",
 			},
 			wantReadme: "Generated Ax JAVA Library",
 		},
@@ -313,6 +405,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/axgen_fake_client_tool.cpp",
 				"examples/axai_fake_transport.cpp",
 				"examples/axagent_pipeline.cpp",
+				"examples/axflow_program_graph.cpp",
 			},
 			wantReadme: "Generated Ax CPP Library",
 		},
@@ -342,12 +435,12 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 			if tc.target == "cpp" && manifest.RealNetworkSupport {
 				t.Fatalf("C++ manifest should not claim real network support: %#v", manifest)
 			}
-			for _, want := range []string{"signature", "schema", "validation", "prompt", "axgen", "axai", "axagent"} {
+			for _, want := range []string{"signature", "schema", "validation", "prompt", "axgen", "axai", "axagent", "axoptimize", "axprogram", "axflow"} {
 				if !containsString(manifest.SupportedSuites, want) {
 					t.Fatalf("manifest missing suite %s: %#v", want, manifest.SupportedSuites)
 				}
 			}
-			for _, want := range []string{"AxGen", "AxSignature", "OpenAICompatibleClient", "AxAgent"} {
+			for _, want := range []string{"AxGen", "AxSignature", "OpenAICompatibleClient", "AxAgent", "AxFlow", "AxProgram", "OptimizerEngine", "OptimizerEvaluator"} {
 				if !containsString(manifest.PublicSymbols, want) {
 					t.Fatalf("manifest missing public symbol %s: %#v", want, manifest.PublicSymbols)
 				}
@@ -360,6 +453,48 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				t.Fatalf("generated README missing contract text:\n%s", readme)
 			}
 		})
+	}
+}
+
+func TestFlowGoldensExtractorUsesTSReference(t *testing.T) {
+	root := filepath.Join("..", "..", "..", "..")
+	extractorPath := filepath.Join(root, "tools", "axir", "extractors", "flow-goldens.ts")
+	data, err := os.ReadFile(extractorPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, want := range []string{
+		"../../../src/ax/flow/flow.js",
+		"flow<",
+		"getExecutionPlan()",
+		"forward(",
+		"tsDerived: true",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("flow extractor no longer exercises TS Flow reference; missing %q", want)
+		}
+	}
+	fixturePaths, err := filepath.Glob(filepath.Join(root, "ir", "conformance", "axflow", "*.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fixturePaths) == 0 {
+		t.Fatal("expected AxFlow fixtures")
+	}
+	for _, path := range fixturePaths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fixture map[string]any
+		if err := json.Unmarshal(data, &fixture); err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+		source, ok := fixture["source"].(map[string]any)
+		if !ok || source["tsDerived"] != true {
+			t.Fatalf("%s missing TS-derived source metadata", path)
+		}
 	}
 }
 
@@ -891,28 +1026,40 @@ func TestAxAgentConformanceFixturesLoad(t *testing.T) {
 				}
 			}
 		case "agent_runtime_policy":
-			if _, ok := fixture["expected_runtime_contract_subset"]; !ok {
-				if _, ok := fixture["expected_policy_subset"]; !ok {
-					if _, ok := fixture["expected_callable_inventory_subset"]; !ok {
-						if _, ok := fixture["expected_discovery_catalog_subset"]; !ok {
-							if _, ok := fixture["expected_discovered_tool_docs_subset"]; !ok {
-								if _, ok := fixture["expected_loaded_skill_docs_subset"]; !ok {
-									if _, ok := fixture["expected_final_payload"]; !ok {
-										if _, ok := fixture["expected_clarification_payload"]; !ok {
-											if _, ok := fixture["expected_exported_state_subset"]; !ok {
-												if _, ok := fixture["expected_optimizer_metadata_subset"]; !ok {
-													if _, ok := fixture["expected_error_contains"]; !ok {
-														t.Fatalf("%s missing runtime policy expectation", file)
-													}
-												}
-											}
-										}
-									}
-								}
-							}
-						}
-					}
+			hasExpectation := false
+			for _, key := range []string{
+				"expected_runtime_contract_subset",
+				"expected_policy_subset",
+				"expected_policy_registry_subset",
+				"expected_actor_primitives_subset",
+				"expected_protocol_actions_subset",
+				"expected_runtime_globals_subset",
+				"expected_host_boundaries_subset",
+				"expected_callable_inventory_subset",
+				"expected_discovery_catalog_subset",
+				"expected_discovered_tool_docs_subset",
+				"expected_loaded_skill_docs_subset",
+				"expected_loaded_memories_subset",
+				"expected_used_memories_subset",
+				"expected_used_skills_subset",
+				"expected_guidance_log_subset",
+				"expected_function_call_traces_subset",
+				"expected_final_payload",
+				"expected_clarification_payload",
+				"expected_exported_state_subset",
+				"expected_optimizer_metadata_subset",
+				"expected_trace_subset",
+				"expected_trace_event_kinds",
+				"expected_replay_result_subset",
+				"expected_error_contains",
+			} {
+				if _, ok := fixture[key]; ok {
+					hasExpectation = true
+					break
 				}
+			}
+			if !hasExpectation {
+				t.Fatalf("%s missing runtime policy expectation", file)
 			}
 		case "agent_runtime_session":
 			if _, ok := fixture["runtime_script"]; !ok {
@@ -921,14 +1068,85 @@ func TestAxAgentConformanceFixturesLoad(t *testing.T) {
 			if _, ok := fixture["expected_result_subset"]; !ok {
 				if _, ok := fixture["expected_action_log_subset"]; !ok {
 					if _, ok := fixture["expected_exported_state_subset"]; !ok {
-						if _, ok := fixture["expected_error_contains"]; !ok {
-							t.Fatalf("%s missing runtime session expectation", file)
+						if _, ok := fixture["expected_trace_subset"]; !ok {
+							if _, ok := fixture["expected_error_contains"]; !ok {
+								t.Fatalf("%s missing runtime session expectation", file)
+							}
 						}
 					}
 				}
 			}
 		default:
 			t.Fatalf("%s has unknown axagent kind %v", file, fixture["kind"])
+		}
+	}
+}
+
+func TestAxOptimizeConformanceFixturesLoad(t *testing.T) {
+	files, err := filepath.Glob(filepath.Join(axoptimizeConformancePath(), "*.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) < 6 {
+		t.Fatalf("expected axoptimize fixtures, got %d", len(files))
+	}
+	for _, file := range files {
+		data, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fixture map[string]any
+		if err := json.Unmarshal(data, &fixture); err != nil {
+			t.Fatalf("%s: %v", file, err)
+		}
+		if fixture["name"] == "" || fixture["kind"] != "optimize" {
+			t.Fatalf("%s missing optimize name/kind", file)
+		}
+		switch fixture["operation"] {
+		case "components":
+			if _, ok := fixture["expected_components_subset"]; !ok {
+				if _, ok := fixture["expected_component_ids"]; !ok {
+					t.Fatalf("%s missing component expectation", file)
+				}
+			}
+		case "filter":
+			if _, ok := fixture["expected_component_ids"]; !ok {
+				t.Fatalf("%s missing expected_component_ids", file)
+			}
+		case "apply":
+			if _, ok := fixture["component_map"]; !ok {
+				t.Fatalf("%s missing component_map", file)
+			}
+		case "artifact":
+			if _, ok := fixture["component_map"]; !ok {
+				t.Fatalf("%s missing component_map", file)
+			}
+		case "dataset":
+			if _, ok := fixture["expected_dataset"]; !ok {
+				t.Fatalf("%s missing expected_dataset", file)
+			}
+		case "score":
+			if _, ok := fixture["expected_scalar"]; !ok {
+				t.Fatalf("%s missing expected_scalar", file)
+			}
+		case "judge_payload":
+			if _, ok := fixture["expected_judge_payload_subset"]; !ok {
+				t.Fatalf("%s missing expected_judge_payload_subset", file)
+			}
+		case "evaluate":
+			if _, ok := fixture["dataset"]; !ok {
+				t.Fatalf("%s missing dataset", file)
+			}
+		case "engine":
+			if _, ok := fixture["engine_response"]; !ok {
+				t.Fatalf("%s missing engine_response", file)
+			}
+		case "eval":
+			if _, ok := fixture["responses"]; !ok {
+				t.Fatalf("%s missing responses", file)
+			}
+		default:
+			t.Fatalf("%s has unknown axoptimize operation %v", file, fixture["operation"])
 		}
 	}
 }
@@ -1201,6 +1419,29 @@ func TestPythonAxAgentConformanceFixtures(t *testing.T) {
 	}
 }
 
+func TestPythonAxOptimizeConformanceFixtures(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	bundle, err := LoadBundle(rootPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := Compile(bundle, "python", dir); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("python3", "-m", "ax.conformance", axoptimizeConformancePath())
+	cmd.Env = append(os.Environ(), "PYTHONPATH="+dir)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("python AxOptimize conformance fixtures failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "ok axgen-component-inventory") {
+		t.Fatalf("unexpected AxOptimize conformance output: %s", out)
+	}
+}
+
 func TestPythonSignatureSchemaValidationConformanceFixtures(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not available")
@@ -1379,7 +1620,15 @@ func TestPythonGeneratedIdioms(t *testing.T) {
 		"def _normalize_agent_policy(",
 		"def _normalize_agent_callable_inventory(",
 		"def _agent_discover(",
+		"def _agent_recall(",
+		"def _agent_used(",
+		"def _agent_execute_callable(",
+		"def _agent_append_guidance(",
 		"def _agent_optimizer_metadata(",
+		"def _agent_export_trace(",
+		"def _agent_replay_trace(",
+		"def get_trace(",
+		"def replay_trace(",
 		"def _agent_runtime_test(",
 		"def _agent_runtime_execute_step(",
 		"def _normalize_agent_runtime_step_result(",
@@ -1517,6 +1766,8 @@ func TestJavaGeneratedCoreRuntime(t *testing.T) {
 		"static Object _normalize_agent_callable_inventory(",
 		"static Object _agent_discover(",
 		"static Object _agent_optimizer_metadata(",
+		"static Object _agent_export_trace(",
+		"static Object _agent_replay_trace(",
 		"static Object _agent_runtime_test(",
 		"static Object _agent_runtime_execute_step(",
 		"static Object _normalize_agent_runtime_step_result(",
@@ -1593,7 +1844,7 @@ func TestJavaGeneratedCoreRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(conformanceFile), "public final class Conformance") || !strings.Contains(string(conformanceFile), "case \"ai_chat\"") || !strings.Contains(string(conformanceFile), "case \"agent_forward\"") || !strings.Contains(string(conformanceFile), "case \"agent_runtime_policy\"") || !strings.Contains(string(conformanceFile), "case \"agent_runtime_session\"") {
+	if !strings.Contains(string(conformanceFile), "public final class Conformance") || !strings.Contains(string(conformanceFile), "case \"ai_chat\"") || !strings.Contains(string(conformanceFile), "case \"agent_forward\"") || !strings.Contains(string(conformanceFile), "case \"agent_runtime_policy\"") || !strings.Contains(string(conformanceFile), "case \"agent_runtime_session\"") || !strings.Contains(string(conformanceFile), "case \"optimize\"") {
 		t.Fatal("generated Java conformance runner is missing expected fixture dispatch")
 	}
 }
@@ -1673,7 +1924,7 @@ public class Smoke {
 	if !strings.Contains(string(out), "java-ok") {
 		t.Fatalf("unexpected java output: %s", out)
 	}
-	java = exec.Command(javaPath, "-cp", dir, "dev.ax.Conformance", signatureConformancePath(), schemaConformancePath(), validationConformancePath(), promptConformancePath(), axgenConformancePath(), axaiConformancePath(), axagentConformancePath())
+	java = exec.Command(javaPath, "-cp", dir, "dev.ax.Conformance", signatureConformancePath(), schemaConformancePath(), validationConformancePath(), promptConformancePath(), axgenConformancePath(), axaiConformancePath(), axagentConformancePath(), axoptimizeConformancePath())
 	out, err = java.CombinedOutput()
 	if err != nil {
 		if strings.Contains(string(out), "Unable to locate a Java Runtime") {
@@ -1749,6 +2000,8 @@ func TestCppGeneratedCoreRuntime(t *testing.T) {
 		"Value Core::_normalize_agent_callable_inventory(",
 		"Value Core::_agent_discover(",
 		"Value Core::_agent_optimizer_metadata(",
+		"Value Core::_agent_export_trace(",
+		"Value Core::_agent_replay_trace(",
 		"Value Core::_agent_runtime_test(",
 		"Value Core::_agent_runtime_execute_step(",
 		"Value Core::_normalize_agent_runtime_step_result(",
@@ -1794,6 +2047,7 @@ func TestCppGeneratedCoreRuntime(t *testing.T) {
 		`kind == "agent_forward"`,
 		`kind == "agent_runtime_policy"`,
 		`kind == "agent_runtime_session"`,
+		`kind == "optimize"`,
 	} {
 		if !strings.Contains(conformanceText, want) {
 			t.Fatalf("generated C++ conformance runner missing %q", want)
@@ -1886,6 +2140,7 @@ int main() {
 		axgenConformancePath(),
 		axaiConformancePath(),
 		axagentConformancePath(),
+		axoptimizeConformancePath(),
 	).CombinedOutput()
 	if err != nil {
 		t.Fatalf("C++ conformance failed: %v\n%s", err, out)

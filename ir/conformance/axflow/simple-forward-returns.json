@@ -1,0 +1,69 @@
+{
+  "kind": "flow",
+  "name": "simple-forward-returns",
+  "program_id": "qa.flow",
+  "source": {
+    "tsDerived": true,
+    "extractor": "tools/axir/extractors/flow-goldens.ts",
+    "reference": [
+      "src/ax/flow/flow.ts",
+      "src/ax/flow/executionPlanner.ts",
+      "src/ax/dsp/program.ts"
+    ],
+    "name": "simple-forward-returns",
+    "observed": {
+      "output": {
+        "answer": "Paris"
+      },
+      "plan": [
+        {
+          "name": "qa",
+          "kind": "execute",
+          "barrier": false
+        },
+        {
+          "name": "map",
+          "kind": "map",
+          "barrier": true
+        }
+      ],
+      "chatLogNames": ["qa"],
+      "usageCount": 1,
+      "traceCount": 1
+    }
+  },
+  "input": {
+    "question": "Capital of France?"
+  },
+  "steps": [
+    {
+      "kind": "execute",
+      "name": "qa",
+      "signature": "question:string -> answer:string"
+    }
+  ],
+  "returns": {
+    "answer": "answer"
+  },
+  "responses": [
+    {
+      "content": "{\"answer\":\"Paris\"}"
+    }
+  ],
+  "expected_output": {
+    "answer": "Paris"
+  },
+  "expected_request_count": 1,
+  "expected_chat_log_subset": [
+    {
+      "name": "qa"
+    }
+  ],
+  "expected_trace_kinds": ["flow_start", "flow_step", "flow_done"],
+  "expected_components_subset": [
+    {
+      "id": "qa.flow::graph-plan",
+      "kind": "flow-graph"
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "dataset": [
+    {
+      "input": {
+        "question": "No response?"
+      }
+    }
+  ],
+  "expected_evaluation_rows_subset": [
+    {
+      "prediction": {
+        "completionType": "error"
+      },
+      "scalar": 0
+    }
+  ],
+  "expected_evaluation_subset": {
+    "avg": 0,
+    "count": 1
+  },
+  "kind": "optimize",
+  "name": "candidate-evaluation-runtime-error",
+  "operation": "evaluate",
+  "program": "agent",
+  "responses": [],
+  "signature": "question:string -> answer:string"
+}

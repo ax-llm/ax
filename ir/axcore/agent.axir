@@ -59,12 +59,25 @@ module @ax.agent version "0.1" {
       %has_any_runtime_config = core.call intrinsic.or(%has_runtime_config, %has_runtime_config_snake)
       %runtime_enabled = core.call intrinsic.or(%has_runtime_direct, %has_any_runtime_config)
       %policy = core.call @normalize_agent_policy(%options)
+      %policy_flags = core.call @agent_policy_flags(%options)
+      %policy_registry = core.call @agent_policy_registry(%policy, %policy_flags)
       %callable_inventory = core.call @normalize_agent_callable_inventory(%options)
       %callable_split = core.call @split_agent_callable_inventory(%callable_inventory)
       %discovery_catalog = core.call @render_agent_discovery_catalog(%callable_split)
       %discovered_tool_docs = core.list
       %loaded_skill_docs = core.list
+      %loaded_memories = core.list
+      %used_memories = core.list
+      %used_skills = core.list
+      %guidance_log = core.list
+      %function_call_traces = core.list
       %policy_trace = core.list
+      %trace_events = core.list
+      %trace = core.map
+      core.set %trace["schema_version"] = "axir-agent-trace-v1"
+      core.set %trace["kind"] = "agent_run"
+      core.set %trace["status"] = "idle"
+      core.set %trace["events"] = %trace_events
       core.set %state["signature"] = %sig
       core.set %state["options"] = %options
       core.set %state["context_fields"] = %context_fields
@@ -87,12 +100,20 @@ module @ax.agent version "0.1" {
       core.set %state["runtime_contract"] = %runtime_contract
       core.set %state["runtime_enabled"] = %runtime_enabled
       core.set %state["policy"] = %policy
+      core.set %state["policy_flags"] = %policy_flags
+      core.set %state["policy_registry"] = %policy_registry
       core.set %state["callable_inventory"] = %callable_inventory
       core.set %state["callable_split"] = %callable_split
       core.set %state["discovery_catalog"] = %discovery_catalog
       core.set %state["discovered_tool_docs"] = %discovered_tool_docs
       core.set %state["loaded_skill_docs"] = %loaded_skill_docs
+      core.set %state["loaded_memories"] = %loaded_memories
+      core.set %state["used_memories"] = %used_memories
+      core.set %state["used_skills"] = %used_skills
+      core.set %state["guidance_log"] = %guidance_log
+      core.set %state["function_call_traces"] = %function_call_traces
       core.set %state["policy_trace"] = %policy_trace
+      core.set %state["trace"] = %trace
       %optimizer_metadata = core.call @agent_optimizer_metadata(%state)
       core.set %state["optimizer_metadata"] = %optimizer_metadata
       %actor_prompt_policy = core.call @build_agent_actor_prompt_policy(%state)
@@ -290,11 +311,305 @@ module @ax.agent version "0.1" {
       %prompt_placement = core.get %policy_in["prompt_placement"] default "runtime_usage_catalog_in_actor_prompt_loaded_docs_next_turn"
       %out = core.map
       core.set %out["policy_version"] = "agent-runtime-decision-v1"
+      core.set %out["policy_schema_version"] = "axir-agent-policy-v1"
       core.set %out["discovery_default"] = %discovery_default
       core.set %out["delegation_default"] = %delegation_default
       core.set %out["skills_default"] = %skills_default
       core.set %out["prompt_placement"] = %prompt_placement
       core.set %out["discover_returns"] = "void"
+      core.return %out
+    }
+  }
+
+  op ax.agent.policy @agent_policy_flags {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(json) -> json"
+    body @entry(%options: json) {
+      %function_discovery_camel = core.get %options["functionDiscovery"] default false
+      %function_discovery = core.get %options["function_discovery"] default %function_discovery_camel
+      %skills_camel = core.get %options["skillsMode"] default false
+      %skills_direct = core.get %options["skills_mode"] default %skills_camel
+      %has_skills_callback = core.call intrinsic.map.contains(%options, "onSkillsSearch")
+      %skills_mode = core.call intrinsic.or(%skills_direct, %has_skills_callback)
+      %memories_camel = core.get %options["memoriesMode"] default false
+      %memories_direct = core.get %options["memories_mode"] default %memories_camel
+      %has_memories_callback = core.call intrinsic.map.contains(%options, "onMemoriesSearch")
+      %memories_mode = core.call intrinsic.or(%memories_direct, %has_memories_callback)
+      %usage_camel = core.get %options["usageTrackingMode"] default false
+      %usage_enabled = core.get %options["usage_tracking_mode"] default %usage_camel
+      %status_camel = core.get %options["hasAgentStatusCallback"] default false
+      %status_direct = core.get %options["has_agent_status_callback"] default %status_camel
+      %has_status_callback = core.call intrinsic.map.contains(%options, "agentStatusCallback")
+      %status_mode = core.call intrinsic.or(%status_direct, %has_status_callback)
+      %inspect_camel = core.get %options["hasInspectRuntime"] default false
+      %inspect_direct = core.get %options["has_inspect_runtime"] default %inspect_camel
+      %context_config = core.get %options["context"] default null
+      %has_context_config = core.type_is %context_config type "object"
+      %inspect_mode = core.call intrinsic.or(%inspect_direct, %has_context_config)
+      %out = core.map
+      core.set %out["discoveryMode"] = %function_discovery
+      core.set %out["skillsMode"] = %skills_mode
+      core.set %out["memoriesMode"] = %memories_mode
+      core.set %out["usageTrackingMode"] = %usage_enabled
+      core.set %out["hasAgentStatusCallback"] = %status_mode
+      core.set %out["hasInspectRuntime"] = %inspect_mode
+      core.return %out
+    }
+  }
+
+  op ax.agent.policy @agent_policy_action {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(string, string, string, json, string, string, string, bool) -> json"
+    body @entry(%id: string, %category: string, %kind: string, %stages: json, %availability: string, %effect: string, %host_boundary: string, %actor_visible: bool) {
+      %entry = core.map
+      core.set %entry["id"] = %id
+      core.set %entry["category"] = %category
+      core.set %entry["kind"] = %kind
+      core.set %entry["stages"] = %stages
+      core.set %entry["availability_condition"] = %availability
+      core.set %entry["effect"] = %effect
+      core.set %entry["host_boundary"] = %host_boundary
+      core.set %entry["actor_visible"] = %actor_visible
+      core.set %entry["trace_event"] = %id
+      core.return %entry
+    }
+  }
+
+  op ax.agent.policy @agent_policy_registry {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(json, json) -> json"
+    body @entry(%policy: json, %flags: json) {
+      %distiller_executor = core.list
+      core.append %distiller_executor, "distiller"
+      core.append %distiller_executor, "executor"
+      %executor_only = core.list
+      core.append %executor_only, "executor"
+      %all_actor = core.list
+      core.append %all_actor, "distiller"
+      core.append %all_actor, "executor"
+      %actor_primitives = core.list
+      %llm = core.call @agent_policy_action("llmQuery", "actor_primitive", "sub_agent_query", %distiller_executor, "always", "returns string or string[]", "sub_agent_llm_query", true)
+      core.append %actor_primitives, %llm
+      %final_action = core.call @agent_policy_action("final", "actor_primitive", "completion", %distiller_executor, "always", "ends actor turn with final payload", "runtime_completion_signal", true)
+      core.append %actor_primitives, %final_action
+      %clarify = core.call @agent_policy_action("askClarification", "actor_primitive", "completion", %distiller_executor, "always", "throws clarification payload", "runtime_completion_signal", true)
+      core.append %actor_primitives, %clarify
+      %success = core.call @agent_policy_action("reportSuccess", "actor_primitive", "status", %executor_only, "hasAgentStatusCallback", "records successful progress status", "status_callback", true)
+      core.append %actor_primitives, %success
+      %failure = core.call @agent_policy_action("reportFailure", "actor_primitive", "status", %executor_only, "hasAgentStatusCallback", "records failed progress status", "status_callback", true)
+      core.append %actor_primitives, %failure
+      %inspect = core.call @agent_policy_action("inspectRuntime", "actor_primitive", "runtime_inspection", %distiller_executor, "hasInspectRuntime", "returns compact runtime state", "runtime_inspection", true)
+      core.append %actor_primitives, %inspect
+      %discover = core.call @agent_policy_action("discover", "actor_primitive", "discovery", %executor_only, "discoveryMode|skillsMode", "loads tool docs or skill guides for next turn", "tool_or_skill_discovery", true)
+      core.append %actor_primitives, %discover
+      %recall = core.call @agent_policy_action("recall", "actor_primitive", "memory", %distiller_executor, "memoriesMode", "loads memories for next turn", "memory_search", true)
+      core.append %actor_primitives, %recall
+      %used = core.call @agent_policy_action("used", "actor_primitive", "usage_tracking", %distiller_executor, "usageTrackingMode", "records loaded memory or skill usage", "usage_tracking_callback", true)
+      core.append %actor_primitives, %used
+      %protocol_actions = core.list
+      %protocol_final_action = core.call @agent_policy_action("final", "protocol_action", "completion", %all_actor, "always", "normalizes final protocol payload", "completion_protocol", false)
+      core.append %protocol_actions, %protocol_final_action
+      %protocol_clarify = core.call @agent_policy_action("askClarification", "protocol_action", "completion", %all_actor, "always", "normalizes clarification protocol payload", "completion_protocol", false)
+      core.append %protocol_actions, %protocol_clarify
+      %guide = core.call @agent_policy_action("guideAgent", "protocol_action", "guidance", %executor_only, "host_protocol_only", "adds trusted guidance and continues actor loop", "host_function_protocol", false)
+      core.append %protocol_actions, %guide
+      %protocol_success = core.call @agent_policy_action("success", "protocol_action", "status", %executor_only, "hasAgentStatusCallback", "reports successful status", "status_callback", false)
+      core.append %protocol_actions, %protocol_success
+      %protocol_failed = core.call @agent_policy_action("failed", "protocol_action", "status", %executor_only, "hasAgentStatusCallback", "reports failed status", "status_callback", false)
+      core.append %protocol_actions, %protocol_failed
+      %runtime_globals = core.list
+      %inputs = core.call @agent_policy_action("inputs", "runtime_global", "data", %all_actor, "always", "contains current actor inputs", "runtime_global", false)
+      core.append %runtime_globals, %inputs
+      %callables = core.call @agent_policy_action("callable_namespaces", "runtime_global", "callable_namespace", %executor_only, "has_callables", "namespaced tools and child agents", "tool_or_child_agent_handler", false)
+      core.append %runtime_globals, %callables
+      %bootstrap = core.call @agent_policy_action("safe_bootstrap_globals", "runtime_global", "bootstrap", %all_actor, "has_bootstrap_context", "safe context aliases only", "runtime_session_bootstrap", false)
+      core.append %runtime_globals, %bootstrap
+      %host_boundaries = core.list
+      %tool_boundary = core.call @agent_policy_action("tool_handler", "host_boundary", "callback", %executor_only, "has_callables", "invokes target-native tool handler", "tool_handler", false)
+      core.append %host_boundaries, %tool_boundary
+      %child_boundary = core.call @agent_policy_action("child_agent", "host_boundary", "callback", %executor_only, "has_child_agents", "invokes child agent as callable", "child_agent_forward", false)
+      core.append %host_boundaries, %child_boundary
+      %memory_boundary = core.call @agent_policy_action("memory_search", "host_boundary", "callback", %distiller_executor, "memoriesMode", "loads host memory results", "memory_search_callback", false)
+      core.append %host_boundaries, %memory_boundary
+      %skill_boundary = core.call @agent_policy_action("skill_search", "host_boundary", "callback", %executor_only, "skillsMode", "loads host skill docs", "skill_search_callback", false)
+      core.append %host_boundaries, %skill_boundary
+      %status_boundary = core.call @agent_policy_action("status_callback", "host_boundary", "callback", %executor_only, "hasAgentStatusCallback", "reports progress status", "status_callback", false)
+      core.append %host_boundaries, %status_boundary
+      %runtime_boundary = core.call @agent_policy_action("runtime_execution", "host_boundary", "runtime", %all_actor, "has_runtime", "executes opaque runtime code", "code_runtime_session", false)
+      core.append %host_boundaries, %runtime_boundary
+      %inspect_boundary = core.call @agent_policy_action("runtime_inspection", "host_boundary", "runtime", %all_actor, "hasInspectRuntime", "inspects runtime state", "code_runtime_inspection", false)
+      core.append %host_boundaries, %inspect_boundary
+      %subquery_boundary = core.call @agent_policy_action("sub_agent_llm_query", "host_boundary", "ai", %distiller_executor, "always", "runs focused AxGen sub-query", "axgen_sub_agent", false)
+      core.append %host_boundaries, %subquery_boundary
+      %out = core.map
+      %policy_version = core.get %policy["policy_version"] default "agent-runtime-decision-v1"
+      %schema_version = core.get %policy["policy_schema_version"] default "axir-agent-policy-v1"
+      core.set %out["policy_version"] = %policy_version
+      core.set %out["policy_schema_version"] = %schema_version
+      core.set %out["flags"] = %flags
+      core.set %out["actor_primitives"] = %actor_primitives
+      core.set %out["protocol_actions"] = %protocol_actions
+      core.set %out["runtime_globals"] = %runtime_globals
+      core.set %out["host_boundaries"] = %host_boundaries
+      core.return %out
+    }
+  }
+
+  op ax.agent.policy @policy_flag_enabled {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, string) -> bool"
+    body @entry(%flags: json, %condition: string) {
+      %out = core.let false
+      %always = core.call intrinsic.eq(%condition, "always")
+      core.if %always {
+        %out = core.let true
+      } else {
+        %discovery_or_skills = core.call intrinsic.eq(%condition, "discoveryMode|skillsMode")
+        core.if %discovery_or_skills {
+          %discovery = core.get %flags["discoveryMode"] default false
+          %skills = core.get %flags["skillsMode"] default false
+          %out = core.call intrinsic.or(%discovery, %skills)
+        } else {
+          %host_only = core.call intrinsic.eq(%condition, "host_protocol_only")
+          core.if %host_only {
+            %out = core.let true
+          } else {
+            %value = core.get %flags[%condition] default false
+            %out = core.let %value
+          }
+        }
+      }
+      core.return %out
+    }
+  }
+
+  op ax.agent.policy @select_actor_primitives {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(json, string) -> json"
+    body @entry(%registry: json, %stage: string) {
+      %empty_list = core.list
+      %out = core.list
+      %flags = core.get %registry["flags"] default %empty_list
+      %primitives = core.get %registry["actor_primitives"] default %empty_list
+      core.for %primitive in %primitives {
+        %stages = core.get %primitive["stages"] default %empty_list
+        %in_stage = core.call intrinsic.contains(%stages, %stage)
+        %condition = core.get %primitive["availability_condition"] default "always"
+        %enabled = core.call @policy_flag_enabled(%flags, %condition)
+        %include = core.call intrinsic.and(%in_stage, %enabled)
+        core.if %include {
+          core.append %out, %primitive
+        } else {
+        }
+      }
+      core.return %out
+    }
+  }
+
+  op ax.agent.policy @select_protocol_actions {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(json) -> json"
+    body @entry(%registry: json) {
+      %empty_list = core.list
+      %actions = core.get %registry["protocol_actions"] default %empty_list
+      core.return %actions
+    }
+  }
+
+  op ax.agent.policy @select_runtime_globals {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(json) -> json"
+    body @entry(%registry: json) {
+      %empty_list = core.list
+      %globals = core.get %registry["runtime_globals"] default %empty_list
+      core.return %globals
+    }
+  }
+
+  op ax.agent.policy @validate_policy_reserved_names {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(json, string) -> void throws"
+    body @entry(%registry: json, %name: string) {
+      %reserved = core.call @agent_reserved_runtime_names()
+      %conflicts = core.call intrinsic.contains(%reserved, %name)
+      core.if %conflicts {
+        %message = core.call intrinsic.string.format("agent callable namespace conflicts with reserved runtime name: {}", %name)
+        %error = core.call intrinsic.error.runtime(%message)
+        core.raise %error
+      } else {
+      }
+      %none = core.call intrinsic.none()
+      core.return %none
+    }
+  }
+
+  op ax.agent.policy @render_actor_primitive_guidance {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(json, string) -> string"
+    body @entry(%registry: json, %stage: string) {
+      %primitives = core.call @select_actor_primitives(%registry, %stage)
+      %lines = core.list
+      core.for %primitive in %primitives {
+        %id = core.get %primitive["id"]
+        %effect = core.get %primitive["effect"] default ""
+        %line = core.call intrinsic.string.format("- {}: {}", %id, %effect)
+        core.append %lines, %line
+      }
+      %out = core.call intrinsic.string.join("\n", %lines)
+      core.return %out
+    }
+  }
+
+  op ax.agent.policy @record_policy_event {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(json, string, json) -> void"
+    body @entry(%state: json, %action: string, %payload: json) {
+      %empty_list = core.list
+      %trace = core.get %state["policy_trace"] default %empty_list
+      %event = core.map
+      core.set %event["type"] = "policy_event"
+      core.set %event["action"] = %action
+      core.set %event["payload"] = %payload
+      core.append %trace, %event
+      core.set %state["policy_trace"] = %trace
+      %none = core.call intrinsic.none()
+      core.return %none
+    }
+  }
+
+  op ax.agent.policy @normalize_policy_action_result {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(string, json) -> json"
+    body @entry(%action: string, %payload: json) {
+      %out = core.map
+      %null_value = core.call intrinsic.none()
+      core.set %out["action"] = %action
+      core.set %out["payload"] = %payload
+      %is_discover = core.call intrinsic.eq(%action, "discover")
+      %is_recall = core.call intrinsic.eq(%action, "recall")
+      %is_used = core.call intrinsic.eq(%action, "used")
+      %is_effect = core.call intrinsic.or(%is_discover, %is_recall)
+      %is_effect = core.call intrinsic.or(%is_effect, %is_used)
+      core.if %is_effect {
+        core.set %out["returns"] = %null_value
+        core.set %out["effect_only"] = true
+      } else {
+        core.set %out["returns"] = %payload
+        core.set %out["effect_only"] = false
+      }
       core.return %out
     }
   }
@@ -512,19 +827,226 @@ module @ax.agent version "0.1" {
     }
   }
 
+  op ax.agent.policy @normalize_agent_string_list {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, string) -> list<string> throws"
+    body @entry(%value: json, %label: string) {
+      %out = core.list
+      %is_string = core.type_is %value type "string"
+      core.if %is_string {
+        %trimmed = core.string_trim %value
+        %empty = core.call intrinsic.eq(%trimmed, "")
+        core.if %empty {
+          %message = core.call intrinsic.string.format("{} entries must be non-empty strings", %label)
+          %error = core.call intrinsic.error.runtime(%message)
+          core.raise %error
+        } else {
+          core.append %out, %trimmed
+        }
+      } else {
+        %is_list = core.type_is %value type "list"
+        %not_list = core.call intrinsic.not(%is_list)
+        core.if %not_list {
+          %message = core.call intrinsic.string.format("{} must be a string or string[]", %label)
+          %error = core.call intrinsic.error.runtime(%message)
+          core.raise %error
+        } else {
+          core.for %item in %value {
+            %item_is_string = core.type_is %item type "string"
+            %bad_item = core.call intrinsic.not(%item_is_string)
+            core.if %bad_item {
+              %message = core.call intrinsic.string.format("{} entries must be strings", %label)
+              %error = core.call intrinsic.error.runtime(%message)
+              core.raise %error
+            } else {
+              %trimmed_item = core.string_trim %item
+              %empty_item = core.call intrinsic.eq(%trimmed_item, "")
+              core.if %empty_item {
+                %message = core.call intrinsic.string.format("{} entries must be non-empty strings", %label)
+                %error = core.call intrinsic.error.runtime(%message)
+                core.raise %error
+              } else {
+                %already = core.call intrinsic.contains(%out, %trimmed_item)
+                %fresh = core.call intrinsic.not(%already)
+                core.if %fresh {
+                  core.append %out, %trimmed_item
+                } else {
+                }
+              }
+            }
+          }
+        }
+      }
+      %count = core.call intrinsic.len(%out)
+      %empty_out = core.call intrinsic.eq(%count, 0)
+      core.if %empty_out {
+        %message = core.call intrinsic.string.format("{} requires at least one entry", %label)
+        %error = core.call intrinsic.error.runtime(%message)
+        core.raise %error
+      } else {
+      }
+      core.return %out
+    }
+  }
+
+  op ax.agent.policy @normalize_agent_discover_request {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(json, json) -> json throws"
+    body @entry(%state: json, %request: json) {
+      %empty_list = core.list
+      %tools = core.list
+      %skills = core.list
+      %flags = core.get %state["policy_flags"]
+      %is_string = core.type_is %request type "string"
+      %is_list = core.type_is %request type "list"
+      %direct_tools = core.call intrinsic.or(%is_string, %is_list)
+      core.if %direct_tools {
+        %tools = core.call @normalize_agent_string_list(%request, "discover tools")
+      } else {
+        %is_map = core.type_is %request type "object"
+        %bad = core.call intrinsic.not(%is_map)
+        core.if %bad {
+          %error = core.call intrinsic.error.runtime("discover(...) expects a string, string[], or { tools?, skills? }")
+          core.raise %error
+        } else {
+          %has_tools = core.call intrinsic.map.contains(%request, "tools")
+          %has_skills = core.call intrinsic.map.contains(%request, "skills")
+          %has_any = core.call intrinsic.or(%has_tools, %has_skills)
+          %missing_any = core.call intrinsic.not(%has_any)
+          core.if %missing_any {
+            %error = core.call intrinsic.error.runtime("discover(...) requires at least one of tools or skills")
+            core.raise %error
+          } else {
+          }
+          core.if %has_tools {
+            %raw_tools = core.get %request["tools"] default %empty_list
+            %tools = core.call @normalize_agent_string_list(%raw_tools, "discover tools")
+          } else {
+          }
+          core.if %has_skills {
+            %raw_skills = core.get %request["skills"] default %empty_list
+            %skills = core.call @normalize_agent_string_list(%raw_skills, "discover skills")
+          } else {
+          }
+        }
+      }
+      %tool_count = core.call intrinsic.len(%tools)
+      %skill_count = core.call intrinsic.len(%skills)
+      %has_tool_items = core.call intrinsic.gt(%tool_count, 0)
+      %has_skill_items = core.call intrinsic.gt(%skill_count, 0)
+      %discovery_mode = core.get %flags["discoveryMode"] default false
+      %skills_mode = core.get %flags["skillsMode"] default false
+      %tools_disabled = core.call intrinsic.not(%discovery_mode)
+      %skills_disabled = core.call intrinsic.not(%skills_mode)
+      %bad_tools = core.call intrinsic.and(%has_tool_items, %tools_disabled)
+      core.if %bad_tools {
+        %error = core.call intrinsic.error.runtime("discover({ tools }) requires function discovery to be enabled")
+        core.raise %error
+      } else {
+      }
+      %bad_skills = core.call intrinsic.and(%has_skill_items, %skills_disabled)
+      core.if %bad_skills {
+        %error = core.call intrinsic.error.runtime("discover({ skills }) requires skill discovery to be enabled")
+        core.raise %error
+      } else {
+      }
+      %out = core.map
+      core.set %out["tools"] = %tools
+      core.set %out["skills"] = %skills
+      core.return %out
+    }
+  }
+
+  op ax.agent.policy @agent_append_unique_by_field {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, json, string) -> json"
+    body @entry(%items: json, %item: json, %field: string) {
+      %value = core.get %item[%field] default ""
+      %found = core.let false
+      core.for %existing in %items {
+        %existing_value = core.get %existing[%field] default ""
+        %matches = core.call intrinsic.eq(%existing_value, %value)
+        core.if %matches {
+          %found = core.let true
+        } else {
+        }
+      }
+      %missing = core.call intrinsic.not(%found)
+      core.if %missing {
+        core.append %items, %item
+      } else {
+      }
+      core.return %items
+    }
+  }
+
+  op ax.agent.policy @agent_render_discovered_tool_docs {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(json) -> string"
+    body @entry(%docs: json) {
+      %lines = core.list
+      core.for %doc in %docs {
+        %qualified = core.get %doc["qualified_name"] default ""
+        %description = core.get %doc["description"] default ""
+        %line = core.call intrinsic.string.format("- {}: {}", %qualified, %description)
+        core.append %lines, %line
+      }
+      %body = core.call intrinsic.string.join("\n", %lines)
+      %empty = core.call intrinsic.eq(%body, "")
+      %out = core.let %body
+      core.if %empty {
+        %out = core.let ""
+      } else {
+        %out = core.call intrinsic.string.format("Discovered Tool Docs\n{}", %body)
+      }
+      core.return %out
+    }
+  }
+
+  op ax.agent.policy @agent_render_loaded_skills {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(json) -> string"
+    body @entry(%skills: json) {
+      %lines = core.list
+      core.for %skill in %skills {
+        %name = core.get %skill["name"] default ""
+        %content = core.get %skill["content"] default ""
+        %line = core.call intrinsic.string.format("### {}\n{}", %name, %content)
+        core.append %lines, %line
+      }
+      %body = core.call intrinsic.string.join("\n\n", %lines)
+      %empty = core.call intrinsic.eq(%body, "")
+      %out = core.let %body
+      core.if %empty {
+        %out = core.let ""
+      } else {
+        %out = core.call intrinsic.string.format("Loaded Skills\n{}", %body)
+      }
+      core.return %out
+    }
+  }
+
   op ax.agent.policy @agent_discover {
     attr core_kind = "func"
     attr emit_module = "agent"
     type signature = "(json, json) -> void"
     body @entry(%state: json, %request: json) {
       %empty_list = core.list
+      %normalized = core.call @normalize_agent_discover_request(%state, %request)
       %inventory = core.get %state["callable_inventory"] default %empty_list
       %docs = core.get %state["discovered_tool_docs"] default %empty_list
       %skill_docs = core.get %state["loaded_skill_docs"] default %empty_list
       %trace = core.get %state["policy_trace"] default %empty_list
       %action_log = core.get %state["action_log"] default %empty_list
-      %tools = core.get %request["tools"] default %empty_list
-      %skills = core.get %request["skills"] default %empty_list
+      %tools = core.get %normalized["tools"] default %empty_list
+      %skills = core.get %normalized["skills"] default %empty_list
       core.for %wanted in %tools {
         core.for %group in %inventory {
           %namespace = core.get %group["namespace"]
@@ -542,7 +1064,7 @@ module @ax.agent version "0.1" {
               core.set %doc["qualified_name"] = %doc_qualified
               core.set %doc["kind"] = %doc_kind
               core.set %doc["description"] = %doc_description
-              core.append %docs, %doc
+              %docs = core.call @agent_append_unique_by_field(%docs, %doc, "qualified_name")
             }
           } else {
             core.for %callable in %callables {
@@ -560,19 +1082,37 @@ module @ax.agent version "0.1" {
                 core.set %doc["qualified_name"] = %qualified
                 core.set %doc["kind"] = %kind
                 core.set %doc["description"] = %description
-                core.append %docs, %doc
+                %docs = core.call @agent_append_unique_by_field(%docs, %doc, "qualified_name")
               } else {
               }
             }
           }
         }
       }
-      core.for %skill in %skills {
-        %doc = core.map
-        core.set %doc["name"] = %skill
-        %content = core.call intrinsic.string.format("Skill docs loaded for {}", %skill)
-        core.set %doc["content"] = %content
-        core.append %skill_docs, %doc
+      %skill_count = core.call intrinsic.len(%skills)
+      %has_skills = core.call intrinsic.gt(%skill_count, 0)
+      core.if %has_skills {
+        %host_skills = core.call intrinsic.agent.skill_search(%state, %skills)
+        %host_count = core.call intrinsic.len(%host_skills)
+        %has_host = core.call intrinsic.gt(%host_count, 0)
+        core.if %has_host {
+          core.for %host_skill in %host_skills {
+            %skill_name = core.get %host_skill["name"] default ""
+            %skill_id = core.get %host_skill["id"] default %skill_name
+            core.set %host_skill["id"] = %skill_id
+            %skill_docs = core.call @agent_append_unique_by_field(%skill_docs, %host_skill, "id")
+          }
+        } else {
+          core.for %skill in %skills {
+            %doc = core.map
+            core.set %doc["id"] = %skill
+            core.set %doc["name"] = %skill
+            %content = core.call intrinsic.string.format("Skill docs loaded for {}", %skill)
+            core.set %doc["content"] = %content
+            %skill_docs = core.call @agent_append_unique_by_field(%skill_docs, %doc, "id")
+          }
+        }
+      } else {
       }
       %event = core.map
       core.set %event["type"] = "discover"
@@ -589,8 +1129,295 @@ module @ax.agent version "0.1" {
       core.set %state["loaded_skill_docs"] = %skill_docs
       core.set %state["policy_trace"] = %trace
       core.set %state["action_log"] = %action_log
+      core.call @agent_record_trace_event(%state, "discover", %event)
       %none = core.call intrinsic.none()
       core.return %none
+    }
+  }
+
+  op ax.agent.policy @normalize_agent_recall_request {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(json, json) -> json throws"
+    body @entry(%state: json, %request: json) {
+      %flags = core.get %state["policy_flags"]
+      %enabled = core.get %flags["memoriesMode"] default false
+      %disabled = core.call intrinsic.not(%enabled)
+      core.if %disabled {
+        %error = core.call intrinsic.error.runtime("recall(...) requires memory search to be enabled")
+        core.raise %error
+      } else {
+      }
+      %searches = core.call @normalize_agent_string_list(%request, "recall searches")
+      %out = core.map
+      core.set %out["searches"] = %searches
+      core.return %out
+    }
+  }
+
+  op ax.agent.policy @agent_merge_memory_results {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(json, json) -> json"
+    body @entry(%existing: json, %incoming: json) {
+      %out = core.let %existing
+      core.for %memory in %incoming {
+        %id = core.get %memory["id"] default ""
+        %content = core.get %memory["content"] default ""
+        %has_id = core.call intrinsic.ne(%id, "")
+        %has_content = core.call intrinsic.ne(%content, "")
+        %valid = core.call intrinsic.and(%has_id, %has_content)
+        core.if %valid {
+          %out = core.call @agent_append_unique_by_field(%out, %memory, "id")
+        } else {
+        }
+      }
+      core.return %out
+    }
+  }
+
+  op ax.agent.policy @agent_recall {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(json, json) -> void"
+    body @entry(%state: json, %request: json) {
+      %empty_list = core.list
+      %normalized = core.call @normalize_agent_recall_request(%state, %request)
+      %searches = core.get %normalized["searches"] default %empty_list
+      %loaded = core.get %state["loaded_memories"] default %empty_list
+      %incoming = core.call intrinsic.agent.memory_search(%state, %searches, %loaded)
+      %merged = core.call @agent_merge_memory_results(%loaded, %incoming)
+      core.set %state["loaded_memories"] = %merged
+      %trace = core.get %state["policy_trace"] default %empty_list
+      %event = core.map
+      core.set %event["type"] = "recall"
+      core.set %event["searches"] = %searches
+      core.set %event["loaded"] = %incoming
+      core.append %trace, %event
+      core.set %state["policy_trace"] = %trace
+      %action_log = core.get %state["action_log"] default %empty_list
+      %action = core.map
+      core.set %action["type"] = "recall"
+      core.set %action["searches"] = %searches
+      core.set %action["loaded"] = %incoming
+      core.append %action_log, %action
+      core.set %state["action_log"] = %action_log
+      core.call @agent_record_trace_event(%state, "recall", %event)
+      %none = core.call intrinsic.none()
+      core.return %none
+    }
+  }
+
+  op ax.agent.policy @normalize_agent_used_request {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(json, string) -> json throws"
+    body @entry(%request: json, %default_stage: string) {
+      %is_map = core.type_is %request type "object"
+      %id = core.let ""
+      %reason = core.let ""
+      %stage = core.let %default_stage
+      core.if %is_map {
+        %id = core.get %request["id"] default ""
+        %reason = core.get %request["reason"] default ""
+        %stage = core.get %request["stage"] default %default_stage
+      } else {
+        %id = core.let %request
+      }
+      %id = core.string_trim %id
+      %reason = core.string_trim %reason
+      %missing = core.call intrinsic.eq(%id, "")
+      core.if %missing {
+        %error = core.call intrinsic.error.runtime("used(...) requires a non-empty loaded memory or skill id")
+        core.raise %error
+      } else {
+      }
+      %out = core.map
+      core.set %out["id"] = %id
+      core.set %out["reason"] = %reason
+      core.set %out["stage"] = %stage
+      core.return %out
+    }
+  }
+
+  op ax.agent.policy @agent_used {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(json, json, string) -> void"
+    body @entry(%state: json, %request: json, %stage: string) {
+      %empty_list = core.list
+      %flags = core.get %state["policy_flags"]
+      %enabled = core.get %flags["usageTrackingMode"] default false
+      %disabled = core.call intrinsic.not(%enabled)
+      core.if %disabled {
+        %error = core.call intrinsic.error.runtime("used(...) requires usage tracking to be enabled")
+        core.raise %error
+      } else {
+      }
+      %normalized = core.call @normalize_agent_used_request(%request, %stage)
+      %id = core.get %normalized["id"]
+      %reason = core.get %normalized["reason"] default ""
+      %normalized_stage = core.get %normalized["stage"] default %stage
+      %dedupe_key = core.call intrinsic.string.format("{}\n{}\n{}", %normalized_stage, %id, %reason)
+      %memories = core.get %state["loaded_memories"] default %empty_list
+      %skills = core.get %state["loaded_skill_docs"] default %empty_list
+      %used_memories = core.get %state["used_memories"] default %empty_list
+      %used_skills = core.get %state["used_skills"] default %empty_list
+      %matched = core.let false
+      core.for %memory in %memories {
+        %memory_id = core.get %memory["id"] default ""
+        %is_match = core.call intrinsic.eq(%memory_id, %id)
+        core.if %is_match {
+          %record = core.map
+          core.set %record["id"] = %id
+          core.set %record["reason"] = %reason
+          core.set %record["stage"] = %normalized_stage
+          core.set %record["dedupe_key"] = %dedupe_key
+          %used_memories = core.call @agent_append_unique_by_field(%used_memories, %record, "dedupe_key")
+          %matched = core.let true
+        } else {
+        }
+      }
+      core.for %skill in %skills {
+        %skill_id = core.get %skill["id"] default ""
+        %skill_name = core.get %skill["name"] default %skill_id
+        %is_match = core.call intrinsic.eq(%skill_id, %id)
+        core.if %is_match {
+          %record = core.map
+          core.set %record["id"] = %id
+          core.set %record["name"] = %skill_name
+          core.set %record["reason"] = %reason
+          core.set %record["stage"] = %normalized_stage
+          core.set %record["dedupe_key"] = %dedupe_key
+          %used_skills = core.call @agent_append_unique_by_field(%used_skills, %record, "dedupe_key")
+          %matched = core.let true
+        } else {
+        }
+      }
+      core.set %state["used_memories"] = %used_memories
+      core.set %state["used_skills"] = %used_skills
+      %trace = core.get %state["policy_trace"] default %empty_list
+      %event = core.map
+      core.set %event["type"] = "used"
+      core.set %event["id"] = %id
+      core.set %event["reason"] = %reason
+      core.set %event["stage"] = %normalized_stage
+      core.set %event["matched"] = %matched
+      core.append %trace, %event
+      core.set %state["policy_trace"] = %trace
+      %action_log = core.get %state["action_log"] default %empty_list
+      core.append %action_log, %event
+      core.set %state["action_log"] = %action_log
+      core.call @agent_record_trace_event(%state, "used", %event)
+      %none = core.call intrinsic.none()
+      core.return %none
+    }
+  }
+
+  op ax.agent.policy @normalize_agent_guidance_payload {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(json, string) -> json throws"
+    body @entry(%value: json, %triggered_by: string) {
+      %is_map = core.type_is %value type "object"
+      %guidance = core.let ""
+      %trigger = core.let %triggered_by
+      core.if %is_map {
+        %guidance = core.get %value["guidance"] default ""
+        %trigger = core.get %value["triggeredBy"] default %triggered_by
+      } else {
+        %guidance = core.let %value
+      }
+      %guidance = core.string_trim %guidance
+      %missing = core.call intrinsic.eq(%guidance, "")
+      core.if %missing {
+        %error = core.call intrinsic.error.runtime("guideAgent() requires a non-empty string guidance")
+        core.raise %error
+      } else {
+      }
+      %out = core.map
+      core.set %out["type"] = "guide_agent"
+      core.set %out["guidance"] = %guidance
+      %has_trigger = core.call intrinsic.ne(%trigger, "")
+      core.if %has_trigger {
+        core.set %out["triggeredBy"] = %trigger
+      } else {
+      }
+      core.return %out
+    }
+  }
+
+  op ax.agent.policy @agent_append_guidance {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(json, json) -> json"
+    body @entry(%state: json, %payload: json) {
+      %empty_list = core.list
+      %entries = core.get %state["guidance_log"] default %empty_list
+      %count = core.call intrinsic.len(%entries)
+      %turn = core.call intrinsic.add(%count, 1)
+      %guidance = core.get %payload["guidance"] default ""
+      %triggered_by = core.get %payload["triggeredBy"] default ""
+      %entry = core.map
+      core.set %entry["turn"] = %turn
+      core.set %entry["guidance"] = %guidance
+      %has_trigger = core.call intrinsic.ne(%triggered_by, "")
+      core.if %has_trigger {
+        core.set %entry["triggeredBy"] = %triggered_by
+      } else {
+      }
+      core.append %entries, %entry
+      core.set %state["guidance_log"] = %entries
+      %action_log = core.get %state["action_log"] default %empty_list
+      %action = core.map
+      core.set %action["type"] = "guide_agent"
+      core.set %action["guidance"] = %guidance
+      core.set %action["triggeredBy"] = %triggered_by
+      core.append %action_log, %action
+      core.set %state["action_log"] = %action_log
+      core.call @agent_record_trace_event(%state, "guide_agent", %entry)
+      core.return %entry
+    }
+  }
+
+  op ax.agent.policy @agent_execute_callable {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(json, json, json) -> json"
+    body @entry(%state: json, %request: json, %options: json) {
+      %empty_list = core.list
+      %result = core.call intrinsic.agent.callable.invoke(%state, %request, %options)
+      %qualified = core.get %request["qualified_name"] default ""
+      %name = core.get %request["name"] default %qualified
+      %args = core.get %request["args"] default %request
+      %status = core.get %result["status"] default "ok"
+      %trace = core.get %state["function_call_traces"] default %empty_list
+      %record = core.map
+      core.set %record["qualified_name"] = %qualified
+      core.set %record["name"] = %name
+      core.set %record["arguments"] = %args
+      core.set %record["status"] = %status
+      core.set %record["result"] = %result
+      core.append %trace, %record
+      core.set %state["function_call_traces"] = %trace
+      %action_log = core.get %state["action_log"] default %empty_list
+      %action = core.map
+      core.set %action["type"] = "function_call"
+      core.set %action["qualified_name"] = %qualified
+      core.set %action["status"] = %status
+      core.append %action_log, %action
+      core.set %state["action_log"] = %action_log
+      %host_event = core.call @agent_normalize_host_boundary_event("callable", %request, %result, %status)
+      core.call @agent_record_trace_event(%state, "function_call", %host_event)
+      %guidance = core.get %result["guidance"] default null
+      %has_guidance = core.call intrinsic.is_not_none(%guidance)
+      core.if %has_guidance {
+        %payload = core.call @normalize_agent_guidance_payload(%guidance, %qualified)
+        core.call @agent_append_guidance(%state, %payload)
+        core.set %result["guidance_payload"] = %payload
+      } else {
+      }
+      core.return %result
     }
   }
 
@@ -691,6 +1518,210 @@ module @ax.agent version "0.1" {
     }
   }
 
+  op ax.agent.trace @agent_begin_trace {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(json, json) -> json"
+    body @entry(%state: json, %input: json) {
+      %events = core.list
+      %optimizer = core.get %state["optimizer_metadata"] default null
+      %trace = core.map
+      core.set %trace["schema_version"] = "axir-agent-trace-v1"
+      core.set %trace["kind"] = "agent_run"
+      core.set %trace["status"] = "running"
+      core.set %trace["input"] = %input
+      core.set %trace["events"] = %events
+      core.set %trace["optimizer_metadata"] = %optimizer
+      core.set %trace["replayable"] = true
+      core.set %state["trace"] = %trace
+      core.return %trace
+    }
+  }
+
+  op ax.agent.trace @agent_record_trace_event {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(json, string, json) -> json"
+    body @entry(%state: json, %kind: string, %payload: json) {
+      %empty_map = core.map
+      %empty_list = core.list
+      %trace = core.get %state["trace"] default %empty_map
+      %has_trace = core.type_is %trace type "object"
+      core.if %has_trace {
+      } else {
+        %trace = core.call @agent_begin_trace(%state, %empty_map)
+      }
+      %events = core.get %trace["events"] default %empty_list
+      %index = core.call intrinsic.len(%events)
+      %event = core.map
+      core.set %event["index"] = %index
+      core.set %event["kind"] = %kind
+      %payload_is_map = core.type_is %payload type "object"
+      core.if %payload_is_map {
+        %component = core.get %payload["component_id"] default ""
+        %has_component = core.call intrinsic.ne(%component, "")
+        core.if %has_component {
+          core.set %event["component_id"] = %component
+        } else {
+        }
+        core.set %event["payload"] = %payload
+      } else {
+        core.set %event["value"] = %payload
+      }
+      core.append %events, %event
+      core.set %trace["events"] = %events
+      core.set %state["trace"] = %trace
+      core.return %event
+    }
+  }
+
+  op ax.agent.trace @agent_normalize_host_boundary_event {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(string, json, json, string) -> json"
+    body @entry(%boundary: string, %request: json, %result: json, %status: string) {
+      %out = core.map
+      core.set %out["boundary"] = %boundary
+      core.set %out["request"] = %request
+      core.set %out["result"] = %result
+      core.set %out["status"] = %status
+      core.return %out
+    }
+  }
+
+  op ax.agent.trace @agent_finalize_trace {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(json, string, json) -> json"
+    body @entry(%state: json, %status: string, %output: json) {
+      %empty_map = core.map
+      %empty_list = core.list
+      %trace = core.get %state["trace"] default %empty_map
+      %has_trace = core.type_is %trace type "object"
+      core.if %has_trace {
+      } else {
+        %trace = core.call @agent_begin_trace(%state, %empty_map)
+      }
+      %event_payload = core.map
+      core.set %event_payload["output"] = %output
+      core.call @agent_record_trace_event(%state, "final", %event_payload)
+      %trace = core.get %state["trace"] default %trace
+      %events = core.get %trace["events"] default %empty_list
+      %event_count = core.call intrinsic.len(%events)
+      %usage = core.get %state["usage"] default %empty_map
+      %chat_log = core.get %state["chat_log"] default %empty_list
+      %action_log = core.get %state["action_log"] default %empty_list
+      %policy_trace = core.get %state["policy_trace"] default %empty_list
+      %function_traces = core.get %state["function_call_traces"] default %empty_list
+      %optimizer = core.get %state["optimizer_metadata"] default %empty_map
+      core.set %trace["status"] = %status
+      core.set %trace["final_output"] = %output
+      core.set %trace["event_count"] = %event_count
+      core.set %trace["usage"] = %usage
+      core.set %trace["chat_log"] = %chat_log
+      core.set %trace["action_log"] = %action_log
+      core.set %trace["policy_trace"] = %policy_trace
+      core.set %trace["function_call_traces"] = %function_traces
+      core.set %trace["optimizer_metadata"] = %optimizer
+      core.set %state["trace"] = %trace
+      core.return %trace
+    }
+  }
+
+  op ax.agent.trace @agent_export_trace {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(json) -> json"
+    body @entry(%state: json) {
+      %empty_map = core.map
+      %empty_list = core.list
+      %trace = core.get %state["trace"] default %empty_map
+      %has_trace = core.type_is %trace type "object"
+      core.if %has_trace {
+      } else {
+        %trace = core.call @agent_begin_trace(%state, %empty_map)
+      }
+      %events = core.get %trace["events"] default %empty_list
+      %event_count = core.call intrinsic.len(%events)
+      %usage = core.get %state["usage"] default %empty_map
+      %chat_log = core.get %state["chat_log"] default %empty_list
+      %action_log = core.get %state["action_log"] default %empty_list
+      %policy_trace = core.get %state["policy_trace"] default %empty_list
+      %function_traces = core.get %state["function_call_traces"] default %empty_list
+      %optimizer = core.get %state["optimizer_metadata"] default %empty_map
+      core.set %trace["event_count"] = %event_count
+      core.set %trace["usage"] = %usage
+      core.set %trace["chat_log"] = %chat_log
+      core.set %trace["action_log"] = %action_log
+      core.set %trace["policy_trace"] = %policy_trace
+      core.set %trace["function_call_traces"] = %function_traces
+      core.set %trace["optimizer_metadata"] = %optimizer
+      core.set %state["trace"] = %trace
+      core.return %trace
+    }
+  }
+
+  op ax.agent.trace @agent_replay_trace {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(json, json) -> json throws"
+    body @entry(%trace: json, %fixtures: json) {
+      %empty_list = core.list
+      %events = core.get %trace["events"] default %empty_list
+      %event_kinds = core.list
+      core.for %event in %events {
+        %kind = core.get %event["kind"] default ""
+        core.append %event_kinds, %kind
+      }
+      %expected_kinds = core.get %fixtures["expected_event_kinds"] default null
+      %has_expected_kinds = core.type_is %expected_kinds type "list"
+      core.if %has_expected_kinds {
+        %actual_text = core.call intrinsic.json.stringify(%event_kinds)
+        %expected_text = core.call intrinsic.json.stringify(%expected_kinds)
+        %matches = core.call intrinsic.eq(%actual_text, %expected_text)
+        %mismatch = core.call intrinsic.not(%matches)
+        core.if %mismatch {
+          %message = core.call intrinsic.string.format("agent replay event sequence mismatch: expected {} got {}", %expected_text, %actual_text)
+          %error = core.call intrinsic.error.runtime(%message)
+          core.raise %error
+        } else {
+        }
+      } else {
+      }
+      %output = core.get %trace["final_output"] default null
+      %expected_output = core.get %fixtures["expected_output"] default null
+      %has_expected_output = core.call intrinsic.is_not_none(%expected_output)
+      core.if %has_expected_output {
+        %actual_output_text = core.call intrinsic.json.stringify(%output)
+        %expected_output_text = core.call intrinsic.json.stringify(%expected_output)
+        %output_matches = core.call intrinsic.eq(%actual_output_text, %expected_output_text)
+        %output_mismatch = core.call intrinsic.not(%output_matches)
+        core.if %output_mismatch {
+          %message = core.call intrinsic.string.format("agent replay output mismatch: expected {} got {}", %expected_output_text, %actual_output_text)
+          %error = core.call intrinsic.error.runtime(%message)
+          core.raise %error
+        } else {
+        }
+      } else {
+      }
+      %event_count = core.call intrinsic.len(%events)
+      %status = core.get %trace["status"] default "unknown"
+      %action_log = core.get %trace["action_log"] default %empty_list
+      %chat_log = core.get %trace["chat_log"] default %empty_list
+      %out = core.map
+      core.set %out["ok"] = true
+      core.set %out["status"] = "replayed"
+      core.set %out["original_status"] = %status
+      core.set %out["output"] = %output
+      core.set %out["event_kinds"] = %event_kinds
+      core.set %out["event_count"] = %event_count
+      core.set %out["action_log"] = %action_log
+      core.set %out["chat_log"] = %chat_log
+      core.set %out["trace"] = %trace
+      core.return %out
+    }
+  }
+
   op ax.agent.runtime @agent_export_runtime_state {
     attr core_kind = "func"
     attr emit_module = "agent"
@@ -702,21 +1733,35 @@ module @ax.agent version "0.1" {
       %runtime_state = core.get %state["runtime_state"] default %empty_map
       %discovered = core.get %state["discovered_tool_docs"] default %empty_list
       %skills = core.get %state["loaded_skill_docs"] default %empty_list
+      %memories = core.get %state["loaded_memories"] default %empty_list
+      %used_memories = core.get %state["used_memories"] default %empty_list
+      %used_skills = core.get %state["used_skills"] default %empty_list
+      %guidance_log = core.get %state["guidance_log"] default %empty_list
+      %function_call_traces = core.get %state["function_call_traces"] default %empty_list
       %trace = core.get %state["policy_trace"] default %empty_list
       %action_log = core.get %state["action_log"] default %empty_list
       %status_log = core.get %state["status_log"] default %empty_list
       %runtime_session_state = core.get %state["runtime_session_state"] default %empty_map
       %runtime_globals = core.get %state["runtime_globals"] default %empty_map
       %actor_prompt_policy = core.get %state["actor_prompt_policy"] default %empty_map
+      %policy_registry = core.get %state["policy_registry"] default %empty_map
+      %run_trace = core.call @agent_export_trace(%state)
       core.set %out["runtime_state"] = %runtime_state
       core.set %out["discovered_tool_docs"] = %discovered
       core.set %out["loaded_skill_docs"] = %skills
+      core.set %out["loaded_memories"] = %memories
+      core.set %out["used_memories"] = %used_memories
+      core.set %out["used_skills"] = %used_skills
+      core.set %out["guidance_log"] = %guidance_log
+      core.set %out["function_call_traces"] = %function_call_traces
       core.set %out["policy_trace"] = %trace
       core.set %out["action_log"] = %action_log
       core.set %out["status_log"] = %status_log
       core.set %out["runtime_session_state"] = %runtime_session_state
       core.set %out["runtime_globals"] = %runtime_globals
       core.set %out["actor_prompt_policy"] = %actor_prompt_policy
+      core.set %out["policy_registry"] = %policy_registry
+      core.set %out["trace"] = %run_trace
       core.return %out
     }
   }
@@ -731,19 +1776,41 @@ module @ax.agent version "0.1" {
       %runtime_state = core.get %snapshot["runtime_state"] default %empty_map
       %discovered = core.get %snapshot["discovered_tool_docs"] default %empty_list
       %skills = core.get %snapshot["loaded_skill_docs"] default %empty_list
+      %memories = core.get %snapshot["loaded_memories"] default %empty_list
+      %used_memories = core.get %snapshot["used_memories"] default %empty_list
+      %used_skills = core.get %snapshot["used_skills"] default %empty_list
+      %guidance_log = core.get %snapshot["guidance_log"] default %empty_list
+      %function_call_traces = core.get %snapshot["function_call_traces"] default %empty_list
       %trace = core.get %snapshot["policy_trace"] default %empty_list
       %action_log = core.get %snapshot["action_log"] default %empty_list
       %status_log = core.get %snapshot["status_log"] default %empty_list
       %runtime_session_state = core.get %snapshot["runtime_session_state"] default %empty_map
       %runtime_globals = core.get %snapshot["runtime_globals"] default %empty_map
+      %policy_registry = core.get %snapshot["policy_registry"] default null
+      %run_trace = core.get %snapshot["trace"] default null
       core.set %state["runtime_state"] = %runtime_state
       core.set %state["discovered_tool_docs"] = %discovered
       core.set %state["loaded_skill_docs"] = %skills
+      core.set %state["loaded_memories"] = %memories
+      core.set %state["used_memories"] = %used_memories
+      core.set %state["used_skills"] = %used_skills
+      core.set %state["guidance_log"] = %guidance_log
+      core.set %state["function_call_traces"] = %function_call_traces
       core.set %state["policy_trace"] = %trace
       core.set %state["action_log"] = %action_log
       core.set %state["status_log"] = %status_log
       core.set %state["runtime_session_state"] = %runtime_session_state
       core.set %state["runtime_globals"] = %runtime_globals
+      %has_policy_registry = core.type_is %policy_registry type "object"
+      core.if %has_policy_registry {
+        core.set %state["policy_registry"] = %policy_registry
+      } else {
+      }
+      %has_trace = core.type_is %run_trace type "object"
+      core.if %has_trace {
+        core.set %state["trace"] = %run_trace
+      } else {
+      }
       %out = core.call @agent_export_runtime_state(%state)
       core.return %out
     }
@@ -761,14 +1828,18 @@ module @ax.agent version "0.1" {
       %primitives = core.list
       %callable_inventory = core.get %state["callable_inventory"] default %empty_list
       %discovery_catalog = core.get %state["discovery_catalog"] default %empty_list
+      %registry = core.get %state["policy_registry"] default %empty_map
+      %selected_primitives = core.call @select_actor_primitives(%registry, "executor")
       core.set %globals["inputs"] = %values
       core.set %globals["context"] = %values
       core.set %globals["callables"] = %callable_inventory
       core.set %globals["discovery_catalog"] = %discovery_catalog
-      core.for %name in %reserved {
+      core.for %primitive_meta in %selected_primitives {
+        %name = core.get %primitive_meta["id"]
         %primitive = core.map
         core.set %primitive["name"] = %name
         core.set %primitive["kind"] = "runtime_primitive"
+        core.set %primitive["metadata"] = %primitive_meta
         core.append %primitives, %primitive
       }
       core.set %globals["runtime_primitives"] = %primitives
@@ -820,6 +1891,10 @@ module @ax.agent version "0.1" {
       %error_category = core.let ""
       %completion_payload = core.let %none
       %discover_request = core.let %none
+      %recall_request = core.let %none
+      %used_request = core.let %none
+      %callable_request = core.let %none
+      %guidance_payload = core.let %none
       %status = core.let %none
       core.if %raw_is_map {
         %raw_type = core.get %raw["type"] default ""
@@ -836,6 +1911,10 @@ module @ax.agent version "0.1" {
         %error_category = core.get %raw["error_category"] default ""
         %completion_payload = core.get %raw["completion_payload"] default null
         %discover_request = core.get %raw["discover"] default null
+        %recall_request = core.get %raw["recall"] default null
+        %used_request = core.get %raw["used"] default null
+        %callable_request = core.get %raw["callable"] default null
+        %guidance_payload = core.get %raw["guidance"] default null
         %status = core.get %raw["status"] default null
       } else {
       }
@@ -867,6 +1946,11 @@ module @ax.agent version "0.1" {
         }
       } else {
       }
+      %is_guide_kind = core.call intrinsic.eq(%kind, "guide_agent")
+      core.if %is_guide_kind {
+        %guidance_payload = core.call @normalize_agent_guidance_payload(%raw, "")
+      } else {
+      }
       core.set %out["type"] = "runtime_step"
       core.set %out["kind"] = %kind
       core.set %out["code"] = %code
@@ -877,6 +1961,10 @@ module @ax.agent version "0.1" {
       core.set %out["error_category"] = %error_category
       core.set %out["completion_payload"] = %completion_payload
       core.set %out["discover_request"] = %discover_request
+      core.set %out["recall_request"] = %recall_request
+      core.set %out["used_request"] = %used_request
+      core.set %out["callable_request"] = %callable_request
+      core.set %out["guidance_payload"] = %guidance_payload
       core.set %out["status"] = %status
       %is_closed = core.call intrinsic.eq(%error_category, "session_closed")
       core.if %is_closed {
@@ -932,16 +2020,58 @@ module @ax.agent version "0.1" {
       } else {
       }
       core.call @agent_runtime_append_action_log(%state, %normalized)
+      core.call @agent_record_trace_event(%state, "runtime_execute", %normalized)
+      %step_error = core.get %normalized["is_error"] default false
+      core.if %step_error {
+        core.call @agent_record_trace_event(%state, "error", %normalized)
+      } else {
+      }
       %discover_request = core.get %normalized["discover_request"] default null
       %has_discover = core.type_is %discover_request type "object"
       core.if %has_discover {
         core.call @agent_discover(%state, %discover_request)
       } else {
       }
+      %recall_request = core.get %normalized["recall_request"] default null
+      %has_recall = core.call intrinsic.is_not_none(%recall_request)
+      core.if %has_recall {
+        core.call @agent_recall(%state, %recall_request)
+      } else {
+      }
+      %used_request = core.get %normalized["used_request"] default null
+      %has_used = core.call intrinsic.is_not_none(%used_request)
+      core.if %has_used {
+        core.call @agent_used(%state, %used_request, "executor")
+      } else {
+      }
+      %callable_request = core.get %normalized["callable_request"] default null
+      %has_callable = core.call intrinsic.is_not_none(%callable_request)
+      core.if %has_callable {
+        %callable_result = core.call @agent_execute_callable(%state, %callable_request, %options)
+        core.set %normalized["callable_result"] = %callable_result
+      } else {
+      }
+      %guidance_payload = core.get %normalized["guidance_payload"] default null
+      %has_guidance = core.type_is %guidance_payload type "object"
+      core.if %has_guidance {
+        core.call @agent_append_guidance(%state, %guidance_payload)
+      } else {
+      }
       %completion_payload = core.get %normalized["completion_payload"] default null
       %has_completion = core.type_is %completion_payload type "object"
       core.if %has_completion {
         core.set %state["last_runtime_completion"] = %completion_payload
+        %completion_type = core.get %completion_payload["type"] default ""
+        %is_final_completion = core.call intrinsic.eq(%completion_type, "final")
+        core.if %is_final_completion {
+          core.call @agent_record_trace_event(%state, "final", %completion_payload)
+        } else {
+          %is_clarification_completion = core.call intrinsic.eq(%completion_type, "askClarification")
+          core.if %is_clarification_completion {
+            core.call @agent_record_trace_event(%state, "clarification", %completion_payload)
+          } else {
+          }
+        }
       } else {
       }
       %status = core.get %normalized["status"] default null
@@ -951,6 +2081,7 @@ module @ax.agent version "0.1" {
         %status_log = core.get %state["status_log"] default %empty_list
         core.append %status_log, %status
         core.set %state["status_log"] = %status_log
+        core.call @agent_record_trace_event(%state, "status", %status)
       } else {
       }
       core.return %normalized
@@ -975,6 +2106,9 @@ module @ax.agent version "0.1" {
     body @entry(%state: json, %session: json, %options: json) {
       %snapshot = core.call intrinsic.agent.runtime.export_state(%session, %options)
       core.set %state["runtime_session_state"] = %snapshot
+      %event = core.map
+      core.set %event["snapshot"] = %snapshot
+      core.call @agent_record_trace_event(%state, "state_export", %event)
       core.return %snapshot
     }
   }
@@ -1078,14 +2212,18 @@ module @ax.agent version "0.1" {
       core.set %out["distilledContext"] = %distilled_context
       %discovered_docs = core.get %state["discovered_tool_docs"] default %empty_list
       %loaded_skills = core.get %state["loaded_skill_docs"] default %empty_list
+      %loaded_memories = core.get %state["loaded_memories"] default %empty_list
+      %guidance_log = core.get %state["guidance_log"] default %empty_list
       %action_log = core.get %state["action_log"] default %empty_list
-      %discovered_text = core.call intrinsic.json.stringify(%discovered_docs)
-      %skills_text = core.call intrinsic.json.stringify(%loaded_skills)
+      %discovered_text = core.call @agent_render_discovered_tool_docs(%discovered_docs)
+      %skills_text = core.call @agent_render_loaded_skills(%loaded_skills)
+      %guidance_text = core.call intrinsic.json.stringify(%guidance_log)
       %action_text = core.call intrinsic.json.stringify(%action_log)
       core.set %out["discoveredToolDocs"] = %discovered_text
       core.set %out["loadedSkills"] = %skills_text
+      core.set %out["memories"] = %loaded_memories
       core.set %out["summarizedActorLog"] = ""
-      core.set %out["guidanceLog"] = ""
+      core.set %out["guidanceLog"] = %guidance_text
       core.set %out["actionLog"] = %action_text
       %exclude = core.get %state["executor_exclude_fields"] default %empty_list
       core.for %key in %exclude {
@@ -1307,6 +2445,7 @@ module @ax.agent version "0.1" {
     attr emit_module = "agent"
     type signature = "(json, json, json, json, json, json, json) -> json throws"
     body @entry(%state: json, %distiller: json, %executor: json, %responder: json, %client: json, %values: json, %options: json) {
+      core.call @agent_begin_trace(%state, %values)
       %state_options = core.get %state["options"]
       %runtime_from_state = core.get %state_options["runtime"] default null
       %runtime_from_options = core.get %options["runtime"] default %runtime_from_state
@@ -1315,7 +2454,17 @@ module @ax.agent version "0.1" {
       %executor_options = core.call @agent_stage_options(%state, "executor", %options)
       %responder_options = core.call @agent_stage_options(%state, "responder", %options)
       %distiller_values = core.call @build_distiller_inputs(%state, %values)
+      %distiller_request_event = core.map
+      core.set %distiller_request_event["stage"] = "distiller"
+      core.set %distiller_request_event["values"] = %distiller_values
+      core.set %distiller_request_event["component_id"] = "agent.stage.distiller"
+      core.call @agent_record_trace_event(%state, "stage_request", %distiller_request_event)
       %distiller_output = core.call intrinsic.agent.stage_forward(%distiller, %client, %distiller_values, %distiller_options)
+      %distiller_response_event = core.map
+      core.set %distiller_response_event["stage"] = "distiller"
+      core.set %distiller_response_event["output"] = %distiller_output
+      core.set %distiller_response_event["component_id"] = "agent.stage.distiller"
+      core.call @agent_record_trace_event(%state, "stage_response", %distiller_response_event)
       %distiller_payload = core.call @normalize_agent_completion_payload(%distiller_output)
       core.call @throw_agent_clarification(%distiller_payload, %state)
       %executor_payload = core.call intrinsic.none()
@@ -1327,12 +2476,28 @@ module @ax.agent version "0.1" {
         core.loop {
           %too_many = core.call intrinsic.gte(%step, %max_steps)
           core.if %too_many {
+            %error_event = core.map
+            core.set %error_event["error"] = "agent actor loop exceeded max steps"
+            core.set %error_event["stage"] = "executor"
+            core.call @agent_record_trace_event(%state, "error", %error_event)
             %error = core.call intrinsic.error.runtime("agent actor loop exceeded max steps")
             core.raise %error
           } else {
           }
           %executor_values = core.call @build_executor_inputs(%state, %values, %distiller_payload)
+          %executor_request_event = core.map
+          core.set %executor_request_event["stage"] = "executor"
+          core.set %executor_request_event["step"] = %step
+          core.set %executor_request_event["values"] = %executor_values
+          core.set %executor_request_event["component_id"] = "agent.stage.executor"
+          core.call @agent_record_trace_event(%state, "stage_request", %executor_request_event)
           %executor_output = core.call intrinsic.agent.stage_forward(%executor, %client, %executor_values, %executor_options)
+          %executor_response_event = core.map
+          core.set %executor_response_event["stage"] = "executor"
+          core.set %executor_response_event["step"] = %step
+          core.set %executor_response_event["output"] = %executor_output
+          core.set %executor_response_event["component_id"] = "agent.stage.executor"
+          core.call @agent_record_trace_event(%state, "stage_response", %executor_response_event)
           %code = core.call @extract_agent_runtime_code(%state, %executor_output)
           %runtime_step = core.call @agent_runtime_execute_step(%state, %runtime_from_options, %session, %code, %options)
           %session = core.get %state["runtime_session"] default %session
@@ -1348,17 +2513,38 @@ module @ax.agent version "0.1" {
         }
       } else {
         %executor_values = core.call @build_executor_inputs(%state, %values, %distiller_payload)
+        %executor_request_event = core.map
+        core.set %executor_request_event["stage"] = "executor"
+        core.set %executor_request_event["values"] = %executor_values
+        core.set %executor_request_event["component_id"] = "agent.stage.executor"
+        core.call @agent_record_trace_event(%state, "stage_request", %executor_request_event)
         %executor_output = core.call intrinsic.agent.stage_forward(%executor, %client, %executor_values, %executor_options)
+        %executor_response_event = core.map
+        core.set %executor_response_event["stage"] = "executor"
+        core.set %executor_response_event["output"] = %executor_output
+        core.set %executor_response_event["component_id"] = "agent.stage.executor"
+        core.call @agent_record_trace_event(%state, "stage_response", %executor_response_event)
         %executor_payload = core.call @normalize_agent_completion_payload(%executor_output)
         core.call @throw_agent_clarification(%executor_payload, %state)
       }
       %responder_values = core.call @build_responder_inputs(%state, %values, %executor_payload)
+      %responder_request_event = core.map
+      core.set %responder_request_event["stage"] = "responder"
+      core.set %responder_request_event["values"] = %responder_values
+      core.set %responder_request_event["component_id"] = "agent.stage.responder"
+      core.call @agent_record_trace_event(%state, "stage_request", %responder_request_event)
       %responder_output = core.call intrinsic.agent.stage_forward(%responder, %client, %responder_values, %responder_options)
+      %responder_response_event = core.map
+      core.set %responder_response_event["stage"] = "responder"
+      core.set %responder_response_event["output"] = %responder_output
+      core.set %responder_response_event["component_id"] = "agent.stage.responder"
+      core.call @agent_record_trace_event(%state, "stage_response", %responder_response_event)
       %logs = core.call @merge_agent_chat_log(%state, %distiller, %executor, %responder)
       %usage = core.call @merge_agent_usage(%state)
       core.set %state["last_output"] = %responder_output
       core.set %state["chat_log"] = %logs
       core.set %state["usage"] = %usage
+      core.call @agent_finalize_trace(%state, "completed", %responder_output)
       core.return %responder_output
     }
   }

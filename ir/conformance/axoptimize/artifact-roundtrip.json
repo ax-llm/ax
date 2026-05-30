@@ -1,0 +1,23 @@
+{
+  "component_map": {
+    "task.root.responder::instruction": "Respond with citations."
+  },
+  "expected_artifact_subset": {
+    "artifactVersion": "axir-optimized-artifact-v1",
+    "componentMap": {
+      "task.root.responder::instruction": "Respond with citations."
+    },
+    "metadata": {
+      "reference": "src/ax/agent/optimize.ts"
+    },
+    "optimizerName": "fixture"
+  },
+  "kind": "optimize",
+  "metadata": {
+    "reference": "src/ax/agent/optimize.ts"
+  },
+  "name": "artifact-roundtrip",
+  "operation": "artifact",
+  "program": "agent",
+  "signature": "question:string -> answer:string"
+}

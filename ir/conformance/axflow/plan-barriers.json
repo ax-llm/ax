@@ -1,0 +1,83 @@
+{
+  "kind": "flow",
+  "name": "plan-barriers",
+  "operation": "plan",
+  "source": {
+    "tsDerived": true,
+    "extractor": "tools/axir/extractors/flow-goldens.ts",
+    "reference": [
+      "src/ax/flow/flow.ts",
+      "src/ax/flow/executionPlanner.ts",
+      "src/ax/dsp/program.ts"
+    ],
+    "name": "plan-barriers",
+    "observed": {
+      "plan": [
+        {
+          "name": "extract",
+          "kind": "execute",
+          "barrier": false
+        },
+        {
+          "name": "derive",
+          "kind": "derive",
+          "barrier": false
+        },
+        {
+          "name": "map",
+          "kind": "map",
+          "barrier": true
+        },
+        {
+          "name": "map",
+          "kind": "map",
+          "barrier": true
+        }
+      ]
+    }
+  },
+  "steps": [
+    {
+      "kind": "execute",
+      "name": "extract",
+      "signature": "question:string -> facts:string"
+    },
+    {
+      "kind": "derive",
+      "name": "draft",
+      "signature": "facts:string -> draft:string"
+    },
+    {
+      "kind": "map",
+      "name": "shape",
+      "output": {
+        "shaped": true
+      }
+    }
+  ],
+  "returns": {
+    "final": "draft"
+  },
+  "expected_plan": [
+    {
+      "name": "extract",
+      "kind": "execute",
+      "barrier": false
+    },
+    {
+      "name": "draft",
+      "kind": "derive",
+      "barrier": false
+    },
+    {
+      "name": "shape",
+      "kind": "map",
+      "barrier": true
+    },
+    {
+      "name": "returns",
+      "kind": "returns",
+      "barrier": true
+    }
+  ]
+}

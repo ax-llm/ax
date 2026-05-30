@@ -1,0 +1,12 @@
+{
+  "expected_component_ids": [
+    "ctx.root.actor::instruction",
+    "task.root.actor::instruction"
+  ],
+  "kind": "optimize",
+  "name": "agent-target-filter-actor",
+  "operation": "filter",
+  "program": "agent",
+  "signature": "question:string -> answer:string",
+  "target": "actor"
+}

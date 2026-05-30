@@ -1,0 +1,60 @@
+{
+  "expected_actor_primitives_subset": [
+    {
+      "id": "llmQuery"
+    },
+    {
+      "id": "final"
+    },
+    {
+      "id": "askClarification"
+    }
+  ],
+  "expected_policy_registry_subset": {
+    "flags": {
+      "discoveryMode": false,
+      "hasAgentStatusCallback": false,
+      "hasInspectRuntime": false,
+      "memoriesMode": false,
+      "skillsMode": false,
+      "usageTrackingMode": false
+    },
+    "policy_schema_version": "axir-agent-policy-v1",
+    "policy_version": "agent-runtime-decision-v1"
+  },
+  "expected_policy_subset": {
+    "policy_schema_version": "axir-agent-policy-v1",
+    "policy_version": "agent-runtime-decision-v1"
+  },
+  "expected_protocol_actions_subset": [
+    {
+      "actor_visible": false,
+      "category": "protocol_action",
+      "id": "final"
+    },
+    {
+      "actor_visible": false,
+      "category": "protocol_action",
+      "id": "askClarification"
+    },
+    {
+      "actor_visible": false,
+      "category": "protocol_action",
+      "id": "guideAgent"
+    }
+  ],
+  "expected_runtime_globals_subset": [
+    {
+      "category": "runtime_global",
+      "id": "inputs"
+    }
+  ],
+  "kind": "agent_runtime_policy",
+  "name": "policy-registry-baseline",
+  "options": {
+    "runtime": {
+      "language": "JavaScript"
+    }
+  },
+  "signature": "question:string -> answer:string"
+}

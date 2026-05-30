@@ -1,0 +1,19 @@
+{
+  "dataset": [
+    {
+      "input": {
+        "question": "Blocked?"
+      }
+    }
+  ],
+  "eval_options": {
+    "maxMetricCalls": 0
+  },
+  "expected_error_contains": "max metric calls exceeded",
+  "kind": "optimize",
+  "name": "candidate-evaluation-max-metric-calls",
+  "operation": "evaluate",
+  "program": "agent",
+  "responses": [],
+  "signature": "question:string -> answer:string"
+}

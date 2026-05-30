@@ -1,0 +1,31 @@
+{
+  "kind": "program_contract",
+  "name": "flow-component-contract",
+  "source": {
+    "tsDerived": true,
+    "extractor": "tools/axir/extractors/flow-goldens.ts",
+    "reference": [
+      "src/ax/flow/flow.ts",
+      "src/ax/flow/executionPlanner.ts",
+      "src/ax/dsp/program.ts"
+    ],
+    "name": "flow-component-contract",
+    "observed": {}
+  },
+  "program": "flow",
+  "program_id": "root.flow",
+  "steps": [
+    {
+      "kind": "execute",
+      "name": "qa",
+      "signature": "question:string -> answer:string"
+    }
+  ],
+  "expected_components_subset": [
+    {
+      "id": "root.flow::graph-plan",
+      "owner": "root.flow",
+      "kind": "flow-graph"
+    }
+  ]
+}

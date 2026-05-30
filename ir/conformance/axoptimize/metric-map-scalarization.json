@@ -1,0 +1,21 @@
+{
+  "expected_scalar": 0.8,
+  "expected_scores": {
+    "faithfulness": 0.8,
+    "helpfulness": 0.6
+  },
+  "kind": "optimize",
+  "metric_score": {
+    "faithfulness": 0.8,
+    "helpfulness": 0.6
+  },
+  "name": "metric-map-scalarization",
+  "operation": "score",
+  "prediction": {
+    "functionCalls": []
+  },
+  "score_options": {
+    "paretoMetricKey": "faithfulness"
+  },
+  "task": {}
+}

@@ -1,0 +1,26 @@
+{
+  "expected_scalar": 0.12000000000000002,
+  "expected_scores": {
+    "score": 0.8
+  },
+  "kind": "optimize",
+  "metric_score": 0.8,
+  "name": "action-score-adjustment",
+  "operation": "score",
+  "prediction": {
+    "functionCalls": [
+      {
+        "name": "search_docs",
+        "qualifiedName": "tools.search_docs"
+      },
+      {
+        "name": "delete_doc",
+        "qualifiedName": "admin.delete_doc"
+      }
+    ]
+  },
+  "task": {
+    "expectedActions": ["search_docs", "lookup"],
+    "forbiddenActions": ["delete_doc"]
+  }
+}

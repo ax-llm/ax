@@ -1,0 +1,11 @@
+{
+  "component_map": {
+    "missing::instruction": "Nope."
+  },
+  "expected_error_contains": "unknown optimized component id",
+  "kind": "optimize",
+  "name": "invalid-unknown-component",
+  "operation": "artifact",
+  "program": "agent",
+  "signature": "question:string -> answer:string"
+}

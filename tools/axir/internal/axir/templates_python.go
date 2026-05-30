@@ -20,7 +20,8 @@ from .ai import (
     ai,
 )
 from .gen import AxGen, AxMemory, ax
-from .agent import AxAgent, AxAgentClarificationError, AxCodeRuntime, AxCodeSession, agent
+from .agent import AxAgent, AxAgentClarificationError, AxCodeRuntime, AxCodeSession, OptimizerEngine, OptimizerEvaluator, agent
+from .flow import AxFlow, AxProgram, flow
 from .prompt import AxPromptTemplate, TemplateError, render_template_content, validate_prompt_template_syntax
 
 __all__ = [
@@ -36,12 +37,16 @@ __all__ = [
     "AxAIServiceTimeoutError",
     "AxBaseAI",
     "AxGen",
+    "AxFlow",
     "AxAgent",
     "AxAgentClarificationError",
     "AxCodeRuntime",
     "AxCodeSession",
     "AxMemory",
+    "OptimizerEngine",
+    "OptimizerEvaluator",
     "AxPromptTemplate",
+    "AxProgram",
     "AxSignature",
     "AxSignatureError",
     "AxUnsupportedCapabilityError",
@@ -57,6 +62,7 @@ __all__ = [
     "ax",
     "f",
     "fn",
+    "flow",
     "render_template_content",
     "s",
     "validate_prompt_template_syntax",
@@ -692,6 +698,14 @@ def _core_map_get(values, key):
 def _core_map_update(target, values):
     target.update(values or {})
     return target
+
+
+def _core_map_keys(values):
+    if values is None:
+        return []
+    if isinstance(values, dict):
+        return list(values.keys())
+    return []
 
 
 def _core_map_values(values):
@@ -1996,6 +2010,7 @@ def _iter_sse_json(raw: Any):
 const pyGen = `from __future__ import annotations
 
 import json
+import re
 import time
 from typing import Any
 
@@ -2076,6 +2091,8 @@ class AxGen:
         self.chat_log: list[dict[str, Any]] = []
         self.function_call_traces: list[dict[str, Any]] = []
         self.traces: list[dict[str, Any]] = []
+        self.program_id = self.options.get("id") or self.options.get("program_id") or self.options.get("programId") or "root"
+        self.instruction = str(self.options.get("instruction") or "")
         self.prompt_template = AxPromptTemplate(
             self.signature,
             functions=self.functions,
@@ -2104,6 +2121,178 @@ class AxGen:
     def set_stop_functions(self, names):
         self.stop_functions = list(names or [])
         return self
+
+    def set_instruction(self, instruction: str):
+        self.instruction = str(instruction or "")
+        self.options["instruction"] = self.instruction
+        if hasattr(self.prompt_template, "set_instruction"):
+            self.prompt_template.set_instruction(self.instruction)
+        return self
+
+    def get_instruction(self):
+        return self.instruction
+
+    def clear_instruction(self):
+        return self.set_instruction("")
+
+    def get_optimizable_components(self):
+        components = []
+        owner = self.program_id
+        if self.signature.get_description():
+            components.append({
+                "id": f"{owner}::description",
+                "owner": owner,
+                "kind": "description",
+                "current": self.signature.get_description(),
+                "description": "Program signature description.",
+                "constraints": ["Preserve the task intent and field references."],
+                "dependsOn": [],
+                "preserve": False,
+                "format": "markdown",
+                "validation": {"required_placeholders": []},
+            })
+        components.append({
+            "id": f"{owner}::instruction",
+            "owner": owner,
+            "kind": "instruction",
+            "current": self.instruction,
+            "description": "Prompt instruction text used by this generator.",
+            "constraints": ["Keep required input and output fields intact."],
+            "dependsOn": [],
+            "preserve": False,
+            "format": "markdown",
+            "validation": {"required_placeholders": []},
+        })
+        seen_names = set()
+        for tool in self.functions:
+            name = getattr(tool, "name", None) or _core_get(tool, "name", "")
+            if not name or name in seen_names:
+                continue
+            seen_names.add(name)
+            desc = getattr(tool, "description", None) or _core_get(tool, "description", "")
+            components.append({
+                "id": f"{owner}::fn:{name}:desc",
+                "owner": owner,
+                "kind": "fn-desc",
+                "current": desc,
+                "description": f"Description for tool {name}.",
+                "constraints": ["Non-empty, concise, and faithful to the tool behavior."],
+                "dependsOn": [],
+                "preserve": False,
+                "format": "text",
+                "validation": {"maxLength": 320},
+            })
+            components.append({
+                "id": f"{owner}::fn:{name}:name",
+                "owner": owner,
+                "kind": "fn-name",
+                "current": name,
+                "description": f"Callable name for tool {name}.",
+                "constraints": ["snake_case", "32 characters or fewer", "unique among tools"],
+                "dependsOn": [],
+                "preserve": True,
+                "format": "snake_case",
+                "validation": {"pattern": "^[a-z][a-z0-9_]{0,31}$"},
+            })
+        return components
+
+    def apply_optimized_components(self, component_map: dict[str, Any]):
+        updates = dict(component_map or {})
+        owner = self.program_id
+        if f"{owner}::description" in updates:
+            self.signature.description = str(updates[f"{owner}::description"] or "")
+        if f"{owner}::instruction" in updates:
+            self.set_instruction(str(updates[f"{owner}::instruction"] or ""))
+        for tool in self.functions:
+            old_name = getattr(tool, "name", None) or _core_get(tool, "name", "")
+            desc_id = f"{owner}::fn:{old_name}:desc"
+            name_id = f"{owner}::fn:{old_name}:name"
+            if desc_id in updates and hasattr(tool, "description"):
+                tool.description = str(updates[desc_id] or "")
+            if name_id in updates:
+                new_name = str(updates[name_id] or "").strip()
+                if not re.match(r"^[a-z][a-z0-9_]{0,31}$", new_name):
+                    raise RuntimeError(f"invalid optimized function name: {new_name}")
+                if any((getattr(other, "name", None) or _core_get(other, "name", "")) == new_name for other in self.functions if other is not tool):
+                    raise RuntimeError(f"duplicate optimized function name: {new_name}")
+                if hasattr(tool, "name"):
+                    tool.name = new_name
+        return self
+
+    def apply_optimization(self, artifact):
+        if isinstance(artifact, str):
+            artifact = json.loads(artifact)
+        component_map = (artifact or {}).get("componentMap") or (artifact or {}).get("component_map") or {}
+        return self.apply_optimized_components(component_map)
+
+    def evaluate_optimization(self, client, dataset, candidate_map: dict[str, Any] | None = None, options: dict[str, Any] | None = None):
+        opts = options or {}
+        normalized = _normalize_optimization_dataset(dataset or [])
+        rows = []
+        original = _optimization_component_current_map(self.get_optimizable_components())
+        candidate = dict(candidate_map or {})
+        phase = opts.get("phase", "train")
+        try:
+            if candidate:
+                self.apply_optimized_components(candidate)
+            for task in normalized.get("train", []) or []:
+                error = None
+                try:
+                    prediction = self.forward(client, task.get("input", task), opts.get("forward_options") or {})
+                    prediction = {"completionType": "final", "output": prediction, "finalOutput": prediction, "functionCalls": self.get_function_call_traces(), "actionLog": self.get_chat_log(), "usage": {}, "trace": {"traces": self.get_traces()}}
+                except Exception as exc:
+                    error = {"message": str(exc)}
+                    prediction = {"completionType": "error", "error": error, "functionCalls": self.get_function_call_traces(), "actionLog": self.get_chat_log(), "usage": {}, "trace": {"traces": self.get_traces()}}
+                scores, scalar = _score_optimization_prediction(task if isinstance(task, dict) else {}, prediction, opts)
+                rows.append(_build_optimization_eval_row(task, prediction, scores, scalar, prediction.get("trace"), error))
+            return _build_optimization_eval_result(rows, candidate, phase)
+        finally:
+            self.apply_optimized_components(original)
+
+    def optimize_with(self, engine, dataset, options: dict[str, Any] | None = None):
+        opts = options or {}
+        components = self.get_optimizable_components()
+        normalized = _normalize_optimization_dataset(dataset or [])
+        target = opts.get("target", "all")
+        selected = _filter_optimization_components(components, target)
+        request_options = {k: v for k, v in opts.items() if k not in ("client", "ai", "engine", "optimizer")}
+        request = {
+            "contractVersion": "axir-optimize-contract-v1",
+            "programKind": "axgen",
+            "components": selected,
+            "dataset": normalized,
+            "options": request_options,
+            "trace": {"traces": self.get_traces(), "chat_log": self.get_chat_log()},
+            "evaluator": {"available": opts.get("client") is not None, "contractVersion": "axir-optimizer-evaluator-v1", "methods": ["evaluate"]},
+        }
+        evaluator = None
+        client = opts.get("client") or opts.get("ai")
+        if client is not None:
+            outer = self
+
+            class _Evaluator(OptimizerEvaluator):
+                def evaluate(self, candidate_map, options=None):
+                    return outer.evaluate_optimization(client, dataset or [], candidate_map or {}, {**opts, **(options or {})})
+
+            evaluator = _Evaluator()
+        response = _call_optimizer_engine(engine, request, evaluator)
+        artifact = response.get("artifact", response) if isinstance(response, dict) else response
+        if not isinstance(artifact, dict):
+            raise RuntimeError("optimizer engine must return an optimized artifact")
+        artifact.setdefault("artifactVersion", "axir-optimized-artifact-v1")
+        artifact.setdefault("optimizerName", getattr(engine, "name", engine.__class__.__name__))
+        artifact.setdefault("optimizerVersion", getattr(engine, "version", "host"))
+        artifact.setdefault("componentMap", artifact.get("component_map") or {})
+        if opts.get("apply", True) is not False:
+            self.apply_optimization(artifact)
+        return artifact
+
+    def optimize(self, dataset=None, options: dict[str, Any] | None = None):
+        opts = options or {}
+        engine = opts.get("engine") or opts.get("optimizer")
+        if engine is None:
+            raise NotImplementedError("AxIR generated runtimes require an OptimizerEngine for optimize()")
+        return self.optimize_with(engine, dataset or [], opts)
 
     def get_traces(self):
         return list(self.traces)
@@ -2147,10 +2336,14 @@ def ax(signature, options: dict[str, Any] | None = None) -> AxGen:
 def _core_not(value): return not value
 def _core_or(left, right): return bool(left or right)
 def _core_eq(left, right): return left == right
+def _core_ne(left, right): return left != right
 def _core_gt(left, right): return left > right
 def _core_gte(left, right): return left >= right
 def _core_add(left, right): return left + right
+def _core_mul(left, right): return float(left or 0) * float(right or 0)
+def _core_div(left, right): return float(left or 0) / float(right or 1)
 def _core_len(value): return len(value)
+def _core_contains(container, item): return False if container is None else item in container
 def _core_truthy(value): return bool(value)
 def _core_is_none(value): return value is None
 def _core_is_not_none(value): return value is not None
@@ -2178,6 +2371,10 @@ def _core_type_is(value, type_name):
         return isinstance(value, dict)
     if type_name == "list":
         return isinstance(value, list)
+    if type_name == "number":
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if type_name == "boolean":
+        return isinstance(value, bool)
     if type_name == "null":
         return value is None
     if type_name == "json":
@@ -2189,6 +2386,18 @@ def _core_map_merge(left, right):
     merged = dict(left or {})
     merged.update(right or {})
     return merged
+
+
+def _core_map_keys(values):
+    if isinstance(values, dict):
+        return list(values.keys())
+    return []
+
+
+def _core_map_values(values):
+    if isinstance(values, dict):
+        return list(values.values())
+    return []
 
 
 def _core_object_call_method(target, method_name, *args):
@@ -2211,6 +2420,14 @@ def _core_json_stringify(value):
 
 def _core_string_format(template, *args):
     return str(template).format(*args)
+
+
+def _core_string_lower(value):
+    return str(value).lower()
+
+
+def _core_string_ends_with(value, suffix):
+    return str(value).endswith(str(suffix))
 
 
 def _core_ai_complete_once(client, request):
@@ -2521,8 +2738,192 @@ def _core_axgen_record_function_call(gen, call, result, status):
 # AXIR_CORE_GEN_FUNCTIONS
 `
 
+const pyFlow = `from __future__ import annotations
+
+import copy
+import json
+from typing import Any, Callable
+
+from .ai import AIClient
+from .gen import (
+    AxGen,
+    _core_eq,
+    _core_get,
+    _core_is_none,
+    _core_json_stringify,
+    _core_map_merge,
+    _core_object_call_method,
+    _core_or,
+    _core_runtime_error,
+    _core_string_format,
+    _core_truthy,
+    _filter_optimization_components,
+)
+from .agent import _core_agent_stage_chat_log, _core_agent_stage_forward, _optimization_component
+
+
+class _FlowCallable:
+    def __init__(self, fn: Callable[[dict[str, Any]], Any]):
+        self.fn = fn
+
+    def call(self, state):
+        return self.fn(copy.deepcopy(state or {}))
+
+
+class AxProgram:
+    def forward(self, client, values, options=None):
+        raise NotImplementedError
+
+    def get_optimizable_components(self):
+        return []
+
+
+class AxFlow(AxProgram):
+    def __init__(self, options: dict[str, Any] | None = None):
+        self.state = _flow_factory(options or {})
+
+    def execute(self, name: str, program, options: dict[str, Any] | None = None):
+        return self._add_step("execute", name, program, options)
+
+    def derive(self, name: str, program, options: dict[str, Any] | None = None):
+        return self._add_step("derive", name, program, options)
+
+    def map(self, name: str, mapper: Callable[[dict[str, Any]], Any]):
+        return self._add_step("map", name, _FlowCallable(mapper), {})
+
+    def parallel(self, steps):
+        for step in steps or []:
+            self._add_step(step.get("kind", "execute"), step.get("name"), step.get("program"), step.get("options") or {})
+        return self
+
+    def returns(self, spec):
+        _flow_set_returns(self.state, spec or {})
+        return self
+
+    def set_demos(self, demos):
+        if isinstance(demos, list):
+            owner = self.state.get("program_id", "root.flow")
+            known_ids = {owner, "root"}
+            for step in self.state.get("steps", []):
+                name = step.get("name")
+                if name:
+                    known_ids.add(f"{owner}.{name}")
+                    known_ids.add(f"root.{name}")
+            unknown = sorted({
+                item.get("programId")
+                for item in demos
+                if isinstance(item, dict) and item.get("programId") not in known_ids
+            })
+            if unknown:
+                raise RuntimeError(f"Unknown program ID(s) in demos: {', '.join(unknown)}")
+            self.state["demos"] = list(demos)
+            return self
+        known = {step.get("name") for step in self.state.get("steps", [])}
+        for name, value in (demos or {}).items():
+            if name not in known:
+                raise RuntimeError(f"unknown flow node in demos: {name}")
+            step = next(step for step in self.state.get("steps", []) if step.get("name") == name)
+            program = step.get("program")
+            if hasattr(program, "set_demos"):
+                program.set_demos(value)
+        self.state["demos"] = dict(demos or {})
+        return self
+
+    def get_plan(self):
+        return _flow_plan(self.state)
+
+    def get_traces(self):
+        return list(self.state.get("traces") or [])
+
+    def get_chat_log(self):
+        return list(self.state.get("chat_log") or [])
+
+    def get_usage(self):
+        return dict(self.state.get("usage") or {})
+
+    def get_optimizable_components(self):
+        owner = self.state.get("program_id", "root.flow")
+        components = [
+            _optimization_component(
+                f"{owner}::graph-plan",
+                owner,
+                "flow-graph",
+                self.get_plan(),
+                "AxFlow execution graph and planner barrier metadata.",
+                ["Preserve node names, dependencies, and return contract."],
+                [],
+                True,
+                "json",
+                {"schema": "axflow-plan-v1"},
+            )
+        ]
+        for step in self.state.get("steps") or []:
+            program = step.get("program")
+            name = step.get("name")
+            if hasattr(program, "get_optimizable_components"):
+                for component in program.get_optimizable_components():
+                    child = dict(component)
+                    child["owner"] = f"{owner}.{name}"
+                    child["id"] = f"{owner}.{name}::{component.get('id')}"
+                    components.append(child)
+        return components
+
+    def apply_optimized_components(self, component_map: dict[str, Any]):
+        updates = dict(component_map or {})
+        owner = self.state.get("program_id", "root.flow")
+        for step in self.state.get("steps") or []:
+            program = step.get("program")
+            name = step.get("name")
+            prefix = f"{owner}.{name}::"
+            child_updates = {key[len(prefix):]: value for key, value in updates.items() if key.startswith(prefix)}
+            if child_updates and hasattr(program, "apply_optimized_components"):
+                program.apply_optimized_components(child_updates)
+        return self
+
+    def apply_optimization(self, artifact):
+        component_map = (artifact or {}).get("componentMap") or (artifact or {}).get("component_map") or {}
+        return self.apply_optimized_components(component_map)
+
+    def forward(self, client: AIClient, values: dict[str, Any], options: dict[str, Any] | None = None):
+        return _flow_forward(self.state, client, values or {}, options or {})
+
+    def _add_step(self, kind, name, program, options):
+        _flow_add_step(self.state, _flow_step(kind, name, program, options or {}))
+        return self
+
+
+def flow(options: dict[str, Any] | None = None) -> AxFlow:
+    return AxFlow(options)
+
+
+def _core_map_get(values, key):
+    return _core_get(values, key)
+
+
+def _core_map_update(target, values):
+    target.update(values or {})
+    return target
+
+
+def _core_map_keys(values):
+    if values is None:
+        return []
+    if isinstance(values, dict):
+        return list(values.keys())
+    return []
+
+
+def _core_json_stable_stringify(value):
+    return json.dumps(value or {}, sort_keys=True, separators=(",", ":"))
+
+
+# AXIR_CORE_FLOW_FUNCTIONS
+`
+
 const pyAgent = `from __future__ import annotations
 
+import copy
+import json
 import re
 from typing import Any
 
@@ -2569,14 +2970,57 @@ class AxCodeRuntime:
         raise NotImplementedError
 
 
+class OptimizerEngine:
+    name = "host"
+    version = "host"
+
+    def optimize(self, request: dict[str, Any], evaluator: "OptimizerEvaluator | None" = None) -> dict[str, Any]:
+        raise NotImplementedError
+
+
+class OptimizerEvaluator:
+    def evaluate(self, candidate_map: dict[str, Any], options: dict[str, Any] | None = None) -> dict[str, Any]:
+        raise NotImplementedError
+
+
+def _call_optimizer_engine(engine: OptimizerEngine, request: dict[str, Any], evaluator: OptimizerEvaluator | None):
+    try:
+        return engine.optimize(request, evaluator)
+    except TypeError as exc:
+        if evaluator is None:
+            raise
+        try:
+            return engine.optimize(request)
+        except TypeError:
+            raise exc
+
+
+def _score_optimization_prediction(task, prediction, options):
+    opts = options or {}
+    if "metric_score" in task:
+        raw_scores = task.get("metric_score")
+    elif "scores" in task:
+        raw_scores = task.get("scores")
+    elif "score" in task:
+        raw_scores = task.get("score")
+    elif _core_get(prediction, "completionType") == "error":
+        raw_scores = 0
+    else:
+        raw_scores = 1
+    scores = _normalize_optimization_metric_scores(raw_scores)
+    scalar = _scalarize_optimization_scores(scores, opts)
+    scalar = _adjust_optimization_score_for_actions(scalar, task or {}, prediction or {})
+    return scores, scalar
+
+
 class AxAgent:
     def __init__(self, signature, options: dict[str, Any] | None = None):
         self.options = dict(options or {})
         self.state = _agent_factory(signature, self.options)
         self.signature = _core_get(self.state, "signature")
-        self.distiller = AxGen(_core_get(self.state, "distiller_signature"), {"validation_retries": 0})
-        self.executor = AxGen(_core_get(self.state, "executor_signature"), {"validation_retries": 0})
-        self.responder = AxGen(self.signature, {"validation_retries": self.options.get("validation_retries", 2)})
+        self.distiller = AxGen(_core_get(self.state, "distiller_signature"), {"validation_retries": 0, "id": "ctx.root.actor"})
+        self.executor = AxGen(_core_get(self.state, "executor_signature"), {"validation_retries": 0, "id": "task.root.actor"})
+        self.responder = AxGen(self.signature, {"validation_retries": self.options.get("validation_retries", 2), "id": "task.root.responder"})
 
     def forward(self, client, values: dict[str, Any], options: dict[str, Any] | None = None):
         return _agent_forward(
@@ -2627,6 +3071,15 @@ class AxAgent:
     def get_action_log(self):
         return list(_core_get(self.state, "action_log", []) or [])
 
+    def get_trace(self):
+        return _agent_export_trace(self.state)
+
+    def export_trace(self):
+        return _agent_export_trace(self.state)
+
+    def replay_trace(self, trace, fixtures: dict[str, Any] | None = None):
+        return _agent_replay_trace(trace or {}, fixtures or {})
+
     def get_usage(self):
         return dict(_core_get(self.state, "usage", {}) or {})
 
@@ -2635,6 +3088,9 @@ class AxAgent:
 
     def get_policy(self):
         return dict(_core_get(self.state, "policy", {}) or {})
+
+    def get_policy_registry(self):
+        return dict(_core_get(self.state, "policy_registry", {}) or {})
 
     def get_callable_inventory(self):
         return list(_core_get(self.state, "callable_inventory", []) or [])
@@ -2645,6 +3101,15 @@ class AxAgent:
     def discover(self, request):
         return _agent_discover(self.state, request or {})
 
+    def recall(self, request):
+        return _agent_recall(self.state, request or [])
+
+    def used(self, id, reason: str | None = None, stage: str = "executor"):
+        return _agent_used(self.state, {"id": id, "reason": reason or "", "stage": stage}, stage)
+
+    def invoke_callable(self, qualified_name: str, args: dict[str, Any] | None = None, options: dict[str, Any] | None = None):
+        return _agent_execute_callable(self.state, {"qualified_name": qualified_name, "args": args or {}}, options or {})
+
     def export_runtime_state(self):
         return _agent_export_runtime_state(self.state)
 
@@ -2653,6 +3118,153 @@ class AxAgent:
 
     def get_optimizer_metadata(self):
         return _agent_optimizer_metadata(self.state)
+
+    def get_optimizable_components(self):
+        components = []
+        components.extend(self.distiller.get_optimizable_components())
+        components.extend(self.executor.get_optimizable_components())
+        components.extend(self.responder.get_optimizable_components())
+        runtime = self.get_runtime_contract()
+        policy = self.get_policy()
+        components.append(_optimization_component(
+            "root.agent.runtime",
+            "root.agent",
+            "runtime-policy",
+            runtime,
+            "Agent runtime-language metadata and code-field policy.",
+            ["Keep code field names aligned with the selected runtime language."],
+            [],
+            True,
+            "json",
+            {"component": "runtime_contract"},
+        ))
+        components.append(_optimization_component(
+            "root.agent.policy",
+            "root.agent",
+            "agent-policy",
+            policy,
+            "Actor primitive, discovery, delegation, and prompt placement policy.",
+            ["Do not expose protocol-only actions as actor primitives."],
+            ["root.agent.runtime"],
+            True,
+            "json",
+            {"component": "policy_registry"},
+        ))
+        return components
+
+    def apply_optimized_components(self, component_map: dict[str, Any]):
+        updates = dict(component_map or {})
+        _validate_optimization_component_map(self.get_optimizable_components(), updates)
+        self.distiller.apply_optimized_components(updates)
+        self.executor.apply_optimized_components(updates)
+        self.responder.apply_optimized_components(updates)
+        if "root.agent.runtime" in updates and isinstance(updates["root.agent.runtime"], dict):
+            self.state["runtime_contract"] = updates["root.agent.runtime"]
+        if "root.agent.policy" in updates and isinstance(updates["root.agent.policy"], dict):
+            self.state["policy"] = updates["root.agent.policy"]
+        self.state["optimizer_metadata"] = _agent_optimizer_metadata(self.state)
+        return self
+
+    def apply_optimization(self, artifact):
+        components = self.get_optimizable_components()
+        if isinstance(artifact, str):
+            artifact = _deserialize_optimized_artifact(artifact, components)
+        else:
+            artifact = _validate_optimized_artifact(artifact or {}, components)
+        return self.apply_optimized_components(artifact.get("componentMap") or {})
+
+    def evaluate_optimization_task(self, client, task: dict[str, Any], options: dict[str, Any] | None = None):
+        opts = options or {}
+        try:
+            output = self.forward(client, task.get("input") or task, opts.get("forward_options") or {})
+            return _build_agent_eval_prediction(output, self.get_action_log(), self.get_usage(), self.export_trace())
+        except AxAgentClarificationError as exc:
+            return {
+                "completionType": "askClarification",
+                "clarification": exc.clarification,
+                "actionLog": self.get_action_log(),
+                "functionCalls": _core_get(self.state, "function_call_traces", []) or [],
+                "toolErrors": [],
+                "turnCount": 0,
+                "usage": self.get_usage(),
+                "trace": self.export_trace(),
+            }
+        except Exception as exc:
+            return {
+                "completionType": "error",
+                "error": {"message": str(exc)},
+                "actionLog": self.get_action_log(),
+                "functionCalls": _core_get(self.state, "function_call_traces", []) or [],
+                "toolErrors": [str(exc)],
+                "turnCount": 0,
+                "usage": self.get_usage(),
+                "trace": self.export_trace(),
+            }
+
+    def evaluate_optimization(self, client, dataset, candidate_map: dict[str, Any] | None = None, options: dict[str, Any] | None = None):
+        opts = options or {}
+        normalized = _normalize_optimization_dataset(dataset or [])
+        rows = []
+        original = _optimization_component_current_map(self.get_optimizable_components())
+        candidate = dict(candidate_map or {})
+        phase = opts.get("phase", "train")
+        max_metric_calls = int(opts.get("maxMetricCalls", opts.get("max_metric_calls", 10**9)))
+        calls = 0
+        try:
+            if candidate:
+                self.apply_optimized_components(candidate)
+            for task in normalized.get("train", []) or []:
+                if calls >= max_metric_calls:
+                    raise RuntimeError(f"max metric calls exceeded: {max_metric_calls}")
+                calls += 1
+                prediction = self.evaluate_optimization_task(client, task if isinstance(task, dict) else {"input": task}, opts)
+                error = prediction.get("error") if isinstance(prediction, dict) else None
+                scores, scalar = _score_optimization_prediction(task if isinstance(task, dict) else {}, prediction, opts)
+                rows.append(_build_optimization_eval_row(task, prediction, scores, scalar, prediction.get("trace"), error))
+            return _build_optimization_eval_result(rows, candidate, phase)
+        finally:
+            self.apply_optimized_components(original)
+
+    def optimize_with(self, engine: OptimizerEngine, dataset, options: dict[str, Any] | None = None):
+        opts = options or {}
+        components = self.get_optimizable_components()
+        normalized = _normalize_optimization_dataset(dataset or [])
+        target = opts.get("target", "all")
+        selected = _filter_optimization_components(components, target)
+        request_options = {k: v for k, v in opts.items() if k not in ("client", "ai", "engine", "optimizer")}
+        request = _build_optimizer_request("axagent", selected, normalized, request_options, self.export_trace())
+        evaluator = None
+        client = opts.get("client") or opts.get("ai")
+        if isinstance(request.get("evaluator"), dict):
+            request["evaluator"]["available"] = client is not None
+        if client is not None:
+            outer = self
+
+            class _Evaluator(OptimizerEvaluator):
+                def evaluate(self, candidate_map, options=None):
+                    return outer.evaluate_optimization(client, dataset or [], candidate_map or {}, {**opts, **(options or {})})
+
+            evaluator = _Evaluator()
+        response = _call_optimizer_engine(engine, request, evaluator)
+        artifact = response.get("artifact", response) if isinstance(response, dict) else response
+        if not isinstance(artifact, dict):
+            raise RuntimeError("optimizer engine must return an optimized artifact")
+        artifact.setdefault("artifactVersion", "axir-optimized-artifact-v1")
+        artifact.setdefault("optimizerName", getattr(engine, "name", engine.__class__.__name__))
+        artifact.setdefault("optimizerVersion", getattr(engine, "version", "host"))
+        artifact.setdefault("componentMap", artifact.get("component_map") or {})
+        artifact = _validate_optimized_artifact(artifact, components)
+        artifact["changedComponents"] = _optimization_changed_components(components, artifact.get("componentMap") or {})
+        if opts.get("apply", True) is not False:
+            self.apply_optimization(artifact)
+        return artifact
+
+    def optimize(self, dataset=None, options: dict[str, Any] | None = None):
+        opts = options or {}
+        engine = opts.get("engine") or opts.get("optimizer")
+        if engine is None:
+            raise NotImplementedError("AxIR generated runtimes require an OptimizerEngine for optimize()")
+        return self.optimize_with(engine, dataset or [], opts)
 
 
 def agent(signature, config: dict[str, Any] | None = None) -> AxAgent:
@@ -2664,11 +3276,15 @@ def _parse_signature(signature):
 
 
 def _core_not(value): return not value
+def _core_and(left, right): return bool(left and right)
 def _core_or(left, right): return bool(left or right)
 def _core_eq(left, right): return left == right
+def _core_ne(left, right): return left != right
 def _core_gt(left, right): return left > right
 def _core_gte(left, right): return left >= right
 def _core_add(left, right): return left + right
+def _core_mul(left, right): return float(left or 0) * float(right or 0)
+def _core_div(left, right): return float(left or 0) / float(right or 1)
 def _core_len(value): return len(value or [])
 def _core_contains(container, item): return False if container is None else item in container
 def _core_is_none(value): return value is None
@@ -2693,6 +3309,10 @@ def _core_type_is(value, type_name):
         return isinstance(value, dict)
     if type_name == "list":
         return isinstance(value, list)
+    if type_name == "number":
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if type_name == "boolean":
+        return isinstance(value, bool)
     if type_name == "null":
         return value is None
     if type_name == "json":
@@ -2716,6 +3336,22 @@ def _core_map_contains(target, key):
     return isinstance(target, dict) and key in target
 
 
+def _core_map_keys(values):
+    if values is None:
+        return []
+    if isinstance(values, dict):
+        return list(values.keys())
+    return []
+
+
+def _core_map_values(values):
+    if values is None:
+        return []
+    if isinstance(values, dict):
+        return list(values.values())
+    return []
+
+
 def _core_list_get(values, index, default=None):
     return values[index] if isinstance(values, list) and 0 <= int(index) < len(values) else default
 
@@ -2723,6 +3359,10 @@ def _core_list_get(values, index, default=None):
 def _core_json_stringify(value):
     import json
     return json.dumps(value or {}, sort_keys=True)
+
+
+def _core_json_parse(value):
+    return json.loads(value)
 
 
 def _core_string_format(template, *args):
@@ -2739,6 +3379,10 @@ def _core_string_words(value):
 
 def _core_string_join(sep, values):
     return str(sep).join(str(item) for item in (values or []))
+
+
+def _core_string_ends_with(value, suffix):
+    return str(value).endswith(str(suffix))
 
 
 def _core_string_lower(value):
@@ -2825,6 +3469,70 @@ def _core_agent_runtime_close(session):
     return {"closed": True}
 
 
+def _core_agent_memory_search(state, searches, already_loaded):
+    options = _core_get(state, "options", {}) or {}
+    callback = options.get("on_memories_search") or options.get("onMemoriesSearch")
+    if callable(callback):
+        return callback(list(searches or []), list(already_loaded or [])) or []
+    scripted = options.get("memory_search_results") or options.get("memorySearchResults") or {}
+    if isinstance(scripted, dict):
+        joined = "|".join(str(item) for item in (searches or []))
+        if joined in scripted:
+            return copy.deepcopy(scripted[joined])
+        for item in searches or []:
+            if str(item) in scripted:
+                return copy.deepcopy(scripted[str(item)])
+        return copy.deepcopy(scripted.get("*", []))
+    if isinstance(scripted, list):
+        return copy.deepcopy(scripted)
+    return []
+
+
+def _core_agent_skill_search(state, searches):
+    options = _core_get(state, "options", {}) or {}
+    callback = options.get("on_skills_search") or options.get("onSkillsSearch")
+    if callable(callback):
+        return callback(list(searches or [])) or []
+    scripted = options.get("skill_search_results") or options.get("skillSearchResults") or {}
+    if isinstance(scripted, dict):
+        joined = "|".join(str(item) for item in (searches or []))
+        if joined in scripted:
+            return copy.deepcopy(scripted[joined])
+        out = []
+        for item in searches or []:
+            out.extend(copy.deepcopy(scripted.get(str(item), [])))
+        if out:
+            return out
+        return copy.deepcopy(scripted.get("*", []))
+    if isinstance(scripted, list):
+        return copy.deepcopy(scripted)
+    return []
+
+
+def _core_agent_callable_invoke(state, request, options):
+    agent_options = _core_get(state, "options", {}) or {}
+    qualified = _core_get(request, "qualified_name", _core_get(request, "name", ""))
+    args = _core_get(request, "args", {})
+    for group in _core_get(state, "callable_inventory", []) or []:
+        for callable_meta in _core_get(group, "callables", []) or []:
+            if _core_get(callable_meta, "qualified_name") == qualified:
+                handler = _core_get(callable_meta, "handler")
+                if callable(handler):
+                    return {"status": "ok", "value": handler(args)}
+    scripted = agent_options.get("callable_results") or agent_options.get("callableResults") or {}
+    if isinstance(scripted, dict):
+        result = scripted.get(qualified, scripted.get(_core_get(request, "name", ""), scripted.get("*")))
+        if result is not None:
+            copied = copy.deepcopy(result)
+            if isinstance(copied, dict) and copied.get("error"):
+                return {"status": "error", "error": copied.get("error")}
+            if isinstance(copied, dict):
+                copied.setdefault("status", "ok")
+                return copied
+            return {"status": "ok", "value": copied}
+    return {"status": "error", "error": f"unknown callable: {qualified}"}
+
+
 # AXIR_CORE_AGENT_FUNCTIONS
 `
 
@@ -2838,10 +3546,27 @@ from typing import Any
 
 from .ai import AxAIServiceError, AxBaseAI, OpenAICompatibleClient
 from .gen import ax, fold_stream
+from .flow import _flow_cache_key, flow
 from .agent import (
+    AxAgent,
     AxAgentClarificationError,
     AxCodeRuntime,
     AxCodeSession,
+    OptimizerEngine,
+    _adjust_optimization_score_for_actions,
+    _build_agent_eval_prediction,
+    _build_optimization_eval_result,
+    _build_optimization_judge_payload,
+    _deserialize_optimized_artifact,
+    _filter_optimization_components,
+    _map_optimization_judge_quality_to_score,
+    _normalize_optimization_dataset,
+    _normalize_optimization_metric_scores,
+    _optimization_changed_components,
+    _optimized_artifact,
+    _scalarize_optimization_scores,
+    _serialize_optimized_artifact,
+    _validate_optimized_artifact,
     _normalize_agent_clarification_payload,
     _normalize_agent_final_payload,
     agent,
@@ -3006,6 +3731,12 @@ def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
             _run_agent_runtime_policy(fixture)
         elif kind == "agent_runtime_session":
             _run_agent_runtime_session(fixture)
+        elif kind == "program_contract":
+            _run_program_contract(fixture)
+        elif kind == "flow":
+            _run_flow(fixture)
+        elif kind == "optimize":
+            _run_optimize(fixture)
         else:
             raise FixtureError(f"unknown fixture kind {kind!r}")
     except Exception as exc:
@@ -3215,6 +3946,207 @@ def _run_forward(fixture):
                 raise FixtureError(f"chat prompt missing {item!r}: {prompt_text}")
 
 
+def _build_flow(fixture):
+    fl = flow(fixture.get("flow_options") or {"id": fixture.get("program_id", "root.flow")})
+    for step in fixture.get("steps") or []:
+        kind = step.get("kind", "execute")
+        name = step.get("name")
+        if kind == "parallel":
+            fl.parallel([{"kind": "parallel", "name": name, "program": None, "options": step.get("options") or {}}])
+            continue
+        if kind == "map":
+            output = copy.deepcopy(step.get("output") or {})
+            fl.map(name, lambda _state, output=output: copy.deepcopy(output))
+            continue
+        program = ax(step.get("signature", fixture.get("signature", "question:string -> answer:string")), step.get("options") or {})
+        if kind == "derive":
+            fl.derive(name, program, step.get("forward_options") or {})
+        else:
+            fl.execute(name, program, step.get("forward_options") or {})
+    if "returns" in fixture:
+        fl.returns(fixture.get("returns") or {})
+    if "demos" in fixture:
+        fl.set_demos(fixture.get("demos") or {})
+    return fl
+
+
+def _run_program_contract(fixture):
+    program = ax(fixture.get("signature", "question:string -> answer:string"), fixture.get("options") or {})
+    if fixture.get("program") == "flow":
+        program = _build_flow(fixture)
+    components = program.get_optimizable_components()
+    if "expected_component_ids" in fixture:
+        _assert_equal([item.get("id") for item in components], fixture["expected_component_ids"], "program component ids")
+    if "expected_components_subset" in fixture:
+        _assert_list_subset(components, fixture["expected_components_subset"], "program components")
+
+
+def _run_flow(fixture):
+    try:
+        fl = _build_flow(fixture)
+        if fixture.get("operation") == "cache_key":
+            keys = [_flow_cache_key(item) for item in fixture.get("cache_key_inputs") or []]
+            if fixture.get("expected_cache_keys_equal") and len(set(keys)) != 1:
+                raise FixtureError(f"expected equal flow cache keys, got {keys}")
+            if fixture.get("expected_cache_keys_distinct") and len(set(keys)) != len(keys):
+                raise FixtureError(f"expected distinct flow cache keys, got {keys}")
+            return
+        if "expected_plan" in fixture:
+            _assert_equal(fl.get_plan(), fixture["expected_plan"], "flow plan")
+        if "expected_plan_subset" in fixture:
+            _assert_list_subset(fl.get_plan(), fixture["expected_plan_subset"], "flow plan")
+        if fixture.get("operation") == "plan":
+            return
+        client = FakeAIService(fixture.get("responses") or [], fixture.get("stream_events") or [])
+        output = fl.forward(client, fixture.get("input") or {}, fixture.get("forward_options") or {})
+    except Exception as exc:
+        expected = fixture.get("expected_error_contains")
+        if expected and expected in str(exc):
+            return
+        raise
+    if "expected_error_contains" in fixture:
+        raise FixtureError("expected flow to fail")
+    if "expected_output" in fixture:
+        _assert_equal(output, fixture["expected_output"], "flow output")
+    if "expected_request_count" in fixture and len(client.requests) != fixture["expected_request_count"]:
+        raise FixtureError(f"expected {fixture['expected_request_count']} requests, got {len(client.requests)}")
+    if "expected_chat_log_subset" in fixture:
+        _assert_list_subset(fl.get_chat_log(), fixture["expected_chat_log_subset"], "flow chat log")
+    if "expected_trace_kinds" in fixture:
+        _assert_equal([event.get("kind") for event in fl.get_traces()], fixture["expected_trace_kinds"], "flow trace kinds")
+    if "expected_components_subset" in fixture:
+        _assert_list_subset(fl.get_optimizable_components(), fixture["expected_components_subset"], "flow components")
+
+
+def _run_optimize(fixture):
+    class FakeOptimizer(OptimizerEngine):
+        name = "fake"
+        version = "1"
+
+        def __init__(self, response):
+            self.response = response
+            self.requests = []
+            self.evaluations = []
+
+        def optimize(self, request, evaluator=None):
+            self.requests.append(copy.deepcopy(request))
+            if evaluator is not None and isinstance(self.response, dict):
+                for step in self.response.get("evaluate") or []:
+                    result = evaluator.evaluate(step.get("component_map") or step.get("componentMap") or {}, step.get("options") or {})
+                    self.evaluations.append(copy.deepcopy(result))
+            return copy.deepcopy(self.response)
+
+    def build_program():
+        sig = fixture.get("signature", "question:string -> answer:string")
+        options = copy.deepcopy(fixture.get("options") or {})
+        tools, _ = _build_tools(fixture.get("tools") or [])
+        if tools:
+            options["functions"] = tools
+        if fixture.get("program", "agent") == "axgen":
+            return ax(sig, options)
+        return agent(sig, options)
+
+    program = build_program()
+    operation = fixture.get("operation", "components")
+    try:
+        if operation == "components":
+            components = program.get_optimizable_components()
+            if "expected_components_subset" in fixture:
+                _assert_list_subset(components, fixture["expected_components_subset"], "optimizable components")
+            if "expected_component_ids" in fixture:
+                _assert_equal([item.get("id") for item in components], fixture["expected_component_ids"], "component ids")
+            return
+        if operation == "filter":
+            components = program.get_optimizable_components()
+            filtered = _filter_optimization_components(components, fixture.get("target", "all"))
+            _assert_equal([item.get("id") for item in filtered], fixture.get("expected_component_ids", []), "filtered component ids")
+            return
+        if operation == "apply":
+            before = program.get_optimizable_components()
+            artifact = _optimized_artifact("fixture", "1", fixture.get("component_map") or {}, {"source": "fixture"})
+            _validate_optimized_artifact(artifact, before)
+            program.apply_optimization(artifact)
+            after = program.get_optimizable_components()
+            if "expected_components_subset" in fixture:
+                _assert_list_subset(after, fixture["expected_components_subset"], "optimized components")
+            if "expected_changed_components" in fixture:
+                _assert_equal(_optimization_changed_components(before, fixture.get("component_map") or {}), fixture["expected_changed_components"], "changed components")
+            return
+        if operation == "artifact":
+            components = program.get_optimizable_components()
+            artifact = _optimized_artifact("fixture", "1", fixture.get("component_map") or {}, fixture.get("metadata") or {})
+            validated = _validate_optimized_artifact(artifact, components)
+            text = _serialize_optimized_artifact(validated)
+            decoded = _deserialize_optimized_artifact(text, components)
+            if "expected_artifact_subset" in fixture:
+                _assert_subset(decoded, fixture["expected_artifact_subset"], "optimized artifact")
+            return
+        if operation == "dataset":
+            normalized = _normalize_optimization_dataset(fixture.get("dataset") or [])
+            _assert_equal(normalized, fixture.get("expected_dataset"), "normalized dataset")
+            return
+        if operation == "score":
+            scores = _normalize_optimization_metric_scores(fixture.get("metric_score"))
+            scalar = _scalarize_optimization_scores(scores, fixture.get("score_options") or {})
+            prediction = fixture.get("prediction") or {"functionCalls": []}
+            adjusted = _adjust_optimization_score_for_actions(scalar, fixture.get("task") or {}, prediction)
+            if "expected_scores" in fixture:
+                _assert_equal(scores, fixture["expected_scores"], "metric scores")
+            if "expected_scalar" in fixture:
+                _assert_equal(adjusted, fixture["expected_scalar"], "metric scalar")
+            if "quality" in fixture:
+                _assert_equal(_map_optimization_judge_quality_to_score(fixture["quality"]), fixture.get("expected_quality_score"), "judge quality score")
+            return
+        if operation == "judge_payload":
+            payload = _build_optimization_judge_payload(fixture.get("task") or {}, fixture.get("prediction") or {}, fixture.get("criteria") or "")
+            if "expected_judge_payload_subset" in fixture:
+                _assert_subset(payload, fixture["expected_judge_payload_subset"], "judge payload")
+            return
+        if operation == "evaluate":
+            if not isinstance(program, AxAgent):
+                raise FixtureError("evaluate operation requires agent program")
+            client = FakeAIService(fixture.get("responses") or [], fixture.get("stream_events") or [])
+            result = program.evaluate_optimization(client, fixture.get("dataset") or [], fixture.get("candidate_map") or {}, fixture.get("eval_options") or {})
+            if "expected_evaluation_subset" in fixture:
+                _assert_subset(result, fixture["expected_evaluation_subset"], "optimization evaluation")
+            if "expected_evaluation_rows_subset" in fixture:
+                _assert_list_subset(result.get("rows") or [], fixture["expected_evaluation_rows_subset"], "optimization evaluation rows")
+            if "expected_components_subset_after" in fixture:
+                _assert_list_subset(program.get_optimizable_components(), fixture["expected_components_subset_after"], "post-eval components")
+            return
+        if operation == "engine":
+            engine = FakeOptimizer(fixture.get("engine_response") or {})
+            opts = copy.deepcopy(fixture.get("optimize_options") or {})
+            if fixture.get("engine_uses_evaluator"):
+                opts["client"] = FakeAIService(fixture.get("responses") or [], fixture.get("stream_events") or [])
+            artifact = program.optimize_with(engine, fixture.get("dataset") or [], opts)
+            if "expected_engine_request_subset" in fixture:
+                if not engine.requests:
+                    raise FixtureError("optimizer engine was not called")
+                _assert_subset(engine.requests[0], fixture["expected_engine_request_subset"], "optimizer engine request")
+            if "expected_engine_evaluations_subset" in fixture:
+                _assert_list_subset(engine.evaluations, fixture["expected_engine_evaluations_subset"], "optimizer engine evaluations")
+            if "expected_artifact_subset" in fixture:
+                _assert_subset(artifact, fixture["expected_artifact_subset"], "optimizer artifact")
+            if "expected_components_subset" in fixture:
+                _assert_list_subset(program.get_optimizable_components(), fixture["expected_components_subset"], "optimized components")
+            return
+        if operation == "eval":
+            if not isinstance(program, AxAgent):
+                raise FixtureError("eval operation requires agent program")
+            client = FakeAIService(fixture.get("responses") or [], fixture.get("stream_events") or [])
+            prediction = program.evaluate_optimization_task(client, fixture.get("task") or {"input": fixture.get("input") or {}}, fixture.get("eval_options") or {})
+            if "expected_prediction_subset" in fixture:
+                _assert_subset(prediction, fixture["expected_prediction_subset"], "eval prediction")
+            return
+    except Exception as exc:
+        expected = fixture.get("expected_error_contains")
+        if expected and expected in str(exc):
+            return
+        raise
+    raise FixtureError(f"unknown optimize operation {operation!r}")
+
+
 def _run_agent_forward(fixture):
     client = FakeAIService(fixture.get("responses") or [], fixture.get("stream_events") or [])
     runtime = None
@@ -3238,11 +4170,15 @@ def _run_agent_forward(fixture):
         if expected and expected in str(exc):
             if "expected_clarification" in fixture:
                 _assert_subset(exc.clarification, fixture["expected_clarification"], "clarification")
+            if ag is not None:
+                _assert_agent_trace(ag, fixture)
             return
         raise
     except Exception as exc:
         expected = fixture.get("expected_error_contains")
         if expected and expected in str(exc):
+            if ag is not None:
+                _assert_agent_trace(ag, fixture)
             return
         raise
     if "expected_error_contains" in fixture:
@@ -3290,6 +4226,27 @@ def _run_agent_forward(fixture):
         _assert_list_subset(exported.get("action_log") or [], fixture["expected_action_log_subset"], "action log")
     if runtime is not None and "expected_executed" in fixture:
         _assert_equal(runtime.executed, fixture["expected_executed"], "executed code")
+    _assert_agent_trace(ag, fixture)
+
+
+def _assert_agent_trace(ag, fixture):
+    trace = ag.export_trace()
+    if "expected_trace_subset" in fixture:
+        _assert_subset(trace, fixture["expected_trace_subset"], "agent trace")
+    if "expected_trace_event_kinds" in fixture:
+        kinds = [event.get("kind") for event in trace.get("events") or []]
+        _assert_equal(kinds, fixture["expected_trace_event_kinds"], "agent trace event kinds")
+    if fixture.get("replay_trace"):
+        replay_fixtures = dict(fixture.get("replay_fixtures") or {})
+        if "expected_trace_event_kinds" in fixture and "expected_event_kinds" not in replay_fixtures:
+            replay_fixtures["expected_event_kinds"] = fixture["expected_trace_event_kinds"]
+        if "expected_output" in fixture and "expected_output" not in replay_fixtures:
+            replay_fixtures["expected_output"] = fixture["expected_output"]
+        replayed = ag.replay_trace(trace, replay_fixtures)
+        if "expected_replay_result_subset" in fixture:
+            _assert_subset(replayed, fixture["expected_replay_result_subset"], "agent replay")
+        else:
+            _assert_subset(replayed, {"ok": True, "status": "replayed"}, "agent replay")
 
 
 def _run_agent_runtime_policy(fixture):
@@ -3300,6 +4257,24 @@ def _run_agent_runtime_policy(fixture):
             result = ag.discover(fixture.get("discover") or {})
             if "expected_discover_result" in fixture:
                 _assert_equal(result, fixture.get("expected_discover_result"), "discover result")
+        if "recall" in fixture:
+            result = ag.recall(fixture.get("recall") or [])
+            if "expected_recall_result" in fixture:
+                _assert_equal(result, fixture.get("expected_recall_result"), "recall result")
+        if "used" in fixture:
+            used = fixture.get("used") or {}
+            result = ag.used(used.get("id"), used.get("reason"), used.get("stage", "executor"))
+            if "expected_used_result" in fixture:
+                _assert_equal(result, fixture.get("expected_used_result"), "used result")
+        if "invoke_callable" in fixture:
+            call = fixture.get("invoke_callable") or {}
+            result = ag.invoke_callable(call.get("qualified_name") or call.get("name"), call.get("args") or {})
+            if "expected_callable_result_subset" in fixture:
+                _assert_subset(result, fixture.get("expected_callable_result_subset"), "callable result")
+        if "replay_trace_input" in fixture:
+            result = ag.replay_trace(fixture.get("replay_trace_input") or {}, fixture.get("replay_fixtures") or {})
+            if "expected_replay_result_subset" in fixture:
+                _assert_subset(result, fixture.get("expected_replay_result_subset"), "agent replay")
         if "restore_runtime_state" in fixture:
             ag.restore_runtime_state(fixture.get("restore_runtime_state") or {})
         if "final_payload" in fixture:
@@ -3319,6 +4294,17 @@ def _run_agent_runtime_policy(fixture):
         _assert_subset(ag.get_runtime_contract(), fixture["expected_runtime_contract_subset"], "runtime contract")
     if "expected_policy_subset" in fixture:
         _assert_subset(ag.get_policy(), fixture["expected_policy_subset"], "agent policy")
+    if "expected_policy_registry_subset" in fixture:
+        _assert_subset(ag.get_policy_registry(), fixture["expected_policy_registry_subset"], "policy registry")
+    registry = ag.get_policy_registry()
+    if "expected_actor_primitives_subset" in fixture:
+        _assert_list_subset(registry.get("actor_primitives") or [], fixture["expected_actor_primitives_subset"], "actor primitives")
+    if "expected_protocol_actions_subset" in fixture:
+        _assert_list_subset(registry.get("protocol_actions") or [], fixture["expected_protocol_actions_subset"], "protocol actions")
+    if "expected_runtime_globals_subset" in fixture:
+        _assert_list_subset(registry.get("runtime_globals") or [], fixture["expected_runtime_globals_subset"], "runtime globals")
+    if "expected_host_boundaries_subset" in fixture:
+        _assert_list_subset(registry.get("host_boundaries") or [], fixture["expected_host_boundaries_subset"], "host boundaries")
     if "expected_callable_inventory_subset" in fixture:
         _assert_list_subset(ag.get_callable_inventory(), fixture["expected_callable_inventory_subset"], "callable inventory")
     if "expected_discovery_catalog_subset" in fixture:
@@ -3328,12 +4314,25 @@ def _run_agent_runtime_policy(fixture):
         _assert_list_subset(state.get("discovered_tool_docs") or [], fixture["expected_discovered_tool_docs_subset"], "discovered tools")
     if "expected_loaded_skill_docs_subset" in fixture:
         _assert_list_subset(state.get("loaded_skill_docs") or [], fixture["expected_loaded_skill_docs_subset"], "loaded skills")
+    if "expected_loaded_memories_subset" in fixture:
+        _assert_list_subset(state.get("loaded_memories") or [], fixture["expected_loaded_memories_subset"], "loaded memories")
+    if "expected_used_memories_subset" in fixture:
+        _assert_list_subset(state.get("used_memories") or [], fixture["expected_used_memories_subset"], "used memories")
+    if "expected_used_skills_subset" in fixture:
+        _assert_list_subset(state.get("used_skills") or [], fixture["expected_used_skills_subset"], "used skills")
+    if "expected_guidance_log_subset" in fixture:
+        _assert_list_subset(state.get("guidance_log") or [], fixture["expected_guidance_log_subset"], "guidance log")
+    if "expected_function_call_traces_subset" in fixture:
+        _assert_list_subset(state.get("function_call_traces") or [], fixture["expected_function_call_traces_subset"], "function call traces")
     if "expected_policy_trace_subset" in fixture:
         _assert_list_subset(state.get("policy_trace") or [], fixture["expected_policy_trace_subset"], "policy trace")
+    if "expected_action_log_subset" in fixture:
+        _assert_list_subset(state.get("action_log") or [], fixture["expected_action_log_subset"], "action log")
     if "expected_exported_state_subset" in fixture:
         _assert_subset(state, fixture["expected_exported_state_subset"], "exported runtime state")
     if "expected_optimizer_metadata_subset" in fixture:
         _assert_subset(ag.get_optimizer_metadata(), fixture["expected_optimizer_metadata_subset"], "optimizer metadata")
+    _assert_agent_trace(ag, fixture)
 
 
 def _run_agent_runtime_session(fixture):
@@ -3391,6 +4390,7 @@ def _run_agent_runtime_session(fixture):
         raise FixtureError(f"expected {fixture['expected_session_count']} sessions, got {len(runtime.sessions)}")
     if "expected_executed" in fixture:
         _assert_equal(runtime.executed, fixture["expected_executed"], "executed code")
+    _assert_agent_trace(ag, fixture)
 
 
 def _run_ai_chat(fixture):

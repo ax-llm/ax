@@ -1,0 +1,10 @@
+{
+  "discover": {
+    "skills": ["sql"]
+  },
+  "expected_error_contains": "discover({ skills }) requires skill discovery to be enabled",
+  "kind": "agent_runtime_policy",
+  "name": "discover-skills-requires-skills-mode",
+  "options": {},
+  "signature": "question:string -> answer:string"
+}

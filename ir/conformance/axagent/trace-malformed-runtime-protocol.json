@@ -1,0 +1,22 @@
+{
+  "code": "return raw",
+  "context_values": {
+    "question": "raw"
+  },
+  "expected_result_subset": {
+    "kind": "result",
+    "result": "not a protocol object"
+  },
+  "expected_trace_event_kinds": ["runtime_execute"],
+  "kind": "agent_runtime_session",
+  "name": "trace-malformed-runtime-protocol",
+  "operation": "test",
+  "replay_trace": true,
+  "runtime_script": [
+    {
+      "expected_code": "return raw",
+      "result": "not a protocol object"
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

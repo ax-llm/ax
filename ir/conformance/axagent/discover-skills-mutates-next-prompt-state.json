@@ -18,6 +18,8 @@
   ],
   "kind": "agent_runtime_policy",
   "name": "discover-skills-mutates-next-prompt-state",
-  "options": {},
+  "options": {
+    "skillsMode": true
+  },
   "signature": "question:string -> answer:string"
 }

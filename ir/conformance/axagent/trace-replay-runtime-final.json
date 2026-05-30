@@ -1,0 +1,73 @@
+{
+  "expected_output": {
+    "answer": "trace ok"
+  },
+  "expected_replay_result_subset": {
+    "ok": true,
+    "output": {
+      "answer": "trace ok"
+    },
+    "status": "replayed"
+  },
+  "expected_request_count": 3,
+  "expected_trace_event_kinds": [
+    "stage_request",
+    "stage_response",
+    "stage_request",
+    "stage_response",
+    "runtime_execute",
+    "final",
+    "stage_request",
+    "stage_response",
+    "final"
+  ],
+  "expected_trace_subset": {
+    "final_output": {
+      "answer": "trace ok"
+    },
+    "kind": "agent_run",
+    "optimizer_metadata": {
+      "policy_version": "agent-runtime-decision-v1"
+    },
+    "replayable": true,
+    "schema_version": "axir-agent-trace-v1",
+    "status": "completed"
+  },
+  "input": {
+    "question": "Trace runtime"
+  },
+  "kind": "agent_forward",
+  "name": "trace-replay-runtime-final",
+  "options": {
+    "runtime": {
+      "language": "Python"
+    }
+  },
+  "replay_trace": true,
+  "responses": [
+    {
+      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Execute runtime code\",{}]}}"
+    },
+    {
+      "content": "{\"pythonCode\":\"final(\\\"Answer\\\", {\\\"answer\\\": \\\"trace ok\\\"})\"}"
+    },
+    {
+      "content": "{\"answer\":\"trace ok\"}"
+    }
+  ],
+  "runtime_script": [
+    {
+      "expected_code": "final(\"Answer\", {\"answer\": \"trace ok\"})",
+      "result": {
+        "args": [
+          "Answer",
+          {
+            "answer": "trace ok"
+          }
+        ],
+        "type": "final"
+      }
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

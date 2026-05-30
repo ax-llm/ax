@@ -1,0 +1,51 @@
+{
+  "expected_action_log_subset": [
+    {
+      "guidance": "Use the approved template before answering.",
+      "type": "guide_agent"
+    }
+  ],
+  "expected_callable_result_subset": {
+    "guidance_payload": {
+      "guidance": "Use the approved template before answering.",
+      "triggeredBy": "tools.review",
+      "type": "guide_agent"
+    },
+    "status": "ok"
+  },
+  "expected_guidance_log_subset": [
+    {
+      "guidance": "Use the approved template before answering.",
+      "triggeredBy": "tools.review"
+    }
+  ],
+  "expected_trace_event_kinds": ["function_call", "guide_agent"],
+  "invoke_callable": {
+    "args": {
+      "draft": "rough answer"
+    },
+    "qualified_name": "tools.review"
+  },
+  "kind": "agent_runtime_policy",
+  "name": "tool-call-guide-agent-protocol",
+  "options": {
+    "functions": [
+      {
+        "functions": [
+          {
+            "description": "Review plan",
+            "name": "review"
+          }
+        ],
+        "namespace": "tools"
+      }
+    ],
+    "callable_results": {
+      "tools.review": {
+        "guidance": "Use the approved template before answering."
+      }
+    }
+  },
+  "replay_trace": true,
+  "signature": "question:string -> answer:string"
+}

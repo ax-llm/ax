@@ -1,0 +1,36 @@
+{
+  "dataset": [
+    {
+      "input": {
+        "question": "Capital?"
+      },
+      "score": 1
+    }
+  ],
+  "engine_response": {
+    "componentMap": {
+      "task.root.responder::instruction": "Do not apply me."
+    }
+  },
+  "expected_artifact_subset": {
+    "artifactVersion": "axir-optimized-artifact-v1",
+    "componentMap": {
+      "task.root.responder::instruction": "Do not apply me."
+    }
+  },
+  "expected_components_subset": [
+    {
+      "current": "",
+      "id": "task.root.responder::instruction"
+    }
+  ],
+  "kind": "optimize",
+  "name": "engine-apply-false-preserves-components",
+  "operation": "engine",
+  "optimize_options": {
+    "apply": false,
+    "target": "responder"
+  },
+  "program": "agent",
+  "signature": "question:string -> answer:string"
+}

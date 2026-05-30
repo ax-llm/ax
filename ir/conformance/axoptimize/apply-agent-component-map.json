@@ -1,0 +1,24 @@
+{
+  "component_map": {
+    "task.root.responder::instruction": "Use evidence only."
+  },
+  "expected_changed_components": [
+    {
+      "current": "",
+      "id": "task.root.responder::instruction",
+      "next": "Use evidence only."
+    }
+  ],
+  "expected_components_subset": [
+    {
+      "current": "Use evidence only.",
+      "id": "task.root.responder::instruction",
+      "kind": "instruction"
+    }
+  ],
+  "kind": "optimize",
+  "name": "apply-agent-component-map",
+  "operation": "apply",
+  "program": "agent",
+  "signature": "question:string -> answer:string"
+}

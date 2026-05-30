@@ -21,6 +21,7 @@
   "kind": "agent_runtime_policy",
   "name": "discover-tools-mutates-next-prompt-state",
   "options": {
+    "functionDiscovery": true,
     "functions": [
       {
         "functions": [

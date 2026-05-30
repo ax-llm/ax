@@ -48,6 +48,8 @@ const (
 	IntrinsicGT                     CoreIntrinsic = "intrinsic.gt"
 	IntrinsicGTE                    CoreIntrinsic = "intrinsic.gte"
 	IntrinsicAdd                    CoreIntrinsic = "intrinsic.add"
+	IntrinsicMul                    CoreIntrinsic = "intrinsic.mul"
+	IntrinsicDiv                    CoreIntrinsic = "intrinsic.div"
 	IntrinsicContains               CoreIntrinsic = "intrinsic.contains"
 	IntrinsicLen                    CoreIntrinsic = "intrinsic.len"
 	IntrinsicTruthy                 CoreIntrinsic = "intrinsic.truthy"
@@ -60,6 +62,7 @@ const (
 	IntrinsicMapGet                 CoreIntrinsic = "intrinsic.map.get"
 	IntrinsicMapDelete              CoreIntrinsic = "intrinsic.map.delete"
 	IntrinsicMapUpdate              CoreIntrinsic = "intrinsic.map.update"
+	IntrinsicMapKeys                CoreIntrinsic = "intrinsic.map.keys"
 	IntrinsicMapValues              CoreIntrinsic = "intrinsic.map.values"
 	IntrinsicRecordNew              CoreIntrinsic = "intrinsic.record.new"
 	IntrinsicObjectCallMethod       CoreIntrinsic = "intrinsic.object.call_method"
@@ -69,6 +72,7 @@ const (
 	IntrinsicRuntimeError           CoreIntrinsic = "intrinsic.error.runtime"
 	IntrinsicJSONParse              CoreIntrinsic = "intrinsic.json.parse"
 	IntrinsicJSONStringify          CoreIntrinsic = "intrinsic.json.stringify"
+	IntrinsicJSONStableStringify    CoreIntrinsic = "intrinsic.json.stable_stringify"
 	IntrinsicToolInvoke             CoreIntrinsic = "intrinsic.tool.invoke"
 	IntrinsicAIErrorResponse        CoreIntrinsic = "intrinsic.ai.error.response"
 	IntrinsicAIErrorRefusal         CoreIntrinsic = "intrinsic.ai.error.refusal"
@@ -129,6 +133,9 @@ const (
 	IntrinsicAgentRuntimeExport     CoreIntrinsic = "intrinsic.agent.runtime.export_state"
 	IntrinsicAgentRuntimeRestore    CoreIntrinsic = "intrinsic.agent.runtime.restore_state"
 	IntrinsicAgentRuntimeClose      CoreIntrinsic = "intrinsic.agent.runtime.close"
+	IntrinsicAgentMemorySearch      CoreIntrinsic = "intrinsic.agent.memory_search"
+	IntrinsicAgentSkillSearch       CoreIntrinsic = "intrinsic.agent.skill_search"
+	IntrinsicAgentCallableInvoke    CoreIntrinsic = "intrinsic.agent.callable.invoke"
 	IntrinsicStreamEventParts       CoreIntrinsic = "intrinsic.stream.event_content_parts"
 	IntrinsicDescriptionAppend      CoreIntrinsic = "intrinsic.description.append"
 	IntrinsicURLValid               CoreIntrinsic = "intrinsic.url.valid"
@@ -154,6 +161,8 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicGT:                     "_core_gt",
 	IntrinsicGTE:                    "_core_gte",
 	IntrinsicAdd:                    "_core_add",
+	IntrinsicMul:                    "_core_mul",
+	IntrinsicDiv:                    "_core_div",
 	IntrinsicContains:               "_core_contains",
 	IntrinsicLen:                    "_core_len",
 	IntrinsicTruthy:                 "_core_truthy",
@@ -166,6 +175,7 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicMapGet:                 "_core_map_get",
 	IntrinsicMapDelete:              "_core_map_delete",
 	IntrinsicMapUpdate:              "_core_map_update",
+	IntrinsicMapKeys:                "_core_map_keys",
 	IntrinsicMapValues:              "_core_map_values",
 	IntrinsicRecordNew:              "_core_record_new",
 	IntrinsicObjectCallMethod:       "_core_object_call_method",
@@ -175,6 +185,7 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicRuntimeError:           "_core_runtime_error",
 	IntrinsicJSONParse:              "_core_json_parse",
 	IntrinsicJSONStringify:          "_core_json_stringify",
+	IntrinsicJSONStableStringify:    "_core_json_stable_stringify",
 	IntrinsicToolInvoke:             "_core_tool_invoke",
 	IntrinsicAIErrorResponse:        "_core_ai_error_response",
 	IntrinsicAIErrorRefusal:         "_core_ai_error_refusal",
@@ -235,6 +246,9 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicAgentRuntimeExport:     "_core_agent_runtime_export_state",
 	IntrinsicAgentRuntimeRestore:    "_core_agent_runtime_restore_state",
 	IntrinsicAgentRuntimeClose:      "_core_agent_runtime_close",
+	IntrinsicAgentMemorySearch:      "_core_agent_memory_search",
+	IntrinsicAgentSkillSearch:       "_core_agent_skill_search",
+	IntrinsicAgentCallableInvoke:    "_core_agent_callable_invoke",
 	IntrinsicStreamEventParts:       "_core_stream_event_content_parts",
 	IntrinsicDescriptionAppend:      "_core_description_append",
 	IntrinsicURLValid:               "_core_url_valid",
@@ -260,6 +274,8 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.gt":                                    true,
 	"intrinsic.gte":                                   true,
 	"intrinsic.add":                                   true,
+	"intrinsic.mul":                                   true,
+	"intrinsic.div":                                   true,
 	"intrinsic.len":                                   true,
 	"intrinsic.contains":                              true,
 	"intrinsic.truthy":                                true,
@@ -272,6 +288,7 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.map.get":                               true,
 	"intrinsic.map.delete":                            true,
 	"intrinsic.map.update":                            true,
+	"intrinsic.map.keys":                              true,
 	"intrinsic.map.values":                            true,
 	"intrinsic.object.call_method":                    true,
 	"intrinsic.ai.complete_once":                      true,
@@ -280,6 +297,7 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.error.runtime":                         true,
 	"intrinsic.json.parse":                            true,
 	"intrinsic.json.stringify":                        true,
+	"intrinsic.json.stable_stringify":                 true,
 	"intrinsic.tool.invoke":                           true,
 	"intrinsic.ai.error.response":                     true,
 	"intrinsic.ai.error.refusal":                      true,
@@ -350,6 +368,9 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.agent.runtime.export_state":            true,
 	"intrinsic.agent.runtime.restore_state":           true,
 	"intrinsic.agent.runtime.close":                   true,
+	"intrinsic.agent.memory_search":                   true,
+	"intrinsic.agent.skill_search":                    true,
+	"intrinsic.agent.callable.invoke":                 true,
 	"intrinsic.stream.event_content_parts":            true,
 	"intrinsic.url.valid":                             true,
 	"intrinsic.type.is_json":                          true,
@@ -592,6 +613,8 @@ var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.lte":                          intrinsicInfo("intrinsic.lte", 2, 2, false, "bool"),
 	"intrinsic.gt":                           intrinsicInfo("intrinsic.gt", 2, 2, false, "bool"),
 	"intrinsic.gte":                          intrinsicInfo("intrinsic.gte", 2, 2, false, "bool"),
+	"intrinsic.mul":                          intrinsicInfo("intrinsic.mul", 2, 2, false, "f64"),
+	"intrinsic.div":                          intrinsicInfo("intrinsic.div", 2, 2, false, "f64"),
 	"intrinsic.len":                          intrinsicInfo("intrinsic.len", 1, 1, false, "i64"),
 	"intrinsic.contains":                     intrinsicInfo("intrinsic.contains", 2, 2, false, "bool"),
 	"intrinsic.is_none":                      intrinsicInfo("intrinsic.is_none", 1, 1, false, "bool"),
@@ -601,8 +624,10 @@ var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.map.contains":                 intrinsicInfo("intrinsic.map.contains", 2, 2, false, "bool"),
 	"intrinsic.map.get":                      intrinsicInfo("intrinsic.map.get", 2, 3, false, "json"),
 	"intrinsic.map.delete":                   intrinsicInfo("intrinsic.map.delete", 2, 2, false, "json"),
+	"intrinsic.map.keys":                     intrinsicInfo("intrinsic.map.keys", 1, 1, false, "list<string>"),
 	"intrinsic.json.parse":                   intrinsicInfo("intrinsic.json.parse", 1, 1, false, "json"),
 	"intrinsic.json.stringify":               intrinsicInfo("intrinsic.json.stringify", 1, 1, false, "string"),
+	"intrinsic.json.stable_stringify":        intrinsicInfo("intrinsic.json.stable_stringify", 1, 1, false, "string"),
 	"intrinsic.tool.invoke":                  intrinsicInfo("intrinsic.tool.invoke", 2, 2, true, "json"),
 	"intrinsic.agent.stage_forward":          intrinsicInfo("intrinsic.agent.stage_forward", 4, 4, true, "json"),
 	"intrinsic.agent.stage_chat_log":         intrinsicInfo("intrinsic.agent.stage_chat_log", 1, 1, true, "list<json>"),
@@ -613,6 +638,9 @@ var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.agent.runtime.export_state":   intrinsicInfo("intrinsic.agent.runtime.export_state", 2, 2, true, "json"),
 	"intrinsic.agent.runtime.restore_state":  intrinsicInfo("intrinsic.agent.runtime.restore_state", 3, 3, true, "json"),
 	"intrinsic.agent.runtime.close":          intrinsicInfo("intrinsic.agent.runtime.close", 1, 1, true, "json"),
+	"intrinsic.agent.memory_search":          intrinsicInfo("intrinsic.agent.memory_search", 3, 3, true, "json"),
+	"intrinsic.agent.skill_search":           intrinsicInfo("intrinsic.agent.skill_search", 2, 2, true, "json"),
+	"intrinsic.agent.callable.invoke":        intrinsicInfo("intrinsic.agent.callable.invoke", 3, 3, true, "json"),
 	"intrinsic.object.call_method":           intrinsicInfo("intrinsic.object.call_method", 2, -1, true, "json"),
 	"intrinsic.ai.complete_once":             intrinsicInfo("intrinsic.ai.complete_once", 2, 2, true, "json"),
 	"intrinsic.retry.sleep":                  intrinsicInfo("intrinsic.retry.sleep", 1, 1, true, "void"),

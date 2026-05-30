@@ -1,0 +1,56 @@
+{
+  "candidate_map": {
+    "task.root.responder::instruction": "Return only verified answers."
+  },
+  "dataset": [
+    {
+      "expectedOutput": {
+        "answer": "Paris"
+      },
+      "input": {
+        "question": "Capital of France?"
+      },
+      "score": 1
+    }
+  ],
+  "expected_components_subset_after": [
+    {
+      "current": "",
+      "id": "task.root.responder::instruction"
+    }
+  ],
+  "expected_evaluation_rows_subset": [
+    {
+      "prediction": {
+        "completionType": "final",
+        "output": {
+          "answer": "Paris"
+        }
+      },
+      "scalar": 1
+    }
+  ],
+  "expected_evaluation_subset": {
+    "avg": 1,
+    "candidateMap": {
+      "task.root.responder::instruction": "Return only verified answers."
+    },
+    "count": 1
+  },
+  "kind": "optimize",
+  "name": "candidate-evaluation-final-rollback",
+  "operation": "evaluate",
+  "program": "agent",
+  "responses": [
+    {
+      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer the question\",{}]}}"
+    },
+    {
+      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer the question\",{\"answer\":\"Paris\"}]}}"
+    },
+    {
+      "content": "{\"answer\":\"Paris\"}"
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

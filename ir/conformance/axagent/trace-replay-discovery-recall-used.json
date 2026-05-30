@@ -1,0 +1,77 @@
+{
+  "discover": {
+    "skills": ["sql"],
+    "tools": ["docs"]
+  },
+  "expected_discovered_tool_docs_subset": [
+    {
+      "description": "Search documentation",
+      "qualified_name": "docs.search"
+    }
+  ],
+  "expected_loaded_memories_subset": [
+    {
+      "content": "User prefers compact answers.",
+      "id": "mem-1"
+    }
+  ],
+  "expected_loaded_skill_docs_subset": [
+    {
+      "content": "Use SQL safely.",
+      "id": "skill.sql",
+      "name": "sql"
+    }
+  ],
+  "expected_trace_event_kinds": ["discover", "recall", "used"],
+  "expected_used_memories_subset": [
+    {
+      "id": "mem-1",
+      "reason": "personalization",
+      "stage": "executor"
+    }
+  ],
+  "kind": "agent_runtime_policy",
+  "name": "trace-replay-discovery-recall-used",
+  "options": {
+    "functionDiscovery": true,
+    "skillsMode": true,
+    "memoriesMode": true,
+    "usageTrackingMode": true,
+    "functions": [
+      {
+        "functions": [
+          {
+            "description": "Search documentation",
+            "name": "search"
+          }
+        ],
+        "namespace": "docs"
+      }
+    ],
+    "skill_search_results": {
+      "sql": [
+        {
+          "content": "Use SQL safely.",
+          "id": "skill.sql",
+          "name": "sql"
+        }
+      ]
+    },
+    "memory_search_results": {
+      "prefs": [
+        {
+          "content": "User prefers compact answers.",
+          "id": "mem-1"
+        }
+      ]
+    }
+  },
+  "recall": "prefs",
+  "replay_trace": true,
+  "signature": "question:string -> answer:string",
+  "used": {
+    "id": "mem-1",
+    "reason": "personalization",
+    "stage": "executor"
+  }
+}

@@ -30,12 +30,16 @@ class AIClient;
 class Transport;
 class Tool;
 class AxMemory;
+class AxProgram;
 class AxGen;
 class AxAgent;
+class AxFlow;
 class AxCodeRuntime;
 class AxCodeSession;
 class AxAIService;
 class OpenAICompatibleClient;
+class OptimizerEngine;
+class OptimizerEvaluator;
 
 struct Value {
   std::variant<std::nullptr_t, bool, double, std::string, std::shared_ptr<Array>, std::shared_ptr<Object>> data;
@@ -84,6 +88,8 @@ struct Core {
   static Value gt(Value left, Value right);
   static Value gte(Value left, Value right);
   static Value add(Value left, Value right);
+  static Value mul(Value left, Value right);
+  static Value div(Value left, Value right);
   static Value contains(Value container, Value item);
   static Value len(Value value);
   static Value is_none(Value value);
@@ -99,6 +105,7 @@ struct Core {
   static Value map_get(Value values, Value key);
   static Value map_delete(Value values, Value key);
   static Value map_update(Value target, Value values);
+  static Value map_keys(Value values);
   static Value map_values(Value values);
   static Value list_get(Value values, Value index, Value default_value);
   static Value type_is(Value value, Value type_name);
@@ -128,6 +135,7 @@ struct Core {
   static Value sorted_strings(Value values);
   static Value json_parse(Value value);
   static Value json_stringify(Value value);
+  static Value json_stable_stringify(Value value);
   static Value json_pretty(Value value);
   static Value signature_error(Value message);
   static Value validation_error(Value message);
@@ -189,7 +197,23 @@ struct Core {
   static Value agent_runtime_export_state(Value session, Value options);
   static Value agent_runtime_restore_state(Value session, Value snapshot, Value options);
   static Value agent_runtime_close(Value session);
+  static Value agent_memory_search(Value state, Value searches, Value already_loaded);
+  static Value agent_skill_search(Value state, Value searches);
+  static Value agent_callable_invoke(Value state, Value request, Value options);
   static Value stream_event_content_parts(Value event);
+  static Value _normalize_agent_string_list(Value value, Value label);
+  static Value _normalize_agent_discover_request(Value state, Value request);
+  static Value _agent_append_unique_by_field(Value items, Value item, Value field);
+  static Value _agent_render_discovered_tool_docs(Value docs);
+  static Value _agent_render_loaded_skills(Value skills);
+  static Value _agent_recall(Value state, Value request);
+  static Value _agent_merge_memory_results(Value existing, Value incoming);
+  static Value _normalize_agent_recall_request(Value state, Value request);
+  static Value _agent_used(Value state, Value request, Value stage);
+  static Value _normalize_agent_used_request(Value request, Value default_stage);
+  static Value _agent_append_guidance(Value state, Value payload);
+  static Value _normalize_agent_guidance_payload(Value value, Value triggered_by);
+  static Value _agent_execute_callable(Value state, Value request, Value options);
 
   static Value _signature_parse_fields_impl(Value text, Value output);
   static Value _signature_validate_field_shape_impl(Value field, Value output, Value nested);
@@ -290,6 +314,17 @@ struct Core {
   static Value _agent_runtime_code_fence_language(Value tokens, Value alias_key, Value is_javascript);
   static Value _normalize_agent_runtime(Value options);
   static Value _normalize_agent_policy(Value options);
+  static Value _agent_policy_flags(Value options);
+  static Value _agent_policy_action(Value id, Value category, Value kind, Value stages, Value availability, Value effect, Value host_boundary, Value actor_visible);
+  static Value _agent_policy_registry(Value policy, Value flags);
+  static Value _policy_flag_enabled(Value flags, Value condition);
+  static Value _select_actor_primitives(Value registry, Value stage);
+  static Value _select_protocol_actions(Value registry);
+  static Value _select_runtime_globals(Value registry);
+  static Value _validate_policy_reserved_names(Value registry, Value name);
+  static Value _render_actor_primitive_guidance(Value registry, Value stage);
+  static Value _record_policy_event(Value state, Value action, Value payload);
+  static Value _normalize_policy_action_result(Value action, Value payload);
   static Value _build_agent_actor_prompt_policy(Value state);
   static Value _normalize_agent_callable(Value raw, Value namespace_);
   static Value _normalize_agent_group(Value raw);
@@ -300,6 +335,12 @@ struct Core {
   static Value _normalize_agent_final_payload(Value value);
   static Value _normalize_agent_clarification_payload(Value value);
   static Value _agent_optimizer_metadata(Value state);
+  static Value _agent_begin_trace(Value state, Value input);
+  static Value _agent_record_trace_event(Value state, Value kind, Value payload);
+  static Value _agent_normalize_host_boundary_event(Value boundary, Value request, Value result, Value status);
+  static Value _agent_finalize_trace(Value state, Value status, Value output);
+  static Value _agent_export_trace(Value state);
+  static Value _agent_replay_trace(Value trace, Value fixtures);
   static Value _agent_export_runtime_state(Value state);
   static Value _agent_restore_runtime_state(Value state, Value snapshot);
   static Value _agent_runtime_build_globals(Value state, Value values);
@@ -326,6 +367,35 @@ struct Core {
   static Value _agent_stage_options(Value state, Value stage, Value forward_options);
   static Value _extract_agent_runtime_code(Value state, Value executor_output);
   static Value _agent_forward(Value state, Value distiller, Value executor, Value responder, Value client, Value values, Value options);
+  static Value _optimization_component(Value id, Value owner, Value kind, Value current, Value description, Value constraints, Value depends_on, Value preserve, Value format, Value validation);
+  static Value _optimized_artifact(Value optimizer_name, Value optimizer_version, Value component_map, Value metadata);
+  static Value _validate_optimization_component_map(Value components, Value component_map);
+  static Value _validate_optimized_artifact(Value artifact, Value components);
+  static Value _serialize_optimized_artifact(Value artifact);
+  static Value _deserialize_optimized_artifact(Value text, Value components);
+  static Value _optimization_changed_components(Value components, Value component_map);
+  static Value _optimization_component_current_map(Value components);
+  static Value _normalize_optimization_dataset(Value dataset);
+  static Value _normalize_optimization_metric_scores(Value raw);
+  static Value _scalarize_optimization_scores(Value scores, Value options);
+  static Value _optimization_action_name_matches(Value expected, Value call);
+  static Value _adjust_optimization_score_for_actions(Value score, Value task, Value prediction);
+  static Value _map_optimization_judge_quality_to_score(Value quality);
+  static Value _build_optimization_judge_payload(Value task, Value prediction, Value criteria);
+  static Value _build_optimization_eval_row(Value task, Value prediction, Value scores, Value scalar, Value trace, Value error);
+  static Value _build_optimization_eval_result(Value rows, Value candidate_map, Value phase);
+  static Value _filter_optimization_components(Value components, Value target);
+  static Value _build_optimizer_request(Value program_kind, Value components, Value dataset, Value options, Value trace);
+  static Value _build_agent_eval_prediction(Value output, Value action_log, Value usage, Value trace);
+  static Value _program_descriptor(Value kind, Value id, Value metadata);
+  static Value _program_trace_event(Value program_id, Value kind, Value payload);
+  static Value _flow_factory(Value options);
+  static Value _flow_step(Value kind, Value name, Value program, Value options);
+  static Value _flow_add_step(Value flow, Value step);
+  static Value _flow_set_returns(Value flow, Value returns);
+  static Value _flow_plan(Value flow);
+  static Value _flow_cache_key(Value values);
+  static Value _flow_forward(Value flow, Value client, Value values, Value options);
 };
 
 class AIClient {
@@ -441,7 +511,14 @@ class AxMemory {
   Value items_;
 };
 
-class AxGen {
+class AxProgram {
+ public:
+  virtual ~AxProgram() = default;
+  virtual Value forward(AIClient& client, Value values, Value options = Value::object()) = 0;
+  virtual Value get_optimizable_components() const { return Value::array(); }
+};
+
+class AxGen : public AxProgram {
  public:
   explicit AxGen(Value signature, Value options = Value::object());
   Value forward(AIClient& client, Value values, Value options = Value::object());
@@ -454,6 +531,15 @@ class AxGen {
   AxGen& add_field_processor(std::string field, std::function<Value(Value)> processor);
   AxGen& on_function_call(std::function<void(Value)> hook);
   AxGen& set_stop_functions(Value names);
+  AxGen& set_instruction(Value instruction);
+  Value get_instruction() const;
+  AxGen& clear_instruction();
+  Value get_optimizable_components() const;
+  AxGen& apply_optimized_components(Value component_map);
+  AxGen& apply_optimization(Value artifact);
+  Value evaluate_optimization(AIClient& client, Value dataset, Value candidate_map = Value::object(), Value options = Value::object());
+  Value optimize_with(OptimizerEngine& engine, Value dataset, Value options = Value::object());
+  Value optimize_with(OptimizerEngine& engine, AIClient& client, Value dataset, Value options = Value::object());
   Value get_traces() const;
   Value get_chat_log() const;
   Value get_function_call_traces() const;
@@ -464,6 +550,30 @@ class AxGen {
   Value state_;
   AxMemory memory_;
   void refresh_prompt_template();
+};
+
+class AxFlow : public AxProgram {
+ public:
+  explicit AxFlow(Value options = Value::object());
+  AxFlow& execute(std::string name, AxGen& program, Value options = Value::object());
+  AxFlow& derive(std::string name, AxGen& program, Value options = Value::object());
+  AxFlow& map(std::string name, std::function<Value(Value)> mapper);
+  AxFlow& parallel(Value steps);
+  AxFlow& returns(Value spec);
+  AxFlow& set_demos(Value demos);
+  Value forward(AIClient& client, Value values, Value options = Value::object());
+  Value get_plan() const;
+  Value get_traces() const;
+  Value get_chat_log() const;
+  Value get_usage() const;
+  Value get_optimizable_components() const;
+  AxFlow& apply_optimized_components(Value component_map);
+  AxFlow& apply_optimization(Value artifact);
+  Value value() const;
+
+ private:
+  Value state_;
+  AxFlow& add_step(Value kind, Value name, Value program, Value options);
 };
 
 class AxCodeSession {
@@ -484,7 +594,22 @@ class AxCodeRuntime {
   virtual AxCodeSession* create_session(Value globals, Value options = Value::object()) = 0;
 };
 
-class AxAgent {
+class OptimizerEvaluator {
+ public:
+  virtual ~OptimizerEvaluator() = default;
+  virtual Value evaluate(Value candidate_map, Value options = Value::object()) = 0;
+};
+
+class OptimizerEngine {
+ public:
+  virtual ~OptimizerEngine() = default;
+  virtual std::string name() const { return "host"; }
+  virtual std::string version() const { return "host"; }
+  virtual Value optimize(Value request) = 0;
+  virtual Value optimize(Value request, OptimizerEvaluator* evaluator) { return optimize(std::move(request)); }
+};
+
+class AxAgent : public AxProgram {
  public:
   explicit AxAgent(Value signature, Value options = Value::object());
   Value forward(AIClient& client, Value values, Value options = Value::object());
@@ -498,15 +623,30 @@ class AxAgent {
   void set_state(Value state);
   Value get_chat_log() const;
   Value get_action_log() const;
+  Value get_trace() const;
+  Value export_trace() const;
+  Value replay_trace(Value trace, Value fixtures = Value::object()) const;
   Value get_usage() const;
   Value get_runtime_contract() const;
   Value get_policy() const;
+  Value get_policy_registry() const;
   Value get_callable_inventory() const;
   Value get_discovery_catalog() const;
   Value discover(Value request);
+  Value recall(Value request);
+  Value used(Value id, Value reason = Value(""), Value stage = Value("executor"));
+  Value invoke_callable(Value qualified_name, Value args = Value::object(), Value options = Value::object());
   Value export_runtime_state() const;
   Value restore_runtime_state(Value snapshot);
   Value get_optimizer_metadata() const;
+  Value get_optimizable_components() const;
+  AxAgent& apply_optimized_components(Value component_map);
+  AxAgent& apply_optimization(Value artifact);
+  Value evaluate_optimization_task(AIClient& client, Value task, Value options = Value::object());
+  Value evaluate_optimization(AIClient& client, Value dataset, Value candidate_map = Value::object(), Value options = Value::object());
+  Value optimize_with(OptimizerEngine& engine, Value dataset, Value options = Value::object());
+  Value optimize_with(OptimizerEngine& engine, AIClient& client, Value dataset, Value options = Value::object());
+  Value optimize(Value dataset = Value::array(), Value options = Value::object());
 
  private:
   Value state_;
@@ -529,6 +669,7 @@ AxGen ax(Value signature, Value options = Value::object());
 AxAgent agent(const std::string& signature, Value options = Value::object());
 AxAgent agent(const char* signature, Value options = Value::object());
 AxAgent agent(Value signature, Value options = Value::object());
+AxFlow flow(Value options = Value::object());
 std::shared_ptr<AxAIService> ai(const std::string& provider, Value options = Value::object());
 std::shared_ptr<AxAIService> ai(const char* provider, Value options = Value::object());
 Value to_json_schema(Value fields, const std::string& title = "Schema", Value options = Value::object());
@@ -617,6 +758,11 @@ static std::map<std::string, std::function<void(Value)>>& function_hook_registry
   return handlers;
 }
 
+static std::map<std::string, std::function<Value(Value)>>& flow_mapper_registry() {
+  static std::map<std::string, std::function<Value(Value)>> handlers;
+  return handlers;
+}
+
 static std::string pointer_id(const void* ptr) {
   std::ostringstream out;
   out << reinterpret_cast<std::uintptr_t>(ptr);
@@ -665,6 +811,8 @@ static Object& object_mut(Value& value) {
   if (!value.is_object()) value = Value::object();
   return *std::get<std::shared_ptr<Object>>(value.data);
 }
+
+static std::string stable_stringify(const Value& value);
 
 static std::string str(const Value& value) {
   if (auto p = std::get_if<std::string>(&value.data)) return *p;
@@ -738,6 +886,11 @@ Value Core::gte(Value left, Value right) { return Value(num(left) >= num(right))
 Value Core::add(Value left, Value right) {
   if (left.is_number() && right.is_number()) return Value(num(left) + num(right));
   return Value(str(left) + str(right));
+}
+Value Core::mul(Value left, Value right) { return Value(num(left) * num(right)); }
+Value Core::div(Value left, Value right) {
+  double denom = num(right);
+  return Value(num(left) / (denom == 0.0 ? 1.0 : denom));
 }
 Value Core::contains(Value container, Value item) {
   if (container.is_object()) return Value(has_key(container, key_string(item)));
@@ -817,6 +970,11 @@ Value Core::map_update(Value target, Value values) {
 Value Core::map_values(Value values) {
   Array out;
   for (const auto& kv : entries(values)) out.push_back(kv.second);
+  return Value(out);
+}
+Value Core::map_keys(Value values) {
+  Array out;
+  for (const auto& kv : entries(values)) out.emplace_back(kv.first);
   return Value(out);
 }
 Value Core::list_get(Value values, Value index, Value default_value) {
@@ -1071,6 +1229,7 @@ Value Core::json_parse(Value value) {
   return parse_json(text);
 }
 Value Core::json_stringify(Value value) { return Value(stringify(value)); }
+Value Core::json_stable_stringify(Value value) { return Value(stable_stringify(value)); }
 Value Core::json_pretty(Value value) { return Value(stringify(value)); }
 Value Core::signature_error(Value message) { return Value(Object{{"__error", "signature"}, {"message", str(message)}}); }
 Value Core::validation_error(Value message) { return Value(Object{{"__error", "validation"}, {"message", str(message)}}); }
@@ -1179,6 +1338,11 @@ Value Core::object_call_method(Value target, Value method_name, Value arg) {
   if (str(method_name) == "render" && str(get_key(target, "__kind")) == "PromptTemplate") {
     return render_prompt(get_key(target, "signature"), arg, get_key(target, "functions", Value::array()), get_key(target, "options", Value::object()));
   }
+  if (str(method_name) == "call") {
+    std::string mapper_id = str(get_key(target, "__flow_mapper_id"));
+    auto it = flow_mapper_registry().find(mapper_id);
+    if (it != flow_mapper_registry().end()) return it->second(arg);
+  }
   throw AxError("runtime", "unsupported method call: " + str(method_name));
 }
 Value Core::ai_complete_once(Value client, Value request) {
@@ -1273,6 +1437,77 @@ Value Core::agent_runtime_close(Value session) {
   Value result = it->second->close();
   code_session_registry().erase(it);
   return result.is_null() ? Value(Object{{"closed", true}}) : result;
+}
+Value Core::agent_memory_search(Value state, Value searches, Value already_loaded) {
+  Value options = get_key(state, "options", Value::object());
+  Value scripted = get_key(options, "memory_search_results", get_key(options, "memorySearchResults", Value::object()));
+  if (scripted.is_object()) {
+    std::vector<std::string> parts;
+    for (const auto& item : array_ref(searches)) parts.push_back(str(item));
+    std::string joined;
+    for (size_t i = 0; i < parts.size(); ++i) {
+      if (i > 0) joined += "|";
+      joined += parts[i];
+    }
+    Value exact = get_key(scripted, joined, Value());
+    if (!exact.is_null()) return exact;
+    for (const auto& item : parts) {
+      Value hit = get_key(scripted, item, Value());
+      if (!hit.is_null()) return hit;
+    }
+    return get_key(scripted, "*", Value::array());
+  }
+  if (scripted.is_array()) return scripted;
+  return Value::array();
+}
+Value Core::agent_skill_search(Value state, Value searches) {
+  Value options = get_key(state, "options", Value::object());
+  Value scripted = get_key(options, "skill_search_results", get_key(options, "skillSearchResults", Value::object()));
+  if (scripted.is_object()) {
+    std::vector<std::string> parts;
+    for (const auto& item : array_ref(searches)) parts.push_back(str(item));
+    std::string joined;
+    for (size_t i = 0; i < parts.size(); ++i) {
+      if (i > 0) joined += "|";
+      joined += parts[i];
+    }
+    Value exact = get_key(scripted, joined, Value());
+    if (!exact.is_null()) return exact;
+    Value out = Value::array();
+    for (const auto& item : parts) {
+      for (const auto& match : array_ref(get_key(scripted, item, Value::array()))) append(out, match);
+    }
+    if (!array_ref(out).empty()) return out;
+    return get_key(scripted, "*", Value::array());
+  }
+  if (scripted.is_array()) return scripted;
+  return Value::array();
+}
+Value Core::agent_callable_invoke(Value state, Value request, Value options_arg) {
+  Value options = get_key(state, "options", Value::object());
+  std::string qualified = str(get_key(request, "qualified_name", get_key(request, "name", Value(""))));
+  std::string name = str(get_key(request, "name", Value("")));
+  Value scripted = get_key(options, "callable_results", get_key(options, "callableResults", Value::object()));
+  if (scripted.is_object()) {
+    Value result = get_key(scripted, qualified, Value());
+    if (result.is_null() && !name.empty()) result = get_key(scripted, name, Value());
+    if (result.is_null()) result = get_key(scripted, "*", Value());
+    if (!result.is_null()) {
+      if (result.is_object()) {
+        Value out = result;
+        if (!get_key(out, "error", Value()).is_null()) {
+          Value err = Value::object();
+          set(err, "status", "error");
+          set(err, "error", get_key(out, "error"));
+          return err;
+        }
+        if (get_key(out, "status", Value()).is_null()) set(out, "status", "ok");
+        return out;
+      }
+      return object({{"status", "ok"}, {"value", result}});
+    }
+  }
+  return object({{"status", "error"}, {"error", std::string("unknown callable: ") + qualified}});
 }
 
 static std::string titleize(const std::string& name) {
@@ -2090,6 +2325,26 @@ std::string stringify(const Value& value) {
   return out + "}";
 }
 
+static std::string stable_stringify(const Value& value) {
+  if (value.is_null()) return "null";
+  if (auto p = std::get_if<bool>(&value.data)) return *p ? "true" : "false";
+  if (value.is_number()) return display(value);
+  if (auto p = std::get_if<std::string>(&value.data)) return "\"" + escape_json(*p) + "\"";
+  if (auto p = std::get_if<std::shared_ptr<Array>>(&value.data)) {
+    std::string out = "[";
+    for (size_t i = 0; i < (*p)->size(); ++i) { if (i) out += ","; out += stable_stringify((**p)[i]); }
+    return out + "]";
+  }
+  std::string out = "{";
+  size_t i = 0;
+  for (const auto& kv : object_ref(value)) {
+    if (kv.first == "__order") continue;
+    if (i++) out += ",";
+    out += "\"" + escape_json(kv.first) + "\":" + stable_stringify(kv.second);
+  }
+  return out + "}";
+}
+
 bool equal(const Value& left, const Value& right) {
   if (left.is_number() && right.is_number()) return std::fabs(num(left) - num(right)) < 0.0000001;
   if (left.data.index() != right.data.index()) return false;
@@ -2387,6 +2642,8 @@ AxGen::AxGen(Value signature, Value options) {
   Core::set(state_, "assertions", Core::get(options, "assertions", Value::array()));
   Core::set(state_, "field_processors", Core::get(options, "field_processors", Core::get(options, "fieldProcessors", Value::array())));
   Core::set(state_, "stop_functions", Core::get(options, "stop_functions", Core::get(options, "stopFunctions", Value::array())));
+  Core::set(state_, "program_id", Core::get(options, "id", Core::get(options, "program_id", Core::get(options, "programId", Value("root")))));
+  Core::set(state_, "instruction", Core::get(options, "instruction", Value("")));
   Core::set(state_, "memory", memory_.value());
   Core::set(state_, "chat_log", Value::array());
   Core::set(state_, "function_call_traces", Value::array());
@@ -2472,6 +2729,200 @@ AxGen& AxGen::set_stop_functions(Value names) {
   return *this;
 }
 
+AxGen& AxGen::set_instruction(Value instruction) {
+  Core::set(state_, "instruction", instruction);
+  Value options = Core::get(state_, "options", Value::object());
+  Core::set(options, "instruction", instruction);
+  Core::set(state_, "options", options);
+  refresh_prompt_template();
+  return *this;
+}
+
+Value AxGen::get_instruction() const {
+  return Core::get(state_, "instruction", Value(""));
+}
+
+AxGen& AxGen::clear_instruction() {
+  return set_instruction(Value(""));
+}
+
+Value AxGen::get_optimizable_components() const {
+  Value components = Value::array();
+  Value owner = Core::get(state_, "program_id", Value("root"));
+  Value signature = Core::get(state_, "signature", Value::object());
+  Value description = Core::get(signature, "description", Value());
+  if (!description.is_null() && !str(description).empty()) {
+    Core::append(components, Core::_optimization_component(
+        Value(str(owner) + "::description"),
+        owner,
+        Value("description"),
+        description,
+        Value("Program signature description."),
+        array({Value("Preserve the task intent and field references.")}),
+        Value::array(),
+        Value(false),
+        Value("markdown"),
+        object({{"required_placeholders", Value::array()}})));
+  }
+  Core::append(components, Core::_optimization_component(
+      Value(str(owner) + "::instruction"),
+      owner,
+      Value("instruction"),
+      Core::get(state_, "instruction", Value("")),
+      Value("Prompt instruction text used by this generator."),
+      array({Value("Keep required input and output fields intact.")}),
+      Value::array(),
+      Value(false),
+      Value("markdown"),
+      object({{"required_placeholders", Value::array()}})));
+  for (const auto& fn : array_ref(Core::get(state_, "functions", Value::array()))) {
+    Value name = Core::get(fn, "name", Value(""));
+    if (str(name).empty()) continue;
+    Value desc = Core::get(fn, "description", Value(""));
+    Core::append(components, Core::_optimization_component(
+        Value(str(owner) + "::fn:" + str(name) + ":desc"),
+        owner,
+        Value("fn-desc"),
+        desc,
+        Value("Description for tool " + str(name) + "."),
+        array({Value("Non-empty, concise, and faithful to the tool behavior.")}),
+        Value::array(),
+        Value(false),
+        Value("text"),
+        object({{"maxLength", Value(320)}})));
+    Core::append(components, Core::_optimization_component(
+        Value(str(owner) + "::fn:" + str(name) + ":name"),
+        owner,
+        Value("fn-name"),
+        name,
+        Value("Callable name for tool " + str(name) + "."),
+        array({Value("snake_case"), Value("32 characters or fewer"), Value("unique among tools")}),
+        Value::array(),
+        Value(true),
+        Value("snake_case"),
+        object({{"pattern", Value("^[a-z][a-z0-9_]{0,31}$")}})));
+  }
+  return components;
+}
+
+AxGen& AxGen::apply_optimized_components(Value component_map) {
+  Value owner = Core::get(state_, "program_id", Value("root"));
+  Value instruction_id(str(owner) + "::instruction");
+  if (Core::truthy(Core::map_contains(component_map, instruction_id))) set_instruction(Core::get(component_map, instruction_id, Value("")));
+  Value description_id(str(owner) + "::description");
+  if (Core::truthy(Core::map_contains(component_map, description_id))) Core::set(state_, "optimized_description", Core::get(component_map, description_id, Value("")));
+  Value functions = Core::get(state_, "functions", Value::array());
+  Array out;
+  for (const auto& raw_fn : array_ref(functions)) {
+    Value fn = raw_fn;
+    Value name = Core::get(fn, "name", Value(""));
+    Value desc_id(str(owner) + "::fn:" + str(name) + ":desc");
+    Value name_id(str(owner) + "::fn:" + str(name) + ":name");
+    if (Core::truthy(Core::map_contains(component_map, desc_id))) Core::set(fn, "description", Core::get(component_map, desc_id, Value("")));
+    if (Core::truthy(Core::map_contains(component_map, name_id))) Core::set(fn, "name", Core::get(component_map, name_id, name));
+    out.push_back(fn);
+  }
+  Core::set(state_, "functions", Value(out));
+  refresh_prompt_template();
+  return *this;
+}
+
+AxGen& AxGen::apply_optimization(Value artifact) {
+  Value map = artifact.is_string() ? parse_json(str(artifact)) : artifact;
+  apply_optimized_components(Core::get(map, "componentMap", Core::get(map, "component_map", Value::object())));
+  return *this;
+}
+
+Value AxGen::evaluate_optimization(AIClient& client, Value dataset, Value candidate_map, Value options) {
+  Value normalized = Core::_normalize_optimization_dataset(dataset.is_null() ? Value::array() : dataset);
+  Value rows = Value::array();
+  Value original = Core::_optimization_component_current_map(get_optimizable_components());
+  try {
+    if (Core::truthy(candidate_map)) apply_optimized_components(candidate_map);
+    for (const auto& raw_task : Core::iter(Core::get(normalized, "train", Value::array()))) {
+      Value task = raw_task;
+      Value prediction = Value::object();
+      Value error;
+      try {
+        Value output = forward(client, Core::get(task, "input", task), Core::get(options, "forward_options", Value::object()));
+        prediction = object({{"completionType", "final"}, {"output", output}, {"finalOutput", output}, {"functionCalls", get_function_call_traces()}, {"actionLog", get_chat_log()}, {"usage", Value::object()}, {"trace", object({{"traces", get_traces()}})}});
+      } catch (const AxError& e) {
+        error = object({{"message", Value(std::string(e.what()))}});
+        prediction = object({{"completionType", "error"}, {"error", error}, {"functionCalls", get_function_call_traces()}, {"actionLog", get_chat_log()}, {"usage", Value::object()}, {"trace", object({{"traces", get_traces()}})}});
+      }
+      Value default_score = Core::truthy(Core::eq(Core::get(prediction, "completionType", Value("")), Value("error"))) ? Value(0) : Value(1);
+      Value raw_score = Core::get(task, "metric_score", Core::get(task, "scores", Core::get(task, "score", default_score)));
+      Value scores = Core::_normalize_optimization_metric_scores(raw_score);
+      Value scalar = Core::_adjust_optimization_score_for_actions(Core::_scalarize_optimization_scores(scores, options), task, prediction);
+      Core::append(rows, Core::_build_optimization_eval_row(task, prediction, scores, scalar, Core::get(prediction, "trace"), error));
+    }
+    Value result = Core::_build_optimization_eval_result(rows, candidate_map, Core::get(options, "phase", Value("train")));
+    apply_optimized_components(original);
+    return result;
+  } catch (...) {
+    apply_optimized_components(original);
+    throw;
+  }
+}
+
+struct AxGenOptimizerEvaluator : OptimizerEvaluator {
+  AxGen& gen;
+  AIClient& client;
+  Value dataset;
+  Value options;
+  AxGenOptimizerEvaluator(AxGen& gen_, AIClient& client_, Value dataset_, Value options_)
+      : gen(gen_), client(client_), dataset(std::move(dataset_)), options(std::move(options_)) {}
+  Value evaluate(Value candidate_map, Value eval_options = Value::object()) override {
+    Value merged = Core::map_merge(options, eval_options);
+    return gen.evaluate_optimization(client, dataset, std::move(candidate_map), merged);
+  }
+};
+
+Value AxGen::optimize_with(OptimizerEngine& engine, Value dataset, Value options) {
+  Value components = get_optimizable_components();
+  Value target = Core::get(options, "target", Value("all"));
+  Value selected = Core::_filter_optimization_components(components, target);
+  Value normalized = Core::_normalize_optimization_dataset(dataset.is_null() ? Value::array() : dataset);
+  Value request = Core::_build_optimizer_request(Value("axgen"), selected, normalized, options, object({{"traces", get_traces()}, {"chat_log", get_chat_log()}}));
+  Value evaluator_info = Core::get(request, "evaluator", Value::object());
+  Core::set(evaluator_info, "available", Value(false));
+  Core::set(request, "evaluator", evaluator_info);
+  Value artifact = engine.optimize(request);
+  artifact = Core::get(artifact, "artifact", artifact);
+  if (!artifact.is_object()) throw AxError("runtime", "optimizer engine must return an optimized artifact");
+  if (Core::get(artifact, "artifactVersion", Value()).is_null()) Core::set(artifact, "artifactVersion", Value("axir-optimized-artifact-v1"));
+  if (Core::get(artifact, "optimizerName", Value()).is_null()) Core::set(artifact, "optimizerName", Value(engine.name()));
+  if (Core::get(artifact, "optimizerVersion", Value()).is_null()) Core::set(artifact, "optimizerVersion", Value(engine.version()));
+  if (Core::get(artifact, "componentMap", Value()).is_null()) Core::set(artifact, "componentMap", Core::get(artifact, "component_map", Value::object()));
+  artifact = Core::_validate_optimized_artifact(artifact, components);
+  Core::set(artifact, "changedComponents", Core::_optimization_changed_components(components, Core::get(artifact, "componentMap", Value::object())));
+  if (Core::truthy(Core::get(options, "apply", Value(true)))) apply_optimization(artifact);
+  return artifact;
+}
+
+Value AxGen::optimize_with(OptimizerEngine& engine, AIClient& client, Value dataset, Value options) {
+  Value components = get_optimizable_components();
+  Value target = Core::get(options, "target", Value("all"));
+  Value selected = Core::_filter_optimization_components(components, target);
+  Value normalized = Core::_normalize_optimization_dataset(dataset.is_null() ? Value::array() : dataset);
+  Value request = Core::_build_optimizer_request(Value("axgen"), selected, normalized, options, object({{"traces", get_traces()}, {"chat_log", get_chat_log()}}));
+  Value evaluator_info = Core::get(request, "evaluator", Value::object());
+  Core::set(evaluator_info, "available", Value(true));
+  Core::set(request, "evaluator", evaluator_info);
+  AxGenOptimizerEvaluator evaluator(*this, client, dataset, options);
+  Value artifact = engine.optimize(request, &evaluator);
+  artifact = Core::get(artifact, "artifact", artifact);
+  if (!artifact.is_object()) throw AxError("runtime", "optimizer engine must return an optimized artifact");
+  if (Core::get(artifact, "artifactVersion", Value()).is_null()) Core::set(artifact, "artifactVersion", Value("axir-optimized-artifact-v1"));
+  if (Core::get(artifact, "optimizerName", Value()).is_null()) Core::set(artifact, "optimizerName", Value(engine.name()));
+  if (Core::get(artifact, "optimizerVersion", Value()).is_null()) Core::set(artifact, "optimizerVersion", Value(engine.version()));
+  if (Core::get(artifact, "componentMap", Value()).is_null()) Core::set(artifact, "componentMap", Core::get(artifact, "component_map", Value::object()));
+  artifact = Core::_validate_optimized_artifact(artifact, components);
+  Core::set(artifact, "changedComponents", Core::_optimization_changed_components(components, Core::get(artifact, "componentMap", Value::object())));
+  if (Core::truthy(Core::get(options, "apply", Value(true)))) apply_optimization(artifact);
+  return artifact;
+}
+
 Value AxGen::get_traces() const {
   return Core::get(state_, "traces", Value::array());
 }
@@ -2495,12 +2946,120 @@ Value AxGen::forward(AIClient& client, Value values, Value options) {
 
 Value AxGen::value() const { return state_; }
 
+AxFlow::AxFlow(Value options) {
+  state_ = Core::_flow_factory(std::move(options));
+}
+
+AxFlow& AxFlow::execute(std::string name, AxGen& program, Value options) {
+  return add_step(Value("execute"), Value(std::move(name)), Core::agent_stage_ref(program), std::move(options));
+}
+
+AxFlow& AxFlow::derive(std::string name, AxGen& program, Value options) {
+  return add_step(Value("derive"), Value(std::move(name)), Core::agent_stage_ref(program), std::move(options));
+}
+
+AxFlow& AxFlow::map(std::string name, std::function<Value(Value)> mapper) {
+  std::string id = pointer_id(this) + ":flow_mapper:" + std::to_string(flow_mapper_registry().size());
+  flow_mapper_registry()[id] = std::move(mapper);
+  return add_step(Value("map"), Value(std::move(name)), object({{"__flow_mapper_id", Value(id)}}), Value::object());
+}
+
+AxFlow& AxFlow::parallel(Value steps) {
+  for (const auto& raw_step : array_ref(steps)) {
+    Value step = raw_step;
+    add_step(
+      Core::get(step, "kind", Value("execute")),
+      Core::get(step, "name", Value("parallel")),
+      Core::get(step, "program", Value()),
+      Core::get(step, "options", Value::object())
+    );
+  }
+  return *this;
+}
+
+AxFlow& AxFlow::returns(Value spec) {
+  state_ = Core::_flow_set_returns(state_, std::move(spec));
+  return *this;
+}
+
+AxFlow& AxFlow::set_demos(Value demos) {
+  if (demos.is_array()) {
+    std::string owner = str(Core::get(state_, "program_id", Value("root.flow")));
+    std::set<std::string> known_ids;
+    known_ids.insert(owner);
+    known_ids.insert("root");
+    Value steps = Core::get(state_, "steps", Value::array());
+    for (const auto& raw_step : array_ref(steps)) {
+      std::string name = str(Core::get(raw_step, "name", Value("")));
+      if (!name.empty()) {
+        known_ids.insert(owner + "." + name);
+        known_ids.insert("root." + name);
+      }
+    }
+    std::set<std::string> unknown;
+    for (const auto& raw_demo : array_ref(demos)) {
+      Value id = Core::get(raw_demo, "programId", Value());
+      if (!id.is_null() && known_ids.find(str(id)) == known_ids.end()) unknown.insert(str(id));
+    }
+    if (!unknown.empty()) throw AxError("runtime", "Unknown program ID(s) in demos: " + *unknown.begin());
+    Core::set(state_, "demos", std::move(demos));
+    return *this;
+  }
+  Value steps = Core::get(state_, "steps", Value::array());
+  for (const auto& kv : object_ref(demos)) {
+    if (kv.first == "__order") continue;
+    bool found = false;
+    for (const auto& raw_step : array_ref(steps)) {
+      if (str(Core::get(raw_step, "name", Value(""))) == kv.first) found = true;
+    }
+    if (!found) throw AxError("runtime", "unknown flow node in demos: " + kv.first);
+  }
+  Core::set(state_, "demos", std::move(demos));
+  return *this;
+}
+
+Value AxFlow::forward(AIClient& client, Value values, Value options) {
+  return Core::_flow_forward(state_, Core::client_ref(client), std::move(values), std::move(options));
+}
+
+Value AxFlow::get_plan() const { return Core::_flow_plan(state_); }
+Value AxFlow::get_traces() const { return Core::get(state_, "traces", Value::array()); }
+Value AxFlow::get_chat_log() const { return Core::get(state_, "chat_log", Value::array()); }
+Value AxFlow::get_usage() const { return Core::get(state_, "usage", Value::object()); }
+
+Value AxFlow::get_optimizable_components() const {
+  Value owner = Core::get(state_, "program_id", Value("root.flow"));
+  Value components = Value::array();
+  Core::append(components, Core::_optimization_component(
+      Value(str(owner) + "::graph-plan"),
+      owner,
+      Value("flow-graph"),
+      get_plan(),
+      Value("AxFlow execution graph and planner barrier metadata."),
+      array({Value("Preserve node names, dependencies, and return contract.")}),
+      Value::array(),
+      Value(true),
+      Value("json"),
+      object({{"schema", Value("axflow-plan-v1")}})));
+  return components;
+}
+
+AxFlow& AxFlow::apply_optimized_components(Value) { return *this; }
+AxFlow& AxFlow::apply_optimization(Value artifact) {
+  return apply_optimized_components(Core::get(artifact, "componentMap", Core::get(artifact, "component_map", Value::object())));
+}
+Value AxFlow::value() const { return state_; }
+
+AxFlow& AxFlow::add_step(Value kind, Value name, Value program, Value options) {
+  state_ = Core::_flow_add_step(state_, Core::_flow_step(std::move(kind), std::move(name), std::move(program), std::move(options)));
+  return *this;
+}
+
 AxAgent::AxAgent(Value signature, Value options) {
   state_ = Core::_agent_factory(std::move(signature), options);
-  Value stage_options = object({{"validation_retries", 0}});
-  distiller_ = std::make_unique<AxGen>(s(str(Core::get(state_, "distiller_signature"))), stage_options);
-  executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), stage_options);
-  responder_ = std::make_unique<AxGen>(Core::get(state_, "signature"), object({{"validation_retries", Core::get(options, "validation_retries", 2)}}));
+  distiller_ = std::make_unique<AxGen>(s(str(Core::get(state_, "distiller_signature"))), object({{"validation_retries", 0}, {"id", "ctx.root.actor"}}));
+  executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), object({{"validation_retries", 0}, {"id", "task.root.actor"}}));
+  responder_ = std::make_unique<AxGen>(Core::get(state_, "signature"), object({{"validation_retries", Core::get(options, "validation_retries", 2)}, {"id", "task.root.responder"}}));
 }
 
 Value AxAgent::forward(AIClient& client, Value values, Value options) {
@@ -2544,15 +3103,174 @@ Value AxAgent::get_state() const { return Core::_agent_get_state(state_); }
 void AxAgent::set_state(Value state) { Core::_agent_set_state(state_, std::move(state)); }
 Value AxAgent::get_chat_log() const { return Core::get(state_, "chat_log", Value::array()); }
 Value AxAgent::get_action_log() const { return Core::get(state_, "action_log", Value::array()); }
+Value AxAgent::get_trace() const { return Core::_agent_export_trace(state_); }
+Value AxAgent::export_trace() const { return Core::_agent_export_trace(state_); }
+Value AxAgent::replay_trace(Value trace, Value fixtures) const { return Core::_agent_replay_trace(std::move(trace), std::move(fixtures)); }
 Value AxAgent::get_usage() const { return Core::get(state_, "usage", Value::object()); }
 Value AxAgent::get_runtime_contract() const { return Core::get(state_, "runtime_contract", Value::object()); }
 Value AxAgent::get_policy() const { return Core::get(state_, "policy", Value::object()); }
+Value AxAgent::get_policy_registry() const { return Core::get(state_, "policy_registry", Value::object()); }
 Value AxAgent::get_callable_inventory() const { return Core::get(state_, "callable_inventory", Value::array()); }
 Value AxAgent::get_discovery_catalog() const { return Core::get(state_, "discovery_catalog", Value::array()); }
 Value AxAgent::discover(Value request) { return Core::_agent_discover(state_, std::move(request)); }
+Value AxAgent::recall(Value request) { return Core::_agent_recall(state_, std::move(request)); }
+Value AxAgent::used(Value id, Value reason, Value stage) {
+  Value request = object({{"id", id}, {"reason", reason}, {"stage", stage}});
+  return Core::_agent_used(state_, request, stage);
+}
+Value AxAgent::invoke_callable(Value qualified_name, Value args, Value options) {
+  Value request = object({{"qualified_name", qualified_name}, {"args", args}});
+  return Core::_agent_execute_callable(state_, request, std::move(options));
+}
 Value AxAgent::export_runtime_state() const { return Core::_agent_export_runtime_state(state_); }
 Value AxAgent::restore_runtime_state(Value snapshot) { return Core::_agent_restore_runtime_state(state_, std::move(snapshot)); }
 Value AxAgent::get_optimizer_metadata() const { return Core::_agent_optimizer_metadata(state_); }
+Value AxAgent::get_optimizable_components() const {
+  Value components = Value::array();
+  for (const auto& item : array_ref(distiller_->get_optimizable_components())) Core::append(components, item);
+  for (const auto& item : array_ref(executor_->get_optimizable_components())) Core::append(components, item);
+  for (const auto& item : array_ref(responder_->get_optimizable_components())) Core::append(components, item);
+  Core::append(components, Core::_optimization_component(
+      Value("root.agent.runtime"),
+      Value("root.agent"),
+      Value("runtime-policy"),
+      get_runtime_contract(),
+      Value("Agent runtime-language metadata and code-field policy."),
+      array({Value("Keep code field names aligned with the selected runtime language.")}),
+      Value::array(),
+      Value(true),
+      Value("json"),
+      object({{"component", Value("runtime_contract")}})));
+  Core::append(components, Core::_optimization_component(
+      Value("root.agent.policy"),
+      Value("root.agent"),
+      Value("agent-policy"),
+      get_policy(),
+      Value("Actor primitive, discovery, delegation, and prompt placement policy."),
+      array({Value("Do not expose protocol-only actions as actor primitives.")}),
+      array({Value("root.agent.runtime")}),
+      Value(true),
+      Value("json"),
+      object({{"component", Value("policy_registry")}})));
+  return components;
+}
+AxAgent& AxAgent::apply_optimized_components(Value component_map) {
+  Core::_validate_optimization_component_map(get_optimizable_components(), component_map);
+  distiller_->apply_optimized_components(component_map);
+  executor_->apply_optimized_components(component_map);
+  responder_->apply_optimized_components(component_map);
+  if (Core::truthy(Core::map_contains(component_map, Value("root.agent.runtime")))) Core::set(state_, "runtime_contract", Core::get(component_map, "root.agent.runtime", Value::object()));
+  if (Core::truthy(Core::map_contains(component_map, Value("root.agent.policy")))) Core::set(state_, "policy", Core::get(component_map, "root.agent.policy", Value::object()));
+  Core::set(state_, "optimizer_metadata", Core::_agent_optimizer_metadata(state_));
+  return *this;
+}
+AxAgent& AxAgent::apply_optimization(Value artifact) {
+  Value components = get_optimizable_components();
+  Value map = artifact.is_string() ? Core::_deserialize_optimized_artifact(artifact, components) : Core::_validate_optimized_artifact(artifact, components);
+  return apply_optimized_components(Core::get(map, "componentMap", Value::object()));
+}
+Value AxAgent::evaluate_optimization_task(AIClient& client, Value task, Value options) {
+  Value input = Core::get(task, "input", task);
+  Value forward_options = Core::get(options, "forward_options", Value::object());
+  try {
+    Value output = forward(client, input, forward_options);
+    return Core::_build_agent_eval_prediction(output, get_action_log(), get_usage(), export_trace());
+  } catch (const AxError& e) {
+    if (e.category == "AxAgentClarificationError") {
+      return object({{"completionType", Value("askClarification")}, {"clarification", Value(std::string(e.what()))}, {"actionLog", get_action_log()}, {"functionCalls", Core::get(state_, "function_call_traces", Value::array())}, {"toolErrors", Value::array()}, {"turnCount", Value(0)}, {"usage", get_usage()}, {"trace", export_trace()}});
+    }
+    Value err = object({{"message", Value(std::string(e.what()))}});
+    return object({{"completionType", Value("error")}, {"error", err}, {"actionLog", get_action_log()}, {"functionCalls", Core::get(state_, "function_call_traces", Value::array())}, {"toolErrors", array({Value(std::string(e.what()))})}, {"turnCount", Value(0)}, {"usage", get_usage()}, {"trace", export_trace()}});
+  }
+}
+Value AxAgent::evaluate_optimization(AIClient& client, Value dataset, Value candidate_map, Value options) {
+  Value normalized = Core::_normalize_optimization_dataset(dataset.is_null() ? Value::array() : dataset);
+  Value rows = Value::array();
+  Value original = Core::_optimization_component_current_map(get_optimizable_components());
+  int max_metric_calls = static_cast<int>(num(Core::get(options, "maxMetricCalls", Core::get(options, "max_metric_calls", Value(2147483647)))));
+  int calls = 0;
+  try {
+    if (Core::truthy(candidate_map)) apply_optimized_components(candidate_map);
+    for (const auto& raw_task : Core::iter(Core::get(normalized, "train", Value::array()))) {
+      if (calls >= max_metric_calls) throw AxError("runtime", "max metric calls exceeded: " + std::to_string(max_metric_calls));
+      ++calls;
+      Value task = raw_task;
+      Value prediction = evaluate_optimization_task(client, task, options);
+      Value error = Core::get(prediction, "error");
+      Value default_score = Core::truthy(Core::eq(Core::get(prediction, "completionType", Value("")), Value("error"))) ? Value(0) : Value(1);
+      Value raw_score = Core::get(task, "metric_score", Core::get(task, "scores", Core::get(task, "score", default_score)));
+      Value scores = Core::_normalize_optimization_metric_scores(raw_score);
+      Value scalar = Core::_adjust_optimization_score_for_actions(Core::_scalarize_optimization_scores(scores, options), task, prediction);
+      Core::append(rows, Core::_build_optimization_eval_row(task, prediction, scores, scalar, Core::get(prediction, "trace"), error));
+    }
+    Value result = Core::_build_optimization_eval_result(rows, candidate_map, Core::get(options, "phase", Value("train")));
+    apply_optimized_components(original);
+    return result;
+  } catch (...) {
+    apply_optimized_components(original);
+    throw;
+  }
+}
+
+struct AxAgentOptimizerEvaluator : OptimizerEvaluator {
+  AxAgent& agent;
+  AIClient& client;
+  Value dataset;
+  Value options;
+  AxAgentOptimizerEvaluator(AxAgent& agent_, AIClient& client_, Value dataset_, Value options_)
+      : agent(agent_), client(client_), dataset(std::move(dataset_)), options(std::move(options_)) {}
+  Value evaluate(Value candidate_map, Value eval_options = Value::object()) override {
+    Value merged = Core::map_merge(options, eval_options);
+    return agent.evaluate_optimization(client, dataset, std::move(candidate_map), merged);
+  }
+};
+
+Value AxAgent::optimize_with(OptimizerEngine& engine, Value dataset, Value options) {
+  Value components = get_optimizable_components();
+  Value target = Core::get(options, "target", Value("all"));
+  Value selected = Core::_filter_optimization_components(components, target);
+  Value normalized = Core::_normalize_optimization_dataset(dataset.is_null() ? Value::array() : dataset);
+  Value request = Core::_build_optimizer_request(Value("axagent"), selected, normalized, options, export_trace());
+  Value evaluator_info = Core::get(request, "evaluator", Value::object());
+  Core::set(evaluator_info, "available", Value(false));
+  Core::set(request, "evaluator", evaluator_info);
+  Value artifact = engine.optimize(request);
+  artifact = Core::get(artifact, "artifact", artifact);
+  if (!artifact.is_object()) throw AxError("runtime", "optimizer engine must return an optimized artifact");
+  if (Core::get(artifact, "artifactVersion", Value()).is_null()) Core::set(artifact, "artifactVersion", Value("axir-optimized-artifact-v1"));
+  if (Core::get(artifact, "optimizerName", Value()).is_null()) Core::set(artifact, "optimizerName", Value(engine.name()));
+  if (Core::get(artifact, "optimizerVersion", Value()).is_null()) Core::set(artifact, "optimizerVersion", Value(engine.version()));
+  if (Core::get(artifact, "componentMap", Value()).is_null()) Core::set(artifact, "componentMap", Core::get(artifact, "component_map", Value::object()));
+  artifact = Core::_validate_optimized_artifact(artifact, components);
+  Core::set(artifact, "changedComponents", Core::_optimization_changed_components(components, Core::get(artifact, "componentMap", Value::object())));
+  if (Core::truthy(Core::get(options, "apply", Value(true)))) apply_optimization(artifact);
+  return artifact;
+}
+Value AxAgent::optimize_with(OptimizerEngine& engine, AIClient& client, Value dataset, Value options) {
+  Value components = get_optimizable_components();
+  Value target = Core::get(options, "target", Value("all"));
+  Value selected = Core::_filter_optimization_components(components, target);
+  Value normalized = Core::_normalize_optimization_dataset(dataset.is_null() ? Value::array() : dataset);
+  Value request = Core::_build_optimizer_request(Value("axagent"), selected, normalized, options, export_trace());
+  Value evaluator_info = Core::get(request, "evaluator", Value::object());
+  Core::set(evaluator_info, "available", Value(true));
+  Core::set(request, "evaluator", evaluator_info);
+  AxAgentOptimizerEvaluator evaluator(*this, client, dataset, options);
+  Value artifact = engine.optimize(request, &evaluator);
+  artifact = Core::get(artifact, "artifact", artifact);
+  if (!artifact.is_object()) throw AxError("runtime", "optimizer engine must return an optimized artifact");
+  if (Core::get(artifact, "artifactVersion", Value()).is_null()) Core::set(artifact, "artifactVersion", Value("axir-optimized-artifact-v1"));
+  if (Core::get(artifact, "optimizerName", Value()).is_null()) Core::set(artifact, "optimizerName", Value(engine.name()));
+  if (Core::get(artifact, "optimizerVersion", Value()).is_null()) Core::set(artifact, "optimizerVersion", Value(engine.version()));
+  if (Core::get(artifact, "componentMap", Value()).is_null()) Core::set(artifact, "componentMap", Core::get(artifact, "component_map", Value::object()));
+  artifact = Core::_validate_optimized_artifact(artifact, components);
+  Core::set(artifact, "changedComponents", Core::_optimization_changed_components(components, Core::get(artifact, "componentMap", Value::object())));
+  if (Core::truthy(Core::get(options, "apply", Value(true)))) apply_optimization(artifact);
+  return artifact;
+}
+Value AxAgent::optimize(Value dataset, Value options) {
+  throw AxError("unsupported", "AxIR generated runtimes require an OptimizerEngine for optimize()");
+}
 
 Value object(std::initializer_list<std::pair<std::string, Value>> items) {
   Value out = Value::object();
@@ -2578,6 +3296,7 @@ AxGen ax(Value signature, Value options) { return AxGen(std::move(signature), st
 AxAgent agent(const std::string& source, Value options) { return AxAgent(Value(source), std::move(options)); }
 AxAgent agent(const char* source, Value options) { return agent(std::string(source == nullptr ? "" : source), std::move(options)); }
 AxAgent agent(Value signature, Value options) { return AxAgent(std::move(signature), std::move(options)); }
+AxFlow flow(Value options) { return AxFlow(std::move(options)); }
 std::shared_ptr<AxAIService> ai(const std::string& provider, Value options) {
   std::string normalized;
   for (char ch : provider) normalized.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(ch == '-' ? '_' : ch))));
@@ -2646,6 +3365,35 @@ struct FakeTransport : Transport {
     Value out = responses.front();
     responses.erase(responses.begin());
     return out;
+  }
+};
+
+struct FakeOptimizerEngine : OptimizerEngine {
+  Value response;
+  std::vector<Value> requests;
+  std::vector<Value> evaluations;
+
+  explicit FakeOptimizerEngine(Value response_) : response(std::move(response_)) {}
+
+  std::string name() const override { return "fake"; }
+  std::string version() const override { return "1"; }
+
+  Value optimize(Value request) override {
+    requests.push_back(request);
+    return response;
+  }
+
+  Value optimize(Value request, OptimizerEvaluator* evaluator) override {
+    requests.push_back(request);
+    if (evaluator != nullptr && !Core::get(response, "evaluate").is_null()) {
+      for (const auto& step : Core::iter(Core::get(response, "evaluate", Value::array()))) {
+        Value result = evaluator->evaluate(
+            Core::get(step, "component_map", Core::get(step, "componentMap", Value::object())),
+            Core::get(step, "options", Value::object()));
+        evaluations.push_back(result);
+      }
+    }
+    return response;
   }
 };
 
@@ -3028,6 +3776,154 @@ static void run_forward(Value fixture) {
   }
 }
 
+static Value optimize_component_ids(Value components) {
+  Value ids = Value::array();
+  for (const auto& component : Core::iter(components)) Core::append(ids, Core::get(component, "id"));
+  return ids;
+}
+
+static void run_optimize(Value fixture) {
+  std::string program_kind = display(Core::get(fixture, "program", "agent"));
+  Value options = Core::get(fixture, "options", Value::object());
+  ToolBuild tool_build = build_tools(Core::get(fixture, "tools", Value::array()));
+  if (!as_array(tool_build.values).empty()) Core::set(options, "functions", tool_build.values);
+  std::string op = display(Core::get(fixture, "operation", "components"));
+  try {
+    if (op == "dataset") {
+      Value normalized = Core::_normalize_optimization_dataset(Core::get(fixture, "dataset", Value::array()));
+      assert_equal(normalized, Core::get(fixture, "expected_dataset"), "normalized dataset");
+      return;
+    }
+    if (op == "score") {
+      Value scores = Core::_normalize_optimization_metric_scores(Core::get(fixture, "metric_score"));
+      Value scalar = Core::_scalarize_optimization_scores(scores, Core::get(fixture, "score_options", Value::object()));
+      Value adjusted = Core::_adjust_optimization_score_for_actions(scalar, Core::get(fixture, "task", Value::object()), Core::get(fixture, "prediction", object({{"functionCalls", Value::array()}})));
+      if (!Core::get(fixture, "expected_scores").is_null()) assert_equal(scores, Core::get(fixture, "expected_scores"), "metric scores");
+      if (!Core::get(fixture, "expected_scalar").is_null()) assert_equal(adjusted, Core::get(fixture, "expected_scalar"), "metric scalar");
+      if (!Core::get(fixture, "quality").is_null()) assert_equal(Core::_map_optimization_judge_quality_to_score(Core::get(fixture, "quality")), Core::get(fixture, "expected_quality_score"), "judge quality score");
+      return;
+    }
+    if (op == "judge_payload") {
+      Value payload = Core::_build_optimization_judge_payload(Core::get(fixture, "task", Value::object()), Core::get(fixture, "prediction", Value::object()), Core::get(fixture, "criteria", Value("")));
+      if (!Core::get(fixture, "expected_judge_payload_subset").is_null()) assert_subset(payload, Core::get(fixture, "expected_judge_payload_subset"), "judge payload");
+      return;
+    }
+    if (program_kind == "axgen") {
+      AxGen gen(build_signature(fixture), options);
+      if (op == "components") {
+        Value components = gen.get_optimizable_components();
+        if (!Core::get(fixture, "expected_components_subset").is_null()) assert_list_subset(components, Core::get(fixture, "expected_components_subset"), "optimizable components");
+        if (!Core::get(fixture, "expected_component_ids").is_null()) assert_equal(optimize_component_ids(components), Core::get(fixture, "expected_component_ids"), "component ids");
+        return;
+      }
+      if (op == "apply") {
+        Value before = gen.get_optimizable_components();
+        Value artifact = Core::_optimized_artifact("fixture", "1", Core::get(fixture, "component_map", Value::object()), object({{"source", "fixture"}}));
+        Core::_validate_optimized_artifact(artifact, before);
+        gen.apply_optimization(artifact);
+        Value after = gen.get_optimizable_components();
+        if (!Core::get(fixture, "expected_components_subset").is_null()) assert_list_subset(after, Core::get(fixture, "expected_components_subset"), "optimized components");
+        if (!Core::get(fixture, "expected_changed_components").is_null()) assert_equal(Core::_optimization_changed_components(before, Core::get(fixture, "component_map", Value::object())), Core::get(fixture, "expected_changed_components"), "changed components");
+        return;
+      }
+      if (op == "evaluate") {
+        FakeAIClient client(Core::get(fixture, "responses", Value::array()));
+        Value result = gen.evaluate_optimization(client, Core::get(fixture, "dataset", Value::array()), Core::get(fixture, "candidate_map", Value::object()), Core::get(fixture, "eval_options", Value::object()));
+        if (!Core::get(fixture, "expected_evaluation_subset").is_null()) assert_subset(result, Core::get(fixture, "expected_evaluation_subset"), "optimization evaluation");
+        if (!Core::get(fixture, "expected_evaluation_rows_subset").is_null()) assert_list_subset(Core::get(result, "rows", Value::array()), Core::get(fixture, "expected_evaluation_rows_subset"), "optimization evaluation rows");
+        if (!Core::get(fixture, "expected_components_subset_after").is_null()) assert_list_subset(gen.get_optimizable_components(), Core::get(fixture, "expected_components_subset_after"), "post-eval components");
+        return;
+      }
+      if (op == "engine") {
+        FakeOptimizerEngine engine(Core::get(fixture, "engine_response", Value::object()));
+        Value artifact;
+        if (Core::truthy(Core::get(fixture, "engine_uses_evaluator", false))) {
+          FakeAIClient client(Core::get(fixture, "responses", Value::array()));
+          artifact = gen.optimize_with(engine, client, Core::get(fixture, "dataset", Value::array()), Core::get(fixture, "optimize_options", Value::object()));
+        } else {
+          artifact = gen.optimize_with(engine, Core::get(fixture, "dataset", Value::array()), Core::get(fixture, "optimize_options", Value::object()));
+        }
+        if (!Core::get(fixture, "expected_engine_request_subset").is_null()) {
+          if (engine.requests.empty()) throw AxError("fixture", "optimizer engine was not called");
+          assert_subset(engine.requests[0], Core::get(fixture, "expected_engine_request_subset"), "optimizer engine request");
+        }
+        if (!Core::get(fixture, "expected_engine_evaluations_subset").is_null()) assert_list_subset(Value(engine.evaluations), Core::get(fixture, "expected_engine_evaluations_subset"), "optimizer engine evaluations");
+        if (!Core::get(fixture, "expected_artifact_subset").is_null()) assert_subset(artifact, Core::get(fixture, "expected_artifact_subset"), "optimizer artifact");
+        if (!Core::get(fixture, "expected_components_subset").is_null()) assert_list_subset(gen.get_optimizable_components(), Core::get(fixture, "expected_components_subset"), "optimized components");
+        return;
+      }
+    }
+    AxAgent ag(Core::get(fixture, "signature", "question:string -> answer:string"), options);
+    if (op == "components") {
+      Value components = ag.get_optimizable_components();
+      if (!Core::get(fixture, "expected_components_subset").is_null()) assert_list_subset(components, Core::get(fixture, "expected_components_subset"), "optimizable components");
+      if (!Core::get(fixture, "expected_component_ids").is_null()) assert_equal(optimize_component_ids(components), Core::get(fixture, "expected_component_ids"), "component ids");
+      return;
+    }
+    if (op == "filter") {
+      Value filtered = Core::_filter_optimization_components(ag.get_optimizable_components(), Core::get(fixture, "target", "all"));
+      assert_equal(optimize_component_ids(filtered), Core::get(fixture, "expected_component_ids", Value::array()), "filtered component ids");
+      return;
+    }
+    if (op == "apply") {
+      Value before = ag.get_optimizable_components();
+      Value artifact = Core::_optimized_artifact("fixture", "1", Core::get(fixture, "component_map", Value::object()), object({{"source", "fixture"}}));
+      Core::_validate_optimized_artifact(artifact, before);
+      ag.apply_optimization(artifact);
+      Value after = ag.get_optimizable_components();
+      if (!Core::get(fixture, "expected_components_subset").is_null()) assert_list_subset(after, Core::get(fixture, "expected_components_subset"), "optimized components");
+      if (!Core::get(fixture, "expected_changed_components").is_null()) assert_equal(Core::_optimization_changed_components(before, Core::get(fixture, "component_map", Value::object())), Core::get(fixture, "expected_changed_components"), "changed components");
+      return;
+    }
+    if (op == "artifact") {
+      Value components = ag.get_optimizable_components();
+      Value artifact = Core::_optimized_artifact("fixture", "1", Core::get(fixture, "component_map", Value::object()), Core::get(fixture, "metadata", Value::object()));
+      Value decoded = Core::_deserialize_optimized_artifact(Core::_serialize_optimized_artifact(Core::_validate_optimized_artifact(artifact, components)), components);
+      if (!Core::get(fixture, "expected_artifact_subset").is_null()) assert_subset(decoded, Core::get(fixture, "expected_artifact_subset"), "optimized artifact");
+      return;
+    }
+    if (op == "engine") {
+      FakeOptimizerEngine engine(Core::get(fixture, "engine_response", Value::object()));
+      Value artifact;
+      if (Core::truthy(Core::get(fixture, "engine_uses_evaluator", false))) {
+        FakeAIClient client(Core::get(fixture, "responses", Value::array()));
+        artifact = ag.optimize_with(engine, client, Core::get(fixture, "dataset", Value::array()), Core::get(fixture, "optimize_options", Value::object()));
+      } else {
+        artifact = ag.optimize_with(engine, Core::get(fixture, "dataset", Value::array()), Core::get(fixture, "optimize_options", Value::object()));
+      }
+      if (!Core::get(fixture, "expected_engine_request_subset").is_null()) {
+        if (engine.requests.empty()) throw AxError("fixture", "optimizer engine was not called");
+        assert_subset(engine.requests[0], Core::get(fixture, "expected_engine_request_subset"), "optimizer engine request");
+      }
+      if (!Core::get(fixture, "expected_engine_evaluations_subset").is_null()) assert_list_subset(Value(engine.evaluations), Core::get(fixture, "expected_engine_evaluations_subset"), "optimizer engine evaluations");
+      if (!Core::get(fixture, "expected_artifact_subset").is_null()) assert_subset(artifact, Core::get(fixture, "expected_artifact_subset"), "optimizer artifact");
+      if (!Core::get(fixture, "expected_components_subset").is_null()) assert_list_subset(ag.get_optimizable_components(), Core::get(fixture, "expected_components_subset"), "optimized components");
+      return;
+    }
+    if (op == "evaluate") {
+      FakeAIClient client(Core::get(fixture, "responses", Value::array()));
+      Value result = ag.evaluate_optimization(client, Core::get(fixture, "dataset", Value::array()), Core::get(fixture, "candidate_map", Value::object()), Core::get(fixture, "eval_options", Value::object()));
+      if (!Core::get(fixture, "expected_evaluation_subset").is_null()) assert_subset(result, Core::get(fixture, "expected_evaluation_subset"), "optimization evaluation");
+      if (!Core::get(fixture, "expected_evaluation_rows_subset").is_null()) assert_list_subset(Core::get(result, "rows", Value::array()), Core::get(fixture, "expected_evaluation_rows_subset"), "optimization evaluation rows");
+      if (!Core::get(fixture, "expected_components_subset_after").is_null()) assert_list_subset(ag.get_optimizable_components(), Core::get(fixture, "expected_components_subset_after"), "post-eval components");
+      return;
+    }
+    if (op == "eval") {
+      FakeAIClient client(Core::get(fixture, "responses", Value::array()));
+      Value prediction = ag.evaluate_optimization_task(client, Core::get(fixture, "task", object({{"input", Core::get(fixture, "input", Value::object())}})), Core::get(fixture, "eval_options", Value::object()));
+      if (!Core::get(fixture, "expected_prediction_subset").is_null()) assert_subset(prediction, Core::get(fixture, "expected_prediction_subset"), "eval prediction");
+      return;
+    }
+  } catch (const AxError& error) {
+    Value expected = Core::get(fixture, "expected_error_contains");
+    if (!expected.is_null() && std::string(error.what()).find(display(expected)) != std::string::npos) return;
+    throw;
+  }
+  throw AxError("fixture", "unknown optimize operation " + op);
+}
+
+static void assert_agent_trace(AxAgent& ag, Value fixture);
+
 static void run_agent_forward(Value fixture) {
   FakeAIClient client(Core::get(fixture, "responses", Value::array()));
   Value agent_options = Core::get(fixture, "options", Value::object());
@@ -3051,6 +3947,7 @@ static void run_agent_forward(Value fixture) {
     Value expected = Core::get(fixture, "expected_error_contains");
     if (expected.is_null()) throw;
     if (std::string(error.what()).find(display(expected)) == std::string::npos) throw AxError("fixture", std::string("expected error containing ") + display(expected) + ", got " + error.what());
+    if (ag) assert_agent_trace(*ag, fixture);
     return;
   }
   Value expected_count = Core::get(fixture, "expected_request_count");
@@ -3096,6 +3993,31 @@ static void run_agent_forward(Value fixture) {
   if (!Core::get(fixture, "expected_exported_state_subset").is_null()) assert_subset(exported, Core::get(fixture, "expected_exported_state_subset"), "runtime state");
   if (!Core::get(fixture, "expected_action_log_subset").is_null()) assert_list_subset(Core::get(exported, "action_log", Value::array()), Core::get(fixture, "expected_action_log_subset"), "action log");
   if (runtime && !Core::get(fixture, "expected_executed").is_null()) assert_equal(Value(runtime->executed), Core::get(fixture, "expected_executed"), "executed code");
+  assert_agent_trace(*ag, fixture);
+}
+
+static void assert_agent_trace(AxAgent& ag, Value fixture) {
+  Value trace = ag.export_trace();
+  if (!Core::get(fixture, "expected_trace_subset").is_null()) assert_subset(trace, Core::get(fixture, "expected_trace_subset"), "agent trace");
+  if (!Core::get(fixture, "expected_trace_event_kinds").is_null()) {
+    Value kinds = Value::array();
+    for (const auto& event : Core::iter(Core::get(trace, "events", Value::array()))) {
+      Core::append(kinds, Core::get(event, "kind", ""));
+    }
+    assert_equal(kinds, Core::get(fixture, "expected_trace_event_kinds"), "agent trace event kinds");
+  }
+  if (Core::truthy(Core::get(fixture, "replay_trace", false))) {
+    Value replay_fixtures = Core::get(fixture, "replay_fixtures", Value::object());
+    if (!Core::get(fixture, "expected_trace_event_kinds").is_null() && Core::get(replay_fixtures, "expected_event_kinds").is_null()) {
+      Core::set(replay_fixtures, "expected_event_kinds", Core::get(fixture, "expected_trace_event_kinds"));
+    }
+    if (!Core::get(fixture, "expected_output").is_null() && Core::get(replay_fixtures, "expected_output").is_null()) {
+      Core::set(replay_fixtures, "expected_output", Core::get(fixture, "expected_output"));
+    }
+    Value replayed = ag.replay_trace(trace, replay_fixtures);
+    if (!Core::get(fixture, "expected_replay_result_subset").is_null()) assert_subset(replayed, Core::get(fixture, "expected_replay_result_subset"), "agent replay");
+    else assert_subset(replayed, object({{"ok", true}, {"status", "replayed"}}), "agent replay");
+  }
 }
 
 static void run_agent_runtime_policy(Value fixture) {
@@ -3105,6 +4027,24 @@ static void run_agent_runtime_policy(Value fixture) {
     if (!Core::get(fixture, "discover").is_null()) {
       Value result = ag->discover(Core::get(fixture, "discover", Value::object()));
       if (!Core::get(fixture, "expected_discover_result").is_null()) assert_equal(result, Core::get(fixture, "expected_discover_result"), "discover result");
+    }
+    if (!Core::get(fixture, "recall").is_null()) {
+      Value result = ag->recall(Core::get(fixture, "recall", Value::array()));
+      if (!Core::get(fixture, "expected_recall_result").is_null()) assert_equal(result, Core::get(fixture, "expected_recall_result"), "recall result");
+    }
+    if (!Core::get(fixture, "used").is_null()) {
+      Value used = Core::get(fixture, "used");
+      Value result = ag->used(Core::get(used, "id"), Core::get(used, "reason", ""), Core::get(used, "stage", "executor"));
+      if (!Core::get(fixture, "expected_used_result").is_null()) assert_equal(result, Core::get(fixture, "expected_used_result"), "used result");
+    }
+    if (!Core::get(fixture, "invoke_callable").is_null()) {
+      Value call = Core::get(fixture, "invoke_callable");
+      Value result = ag->invoke_callable(Core::get(call, "qualified_name", Core::get(call, "name", "")), Core::get(call, "args", Value::object()));
+      if (!Core::get(fixture, "expected_callable_result_subset").is_null()) assert_subset(result, Core::get(fixture, "expected_callable_result_subset"), "callable result");
+    }
+    if (!Core::get(fixture, "replay_trace_input").is_null()) {
+      Value result = ag->replay_trace(Core::get(fixture, "replay_trace_input", Value::object()), Core::get(fixture, "replay_fixtures", Value::object()));
+      if (!Core::get(fixture, "expected_replay_result_subset").is_null()) assert_subset(result, Core::get(fixture, "expected_replay_result_subset"), "agent replay");
     }
     if (!Core::get(fixture, "restore_runtime_state").is_null()) ag->restore_runtime_state(Core::get(fixture, "restore_runtime_state"));
     if (!Core::get(fixture, "final_payload").is_null()) assert_equal(Core::_normalize_agent_final_payload(Core::get(fixture, "final_payload")), Core::get(fixture, "expected_final_payload"), "final payload");
@@ -3118,14 +4058,26 @@ static void run_agent_runtime_policy(Value fixture) {
   if (!Core::get(fixture, "expected_error_contains").is_null()) throw AxError("fixture", "expected agent runtime policy fixture to fail");
   if (!Core::get(fixture, "expected_runtime_contract_subset").is_null()) assert_subset(ag->get_runtime_contract(), Core::get(fixture, "expected_runtime_contract_subset"), "runtime contract");
   if (!Core::get(fixture, "expected_policy_subset").is_null()) assert_subset(ag->get_policy(), Core::get(fixture, "expected_policy_subset"), "agent policy");
+  if (!Core::get(fixture, "expected_policy_registry_subset").is_null()) assert_subset(ag->get_policy_registry(), Core::get(fixture, "expected_policy_registry_subset"), "policy registry");
+  Value registry = ag->get_policy_registry();
+  if (!Core::get(fixture, "expected_actor_primitives_subset").is_null()) assert_list_subset(Core::get(registry, "actor_primitives", Value::array()), Core::get(fixture, "expected_actor_primitives_subset"), "actor primitives");
+  if (!Core::get(fixture, "expected_protocol_actions_subset").is_null()) assert_list_subset(Core::get(registry, "protocol_actions", Value::array()), Core::get(fixture, "expected_protocol_actions_subset"), "protocol actions");
+  if (!Core::get(fixture, "expected_runtime_globals_subset").is_null()) assert_list_subset(Core::get(registry, "runtime_globals", Value::array()), Core::get(fixture, "expected_runtime_globals_subset"), "runtime globals");
+  if (!Core::get(fixture, "expected_host_boundaries_subset").is_null()) assert_list_subset(Core::get(registry, "host_boundaries", Value::array()), Core::get(fixture, "expected_host_boundaries_subset"), "host boundaries");
   if (!Core::get(fixture, "expected_callable_inventory_subset").is_null()) assert_list_subset(ag->get_callable_inventory(), Core::get(fixture, "expected_callable_inventory_subset"), "callable inventory");
   if (!Core::get(fixture, "expected_discovery_catalog_subset").is_null()) assert_list_subset(ag->get_discovery_catalog(), Core::get(fixture, "expected_discovery_catalog_subset"), "discovery catalog");
   Value exported = ag->export_runtime_state();
   if (!Core::get(fixture, "expected_discovered_tool_docs_subset").is_null()) assert_list_subset(Core::get(exported, "discovered_tool_docs", Value::array()), Core::get(fixture, "expected_discovered_tool_docs_subset"), "discovered tools");
   if (!Core::get(fixture, "expected_loaded_skill_docs_subset").is_null()) assert_list_subset(Core::get(exported, "loaded_skill_docs", Value::array()), Core::get(fixture, "expected_loaded_skill_docs_subset"), "loaded skills");
+  if (!Core::get(fixture, "expected_loaded_memories_subset").is_null()) assert_list_subset(Core::get(exported, "loaded_memories", Value::array()), Core::get(fixture, "expected_loaded_memories_subset"), "loaded memories");
+  if (!Core::get(fixture, "expected_used_memories_subset").is_null()) assert_list_subset(Core::get(exported, "used_memories", Value::array()), Core::get(fixture, "expected_used_memories_subset"), "used memories");
+  if (!Core::get(fixture, "expected_used_skills_subset").is_null()) assert_list_subset(Core::get(exported, "used_skills", Value::array()), Core::get(fixture, "expected_used_skills_subset"), "used skills");
+  if (!Core::get(fixture, "expected_guidance_log_subset").is_null()) assert_list_subset(Core::get(exported, "guidance_log", Value::array()), Core::get(fixture, "expected_guidance_log_subset"), "guidance log");
+  if (!Core::get(fixture, "expected_function_call_traces_subset").is_null()) assert_list_subset(Core::get(exported, "function_call_traces", Value::array()), Core::get(fixture, "expected_function_call_traces_subset"), "function call traces");
   if (!Core::get(fixture, "expected_policy_trace_subset").is_null()) assert_list_subset(Core::get(exported, "policy_trace", Value::array()), Core::get(fixture, "expected_policy_trace_subset"), "policy trace");
   if (!Core::get(fixture, "expected_exported_state_subset").is_null()) assert_subset(exported, Core::get(fixture, "expected_exported_state_subset"), "exported runtime state");
   if (!Core::get(fixture, "expected_optimizer_metadata_subset").is_null()) assert_subset(ag->get_optimizer_metadata(), Core::get(fixture, "expected_optimizer_metadata_subset"), "optimizer metadata");
+  assert_agent_trace(*ag, fixture);
 }
 
 static void run_agent_runtime_session(Value fixture) {
@@ -3167,6 +4119,7 @@ static void run_agent_runtime_session(Value fixture) {
     throw AxError("fixture", "expected session count mismatch");
   }
   if (!Core::get(fixture, "expected_executed").is_null()) assert_equal(Value(runtime.executed), Core::get(fixture, "expected_executed"), "executed code");
+  assert_agent_trace(ag, fixture);
 }
 
 struct ClientFixture {
@@ -3269,6 +4222,88 @@ static void run_ai_unsupported(Value fixture) {
   throw AxError("fixture", "expected unsupported capability error");
 }
 
+static AxFlow build_flow(Value fixture, std::vector<std::unique_ptr<AxGen>>& programs) {
+  Value flow_options = Core::get(fixture, "flow_options", object({{"id", Core::get(fixture, "program_id", Value("root.flow"))}}));
+  AxFlow fl(flow_options);
+  for (const auto& raw_step : Core::iter(Core::get(fixture, "steps", Value::array()))) {
+    Value step = raw_step;
+    std::string kind = display(Core::get(step, "kind", Value("execute")));
+    std::string name = display(Core::get(step, "name"));
+    if (kind == "parallel") {
+      fl.parallel(array({object({{"kind", Value("parallel")}, {"name", Value(name)}})}));
+      continue;
+    }
+    if (kind == "map") {
+      Value output = Core::get(step, "output", Value::object());
+      fl.map(name, [output](Value) { return output; });
+      continue;
+    }
+    Value sig = Core::parse_signature(Core::get(step, "signature", Core::get(fixture, "signature", Value("question:string -> answer:string"))));
+    programs.push_back(std::make_unique<AxGen>(sig, Core::get(step, "options", Value::object())));
+    if (kind == "derive") fl.derive(name, *programs.back(), Core::get(step, "forward_options", Value::object()));
+    else fl.execute(name, *programs.back(), Core::get(step, "forward_options", Value::object()));
+  }
+  if (!Core::get(fixture, "returns").is_null()) fl.returns(Core::get(fixture, "returns", Value::object()));
+  if (!Core::get(fixture, "demos").is_null()) fl.set_demos(Core::get(fixture, "demos", Value::object()));
+  return fl;
+}
+
+static void run_program_contract(Value fixture) {
+  std::vector<std::unique_ptr<AxGen>> programs;
+  Value components;
+  if (display(Core::get(fixture, "program", Value("axgen"))) == "flow") {
+    AxFlow fl = build_flow(fixture, programs);
+    components = fl.get_optimizable_components();
+  } else {
+    AxGen gen(Core::parse_signature(Core::get(fixture, "signature", Value("question:string -> answer:string"))), Core::get(fixture, "options", Value::object()));
+    components = gen.get_optimizable_components();
+  }
+  if (!Core::get(fixture, "expected_component_ids").is_null()) {
+    Value ids = Value::array();
+    for (const auto& component : Core::iter(components)) Core::append(ids, Core::get(component, "id"));
+    assert_equal(ids, Core::get(fixture, "expected_component_ids"), "program component ids");
+  }
+  if (!Core::get(fixture, "expected_components_subset").is_null()) assert_list_subset(components, Core::get(fixture, "expected_components_subset"), "program components");
+}
+
+static void run_flow(Value fixture) {
+  try {
+    std::vector<std::unique_ptr<AxGen>> programs;
+    AxFlow fl = build_flow(fixture, programs);
+    if (display(Core::get(fixture, "operation", Value(""))) == "cache_key") {
+      std::set<std::string> keys;
+      size_t count = 0;
+      for (const auto& item : Core::iter(Core::get(fixture, "cache_key_inputs", Value::array()))) {
+        keys.insert(display(Core::_flow_cache_key(item)));
+        count++;
+      }
+      if (Core::truthy(Core::get(fixture, "expected_cache_keys_equal", Value(false))) && keys.size() != 1) throw AxError("fixture", "expected equal flow cache keys");
+      if (Core::truthy(Core::get(fixture, "expected_cache_keys_distinct", Value(false))) && keys.size() != count) throw AxError("fixture", "expected distinct flow cache keys");
+      return;
+    }
+    if (!Core::get(fixture, "expected_plan").is_null()) assert_equal(fl.get_plan(), Core::get(fixture, "expected_plan"), "flow plan");
+    if (!Core::get(fixture, "expected_plan_subset").is_null()) assert_list_subset(fl.get_plan(), Core::get(fixture, "expected_plan_subset"), "flow plan");
+    if (display(Core::get(fixture, "operation", Value(""))) == "plan") return;
+    FakeAIClient client(Core::get(fixture, "responses", Value::array()));
+    Value output = fl.forward(client, Core::get(fixture, "input", Value::object()), Core::get(fixture, "forward_options", Value::object()));
+    if (!Core::get(fixture, "expected_output").is_null()) assert_equal(output, Core::get(fixture, "expected_output"), "flow output");
+    Value expected_count = Core::get(fixture, "expected_request_count");
+    if (!expected_count.is_null() && client.requests.size() != static_cast<size_t>(std::stoul(display(expected_count)))) throw AxError("fixture", "expected request count mismatch");
+    if (!Core::get(fixture, "expected_chat_log_subset").is_null()) assert_list_subset(fl.get_chat_log(), Core::get(fixture, "expected_chat_log_subset"), "flow chat log");
+    if (!Core::get(fixture, "expected_trace_kinds").is_null()) {
+      Value kinds = Value::array();
+      for (const auto& event : Core::iter(fl.get_traces())) Core::append(kinds, Core::get(event, "kind"));
+      assert_equal(kinds, Core::get(fixture, "expected_trace_kinds"), "flow trace kinds");
+    }
+    if (!Core::get(fixture, "expected_components_subset").is_null()) assert_list_subset(fl.get_optimizable_components(), Core::get(fixture, "expected_components_subset"), "flow components");
+    if (!Core::get(fixture, "expected_error_contains").is_null()) throw AxError("fixture", "expected flow fixture to fail");
+  } catch (const AxError& e) {
+    Value expected = Core::get(fixture, "expected_error_contains");
+    if (!expected.is_null() && std::string(e.what()).find(display(expected)) != std::string::npos) return;
+    throw;
+  }
+}
+
 static void run(Value fixture) {
   std::string kind = display(Core::get(fixture, "kind", "forward"));
   if (kind == "signature_error") {
@@ -3321,6 +4356,12 @@ static void run(Value fixture) {
     run_agent_runtime_policy(fixture);
   } else if (kind == "agent_runtime_session") {
     run_agent_runtime_session(fixture);
+  } else if (kind == "program_contract") {
+    run_program_contract(fixture);
+  } else if (kind == "flow") {
+    run_flow(fixture);
+  } else if (kind == "optimize") {
+    run_optimize(fixture);
   } else if (kind == "ai_chat") {
     run_ai_chat(fixture);
   } else if (kind == "ai_embed") {

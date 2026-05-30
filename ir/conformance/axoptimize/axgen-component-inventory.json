@@ -1,0 +1,45 @@
+{
+  "expected_components_subset": [
+    {
+      "current": "Answer succinctly.",
+      "id": "qa::instruction",
+      "kind": "instruction",
+      "owner": "qa"
+    },
+    {
+      "current": "Search docs",
+      "id": "qa::fn:search_docs:desc",
+      "kind": "fn-desc"
+    },
+    {
+      "current": "search_docs",
+      "format": "snake_case",
+      "id": "qa::fn:search_docs:name",
+      "kind": "fn-name"
+    }
+  ],
+  "kind": "optimize",
+  "name": "axgen-component-inventory",
+  "operation": "components",
+  "options": {
+    "id": "qa",
+    "instruction": "Answer succinctly."
+  },
+  "program": "axgen",
+  "signature": "query:string -> answer:string",
+  "tools": [
+    {
+      "args": {
+        "query": {
+          "min": 1,
+          "type": "string"
+        }
+      },
+      "description": "Search docs",
+      "name": "search_docs",
+      "result": {
+        "title": "Docs"
+      }
+    }
+  ]
+}

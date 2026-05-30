@@ -31,6 +31,14 @@ public final class Ax {
     return new AxAgent(signature, options == null ? java.util.Map.of() : options);
   }
 
+  public static AxFlow flow() {
+    return new AxFlow(java.util.Map.of());
+  }
+
+  public static AxFlow flow(java.util.Map<String, Object> options) {
+    return new AxFlow(options == null ? java.util.Map.of() : options);
+  }
+
   public static AxAIService ai(String provider, java.util.Map<String, Object> options) {
     String normalized = provider == null ? "openai" : provider.replace("-", "_").toLowerCase();
     if (normalized.equals("openai") || normalized.equals("openai_compatible") || normalized.equals("compatible")) {
@@ -40,6 +48,17 @@ public final class Ax {
   }
 
   private Ax() {}
+}
+`
+
+const javaAxProgram = `package dev.ax;
+
+import java.util.List;
+import java.util.Map;
+
+public interface AxProgram {
+  Map<String, Object> forward(AiClient client, Map<String, Object> values, Map<String, Object> options);
+  List<Map<String, Object>> getOptimizableComponents();
 }
 `
 
@@ -804,7 +823,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-public final class AxGen {
+public final class AxGen implements AxProgram {
   public interface AssertionCallback { Object apply(Map<String, Object> output); }
   public interface FieldProcessorCallback { Object apply(Object value); }
   public interface FunctionCallHook { void accept(Map<String, Object> record); }
@@ -822,6 +841,8 @@ public final class AxGen {
   final List<Map<String, Object>> chatLog;
   final List<Map<String, Object>> functionCallTraces;
   final List<Map<String, Object>> traces;
+  final String programId;
+  String instruction;
 
   public AxGen(AxSignature signature) {
     this(signature, java.util.Map.of());
@@ -846,6 +867,8 @@ public final class AxGen {
     this.chatLog = new ArrayList<>();
     this.functionCallTraces = new ArrayList<>();
     this.traces = new ArrayList<>();
+    this.programId = String.valueOf(this.options.getOrDefault("id", this.options.getOrDefault("program_id", this.options.getOrDefault("programId", "root"))));
+    this.instruction = String.valueOf(this.options.getOrDefault("instruction", ""));
     this.promptTemplate = new PromptTemplate(
       signature,
       functions,
@@ -905,6 +928,181 @@ public final class AxGen {
     return this;
   }
 
+  public AxGen setInstruction(String instruction) {
+    this.instruction = instruction == null ? "" : instruction;
+    this.options.put("instruction", this.instruction);
+    this.promptTemplate.setInstruction(this.instruction);
+    return this;
+  }
+
+  public String getInstruction() {
+    return instruction;
+  }
+
+  public AxGen clearInstruction() {
+    return setInstruction("");
+  }
+
+  public List<Map<String, Object>> getOptimizableComponents() {
+    List<Map<String, Object>> components = new ArrayList<>();
+    if (signature.description != null && !signature.description.isBlank()) {
+      components.add(Core.asMap(Core._optimization_component(
+        programId + "::description",
+        programId,
+        "description",
+        signature.description,
+        "Program signature description.",
+        List.of("Preserve the task intent and field references."),
+        List.of(),
+        false,
+        "markdown",
+        Map.of("required_placeholders", List.of())
+      )));
+    }
+    components.add(Core.asMap(Core._optimization_component(
+      programId + "::instruction",
+      programId,
+      "instruction",
+      instruction,
+      "Prompt instruction text used by this generator.",
+      List.of("Keep required input and output fields intact."),
+      List.of(),
+      false,
+      "markdown",
+      Map.of("required_placeholders", List.of())
+    )));
+    for (Tool tool : functions) {
+      components.add(Core.asMap(Core._optimization_component(
+        programId + "::fn:" + tool.name + ":desc",
+        programId,
+        "fn-desc",
+        tool.description,
+        "Description for tool " + tool.name + ".",
+        List.of("Non-empty, concise, and faithful to the tool behavior."),
+        List.of(),
+        false,
+        "text",
+        Map.of("maxLength", 320)
+      )));
+      components.add(Core.asMap(Core._optimization_component(
+        programId + "::fn:" + tool.name + ":name",
+        programId,
+        "fn-name",
+        tool.name,
+        "Callable name for tool " + tool.name + ".",
+        List.of("snake_case", "32 characters or fewer", "unique among tools"),
+        List.of(),
+        true,
+        "snake_case",
+        Map.of("pattern", "^[a-z][a-z0-9_]{0,31}$")
+      )));
+    }
+    return components;
+  }
+
+  public AxGen applyOptimizedComponents(Map<String, Object> componentMap) {
+    Map<String, Object> updates = componentMap == null ? Map.of() : componentMap;
+    if (updates.containsKey(programId + "::description")) this.options.put("optimized_description", String.valueOf(updates.get(programId + "::description")));
+    if (updates.containsKey(programId + "::instruction")) setInstruction(String.valueOf(updates.get(programId + "::instruction")));
+    for (int i = 0; i < functions.size(); i++) {
+      Tool tool = functions.get(i);
+      String desc = updates.containsKey(programId + "::fn:" + tool.name + ":desc") ? String.valueOf(updates.get(programId + "::fn:" + tool.name + ":desc")) : tool.description;
+      String name = updates.containsKey(programId + "::fn:" + tool.name + ":name") ? String.valueOf(updates.get(programId + "::fn:" + tool.name + ":name")).trim() : tool.name;
+      if (!name.matches("^[a-z][a-z0-9_]{0,31}$")) throw new RuntimeException("invalid optimized function name: " + name);
+      for (Tool other : functions) if (other != tool && other.name.equals(name)) throw new RuntimeException("duplicate optimized function name: " + name);
+      if (!desc.equals(tool.description) || !name.equals(tool.name)) functions.set(i, new Tool(name, desc, tool.args, tool.returns, tool.handler));
+    }
+    return this;
+  }
+
+  @SuppressWarnings("unchecked")
+  public AxGen applyOptimization(Object artifact) {
+    Map<String, Object> map = artifact instanceof String text ? Core.asMap(Json.parse(text)) : Core.asMap(artifact);
+    Object componentMap = map.getOrDefault("componentMap", map.getOrDefault("component_map", Map.of()));
+    return applyOptimizedComponents((Map<String, Object>) componentMap);
+  }
+
+  public Map<String, Object> evaluateOptimization(AiClient client, Object dataset, Map<String, Object> candidateMap, Map<String, Object> options) {
+    Map<String, Object> opts = options == null ? Map.of() : options;
+    Map<String, Object> normalized = Core.asMap(Core._normalize_optimization_dataset(dataset == null ? List.of() : dataset));
+    List<Object> rows = new ArrayList<>();
+    Map<String, Object> original = Core.asMap(Core._optimization_component_current_map(getOptimizableComponents()));
+    Map<String, Object> candidate = candidateMap == null ? Map.of() : candidateMap;
+    try {
+      if (!candidate.isEmpty()) applyOptimizedComponents(candidate);
+      for (Object rawTask : Core.asList(normalized.getOrDefault("train", List.of()))) {
+        Map<String, Object> task = Core.asMap(rawTask);
+        Object error = null;
+        Map<String, Object> prediction;
+        try {
+          Object output = forward(client, Core.asMap(task.getOrDefault("input", task)), Core.asMap(opts.getOrDefault("forward_options", Map.of())));
+          prediction = new LinkedHashMap<>();
+          prediction.put("completionType", "final");
+          prediction.put("output", output);
+          prediction.put("finalOutput", output);
+          prediction.put("functionCalls", getFunctionCallTraces());
+          prediction.put("actionLog", getChatLog());
+          prediction.put("usage", Map.of());
+          prediction.put("trace", Map.of("traces", getTraces()));
+        } catch (RuntimeException e) {
+          error = Map.of("message", String.valueOf(e.getMessage()));
+          prediction = new LinkedHashMap<>();
+          prediction.put("completionType", "error");
+          prediction.put("error", error);
+          prediction.put("functionCalls", getFunctionCallTraces());
+          prediction.put("actionLog", getChatLog());
+          prediction.put("usage", Map.of());
+          prediction.put("trace", Map.of("traces", getTraces()));
+        }
+        Map<String, Object> scores = Core.asMap(Core._normalize_optimization_metric_scores(task.containsKey("metric_score") ? task.get("metric_score") : task.containsKey("scores") ? task.get("scores") : task.getOrDefault("score", "error".equals(prediction.get("completionType")) ? 0 : 1)));
+        Object scalar = Core._adjust_optimization_score_for_actions(Core._scalarize_optimization_scores(scores, opts), task, prediction);
+        rows.add(Core._build_optimization_eval_row(task, prediction, scores, scalar, prediction.get("trace"), error));
+      }
+      return Core.asMap(Core._build_optimization_eval_result(rows, candidate, opts.getOrDefault("phase", "train")));
+    } finally {
+      applyOptimizedComponents(original);
+    }
+  }
+
+  public Map<String, Object> optimizeWith(OptimizerEngine engine, List<Map<String, Object>> dataset, Map<String, Object> options) {
+    Map<String, Object> opts = options == null ? Map.of() : options;
+    List<Map<String, Object>> components = getOptimizableComponents();
+    Map<String, Object> normalized = Core.asMap(Core._normalize_optimization_dataset(dataset == null ? List.of() : dataset));
+    Object target = opts.getOrDefault("target", "all");
+    Object selected = Core._filter_optimization_components(components, target);
+    Map<String, Object> requestOptions = new LinkedHashMap<>(opts);
+    requestOptions.remove("client");
+    requestOptions.remove("ai");
+    requestOptions.remove("engine");
+    requestOptions.remove("optimizer");
+    Map<String, Object> request = new LinkedHashMap<>();
+    request.put("contractVersion", "axir-optimize-contract-v1");
+    request.put("programKind", "axgen");
+    request.put("components", selected);
+    request.put("dataset", normalized);
+    request.put("options", requestOptions);
+    request.put("trace", Map.of("traces", getTraces(), "chat_log", getChatLog()));
+    Object client = opts.getOrDefault("client", opts.get("ai"));
+    request.put("evaluator", Map.of("available", client instanceof AiClient, "contractVersion", "axir-optimizer-evaluator-v1", "methods", List.of("evaluate")));
+    OptimizerEvaluator evaluator = client instanceof AiClient aiClient
+      ? (candidate, evalOptions) -> evaluateOptimization(aiClient, dataset == null ? List.of() : dataset, candidate, Core.asMap(evalOptions == null ? Map.of() : evalOptions))
+      : null;
+    Map<String, Object> response = engine.optimize(request, evaluator);
+    Map<String, Object> artifact = Core.asMap(response.getOrDefault("artifact", response));
+    artifact.putIfAbsent("artifactVersion", "axir-optimized-artifact-v1");
+    artifact.putIfAbsent("optimizerName", engine.name());
+    artifact.putIfAbsent("optimizerVersion", engine.version());
+    artifact.putIfAbsent("componentMap", artifact.getOrDefault("component_map", Map.of()));
+    if (!Boolean.FALSE.equals(opts.get("apply"))) applyOptimization(artifact);
+    return artifact;
+  }
+
+  public Map<String, Object> optimize(List<Map<String, Object>> dataset, Map<String, Object> options) {
+    Object engine = options == null ? null : options.getOrDefault("engine", options.get("optimizer"));
+    if (!(engine instanceof OptimizerEngine optimizer)) throw new UnsupportedOperationException("AxIR generated runtimes require an OptimizerEngine for optimize()");
+    return optimizeWith(optimizer, dataset, options);
+  }
+
   public List<Map<String, Object>> getTraces() {
     return new ArrayList<>(traces);
   }
@@ -932,6 +1130,208 @@ public final class AxGen {
   Map<String, Object> request(List<Map<String, Object>> messages, Map<String, Object> opts) {
     return Core.asMap(Core._build_gen_chat_request(this, messages, opts == null ? java.util.Map.of() : opts));
   }
+}
+`
+
+const javaAxFlow = `package dev.ax;
+
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+public final class AxFlow implements AxProgram {
+  public interface Mapper {
+    Object apply(Map<String, Object> state);
+  }
+
+  final Map<String, Object> state;
+
+  public AxFlow() {
+    this(Map.of());
+  }
+
+  public AxFlow(Map<String, Object> options) {
+    this.state = Core.asMap(Core._flow_factory(options == null ? Map.of() : options));
+  }
+
+  public AxFlow execute(String name, AxGen program) {
+    return execute(name, program, Map.of());
+  }
+
+  public AxFlow execute(String name, AxGen program, Map<String, Object> options) {
+    return addStep("execute", name, program, options);
+  }
+
+  public AxFlow derive(String name, AxGen program) {
+    return derive(name, program, Map.of());
+  }
+
+  public AxFlow derive(String name, AxGen program, Map<String, Object> options) {
+    return addStep("derive", name, program, options);
+  }
+
+  public AxFlow map(String name, Mapper mapper) {
+    return addStep("map", name, mapper, Map.of());
+  }
+
+  public AxFlow parallel(List<Map<String, Object>> steps) {
+    for (Map<String, Object> step : steps == null ? List.<Map<String, Object>>of() : steps) {
+      addStep(String.valueOf(step.getOrDefault("kind", "execute")), String.valueOf(step.get("name")), step.get("program"), Core.asMap(step.getOrDefault("options", Map.of())));
+    }
+    return this;
+  }
+
+  public AxFlow returns(Map<String, Object> spec) {
+    Core._flow_set_returns(state, spec == null ? Map.of() : spec);
+    return this;
+  }
+
+  public AxFlow setDemos(Object demos) {
+    if (demos instanceof Map<?, ?>) return setDemos(Core.asMap(demos));
+    List<Object> demoList = Core.asList(demos);
+    if (!demoList.isEmpty()) {
+      String owner = String.valueOf(state.getOrDefault("program_id", "root.flow"));
+      java.util.Set<String> knownIds = new java.util.LinkedHashSet<>();
+      knownIds.add(owner);
+      knownIds.add("root");
+      for (Object raw : Core.asList(state.getOrDefault("steps", List.of()))) {
+        String name = String.valueOf(Core.asMap(raw).getOrDefault("name", ""));
+        if (!name.isBlank()) {
+          knownIds.add(owner + "." + name);
+          knownIds.add("root." + name);
+        }
+      }
+      java.util.Set<String> unknown = new java.util.TreeSet<>();
+      for (Object raw : demoList) {
+        Object id = Core.asMap(raw).get("programId");
+        if (id != null && !knownIds.contains(String.valueOf(id))) unknown.add(String.valueOf(id));
+      }
+      if (!unknown.isEmpty()) throw new RuntimeException("Unknown program ID(s) in demos: " + String.join(", ", unknown));
+      state.put("demos", new ArrayList<>(demoList));
+    }
+    return this;
+  }
+
+  public AxFlow setDemos(Map<String, Object> demos) {
+    Map<String, Object> demoMap = demos == null ? Map.of() : demos;
+    List<Object> steps = Core.asList(state.getOrDefault("steps", List.of()));
+    for (String name : demoMap.keySet()) {
+      boolean found = false;
+      for (Object raw : steps) {
+        Map<String, Object> step = Core.asMap(raw);
+        if (name.equals(step.get("name"))) {
+          found = true;
+          Object program = step.get("program");
+          if (program instanceof AxGen gen) gen.setDemos(Core.asMapList(demoMap.get(name)));
+        }
+      }
+      if (!found) throw new RuntimeException("unknown flow node in demos: " + name);
+    }
+    state.put("demos", new LinkedHashMap<>(demoMap));
+    return this;
+  }
+
+  public List<Object> getPlan() {
+    return Core.asList(Core._flow_plan(state));
+  }
+
+  public List<Map<String, Object>> getTraces() {
+    return Core.asMapList(state.getOrDefault("traces", List.of()));
+  }
+
+  public List<Map<String, Object>> getChatLog() {
+    return Core.asMapList(state.getOrDefault("chat_log", List.of()));
+  }
+
+  public Map<String, Object> getUsage() {
+    return Core.asMap(state.getOrDefault("usage", Map.of()));
+  }
+
+  public List<Map<String, Object>> getOptimizableComponents() {
+    List<Map<String, Object>> components = new ArrayList<>();
+    String owner = String.valueOf(state.getOrDefault("program_id", "root.flow"));
+    components.add(Core.asMap(Core._optimization_component(
+      owner + "::graph-plan",
+      owner,
+      "flow-graph",
+      getPlan(),
+      "AxFlow execution graph and planner barrier metadata.",
+      List.of("Preserve node names, dependencies, and return contract."),
+      List.of(),
+      true,
+      "json",
+      Map.of("schema", "axflow-plan-v1")
+    )));
+    for (Object raw : Core.asList(state.getOrDefault("steps", List.of()))) {
+      Map<String, Object> step = Core.asMap(raw);
+      Object program = step.get("program");
+      String name = String.valueOf(step.get("name"));
+      if (program instanceof AxGen gen) {
+        for (Map<String, Object> component : gen.getOptimizableComponents()) {
+          Map<String, Object> child = new LinkedHashMap<>(component);
+          child.put("owner", owner + "." + name);
+          child.put("id", owner + "." + name + "::" + component.get("id"));
+          components.add(child);
+        }
+      }
+    }
+    return components;
+  }
+
+  public AxFlow applyOptimizedComponents(Map<String, Object> componentMap) {
+    Map<String, Object> updates = componentMap == null ? Map.of() : componentMap;
+    String owner = String.valueOf(state.getOrDefault("program_id", "root.flow"));
+    for (Object raw : Core.asList(state.getOrDefault("steps", List.of()))) {
+      Map<String, Object> step = Core.asMap(raw);
+      Object program = step.get("program");
+      String prefix = owner + "." + step.get("name") + "::";
+      Map<String, Object> childUpdates = new LinkedHashMap<>();
+      for (Map.Entry<String, Object> entry : updates.entrySet()) if (entry.getKey().startsWith(prefix)) childUpdates.put(entry.getKey().substring(prefix.length()), entry.getValue());
+      if (!childUpdates.isEmpty() && program instanceof AxGen gen) gen.applyOptimizedComponents(childUpdates);
+    }
+    return this;
+  }
+
+  public AxFlow applyOptimization(Map<String, Object> artifact) {
+    return applyOptimizedComponents(Core.asMap(artifact == null ? Map.of() : artifact).containsKey("componentMap") ? Core.asMap(artifact.get("componentMap")) : Core.asMap(Core.asMap(artifact == null ? Map.of() : artifact).getOrDefault("component_map", Map.of())));
+  }
+
+  public Map<String, Object> forward(AiClient client, Map<String, Object> values) {
+    return forward(client, values, Map.of());
+  }
+
+  public Map<String, Object> forward(AiClient client, Map<String, Object> values, Map<String, Object> options) {
+    return Core.asMap(Core._flow_forward(state, client, values == null ? Map.of() : values, options == null ? Map.of() : options));
+  }
+
+  private AxFlow addStep(String kind, String name, Object program, Map<String, Object> options) {
+    Core._flow_add_step(state, Core._flow_step(kind, name, program, options == null ? Map.of() : options));
+    return this;
+  }
+}
+`
+
+const javaOptimizerEngine = `package dev.ax;
+
+import java.util.Map;
+
+public interface OptimizerEngine {
+  default String name() { return "host"; }
+  default String version() { return "host"; }
+  Map<String, Object> optimize(Map<String, Object> request);
+  default Map<String, Object> optimize(Map<String, Object> request, OptimizerEvaluator evaluator) {
+    return optimize(request);
+  }
+}
+`
+
+const javaOptimizerEvaluator = `package dev.ax;
+
+import java.util.Map;
+
+public interface OptimizerEvaluator {
+  Map<String, Object> evaluate(Map<String, Object> candidateMap, Map<String, Object> options);
 }
 `
 
@@ -981,11 +1381,12 @@ public interface AxCodeSession {
 
 const javaAxAgent = `package dev.ax;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-public final class AxAgent {
+public final class AxAgent implements AxProgram {
   final Map<String, Object> options;
   final Map<String, Object> state;
   final Object signature;
@@ -1002,9 +1403,9 @@ public final class AxAgent {
     this.options = options == null ? new LinkedHashMap<>() : new LinkedHashMap<>(options);
     this.state = Core.asMap(Core._agent_factory(signature, this.options));
     this.signature = Core.get(state, "signature", signature);
-    this.distiller = new AxGen(AxSignature.create(String.valueOf(Core.get(state, "distiller_signature", "input:json -> completion:json"))), Map.of("validation_retries", 0));
-    this.executor = new AxGen(AxSignature.create(String.valueOf(Core.get(state, "executor_signature", "input:json -> completion:json"))), Map.of("validation_retries", 0));
-    this.responder = new AxGen((AxSignature) this.signature, Map.of("validation_retries", this.options.getOrDefault("validation_retries", 2)));
+    this.distiller = new AxGen(AxSignature.create(String.valueOf(Core.get(state, "distiller_signature", "input:json -> completion:json"))), Map.of("validation_retries", 0, "id", "ctx.root.actor"));
+    this.executor = new AxGen(AxSignature.create(String.valueOf(Core.get(state, "executor_signature", "input:json -> completion:json"))), Map.of("validation_retries", 0, "id", "task.root.actor"));
+    this.responder = new AxGen((AxSignature) this.signature, Map.of("validation_retries", this.options.getOrDefault("validation_retries", 2), "id", "task.root.responder"));
   }
 
   public Map<String, Object> forward(AiClient client, Map<String, Object> values) {
@@ -1101,6 +1502,18 @@ public final class AxAgent {
     return Core.asList(Core.get(state, "action_log", List.of()));
   }
 
+  public Map<String, Object> getTrace() {
+    return Core.asMap(Core._agent_export_trace(state));
+  }
+
+  public Map<String, Object> exportTrace() {
+    return Core.asMap(Core._agent_export_trace(state));
+  }
+
+  public Map<String, Object> replayTrace(Object trace, Map<String, Object> fixtures) {
+    return Core.asMap(Core._agent_replay_trace(trace == null ? Map.of() : trace, fixtures == null ? Map.of() : fixtures));
+  }
+
   public Map<String, Object> getUsage() {
     return Core.asMap(Core.get(state, "usage", Map.of()));
   }
@@ -1111,6 +1524,10 @@ public final class AxAgent {
 
   public Map<String, Object> getPolicy() {
     return Core.asMap(Core.get(state, "policy", Map.of()));
+  }
+
+  public Map<String, Object> getPolicyRegistry() {
+    return Core.asMap(Core.get(state, "policy_registry", Map.of()));
   }
 
   public List<Object> getCallableInventory() {
@@ -1125,6 +1542,25 @@ public final class AxAgent {
     return Core._agent_discover(state, request == null ? Map.of() : request);
   }
 
+  public Object recall(Object request) {
+    return Core._agent_recall(state, request == null ? List.of() : request);
+  }
+
+  public Object used(String id) {
+    return used(id, "", "executor");
+  }
+
+  public Object used(String id, String reason, String stage) {
+    return Core._agent_used(state, new LinkedHashMap<>(Map.of("id", id, "reason", reason == null ? "" : reason, "stage", stage == null ? "executor" : stage)), stage == null ? "executor" : stage);
+  }
+
+  public Object invokeCallable(String qualifiedName, Map<String, Object> args) {
+    Map<String, Object> request = new LinkedHashMap<>();
+    request.put("qualified_name", qualifiedName);
+    request.put("args", args == null ? Map.of() : args);
+    return Core._agent_execute_callable(state, request, Map.of());
+  }
+
   public Map<String, Object> exportRuntimeState() {
     return Core.asMap(Core._agent_export_runtime_state(state));
   }
@@ -1135,6 +1571,150 @@ public final class AxAgent {
 
   public Map<String, Object> getOptimizerMetadata() {
     return Core.asMap(Core._agent_optimizer_metadata(state));
+  }
+
+  public List<Map<String, Object>> getOptimizableComponents() {
+    List<Map<String, Object>> components = new ArrayList<>();
+    components.addAll(distiller.getOptimizableComponents());
+    components.addAll(executor.getOptimizableComponents());
+    components.addAll(responder.getOptimizableComponents());
+    components.add(Core.asMap(Core._optimization_component(
+      "root.agent.runtime",
+      "root.agent",
+      "runtime-policy",
+      getRuntimeContract(),
+      "Agent runtime-language metadata and code-field policy.",
+      List.of("Keep code field names aligned with the selected runtime language."),
+      List.of(),
+      true,
+      "json",
+      Map.of("component", "runtime_contract")
+    )));
+    components.add(Core.asMap(Core._optimization_component(
+      "root.agent.policy",
+      "root.agent",
+      "agent-policy",
+      getPolicy(),
+      "Actor primitive, discovery, delegation, and prompt placement policy.",
+      List.of("Do not expose protocol-only actions as actor primitives."),
+      List.of("root.agent.runtime"),
+      true,
+      "json",
+      Map.of("component", "policy_registry")
+    )));
+    return components;
+  }
+
+  public AxAgent applyOptimizedComponents(Map<String, Object> componentMap) {
+    Map<String, Object> updates = componentMap == null ? Map.of() : componentMap;
+    Core._validate_optimization_component_map(getOptimizableComponents(), updates);
+    distiller.applyOptimizedComponents(updates);
+    executor.applyOptimizedComponents(updates);
+    responder.applyOptimizedComponents(updates);
+    if (updates.get("root.agent.runtime") instanceof Map<?, ?> runtime) state.put("runtime_contract", Core.asMap(runtime));
+    if (updates.get("root.agent.policy") instanceof Map<?, ?> policy) state.put("policy", Core.asMap(policy));
+    state.put("optimizer_metadata", Core._agent_optimizer_metadata(state));
+    return this;
+  }
+
+  public AxAgent applyOptimization(Object artifact) {
+    List<Map<String, Object>> components = getOptimizableComponents();
+    Map<String, Object> map = artifact instanceof String text
+      ? Core.asMap(Core._deserialize_optimized_artifact(text, components))
+      : Core.asMap(Core._validate_optimized_artifact(artifact == null ? Map.of() : artifact, components));
+    return applyOptimizedComponents(Core.asMap(map.getOrDefault("componentMap", Map.of())));
+  }
+
+  public Map<String, Object> evaluateOptimizationTask(AiClient client, Map<String, Object> task, Map<String, Object> options) {
+    Map<String, Object> opts = options == null ? Map.of() : options;
+    try {
+      Map<String, Object> output = forward(client, Core.asMap(task.getOrDefault("input", task)), Core.asMap(opts.getOrDefault("forward_options", Map.of())));
+      return Core.asMap(Core._build_agent_eval_prediction(output, getActionLog(), getUsage(), exportTrace()));
+    } catch (AxAgentClarificationException e) {
+      Map<String, Object> out = new LinkedHashMap<>();
+      out.put("completionType", "askClarification");
+      out.put("clarification", e.clarification());
+      out.put("actionLog", getActionLog());
+      out.put("functionCalls", Core.asList(state.getOrDefault("function_call_traces", List.of())));
+      out.put("toolErrors", List.of());
+      out.put("turnCount", 0);
+      out.put("usage", getUsage());
+      out.put("trace", exportTrace());
+      return out;
+    } catch (RuntimeException e) {
+      Map<String, Object> out = new LinkedHashMap<>();
+      out.put("completionType", "error");
+      out.put("error", Map.of("message", String.valueOf(e.getMessage())));
+      out.put("actionLog", getActionLog());
+      out.put("functionCalls", Core.asList(state.getOrDefault("function_call_traces", List.of())));
+      out.put("toolErrors", List.of(String.valueOf(e.getMessage())));
+      out.put("turnCount", 0);
+      out.put("usage", getUsage());
+      out.put("trace", exportTrace());
+      return out;
+    }
+  }
+
+  public Map<String, Object> evaluateOptimization(AiClient client, Object dataset, Map<String, Object> candidateMap, Map<String, Object> options) {
+    Map<String, Object> opts = options == null ? Map.of() : options;
+    Map<String, Object> normalized = Core.asMap(Core._normalize_optimization_dataset(dataset == null ? List.of() : dataset));
+    List<Object> rows = new ArrayList<>();
+    Map<String, Object> original = Core.asMap(Core._optimization_component_current_map(getOptimizableComponents()));
+    Map<String, Object> candidate = candidateMap == null ? Map.of() : candidateMap;
+    int maxMetricCalls = ((Number) opts.getOrDefault("maxMetricCalls", opts.getOrDefault("max_metric_calls", Integer.MAX_VALUE))).intValue();
+    int calls = 0;
+    try {
+      if (!candidate.isEmpty()) applyOptimizedComponents(candidate);
+      for (Object rawTask : Core.asList(normalized.getOrDefault("train", List.of()))) {
+        if (calls >= maxMetricCalls) throw new RuntimeException("max metric calls exceeded: " + maxMetricCalls);
+        calls++;
+        Map<String, Object> task = Core.asMap(rawTask);
+        Map<String, Object> prediction = evaluateOptimizationTask(client, task, opts);
+        Object error = prediction.get("error");
+        Object rawScore = task.containsKey("metric_score") ? task.get("metric_score") : task.containsKey("scores") ? task.get("scores") : task.getOrDefault("score", "error".equals(prediction.get("completionType")) ? 0 : 1);
+        Map<String, Object> scores = Core.asMap(Core._normalize_optimization_metric_scores(rawScore));
+        Object scalar = Core._adjust_optimization_score_for_actions(Core._scalarize_optimization_scores(scores, opts), task, prediction);
+        rows.add(Core._build_optimization_eval_row(task, prediction, scores, scalar, prediction.get("trace"), error));
+      }
+      return Core.asMap(Core._build_optimization_eval_result(rows, candidate, opts.getOrDefault("phase", "train")));
+    } finally {
+      applyOptimizedComponents(original);
+    }
+  }
+
+  public Map<String, Object> optimizeWith(OptimizerEngine engine, List<Map<String, Object>> dataset, Map<String, Object> options) {
+    Map<String, Object> opts = options == null ? Map.of() : options;
+    List<Map<String, Object>> components = getOptimizableComponents();
+    Map<String, Object> normalized = Core.asMap(Core._normalize_optimization_dataset(dataset == null ? List.of() : dataset));
+    Object target = opts.getOrDefault("target", "all");
+    Object selected = Core._filter_optimization_components(components, target);
+    Map<String, Object> requestOptions = new LinkedHashMap<>(opts);
+    requestOptions.remove("client");
+    requestOptions.remove("ai");
+    requestOptions.remove("engine");
+    requestOptions.remove("optimizer");
+    Map<String, Object> request = Core.asMap(Core._build_optimizer_request("axagent", selected, normalized, requestOptions, exportTrace()));
+    Object client = opts.getOrDefault("client", opts.get("ai"));
+    Core.asMap(request.get("evaluator")).put("available", client instanceof AiClient);
+    OptimizerEvaluator evaluator = client instanceof AiClient aiClient
+      ? (candidate, evalOptions) -> evaluateOptimization(aiClient, dataset == null ? List.of() : dataset, candidate, Core.asMap(evalOptions == null ? Map.of() : evalOptions))
+      : null;
+    Map<String, Object> response = engine.optimize(request, evaluator);
+    Map<String, Object> artifact = Core.asMap(response.getOrDefault("artifact", response));
+    artifact.putIfAbsent("artifactVersion", "axir-optimized-artifact-v1");
+    artifact.putIfAbsent("optimizerName", engine.name());
+    artifact.putIfAbsent("optimizerVersion", engine.version());
+    artifact.putIfAbsent("componentMap", artifact.getOrDefault("component_map", Map.of()));
+    artifact = Core.asMap(Core._validate_optimized_artifact(artifact, components));
+    artifact.put("changedComponents", Core._optimization_changed_components(components, artifact.getOrDefault("componentMap", Map.of())));
+    if (!Boolean.FALSE.equals(opts.get("apply"))) applyOptimization(artifact);
+    return artifact;
+  }
+
+  public Map<String, Object> optimize(List<Map<String, Object>> dataset, Map<String, Object> options) {
+    Object engine = options == null ? null : options.getOrDefault("engine", options.get("optimizer"));
+    if (!(engine instanceof OptimizerEngine optimizer)) throw new UnsupportedOperationException("AxIR generated runtimes require an OptimizerEngine for optimize()");
+    return optimizeWith(optimizer, dataset, options);
   }
 }
 `
@@ -1174,6 +1754,25 @@ public final class Json {
     if (value instanceof Iterable<?> items) {
       List<String> parts = new ArrayList<>();
       for (Object item : items) parts.add(stringify(item));
+      return "[" + String.join(",", parts) + "]";
+    }
+    return stringify(String.valueOf(value));
+  }
+
+  public static String stableStringify(Object value) {
+    if (value == null) return "null";
+    if (value instanceof String || value instanceof Number || value instanceof Boolean) return stringify(value);
+    if (value instanceof Map<?, ?> map) {
+      List<String> keys = new ArrayList<>();
+      for (Object key : map.keySet()) keys.add(String.valueOf(key));
+      java.util.Collections.sort(keys);
+      List<String> parts = new ArrayList<>();
+      for (String key : keys) parts.add(stringify(key) + ":" + stableStringify(map.get(key)));
+      return "{" + String.join(",", parts) + "}";
+    }
+    if (value instanceof Iterable<?> items) {
+      List<String> parts = new ArrayList<>();
+      for (Object item : items) parts.add(stableStringify(item));
       return "[" + String.join(",", parts) + "]";
     }
     return stringify(String.valueOf(value));
@@ -1287,6 +1886,11 @@ final class Core {
   static Object add(Object left, Object right) {
     if (left instanceof Number || right instanceof Number) return asDouble(left) + asDouble(right);
     return String.valueOf(left) + String.valueOf(right);
+  }
+  static Object mul(Object left, Object right) { return asDouble(left) * asDouble(right); }
+  static Object div(Object left, Object right) {
+    double denom = asDouble(right);
+    return asDouble(left) / (denom == 0.0 ? 1.0 : denom);
   }
   static Object contains(Object container, Object item) {
     if (container == null) return false;
@@ -1460,6 +2064,7 @@ final class Core {
   static Object mapGet(Object values, Object key) { return asMap(values).get(key); }
   static Object mapDelete(Object values, Object key) { asMap(values).remove(key); return values; }
   static Object mapUpdate(Object target, Object values) { asMap(target).putAll(asMap(values)); return target; }
+  static Object mapKeys(Object values) { return new ArrayList<>(asMap(values).keySet()); }
   static Object mapValues(Object values) { return new ArrayList<>(asMap(values).values()); }
   static Object listGet(Object values, Object index, Object defaultValue) {
     List<Object> list = asList(values);
@@ -1618,6 +2223,7 @@ final class Core {
     return Json.parse(text);
   }
   static Object jsonStringify(Object value) { return Json.stringify(value); }
+  static Object jsonStableStringify(Object value) { return Json.stableStringify(value); }
   static Object jsonPretty(Object value) { return Json.pretty(value); }
 
   static Object signatureError(Object message) { return new AxSignatureError(String.valueOf(message)); }
@@ -1712,6 +2318,7 @@ final class Core {
 
   static Object objectCallMethod(Object target, Object methodName, Object... args) {
     if (target instanceof PromptTemplate p && "render".equals(String.valueOf(methodName))) return p.render(asMap(args.length > 0 ? args[0] : null));
+    if (target instanceof AxFlow.Mapper mapper && "call".equals(String.valueOf(methodName))) return mapper.apply(asMap(args.length > 0 ? args[0] : null));
     throw new RuntimeException("unsupported method call: " + methodName);
   }
   static Object aiCompleteOnce(Object client, Object request) {
@@ -1997,6 +2604,56 @@ final class Core {
     if (!(session instanceof AxCodeSession active)) return Map.of("closed", true);
     Object result = active.close();
     return result == null ? Map.of("closed", true) : result;
+  }
+  static Object agentMemorySearch(Object state, Object searches, Object alreadyLoaded) {
+    Map<String, Object> options = asMap(get(state, "options", Map.of()));
+    Object scripted = options.getOrDefault("memory_search_results", options.get("memorySearchResults"));
+    if (scripted instanceof Map<?, ?> map) {
+      String joined = String.join("|", asList(searches).stream().map(String::valueOf).toList());
+      if (map.containsKey(joined)) return map.get(joined);
+      for (Object item : asList(searches)) if (map.containsKey(String.valueOf(item))) return map.get(String.valueOf(item));
+      return map.containsKey("*") ? map.get("*") : List.of();
+    }
+    if (scripted instanceof List<?>) return scripted;
+    return List.of();
+  }
+  static Object agentSkillSearch(Object state, Object searches) {
+    Map<String, Object> options = asMap(get(state, "options", Map.of()));
+    Object scripted = options.getOrDefault("skill_search_results", options.get("skillSearchResults"));
+    if (scripted instanceof Map<?, ?> map) {
+      String joined = String.join("|", asList(searches).stream().map(String::valueOf).toList());
+      if (map.containsKey(joined)) return map.get(joined);
+      List<Object> out = new ArrayList<>();
+      for (Object item : asList(searches)) out.addAll(asList(map.get(String.valueOf(item))));
+      if (!out.isEmpty()) return out;
+      return map.containsKey("*") ? map.get("*") : List.of();
+    }
+    if (scripted instanceof List<?>) return scripted;
+    return List.of();
+  }
+  static Object agentCallableInvoke(Object state, Object request, Object optionsArg) {
+    Map<String, Object> options = asMap(get(state, "options", Map.of()));
+    String qualified = String.valueOf(get(request, "qualified_name", get(request, "name", "")));
+    Object scripted = options.getOrDefault("callable_results", options.get("callableResults"));
+    if (scripted instanceof Map<?, ?> map) {
+      Object requestName = String.valueOf(get(request, "name", ""));
+      Object result = map.containsKey(qualified) ? map.get(qualified) : (map.containsKey(requestName) ? map.get(requestName) : map.get("*"));
+      if (result != null) {
+        if (result instanceof Map<?, ?> raw) {
+          Map<String, Object> copied = new LinkedHashMap<>(asMap(raw));
+          if (copied.containsKey("error")) {
+            Map<String, Object> error = new LinkedHashMap<>();
+            error.put("status", "error");
+            error.put("error", copied.get("error"));
+            return error;
+          }
+          copied.putIfAbsent("status", "ok");
+          return copied;
+        }
+        return new LinkedHashMap<>(Map.of("status", "ok", "value", result));
+      }
+    }
+    return new LinkedHashMap<>(Map.of("status", "error", "error", "unknown callable: " + qualified));
   }
   static Object axgenShouldContinueSteps(Object gen, Object calls) {
     Set<String> stops = new LinkedHashSet<>();
@@ -2345,6 +3002,39 @@ public final class Conformance {
     }
   }
 
+  static final class FakeOptimizerEngine implements OptimizerEngine {
+    final Map<String, Object> response;
+    final List<Map<String, Object>> requests = new ArrayList<>();
+    final List<Map<String, Object>> evaluations = new ArrayList<>();
+
+    FakeOptimizerEngine(Object response) {
+      this.response = new LinkedHashMap<>(Core.asMap(response));
+    }
+
+    public String name() { return "fake"; }
+    public String version() { return "1"; }
+
+    public Map<String, Object> optimize(Map<String, Object> request) {
+      requests.add(new LinkedHashMap<>(request));
+      return new LinkedHashMap<>(response);
+    }
+
+    public Map<String, Object> optimize(Map<String, Object> request, OptimizerEvaluator evaluator) {
+      requests.add(new LinkedHashMap<>(request));
+      if (evaluator != null && response.containsKey("evaluate")) {
+        for (Object raw : Core.asList(response.get("evaluate"))) {
+          Map<String, Object> step = Core.asMap(raw);
+          Map<String, Object> result = evaluator.evaluate(
+            Core.asMap(step.getOrDefault("component_map", step.getOrDefault("componentMap", Map.of()))),
+            Core.asMap(step.getOrDefault("options", Map.of()))
+          );
+          evaluations.add(result);
+        }
+      }
+      return new LinkedHashMap<>(response);
+    }
+  }
+
   static final class FakeCodeRuntime implements AxCodeRuntime {
     final List<Object> script;
     final List<FakeCodeSession> sessions = new ArrayList<>();
@@ -2456,6 +3146,9 @@ public final class Conformance {
       case "agent_forward" -> runAgentForward(fixture);
       case "agent_runtime_policy" -> runAgentRuntimePolicy(fixture);
       case "agent_runtime_session" -> runAgentRuntimeSession(fixture);
+      case "program_contract" -> runProgramContract(fixture);
+      case "flow" -> runFlow(fixture);
+      case "optimize" -> runOptimize(fixture);
       default -> throw new FixtureError("unknown fixture kind " + kind);
     }
   }
@@ -2571,6 +3264,222 @@ public final class Conformance {
 	    }
 	  }
 
+  static AxFlow buildFlow(Map<String, Object> fixture) {
+    AxFlow fl = Ax.flow(Core.asMap(fixture.getOrDefault("flow_options", Map.of("id", fixture.getOrDefault("program_id", "root.flow")))));
+    for (Object rawStep : Core.asList(fixture.getOrDefault("steps", List.of()))) {
+      Map<String, Object> step = Core.asMap(rawStep);
+      String kind = String.valueOf(step.getOrDefault("kind", "execute"));
+      String name = String.valueOf(step.get("name"));
+      if ("parallel".equals(kind)) {
+        fl.parallel(List.of(Map.of("kind", "parallel", "name", name)));
+        continue;
+      }
+      if ("map".equals(kind)) {
+        Object output = step.getOrDefault("output", Map.of());
+        fl.map(name, state -> output);
+        continue;
+      }
+      AxGen program = Ax.ax(String.valueOf(step.getOrDefault("signature", fixture.getOrDefault("signature", "question:string -> answer:string"))));
+      if ("derive".equals(kind)) fl.derive(name, program, Core.asMap(step.getOrDefault("forward_options", Map.of())));
+      else fl.execute(name, program, Core.asMap(step.getOrDefault("forward_options", Map.of())));
+    }
+    if (fixture.containsKey("returns")) fl.returns(Core.asMap(fixture.getOrDefault("returns", Map.of())));
+    if (fixture.containsKey("demos")) fl.setDemos(fixture.get("demos"));
+    return fl;
+  }
+
+  static void runProgramContract(Map<String, Object> fixture) {
+    Object program = "flow".equals(fixture.get("program")) ? buildFlow(fixture) : new AxGen(AxSignature.create(String.valueOf(fixture.getOrDefault("signature", "question:string -> answer:string"))), Core.asMap(fixture.getOrDefault("options", Map.of())));
+    Object components = program instanceof AxFlow fl ? fl.getOptimizableComponents() : ((AxGen) program).getOptimizableComponents();
+    if (fixture.containsKey("expected_component_ids")) {
+      List<Object> ids = new ArrayList<>();
+      for (Object component : Core.asList(components)) ids.add(Core.asMap(component).get("id"));
+      assertEqual(ids, fixture.get("expected_component_ids"), "program component ids");
+    }
+    if (fixture.containsKey("expected_components_subset")) assertListSubset(Core.asList(components), fixture.get("expected_components_subset"), "program components");
+  }
+
+  static void runFlow(Map<String, Object> fixture) {
+    try {
+      AxFlow fl = buildFlow(fixture);
+      if ("cache_key".equals(fixture.get("operation"))) {
+        List<Object> keys = new ArrayList<>();
+        for (Object item : Core.asList(fixture.getOrDefault("cache_key_inputs", List.of()))) keys.add(Core._flow_cache_key(item));
+        if (Boolean.TRUE.equals(fixture.get("expected_cache_keys_equal")) && new java.util.HashSet<>(keys).size() != 1) throw new FixtureError("expected equal flow cache keys, got " + keys);
+        if (Boolean.TRUE.equals(fixture.get("expected_cache_keys_distinct")) && new java.util.HashSet<>(keys).size() != keys.size()) throw new FixtureError("expected distinct flow cache keys, got " + keys);
+        return;
+      }
+      if (fixture.containsKey("expected_plan")) assertEqual(fl.getPlan(), fixture.get("expected_plan"), "flow plan");
+      if (fixture.containsKey("expected_plan_subset")) assertListSubset(fl.getPlan(), fixture.get("expected_plan_subset"), "flow plan");
+      if ("plan".equals(fixture.get("operation"))) return;
+      FakeAIService client = new FakeAIService(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())));
+      Object output = fl.forward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), Core.asMap(fixture.getOrDefault("forward_options", Map.of())));
+      if (fixture.containsKey("expected_output")) assertEqual(output, fixture.get("expected_output"), "flow output");
+      if (fixture.containsKey("expected_request_count") && client.requests.size() != Core.asInt(fixture.get("expected_request_count"))) throw new FixtureError("expected request count mismatch");
+      if (fixture.containsKey("expected_chat_log_subset")) assertListSubset(fl.getChatLog(), fixture.get("expected_chat_log_subset"), "flow chat log");
+      if (fixture.containsKey("expected_trace_kinds")) {
+        List<Object> kinds = new ArrayList<>();
+        for (Map<String, Object> event : fl.getTraces()) kinds.add(event.get("kind"));
+        assertEqual(kinds, fixture.get("expected_trace_kinds"), "flow trace kinds");
+      }
+      if (fixture.containsKey("expected_components_subset")) assertListSubset(fl.getOptimizableComponents(), fixture.get("expected_components_subset"), "flow components");
+      if (fixture.containsKey("expected_error_contains")) throw new FixtureError("expected flow fixture to fail");
+    } catch (RuntimeException e) {
+      String expected = (String) fixture.get("expected_error_contains");
+      if (expected != null && String.valueOf(e.getMessage()).contains(expected)) return;
+      throw e;
+    }
+  }
+
+  static void runOptimize(Map<String, Object> fixture) {
+    String programKind = String.valueOf(fixture.getOrDefault("program", "agent"));
+    String signature = String.valueOf(fixture.getOrDefault("signature", "question:string -> answer:string"));
+    Map<String, Object> options = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("options", Map.of())));
+    ToolBuild toolBuild = buildTools(Core.asList(fixture.getOrDefault("tools", List.of())));
+    if (!toolBuild.tools.isEmpty()) options.put("functions", toolBuild.tools);
+    Object program = "axgen".equals(programKind)
+      ? new AxGen(AxSignature.create(signature), options)
+      : Ax.agent(signature, options);
+    String operation = String.valueOf(fixture.getOrDefault("operation", "components"));
+    try {
+      if ("components".equals(operation)) {
+        Object components = "axgen".equals(programKind)
+          ? ((AxGen) program).getOptimizableComponents()
+          : ((AxAgent) program).getOptimizableComponents();
+        if (fixture.containsKey("expected_components_subset")) assertListSubset(Core.asList(components), fixture.get("expected_components_subset"), "optimizable components");
+        if (fixture.containsKey("expected_component_ids")) {
+          List<Object> ids = new ArrayList<>();
+          for (Object component : Core.asList(components)) ids.add(Core.asMap(component).get("id"));
+          assertEqual(ids, fixture.get("expected_component_ids"), "component ids");
+        }
+        return;
+      }
+      if ("filter".equals(operation)) {
+        Object components = "axgen".equals(programKind)
+          ? ((AxGen) program).getOptimizableComponents()
+          : ((AxAgent) program).getOptimizableComponents();
+        Object filtered = Core._filter_optimization_components(components, fixture.getOrDefault("target", "all"));
+        List<Object> ids = new ArrayList<>();
+        for (Object component : Core.asList(filtered)) ids.add(Core.asMap(component).get("id"));
+        assertEqual(ids, fixture.getOrDefault("expected_component_ids", List.of()), "filtered component ids");
+        return;
+      }
+      if ("apply".equals(operation)) {
+        Object components = "axgen".equals(programKind)
+          ? ((AxGen) program).getOptimizableComponents()
+          : ((AxAgent) program).getOptimizableComponents();
+        Map<String, Object> artifact = Core.asMap(Core._optimized_artifact("fixture", "1", fixture.getOrDefault("component_map", Map.of()), Map.of("source", "fixture")));
+        Core._validate_optimized_artifact(artifact, components);
+        if ("axgen".equals(programKind)) ((AxGen) program).applyOptimization(artifact);
+        else ((AxAgent) program).applyOptimization(artifact);
+        Object after = "axgen".equals(programKind)
+          ? ((AxGen) program).getOptimizableComponents()
+          : ((AxAgent) program).getOptimizableComponents();
+        if (fixture.containsKey("expected_components_subset")) assertListSubset(Core.asList(after), fixture.get("expected_components_subset"), "optimized components");
+        if (fixture.containsKey("expected_changed_components")) assertEqual(Core._optimization_changed_components(components, fixture.getOrDefault("component_map", Map.of())), fixture.get("expected_changed_components"), "changed components");
+        return;
+      }
+      if ("artifact".equals(operation)) {
+        Object components = "axgen".equals(programKind)
+          ? ((AxGen) program).getOptimizableComponents()
+          : ((AxAgent) program).getOptimizableComponents();
+        Object artifact = Core._optimized_artifact("fixture", "1", fixture.getOrDefault("component_map", Map.of()), fixture.getOrDefault("metadata", Map.of()));
+        Object validated = Core._validate_optimized_artifact(artifact, components);
+        Object decoded = Core._deserialize_optimized_artifact(Core._serialize_optimized_artifact(validated), components);
+        if (fixture.containsKey("expected_artifact_subset")) assertSubset(decoded, fixture.get("expected_artifact_subset"), "optimized artifact");
+        return;
+      }
+      if ("dataset".equals(operation)) {
+        Object normalized = Core._normalize_optimization_dataset(fixture.getOrDefault("dataset", List.of()));
+        assertEqual(normalized, fixture.get("expected_dataset"), "normalized dataset");
+        return;
+      }
+      if ("score".equals(operation)) {
+        Object scores = Core._normalize_optimization_metric_scores(fixture.get("metric_score"));
+        Object scalar = Core._scalarize_optimization_scores(scores, fixture.getOrDefault("score_options", Map.of()));
+        Object adjusted = Core._adjust_optimization_score_for_actions(scalar, fixture.getOrDefault("task", Map.of()), fixture.getOrDefault("prediction", Map.of("functionCalls", List.of())));
+        if (fixture.containsKey("expected_scores")) assertEqual(scores, fixture.get("expected_scores"), "metric scores");
+        if (fixture.containsKey("expected_scalar")) assertEqual(adjusted, fixture.get("expected_scalar"), "metric scalar");
+        if (fixture.containsKey("quality")) assertEqual(Core._map_optimization_judge_quality_to_score(fixture.get("quality")), fixture.get("expected_quality_score"), "judge quality score");
+        return;
+      }
+      if ("judge_payload".equals(operation)) {
+        Object payload = Core._build_optimization_judge_payload(fixture.getOrDefault("task", Map.of()), fixture.getOrDefault("prediction", Map.of()), fixture.getOrDefault("criteria", ""));
+        if (fixture.containsKey("expected_judge_payload_subset")) assertSubset(payload, fixture.get("expected_judge_payload_subset"), "judge payload");
+        return;
+      }
+      if ("evaluate".equals(operation)) {
+        FakeAIService client = new FakeAIService(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())));
+        Map<String, Object> result = "axgen".equals(programKind)
+          ? ((AxGen) program).evaluateOptimization(client, fixture.getOrDefault("dataset", List.of()), Core.asMap(fixture.getOrDefault("candidate_map", Map.of())), Core.asMap(fixture.getOrDefault("eval_options", Map.of())))
+          : ((AxAgent) program).evaluateOptimization(client, fixture.getOrDefault("dataset", List.of()), Core.asMap(fixture.getOrDefault("candidate_map", Map.of())), Core.asMap(fixture.getOrDefault("eval_options", Map.of())));
+        if (fixture.containsKey("expected_evaluation_subset")) assertSubset(result, fixture.get("expected_evaluation_subset"), "optimization evaluation");
+        if (fixture.containsKey("expected_evaluation_rows_subset")) assertListSubset(Core.asList(result.getOrDefault("rows", List.of())), fixture.get("expected_evaluation_rows_subset"), "optimization evaluation rows");
+        if (fixture.containsKey("expected_components_subset_after")) {
+          Object after = "axgen".equals(programKind)
+            ? ((AxGen) program).getOptimizableComponents()
+            : ((AxAgent) program).getOptimizableComponents();
+          assertListSubset(Core.asList(after), fixture.get("expected_components_subset_after"), "post-eval components");
+        }
+        return;
+      }
+      if ("engine".equals(operation)) {
+        FakeOptimizerEngine engine = new FakeOptimizerEngine(fixture.getOrDefault("engine_response", Map.of()));
+        Map<String, Object> opts = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("optimize_options", Map.of())));
+        if (Boolean.TRUE.equals(fixture.get("engine_uses_evaluator"))) {
+          opts.put("client", new FakeAIService(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of()))));
+        }
+        Map<String, Object> artifact = "axgen".equals(programKind)
+          ? ((AxGen) program).optimizeWith(engine, Core.asMapList(fixture.getOrDefault("dataset", List.of())), opts)
+          : ((AxAgent) program).optimizeWith(engine, Core.asMapList(fixture.getOrDefault("dataset", List.of())), opts);
+        if (fixture.containsKey("expected_engine_request_subset")) {
+          if (engine.requests.isEmpty()) throw new FixtureError("optimizer engine was not called");
+          assertSubset(engine.requests.get(0), fixture.get("expected_engine_request_subset"), "optimizer engine request");
+        }
+        if (fixture.containsKey("expected_engine_evaluations_subset")) assertListSubset(engine.evaluations, fixture.get("expected_engine_evaluations_subset"), "optimizer engine evaluations");
+        if (fixture.containsKey("expected_artifact_subset")) assertSubset(artifact, fixture.get("expected_artifact_subset"), "optimizer artifact");
+        if (fixture.containsKey("expected_components_subset")) {
+          Object after = "axgen".equals(programKind)
+            ? ((AxGen) program).getOptimizableComponents()
+            : ((AxAgent) program).getOptimizableComponents();
+          assertListSubset(Core.asList(after), fixture.get("expected_components_subset"), "optimized components");
+        }
+        return;
+      }
+      if ("eval".equals(operation)) {
+        FakeAIService client = new FakeAIService(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())));
+        Map<String, Object> prediction = ((AxAgent) program).evaluateOptimizationTask(client, Core.asMap(fixture.getOrDefault("task", Map.of("input", fixture.getOrDefault("input", Map.of())))), Core.asMap(fixture.getOrDefault("eval_options", Map.of())));
+        if (fixture.containsKey("expected_prediction_subset")) assertSubset(prediction, fixture.get("expected_prediction_subset"), "eval prediction");
+        return;
+      }
+    } catch (RuntimeException e) {
+      String expected = (String) fixture.get("expected_error_contains");
+      if (expected != null && String.valueOf(e.getMessage()).contains(expected)) return;
+      throw e;
+    }
+    throw new FixtureError("unknown optimize operation " + operation);
+  }
+
+  static void assertAgentTrace(AxAgent agent, Map<String, Object> fixture) {
+    Map<String, Object> trace = agent.exportTrace();
+    if (fixture.containsKey("expected_trace_subset")) assertSubset(trace, fixture.get("expected_trace_subset"), "agent trace");
+    if (fixture.containsKey("expected_trace_event_kinds")) {
+      List<Object> kinds = new ArrayList<>();
+      for (Object rawEvent : Core.asList(trace.getOrDefault("events", List.of()))) {
+        kinds.add(Core.asMap(rawEvent).get("kind"));
+      }
+      assertEqual(kinds, fixture.get("expected_trace_event_kinds"), "agent trace event kinds");
+    }
+    if (Boolean.TRUE.equals(fixture.get("replay_trace"))) {
+      Map<String, Object> replayFixtures = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("replay_fixtures", Map.of())));
+      if (fixture.containsKey("expected_trace_event_kinds") && !replayFixtures.containsKey("expected_event_kinds")) replayFixtures.put("expected_event_kinds", fixture.get("expected_trace_event_kinds"));
+      if (fixture.containsKey("expected_output") && !replayFixtures.containsKey("expected_output")) replayFixtures.put("expected_output", fixture.get("expected_output"));
+      Map<String, Object> replayed = agent.replayTrace(trace, replayFixtures);
+      if (fixture.containsKey("expected_replay_result_subset")) assertSubset(replayed, fixture.get("expected_replay_result_subset"), "agent replay");
+      else assertSubset(replayed, Map.of("ok", true, "status", "replayed"), "agent replay");
+    }
+  }
+
   static void runAgentForward(Map<String, Object> fixture) {
     FakeAIService client = new FakeAIService(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())));
     Map<String, Object> agentOptions = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("options", Map.of())));
@@ -2595,10 +3504,14 @@ public final class Conformance {
       String expected = (String) fixture.get("expected_error_contains");
       if (expected == null || !String.valueOf(e.getMessage()).contains(expected)) throw e;
       if (fixture.containsKey("expected_clarification")) assertSubset(e.clarification(), fixture.get("expected_clarification"), "clarification");
+      if (agent != null) assertAgentTrace(agent, fixture);
       return;
     } catch (RuntimeException e) {
       String expected = (String) fixture.get("expected_error_contains");
-      if (expected != null && String.valueOf(e.getMessage()).contains(expected)) return;
+      if (expected != null && String.valueOf(e.getMessage()).contains(expected)) {
+        if (agent != null) assertAgentTrace(agent, fixture);
+        return;
+      }
       throw e;
     }
     if (fixture.containsKey("expected_request_count") && client.requests.size() != Core.asInt(fixture.get("expected_request_count"))) throw new FixtureError("expected agent request count mismatch");
@@ -2635,6 +3548,7 @@ public final class Conformance {
     if (fixture.containsKey("expected_exported_state_subset")) assertSubset(exported, fixture.get("expected_exported_state_subset"), "runtime state");
     if (fixture.containsKey("expected_action_log_subset")) assertListSubset(Core.asList(exported.get("action_log")), fixture.get("expected_action_log_subset"), "action log");
     if (runtime != null && fixture.containsKey("expected_executed")) assertEqual(runtime.executed, fixture.get("expected_executed"), "executed code");
+    assertAgentTrace(agent, fixture);
   }
 
   static void runAgentRuntimePolicy(Map<String, Object> fixture) {
@@ -2642,8 +3556,27 @@ public final class Conformance {
     try {
       agent = Ax.agent(String.valueOf(fixture.getOrDefault("signature", "question:string -> answer:string")), Core.asMap(fixture.getOrDefault("options", Map.of())));
       if (fixture.containsKey("discover")) {
-        Object result = agent.discover(Core.asMap(fixture.getOrDefault("discover", Map.of())));
+        Object discoverValue = fixture.getOrDefault("discover", Map.of());
+        Object result = agent.discover(discoverValue instanceof Map<?, ?> ? Core.asMap(discoverValue) : new LinkedHashMap<>(Map.of("tools", discoverValue)));
         if (fixture.containsKey("expected_discover_result")) assertEqual(result, fixture.get("expected_discover_result"), "discover result");
+      }
+      if (fixture.containsKey("recall")) {
+        Object result = agent.recall(fixture.getOrDefault("recall", List.of()));
+        if (fixture.containsKey("expected_recall_result")) assertEqual(result, fixture.get("expected_recall_result"), "recall result");
+      }
+      if (fixture.containsKey("used")) {
+        Map<String, Object> used = Core.asMap(fixture.get("used"));
+        Object result = agent.used(String.valueOf(used.get("id")), String.valueOf(used.getOrDefault("reason", "")), String.valueOf(used.getOrDefault("stage", "executor")));
+        if (fixture.containsKey("expected_used_result")) assertEqual(result, fixture.get("expected_used_result"), "used result");
+      }
+      if (fixture.containsKey("invoke_callable")) {
+        Map<String, Object> call = Core.asMap(fixture.get("invoke_callable"));
+        Object result = agent.invokeCallable(String.valueOf(call.getOrDefault("qualified_name", call.get("name"))), Core.asMap(call.getOrDefault("args", Map.of())));
+        if (fixture.containsKey("expected_callable_result_subset")) assertSubset(result, fixture.get("expected_callable_result_subset"), "callable result");
+      }
+      if (fixture.containsKey("replay_trace_input")) {
+        Object result = agent.replayTrace(fixture.getOrDefault("replay_trace_input", Map.of()), Core.asMap(fixture.getOrDefault("replay_fixtures", Map.of())));
+        if (fixture.containsKey("expected_replay_result_subset")) assertSubset(result, fixture.get("expected_replay_result_subset"), "agent replay");
       }
       if (fixture.containsKey("restore_runtime_state")) agent.restoreRuntimeState(Core.asMap(fixture.get("restore_runtime_state")));
       if (fixture.containsKey("final_payload")) assertEqual(Core._normalize_agent_final_payload(fixture.get("final_payload")), fixture.get("expected_final_payload"), "final payload");
@@ -2656,14 +3589,26 @@ public final class Conformance {
     if (fixture.containsKey("expected_error_contains")) throw new FixtureError("expected agent runtime policy fixture to fail");
     if (fixture.containsKey("expected_runtime_contract_subset")) assertSubset(agent.getRuntimeContract(), fixture.get("expected_runtime_contract_subset"), "runtime contract");
     if (fixture.containsKey("expected_policy_subset")) assertSubset(agent.getPolicy(), fixture.get("expected_policy_subset"), "agent policy");
+    if (fixture.containsKey("expected_policy_registry_subset")) assertSubset(agent.getPolicyRegistry(), fixture.get("expected_policy_registry_subset"), "policy registry");
+    Map<String, Object> registry = agent.getPolicyRegistry();
+    if (fixture.containsKey("expected_actor_primitives_subset")) assertListSubset(Core.asList(registry.get("actor_primitives")), fixture.get("expected_actor_primitives_subset"), "actor primitives");
+    if (fixture.containsKey("expected_protocol_actions_subset")) assertListSubset(Core.asList(registry.get("protocol_actions")), fixture.get("expected_protocol_actions_subset"), "protocol actions");
+    if (fixture.containsKey("expected_runtime_globals_subset")) assertListSubset(Core.asList(registry.get("runtime_globals")), fixture.get("expected_runtime_globals_subset"), "runtime globals");
+    if (fixture.containsKey("expected_host_boundaries_subset")) assertListSubset(Core.asList(registry.get("host_boundaries")), fixture.get("expected_host_boundaries_subset"), "host boundaries");
     if (fixture.containsKey("expected_callable_inventory_subset")) assertListSubset(agent.getCallableInventory(), fixture.get("expected_callable_inventory_subset"), "callable inventory");
     if (fixture.containsKey("expected_discovery_catalog_subset")) assertListSubset(agent.getDiscoveryCatalog(), fixture.get("expected_discovery_catalog_subset"), "discovery catalog");
     Map<String, Object> exported = agent.exportRuntimeState();
     if (fixture.containsKey("expected_discovered_tool_docs_subset")) assertListSubset(Core.asList(exported.get("discovered_tool_docs")), fixture.get("expected_discovered_tool_docs_subset"), "discovered tools");
     if (fixture.containsKey("expected_loaded_skill_docs_subset")) assertListSubset(Core.asList(exported.get("loaded_skill_docs")), fixture.get("expected_loaded_skill_docs_subset"), "loaded skills");
+    if (fixture.containsKey("expected_loaded_memories_subset")) assertListSubset(Core.asList(exported.get("loaded_memories")), fixture.get("expected_loaded_memories_subset"), "loaded memories");
+    if (fixture.containsKey("expected_used_memories_subset")) assertListSubset(Core.asList(exported.get("used_memories")), fixture.get("expected_used_memories_subset"), "used memories");
+    if (fixture.containsKey("expected_used_skills_subset")) assertListSubset(Core.asList(exported.get("used_skills")), fixture.get("expected_used_skills_subset"), "used skills");
+    if (fixture.containsKey("expected_guidance_log_subset")) assertListSubset(Core.asList(exported.get("guidance_log")), fixture.get("expected_guidance_log_subset"), "guidance log");
+    if (fixture.containsKey("expected_function_call_traces_subset")) assertListSubset(Core.asList(exported.get("function_call_traces")), fixture.get("expected_function_call_traces_subset"), "function call traces");
     if (fixture.containsKey("expected_policy_trace_subset")) assertListSubset(Core.asList(exported.get("policy_trace")), fixture.get("expected_policy_trace_subset"), "policy trace");
     if (fixture.containsKey("expected_exported_state_subset")) assertSubset(exported, fixture.get("expected_exported_state_subset"), "exported runtime state");
     if (fixture.containsKey("expected_optimizer_metadata_subset")) assertSubset(agent.getOptimizerMetadata(), fixture.get("expected_optimizer_metadata_subset"), "optimizer metadata");
+    assertAgentTrace(agent, fixture);
   }
 
   static void runAgentRuntimeSession(Map<String, Object> fixture) {
@@ -2702,6 +3647,7 @@ public final class Conformance {
     if (fixture.containsKey("expected_status_log_subset")) assertListSubset(Core.asList(exported.get("status_log")), fixture.get("expected_status_log_subset"), "status log");
     if (fixture.containsKey("expected_session_count") && runtime.sessions.size() != Core.asInt(fixture.get("expected_session_count"))) throw new FixtureError("expected session count mismatch");
     if (fixture.containsKey("expected_executed")) assertEqual(runtime.executed, fixture.get("expected_executed"), "executed code");
+    assertAgentTrace(agent, fixture);
   }
 
   static void runAIChat(Map<String, Object> fixture) {

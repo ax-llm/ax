@@ -1,0 +1,10 @@
+{
+  "expected_error_contains": "used(...) requires usage tracking to be enabled",
+  "kind": "agent_runtime_policy",
+  "name": "used-requires-usage-tracking",
+  "options": {},
+  "signature": "question:string -> answer:string",
+  "used": {
+    "id": "mem-1"
+  }
+}

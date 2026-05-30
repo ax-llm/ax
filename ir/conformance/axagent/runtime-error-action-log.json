@@ -15,9 +15,11 @@
     "is_error": true,
     "kind": "error"
   },
+  "expected_trace_event_kinds": ["runtime_execute", "error"],
   "kind": "agent_runtime_session",
   "name": "runtime-error-action-log",
   "operation": "test",
+  "replay_trace": true,
   "runtime_script": [
     {
       "expected_code": "raise Error(\"boom\")",

@@ -21,6 +21,7 @@
     "loaded_skill_docs": [
       {
         "content": "Skill docs loaded for sql",
+        "id": "sql",
         "name": "sql"
       }
     ]
@@ -29,6 +30,8 @@
   "name": "runtime-discover-effect-next-prompt-state",
   "operation": "test",
   "options": {
+    "functionDiscovery": true,
+    "skillsMode": true,
     "functions": [
       {
         "functions": [

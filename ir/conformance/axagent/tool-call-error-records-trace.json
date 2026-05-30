@@ -1,0 +1,41 @@
+{
+  "expected_callable_result_subset": {
+    "error": "handler failed",
+    "status": "error"
+  },
+  "expected_function_call_traces_subset": [
+    {
+      "qualified_name": "tools.fail",
+      "status": "error"
+    }
+  ],
+  "expected_trace_event_kinds": ["function_call"],
+  "invoke_callable": {
+    "args": {
+      "input": "x"
+    },
+    "qualified_name": "tools.fail"
+  },
+  "kind": "agent_runtime_policy",
+  "name": "tool-call-error-records-trace",
+  "options": {
+    "functions": [
+      {
+        "functions": [
+          {
+            "description": "Fails deterministically",
+            "name": "fail"
+          }
+        ],
+        "namespace": "tools"
+      }
+    ],
+    "callable_results": {
+      "tools.fail": {
+        "error": "handler failed"
+      }
+    }
+  },
+  "replay_trace": true,
+  "signature": "question:string -> answer:string"
+}

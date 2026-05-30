@@ -1,0 +1,51 @@
+{
+  "expected_action_log_subset": [
+    {
+      "qualified_name": "agents.researcher",
+      "status": "ok",
+      "type": "function_call"
+    }
+  ],
+  "expected_callable_result_subset": {
+    "status": "ok",
+    "value": {
+      "answer": "child result"
+    }
+  },
+  "expected_function_call_traces_subset": [
+    {
+      "qualified_name": "agents.researcher",
+      "status": "ok"
+    }
+  ],
+  "invoke_callable": {
+    "args": {
+      "question": "Find docs"
+    },
+    "qualified_name": "agents.researcher"
+  },
+  "kind": "agent_runtime_policy",
+  "name": "child-agent-call-executes-host-boundary",
+  "options": {
+    "functions": [
+      {
+        "functions": [
+          {
+            "description": "Delegate research",
+            "kind": "agent",
+            "name": "researcher"
+          }
+        ],
+        "namespace": "agents"
+      }
+    ],
+    "callable_results": {
+      "agents.researcher": {
+        "value": {
+          "answer": "child result"
+        }
+      }
+    }
+  },
+  "signature": "question:string -> answer:string"
+}

@@ -144,7 +144,7 @@ func verifyManifest(outDir, target string) error {
 	if !bytes.Contains(data, []byte(`"target": "`+target+`"`)) {
 		return fmt.Errorf("manifest missing target %q", target)
 	}
-	for _, suite := range []string{"signature", "schema", "validation", "prompt", "axgen", "axai", "axagent"} {
+	for _, suite := range []string{"signature", "schema", "validation", "prompt", "axgen", "axai", "axagent", "axoptimize", "axprogram", "axflow"} {
 		if !bytes.Contains(data, []byte(`"`+suite+`"`)) {
 			return fmt.Errorf("manifest missing suite %q", suite)
 		}
@@ -167,6 +167,7 @@ func verifyPythonTarget(report VerifyTargetReport, conformanceRoot string) (Veri
 		"axgen_fake_client_tool.py",
 		"axai_fake_transport.py",
 		"axagent_pipeline.py",
+		"axflow_program_graph.py",
 	} {
 		if err := runVerifyCommand(&report, "example "+example, "", env, python, filepath.Join(report.OutDir, "examples", example)); err != nil {
 			return report, err
@@ -209,6 +210,7 @@ func verifyJavaTarget(report VerifyTargetReport, conformanceRoot string) (Verify
 		"AxGenFakeClientToolExample",
 		"AxAIFakeTransportExample",
 		"AxAgentPipelineExample",
+		"AxFlowProgramGraphExample",
 	} {
 		if err := runVerifyCommand(&report, "example "+className, "", nil, java, "-cp", report.OutDir, className); err != nil {
 			return report, err
@@ -233,6 +235,7 @@ func verifyCppTarget(report VerifyTargetReport, conformanceRoot string) (VerifyT
 		"axgen_fake_client_tool",
 		"axai_fake_transport",
 		"axagent_pipeline",
+		"axflow_program_graph",
 	}
 	for _, example := range examples {
 		source := filepath.Join(report.OutDir, "examples", example+".cpp")
@@ -264,6 +267,9 @@ func conformanceSuitePaths(root string) []string {
 		filepath.Join(root, "axgen"),
 		filepath.Join(root, "axai"),
 		filepath.Join(root, "axagent"),
+		filepath.Join(root, "axoptimize"),
+		filepath.Join(root, "axprogram"),
+		filepath.Join(root, "axflow"),
 	}
 }
 

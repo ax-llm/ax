@@ -1,0 +1,39 @@
+{
+  "expected_policy_trace_subset": [
+    {
+      "id": "mem-1",
+      "matched": true,
+      "reason": "answered from memory",
+      "type": "used"
+    }
+  ],
+  "expected_used_memories_subset": [
+    {
+      "id": "mem-1",
+      "reason": "answered from memory",
+      "stage": "executor"
+    }
+  ],
+  "expected_used_result": null,
+  "kind": "agent_runtime_policy",
+  "name": "used-records-loaded-memory",
+  "options": {
+    "memoriesMode": true,
+    "usageTrackingMode": true,
+    "memory_search_results": {
+      "prefs": [
+        {
+          "content": "User prefers examples.",
+          "id": "mem-1"
+        }
+      ]
+    }
+  },
+  "recall": "prefs",
+  "signature": "question:string -> answer:string",
+  "used": {
+    "id": "mem-1",
+    "reason": "answered from memory",
+    "stage": "executor"
+  }
+}

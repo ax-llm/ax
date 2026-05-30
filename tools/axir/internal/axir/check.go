@@ -8,6 +8,7 @@ import (
 var knownDialects = map[string]bool{
 	"core":         true,
 	"ax.api":       true,
+	"ax.program":   true,
 	"ax.signature": true,
 	"ax.schema":    true,
 	"ax.validate":  true,
@@ -15,9 +16,11 @@ var knownDialects = map[string]bool{
 	"ax.ai":        true,
 	"ax.tool":      true,
 	"ax.gen":       true,
+	"ax.optimize":  true,
 	"ax.stream":    true,
 	"ax.provider":  true,
 	"ax.agent":     true,
+	"ax.flow":      true,
 }
 
 var coreBodyOps = map[string]bool{
@@ -60,13 +63,21 @@ var knownOperationNames = map[string]bool{
 	"ax.agent.runtime":      true,
 	"ax.agent.semantic":     true,
 	"ax.agent.stub":         true,
+	"ax.agent.trace":        true,
 	"ax.ai.interface":       true,
 	"ax.ai.record":          true,
 	"ax.ai.semantic":        true,
 	"ax.api.class":          true,
 	"ax.api.function":       true,
 	"ax.api.package":        true,
+	"ax.program.interface":  true,
+	"ax.program.semantic":   true,
 	"ax.gen.semantic":       true,
+	"ax.flow.record":        true,
+	"ax.flow.semantic":      true,
+	"ax.optimize.artifact":  true,
+	"ax.optimize.component": true,
+	"ax.optimize.semantic":  true,
 	"ax.provider.class":     true,
 	"ax.provider.semantic":  true,
 	"ax.schema.record":      true,
@@ -199,6 +210,7 @@ func isGeneratedCoreFunctionName(name string) bool {
 		pythonPromptCoreFuncs,
 		pythonAICoreFuncs,
 		pythonGenCoreFuncs,
+		pythonProgramCoreFuncs,
 		pythonAgentCoreFuncs,
 	} {
 		for _, spec := range group {

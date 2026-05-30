@@ -1,6 +1,7 @@
 module @ax.root version "0.1" {
   import @ax.core from "core.axir"
   import @ax.api from "api.axir"
+  import @ax.program from "program.axir"
   import @ax.signature from "signature.axir"
   import @ax.schema from "schema.axir"
   import @ax.validate from "validate.axir"
@@ -11,6 +12,8 @@ module @ax.root version "0.1" {
   import @ax.stream from "stream.axir"
   import @ax.provider from "provider.axir"
   import @ax.agent from "agent.axir"
+  import @ax.optimize from "optimize.axir"
+  import @ax.flow from "flow.axir"
 
   dialect @ax.api version "0.1"
 

@@ -1,0 +1,39 @@
+{
+  "kind": "flow",
+  "name": "map-state-merge-returns",
+  "source": {
+    "tsDerived": true,
+    "extractor": "tools/axir/extractors/flow-goldens.ts",
+    "reference": [
+      "src/ax/flow/flow.ts",
+      "src/ax/flow/executionPlanner.ts",
+      "src/ax/dsp/program.ts"
+    ],
+    "name": "map-state-merge-returns",
+    "observed": {
+      "output": {
+        "fullName": "Ada Lovelace"
+      }
+    }
+  },
+  "input": {
+    "firstName": "Ada",
+    "lastName": "Lovelace"
+  },
+  "steps": [
+    {
+      "kind": "map",
+      "name": "fullName",
+      "output": {
+        "fullName": "Ada Lovelace"
+      }
+    }
+  ],
+  "returns": {
+    "fullName": "fullName"
+  },
+  "expected_output": {
+    "fullName": "Ada Lovelace"
+  },
+  "expected_request_count": 0
+}

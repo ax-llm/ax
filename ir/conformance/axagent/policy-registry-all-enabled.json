@@ -1,0 +1,90 @@
+{
+  "expected_actor_primitives_subset": [
+    {
+      "id": "llmQuery"
+    },
+    {
+      "id": "final"
+    },
+    {
+      "id": "askClarification"
+    },
+    {
+      "id": "reportSuccess"
+    },
+    {
+      "id": "reportFailure"
+    },
+    {
+      "id": "inspectRuntime"
+    },
+    {
+      "id": "discover"
+    },
+    {
+      "id": "recall"
+    },
+    {
+      "id": "used"
+    }
+  ],
+  "expected_host_boundaries_subset": [
+    {
+      "category": "host_boundary",
+      "id": "memory_search"
+    },
+    {
+      "category": "host_boundary",
+      "id": "skill_search"
+    },
+    {
+      "category": "host_boundary",
+      "id": "status_callback"
+    },
+    {
+      "category": "host_boundary",
+      "id": "runtime_inspection"
+    }
+  ],
+  "expected_policy_registry_subset": {
+    "flags": {
+      "discoveryMode": true,
+      "hasAgentStatusCallback": true,
+      "hasInspectRuntime": true,
+      "memoriesMode": true,
+      "skillsMode": true,
+      "usageTrackingMode": true
+    }
+  },
+  "expected_protocol_actions_subset": [
+    {
+      "actor_visible": false,
+      "category": "protocol_action",
+      "id": "guideAgent"
+    },
+    {
+      "actor_visible": false,
+      "category": "protocol_action",
+      "id": "success"
+    },
+    {
+      "actor_visible": false,
+      "category": "protocol_action",
+      "id": "failed"
+    }
+  ],
+  "kind": "agent_runtime_policy",
+  "name": "policy-registry-all-enabled",
+  "options": {
+    "functionDiscovery": true,
+    "skillsMode": true,
+    "memoriesMode": true,
+    "usageTrackingMode": true,
+    "hasAgentStatusCallback": true,
+    "hasInspectRuntime": true,
+    "runtime": {
+      "language": "JavaScript"
+    }
+  },
+  "signature": "question:string -> answer:string"
+}

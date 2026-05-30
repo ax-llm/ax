@@ -45,6 +45,9 @@ Core owns deterministic Ax semantics:
   normalization, usage mapping, and provider error normalization
 - memory, trace, chat-log, example/demo ordering, retry/correction ordering, and
   callback scheduling
+- AxAgent policy selection: actor primitives, protocol actions, runtime
+  globals, reserved-name rules, host-boundary availability, prompt guidance,
+  and policy trace events
 
 Targets own runtime integration:
 
@@ -58,6 +61,24 @@ Targets own runtime integration:
 If a rule affects observable Ax behavior across languages, prefer Core. If it
 touches the host language runtime or external IO, prefer a target-owned boundary
 with Core deciding when and why the boundary is called.
+
+AxAgent changes often. New discovery, delegation, memory, skill, status, or
+runtime primitives should first be expressed as policy-registry data and
+TS-derived fixtures, then lowered through Core. Do not bake volatile agent
+decisions directly into Python, Java, or C++ templates.
+
+Agent discovery and memory primitives are effect-only in this contract:
+`discover(...)` and `recall(...)` return `void` and mutate next-turn prompt
+state. `used(...)` records usage only for already-loaded memory or skill IDs.
+`guideAgent(...)` is protocol-only guidance from trusted host boundaries and
+must not be rendered as a normal actor-visible primitive unless the policy
+registry says so.
+
+AxAgent traces are the portable replay and optimization boundary. Core owns the
+event ordering, host-boundary envelopes, component IDs, status/final/error
+records, and deterministic replay matching. Targets may add ergonomic accessors
+such as `get_trace()` or `exportTrace()`, but they must not invent target-local
+trace schemas or replay semantics.
 
 ## Dialect And Lowering Boundaries
 

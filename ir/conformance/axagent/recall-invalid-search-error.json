@@ -1,0 +1,10 @@
+{
+  "expected_error_contains": "recall searches entries must be non-empty strings",
+  "kind": "agent_runtime_policy",
+  "name": "recall-invalid-search-error",
+  "options": {
+    "memoriesMode": true
+  },
+  "recall": [""],
+  "signature": "question:string -> answer:string"
+}

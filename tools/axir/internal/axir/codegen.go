@@ -74,6 +74,10 @@ func EmitPython(model AxRuntimeModel, outDir string) error {
 	if err != nil {
 		return err
 	}
+	flow, err := BuildPythonFlow(model)
+	if err != nil {
+		return err
+	}
 	files := map[string]string{
 		"ax/__init__.py":                     pyInit,
 		"ax/signature.py":                    signature,
@@ -83,6 +87,7 @@ func EmitPython(model AxRuntimeModel, outDir string) error {
 		"ax/ai.py":                           ai,
 		"ax/gen.py":                          gen,
 		"ax/agent.py":                        agent,
+		"ax/flow.py":                         flow,
 		"ax/conformance.py":                  pyConformance,
 		"ax/providers/__init__.py":           pyProvidersInit,
 		"ax/providers/openai.py":             pyOpenAIProvider,
@@ -91,6 +96,7 @@ func EmitPython(model AxRuntimeModel, outDir string) error {
 		"examples/axgen_fake_client_tool.py": pyAxGenFakeClientToolExample,
 		"examples/axai_fake_transport.py":    pyAxAIFakeTransportExample,
 		"examples/axagent_pipeline.py":       pyAxAgentPipelineExample,
+		"examples/axflow_program_graph.py":   pyAxFlowProgramGraphExample,
 		"README.md":                          packageREADME(model, "python"),
 	}
 	return writeFiles(outDir, files)
@@ -103,6 +109,7 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 	}
 	files := map[string]string{
 		"dev/ax/Ax.java":                            javaAx,
+		"dev/ax/AxProgram.java":                     javaAxProgram,
 		"dev/ax/AxSignature.java":                   javaSignature,
 		"dev/ax/Field.java":                         javaField,
 		"dev/ax/FieldType.java":                     javaFieldType,
@@ -115,11 +122,14 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 		"dev/ax/AxAIServiceError.java":              javaAxAIServiceError,
 		"dev/ax/AxMemory.java":                      javaAxMemory,
 		"dev/ax/AxAgent.java":                       javaAxAgent,
+		"dev/ax/AxFlow.java":                        javaAxFlow,
 		"dev/ax/AxAgentClarificationException.java": javaAxAgentClarificationException,
 		"dev/ax/AxCodeRuntime.java":                 javaAxCodeRuntime,
 		"dev/ax/AxCodeSession.java":                 javaAxCodeSession,
 		"dev/ax/OpenAICompatibleClient.java":        javaOpenAI,
 		"dev/ax/AxGen.java":                         javaAxGen,
+		"dev/ax/OptimizerEngine.java":               javaOptimizerEngine,
+		"dev/ax/OptimizerEvaluator.java":            javaOptimizerEvaluator,
 		"dev/ax/Json.java":                          javaJson,
 		"dev/ax/Conformance.java":                   javaConformance,
 		"axir-capabilities.json":                    mustCapabilityManifest(model, "java"),
@@ -127,6 +137,7 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 		"examples/AxGenFakeClientToolExample.java":  javaAxGenFakeClientToolExample,
 		"examples/AxAIFakeTransportExample.java":    javaAxAIFakeTransportExample,
 		"examples/AxAgentPipelineExample.java":      javaAxAgentPipelineExample,
+		"examples/AxFlowProgramGraphExample.java":   javaAxFlowProgramGraphExample,
 		"README.md":                                 packageREADME(model, "java"),
 	}
 	return writeFiles(outDir, files)
@@ -146,6 +157,7 @@ func EmitCpp(model AxRuntimeModel, outDir string) error {
 		"examples/axgen_fake_client_tool.cpp": cppAxGenFakeClientToolExample,
 		"examples/axai_fake_transport.cpp":    cppAxAIFakeTransportExample,
 		"examples/axagent_pipeline.cpp":       cppAxAgentPipelineExample,
+		"examples/axflow_program_graph.cpp":   cppAxFlowProgramGraphExample,
 		"README.md":                           packageREADME(model, "cpp"),
 	}
 	return writeFiles(outDir, files)
@@ -197,7 +209,7 @@ func BuildCapabilityManifest(model AxRuntimeModel, target string) (CapabilityMan
 		AxIRVersion:             "0.1",
 		Target:                  target,
 		PackageName:             packageNameForTarget(target),
-		SupportedSuites:         []string{"signature", "schema", "validation", "prompt", "axgen", "axai", "axagent"},
+		SupportedSuites:         []string{"signature", "schema", "validation", "prompt", "axgen", "axai", "axagent", "axoptimize", "axprogram", "axflow"},
 		ProviderMode:            "openai-compatible-mapping",
 		FakeTransportSupport:    true,
 		RealNetworkSupport:      realNetwork,
@@ -240,6 +252,40 @@ func BuildCapabilityManifest(model AxRuntimeModel, target string) (CapabilityMan
 			"axagent-runtime-language",
 			"axagent-actor-prompt-cache",
 			"axagent-context-cache-precedence",
+			"axagent-policy-registry",
+			"axagent-policy-versioning",
+			"axagent-dynamic-primitives",
+			"axagent-host-boundaries",
+			"axagent-policy-trace",
+			"axagent-policy-execution",
+			"axagent-tool-discovery",
+			"axagent-skill-discovery",
+			"axagent-memory-recall",
+			"axagent-usage-tracking",
+			"axagent-child-delegation",
+			"axagent-guidance-protocol",
+			"axagent-trace-export",
+			"axagent-deterministic-replay",
+			"axagent-host-boundary-contract",
+			"axagent-optimizer-trace-artifact",
+			"axoptimize-contract",
+			"axoptimize-engine-boundary",
+			"axoptimize-artifacts",
+			"axoptimize-agent-eval",
+			"axoptimize-prompt-components",
+			"axoptimize-evaluator-boundary",
+			"axoptimize-candidate-rollouts",
+			"axoptimize-metric-scoring",
+			"axoptimize-judge-payloads",
+			"axoptimize-state-isolation",
+			"axprogram-contract",
+			"axprogram-trace-events",
+			"axflow-program-graph",
+			"axflow-program-contract",
+			"axflow-shared-executor",
+			"axflow-auto-parallel-barriers",
+			"axflow-actual-input-cache-key",
+			"axflow-optimizer-components",
 		},
 		PublicSymbols: append([]string(nil), model.PublicSymbols...),
 		TargetIdiom:   idiom,
@@ -312,5 +358,6 @@ See the files in `+"`examples/`"+` for:
 - AxGen forward with a fake client and tool
 - AxAI/OpenAI-compatible mapping with a fake transport
 - AxAgent pipeline alpha with a fake service
+- AxFlow program graph with child Ax programs
 `, strings.ToUpper(target), manifest.AxIRVersion, manifest.PackageName, strings.Join(manifest.SupportedSuites, ", "), manifest.ProviderMode, manifest.FakeTransportSupport, network)
 }

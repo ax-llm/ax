@@ -1,0 +1,40 @@
+{
+  "discover": {
+    "skills": ["sql"]
+  },
+  "expected_discover_result": null,
+  "expected_loaded_skill_docs_subset": [
+    {
+      "content": "Use SELECT carefully.",
+      "id": "skill.sql",
+      "name": "sql"
+    }
+  ],
+  "expected_policy_trace_subset": [
+    {
+      "skills": ["sql"],
+      "tools": [],
+      "type": "discover"
+    }
+  ],
+  "kind": "agent_runtime_policy",
+  "name": "discover-skills-host-results-dedupe",
+  "options": {
+    "skillsMode": true,
+    "skill_search_results": {
+      "sql": [
+        {
+          "content": "Use SELECT carefully.",
+          "id": "skill.sql",
+          "name": "sql"
+        },
+        {
+          "content": "Duplicate should dedupe.",
+          "id": "skill.sql",
+          "name": "sql"
+        }
+      ]
+    }
+  },
+  "signature": "question:string -> answer:string"
+}

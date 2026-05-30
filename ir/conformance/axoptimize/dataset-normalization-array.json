@@ -1,0 +1,28 @@
+{
+  "dataset": [
+    {
+      "expectedOutput": {
+        "answer": "Paris"
+      },
+      "input": {
+        "question": "Capital?"
+      }
+    }
+  ],
+  "expected_dataset": {
+    "train": [
+      {
+        "expectedOutput": {
+          "answer": "Paris"
+        },
+        "input": {
+          "question": "Capital?"
+        }
+      }
+    ],
+    "validation": []
+  },
+  "kind": "optimize",
+  "name": "dataset-normalization-array",
+  "operation": "dataset"
+}
