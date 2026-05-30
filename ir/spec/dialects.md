@@ -27,7 +27,8 @@ until staged lowering.
   chat-log aggregation, optimizer-facing metadata, runtime-session lifecycle
   ordering, host-boundary option envelopes, actor-step action logs,
   `agent.test(...)`, reserved-name-safe runtime snapshots, restart/error
-  envelopes, and minimal state helpers.
+  envelopes, minimal state helpers, and the process/transport protocol used by
+  external runtime adapters.
   Volatile actor decisions live in the versioned policy registry: actor-visible
   primitives, protocol-only actions, runtime globals, and host boundaries are
   modeled separately so target runtimes do not hard-code today's prompt policy.

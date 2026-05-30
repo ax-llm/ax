@@ -2,6 +2,11 @@ package axir
 
 const pyRuntime = `from __future__ import annotations
 
+import json
+import os
+import shlex
+import subprocess
+import threading
 from dataclasses import dataclass
 from typing import Any
 
@@ -89,6 +94,135 @@ class RuntimeEnvelope:
         if triggered_by is not None:
             payload["triggeredBy"] = triggered_by
         return payload
+
+
+class RuntimeProtocolError(RuntimeError):
+    def __init__(self, message: str, category: str = "runtime"):
+        super().__init__(message)
+        self.category = category
+
+
+class ProcessCodeRuntime:
+    language = "JavaScript"
+
+    def __init__(
+        self,
+        command: list[str] | str,
+        *,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+    ):
+        argv = shlex.split(command) if isinstance(command, str) else list(command)
+        if not argv:
+            raise ValueError("ProcessCodeRuntime requires a command")
+        merged_env = os.environ.copy()
+        if env:
+            merged_env.update(env)
+        self._process = subprocess.Popen(
+            argv,
+            cwd=cwd,
+            env=merged_env,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+        self._lock = threading.Lock()
+        self._next_id = 0
+
+    def get_usage_instructions(self) -> str:
+        try:
+            response = self._request("capabilities", None, {})
+            result = response.get("result") or {}
+            if isinstance(result, dict):
+                return str(result.get("usage_instructions") or "")
+        except Exception:
+            return ""
+        return ""
+
+    def create_session(self, globals: dict[str, Any], options: dict[str, Any] | None = None):
+        response = self._request("create_session", None, {"globals": globals or {}, "options": options or {}})
+        session_id = response.get("session_id")
+        result = response.get("result")
+        if not session_id and isinstance(result, dict):
+            session_id = result.get("session_id")
+        if not session_id:
+            raise RuntimeError("runtime protocol did not return a session_id")
+        return ProcessCodeSession(self, str(session_id))
+
+    def shutdown(self):
+        if self._process.poll() is None:
+            try:
+                self._request("shutdown", None, {})
+            finally:
+                try:
+                    self._process.terminate()
+                except ProcessLookupError:
+                    pass
+
+    def _request(self, op: str, session_id: str | None, payload: dict[str, Any] | None) -> dict[str, Any]:
+        with self._lock:
+            self._next_id += 1
+            message: dict[str, Any] = {"id": str(self._next_id), "op": op, "payload": payload or {}}
+            if session_id is not None:
+                message["session_id"] = session_id
+            if self._process.stdin is None or self._process.stdout is None:
+                raise RuntimeError("runtime protocol process is closed")
+            self._process.stdin.write(json.dumps(message, separators=(",", ":")) + "\n")
+            self._process.stdin.flush()
+            line = self._process.stdout.readline()
+            if not line:
+                raise RuntimeError("runtime protocol process closed without a response")
+            response = json.loads(line)
+            if not isinstance(response, dict):
+                raise RuntimeError("runtime protocol response must be an object")
+            if response.get("ok") is False:
+                error = response.get("error") if isinstance(response.get("error"), dict) else {}
+                raise RuntimeProtocolError(
+                    str(error.get("message") or "runtime protocol error"),
+                    str(error.get("category") or "runtime"),
+                )
+            return response
+
+
+class ProcessCodeSession:
+    def __init__(self, runtime: ProcessCodeRuntime, session_id: str):
+        self._runtime = runtime
+        self._session_id = session_id
+
+    def execute(self, code: str, options: dict[str, Any] | None = None) -> Any:
+        try:
+            return self._runtime._request(
+                "execute",
+                self._session_id,
+                {"code": str(code), "options": options or {}},
+            ).get("result")
+        except RuntimeProtocolError as exc:
+            return RuntimeEnvelope.error(str(exc), exc.category)
+        except RuntimeError as exc:
+            return RuntimeEnvelope.error(str(exc), "runtime")
+
+    def inspect_globals(self, options: dict[str, Any] | None = None) -> Any:
+        return self._runtime._request("inspect_globals", self._session_id, options or {}).get("result")
+
+    def snapshot_globals(self, options: dict[str, Any] | None = None) -> Any:
+        return self._runtime._request("snapshot_globals", self._session_id, options or {}).get("result")
+
+    def patch_globals(self, globals: dict[str, Any], options: dict[str, Any] | None = None) -> Any:
+        return self._runtime._request(
+            "patch_globals",
+            self._session_id,
+            {"globals": globals or {}, "options": options or {}},
+        ).get("result")
+
+    def export_state(self, options: dict[str, Any] | None = None) -> Any:
+        return self.snapshot_globals(options or {})
+
+    def restore_state(self, snapshot: Any, options: dict[str, Any] | None = None) -> Any:
+        return self.patch_globals(snapshot or {}, options or {})
+
+    def close(self) -> Any:
+        return self._runtime._request("close", self._session_id, {}).get("result")
 `
 
 const javaAxRuntimeCapabilities = `package dev.ax;
@@ -200,6 +334,149 @@ public final class AxRuntimeEnvelope {
     Map<String, Object> payload = map("type", "guide_agent", "guidance", guidance);
     if (triggeredBy != null) payload.put("triggeredBy", triggeredBy);
     return payload;
+  }
+}
+`
+
+const javaAxProcessCodeRuntime = `package dev.ax;
+
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
+import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+public final class AxProcessCodeRuntime implements AxCodeRuntime, AutoCloseable {
+  private final Process process;
+  private final BufferedWriter writer;
+  private final BufferedReader reader;
+  private int nextId = 0;
+
+  public AxProcessCodeRuntime(List<String> command) {
+    this(command, null, Map.of());
+  }
+
+  public AxProcessCodeRuntime(List<String> command, File cwd, Map<String, String> env) {
+    try {
+      ProcessBuilder builder = new ProcessBuilder(command);
+      if (cwd != null) builder.directory(cwd);
+      if (env != null) builder.environment().putAll(env);
+      builder.redirectError(ProcessBuilder.Redirect.INHERIT);
+      this.process = builder.start();
+      this.writer = new BufferedWriter(new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8));
+      this.reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8));
+    } catch (Exception ex) {
+      throw new RuntimeException("failed to start runtime protocol process: " + ex.getMessage(), ex);
+    }
+  }
+
+  public String getUsageInstructions() {
+    try {
+      Map<String, Object> response = request("capabilities", null, Map.of(), true);
+      Map<String, Object> result = Json.asObject(response.get("result"));
+      return String.valueOf(result.getOrDefault("usage_instructions", ""));
+    } catch (RuntimeException ex) {
+      return "";
+    }
+  }
+
+  public AxCodeSession createSession(Map<String, Object> globals, Map<String, Object> options) {
+    Map<String, Object> payload = new LinkedHashMap<>();
+    payload.put("globals", globals == null ? Map.of() : globals);
+    payload.put("options", options == null ? Map.of() : options);
+    Map<String, Object> response = request("create_session", null, payload, true);
+    Object sessionId = response.get("session_id");
+    if (sessionId == null && response.get("result") instanceof Map<?, ?> result) sessionId = result.get("session_id");
+    if (sessionId == null) throw new RuntimeException("runtime protocol did not return a session_id");
+    return new AxProcessCodeSession(this, String.valueOf(sessionId));
+  }
+
+  synchronized Map<String, Object> request(String op, String sessionId, Map<String, Object> payload, boolean throwOnError) {
+    try {
+      Map<String, Object> message = new LinkedHashMap<>();
+      message.put("id", String.valueOf(++nextId));
+      message.put("op", op);
+      message.put("payload", payload == null ? Map.of() : payload);
+      if (sessionId != null) message.put("session_id", sessionId);
+      writer.write(Json.stringify(message));
+      writer.newLine();
+      writer.flush();
+      String line = reader.readLine();
+      if (line == null) throw new RuntimeException("runtime protocol process closed without a response");
+      Map<String, Object> response = Json.asObject(Json.parse(line));
+      if (Boolean.FALSE.equals(response.get("ok")) && throwOnError) {
+        Map<String, Object> error = Json.asObject(response.get("error"));
+        throw new RuntimeException(String.valueOf(error.getOrDefault("message", "runtime protocol error")));
+      }
+      return response;
+    } catch (RuntimeException ex) {
+      throw ex;
+    } catch (Exception ex) {
+      throw new RuntimeException("runtime protocol request failed: " + ex.getMessage(), ex);
+    }
+  }
+
+  public void close() {
+    try {
+      request("shutdown", null, Map.of(), false);
+    } catch (RuntimeException ignored) {
+    } finally {
+      process.destroy();
+    }
+  }
+}
+`
+
+const javaAxProcessCodeSession = `package dev.ax;
+
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+public final class AxProcessCodeSession implements AxCodeSession {
+  private final AxProcessCodeRuntime runtime;
+  private final String sessionId;
+
+  AxProcessCodeSession(AxProcessCodeRuntime runtime, String sessionId) {
+    this.runtime = runtime;
+    this.sessionId = sessionId;
+  }
+
+  public Object execute(String code, Map<String, Object> options) {
+    Map<String, Object> payload = new LinkedHashMap<>();
+    payload.put("code", code == null ? "" : code);
+    payload.put("options", options == null ? Map.of() : options);
+    Map<String, Object> response = runtime.request("execute", sessionId, payload, false);
+    if (Boolean.FALSE.equals(response.get("ok"))) {
+      Map<String, Object> error = Json.asObject(response.get("error"));
+      return AxRuntimeEnvelope.error(
+        String.valueOf(error.getOrDefault("message", "runtime protocol error")),
+        String.valueOf(error.getOrDefault("category", "runtime"))
+      );
+    }
+    return response.get("result");
+  }
+
+  public Object inspectGlobals(Map<String, Object> options) {
+    return runtime.request("inspect_globals", sessionId, options == null ? Map.of() : options, true).get("result");
+  }
+
+  public Object snapshotGlobals(Map<String, Object> options) {
+    return runtime.request("snapshot_globals", sessionId, options == null ? Map.of() : options, true).get("result");
+  }
+
+  public Object patchGlobals(Object snapshot, Map<String, Object> options) {
+    Map<String, Object> payload = new LinkedHashMap<>();
+    payload.put("globals", snapshot == null ? Map.of() : snapshot);
+    payload.put("options", options == null ? Map.of() : options);
+    return runtime.request("patch_globals", sessionId, payload, true).get("result");
+  }
+
+  public Object close() {
+    return runtime.request("close", sessionId, Map.of(), false).get("result");
   }
 }
 `

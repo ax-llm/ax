@@ -158,7 +158,7 @@ func verifyPythonTarget(report VerifyTargetReport, conformanceRoot string) (Veri
 		report.Steps = append(report.Steps, VerifyStep{Name: "python3", Status: "skip", Message: "python3 not found"})
 		return report, nil
 	}
-	env := append(os.Environ(), "PYTHONPATH="+report.OutDir)
+	env := runtimeProtocolEnv(conformanceRoot, append(os.Environ(), "PYTHONPATH="+report.OutDir))
 	if err := runVerifyCommand(&report, "compileall", "", env, python, "-m", "compileall", "-q", filepath.Join(report.OutDir, "ax")); err != nil {
 		return report, err
 	}
@@ -168,6 +168,7 @@ func verifyPythonTarget(report VerifyTargetReport, conformanceRoot string) (Veri
 		"axai_fake_transport.py",
 		"axagent_pipeline.py",
 		"runtime_adapter.py",
+		"runtime_protocol.py",
 		"axflow_program_graph.py",
 		"optimizer_artifact.py",
 	} {
@@ -204,7 +205,8 @@ func verifyJavaTarget(report VerifyTargetReport, conformanceRoot string) (Verify
 	files = append(files, examples...)
 	sort.Strings(files)
 	args := append([]string{"-cp", report.OutDir, "-d", report.OutDir}, files...)
-	if err := runVerifyCommand(&report, "javac", "", nil, javac, args...); err != nil {
+	env := runtimeProtocolEnv(conformanceRoot, os.Environ())
+	if err := runVerifyCommand(&report, "javac", "", env, javac, args...); err != nil {
 		return report, err
 	}
 	for _, className := range []string{
@@ -213,10 +215,11 @@ func verifyJavaTarget(report VerifyTargetReport, conformanceRoot string) (Verify
 		"AxAIFakeTransportExample",
 		"AxAgentPipelineExample",
 		"RuntimeAdapterExample",
+		"RuntimeProtocolExample",
 		"AxFlowProgramGraphExample",
 		"OptimizerArtifactExample",
 	} {
-		if err := runVerifyCommand(&report, "example "+className, "", nil, java, "-cp", report.OutDir, className); err != nil {
+		if err := runVerifyCommand(&report, "example "+className, "", env, java, "-cp", report.OutDir, className); err != nil {
 			return report, err
 		}
 	}
@@ -240,6 +243,7 @@ func verifyCppTarget(report VerifyTargetReport, conformanceRoot string) (VerifyT
 		"axai_fake_transport",
 		"axagent_pipeline",
 		"runtime_adapter",
+		"runtime_protocol",
 		"axflow_program_graph",
 		"optimizer_artifact",
 	}
@@ -277,6 +281,15 @@ func conformanceSuitePaths(root string) []string {
 		filepath.Join(root, "axprogram"),
 		filepath.Join(root, "axflow"),
 	}
+}
+
+func runtimeProtocolEnv(conformanceRoot string, env []string) []string {
+	repoRoot := filepath.Dir(filepath.Dir(conformanceRoot))
+	if abs, err := filepath.Abs(repoRoot); err == nil {
+		repoRoot = abs
+	}
+	server := filepath.Join(repoRoot, "tools", "axir", "adapters", "axjs-runtime-server.ts")
+	return append(env, "AXIR_REPO_ROOT="+repoRoot, "AXIR_AXJS_RUNTIME_SERVER="+server)
 }
 
 func runVerifyCommand(report *VerifyTargetReport, name, dir string, env []string, command string, args ...string) error {

@@ -23,7 +23,7 @@ from .gen import AxGen, AxMemory, ax
 from .agent import AxAgent, AxAgentClarificationError, AxCodeRuntime, AxCodeSession, OptimizerEngine, OptimizerEvaluator, agent
 from .flow import AxFlow, AxProgram, flow
 from .prompt import AxPromptTemplate, TemplateError, render_template_content, validate_prompt_template_syntax
-from .runtime import RuntimeCapabilities, RuntimeEnvelope
+from .runtime import ProcessCodeRuntime, ProcessCodeSession, RuntimeCapabilities, RuntimeEnvelope
 
 __all__ = [
     "AIClient",
@@ -46,6 +46,8 @@ __all__ = [
     "AxMemory",
     "OptimizerEngine",
     "OptimizerEvaluator",
+    "ProcessCodeRuntime",
+    "ProcessCodeSession",
     "AxPromptTemplate",
     "AxProgram",
     "AxSignature",

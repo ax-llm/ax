@@ -214,6 +214,9 @@ func TestBuildRuntimeModel(t *testing.T) {
 		"axagent_runtime_adapter_helpers",
 		"axagent_runtime_adapter_examples",
 		"axagent_runtime_capability_negotiation",
+		"axagent_runtime_protocol",
+		"axagent_axjs_reference_adapter",
+		"axagent_process_runtime_helpers",
 		"axagent_actor_step_alpha",
 		"axagent_runtime_language",
 		"axagent_actor_prompt_cache",
@@ -388,6 +391,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/axai_fake_transport.py",
 				"examples/axagent_pipeline.py",
 				"examples/runtime_adapter.py",
+				"examples/runtime_protocol.py",
 				"examples/axflow_program_graph.py",
 				"examples/optimizer_artifact.py",
 			},
@@ -408,6 +412,8 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"dev/ax/AxCodeSession.java",
 				"dev/ax/AxRuntimeCapabilities.java",
 				"dev/ax/AxRuntimeEnvelope.java",
+				"dev/ax/AxProcessCodeRuntime.java",
+				"dev/ax/AxProcessCodeSession.java",
 				"dev/ax/OptimizerEngine.java",
 				"dev/ax/OptimizerEvaluator.java",
 				"dev/ax/OpenAICompatibleClient.java",
@@ -417,6 +423,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/AxAIFakeTransportExample.java",
 				"examples/AxAgentPipelineExample.java",
 				"examples/RuntimeAdapterExample.java",
+				"examples/RuntimeProtocolExample.java",
 				"examples/AxFlowProgramGraphExample.java",
 				"examples/OptimizerArtifactExample.java",
 			},
@@ -435,6 +442,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/axai_fake_transport.cpp",
 				"examples/axagent_pipeline.cpp",
 				"examples/runtime_adapter.cpp",
+				"examples/runtime_protocol.cpp",
 				"examples/axflow_program_graph.cpp",
 				"examples/optimizer_artifact.cpp",
 			},
@@ -471,7 +479,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 					t.Fatalf("manifest missing suite %s: %#v", want, manifest.SupportedSuites)
 				}
 			}
-			for _, want := range []string{"AxGen", "AxSignature", "OpenAICompatibleClient", "AxAgent", "AxFlow", "AxProgram", "RuntimeCapabilities", "RuntimeEnvelope", "OptimizerEngine", "OptimizerEvaluator"} {
+			for _, want := range []string{"AxGen", "AxSignature", "OpenAICompatibleClient", "AxAgent", "AxFlow", "AxProgram", "RuntimeCapabilities", "RuntimeEnvelope", "ProcessCodeRuntime", "ProcessCodeSession", "RuntimeProtocolClient", "RuntimeTransport", "OptimizerEngine", "OptimizerEvaluator"} {
 				if !containsString(manifest.PublicSymbols, want) {
 					t.Fatalf("manifest missing public symbol %s: %#v", want, manifest.PublicSymbols)
 				}
@@ -1709,6 +1717,8 @@ func TestPythonGeneratedIdioms(t *testing.T) {
 	for _, want := range []string{
 		"class RuntimeCapabilities",
 		"class RuntimeEnvelope",
+		"class ProcessCodeRuntime",
+		"class ProcessCodeSession",
 		"def session_closed(",
 		"def ask_clarification(",
 		"def guide_agent(",
@@ -1917,6 +1927,13 @@ func TestJavaGeneratedCoreRuntime(t *testing.T) {
 	if !strings.Contains(string(runtimeEnvelopeFile), "public final class AxRuntimeEnvelope") || !strings.Contains(string(runtimeEnvelopeFile), "sessionClosed") || !strings.Contains(string(runtimeEnvelopeFile), "askClarification") {
 		t.Fatal("generated Java runtime adapter helpers are missing expected factories")
 	}
+	processRuntimeFile, err := os.ReadFile(filepath.Join(dir, "dev", "ax", "AxProcessCodeRuntime.java"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(processRuntimeFile), "public final class AxProcessCodeRuntime") || !strings.Contains(string(processRuntimeFile), "ProcessBuilder") {
+		t.Fatal("generated Java process runtime protocol helper is missing expected implementation")
+	}
 }
 
 func TestCompileJavaGeneratedAxLibrary(t *testing.T) {
@@ -2034,6 +2051,8 @@ func TestCppGeneratedCoreRuntime(t *testing.T) {
 		"class AxCodeSession",
 		"struct RuntimeCapabilities",
 		"struct RuntimeEnvelope",
+		"class RuntimeTransport",
+		"class RuntimeProtocolClient",
 		"Value to_json_schema(",
 		"Value validate_output(",
 		"Value render_prompt(",

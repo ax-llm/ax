@@ -76,6 +76,16 @@ helpers are not interpreters or sandboxes; they only describe capabilities and
 construct normalized result/error/protocol payloads for the existing
 `AxCodeRuntime`/`AxCodeSession` boundary.
 
+Generated targets may also use the AxIR runtime protocol when the interpreter
+lives in a separate host process. The protocol is line-delimited JSON. Requests
+use `{ "id", "op", "session_id"?, "payload"? }`; responses use `{ "id",
+"ok", "result"?, "session_id"?, "error"? }`. Required operations are
+`capabilities`, `create_session`, `execute`, `inspect_globals`,
+`snapshot_globals`, `patch_globals`, `close`, and `shutdown`. Python and Java
+ship process-backed helpers for this protocol. C++ ships a standard-library
+`RuntimeTransport`/`RuntimeProtocolClient` boundary and leaves process launching
+to host code.
+
 Backends must consume the lowered Core IR module or a target package model made
 from Core IR. They must not use high-level Ax dialects as their primary input.
 They must also avoid target-only semantic escapes for Core-owned behavior; see

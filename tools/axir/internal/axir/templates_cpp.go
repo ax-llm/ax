@@ -36,6 +36,9 @@ class AxAgent;
 class AxFlow;
 class AxCodeRuntime;
 class AxCodeSession;
+class RuntimeProtocolClient;
+class RuntimeProtocolSession;
+class RuntimeTransport;
 class AxAIService;
 class OpenAICompatibleClient;
 class OptimizerEngine;
@@ -666,6 +669,41 @@ struct RuntimeEnvelope {
   static Value used(Value request, Value reason = Value(), Value stage = Value());
   static Value status(Value type, Value message = Value(""));
   static Value guide_agent(Value guidance, Value triggered_by = Value());
+};
+
+class RuntimeTransport {
+ public:
+  virtual ~RuntimeTransport() = default;
+  virtual Value call(Value message) = 0;
+};
+
+class RuntimeProtocolClient : public AxCodeRuntime {
+ public:
+  explicit RuntimeProtocolClient(RuntimeTransport& transport);
+  std::string language() const override { return "JavaScript"; }
+  std::string usage_instructions() const override;
+  AxCodeSession* create_session(Value globals, Value options = Value::object()) override;
+  Value request(Value op, Value session_id = Value(), Value payload = Value::object(), bool throw_on_error = true);
+  Value shutdown();
+
+ private:
+  RuntimeTransport& transport_;
+  int next_id_ = 0;
+  std::vector<std::unique_ptr<RuntimeProtocolSession>> sessions_;
+};
+
+class RuntimeProtocolSession : public AxCodeSession {
+ public:
+  RuntimeProtocolSession(RuntimeProtocolClient& client, Value session_id);
+  Value execute(Value code, Value options = Value::object()) override;
+  Value inspect(Value options = Value::object()) override;
+  Value snapshot_globals(Value options = Value::object()) override;
+  Value patch_globals(Value snapshot, Value options = Value::object()) override;
+  Value close() override;
+
+ private:
+  RuntimeProtocolClient& client_;
+  Value session_id_;
 };
 
 class OptimizerEvaluator {
@@ -3425,6 +3463,69 @@ Value RuntimeEnvelope::guide_agent(Value guidance, Value triggered_by) {
   Value payload = object({{"type", "guide_agent"}, {"guidance", std::move(guidance)}});
   if (!triggered_by.is_null()) Core::set(payload, "triggeredBy", std::move(triggered_by));
   return payload;
+}
+
+RuntimeProtocolClient::RuntimeProtocolClient(RuntimeTransport& transport) : transport_(transport) {}
+
+std::string RuntimeProtocolClient::usage_instructions() const {
+  try {
+    Value response = const_cast<RuntimeProtocolClient*>(this)->request("capabilities", Value(), Value::object(), false);
+    return str(Core::get(Core::get(response, "result", Value::object()), "usage_instructions", ""));
+  } catch (...) {
+    return "";
+  }
+}
+
+AxCodeSession* RuntimeProtocolClient::create_session(Value globals, Value options) {
+  Value response = request("create_session", Value(), object({{"globals", std::move(globals)}, {"options", std::move(options)}}), true);
+  Value session_id = Core::get(response, "session_id");
+  if (session_id.is_null()) session_id = Core::get(Core::get(response, "result", Value::object()), "session_id");
+  if (session_id.is_null()) throw AxError("runtime", "runtime protocol did not return a session_id");
+  sessions_.push_back(std::make_unique<RuntimeProtocolSession>(*this, session_id));
+  return sessions_.back().get();
+}
+
+Value RuntimeProtocolClient::request(Value op, Value session_id, Value payload, bool throw_on_error) {
+  Value message = object({{"id", std::to_string(++next_id_)}, {"op", std::move(op)}, {"payload", std::move(payload)}});
+  if (!session_id.is_null()) Core::set(message, "session_id", session_id);
+  Value response = transport_.call(message);
+  if (!Core::truthy(Core::get(response, "ok", false)) && throw_on_error) {
+    Value error = Core::get(response, "error", Value::object());
+    throw AxError(str(Core::get(error, "category", "runtime")), str(Core::get(error, "message", "runtime protocol error")));
+  }
+  return response;
+}
+
+Value RuntimeProtocolClient::shutdown() {
+  return request("shutdown", Value(), Value::object(), false);
+}
+
+RuntimeProtocolSession::RuntimeProtocolSession(RuntimeProtocolClient& client, Value session_id)
+    : client_(client), session_id_(std::move(session_id)) {}
+
+Value RuntimeProtocolSession::execute(Value code, Value options) {
+  Value response = client_.request("execute", session_id_, object({{"code", std::move(code)}, {"options", std::move(options)}}), false);
+  if (!Core::truthy(Core::get(response, "ok", false))) {
+    Value error = Core::get(response, "error", Value::object());
+    return RuntimeEnvelope::error(Core::get(error, "message", "runtime protocol error"), Core::get(error, "category", "runtime"));
+  }
+  return Core::get(response, "result");
+}
+
+Value RuntimeProtocolSession::inspect(Value options) {
+  return Core::get(client_.request("inspect_globals", session_id_, std::move(options), true), "result");
+}
+
+Value RuntimeProtocolSession::snapshot_globals(Value options) {
+  return Core::get(client_.request("snapshot_globals", session_id_, std::move(options), true), "result");
+}
+
+Value RuntimeProtocolSession::patch_globals(Value snapshot, Value options) {
+  return Core::get(client_.request("patch_globals", session_id_, object({{"globals", std::move(snapshot)}, {"options", std::move(options)}}), true), "result");
+}
+
+Value RuntimeProtocolSession::close() {
+  return Core::get(client_.request("close", session_id_, Value::object(), false), "result");
 }
 
 Value s(const std::string& source) {

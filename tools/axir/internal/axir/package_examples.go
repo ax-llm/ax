@@ -193,6 +193,40 @@ assert timeout["error_category"] == "timeout", timeout
 print("python-runtime-adapter-ok")
 `
 
+const pyRuntimeProtocolExample = `import os
+from pathlib import Path
+
+from ax import ProcessCodeRuntime, agent
+
+
+repo_root = Path(os.environ["AXIR_REPO_ROOT"])
+server = os.environ["AXIR_AXJS_RUNTIME_SERVER"]
+runtime = ProcessCodeRuntime(
+    ["node", "--env-file=.env", "--import=tsx", server],
+    cwd=str(repo_root),
+)
+try:
+    qa = agent("question:string -> answer:string", {"runtime": {"language": "JavaScript"}})
+    out = qa.test(runtime, "answer = inputs.question; await final({ answer })", {"question": "protocol"})
+    assert out["kind"] == "final", out
+    assert out["completion_payload"]["args"][0]["answer"] == "protocol", out
+
+    runner = agent("question:string -> answer:string", {"runtime": {"language": "JavaScript"}})
+    step = runner.execute_actor_step(runtime, "answer = 'persisted'; await final({ answer })", {"question": "protocol"})
+    assert step["kind"] == "final", step
+    snapshot = runner.export_session_state()
+    assert "bindings" in snapshot, snapshot
+    runner.restore_session_state(snapshot)
+    inspected = runner.inspect_runtime()
+    assert "persisted" in str(inspected), inspected
+    closed = runner.close_runtime_session()
+    assert closed["closed"], closed
+finally:
+    runtime.shutdown()
+
+print("python-runtime-protocol-ok")
+`
+
 const pyOptimizerArtifactExample = `import json
 
 from ax import OptimizerEngine, ax
@@ -432,6 +466,49 @@ public final class RuntimeAdapterExample {
     Map<String, Object> timeout = runner.executeActorStep(runtime, "timeout()", Map.of("question", "adapter"));
     if (!"timeout".equals(timeout.get("error_category"))) throw new RuntimeException("bad timeout: " + timeout);
     System.out.println("java-runtime-adapter-ok");
+  }
+}
+`
+
+const javaRuntimeProtocolExample = `import dev.ax.*;
+import java.io.File;
+import java.util.*;
+
+public final class RuntimeProtocolExample {
+  @SuppressWarnings("unchecked")
+  static Map<String, Object> asMap(Object value) {
+    return value instanceof Map<?, ?> ? (Map<String, Object>) value : new LinkedHashMap<>();
+  }
+
+  public static void main(String[] args) throws Exception {
+    String repoRoot = System.getenv("AXIR_REPO_ROOT");
+    String server = System.getenv("AXIR_AXJS_RUNTIME_SERVER");
+    if (repoRoot == null || server == null) throw new RuntimeException("AXIR runtime protocol env vars are required");
+
+    try (AxProcessCodeRuntime runtime = new AxProcessCodeRuntime(
+      List.of("node", "--env-file=.env", "--import=tsx", server),
+      new File(repoRoot),
+      Map.of()
+    )) {
+      AxAgent qa = Ax.agent("question:string -> answer:string", Map.of("runtime", Map.of("language", "JavaScript")));
+      Map<String, Object> out = qa.test(runtime, "answer = inputs.question; await final({ answer })", Map.of("question", "protocol"));
+      if (!"final".equals(out.get("kind"))) throw new RuntimeException("bad test output: " + out);
+      Map<String, Object> completion = asMap(out.get("completion_payload"));
+      Object firstArg = ((List<?>) completion.get("args")).get(0);
+      if (!"protocol".equals(asMap(firstArg).get("answer"))) throw new RuntimeException("bad final payload: " + out);
+
+      AxAgent runner = Ax.agent("question:string -> answer:string", Map.of("runtime", Map.of("language", "JavaScript")));
+      Map<String, Object> step = runner.executeActorStep(runtime, "answer = 'persisted'; await final({ answer })", Map.of("question", "protocol"));
+      if (!"final".equals(step.get("kind"))) throw new RuntimeException("bad step output: " + step);
+      Map<String, Object> snapshot = asMap(runner.exportSessionState());
+      if (!snapshot.containsKey("bindings")) throw new RuntimeException("bad snapshot: " + snapshot);
+      runner.restoreSessionState(snapshot);
+      Object inspected = runner.inspectRuntime();
+      if (!String.valueOf(inspected).contains("persisted")) throw new RuntimeException("bad inspect: " + inspected);
+      Map<String, Object> closed = asMap(runner.closeRuntimeSession());
+      if (!Boolean.TRUE.equals(closed.get("closed"))) throw new RuntimeException("bad close: " + closed);
+    }
+    System.out.println("java-runtime-protocol-ok");
   }
 }
 `
@@ -689,6 +766,65 @@ int main() {
   ax::Value timeout = runner.execute_actor_step(runtime, "timeout()", ax::object({{"question", "adapter"}}));
   if (!ax::equal(ax::Core::get(timeout, "error_category"), "timeout")) return 4;
   std::cout << "cpp-runtime-adapter-ok\n";
+}
+`
+
+const cppRuntimeProtocolExample = `#include "ax/ax.hpp"
+#include <iostream>
+
+struct FakeRuntimeTransport : ax::RuntimeTransport {
+  int next_session = 0;
+
+  ax::Value call(ax::Value message) override {
+    ax::Value id = ax::Core::get(message, "id");
+    ax::Value op = ax::Core::get(message, "op");
+    if (ax::equal(op, "capabilities")) {
+      return ax::object({{"id", id}, {"ok", true}, {"result", ax::object({{"language", "JavaScript"}, {"usage_instructions", "fake protocol"}})}});
+    }
+    if (ax::equal(op, "create_session")) {
+      std::string session_id = "s" + std::to_string(++next_session);
+      return ax::object({{"id", id}, {"ok", true}, {"session_id", session_id}, {"result", ax::object({{"session_id", session_id}})}});
+    }
+    if (ax::equal(op, "execute")) {
+      return ax::object({{"id", id}, {"ok", true}, {"result", ax::object({{"type", "final"}, {"args", ax::array({ax::object({{"answer", "protocol"}})})}})}});
+    }
+    if (ax::equal(op, "snapshot_globals")) {
+      return ax::object({{"id", id}, {"ok", true}, {"result", ax::object({{"version", 1}, {"bindings", ax::object({{"answer", "protocol"}})}, {"globals", ax::object({{"answer", "protocol"}})}})}});
+    }
+    if (ax::equal(op, "patch_globals")) {
+      ax::Value payload = ax::Core::get(message, "payload", ax::Value::object());
+      return ax::object({{"id", id}, {"ok", true}, {"result", ax::Core::get(payload, "globals", ax::Value::object())}});
+    }
+    if (ax::equal(op, "inspect_globals")) {
+      return ax::object({{"id", id}, {"ok", true}, {"result", ax::object({{"answer", "protocol"}})}});
+    }
+    if (ax::equal(op, "close")) {
+      return ax::object({{"id", id}, {"ok", true}, {"result", ax::object({{"closed", true}})}});
+    }
+    if (ax::equal(op, "shutdown")) {
+      return ax::object({{"id", id}, {"ok", true}, {"result", ax::object({{"shutdown", true}})}});
+    }
+    return ax::object({{"id", id}, {"ok", false}, {"error", ax::object({{"category", "protocol"}, {"message", "unknown op"}})}});
+  }
+};
+
+int main() {
+  FakeRuntimeTransport transport;
+  ax::RuntimeProtocolClient runtime(transport);
+  auto qa = ax::agent("question:string -> answer:string", ax::object({{"runtime", ax::object({{"language", "JavaScript"}})}}));
+  ax::Value out = qa.test(runtime, "final()", ax::object({{"question", "protocol"}}));
+  if (!ax::equal(ax::Core::get(out, "kind"), "final")) return 1;
+  auto runner = ax::agent("question:string -> answer:string", ax::object({{"runtime", ax::object({{"language", "JavaScript"}})}}));
+  ax::Value step = runner.execute_actor_step(runtime, "final()", ax::object({{"question", "protocol"}}));
+  if (!ax::equal(ax::Core::get(step, "kind"), "final")) return 2;
+  ax::Value snapshot = runner.export_session_state();
+  runner.restore_session_state(snapshot);
+  ax::Value inspected = runner.inspect_runtime();
+  if (!ax::equal(ax::Core::get(inspected, "answer"), "protocol")) return 3;
+  ax::Value closed = runner.close_runtime_session();
+  if (!ax::equal(ax::Core::get(closed, "closed"), true)) return 4;
+  runtime.shutdown();
+  std::cout << "cpp-runtime-protocol-ok\n";
 }
 `
 

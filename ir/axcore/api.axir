@@ -58,6 +58,30 @@ module @ax.api version "0.1" {
     tag "public-api"
   }
 
+  op ax.api.class @ProcessCodeRuntime {
+    attr core_kind = "record"
+    attr public = true
+    tag "public-api"
+  }
+
+  op ax.api.class @ProcessCodeSession {
+    attr core_kind = "record"
+    attr public = true
+    tag "public-api"
+  }
+
+  op ax.api.class @RuntimeProtocolClient {
+    attr core_kind = "record"
+    attr public = true
+    tag "public-api"
+  }
+
+  op ax.api.class @RuntimeTransport {
+    attr core_kind = "interface"
+    attr public = true
+    tag "public-api"
+  }
+
   op ax.api.class @AxMemory {
     attr core_kind = "record"
     attr public = true
