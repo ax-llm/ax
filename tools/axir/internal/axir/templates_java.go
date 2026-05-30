@@ -1071,32 +1071,14 @@ public final class AxGen implements AxProgram {
   public Map<String, Object> optimizeWith(OptimizerEngine engine, List<Map<String, Object>> dataset, Map<String, Object> options) {
     Map<String, Object> opts = options == null ? Map.of() : options;
     List<Map<String, Object>> components = getOptimizableComponents();
-    Map<String, Object> normalized = Core.asMap(Core._normalize_optimization_dataset(dataset == null ? List.of() : dataset));
-    Object target = opts.getOrDefault("target", "all");
-    Object selected = Core._filter_optimization_components(components, target);
-    Map<String, Object> requestOptions = new LinkedHashMap<>(opts);
-    requestOptions.remove("client");
-    requestOptions.remove("ai");
-    requestOptions.remove("engine");
-    requestOptions.remove("optimizer");
-    Map<String, Object> request = new LinkedHashMap<>();
-    request.put("contractVersion", "axir-optimize-contract-v1");
-    request.put("programKind", "axgen");
-    request.put("components", selected);
-    request.put("dataset", normalized);
-    request.put("options", requestOptions);
-    request.put("trace", Map.of("traces", getTraces(), "chat_log", getChatLog()));
     Object client = opts.getOrDefault("client", opts.get("ai"));
-    request.put("evaluator", Map.of("available", client instanceof AiClient, "contractVersion", "axir-optimizer-evaluator-v1", "methods", List.of("evaluate")));
+    Map<String, Object> run = Core.asMap(Core._prepare_optimizer_run("axgen", components, dataset == null ? List.of() : dataset, opts, Map.of("traces", getTraces(), "chat_log", getChatLog()), client instanceof AiClient));
+    Map<String, Object> request = Core.asMap(run.getOrDefault("request", Map.of()));
     OptimizerEvaluator evaluator = client instanceof AiClient aiClient
       ? (candidate, evalOptions) -> evaluateOptimization(aiClient, dataset == null ? List.of() : dataset, candidate, Core.asMap(evalOptions == null ? Map.of() : evalOptions))
       : null;
     Map<String, Object> response = engine.optimize(request, evaluator);
-    Map<String, Object> artifact = Core.asMap(response.getOrDefault("artifact", response));
-    artifact.putIfAbsent("artifactVersion", "axir-optimized-artifact-v1");
-    artifact.putIfAbsent("optimizerName", engine.name());
-    artifact.putIfAbsent("optimizerVersion", engine.version());
-    artifact.putIfAbsent("componentMap", artifact.getOrDefault("component_map", Map.of()));
+    Map<String, Object> artifact = Core.asMap(Core._normalize_optimizer_engine_response(response, engine.name(), engine.version(), components));
     if (!Boolean.FALSE.equals(opts.get("apply"))) applyOptimization(artifact);
     return artifact;
   }
@@ -1282,13 +1264,7 @@ public final class AxFlow implements AxProgram {
       evaluator = (candidateMap, evalOptions) -> evaluateOptimization(aiClient, dataset == null ? List.of() : dataset, candidateMap, Core.asMap(Core.mapMerge(opts, evalOptions == null ? Map.of() : evalOptions)));
     }
     Map<String, Object> response = evaluator == null ? engine.optimize(request) : engine.optimize(request, evaluator);
-    Map<String, Object> artifact = Core.asMap(response.containsKey("artifact") ? response.get("artifact") : response);
-    artifact.putIfAbsent("artifactVersion", "axir-optimized-artifact-v1");
-    artifact.putIfAbsent("optimizerName", engine.name());
-    artifact.putIfAbsent("optimizerVersion", engine.version());
-    artifact.putIfAbsent("componentMap", artifact.getOrDefault("component_map", Map.of()));
-    artifact = Core.asMap(Core._validate_optimized_artifact(artifact, getOptimizableComponents()));
-    artifact.put("changedComponents", Core._optimization_changed_components(getOptimizableComponents(), artifact.getOrDefault("componentMap", Map.of())));
+    Map<String, Object> artifact = Core.asMap(Core._normalize_optimizer_engine_response(response, engine.name(), engine.version(), getOptimizableComponents()));
     if (!Boolean.FALSE.equals(opts.getOrDefault("apply", Boolean.TRUE))) applyOptimization(artifact);
     return artifact;
   }
@@ -1687,28 +1663,14 @@ public final class AxAgent implements AxProgram {
   public Map<String, Object> optimizeWith(OptimizerEngine engine, List<Map<String, Object>> dataset, Map<String, Object> options) {
     Map<String, Object> opts = options == null ? Map.of() : options;
     List<Map<String, Object>> components = getOptimizableComponents();
-    Map<String, Object> normalized = Core.asMap(Core._normalize_optimization_dataset(dataset == null ? List.of() : dataset));
-    Object target = opts.getOrDefault("target", "all");
-    Object selected = Core._filter_optimization_components(components, target);
-    Map<String, Object> requestOptions = new LinkedHashMap<>(opts);
-    requestOptions.remove("client");
-    requestOptions.remove("ai");
-    requestOptions.remove("engine");
-    requestOptions.remove("optimizer");
-    Map<String, Object> request = Core.asMap(Core._build_optimizer_request("axagent", selected, normalized, requestOptions, exportTrace()));
     Object client = opts.getOrDefault("client", opts.get("ai"));
-    Core.asMap(request.get("evaluator")).put("available", client instanceof AiClient);
+    Map<String, Object> run = Core.asMap(Core._prepare_optimizer_run("axagent", components, dataset == null ? List.of() : dataset, opts, exportTrace(), client instanceof AiClient));
+    Map<String, Object> request = Core.asMap(run.getOrDefault("request", Map.of()));
     OptimizerEvaluator evaluator = client instanceof AiClient aiClient
       ? (candidate, evalOptions) -> evaluateOptimization(aiClient, dataset == null ? List.of() : dataset, candidate, Core.asMap(evalOptions == null ? Map.of() : evalOptions))
       : null;
     Map<String, Object> response = engine.optimize(request, evaluator);
-    Map<String, Object> artifact = Core.asMap(response.getOrDefault("artifact", response));
-    artifact.putIfAbsent("artifactVersion", "axir-optimized-artifact-v1");
-    artifact.putIfAbsent("optimizerName", engine.name());
-    artifact.putIfAbsent("optimizerVersion", engine.version());
-    artifact.putIfAbsent("componentMap", artifact.getOrDefault("component_map", Map.of()));
-    artifact = Core.asMap(Core._validate_optimized_artifact(artifact, components));
-    artifact.put("changedComponents", Core._optimization_changed_components(components, artifact.getOrDefault("componentMap", Map.of())));
+    Map<String, Object> artifact = Core.asMap(Core._normalize_optimizer_engine_response(response, engine.name(), engine.version(), components));
     if (!Boolean.FALSE.equals(opts.get("apply"))) applyOptimization(artifact);
     return artifact;
   }
@@ -3034,6 +2996,7 @@ public final class Conformance {
     final Map<String, Object> response;
     final List<Map<String, Object>> requests = new ArrayList<>();
     final List<Map<String, Object>> evaluations = new ArrayList<>();
+    final List<Map<String, Object>> transcripts = new ArrayList<>();
 
     FakeOptimizerEngine(Object response) {
       this.response = new LinkedHashMap<>(Core.asMap(response));
@@ -3052,12 +3015,35 @@ public final class Conformance {
       if (evaluator != null && response.containsKey("evaluate")) {
         for (Object raw : Core.asList(response.get("evaluate"))) {
           Map<String, Object> step = Core.asMap(raw);
+          Map<String, Object> candidate = Core.asMap(step.getOrDefault("component_map", step.getOrDefault("componentMap", Map.of())));
+          Map<String, Object> evalOptions = Core.asMap(step.getOrDefault("options", Map.of()));
           Map<String, Object> result = evaluator.evaluate(
-            Core.asMap(step.getOrDefault("component_map", step.getOrDefault("componentMap", Map.of()))),
-            Core.asMap(step.getOrDefault("options", Map.of()))
+            candidate,
+            evalOptions
           );
+          Map<String, Object> evidence = Core.asMap(Core._build_optimizer_evidence_batch(result, Core.asList(request.getOrDefault("components", List.of()))));
           evaluations.add(result);
+          transcripts.add(new LinkedHashMap<>(Map.of("candidateMap", candidate, "options", evalOptions, "result", result, "evidence", evidence)));
         }
+      }
+      if (evaluator != null && response.containsKey("referenceCandidates")) {
+        Map<String, Object> bestMap = new LinkedHashMap<>();
+        Double bestScore = null;
+        for (Object raw : Core.asList(response.get("referenceCandidates"))) {
+          Map<String, Object> step = Core.asMap(raw);
+          Map<String, Object> candidate = Core.asMap(step.getOrDefault("component_map", step.getOrDefault("componentMap", Map.of())));
+          Map<String, Object> evalOptions = Core.asMap(step.getOrDefault("options", Map.of()));
+          Map<String, Object> result = evaluator.evaluate(candidate, evalOptions);
+          Map<String, Object> evidence = Core.asMap(Core._build_optimizer_evidence_batch(result, Core.asList(request.getOrDefault("components", List.of()))));
+          evaluations.add(result);
+          transcripts.add(new LinkedHashMap<>(Map.of("candidateMap", candidate, "options", evalOptions, "result", result, "evidence", evidence)));
+          double score = Core.asDouble(result.getOrDefault("avg", 0));
+          if (bestScore == null || score > bestScore) {
+            bestScore = score;
+            bestMap = new LinkedHashMap<>(candidate);
+          }
+        }
+        return new LinkedHashMap<>(Map.of("componentMap", bestMap, "metadata", Map.of("referenceEngine", true, "evaluations", transcripts)));
       }
       return new LinkedHashMap<>(response);
     }
@@ -3461,6 +3447,12 @@ public final class Conformance {
         if (fixture.containsKey("expected_judge_payload_subset")) assertSubset(payload, fixture.get("expected_judge_payload_subset"), "judge payload");
         return;
       }
+      if ("evidence".equals(operation)) {
+        Object components = fixture.getOrDefault("components", ((AxProgram) program).getOptimizableComponents());
+        Object evidence = Core._build_optimizer_evidence_batch(fixture.getOrDefault("eval_result", Map.of()), Core.asList(components));
+        if (fixture.containsKey("expected_evidence_subset")) assertSubset(evidence, fixture.get("expected_evidence_subset"), "optimizer evidence");
+        return;
+      }
       if ("evaluate".equals(operation)) {
         FakeAIService client = new FakeAIService(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())));
         Map<String, Object> result = "axgen".equals(programKind)
@@ -3492,6 +3484,7 @@ public final class Conformance {
           assertSubset(engine.requests.get(0), fixture.get("expected_engine_request_subset"), "optimizer engine request");
         }
         if (fixture.containsKey("expected_engine_evaluations_subset")) assertListSubset(engine.evaluations, fixture.get("expected_engine_evaluations_subset"), "optimizer engine evaluations");
+        if (fixture.containsKey("expected_engine_transcripts_subset")) assertListSubset(engine.transcripts, fixture.get("expected_engine_transcripts_subset"), "optimizer engine transcripts");
         if (fixture.containsKey("expected_artifact_subset")) assertSubset(artifact, fixture.get("expected_artifact_subset"), "optimizer artifact");
         if (fixture.containsKey("expected_components_subset")) {
           assertListSubset(((AxProgram) program).getOptimizableComponents(), fixture.get("expected_components_subset"), "optimized components");

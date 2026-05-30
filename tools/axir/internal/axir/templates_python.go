@@ -2252,21 +2252,10 @@ class AxGen:
     def optimize_with(self, engine, dataset, options: dict[str, Any] | None = None):
         opts = options or {}
         components = self.get_optimizable_components()
-        normalized = _normalize_optimization_dataset(dataset or [])
-        target = opts.get("target", "all")
-        selected = _filter_optimization_components(components, target)
-        request_options = {k: v for k, v in opts.items() if k not in ("client", "ai", "engine", "optimizer")}
-        request = {
-            "contractVersion": "axir-optimize-contract-v1",
-            "programKind": "axgen",
-            "components": selected,
-            "dataset": normalized,
-            "options": request_options,
-            "trace": {"traces": self.get_traces(), "chat_log": self.get_chat_log()},
-            "evaluator": {"available": opts.get("client") is not None, "contractVersion": "axir-optimizer-evaluator-v1", "methods": ["evaluate"]},
-        }
-        evaluator = None
         client = opts.get("client") or opts.get("ai")
+        run = _prepare_optimizer_run("axgen", components, dataset or [], opts, {"traces": self.get_traces(), "chat_log": self.get_chat_log()}, client is not None)
+        request = run.get("request") or {}
+        evaluator = None
         if client is not None:
             outer = self
 
@@ -2276,13 +2265,12 @@ class AxGen:
 
             evaluator = _Evaluator()
         response = _call_optimizer_engine(engine, request, evaluator)
-        artifact = response.get("artifact", response) if isinstance(response, dict) else response
-        if not isinstance(artifact, dict):
-            raise RuntimeError("optimizer engine must return an optimized artifact")
-        artifact.setdefault("artifactVersion", "axir-optimized-artifact-v1")
-        artifact.setdefault("optimizerName", getattr(engine, "name", engine.__class__.__name__))
-        artifact.setdefault("optimizerVersion", getattr(engine, "version", "host"))
-        artifact.setdefault("componentMap", artifact.get("component_map") or {})
+        artifact = _normalize_optimizer_engine_response(
+            response,
+            getattr(engine, "name", engine.__class__.__name__),
+            getattr(engine, "version", "host"),
+            components,
+        )
         if opts.get("apply", True) is not False:
             self.apply_optimization(artifact)
         return artifact
@@ -2386,6 +2374,16 @@ def _core_map_merge(left, right):
     merged = dict(left or {})
     merged.update(right or {})
     return merged
+
+
+def _core_map_contains(values, key):
+    return isinstance(values, dict) and key in values
+
+
+def _core_map_delete(target, key):
+    if isinstance(target, dict):
+        target.pop(key, None)
+    return target
 
 
 def _core_map_keys(values):
@@ -2779,6 +2777,8 @@ from .agent import (
     _optimization_component,
     _optimization_changed_components,
     _optimization_component_current_map,
+    _normalize_optimizer_engine_response,
+    _prepare_optimizer_run,
     _scalarize_optimization_scores,
     _validate_optimized_artifact,
     _validate_optimization_component_map,
@@ -2895,15 +2895,12 @@ class AxFlow(AxProgram):
 
             evaluator = _Evaluator()
         response = _call_optimizer_engine(engine, request, evaluator)
-        artifact = response.get("artifact", response) if isinstance(response, dict) else response
-        if not isinstance(artifact, dict):
-            raise RuntimeError("optimizer engine must return an optimized artifact")
-        artifact.setdefault("artifactVersion", "axir-optimized-artifact-v1")
-        artifact.setdefault("optimizerName", getattr(engine, "name", engine.__class__.__name__))
-        artifact.setdefault("optimizerVersion", getattr(engine, "version", "host"))
-        artifact.setdefault("componentMap", artifact.get("component_map") or {})
-        artifact = _validate_optimized_artifact(artifact, self.get_optimizable_components())
-        artifact["changedComponents"] = _optimization_changed_components(self.get_optimizable_components(), artifact.get("componentMap") or {})
+        artifact = _normalize_optimizer_engine_response(
+            response,
+            getattr(engine, "name", engine.__class__.__name__),
+            getattr(engine, "version", "host"),
+            self.get_optimizable_components(),
+        )
         if opts.get("apply", True) is not False:
             self.apply_optimization(artifact)
         return artifact
@@ -3343,15 +3340,10 @@ class AxAgent:
     def optimize_with(self, engine: OptimizerEngine, dataset, options: dict[str, Any] | None = None):
         opts = options or {}
         components = self.get_optimizable_components()
-        normalized = _normalize_optimization_dataset(dataset or [])
-        target = opts.get("target", "all")
-        selected = _filter_optimization_components(components, target)
-        request_options = {k: v for k, v in opts.items() if k not in ("client", "ai", "engine", "optimizer")}
-        request = _build_optimizer_request("axagent", selected, normalized, request_options, self.export_trace())
-        evaluator = None
         client = opts.get("client") or opts.get("ai")
-        if isinstance(request.get("evaluator"), dict):
-            request["evaluator"]["available"] = client is not None
+        run = _prepare_optimizer_run("axagent", components, dataset or [], opts, self.export_trace(), client is not None)
+        request = run.get("request") or {}
+        evaluator = None
         if client is not None:
             outer = self
 
@@ -3361,15 +3353,12 @@ class AxAgent:
 
             evaluator = _Evaluator()
         response = _call_optimizer_engine(engine, request, evaluator)
-        artifact = response.get("artifact", response) if isinstance(response, dict) else response
-        if not isinstance(artifact, dict):
-            raise RuntimeError("optimizer engine must return an optimized artifact")
-        artifact.setdefault("artifactVersion", "axir-optimized-artifact-v1")
-        artifact.setdefault("optimizerName", getattr(engine, "name", engine.__class__.__name__))
-        artifact.setdefault("optimizerVersion", getattr(engine, "version", "host"))
-        artifact.setdefault("componentMap", artifact.get("component_map") or {})
-        artifact = _validate_optimized_artifact(artifact, components)
-        artifact["changedComponents"] = _optimization_changed_components(components, artifact.get("componentMap") or {})
+        artifact = _normalize_optimizer_engine_response(
+            response,
+            getattr(engine, "name", engine.__class__.__name__),
+            getattr(engine, "version", "host"),
+            components,
+        )
         if opts.get("apply", True) is not False:
             self.apply_optimization(artifact)
         return artifact
@@ -3691,6 +3680,7 @@ from .agent import (
     OptimizerEngine,
     _adjust_optimization_score_for_actions,
     _build_agent_eval_prediction,
+    _build_optimizer_evidence_batch,
     _build_optimization_eval_result,
     _build_optimization_judge_payload,
     _deserialize_optimized_artifact,
@@ -4193,13 +4183,49 @@ def _run_optimize(fixture):
             self.response = response
             self.requests = []
             self.evaluations = []
+            self.transcripts = []
 
         def optimize(self, request, evaluator=None):
             self.requests.append(copy.deepcopy(request))
             if evaluator is not None and isinstance(self.response, dict):
+                if "referenceCandidates" in self.response:
+                    best_map = {}
+                    best_score = None
+                    for step in self.response.get("referenceCandidates") or []:
+                        candidate_map = step.get("component_map") or step.get("componentMap") or {}
+                        eval_options = step.get("options") or {}
+                        result = evaluator.evaluate(candidate_map, eval_options)
+                        evidence = _build_optimizer_evidence_batch(result, request.get("components") or [])
+                        self.evaluations.append(copy.deepcopy(result))
+                        self.transcripts.append({
+                            "candidateMap": copy.deepcopy(candidate_map),
+                            "options": copy.deepcopy(eval_options),
+                            "result": copy.deepcopy(result),
+                            "evidence": copy.deepcopy(evidence),
+                        })
+                        score = result.get("avg", 0) if isinstance(result, dict) else 0
+                        if best_score is None or score > best_score:
+                            best_score = score
+                            best_map = copy.deepcopy(candidate_map)
+                    return {
+                        "componentMap": best_map,
+                        "metadata": {
+                            "referenceEngine": True,
+                            "evaluations": copy.deepcopy(self.transcripts),
+                        },
+                    }
                 for step in self.response.get("evaluate") or []:
-                    result = evaluator.evaluate(step.get("component_map") or step.get("componentMap") or {}, step.get("options") or {})
+                    candidate_map = step.get("component_map") or step.get("componentMap") or {}
+                    eval_options = step.get("options") or {}
+                    result = evaluator.evaluate(candidate_map, eval_options)
+                    evidence = _build_optimizer_evidence_batch(result, request.get("components") or [])
                     self.evaluations.append(copy.deepcopy(result))
+                    self.transcripts.append({
+                        "candidateMap": copy.deepcopy(candidate_map),
+                        "options": copy.deepcopy(eval_options),
+                        "result": copy.deepcopy(result),
+                        "evidence": copy.deepcopy(evidence),
+                    })
             return copy.deepcopy(self.response)
 
     def build_program():
@@ -4270,6 +4296,13 @@ def _run_optimize(fixture):
             if "expected_judge_payload_subset" in fixture:
                 _assert_subset(payload, fixture["expected_judge_payload_subset"], "judge payload")
             return
+        if operation == "evidence":
+            components = fixture.get("components") or program.get_optimizable_components()
+            eval_result = fixture.get("eval_result") or {}
+            evidence = _build_optimizer_evidence_batch(eval_result, components)
+            if "expected_evidence_subset" in fixture:
+                _assert_subset(evidence, fixture["expected_evidence_subset"], "optimizer evidence")
+            return
         if operation == "evaluate":
             if not hasattr(program, "evaluate_optimization"):
                 raise FixtureError("evaluate operation requires an optimizable program")
@@ -4294,6 +4327,8 @@ def _run_optimize(fixture):
                 _assert_subset(engine.requests[0], fixture["expected_engine_request_subset"], "optimizer engine request")
             if "expected_engine_evaluations_subset" in fixture:
                 _assert_list_subset(engine.evaluations, fixture["expected_engine_evaluations_subset"], "optimizer engine evaluations")
+            if "expected_engine_transcripts_subset" in fixture:
+                _assert_list_subset(engine.transcripts, fixture["expected_engine_transcripts_subset"], "optimizer engine transcripts")
             if "expected_artifact_subset" in fixture:
                 _assert_subset(artifact, fixture["expected_artifact_subset"], "optimizer artifact")
             if "expected_components_subset" in fixture:

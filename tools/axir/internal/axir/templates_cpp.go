@@ -390,6 +390,9 @@ struct Core {
   static Value _build_optimization_eval_result(Value rows, Value candidate_map, Value phase);
   static Value _filter_optimization_components(Value components, Value target);
   static Value _build_optimizer_request(Value program_kind, Value components, Value dataset, Value options, Value trace);
+  static Value _prepare_optimizer_run(Value program_kind, Value components, Value dataset, Value options, Value trace, Value evaluator_available);
+  static Value _normalize_optimizer_engine_response(Value response, Value engine_name, Value engine_version, Value components);
+  static Value _build_optimizer_evidence_batch(Value eval_result, Value components);
   static Value _build_agent_eval_prediction(Value output, Value action_log, Value usage, Value trace);
   static Value _program_descriptor(Value kind, Value id, Value metadata);
   static Value _program_trace_event(Value program_id, Value kind, Value payload);
@@ -2944,45 +2947,19 @@ struct AxGenOptimizerEvaluator : OptimizerEvaluator {
 
 Value AxGen::optimize_with(OptimizerEngine& engine, Value dataset, Value options) {
   Value components = get_optimizable_components();
-  Value target = Core::get(options, "target", Value("all"));
-  Value selected = Core::_filter_optimization_components(components, target);
-  Value normalized = Core::_normalize_optimization_dataset(dataset.is_null() ? Value::array() : dataset);
-  Value request = Core::_build_optimizer_request(Value("axgen"), selected, normalized, options, object({{"traces", get_traces()}, {"chat_log", get_chat_log()}}));
-  Value evaluator_info = Core::get(request, "evaluator", Value::object());
-  Core::set(evaluator_info, "available", Value(false));
-  Core::set(request, "evaluator", evaluator_info);
-  Value artifact = engine.optimize(request);
-  artifact = Core::get(artifact, "artifact", artifact);
-  if (!artifact.is_object()) throw AxError("runtime", "optimizer engine must return an optimized artifact");
-  if (Core::get(artifact, "artifactVersion", Value()).is_null()) Core::set(artifact, "artifactVersion", Value("axir-optimized-artifact-v1"));
-  if (Core::get(artifact, "optimizerName", Value()).is_null()) Core::set(artifact, "optimizerName", Value(engine.name()));
-  if (Core::get(artifact, "optimizerVersion", Value()).is_null()) Core::set(artifact, "optimizerVersion", Value(engine.version()));
-  if (Core::get(artifact, "componentMap", Value()).is_null()) Core::set(artifact, "componentMap", Core::get(artifact, "component_map", Value::object()));
-  artifact = Core::_validate_optimized_artifact(artifact, components);
-  Core::set(artifact, "changedComponents", Core::_optimization_changed_components(components, Core::get(artifact, "componentMap", Value::object())));
+  Value run = Core::_prepare_optimizer_run(Value("axgen"), components, dataset.is_null() ? Value::array() : dataset, options, object({{"traces", get_traces()}, {"chat_log", get_chat_log()}}), Value(false));
+  Value request = Core::get(run, "request", Value::object());
+  Value artifact = Core::_normalize_optimizer_engine_response(engine.optimize(request), Value(engine.name()), Value(engine.version()), components);
   if (Core::truthy(Core::get(options, "apply", Value(true)))) apply_optimization(artifact);
   return artifact;
 }
 
 Value AxGen::optimize_with(OptimizerEngine& engine, AIClient& client, Value dataset, Value options) {
   Value components = get_optimizable_components();
-  Value target = Core::get(options, "target", Value("all"));
-  Value selected = Core::_filter_optimization_components(components, target);
-  Value normalized = Core::_normalize_optimization_dataset(dataset.is_null() ? Value::array() : dataset);
-  Value request = Core::_build_optimizer_request(Value("axgen"), selected, normalized, options, object({{"traces", get_traces()}, {"chat_log", get_chat_log()}}));
-  Value evaluator_info = Core::get(request, "evaluator", Value::object());
-  Core::set(evaluator_info, "available", Value(true));
-  Core::set(request, "evaluator", evaluator_info);
+  Value run = Core::_prepare_optimizer_run(Value("axgen"), components, dataset.is_null() ? Value::array() : dataset, options, object({{"traces", get_traces()}, {"chat_log", get_chat_log()}}), Value(true));
+  Value request = Core::get(run, "request", Value::object());
   AxGenOptimizerEvaluator evaluator(*this, client, dataset, options);
-  Value artifact = engine.optimize(request, &evaluator);
-  artifact = Core::get(artifact, "artifact", artifact);
-  if (!artifact.is_object()) throw AxError("runtime", "optimizer engine must return an optimized artifact");
-  if (Core::get(artifact, "artifactVersion", Value()).is_null()) Core::set(artifact, "artifactVersion", Value("axir-optimized-artifact-v1"));
-  if (Core::get(artifact, "optimizerName", Value()).is_null()) Core::set(artifact, "optimizerName", Value(engine.name()));
-  if (Core::get(artifact, "optimizerVersion", Value()).is_null()) Core::set(artifact, "optimizerVersion", Value(engine.version()));
-  if (Core::get(artifact, "componentMap", Value()).is_null()) Core::set(artifact, "componentMap", Core::get(artifact, "component_map", Value::object()));
-  artifact = Core::_validate_optimized_artifact(artifact, components);
-  Core::set(artifact, "changedComponents", Core::_optimization_changed_components(components, Core::get(artifact, "componentMap", Value::object())));
+  Value artifact = Core::_normalize_optimizer_engine_response(engine.optimize(request, &evaluator), Value(engine.name()), Value(engine.version()), components);
   if (Core::truthy(Core::get(options, "apply", Value(true)))) apply_optimization(artifact);
   return artifact;
 }
@@ -3121,30 +3098,14 @@ struct AxFlowOptimizerEvaluator : OptimizerEvaluator {
 };
 Value AxFlow::optimize_with(OptimizerEngine& engine, Value dataset, Value options) {
   Value request = Core::_flow_optimize_with(state_, dataset, options, Value(false));
-  Value artifact = engine.optimize(request);
-  artifact = Core::get(artifact, "artifact", artifact);
-  if (!artifact.is_object()) throw AxError("runtime", "optimizer engine must return an optimized artifact");
-  if (Core::get(artifact, "artifactVersion", Value()).is_null()) Core::set(artifact, "artifactVersion", Value("axir-optimized-artifact-v1"));
-  if (Core::get(artifact, "optimizerName", Value()).is_null()) Core::set(artifact, "optimizerName", Value(engine.name()));
-  if (Core::get(artifact, "optimizerVersion", Value()).is_null()) Core::set(artifact, "optimizerVersion", Value(engine.version()));
-  if (Core::get(artifact, "componentMap", Value()).is_null()) Core::set(artifact, "componentMap", Core::get(artifact, "component_map", Value::object()));
-  artifact = Core::_validate_optimized_artifact(artifact, get_optimizable_components());
-  Core::set(artifact, "changedComponents", Core::_optimization_changed_components(get_optimizable_components(), Core::get(artifact, "componentMap", Value::object())));
+  Value artifact = Core::_normalize_optimizer_engine_response(engine.optimize(request), Value(engine.name()), Value(engine.version()), get_optimizable_components());
   if (!Core::truthy(Core::eq(Core::get(options, "apply", Value(true)), Value(false)))) apply_optimization(artifact);
   return artifact;
 }
 Value AxFlow::optimize_with(OptimizerEngine& engine, AIClient& client, Value dataset, Value options) {
   Value request = Core::_flow_optimize_with(state_, dataset, options, Value(true));
   AxFlowOptimizerEvaluator evaluator(*this, client, dataset, options);
-  Value artifact = engine.optimize(request, &evaluator);
-  artifact = Core::get(artifact, "artifact", artifact);
-  if (!artifact.is_object()) throw AxError("runtime", "optimizer engine must return an optimized artifact");
-  if (Core::get(artifact, "artifactVersion", Value()).is_null()) Core::set(artifact, "artifactVersion", Value("axir-optimized-artifact-v1"));
-  if (Core::get(artifact, "optimizerName", Value()).is_null()) Core::set(artifact, "optimizerName", Value(engine.name()));
-  if (Core::get(artifact, "optimizerVersion", Value()).is_null()) Core::set(artifact, "optimizerVersion", Value(engine.version()));
-  if (Core::get(artifact, "componentMap", Value()).is_null()) Core::set(artifact, "componentMap", Core::get(artifact, "component_map", Value::object()));
-  artifact = Core::_validate_optimized_artifact(artifact, get_optimizable_components());
-  Core::set(artifact, "changedComponents", Core::_optimization_changed_components(get_optimizable_components(), Core::get(artifact, "componentMap", Value::object())));
+  Value artifact = Core::_normalize_optimizer_engine_response(engine.optimize(request, &evaluator), Value(engine.name()), Value(engine.version()), get_optimizable_components());
   if (!Core::truthy(Core::eq(Core::get(options, "apply", Value(true)), Value(false)))) apply_optimization(artifact);
   return artifact;
 }
@@ -3327,44 +3288,18 @@ struct AxAgentOptimizerEvaluator : OptimizerEvaluator {
 
 Value AxAgent::optimize_with(OptimizerEngine& engine, Value dataset, Value options) {
   Value components = get_optimizable_components();
-  Value target = Core::get(options, "target", Value("all"));
-  Value selected = Core::_filter_optimization_components(components, target);
-  Value normalized = Core::_normalize_optimization_dataset(dataset.is_null() ? Value::array() : dataset);
-  Value request = Core::_build_optimizer_request(Value("axagent"), selected, normalized, options, export_trace());
-  Value evaluator_info = Core::get(request, "evaluator", Value::object());
-  Core::set(evaluator_info, "available", Value(false));
-  Core::set(request, "evaluator", evaluator_info);
-  Value artifact = engine.optimize(request);
-  artifact = Core::get(artifact, "artifact", artifact);
-  if (!artifact.is_object()) throw AxError("runtime", "optimizer engine must return an optimized artifact");
-  if (Core::get(artifact, "artifactVersion", Value()).is_null()) Core::set(artifact, "artifactVersion", Value("axir-optimized-artifact-v1"));
-  if (Core::get(artifact, "optimizerName", Value()).is_null()) Core::set(artifact, "optimizerName", Value(engine.name()));
-  if (Core::get(artifact, "optimizerVersion", Value()).is_null()) Core::set(artifact, "optimizerVersion", Value(engine.version()));
-  if (Core::get(artifact, "componentMap", Value()).is_null()) Core::set(artifact, "componentMap", Core::get(artifact, "component_map", Value::object()));
-  artifact = Core::_validate_optimized_artifact(artifact, components);
-  Core::set(artifact, "changedComponents", Core::_optimization_changed_components(components, Core::get(artifact, "componentMap", Value::object())));
+  Value run = Core::_prepare_optimizer_run(Value("axagent"), components, dataset.is_null() ? Value::array() : dataset, options, export_trace(), Value(false));
+  Value request = Core::get(run, "request", Value::object());
+  Value artifact = Core::_normalize_optimizer_engine_response(engine.optimize(request), Value(engine.name()), Value(engine.version()), components);
   if (Core::truthy(Core::get(options, "apply", Value(true)))) apply_optimization(artifact);
   return artifact;
 }
 Value AxAgent::optimize_with(OptimizerEngine& engine, AIClient& client, Value dataset, Value options) {
   Value components = get_optimizable_components();
-  Value target = Core::get(options, "target", Value("all"));
-  Value selected = Core::_filter_optimization_components(components, target);
-  Value normalized = Core::_normalize_optimization_dataset(dataset.is_null() ? Value::array() : dataset);
-  Value request = Core::_build_optimizer_request(Value("axagent"), selected, normalized, options, export_trace());
-  Value evaluator_info = Core::get(request, "evaluator", Value::object());
-  Core::set(evaluator_info, "available", Value(true));
-  Core::set(request, "evaluator", evaluator_info);
+  Value run = Core::_prepare_optimizer_run(Value("axagent"), components, dataset.is_null() ? Value::array() : dataset, options, export_trace(), Value(true));
+  Value request = Core::get(run, "request", Value::object());
   AxAgentOptimizerEvaluator evaluator(*this, client, dataset, options);
-  Value artifact = engine.optimize(request, &evaluator);
-  artifact = Core::get(artifact, "artifact", artifact);
-  if (!artifact.is_object()) throw AxError("runtime", "optimizer engine must return an optimized artifact");
-  if (Core::get(artifact, "artifactVersion", Value()).is_null()) Core::set(artifact, "artifactVersion", Value("axir-optimized-artifact-v1"));
-  if (Core::get(artifact, "optimizerName", Value()).is_null()) Core::set(artifact, "optimizerName", Value(engine.name()));
-  if (Core::get(artifact, "optimizerVersion", Value()).is_null()) Core::set(artifact, "optimizerVersion", Value(engine.version()));
-  if (Core::get(artifact, "componentMap", Value()).is_null()) Core::set(artifact, "componentMap", Core::get(artifact, "component_map", Value::object()));
-  artifact = Core::_validate_optimized_artifact(artifact, components);
-  Core::set(artifact, "changedComponents", Core::_optimization_changed_components(components, Core::get(artifact, "componentMap", Value::object())));
+  Value artifact = Core::_normalize_optimizer_engine_response(engine.optimize(request, &evaluator), Value(engine.name()), Value(engine.version()), components);
   if (Core::truthy(Core::get(options, "apply", Value(true)))) apply_optimization(artifact);
   return artifact;
 }
@@ -3468,10 +3403,17 @@ struct FakeTransport : Transport {
   }
 };
 
+static double conf_number(Value value) {
+  if (auto p = std::get_if<double>(&value.data)) return *p;
+  std::string text = display(value);
+  return text.empty() ? 0.0 : std::stod(text);
+}
+
 struct FakeOptimizerEngine : OptimizerEngine {
   Value response;
   std::vector<Value> requests;
   std::vector<Value> evaluations;
+  std::vector<Value> transcripts;
 
   explicit FakeOptimizerEngine(Value response_) : response(std::move(response_)) {}
 
@@ -3485,12 +3427,36 @@ struct FakeOptimizerEngine : OptimizerEngine {
 
   Value optimize(Value request, OptimizerEvaluator* evaluator) override {
     requests.push_back(request);
+    if (evaluator != nullptr && !Core::get(response, "referenceCandidates").is_null()) {
+      Value best_map = Value::object();
+      bool has_best = false;
+      double best_score = 0.0;
+      for (const auto& step : Core::iter(Core::get(response, "referenceCandidates", Value::array()))) {
+        Value candidate_map = Core::get(step, "component_map", Core::get(step, "componentMap", Value::object()));
+        Value eval_options = Core::get(step, "options", Value::object());
+        Value result = evaluator->evaluate(candidate_map, eval_options);
+        Value evidence = Core::_build_optimizer_evidence_batch(result, Core::get(request, "components", Value::array()));
+        evaluations.push_back(result);
+        transcripts.push_back(object({{"candidateMap", candidate_map}, {"options", eval_options}, {"result", result}, {"evidence", evidence}}));
+        double score = conf_number(Core::get(result, "avg", Value(0)));
+        if (!has_best || score > best_score) {
+          has_best = true;
+          best_score = score;
+          best_map = candidate_map;
+        }
+      }
+      return object({{"componentMap", best_map}, {"metadata", object({{"referenceEngine", true}, {"evaluations", Value(transcripts)}})}});
+    }
     if (evaluator != nullptr && !Core::get(response, "evaluate").is_null()) {
       for (const auto& step : Core::iter(Core::get(response, "evaluate", Value::array()))) {
+        Value candidate_map = Core::get(step, "component_map", Core::get(step, "componentMap", Value::object()));
+        Value eval_options = Core::get(step, "options", Value::object());
         Value result = evaluator->evaluate(
-            Core::get(step, "component_map", Core::get(step, "componentMap", Value::object())),
-            Core::get(step, "options", Value::object()));
+            candidate_map,
+            eval_options);
+        Value evidence = Core::_build_optimizer_evidence_batch(result, Core::get(request, "components", Value::array()));
         evaluations.push_back(result);
+        transcripts.push_back(object({{"candidateMap", candidate_map}, {"options", eval_options}, {"result", result}, {"evidence", evidence}}));
       }
     }
     return response;
@@ -3910,6 +3876,11 @@ static void run_optimize(Value fixture) {
       if (!Core::get(fixture, "expected_judge_payload_subset").is_null()) assert_subset(payload, Core::get(fixture, "expected_judge_payload_subset"), "judge payload");
       return;
     }
+    if (op == "evidence") {
+      Value evidence = Core::_build_optimizer_evidence_batch(Core::get(fixture, "eval_result", Value::object()), Core::get(fixture, "components", Value::array()));
+      if (!Core::get(fixture, "expected_evidence_subset").is_null()) assert_subset(evidence, Core::get(fixture, "expected_evidence_subset"), "optimizer evidence");
+      return;
+    }
     if (program_kind == "axgen") {
       AxGen gen(build_signature(fixture), options);
       if (op == "components") {
@@ -3950,6 +3921,7 @@ static void run_optimize(Value fixture) {
           assert_subset(engine.requests[0], Core::get(fixture, "expected_engine_request_subset"), "optimizer engine request");
         }
         if (!Core::get(fixture, "expected_engine_evaluations_subset").is_null()) assert_list_subset(Value(engine.evaluations), Core::get(fixture, "expected_engine_evaluations_subset"), "optimizer engine evaluations");
+        if (!Core::get(fixture, "expected_engine_transcripts_subset").is_null()) assert_list_subset(Value(engine.transcripts), Core::get(fixture, "expected_engine_transcripts_subset"), "optimizer engine transcripts");
         if (!Core::get(fixture, "expected_artifact_subset").is_null()) assert_subset(artifact, Core::get(fixture, "expected_artifact_subset"), "optimizer artifact");
         if (!Core::get(fixture, "expected_components_subset").is_null()) assert_list_subset(gen.get_optimizable_components(), Core::get(fixture, "expected_components_subset"), "optimized components");
         return;
@@ -4003,6 +3975,7 @@ static void run_optimize(Value fixture) {
           assert_subset(engine.requests[0], Core::get(fixture, "expected_engine_request_subset"), "optimizer engine request");
         }
         if (!Core::get(fixture, "expected_engine_evaluations_subset").is_null()) assert_list_subset(Value(engine.evaluations), Core::get(fixture, "expected_engine_evaluations_subset"), "optimizer engine evaluations");
+        if (!Core::get(fixture, "expected_engine_transcripts_subset").is_null()) assert_list_subset(Value(engine.transcripts), Core::get(fixture, "expected_engine_transcripts_subset"), "optimizer engine transcripts");
         if (!Core::get(fixture, "expected_artifact_subset").is_null()) assert_subset(artifact, Core::get(fixture, "expected_artifact_subset"), "optimizer artifact");
         if (!Core::get(fixture, "expected_components_subset").is_null()) assert_list_subset(fl.get_optimizable_components(), Core::get(fixture, "expected_components_subset"), "optimized components");
         return;
@@ -4051,6 +4024,7 @@ static void run_optimize(Value fixture) {
         assert_subset(engine.requests[0], Core::get(fixture, "expected_engine_request_subset"), "optimizer engine request");
       }
       if (!Core::get(fixture, "expected_engine_evaluations_subset").is_null()) assert_list_subset(Value(engine.evaluations), Core::get(fixture, "expected_engine_evaluations_subset"), "optimizer engine evaluations");
+      if (!Core::get(fixture, "expected_engine_transcripts_subset").is_null()) assert_list_subset(Value(engine.transcripts), Core::get(fixture, "expected_engine_transcripts_subset"), "optimizer engine transcripts");
       if (!Core::get(fixture, "expected_artifact_subset").is_null()) assert_subset(artifact, Core::get(fixture, "expected_artifact_subset"), "optimizer artifact");
       if (!Core::get(fixture, "expected_components_subset").is_null()) assert_list_subset(ag.get_optimizable_components(), Core::get(fixture, "expected_components_subset"), "optimized components");
       return;

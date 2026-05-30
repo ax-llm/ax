@@ -1,0 +1,96 @@
+{
+  "components": [
+    {
+      "id": "qa::instruction",
+      "kind": "instruction",
+      "owner": "qa"
+    },
+    {
+      "id": "qa::fn:search_docs:desc",
+      "kind": "fn-desc",
+      "owner": "qa"
+    }
+  ],
+  "eval_result": {
+    "avg": 0.7,
+    "candidateMap": {
+      "qa::instruction": "Use evidence from retrieved docs."
+    },
+    "count": 1,
+    "rows": [
+      {
+        "input": {
+          "question": "Capital?"
+        },
+        "prediction": {
+          "completionType": "final",
+          "functionCalls": [
+            {
+              "componentId": "search_docs",
+              "name": "search_docs",
+              "qualifiedName": "tools.search_docs"
+            }
+          ],
+          "output": {
+            "answer": "Paris"
+          }
+        },
+        "scalar": 0.7,
+        "scores": {
+          "faithfulness": 0.8,
+          "helpfulness": 0.6
+        },
+        "trace": {
+          "calls": [
+            {
+              "componentId": "search_docs",
+              "name": "search_docs",
+              "qualifiedName": "tools.search_docs"
+            }
+          ]
+        }
+      }
+    ],
+    "sum": 0.7
+  },
+  "expected_evidence_subset": {
+    "candidateMap": {
+      "qa::instruction": "Use evidence from retrieved docs."
+    },
+    "contractVersion": "axir-optimizer-evidence-v1",
+    "outputs": [
+      {
+        "answer": "Paris"
+      }
+    ],
+    "reflectiveDataset": {
+      "qa::instruction": [
+        {
+          "output": {
+            "answer": "Paris"
+          },
+          "score": 0.7,
+          "trace": {
+            "calls": [
+              {
+                "componentId": "search_docs",
+                "name": "search_docs",
+                "qualifiedName": "tools.search_docs"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "scores": [0.7],
+    "scoreVectors": [
+      {
+        "faithfulness": 0.8,
+        "helpfulness": 0.6
+      }
+    ]
+  },
+  "kind": "optimize",
+  "name": "gepa-compatible-evidence-batch",
+  "operation": "evidence"
+}

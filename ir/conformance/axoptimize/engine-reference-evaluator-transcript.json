@@ -1,0 +1,117 @@
+{
+  "dataset": [
+    {
+      "expectedOutput": {
+        "answer": "Paris"
+      },
+      "input": {
+        "question": "Capital of France?"
+      },
+      "score": 1
+    }
+  ],
+  "engine_response": {
+    "referenceCandidates": [
+      {
+        "componentMap": {
+          "task.root.responder::instruction": "First candidate wins ties."
+        }
+      },
+      {
+        "componentMap": {
+          "task.root.responder::instruction": "Second candidate loses tie."
+        }
+      }
+    ]
+  },
+  "engine_uses_evaluator": true,
+  "expected_artifact_subset": {
+    "artifactVersion": "axir-optimized-artifact-v1",
+    "componentMap": {
+      "task.root.responder::instruction": "First candidate wins ties."
+    },
+    "metadata": {
+      "referenceEngine": true
+    }
+  },
+  "expected_components_subset": [
+    {
+      "current": "First candidate wins ties.",
+      "id": "task.root.responder::instruction"
+    }
+  ],
+  "expected_engine_evaluations_subset": [
+    {
+      "avg": 1,
+      "candidateMap": {
+        "task.root.responder::instruction": "First candidate wins ties."
+      },
+      "count": 1
+    },
+    {
+      "avg": 1,
+      "candidateMap": {
+        "task.root.responder::instruction": "Second candidate loses tie."
+      },
+      "count": 1
+    }
+  ],
+  "expected_engine_request_subset": {
+    "contractVersion": "axir-optimize-contract-v1",
+    "evaluator": {
+      "available": true,
+      "contractVersion": "axir-optimizer-evaluator-v1",
+      "evidenceContractVersion": "axir-optimizer-evidence-v1"
+    }
+  },
+  "expected_engine_transcripts_subset": [
+    {
+      "candidateMap": {
+        "task.root.responder::instruction": "First candidate wins ties."
+      },
+      "evidence": {
+        "contractVersion": "axir-optimizer-evidence-v1",
+        "count": 1,
+        "scores": [1]
+      }
+    },
+    {
+      "candidateMap": {
+        "task.root.responder::instruction": "Second candidate loses tie."
+      },
+      "evidence": {
+        "contractVersion": "axir-optimizer-evidence-v1",
+        "count": 1,
+        "scores": [1]
+      }
+    }
+  ],
+  "kind": "optimize",
+  "name": "engine-reference-evaluator-transcript",
+  "operation": "engine",
+  "optimize_options": {
+    "target": "responder"
+  },
+  "program": "agent",
+  "responses": [
+    {
+      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer the question\",{}]}}"
+    },
+    {
+      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer the question\",{\"answer\":\"Paris\"}]}}"
+    },
+    {
+      "content": "{\"answer\":\"Paris\"}"
+    },
+    {
+      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer the question\",{}]}}"
+    },
+    {
+      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer the question\",{\"answer\":\"Paris\"}]}}"
+    },
+    {
+      "content": "{\"answer\":\"Paris\"}"
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

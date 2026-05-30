@@ -120,7 +120,14 @@ var pythonGenCoreFuncs = []pythonCoreFuncSpec{
 	{Symbol: "adjust_optimization_score_for_actions", Name: "_adjust_optimization_score_for_actions"},
 	{Symbol: "build_optimization_eval_row", Name: "_build_optimization_eval_row"},
 	{Symbol: "build_optimization_eval_result", Name: "_build_optimization_eval_result"},
+	{Symbol: "validate_optimization_component_map", Name: "_validate_optimization_component_map"},
+	{Symbol: "validate_optimized_artifact", Name: "_validate_optimized_artifact"},
+	{Symbol: "optimization_changed_components", Name: "_optimization_changed_components"},
 	{Symbol: "filter_optimization_components", Name: "_filter_optimization_components"},
+	{Symbol: "build_optimizer_request", Name: "_build_optimizer_request"},
+	{Symbol: "prepare_optimizer_run", Name: "_prepare_optimizer_run"},
+	{Symbol: "normalize_optimizer_engine_response", Name: "_normalize_optimizer_engine_response"},
+	{Symbol: "build_optimizer_evidence_batch", Name: "_build_optimizer_evidence_batch"},
 }
 
 var pythonProgramCoreFuncs = []pythonCoreFuncSpec{
@@ -250,6 +257,9 @@ var pythonAgentCoreFuncs = []pythonCoreFuncSpec{
 	{Symbol: "build_optimization_eval_result", Name: "_build_optimization_eval_result"},
 	{Symbol: "filter_optimization_components", Name: "_filter_optimization_components"},
 	{Symbol: "build_optimizer_request", Name: "_build_optimizer_request"},
+	{Symbol: "prepare_optimizer_run", Name: "_prepare_optimizer_run"},
+	{Symbol: "normalize_optimizer_engine_response", Name: "_normalize_optimizer_engine_response"},
+	{Symbol: "build_optimizer_evidence_batch", Name: "_build_optimizer_evidence_batch"},
 	{Symbol: "build_agent_eval_prediction", Name: "_build_agent_eval_prediction"},
 }
 

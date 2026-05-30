@@ -109,6 +109,9 @@ func TestLoadCheckLowerAxCore(t *testing.T) {
 		"op core.func @validate_optimized_artifact",
 		"op core.func @filter_optimization_components",
 		"op core.func @build_optimizer_request",
+		"op core.func @prepare_optimizer_run",
+		"op core.func @normalize_optimizer_engine_response",
+		"op core.func @build_optimizer_evidence_batch",
 		"op core.func @normalize_optimization_dataset",
 		"op core.func @build_optimization_eval_result",
 		"op core.func @build_optimization_judge_payload",
@@ -238,6 +241,10 @@ func TestBuildRuntimeModel(t *testing.T) {
 		"axoptimize_metric_scoring",
 		"axoptimize_judge_payloads",
 		"axoptimize_state_isolation",
+		"axoptimize_engine_interop",
+		"axoptimize_shared_program_contract",
+		"axoptimize_evidence_batches",
+		"axoptimize_gepa_adapter_contract",
 		"axprogram_contract",
 		"axprogram_trace_events",
 		"axflow_program_graph",
@@ -1148,6 +1155,10 @@ func TestAxOptimizeConformanceFixturesLoad(t *testing.T) {
 		case "judge_payload":
 			if _, ok := fixture["expected_judge_payload_subset"]; !ok {
 				t.Fatalf("%s missing expected_judge_payload_subset", file)
+			}
+		case "evidence":
+			if _, ok := fixture["expected_evidence_subset"]; !ok {
+				t.Fatalf("%s missing expected_evidence_subset", file)
 			}
 		case "evaluate":
 			if _, ok := fixture["dataset"]; !ok {

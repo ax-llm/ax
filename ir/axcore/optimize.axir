@@ -536,8 +536,178 @@ module @ax.optimize version "0.1" {
       core.append %methods, "evaluate"
       core.set %evaluator["available"] = true
       core.set %evaluator["contractVersion"] = "axir-optimizer-evaluator-v1"
+      core.set %evaluator["evidenceContractVersion"] = "axir-optimizer-evidence-v1"
       core.set %evaluator["methods"] = %methods
       core.set %out["evaluator"] = %evaluator
+      core.return %out
+    }
+  }
+
+  op ax.optimize.semantic @prepare_optimizer_run {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(program_kind:string, components:list<json>, dataset:json, options:json, trace:json, evaluator_available:bool) -> json throws"
+    body @entry(%program_kind: string, %components: json, %dataset: json, %options: json, %trace: json, %evaluator_available: bool) {
+      %empty_map = core.map
+      %opts_missing = core.call intrinsic.is_none(%options)
+      %opts = core.let %options
+      core.if %opts_missing {
+        %opts = core.let %empty_map
+      } else {
+      }
+      %normalized = core.call @normalize_optimization_dataset(%dataset)
+      %target = core.get %opts["target"] default "all"
+      %selected = core.call @filter_optimization_components(%components, %target)
+      %request_options = core.call intrinsic.map.merge(%empty_map, %opts)
+      core.call intrinsic.map.delete(%request_options, "client")
+      core.call intrinsic.map.delete(%request_options, "ai")
+      core.call intrinsic.map.delete(%request_options, "engine")
+      core.call intrinsic.map.delete(%request_options, "optimizer")
+      %request = core.call @build_optimizer_request(%program_kind, %selected, %normalized, %request_options, %trace)
+      %evaluator = core.get %request["evaluator"]
+      core.set %evaluator["available"] = %evaluator_available
+      core.set %request["evaluator"] = %evaluator
+      %out = core.map
+      core.set %out["components"] = %components
+      core.set %out["selectedComponents"] = %selected
+      core.set %out["dataset"] = %normalized
+      core.set %out["options"] = %request_options
+      core.set %out["request"] = %request
+      core.return %out
+    }
+  }
+
+  op ax.optimize.semantic @normalize_optimizer_engine_response {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(response:json, engine_name:string, engine_version:string, components:list<json>) -> json throws"
+    body @entry(%response: json, %engine_name: string, %engine_version: string, %components: json) {
+      %response_is_object = core.type_is %response type "object"
+      %bad_response = core.call intrinsic.not(%response_is_object)
+      core.if %bad_response {
+        %error = core.call intrinsic.error.runtime("optimizer engine must return an optimized artifact")
+        core.raise %error
+      } else {
+      }
+      %has_artifact = core.call intrinsic.map.contains(%response, "artifact")
+      %artifact = core.let %response
+      core.if %has_artifact {
+        %artifact_value = core.get %response["artifact"]
+        %artifact = core.let %artifact_value
+      } else {
+      }
+      %artifact_is_object = core.type_is %artifact type "object"
+      %bad_artifact = core.call intrinsic.not(%artifact_is_object)
+      core.if %bad_artifact {
+        %artifact_error = core.call intrinsic.error.runtime("optimizer engine must return an optimized artifact")
+        core.raise %artifact_error
+      } else {
+      }
+      %version = core.get %artifact["artifactVersion"] default null
+      %missing_version = core.call intrinsic.is_none(%version)
+      core.if %missing_version {
+        core.set %artifact["artifactVersion"] = "axir-optimized-artifact-v1"
+      } else {
+      }
+      %name = core.get %artifact["optimizerName"] default null
+      %missing_name = core.call intrinsic.is_none(%name)
+      core.if %missing_name {
+        core.set %artifact["optimizerName"] = %engine_name
+      } else {
+      }
+      %engine_ver = core.get %artifact["optimizerVersion"] default null
+      %missing_engine_ver = core.call intrinsic.is_none(%engine_ver)
+      core.if %missing_engine_ver {
+        core.set %artifact["optimizerVersion"] = %engine_version
+      } else {
+      }
+      %component_map = core.get %artifact["componentMap"] default null
+      %missing_component_map = core.call intrinsic.is_none(%component_map)
+      core.if %missing_component_map {
+        %empty_map = core.map
+        %snake_map = core.get %artifact["component_map"] default %empty_map
+        core.set %artifact["componentMap"] = %snake_map
+      } else {
+      }
+      %validated = core.call @validate_optimized_artifact(%artifact, %components)
+      %map = core.get %validated["componentMap"]
+      %changed = core.call @optimization_changed_components(%components, %map)
+      core.set %validated["changedComponents"] = %changed
+      core.return %validated
+    }
+  }
+
+  op ax.optimize.semantic @build_optimizer_evidence_batch {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(eval_result:json, components:list<json>) -> json"
+    body @entry(%eval_result: json, %components: json) {
+      %empty_list = core.list
+      %empty_map = core.map
+      %rows = core.get %eval_result["rows"] default %empty_list
+      %outputs = core.list
+      %scores = core.list
+      %score_vectors = core.list
+      %trajectories = core.list
+      core.for %row in %rows {
+        %prediction = core.get %row["prediction"] default %empty_map
+        %output = core.get %prediction["output"] default %prediction
+        core.append %outputs, %output
+        %scalar = core.get %row["scalar"] default 0
+        core.append %scores, %scalar
+        %vector = core.get %row["scores"] default %empty_map
+        core.append %score_vectors, %vector
+        %trajectory = core.map
+        %trace = core.get %row["trace"]
+        core.set %trajectory["trace"] = %trace
+        core.set %trajectory["output"] = %output
+        %row_error = core.get %row["error"] default null
+        %prediction_error = core.get %prediction["error"] default %row_error
+        %has_error = core.call intrinsic.is_not_none(%prediction_error)
+        core.if %has_error {
+          core.set %trajectory["error"] = %prediction_error
+        } else {
+        }
+        core.append %trajectories, %trajectory
+      }
+      %reflective = core.map
+      core.for %component in %components {
+        %id = core.get %component["id"] default ""
+        %items = core.list
+        core.for %row in %rows {
+          %entry = core.map
+          %prediction = core.get %row["prediction"] default %empty_map
+          %output = core.get %prediction["output"] default %prediction
+          %scalar = core.get %row["scalar"] default 0
+          %trace = core.get %row["trace"]
+          core.set %entry["score"] = %scalar
+          core.set %entry["output"] = %output
+          core.set %entry["trace"] = %trace
+          %error = core.get %row["error"] default null
+          %has_error = core.call intrinsic.is_not_none(%error)
+          core.if %has_error {
+            core.set %entry["error"] = %error
+          } else {
+          }
+          core.append %items, %entry
+        }
+        core.set %reflective[%id] = %items
+      }
+      %out = core.map
+      core.set %out["contractVersion"] = "axir-optimizer-evidence-v1"
+      %candidate_map = core.get %eval_result["candidateMap"] default %empty_map
+      core.set %out["candidateMap"] = %candidate_map
+      core.set %out["outputs"] = %outputs
+      core.set %out["scores"] = %scores
+      core.set %out["scoreVectors"] = %score_vectors
+      core.set %out["trajectories"] = %trajectories
+      %avg = core.get %eval_result["avg"] default 0
+      %sum = core.get %eval_result["sum"] default 0
+      %count = core.get %eval_result["count"] default 0
+      core.set %out["avg"] = %avg
+      core.set %out["sum"] = %sum
+      core.set %out["count"] = %count
+      core.set %out["reflectiveDataset"] = %reflective
       core.return %out
     }
   }

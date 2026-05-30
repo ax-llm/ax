@@ -1,0 +1,20 @@
+{
+  "dataset": [
+    {
+      "input": {
+        "question": "Capital?"
+      },
+      "score": 1
+    }
+  ],
+  "engine_response": {
+    "artifactVersion": "axir-optimized-artifact-v0",
+    "componentMap": {}
+  },
+  "expected_error_contains": "unsupported optimized artifact version",
+  "kind": "optimize",
+  "name": "engine-invalid-artifact-version",
+  "operation": "engine",
+  "program": "agent",
+  "signature": "question:string -> answer:string"
+}

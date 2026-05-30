@@ -937,30 +937,14 @@ module @ax.flow version "0.1" {
     body @entry(%flow: json, %dataset: json, %options: json, %evaluator_available: bool) {
       %empty_map = core.map
       %empty_list = core.list
-      %opts_missing = core.call intrinsic.is_none(%options)
-      %opts = core.let %options
-      core.if %opts_missing {
-        %opts = core.let %empty_map
-      } else {
-      }
       %components = core.call @flow_get_optimizable_components(%flow)
-      %target = core.get %opts["target"] default "all"
-      %selected = core.call @filter_optimization_components(%components, %target)
-      %normalized = core.call @normalize_optimization_dataset(%dataset)
-      %request_options = core.call intrinsic.map.merge(%empty_map, %opts)
-      core.call intrinsic.map.delete(%request_options, "client")
-      core.call intrinsic.map.delete(%request_options, "ai")
-      core.call intrinsic.map.delete(%request_options, "engine")
-      core.call intrinsic.map.delete(%request_options, "optimizer")
       %trace = core.map
       %traces = core.get %flow["traces"] default %empty_list
       %chat_log = core.get %flow["chat_log"] default %empty_list
       core.set %trace["traces"] = %traces
       core.set %trace["chat_log"] = %chat_log
-      %request = core.call @build_optimizer_request("axflow", %selected, %normalized, %request_options, %trace)
-      %evaluator = core.get %request["evaluator"]
-      core.set %evaluator["available"] = %evaluator_available
-      core.set %request["evaluator"] = %evaluator
+      %run = core.call @prepare_optimizer_run("axflow", %components, %dataset, %options, %trace, %evaluator_available)
+      %request = core.get %run["request"] default %empty_map
       core.return %request
     }
   }

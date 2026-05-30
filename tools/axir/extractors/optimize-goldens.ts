@@ -8,6 +8,7 @@ import {
   normalizeAgentEvalDataset,
   resolveAgentOptimizeTargetIds,
 } from '../../../src/ax/agent/optimize.js';
+import { scalarizeGEPAScores } from '../../../src/ax/dsp/optimizers/gepaEvaluation.js';
 import { AxSignature } from '../../../src/ax/dsp/sig.js';
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
@@ -72,6 +73,7 @@ function touchReferenceBehavior(): void {
     ],
     'all'
   );
+  scalarizeGEPAScores({ faithfulness: 0.7, helpfulness: 0.9 });
 }
 
 mkdirSync(outDir, { recursive: true });
@@ -522,6 +524,130 @@ writeFixture('engine-evaluator-rollout', {
   ],
 });
 
+writeFixture('engine-reference-evaluator-transcript', {
+  kind: 'optimize',
+  operation: 'engine',
+  program: 'agent',
+  signature: 'question:string -> answer:string',
+  dataset: [
+    {
+      input: { question: 'Capital of France?' },
+      expectedOutput: { answer: 'Paris' },
+      score: 1,
+    },
+  ],
+  responses: [
+    {
+      content:
+        '{"completion":{"type":"final","args":["Answer the question",{}]}}',
+    },
+    {
+      content:
+        '{"completion":{"type":"final","args":["Answer the question",{"answer":"Paris"}]}}',
+    },
+    { content: '{"answer":"Paris"}' },
+    {
+      content:
+        '{"completion":{"type":"final","args":["Answer the question",{}]}}',
+    },
+    {
+      content:
+        '{"completion":{"type":"final","args":["Answer the question",{"answer":"Paris"}]}}',
+    },
+    { content: '{"answer":"Paris"}' },
+  ],
+  engine_uses_evaluator: true,
+  optimize_options: { target: 'responder' },
+  engine_response: {
+    referenceCandidates: [
+      {
+        componentMap: {
+          'task.root.responder::instruction': 'First candidate wins ties.',
+        },
+      },
+      {
+        componentMap: {
+          'task.root.responder::instruction': 'Second candidate loses tie.',
+        },
+      },
+    ],
+  },
+  expected_engine_request_subset: {
+    contractVersion: 'axir-optimize-contract-v1',
+    evaluator: {
+      available: true,
+      contractVersion: 'axir-optimizer-evaluator-v1',
+      evidenceContractVersion: 'axir-optimizer-evidence-v1',
+    },
+  },
+  expected_engine_evaluations_subset: [
+    {
+      avg: 1,
+      count: 1,
+      candidateMap: {
+        'task.root.responder::instruction': 'First candidate wins ties.',
+      },
+    },
+    {
+      avg: 1,
+      count: 1,
+      candidateMap: {
+        'task.root.responder::instruction': 'Second candidate loses tie.',
+      },
+    },
+  ],
+  expected_engine_transcripts_subset: [
+    {
+      candidateMap: {
+        'task.root.responder::instruction': 'First candidate wins ties.',
+      },
+      evidence: {
+        contractVersion: 'axir-optimizer-evidence-v1',
+        count: 1,
+        scores: [1],
+      },
+    },
+    {
+      candidateMap: {
+        'task.root.responder::instruction': 'Second candidate loses tie.',
+      },
+      evidence: {
+        contractVersion: 'axir-optimizer-evidence-v1',
+        count: 1,
+        scores: [1],
+      },
+    },
+  ],
+  expected_artifact_subset: {
+    artifactVersion: 'axir-optimized-artifact-v1',
+    componentMap: {
+      'task.root.responder::instruction': 'First candidate wins ties.',
+    },
+    metadata: {
+      referenceEngine: true,
+    },
+  },
+  expected_components_subset: [
+    {
+      current: 'First candidate wins ties.',
+      id: 'task.root.responder::instruction',
+    },
+  ],
+});
+
+writeFixture('engine-invalid-artifact-version', {
+  kind: 'optimize',
+  operation: 'engine',
+  program: 'agent',
+  signature: 'question:string -> answer:string',
+  dataset: [{ input: { question: 'Capital?' }, score: 1 }],
+  engine_response: {
+    artifactVersion: 'axir-optimized-artifact-v0',
+    componentMap: {},
+  },
+  expected_error_contains: 'unsupported optimized artifact version',
+});
+
 writeFixture('engine-apply-false-preserves-components', {
   kind: 'optimize',
   operation: 'engine',
@@ -546,6 +672,84 @@ writeFixture('engine-apply-false-preserves-components', {
       id: 'task.root.responder::instruction',
     },
   ],
+});
+
+writeFixture('gepa-compatible-evidence-batch', {
+  kind: 'optimize',
+  operation: 'evidence',
+  components: [
+    {
+      id: 'qa::instruction',
+      kind: 'instruction',
+      owner: 'qa',
+    },
+    {
+      id: 'qa::fn:search_docs:desc',
+      kind: 'fn-desc',
+      owner: 'qa',
+    },
+  ],
+  eval_result: {
+    avg: scalarizeGEPAScores({ faithfulness: 0.8, helpfulness: 0.6 }),
+    candidateMap: {
+      'qa::instruction': 'Use evidence from retrieved docs.',
+    },
+    count: 1,
+    rows: [
+      {
+        input: { question: 'Capital?' },
+        prediction: {
+          completionType: 'final',
+          functionCalls: [
+            {
+              componentId: 'search_docs',
+              name: 'search_docs',
+              qualifiedName: 'tools.search_docs',
+            },
+          ],
+          output: { answer: 'Paris' },
+        },
+        scalar: scalarizeGEPAScores({ faithfulness: 0.8, helpfulness: 0.6 }),
+        scores: { faithfulness: 0.8, helpfulness: 0.6 },
+        trace: {
+          calls: [
+            {
+              componentId: 'search_docs',
+              name: 'search_docs',
+              qualifiedName: 'tools.search_docs',
+            },
+          ],
+        },
+      },
+    ],
+    sum: scalarizeGEPAScores({ faithfulness: 0.8, helpfulness: 0.6 }),
+  },
+  expected_evidence_subset: {
+    contractVersion: 'axir-optimizer-evidence-v1',
+    candidateMap: {
+      'qa::instruction': 'Use evidence from retrieved docs.',
+    },
+    outputs: [{ answer: 'Paris' }],
+    scores: [scalarizeGEPAScores({ faithfulness: 0.8, helpfulness: 0.6 })],
+    scoreVectors: [{ faithfulness: 0.8, helpfulness: 0.6 }],
+    reflectiveDataset: {
+      'qa::instruction': [
+        {
+          output: { answer: 'Paris' },
+          score: scalarizeGEPAScores({ faithfulness: 0.8, helpfulness: 0.6 }),
+          trace: {
+            calls: [
+              {
+                componentId: 'search_docs',
+                name: 'search_docs',
+                qualifiedName: 'tools.search_docs',
+              },
+            ],
+          },
+        },
+      ],
+    },
+  },
 });
 
 writeFixture('flow-component-inventory-nested', {
