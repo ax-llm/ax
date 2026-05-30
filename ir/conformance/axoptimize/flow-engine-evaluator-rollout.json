@@ -1,0 +1,92 @@
+{
+  "dataset": [
+    {
+      "expectedOutput": {
+        "answer": "Paris"
+      },
+      "input": {
+        "question": "Capital of France?"
+      },
+      "score": 1
+    }
+  ],
+  "engine_response": {
+    "evaluate": [
+      {
+        "component_map": {
+          "root.flow.qa::qa::instruction": "Use flow optimizer evidence."
+        }
+      }
+    ],
+    "componentMap": {
+      "root.flow.qa::qa::instruction": "Use flow optimizer evidence."
+    }
+  },
+  "engine_uses_evaluator": true,
+  "expected_artifact_subset": {
+    "artifactVersion": "axir-optimized-artifact-v1",
+    "changedComponents": [
+      {
+        "current": "Base flow instruction.",
+        "id": "root.flow.qa::qa::instruction",
+        "next": "Use flow optimizer evidence."
+      }
+    ],
+    "componentMap": {
+      "root.flow.qa::qa::instruction": "Use flow optimizer evidence."
+    }
+  },
+  "expected_components_subset": [
+    {
+      "current": "Use flow optimizer evidence.",
+      "id": "root.flow.qa::qa::instruction"
+    }
+  ],
+  "expected_engine_evaluations_subset": [
+    {
+      "avg": 1,
+      "candidateMap": {
+        "root.flow.qa::qa::instruction": "Use flow optimizer evidence."
+      },
+      "count": 1
+    }
+  ],
+  "expected_engine_request_subset": {
+    "contractVersion": "axir-optimize-contract-v1",
+    "evaluator": {
+      "available": true,
+      "contractVersion": "axir-optimizer-evaluator-v1"
+    },
+    "programKind": "axflow"
+  },
+  "kind": "optimize",
+  "name": "flow-engine-evaluator-rollout",
+  "operation": "engine",
+  "optimize_options": {
+    "target": "all"
+  },
+  "program": "flow",
+  "program_id": "root.flow",
+  "responses": [
+    {
+      "content": "{\"answer\":\"Paris\"}"
+    }
+  ],
+  "returns": {
+    "answer": "answer"
+  },
+  "signature": "question:string -> answer:string",
+  "steps": [
+    {
+      "kind": "execute",
+      "name": "qa",
+      "options": {
+        "id": "qa",
+        "instruction": "Base flow instruction.",
+        "reads": ["question"],
+        "writes": ["qaResult"]
+      },
+      "signature": "question:string -> answer:string"
+    }
+  ]
+}

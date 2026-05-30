@@ -1,0 +1,24 @@
+{
+  "component_map": {
+    "root.flow.missing::qa::instruction": "Nope."
+  },
+  "expected_error_contains": "unknown optimized component id",
+  "kind": "optimize",
+  "name": "flow-invalid-component",
+  "operation": "apply",
+  "program": "flow",
+  "program_id": "root.flow",
+  "signature": "question:string -> answer:string",
+  "steps": [
+    {
+      "kind": "execute",
+      "name": "qa",
+      "options": {
+        "id": "qa",
+        "reads": ["question"],
+        "writes": ["qaResult"]
+      },
+      "signature": "question:string -> answer:string"
+    }
+  ]
+}

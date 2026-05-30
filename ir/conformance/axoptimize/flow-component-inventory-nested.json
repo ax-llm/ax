@@ -1,0 +1,73 @@
+{
+  "expected_components_subset": [
+    {
+      "id": "root.flow::graph-plan",
+      "kind": "flow-graph",
+      "owner": "root.flow"
+    },
+    {
+      "current": "Base flow instruction.",
+      "id": "root.flow.qa::qa::instruction",
+      "kind": "instruction",
+      "owner": "root.flow.qa"
+    },
+    {
+      "id": "root.flow.nested::root.nested::graph-plan",
+      "kind": "flow-graph",
+      "owner": "root.flow.nested"
+    },
+    {
+      "current": "Nested child instruction.",
+      "id": "root.flow.nested::root.nested.inner::inner::instruction",
+      "kind": "instruction",
+      "owner": "root.flow.nested"
+    }
+  ],
+  "kind": "optimize",
+  "name": "flow-component-inventory-nested",
+  "operation": "components",
+  "program": "flow",
+  "program_id": "root.flow",
+  "returns": {
+    "answer": "answer"
+  },
+  "signature": "question:string -> answer:string",
+  "steps": [
+    {
+      "kind": "execute",
+      "name": "qa",
+      "options": {
+        "id": "qa",
+        "instruction": "Base flow instruction.",
+        "reads": ["question"],
+        "writes": ["qaResult"]
+      },
+      "signature": "question:string -> answer:string"
+    },
+    {
+      "kind": "execute",
+      "name": "nested",
+      "options": {
+        "reads": ["question"],
+        "writes": ["nestedResult"]
+      },
+      "program": "flow",
+      "returns": {
+        "answer": "answer"
+      },
+      "steps": [
+        {
+          "kind": "execute",
+          "name": "inner",
+          "options": {
+            "id": "inner",
+            "instruction": "Nested child instruction.",
+            "reads": ["question"],
+            "writes": ["innerResult"]
+          },
+          "signature": "question:string -> answer:string"
+        }
+      ]
+    }
+  ]
+}

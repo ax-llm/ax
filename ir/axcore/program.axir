@@ -47,4 +47,51 @@ module @ax.program version "0.1" {
       core.return %event
     }
   }
+
+  op ax.program.semantic @program_child_component_prefix {
+    attr core_kind = "func"
+    attr emit_module = "program"
+    type signature = "(owner:string, node:string) -> string"
+    body @entry(%owner: string, %node: string) {
+      %path = core.call intrinsic.string.format("{}.{}::", %owner, %node)
+      core.return %path
+    }
+  }
+
+  op ax.program.semantic @program_prefix_component {
+    attr core_kind = "func"
+    attr emit_module = "program"
+    type signature = "(component:json, owner:string, node:string) -> json"
+    body @entry(%component: json, %owner: string, %node: string) {
+      %empty_map = core.map
+      %child = core.call intrinsic.map.merge(%empty_map, %component)
+      %child_owner = core.call intrinsic.string.format("{}.{}", %owner, %node)
+      %child_id = core.get %component["id"] default ""
+      %prefixed_id = core.call intrinsic.string.format("{}::{}", %child_owner, %child_id)
+      core.set %child["owner"] = %child_owner
+      core.set %child["id"] = %prefixed_id
+      core.return %child
+    }
+  }
+
+  op ax.program.semantic @program_slice_component_map {
+    attr core_kind = "func"
+    attr emit_module = "program"
+    type signature = "(component_map:json, prefix:string) -> json"
+    body @entry(%component_map: json, %prefix: string) {
+      %out = core.map
+      %keys = core.call intrinsic.map.keys(%component_map)
+      core.for %key in %keys {
+        %matches = core.call intrinsic.string.starts_with(%key, %prefix)
+      core.if %matches {
+          %prefix_len = core.call intrinsic.len(%prefix)
+          %short_key = core.call intrinsic.string.slice(%key, %prefix_len)
+          %value = core.get %component_map[%key]
+          core.set %out[%short_key] = %value
+        } else {
+        }
+      }
+      core.return %out
+    }
+  }
 }

@@ -1,0 +1,26 @@
+{
+  "expected_component_ids": ["root.flow::graph-plan"],
+  "kind": "optimize",
+  "name": "flow-target-filter-graph",
+  "operation": "filter",
+  "program": "flow",
+  "program_id": "root.flow",
+  "returns": {
+    "answer": "answer"
+  },
+  "signature": "question:string -> answer:string",
+  "steps": [
+    {
+      "kind": "execute",
+      "name": "qa",
+      "options": {
+        "id": "qa",
+        "instruction": "Base flow instruction.",
+        "reads": ["question"],
+        "writes": ["qaResult"]
+      },
+      "signature": "question:string -> answer:string"
+    }
+  ],
+  "target": "flow"
+}

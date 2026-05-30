@@ -251,6 +251,11 @@ func TestBuildRuntimeModel(t *testing.T) {
 		"axflow_cache_runtime",
 		"axflow_dynamic_options",
 		"axflow_abort_boundary",
+		"axflow_optimization_components",
+		"axflow_optimization_apply",
+		"axflow_optimization_evaluation",
+		"axflow_nested_component_paths",
+		"axflow_optimization_rollback",
 	} {
 		if !model.Features[feature] {
 			t.Fatalf("runtime model missing prompt feature flag %s: %#v", feature, model.Features)

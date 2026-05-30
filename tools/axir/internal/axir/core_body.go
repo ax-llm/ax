@@ -66,6 +66,8 @@ const (
 	IntrinsicMapValues              CoreIntrinsic = "intrinsic.map.values"
 	IntrinsicRecordNew              CoreIntrinsic = "intrinsic.record.new"
 	IntrinsicObjectCallMethod       CoreIntrinsic = "intrinsic.object.call_method"
+	IntrinsicProgramComponents      CoreIntrinsic = "intrinsic.program.components"
+	IntrinsicProgramApplyComponents CoreIntrinsic = "intrinsic.program.apply_components"
 	IntrinsicAICompleteOnce         CoreIntrinsic = "intrinsic.ai.complete_once"
 	IntrinsicRetrySleep             CoreIntrinsic = "intrinsic.retry.sleep"
 	IntrinsicExceptionMessage       CoreIntrinsic = "intrinsic.exception.message"
@@ -181,6 +183,8 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicMapValues:              "_core_map_values",
 	IntrinsicRecordNew:              "_core_record_new",
 	IntrinsicObjectCallMethod:       "_core_object_call_method",
+	IntrinsicProgramComponents:      "_core_program_components",
+	IntrinsicProgramApplyComponents: "_core_program_apply_components",
 	IntrinsicAICompleteOnce:         "_core_ai_complete_once",
 	IntrinsicRetrySleep:             "_core_retry_sleep",
 	IntrinsicExceptionMessage:       "_core_exception_message",
@@ -295,6 +299,8 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.map.keys":                              true,
 	"intrinsic.map.values":                            true,
 	"intrinsic.object.call_method":                    true,
+	"intrinsic.program.components":                    true,
+	"intrinsic.program.apply_components":              true,
 	"intrinsic.ai.complete_once":                      true,
 	"intrinsic.retry.sleep":                           true,
 	"intrinsic.exception.message":                     true,
@@ -650,6 +656,8 @@ var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.agent.skill_search":           intrinsicInfo("intrinsic.agent.skill_search", 2, 2, true, "json"),
 	"intrinsic.agent.callable.invoke":        intrinsicInfo("intrinsic.agent.callable.invoke", 3, 3, true, "json"),
 	"intrinsic.object.call_method":           intrinsicInfo("intrinsic.object.call_method", 2, -1, true, "json"),
+	"intrinsic.program.components":          intrinsicInfo("intrinsic.program.components", 1, 1, true, "list<json>"),
+	"intrinsic.program.apply_components":    intrinsicInfo("intrinsic.program.apply_components", 2, 2, true, "json"),
 	"intrinsic.ai.complete_once":             intrinsicInfo("intrinsic.ai.complete_once", 2, 2, true, "json"),
 	"intrinsic.retry.sleep":                  intrinsicInfo("intrinsic.retry.sleep", 1, 1, true, "void"),
 	"intrinsic.exception.message":            intrinsicInfo("intrinsic.exception.message", 1, 1, true, "string"),

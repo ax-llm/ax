@@ -452,8 +452,10 @@ module @ax.optimize version "0.1" {
       %is_all = core.call intrinsic.eq(%target, "all")
       %is_actor = core.call intrinsic.eq(%target, "actor")
       %is_responder = core.call intrinsic.eq(%target, "responder")
+      %is_flow = core.call intrinsic.eq(%target, "flow")
       core.for %component in %components {
         %id = core.get %component["id"] default ""
+        %kind = core.get %component["kind"] default ""
         %include = core.let false
         core.if %is_all {
           %include = core.let true
@@ -482,6 +484,14 @@ module @ax.optimize version "0.1" {
           %responder_component_match = core.call intrinsic.contains(%id, ".responder::")
           %responder_any_match = core.call intrinsic.or(%responder_match, %responder_component_match)
           core.if %responder_any_match {
+            %include = core.let true
+          } else {
+          }
+        } else {
+        }
+        core.if %is_flow {
+          %flow_component = core.call intrinsic.eq(%kind, "flow-graph")
+          core.if %flow_component {
             %include = core.let true
           } else {
           }

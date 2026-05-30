@@ -155,6 +155,8 @@ struct Core {
   static Value agent_stage_ref(AxProgram& stage);
   static Value code_runtime_ref(AxCodeRuntime& runtime);
   static Value object_call_method(Value target, Value method_name, Value arg = Value());
+  static Value program_components(Value program);
+  static Value program_apply_components(Value program, Value component_map);
   static Value ai_complete_once(Value client, Value request);
   static Value retry_sleep(Value attempt);
   static Value tool_invoke(Value fn, Value params);
@@ -391,6 +393,9 @@ struct Core {
   static Value _build_agent_eval_prediction(Value output, Value action_log, Value usage, Value trace);
   static Value _program_descriptor(Value kind, Value id, Value metadata);
   static Value _program_trace_event(Value program_id, Value kind, Value payload);
+  static Value _program_child_component_prefix(Value owner, Value node);
+  static Value _program_prefix_component(Value component, Value owner, Value node);
+  static Value _program_slice_component_map(Value component_map, Value prefix);
   static Value _flow_factory(Value options);
   static Value _flow_step(Value kind, Value name, Value program, Value options);
   static Value _flow_add_step(Value flow, Value step);
@@ -399,6 +404,12 @@ struct Core {
   static Value _flow_plan_can_share_group(Value group, Value candidate);
   static Value _flow_plan(Value flow);
   static Value _flow_cache_key(Value values);
+  static Value _flow_get_optimizable_components(Value flow);
+  static Value _flow_apply_optimized_components(Value flow, Value component_map);
+  static Value _flow_snapshot_components(Value flow);
+  static Value _flow_restore_components(Value flow, Value snapshot);
+  static Value _flow_evaluate_optimization(Value flow, Value client, Value dataset, Value candidate_map, Value options);
+  static Value _flow_optimize_with(Value flow, Value dataset, Value options, Value evaluator_available);
   static Value _flow_cache_read_write(Value flow, Value values, Value options, Value mode, Value output);
   static Value _flow_check_abort(Value options, Value location);
   static Value _flow_project_returns(Value state, Value returns);
@@ -530,6 +541,7 @@ class AxProgram {
   virtual ~AxProgram() = default;
   virtual Value forward(AIClient& client, Value values, Value options = Value::object()) = 0;
   virtual Value get_optimizable_components() const { return Value::array(); }
+  virtual AxProgram& apply_optimized_components(Value) { return *this; }
   virtual Value get_traces() const { return Value::array(); }
   virtual Value get_chat_log() const { return Value::array(); }
   virtual Value get_usage() const { return Value::object(); }
@@ -587,6 +599,9 @@ class AxFlow : public AxProgram {
   Value get_optimizable_components() const;
   AxFlow& apply_optimized_components(Value component_map);
   AxFlow& apply_optimization(Value artifact);
+  Value evaluate_optimization(AIClient& client, Value dataset, Value candidate_map = Value::object(), Value options = Value::object());
+  Value optimize_with(OptimizerEngine& engine, Value dataset, Value options = Value::object());
+  Value optimize_with(OptimizerEngine& engine, AIClient& client, Value dataset, Value options = Value::object());
   Value value() const;
 
  private:
@@ -1362,6 +1377,18 @@ Value Core::object_call_method(Value target, Value method_name, Value arg) {
     if (it != flow_mapper_registry().end()) return it->second(arg);
   }
   throw AxError("runtime", "unsupported method call: " + str(method_name));
+}
+Value Core::program_components(Value program) {
+  std::string stage_id = str(get_key(program, "__agent_stage_id"));
+  auto it = agent_stage_registry().find(stage_id);
+  if (it == agent_stage_registry().end() || it->second == nullptr) return Value::array();
+  return it->second->get_optimizable_components();
+}
+Value Core::program_apply_components(Value program, Value component_map) {
+  std::string stage_id = str(get_key(program, "__agent_stage_id"));
+  auto it = agent_stage_registry().find(stage_id);
+  if (it != agent_stage_registry().end() && it->second != nullptr) it->second->apply_optimized_components(std::move(component_map));
+  return Value::object();
 }
 Value Core::ai_complete_once(Value client, Value request) {
   std::string id = str(get_key(client, "__client_id"));
@@ -3068,26 +3095,58 @@ Value AxFlow::get_traces() const { return Core::get(state_, "traces", Value::arr
 Value AxFlow::get_chat_log() const { return Core::get(state_, "chat_log", Value::array()); }
 Value AxFlow::get_usage() const { return Core::get(state_, "usage", Value::object()); }
 
-Value AxFlow::get_optimizable_components() const {
-  Value owner = Core::get(state_, "program_id", Value("root.flow"));
-  Value components = Value::array();
-  Core::append(components, Core::_optimization_component(
-      Value(str(owner) + "::graph-plan"),
-      owner,
-      Value("flow-graph"),
-      get_plan(),
-      Value("AxFlow execution graph and planner barrier metadata."),
-      array({Value("Preserve node names, dependencies, and return contract.")}),
-      Value::array(),
-      Value(true),
-      Value("json"),
-      object({{"schema", Value("axflow-plan-v1")}})));
-  return components;
-}
+Value AxFlow::get_optimizable_components() const { return Core::_flow_get_optimizable_components(state_); }
 
-AxFlow& AxFlow::apply_optimized_components(Value) { return *this; }
+AxFlow& AxFlow::apply_optimized_components(Value component_map) {
+  Core::_flow_apply_optimized_components(state_, std::move(component_map));
+  return *this;
+}
 AxFlow& AxFlow::apply_optimization(Value artifact) {
   return apply_optimized_components(Core::get(artifact, "componentMap", Core::get(artifact, "component_map", Value::object())));
+}
+Value AxFlow::evaluate_optimization(AIClient& client, Value dataset, Value candidate_map, Value options) {
+  return Core::_flow_evaluate_optimization(state_, Core::client_ref(client), std::move(dataset), std::move(candidate_map), std::move(options));
+}
+struct AxFlowOptimizerEvaluator : OptimizerEvaluator {
+  AxFlow& flow;
+  AIClient& client;
+  Value dataset;
+  Value options;
+  AxFlowOptimizerEvaluator(AxFlow& flow_, AIClient& client_, Value dataset_, Value options_)
+      : flow(flow_), client(client_), dataset(std::move(dataset_)), options(std::move(options_)) {}
+  Value evaluate(Value candidate_map, Value eval_options = Value::object()) override {
+    Value merged = Core::map_merge(options, eval_options);
+    return flow.evaluate_optimization(client, dataset, std::move(candidate_map), merged);
+  }
+};
+Value AxFlow::optimize_with(OptimizerEngine& engine, Value dataset, Value options) {
+  Value request = Core::_flow_optimize_with(state_, dataset, options, Value(false));
+  Value artifact = engine.optimize(request);
+  artifact = Core::get(artifact, "artifact", artifact);
+  if (!artifact.is_object()) throw AxError("runtime", "optimizer engine must return an optimized artifact");
+  if (Core::get(artifact, "artifactVersion", Value()).is_null()) Core::set(artifact, "artifactVersion", Value("axir-optimized-artifact-v1"));
+  if (Core::get(artifact, "optimizerName", Value()).is_null()) Core::set(artifact, "optimizerName", Value(engine.name()));
+  if (Core::get(artifact, "optimizerVersion", Value()).is_null()) Core::set(artifact, "optimizerVersion", Value(engine.version()));
+  if (Core::get(artifact, "componentMap", Value()).is_null()) Core::set(artifact, "componentMap", Core::get(artifact, "component_map", Value::object()));
+  artifact = Core::_validate_optimized_artifact(artifact, get_optimizable_components());
+  Core::set(artifact, "changedComponents", Core::_optimization_changed_components(get_optimizable_components(), Core::get(artifact, "componentMap", Value::object())));
+  if (!Core::truthy(Core::eq(Core::get(options, "apply", Value(true)), Value(false)))) apply_optimization(artifact);
+  return artifact;
+}
+Value AxFlow::optimize_with(OptimizerEngine& engine, AIClient& client, Value dataset, Value options) {
+  Value request = Core::_flow_optimize_with(state_, dataset, options, Value(true));
+  AxFlowOptimizerEvaluator evaluator(*this, client, dataset, options);
+  Value artifact = engine.optimize(request, &evaluator);
+  artifact = Core::get(artifact, "artifact", artifact);
+  if (!artifact.is_object()) throw AxError("runtime", "optimizer engine must return an optimized artifact");
+  if (Core::get(artifact, "artifactVersion", Value()).is_null()) Core::set(artifact, "artifactVersion", Value("axir-optimized-artifact-v1"));
+  if (Core::get(artifact, "optimizerName", Value()).is_null()) Core::set(artifact, "optimizerName", Value(engine.name()));
+  if (Core::get(artifact, "optimizerVersion", Value()).is_null()) Core::set(artifact, "optimizerVersion", Value(engine.version()));
+  if (Core::get(artifact, "componentMap", Value()).is_null()) Core::set(artifact, "componentMap", Core::get(artifact, "component_map", Value::object()));
+  artifact = Core::_validate_optimized_artifact(artifact, get_optimizable_components());
+  Core::set(artifact, "changedComponents", Core::_optimization_changed_components(get_optimizable_components(), Core::get(artifact, "componentMap", Value::object())));
+  if (!Core::truthy(Core::eq(Core::get(options, "apply", Value(true)), Value(false)))) apply_optimization(artifact);
+  return artifact;
 }
 Value AxFlow::value() const { return state_; }
 
@@ -3823,6 +3882,8 @@ static Value optimize_component_ids(Value components) {
   return ids;
 }
 
+static AxFlow build_flow(Value fixture, std::vector<std::unique_ptr<AxGen>>& programs, std::vector<std::unique_ptr<AxFlow>>& flows, std::vector<std::unique_ptr<AxAgent>>& agents);
+
 static void run_optimize(Value fixture) {
   std::string program_kind = display(Core::get(fixture, "program", "agent"));
   Value options = Core::get(fixture, "options", Value::object());
@@ -3891,6 +3952,59 @@ static void run_optimize(Value fixture) {
         if (!Core::get(fixture, "expected_engine_evaluations_subset").is_null()) assert_list_subset(Value(engine.evaluations), Core::get(fixture, "expected_engine_evaluations_subset"), "optimizer engine evaluations");
         if (!Core::get(fixture, "expected_artifact_subset").is_null()) assert_subset(artifact, Core::get(fixture, "expected_artifact_subset"), "optimizer artifact");
         if (!Core::get(fixture, "expected_components_subset").is_null()) assert_list_subset(gen.get_optimizable_components(), Core::get(fixture, "expected_components_subset"), "optimized components");
+        return;
+      }
+    }
+    if (program_kind == "flow") {
+      std::vector<std::unique_ptr<AxGen>> programs;
+      std::vector<std::unique_ptr<AxFlow>> flows;
+      std::vector<std::unique_ptr<AxAgent>> agents;
+      AxFlow fl = build_flow(fixture, programs, flows, agents);
+      if (op == "components") {
+        Value components = fl.get_optimizable_components();
+        if (!Core::get(fixture, "expected_components_subset").is_null()) assert_list_subset(components, Core::get(fixture, "expected_components_subset"), "optimizable components");
+        if (!Core::get(fixture, "expected_component_ids").is_null()) assert_equal(optimize_component_ids(components), Core::get(fixture, "expected_component_ids"), "component ids");
+        return;
+      }
+      if (op == "filter") {
+        Value filtered = Core::_filter_optimization_components(fl.get_optimizable_components(), Core::get(fixture, "target", "all"));
+        assert_equal(optimize_component_ids(filtered), Core::get(fixture, "expected_component_ids", Value::array()), "filtered component ids");
+        return;
+      }
+      if (op == "apply") {
+        Value before = fl.get_optimizable_components();
+        Value artifact = Core::_optimized_artifact("fixture", "1", Core::get(fixture, "component_map", Value::object()), object({{"source", "fixture"}}));
+        Core::_validate_optimized_artifact(artifact, before);
+        fl.apply_optimization(artifact);
+        Value after = fl.get_optimizable_components();
+        if (!Core::get(fixture, "expected_components_subset").is_null()) assert_list_subset(after, Core::get(fixture, "expected_components_subset"), "optimized components");
+        if (!Core::get(fixture, "expected_changed_components").is_null()) assert_equal(Core::_optimization_changed_components(before, Core::get(fixture, "component_map", Value::object())), Core::get(fixture, "expected_changed_components"), "changed components");
+        return;
+      }
+      if (op == "evaluate") {
+        FakeAIClient client(Core::get(fixture, "responses", Value::array()));
+        Value result = fl.evaluate_optimization(client, Core::get(fixture, "dataset", Value::array()), Core::get(fixture, "candidate_map", Value::object()), Core::get(fixture, "eval_options", Value::object()));
+        if (!Core::get(fixture, "expected_evaluation_subset").is_null()) assert_subset(result, Core::get(fixture, "expected_evaluation_subset"), "optimization evaluation");
+        if (!Core::get(fixture, "expected_evaluation_rows_subset").is_null()) assert_list_subset(Core::get(result, "rows", Value::array()), Core::get(fixture, "expected_evaluation_rows_subset"), "optimization evaluation rows");
+        if (!Core::get(fixture, "expected_components_subset_after").is_null()) assert_list_subset(fl.get_optimizable_components(), Core::get(fixture, "expected_components_subset_after"), "post-eval components");
+        return;
+      }
+      if (op == "engine") {
+        FakeOptimizerEngine engine(Core::get(fixture, "engine_response", Value::object()));
+        Value artifact;
+        if (Core::truthy(Core::get(fixture, "engine_uses_evaluator", false))) {
+          FakeAIClient client(Core::get(fixture, "responses", Value::array()));
+          artifact = fl.optimize_with(engine, client, Core::get(fixture, "dataset", Value::array()), Core::get(fixture, "optimize_options", Value::object()));
+        } else {
+          artifact = fl.optimize_with(engine, Core::get(fixture, "dataset", Value::array()), Core::get(fixture, "optimize_options", Value::object()));
+        }
+        if (!Core::get(fixture, "expected_engine_request_subset").is_null()) {
+          if (engine.requests.empty()) throw AxError("fixture", "optimizer engine was not called");
+          assert_subset(engine.requests[0], Core::get(fixture, "expected_engine_request_subset"), "optimizer engine request");
+        }
+        if (!Core::get(fixture, "expected_engine_evaluations_subset").is_null()) assert_list_subset(Value(engine.evaluations), Core::get(fixture, "expected_engine_evaluations_subset"), "optimizer engine evaluations");
+        if (!Core::get(fixture, "expected_artifact_subset").is_null()) assert_subset(artifact, Core::get(fixture, "expected_artifact_subset"), "optimizer artifact");
+        if (!Core::get(fixture, "expected_components_subset").is_null()) assert_list_subset(fl.get_optimizable_components(), Core::get(fixture, "expected_components_subset"), "optimized components");
         return;
       }
     }
@@ -4263,7 +4377,7 @@ static void run_ai_unsupported(Value fixture) {
   throw AxError("fixture", "expected unsupported capability error");
 }
 
-static AxFlow build_flow(Value fixture, std::vector<std::unique_ptr<AxGen>>& programs, std::vector<std::unique_ptr<AxFlow>>& flows) {
+static AxFlow build_flow(Value fixture, std::vector<std::unique_ptr<AxGen>>& programs, std::vector<std::unique_ptr<AxFlow>>& flows, std::vector<std::unique_ptr<AxAgent>>& agents) {
   Value flow_options = Core::get(fixture, "flow_options", object({{"id", Core::get(fixture, "program_id", Value("root.flow"))}}));
   AxFlow fl(flow_options);
   for (const auto& raw_step : Core::iter(Core::get(fixture, "steps", Value::array()))) {
@@ -4291,9 +4405,15 @@ static AxFlow build_flow(Value fixture, std::vector<std::unique_ptr<AxGen>>& pro
         {"returns", Core::get(step, "returns", Value::object())},
         {"signature", Core::get(step, "signature", Core::get(fixture, "signature", Value("question:string -> answer:string")))}
       });
-      flows.push_back(std::make_unique<AxFlow>(build_flow(nested, programs, flows)));
+      flows.push_back(std::make_unique<AxFlow>(build_flow(nested, programs, flows, agents)));
       if (kind == "derive") fl.derive(name, *flows.back(), step_options);
       else fl.execute(name, *flows.back(), step_options);
+    } else if (display(Core::get(step, "program", Value(""))) == "agent") {
+      agents.push_back(std::make_unique<AxAgent>(
+          Core::get(step, "signature", Core::get(fixture, "signature", Value("question:string -> answer:string"))),
+          Core::get(step, "options", Value::object())));
+      if (kind == "derive") fl.derive(name, *agents.back(), step_options);
+      else fl.execute(name, *agents.back(), step_options);
     } else {
       Value sig = Core::parse_signature(Core::get(step, "signature", Core::get(fixture, "signature", Value("question:string -> answer:string"))));
       programs.push_back(std::make_unique<AxGen>(sig, Core::get(step, "options", Value::object())));
@@ -4309,9 +4429,10 @@ static AxFlow build_flow(Value fixture, std::vector<std::unique_ptr<AxGen>>& pro
 static void run_program_contract(Value fixture) {
   std::vector<std::unique_ptr<AxGen>> programs;
   std::vector<std::unique_ptr<AxFlow>> flows;
+  std::vector<std::unique_ptr<AxAgent>> agents;
   Value components;
   if (display(Core::get(fixture, "program", Value("axgen"))) == "flow") {
-    AxFlow fl = build_flow(fixture, programs, flows);
+    AxFlow fl = build_flow(fixture, programs, flows, agents);
     components = fl.get_optimizable_components();
   } else {
     AxGen gen(Core::parse_signature(Core::get(fixture, "signature", Value("question:string -> answer:string"))), Core::get(fixture, "options", Value::object()));
@@ -4329,7 +4450,8 @@ static void run_flow(Value fixture) {
   try {
     std::vector<std::unique_ptr<AxGen>> programs;
     std::vector<std::unique_ptr<AxFlow>> flows;
-    AxFlow fl = build_flow(fixture, programs, flows);
+    std::vector<std::unique_ptr<AxAgent>> agents;
+    AxFlow fl = build_flow(fixture, programs, flows, agents);
     if (display(Core::get(fixture, "operation", Value(""))) == "cache_key") {
       std::set<std::string> keys;
       size_t count = 0;

@@ -2747,7 +2747,9 @@ from typing import Any, Callable
 from .ai import AIClient
 from .gen import (
     AxGen,
+    _core_exception_message,
     _core_eq,
+    _core_gte,
     _core_get,
     _core_is_none,
     _core_json_stringify,
@@ -2760,11 +2762,26 @@ from .gen import (
     _filter_optimization_components,
 )
 from .agent import (
+    OptimizerEngine,
+    OptimizerEvaluator,
+    _adjust_optimization_score_for_actions,
+    _build_optimization_eval_result,
+    _build_optimization_eval_row,
+    _build_agent_eval_prediction,
+    _build_optimizer_request,
+    _call_optimizer_engine,
     _core_agent_stage_chat_log,
     _core_agent_stage_forward,
     _core_agent_stage_traces,
     _core_agent_stage_usage,
+    _normalize_optimization_dataset,
+    _normalize_optimization_metric_scores,
     _optimization_component,
+    _optimization_changed_components,
+    _optimization_component_current_map,
+    _scalarize_optimization_scores,
+    _validate_optimized_artifact,
+    _validate_optimization_component_map,
 )
 
 
@@ -2782,6 +2799,9 @@ class AxProgram:
 
     def get_optimizable_components(self):
         return []
+
+    def apply_optimized_components(self, component_map):
+        return self
 
 
 class AxFlow(AxProgram):
@@ -2848,47 +2868,52 @@ class AxFlow(AxProgram):
         return dict(self.state.get("usage") or {})
 
     def get_optimizable_components(self):
-        owner = self.state.get("program_id", "root.flow")
-        components = [
-            _optimization_component(
-                f"{owner}::graph-plan",
-                owner,
-                "flow-graph",
-                self.get_plan(),
-                "AxFlow execution graph and planner barrier metadata.",
-                ["Preserve node names, dependencies, and return contract."],
-                [],
-                True,
-                "json",
-                {"schema": "axflow-plan-v1"},
-            )
-        ]
-        for step in self.state.get("steps") or []:
-            program = step.get("program")
-            name = step.get("name")
-            if hasattr(program, "get_optimizable_components"):
-                for component in program.get_optimizable_components():
-                    child = dict(component)
-                    child["owner"] = f"{owner}.{name}"
-                    child["id"] = f"{owner}.{name}::{component.get('id')}"
-                    components.append(child)
-        return components
+        return _flow_get_optimizable_components(self.state)
 
     def apply_optimized_components(self, component_map: dict[str, Any]):
-        updates = dict(component_map or {})
-        owner = self.state.get("program_id", "root.flow")
-        for step in self.state.get("steps") or []:
-            program = step.get("program")
-            name = step.get("name")
-            prefix = f"{owner}.{name}::"
-            child_updates = {key[len(prefix):]: value for key, value in updates.items() if key.startswith(prefix)}
-            if child_updates and hasattr(program, "apply_optimized_components"):
-                program.apply_optimized_components(child_updates)
+        _flow_apply_optimized_components(self.state, component_map or {})
         return self
 
     def apply_optimization(self, artifact):
         component_map = (artifact or {}).get("componentMap") or (artifact or {}).get("component_map") or {}
         return self.apply_optimized_components(component_map)
+
+    def evaluate_optimization(self, client, dataset, candidate_map: dict[str, Any] | None = None, options: dict[str, Any] | None = None):
+        return _flow_evaluate_optimization(self.state, client, dataset or [], candidate_map or {}, options or {})
+
+    def optimize_with(self, engine: OptimizerEngine, dataset, options: dict[str, Any] | None = None):
+        opts = options or {}
+        client = opts.get("client") or opts.get("ai")
+        request = _flow_optimize_with(self.state, dataset or [], opts, client is not None)
+        evaluator = None
+        if client is not None:
+            outer = self
+
+            class _Evaluator(OptimizerEvaluator):
+                def evaluate(self, candidate_map, options=None):
+                    return outer.evaluate_optimization(client, dataset or [], candidate_map or {}, {**opts, **(options or {})})
+
+            evaluator = _Evaluator()
+        response = _call_optimizer_engine(engine, request, evaluator)
+        artifact = response.get("artifact", response) if isinstance(response, dict) else response
+        if not isinstance(artifact, dict):
+            raise RuntimeError("optimizer engine must return an optimized artifact")
+        artifact.setdefault("artifactVersion", "axir-optimized-artifact-v1")
+        artifact.setdefault("optimizerName", getattr(engine, "name", engine.__class__.__name__))
+        artifact.setdefault("optimizerVersion", getattr(engine, "version", "host"))
+        artifact.setdefault("componentMap", artifact.get("component_map") or {})
+        artifact = _validate_optimized_artifact(artifact, self.get_optimizable_components())
+        artifact["changedComponents"] = _optimization_changed_components(self.get_optimizable_components(), artifact.get("componentMap") or {})
+        if opts.get("apply", True) is not False:
+            self.apply_optimization(artifact)
+        return artifact
+
+    def optimize(self, dataset=None, options: dict[str, Any] | None = None):
+        opts = options or {}
+        engine = opts.get("engine") or opts.get("optimizer")
+        if engine is None:
+            raise NotImplementedError("AxIR generated runtimes require an OptimizerEngine for optimize()")
+        return self.optimize_with(engine, dataset or [], opts)
 
     def forward(self, client: AIClient, values: dict[str, Any], options: dict[str, Any] | None = None):
         return _flow_forward(self.state, client, values or {}, options or {})
@@ -2914,6 +2939,10 @@ def _core_and(left, right):
     return bool(left and right)
 
 
+def _core_not(value):
+    return not value
+
+
 def _core_len(value):
     return len(value or [])
 
@@ -2932,6 +2961,24 @@ def _core_none():
 
 def _core_is_not_none(value):
     return value is not None
+
+
+def _core_type_is(value, type_name):
+    if type_name == "object":
+        return isinstance(value, dict)
+    if type_name == "list":
+        return isinstance(value, list)
+    if type_name == "string":
+        return isinstance(value, str)
+    if type_name == "number":
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if type_name == "boolean":
+        return isinstance(value, bool)
+    if type_name == "null":
+        return value is None
+    if type_name == "json":
+        return value is None or isinstance(value, (dict, list, str, int, float, bool))
+    return False
 
 
 def _core_list_get(values, index, default=None):
@@ -2955,8 +3002,34 @@ def _core_map_keys(values):
     return []
 
 
+def _core_map_delete(target, key):
+    if isinstance(target, dict):
+        target.pop(key, None)
+    return target
+
+
+def _core_string_slice(value, start, end=None):
+    return str(value)[int(start):] if end is None else str(value)[int(start):int(end)]
+
+
+def _core_string_starts_with(value, prefix):
+    return str(value).startswith(str(prefix))
+
+
 def _core_json_stable_stringify(value):
     return json.dumps(value or {}, sort_keys=True, separators=(",", ":"))
+
+
+def _core_program_components(program):
+    if hasattr(program, "get_optimizable_components"):
+        return program.get_optimizable_components()
+    return []
+
+
+def _core_program_apply_components(program, component_map):
+    if hasattr(program, "apply_optimized_components"):
+        program.apply_optimized_components(component_map or {})
+    return {}
 
 
 # AXIR_CORE_FLOW_FUNCTIONS
@@ -4028,6 +4101,8 @@ def _build_flow(fixture):
                 "returns": step.get("returns") or {},
                 "signature": step.get("signature", fixture.get("signature", "question:string -> answer:string")),
             })
+        elif step.get("program") == "agent":
+            program = agent(step.get("signature", fixture.get("signature", "question:string -> answer:string")), step.get("options") or {})
         else:
             program = ax(step.get("signature", fixture.get("signature", "question:string -> answer:string")), step.get("options") or {})
         step_options = {**(step.get("forward_options") or {}), **(step.get("options") or {})}
@@ -4135,6 +4210,8 @@ def _run_optimize(fixture):
             options["functions"] = tools
         if fixture.get("program", "agent") == "axgen":
             return ax(sig, options)
+        if fixture.get("program") == "flow":
+            return _build_flow(fixture)
         return agent(sig, options)
 
     program = build_program()
@@ -4194,8 +4271,8 @@ def _run_optimize(fixture):
                 _assert_subset(payload, fixture["expected_judge_payload_subset"], "judge payload")
             return
         if operation == "evaluate":
-            if not isinstance(program, AxAgent):
-                raise FixtureError("evaluate operation requires agent program")
+            if not hasattr(program, "evaluate_optimization"):
+                raise FixtureError("evaluate operation requires an optimizable program")
             client = FakeAIService(fixture.get("responses") or [], fixture.get("stream_events") or [])
             result = program.evaluate_optimization(client, fixture.get("dataset") or [], fixture.get("candidate_map") or {}, fixture.get("eval_options") or {})
             if "expected_evaluation_subset" in fixture:

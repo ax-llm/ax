@@ -1,0 +1,38 @@
+{
+  "component_map": {
+    "root.flow::graph-plan": {
+      "nodes": ["qa"],
+      "optimized": true
+    }
+  },
+  "expected_components_subset": [
+    {
+      "current": {
+        "nodes": ["qa"],
+        "optimized": true
+      },
+      "id": "root.flow::graph-plan"
+    }
+  ],
+  "kind": "optimize",
+  "name": "flow-apply-graph-component",
+  "operation": "apply",
+  "program": "flow",
+  "program_id": "root.flow",
+  "returns": {
+    "answer": "answer"
+  },
+  "signature": "question:string -> answer:string",
+  "steps": [
+    {
+      "kind": "execute",
+      "name": "qa",
+      "options": {
+        "id": "qa",
+        "reads": ["question"],
+        "writes": ["qaResult"]
+      },
+      "signature": "question:string -> answer:string"
+    }
+  ]
+}

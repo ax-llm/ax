@@ -1,0 +1,40 @@
+{
+  "component_map": {
+    "root.flow.qa::qa::instruction": "Use the optimized flow node prompt."
+  },
+  "expected_changed_components": [
+    {
+      "current": "Base flow instruction.",
+      "id": "root.flow.qa::qa::instruction",
+      "next": "Use the optimized flow node prompt."
+    }
+  ],
+  "expected_components_subset": [
+    {
+      "current": "Use the optimized flow node prompt.",
+      "id": "root.flow.qa::qa::instruction"
+    }
+  ],
+  "kind": "optimize",
+  "name": "flow-apply-child-component",
+  "operation": "apply",
+  "program": "flow",
+  "program_id": "root.flow",
+  "returns": {
+    "answer": "answer"
+  },
+  "signature": "question:string -> answer:string",
+  "steps": [
+    {
+      "kind": "execute",
+      "name": "qa",
+      "options": {
+        "id": "qa",
+        "instruction": "Base flow instruction.",
+        "reads": ["question"],
+        "writes": ["qaResult"]
+      },
+      "signature": "question:string -> answer:string"
+    }
+  ]
+}

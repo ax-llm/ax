@@ -7,6 +7,7 @@ module @ax.flow version "0.1" {
     type signature = "(options?:json) -> json"
     body @entry(%options: json) {
       %empty_map = core.map
+      %empty_list = core.list
       %opts_missing = core.call intrinsic.is_none(%options)
       %opts = core.let %options
       core.if %opts_missing {
@@ -725,6 +726,242 @@ module @ax.flow version "0.1" {
       %done = core.call @program_trace_event(%program_id, "flow_done", %done_payload)
       core.append %traces, %done
       core.return %output
+    }
+  }
+
+  op ax.flow.semantic @flow_get_optimizable_components {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    type signature = "(flow:json) -> list<json>"
+    body @entry(%flow: json) {
+      %empty_list = core.list
+      %empty_map = core.map
+      %owner = core.get %flow["program_id"] default "root.flow"
+      %plan = core.call @flow_plan(%flow)
+      %current_plan = core.get %flow["optimized_graph_plan"] default %plan
+      %components = core.list
+      %graph_id = core.call intrinsic.string.format("{}::graph-plan", %owner)
+      %constraints = core.list
+      core.append %constraints, "Preserve node names, dependencies, and return contract."
+      %validation = core.map
+      core.set %validation["schema"] = "axflow-plan-v1"
+      %graph = core.call @optimization_component(%graph_id, %owner, "flow-graph", %current_plan, "AxFlow execution graph and planner barrier metadata.", %constraints, %empty_list, false, "json", %validation)
+      core.append %components, %graph
+      %steps = core.get %flow["steps"] default %empty_list
+      core.for %step in %steps {
+        %program = core.get %step["program"]
+        %name = core.get %step["name"] default ""
+        %child_components = core.call intrinsic.program.components(%program)
+        core.for %component in %child_components {
+          %child = core.call @program_prefix_component(%component, %owner, %name)
+          core.append %components, %child
+        }
+      }
+      core.return %components
+    }
+  }
+
+  op ax.flow.semantic @flow_apply_optimized_components {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    type signature = "(flow:json, component_map:json) -> json throws"
+    body @entry(%flow: json, %component_map: json) {
+      %empty_map = core.map
+      %empty_list = core.list
+      %updates_missing = core.call intrinsic.is_none(%component_map)
+      %updates = core.let %component_map
+      core.if %updates_missing {
+        %updates = core.let %empty_map
+      } else {
+      }
+      %components = core.call @flow_get_optimizable_components(%flow)
+      core.call @validate_optimization_component_map(%components, %updates)
+      %owner = core.get %flow["program_id"] default "root.flow"
+      %graph_id = core.call intrinsic.string.format("{}::graph-plan", %owner)
+      %graph_update = core.get %updates[%graph_id] default null
+      %has_graph_update = core.call intrinsic.is_not_none(%graph_update)
+      core.if %has_graph_update {
+        %graph_is_object = core.type_is %graph_update type "object"
+        %bad_graph = core.call intrinsic.not(%graph_is_object)
+        core.if %bad_graph {
+          %err = core.call intrinsic.error.runtime("optimized flow graph-plan component must be an object")
+          core.raise %err
+        } else {
+        }
+        core.set %flow["optimized_graph_plan"] = %graph_update
+      } else {
+      }
+      %steps = core.get %flow["steps"] default %empty_list
+      core.for %step in %steps {
+        %program = core.get %step["program"]
+        %name = core.get %step["name"] default ""
+        %prefix = core.call @program_child_component_prefix(%owner, %name)
+        %child_updates = core.call @program_slice_component_map(%updates, %prefix)
+        %has_child_updates = core.call intrinsic.truthy(%child_updates)
+        core.if %has_child_updates {
+          core.call intrinsic.program.apply_components(%program, %child_updates)
+        } else {
+        }
+      }
+      core.return %flow
+    }
+  }
+
+  op ax.flow.semantic @flow_snapshot_components {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    type signature = "(flow:json) -> json"
+    body @entry(%flow: json) {
+      %components = core.call @flow_get_optimizable_components(%flow)
+      %snapshot = core.call @optimization_component_current_map(%components)
+      core.return %snapshot
+    }
+  }
+
+  op ax.flow.semantic @flow_restore_components {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    type signature = "(flow:json, snapshot:json) -> json throws"
+    body @entry(%flow: json, %snapshot: json) {
+      %restored = core.call @flow_apply_optimized_components(%flow, %snapshot)
+      core.return %restored
+    }
+  }
+
+  op ax.flow.semantic @flow_evaluate_optimization {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    type signature = "(flow:json, client:json, dataset:json, candidate_map:json, options:json) -> json throws"
+    body @entry(%flow: json, %client: json, %dataset: json, %candidate_map: json, %options: json) {
+      %empty_map = core.map
+      %empty_list = core.list
+      %opts_missing = core.call intrinsic.is_none(%options)
+      %opts = core.let %options
+      core.if %opts_missing {
+        %opts = core.let %empty_map
+      } else {
+      }
+      %candidate_missing = core.call intrinsic.is_none(%candidate_map)
+      %candidate = core.let %candidate_map
+      core.if %candidate_missing {
+        %candidate = core.let %empty_map
+      } else {
+      }
+      %normalized = core.call @normalize_optimization_dataset(%dataset)
+      %train = core.get %normalized["train"] default %empty_list
+      %phase = core.get %opts["phase"] default "train"
+      %max_calls_snake = core.get %opts["max_metric_calls"] default 2147483647
+      %max_calls = core.get %opts["maxMetricCalls"] default %max_calls_snake
+      %forward_options = core.get %opts["forward_options"] default %empty_map
+      %original = core.call @flow_snapshot_components(%flow)
+      %rows = core.list
+      %calls = core.let 0
+      %result = core.map
+      core.try {
+        %has_candidate = core.call intrinsic.truthy(%candidate)
+        core.if %has_candidate {
+          core.call @flow_apply_optimized_components(%flow, %candidate)
+        } else {
+        }
+        core.for %task in %train {
+          %too_many = core.call intrinsic.gte(%calls, %max_calls)
+          core.if %too_many {
+            %message = core.call intrinsic.string.format("max metric calls exceeded: {}", %max_calls)
+            %err = core.call intrinsic.error.runtime(%message)
+            core.raise %err
+          } else {
+          }
+          %next_calls = core.call intrinsic.add(%calls, 1)
+          %calls = core.let %next_calls
+          %error = core.call intrinsic.none()
+          %prediction = core.map
+          core.try {
+            %input = core.get %task["input"] default %task
+            %output = core.call @flow_forward(%flow, %client, %input, %forward_options)
+            %trace = core.map
+            %traces = core.get %flow["traces"] default %empty_list
+            %chat_log = core.get %flow["chat_log"] default %empty_list
+            %usage = core.get %flow["usage"] default %empty_map
+            core.set %trace["traces"] = %traces
+            core.set %trace["chat_log"] = %chat_log
+            %prediction = core.call @build_agent_eval_prediction(%output, %chat_log, %usage, %trace)
+          } catch %forward_error {
+            %error_message = core.call intrinsic.exception.message(%forward_error)
+            %error = core.map
+            core.set %error["message"] = %error_message
+            %trace = core.map
+            %traces = core.get %flow["traces"] default %empty_list
+            %chat_log = core.get %flow["chat_log"] default %empty_list
+            %usage = core.get %flow["usage"] default %empty_map
+            core.set %trace["traces"] = %traces
+            core.set %trace["chat_log"] = %chat_log
+            core.set %prediction["completionType"] = "error"
+            core.set %prediction["error"] = %error
+            core.set %prediction["functionCalls"] = %empty_list
+            core.set %prediction["actionLog"] = %chat_log
+            core.set %prediction["usage"] = %usage
+            core.set %prediction["trace"] = %trace
+            core.set %prediction["turnCount"] = 0
+          }
+          %completion_type = core.get %prediction["completionType"] default "final"
+          %is_error = core.call intrinsic.eq(%completion_type, "error")
+          %default_score = core.let 1
+          core.if %is_error {
+            %default_score = core.let 0
+          } else {
+          }
+          %score_from_score = core.get %task["score"] default %default_score
+          %score_from_scores = core.get %task["scores"] default %score_from_score
+          %raw_scores = core.get %task["metric_score"] default %score_from_scores
+          %scores = core.call @normalize_optimization_metric_scores(%raw_scores)
+          %scalar_base = core.call @scalarize_optimization_scores(%scores, %opts)
+          %scalar = core.call @adjust_optimization_score_for_actions(%scalar_base, %task, %prediction)
+          %trace_for_row = core.get %prediction["trace"]
+          %row = core.call @build_optimization_eval_row(%task, %prediction, %scores, %scalar, %trace_for_row, %error)
+          core.append %rows, %row
+        }
+        %result = core.call @build_optimization_eval_result(%rows, %candidate, %phase)
+        core.call @flow_restore_components(%flow, %original)
+      } catch %outer_error {
+        core.call @flow_restore_components(%flow, %original)
+        core.raise %outer_error
+      }
+      core.return %result
+    }
+  }
+
+  op ax.flow.semantic @flow_optimize_with {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    type signature = "(flow:json, dataset:json, options:json, evaluator_available:bool) -> json throws"
+    body @entry(%flow: json, %dataset: json, %options: json, %evaluator_available: bool) {
+      %empty_map = core.map
+      %empty_list = core.list
+      %opts_missing = core.call intrinsic.is_none(%options)
+      %opts = core.let %options
+      core.if %opts_missing {
+        %opts = core.let %empty_map
+      } else {
+      }
+      %components = core.call @flow_get_optimizable_components(%flow)
+      %target = core.get %opts["target"] default "all"
+      %selected = core.call @filter_optimization_components(%components, %target)
+      %normalized = core.call @normalize_optimization_dataset(%dataset)
+      %request_options = core.call intrinsic.map.merge(%empty_map, %opts)
+      core.call intrinsic.map.delete(%request_options, "client")
+      core.call intrinsic.map.delete(%request_options, "ai")
+      core.call intrinsic.map.delete(%request_options, "engine")
+      core.call intrinsic.map.delete(%request_options, "optimizer")
+      %trace = core.map
+      %traces = core.get %flow["traces"] default %empty_list
+      %chat_log = core.get %flow["chat_log"] default %empty_list
+      core.set %trace["traces"] = %traces
+      core.set %trace["chat_log"] = %chat_log
+      %request = core.call @build_optimizer_request("axflow", %selected, %normalized, %request_options, %trace)
+      %evaluator = core.get %request["evaluator"]
+      core.set %evaluator["available"] = %evaluator_available
+      core.set %request["evaluator"] = %evaluator
+      core.return %request
     }
   }
 }

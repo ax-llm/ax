@@ -1,0 +1,67 @@
+{
+  "candidate_map": {
+    "root.flow.qa::qa::instruction": "Temporary optimized flow prompt."
+  },
+  "dataset": [
+    {
+      "expectedOutput": {
+        "answer": "Paris"
+      },
+      "input": {
+        "question": "Capital of France?"
+      },
+      "score": 1
+    }
+  ],
+  "expected_components_subset_after": [
+    {
+      "current": "Base flow instruction.",
+      "id": "root.flow.qa::qa::instruction"
+    }
+  ],
+  "expected_evaluation_rows_subset": [
+    {
+      "prediction": {
+        "completionType": "final",
+        "output": {
+          "answer": "Paris"
+        }
+      },
+      "scalar": 1
+    }
+  ],
+  "expected_evaluation_subset": {
+    "avg": 1,
+    "candidateMap": {
+      "root.flow.qa::qa::instruction": "Temporary optimized flow prompt."
+    },
+    "count": 1
+  },
+  "kind": "optimize",
+  "name": "flow-evaluate-rollback",
+  "operation": "evaluate",
+  "program": "flow",
+  "program_id": "root.flow",
+  "responses": [
+    {
+      "content": "{\"answer\":\"Paris\"}"
+    }
+  ],
+  "returns": {
+    "answer": "answer"
+  },
+  "signature": "question:string -> answer:string",
+  "steps": [
+    {
+      "kind": "execute",
+      "name": "qa",
+      "options": {
+        "id": "qa",
+        "instruction": "Base flow instruction.",
+        "reads": ["question"],
+        "writes": ["qaResult"]
+      },
+      "signature": "question:string -> answer:string"
+    }
+  ]
+}

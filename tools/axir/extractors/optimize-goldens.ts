@@ -547,3 +547,318 @@ writeFixture('engine-apply-false-preserves-components', {
     },
   ],
 });
+
+writeFixture('flow-component-inventory-nested', {
+  kind: 'optimize',
+  operation: 'components',
+  program: 'flow',
+  program_id: 'root.flow',
+  signature: 'question:string -> answer:string',
+  steps: [
+    {
+      kind: 'execute',
+      name: 'qa',
+      signature: 'question:string -> answer:string',
+      options: {
+        id: 'qa',
+        instruction: 'Base flow instruction.',
+        reads: ['question'],
+        writes: ['qaResult'],
+      },
+    },
+    {
+      kind: 'execute',
+      name: 'nested',
+      program: 'flow',
+      options: { reads: ['question'], writes: ['nestedResult'] },
+      steps: [
+        {
+          kind: 'execute',
+          name: 'inner',
+          signature: 'question:string -> answer:string',
+          options: {
+            id: 'inner',
+            instruction: 'Nested child instruction.',
+            reads: ['question'],
+            writes: ['innerResult'],
+          },
+        },
+      ],
+      returns: { answer: 'answer' },
+    },
+  ],
+  returns: { answer: 'answer' },
+  expected_components_subset: [
+    { id: 'root.flow::graph-plan', kind: 'flow-graph', owner: 'root.flow' },
+    {
+      id: 'root.flow.qa::qa::instruction',
+      current: 'Base flow instruction.',
+      kind: 'instruction',
+      owner: 'root.flow.qa',
+    },
+    {
+      id: 'root.flow.nested::root.nested::graph-plan',
+      kind: 'flow-graph',
+      owner: 'root.flow.nested',
+    },
+    {
+      id: 'root.flow.nested::root.nested.inner::inner::instruction',
+      current: 'Nested child instruction.',
+      kind: 'instruction',
+      owner: 'root.flow.nested',
+    },
+  ],
+});
+
+writeFixture('flow-target-filter-graph', {
+  kind: 'optimize',
+  operation: 'filter',
+  program: 'flow',
+  program_id: 'root.flow',
+  signature: 'question:string -> answer:string',
+  steps: [
+    {
+      kind: 'execute',
+      name: 'qa',
+      signature: 'question:string -> answer:string',
+      options: {
+        id: 'qa',
+        instruction: 'Base flow instruction.',
+        reads: ['question'],
+        writes: ['qaResult'],
+      },
+    },
+  ],
+  returns: { answer: 'answer' },
+  target: 'flow',
+  expected_component_ids: ['root.flow::graph-plan'],
+});
+
+writeFixture('flow-apply-child-component', {
+  kind: 'optimize',
+  operation: 'apply',
+  program: 'flow',
+  program_id: 'root.flow',
+  signature: 'question:string -> answer:string',
+  steps: [
+    {
+      kind: 'execute',
+      name: 'qa',
+      signature: 'question:string -> answer:string',
+      options: {
+        id: 'qa',
+        instruction: 'Base flow instruction.',
+        reads: ['question'],
+        writes: ['qaResult'],
+      },
+    },
+  ],
+  returns: { answer: 'answer' },
+  component_map: {
+    'root.flow.qa::qa::instruction': 'Use the optimized flow node prompt.',
+  },
+  expected_changed_components: [
+    {
+      id: 'root.flow.qa::qa::instruction',
+      current: 'Base flow instruction.',
+      next: 'Use the optimized flow node prompt.',
+    },
+  ],
+  expected_components_subset: [
+    {
+      id: 'root.flow.qa::qa::instruction',
+      current: 'Use the optimized flow node prompt.',
+    },
+  ],
+});
+
+writeFixture('flow-apply-graph-component', {
+  kind: 'optimize',
+  operation: 'apply',
+  program: 'flow',
+  program_id: 'root.flow',
+  signature: 'question:string -> answer:string',
+  steps: [
+    {
+      kind: 'execute',
+      name: 'qa',
+      signature: 'question:string -> answer:string',
+      options: {
+        id: 'qa',
+        reads: ['question'],
+        writes: ['qaResult'],
+      },
+    },
+  ],
+  returns: { answer: 'answer' },
+  component_map: {
+    'root.flow::graph-plan': {
+      optimized: true,
+      nodes: ['qa'],
+    },
+  },
+  expected_components_subset: [
+    {
+      id: 'root.flow::graph-plan',
+      current: {
+        optimized: true,
+        nodes: ['qa'],
+      },
+    },
+  ],
+});
+
+writeFixture('flow-invalid-component', {
+  kind: 'optimize',
+  operation: 'apply',
+  program: 'flow',
+  program_id: 'root.flow',
+  signature: 'question:string -> answer:string',
+  steps: [
+    {
+      kind: 'execute',
+      name: 'qa',
+      signature: 'question:string -> answer:string',
+      options: { id: 'qa', reads: ['question'], writes: ['qaResult'] },
+    },
+  ],
+  component_map: {
+    'root.flow.missing::qa::instruction': 'Nope.',
+  },
+  expected_error_contains: 'unknown optimized component id',
+});
+
+writeFixture('flow-evaluate-rollback', {
+  kind: 'optimize',
+  operation: 'evaluate',
+  program: 'flow',
+  program_id: 'root.flow',
+  signature: 'question:string -> answer:string',
+  steps: [
+    {
+      kind: 'execute',
+      name: 'qa',
+      signature: 'question:string -> answer:string',
+      options: {
+        id: 'qa',
+        instruction: 'Base flow instruction.',
+        reads: ['question'],
+        writes: ['qaResult'],
+      },
+    },
+  ],
+  returns: { answer: 'answer' },
+  candidate_map: {
+    'root.flow.qa::qa::instruction': 'Temporary optimized flow prompt.',
+  },
+  dataset: [
+    {
+      input: { question: 'Capital of France?' },
+      expectedOutput: { answer: 'Paris' },
+      score: 1,
+    },
+  ],
+  responses: [{ content: '{"answer":"Paris"}' }],
+  expected_evaluation_subset: {
+    avg: 1,
+    count: 1,
+    candidateMap: {
+      'root.flow.qa::qa::instruction': 'Temporary optimized flow prompt.',
+    },
+  },
+  expected_evaluation_rows_subset: [
+    {
+      prediction: {
+        completionType: 'final',
+        output: { answer: 'Paris' },
+      },
+      scalar: 1,
+    },
+  ],
+  expected_components_subset_after: [
+    {
+      id: 'root.flow.qa::qa::instruction',
+      current: 'Base flow instruction.',
+    },
+  ],
+});
+
+writeFixture('flow-engine-evaluator-rollout', {
+  kind: 'optimize',
+  operation: 'engine',
+  program: 'flow',
+  program_id: 'root.flow',
+  signature: 'question:string -> answer:string',
+  steps: [
+    {
+      kind: 'execute',
+      name: 'qa',
+      signature: 'question:string -> answer:string',
+      options: {
+        id: 'qa',
+        instruction: 'Base flow instruction.',
+        reads: ['question'],
+        writes: ['qaResult'],
+      },
+    },
+  ],
+  returns: { answer: 'answer' },
+  dataset: [
+    {
+      input: { question: 'Capital of France?' },
+      expectedOutput: { answer: 'Paris' },
+      score: 1,
+    },
+  ],
+  responses: [{ content: '{"answer":"Paris"}' }],
+  engine_uses_evaluator: true,
+  optimize_options: { target: 'all' },
+  engine_response: {
+    evaluate: [
+      {
+        component_map: {
+          'root.flow.qa::qa::instruction': 'Use flow optimizer evidence.',
+        },
+      },
+    ],
+    componentMap: {
+      'root.flow.qa::qa::instruction': 'Use flow optimizer evidence.',
+    },
+  },
+  expected_engine_request_subset: {
+    contractVersion: 'axir-optimize-contract-v1',
+    programKind: 'axflow',
+    evaluator: {
+      available: true,
+      contractVersion: 'axir-optimizer-evaluator-v1',
+    },
+  },
+  expected_engine_evaluations_subset: [
+    {
+      avg: 1,
+      count: 1,
+      candidateMap: {
+        'root.flow.qa::qa::instruction': 'Use flow optimizer evidence.',
+      },
+    },
+  ],
+  expected_artifact_subset: {
+    artifactVersion: 'axir-optimized-artifact-v1',
+    changedComponents: [
+      {
+        id: 'root.flow.qa::qa::instruction',
+        current: 'Base flow instruction.',
+        next: 'Use flow optimizer evidence.',
+      },
+    ],
+    componentMap: {
+      'root.flow.qa::qa::instruction': 'Use flow optimizer evidence.',
+    },
+  },
+  expected_components_subset: [
+    {
+      id: 'root.flow.qa::qa::instruction',
+      current: 'Use flow optimizer evidence.',
+    },
+  ],
+});
