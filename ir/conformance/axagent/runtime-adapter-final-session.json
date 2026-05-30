@@ -1,0 +1,39 @@
+{
+  "context_values": {
+    "question": "adapter"
+  },
+  "expected_action_log_subset": [
+    {
+      "action": "create_session"
+    },
+    {
+      "kind": "final"
+    },
+    {
+      "action": "close_session"
+    }
+  ],
+  "expected_result_subset": {
+    "completion_payload": {
+      "args": [
+        {
+          "answer": "adapter ok"
+        }
+      ],
+      "type": "final"
+    },
+    "kind": "final"
+  },
+  "expected_trace_event_kinds": ["runtime_execute", "final"],
+  "kind": "agent_runtime_adapter",
+  "name": "runtime-adapter-final-session",
+  "run_session": {
+    "args": [
+      {
+        "answer": "adapter ok"
+      }
+    ],
+    "name": "final"
+  },
+  "signature": "question:string -> answer:string"
+}

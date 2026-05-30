@@ -83,6 +83,7 @@ func EmitPython(model AxRuntimeModel, outDir string) error {
 		"ax/signature.py":                    signature,
 		"ax/schema.py":                       schema,
 		"ax/tool.py":                         pyTool,
+		"ax/runtime.py":                      pyRuntime,
 		"ax/prompt.py":                       prompt,
 		"ax/ai.py":                           ai,
 		"ax/gen.py":                          gen,
@@ -96,6 +97,7 @@ func EmitPython(model AxRuntimeModel, outDir string) error {
 		"examples/axgen_fake_client_tool.py": pyAxGenFakeClientToolExample,
 		"examples/axai_fake_transport.py":    pyAxAIFakeTransportExample,
 		"examples/axagent_pipeline.py":       pyAxAgentPipelineExample,
+		"examples/runtime_adapter.py":        pyRuntimeAdapterExample,
 		"examples/axflow_program_graph.py":   pyAxFlowProgramGraphExample,
 		"examples/optimizer_artifact.py":     pyOptimizerArtifactExample,
 		"README.md":                          packageREADME(model, "python"),
@@ -127,6 +129,8 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 		"dev/ax/AxAgentClarificationException.java": javaAxAgentClarificationException,
 		"dev/ax/AxCodeRuntime.java":                 javaAxCodeRuntime,
 		"dev/ax/AxCodeSession.java":                 javaAxCodeSession,
+		"dev/ax/AxRuntimeCapabilities.java":         javaAxRuntimeCapabilities,
+		"dev/ax/AxRuntimeEnvelope.java":             javaAxRuntimeEnvelope,
 		"dev/ax/OpenAICompatibleClient.java":        javaOpenAI,
 		"dev/ax/AxGen.java":                         javaAxGen,
 		"dev/ax/OptimizerEngine.java":               javaOptimizerEngine,
@@ -138,6 +142,7 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 		"examples/AxGenFakeClientToolExample.java":  javaAxGenFakeClientToolExample,
 		"examples/AxAIFakeTransportExample.java":    javaAxAIFakeTransportExample,
 		"examples/AxAgentPipelineExample.java":      javaAxAgentPipelineExample,
+		"examples/RuntimeAdapterExample.java":       javaRuntimeAdapterExample,
 		"examples/AxFlowProgramGraphExample.java":   javaAxFlowProgramGraphExample,
 		"examples/OptimizerArtifactExample.java":    javaOptimizerArtifactExample,
 		"README.md":                                 packageREADME(model, "java"),
@@ -159,6 +164,7 @@ func EmitCpp(model AxRuntimeModel, outDir string) error {
 		"examples/axgen_fake_client_tool.cpp": cppAxGenFakeClientToolExample,
 		"examples/axai_fake_transport.cpp":    cppAxAIFakeTransportExample,
 		"examples/axagent_pipeline.cpp":       cppAxAgentPipelineExample,
+		"examples/runtime_adapter.cpp":        cppRuntimeAdapterExample,
 		"examples/axflow_program_graph.cpp":   cppAxFlowProgramGraphExample,
 		"examples/optimizer_artifact.cpp":     cppOptimizerArtifactExample,
 		"README.md":                           packageREADME(model, "cpp"),
@@ -256,6 +262,9 @@ func BuildCapabilityManifest(model AxRuntimeModel, target string) (CapabilityMan
 			"axagent-runtime-state-contract",
 			"axagent-runtime-restart-policy",
 			"axagent-runtime-trace-events",
+			"axagent-runtime-adapter-helpers",
+			"axagent-runtime-adapter-examples",
+			"axagent-runtime-capability-negotiation",
 			"axagent-actor-step-alpha",
 			"axagent-runtime-language",
 			"axagent-actor-prompt-cache",
@@ -376,6 +385,7 @@ See the files in `+"`examples/`"+` for:
 - AxGen forward with a fake client and tool
 - AxAI/OpenAI-compatible mapping with a fake transport
 - AxAgent pipeline alpha with a fake service
+- Runtime adapter helpers and custom `+"`AxCodeRuntime`"+` implementation
 - AxFlow program graph with child Ax programs
 - Optimizer artifact save/load/apply lifecycle
 `, strings.ToUpper(target), manifest.AxIRVersion, manifest.PackageName, strings.Join(manifest.SupportedSuites, ", "), manifest.ProviderMode, manifest.FakeTransportSupport, network)

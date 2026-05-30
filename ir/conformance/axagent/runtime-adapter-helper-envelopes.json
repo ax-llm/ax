@@ -1,0 +1,213 @@
+{
+  "capabilities": {
+    "abort": true,
+    "inspect": false,
+    "language": "Python",
+    "patch": false,
+    "snapshot": true,
+    "usage_instructions": "Use safe globals only."
+  },
+  "expected_capabilities": {
+    "abort": true,
+    "inspect": false,
+    "language": "Python",
+    "patch": false,
+    "snapshot": true,
+    "usage_instructions": "Use safe globals only."
+  },
+  "helper_calls": [
+    {
+      "args": [
+        {
+          "answer": "ok"
+        }
+      ],
+      "expected": {
+        "kind": "result",
+        "result": {
+          "answer": "ok"
+        }
+      },
+      "expected_normalized_subset": {
+        "kind": "result",
+        "result": {
+          "answer": "ok"
+        }
+      },
+      "name": "result",
+      "normalize": true
+    },
+    {
+      "args": ["boom", "runtime"],
+      "expected_normalized_subset": {
+        "error_category": "runtime",
+        "is_error": true,
+        "kind": "error"
+      },
+      "expected_subset": {
+        "error": "boom",
+        "error_category": "runtime",
+        "is_error": true,
+        "kind": "error"
+      },
+      "name": "error",
+      "normalize": true
+    },
+    {
+      "args": ["closed"],
+      "expected_normalized_subset": {
+        "kind": "error",
+        "restart_notice": "runtime session closed; restarting fresh session"
+      },
+      "expected_subset": {
+        "error": "closed",
+        "error_category": "session_closed",
+        "is_error": true,
+        "kind": "error"
+      },
+      "name": "session_closed",
+      "normalize": true
+    },
+    {
+      "args": ["slow"],
+      "expected_normalized_subset": {
+        "error_category": "timeout",
+        "kind": "error"
+      },
+      "expected_subset": {
+        "error": "slow",
+        "error_category": "timeout",
+        "is_error": true,
+        "kind": "error"
+      },
+      "name": "timeout",
+      "normalize": true
+    },
+    {
+      "args": [
+        {
+          "answer": "ok"
+        }
+      ],
+      "expected": {
+        "args": [
+          {
+            "answer": "ok"
+          }
+        ],
+        "type": "final"
+      },
+      "expected_normalized_subset": {
+        "completion_payload": {
+          "args": [
+            {
+              "answer": "ok"
+            }
+          ],
+          "type": "final"
+        },
+        "kind": "final"
+      },
+      "name": "final",
+      "normalize": true
+    },
+    {
+      "args": [
+        {
+          "question": "Which one?"
+        }
+      ],
+      "expected": {
+        "args": [
+          {
+            "question": "Which one?"
+          }
+        ],
+        "type": "askClarification"
+      },
+      "expected_normalized_subset": {
+        "completion_payload": {
+          "args": [
+            {
+              "question": "Which one?"
+            }
+          ],
+          "type": "askClarification"
+        },
+        "kind": "askClarification"
+      },
+      "name": "ask_clarification",
+      "normalize": true
+    },
+    {
+      "args": [
+        {
+          "tools": ["docs"]
+        }
+      ],
+      "expected": {
+        "discover": {
+          "tools": ["docs"]
+        },
+        "kind": "discover"
+      },
+      "name": "discover"
+    },
+    {
+      "args": ["prefs"],
+      "expected": {
+        "kind": "recall",
+        "recall": "prefs"
+      },
+      "name": "recall"
+    },
+    {
+      "args": ["mem-1"],
+      "expected": {
+        "kind": "used",
+        "used": {
+          "id": "mem-1",
+          "reason": "relevant",
+          "stage": "executor"
+        }
+      },
+      "kwargs": {
+        "reason": "relevant",
+        "stage": "executor"
+      },
+      "name": "used"
+    },
+    {
+      "args": ["success", "loaded"],
+      "expected": {
+        "kind": "status",
+        "status": {
+          "message": "loaded",
+          "type": "success"
+        }
+      },
+      "name": "status"
+    },
+    {
+      "args": ["Use the loaded docs.", "tools.review"],
+      "expected": {
+        "guidance": "Use the loaded docs.",
+        "triggeredBy": "tools.review",
+        "type": "guide_agent"
+      },
+      "expected_normalized_subset": {
+        "guidance_payload": {
+          "guidance": "Use the loaded docs.",
+          "triggeredBy": "tools.review",
+          "type": "guide_agent"
+        },
+        "kind": "guide_agent"
+      },
+      "name": "guide_agent",
+      "normalize": true
+    }
+  ],
+  "kind": "agent_runtime_adapter",
+  "name": "runtime-adapter-helper-envelopes",
+  "signature": "question:string -> answer:string"
+}

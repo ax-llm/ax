@@ -133,6 +133,66 @@ assert program.get_plan()["steps"][0]["name"] == "qa"
 print("python-axflow-ok")
 `
 
+const pyRuntimeAdapterExample = `from ax import AxCodeRuntime, AxCodeSession, RuntimeCapabilities, RuntimeEnvelope, agent
+
+
+class DemoSession(AxCodeSession):
+    def __init__(self, globals, options=None):
+        self.globals = dict(globals or {})
+        self.create_options = dict(options or {})
+        self.closed = False
+
+    def execute(self, code, options=None):
+        assert "reservedNames" in (options or {}), options
+        if code == "timeout()":
+            return RuntimeEnvelope.timeout("demo timeout")
+        self.globals["answer"] = "runtime"
+        return RuntimeEnvelope.final({"answer": self.globals["answer"]})
+
+    def inspect_globals(self, options=None):
+        return dict(self.globals)
+
+    def snapshot_globals(self, options=None):
+        return {"version": 1, "bindings": dict(self.globals), "globals": dict(self.globals), "closed": self.closed}
+
+    def patch_globals(self, snapshot, options=None):
+        self.globals = dict((snapshot or {}).get("bindings") or {})
+        return self.snapshot_globals(options)
+
+    def close(self):
+        self.closed = True
+        return {"closed": True}
+
+
+class DemoRuntime(AxCodeRuntime):
+    language = "Python"
+
+    def __init__(self):
+        self.capabilities = RuntimeCapabilities(language="Python", snapshot=True, patch=True).to_dict()
+        self.sessions = []
+
+    def create_session(self, globals, options=None):
+        session = DemoSession(globals, options)
+        self.sessions.append(session)
+        return session
+
+
+runtime = DemoRuntime()
+qa = agent("question:string -> answer:string", {"runtime": {"language": "Python"}})
+out = qa.test(runtime, "final()", {"question": "adapter"})
+assert out["kind"] == "final", out
+assert runtime.sessions[-1].closed
+
+runner = agent("question:string -> answer:string", {"runtime": {"language": "Python"}})
+step = runner.execute_actor_step(runtime, "final()", {"question": "adapter"})
+assert step["kind"] == "final", step
+snapshot = runner.export_session_state()
+runner.restore_session_state(snapshot)
+timeout = runner.execute_actor_step(runtime, "timeout()", {"question": "adapter"})
+assert timeout["error_category"] == "timeout", timeout
+print("python-runtime-adapter-ok")
+`
+
 const pyOptimizerArtifactExample = `import json
 
 from ax import OptimizerEngine, ax
@@ -306,6 +366,72 @@ public final class AxFlowProgramGraphExample {
     if (!"Paris".equals(out.get("answer"))) throw new RuntimeException("bad output: " + out);
     if (!"qa".equals(((Map<?, ?>) ((List<?>) program.getPlan().get("steps")).get(0)).get("name"))) throw new RuntimeException("bad plan");
     System.out.println("java-axflow-ok");
+  }
+}
+`
+
+const javaRuntimeAdapterExample = `import dev.ax.*;
+import java.util.*;
+
+public final class RuntimeAdapterExample {
+  @SuppressWarnings("unchecked")
+  static Map<String, Object> asMap(Object value) {
+    return value instanceof Map<?, ?> ? (Map<String, Object>) value : new LinkedHashMap<>();
+  }
+
+  static final class DemoRuntime implements AxCodeRuntime {
+    final AxRuntimeCapabilities capabilities = new AxRuntimeCapabilities().language("Python").snapshot(true).patch(true);
+    final List<DemoSession> sessions = new ArrayList<>();
+
+    public String language() { return "Python"; }
+    public AxCodeSession createSession(Map<String, Object> globals, Map<String, Object> options) {
+      DemoSession session = new DemoSession(globals, options);
+      sessions.add(session);
+      return session;
+    }
+  }
+
+  static final class DemoSession implements AxCodeSession {
+    Map<String, Object> globals;
+    final Map<String, Object> createOptions;
+    boolean closed = false;
+
+    DemoSession(Map<String, Object> globals, Map<String, Object> options) {
+      this.globals = new LinkedHashMap<>(globals == null ? Map.of() : globals);
+      this.createOptions = new LinkedHashMap<>(options == null ? Map.of() : options);
+    }
+
+    public Object execute(String code, Map<String, Object> options) {
+      if (options == null || !options.containsKey("reservedNames")) throw new RuntimeException("missing reservedNames");
+      if ("timeout()".equals(code)) return AxRuntimeEnvelope.timeout("demo timeout");
+      globals.put("answer", "runtime");
+      return AxRuntimeEnvelope.finalPayload(Map.of("answer", globals.get("answer")));
+    }
+
+    public Object inspectGlobals(Map<String, Object> options) { return new LinkedHashMap<>(globals); }
+    public Object snapshotGlobals(Map<String, Object> options) { return Map.of("version", 1, "bindings", new LinkedHashMap<>(globals), "globals", new LinkedHashMap<>(globals), "closed", closed); }
+    public Object patchGlobals(Object snapshot, Map<String, Object> options) {
+      globals = new LinkedHashMap<>(asMap(asMap(snapshot).get("bindings")));
+      return snapshotGlobals(options);
+    }
+    public Object close() { closed = true; return Map.of("closed", true); }
+  }
+
+  public static void main(String[] args) {
+    DemoRuntime runtime = new DemoRuntime();
+    AxAgent qa = Ax.agent("question:string -> answer:string", Map.of("runtime", Map.of("language", "Python")));
+    Map<String, Object> out = qa.test(runtime, "final()", Map.of("question", "adapter"));
+    if (!"final".equals(out.get("kind"))) throw new RuntimeException("bad test output: " + out);
+    if (!runtime.sessions.get(runtime.sessions.size() - 1).closed) throw new RuntimeException("test session was not closed");
+
+    AxAgent runner = Ax.agent("question:string -> answer:string", Map.of("runtime", Map.of("language", "Python")));
+    Map<String, Object> step = runner.executeActorStep(runtime, "final()", Map.of("question", "adapter"));
+    if (!"final".equals(step.get("kind"))) throw new RuntimeException("bad step output: " + step);
+    Map<String, Object> snapshot = asMap(runner.exportSessionState());
+    runner.restoreSessionState(snapshot);
+    Map<String, Object> timeout = runner.executeActorStep(runtime, "timeout()", Map.of("question", "adapter"));
+    if (!"timeout".equals(timeout.get("error_category"))) throw new RuntimeException("bad timeout: " + timeout);
+    System.out.println("java-runtime-adapter-ok");
   }
 }
 `
@@ -497,6 +623,72 @@ int main() {
   if (!ax::equal(ax::Core::get(out, "answer"), "Paris")) return 1;
   if (!ax::equal(ax::Core::get(ax::Core::get(ax::Core::get(program.get_plan(), "steps"), 0), "name"), "qa")) return 2;
   std::cout << "cpp-axflow-ok\n";
+}
+`
+
+const cppRuntimeAdapterExample = `#include "ax/ax.hpp"
+#include <iostream>
+
+struct DemoSession : ax::AxCodeSession {
+  ax::Value globals;
+  ax::Value create_options;
+  bool closed = false;
+
+  DemoSession(ax::Value globals_, ax::Value options_) : globals(std::move(globals_)), create_options(std::move(options_)) {}
+
+  ax::Value execute(ax::Value code, ax::Value options = ax::Value::object()) override {
+    if (!ax::Core::truthy(ax::Core::map_contains(options, "reservedNames"))) throw ax::AxError("fixture", "missing reservedNames");
+    if (ax::equal(code, "timeout()")) return ax::RuntimeEnvelope::timeout("demo timeout");
+    ax::Core::set(globals, "answer", "runtime");
+    return ax::RuntimeEnvelope::final_payload({ax::object({{"answer", ax::Core::get(globals, "answer")}})});
+  }
+
+  ax::Value inspect(ax::Value = ax::Value::object()) override { return globals; }
+  ax::Value snapshot_globals(ax::Value = ax::Value::object()) override {
+    return ax::object({{"version", 1}, {"bindings", globals}, {"globals", globals}, {"closed", closed}});
+  }
+  ax::Value patch_globals(ax::Value snapshot, ax::Value options = ax::Value::object()) override {
+    globals = ax::Core::get(snapshot, "bindings", ax::Value::object());
+    return snapshot_globals(options);
+  }
+  ax::Value close() override {
+    closed = true;
+    return ax::object({{"closed", true}});
+  }
+};
+
+struct DemoRuntime : ax::AxCodeRuntime {
+  ax::RuntimeCapabilities capabilities;
+  std::vector<std::unique_ptr<DemoSession>> sessions;
+
+  DemoRuntime() {
+    capabilities.language = "Python";
+    capabilities.snapshot = true;
+    capabilities.patch = true;
+  }
+
+  std::string language() const override { return "Python"; }
+  ax::AxCodeSession* create_session(ax::Value globals, ax::Value options = ax::Value::object()) override {
+    sessions.push_back(std::make_unique<DemoSession>(std::move(globals), std::move(options)));
+    return sessions.back().get();
+  }
+};
+
+int main() {
+  DemoRuntime runtime;
+  auto qa = ax::agent("question:string -> answer:string", ax::object({{"runtime", ax::object({{"language", "Python"}})}}));
+  ax::Value out = qa.test(runtime, "final()", ax::object({{"question", "adapter"}}));
+  if (!ax::equal(ax::Core::get(out, "kind"), "final")) return 1;
+  if (!runtime.sessions.back()->closed) return 2;
+
+  auto runner = ax::agent("question:string -> answer:string", ax::object({{"runtime", ax::object({{"language", "Python"}})}}));
+  ax::Value step = runner.execute_actor_step(runtime, "final()", ax::object({{"question", "adapter"}}));
+  if (!ax::equal(ax::Core::get(step, "kind"), "final")) return 3;
+  ax::Value snapshot = runner.export_session_state();
+  runner.restore_session_state(snapshot);
+  ax::Value timeout = runner.execute_actor_step(runtime, "timeout()", ax::object({{"question", "adapter"}}));
+  if (!ax::equal(ax::Core::get(timeout, "error_category"), "timeout")) return 4;
+  std::cout << "cpp-runtime-adapter-ok\n";
 }
 `
 

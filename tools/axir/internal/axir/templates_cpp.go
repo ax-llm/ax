@@ -642,6 +642,32 @@ class AxCodeRuntime {
   virtual AxCodeSession* create_session(Value globals, Value options = Value::object()) = 0;
 };
 
+struct RuntimeCapabilities {
+  bool inspect = true;
+  bool snapshot = true;
+  bool patch = true;
+  bool abort = false;
+  std::string language = "JavaScript";
+  std::string usage_instructions = "";
+  Value to_value() const;
+};
+
+struct RuntimeEnvelope {
+  static Value result(Value value);
+  static Value error(Value message, Value category = Value("runtime"));
+  static Value session_closed(Value message = Value("session closed"));
+  static Value timeout(Value message = Value("execution timed out"));
+  static Value final_payload(std::initializer_list<Value> args);
+  static Value final_payload(Value args);
+  static Value ask_clarification(std::initializer_list<Value> args);
+  static Value ask_clarification(Value args);
+  static Value discover(Value request);
+  static Value recall(Value request);
+  static Value used(Value request, Value reason = Value(), Value stage = Value());
+  static Value status(Value type, Value message = Value(""));
+  static Value guide_agent(Value guidance, Value triggered_by = Value());
+};
+
 class OptimizerEvaluator {
  public:
   virtual ~OptimizerEvaluator() = default;
@@ -3333,6 +3359,74 @@ Value array(std::initializer_list<Value> items) {
   return out;
 }
 
+Value RuntimeCapabilities::to_value() const {
+  return object({
+    {"inspect", inspect},
+    {"snapshot", snapshot},
+    {"patch", patch},
+    {"abort", abort},
+    {"language", language.empty() ? "JavaScript" : language},
+    {"usage_instructions", usage_instructions}
+  });
+}
+
+Value RuntimeEnvelope::result(Value value) {
+  return object({{"kind", "result"}, {"result", std::move(value)}});
+}
+
+Value RuntimeEnvelope::error(Value message, Value category) {
+  return object({{"kind", "error"}, {"is_error", true}, {"error_category", std::move(category)}, {"error", std::move(message)}});
+}
+
+Value RuntimeEnvelope::session_closed(Value message) {
+  return error(std::move(message), "session_closed");
+}
+
+Value RuntimeEnvelope::timeout(Value message) {
+  return error(std::move(message), "timeout");
+}
+
+Value RuntimeEnvelope::final_payload(std::initializer_list<Value> args) {
+  return object({{"type", "final"}, {"args", array(args)}});
+}
+
+Value RuntimeEnvelope::final_payload(Value args) {
+  return object({{"type", "final"}, {"args", args.is_array() ? std::move(args) : array({std::move(args)})}});
+}
+
+Value RuntimeEnvelope::ask_clarification(std::initializer_list<Value> args) {
+  return object({{"type", "askClarification"}, {"args", array(args)}});
+}
+
+Value RuntimeEnvelope::ask_clarification(Value args) {
+  return object({{"type", "askClarification"}, {"args", args.is_array() ? std::move(args) : array({std::move(args)})}});
+}
+
+Value RuntimeEnvelope::discover(Value request) {
+  return object({{"kind", "discover"}, {"discover", std::move(request)}});
+}
+
+Value RuntimeEnvelope::recall(Value request) {
+  return object({{"kind", "recall"}, {"recall", std::move(request)}});
+}
+
+Value RuntimeEnvelope::used(Value request, Value reason, Value stage) {
+  Value payload = request.is_object() ? request : object({{"id", std::move(request)}});
+  if (!reason.is_null()) Core::set(payload, "reason", std::move(reason));
+  if (!stage.is_null()) Core::set(payload, "stage", std::move(stage));
+  return object({{"kind", "used"}, {"used", std::move(payload)}});
+}
+
+Value RuntimeEnvelope::status(Value type, Value message) {
+  return object({{"kind", "status"}, {"status", object({{"type", std::move(type)}, {"message", std::move(message)}})}});
+}
+
+Value RuntimeEnvelope::guide_agent(Value guidance, Value triggered_by) {
+  Value payload = object({{"type", "guide_agent"}, {"guidance", std::move(guidance)}});
+  if (!triggered_by.is_null()) Core::set(payload, "triggeredBy", std::move(triggered_by));
+  return payload;
+}
+
 Value s(const std::string& source) {
   Value sig = Core::parse_signature(source);
   Core::validate_signature(sig);
@@ -4337,6 +4431,60 @@ static void run_agent_runtime_session(Value fixture) {
   assert_agent_trace(ag, fixture);
 }
 
+static Value runtime_adapter_call(Value spec) {
+  std::string name = display(Core::get(spec, "name", ""));
+  Value args = Core::get(spec, "args", Value::array());
+  Value kwargs = Core::get(spec, "kwargs", Value::object());
+  if (name == "result") return RuntimeEnvelope::result(Core::get(args, 0));
+  if (name == "error") return RuntimeEnvelope::error(Core::get(args, 0, ""), Core::get(args, 1, Core::get(kwargs, "category", "runtime")));
+  if (name == "session_closed") return RuntimeEnvelope::session_closed(Core::get(args, 0, "session closed"));
+  if (name == "timeout") return RuntimeEnvelope::timeout(Core::get(args, 0, "execution timed out"));
+  if (name == "final") return RuntimeEnvelope::final_payload(args);
+  if (name == "ask_clarification") return RuntimeEnvelope::ask_clarification(args);
+  if (name == "discover") return RuntimeEnvelope::discover(Core::get(args, 0, Value::object()));
+  if (name == "recall") return RuntimeEnvelope::recall(Core::get(args, 0, Value::array()));
+  if (name == "used") return RuntimeEnvelope::used(Core::get(args, 0, Value::object()), Core::get(kwargs, "reason"), Core::get(kwargs, "stage"));
+  if (name == "status") return RuntimeEnvelope::status(Core::get(args, 0, "success"), Core::get(args, 1, ""));
+  if (name == "guide_agent") return RuntimeEnvelope::guide_agent(Core::get(args, 0, ""), Core::get(args, 1));
+  throw AxError("fixture", "unknown runtime adapter helper " + name);
+}
+
+static void run_agent_runtime_adapter(Value fixture) {
+  if (!Core::get(fixture, "capabilities").is_null()) {
+    Value raw = Core::get(fixture, "capabilities", Value::object());
+    RuntimeCapabilities capabilities;
+    capabilities.inspect = Core::truthy(Core::get(raw, "inspect", true));
+    capabilities.snapshot = Core::truthy(Core::get(raw, "snapshot", true));
+    capabilities.patch = Core::truthy(Core::get(raw, "patch", true));
+    capabilities.abort = Core::truthy(Core::get(raw, "abort", false));
+    capabilities.language = display(Core::get(raw, "language", "JavaScript"));
+    capabilities.usage_instructions = display(Core::get(raw, "usage_instructions", ""));
+    if (!Core::get(fixture, "expected_capabilities").is_null()) assert_subset(capabilities.to_value(), Core::get(fixture, "expected_capabilities"), "runtime capabilities");
+  }
+  for (const auto& raw_spec : Core::iter(Core::get(fixture, "helper_calls", Value::array()))) {
+    Value spec = raw_spec;
+    Value actual = runtime_adapter_call(spec);
+    if (!Core::get(spec, "expected").is_null()) assert_equal(actual, Core::get(spec, "expected"), "runtime helper");
+    if (!Core::get(spec, "expected_subset").is_null()) assert_subset(actual, Core::get(spec, "expected_subset"), "runtime helper");
+    if (Core::truthy(Core::get(spec, "normalize", false))) {
+      Value normalized = Core::_normalize_agent_runtime_step_result(actual, Core::get(spec, "code", "<adapter>"));
+      if (!Core::get(spec, "expected_normalized_subset").is_null()) assert_subset(normalized, Core::get(spec, "expected_normalized_subset"), "normalized runtime helper");
+    }
+  }
+  if (!Core::get(fixture, "run_session").is_null()) {
+    Value session_fixture = Value::object();
+    Core::set(session_fixture, "signature", Core::get(fixture, "signature", "question:string -> answer:string"));
+    Core::set(session_fixture, "operation", "test");
+    Core::set(session_fixture, "code", "adapter()");
+    Core::set(session_fixture, "context_values", Core::get(fixture, "context_values", object({{"question", "adapter"}})));
+    Core::set(session_fixture, "runtime_script", array({object({{"expected_code", "adapter()"}, {"result", runtime_adapter_call(Core::get(fixture, "run_session"))}})}));
+    if (!Core::get(fixture, "expected_result_subset").is_null()) Core::set(session_fixture, "expected_result_subset", Core::get(fixture, "expected_result_subset"));
+    if (!Core::get(fixture, "expected_action_log_subset").is_null()) Core::set(session_fixture, "expected_action_log_subset", Core::get(fixture, "expected_action_log_subset"));
+    if (!Core::get(fixture, "expected_trace_event_kinds").is_null()) Core::set(session_fixture, "expected_trace_event_kinds", Core::get(fixture, "expected_trace_event_kinds"));
+    run_agent_runtime_session(session_fixture);
+  }
+}
+
 struct ClientFixture {
   FakeTransport transport;
   OpenAICompatibleClient client;
@@ -4614,6 +4762,8 @@ static void run(Value fixture) {
     run_agent_runtime_policy(fixture);
   } else if (kind == "agent_runtime_session") {
     run_agent_runtime_session(fixture);
+  } else if (kind == "agent_runtime_adapter") {
+    run_agent_runtime_adapter(fixture);
   } else if (kind == "program_contract") {
     run_program_contract(fixture);
   } else if (kind == "flow") {

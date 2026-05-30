@@ -70,6 +70,12 @@ restart/error envelopes, action-log records, and trace events. Targets own the
 actual interpreter, sandbox permissions, native cancellation, filesystem/network
 access, and callback invocation.
 
+Generated targets also expose small runtime adapter helpers so host runtimes can
+produce Core-compatible envelopes without copying fixture shapes by hand. These
+helpers are not interpreters or sandboxes; they only describe capabilities and
+construct normalized result/error/protocol payloads for the existing
+`AxCodeRuntime`/`AxCodeSession` boundary.
+
 Backends must consume the lowered Core IR module or a target package model made
 from Core IR. They must not use high-level Ax dialects as their primary input.
 They must also avoid target-only semantic escapes for Core-owned behavior; see

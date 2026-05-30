@@ -142,6 +142,10 @@ evidence shapes as any other prompt optimizer.
 - `flow_cache_key`
 - `flow_forward`
 
+Runtime adapter helpers are target API conveniences over this dialect contract:
+they publish capability metadata and construct result/error/protocol envelopes,
+but they do not move execution, sandboxing, or callback behavior into AxIR.
+
 The exported AxAgent trace is the canonical optimizer/replay artifact. It is a
 JSON-compatible run record with normalized stage, runtime, discovery, recall,
 usage, callable, guidance, status, final/clarification, error, usage, and state

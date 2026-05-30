@@ -46,6 +46,18 @@ module @ax.api version "0.1" {
     tag "public-api"
   }
 
+  op ax.api.class @RuntimeCapabilities {
+    attr core_kind = "record"
+    attr public = true
+    tag "public-api"
+  }
+
+  op ax.api.class @RuntimeEnvelope {
+    attr core_kind = "record"
+    attr public = true
+    tag "public-api"
+  }
+
   op ax.api.class @AxMemory {
     attr core_kind = "record"
     attr public = true

@@ -3223,6 +3223,7 @@ public final class Conformance {
       case "agent_forward" -> runAgentForward(fixture);
       case "agent_runtime_policy" -> runAgentRuntimePolicy(fixture);
       case "agent_runtime_session" -> runAgentRuntimeSession(fixture);
+      case "agent_runtime_adapter" -> runAgentRuntimeAdapter(fixture);
       case "program_contract" -> runProgramContract(fixture);
       case "flow" -> runFlow(fixture);
       case "optimize" -> runOptimize(fixture);
@@ -3720,7 +3721,7 @@ public final class Conformance {
     assertAgentTrace(agent, fixture);
   }
 
-  static void runAgentRuntimeSession(Map<String, Object> fixture) {
+	  static void runAgentRuntimeSession(Map<String, Object> fixture) {
     AxAgent agent = Ax.agent(String.valueOf(fixture.getOrDefault("signature", "question:string -> answer:string")), Core.asMap(fixture.getOrDefault("options", Map.of())));
     FakeCodeRuntime runtime = new FakeCodeRuntime(
       Core.asList(fixture.getOrDefault("runtime_script", List.of())),
@@ -3786,10 +3787,71 @@ public final class Conformance {
         if (globals.containsKey(String.valueOf(key))) throw new FixtureError("runtime session globals unexpectedly contained " + key);
       }
     }
-    assertAgentTrace(agent, fixture);
-  }
+	    assertAgentTrace(agent, fixture);
+	  }
 
-  static void runAIChat(Map<String, Object> fixture) {
+	  static Object runtimeAdapterCall(Map<String, Object> spec) {
+	    String name = String.valueOf(spec.get("name"));
+	    List<Object> args = Core.asList(spec.getOrDefault("args", List.of()));
+	    Map<String, Object> kwargs = Core.asMap(spec.getOrDefault("kwargs", Map.of()));
+	    return switch (name) {
+	      case "result" -> AxRuntimeEnvelope.result(args.isEmpty() ? null : args.get(0));
+	      case "error" -> AxRuntimeEnvelope.error(args.isEmpty() ? "" : String.valueOf(args.get(0)), args.size() > 1 ? String.valueOf(args.get(1)) : String.valueOf(kwargs.getOrDefault("category", "runtime")));
+	      case "session_closed" -> AxRuntimeEnvelope.sessionClosed(args.isEmpty() ? "session closed" : String.valueOf(args.get(0)));
+	      case "timeout" -> AxRuntimeEnvelope.timeout(args.isEmpty() ? "execution timed out" : String.valueOf(args.get(0)));
+	      case "final" -> AxRuntimeEnvelope.finalPayload(args.toArray());
+	      case "ask_clarification" -> AxRuntimeEnvelope.askClarification(args.toArray());
+	      case "discover" -> AxRuntimeEnvelope.discover(args.isEmpty() ? Map.of() : args.get(0));
+	      case "recall" -> AxRuntimeEnvelope.recall(args.isEmpty() ? List.of() : args.get(0));
+	      case "used" -> {
+	        if (args.isEmpty()) yield AxRuntimeEnvelope.used(Map.of());
+	        Object raw = args.get(0);
+	        String id = String.valueOf(raw instanceof String ? raw : Core.asMap(raw).getOrDefault("id", raw));
+	        yield AxRuntimeEnvelope.used(id, (String) kwargs.get("reason"), (String) kwargs.get("stage"));
+	      }
+	      case "status" -> AxRuntimeEnvelope.status(args.isEmpty() ? "success" : String.valueOf(args.get(0)), args.size() > 1 ? String.valueOf(args.get(1)) : "");
+	      case "guide_agent" -> AxRuntimeEnvelope.guideAgent(args.isEmpty() ? "" : String.valueOf(args.get(0)), args.size() > 1 ? String.valueOf(args.get(1)) : null);
+	      default -> throw new FixtureError("unknown runtime adapter helper " + name);
+	    };
+	  }
+
+	  static void runAgentRuntimeAdapter(Map<String, Object> fixture) {
+	    if (fixture.containsKey("capabilities")) {
+	      Map<String, Object> raw = Core.asMap(fixture.get("capabilities"));
+	      AxRuntimeCapabilities capabilities = new AxRuntimeCapabilities()
+	        .inspect(Core.truthy(raw.getOrDefault("inspect", true)))
+	        .snapshot(Core.truthy(raw.getOrDefault("snapshot", true)))
+	        .patch(Core.truthy(raw.getOrDefault("patch", true)))
+	        .abort(Core.truthy(raw.getOrDefault("abort", false)))
+	        .language(String.valueOf(raw.getOrDefault("language", "JavaScript")))
+	        .usageInstructions(String.valueOf(raw.getOrDefault("usage_instructions", "")));
+	      if (fixture.containsKey("expected_capabilities")) assertSubset(capabilities.toMap(), fixture.get("expected_capabilities"), "runtime capabilities");
+	    }
+	    for (Object rawSpec : Core.asList(fixture.getOrDefault("helper_calls", List.of()))) {
+	      Map<String, Object> spec = Core.asMap(rawSpec);
+	      Object actual = runtimeAdapterCall(spec);
+	      if (spec.containsKey("expected")) assertEqual(actual, spec.get("expected"), "runtime helper " + spec.get("name"));
+	      if (spec.containsKey("expected_subset")) assertSubset(actual, spec.get("expected_subset"), "runtime helper " + spec.get("name"));
+	      if (Boolean.TRUE.equals(spec.get("normalize"))) {
+	        Object normalized = Core._normalize_agent_runtime_step_result(actual, spec.getOrDefault("code", "<adapter>"));
+	        if (spec.containsKey("expected_normalized_subset")) assertSubset(normalized, spec.get("expected_normalized_subset"), "normalized runtime helper " + spec.get("name"));
+	      }
+	    }
+	    if (fixture.containsKey("run_session")) {
+	      Map<String, Object> sessionFixture = new LinkedHashMap<>();
+	      sessionFixture.put("signature", fixture.getOrDefault("signature", "question:string -> answer:string"));
+	      sessionFixture.put("operation", "test");
+	      sessionFixture.put("code", "adapter()");
+	      sessionFixture.put("context_values", fixture.getOrDefault("context_values", Map.of("question", "adapter")));
+	      sessionFixture.put("runtime_script", List.of(Map.of("expected_code", "adapter()", "result", runtimeAdapterCall(Core.asMap(fixture.get("run_session"))))));
+	      if (fixture.containsKey("expected_result_subset")) sessionFixture.put("expected_result_subset", fixture.get("expected_result_subset"));
+	      if (fixture.containsKey("expected_action_log_subset")) sessionFixture.put("expected_action_log_subset", fixture.get("expected_action_log_subset"));
+	      if (fixture.containsKey("expected_trace_event_kinds")) sessionFixture.put("expected_trace_event_kinds", fixture.get("expected_trace_event_kinds"));
+	      runAgentRuntimeSession(sessionFixture);
+	    }
+	  }
+
+	  static void runAIChat(Map<String, Object> fixture) {
     ClientFixture cf = openaiClient(fixture);
     Object result;
     try { result = cf.client.chat(Core.asMap(fixture.get("request"))); } catch (Exception e) { throw Core.asRuntime(e); }

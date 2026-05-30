@@ -211,6 +211,9 @@ func TestBuildRuntimeModel(t *testing.T) {
 		"axagent_runtime_session",
 		"axagent_agent_test",
 		"axagent_runtime_state_restore",
+		"axagent_runtime_adapter_helpers",
+		"axagent_runtime_adapter_examples",
+		"axagent_runtime_capability_negotiation",
 		"axagent_actor_step_alpha",
 		"axagent_runtime_language",
 		"axagent_actor_prompt_cache",
@@ -376,6 +379,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"ax/__init__.py",
 				"ax/ai.py",
 				"ax/agent.py",
+				"ax/runtime.py",
 				"ax/flow.py",
 				"ax/gen.py",
 				"ax/conformance.py",
@@ -383,6 +387,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/axgen_fake_client_tool.py",
 				"examples/axai_fake_transport.py",
 				"examples/axagent_pipeline.py",
+				"examples/runtime_adapter.py",
 				"examples/axflow_program_graph.py",
 				"examples/optimizer_artifact.py",
 			},
@@ -401,6 +406,8 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"dev/ax/AxAgentClarificationException.java",
 				"dev/ax/AxCodeRuntime.java",
 				"dev/ax/AxCodeSession.java",
+				"dev/ax/AxRuntimeCapabilities.java",
+				"dev/ax/AxRuntimeEnvelope.java",
 				"dev/ax/OptimizerEngine.java",
 				"dev/ax/OptimizerEvaluator.java",
 				"dev/ax/OpenAICompatibleClient.java",
@@ -409,6 +416,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/AxGenFakeClientToolExample.java",
 				"examples/AxAIFakeTransportExample.java",
 				"examples/AxAgentPipelineExample.java",
+				"examples/RuntimeAdapterExample.java",
 				"examples/AxFlowProgramGraphExample.java",
 				"examples/OptimizerArtifactExample.java",
 			},
@@ -426,6 +434,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/axgen_fake_client_tool.cpp",
 				"examples/axai_fake_transport.cpp",
 				"examples/axagent_pipeline.cpp",
+				"examples/runtime_adapter.cpp",
 				"examples/axflow_program_graph.cpp",
 				"examples/optimizer_artifact.cpp",
 			},
@@ -462,7 +471,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 					t.Fatalf("manifest missing suite %s: %#v", want, manifest.SupportedSuites)
 				}
 			}
-			for _, want := range []string{"AxGen", "AxSignature", "OpenAICompatibleClient", "AxAgent", "AxFlow", "AxProgram", "OptimizerEngine", "OptimizerEvaluator"} {
+			for _, want := range []string{"AxGen", "AxSignature", "OpenAICompatibleClient", "AxAgent", "AxFlow", "AxProgram", "RuntimeCapabilities", "RuntimeEnvelope", "OptimizerEngine", "OptimizerEvaluator"} {
 				if !containsString(manifest.PublicSymbols, want) {
 					t.Fatalf("manifest missing public symbol %s: %#v", want, manifest.PublicSymbols)
 				}
@@ -1104,6 +1113,12 @@ func TestAxAgentConformanceFixturesLoad(t *testing.T) {
 					}
 				}
 			}
+		case "agent_runtime_adapter":
+			if _, ok := fixture["helper_calls"]; !ok {
+				if _, ok := fixture["run_session"]; !ok {
+					t.Fatalf("%s missing adapter helper_calls or run_session", file)
+				}
+			}
 		default:
 			t.Fatalf("%s has unknown axagent kind %v", file, fixture["kind"])
 		}
@@ -1686,6 +1701,22 @@ func TestPythonGeneratedIdioms(t *testing.T) {
 			t.Fatalf("generated Python agent runtime contains forbidden semantic escape %q", forbidden)
 		}
 	}
+	runtimeFile, err := os.ReadFile(filepath.Join(dir, "ax", "runtime.py"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtimeText := string(runtimeFile)
+	for _, want := range []string{
+		"class RuntimeCapabilities",
+		"class RuntimeEnvelope",
+		"def session_closed(",
+		"def ask_clarification(",
+		"def guide_agent(",
+	} {
+		if !strings.Contains(runtimeText, want) {
+			t.Fatalf("generated Python runtime adapter helpers missing %q", want)
+		}
+	}
 	signatureFile, err := os.ReadFile(filepath.Join(dir, "ax", "signature.py"))
 	if err != nil {
 		t.Fatal(err)
@@ -1876,8 +1907,15 @@ func TestJavaGeneratedCoreRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(conformanceFile), "public final class Conformance") || !strings.Contains(string(conformanceFile), "case \"ai_chat\"") || !strings.Contains(string(conformanceFile), "case \"agent_forward\"") || !strings.Contains(string(conformanceFile), "case \"agent_runtime_policy\"") || !strings.Contains(string(conformanceFile), "case \"agent_runtime_session\"") || !strings.Contains(string(conformanceFile), "case \"optimize\"") {
+	if !strings.Contains(string(conformanceFile), "public final class Conformance") || !strings.Contains(string(conformanceFile), "case \"ai_chat\"") || !strings.Contains(string(conformanceFile), "case \"agent_forward\"") || !strings.Contains(string(conformanceFile), "case \"agent_runtime_policy\"") || !strings.Contains(string(conformanceFile), "case \"agent_runtime_session\"") || !strings.Contains(string(conformanceFile), "case \"agent_runtime_adapter\"") || !strings.Contains(string(conformanceFile), "case \"optimize\"") {
 		t.Fatal("generated Java conformance runner is missing expected fixture dispatch")
+	}
+	runtimeEnvelopeFile, err := os.ReadFile(filepath.Join(dir, "dev", "ax", "AxRuntimeEnvelope.java"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(runtimeEnvelopeFile), "public final class AxRuntimeEnvelope") || !strings.Contains(string(runtimeEnvelopeFile), "sessionClosed") || !strings.Contains(string(runtimeEnvelopeFile), "askClarification") {
+		t.Fatal("generated Java runtime adapter helpers are missing expected factories")
 	}
 }
 
@@ -1994,6 +2032,8 @@ func TestCppGeneratedCoreRuntime(t *testing.T) {
 		"class AxAgent",
 		"class AxCodeRuntime",
 		"class AxCodeSession",
+		"struct RuntimeCapabilities",
+		"struct RuntimeEnvelope",
 		"Value to_json_schema(",
 		"Value validate_output(",
 		"Value render_prompt(",
@@ -2079,6 +2119,7 @@ func TestCppGeneratedCoreRuntime(t *testing.T) {
 		`kind == "agent_forward"`,
 		`kind == "agent_runtime_policy"`,
 		`kind == "agent_runtime_session"`,
+		`kind == "agent_runtime_adapter"`,
 		`kind == "optimize"`,
 	} {
 		if !strings.Contains(conformanceText, want) {

@@ -1826,3 +1826,167 @@ writeFixture('runtime-host-abort-escapes', {
   ],
   expected_error_contains: 'runtime host boundary escaped abort',
 });
+
+writeFixture('runtime-adapter-helper-envelopes', {
+  kind: 'agent_runtime_adapter',
+  signature: 'question:string -> answer:string',
+  capabilities: {
+    inspect: false,
+    snapshot: true,
+    patch: false,
+    abort: true,
+    language: 'Python',
+    usage_instructions: 'Use safe globals only.',
+  },
+  expected_capabilities: {
+    inspect: false,
+    snapshot: true,
+    patch: false,
+    abort: true,
+    language: 'Python',
+    usage_instructions: 'Use safe globals only.',
+  },
+  helper_calls: [
+    {
+      name: 'result',
+      args: [{ answer: 'ok' }],
+      expected: { kind: 'result', result: { answer: 'ok' } },
+      normalize: true,
+      expected_normalized_subset: { kind: 'result', result: { answer: 'ok' } },
+    },
+    {
+      name: 'error',
+      args: ['boom', 'runtime'],
+      expected_subset: {
+        kind: 'error',
+        is_error: true,
+        error_category: 'runtime',
+        error: 'boom',
+      },
+      normalize: true,
+      expected_normalized_subset: {
+        kind: 'error',
+        is_error: true,
+        error_category: 'runtime',
+      },
+    },
+    {
+      name: 'session_closed',
+      args: ['closed'],
+      expected_subset: {
+        kind: 'error',
+        is_error: true,
+        error_category: 'session_closed',
+        error: 'closed',
+      },
+      normalize: true,
+      expected_normalized_subset: {
+        kind: 'error',
+        restart_notice: 'runtime session closed; restarting fresh session',
+      },
+    },
+    {
+      name: 'timeout',
+      args: ['slow'],
+      expected_subset: {
+        kind: 'error',
+        is_error: true,
+        error_category: 'timeout',
+        error: 'slow',
+      },
+      normalize: true,
+      expected_normalized_subset: { kind: 'error', error_category: 'timeout' },
+    },
+    {
+      name: 'final',
+      args: [{ answer: 'ok' }],
+      expected: { type: 'final', args: [{ answer: 'ok' }] },
+      normalize: true,
+      expected_normalized_subset: {
+        kind: 'final',
+        completion_payload: { type: 'final', args: [{ answer: 'ok' }] },
+      },
+    },
+    {
+      name: 'ask_clarification',
+      args: [{ question: 'Which one?' }],
+      expected: {
+        type: 'askClarification',
+        args: [{ question: 'Which one?' }],
+      },
+      normalize: true,
+      expected_normalized_subset: {
+        kind: 'askClarification',
+        completion_payload: {
+          type: 'askClarification',
+          args: [{ question: 'Which one?' }],
+        },
+      },
+    },
+    {
+      name: 'discover',
+      args: [{ tools: ['docs'] }],
+      expected: { kind: 'discover', discover: { tools: ['docs'] } },
+    },
+    {
+      name: 'recall',
+      args: ['prefs'],
+      expected: { kind: 'recall', recall: 'prefs' },
+    },
+    {
+      name: 'used',
+      args: ['mem-1'],
+      kwargs: { reason: 'relevant', stage: 'executor' },
+      expected: {
+        kind: 'used',
+        used: { id: 'mem-1', reason: 'relevant', stage: 'executor' },
+      },
+    },
+    {
+      name: 'status',
+      args: ['success', 'loaded'],
+      expected: {
+        kind: 'status',
+        status: { type: 'success', message: 'loaded' },
+      },
+    },
+    {
+      name: 'guide_agent',
+      args: ['Use the loaded docs.', 'tools.review'],
+      expected: {
+        type: 'guide_agent',
+        guidance: 'Use the loaded docs.',
+        triggeredBy: 'tools.review',
+      },
+      normalize: true,
+      expected_normalized_subset: {
+        kind: 'guide_agent',
+        guidance_payload: {
+          type: 'guide_agent',
+          guidance: 'Use the loaded docs.',
+          triggeredBy: 'tools.review',
+        },
+      },
+    },
+  ],
+});
+
+writeFixture('runtime-adapter-final-session', {
+  kind: 'agent_runtime_adapter',
+  signature: 'question:string -> answer:string',
+  context_values: { question: 'adapter' },
+  run_session: {
+    name: 'final',
+    args: [{ answer: 'adapter ok' }],
+  },
+  expected_result_subset: {
+    kind: 'final',
+    completion_payload: { type: 'final', args: [{ answer: 'adapter ok' }] },
+  },
+  expected_action_log_subset: [
+    { action: 'create_session' },
+    { kind: 'final' },
+    { action: 'close_session' },
+  ],
+  expected_trace_event_kinds: ['runtime_execute', 'final'],
+});

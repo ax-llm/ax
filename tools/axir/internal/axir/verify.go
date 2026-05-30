@@ -167,6 +167,7 @@ func verifyPythonTarget(report VerifyTargetReport, conformanceRoot string) (Veri
 		"axgen_fake_client_tool.py",
 		"axai_fake_transport.py",
 		"axagent_pipeline.py",
+		"runtime_adapter.py",
 		"axflow_program_graph.py",
 		"optimizer_artifact.py",
 	} {
@@ -211,6 +212,7 @@ func verifyJavaTarget(report VerifyTargetReport, conformanceRoot string) (Verify
 		"AxGenFakeClientToolExample",
 		"AxAIFakeTransportExample",
 		"AxAgentPipelineExample",
+		"RuntimeAdapterExample",
 		"AxFlowProgramGraphExample",
 		"OptimizerArtifactExample",
 	} {
@@ -237,6 +239,7 @@ func verifyCppTarget(report VerifyTargetReport, conformanceRoot string) (VerifyT
 		"axgen_fake_client_tool",
 		"axai_fake_transport",
 		"axagent_pipeline",
+		"runtime_adapter",
 		"axflow_program_graph",
 		"optimizer_artifact",
 	}

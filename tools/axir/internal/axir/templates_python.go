@@ -23,6 +23,7 @@ from .gen import AxGen, AxMemory, ax
 from .agent import AxAgent, AxAgentClarificationError, AxCodeRuntime, AxCodeSession, OptimizerEngine, OptimizerEvaluator, agent
 from .flow import AxFlow, AxProgram, flow
 from .prompt import AxPromptTemplate, TemplateError, render_template_content, validate_prompt_template_syntax
+from .runtime import RuntimeCapabilities, RuntimeEnvelope
 
 __all__ = [
     "AIClient",
@@ -54,6 +55,8 @@ __all__ = [
     "Field",
     "FieldType",
     "OpenAICompatibleClient",
+    "RuntimeCapabilities",
+    "RuntimeEnvelope",
     "SignatureBuilder",
     "TemplateError",
     "Tool",
@@ -3731,9 +3734,11 @@ from .agent import (
     _validate_optimized_artifact,
     _normalize_agent_clarification_payload,
     _normalize_agent_final_payload,
+    _normalize_agent_runtime_step_result,
     agent,
 )
 from .prompt import AxPromptTemplate, render_template_content, validate_prompt_template_syntax
+from .runtime import RuntimeCapabilities, RuntimeEnvelope
 from .schema import strip_internal, to_json_schema, validate_output, validate_value
 from .signature import AxSignature, f, s
 from .tool import fn
@@ -3924,6 +3929,8 @@ def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
             _run_agent_runtime_policy(fixture)
         elif kind == "agent_runtime_session":
             _run_agent_runtime_session(fixture)
+        elif kind == "agent_runtime_adapter":
+            _run_agent_runtime_adapter(fixture)
         elif kind == "program_contract":
             _run_program_contract(fixture)
         elif kind == "flow":
@@ -4688,6 +4695,73 @@ def _run_agent_runtime_session(fixture):
             if isinstance(globals_, dict) and key in globals_:
                 raise FixtureError(f"runtime session globals unexpectedly contained {key!r}")
     _assert_agent_trace(ag, fixture)
+
+
+def _runtime_adapter_call(spec):
+    name = spec.get("name")
+    args = spec.get("args") or []
+    kwargs = spec.get("kwargs") or {}
+    if name == "result":
+        return RuntimeEnvelope.result(args[0] if args else None)
+    if name == "error":
+        return RuntimeEnvelope.error(args[0] if args else "", args[1] if len(args) > 1 else kwargs.get("category", "runtime"))
+    if name == "session_closed":
+        return RuntimeEnvelope.session_closed(args[0] if args else "session closed")
+    if name == "timeout":
+        return RuntimeEnvelope.timeout(args[0] if args else "execution timed out")
+    if name == "final":
+        return RuntimeEnvelope.final(*args)
+    if name == "ask_clarification":
+        return RuntimeEnvelope.ask_clarification(*args)
+    if name == "discover":
+        return RuntimeEnvelope.discover(args[0] if args else {})
+    if name == "recall":
+        return RuntimeEnvelope.recall(args[0] if args else [])
+    if name == "used":
+        return RuntimeEnvelope.used(args[0] if args else {}, kwargs.get("reason"), kwargs.get("stage"))
+    if name == "status":
+        return RuntimeEnvelope.status(args[0] if args else "success", args[1] if len(args) > 1 else "")
+    if name == "guide_agent":
+        return RuntimeEnvelope.guide_agent(args[0] if args else "", args[1] if len(args) > 1 else None)
+    raise FixtureError(f"unknown runtime adapter helper {name!r}")
+
+
+def _run_agent_runtime_adapter(fixture):
+    if "capabilities" in fixture:
+        raw = fixture.get("capabilities") or {}
+        caps = RuntimeCapabilities(
+            inspect=raw.get("inspect", True),
+            snapshot=raw.get("snapshot", True),
+            patch=raw.get("patch", True),
+            abort=raw.get("abort", False),
+            language=raw.get("language", "JavaScript"),
+            usage_instructions=raw.get("usage_instructions", ""),
+        )
+        if "expected_capabilities" in fixture:
+            _assert_subset(caps.to_dict(), fixture["expected_capabilities"], "runtime capabilities")
+    for spec in fixture.get("helper_calls") or []:
+        actual = _runtime_adapter_call(spec)
+        if "expected" in spec:
+            _assert_equal(actual, spec["expected"], f"runtime helper {spec.get('name')}")
+        if "expected_subset" in spec:
+            _assert_subset(actual, spec["expected_subset"], f"runtime helper {spec.get('name')}")
+        if spec.get("normalize"):
+            normalized = _normalize_agent_runtime_step_result(actual, spec.get("code", "<adapter>"))
+            if "expected_normalized_subset" in spec:
+                _assert_subset(normalized, spec["expected_normalized_subset"], f"runtime helper normalized {spec.get('name')}")
+    if fixture.get("run_session"):
+        script = [{"expected_code": "adapter()", "result": _runtime_adapter_call(fixture["run_session"])}]
+        session_fixture = {
+            "signature": fixture.get("signature", "question:string -> answer:string"),
+            "operation": "test",
+            "code": "adapter()",
+            "context_values": fixture.get("context_values") or {"question": "adapter"},
+            "runtime_script": script,
+            "expected_result_subset": fixture.get("expected_result_subset"),
+            "expected_action_log_subset": fixture.get("expected_action_log_subset"),
+            "expected_trace_event_kinds": fixture.get("expected_trace_event_kinds"),
+        }
+        _run_agent_runtime_session({k: v for k, v in session_fixture.items() if v is not None})
 
 
 def _run_ai_chat(fixture):
