@@ -1,0 +1,33 @@
+{
+  "context_values": {
+    "question": "bad restore"
+  },
+  "expected_error_contains": "runtime session snapshot globals must be an object",
+  "kind": "agent_runtime_session",
+  "name": "runtime-invalid-snapshot-rejected",
+  "operation": "steps",
+  "runtime_script": [
+    {
+      "expected_code": "first",
+      "result": {
+        "kind": "status",
+        "status": {
+          "message": "started",
+          "type": "success"
+        }
+      }
+    }
+  ],
+  "signature": "question:string -> answer:string",
+  "steps": [
+    {
+      "code": "first"
+    },
+    {
+      "code": "after bad restore",
+      "restore_session_state": {
+        "globals": "not an object"
+      }
+    }
+  ]
+}

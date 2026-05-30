@@ -1,0 +1,39 @@
+{
+  "context_values": {
+    "question": "missing patch"
+  },
+  "expected_error_contains": "required to restore AxAgent state",
+  "kind": "agent_runtime_session",
+  "name": "runtime-missing-patch-capability",
+  "operation": "steps",
+  "runtime_capabilities": {
+    "patch": false
+  },
+  "runtime_script": [
+    {
+      "expected_code": "state = 1",
+      "result": {
+        "kind": "status",
+        "status": {
+          "message": "state saved",
+          "type": "success"
+        }
+      }
+    }
+  ],
+  "signature": "question:string -> answer:string",
+  "steps": [
+    {
+      "code": "state = 1"
+    },
+    {
+      "code": "state = 2",
+      "restore_session_state": {
+        "closed": false,
+        "globals": {
+          "restored": true
+        }
+      }
+    }
+  ]
+}

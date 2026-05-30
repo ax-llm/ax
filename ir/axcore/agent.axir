@@ -1743,6 +1743,7 @@ module @ax.agent version "0.1" {
       %status_log = core.get %state["status_log"] default %empty_list
       %runtime_session_state = core.get %state["runtime_session_state"] default %empty_map
       %runtime_globals = core.get %state["runtime_globals"] default %empty_map
+      %runtime_inspection = core.get %state["runtime_inspection"] default null
       %actor_prompt_policy = core.get %state["actor_prompt_policy"] default %empty_map
       %policy_registry = core.get %state["policy_registry"] default %empty_map
       %run_trace = core.call @agent_export_trace(%state)
@@ -1759,6 +1760,7 @@ module @ax.agent version "0.1" {
       core.set %out["status_log"] = %status_log
       core.set %out["runtime_session_state"] = %runtime_session_state
       core.set %out["runtime_globals"] = %runtime_globals
+      core.set %out["runtime_inspection"] = %runtime_inspection
       core.set %out["actor_prompt_policy"] = %actor_prompt_policy
       core.set %out["policy_registry"] = %policy_registry
       core.set %out["trace"] = %run_trace
@@ -1858,6 +1860,77 @@ module @ax.agent version "0.1" {
       core.set %globals["runtime"] = %runtime_contract
       core.set %state["runtime_globals"] = %globals
       core.return %globals
+    }
+  }
+
+  op ax.agent.runtime @agent_runtime_sanitize_bindings {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json) -> json"
+    body @entry(%bindings: json) {
+      %reserved = core.call @agent_reserved_runtime_names()
+      %out = core.map
+      %bindings_is_map = core.type_is %bindings type "object"
+      core.if %bindings_is_map {
+        core.for %key in %bindings {
+          %conflict = core.call intrinsic.contains(%reserved, %key)
+          core.if %conflict {
+          } else {
+            %value = core.get %bindings[%key]
+            core.set %out[%key] = %value
+          }
+        }
+      } else {
+      }
+      core.return %out
+    }
+  }
+
+  op ax.agent.runtime @normalize_agent_runtime_snapshot {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json) -> json throws"
+    body @entry(%snapshot: json) {
+      %empty_list = core.list
+      %snapshot_is_map = core.type_is %snapshot type "object"
+      core.if %snapshot_is_map {
+      } else {
+        %error = core.call intrinsic.error.runtime("runtime session snapshot must be an object")
+        core.raise %error
+      }
+      %raw_globals = core.get %snapshot["globals"] default null
+      %raw_bindings = core.get %snapshot["bindings"] default null
+      %has_globals = core.type_is %raw_globals type "object"
+      %has_bindings = core.type_is %raw_bindings type "object"
+      %has_any = core.call intrinsic.or(%has_globals, %has_bindings)
+      core.if %has_any {
+      } else {
+        %error2 = core.call intrinsic.error.runtime("runtime session snapshot globals must be an object")
+        core.raise %error2
+      }
+      %bindings = core.let %raw_globals
+      core.if %has_bindings {
+        %bindings = core.let %raw_bindings
+      } else {
+      }
+      %clean_bindings = core.call @agent_runtime_sanitize_bindings(%bindings)
+      %entries = core.get %snapshot["entries"] default %empty_list
+      %entries_is_list = core.type_is %entries type "list"
+      core.if %entries_is_list {
+      } else {
+        %entries = core.let %empty_list
+      }
+      %closed = core.get %snapshot["closed"] default false
+      %version = core.get %snapshot["version"] default 1
+      %out = core.map
+      core.set %out["version"] = %version
+      core.set %out["entries"] = %entries
+      core.set %out["bindings"] = %clean_bindings
+      core.set %out["globals"] = %clean_bindings
+      core.set %out["closed"] = %closed
+      core.return %out
     }
   }
 
@@ -1971,6 +2044,17 @@ module @ax.agent version "0.1" {
         core.set %out["restart_notice"] = "runtime session closed; restarting fresh session"
       } else {
       }
+      %is_abort = core.call intrinsic.eq(%error_category, "abort")
+      %is_aborted = core.call intrinsic.eq(%error_category, "aborted")
+      %is_user_error = core.call intrinsic.eq(%error_category, "user_error")
+      %abort_like = core.call intrinsic.or(%is_abort, %is_aborted)
+      %should_escape = core.call intrinsic.or(%abort_like, %is_user_error)
+      core.if %should_escape {
+        %escape_message = core.call intrinsic.string.format("runtime host boundary escaped {}: {}", %error_category, %error_message)
+        %escape_error = core.call intrinsic.error.runtime(%escape_message)
+        core.raise %escape_error
+      } else {
+      }
       core.return %out
     }
   }
@@ -1987,6 +2071,7 @@ module @ax.agent version "0.1" {
       core.set %entry["type"] = "runtime_session"
       core.set %entry["action"] = "create_session"
       core.set %entry["globals"] = %globals
+      core.set %entry["options"] = %options
       core.call @agent_runtime_append_action_log(%state, %entry)
       core.return %session
     }
@@ -1998,13 +2083,16 @@ module @ax.agent version "0.1" {
     type signature = "(json, json, json, string, json) -> json"
     body @entry(%state: json, %runtime: json, %session: json, %code: string, %options: json) {
       %empty_map = core.map
+      %reserved_names = core.call @agent_reserved_runtime_names()
+      %runtime_options = core.call intrinsic.map.merge(%empty_map, %options)
+      core.set %runtime_options["reservedNames"] = %reserved_names
       %globals = core.get %state["runtime_globals"] default %empty_map
       %missing_session = core.call intrinsic.is_none(%session)
       core.if %missing_session {
-        %session = core.call @agent_runtime_create_session(%state, %runtime, %globals, %options)
+        %session = core.call @agent_runtime_create_session(%state, %runtime, %globals, %runtime_options)
       } else {
       }
-      %raw = core.call intrinsic.agent.runtime.execute(%session, %code, %options)
+      %raw = core.call intrinsic.agent.runtime.execute(%session, %code, %runtime_options)
       %normalized = core.call @normalize_agent_runtime_step_result(%raw, %code)
       %closed = core.get %normalized["error_category"] default ""
       %is_closed = core.call intrinsic.eq(%closed, "session_closed")
@@ -2014,8 +2102,8 @@ module @ax.agent version "0.1" {
         core.set %notice["action"] = "restart"
         core.set %notice["reason"] = "session_closed"
         core.call @agent_runtime_append_action_log(%state, %notice)
-        %session = core.call @agent_runtime_create_session(%state, %runtime, %globals, %options)
-        %raw = core.call intrinsic.agent.runtime.execute(%session, %code, %options)
+        %session = core.call @agent_runtime_create_session(%state, %runtime, %globals, %runtime_options)
+        %raw = core.call intrinsic.agent.runtime.execute(%session, %code, %runtime_options)
         %normalized = core.call @normalize_agent_runtime_step_result(%raw, %code)
       } else {
       }
@@ -2095,6 +2183,11 @@ module @ax.agent version "0.1" {
     body @entry(%state: json, %session: json, %options: json) {
       %inspection = core.call intrinsic.agent.runtime.inspect(%session, %options)
       core.set %state["runtime_inspection"] = %inspection
+      %entry = core.map
+      core.set %entry["type"] = "runtime_session"
+      core.set %entry["action"] = "inspect_globals"
+      core.set %entry["result"] = %inspection
+      core.call @agent_runtime_append_action_log(%state, %entry)
       core.return %inspection
     }
   }
@@ -2104,8 +2197,14 @@ module @ax.agent version "0.1" {
     attr emit_module = "agent"
     type signature = "(json, json, json) -> json"
     body @entry(%state: json, %session: json, %options: json) {
-      %snapshot = core.call intrinsic.agent.runtime.export_state(%session, %options)
+      %raw_snapshot = core.call intrinsic.agent.runtime.export_state(%session, %options)
+      %snapshot = core.call @normalize_agent_runtime_snapshot(%raw_snapshot)
       core.set %state["runtime_session_state"] = %snapshot
+      %log_entry = core.map
+      core.set %log_entry["type"] = "runtime_session"
+      core.set %log_entry["action"] = "snapshot_globals"
+      core.set %log_entry["snapshot"] = %snapshot
+      core.call @agent_runtime_append_action_log(%state, %log_entry)
       %event = core.map
       core.set %event["snapshot"] = %snapshot
       core.call @agent_record_trace_event(%state, "state_export", %event)
@@ -2118,8 +2217,18 @@ module @ax.agent version "0.1" {
     attr emit_module = "agent"
     type signature = "(json, json, json, json) -> json"
     body @entry(%state: json, %session: json, %snapshot: json, %options: json) {
-      %restored = core.call intrinsic.agent.runtime.restore_state(%session, %snapshot, %options)
+      %normalized_snapshot = core.call @normalize_agent_runtime_snapshot(%snapshot)
+      %raw_restored = core.call intrinsic.agent.runtime.restore_state(%session, %normalized_snapshot, %options)
+      %restored = core.call @normalize_agent_runtime_snapshot(%raw_restored)
       core.set %state["runtime_session_state"] = %restored
+      %log_entry = core.map
+      core.set %log_entry["type"] = "runtime_session"
+      core.set %log_entry["action"] = "patch_globals"
+      core.set %log_entry["snapshot"] = %restored
+      core.call @agent_runtime_append_action_log(%state, %log_entry)
+      %event = core.map
+      core.set %event["snapshot"] = %restored
+      core.call @agent_record_trace_event(%state, "state_restore", %event)
       core.return %restored
     }
   }

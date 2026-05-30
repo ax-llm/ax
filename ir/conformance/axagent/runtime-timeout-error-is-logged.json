@@ -1,0 +1,34 @@
+{
+  "code": "while true",
+  "context_values": {
+    "question": "timeout"
+  },
+  "expected_action_log_subset": [
+    {
+      "error_category": "timeout",
+      "kind": "error"
+    }
+  ],
+  "expected_result_subset": {
+    "error": "execution timed out",
+    "error_category": "timeout",
+    "is_error": true,
+    "kind": "error"
+  },
+  "expected_trace_event_kinds": ["runtime_execute", "error"],
+  "kind": "agent_runtime_session",
+  "name": "runtime-timeout-error-is-logged",
+  "operation": "test",
+  "runtime_script": [
+    {
+      "expected_code": "while true",
+      "result": {
+        "error": "execution timed out",
+        "error_category": "timeout",
+        "is_error": true,
+        "kind": "error"
+      }
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

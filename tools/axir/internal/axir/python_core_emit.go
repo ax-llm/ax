@@ -219,6 +219,8 @@ var pythonAgentCoreFuncs = []pythonCoreFuncSpec{
 	{Symbol: "agent_export_runtime_state", Name: "_agent_export_runtime_state"},
 	{Symbol: "agent_restore_runtime_state", Name: "_agent_restore_runtime_state"},
 	{Symbol: "agent_runtime_build_globals", Name: "_agent_runtime_build_globals"},
+	{Symbol: "agent_runtime_sanitize_bindings", Name: "_agent_runtime_sanitize_bindings"},
+	{Symbol: "normalize_agent_runtime_snapshot", Name: "_normalize_agent_runtime_snapshot"},
 	{Symbol: "agent_runtime_append_action_log", Name: "_agent_runtime_append_action_log"},
 	{Symbol: "normalize_agent_runtime_step_result", Name: "_normalize_agent_runtime_step_result"},
 	{Symbol: "agent_runtime_create_session", Name: "_agent_runtime_create_session"},

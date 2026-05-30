@@ -32,17 +32,20 @@ delegation policy, the versioned policy registry, `final(...)`/
 `askClarification(...)` protocol payloads, and optimizer-facing component
 metadata as Core-owned semantics. The policy registry separates actor-visible
 primitives, protocol-only actions such as `guideAgent`, runtime globals, and
-host boundaries. Runtime-session lowering also keeps the deterministic session lifecycle in Core: global
-bootstrap, reserved-name validation, fresh `agent.test(...)` sessions,
-single-step actor execution, action-log/status records, closed-session restart
-notices, protocol normalization, and state inspect/export/restore/close shape.
+host boundaries. Runtime-session lowering also keeps the deterministic session
+lifecycle in Core: global bootstrap, reserved-name validation, fresh
+`agent.test(...)` sessions, single-step actor execution, host option envelopes,
+action-log/status records, closed-session restart notices, protocol
+normalization, reserved-name-safe state snapshots, state restore sanitization,
+and inspect/snapshot/patch/close shape.
 AxAgent trace lowering is also Core-owned: Core begins a run trace, records
 normalized host-boundary events, finalizes status/output, and emits deterministic
 fixture replay helpers. Targets only expose idiomatic wrappers around that
 portable JSON trace and continue to own real IO, callback bodies, and runtime
 execution.
-The generated targets own only host boundaries: runtime code execution, sandbox
-permissions, tool handlers, child-agent execution, recall/search callbacks,
+The generated targets own only host boundaries: runtime code execution,
+interpreter/sandbox implementation, filesystem/network permissions, native
+cancellation, tool handlers, child-agent execution, recall/search callbacks,
 skill loading, transport, and native callback invocation.
 
 Code generation remains partly template-backed for idiomatic wrappers,

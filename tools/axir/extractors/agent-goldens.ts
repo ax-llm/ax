@@ -1616,3 +1616,213 @@ writeFixture('runtime-status-records', {
   },
   expected_status_log_subset: [{ type: 'success', message: 'loaded' }],
 });
+
+writeFixture('runtime-host-boundary-globals-options', {
+  kind: 'agent_runtime_session',
+  operation: 'test',
+  signature: 'question:string, user:string -> answer:string',
+  code: 'final({ answer: inputs.question })',
+  context_values: { question: 'hello', user: 'Ada' },
+  runtime_options: { traceId: 'runtime-trace-1' },
+  runtime_script: [
+    {
+      expected_code: 'final({ answer: inputs.question })',
+      expected_options_subset: {
+        traceId: 'runtime-trace-1',
+        reservedNames: [
+          'inputs',
+          'final',
+          'askClarification',
+          'discover',
+          'recall',
+          'llmQuery',
+          'inspectRuntime',
+          'reportSuccess',
+          'reportFailure',
+        ],
+      },
+      result: { type: 'final', args: [{ answer: 'hello' }] },
+    },
+  ],
+  expected_result_subset: {
+    kind: 'final',
+    completion_payload: { type: 'final', args: [{ answer: 'hello' }] },
+  },
+  expected_create_globals_subset: {
+    inputs: { question: 'hello', user: 'Ada' },
+    context: { question: 'hello', user: 'Ada' },
+    question: 'hello',
+    user: 'Ada',
+  },
+  expected_create_options_subset: { traceId: 'runtime-trace-1' },
+  expected_execute_options_subset: {
+    traceId: 'runtime-trace-1',
+    reservedNames: [
+      'inputs',
+      'final',
+      'askClarification',
+      'discover',
+      'recall',
+      'llmQuery',
+      'inspectRuntime',
+      'reportSuccess',
+      'reportFailure',
+    ],
+  },
+});
+
+writeFixture('runtime-snapshot-sanitizes-reserved-globals', {
+  kind: 'agent_runtime_session',
+  operation: 'steps',
+  signature: 'question:string -> answer:string',
+  context_values: { question: 'sanitize' },
+  steps: [{ code: 'save reserved', export_session_state: true }],
+  runtime_script: [
+    {
+      expected_code: 'save reserved',
+      bindings_patch: {
+        safeValue: 'kept',
+        inputs: 'must not persist',
+        final: 'must not persist',
+      },
+      result: { kind: 'status', status: { type: 'success', message: 'saved' } },
+    },
+  ],
+  expected_exported_state_subset: {
+    runtime_session_state: { globals: { safeValue: 'kept' } },
+  },
+  expected_absent_runtime_session_globals: ['inputs', 'final'],
+  expected_action_log_subset: [{ action: 'snapshot_globals' }],
+});
+
+writeFixture('runtime-invalid-snapshot-rejected', {
+  kind: 'agent_runtime_session',
+  operation: 'steps',
+  signature: 'question:string -> answer:string',
+  context_values: { question: 'bad restore' },
+  steps: [
+    { code: 'first' },
+    {
+      code: 'after bad restore',
+      restore_session_state: { globals: 'not an object' },
+    },
+  ],
+  runtime_script: [
+    {
+      expected_code: 'first',
+      result: {
+        kind: 'status',
+        status: { type: 'success', message: 'started' },
+      },
+    },
+  ],
+  expected_error_contains: 'runtime session snapshot globals must be an object',
+});
+
+writeFixture('runtime-missing-snapshot-capability', {
+  kind: 'agent_runtime_session',
+  operation: 'steps',
+  signature: 'question:string -> answer:string',
+  context_values: { question: 'missing snapshot' },
+  runtime_capabilities: { snapshot: false },
+  steps: [{ code: 'state = 1', export_session_state: true }],
+  runtime_script: [
+    {
+      expected_code: 'state = 1',
+      result: {
+        kind: 'status',
+        status: { type: 'success', message: 'state saved' },
+      },
+    },
+  ],
+  expected_error_contains: 'required to export AxAgent state',
+});
+
+writeFixture('runtime-missing-patch-capability', {
+  kind: 'agent_runtime_session',
+  operation: 'steps',
+  signature: 'question:string -> answer:string',
+  context_values: { question: 'missing patch' },
+  runtime_capabilities: { patch: false },
+  steps: [
+    { code: 'state = 1' },
+    {
+      code: 'state = 2',
+      restore_session_state: { globals: { restored: true }, closed: false },
+    },
+  ],
+  runtime_script: [
+    {
+      expected_code: 'state = 1',
+      result: {
+        kind: 'status',
+        status: { type: 'success', message: 'state saved' },
+      },
+    },
+  ],
+  expected_error_contains: 'required to restore AxAgent state',
+});
+
+writeFixture('runtime-inspect-unavailable-non-js-boundary', {
+  kind: 'agent_runtime_session',
+  operation: 'steps',
+  signature: 'question:string -> answer:string',
+  context_values: { question: 'inspect' },
+  runtime_capabilities: { inspect: false },
+  steps: [{ code: 'x = 1', inspect: true }],
+  runtime_script: [
+    {
+      expected_code: 'x = 1',
+      result: { kind: 'status', status: { type: 'success', message: 'ran' } },
+    },
+  ],
+  expected_runtime_inspection_contains: 'runtime state inspection unavailable',
+  expected_action_log_subset: [{ action: 'inspect_globals' }],
+});
+
+writeFixture('runtime-timeout-error-is-logged', {
+  kind: 'agent_runtime_session',
+  operation: 'test',
+  signature: 'question:string -> answer:string',
+  code: 'while true',
+  context_values: { question: 'timeout' },
+  runtime_script: [
+    {
+      expected_code: 'while true',
+      result: {
+        kind: 'error',
+        is_error: true,
+        error_category: 'timeout',
+        error: 'execution timed out',
+      },
+    },
+  ],
+  expected_result_subset: {
+    kind: 'error',
+    is_error: true,
+    error_category: 'timeout',
+    error: 'execution timed out',
+  },
+  expected_action_log_subset: [{ kind: 'error', error_category: 'timeout' }],
+  expected_trace_event_kinds: ['runtime_execute', 'error'],
+});
+
+writeFixture('runtime-host-abort-escapes', {
+  kind: 'agent_runtime_session',
+  operation: 'test',
+  signature: 'question:string -> answer:string',
+  code: 'abort()',
+  context_values: { question: 'abort' },
+  runtime_script: [
+    {
+      expected_code: 'abort()',
+      result: {
+        kind: 'error',
+        is_error: true,
+        error_category: 'abort',
+        error: 'Aborted',
+      },
+    },
+  ],
+  expected_error_contains: 'runtime host boundary escaped abort',
+});

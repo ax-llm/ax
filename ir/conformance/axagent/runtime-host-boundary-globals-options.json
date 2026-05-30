@@ -1,0 +1,81 @@
+{
+  "code": "final({ answer: inputs.question })",
+  "context_values": {
+    "question": "hello",
+    "user": "Ada"
+  },
+  "expected_create_globals_subset": {
+    "context": {
+      "question": "hello",
+      "user": "Ada"
+    },
+    "inputs": {
+      "question": "hello",
+      "user": "Ada"
+    },
+    "question": "hello",
+    "user": "Ada"
+  },
+  "expected_create_options_subset": {
+    "traceId": "runtime-trace-1"
+  },
+  "expected_execute_options_subset": {
+    "reservedNames": [
+      "inputs",
+      "final",
+      "askClarification",
+      "discover",
+      "recall",
+      "llmQuery",
+      "inspectRuntime",
+      "reportSuccess",
+      "reportFailure"
+    ],
+    "traceId": "runtime-trace-1"
+  },
+  "expected_result_subset": {
+    "completion_payload": {
+      "args": [
+        {
+          "answer": "hello"
+        }
+      ],
+      "type": "final"
+    },
+    "kind": "final"
+  },
+  "kind": "agent_runtime_session",
+  "name": "runtime-host-boundary-globals-options",
+  "operation": "test",
+  "runtime_options": {
+    "traceId": "runtime-trace-1"
+  },
+  "runtime_script": [
+    {
+      "expected_code": "final({ answer: inputs.question })",
+      "expected_options_subset": {
+        "reservedNames": [
+          "inputs",
+          "final",
+          "askClarification",
+          "discover",
+          "recall",
+          "llmQuery",
+          "inspectRuntime",
+          "reportSuccess",
+          "reportFailure"
+        ],
+        "traceId": "runtime-trace-1"
+      },
+      "result": {
+        "args": [
+          {
+            "answer": "hello"
+          }
+        ],
+        "type": "final"
+      }
+    }
+  ],
+  "signature": "question:string, user:string -> answer:string"
+}

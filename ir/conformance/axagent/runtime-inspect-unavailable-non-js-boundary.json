@@ -1,0 +1,36 @@
+{
+  "context_values": {
+    "question": "inspect"
+  },
+  "expected_action_log_subset": [
+    {
+      "action": "inspect_globals"
+    }
+  ],
+  "expected_runtime_inspection_contains": "runtime state inspection unavailable",
+  "kind": "agent_runtime_session",
+  "name": "runtime-inspect-unavailable-non-js-boundary",
+  "operation": "steps",
+  "runtime_capabilities": {
+    "inspect": false
+  },
+  "runtime_script": [
+    {
+      "expected_code": "x = 1",
+      "result": {
+        "kind": "status",
+        "status": {
+          "message": "ran",
+          "type": "success"
+        }
+      }
+    }
+  ],
+  "signature": "question:string -> answer:string",
+  "steps": [
+    {
+      "code": "x = 1",
+      "inspect": true
+    }
+  ]
+}

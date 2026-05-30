@@ -1,0 +1,45 @@
+{
+  "context_values": {
+    "question": "sanitize"
+  },
+  "expected_absent_runtime_session_globals": ["inputs", "final"],
+  "expected_action_log_subset": [
+    {
+      "action": "snapshot_globals"
+    }
+  ],
+  "expected_exported_state_subset": {
+    "runtime_session_state": {
+      "globals": {
+        "safeValue": "kept"
+      }
+    }
+  },
+  "kind": "agent_runtime_session",
+  "name": "runtime-snapshot-sanitizes-reserved-globals",
+  "operation": "steps",
+  "runtime_script": [
+    {
+      "bindings_patch": {
+        "final": "must not persist",
+        "inputs": "must not persist",
+        "safeValue": "kept"
+      },
+      "expected_code": "save reserved",
+      "result": {
+        "kind": "status",
+        "status": {
+          "message": "saved",
+          "type": "success"
+        }
+      }
+    }
+  ],
+  "signature": "question:string -> answer:string",
+  "steps": [
+    {
+      "code": "save reserved",
+      "export_session_state": true
+    }
+  ]
+}

@@ -1356,9 +1356,17 @@ import java.util.Map;
 
 public interface AxCodeSession {
   Object execute(String code, Map<String, Object> options);
-  Object inspectGlobals(Map<String, Object> options);
-  Object exportState(Map<String, Object> options);
-  Object restoreState(Object snapshot, Map<String, Object> options);
+  default Object inspectGlobals(Map<String, Object> options) {
+    return "[runtime state inspection unavailable: runtime session does not implement inspectGlobals()]";
+  }
+  default Object snapshotGlobals(Map<String, Object> options) {
+    throw new RuntimeException("AxCodeSession.snapshotGlobals() is required to export AxAgent state");
+  }
+  default Object patchGlobals(Object snapshot, Map<String, Object> options) {
+    throw new RuntimeException("AxCodeSession.patchGlobals() is required to restore AxAgent state");
+  }
+  default Object exportState(Map<String, Object> options) { return snapshotGlobals(options); }
+  default Object restoreState(Object snapshot, Map<String, Object> options) { return patchGlobals(snapshot, options); }
   Object close();
 }
 `
@@ -3059,24 +3067,37 @@ public final class Conformance {
     final List<Object> script;
     final List<FakeCodeSession> sessions = new ArrayList<>();
     final List<String> executed = new ArrayList<>();
+    final List<Map<String, Object>> createRequests = new ArrayList<>();
+    final List<Map<String, Object>> executeOptions = new ArrayList<>();
     final String language;
     final String usageInstructions;
+    final Map<String, Object> capabilities;
 
     FakeCodeRuntime(List<Object> script) {
-      this(script, "JavaScript", "");
+      this(script, "JavaScript", "", Map.of());
     }
 
     FakeCodeRuntime(List<Object> script, String language, String usageInstructions) {
+      this(script, language, usageInstructions, Map.of());
+    }
+
+    FakeCodeRuntime(List<Object> script, String language, String usageInstructions, Map<String, Object> capabilities) {
       this.script = new ArrayList<>(script == null ? List.of() : script);
       this.language = language == null || language.isBlank() ? "JavaScript" : language;
       this.usageInstructions = usageInstructions == null ? "" : usageInstructions;
+      this.capabilities = new LinkedHashMap<>(Map.of("inspect", true, "snapshot", true, "patch", true));
+      if (capabilities != null) this.capabilities.putAll(capabilities);
     }
 
     public String language() { return language; }
     public String getUsageInstructions() { return usageInstructions; }
 
     public AxCodeSession createSession(Map<String, Object> globals, Map<String, Object> options) {
-      FakeCodeSession session = new FakeCodeSession(this, globals);
+      createRequests.add(new LinkedHashMap<>(Map.of(
+        "globals", new LinkedHashMap<>(globals == null ? Map.of() : globals),
+        "options", new LinkedHashMap<>(options == null ? Map.of() : options)
+      )));
+      FakeCodeSession session = new FakeCodeSession(this, globals, options);
       sessions.add(session);
       return session;
     }
@@ -3085,11 +3106,13 @@ public final class Conformance {
   static final class FakeCodeSession implements AxCodeSession {
     final FakeCodeRuntime runtime;
     Map<String, Object> globals;
+    Map<String, Object> createOptions;
     boolean closed;
 
-    FakeCodeSession(FakeCodeRuntime runtime, Map<String, Object> globals) {
+    FakeCodeSession(FakeCodeRuntime runtime, Map<String, Object> globals, Map<String, Object> options) {
       this.runtime = runtime;
       this.globals = new LinkedHashMap<>(globals == null ? Map.of() : globals);
+      this.createOptions = new LinkedHashMap<>(options == null ? Map.of() : options);
     }
 
     public Object execute(String code, Map<String, Object> options) {
@@ -3098,25 +3121,59 @@ public final class Conformance {
       Map<String, Object> step = Core.asMap(runtime.script.remove(0));
       Object expected = step.get("expected_code");
       if (expected != null && !String.valueOf(expected).equals(code)) throw new RuntimeException("expected code " + expected + ", got " + code);
+      if (step.containsKey("expected_options_subset")) assertSubset(options == null ? Map.of() : options, step.get("expected_options_subset"), "runtime execute options");
       runtime.executed.add(code);
+      runtime.executeOptions.add(new LinkedHashMap<>(options == null ? Map.of() : options));
       globals.putAll(Core.asMap(step.get("bindings_patch")));
       if (Boolean.TRUE.equals(step.get("close_before_result"))) closed = true;
       return step.getOrDefault("result", new LinkedHashMap<>(Map.of("kind", "result", "result", new LinkedHashMap<>(globals))));
     }
 
     public Object inspectGlobals(Map<String, Object> options) {
+      if (Boolean.FALSE.equals(runtime.capabilities.get("inspect"))) {
+        return "[runtime state inspection unavailable: runtime session does not implement inspectGlobals()]";
+      }
       return new LinkedHashMap<>(globals);
     }
 
+    public Object snapshotGlobals(Map<String, Object> options) {
+      if (Boolean.FALSE.equals(runtime.capabilities.get("snapshot"))) {
+        throw new RuntimeException("AxCodeSession.snapshotGlobals() is required to export AxAgent state");
+      }
+      List<Object> entries = new ArrayList<>();
+      for (Map.Entry<String, Object> entry : globals.entrySet()) {
+        entries.add(new LinkedHashMap<>(Map.of(
+          "name", entry.getKey(),
+          "type", entry.getValue() == null ? "null" : entry.getValue().getClass().getSimpleName(),
+          "preview", String.valueOf(entry.getValue())
+        )));
+      }
+      Map<String, Object> out = new LinkedHashMap<>();
+      out.put("version", 1);
+      out.put("entries", entries);
+      out.put("bindings", new LinkedHashMap<>(globals));
+      out.put("globals", new LinkedHashMap<>(globals));
+      out.put("closed", closed);
+      return out;
+    }
+
+    public Object patchGlobals(Object snapshot, Map<String, Object> options) {
+      if (Boolean.FALSE.equals(runtime.capabilities.get("patch"))) {
+        throw new RuntimeException("AxCodeSession.patchGlobals() is required to restore AxAgent state");
+      }
+      Map<String, Object> snap = Core.asMap(snapshot);
+      Object raw = snap.containsKey("bindings") ? snap.get("bindings") : snap.get("globals");
+      globals = new LinkedHashMap<>(Core.asMap(raw));
+      closed = Boolean.TRUE.equals(snap.get("closed"));
+      return snapshotGlobals(options);
+    }
+
     public Object exportState(Map<String, Object> options) {
-      return new LinkedHashMap<>(Map.of("globals", new LinkedHashMap<>(globals), "closed", closed));
+      return snapshotGlobals(options);
     }
 
     public Object restoreState(Object snapshot, Map<String, Object> options) {
-      Map<String, Object> snap = Core.asMap(snapshot);
-      globals = new LinkedHashMap<>(Core.asMap(snap.get("globals")));
-      closed = Boolean.TRUE.equals(snap.get("closed"));
-      return exportState(options);
+      return patchGlobals(snapshot, options);
     }
 
     public Object close() {
@@ -3665,7 +3722,12 @@ public final class Conformance {
 
   static void runAgentRuntimeSession(Map<String, Object> fixture) {
     AxAgent agent = Ax.agent(String.valueOf(fixture.getOrDefault("signature", "question:string -> answer:string")), Core.asMap(fixture.getOrDefault("options", Map.of())));
-    FakeCodeRuntime runtime = new FakeCodeRuntime(Core.asList(fixture.getOrDefault("runtime_script", List.of())));
+    FakeCodeRuntime runtime = new FakeCodeRuntime(
+      Core.asList(fixture.getOrDefault("runtime_script", List.of())),
+      "JavaScript",
+      "",
+      Core.asMap(fixture.getOrDefault("runtime_capabilities", Map.of()))
+    );
     Object result = null;
     try {
       String operation = String.valueOf(fixture.getOrDefault("operation", "test"));
@@ -3699,6 +3761,31 @@ public final class Conformance {
     if (fixture.containsKey("expected_status_log_subset")) assertListSubset(Core.asList(exported.get("status_log")), fixture.get("expected_status_log_subset"), "status log");
     if (fixture.containsKey("expected_session_count") && runtime.sessions.size() != Core.asInt(fixture.get("expected_session_count"))) throw new FixtureError("expected session count mismatch");
     if (fixture.containsKey("expected_executed")) assertEqual(runtime.executed, fixture.get("expected_executed"), "executed code");
+    if (fixture.containsKey("expected_create_globals_subset")) {
+      if (runtime.createRequests.isEmpty()) throw new FixtureError("expected at least one runtime create_session request");
+      assertSubset(Core.asMap(runtime.createRequests.get(runtime.createRequests.size() - 1).get("globals")), fixture.get("expected_create_globals_subset"), "runtime create globals");
+    }
+    if (fixture.containsKey("expected_create_options_subset")) {
+      if (runtime.createRequests.isEmpty()) throw new FixtureError("expected at least one runtime create_session request");
+      assertSubset(Core.asMap(runtime.createRequests.get(runtime.createRequests.size() - 1).get("options")), fixture.get("expected_create_options_subset"), "runtime create options");
+    }
+    if (fixture.containsKey("expected_execute_options_subset")) {
+      if (runtime.executeOptions.isEmpty()) throw new FixtureError("expected at least one runtime execute request");
+      assertSubset(runtime.executeOptions.get(runtime.executeOptions.size() - 1), fixture.get("expected_execute_options_subset"), "runtime execute options");
+    }
+    if (fixture.containsKey("expected_runtime_inspection")) assertEqual(exported.get("runtime_inspection"), fixture.get("expected_runtime_inspection"), "runtime inspection");
+    if (fixture.containsKey("expected_runtime_inspection_contains")) {
+      String actualInspection = String.valueOf(exported.get("runtime_inspection"));
+      if (!actualInspection.contains(String.valueOf(fixture.get("expected_runtime_inspection_contains")))) {
+        throw new FixtureError("runtime inspection expected to contain " + fixture.get("expected_runtime_inspection_contains") + ", got " + actualInspection);
+      }
+    }
+    if (fixture.containsKey("expected_absent_runtime_session_globals")) {
+      Map<String, Object> globals = Core.asMap(Core.get(Core.get(agent.state, "runtime_session_state", Map.of()), "globals", Map.of()));
+      for (Object key : Core.asList(fixture.get("expected_absent_runtime_session_globals"))) {
+        if (globals.containsKey(String.valueOf(key))) throw new FixtureError("runtime session globals unexpectedly contained " + key);
+      }
+    }
     assertAgentTrace(agent, fixture);
   }
 

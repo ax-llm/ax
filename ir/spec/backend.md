@@ -62,6 +62,14 @@ candidate rollout evaluation, metric/judge payload shaping, and
 prompt/component optimization contract, not a GEPA runtime; optimizer algorithms
 remain engine-owned and may call back through the evaluator to score proposals.
 
+All executable targets also expose the same AxAgent runtime host boundary:
+`AxCodeRuntime` creates persistent `AxCodeSession` objects, and sessions execute
+opaque code, inspect globals when supported, snapshot safe user bindings, patch
+restored bindings, and close. AxIR owns reserved-name filtering, snapshot shape,
+restart/error envelopes, action-log records, and trace events. Targets own the
+actual interpreter, sandbox permissions, native cancellation, filesystem/network
+access, and callback invocation.
+
 Backends must consume the lowered Core IR module or a target package model made
 from Core IR. They must not use high-level Ax dialects as their primary input.
 They must also avoid target-only semantic escapes for Core-owned behavior; see

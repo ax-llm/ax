@@ -3079,13 +3079,19 @@ class AxCodeSession:
         raise NotImplementedError
 
     def inspect_globals(self, options: dict[str, Any] | None = None) -> Any:
-        raise NotImplementedError
+        return "[runtime state inspection unavailable: runtime session does not implement inspect_globals()]"
+
+    def snapshot_globals(self, options: dict[str, Any] | None = None) -> Any:
+        raise RuntimeError("AxCodeSession.snapshot_globals() is required to export AxAgent state")
+
+    def patch_globals(self, globals: dict[str, Any], options: dict[str, Any] | None = None) -> Any:
+        raise RuntimeError("AxCodeSession.patch_globals() is required to restore AxAgent state")
 
     def export_state(self, options: dict[str, Any] | None = None) -> Any:
-        raise NotImplementedError
+        return self.snapshot_globals(options or {})
 
     def restore_state(self, snapshot: Any, options: dict[str, Any] | None = None) -> Any:
-        raise NotImplementedError
+        return self.patch_globals(snapshot or {}, options or {})
 
     def close(self) -> Any:
         return {"closed": True}
@@ -3592,22 +3598,29 @@ def _core_agent_runtime_execute(session, code, options):
 
 def _core_agent_runtime_inspect(session, options):
     if hasattr(session, "inspect_globals"):
-        return session.inspect_globals(options or {})
+        try:
+            return session.inspect_globals(options or {})
+        except NotImplementedError:
+            return "[runtime state inspection unavailable: runtime session does not implement inspect_globals()]"
     if hasattr(session, "inspect"):
         return session.inspect(options or {})
-    return {}
+    return "[runtime state inspection unavailable: runtime session does not implement inspect_globals()]"
 
 
 def _core_agent_runtime_export_state(session, options):
-    if hasattr(session, "export_state"):
+    if hasattr(session, "snapshot_globals") and type(session).snapshot_globals is not AxCodeSession.snapshot_globals:
+        return session.snapshot_globals(options or {})
+    if hasattr(session, "export_state") and type(session).export_state is not AxCodeSession.export_state:
         return session.export_state(options or {})
-    return {}
+    raise RuntimeError("AxCodeSession.snapshot_globals() is required to export AxAgent state")
 
 
 def _core_agent_runtime_restore_state(session, snapshot, options):
-    if hasattr(session, "restore_state"):
+    if hasattr(session, "patch_globals") and type(session).patch_globals is not AxCodeSession.patch_globals:
+        return session.patch_globals(snapshot or {}, options or {})
+    if hasattr(session, "restore_state") and type(session).restore_state is not AxCodeSession.restore_state:
         return session.restore_state(snapshot or {}, options or {})
-    return snapshot or {}
+    raise RuntimeError("AxCodeSession.patch_globals() is required to restore AxAgent state")
 
 
 def _core_agent_runtime_close(session):
@@ -3770,9 +3783,10 @@ class FakeTransport:
 
 
 class FakeCodeSession(AxCodeSession):
-    def __init__(self, runtime, globals_):
+    def __init__(self, runtime, globals_, options=None):
         self.runtime = runtime
         self.globals = copy.deepcopy(globals_ or {})
+        self.create_options = copy.deepcopy(options or {})
         self.closed = False
 
     def execute(self, code: str, options: dict[str, Any] | None = None) -> Any:
@@ -3784,23 +3798,48 @@ class FakeCodeSession(AxCodeSession):
         expected = step.get("expected_code")
         if expected is not None and expected != code:
             raise RuntimeError(f"expected code {expected!r}, got {code!r}")
+        if "expected_options_subset" in step:
+            _assert_subset(options or {}, step["expected_options_subset"], "runtime execute options")
         self.runtime.executed.append(code)
+        self.runtime.execute_options.append(copy.deepcopy(options or {}))
         self.globals.update(step.get("bindings_patch") or {})
         if step.get("close_before_result"):
             self.closed = True
         return copy.deepcopy(step.get("result", {"kind": "result", "result": dict(self.globals)}))
 
     def inspect_globals(self, options: dict[str, Any] | None = None) -> Any:
+        if not self.runtime.capabilities.get("inspect", True):
+            return "[runtime state inspection unavailable: runtime session does not implement inspect_globals()]"
         return copy.deepcopy(self.globals)
 
+    def snapshot_globals(self, options: dict[str, Any] | None = None) -> Any:
+        if not self.runtime.capabilities.get("snapshot", True):
+            raise RuntimeError("AxCodeSession.snapshot_globals() is required to export AxAgent state")
+        entries = [
+            {"name": key, "type": type(value).__name__, "preview": repr(value)}
+            for key, value in self.globals.items()
+        ]
+        return {
+            "version": 1,
+            "entries": entries,
+            "bindings": copy.deepcopy(self.globals),
+            "globals": copy.deepcopy(self.globals),
+            "closed": self.closed,
+        }
+
+    def patch_globals(self, snapshot: Any, options: dict[str, Any] | None = None) -> Any:
+        if not self.runtime.capabilities.get("patch", True):
+            raise RuntimeError("AxCodeSession.patch_globals() is required to restore AxAgent state")
+        snap = copy.deepcopy(snapshot or {})
+        self.globals = dict(snap.get("bindings") or snap.get("globals") or {})
+        self.closed = bool(snap.get("closed", False))
+        return self.snapshot_globals(options or {})
+
     def export_state(self, options: dict[str, Any] | None = None) -> Any:
-        return {"globals": copy.deepcopy(self.globals), "closed": self.closed}
+        return self.snapshot_globals(options or {})
 
     def restore_state(self, snapshot: Any, options: dict[str, Any] | None = None) -> Any:
-        snap = copy.deepcopy(snapshot or {})
-        self.globals = dict(snap.get("globals") or {})
-        self.closed = bool(snap.get("closed", False))
-        return self.export_state(options or {})
+        return self.patch_globals(snapshot or {}, options or {})
 
     def close(self) -> Any:
         self.closed = True
@@ -3808,18 +3847,23 @@ class FakeCodeSession(AxCodeSession):
 
 
 class FakeCodeRuntime(AxCodeRuntime):
-    def __init__(self, script=None, language="JavaScript", usage_instructions=""):
+    def __init__(self, script=None, language="JavaScript", usage_instructions="", capabilities=None):
         self.script = list(script or [])
         self.sessions = []
         self.executed = []
+        self.create_requests = []
+        self.execute_options = []
         self.language = language
         self._usage_instructions = usage_instructions
+        self.capabilities = {"inspect": True, "snapshot": True, "patch": True}
+        self.capabilities.update(capabilities or {})
 
     def get_usage_instructions(self) -> str:
         return self._usage_instructions
 
     def create_session(self, globals: dict[str, Any], options: dict[str, Any] | None = None) -> FakeCodeSession:
-        session = FakeCodeSession(self, globals)
+        self.create_requests.append({"globals": copy.deepcopy(globals or {}), "options": copy.deepcopy(options or {})})
+        session = FakeCodeSession(self, globals, options)
         self.sessions.append(session)
         return session
 
@@ -4564,7 +4608,10 @@ def _run_agent_runtime_policy(fixture):
 
 def _run_agent_runtime_session(fixture):
     ag = agent(fixture.get("signature", "question:string -> answer:string"), fixture.get("options") or {})
-    runtime = FakeCodeRuntime(fixture.get("runtime_script") or [])
+    runtime = FakeCodeRuntime(
+        fixture.get("runtime_script") or [],
+        capabilities=fixture.get("runtime_capabilities") or {},
+    )
     try:
         operation = fixture.get("operation", "test")
         if operation == "test":
@@ -4617,6 +4664,29 @@ def _run_agent_runtime_session(fixture):
         raise FixtureError(f"expected {fixture['expected_session_count']} sessions, got {len(runtime.sessions)}")
     if "expected_executed" in fixture:
         _assert_equal(runtime.executed, fixture["expected_executed"], "executed code")
+    if "expected_create_globals_subset" in fixture:
+        if not runtime.create_requests:
+            raise FixtureError("expected at least one runtime create_session request")
+        _assert_subset(runtime.create_requests[-1].get("globals") or {}, fixture["expected_create_globals_subset"], "runtime create globals")
+    if "expected_create_options_subset" in fixture:
+        if not runtime.create_requests:
+            raise FixtureError("expected at least one runtime create_session request")
+        _assert_subset(runtime.create_requests[-1].get("options") or {}, fixture["expected_create_options_subset"], "runtime create options")
+    if "expected_execute_options_subset" in fixture:
+        if not runtime.execute_options:
+            raise FixtureError("expected at least one runtime execute request")
+        _assert_subset(runtime.execute_options[-1], fixture["expected_execute_options_subset"], "runtime execute options")
+    if "expected_runtime_inspection" in fixture:
+        _assert_equal(exported.get("runtime_inspection"), fixture["expected_runtime_inspection"], "runtime inspection")
+    if "expected_runtime_inspection_contains" in fixture:
+        actual_inspection = str(exported.get("runtime_inspection"))
+        if fixture["expected_runtime_inspection_contains"] not in actual_inspection:
+            raise FixtureError(f"runtime inspection expected to contain {fixture['expected_runtime_inspection_contains']!r}, got {actual_inspection!r}")
+    if "expected_absent_runtime_session_globals" in fixture:
+        globals_ = (exported.get("runtime_session_state") or {}).get("globals") or {}
+        for key in fixture["expected_absent_runtime_session_globals"]:
+            if isinstance(globals_, dict) and key in globals_:
+                raise FixtureError(f"runtime session globals unexpectedly contained {key!r}")
     _assert_agent_trace(ag, fixture)
 
 

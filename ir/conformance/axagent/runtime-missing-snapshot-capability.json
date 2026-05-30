@@ -1,0 +1,31 @@
+{
+  "context_values": {
+    "question": "missing snapshot"
+  },
+  "expected_error_contains": "required to export AxAgent state",
+  "kind": "agent_runtime_session",
+  "name": "runtime-missing-snapshot-capability",
+  "operation": "steps",
+  "runtime_capabilities": {
+    "snapshot": false
+  },
+  "runtime_script": [
+    {
+      "expected_code": "state = 1",
+      "result": {
+        "kind": "status",
+        "status": {
+          "message": "state saved",
+          "type": "success"
+        }
+      }
+    }
+  ],
+  "signature": "question:string -> answer:string",
+  "steps": [
+    {
+      "code": "state = 1",
+      "export_session_state": true
+    }
+  ]
+}

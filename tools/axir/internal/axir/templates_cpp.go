@@ -348,6 +348,8 @@ struct Core {
   static Value _agent_export_runtime_state(Value state);
   static Value _agent_restore_runtime_state(Value state, Value snapshot);
   static Value _agent_runtime_build_globals(Value state, Value values);
+  static Value _agent_runtime_sanitize_bindings(Value bindings);
+  static Value _normalize_agent_runtime_snapshot(Value snapshot);
   static Value _agent_runtime_append_action_log(Value state, Value entry);
   static Value _normalize_agent_runtime_step_result(Value raw, Value code);
   static Value _agent_runtime_create_session(Value state, Value runtime, Value globals, Value options);
@@ -618,9 +620,17 @@ class AxCodeSession {
  public:
   virtual ~AxCodeSession() = default;
   virtual Value execute(Value code, Value options = Value::object()) = 0;
-  virtual Value inspect(Value options = Value::object()) = 0;
-  virtual Value export_state(Value options = Value::object()) = 0;
-  virtual Value restore_state(Value snapshot, Value options = Value::object()) = 0;
+  virtual Value inspect(Value options = Value::object()) {
+    return Value("[runtime state inspection unavailable: runtime session does not implement inspect_globals()]");
+  }
+  virtual Value snapshot_globals(Value options = Value::object()) {
+    throw AxError("runtime", "AxCodeSession.snapshot_globals() is required to export AxAgent state");
+  }
+  virtual Value patch_globals(Value snapshot, Value options = Value::object()) {
+    throw AxError("runtime", "AxCodeSession.patch_globals() is required to restore AxAgent state");
+  }
+  virtual Value export_state(Value options = Value::object()) { return snapshot_globals(options); }
+  virtual Value restore_state(Value snapshot, Value options = Value::object()) { return patch_globals(snapshot, options); }
   virtual Value close() = 0;
 };
 
@@ -3467,24 +3477,27 @@ struct FakeOptimizerEngine : OptimizerEngine {
   }
 };
 
+static void assert_subset(Value actual, Value expected, const std::string& label);
+
 struct FakeCodeRuntime;
 
 struct FakeCodeSession : AxCodeSession {
   FakeCodeRuntime* runtime;
   Value globals;
+  Value create_options;
   bool closed = false;
 
-  FakeCodeSession(FakeCodeRuntime* runtime_, Value globals_) : runtime(runtime_), globals(std::move(globals_)) {}
+  FakeCodeSession(FakeCodeRuntime* runtime_, Value globals_, Value options_) : runtime(runtime_), globals(std::move(globals_)), create_options(std::move(options_)) {}
 
   Value execute(Value code, Value options = Value::object()) override;
-  Value inspect(Value options = Value::object()) override { return globals; }
+  Value inspect(Value options = Value::object()) override;
+  Value snapshot_globals(Value options = Value::object()) override;
+  Value patch_globals(Value snapshot, Value options = Value::object()) override;
   Value export_state(Value options = Value::object()) override {
-    return object({{"globals", globals}, {"closed", closed}});
+    return snapshot_globals(options);
   }
   Value restore_state(Value snapshot, Value options = Value::object()) override {
-    globals = Core::get(snapshot, "globals", Value::object());
-    closed = Core::truthy(Core::get(snapshot, "closed", false));
-    return export_state(options);
+    return patch_globals(snapshot, options);
   }
   Value close() override {
     closed = true;
@@ -3496,22 +3509,59 @@ struct FakeCodeRuntime : AxCodeRuntime {
   Array script;
   std::vector<std::unique_ptr<FakeCodeSession>> sessions;
   std::vector<Value> executed;
+  std::vector<Value> create_requests;
+  std::vector<Value> execute_options;
   std::string runtime_language;
   std::string runtime_usage;
+  Value capabilities;
 
-  explicit FakeCodeRuntime(Value script_value, std::string language = "JavaScript", std::string usage = "")
-      : script(as_array(script_value)), runtime_language(std::move(language)), runtime_usage(std::move(usage)) {}
+  explicit FakeCodeRuntime(Value script_value, std::string language = "JavaScript", std::string usage = "", Value capabilities_ = Value::object())
+      : script(as_array(script_value)), runtime_language(std::move(language)), runtime_usage(std::move(usage)), capabilities(object({{"inspect", true}, {"snapshot", true}, {"patch", true}})) {
+    for (const auto& kv : as_object(capabilities_)) {
+      if (kv.first != "__order") Core::set(capabilities, kv.first, kv.second);
+    }
+  }
 
   std::string language() const override { return runtime_language.empty() ? "JavaScript" : runtime_language; }
   std::string usage_instructions() const override { return runtime_usage; }
 
   AxCodeSession* create_session(Value globals, Value options = Value::object()) override {
-    sessions.push_back(std::make_unique<FakeCodeSession>(this, std::move(globals)));
+    create_requests.push_back(object({{"globals", globals}, {"options", options}}));
+    sessions.push_back(std::make_unique<FakeCodeSession>(this, std::move(globals), std::move(options)));
     return sessions.back().get();
   }
 };
 
-Value FakeCodeSession::execute(Value code, Value) {
+Value FakeCodeSession::inspect(Value) {
+  if (!Core::truthy(Core::get(runtime->capabilities, "inspect", true))) {
+    return Value("[runtime state inspection unavailable: runtime session does not implement inspect_globals()]");
+  }
+  return globals;
+}
+
+Value FakeCodeSession::snapshot_globals(Value) {
+  if (!Core::truthy(Core::get(runtime->capabilities, "snapshot", true))) {
+    throw AxError("runtime", "AxCodeSession.snapshot_globals() is required to export AxAgent state");
+  }
+  Array entries;
+  for (const auto& kv : as_object(globals)) {
+    if (kv.first == "__order") continue;
+    entries.push_back(object({{"name", kv.first}, {"type", "json"}, {"preview", display(kv.second)}}));
+  }
+  return object({{"version", 1}, {"entries", entries}, {"bindings", globals}, {"globals", globals}, {"closed", closed}});
+}
+
+Value FakeCodeSession::patch_globals(Value snapshot, Value options) {
+  if (!Core::truthy(Core::get(runtime->capabilities, "patch", true))) {
+    throw AxError("runtime", "AxCodeSession.patch_globals() is required to restore AxAgent state");
+  }
+  Value raw = !Core::get(snapshot, "bindings", Value()).is_null() ? Core::get(snapshot, "bindings", Value::object()) : Core::get(snapshot, "globals", Value::object());
+  globals = raw;
+  closed = Core::truthy(Core::get(snapshot, "closed", false));
+  return snapshot_globals(options);
+}
+
+Value FakeCodeSession::execute(Value code, Value options) {
   if (closed) return object({{"is_error", true}, {"error_category", "session_closed"}, {"error", "session closed"}});
   if (runtime->script.empty()) throw AxError("fixture", "fake runtime exhausted");
   Value step = runtime->script.front();
@@ -3520,7 +3570,12 @@ Value FakeCodeSession::execute(Value code, Value) {
   if (!expected.is_null() && display(expected) != display(code)) {
     throw AxError("fixture", "expected code " + display(expected) + ", got " + display(code));
   }
+  Value expected_options = Core::get(step, "expected_options_subset", Value());
+  if (!expected_options.is_null()) {
+    assert_subset(options, expected_options, "runtime execute options");
+  }
   runtime->executed.emplace_back(display(code));
+  runtime->execute_options.push_back(options);
   Value patch = Core::get(step, "bindings_patch", Value::object());
   for (const auto& kv : as_object(patch)) {
     if (kv.first != "__order") Core::set(globals, kv.first, kv.second);
@@ -4218,7 +4273,7 @@ static void run_agent_runtime_policy(Value fixture) {
 
 static void run_agent_runtime_session(Value fixture) {
   AxAgent ag(Core::get(fixture, "signature", "question:string -> answer:string"), Core::get(fixture, "options", Value::object()));
-  FakeCodeRuntime runtime(Core::get(fixture, "runtime_script", Value::array()));
+  FakeCodeRuntime runtime(Core::get(fixture, "runtime_script", Value::array()), "JavaScript", "", Core::get(fixture, "runtime_capabilities", Value::object()));
   Value result;
   try {
     std::string operation = display(Core::get(fixture, "operation", "test"));
@@ -4255,6 +4310,30 @@ static void run_agent_runtime_session(Value fixture) {
     throw AxError("fixture", "expected session count mismatch");
   }
   if (!Core::get(fixture, "expected_executed").is_null()) assert_equal(Value(runtime.executed), Core::get(fixture, "expected_executed"), "executed code");
+  if (!Core::get(fixture, "expected_create_globals_subset").is_null()) {
+    if (runtime.create_requests.empty()) throw AxError("fixture", "expected at least one runtime create_session request");
+    assert_subset(Core::get(runtime.create_requests.back(), "globals", Value::object()), Core::get(fixture, "expected_create_globals_subset"), "runtime create globals");
+  }
+  if (!Core::get(fixture, "expected_create_options_subset").is_null()) {
+    if (runtime.create_requests.empty()) throw AxError("fixture", "expected at least one runtime create_session request");
+    assert_subset(Core::get(runtime.create_requests.back(), "options", Value::object()), Core::get(fixture, "expected_create_options_subset"), "runtime create options");
+  }
+  if (!Core::get(fixture, "expected_execute_options_subset").is_null()) {
+    if (runtime.execute_options.empty()) throw AxError("fixture", "expected at least one runtime execute request");
+    assert_subset(runtime.execute_options.back(), Core::get(fixture, "expected_execute_options_subset"), "runtime execute options");
+  }
+  if (!Core::get(fixture, "expected_runtime_inspection").is_null()) assert_equal(Core::get(exported, "runtime_inspection", Value()), Core::get(fixture, "expected_runtime_inspection"), "runtime inspection");
+  if (!Core::get(fixture, "expected_runtime_inspection_contains").is_null()) {
+    std::string actual_inspection = display(Core::get(exported, "runtime_inspection", Value()));
+    std::string expected_fragment = display(Core::get(fixture, "expected_runtime_inspection_contains"));
+    if (actual_inspection.find(expected_fragment) == std::string::npos) throw AxError("fixture", "runtime inspection expected fragment missing");
+  }
+  if (!Core::get(fixture, "expected_absent_runtime_session_globals").is_null()) {
+    Value globals = Core::get(Core::get(exported, "runtime_session_state", Value::object()), "globals", Value::object());
+    for (const auto& key : as_array(Core::get(fixture, "expected_absent_runtime_session_globals", Value::array()))) {
+      if (!Core::get(globals, display(key), Value()).is_null()) throw AxError("fixture", "runtime session globals unexpectedly contained " + display(key));
+    }
+  }
   assert_agent_trace(ag, fixture);
 }
 
