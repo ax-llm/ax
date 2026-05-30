@@ -1,0 +1,64 @@
+{
+  "name": "runtime-protocol-roundtrip",
+  "kind": "agent_runtime_protocol",
+  "operation": "roundtrip",
+  "create_globals": {
+    "inputs": {
+      "question": "adapter"
+    }
+  },
+  "create_options": {
+    "reservedNames": ["inputs", "final"],
+    "timeoutMs": 123
+  },
+  "execute_code": "final()",
+  "execute_options": {
+    "timeoutMs": 7
+  },
+  "patch_globals": {
+    "bindings": {
+      "answer": "patched",
+      "safe": true
+    }
+  },
+  "expected_capabilities_subset": {
+    "language": "JavaScript",
+    "usage_instructions": "fixture protocol runtime",
+    "inspect": true,
+    "snapshot": true,
+    "patch": true,
+    "abort": true
+  },
+  "expected_execute_subset": {
+    "type": "final",
+    "args": [
+      {
+        "answer": "fixture"
+      }
+    ]
+  },
+  "expected_inspect_subset": {
+    "inputs": {
+      "question": "adapter"
+    },
+    "__create_options": {
+      "reservedNames": ["inputs", "final"],
+      "timeoutMs": 123
+    },
+    "answer": "fixture"
+  },
+  "expected_snapshot_subset": {
+    "bindings": {
+      "answer": "fixture"
+    }
+  },
+  "expected_patch_subset": {
+    "bindings": {
+      "answer": "patched",
+      "safe": true
+    }
+  },
+  "expected_close_subset": {
+    "closed": true
+  }
+}

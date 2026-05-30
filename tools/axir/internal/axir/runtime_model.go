@@ -146,6 +146,8 @@ func BuildRuntimeModel(core Module) (AxRuntimeModel, error) {
 			"axagent_runtime_adapter_examples":       true,
 			"axagent_runtime_capability_negotiation": true,
 			"axagent_runtime_protocol":               true,
+			"axagent_runtime_protocol_conformance":   true,
+			"axagent_runtime_process_error_handling": true,
 			"axagent_axjs_reference_adapter":         true,
 			"axagent_process_runtime_helpers":        true,
 			"axagent_actor_step_alpha":               true,

@@ -3489,6 +3489,13 @@ Value RuntimeProtocolClient::request(Value op, Value session_id, Value payload, 
   Value message = object({{"id", std::to_string(++next_id_)}, {"op", std::move(op)}, {"payload", std::move(payload)}});
   if (!session_id.is_null()) Core::set(message, "session_id", session_id);
   Value response = transport_.call(message);
+  if (!response.is_object()) throw AxError("runtime", "runtime protocol response must be an object");
+  if (str(Core::get(response, "id")) != str(Core::get(message, "id"))) {
+    throw AxError("runtime", "runtime protocol response id mismatch");
+  }
+  if (!session_id.is_null() && !Core::get(response, "session_id").is_null() && str(Core::get(response, "session_id")) != str(session_id)) {
+    throw AxError("runtime", "runtime protocol session_id mismatch");
+  }
   if (!Core::truthy(Core::get(response, "ok", false)) && throw_on_error) {
     Value error = Core::get(response, "error", Value::object());
     throw AxError(str(Core::get(error, "category", "runtime")), str(Core::get(error, "message", "runtime protocol error")));
@@ -4586,6 +4593,162 @@ static void run_agent_runtime_adapter(Value fixture) {
   }
 }
 
+struct ProtocolFixtureTransport : RuntimeTransport {
+  std::string mode;
+  int next_session = 0;
+  Object sessions;
+
+  explicit ProtocolFixtureTransport(Value fixture_mode) : mode(display(fixture_mode.is_null() ? Value("normal") : fixture_mode)) {}
+
+  Value fail(Value id, const std::string& category, const std::string& message) {
+    return object({{"id", std::move(id)}, {"ok", false}, {"error", object({{"category", category}, {"message", message}})}});
+  }
+
+  Value ok(Value id, Value result, Value session_id = Value()) {
+    Value out = object({{"id", std::move(id)}, {"ok", true}, {"result", std::move(result)}});
+    if (!session_id.is_null()) Core::set(out, "session_id", std::move(session_id));
+    return out;
+  }
+
+  Value snapshot(Value session) {
+    Value bindings = Core::get(session, "globals", Value::object());
+    Value entry_list = Value::array();
+    for (const auto& key : Core::iter(Core::map_keys(bindings))) {
+      Core::append(entry_list, object({{"name", key}, {"type", "json"}, {"preview", display(Core::get(bindings, key))}}));
+    }
+    return object({{"version", 1}, {"entries", entry_list}, {"bindings", bindings}, {"globals", bindings}, {"closed", Core::get(session, "closed", false)}});
+  }
+
+  Value call(Value message) override {
+    if (mode == "malformed_json") return Value("not an object");
+    Value id = mode == "id_mismatch" ? Value("mismatch") : Core::get(message, "id");
+    std::string op = display(Core::get(message, "op"));
+    if (op == "capabilities") {
+      return ok(id, object({
+        {"language", "JavaScript"},
+        {"usage_instructions", "fixture protocol runtime"},
+        {"inspect", mode != "unavailable"},
+        {"snapshot", mode != "unavailable"},
+        {"patch", mode != "unavailable"},
+        {"abort", true}
+      }));
+    }
+    if (op == "create_session") {
+      std::string session_id = "s" + std::to_string(++next_session);
+      Value payload = Core::get(message, "payload", Value::object());
+      Value globals = Core::get(payload, "globals", Value::object());
+      Core::set(globals, "__create_options", Core::get(payload, "options", Value::object()));
+      sessions[session_id] = object({{"globals", globals}, {"closed", false}});
+      return ok(id, object({{"session_id", session_id}}), session_id);
+    }
+    if (op == "execute") {
+      std::string session_id = display(Core::get(message, "session_id"));
+      Value session = sessions.count(session_id) ? sessions[session_id] : Value();
+      if (session.is_null() || Core::truthy(Core::get(session, "closed", false))) return fail(Core::get(message, "id"), "session_closed", "session closed or unknown");
+      std::string code = display(Core::get(Core::get(message, "payload", Value::object()), "code", ""));
+      if (code == "timeout()") return fail(Core::get(message, "id"), "timeout", "fixture timeout");
+      if (code == "sessionClosed()") return fail(Core::get(message, "id"), "session_closed", "fixture session closed");
+      if (code == "abort()") return fail(Core::get(message, "id"), "abort", "fixture abort");
+      if (code == "userError()") return fail(Core::get(message, "id"), "user_error", "fixture user error");
+      Value globals = Core::get(session, "globals", Value::object());
+      Core::set(globals, "answer", "fixture");
+      Core::set(session, "globals", globals);
+      sessions[session_id] = session;
+      Value response = ok(id, object({{"type", "final"}, {"args", array({object({{"answer", "fixture"}})})}}), session_id);
+      if (mode == "session_mismatch") Core::set(response, "session_id", "wrong-session");
+      return response;
+    }
+    if (op == "inspect_globals") {
+      if (mode == "unavailable") return fail(Core::get(message, "id"), "unavailable", "inspectGlobals unavailable");
+      Value session_id = Core::get(message, "session_id");
+      Value session = sessions.count(display(session_id)) ? sessions[display(session_id)] : Value::object();
+      return ok(id, Core::get(session, "globals", Value::object()), session_id);
+    }
+    if (op == "snapshot_globals") {
+      if (mode == "unavailable") return fail(Core::get(message, "id"), "unavailable", "snapshotGlobals unavailable");
+      Value session_id = Core::get(message, "session_id");
+      Value session = sessions.count(display(session_id)) ? sessions[display(session_id)] : Value::object();
+      return ok(id, snapshot(session), session_id);
+    }
+    if (op == "patch_globals") {
+      if (mode == "unavailable") return fail(Core::get(message, "id"), "unavailable", "patchGlobals unavailable");
+      std::string session_id = display(Core::get(message, "session_id"));
+      Value session = sessions.count(session_id) ? sessions[session_id] : Value::object();
+      Value raw = Core::get(Core::get(message, "payload", Value::object()), "globals", Value::object());
+      Value bindings = Core::get(raw, "bindings", raw);
+      Core::set(session, "globals", bindings);
+      sessions[session_id] = session;
+      return ok(id, snapshot(session), Value(session_id));
+    }
+    if (op == "close") {
+      std::string session_id = display(Core::get(message, "session_id"));
+      Value session = sessions.count(session_id) ? sessions[session_id] : Value::object();
+      Core::set(session, "closed", true);
+      sessions[session_id] = session;
+      return ok(id, object({{"closed", true}}), Value(session_id));
+    }
+    if (op == "shutdown") return ok(id, object({{"shutdown", true}}));
+    return fail(Core::get(message, "id"), "protocol", "unknown runtime protocol op: " + op);
+  }
+};
+
+static void run_agent_runtime_protocol(Value fixture) {
+  ProtocolFixtureTransport transport(Core::get(fixture, "mode", "normal"));
+  RuntimeProtocolClient runtime(transport);
+  AxCodeSession* session = nullptr;
+  try {
+    std::string operation = display(Core::get(fixture, "operation", "roundtrip"));
+    if (operation == "roundtrip") {
+      Value capabilities = Core::get(runtime.request("capabilities", Value(), Value::object(), true), "result");
+      if (!Core::get(fixture, "expected_capabilities_subset").is_null()) assert_subset(capabilities, Core::get(fixture, "expected_capabilities_subset"), "protocol capabilities");
+      session = runtime.create_session(Core::get(fixture, "create_globals", Value::object()), Core::get(fixture, "create_options", Value::object()));
+      Value result = session->execute(Core::get(fixture, "execute_code", "final()"), Core::get(fixture, "execute_options", Value::object()));
+      if (!Core::get(fixture, "expected_execute_subset").is_null()) assert_subset(result, Core::get(fixture, "expected_execute_subset"), "protocol execute");
+      Value inspected = session->inspect(Value::object());
+      if (!Core::get(fixture, "expected_inspect_subset").is_null()) assert_subset(inspected, Core::get(fixture, "expected_inspect_subset"), "protocol inspect");
+      Value snapshot = session->snapshot_globals(Value::object());
+      if (!Core::get(fixture, "expected_snapshot_subset").is_null()) assert_subset(snapshot, Core::get(fixture, "expected_snapshot_subset"), "protocol snapshot");
+      Value patched = session->patch_globals(Core::get(fixture, "patch_globals", Value::object()), Value::object());
+      if (!Core::get(fixture, "expected_patch_subset").is_null()) assert_subset(patched, Core::get(fixture, "expected_patch_subset"), "protocol patch");
+      Value closed = session->close();
+      if (!Core::get(fixture, "expected_close_subset").is_null()) assert_subset(closed, Core::get(fixture, "expected_close_subset"), "protocol close");
+      return;
+    }
+    if (operation == "execute_error") {
+      session = runtime.create_session(Core::get(fixture, "create_globals", Value::object()), Core::get(fixture, "create_options", Value::object()));
+      Value result = session->execute(Core::get(fixture, "execute_code", "timeout()"), Core::get(fixture, "execute_options", Value::object()));
+      if (!Core::get(fixture, "expected_execute_subset").is_null()) assert_subset(result, Core::get(fixture, "expected_execute_subset"), "protocol execute error");
+      return;
+    }
+    if (operation == "unknown_op") {
+      runtime.request("unknown_op", Value(), Value::object(), true);
+      throw AxError("fixture", "expected unknown protocol op to fail");
+    }
+    if (operation == "capabilities_error") {
+      runtime.request("capabilities", Value(), Value::object(), true);
+      throw AxError("fixture", "expected protocol capabilities request to fail");
+    }
+    if (operation == "unavailable") {
+      session = runtime.create_session(Core::get(fixture, "create_globals", Value::object()), Core::get(fixture, "create_options", Value::object()));
+      std::string method = display(Core::get(fixture, "method", "inspect_globals"));
+      if (method == "snapshot_globals") session->snapshot_globals(Value::object());
+      else if (method == "patch_globals") session->patch_globals(Value::object(), Value::object());
+      else session->inspect(Value::object());
+      throw AxError("fixture", "expected unavailable protocol method to fail");
+    }
+    if (operation == "session_mismatch") {
+      session = runtime.create_session(Core::get(fixture, "create_globals", Value::object()), Core::get(fixture, "create_options", Value::object()));
+      runtime.request("execute", "s1", object({{"code", Core::get(fixture, "execute_code", "final()")}, {"options", Value::object()}}), true);
+      throw AxError("fixture", "expected protocol session mismatch to fail");
+    }
+    throw AxError("fixture", "unknown runtime protocol operation " + operation);
+  } catch (const AxError& error) {
+    Value expected = Core::get(fixture, "expected_error_contains");
+    if (!expected.is_null() && std::string(error.what()).find(display(expected)) != std::string::npos) return;
+    throw;
+  }
+}
+
 struct ClientFixture {
   FakeTransport transport;
   OpenAICompatibleClient client;
@@ -4865,6 +5028,8 @@ static void run(Value fixture) {
     run_agent_runtime_session(fixture);
   } else if (kind == "agent_runtime_adapter") {
     run_agent_runtime_adapter(fixture);
+  } else if (kind == "agent_runtime_protocol") {
+    run_agent_runtime_protocol(fixture);
   } else if (kind == "program_contract") {
     run_program_contract(fixture);
   } else if (kind == "flow") {

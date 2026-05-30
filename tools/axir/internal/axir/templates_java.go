@@ -2952,6 +2952,12 @@ const javaConformance = `package dev.ax;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -3182,7 +3188,135 @@ public final class Conformance {
     }
   }
 
+  static Map<String, Object> protocolOk(Object id, Object result) {
+    return protocolOk(id, result, null);
+  }
+
+  static Map<String, Object> protocolOk(Object id, Object result, Object sessionId) {
+    Map<String, Object> out = new LinkedHashMap<>();
+    out.put("id", id);
+    out.put("ok", true);
+    out.put("result", result == null ? Map.of() : result);
+    if (sessionId != null) out.put("session_id", sessionId);
+    return out;
+  }
+
+  static Map<String, Object> protocolFail(Object id, String category, String message) {
+    return new LinkedHashMap<>(Map.of(
+      "id", id,
+      "ok", false,
+      "error", new LinkedHashMap<>(Map.of("category", category, "message", message))
+    ));
+  }
+
+  static Map<String, Object> protocolSnapshot(Map<String, Object> session) {
+    Map<String, Object> bindings = new LinkedHashMap<>(Core.asMap(session.getOrDefault("globals", Map.of())));
+    List<Object> entries = new ArrayList<>();
+    for (Map.Entry<String, Object> entry : bindings.entrySet()) {
+      entries.add(new LinkedHashMap<>(Map.of("name", entry.getKey(), "type", entry.getValue() == null ? "null" : entry.getValue().getClass().getSimpleName(), "preview", String.valueOf(entry.getValue()))));
+    }
+    Map<String, Object> out = new LinkedHashMap<>();
+    out.put("version", 1);
+    out.put("entries", entries);
+    out.put("bindings", bindings);
+    out.put("globals", new LinkedHashMap<>(bindings));
+    out.put("closed", Boolean.TRUE.equals(session.get("closed")));
+    return out;
+  }
+
+  static void runRuntimeProtocolFixtureServer() throws Exception {
+    String mode = System.getenv().getOrDefault("AXIR_RUNTIME_PROTOCOL_FIXTURE_MODE", "normal");
+    Map<String, Map<String, Object>> sessions = new LinkedHashMap<>();
+    int nextSession = 0;
+    BufferedReader reader = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
+    BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(System.out, StandardCharsets.UTF_8));
+    for (String line; (line = reader.readLine()) != null;) {
+      if ("eof".equals(mode)) return;
+      if ("malformed_json".equals(mode)) {
+        writer.write("{not-json");
+        writer.newLine();
+        writer.flush();
+        return;
+      }
+      if ("nonzero".equals(mode)) {
+        System.err.println("fixture stderr before nonzero exit");
+        System.exit(7);
+      }
+      Map<String, Object> message = Core.asMap(Json.parse(line));
+      Object id = "id_mismatch".equals(mode) ? "mismatch" : message.get("id");
+      String op = String.valueOf(message.get("op"));
+      Map<String, Object> response;
+      if ("capabilities".equals(op)) {
+        response = protocolOk(id, new LinkedHashMap<>(Map.of(
+          "language", "JavaScript",
+          "usage_instructions", "fixture protocol runtime",
+          "inspect", !"unavailable".equals(mode),
+          "snapshot", !"unavailable".equals(mode),
+          "patch", !"unavailable".equals(mode),
+          "abort", true
+        )));
+      } else if ("create_session".equals(op)) {
+        String sessionId = "s" + (++nextSession);
+        Map<String, Object> payload = Core.asMap(message.getOrDefault("payload", Map.of()));
+        Map<String, Object> globals = new LinkedHashMap<>(Core.asMap(payload.getOrDefault("globals", Map.of())));
+        globals.put("__create_options", new LinkedHashMap<>(Core.asMap(payload.getOrDefault("options", Map.of()))));
+        sessions.put(sessionId, new LinkedHashMap<>(Map.of("globals", globals, "closed", false)));
+        response = protocolOk(id, new LinkedHashMap<>(Map.of("session_id", sessionId)), sessionId);
+      } else if ("execute".equals(op)) {
+        String sessionId = String.valueOf(message.get("session_id"));
+        Map<String, Object> session = sessions.get(sessionId);
+        if (session == null || Boolean.TRUE.equals(session.get("closed"))) {
+          response = protocolFail(message.get("id"), "session_closed", "session closed or unknown");
+        } else {
+          Map<String, Object> payload = Core.asMap(message.getOrDefault("payload", Map.of()));
+          String code = String.valueOf(payload.getOrDefault("code", ""));
+          if ("timeout()".equals(code)) response = protocolFail(message.get("id"), "timeout", "fixture timeout");
+          else if ("sessionClosed()".equals(code)) response = protocolFail(message.get("id"), "session_closed", "fixture session closed");
+          else if ("abort()".equals(code)) response = protocolFail(message.get("id"), "abort", "fixture abort");
+          else if ("userError()".equals(code)) response = protocolFail(message.get("id"), "user_error", "fixture user error");
+          else {
+            Core.asMap(session.get("globals")).put("answer", "fixture");
+            response = protocolOk(id, new LinkedHashMap<>(Map.of("type", "final", "args", List.of(new LinkedHashMap<>(Map.of("answer", "fixture"))))), sessionId);
+          }
+        }
+        if ("session_mismatch".equals(mode) && Boolean.TRUE.equals(response.get("ok"))) response.put("session_id", "wrong-session");
+      } else if ("inspect_globals".equals(op)) {
+        if ("unavailable".equals(mode)) response = protocolFail(message.get("id"), "unavailable", "inspectGlobals unavailable");
+        else response = protocolOk(id, new LinkedHashMap<>(Core.asMap(sessions.getOrDefault(String.valueOf(message.get("session_id")), Map.of()).getOrDefault("globals", Map.of()))), message.get("session_id"));
+      } else if ("snapshot_globals".equals(op)) {
+        if ("unavailable".equals(mode)) response = protocolFail(message.get("id"), "unavailable", "snapshotGlobals unavailable");
+        else response = protocolOk(id, protocolSnapshot(sessions.getOrDefault(String.valueOf(message.get("session_id")), Map.of())), message.get("session_id"));
+      } else if ("patch_globals".equals(op)) {
+        if ("unavailable".equals(mode)) response = protocolFail(message.get("id"), "unavailable", "patchGlobals unavailable");
+        else {
+          Map<String, Object> session = sessions.get(String.valueOf(message.get("session_id")));
+          Map<String, Object> payload = Core.asMap(message.getOrDefault("payload", Map.of()));
+          Map<String, Object> raw = Core.asMap(payload.getOrDefault("globals", Map.of()));
+          Map<String, Object> bindings = raw.containsKey("bindings") ? Core.asMap(raw.get("bindings")) : raw;
+          if (session != null) session.put("globals", new LinkedHashMap<>(bindings));
+          response = protocolOk(id, protocolSnapshot(session == null ? Map.of() : session), message.get("session_id"));
+        }
+      } else if ("close".equals(op)) {
+        Map<String, Object> session = sessions.get(String.valueOf(message.get("session_id")));
+        if (session != null) session.put("closed", true);
+        response = protocolOk(id, new LinkedHashMap<>(Map.of("closed", true)), message.get("session_id"));
+      } else if ("shutdown".equals(op)) {
+        response = protocolOk(id, new LinkedHashMap<>(Map.of("shutdown", true)));
+      } else {
+        response = protocolFail(message.get("id"), "protocol", "unknown runtime protocol op: " + op);
+      }
+      writer.write(Json.stringify(response));
+      writer.newLine();
+      writer.flush();
+      if ("shutdown".equals(op)) return;
+    }
+  }
+
   public static void main(String[] args) throws Exception {
+    if (args.length > 0 && "--runtime-protocol-fixture-server".equals(args[0])) {
+      runRuntimeProtocolFixtureServer();
+      return;
+    }
     if (args.length == 0) throw new IllegalArgumentException("usage: java dev.ax.Conformance <fixture-or-dir>...");
     for (String arg : args) {
       for (Path path : expand(Path.of(arg))) {
@@ -3224,6 +3358,7 @@ public final class Conformance {
       case "agent_runtime_policy" -> runAgentRuntimePolicy(fixture);
       case "agent_runtime_session" -> runAgentRuntimeSession(fixture);
       case "agent_runtime_adapter" -> runAgentRuntimeAdapter(fixture);
+      case "agent_runtime_protocol" -> runAgentRuntimeProtocol(fixture);
       case "program_contract" -> runProgramContract(fixture);
       case "flow" -> runFlow(fixture);
       case "optimize" -> runOptimize(fixture);
@@ -3815,7 +3950,7 @@ public final class Conformance {
 	    };
 	  }
 
-	  static void runAgentRuntimeAdapter(Map<String, Object> fixture) {
+  static void runAgentRuntimeAdapter(Map<String, Object> fixture) {
 	    if (fixture.containsKey("capabilities")) {
 	      Map<String, Object> raw = Core.asMap(fixture.get("capabilities"));
 	      AxRuntimeCapabilities capabilities = new AxRuntimeCapabilities()
@@ -3847,9 +3982,78 @@ public final class Conformance {
 	      if (fixture.containsKey("expected_result_subset")) sessionFixture.put("expected_result_subset", fixture.get("expected_result_subset"));
 	      if (fixture.containsKey("expected_action_log_subset")) sessionFixture.put("expected_action_log_subset", fixture.get("expected_action_log_subset"));
 	      if (fixture.containsKey("expected_trace_event_kinds")) sessionFixture.put("expected_trace_event_kinds", fixture.get("expected_trace_event_kinds"));
-	      runAgentRuntimeSession(sessionFixture);
-	    }
-	  }
+      runAgentRuntimeSession(sessionFixture);
+    }
+  }
+
+  static AxProcessCodeRuntime runtimeProtocolRuntime(String mode) {
+    String javaBin = System.getProperty("java.home") + File.separator + "bin" + File.separator + "java";
+    String classPath = System.getProperty("java.class.path");
+    return new AxProcessCodeRuntime(
+      List.of(javaBin, "-cp", classPath, "dev.ax.Conformance", "--runtime-protocol-fixture-server"),
+      null,
+      Map.of("AXIR_RUNTIME_PROTOCOL_FIXTURE_MODE", mode == null ? "normal" : mode)
+    );
+  }
+
+  static void runAgentRuntimeProtocol(Map<String, Object> fixture) {
+    AxProcessCodeRuntime runtime = runtimeProtocolRuntime(String.valueOf(fixture.getOrDefault("mode", "normal")));
+    AxCodeSession session = null;
+    try {
+      String operation = String.valueOf(fixture.getOrDefault("operation", "roundtrip"));
+      if ("roundtrip".equals(operation)) {
+        Map<String, Object> capabilities = Json.asObject(runtime.request("capabilities", null, Map.of(), true).get("result"));
+        if (fixture.containsKey("expected_capabilities_subset")) assertSubset(capabilities, fixture.get("expected_capabilities_subset"), "protocol capabilities");
+        session = runtime.createSession(Core.asMap(fixture.getOrDefault("create_globals", Map.of())), Core.asMap(fixture.getOrDefault("create_options", Map.of())));
+        Object result = session.execute(String.valueOf(fixture.getOrDefault("execute_code", "final()")), Core.asMap(fixture.getOrDefault("execute_options", Map.of())));
+        if (fixture.containsKey("expected_execute_subset")) assertSubset(result, fixture.get("expected_execute_subset"), "protocol execute");
+        Object inspected = session.inspectGlobals(Map.of());
+        if (fixture.containsKey("expected_inspect_subset")) assertSubset(inspected, fixture.get("expected_inspect_subset"), "protocol inspect");
+        Object snapshot = session.snapshotGlobals(Map.of());
+        if (fixture.containsKey("expected_snapshot_subset")) assertSubset(snapshot, fixture.get("expected_snapshot_subset"), "protocol snapshot");
+        Object patched = session.patchGlobals(fixture.getOrDefault("patch_globals", Map.of()), Map.of());
+        if (fixture.containsKey("expected_patch_subset")) assertSubset(patched, fixture.get("expected_patch_subset"), "protocol patch");
+        Object closed = session.close();
+        if (fixture.containsKey("expected_close_subset")) assertSubset(closed, fixture.get("expected_close_subset"), "protocol close");
+        return;
+      }
+      if ("execute_error".equals(operation)) {
+        session = runtime.createSession(Core.asMap(fixture.getOrDefault("create_globals", Map.of())), Core.asMap(fixture.getOrDefault("create_options", Map.of())));
+        Object result = session.execute(String.valueOf(fixture.getOrDefault("execute_code", "timeout()")), Core.asMap(fixture.getOrDefault("execute_options", Map.of())));
+        if (fixture.containsKey("expected_execute_subset")) assertSubset(result, fixture.get("expected_execute_subset"), "protocol execute error");
+        return;
+      }
+      if ("unknown_op".equals(operation)) {
+        runtime.request("unknown_op", null, Map.of(), true);
+        throw new FixtureError("expected unknown protocol op to fail");
+      }
+      if ("capabilities_error".equals(operation)) {
+        runtime.request("capabilities", null, Map.of(), true);
+        throw new FixtureError("expected protocol capabilities request to fail");
+      }
+      if ("unavailable".equals(operation)) {
+        session = runtime.createSession(Core.asMap(fixture.getOrDefault("create_globals", Map.of())), Core.asMap(fixture.getOrDefault("create_options", Map.of())));
+        String method = String.valueOf(fixture.getOrDefault("method", "inspect_globals"));
+        if ("snapshot_globals".equals(method)) session.snapshotGlobals(Map.of());
+        else if ("patch_globals".equals(method)) session.patchGlobals(Map.of(), Map.of());
+        else session.inspectGlobals(Map.of());
+        throw new FixtureError("expected unavailable protocol method to fail");
+      }
+      if ("session_mismatch".equals(operation)) {
+        session = runtime.createSession(Core.asMap(fixture.getOrDefault("create_globals", Map.of())), Core.asMap(fixture.getOrDefault("create_options", Map.of())));
+        runtime.request("execute", "s1", Map.of("code", fixture.getOrDefault("execute_code", "final()"), "options", Map.of()), true);
+        throw new FixtureError("expected protocol session mismatch to fail");
+      }
+      throw new FixtureError("unknown runtime protocol operation " + operation);
+    } catch (RuntimeException e) {
+      String expected = (String) fixture.get("expected_error_contains");
+      if (expected != null && String.valueOf(e.getMessage()).contains(expected)) return;
+      throw e;
+    } finally {
+      try { if (session != null) session.close(); } catch (RuntimeException ignored) {}
+      runtime.close();
+    }
+  }
 
 	  static void runAIChat(Map<String, Object> fixture) {
     ClientFixture cf = openaiClient(fixture);

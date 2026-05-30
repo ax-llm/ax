@@ -1,0 +1,8 @@
+{
+  "name": "runtime-protocol-unavailable-inspect",
+  "kind": "agent_runtime_protocol",
+  "operation": "unavailable",
+  "mode": "unavailable",
+  "method": "inspect_globals",
+  "expected_error_contains": "inspectGlobals unavailable"
+}

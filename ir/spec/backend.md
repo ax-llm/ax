@@ -84,7 +84,10 @@ use `{ "id", "op", "session_id"?, "payload"? }`; responses use `{ "id",
 `snapshot_globals`, `patch_globals`, `close`, and `shutdown`. Python and Java
 ship process-backed helpers for this protocol. C++ ships a standard-library
 `RuntimeTransport`/`RuntimeProtocolClient` boundary and leaves process launching
-to host code.
+to host code. Backends must treat malformed responses, response id mismatches,
+session id mismatches, unavailable optional capabilities, and host error
+envelopes as part of the conformance contract rather than adapter-specific
+details.
 
 Backends must consume the lowered Core IR module or a target package model made
 from Core IR. They must not use high-level Ax dialects as their primary input.

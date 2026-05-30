@@ -215,6 +215,8 @@ func TestBuildRuntimeModel(t *testing.T) {
 		"axagent_runtime_adapter_examples",
 		"axagent_runtime_capability_negotiation",
 		"axagent_runtime_protocol",
+		"axagent_runtime_protocol_conformance",
+		"axagent_runtime_process_error_handling",
 		"axagent_axjs_reference_adapter",
 		"axagent_process_runtime_helpers",
 		"axagent_actor_step_alpha",
@@ -1127,6 +1129,17 @@ func TestAxAgentConformanceFixturesLoad(t *testing.T) {
 					t.Fatalf("%s missing adapter helper_calls or run_session", file)
 				}
 			}
+		case "agent_runtime_protocol":
+			if _, ok := fixture["operation"]; !ok {
+				t.Fatalf("%s missing runtime protocol operation", file)
+			}
+			if _, ok := fixture["expected_execute_subset"]; !ok {
+				if _, ok := fixture["expected_capabilities_subset"]; !ok {
+					if _, ok := fixture["expected_error_contains"]; !ok {
+						t.Fatalf("%s missing runtime protocol expectation", file)
+					}
+				}
+			}
 		default:
 			t.Fatalf("%s has unknown axagent kind %v", file, fixture["kind"])
 		}
@@ -1722,6 +1735,7 @@ func TestPythonGeneratedIdioms(t *testing.T) {
 		"def session_closed(",
 		"def ask_clarification(",
 		"def guide_agent(",
+		"runtime protocol response id mismatch",
 	} {
 		if !strings.Contains(runtimeText, want) {
 			t.Fatalf("generated Python runtime adapter helpers missing %q", want)
@@ -1917,7 +1931,7 @@ func TestJavaGeneratedCoreRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(conformanceFile), "public final class Conformance") || !strings.Contains(string(conformanceFile), "case \"ai_chat\"") || !strings.Contains(string(conformanceFile), "case \"agent_forward\"") || !strings.Contains(string(conformanceFile), "case \"agent_runtime_policy\"") || !strings.Contains(string(conformanceFile), "case \"agent_runtime_session\"") || !strings.Contains(string(conformanceFile), "case \"agent_runtime_adapter\"") || !strings.Contains(string(conformanceFile), "case \"optimize\"") {
+	if !strings.Contains(string(conformanceFile), "public final class Conformance") || !strings.Contains(string(conformanceFile), "case \"ai_chat\"") || !strings.Contains(string(conformanceFile), "case \"agent_forward\"") || !strings.Contains(string(conformanceFile), "case \"agent_runtime_policy\"") || !strings.Contains(string(conformanceFile), "case \"agent_runtime_session\"") || !strings.Contains(string(conformanceFile), "case \"agent_runtime_adapter\"") || !strings.Contains(string(conformanceFile), "case \"agent_runtime_protocol\"") || !strings.Contains(string(conformanceFile), "case \"optimize\"") {
 		t.Fatal("generated Java conformance runner is missing expected fixture dispatch")
 	}
 	runtimeEnvelopeFile, err := os.ReadFile(filepath.Join(dir, "dev", "ax", "AxRuntimeEnvelope.java"))
@@ -2139,6 +2153,7 @@ func TestCppGeneratedCoreRuntime(t *testing.T) {
 		`kind == "agent_runtime_policy"`,
 		`kind == "agent_runtime_session"`,
 		`kind == "agent_runtime_adapter"`,
+		`kind == "agent_runtime_protocol"`,
 		`kind == "optimize"`,
 	} {
 		if !strings.Contains(conformanceText, want) {

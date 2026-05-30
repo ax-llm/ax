@@ -173,9 +173,16 @@ class ProcessCodeRuntime:
             line = self._process.stdout.readline()
             if not line:
                 raise RuntimeError("runtime protocol process closed without a response")
-            response = json.loads(line)
+            try:
+                response = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise RuntimeError(f"runtime protocol invalid JSON response: {exc.msg}") from exc
             if not isinstance(response, dict):
                 raise RuntimeError("runtime protocol response must be an object")
+            if str(response.get("id")) != str(message["id"]):
+                raise RuntimeError("runtime protocol response id mismatch")
+            if session_id is not None and response.get("session_id") not in (None, session_id):
+                raise RuntimeError("runtime protocol session_id mismatch")
             if response.get("ok") is False:
                 error = response.get("error") if isinstance(response.get("error"), dict) else {}
                 raise RuntimeProtocolError(
@@ -407,7 +414,24 @@ public final class AxProcessCodeRuntime implements AxCodeRuntime, AutoCloseable 
       writer.flush();
       String line = reader.readLine();
       if (line == null) throw new RuntimeException("runtime protocol process closed without a response");
-      Map<String, Object> response = Json.asObject(Json.parse(line));
+      Object parsed;
+      try {
+        parsed = Json.parse(line);
+      } catch (RuntimeException ex) {
+        throw new RuntimeException("runtime protocol invalid JSON response: " + ex.getMessage(), ex);
+      }
+      Map<String, Object> response;
+      try {
+        response = Json.asObject(parsed);
+      } catch (RuntimeException ex) {
+        throw new RuntimeException("runtime protocol response must be an object", ex);
+      }
+      if (!String.valueOf(message.get("id")).equals(String.valueOf(response.get("id")))) {
+        throw new RuntimeException("runtime protocol response id mismatch");
+      }
+      if (sessionId != null && response.get("session_id") != null && !sessionId.equals(String.valueOf(response.get("session_id")))) {
+        throw new RuntimeException("runtime protocol session_id mismatch");
+      }
       if (Boolean.FALSE.equals(response.get("ok")) && throwOnError) {
         Map<String, Object> error = Json.asObject(response.get("error"));
         throw new RuntimeException(String.valueOf(error.getOrDefault("message", "runtime protocol error")));

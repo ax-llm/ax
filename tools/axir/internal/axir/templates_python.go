@@ -3706,6 +3706,7 @@ const pyConformance = `from __future__ import annotations
 
 import copy
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -3740,7 +3741,7 @@ from .agent import (
     agent,
 )
 from .prompt import AxPromptTemplate, render_template_content, validate_prompt_template_syntax
-from .runtime import RuntimeCapabilities, RuntimeEnvelope
+from .runtime import ProcessCodeRuntime, RuntimeCapabilities, RuntimeEnvelope, RuntimeProtocolError
 from .schema import strip_internal, to_json_schema, validate_output, validate_value
 from .signature import AxSignature, f, s
 from .tool import fn
@@ -3875,6 +3876,129 @@ class FakeCodeRuntime(AxCodeRuntime):
         return session
 
 
+def _runtime_protocol_response(message, result=None, *, ok=True, error=None, session_id=None):
+    out = {"id": message.get("id"), "ok": ok}
+    if ok:
+        out["result"] = result if result is not None else {}
+    else:
+        out["error"] = error or {"category": "runtime", "message": "runtime protocol error"}
+    if session_id is not None:
+        out["session_id"] = session_id
+    return out
+
+
+def _runtime_protocol_fail(message, category, message_text):
+    return _runtime_protocol_response(message, ok=False, error={"category": category, "message": message_text})
+
+
+def _runtime_protocol_snapshot(session):
+    bindings = copy.deepcopy(session.get("globals") or {})
+    return {
+        "version": 1,
+        "entries": [{"name": key, "type": type(value).__name__, "preview": str(value)} for key, value in bindings.items()],
+        "bindings": bindings,
+        "globals": copy.deepcopy(bindings),
+        "closed": bool(session.get("closed")),
+    }
+
+
+def _runtime_protocol_fixture_server_main():
+    mode = os.environ.get("AXIR_RUNTIME_PROTOCOL_FIXTURE_MODE", "normal")
+    sessions: dict[str, dict[str, Any]] = {}
+    next_session = 0
+    for line in sys.stdin:
+        if mode == "eof":
+            return
+        if mode == "malformed_json":
+            print("{not-json", flush=True)
+            return
+        if mode == "nonzero":
+            print("fixture stderr before nonzero exit", file=sys.stderr, flush=True)
+            raise SystemExit(7)
+        try:
+            message = json.loads(line)
+            op = message.get("op")
+            response_id = "mismatch" if mode == "id_mismatch" else message.get("id")
+            if op == "capabilities":
+                response = {"id": response_id, "ok": True, "result": {
+                    "language": "JavaScript",
+                    "usage_instructions": "fixture protocol runtime",
+                    "inspect": mode != "unavailable",
+                    "snapshot": mode != "unavailable",
+                    "patch": mode != "unavailable",
+                    "abort": True,
+                }}
+            elif op == "create_session":
+                next_session += 1
+                session_id = f"s{next_session}"
+                payload = message.get("payload") if isinstance(message.get("payload"), dict) else {}
+                globals_ = copy.deepcopy(payload.get("globals") if isinstance(payload.get("globals"), dict) else {})
+                globals_["__create_options"] = copy.deepcopy(payload.get("options") if isinstance(payload.get("options"), dict) else {})
+                sessions[session_id] = {"globals": globals_, "closed": False}
+                response = {"id": response_id, "ok": True, "session_id": session_id, "result": {"session_id": session_id}}
+            elif op == "execute":
+                session_id = message.get("session_id")
+                session = sessions.get(session_id or "")
+                if not session or session.get("closed"):
+                    response = _runtime_protocol_fail(message, "session_closed", "session closed or unknown")
+                else:
+                    payload = message.get("payload") if isinstance(message.get("payload"), dict) else {}
+                    code = str(payload.get("code") or "")
+                    if code == "timeout()":
+                        response = _runtime_protocol_fail(message, "timeout", "fixture timeout")
+                    elif code == "sessionClosed()":
+                        response = _runtime_protocol_fail(message, "session_closed", "fixture session closed")
+                    elif code == "abort()":
+                        response = _runtime_protocol_fail(message, "abort", "fixture abort")
+                    elif code == "userError()":
+                        response = _runtime_protocol_fail(message, "user_error", "fixture user error")
+                    else:
+                        session["globals"]["answer"] = "fixture"
+                        response = _runtime_protocol_response(message, {"type": "final", "args": [{"answer": "fixture"}]}, session_id=session_id)
+                if mode == "session_mismatch" and response.get("ok"):
+                    response["session_id"] = "wrong-session"
+            elif op == "inspect_globals":
+                if mode == "unavailable":
+                    response = _runtime_protocol_fail(message, "unavailable", "inspectGlobals unavailable")
+                else:
+                    response = _runtime_protocol_response(message, copy.deepcopy((sessions.get(message.get("session_id") or "") or {}).get("globals") or {}), session_id=message.get("session_id"))
+            elif op == "snapshot_globals":
+                if mode == "unavailable":
+                    response = _runtime_protocol_fail(message, "unavailable", "snapshotGlobals unavailable")
+                else:
+                    response = _runtime_protocol_response(message, _runtime_protocol_snapshot(sessions.get(message.get("session_id") or "") or {}), session_id=message.get("session_id"))
+            elif op == "patch_globals":
+                if mode == "unavailable":
+                    response = _runtime_protocol_fail(message, "unavailable", "patchGlobals unavailable")
+                else:
+                    session = sessions.get(message.get("session_id") or "")
+                    payload = message.get("payload") if isinstance(message.get("payload"), dict) else {}
+                    raw = payload.get("globals") if isinstance(payload.get("globals"), dict) else {}
+                    bindings = raw.get("bindings") if isinstance(raw.get("bindings"), dict) else raw
+                    if session is not None:
+                        session["globals"] = copy.deepcopy(bindings)
+                    response = _runtime_protocol_response(message, _runtime_protocol_snapshot(session or {}), session_id=message.get("session_id"))
+            elif op == "close":
+                session = sessions.get(message.get("session_id") or "")
+                if session is not None:
+                    session["closed"] = True
+                response = _runtime_protocol_response(message, {"closed": True}, session_id=message.get("session_id"))
+            elif op == "shutdown":
+                response = _runtime_protocol_response(message, {"shutdown": True})
+            else:
+                response = _runtime_protocol_fail(message, "protocol", f"unknown runtime protocol op: {op}")
+            print(json.dumps(response, separators=(",", ":")), flush=True)
+            if op == "shutdown":
+                return
+        except Exception as exc:
+            print(json.dumps(_runtime_protocol_fail({"id": None}, "protocol", str(exc))), flush=True)
+
+
+def _runtime_protocol_command(mode="normal"):
+    env = {"AXIR_RUNTIME_PROTOCOL_FIXTURE_MODE": mode}
+    return ProcessCodeRuntime([sys.executable, "-m", "ax.conformance", "--runtime-protocol-fixture-server"], env=env)
+
+
 def run_fixtures(paths):
     results = []
     for path in _expand_paths(paths):
@@ -3933,6 +4057,8 @@ def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
             _run_agent_runtime_session(fixture)
         elif kind == "agent_runtime_adapter":
             _run_agent_runtime_adapter(fixture)
+        elif kind == "agent_runtime_protocol":
+            _run_agent_runtime_protocol(fixture)
         elif kind == "program_contract":
             _run_program_contract(fixture)
         elif kind == "flow":
@@ -4766,6 +4892,71 @@ def _run_agent_runtime_adapter(fixture):
         _run_agent_runtime_session({k: v for k, v in session_fixture.items() if v is not None})
 
 
+def _run_agent_runtime_protocol(fixture):
+    runtime = _runtime_protocol_command(fixture.get("mode", "normal"))
+    session = None
+    try:
+        operation = fixture.get("operation", "roundtrip")
+        if operation == "roundtrip":
+            capabilities = runtime._request("capabilities", None, {}).get("result")
+            if "expected_capabilities_subset" in fixture:
+                _assert_subset(capabilities, fixture["expected_capabilities_subset"], "protocol capabilities")
+            session = runtime.create_session(fixture.get("create_globals") or {}, fixture.get("create_options") or {})
+            result = session.execute(fixture.get("execute_code", "final()"), fixture.get("execute_options") or {})
+            if "expected_execute_subset" in fixture:
+                _assert_subset(result, fixture["expected_execute_subset"], "protocol execute")
+            inspected = session.inspect_globals({})
+            if "expected_inspect_subset" in fixture:
+                _assert_subset(inspected, fixture["expected_inspect_subset"], "protocol inspect")
+            snapshot = session.snapshot_globals({})
+            if "expected_snapshot_subset" in fixture:
+                _assert_subset(snapshot, fixture["expected_snapshot_subset"], "protocol snapshot")
+            patched = session.patch_globals(fixture.get("patch_globals") or {}, {})
+            if "expected_patch_subset" in fixture:
+                _assert_subset(patched, fixture["expected_patch_subset"], "protocol patch")
+            closed = session.close()
+            if "expected_close_subset" in fixture:
+                _assert_subset(closed, fixture["expected_close_subset"], "protocol close")
+            return
+        if operation == "execute_error":
+            session = runtime.create_session(fixture.get("create_globals") or {}, fixture.get("create_options") or {})
+            result = session.execute(fixture.get("execute_code", "timeout()"), fixture.get("execute_options") or {})
+            if "expected_execute_subset" in fixture:
+                _assert_subset(result, fixture["expected_execute_subset"], "protocol execute error")
+            return
+        if operation == "unknown_op":
+            runtime._request("unknown_op", None, {})
+            raise FixtureError("expected unknown protocol op to fail")
+        if operation == "capabilities_error":
+            runtime._request("capabilities", None, {})
+            raise FixtureError("expected protocol capabilities request to fail")
+        if operation == "unavailable":
+            session = runtime.create_session(fixture.get("create_globals") or {}, fixture.get("create_options") or {})
+            method = getattr(session, fixture.get("method", "inspect_globals"))
+            method({})
+            raise FixtureError("expected unavailable protocol method to fail")
+        if operation == "session_mismatch":
+            session = runtime.create_session(fixture.get("create_globals") or {}, fixture.get("create_options") or {})
+            runtime._request("execute", "s1", {"code": fixture.get("execute_code", "final()"), "options": {}})
+            raise FixtureError("expected protocol session mismatch to fail")
+        raise FixtureError(f"unknown runtime protocol operation {operation!r}")
+    except Exception as exc:
+        expected = fixture.get("expected_error_contains")
+        if expected and expected in str(exc):
+            return
+        raise
+    finally:
+        try:
+            if session is not None:
+                session.close()
+        except Exception:
+            pass
+        try:
+            runtime.shutdown()
+        except Exception:
+            pass
+
+
 def _run_ai_chat(fixture):
     client, transport = _openai_fixture_client(fixture)
     result = client.chat(fixture["request"], fixture.get("options"))
@@ -5078,6 +5269,9 @@ def _expand_paths(paths):
 
 def main(argv=None):
     argv = list(argv or sys.argv[1:])
+    if argv and argv[0] == "--runtime-protocol-fixture-server":
+        _runtime_protocol_fixture_server_main()
+        return
     if not argv:
         raise SystemExit("usage: python -m ax.conformance <fixture-or-dir>...")
     for result in run_fixtures(argv):
