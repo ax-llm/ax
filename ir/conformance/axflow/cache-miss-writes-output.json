@@ -1,0 +1,47 @@
+{
+  "kind": "flow",
+  "name": "cache-miss-writes-output",
+  "source": {
+    "tsDerived": true,
+    "extractor": "tools/axir/extractors/flow-goldens.ts",
+    "reference": [
+      "src/ax/flow/flow.ts",
+      "src/ax/flow/steps.ts",
+      "src/ax/flow/executor.ts",
+      "src/ax/flow/executionPlanner.ts",
+      "src/ax/dsp/program.ts"
+    ],
+    "name": "cache-miss-writes-output",
+    "observed": {
+      "rule": "TS writes final returned state after a cache miss."
+    }
+  },
+  "input": {
+    "question": "Cache miss?"
+  },
+  "steps": [
+    {
+      "kind": "execute",
+      "name": "qa",
+      "signature": "question:string -> answer:string"
+    }
+  ],
+  "returns": {
+    "answer": "answer"
+  },
+  "forward_options": {
+    "cache_store": {}
+  },
+  "responses": [
+    {
+      "content": "{\"answer\":\"Stored\"}"
+    }
+  ],
+  "expected_output": {
+    "answer": "Stored"
+  },
+  "expected_request_count": 1,
+  "expected_cache_value_for_input": {
+    "answer": "Stored"
+  }
+}

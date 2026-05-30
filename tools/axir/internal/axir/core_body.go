@@ -126,6 +126,8 @@ const (
 	IntrinsicAxGenRecordFunction    CoreIntrinsic = "intrinsic.axgen.record_function_call"
 	IntrinsicAgentStageForward      CoreIntrinsic = "intrinsic.agent.stage_forward"
 	IntrinsicAgentStageChatLog      CoreIntrinsic = "intrinsic.agent.stage_chat_log"
+	IntrinsicAgentStageUsage        CoreIntrinsic = "intrinsic.agent.stage_usage"
+	IntrinsicAgentStageTraces       CoreIntrinsic = "intrinsic.agent.stage_traces"
 	IntrinsicAgentClarificationErr  CoreIntrinsic = "intrinsic.agent.clarification_error"
 	IntrinsicAgentRuntimeCreate     CoreIntrinsic = "intrinsic.agent.runtime.create_session"
 	IntrinsicAgentRuntimeExecute    CoreIntrinsic = "intrinsic.agent.runtime.execute"
@@ -239,6 +241,8 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicAxGenRecordFunction:    "_core_axgen_record_function_call",
 	IntrinsicAgentStageForward:      "_core_agent_stage_forward",
 	IntrinsicAgentStageChatLog:      "_core_agent_stage_chat_log",
+	IntrinsicAgentStageUsage:        "_core_agent_stage_usage",
+	IntrinsicAgentStageTraces:       "_core_agent_stage_traces",
 	IntrinsicAgentClarificationErr:  "_core_agent_clarification_error",
 	IntrinsicAgentRuntimeCreate:     "_core_agent_runtime_create_session",
 	IntrinsicAgentRuntimeExecute:    "_core_agent_runtime_execute",
@@ -361,6 +365,8 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.axgen.record_function_call":            true,
 	"intrinsic.agent.stage_forward":                   true,
 	"intrinsic.agent.stage_chat_log":                  true,
+	"intrinsic.agent.stage_usage":                     true,
+	"intrinsic.agent.stage_traces":                    true,
 	"intrinsic.agent.clarification_error":             true,
 	"intrinsic.agent.runtime.create_session":          true,
 	"intrinsic.agent.runtime.execute":                 true,
@@ -631,6 +637,8 @@ var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.tool.invoke":                  intrinsicInfo("intrinsic.tool.invoke", 2, 2, true, "json"),
 	"intrinsic.agent.stage_forward":          intrinsicInfo("intrinsic.agent.stage_forward", 4, 4, true, "json"),
 	"intrinsic.agent.stage_chat_log":         intrinsicInfo("intrinsic.agent.stage_chat_log", 1, 1, true, "list<json>"),
+	"intrinsic.agent.stage_usage":            intrinsicInfo("intrinsic.agent.stage_usage", 1, 1, true, "json"),
+	"intrinsic.agent.stage_traces":           intrinsicInfo("intrinsic.agent.stage_traces", 1, 1, true, "list<json>"),
 	"intrinsic.agent.clarification_error":    intrinsicInfo("intrinsic.agent.clarification_error", 2, 2, true, "error"),
 	"intrinsic.agent.runtime.create_session": intrinsicInfo("intrinsic.agent.runtime.create_session", 3, 3, true, "json"),
 	"intrinsic.agent.runtime.execute":        intrinsicInfo("intrinsic.agent.runtime.execute", 3, 3, true, "json"),

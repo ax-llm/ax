@@ -192,14 +192,277 @@ const runSimpleForward = async () => {
       },
     ],
     returns: { answer: 'answer' },
-    responses: [{ content: '{"answer":"Paris"}' }],
+    responses: [
+      {
+        content: '{"answer":"Paris"}',
+        usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 },
+      },
+    ],
     expected_output: { answer: 'Paris' },
     expected_request_count: 1,
     expected_chat_log_subset: [{ name: 'qa' }],
-    expected_trace_kinds: ['flow_start', 'flow_step', 'flow_done'],
+    expected_trace_kinds: [
+      'flow_start',
+      'flow_step',
+      'flow_child_trace',
+      'flow_done',
+    ],
+    expected_trace_subset: [{ kind: 'flow_child_trace', name: 'qa' }],
+    expected_usage_subset: {
+      qa: [{ prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 }],
+    },
     expected_components_subset: [
       { id: 'qa.flow::graph-plan', kind: 'flow-graph' },
     ],
+  });
+};
+
+const writeExecutionRuntimeFixtures = async () => {
+  const dynamicProgram = new ScriptedProgram(
+    'question:string -> answer:string',
+    { answer: 'dynamic' }
+  );
+  const dynamicFlow = flow<{ question: string }, { answer: string }>()
+    .node('qa', dynamicProgram)
+    .execute('qa', (state) => ({ question: state.question }))
+    .returns((state) => ({ answer: String((state as any).qaResult.answer) }));
+  const dynamicOut = await dynamicFlow.forward(
+    { name: 'mock' } as unknown as AxAIService,
+    { question: 'dynamic?' },
+    { model: 'gpt-flow-fixture', traceLabel: 'outer' } as any
+  );
+
+  writeFixture(flowDir, 'dynamic-options-trace-label.json', {
+    kind: 'flow',
+    name: 'dynamic-options-trace-label',
+    source: source('dynamic-options-trace-label', {
+      output: dynamicOut,
+      childCallOptions: dynamicProgram.calls[0]?.options,
+    }),
+    input: { question: 'dynamic?' },
+    steps: [
+      {
+        kind: 'execute',
+        name: 'qa',
+        signature: 'question:string -> answer:string',
+        options: {
+          reads: ['question'],
+          writes: ['qaResult'],
+          isBarrier: false,
+        },
+      },
+    ],
+    returns: { answer: 'answer' },
+    forward_options: { model: 'gpt-flow-fixture', traceLabel: 'outer' },
+    responses: [{ content: '{"answer":"dynamic"}' }],
+    expected_output: { answer: 'dynamic' },
+    expected_request_count: 1,
+    expected_request_contains: ['gpt-flow-fixture'],
+  });
+
+  const cacheProgram = new ScriptedProgram('question:string -> answer:string', {
+    answer: 'miss',
+  });
+  const cacheFlow = flow<{ question: string }, { answer: string }>()
+    .node('qa', cacheProgram)
+    .execute('qa', (state) => ({ question: state.question }))
+    .returns((state) => ({ answer: String((state as any).qaResult.answer) }));
+  const cacheEvents: Array<Record<string, unknown>> = [];
+  const cache = new Map<string, unknown>();
+  cache.set('fixture-hit', { answer: 'Cached' });
+  const cacheHit = await cacheFlow.forward(
+    { name: 'mock' } as unknown as AxAIService,
+    { question: 'Cached?' },
+    {
+      cachingFunction: async (_key: string, value?: unknown) => {
+        cacheEvents.push({ value });
+        return cache.get('fixture-hit');
+      },
+    } as any
+  );
+
+  writeFixture(flowDir, 'cache-hit-skips-execution.json', {
+    kind: 'flow',
+    name: 'cache-hit-skips-execution',
+    source: source('cache-hit-skips-execution', {
+      output: cacheHit,
+      calls: cacheProgram.calls.length,
+      cacheEvents,
+    }),
+    input: { question: 'Cached?' },
+    steps: [
+      {
+        kind: 'execute',
+        name: 'qa',
+        signature: 'question:string -> answer:string',
+      },
+    ],
+    returns: { answer: 'answer' },
+    cache_seed_value: { answer: 'Cached' },
+    forward_options: { cache_store: {} },
+    expected_output: { answer: 'Cached' },
+    expected_request_count: 0,
+    expected_trace_kinds: [],
+  });
+
+  writeFixture(flowDir, 'cache-miss-writes-output.json', {
+    kind: 'flow',
+    name: 'cache-miss-writes-output',
+    source: source('cache-miss-writes-output', {
+      rule: 'TS writes final returned state after a cache miss.',
+    }),
+    input: { question: 'Cache miss?' },
+    steps: [
+      {
+        kind: 'execute',
+        name: 'qa',
+        signature: 'question:string -> answer:string',
+      },
+    ],
+    returns: { answer: 'answer' },
+    forward_options: { cache_store: {} },
+    responses: [{ content: '{"answer":"Stored"}' }],
+    expected_output: { answer: 'Stored' },
+    expected_request_count: 1,
+    expected_cache_value_for_input: { answer: 'Stored' },
+  });
+
+  writeFixture(flowDir, 'cache-errors-are-swallowed.json', {
+    kind: 'flow',
+    name: 'cache-errors-are-swallowed',
+    source: source('cache-errors-are-swallowed', {
+      rule: 'TS ignores cache read/write callback failures.',
+    }),
+    input: { question: 'Cache error?' },
+    steps: [
+      {
+        kind: 'execute',
+        name: 'qa',
+        signature: 'question:string -> answer:string',
+      },
+    ],
+    returns: { answer: 'answer' },
+    cache_seed_value: { answer: 'Ignored' },
+    forward_options: {
+      cache_store: {},
+      cache_read_error: true,
+      cache_write_error: true,
+    },
+    responses: [{ content: '{"answer":"Recovered"}' }],
+    expected_output: { answer: 'Recovered' },
+    expected_request_count: 1,
+    expected_cache_value_for_input: { answer: 'Ignored' },
+  });
+
+  writeFixture(flowDir, 'explicit-parallel-merge-execution.json', {
+    kind: 'flow',
+    name: 'explicit-parallel-merge-execution',
+    source: source('explicit-parallel-merge-execution', {
+      rule: 'Explicit parallel and merge are barriers but still shape state deterministically.',
+    }),
+    input: { question: 'parallel?' },
+    steps: [
+      {
+        kind: 'parallel',
+        name: '_parallelResults',
+        options: {
+          writes: ['_parallelResults'],
+          isBarrier: true,
+          parallel_results: [{ left: 'l' }, { right: 'r' }],
+        },
+      },
+      {
+        kind: 'parallelMerge',
+        name: 'combined',
+        options: {
+          reads: ['_parallelResults'],
+          writes: ['combined'],
+          isBarrier: true,
+        },
+      },
+    ],
+    returns: { combined: 'combined' },
+    expected_output: { combined: [{ left: 'l' }, { right: 'r' }] },
+    expected_request_count: 0,
+  });
+
+  const innerProgram = new ScriptedProgram('question:string -> answer:string', {
+    answer: 'Nested Paris',
+  });
+  const innerFlow = flow<{ question: string }, { answer: string }>()
+    .node('inner', innerProgram)
+    .execute('inner', (state) => ({ question: state.question }))
+    .returns((state) => ({
+      answer: String((state as any).innerResult.answer),
+    }));
+  const outerFlow = flow<{ question: string }, { answer: string }>()
+    .node('nested', innerFlow as any)
+    .execute('nested', (state) => ({ question: state.question }))
+    .returns((state) => ({
+      answer: String((state as any).nestedResult.answer),
+    }));
+  const nestedOut = await outerFlow.forward(
+    { name: 'mock' } as unknown as AxAIService,
+    { question: 'nested?' }
+  );
+
+  writeFixture(flowDir, 'nested-flow-program-call.json', {
+    kind: 'flow',
+    name: 'nested-flow-program-call',
+    source: source('nested-flow-program-call', {
+      output: nestedOut,
+      chatLogNames: outerFlow.getChatLog().map((entry) => entry.name),
+    }),
+    input: { question: 'nested?' },
+    steps: [
+      {
+        kind: 'execute',
+        name: 'nested',
+        program: 'flow',
+        options: {
+          reads: ['question'],
+          writes: ['nestedResult'],
+          isBarrier: false,
+        },
+        steps: [
+          {
+            kind: 'execute',
+            name: 'inner',
+            signature: 'question:string -> answer:string',
+            options: {
+              reads: ['question'],
+              writes: ['innerResult'],
+              isBarrier: false,
+            },
+          },
+        ],
+        returns: { answer: 'answer' },
+      },
+    ],
+    returns: { answer: 'answer' },
+    responses: [{ content: '{"answer":"Nested Paris"}' }],
+    expected_output: { answer: 'Nested Paris' },
+    expected_request_count: 1,
+    expected_chat_log_subset: [{ name: 'nested.inner' }],
+  });
+
+  writeFixture(flowDir, 'abort-before-step.json', {
+    kind: 'flow',
+    name: 'abort-before-step',
+    source: source('abort-before-step', {
+      rule: 'TS checks abort before running a planned step.',
+    }),
+    input: { question: 'stop?' },
+    steps: [
+      {
+        kind: 'execute',
+        name: 'qa',
+        signature: 'question:string -> answer:string',
+      },
+    ],
+    forward_options: { abort_before_step: true },
+    responses: [{ content: '{"answer":"never"}' }],
+    expected_error_contains: 'Flow aborted',
   });
 };
 
@@ -533,6 +796,7 @@ const writeDemoFixture = () => {
 writeProgramFixtures();
 writePlanFixtures();
 await runSimpleForward();
+await writeExecutionRuntimeFixtures();
 await writeMapAndCacheFixtures();
 writeDemoFixture();
 

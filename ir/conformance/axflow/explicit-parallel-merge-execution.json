@@ -1,0 +1,63 @@
+{
+  "kind": "flow",
+  "name": "explicit-parallel-merge-execution",
+  "source": {
+    "tsDerived": true,
+    "extractor": "tools/axir/extractors/flow-goldens.ts",
+    "reference": [
+      "src/ax/flow/flow.ts",
+      "src/ax/flow/steps.ts",
+      "src/ax/flow/executor.ts",
+      "src/ax/flow/executionPlanner.ts",
+      "src/ax/dsp/program.ts"
+    ],
+    "name": "explicit-parallel-merge-execution",
+    "observed": {
+      "rule": "Explicit parallel and merge are barriers but still shape state deterministically."
+    }
+  },
+  "input": {
+    "question": "parallel?"
+  },
+  "steps": [
+    {
+      "kind": "parallel",
+      "name": "_parallelResults",
+      "options": {
+        "writes": ["_parallelResults"],
+        "isBarrier": true,
+        "parallel_results": [
+          {
+            "left": "l"
+          },
+          {
+            "right": "r"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "parallelMerge",
+      "name": "combined",
+      "options": {
+        "reads": ["_parallelResults"],
+        "writes": ["combined"],
+        "isBarrier": true
+      }
+    }
+  ],
+  "returns": {
+    "combined": "combined"
+  },
+  "expected_output": {
+    "combined": [
+      {
+        "left": "l"
+      },
+      {
+        "right": "r"
+      }
+    ]
+  },
+  "expected_request_count": 0
+}

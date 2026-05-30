@@ -1,0 +1,69 @@
+{
+  "kind": "flow",
+  "name": "nested-flow-program-call",
+  "source": {
+    "tsDerived": true,
+    "extractor": "tools/axir/extractors/flow-goldens.ts",
+    "reference": [
+      "src/ax/flow/flow.ts",
+      "src/ax/flow/steps.ts",
+      "src/ax/flow/executor.ts",
+      "src/ax/flow/executionPlanner.ts",
+      "src/ax/dsp/program.ts"
+    ],
+    "name": "nested-flow-program-call",
+    "observed": {
+      "output": {
+        "answer": "Nested Paris"
+      },
+      "chatLogNames": ["nested.inner"]
+    }
+  },
+  "input": {
+    "question": "nested?"
+  },
+  "steps": [
+    {
+      "kind": "execute",
+      "name": "nested",
+      "program": "flow",
+      "options": {
+        "reads": ["question"],
+        "writes": ["nestedResult"],
+        "isBarrier": false
+      },
+      "steps": [
+        {
+          "kind": "execute",
+          "name": "inner",
+          "signature": "question:string -> answer:string",
+          "options": {
+            "reads": ["question"],
+            "writes": ["innerResult"],
+            "isBarrier": false
+          }
+        }
+      ],
+      "returns": {
+        "answer": "answer"
+      }
+    }
+  ],
+  "returns": {
+    "answer": "answer"
+  },
+  "responses": [
+    {
+      "content": "{\"answer\":\"Nested Paris\"}"
+    }
+  ],
+  "expected_output": {
+    "answer": "Nested Paris"
+  },
+  "expected_request_count": 1,
+  "expected_chat_log_subset": [
+    {
+      "name": "nested.inner"
+    }
+  ]
+}

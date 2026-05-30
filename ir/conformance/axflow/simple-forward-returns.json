@@ -93,7 +93,12 @@
   },
   "responses": [
     {
-      "content": "{\"answer\":\"Paris\"}"
+      "content": "{\"answer\":\"Paris\"}",
+      "usage": {
+        "prompt_tokens": 1,
+        "completion_tokens": 2,
+        "total_tokens": 3
+      }
     }
   ],
   "expected_output": {
@@ -105,7 +110,27 @@
       "name": "qa"
     }
   ],
-  "expected_trace_kinds": ["flow_start", "flow_step", "flow_done"],
+  "expected_trace_kinds": [
+    "flow_start",
+    "flow_step",
+    "flow_child_trace",
+    "flow_done"
+  ],
+  "expected_trace_subset": [
+    {
+      "kind": "flow_child_trace",
+      "name": "qa"
+    }
+  ],
+  "expected_usage_subset": {
+    "qa": [
+      {
+        "prompt_tokens": 1,
+        "completion_tokens": 2,
+        "total_tokens": 3
+      }
+    ]
+  },
   "expected_components_subset": [
     {
       "id": "qa.flow::graph-plan",

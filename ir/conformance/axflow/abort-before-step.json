@@ -1,0 +1,38 @@
+{
+  "kind": "flow",
+  "name": "abort-before-step",
+  "source": {
+    "tsDerived": true,
+    "extractor": "tools/axir/extractors/flow-goldens.ts",
+    "reference": [
+      "src/ax/flow/flow.ts",
+      "src/ax/flow/steps.ts",
+      "src/ax/flow/executor.ts",
+      "src/ax/flow/executionPlanner.ts",
+      "src/ax/dsp/program.ts"
+    ],
+    "name": "abort-before-step",
+    "observed": {
+      "rule": "TS checks abort before running a planned step."
+    }
+  },
+  "input": {
+    "question": "stop?"
+  },
+  "steps": [
+    {
+      "kind": "execute",
+      "name": "qa",
+      "signature": "question:string -> answer:string"
+    }
+  ],
+  "forward_options": {
+    "abort_before_step": true
+  },
+  "responses": [
+    {
+      "content": "{\"answer\":\"never\"}"
+    }
+  ],
+  "expected_error_contains": "Flow aborted"
+}

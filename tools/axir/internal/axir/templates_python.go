@@ -2759,7 +2759,13 @@ from .gen import (
     _core_truthy,
     _filter_optimization_components,
 )
-from .agent import _core_agent_stage_chat_log, _core_agent_stage_forward, _optimization_component
+from .agent import (
+    _core_agent_stage_chat_log,
+    _core_agent_stage_forward,
+    _core_agent_stage_traces,
+    _core_agent_stage_usage,
+    _optimization_component,
+)
 
 
 class _FlowCallable:
@@ -2904,6 +2910,10 @@ def _core_add(left, right):
     return left + right
 
 
+def _core_and(left, right):
+    return bool(left and right)
+
+
 def _core_len(value):
     return len(value or [])
 
@@ -2914,6 +2924,22 @@ def _core_gt(left, right):
 
 def _core_contains(container, item):
     return False if container is None else item in container
+
+
+def _core_none():
+    return None
+
+
+def _core_is_not_none(value):
+    return value is not None
+
+
+def _core_list_get(values, index, default=None):
+    return values[index] if values is not None and 0 <= int(index) < len(values) else default
+
+
+def _core_map_contains(values, key):
+    return isinstance(values, dict) and key in values
 
 
 def _core_map_update(target, values):
@@ -3430,6 +3456,27 @@ def _core_agent_stage_forward(stage, client, values, options):
 def _core_agent_stage_chat_log(stage):
     if hasattr(stage, "get_chat_log"):
         return stage.get_chat_log()
+    return []
+
+
+def _core_agent_stage_usage(stage):
+    if hasattr(stage, "get_usage"):
+        usage = stage.get_usage()
+        if usage:
+            return usage
+    if hasattr(stage, "get_chat_log"):
+        items = []
+        for entry in stage.get_chat_log() or []:
+            usage = _core_get(entry, "usage")
+            if usage:
+                items.append(usage)
+        return items
+    return []
+
+
+def _core_agent_stage_traces(stage):
+    if hasattr(stage, "get_traces"):
+        return stage.get_traces()
     return []
 
 
@@ -3974,7 +4021,15 @@ def _build_flow(fixture):
             output = copy.deepcopy(step.get("output") or {})
             fl.map(name, lambda _state, output=output: copy.deepcopy(output), step.get("options") or {})
             continue
-        program = ax(step.get("signature", fixture.get("signature", "question:string -> answer:string")), step.get("options") or {})
+        if step.get("program") == "flow":
+            program = _build_flow({
+                "flow_options": step.get("flow_options") or {"id": step.get("program_id", f"root.{name}")},
+                "steps": step.get("steps") or [],
+                "returns": step.get("returns") or {},
+                "signature": step.get("signature", fixture.get("signature", "question:string -> answer:string")),
+            })
+        else:
+            program = ax(step.get("signature", fixture.get("signature", "question:string -> answer:string")), step.get("options") or {})
         step_options = {**(step.get("forward_options") or {}), **(step.get("options") or {})}
         if kind == "derive":
             fl.derive(name, program, step_options)
@@ -4015,7 +4070,11 @@ def _run_flow(fixture):
         if fixture.get("operation") == "plan":
             return
         client = FakeAIService(fixture.get("responses") or [], fixture.get("stream_events") or [])
-        output = fl.forward(client, fixture.get("input") or {}, fixture.get("forward_options") or {})
+        forward_options = copy.deepcopy(fixture.get("forward_options") or {})
+        if "cache_seed_value" in fixture:
+            cache_store = forward_options.setdefault("cache_store", {})
+            cache_store[_flow_cache_key(fixture.get("input") or {})] = copy.deepcopy(fixture.get("cache_seed_value"))
+        output = fl.forward(client, fixture.get("input") or {}, forward_options)
     except Exception as exc:
         expected = fixture.get("expected_error_contains")
         if expected and expected in str(exc):
@@ -4027,10 +4086,25 @@ def _run_flow(fixture):
         _assert_equal(output, fixture["expected_output"], "flow output")
     if "expected_request_count" in fixture and len(client.requests) != fixture["expected_request_count"]:
         raise FixtureError(f"expected {fixture['expected_request_count']} requests, got {len(client.requests)}")
+    if "expected_request_contains" in fixture:
+        request_text = json.dumps(client.requests, sort_keys=True)
+        for item in fixture.get("expected_request_contains") or []:
+            if str(item) not in request_text:
+                raise FixtureError(f"flow request missing {item!r}: {request_text}")
     if "expected_chat_log_subset" in fixture:
         _assert_list_subset(fl.get_chat_log(), fixture["expected_chat_log_subset"], "flow chat log")
     if "expected_trace_kinds" in fixture:
         _assert_equal([event.get("kind") for event in fl.get_traces()], fixture["expected_trace_kinds"], "flow trace kinds")
+    if "expected_trace_subset" in fixture:
+        _assert_list_subset(fl.get_traces(), fixture["expected_trace_subset"], "flow traces")
+    if "expected_usage_subset" in fixture:
+        _assert_subset(fl.get_usage(), fixture["expected_usage_subset"], "flow usage")
+    if "expected_cache_store_subset" in fixture:
+        cache_store = forward_options.get("cache_store") or forward_options.get("cacheStore") or {}
+        _assert_subset(cache_store, fixture["expected_cache_store_subset"], "flow cache store")
+    if "expected_cache_value_for_input" in fixture:
+        cache_store = forward_options.get("cache_store") or forward_options.get("cacheStore") or {}
+        _assert_equal(cache_store.get(_flow_cache_key(fixture.get("input") or {})), fixture["expected_cache_value_for_input"], "flow cache value")
     if "expected_components_subset" in fixture:
         _assert_list_subset(fl.get_optimizable_components(), fixture["expected_components_subset"], "flow components")
 

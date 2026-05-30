@@ -246,6 +246,11 @@ func TestBuildRuntimeModel(t *testing.T) {
 		"axflow_auto_parallel_barriers",
 		"axflow_actual_input_cache_key",
 		"axflow_optimizer_components",
+		"axflow_execution_runtime",
+		"axflow_child_program_aggregation",
+		"axflow_cache_runtime",
+		"axflow_dynamic_options",
+		"axflow_abort_boundary",
 	} {
 		if !model.Features[feature] {
 			t.Fatalf("runtime model missing prompt feature flag %s: %#v", feature, model.Features)

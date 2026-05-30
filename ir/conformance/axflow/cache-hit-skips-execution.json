@@ -1,0 +1,47 @@
+{
+  "kind": "flow",
+  "name": "cache-hit-skips-execution",
+  "source": {
+    "tsDerived": true,
+    "extractor": "tools/axir/extractors/flow-goldens.ts",
+    "reference": [
+      "src/ax/flow/flow.ts",
+      "src/ax/flow/steps.ts",
+      "src/ax/flow/executor.ts",
+      "src/ax/flow/executionPlanner.ts",
+      "src/ax/dsp/program.ts"
+    ],
+    "name": "cache-hit-skips-execution",
+    "observed": {
+      "output": {
+        "answer": "Cached"
+      },
+      "calls": 0,
+      "cacheEvents": [{}]
+    }
+  },
+  "input": {
+    "question": "Cached?"
+  },
+  "steps": [
+    {
+      "kind": "execute",
+      "name": "qa",
+      "signature": "question:string -> answer:string"
+    }
+  ],
+  "returns": {
+    "answer": "answer"
+  },
+  "cache_seed_value": {
+    "answer": "Cached"
+  },
+  "forward_options": {
+    "cache_store": {}
+  },
+  "expected_output": {
+    "answer": "Cached"
+  },
+  "expected_request_count": 0,
+  "expected_trace_kinds": []
+}

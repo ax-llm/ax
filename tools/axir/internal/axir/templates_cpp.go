@@ -152,7 +152,7 @@ struct Core {
   static AxError as_error(Value error);
   static Value coerce_chat_request(Value request);
   static Value client_ref(AIClient& client);
-  static Value agent_stage_ref(AxGen& stage);
+  static Value agent_stage_ref(AxProgram& stage);
   static Value code_runtime_ref(AxCodeRuntime& runtime);
   static Value object_call_method(Value target, Value method_name, Value arg = Value());
   static Value ai_complete_once(Value client, Value request);
@@ -190,6 +190,8 @@ struct Core {
   static Value axgen_record_function_call(Value gen, Value call, Value result, Value status);
   static Value agent_stage_forward(Value stage, Value client, Value values, Value options);
   static Value agent_stage_chat_log(Value stage);
+  static Value agent_stage_usage(Value stage);
+  static Value agent_stage_traces(Value stage);
   static Value agent_clarification_error(Value payload, Value state);
   static Value agent_runtime_create_session(Value runtime, Value globals, Value options);
   static Value agent_runtime_execute(Value session, Value code, Value options);
@@ -397,6 +399,16 @@ struct Core {
   static Value _flow_plan_can_share_group(Value group, Value candidate);
   static Value _flow_plan(Value flow);
   static Value _flow_cache_key(Value values);
+  static Value _flow_cache_read_write(Value flow, Value values, Value options, Value mode, Value output);
+  static Value _flow_check_abort(Value options, Value location);
+  static Value _flow_project_returns(Value state, Value returns);
+  static Value _flow_record_child_chat_log(Value flow, Value node, Value program);
+  static Value _flow_record_child_usage(Value flow, Value node, Value program);
+  static Value _flow_record_child_traces(Value flow, Value node, Value program);
+  static Value _flow_execute_program_node(Value flow, Value step, Value client, Value state, Value options);
+  static Value _flow_execute_step(Value flow, Value step, Value plan_step, Value client, Value state, Value options);
+  static Value _flow_merge_parallel_results(Value state, Value result);
+  static Value _flow_execute_steps(Value flow, Value client, Value state, Value options);
   static Value _flow_forward(Value flow, Value client, Value values, Value options);
 };
 
@@ -518,6 +530,9 @@ class AxProgram {
   virtual ~AxProgram() = default;
   virtual Value forward(AIClient& client, Value values, Value options = Value::object()) = 0;
   virtual Value get_optimizable_components() const { return Value::array(); }
+  virtual Value get_traces() const { return Value::array(); }
+  virtual Value get_chat_log() const { return Value::array(); }
+  virtual Value get_usage() const { return Value::object(); }
 };
 
 class AxGen : public AxProgram {
@@ -557,8 +572,8 @@ class AxGen : public AxProgram {
 class AxFlow : public AxProgram {
  public:
   explicit AxFlow(Value options = Value::object());
-  AxFlow& execute(std::string name, AxGen& program, Value options = Value::object());
-  AxFlow& derive(std::string name, AxGen& program, Value options = Value::object());
+  AxFlow& execute(std::string name, AxProgram& program, Value options = Value::object());
+  AxFlow& derive(std::string name, AxProgram& program, Value options = Value::object());
   AxFlow& map(std::string name, std::function<Value(Value)> mapper);
   AxFlow& map(std::string name, std::function<Value(Value)> mapper, Value options);
   AxFlow& parallel(Value steps);
@@ -726,8 +741,8 @@ static std::map<std::string, AIClient*>& client_registry() {
   return clients;
 }
 
-static std::map<std::string, AxGen*>& agent_stage_registry() {
-  static std::map<std::string, AxGen*> stages;
+static std::map<std::string, AxProgram*>& agent_stage_registry() {
+  static std::map<std::string, AxProgram*> stages;
   return stages;
 }
 
@@ -1302,7 +1317,7 @@ Value Core::client_ref(AIClient& client) {
   client_registry()[id] = &client;
   return Value(Object{{"__client_id", id}});
 }
-Value Core::agent_stage_ref(AxGen& stage) {
+Value Core::agent_stage_ref(AxProgram& stage) {
   std::string id = pointer_id(&stage);
   agent_stage_registry()[id] = &stage;
   return Value(Object{{"__agent_stage_id", id}});
@@ -1370,7 +1385,7 @@ Value Core::agent_stage_forward(Value stage, Value client, Value values, Value o
   std::string stage_id = str(get_key(stage, "__agent_stage_id"));
   auto stage_it = agent_stage_registry().find(stage_id);
   if (stage_it == agent_stage_registry().end() || stage_it->second == nullptr) {
-    throw AxError("runtime", "agent stage is not AxGen");
+    throw AxError("runtime", "agent stage is not AxProgram");
   }
   std::string client_id = str(get_key(client, "__client_id"));
   auto client_it = client_registry().find(client_id);
@@ -1384,6 +1399,25 @@ Value Core::agent_stage_chat_log(Value stage) {
   auto it = agent_stage_registry().find(stage_id);
   if (it == agent_stage_registry().end() || it->second == nullptr) return Value::array();
   return it->second->get_chat_log();
+}
+Value Core::agent_stage_usage(Value stage) {
+  std::string stage_id = str(get_key(stage, "__agent_stage_id"));
+  auto it = agent_stage_registry().find(stage_id);
+  if (it == agent_stage_registry().end() || it->second == nullptr) return Value::array();
+  Value usage = it->second->get_usage();
+  if (truthy(usage)) return usage;
+  Value items = Value::array();
+  for (const auto& raw_entry : array_ref(it->second->get_chat_log())) {
+    Value item = get_key(raw_entry, "usage");
+    if (truthy(item)) append(items, item);
+  }
+  return items;
+}
+Value Core::agent_stage_traces(Value stage) {
+  std::string stage_id = str(get_key(stage, "__agent_stage_id"));
+  auto it = agent_stage_registry().find(stage_id);
+  if (it == agent_stage_registry().end() || it->second == nullptr) return Value::array();
+  return it->second->get_traces();
 }
 Value Core::agent_clarification_error(Value payload, Value state) {
   Value args = get_key(payload, "args", Value::array());
@@ -2953,11 +2987,11 @@ AxFlow::AxFlow(Value options) {
   state_ = Core::_flow_factory(std::move(options));
 }
 
-AxFlow& AxFlow::execute(std::string name, AxGen& program, Value options) {
+AxFlow& AxFlow::execute(std::string name, AxProgram& program, Value options) {
   return add_step(Value("execute"), Value(std::move(name)), Core::agent_stage_ref(program), std::move(options));
 }
 
-AxFlow& AxFlow::derive(std::string name, AxGen& program, Value options) {
+AxFlow& AxFlow::derive(std::string name, AxProgram& program, Value options) {
   return add_step(Value("derive"), Value(std::move(name)), Core::agent_stage_ref(program), std::move(options));
 }
 
@@ -4229,7 +4263,7 @@ static void run_ai_unsupported(Value fixture) {
   throw AxError("fixture", "expected unsupported capability error");
 }
 
-static AxFlow build_flow(Value fixture, std::vector<std::unique_ptr<AxGen>>& programs) {
+static AxFlow build_flow(Value fixture, std::vector<std::unique_ptr<AxGen>>& programs, std::vector<std::unique_ptr<AxFlow>>& flows) {
   Value flow_options = Core::get(fixture, "flow_options", object({{"id", Core::get(fixture, "program_id", Value("root.flow"))}}));
   AxFlow fl(flow_options);
   for (const auto& raw_step : Core::iter(Core::get(fixture, "steps", Value::array()))) {
@@ -4249,11 +4283,23 @@ static AxFlow build_flow(Value fixture, std::vector<std::unique_ptr<AxGen>>& pro
       fl.map(name, [output](Value) { return output; }, Core::get(step, "options", Value::object()));
       continue;
     }
-    Value sig = Core::parse_signature(Core::get(step, "signature", Core::get(fixture, "signature", Value("question:string -> answer:string"))));
-    programs.push_back(std::make_unique<AxGen>(sig, Core::get(step, "options", Value::object())));
     Value step_options = Core::map_merge(Core::get(step, "forward_options", Value::object()), Core::get(step, "options", Value::object()));
-    if (kind == "derive") fl.derive(name, *programs.back(), step_options);
-    else fl.execute(name, *programs.back(), step_options);
+    if (display(Core::get(step, "program", Value(""))) == "flow") {
+      Value nested = object({
+        {"flow_options", Core::get(step, "flow_options", object({{"id", Core::get(step, "program_id", Value("root." + name))}}))},
+        {"steps", Core::get(step, "steps", Value::array())},
+        {"returns", Core::get(step, "returns", Value::object())},
+        {"signature", Core::get(step, "signature", Core::get(fixture, "signature", Value("question:string -> answer:string")))}
+      });
+      flows.push_back(std::make_unique<AxFlow>(build_flow(nested, programs, flows)));
+      if (kind == "derive") fl.derive(name, *flows.back(), step_options);
+      else fl.execute(name, *flows.back(), step_options);
+    } else {
+      Value sig = Core::parse_signature(Core::get(step, "signature", Core::get(fixture, "signature", Value("question:string -> answer:string"))));
+      programs.push_back(std::make_unique<AxGen>(sig, Core::get(step, "options", Value::object())));
+      if (kind == "derive") fl.derive(name, *programs.back(), step_options);
+      else fl.execute(name, *programs.back(), step_options);
+    }
   }
   if (!Core::get(fixture, "returns").is_null()) fl.returns(Core::get(fixture, "returns", Value::object()));
   if (!Core::get(fixture, "demos").is_null()) fl.set_demos(Core::get(fixture, "demos", Value::object()));
@@ -4262,9 +4308,10 @@ static AxFlow build_flow(Value fixture, std::vector<std::unique_ptr<AxGen>>& pro
 
 static void run_program_contract(Value fixture) {
   std::vector<std::unique_ptr<AxGen>> programs;
+  std::vector<std::unique_ptr<AxFlow>> flows;
   Value components;
   if (display(Core::get(fixture, "program", Value("axgen"))) == "flow") {
-    AxFlow fl = build_flow(fixture, programs);
+    AxFlow fl = build_flow(fixture, programs, flows);
     components = fl.get_optimizable_components();
   } else {
     AxGen gen(Core::parse_signature(Core::get(fixture, "signature", Value("question:string -> answer:string"))), Core::get(fixture, "options", Value::object()));
@@ -4281,7 +4328,8 @@ static void run_program_contract(Value fixture) {
 static void run_flow(Value fixture) {
   try {
     std::vector<std::unique_ptr<AxGen>> programs;
-    AxFlow fl = build_flow(fixture, programs);
+    std::vector<std::unique_ptr<AxFlow>> flows;
+    AxFlow fl = build_flow(fixture, programs, flows);
     if (display(Core::get(fixture, "operation", Value(""))) == "cache_key") {
       std::set<std::string> keys;
       size_t count = 0;
@@ -4297,16 +4345,32 @@ static void run_flow(Value fixture) {
     if (!Core::get(fixture, "expected_plan_subset").is_null()) assert_list_subset(fl.get_plan(), Core::get(fixture, "expected_plan_subset"), "flow plan");
     if (display(Core::get(fixture, "operation", Value(""))) == "plan") return;
     FakeAIClient client(Core::get(fixture, "responses", Value::array()));
-    Value output = fl.forward(client, Core::get(fixture, "input", Value::object()), Core::get(fixture, "forward_options", Value::object()));
+    Value forward_options = Core::get(fixture, "forward_options", Value::object());
+    if (!Core::get(fixture, "cache_seed_value").is_null()) {
+      Value cache_store = Core::get(forward_options, "cache_store", Value::object());
+      Core::set(cache_store, Core::_flow_cache_key(Core::get(fixture, "input", Value::object())), Core::get(fixture, "cache_seed_value"));
+      Core::set(forward_options, "cache_store", cache_store);
+    }
+    Value output = fl.forward(client, Core::get(fixture, "input", Value::object()), forward_options);
     if (!Core::get(fixture, "expected_output").is_null()) assert_equal(output, Core::get(fixture, "expected_output"), "flow output");
     Value expected_count = Core::get(fixture, "expected_request_count");
     if (!expected_count.is_null() && client.requests.size() != static_cast<size_t>(std::stoul(display(expected_count)))) throw AxError("fixture", "expected request count mismatch");
+    if (!Core::get(fixture, "expected_request_contains").is_null()) {
+      std::string text = stringify(Value(client.requests));
+      for (const auto& item : Core::iter(Core::get(fixture, "expected_request_contains"))) {
+        if (text.find(display(item)) == std::string::npos) throw AxError("fixture", "flow request missing " + display(item) + ": " + text);
+      }
+    }
     if (!Core::get(fixture, "expected_chat_log_subset").is_null()) assert_list_subset(fl.get_chat_log(), Core::get(fixture, "expected_chat_log_subset"), "flow chat log");
     if (!Core::get(fixture, "expected_trace_kinds").is_null()) {
       Value kinds = Value::array();
       for (const auto& event : Core::iter(fl.get_traces())) Core::append(kinds, Core::get(event, "kind"));
       assert_equal(kinds, Core::get(fixture, "expected_trace_kinds"), "flow trace kinds");
     }
+    if (!Core::get(fixture, "expected_trace_subset").is_null()) assert_list_subset(fl.get_traces(), Core::get(fixture, "expected_trace_subset"), "flow traces");
+    if (!Core::get(fixture, "expected_usage_subset").is_null()) assert_subset(fl.get_usage(), Core::get(fixture, "expected_usage_subset"), "flow usage");
+    if (!Core::get(fixture, "expected_cache_store_subset").is_null()) assert_subset(Core::get(forward_options, "cache_store", Core::get(forward_options, "cacheStore", Value::object())), Core::get(fixture, "expected_cache_store_subset"), "flow cache store");
+    if (!Core::get(fixture, "expected_cache_value_for_input").is_null()) assert_equal(Core::get(Core::get(forward_options, "cache_store", Core::get(forward_options, "cacheStore", Value::object())), Core::_flow_cache_key(Core::get(fixture, "input", Value::object()))), Core::get(fixture, "expected_cache_value_for_input"), "flow cache value");
     if (!Core::get(fixture, "expected_components_subset").is_null()) assert_list_subset(fl.get_optimizable_components(), Core::get(fixture, "expected_components_subset"), "flow components");
     if (!Core::get(fixture, "expected_error_contains").is_null()) throw AxError("fixture", "expected flow fixture to fail");
   } catch (const AxError& e) {

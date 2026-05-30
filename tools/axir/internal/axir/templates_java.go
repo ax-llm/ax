@@ -59,6 +59,9 @@ import java.util.Map;
 public interface AxProgram {
   Map<String, Object> forward(AiClient client, Map<String, Object> values, Map<String, Object> options);
   List<Map<String, Object>> getOptimizableComponents();
+  default List<Map<String, Object>> getTraces() { return List.of(); }
+  default List<?> getChatLog() { return List.of(); }
+  default Object getUsage() { return Map.of(); }
 }
 `
 
@@ -1155,19 +1158,19 @@ public final class AxFlow implements AxProgram {
     this.state = Core.asMap(Core._flow_factory(options == null ? Map.of() : options));
   }
 
-  public AxFlow execute(String name, AxGen program) {
+  public AxFlow execute(String name, AxProgram program) {
     return execute(name, program, Map.of());
   }
 
-  public AxFlow execute(String name, AxGen program, Map<String, Object> options) {
+  public AxFlow execute(String name, AxProgram program, Map<String, Object> options) {
     return addStep("execute", name, program, options);
   }
 
-  public AxFlow derive(String name, AxGen program) {
+  public AxFlow derive(String name, AxProgram program) {
     return derive(name, program, Map.of());
   }
 
-  public AxFlow derive(String name, AxGen program, Map<String, Object> options) {
+  public AxFlow derive(String name, AxProgram program, Map<String, Object> options) {
     return addStep("derive", name, program, options);
   }
 
@@ -2569,12 +2572,30 @@ final class Core {
     return null;
   }
   static Object agentStageForward(Object stage, Object client, Object values, Object options) {
-    if (!(stage instanceof AxGen gen)) throw new RuntimeException("agent stage is not AxGen");
+    if (!(stage instanceof AxProgram program)) throw new RuntimeException("agent stage is not AxProgram");
     if (!(client instanceof AiClient ai)) throw new RuntimeException("client does not implement AiClient");
-    return gen.forward(ai, asMap(values), asMap(options));
+    return program.forward(ai, asMap(values), asMap(options));
   }
   static Object agentStageChatLog(Object stage) {
-    if (stage instanceof AxGen gen) return gen.getChatLog();
+    if (stage instanceof AxProgram program) return program.getChatLog();
+    return List.of();
+  }
+  static Object agentStageUsage(Object stage) {
+    if (stage instanceof AxProgram program) {
+      Object usage = program.getUsage();
+      if (truthy(usage)) return usage;
+      List<Object> items = new ArrayList<>();
+      for (Object rawEntry : program.getChatLog()) {
+        Map<String, Object> entry = asMap(rawEntry);
+        Object item = entry.get("usage");
+        if (truthy(item)) items.add(item);
+      }
+      return items;
+    }
+    return List.of();
+  }
+  static Object agentStageTraces(Object stage) {
+    if (stage instanceof AxProgram program) return program.getTraces();
     return List.of();
   }
   static Object agentClarificationError(Object payload, Object state) {
@@ -3287,7 +3308,17 @@ public final class Conformance {
         fl.map(name, state -> output, Core.asMap(step.getOrDefault("options", Map.of())));
         continue;
       }
-      AxGen program = Ax.ax(String.valueOf(step.getOrDefault("signature", fixture.getOrDefault("signature", "question:string -> answer:string"))));
+      AxProgram program;
+      if ("flow".equals(step.get("program"))) {
+        Map<String, Object> nestedFixture = new LinkedHashMap<>();
+        nestedFixture.put("flow_options", step.getOrDefault("flow_options", Map.of("id", step.getOrDefault("program_id", "root." + name))));
+        nestedFixture.put("steps", step.getOrDefault("steps", List.of()));
+        nestedFixture.put("returns", step.getOrDefault("returns", Map.of()));
+        nestedFixture.put("signature", step.getOrDefault("signature", fixture.getOrDefault("signature", "question:string -> answer:string")));
+        program = buildFlow(nestedFixture);
+      } else {
+        program = Ax.ax(String.valueOf(step.getOrDefault("signature", fixture.getOrDefault("signature", "question:string -> answer:string"))));
+      }
       Map<String, Object> stepOptions = new LinkedHashMap<>(Core.asMap(step.getOrDefault("forward_options", Map.of())));
       stepOptions.putAll(Core.asMap(step.getOrDefault("options", Map.of())));
       if ("derive".equals(kind)) fl.derive(name, program, stepOptions);
@@ -3323,15 +3354,29 @@ public final class Conformance {
       if (fixture.containsKey("expected_plan_subset")) assertListSubset(fl.getPlan(), fixture.get("expected_plan_subset"), "flow plan");
       if ("plan".equals(fixture.get("operation"))) return;
       FakeAIService client = new FakeAIService(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())));
-      Object output = fl.forward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), Core.asMap(fixture.getOrDefault("forward_options", Map.of())));
+      Map<String, Object> forwardOptions = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("forward_options", Map.of())));
+      if (fixture.containsKey("cache_seed_value")) {
+        Map<String, Object> cacheStore = Core.asMap(forwardOptions.getOrDefault("cache_store", new LinkedHashMap<>()));
+        cacheStore.put(String.valueOf(Core._flow_cache_key(fixture.getOrDefault("input", Map.of()))), fixture.get("cache_seed_value"));
+        forwardOptions.put("cache_store", cacheStore);
+      }
+      Object output = fl.forward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), forwardOptions);
       if (fixture.containsKey("expected_output")) assertEqual(output, fixture.get("expected_output"), "flow output");
       if (fixture.containsKey("expected_request_count") && client.requests.size() != Core.asInt(fixture.get("expected_request_count"))) throw new FixtureError("expected request count mismatch");
+      if (fixture.containsKey("expected_request_contains")) {
+        String text = Json.stringify(client.requests);
+        for (Object item : Core.asList(fixture.get("expected_request_contains"))) if (!text.contains(String.valueOf(item))) throw new FixtureError("flow request missing " + item + ": " + text);
+      }
       if (fixture.containsKey("expected_chat_log_subset")) assertListSubset(fl.getChatLog(), fixture.get("expected_chat_log_subset"), "flow chat log");
       if (fixture.containsKey("expected_trace_kinds")) {
         List<Object> kinds = new ArrayList<>();
         for (Map<String, Object> event : fl.getTraces()) kinds.add(event.get("kind"));
         assertEqual(kinds, fixture.get("expected_trace_kinds"), "flow trace kinds");
       }
+      if (fixture.containsKey("expected_trace_subset")) assertListSubset(fl.getTraces(), fixture.get("expected_trace_subset"), "flow traces");
+      if (fixture.containsKey("expected_usage_subset")) assertSubset(fl.getUsage(), fixture.get("expected_usage_subset"), "flow usage");
+      if (fixture.containsKey("expected_cache_store_subset")) assertSubset(Core.asMap(forwardOptions.getOrDefault("cache_store", forwardOptions.getOrDefault("cacheStore", Map.of()))), fixture.get("expected_cache_store_subset"), "flow cache store");
+      if (fixture.containsKey("expected_cache_value_for_input")) assertEqual(Core.asMap(forwardOptions.getOrDefault("cache_store", forwardOptions.getOrDefault("cacheStore", Map.of()))).get(String.valueOf(Core._flow_cache_key(fixture.getOrDefault("input", Map.of())))), fixture.get("expected_cache_value_for_input"), "flow cache value");
       if (fixture.containsKey("expected_components_subset")) assertListSubset(fl.getOptimizableComponents(), fixture.get("expected_components_subset"), "flow components");
       if (fixture.containsKey("expected_error_contains")) throw new FixtureError("expected flow fixture to fail");
     } catch (RuntimeException e) {

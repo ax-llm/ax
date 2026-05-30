@@ -335,69 +335,390 @@ module @ax.flow version "0.1" {
     }
   }
 
-  op ax.flow.semantic @flow_forward {
+  op ax.flow.semantic @flow_cache_read_write {
     attr core_kind = "func"
     attr emit_module = "flow"
-    type signature = "(flow:json, client:json, values:json, options?:json) -> json throws"
-    body @entry(%flow: json, %client: json, %values: json, %options: json) {
+    attr private = true
+    type signature = "(flow:json, values:json, options:json, mode:string, cachedValue:json) -> json"
+    body @entry(%flow: json, %values: json, %options: json, %mode: string, %cached_value: json) {
       %empty_map = core.map
-      %state = core.call intrinsic.map.merge(%empty_map, %values)
-      %steps = core.get %flow["steps"]
-      %chat_log = core.get %flow["chat_log"]
-      %traces = core.get %flow["traces"]
-      %program_id = core.get %flow["program_id"] default "root.flow"
-      %cache_key = core.call @flow_cache_key(%values)
-      %begin = core.call @program_trace_event(%program_id, "flow_start", %state)
-      core.append %traces, %begin
-      core.for %step in %steps {
-        %kind = core.get %step["kind"] default "execute"
-        %name = core.get %step["name"] default ""
-        %program = core.get %step["program"]
-        %step_options = core.get %step["options"] default %empty_map
-        %event_payload = core.map
-        core.set %event_payload["name"] = %name
-        core.set %event_payload["kind"] = %kind
-        %step_event = core.call @program_trace_event(%program_id, "flow_step", %event_payload)
-        core.append %traces, %step_event
-        %is_map = core.call intrinsic.eq(%kind, "map")
-        core.if %is_map {
-          %mapped = core.call intrinsic.object.call_method(%program, "call", %state)
-          %result_key = core.call intrinsic.string.format("{}Result", %name)
-          core.set %state[%result_key] = %mapped
-          %state = core.call intrinsic.map.update(%state, %mapped)
+      %opts_missing = core.call intrinsic.is_none(%options)
+      %opts = core.let %options
+      core.if %opts_missing {
+        %opts = core.let %empty_map
+      } else {
+      }
+      %key = core.call @flow_cache_key(%values)
+      %store_snake = core.get %opts["cache_store"] default null
+      %store = core.get %opts["cacheStore"] default %store_snake
+      %has_store = core.call intrinsic.is_not_none(%store)
+      %read_error_snake = core.get %opts["cache_read_error"] default false
+      %read_error = core.get %opts["cacheReadError"] default %read_error_snake
+      %write_error_snake = core.get %opts["cache_write_error"] default false
+      %write_error = core.get %opts["cacheWriteError"] default %write_error_snake
+      %is_read = core.call intrinsic.eq(%mode, "read")
+      %is_write = core.call intrinsic.eq(%mode, "write")
+      %none = core.call intrinsic.none()
+      %result = core.map
+      core.set %result["key"] = %key
+      core.set %result["hit"] = false
+      core.set %result["value"] = %none
+      core.if %is_read {
+        %can_read_store = core.call intrinsic.and(%has_store, %read_error)
+        %skip_read = core.call intrinsic.truthy(%can_read_store)
+        core.if %skip_read {
         } else {
-          %result = core.call intrinsic.agent.stage_forward(%program, %client, %state, %step_options)
-          %result_key_exec = core.call intrinsic.string.format("{}Result", %name)
-          core.set %state[%result_key_exec] = %result
-          %state = core.call intrinsic.map.update(%state, %result)
-          %child_log = core.call intrinsic.agent.stage_chat_log(%program)
-          core.for %entry in %child_log {
-            %entry_name = core.get %entry["name"] default ""
-            %has_entry_name = core.call intrinsic.truthy(%entry_name)
-            core.if %has_entry_name {
-              %prefixed_entry_name = core.call intrinsic.string.format("{}.{}", %name, %entry_name)
-              core.set %entry["name"] = %prefixed_entry_name
+          core.if %has_store {
+            %cached = core.get %store[%key] default null
+            %hit = core.call intrinsic.is_not_none(%cached)
+            core.if %hit {
+              core.set %result["hit"] = true
+              core.set %result["value"] = %cached
             } else {
-              core.set %entry["name"] = %name
             }
-            core.append %chat_log, %entry
+          } else {
           }
         }
+      } else {
       }
-      %returns = core.get %flow["returns"] default %empty_map
-      %has_returns = core.call intrinsic.truthy(%returns)
+      core.if %is_write {
+        %can_write_store = core.call intrinsic.and(%has_store, %write_error)
+        %skip_write = core.call intrinsic.truthy(%can_write_store)
+        core.if %skip_write {
+        } else {
+          core.if %has_store {
+            core.set %store[%key] = %cached_value
+            core.set %result["value"] = %cached_value
+          } else {
+          }
+        }
+      } else {
+      }
+      core.return %result
+    }
+  }
+
+  op ax.flow.semantic @flow_check_abort {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    attr private = true
+    type signature = "(options:json, location:string) -> void throws"
+    body @entry(%options: json, %location: string) {
+      %none = core.call intrinsic.none()
+      %abort_snake = core.get %options["abort_before_step"] default false
+      %abort_camel = core.get %options["abortBeforeStep"] default %abort_snake
+      %aborted = core.get %options["aborted"] default %abort_camel
+      %abort = core.get %options["abort"] default %aborted
+      core.if %abort {
+        %message = core.call intrinsic.string.format("Flow aborted at {}", %location)
+        %err = core.call intrinsic.error.runtime(%message)
+        core.raise %err
+      } else {
+      }
+      core.return %none
+    }
+  }
+
+  op ax.flow.semantic @flow_project_returns {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    attr private = true
+    type signature = "(state:json, returns:json) -> json"
+    body @entry(%state: json, %returns: json) {
+      %empty_map = core.map
+      %spec = core.let %returns
+      %missing = core.call intrinsic.is_none(%returns)
+      core.if %missing {
+        %spec = core.let %empty_map
+      } else {
+      }
+      %has_returns = core.call intrinsic.truthy(%spec)
       %output = core.let %state
       core.if %has_returns {
         %projected = core.map
-        %keys = core.call intrinsic.map.keys(%returns)
+        %keys = core.call intrinsic.map.keys(%spec)
         core.for %key in %keys {
-          %path = core.get %returns[%key]
+          %path = core.get %spec[%key]
           %value = core.call intrinsic.map.get(%state, %path)
           core.set %projected[%key] = %value
         }
         %output = core.let %projected
       } else {
       }
+      core.return %output
+    }
+  }
+
+  op ax.flow.semantic @flow_record_child_chat_log {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    attr private = true
+    type signature = "(flow:json, node:string, program:json) -> json"
+    body @entry(%flow: json, %node: string, %program: json) {
+      %empty_list = core.list
+      %chat_log = core.get %flow["chat_log"] default %empty_list
+      %child_log = core.call intrinsic.agent.stage_chat_log(%program)
+      core.for %entry in %child_log {
+        %entry_name = core.get %entry["name"] default ""
+        %has_entry_name = core.call intrinsic.truthy(%entry_name)
+        core.if %has_entry_name {
+          %prefixed_entry_name = core.call intrinsic.string.format("{}.{}", %node, %entry_name)
+          core.set %entry["name"] = %prefixed_entry_name
+        } else {
+          core.set %entry["name"] = %node
+        }
+        core.append %chat_log, %entry
+      }
+      core.set %flow["chat_log"] = %chat_log
+      core.return %chat_log
+    }
+  }
+
+  op ax.flow.semantic @flow_record_child_usage {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    attr private = true
+    type signature = "(flow:json, node:string, program:json) -> json"
+    body @entry(%flow: json, %node: string, %program: json) {
+      %empty_map = core.map
+      %usage = core.get %flow["usage"] default %empty_map
+      %child_usage = core.call intrinsic.agent.stage_usage(%program)
+      %has_usage = core.call intrinsic.truthy(%child_usage)
+      core.if %has_usage {
+        core.set %usage[%node] = %child_usage
+      } else {
+      }
+      core.set %flow["usage"] = %usage
+      core.return %usage
+    }
+  }
+
+  op ax.flow.semantic @flow_record_child_traces {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    attr private = true
+    type signature = "(flow:json, node:string, program:json) -> json"
+    body @entry(%flow: json, %node: string, %program: json) {
+      %empty_list = core.list
+      %traces = core.get %flow["traces"] default %empty_list
+      %child_traces = core.call intrinsic.agent.stage_traces(%program)
+      core.for %trace in %child_traces {
+        %entry = core.map
+        core.set %entry["kind"] = "flow_child_trace"
+        core.set %entry["name"] = %node
+        core.set %entry["trace"] = %trace
+        core.append %traces, %entry
+      }
+      core.set %flow["traces"] = %traces
+      core.return %traces
+    }
+  }
+
+  op ax.flow.semantic @flow_execute_program_node {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    attr private = true
+    type signature = "(flow:json, step:json, client:json, state:json, options:json) -> json throws"
+    body @entry(%flow: json, %step: json, %client: json, %state: json, %options: json) {
+      %empty_map = core.map
+      %name = core.get %step["name"] default ""
+      %kind = core.get %step["kind"] default "execute"
+      %program = core.get %step["program"]
+      %step_options = core.get %step["options"] default %empty_map
+      %base_options = core.get %flow["options"] default %empty_map
+      %runtime_base = core.call intrinsic.map.merge(%base_options, %options)
+      %runtime_options = core.call intrinsic.map.merge(%runtime_base, %step_options)
+      %trace_label_in = core.get %options["traceLabel"] default ""
+      %has_trace_label = core.call intrinsic.truthy(%trace_label_in)
+      %trace_label = core.call intrinsic.string.format("Node:{}", %name)
+      core.if %has_trace_label {
+        %trace_label = core.call intrinsic.string.format("Node:{} ({})", %name, %trace_label_in)
+      } else {
+      }
+      core.set %runtime_options["traceLabel"] = %trace_label
+      %result = core.call intrinsic.agent.stage_forward(%program, %client, %state, %runtime_options)
+      %out = core.call intrinsic.map.merge(%state, %empty_map)
+      %result_key = core.call intrinsic.string.format("{}Result", %name)
+      core.set %out[%result_key] = %result
+      %is_derive = core.call intrinsic.eq(%kind, "derive")
+      core.if %is_derive {
+        core.set %out[%name] = %result
+      } else {
+      }
+      %out = core.call intrinsic.map.update(%out, %result)
+      core.call @flow_record_child_chat_log(%flow, %name, %program)
+      core.call @flow_record_child_usage(%flow, %name, %program)
+      core.call @flow_record_child_traces(%flow, %name, %program)
+      core.return %out
+    }
+  }
+
+  op ax.flow.semantic @flow_execute_step {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    attr private = true
+    type signature = "(flow:json, step:json, plan_step:json, client:json, state:json, options:json) -> json throws"
+    body @entry(%flow: json, %step: json, %plan_step: json, %client: json, %state: json, %options: json) {
+      %empty_map = core.map
+      %missing_step = core.call intrinsic.is_none(%step)
+      core.if %missing_step {
+        core.return %state
+      } else {
+      }
+      %kind = core.get %step["kind"] default "execute"
+      %name = core.get %step["name"] default ""
+      %location = core.call intrinsic.string.format("flow-step-{}", %name)
+      core.call @flow_check_abort(%options, %location)
+      %traces = core.get %flow["traces"]
+      %program_id = core.get %flow["program_id"] default "root.flow"
+      %event_payload = core.map
+      core.set %event_payload["name"] = %name
+      core.set %event_payload["kind"] = %kind
+      %step_index = core.get %plan_step["stepIndex"] default 0
+      core.set %event_payload["stepIndex"] = %step_index
+      %step_event = core.call @program_trace_event(%program_id, "flow_step", %event_payload)
+      core.append %traces, %step_event
+      %is_map = core.call intrinsic.eq(%kind, "map")
+      core.if %is_map {
+        %program = core.get %step["program"]
+        %mapped = core.call intrinsic.object.call_method(%program, "call", %state)
+        %out = core.call intrinsic.map.merge(%state, %empty_map)
+        %result_key = core.call intrinsic.string.format("{}Result", %name)
+        core.set %out[%result_key] = %mapped
+        %out = core.call intrinsic.map.update(%out, %mapped)
+        core.return %out
+      } else {
+      }
+      %is_parallel = core.call intrinsic.eq(%kind, "parallel")
+      core.if %is_parallel {
+        %step_options = core.get %step["options"] default %empty_map
+        %default_results = core.list
+        %parallel_results_snake = core.get %step_options["parallel_results"] default %default_results
+        %parallel_results = core.get %step_options["parallelResults"] default %parallel_results_snake
+        %out = core.call intrinsic.map.merge(%state, %empty_map)
+        core.set %out["_parallelResults"] = %parallel_results
+        core.return %out
+      } else {
+      }
+      %is_parallel_merge = core.call intrinsic.eq(%kind, "parallelMerge")
+      core.if %is_parallel_merge {
+        %step_options = core.get %step["options"] default %empty_map
+        %results = core.get %state["_parallelResults"] default null
+        %merge_output_snake = core.get %step_options["merge_output"] default %results
+        %merge_output = core.get %step_options["mergeOutput"] default %merge_output_snake
+        %out = core.call intrinsic.map.merge(%state, %empty_map)
+        core.set %out[%name] = %merge_output
+        core.return %out
+      } else {
+      }
+      %program_out = core.call @flow_execute_program_node(%flow, %step, %client, %state, %options)
+      core.return %program_out
+    }
+  }
+
+  op ax.flow.semantic @flow_merge_parallel_results {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    attr private = true
+    type signature = "(state:json, result:json) -> json"
+    body @entry(%state: json, %result: json) {
+      %merged = core.call intrinsic.map.merge(%state, %result)
+      core.return %merged
+    }
+  }
+
+  op ax.flow.semantic @flow_execute_steps {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    attr private = true
+    type signature = "(flow:json, client:json, state:json, options:json) -> json throws"
+    body @entry(%flow: json, %client: json, %state: json, %options: json) {
+      %empty_map = core.map
+      %empty_list = core.list
+      %steps = core.get %flow["steps"] default %empty_list
+      %plan = core.call @flow_plan(%flow)
+      %plan_steps = core.get %plan["steps"] default %empty_list
+      %planned_groups = core.get %plan["groups"] default %empty_list
+      %auto_camel = core.get %options["autoParallel"] default true
+      %auto_parallel = core.get %options["auto_parallel"] default %auto_camel
+      %groups = core.let %planned_groups
+      core.if %auto_parallel {
+      } else {
+        %sequential_groups = core.list
+        core.for %plan_step in %plan_steps {
+          %single = core.list
+          core.append %single, %plan_step
+          %group = core.map
+          %level = core.call intrinsic.len(%sequential_groups)
+          core.set %group["level"] = %level
+          core.set %group["steps"] = %single
+          core.append %sequential_groups, %group
+        }
+        %groups = core.let %sequential_groups
+      }
+      %current = core.let %state
+      core.for %group in %groups {
+        %level = core.get %group["level"] default 0
+        %location = core.call intrinsic.string.format("flow-parallel-group-{}", %level)
+        core.call @flow_check_abort(%options, %location)
+        %group_steps = core.get %group["steps"] default %empty_list
+        %group_count = core.call intrinsic.len(%group_steps)
+        %is_parallel_group = core.call intrinsic.gt(%group_count, 1)
+        core.if %is_parallel_group {
+          %group_start = core.call intrinsic.map.merge(%current, %empty_map)
+          core.for %plan_step in %group_steps {
+            %index = core.get %plan_step["stepIndex"] default 0
+            %step = core.call intrinsic.list.get(%steps, %index, null)
+            %result_state = core.call @flow_execute_step(%flow, %step, %plan_step, %client, %group_start, %options)
+            %current = core.call @flow_merge_parallel_results(%current, %result_state)
+          }
+        } else {
+          core.for %plan_step in %group_steps {
+            %index = core.get %plan_step["stepIndex"] default 0
+            %step = core.call intrinsic.list.get(%steps, %index, null)
+            %current = core.call @flow_execute_step(%flow, %step, %plan_step, %client, %current, %options)
+          }
+        }
+      }
+      core.return %current
+    }
+  }
+
+  op ax.flow.semantic @flow_forward {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    type signature = "(flow:json, client:json, values:json, options?:json) -> json throws"
+    body @entry(%flow: json, %client: json, %values: json, %options: json) {
+      %empty_map = core.map
+      %opts_missing = core.call intrinsic.is_none(%options)
+      %opts = core.let %options
+      core.if %opts_missing {
+        %opts = core.let %empty_map
+      } else {
+      }
+      %cache_read = core.call @flow_cache_read_write(%flow, %values, %opts, "read", null)
+      %cache_hit = core.get %cache_read["hit"] default false
+      core.if %cache_hit {
+        %cached_value = core.get %cache_read["value"]
+        core.return %cached_value
+      } else {
+      }
+      %fresh_traces = core.list
+      %fresh_chat_log = core.list
+      %fresh_usage = core.map
+      core.set %flow["traces"] = %fresh_traces
+      core.set %flow["chat_log"] = %fresh_chat_log
+      core.set %flow["usage"] = %fresh_usage
+      %state = core.call intrinsic.map.merge(%empty_map, %values)
+      %traces = core.get %flow["traces"]
+      %program_id = core.get %flow["program_id"] default "root.flow"
+      %cache_key = core.call @flow_cache_key(%values)
+      %begin = core.call @program_trace_event(%program_id, "flow_start", %state)
+      core.append %traces, %begin
+      %state = core.call @flow_execute_steps(%flow, %client, %state, %opts)
+      %returns = core.get %flow["returns"] default %empty_map
+      %output = core.call @flow_project_returns(%state, %returns)
+      core.call @flow_cache_read_write(%flow, %values, %opts, "write", %output)
       %done_payload = core.map
       core.set %done_payload["cache_key"] = %cache_key
       core.set %done_payload["output"] = %output
