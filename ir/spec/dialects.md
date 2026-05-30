@@ -109,6 +109,13 @@ to be present in the lowered bundle for Python, Java, and C++:
 - `build_optimization_eval_row`
 - `build_optimization_eval_result`
 - `build_agent_eval_prediction`
+
+`optimized_artifact` is the stable persistence boundary for generated
+runtimes. AxIR owns artifact validation, component-map compatibility,
+provenance/evidence serialization, and apply/rollback safety; optimizer engines
+own only proposal/search behavior through `OptimizerEngine.optimize(request,
+evaluator)`. GEPA-compatible engines consume the same request, evaluator, and
+evidence shapes as any other prompt optimizer.
 - `agent_export_runtime_state`
 - `agent_restore_runtime_state`
 - `agent_runtime_build_globals`

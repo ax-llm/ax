@@ -167,6 +167,8 @@ func BuildRuntimeModel(core Module) (AxRuntimeModel, error) {
 			"axoptimize_shared_program_contract": true,
 			"axoptimize_evidence_batches":        true,
 			"axoptimize_gepa_adapter_contract":   true,
+			"axoptimize_runtime_beta_contract":   true,
+			"axoptimize_artifact_lifecycle":      true,
 			"axprogram_contract":                 true,
 			"axprogram_trace_events":             true,
 			"axflow_program_graph":               true,

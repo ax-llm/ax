@@ -1021,9 +1021,11 @@ public final class AxGen implements AxProgram {
 
   @SuppressWarnings("unchecked")
   public AxGen applyOptimization(Object artifact) {
-    Map<String, Object> map = artifact instanceof String text ? Core.asMap(Json.parse(text)) : Core.asMap(artifact);
-    Object componentMap = map.getOrDefault("componentMap", map.getOrDefault("component_map", Map.of()));
-    return applyOptimizedComponents((Map<String, Object>) componentMap);
+    List<Map<String, Object>> components = getOptimizableComponents();
+    Map<String, Object> map = artifact instanceof String text
+      ? Core.asMap(Core._deserialize_optimized_artifact(text, components))
+      : Core.asMap(Core._validate_optimized_artifact(artifact == null ? Map.of() : artifact, components));
+    return applyOptimizedComponents((Map<String, Object>) map.getOrDefault("componentMap", Map.of()));
   }
 
   public Map<String, Object> evaluateOptimization(AiClient client, Object dataset, Map<String, Object> candidateMap, Map<String, Object> options) {
@@ -1247,8 +1249,12 @@ public final class AxFlow implements AxProgram {
     return this;
   }
 
-  public AxFlow applyOptimization(Map<String, Object> artifact) {
-    return applyOptimizedComponents(Core.asMap(artifact == null ? Map.of() : artifact).containsKey("componentMap") ? Core.asMap(artifact.get("componentMap")) : Core.asMap(Core.asMap(artifact == null ? Map.of() : artifact).getOrDefault("component_map", Map.of())));
+  public AxFlow applyOptimization(Object artifact) {
+    List<Map<String, Object>> components = getOptimizableComponents();
+    Map<String, Object> map = artifact instanceof String text
+      ? Core.asMap(Core._deserialize_optimized_artifact(text, components))
+      : Core.asMap(Core._validate_optimized_artifact(artifact == null ? Map.of() : artifact, components));
+    return applyOptimizedComponents(Core.asMap(map.getOrDefault("componentMap", Map.of())));
   }
 
   public Map<String, Object> evaluateOptimization(AiClient client, Object dataset, Map<String, Object> candidateMap, Map<String, Object> options) {
@@ -3410,11 +3416,12 @@ public final class Conformance {
       }
       if ("apply".equals(operation)) {
         Object components = ((AxProgram) program).getOptimizableComponents();
-        Map<String, Object> artifact = Core.asMap(Core._optimized_artifact("fixture", "1", fixture.getOrDefault("component_map", Map.of()), Map.of("source", "fixture")));
-        Core._validate_optimized_artifact(artifact, components);
-        if ("axgen".equals(programKind)) ((AxGen) program).applyOptimization(artifact);
-        else if ("flow".equals(programKind)) ((AxFlow) program).applyOptimization(artifact);
-        else ((AxAgent) program).applyOptimization(artifact);
+        Map<String, Object> artifact = Core.asMap(Core._optimized_artifact("fixture", "1", fixture.getOrDefault("component_map", Map.of()), fixture.getOrDefault("metadata", Map.of("source", "fixture"))));
+        Object validated = Core._validate_optimized_artifact(artifact, components);
+        Object payload = Boolean.TRUE.equals(fixture.get("serialized_artifact")) ? Core._serialize_optimized_artifact(validated) : validated;
+        if ("axgen".equals(programKind)) ((AxGen) program).applyOptimization(payload);
+        else if ("flow".equals(programKind)) ((AxFlow) program).applyOptimization(payload);
+        else ((AxAgent) program).applyOptimization(payload);
         Object after = ((AxProgram) program).getOptimizableComponents();
         if (fixture.containsKey("expected_components_subset")) assertListSubset(Core.asList(after), fixture.get("expected_components_subset"), "optimized components");
         if (fixture.containsKey("expected_changed_components")) assertEqual(Core._optimization_changed_components(components, fixture.getOrDefault("component_map", Map.of())), fixture.get("expected_changed_components"), "changed components");

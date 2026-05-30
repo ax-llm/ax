@@ -168,6 +168,7 @@ func verifyPythonTarget(report VerifyTargetReport, conformanceRoot string) (Veri
 		"axai_fake_transport.py",
 		"axagent_pipeline.py",
 		"axflow_program_graph.py",
+		"optimizer_artifact.py",
 	} {
 		if err := runVerifyCommand(&report, "example "+example, "", env, python, filepath.Join(report.OutDir, "examples", example)); err != nil {
 			return report, err
@@ -211,6 +212,7 @@ func verifyJavaTarget(report VerifyTargetReport, conformanceRoot string) (Verify
 		"AxAIFakeTransportExample",
 		"AxAgentPipelineExample",
 		"AxFlowProgramGraphExample",
+		"OptimizerArtifactExample",
 	} {
 		if err := runVerifyCommand(&report, "example "+className, "", nil, java, "-cp", report.OutDir, className); err != nil {
 			return report, err
@@ -236,6 +238,7 @@ func verifyCppTarget(report VerifyTargetReport, conformanceRoot string) (VerifyT
 		"axai_fake_transport",
 		"axagent_pipeline",
 		"axflow_program_graph",
+		"optimizer_artifact",
 	}
 	for _, example := range examples {
 		source := filepath.Join(report.OutDir, "examples", example+".cpp")

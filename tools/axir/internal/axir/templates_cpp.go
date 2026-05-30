@@ -373,7 +373,9 @@ struct Core {
   static Value _agent_forward(Value state, Value distiller, Value executor, Value responder, Value client, Value values, Value options);
   static Value _optimization_component(Value id, Value owner, Value kind, Value current, Value description, Value constraints, Value depends_on, Value preserve, Value format, Value validation);
   static Value _optimized_artifact(Value optimizer_name, Value optimizer_version, Value component_map, Value metadata);
+  static Value _validate_optimization_component_value(Value component, Value value);
   static Value _validate_optimization_component_map(Value components, Value component_map);
+  static Value _validate_optimized_artifact_provenance(Value artifact, Value components);
   static Value _validate_optimized_artifact(Value artifact, Value components);
   static Value _serialize_optimized_artifact(Value artifact);
   static Value _deserialize_optimized_artifact(Value text, Value components);
@@ -2895,9 +2897,9 @@ AxGen& AxGen::apply_optimized_components(Value component_map) {
 }
 
 AxGen& AxGen::apply_optimization(Value artifact) {
-  Value map = artifact.is_string() ? parse_json(str(artifact)) : artifact;
-  apply_optimized_components(Core::get(map, "componentMap", Core::get(map, "component_map", Value::object())));
-  return *this;
+  Value components = get_optimizable_components();
+  Value map = artifact.is_string() ? Core::_deserialize_optimized_artifact(artifact, components) : Core::_validate_optimized_artifact(artifact, components);
+  return apply_optimized_components(Core::get(map, "componentMap", Value::object()));
 }
 
 Value AxGen::evaluate_optimization(AIClient& client, Value dataset, Value candidate_map, Value options) {
@@ -3079,7 +3081,9 @@ AxFlow& AxFlow::apply_optimized_components(Value component_map) {
   return *this;
 }
 AxFlow& AxFlow::apply_optimization(Value artifact) {
-  return apply_optimized_components(Core::get(artifact, "componentMap", Core::get(artifact, "component_map", Value::object())));
+  Value components = get_optimizable_components();
+  Value map = artifact.is_string() ? Core::_deserialize_optimized_artifact(artifact, components) : Core::_validate_optimized_artifact(artifact, components);
+  return apply_optimized_components(Core::get(map, "componentMap", Value::object()));
 }
 Value AxFlow::evaluate_optimization(AIClient& client, Value dataset, Value candidate_map, Value options) {
   return Core::_flow_evaluate_optimization(state_, Core::client_ref(client), std::move(dataset), std::move(candidate_map), std::move(options));
@@ -3891,9 +3895,10 @@ static void run_optimize(Value fixture) {
       }
       if (op == "apply") {
         Value before = gen.get_optimizable_components();
-        Value artifact = Core::_optimized_artifact("fixture", "1", Core::get(fixture, "component_map", Value::object()), object({{"source", "fixture"}}));
-        Core::_validate_optimized_artifact(artifact, before);
-        gen.apply_optimization(artifact);
+        Value artifact = Core::_optimized_artifact("fixture", "1", Core::get(fixture, "component_map", Value::object()), Core::get(fixture, "metadata", object({{"source", "fixture"}})));
+        Value validated = Core::_validate_optimized_artifact(artifact, before);
+        Value payload = Core::truthy(Core::get(fixture, "serialized_artifact", false)) ? Core::_serialize_optimized_artifact(validated) : validated;
+        gen.apply_optimization(payload);
         Value after = gen.get_optimizable_components();
         if (!Core::get(fixture, "expected_components_subset").is_null()) assert_list_subset(after, Core::get(fixture, "expected_components_subset"), "optimized components");
         if (!Core::get(fixture, "expected_changed_components").is_null()) assert_equal(Core::_optimization_changed_components(before, Core::get(fixture, "component_map", Value::object())), Core::get(fixture, "expected_changed_components"), "changed components");
@@ -3945,9 +3950,10 @@ static void run_optimize(Value fixture) {
       }
       if (op == "apply") {
         Value before = fl.get_optimizable_components();
-        Value artifact = Core::_optimized_artifact("fixture", "1", Core::get(fixture, "component_map", Value::object()), object({{"source", "fixture"}}));
-        Core::_validate_optimized_artifact(artifact, before);
-        fl.apply_optimization(artifact);
+        Value artifact = Core::_optimized_artifact("fixture", "1", Core::get(fixture, "component_map", Value::object()), Core::get(fixture, "metadata", object({{"source", "fixture"}})));
+        Value validated = Core::_validate_optimized_artifact(artifact, before);
+        Value payload = Core::truthy(Core::get(fixture, "serialized_artifact", false)) ? Core::_serialize_optimized_artifact(validated) : validated;
+        fl.apply_optimization(payload);
         Value after = fl.get_optimizable_components();
         if (!Core::get(fixture, "expected_components_subset").is_null()) assert_list_subset(after, Core::get(fixture, "expected_components_subset"), "optimized components");
         if (!Core::get(fixture, "expected_changed_components").is_null()) assert_equal(Core::_optimization_changed_components(before, Core::get(fixture, "component_map", Value::object())), Core::get(fixture, "expected_changed_components"), "changed components");
@@ -3995,9 +4001,10 @@ static void run_optimize(Value fixture) {
     }
     if (op == "apply") {
       Value before = ag.get_optimizable_components();
-      Value artifact = Core::_optimized_artifact("fixture", "1", Core::get(fixture, "component_map", Value::object()), object({{"source", "fixture"}}));
-      Core::_validate_optimized_artifact(artifact, before);
-      ag.apply_optimization(artifact);
+      Value artifact = Core::_optimized_artifact("fixture", "1", Core::get(fixture, "component_map", Value::object()), Core::get(fixture, "metadata", object({{"source", "fixture"}})));
+      Value validated = Core::_validate_optimized_artifact(artifact, before);
+      Value payload = Core::truthy(Core::get(fixture, "serialized_artifact", false)) ? Core::_serialize_optimized_artifact(validated) : validated;
+      ag.apply_optimization(payload);
       Value after = ag.get_optimizable_components();
       if (!Core::get(fixture, "expected_components_subset").is_null()) assert_list_subset(after, Core::get(fixture, "expected_components_subset"), "optimized components");
       if (!Core::get(fixture, "expected_changed_components").is_null()) assert_equal(Core::_optimization_changed_components(before, Core::get(fixture, "component_map", Value::object())), Core::get(fixture, "expected_changed_components"), "changed components");

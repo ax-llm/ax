@@ -2020,6 +2020,18 @@ from .schema import strip_internal, validate_fields, validate_output
 from .signature import AxSignature
 
 
+def _call_optimizer_engine(engine, request: dict[str, Any], evaluator):
+    try:
+        return engine.optimize(request, evaluator)
+    except TypeError as exc:
+        if evaluator is None:
+            raise
+        try:
+            return engine.optimize(request)
+        except TypeError:
+            raise exc
+
+
 class AxMemory:
     def __init__(self):
         self.items: list[dict[str, Any]] = []
@@ -2220,10 +2232,12 @@ class AxGen:
         return self
 
     def apply_optimization(self, artifact):
+        components = self.get_optimizable_components()
         if isinstance(artifact, str):
-            artifact = json.loads(artifact)
-        component_map = (artifact or {}).get("componentMap") or (artifact or {}).get("component_map") or {}
-        return self.apply_optimized_components(component_map)
+            artifact = _deserialize_optimized_artifact(artifact, components)
+        else:
+            artifact = _validate_optimized_artifact(artifact or {}, components)
+        return self.apply_optimized_components(artifact.get("componentMap") or {})
 
     def evaluate_optimization(self, client, dataset, candidate_map: dict[str, Any] | None = None, options: dict[str, Any] | None = None):
         opts = options or {}
@@ -2780,6 +2794,7 @@ from .agent import (
     _normalize_optimizer_engine_response,
     _prepare_optimizer_run,
     _scalarize_optimization_scores,
+    _deserialize_optimized_artifact,
     _validate_optimized_artifact,
     _validate_optimization_component_map,
 )
@@ -2875,8 +2890,12 @@ class AxFlow(AxProgram):
         return self
 
     def apply_optimization(self, artifact):
-        component_map = (artifact or {}).get("componentMap") or (artifact or {}).get("component_map") or {}
-        return self.apply_optimized_components(component_map)
+        components = self.get_optimizable_components()
+        if isinstance(artifact, str):
+            artifact = _deserialize_optimized_artifact(artifact, components)
+        else:
+            artifact = _validate_optimized_artifact(artifact or {}, components)
+        return self.apply_optimized_components(artifact.get("componentMap") or {})
 
     def evaluate_optimization(self, client, dataset, candidate_map: dict[str, Any] | None = None, options: dict[str, Any] | None = None):
         return _flow_evaluate_optimization(self.state, client, dataset or [], candidate_map or {}, options or {})
@@ -3475,6 +3494,10 @@ def _core_string_format(template, *args):
 
 def _core_regex_replace(pattern, repl, value):
     return re.sub(str(pattern), str(repl), str(value))
+
+
+def _core_regex_match(pattern, value):
+    return isinstance(value, str) and re.search(str(pattern), value) is not None
 
 
 def _core_string_words(value):
@@ -4257,9 +4280,10 @@ def _run_optimize(fixture):
             return
         if operation == "apply":
             before = program.get_optimizable_components()
-            artifact = _optimized_artifact("fixture", "1", fixture.get("component_map") or {}, {"source": "fixture"})
-            _validate_optimized_artifact(artifact, before)
-            program.apply_optimization(artifact)
+            artifact = _optimized_artifact("fixture", "1", fixture.get("component_map") or {}, fixture.get("metadata") or {"source": "fixture"})
+            artifact = _validate_optimized_artifact(artifact, before)
+            payload = _serialize_optimized_artifact(artifact) if fixture.get("serialized_artifact") else artifact
+            program.apply_optimization(payload)
             after = program.get_optimizable_components()
             if "expected_components_subset" in fixture:
                 _assert_list_subset(after, fixture["expected_components_subset"], "optimized components")

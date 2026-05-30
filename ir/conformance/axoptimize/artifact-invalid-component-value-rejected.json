@@ -1,0 +1,13 @@
+{
+  "component_map": {
+    "task.root.responder::instruction": {
+      "invalid": true
+    }
+  },
+  "expected_error_contains": "invalid optimized component value",
+  "kind": "optimize",
+  "name": "artifact-invalid-component-value-rejected",
+  "operation": "artifact",
+  "program": "agent",
+  "signature": "question:string -> answer:string"
+}

@@ -133,6 +133,36 @@ assert program.get_plan()["steps"][0]["name"] == "qa"
 print("python-axflow-ok")
 `
 
+const pyOptimizerArtifactExample = `import json
+
+from ax import OptimizerEngine, ax
+
+
+class FakeOptimizer(OptimizerEngine):
+    name = "fixture"
+    version = "1"
+
+    def optimize(self, request, evaluator=None):
+        return {
+            "componentMap": {"qa::instruction": "Prefer artifact-backed answers."},
+            "metadata": {
+                "evidence": {"avg": 1},
+                "provenance": {"sourceProgramKind": "axgen"},
+            },
+        }
+
+
+qa = ax("question:string -> answer:string", {"id": "qa", "instruction": "Base."})
+artifact = qa.optimize_with(FakeOptimizer(), [], {"apply": False})
+assert any(item["id"] == "qa::instruction" and item["current"] == "Base." for item in qa.get_optimizable_components())
+qa.apply_optimization(json.dumps(artifact))
+assert any(
+    item["id"] == "qa::instruction" and item["current"] == "Prefer artifact-backed answers."
+    for item in qa.get_optimizable_components()
+)
+print("python-optimizer-artifact-ok")
+`
+
 const javaSignatureSchemaExample = `import dev.ax.*;
 import java.util.*;
 
@@ -276,6 +306,42 @@ public final class AxFlowProgramGraphExample {
     if (!"Paris".equals(out.get("answer"))) throw new RuntimeException("bad output: " + out);
     if (!"qa".equals(((Map<?, ?>) ((List<?>) program.getPlan().get("steps")).get(0)).get("name"))) throw new RuntimeException("bad plan");
     System.out.println("java-axflow-ok");
+  }
+}
+`
+
+const javaOptimizerArtifactExample = `import dev.ax.*;
+import java.util.*;
+
+public final class OptimizerArtifactExample {
+  static final class FakeOptimizer implements OptimizerEngine {
+    public String name() { return "fixture"; }
+    public String version() { return "1"; }
+    public Map<String, Object> optimize(Map<String, Object> request) {
+      return Map.of(
+        "componentMap", Map.of("qa::instruction", "Prefer artifact-backed answers."),
+        "metadata", Map.of(
+          "evidence", Map.of("avg", 1),
+          "provenance", Map.of("sourceProgramKind", "axgen")
+        )
+      );
+    }
+  }
+
+  static boolean hasInstruction(AxGen gen, String value) {
+    for (Map<String, Object> item : gen.getOptimizableComponents()) {
+      if ("qa::instruction".equals(item.get("id")) && value.equals(item.get("current"))) return true;
+    }
+    return false;
+  }
+
+  public static void main(String[] args) {
+    AxGen qa = new AxGen(Ax.s("question:string -> answer:string"), Map.of("id", "qa", "instruction", "Base."));
+    Map<String, Object> artifact = qa.optimizeWith(new FakeOptimizer(), List.of(), Map.of("apply", false));
+    if (!hasInstruction(qa, "Base.")) throw new RuntimeException("apply=false mutated components");
+    qa.applyOptimization(Json.stringify(artifact));
+    if (!hasInstruction(qa, "Prefer artifact-backed answers.")) throw new RuntimeException("artifact not applied");
+    System.out.println("java-optimizer-artifact-ok");
   }
 }
 `
@@ -431,5 +497,44 @@ int main() {
   if (!ax::equal(ax::Core::get(out, "answer"), "Paris")) return 1;
   if (!ax::equal(ax::Core::get(ax::Core::get(ax::Core::get(program.get_plan(), "steps"), 0), "name"), "qa")) return 2;
   std::cout << "cpp-axflow-ok\n";
+}
+`
+
+const cppOptimizerArtifactExample = `#include "ax/ax.hpp"
+#include <iostream>
+
+struct FakeOptimizer : ax::OptimizerEngine {
+  std::string name() const override { return "fixture"; }
+  std::string version() const override { return "1"; }
+  ax::Value optimize(ax::Value) override {
+    return ax::object({
+      {"componentMap", ax::object({{"qa::instruction", "Prefer artifact-backed answers."}})},
+      {"metadata", ax::object({
+        {"evidence", ax::object({{"avg", 1}})},
+        {"provenance", ax::object({{"sourceProgramKind", "axgen"}})}
+      })}
+    });
+  }
+};
+
+static bool has_instruction(const ax::AxGen& gen, const std::string& value) {
+  ax::Value components = gen.get_optimizable_components();
+  for (int i = 0; ; ++i) {
+    ax::Value item = ax::Core::get(components, i);
+    if (ax::Core::truthy(ax::Core::is_none(item))) break;
+    if (ax::equal(ax::Core::get(item, "id"), "qa::instruction") &&
+        ax::equal(ax::Core::get(item, "current"), value)) return true;
+  }
+  return false;
+}
+
+int main() {
+  ax::AxGen qa = ax::ax("question:string -> answer:string", ax::object({{"id", "qa"}, {"instruction", "Base."}}));
+  FakeOptimizer engine;
+  ax::Value artifact = qa.optimize_with(engine, ax::Value::array(), ax::object({{"apply", false}}));
+  if (!has_instruction(qa, "Base.")) return 1;
+  qa.apply_optimization(ax::Value(ax::stringify(artifact)));
+  if (!has_instruction(qa, "Prefer artifact-backed answers.")) return 2;
+  std::cout << "cpp-optimizer-artifact-ok\n";
 }
 `

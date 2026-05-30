@@ -97,6 +97,7 @@ func EmitPython(model AxRuntimeModel, outDir string) error {
 		"examples/axai_fake_transport.py":    pyAxAIFakeTransportExample,
 		"examples/axagent_pipeline.py":       pyAxAgentPipelineExample,
 		"examples/axflow_program_graph.py":   pyAxFlowProgramGraphExample,
+		"examples/optimizer_artifact.py":     pyOptimizerArtifactExample,
 		"README.md":                          packageREADME(model, "python"),
 	}
 	return writeFiles(outDir, files)
@@ -138,6 +139,7 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 		"examples/AxAIFakeTransportExample.java":    javaAxAIFakeTransportExample,
 		"examples/AxAgentPipelineExample.java":      javaAxAgentPipelineExample,
 		"examples/AxFlowProgramGraphExample.java":   javaAxFlowProgramGraphExample,
+		"examples/OptimizerArtifactExample.java":    javaOptimizerArtifactExample,
 		"README.md":                                 packageREADME(model, "java"),
 	}
 	return writeFiles(outDir, files)
@@ -158,6 +160,7 @@ func EmitCpp(model AxRuntimeModel, outDir string) error {
 		"examples/axai_fake_transport.cpp":    cppAxAIFakeTransportExample,
 		"examples/axagent_pipeline.cpp":       cppAxAgentPipelineExample,
 		"examples/axflow_program_graph.cpp":   cppAxFlowProgramGraphExample,
+		"examples/optimizer_artifact.cpp":     cppOptimizerArtifactExample,
 		"README.md":                           packageREADME(model, "cpp"),
 	}
 	return writeFiles(outDir, files)
@@ -369,5 +372,6 @@ See the files in `+"`examples/`"+` for:
 - AxAI/OpenAI-compatible mapping with a fake transport
 - AxAgent pipeline alpha with a fake service
 - AxFlow program graph with child Ax programs
+- Optimizer artifact save/load/apply lifecycle
 `, strings.ToUpper(target), manifest.AxIRVersion, manifest.PackageName, strings.Join(manifest.SupportedSuites, ", "), manifest.ProviderMode, manifest.FakeTransportSupport, network)
 }

@@ -1,0 +1,42 @@
+{
+  "component_map": {
+    "root.flow.qa::qa::instruction": "Apply serialized flow artifact."
+  },
+  "expected_components_subset": [
+    {
+      "current": "Apply serialized flow artifact.",
+      "id": "root.flow.qa::qa::instruction"
+    }
+  ],
+  "kind": "optimize",
+  "metadata": {
+    "evidence": {
+      "avg": 1
+    },
+    "provenance": {
+      "sourceProgramKind": "axflow"
+    }
+  },
+  "name": "artifact-serialized-apply-flow",
+  "operation": "apply",
+  "program": "flow",
+  "program_id": "root.flow",
+  "returns": {
+    "answer": "answer"
+  },
+  "serialized_artifact": true,
+  "signature": "question:string -> answer:string",
+  "steps": [
+    {
+      "kind": "execute",
+      "name": "qa",
+      "options": {
+        "id": "qa",
+        "instruction": "Base flow instruction.",
+        "reads": ["question"],
+        "writes": ["qaResult"]
+      },
+      "signature": "question:string -> answer:string"
+    }
+  ]
+}

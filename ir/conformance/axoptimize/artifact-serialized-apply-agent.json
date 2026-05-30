@@ -1,0 +1,25 @@
+{
+  "component_map": {
+    "task.root.responder::instruction": "Apply agent artifact later."
+  },
+  "expected_components_subset": [
+    {
+      "current": "Apply agent artifact later.",
+      "id": "task.root.responder::instruction"
+    }
+  ],
+  "kind": "optimize",
+  "metadata": {
+    "evidence": {
+      "avg": 0.9
+    },
+    "provenance": {
+      "sourceProgramKind": "axagent"
+    }
+  },
+  "name": "artifact-serialized-apply-agent",
+  "operation": "apply",
+  "program": "agent",
+  "serialized_artifact": true,
+  "signature": "question:string -> answer:string"
+}

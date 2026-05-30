@@ -1,0 +1,18 @@
+{
+  "component_map": {
+    "task.root.responder::instruction": "This should not apply."
+  },
+  "expected_error_contains": "stale optimized component owner",
+  "kind": "optimize",
+  "metadata": {
+    "provenance": {
+      "componentOwners": {
+        "task.root.responder::instruction": "old.responder.owner"
+      }
+    }
+  },
+  "name": "artifact-stale-owner-rejected",
+  "operation": "artifact",
+  "program": "agent",
+  "signature": "question:string -> answer:string"
+}

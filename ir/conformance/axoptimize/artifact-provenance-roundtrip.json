@@ -1,0 +1,40 @@
+{
+  "component_map": {
+    "task.root.responder::instruction": "Respond with artifact provenance."
+  },
+  "expected_artifact_subset": {
+    "artifactVersion": "axir-optimized-artifact-v1",
+    "componentMap": {
+      "task.root.responder::instruction": "Respond with artifact provenance."
+    },
+    "evidence": {
+      "avg": 1,
+      "count": 1
+    },
+    "provenance": {
+      "componentOwners": {
+        "task.root.responder::instruction": "task.root.responder"
+      },
+      "datasetHash": "fixture-dataset-hash",
+      "sourceProgramKind": "axagent"
+    }
+  },
+  "kind": "optimize",
+  "metadata": {
+    "evidence": {
+      "avg": 1,
+      "count": 1
+    },
+    "provenance": {
+      "componentOwners": {
+        "task.root.responder::instruction": "task.root.responder"
+      },
+      "datasetHash": "fixture-dataset-hash",
+      "sourceProgramKind": "axagent"
+    }
+  },
+  "name": "artifact-provenance-roundtrip",
+  "operation": "artifact",
+  "program": "agent",
+  "signature": "question:string -> answer:string"
+}

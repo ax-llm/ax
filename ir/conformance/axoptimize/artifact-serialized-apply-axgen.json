@@ -1,0 +1,29 @@
+{
+  "component_map": {
+    "qa::instruction": "Apply from serialized artifact."
+  },
+  "expected_components_subset": [
+    {
+      "current": "Apply from serialized artifact.",
+      "id": "qa::instruction"
+    }
+  ],
+  "kind": "optimize",
+  "metadata": {
+    "evidence": {
+      "avg": 1
+    },
+    "provenance": {
+      "sourceProgramKind": "axgen"
+    }
+  },
+  "name": "artifact-serialized-apply-axgen",
+  "operation": "apply",
+  "options": {
+    "id": "qa",
+    "instruction": "Answer succinctly."
+  },
+  "program": "axgen",
+  "serialized_artifact": true,
+  "signature": "query:string -> answer:string"
+}

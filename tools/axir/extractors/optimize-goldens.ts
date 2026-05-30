@@ -171,6 +171,120 @@ writeFixture('artifact-roundtrip', {
   },
 });
 
+writeFixture('artifact-provenance-roundtrip', {
+  kind: 'optimize',
+  operation: 'artifact',
+  program: 'agent',
+  signature: 'question:string -> answer:string',
+  component_map: {
+    'task.root.responder::instruction': 'Respond with artifact provenance.',
+  },
+  metadata: {
+    evidence: {
+      avg: 1,
+      count: 1,
+    },
+    provenance: {
+      componentOwners: {
+        'task.root.responder::instruction': 'task.root.responder',
+      },
+      datasetHash: 'fixture-dataset-hash',
+      sourceProgramKind: 'axagent',
+    },
+  },
+  expected_artifact_subset: {
+    artifactVersion: 'axir-optimized-artifact-v1',
+    componentMap: {
+      'task.root.responder::instruction': 'Respond with artifact provenance.',
+    },
+    evidence: {
+      avg: 1,
+      count: 1,
+    },
+    provenance: {
+      componentOwners: {
+        'task.root.responder::instruction': 'task.root.responder',
+      },
+      datasetHash: 'fixture-dataset-hash',
+      sourceProgramKind: 'axagent',
+    },
+  },
+});
+
+writeFixture('artifact-stale-owner-rejected', {
+  kind: 'optimize',
+  operation: 'artifact',
+  program: 'agent',
+  signature: 'question:string -> answer:string',
+  component_map: {
+    'task.root.responder::instruction': 'This should not apply.',
+  },
+  metadata: {
+    provenance: {
+      componentOwners: {
+        'task.root.responder::instruction': 'old.responder.owner',
+      },
+    },
+  },
+  expected_error_contains: 'stale optimized component owner',
+});
+
+writeFixture('artifact-invalid-component-value-rejected', {
+  kind: 'optimize',
+  operation: 'artifact',
+  program: 'agent',
+  signature: 'question:string -> answer:string',
+  component_map: {
+    'task.root.responder::instruction': {
+      invalid: true,
+    },
+  },
+  expected_error_contains: 'invalid optimized component value',
+});
+
+writeFixture('artifact-serialized-apply-axgen', {
+  kind: 'optimize',
+  operation: 'apply',
+  program: 'axgen',
+  signature: 'query:string -> answer:string',
+  options: { id: 'qa', instruction: 'Answer succinctly.' },
+  serialized_artifact: true,
+  component_map: {
+    'qa::instruction': 'Apply from serialized artifact.',
+  },
+  metadata: {
+    evidence: { avg: 1 },
+    provenance: { sourceProgramKind: 'axgen' },
+  },
+  expected_components_subset: [
+    {
+      current: 'Apply from serialized artifact.',
+      id: 'qa::instruction',
+    },
+  ],
+});
+
+writeFixture('artifact-serialized-apply-agent', {
+  kind: 'optimize',
+  operation: 'apply',
+  program: 'agent',
+  signature: 'question:string -> answer:string',
+  serialized_artifact: true,
+  component_map: {
+    'task.root.responder::instruction': 'Apply agent artifact later.',
+  },
+  metadata: {
+    evidence: { avg: 0.9 },
+    provenance: { sourceProgramKind: 'axagent' },
+  },
+  expected_components_subset: [
+    {
+      current: 'Apply agent artifact later.',
+      id: 'task.root.responder::instruction',
+    },
+  ],
+});
+
 writeFixture('apply-agent-component-map', {
   kind: 'optimize',
   operation: 'apply',
@@ -872,6 +986,42 @@ writeFixture('flow-apply-child-component', {
     {
       id: 'root.flow.qa::qa::instruction',
       current: 'Use the optimized flow node prompt.',
+    },
+  ],
+});
+
+writeFixture('artifact-serialized-apply-flow', {
+  kind: 'optimize',
+  operation: 'apply',
+  program: 'flow',
+  program_id: 'root.flow',
+  signature: 'question:string -> answer:string',
+  serialized_artifact: true,
+  steps: [
+    {
+      kind: 'execute',
+      name: 'qa',
+      signature: 'question:string -> answer:string',
+      options: {
+        id: 'qa',
+        instruction: 'Base flow instruction.',
+        reads: ['question'],
+        writes: ['qaResult'],
+      },
+    },
+  ],
+  returns: { answer: 'answer' },
+  component_map: {
+    'root.flow.qa::qa::instruction': 'Apply serialized flow artifact.',
+  },
+  metadata: {
+    evidence: { avg: 1 },
+    provenance: { sourceProgramKind: 'axflow' },
+  },
+  expected_components_subset: [
+    {
+      id: 'root.flow.qa::qa::instruction',
+      current: 'Apply serialized flow artifact.',
     },
   ],
 });
