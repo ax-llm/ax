@@ -334,7 +334,7 @@ Runnable: [`src/examples/rlm-memories-and-skills.ts`](src/examples/rlm-memories-
 
 ## AxFlow + optimization
 
-`AxFlow` is a typed, chainable workflow runner — define nodes, wire state through `execute`, finalize with `map`. State types evolve as you add nodes, so the final mapper is fully type-checked.
+`AxFlow` is a typed, chainable workflow runner — define nodes, wire state through `execute`, and finalize outputs with `returns`. State types evolve as you add nodes, so the final output mapper is fully type-checked. Independent node executes are planned as a safe DAG optimization when their metadata reads and writes do not conflict.
 
 ```typescript
 import { ai, AxAIOpenAIModel, AxGEPA, flow } from "@ax-llm/ax";
@@ -345,7 +345,7 @@ const emailFlow = flow<{ emailText: string }>()
   .n("rationale", "emailText:string, priority:string -> rationale:string")
   .e("classifier", (s) => ({ emailText: s.emailText }))
   .e("rationale", (s) => ({ emailText: s.emailText, priority: s.classifierResult.priority }))
-  .m((s) => ({
+  .r((s) => ({
     priority: s.classifierResult.priority,
     rationale: s.rationaleResult.rationale,
   }));

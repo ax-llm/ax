@@ -1,7 +1,9 @@
+import type { Meter, Tracer } from '@opentelemetry/api';
 import type { AxAIService } from '../ai/types.js';
 import type { AxGen } from '../dsp/generate.js';
 import type {
   AxProgramForwardOptions,
+  AxProgramForwardOptionsWithModels,
   AxProgrammable,
   ParseSignature,
 } from '../dsp/types.js';
@@ -9,20 +11,20 @@ import type {
 // Type for state object that flows through the pipeline
 export type AxFlowState = Record<string, unknown>;
 
-// Type for node definitions in the flow
-export interface AxFlowNodeDefinition {
-  inputs: Record<string, unknown>;
-  outputs: Record<string, unknown>;
+export interface AxFlowOptions {
+  autoParallel?: boolean;
+  batchSize?: number;
+  logger?: import('./logger.js').AxFlowLoggerFunction;
+  debug?: boolean;
+  tracer?: Tracer;
+  meter?: Meter;
 }
 
-// Type for flow step functions
-export type AxFlowStepFunction = (
-  state: AxFlowState,
-  context: Readonly<{
-    mainAi: AxAIService;
-    mainOptions?: AxProgramForwardOptions<string>;
-  }>
-) => Promise<AxFlowState> | AxFlowState;
+export type AxFlowForwardOptions<T extends Readonly<AxAIService>> =
+  AxProgramForwardOptionsWithModels<T> & {
+    autoParallel?: boolean;
+    abortController?: AbortController;
+  };
 
 // Type for dynamic context overrides
 export interface AxFlowDynamicContext<T extends Readonly<AxAIService>> {
@@ -99,35 +101,41 @@ export interface AxFlowTypedSubContext<
     context: Readonly<{
       mainAi: AxAIService;
       mainOptions?: AxProgramForwardOptions<string>;
+      executeSteps?: (
+        steps: readonly unknown[],
+        initialState: AxFlowState
+      ) => Promise<AxFlowState>;
     }>
   ): Promise<AxFlowState>;
 }
 
-// Type for branch context
-export interface AxFlowBranchContext {
-  predicate: (state: AxFlowState) => unknown;
-  branches: Map<unknown, AxFlowStepFunction[]>;
-  currentBranchValue?: unknown;
-}
-
-// Type for execution step metadata
-export interface AxFlowExecutionStep {
-  type: 'execute' | 'map' | 'merge' | 'parallel-map' | 'parallel' | 'derive';
+export interface AxFlowExecutionPlanStep {
+  type:
+    | 'execute'
+    | 'map'
+    | 'returns'
+    | 'branch'
+    | 'while'
+    | 'feedback'
+    | 'parallel'
+    | 'parallelMerge'
+    | 'derive';
   nodeName?: string;
   dependencies: string[];
   produces: string[];
-  stepFunction: AxFlowStepFunction;
   stepIndex: number;
+  isBarrier: boolean;
 }
 
-// Type for parallel execution groups
-export interface AxFlowParallelGroup {
+export interface AxFlowExecutionPlanGroup {
   level: number;
-  steps: AxFlowExecutionStep[];
+  steps: AxFlowExecutionPlanStep[];
 }
 
-// Configuration for automatic parallelization
-export interface AxFlowAutoParallelConfig {
-  enabled: boolean;
-  batchSize?: number;
+export interface AxFlowExecutionPlan {
+  totalSteps: number;
+  parallelGroups: number;
+  maxParallelism: number;
+  steps: AxFlowExecutionPlanStep[];
+  groups: AxFlowExecutionPlanGroup[];
 }

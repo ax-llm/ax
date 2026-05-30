@@ -22,7 +22,7 @@ describe('AxFlow caching via axGlobals', () => {
         firstName: state.firstName,
         lastName: state.lastName,
       }))
-      .mapOutput((state) => ({
+      .returns((state) => ({
         final: (state as any).echoResult?.fullName ?? '',
       }));
 
@@ -41,7 +41,7 @@ describe('AxFlow caching via axGlobals', () => {
         firstName: state.firstName,
         lastName: state.lastName,
       }))
-      .mapOutput((state) => ({
+      .returns((state) => ({
         final: (state as any).echoResult?.fullName ?? '',
       }));
 
@@ -63,7 +63,7 @@ describe('AxFlow caching via axGlobals', () => {
     const f = flow<{ userQuery: string }>()
       .node('echo', 'userQuery:string -> resultText:string')
       .execute('echo', (state) => ({ userQuery: (state as any).userQuery }))
-      .mapOutput((state) => ({
+      .returns((state) => ({
         final: (state as any).echoResult?.resultText ?? '',
       }));
 
@@ -87,5 +87,24 @@ describe('AxFlow caching via axGlobals', () => {
 
     const res = await f.forward(ai as any, { inputText: 'abc' });
     expect((res as any).outputText).toBe('ABC');
+  });
+
+  it('uses actual input values for map-only flow cache keys', async () => {
+    const f = flow<{ inputText: string }, { outputText: string }>()
+      .map((state) => ({ outputText: state.inputText.toUpperCase() }))
+      .returns((state) => ({ outputText: state.outputText }));
+
+    const keys: string[] = [];
+    axGlobals.cachingFunction = vi
+      .fn()
+      .mockImplementation(async (key: string) => {
+        keys.push(key);
+        return undefined;
+      });
+
+    await f.forward(ai as any, { inputText: 'abc' });
+    await f.forward(ai as any, { inputText: 'xyz' });
+    expect(keys).toHaveLength(4);
+    expect(keys[0]).not.toBe(keys[2]);
   });
 });

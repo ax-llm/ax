@@ -954,58 +954,9 @@ describe('AxFlow', () => {
   });
 });
 
-describe('AxFlow Signature Inference', () => {
-  it.skip('should infer signature from flow dependencies', async () => {
-    const mockAI = new AxMockAIService({
-      chatResponse: (messages) => {
-        // Check which node is being executed based on the message content
-        const messageContent = messages[messages.length - 1]?.content || '';
-
-        if (
-          messageContent.includes('userText:') ||
-          messageContent.includes('User Text:')
-        ) {
-          // Response for analyzer node - use title case for field names
-          return {
-            results: [
-              {
-                index: 0,
-                content: 'Sentiment Value: positive\nConfidence Score: 0.8',
-                finishReason: 'stop',
-              },
-            ],
-            modelUsage: {
-              ai: 'mock',
-              model: 'test',
-              tokens: {
-                promptTokens: 10,
-                completionTokens: 5,
-                totalTokens: 15,
-              },
-            },
-          };
-        }
-        // Response for formatter node
-        return {
-          results: [
-            {
-              index: 0,
-              content:
-                'Formatted Result: This is positive sentiment with 80% confidence',
-              finishReason: 'stop',
-            },
-          ],
-          modelUsage: {
-            ai: 'mock',
-            model: 'test',
-            tokens: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
-          },
-        };
-      },
-    });
-
-    // Create a flow without passing a signature
-    const flow = AxFlow.create()
+describe('AxFlow metadata-derived signatures', () => {
+  it('uses deterministic node dependency metadata for signatures', () => {
+    const myFlow = AxFlow.create()
       .node(
         'analyzer',
         'userText:string -> sentimentValue:string, confidenceScore:number'
@@ -1020,16 +971,13 @@ describe('AxFlow Signature Inference', () => {
         score: state.analyzerResult.confidenceScore,
       }));
 
-    // The signature should be inferred from the flow structure
-    const signature = flow.getSignature();
-
-    // Check that the signature has been inferred
-    expect(signature).toBeDefined();
-    expect(signature.toString()).toBeTruthy();
-
-    // Execute the flow to verify it works
-    const result = await flow.forward(mockAI, { userInput: 'This is great!' });
-    expect(result).toBeDefined();
+    const signature = myFlow.getSignature();
+    expect(signature.getInputFields().map((field) => field.name)).toContain(
+      'userInput'
+    );
+    expect(signature.getOutputFields().map((field) => field.name)).toContain(
+      'formatterFormattedResult'
+    );
   });
 
   it('should handle flows with no dependencies correctly', async () => {
@@ -1072,14 +1020,14 @@ describe('AxFlow Signature Inference', () => {
       },
     });
 
-    // Create a flow with explicit signature (note: this test is about manual override, not inference)
+    // Create a flow with explicit signature.
     const _customSignature = 'customInput:string -> customOutput:string';
     const flow = AxFlow.create().node(
       'processor',
       'dataIn:string -> dataOut:string'
     );
 
-    // Without manual override, should infer signature from flow structure
+    // Without manual override, signature comes from flow metadata.
     const signature = flow.getSignature();
     expect(signature.toString()).toContain('processorDataOut'); // Should use actual field name from node signature
 
@@ -1088,144 +1036,20 @@ describe('AxFlow Signature Inference', () => {
     expect(result).toBeDefined();
   });
 
-  it.skip('should infer complex signatures with multiple input/output nodes', async () => {
-    const mockAI = new AxMockAIService({
-      chatResponse: (messages) => {
-        // Check which node is being executed based on the message content
-        const messageContent = messages[messages.length - 1]?.content || '';
+  it('uses conservative prefixed outputs for multi-node leaves', () => {
+    const myFlow = AxFlow.create()
+      .node('sentiment', 'textData:string -> label:string')
+      .node('topic', 'textData:string -> label:string')
+      .execute('sentiment', (state: any) => ({ textData: state.userInput }))
+      .execute('topic', (state: any) => ({ textData: state.userInput }));
 
-        if (
-          messageContent.includes('rawInput:') ||
-          messageContent.includes('Raw Input:')
-        ) {
-          // Response for preprocessor node
-          return {
-            results: [
-              {
-                index: 0,
-                content: 'Cleaned Text: processed input',
-                finishReason: 'stop',
-              },
-            ],
-            modelUsage: {
-              ai: 'mock',
-              model: 'test',
-              tokens: {
-                promptTokens: 10,
-                completionTokens: 5,
-                totalTokens: 15,
-              },
-            },
-          };
-        }
-        if (
-          messageContent.includes('textData:') ||
-          messageContent.includes('Text Data:')
-        ) {
-          // Check if it's for sentiment or topics based on the signature context
-          if (
-            messageContent.includes('Sentiment:') ||
-            messageContent.includes('sentiment')
-          ) {
-            // Response for analyzer1 node
-            return {
-              results: [
-                {
-                  index: 0,
-                  content: 'Sentiment: positive',
-                  finishReason: 'stop',
-                },
-              ],
-              modelUsage: {
-                ai: 'mock',
-                model: 'test',
-                tokens: {
-                  promptTokens: 10,
-                  completionTokens: 5,
-                  totalTokens: 15,
-                },
-              },
-            };
-          }
-          // Response for analyzer2 node
-          return {
-            results: [
-              {
-                index: 0,
-                content: 'Topics: ["technology", "AI", "programming"]',
-                finishReason: 'stop',
-              },
-            ],
-            modelUsage: {
-              ai: 'mock',
-              model: 'test',
-              tokens: {
-                promptTokens: 10,
-                completionTokens: 5,
-                totalTokens: 15,
-              },
-            },
-          };
-        }
-        // Response for combiner node
-        return {
-          results: [
-            {
-              index: 0,
-              content:
-                'Final Report: Positive sentiment about technology and AI',
-              finishReason: 'stop',
-            },
-          ],
-          modelUsage: {
-            ai: 'mock',
-            model: 'test',
-            tokens: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
-          },
-        };
-      },
-    });
+    const outputFields = myFlow
+      .getSignature()
+      .getOutputFields()
+      .map((field) => field.name);
 
-    // Create a complex flow with branching
-    const flow = AxFlow.create()
-      .node('preprocessor', 'rawInput:string -> cleanedText:string')
-      .node('analyzer1', 'textData:string -> sentiment:string')
-      .node('analyzer2', 'textData:string -> topics:string[]')
-      .node(
-        'combiner',
-        'sentimentData:string, topicData:string[] -> finalReport:string'
-      )
-      .execute('preprocessor', (state: any) => ({ rawInput: state.userInput }))
-      .execute('analyzer1', (state: any) => ({
-        textData: state.preprocessorResult.cleanedText,
-      }))
-      .execute('analyzer2', (state: any) => ({
-        textData: state.preprocessorResult.cleanedText,
-      }))
-      .execute('combiner', (state: any) => ({
-        sentimentData: state.analyzer1Result.sentiment,
-        topicData: state.analyzer2Result.topics,
-      }));
-
-    // The signature should be inferred from the flow structure
-    const signature = flow.getSignature();
-    expect(signature).toBeDefined();
-
-    // Should identify userInput as input and finalReport as output (actual field name, not wrapper)
-    const inputFields = signature.getInputFields();
-    const outputFields = signature.getOutputFields();
-
-    expect(inputFields.length).toBeGreaterThan(0);
-    expect(outputFields.length).toBeGreaterThan(0);
-
-    // Should use the actual field name from the node signature, not the wrapper name
-    expect(signature.toString()).toContain('finalReport');
-
-    // Execute the flow
-    const result = await flow.forward(mockAI, {
-      userInput: 'Complex analysis text',
-    });
-    expect(result).toBeDefined();
+    expect(outputFields).toContain('sentimentLabel');
+    expect(outputFields).toContain('topicLabel');
   });
 });
 
@@ -1399,7 +1223,7 @@ describe('AxFlow > derive method', () => {
   });
 });
 
-describe('AxFlow > derive method signature inference', () => {
+describe('AxFlow > derive method metadata-derived signatures', () => {
   let mockAI: AxMockAIService;
 
   beforeEach(() => {
@@ -1469,7 +1293,7 @@ describe('AxFlow > derive method signature inference', () => {
     expect(outputFieldNames).toContain('uppercased');
   });
 
-  it('should work with derive as final operation in signature inference', async () => {
+  it('should work with derive as final operation in metadata-derived signatures', async () => {
     const myFlow = flow<{ inputData: string[] }, { finalResult: string[] }>()
       .map((state) => ({ ...state, intermediate: 'processed' }))
       .derive('finalResult', 'inputData', (item: string) => `final-${item}`);

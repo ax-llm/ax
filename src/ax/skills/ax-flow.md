@@ -12,7 +12,7 @@ Use this skill to generate `AxFlow` workflow code. Prefer short, modern, copyabl
 
 - Use `flow()` factory, not `new AxFlow()`.
 - Import: `import { ai, flow, f } from '@ax-llm/ax';`
-- `autoParallel: true` is the default; independent executes run in parallel automatically.
+- `autoParallel: true` is the default; independent executes and derives run in parallel when their metadata reads/writes are known and non-conflicting.
 - Node results are stored as `${nodeName}Result` in state.
 - Always define `.node()` before `.execute()` for that node.
 - Use `.returns()` (or `.r()`) as the last step to lock the output type.
@@ -28,7 +28,7 @@ Use this skill to generate `AxFlow` workflow code. Prefer short, modern, copyabl
 - Always define nodes before executing them; reversed order throws at runtime.
 - Keep state flat; avoid deep nesting in `.map()`.
 - Ensure loop conditions can change to avoid infinite loops.
-- Structure independent executes to maximize auto-parallelization.
+- Structure independent executes to maximize safe auto-parallelization.
 - Use `flow<InputType, OutputType>()` for typed flows.
 - Aliases: `.n()` = `.node()`, `.nx()` = `.nodeExtended()`, `.m()` = `.map()`, `.r()` = `.returns()`.
 
@@ -174,7 +174,7 @@ const wf = flow<{ input: string }, { finalResult: string }>()
 
 ## Auto-Parallel Execution
 
-Independent executes run in parallel automatically (`autoParallel: true` by default):
+Independent execute steps run in parallel automatically (`autoParallel: true` by default) when their metadata reads/writes are known and non-conflicting:
 
 ```typescript
 const wf = flow<{ text: string }, { combined: string }>()
@@ -198,6 +198,12 @@ const wf = flow<{ text: string }, { combined: string }>()
 const plan = wf.getExecutionPlan();
 console.log(plan.parallelGroups, plan.maxParallelism);
 ```
+
+Planner rules:
+- Independent `.execute()` and `.derive()` steps may parallelize.
+- `.map()`, `.returns()`, `.branch()`, `.while()`, `.feedback()`, and explicit `.parallel()` are barriers.
+- Branch, while, and feedback bodies still use the same planner internally.
+- Use `autoParallel: false` when you need strict sequential execution.
 
 Disable auto-parallel:
 
@@ -425,6 +431,8 @@ Fetch these for full working code:
 
 - Do not use `new AxFlow(...)` for new code.
 - Do not execute a node before defining it with `.node()`.
+- Do not use removed terminal shapers like `.mapOutput()` or `.mo()`.
+- Do not rely on broad signature inference from arbitrary transform source. Use explicit input/output generics and `.returns()` for the final output contract.
 - Do not use generic field names like `text`, `result`, `data`, `input`, `output`.
 - Do not create deep-nested state objects in `.map()`.
 - Do not create loop conditions that can never change.
