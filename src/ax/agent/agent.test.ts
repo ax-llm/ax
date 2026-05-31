@@ -13254,6 +13254,170 @@ describe('AxFunction', () => {
     expect(typeof globals.media.processImage).toBe('function');
   });
 
+  it('should expand grouped function providers under the group namespace', () => {
+    const provider = {
+      toFunction: (): AxFunction[] => [
+        {
+          name: 'lookupMemory',
+          description: 'Lookup memory data',
+          parameters: {
+            type: 'object',
+            properties: { query: { type: 'string' } },
+            required: ['query'],
+          },
+          func: async () => 'lookup',
+        },
+        {
+          name: 'saveMemory',
+          description: 'Save memory data',
+          parameters: {
+            type: 'object',
+            properties: { content: { type: 'string' } },
+            required: ['content'],
+          },
+          func: async () => 'saved',
+        },
+      ],
+    };
+
+    const myAgent = new AxAgent(
+      { signature: 'query:string -> answer:string' },
+      {
+        contextFields: [],
+        runtime,
+        functions: [
+          {
+            namespace: 'memory',
+            title: 'Memory MCP',
+            selectionCriteria: 'Use for persistent memory lookup and updates.',
+            description: 'Memory server tools',
+            functions: [provider],
+          },
+        ],
+      }
+    );
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const globals = getInternal(myAgent).buildRuntimeGlobals();
+    expect(globals).toHaveProperty('memory');
+    expect(globals.memory).toHaveProperty('lookupMemory');
+    expect(globals.memory).toHaveProperty('saveMemory');
+    expect(typeof globals.memory.lookupMemory).toBe('function');
+    expect(typeof globals.memory.saveMemory).toBe('function');
+  });
+
+  it('should expand grouped providers that also expose functions arrays', () => {
+    const provider = {
+      functions: [
+        {
+          name: 'staleInternalFunction',
+        },
+      ],
+      toFunction: (): AxFunction[] => [
+        {
+          name: 'searchMemory',
+          description: 'Search memory data',
+          parameters: {
+            type: 'object',
+            properties: { query: { type: 'string' } },
+            required: ['query'],
+          },
+          func: async () => 'search',
+        },
+      ],
+    };
+
+    const myAgent = new AxAgent(
+      { signature: 'query:string -> answer:string' },
+      {
+        contextFields: [],
+        runtime,
+        functions: [
+          {
+            namespace: 'memory',
+            title: 'Memory MCP',
+            description: 'Memory server tools',
+            functions: [provider],
+          },
+        ],
+      }
+    );
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const globals = getInternal(myAgent).buildRuntimeGlobals();
+    expect(globals).toHaveProperty('memory');
+    expect(globals.memory).toHaveProperty('searchMemory');
+    expect(globals.memory).not.toHaveProperty('staleInternalFunction');
+  });
+
+  it('should default missing parameters on provider-expanded functions', () => {
+    const provider = {
+      toFunction: (): AxFunction => ({
+        name: 'listMemories',
+        description: 'List memory entries',
+        func: async () => [],
+      }),
+    };
+
+    const myAgent = new AxAgent(
+      { signature: 'query:string -> answer:string' },
+      {
+        contextFields: [],
+        runtime,
+        functions: [
+          {
+            namespace: 'memory',
+            title: 'Memory MCP',
+            description: 'Memory server tools',
+            functions: [provider],
+          },
+        ],
+      }
+    );
+
+    const internal = getInternal(myAgent);
+    expect(internal.agentFunctions[0]?.parameters).toEqual({
+      type: 'object',
+      properties: {},
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const globals = internal.buildRuntimeGlobals();
+    expect(globals).toHaveProperty('memory');
+    expect(globals.memory).toHaveProperty('listMemories');
+  });
+
+  it('should expand flat function providers under the default namespace', () => {
+    const provider = {
+      toFunction: (): AxFunction[] => [
+        {
+          name: 'lookupData',
+          description: 'Lookup data',
+          parameters: {
+            type: 'object',
+            properties: { query: { type: 'string' } },
+            required: ['query'],
+          },
+          func: async () => 'result',
+        },
+      ],
+    };
+
+    const myAgent = new AxAgent(
+      { signature: 'query:string -> answer:string' },
+      {
+        contextFields: [],
+        runtime,
+        functions: [provider],
+      }
+    );
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const globals = getInternal(myAgent).buildRuntimeGlobals();
+    expect(globals).toHaveProperty('utils');
+    expect(globals.utils).toHaveProperty('lookupData');
+  });
+
   it('should expose child agents under default utils namespace in runtime globals', () => {
     const child = agent('question:string -> answer:string', {
       agentIdentity: { name: 'Child', description: 'child' },
@@ -13429,6 +13593,40 @@ describe('AxFunction', () => {
                     func: async () => 'x',
                   },
                 ],
+              },
+            ],
+          }
+        )
+    ).toThrow(
+      'Grouped agent function "db.search" must not define namespace; use the parent group namespace instead'
+    );
+  });
+
+  it('should throw when grouped providers return functions with namespaces', () => {
+    const provider = {
+      toFunction: (): AxFunction => ({
+        name: 'search',
+        description: 'Search database',
+        parameters: { type: 'object', properties: {} },
+        namespace: 'db',
+        func: async () => 'x',
+      }),
+    };
+
+    expect(
+      () =>
+        new AxAgent(
+          { signature: 'query:string -> answer:string' },
+          {
+            contextFields: [],
+            runtime,
+            functions: [
+              {
+                namespace: 'db',
+                title: 'Database',
+                selectionCriteria: 'Use for database lookups',
+                description: 'Database tools',
+                functions: [provider],
               },
             ],
           }

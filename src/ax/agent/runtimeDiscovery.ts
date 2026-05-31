@@ -1,4 +1,4 @@
-import type { AxFunctionJSONSchema } from '../ai/types.js';
+import type { AxFunction, AxFunctionJSONSchema } from '../ai/types.js';
 import type {
   AxAgentFunction,
   AxAgentFunctionCollection,
@@ -6,6 +6,7 @@ import type {
   AxAgentFunctionGroup,
   AxAgentFunctionModuleMeta,
   AxAnyAgentic,
+  AxFunctionProvider,
   NormalizedAgentFunctionCollection,
 } from './AxAgent.js';
 
@@ -14,6 +15,33 @@ function isAgentic(value: unknown): value is AxAnyAgentic {
     !!value &&
     typeof value === 'object' &&
     typeof (value as { getFunction?: unknown }).getFunction === 'function'
+  );
+}
+
+function isFunctionProvider(value: unknown): value is AxFunctionProvider {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    typeof (value as { toFunction?: unknown }).toFunction === 'function'
+  );
+}
+
+function emptyObjectParameters(): AxFunctionJSONSchema {
+  return { type: 'object', properties: {} };
+}
+
+function expandFunctionProvider(
+  provider: AxFunctionProvider
+): AxAgentFunction[] {
+  const result = provider.toFunction();
+  const functions: readonly AxFunction[] = Array.isArray(result)
+    ? result
+    : [result];
+  return functions.map(
+    (fn): AxAgentFunction => ({
+      ...fn,
+      parameters: fn.parameters ?? emptyObjectParameters(),
+    })
   );
 }
 
@@ -84,6 +112,7 @@ export function normalizeAgentFunctionCollection(
     | AxAgentFunction
     | AxAgentFunctionGroup
     | AxAnyAgentic
+    | AxFunctionProvider
   )[]) {
     if (isAgentic(item)) {
       const fn = item.getFunction();
@@ -92,6 +121,8 @@ export function normalizeAgentFunctionCollection(
         ...fn,
         _kind: 'internal',
       } as AxAgentFunction);
+    } else if (isFunctionProvider(item)) {
+      remaining.push(...expandFunctionProvider(item));
     } else {
       remaining.push(item as AxAgentFunction | AxAgentFunctionGroup);
     }
@@ -157,7 +188,11 @@ export function normalizeAgentFunctionCollection(
         `Duplicate agent function group namespace "${namespace}"`
       );
     }
-    if (group.functions.length === 0) {
+    const groupFunctions = group.functions.flatMap((fn) =>
+      isFunctionProvider(fn) ? expandFunctionProvider(fn) : [fn]
+    );
+
+    if (groupFunctions.length === 0) {
       throw new Error(
         `Agent function group "${namespace}" must contain at least one function`
       );
@@ -172,7 +207,7 @@ export function normalizeAgentFunctionCollection(
       ...(alwaysInclude ? { alwaysInclude } : {}),
     });
 
-    for (const fn of group.functions) {
+    for (const fn of groupFunctions) {
       if ('namespace' in fn && fn.namespace !== undefined) {
         throw new Error(
           `Grouped agent function "${namespace}.${fn.name}" must not define namespace; use the parent group namespace instead`

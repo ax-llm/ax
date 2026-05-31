@@ -239,7 +239,7 @@ axGlobals.meter = openTelemetryMeter;
 ## MCP Integration
 
 ```typescript
-import { AxMCPClient } from '@ax-llm/ax';
+import { AxMCPClient, agent } from '@ax-llm/ax';
 import { AxMCPStdioTransport } from '@ax-llm/ax-tools';
 
 // Stdio transport (local MCP server)
@@ -251,11 +251,19 @@ const transport = new AxMCPStdioTransport({
 const mcpClient = new AxMCPClient(transport, { debug: false });
 await mcpClient.init();
 
-// Use with agent
+// Use with agent under a namespace
 const myAgent = agent('userMessage:string -> response:string', {
-  name: 'assistant',
-  description: 'An assistant with MCP tools',
-  functions: [mcpClient],
+  functions: [
+    {
+      namespace: 'memory',
+      title: 'Memory MCP',
+      description: 'Memory server tools',
+      selectionCriteria: 'Use for persistent memory lookup and updates.',
+      functions: [mcpClient],
+    },
+  ],
+  functionDiscovery: true,
+  contextFields: [],
 });
 ```
 

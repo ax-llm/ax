@@ -78,6 +78,7 @@ import {
   type AxContextFieldPromptConfig,
   type AxExecutorModelPolicy,
   type AxExecutorModelPolicyEntry,
+  type AxFunctionProvider,
 } from './agent/agentInternal/agentStateTypes.js';
 import {
   AxAgent,
@@ -1448,6 +1449,7 @@ export type { AxFunctionCallRecord };
 export type { AxFunctionCallTrace };
 export type { AxFunctionHandler };
 export type { AxFunctionJSONSchema };
+export type { AxFunctionProvider };
 export type { AxFunctionResult };
 export type { AxFunctionResultFormatter };
 export type { AxGEPAAdapter };
