@@ -528,6 +528,56 @@ const javaQuickJSProfilePom = `<project xmlns="http://maven.apache.org/POM/4.0.0
 </project>
 `
 
+const javaQuickJSProfileGradle = `plugins {
+  id 'java'
+}
+
+repositories {
+  mavenCentral()
+}
+
+dependencies {
+  implementation 'io.roastedroot:quickjs4j:0.0.18'
+}
+`
+
+const javaQuickJSClasspathHelper = `#!/usr/bin/env sh
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+POM_FILE="${1:-"$SCRIPT_DIR/quickjs4j-pom.xml"}"
+WORK_DIR="${AXIR_QUICKJS4J_WORKDIR:-"${TMPDIR:-/tmp}/axir-quickjs4j-cp"}"
+OUT_FILE="$WORK_DIR/classpath.txt"
+
+mkdir -p "$WORK_DIR"
+mvn -q -f "$POM_FILE" dependency:build-classpath -Dmdep.outputFile="$OUT_FILE" -Dmdep.includeScope=runtime
+cat "$OUT_FILE"
+`
+
+const javaQuickJSProfileReadme = `# JavaScript QuickJS Runtime Profile
+
+This optional profile runs JavaScript actor code in QuickJS4J. It is not part of
+the base generated Java compile path; compile it only when you want the
+` + "`javascript-quickjs`" + ` runtime profile.
+
+QuickJS4J dependency metadata is provided in both ` + "`quickjs4j-pom.xml`" + ` and
+` + "`quickjs4j-build.gradle`" + `. To resolve the classpath with Maven:
+
+` + "```bash" + `
+AXIR_QUICKJS4J_CP="$(sh examples/runtime_profiles/resolve_quickjs4j_cp.sh)"
+` + "```" + `
+
+` + "`axir verify --runtime-profiles javascript-quickjs`" + ` also accepts
+` + "`AXIR_QUICKJS4J_CP_FILE`" + `, or ` + "`AXIR_QUICKJS4J_RESOLVE=1`" + ` to run the same
+generated Maven helper during verification.
+
+Host callbacks are registered with ` + "`AxQuickJsCodeRuntime.registerCallable`" + ` and
+are exposed to actor JavaScript as ordinary functions. Arguments and results must
+be JSON-compatible. Callback failures are normalized to runtime error objects;
+filesystem, network, process, and arbitrary host object access are not exposed by
+default.
+`
+
 const cppQuickJSRuntimeHeader = `#pragma once
 
 #include "ax/ax.hpp"

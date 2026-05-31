@@ -279,9 +279,12 @@ func verifyJavaTarget(report VerifyTargetReport, conformanceRoot string) (Verify
 }
 
 func verifyJavaQuickJSProfile(report VerifyTargetReport) (VerifyTargetReport, error) {
-	cp := os.Getenv("AXIR_QUICKJS4J_CP")
+	cp, cpSource, err := quickJS4JClasspath(report.OutDir)
+	if err != nil {
+		return report, err
+	}
 	if cp == "" {
-		report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile javascript-quickjs", Status: "skip", Message: "AXIR_QUICKJS4J_CP not set; see examples/runtime_profiles/quickjs4j-pom.xml"})
+		report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile javascript-quickjs", Status: "skip", Message: "AXIR_QUICKJS4J_CP not set; use AXIR_QUICKJS4J_CP_FILE or AXIR_QUICKJS4J_RESOLVE=1; see examples/runtime_profiles/README.md"})
 		return report, nil
 	}
 	javac, err := findJavaTool("javac")
@@ -294,6 +297,7 @@ func verifyJavaQuickJSProfile(report VerifyTargetReport) (VerifyTargetReport, er
 		report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile javascript-quickjs java", Status: "skip", Message: err.Error()})
 		return report, nil
 	}
+	report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile javascript-quickjs classpath", Status: "ok", Message: cpSource})
 	files, err := filepath.Glob(filepath.Join(report.OutDir, "dev", "ax", "*.java"))
 	if err != nil {
 		return report, err
@@ -317,6 +321,58 @@ func verifyJavaQuickJSProfile(report VerifyTargetReport) (VerifyTargetReport, er
 		return report, err
 	}
 	return report, nil
+}
+
+func quickJS4JClasspath(outDir string) (string, string, error) {
+	if cp := strings.TrimSpace(os.Getenv("AXIR_QUICKJS4J_CP")); cp != "" {
+		return cp, "AXIR_QUICKJS4J_CP", nil
+	}
+	if cpFile := strings.TrimSpace(os.Getenv("AXIR_QUICKJS4J_CP_FILE")); cpFile != "" {
+		data, err := os.ReadFile(cpFile)
+		if err != nil {
+			return "", "", fmt.Errorf("read AXIR_QUICKJS4J_CP_FILE: %w", err)
+		}
+		cp := strings.TrimSpace(string(data))
+		if cp == "" {
+			return "", "", fmt.Errorf("AXIR_QUICKJS4J_CP_FILE %s is empty", cpFile)
+		}
+		return cp, "AXIR_QUICKJS4J_CP_FILE", nil
+	}
+	if !envFlag(os.Getenv("AXIR_QUICKJS4J_RESOLVE")) {
+		return "", "", nil
+	}
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		return "", "", fmt.Errorf("AXIR_QUICKJS4J_RESOLVE=1 requires sh: %w", err)
+	}
+	script := filepath.Join(outDir, "examples", "runtime_profiles", "resolve_quickjs4j_cp.sh")
+	cmd := exec.Command(sh, script)
+	cmd.Env = os.Environ()
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	message := strings.TrimSpace(string(out))
+	if err != nil {
+		if errText := strings.TrimSpace(stderr.String()); errText != "" {
+			message = errText
+		} else if message == "" {
+			message = err.Error()
+		}
+		return "", "", fmt.Errorf("resolve QuickJS4J classpath failed: %s", message)
+	}
+	if message == "" {
+		return "", "", fmt.Errorf("resolve QuickJS4J classpath returned empty output")
+	}
+	return message, "AXIR_QUICKJS4J_RESOLVE generated Maven helper", nil
+}
+
+func envFlag(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 func verifyCppTarget(report VerifyTargetReport, conformanceRoot string) (VerifyTargetReport, error) {

@@ -154,6 +154,9 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 		"examples/RuntimeProtocolExample.java":                    javaRuntimeProtocolExample,
 		"examples/runtime_profiles/JavaScriptQuickJsExample.java": javaJavaScriptQuickJSProfileExample,
 		"examples/runtime_profiles/quickjs4j-pom.xml":             javaQuickJSProfilePom,
+		"examples/runtime_profiles/quickjs4j-build.gradle":        javaQuickJSProfileGradle,
+		"examples/runtime_profiles/resolve_quickjs4j_cp.sh":       javaQuickJSClasspathHelper,
+		"examples/runtime_profiles/README.md":                     javaQuickJSProfileReadme,
 		"examples/AxFlowProgramGraphExample.java":                 javaAxFlowProgramGraphExample,
 		"examples/OptimizerArtifactExample.java":                  javaOptimizerArtifactExample,
 		"README.md":                                               packageREADME(model, "java"),
@@ -424,6 +427,9 @@ See the files in `+"`examples/`"+` for:
   QuickJS4J (`+"`io.roastedroot:quickjs4j`"+`); C++ uses the QuickJS C API; Python
   drives a QuickJS protocol server through `+"`ProcessCodeRuntime`"+`. This profile
   is dependency-bearing and is verified only when its toolchain environment
-  variables are supplied.
+  variables are supplied. Java profile verification accepts
+  `+"`AXIR_QUICKJS4J_CP`"+`, `+"`AXIR_QUICKJS4J_CP_FILE`"+`, or
+  `+"`AXIR_QUICKJS4J_RESOLVE=1`"+` to resolve the classpath with the generated
+  Maven helper.
 `, strings.ToUpper(target), manifest.AxIRVersion, manifest.PackageName, strings.Join(manifest.SupportedSuites, ", "), manifest.ProviderMode, manifest.FakeTransportSupport, network)
 }

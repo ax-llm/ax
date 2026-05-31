@@ -110,7 +110,10 @@ The beta profile also supports native host-call bridges for tool/child-agent
 style callbacks. Java uses QuickJS4J builtins, C++ uses QuickJS C functions, and
 Python reaches the same bridge through the JSONL protocol server. Callback
 arguments and results stay JSON-compatible; runtime limits and diagnostics are
-profile behavior rather than Core semantics.
+profile behavior rather than Core semantics. Java verification may use
+`AXIR_QUICKJS4J_CP`, `AXIR_QUICKJS4J_CP_FILE`, or `AXIR_QUICKJS4J_RESOLVE=1`
+to resolve the generated QuickJS4J Maven example classpath; default verification
+still skips the dependency-bearing profile when those inputs are absent.
 
 Backends must consume the lowered Core IR module or a target package model made
 from Core IR. They must not use high-level Ax dialects as their primary input.
