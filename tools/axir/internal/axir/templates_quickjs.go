@@ -451,10 +451,43 @@ class QuickJsCodeRuntime : public AxCodeRuntime {
 const cppQuickJSRuntimeSource = `#include "ax/runtime/quickjs/quickjs_runtime.hpp"
 
 #include <cstring>
+#include <vector>
 
 namespace ax::runtime::quickjs {
 
+static std::vector<std::pair<std::string, Value>> value_entries(Value value) {
+  std::vector<std::pair<std::string, Value>> out;
+  for (const auto& key_value : Core::iter(Core::map_keys(value))) {
+    std::string key = display(key_value);
+    out.push_back({key, Core::get(value, key)});
+  }
+  return out;
+}
+
+static bool contains_name(Value values, const std::string& name) {
+  for (const auto& item : Core::iter(values)) {
+    if (display(item) == name) return true;
+  }
+  return false;
+}
+
 static const char* bootstrap_source = R"JS(
+const __ax_builtin_reserved = [
+  "Object", "Function", "Array", "Number", "parseFloat", "parseInt", "Infinity", "NaN",
+  "undefined", "Boolean", "String", "Symbol", "Date", "Promise", "RegExp", "Error",
+  "AggregateError", "EvalError", "RangeError", "ReferenceError", "SyntaxError", "TypeError",
+  "URIError", "globalThis", "JSON", "Math", "Reflect", "Proxy", "eval", "isFinite",
+  "isNaN", "decodeURI", "decodeURIComponent", "encodeURI", "encodeURIComponent",
+  "console", "final", "askClarification", "discover", "recall", "used", "reportSuccess",
+  "reportFailure", "guideAgent"
+];
+function __ax_has_name(values, name) {
+  if (!Array.isArray(values)) return false;
+  for (let i = 0; i < values.length; i++) {
+    if (values[i] === name) return true;
+  }
+  return false;
+}
 function final() { return { type: "final", args: Array.from(arguments) }; }
 function askClarification() { return { type: "askClarification", args: Array.from(arguments) }; }
 function discover(request) { return { kind: "discover", discover: request }; }
@@ -469,13 +502,23 @@ function reportFailure(message) { return { kind: "status", status: { type: "fail
 function guideAgent(guidance) { return { type: "guide_agent", guidance: String(guidance || "") }; }
 function __ax_snapshot_json() {
   const out = {};
+  const sessionReserved = Array.isArray(globalThis.__ax_session_reserved) ? globalThis.__ax_session_reserved : [];
   for (const key of Object.getOwnPropertyNames(globalThis)) {
     if (key.startsWith("__ax_")) continue;
+    if (__ax_has_name(__ax_builtin_reserved, key) || __ax_has_name(sessionReserved, key)) continue;
     const value = globalThis[key];
     if (typeof value === "function" || typeof value === "undefined") continue;
     try { JSON.stringify(value); out[key] = value; } catch (_) {}
   }
   return JSON.stringify(out);
+}
+function __ax_clear_user_globals() {
+  const sessionReserved = Array.isArray(globalThis.__ax_session_reserved) ? globalThis.__ax_session_reserved : [];
+  for (const key of Object.getOwnPropertyNames(globalThis)) {
+    if (key.startsWith("__ax_")) continue;
+    if (__ax_has_name(__ax_builtin_reserved, key) || __ax_has_name(sessionReserved, key)) continue;
+    try { delete globalThis[key]; } catch (_) {}
+  }
 }
 )JS";
 
@@ -486,7 +529,8 @@ QuickJsCodeSession::QuickJsCodeSession(Value globals, Value options)
   context_ = JS_NewContext(runtime_);
   if (!context_) throw AxError("runtime", "failed to create QuickJS context");
   JS_FreeValue(context_, JS_Eval(context_, bootstrap_source, std::strlen(bootstrap_source), "<ax-bootstrap>", JS_EVAL_TYPE_GLOBAL));
-  for (const auto& entry : entries(globals)) set_global(entry.first, entry.second);
+  set_global("__ax_session_reserved", reserved_);
+  for (const auto& entry : value_entries(globals)) set_global(entry.first, entry.second);
 }
 
 QuickJsCodeSession::~QuickJsCodeSession() {
@@ -496,7 +540,7 @@ QuickJsCodeSession::~QuickJsCodeSession() {
 
 Value QuickJsCodeSession::execute(Value code, Value) {
   if (closed_) return RuntimeEnvelope::session_closed("session closed");
-  std::string source = str(code);
+  std::string source = display(code);
   JSValue result = JS_Eval(context_, source.c_str(), source.size(), "<actor>", JS_EVAL_TYPE_GLOBAL);
   if (JS_IsException(result)) {
     JSValue exception = JS_GetException(context_);
@@ -524,7 +568,11 @@ Value QuickJsCodeSession::snapshot_globals(Value) {
 
 Value QuickJsCodeSession::patch_globals(Value snapshot, Value) {
   Value bindings = Core::get(snapshot, "bindings", snapshot);
-  for (const auto& entry : entries(bindings)) set_global(entry.first, entry.second);
+  JS_FreeValue(context_, JS_Eval(context_, "__ax_clear_user_globals()", std::strlen("__ax_clear_user_globals()"), "<ax-clear>", JS_EVAL_TYPE_GLOBAL));
+  for (const auto& entry : value_entries(bindings)) {
+    if (contains_name(reserved_, entry.first)) continue;
+    set_global(entry.first, entry.second);
+  }
   return snapshot_globals(Value::object());
 }
 
@@ -562,6 +610,10 @@ const cppJavaScriptQuickJSProfileExample = `#include "ax/ax.hpp"
 #include "ax/runtime/quickjs/quickjs_runtime.hpp"
 #include <iostream>
 
+static bool is_number(const ax::Value& value, const std::string& expected) {
+  return ax::display(value) == expected;
+}
+
 int main() {
   ax::runtime::quickjs::QuickJsCodeRuntime runtime;
   auto qa = ax::agent("question:string -> answer:string", ax::object({{"runtime", ax::object({{"language", "JavaScript"}})}}));
@@ -570,6 +622,33 @@ int main() {
   ax::Value payload = ax::Core::get(out, "completion_payload", ax::Value::object());
   ax::Value args = ax::Core::get(payload, "args", ax::Value::array());
   if (!ax::equal(ax::Core::get(ax::Core::get(args, 0), "answer"), "quickjs")) return 2;
+
+  ax::AxCodeSession* session = runtime.create_session(
+    ax::object({{"inputs", ax::object({{"question", "quickjs"}})}}),
+    ax::object({{"reservedNames", ax::array({"inputs"})}})
+  );
+  ax::Value step1 = session->execute("counter = (typeof counter === 'undefined' ? 0 : counter) + 1; final({counter})");
+  ax::Value step2 = session->execute("counter = counter + 1; final({counter})");
+  if (!ax::equal(ax::Core::get(step1, "type"), "final") || !ax::equal(ax::Core::get(step2, "type"), "final")) return 3;
+  ax::Value step2_args = ax::Core::get(step2, "args", ax::Value::array());
+  if (!is_number(ax::Core::get(ax::Core::get(step2_args, 0), "counter"), "2")) return 4;
+  ax::Value step3 = session->execute("final({answer: inputs.question, counter})");
+  if (!ax::equal(ax::Core::get(ax::Core::get(ax::Core::get(step3, "args", ax::Value::array()), 0), "answer"), "quickjs")) return 5;
+  if (!ax::equal(ax::Core::get(session->execute("askClarification('more?')"), "type"), "askClarification")) return 6;
+  if (!ax::equal(ax::Core::get(session->execute("discover({tools:['search']})"), "kind"), "discover")) return 7;
+  if (!ax::equal(ax::Core::get(session->execute("recall({query:'docs'})"), "kind"), "recall")) return 8;
+  if (!ax::equal(ax::Core::get(session->execute("used('mem1', 'helpful')"), "kind"), "used")) return 9;
+  if (!ax::equal(ax::Core::get(session->execute("reportSuccess('ok')"), "kind"), "status")) return 10;
+  session->execute("safe = 7; final({safe})");
+  ax::Value snapshot = session->snapshot_globals();
+  if (!ax::Core::get(ax::Core::get(snapshot, "bindings", ax::Value::object()), "inputs").is_null()) return 11;
+  session->patch_globals(ax::object({{"bindings", ax::object({{"safe", 9}})}}));
+  if (!is_number(ax::Core::get(session->inspect(), "safe"), "9")) return 12;
+  if (!ax::equal(ax::Core::get(session->execute("throw new Error('boom')"), "error_category"), "runtime")) return 13;
+  session->close();
+  if (!ax::equal(ax::Core::get(session->execute("final({})"), "error_category"), "session_closed")) return 14;
+  delete session;
+
   std::cout << "cpp-javascript-quickjs-profile-ok\n";
 }
 `
@@ -581,8 +660,8 @@ This optional profile compiles only when QuickJS headers and libraries are suppl
 Example verification:
 
 ` + "```bash" + `
-AXIR_QUICKJS_CFLAGS="-I/path/to/quickjs" \
-AXIR_QUICKJS_LDFLAGS="/path/to/libquickjs.a -lm -ldl -pthread" \
+AXIR_QUICKJS_CFLAGS="-I/opt/homebrew/opt/quickjs/include/quickjs" \
+AXIR_QUICKJS_LDFLAGS="/opt/homebrew/opt/quickjs/lib/quickjs/libquickjs.a -lm -ldl -pthread" \
 go run . verify --targets cpp --runtime-profiles javascript-quickjs ../../ir/axcore/root.axir
 ` + "```" + `
 `
