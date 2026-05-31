@@ -18,6 +18,7 @@
     "clean": "rm -rf dist",
     "test": "run-s test:*",
     "test:type-check": "tsc --noEmit",
+    "test:unit": "vitest run",
     "test:lint": "biome lint .",
     "test:format": "biome format .",
     "fix": "run-s fix:*",
@@ -30,10 +31,11 @@
     "postbuild": "node ../../scripts/postbuild.js"
   },
   "dependencies": {
-    "@ai-sdk/provider-utils": "^3.0.10",
+    "@ai-sdk/provider": "^3.0.10",
+    "@ai-sdk/provider-utils": "^4.0.27",
     "@ax-llm/ax": "21.0.14",
-    "ai": "^5.0.100",
-    "zod": "^3.23.8"
+    "ai": "^6.0.193",
+    "zod": "^3.25.76"
   },
   "bugs": {
     "url": "https://github.com/@ax-llm/ax/issues"

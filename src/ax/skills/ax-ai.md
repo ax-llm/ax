@@ -272,15 +272,19 @@ const bedrock = new AxAIBedrock({
 ## Vercel AI SDK Integration
 
 ```typescript
+import { generateText } from 'ai';
 import { ai } from '@ax-llm/ax';
 import { AxAIProvider } from '@ax-llm/ax-ai-sdk-provider';
-import { generateText } from 'ai';
 
-const axAI = ai({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! });
+const axAI = ai({
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY ?? '',
+});
 const model = new AxAIProvider(axAI);
+
 const result = await generateText({
   model,
-  messages: [{ role: 'user', content: 'Hello!' }],
+  prompt: 'Hello!',
 });
 ```
 

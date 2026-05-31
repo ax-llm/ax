@@ -1,10 +1,11 @@
-import type { LanguageModelV2CallOptions } from '@ai-sdk/provider';
+import type { LanguageModelV3CallOptions } from '@ai-sdk/provider';
 import type { AxAIService, AxChatResponse } from '@ax-llm/ax/index.js';
+import { generateText, streamText, tool } from 'ai';
 import { describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 
 import { AxAIProvider } from './index.js';
 
-// Mock AxAIService
 const createMockAIService = (
   responses: Partial<AxChatResponse>[] = []
 ): AxAIService => {
@@ -16,7 +17,6 @@ const createMockAIService = (
       callCount++;
 
       if (options?.stream) {
-        // Return a mock ReadableStream for streaming
         return new ReadableStream({
           start(controller) {
             controller.enqueue(response);
@@ -35,14 +35,141 @@ describe('AxAIProvider', () => {
     expect(AxAIProvider).toBeDefined();
   });
 
-  it('should implement LanguageModelV2 interface', () => {
+  it('should implement LanguageModelV3 interface', () => {
     const mockAI = createMockAIService();
     const provider = new AxAIProvider(mockAI);
 
-    expect(provider.specificationVersion).toBe('v2');
+    expect(provider.specificationVersion).toBe('v3');
     expect(provider.supportedUrls).toEqual({});
     expect(provider.provider).toBe('test-model');
     expect(provider.modelId).toBe('test-model');
+  });
+
+  describe('AI SDK Core integration', () => {
+    it('generates text through AI SDK Core', async () => {
+      const mockAI = createMockAIService([
+        {
+          results: [{ content: 'Hello from Ax', finishReason: 'stop' }],
+          modelUsage: {
+            tokens: { promptTokens: 4, completionTokens: 3, totalTokens: 7 },
+          },
+        },
+      ]);
+      const provider = new AxAIProvider(mockAI);
+
+      const { rawFinishReason, text, usage, finishReason } = await generateText(
+        {
+          model: provider,
+          prompt: 'Hello',
+        }
+      );
+
+      expect(text).toBe('Hello from Ax');
+      expect(finishReason).toBe('stop');
+      expect(rawFinishReason).toBe('stop');
+      expect(usage).toMatchObject({
+        inputTokens: 4,
+        outputTokens: 3,
+        totalTokens: 7,
+      });
+      expect(mockAI.chat).toHaveBeenCalledWith(
+        expect.objectContaining({
+          chatPrompt: [
+            { role: 'user', content: [{ type: 'text', text: 'Hello' }] },
+          ],
+        }),
+        { stream: false }
+      );
+    });
+
+    it('maps AI SDK tools and Ax tool calls', async () => {
+      const mockAI = createMockAIService([
+        {
+          results: [
+            {
+              functionCalls: [
+                {
+                  id: 'call_weather',
+                  type: 'function',
+                  function: {
+                    name: 'weather',
+                    params: { location: 'Paris' },
+                  },
+                },
+              ],
+              finishReason: 'function_call',
+            },
+          ],
+        },
+      ]);
+      const provider = new AxAIProvider(mockAI);
+
+      const { finishReason, toolCalls } = await generateText({
+        model: provider,
+        tools: {
+          weather: tool({
+            description: 'Get weather information',
+            inputSchema: z.object({ location: z.string() }),
+          }),
+        },
+        prompt: 'Weather in Paris?',
+      });
+
+      expect(mockAI.chat).toHaveBeenCalledWith(
+        expect.objectContaining({
+          functionCall: 'auto',
+          functions: [
+            expect.objectContaining({
+              name: 'weather',
+              description: 'Get weather information',
+              parameters: expect.objectContaining({ type: 'object' }),
+            }),
+          ],
+        }),
+        { stream: false }
+      );
+      expect(finishReason).toBe('tool-calls');
+      expect(toolCalls).toEqual([
+        expect.objectContaining({
+          toolCallId: 'call_weather',
+          toolName: 'weather',
+          input: { location: 'Paris' },
+        }),
+      ]);
+    });
+
+    it('streams text through AI SDK Core', async () => {
+      const mockAI = createMockAIService([
+        {
+          results: [{ content: 'Streaming text', finishReason: 'stop' }],
+          modelUsage: {
+            tokens: { promptTokens: 2, completionTokens: 2, totalTokens: 4 },
+          },
+        },
+      ]);
+      const provider = new AxAIProvider(mockAI);
+
+      const result = streamText({
+        model: provider,
+        prompt: 'Stream test',
+      });
+      const chunks: string[] = [];
+
+      for await (const delta of result.textStream) {
+        chunks.push(delta);
+      }
+
+      expect(chunks.join('')).toBe('Streaming text');
+      await expect(result.finishReason).resolves.toBe('stop');
+      await expect(result.usage).resolves.toMatchObject({
+        inputTokens: 2,
+        outputTokens: 2,
+        totalTokens: 4,
+      });
+      expect(mockAI.chat).toHaveBeenCalledWith(expect.any(Object), {
+        stream: true,
+      });
+    });
   });
 
   describe('doGenerate', () => {
@@ -65,7 +192,7 @@ describe('AxAIProvider', () => {
       const mockAI = createMockAIService([mockResponse]);
       const provider = new AxAIProvider(mockAI);
 
-      const options: LanguageModelV2CallOptions = {
+      const options: LanguageModelV3CallOptions = {
         prompt: [{ role: 'user', content: [{ type: 'text', text: 'Hello' }] }],
       };
 
@@ -76,11 +203,19 @@ describe('AxAIProvider', () => {
         type: 'text',
         text: 'Hello, world!',
       });
-      expect(result.finishReason).toBe('stop');
+      expect(result.finishReason).toEqual({ unified: 'stop', raw: 'stop' });
       expect(result.usage).toEqual({
-        inputTokens: 10,
-        outputTokens: 5,
-        totalTokens: 15,
+        inputTokens: {
+          total: 10,
+          noCache: undefined,
+          cacheRead: undefined,
+          cacheWrite: undefined,
+        },
+        outputTokens: {
+          total: 5,
+          text: undefined,
+          reasoning: undefined,
+        },
       });
       expect(result.warnings).toEqual([]);
     });
@@ -91,7 +226,7 @@ describe('AxAIProvider', () => {
       ]);
       const provider = new AxAIProvider(mockAI);
 
-      const options: LanguageModelV2CallOptions = {
+      const options: LanguageModelV3CallOptions = {
         prompt: [{ role: 'user', content: [{ type: 'text', text: 'Hello' }] }],
       };
 
@@ -164,7 +299,7 @@ describe('AxAIProvider', () => {
       const mockAI = createMockAIService([mockResponse]);
       const provider = new AxAIProvider(mockAI);
 
-      const options: LanguageModelV2CallOptions = {
+      const options: LanguageModelV3CallOptions = {
         prompt: [
           {
             role: 'user',
@@ -195,7 +330,10 @@ describe('AxAIProvider', () => {
         toolName: 'getWeather',
         input: '{"location":"New York"}',
       });
-      expect(result.finishReason).toBe('tool-calls');
+      expect(result.finishReason).toEqual({
+        unified: 'tool-calls',
+        raw: 'function_call',
+      });
     });
 
     it('should handle string function params correctly', async () => {
@@ -220,7 +358,7 @@ describe('AxAIProvider', () => {
       const mockAI = createMockAIService([mockResponse]);
       const provider = new AxAIProvider(mockAI);
 
-      const options: LanguageModelV2CallOptions = {
+      const options: LanguageModelV3CallOptions = {
         prompt: [
           { role: 'user', content: [{ type: 'text', text: 'Calculate 5+3' }] },
         ],
@@ -257,7 +395,7 @@ describe('AxAIProvider', () => {
       const mockAI = createMockAIService([mockResponse]);
       const provider = new AxAIProvider(mockAI);
 
-      const options: LanguageModelV2CallOptions = {
+      const options: LanguageModelV3CallOptions = {
         prompt: [
           { role: 'user', content: [{ type: 'text', text: 'Stream test' }] },
         ],
@@ -279,7 +417,6 @@ describe('AxAIProvider', () => {
         reader.releaseLock();
       }
 
-      // Verify proper streaming lifecycle
       expect(chunks[0]).toEqual({
         type: 'stream-start',
         warnings: [],
@@ -303,11 +440,19 @@ describe('AxAIProvider', () => {
 
       expect(chunks[4]).toEqual({
         type: 'finish',
-        finishReason: 'stop',
+        finishReason: { unified: 'stop', raw: 'stop' },
         usage: {
-          inputTokens: 8,
-          outputTokens: 3,
-          totalTokens: 11,
+          inputTokens: {
+            total: 8,
+            noCache: undefined,
+            cacheRead: undefined,
+            cacheWrite: undefined,
+          },
+          outputTokens: {
+            total: 3,
+            text: undefined,
+            reasoning: undefined,
+          },
         },
       });
     });
@@ -318,7 +463,7 @@ describe('AxAIProvider', () => {
       ]);
       const provider = new AxAIProvider(mockAI);
 
-      const options: LanguageModelV2CallOptions = {
+      const options: LanguageModelV3CallOptions = {
         prompt: [
           { role: 'user', content: [{ type: 'text', text: 'Stream test' }] },
         ],
@@ -380,7 +525,7 @@ describe('AxAIProvider', () => {
       ]);
       const provider = new AxAIProvider(mockAI);
 
-      const options: LanguageModelV2CallOptions = {
+      const options: LanguageModelV3CallOptions = {
         prompt: [
           {
             role: 'user',
@@ -413,7 +558,6 @@ describe('AxAIProvider', () => {
 
       await provider.doGenerate(options);
 
-      // Verify the chat method was called with properly converted prompt
       expect(mockAI.chat).toHaveBeenCalledWith(
         expect.objectContaining({
           chatPrompt: expect.arrayContaining([
