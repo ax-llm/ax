@@ -19,7 +19,16 @@ describe('Structured Output Function-Call Fallback (__finalResult)', () => {
       .build();
 
   it('non-streaming: forward() returns extracted result from __finalResult function call', async () => {
-    const sig = createSig();
+    const sig = f()
+      .input('question', f.string())
+      .output(
+        'user',
+        f.object({
+          name: f.string(),
+          age: f.number().min(18),
+        })
+      )
+      .build();
     const gen = ax(sig);
 
     const mockAI = new AxMockAIService({
@@ -244,16 +253,18 @@ describe('Structured Output Function-Call Fallback (__finalResult)', () => {
     );
   });
 
-  it('runs assertions on fallback output (same as native path)', async () => {
-    const sig = createSig();
+  it('validates constraints on fallback output (same as native path)', async () => {
+    const sig = f()
+      .input('question', f.string())
+      .output(
+        'user',
+        f.object({
+          name: f.string(),
+          age: f.number().min(18),
+        })
+      )
+      .build();
     const gen = ax(sig);
-
-    gen.addAssert(({ user }: { user?: { name: string; age: number } }) => {
-      if (user && user.age < 18) {
-        return false;
-      }
-      return true;
-    }, 'User must be at least 18 years old');
 
     const mockAI = new AxMockAIService({
       name: 'mock',
@@ -280,7 +291,7 @@ describe('Structured Output Function-Call Fallback (__finalResult)', () => {
     });
 
     await expect(gen.forward(mockAI, { question: 'test' })).rejects.toThrow(
-      /User must be at least 18 years old/
+      /at least 18/
     );
   });
 

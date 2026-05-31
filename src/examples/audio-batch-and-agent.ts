@@ -81,7 +81,7 @@ const audio = {
   format: 'wav' as const,
 };
 
-const mock = new AxMockAIService({
+const mock = new AxMockAIService<string>({
   chatResponse: {
     results: [
       {

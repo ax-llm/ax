@@ -467,6 +467,39 @@ describe('AxAIGoogleGemini model key preset merging', () => {
     expect(defaultCfg.model).toBe(AxAIGoogleGeminiModel.Gemini25Flash);
   });
 
+  it('maps modelConfig.n to Gemini candidateCount', async () => {
+    const ai = new AxAIGoogleGemini({
+      apiKey: 'key',
+      config: { model: AxAIGoogleGeminiModel.Gemini25Flash },
+      models: [],
+    });
+
+    const capture: { lastBody?: any } = {};
+    const fetch = createMockFetch(
+      {
+        candidates: [
+          {
+            content: { parts: [{ text: 'ok' }] },
+            finishReason: 'STOP',
+          },
+        ],
+      },
+      capture
+    );
+
+    ai.setOptions({ fetch });
+
+    await ai.chat(
+      {
+        chatPrompt: [{ role: 'user', content: 'hi' }],
+        modelConfig: { n: 3 },
+      },
+      { stream: false }
+    );
+
+    expect(capture.lastBody?.generationConfig?.candidateCount).toBe(3);
+  });
+
   it('maps numeric thinkingTokenBudget in item config to per-model options and preserves explicit overrides', async () => {
     const ai = new AxAIGoogleGemini({
       apiKey: 'key',

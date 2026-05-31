@@ -181,9 +181,6 @@ export const axCreateDefaultColorLogger = (
       case 'ValidationError':
         formattedMessage = `\n${cl.redBright(`[ VALIDATION ERROR #${typedData.index} ]`)}\n${divider}\n${cl.white(typedData.fixingInstructions)}\n${cl.red(`Error: ${typedData.error}`)}`;
         break;
-      case 'AssertionError':
-        formattedMessage = `\n${cl.redBright(`[ ASSERTION ERROR #${typedData.index} ]`)}\n${divider}\n${cl.white(typedData.fixingInstructions)}\n${cl.red(`Error: ${typedData.error}`)}`;
-        break;
       case 'ResultPickerUsed':
         formattedMessage = `${cl.greenBright('[ RESULT PICKER ]')}\n${divider}\n${cl.green(`Selected sample ${typedData.selectedIndex + 1} of ${typedData.sampleCount} (${typedData.latency.toFixed(2)}ms)`)}`;
         break;
@@ -362,9 +359,6 @@ export const axCreateDefaultTextLogger = (
         break;
       case 'ValidationError':
         formattedMessage = `\n[ VALIDATION ERROR #${typedData.index} ]\n${divider}\n${typedData.fixingInstructions}\nError: ${typedData.error}`;
-        break;
-      case 'AssertionError':
-        formattedMessage = `\n[ ASSERTION ERROR #${typedData.index} ]\n${divider}\n${typedData.fixingInstructions}\nError: ${typedData.error}`;
         break;
       case 'ResultPickerUsed':
         formattedMessage = `[ RESULT PICKER ]\n${divider}\nSelected sample ${typedData.selectedIndex + 1} of ${typedData.sampleCount} (${typedData.latency.toFixed(2)}ms)`;

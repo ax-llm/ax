@@ -49,7 +49,7 @@ prompts automatically.
 
 Ax stays in the same latency class as direct provider calls while adding typed
 outputs, validation, retries, tracing, and tools. Streaming is the default so Ax
-can parse fields as they arrive, fail early on streaming assertions, cancel bad
+can parse fields as they arrive, fail early on streaming guards, cancel bad
 outputs, and start correction without wasting tokens on completions that are
 already invalid.
 

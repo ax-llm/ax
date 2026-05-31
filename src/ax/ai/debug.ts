@@ -167,22 +167,6 @@ export const logValidationError = (
   logger(loggerData);
 };
 
-export const logAssertionError = (
-  error: unknown,
-  index: number,
-  fixingInstructions: string,
-  logger: AxLoggerFunction
-) => {
-  const loggerData: AxLoggerData = {
-    name: 'AssertionError',
-    index,
-    fixingInstructions,
-    error,
-  };
-
-  logger(loggerData);
-};
-
 export const logRefusalError = (
   error: unknown,
   index: number,

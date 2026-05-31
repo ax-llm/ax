@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import { AxMockAIService } from '../ai/mock/api.js';
 import { AxAIServiceStreamTerminatedError } from '../util/apicall.js';
 import { f } from './sig.js';
@@ -118,18 +119,11 @@ describe('Streaming Duplication Reproduction', () => {
     const sig = f()
       .input('question', f.string())
       .output('action', f.string())
-      .output('val', f.string())
+      .output('val', z.string().regex(/^[A-Z]+$/, 'Must be uppercase'))
       .useStructured()
       .build();
 
     const gen = ax(sig);
-
-    gen.addAssert((args) => {
-      if (args.val && !/^[A-Z]+$/.test(args.val)) {
-        return 'Must be uppercase';
-      }
-      return true;
-    });
 
     const mockAI = new AxMockAIService<string>({
       name: 'mock-validation',

@@ -1,4 +1,3 @@
-import { assertAssertions, assertStreamingAssertions } from '../asserts.js';
 import { ValidationError } from '../errors.js';
 import { streamingExtractFinalValue, streamValues } from '../extract.js';
 import {
@@ -6,6 +5,7 @@ import {
   processStreamingFieldProcessors,
 } from '../fieldProcessor.js';
 import { parseFunctionCalls, processFunctions } from '../functions.js';
+import { checkStreamingGuards } from '../guards.js';
 import type { AxGenOut } from '../types.js';
 import {
   createStructuredDelta,
@@ -27,8 +27,7 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
   span,
   strictMode,
   excludeContentFromTrace,
-  streamingAsserts,
-  asserts,
+  streamingGuards,
   fieldProcessors,
   streamingFieldProcessors,
   functionResultFormatter,
@@ -172,13 +171,12 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
       }
     }
 
-    await assertStreamingAssertions(
-      streamingAsserts,
+    await checkStreamingGuards(
+      streamingGuards,
       state.xstate,
       state.content,
       true
     );
-    await assertAssertions(asserts, state.values);
 
     if (fieldProcessors.length) {
       await processFieldProcessors(

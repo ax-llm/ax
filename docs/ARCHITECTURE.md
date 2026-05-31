@@ -58,7 +58,8 @@ The DSP (Declarative Self-improving Programs) Layer is the core of Ax. It handle
 
 - Signature parsing and validation
 - Program execution with retry logic
-- Assertion handling
+- Reward-based candidate selection and refinement
+- Streaming guard handling
 - Few-shot learning
 - Prompt generation
 - Optimization strategies
@@ -99,10 +100,11 @@ const sig = f()
 The `AxGen` class handles program execution with:
 
 - **Streaming Support** - Real-time output with validation
-- **Retry Logic** - Automatic error correction with assertions
+- **Retry Logic** - Automatic error correction with validation feedback
 - **Function Calling** - ReAct pattern for tool use
 - **Multi-step Execution** - Iterative refinement
 - **Sample Selection** - Multiple outputs with result picking
+- **BestOfN/Refine** - Reward-scored candidate selection and feedback rounds
 
 **Execution Flow:**
 
@@ -117,15 +119,16 @@ AI Provider Call
     ↓
 Response Processing & Validation
     ↓
-Assertion Checking (with retries)
+Candidate Selection / Refinement
     ↓
 Type-safe Output
 ```
 
 **Key Features:**
 
-- **Assertions** - Validate outputs and trigger retries
-- **Streaming Assertions** - Fail-fast validation during streaming
+- **Schema Validation** - Validate outputs and trigger parser/constraint retries
+- **BestOfN/Refine** - Score complete outputs and optionally generate feedback
+- **Streaming Guards** - Fail-fast partial-output safety during streaming
 - **Field Processors** - Transform outputs before returning
 - **Function Calling** - Native or prompt-based modes
 - **Error Correction** - Automatic retry with error context
@@ -194,7 +197,8 @@ src/ax/
 │   │   ├── ace.ts
 │   │   └── gepa.ts
 │   ├── functions.ts   # Function calling support
-│   ├── asserts.ts     # Assertion system
+│   ├── refine.ts      # BestOfN and refine wrappers
+│   ├── guards.ts      # Streaming guards
 │   └── prompt.ts      # Prompt generation
 ├── flow/              # AxFlow workflow system
 │   ├── flow.ts        # Main AxFlow class
@@ -258,7 +262,7 @@ interface AxAIService {
 Streaming is first-class in Ax:
 - All providers support streaming
 - Validation during streaming
-- Assertions can fail fast
+- Streaming guards can fail fast
 - Proper backpressure handling
 
 **Implementation:**
@@ -298,7 +302,7 @@ interface AxOptimizer {
 Ax uses a layered error handling approach:
 
 1. **Validation Errors** - Caught and retried with corrections
-2. **Assertion Errors** - Trigger automatic retry with context
+2. **Streaming Guard Errors** - Abort unsafe partial output without retries
 3. **Provider Errors** - Wrapped with consistent error types
 4. **Network Errors** - Handled with timeouts and retries
 
@@ -452,7 +456,7 @@ Ax automatically creates spans for:
 - **Latency** - Per operation with percentiles
 - **Cost** - Estimated based on model pricing
 - **Retry Counts** - Error correction attempts
-- **Assertion Failures** - Validation issues
+- **Validation Failures** - Parser and schema constraint issues
 
 ## Security Considerations
 
@@ -470,7 +474,9 @@ Ax automatically creates spans for:
 
 ### Output Validation
 
-- Assertions for safety
+- Schema validation for output shape and field validity
+- BestOfN/refine for reward-scored complete outputs
+- Streaming guards for fail-fast partial-output safety
 - Content moderation hooks
 - PII detection support
 

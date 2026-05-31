@@ -34,7 +34,6 @@ export const axDefaultMetricsConfig: AxMetricsConfig = {
 // Standardized error categories for consistent error classification
 export type AxErrorCategory =
   | 'validation_error'
-  | 'assertion_error'
   | 'timeout_error'
   | 'abort_error'
   | 'network_error'
@@ -57,7 +56,6 @@ export interface AxGenMetricsInstruments {
 
   // Error correction metrics
   validationErrorsCounter?: Counter;
-  assertionErrorsCounter?: Counter;
   errorCorrectionAttemptsHistogram?: Histogram;
   errorCorrectionSuccessCounter?: Counter;
   errorCorrectionFailureCounter?: Counter;
@@ -92,7 +90,6 @@ export interface AxGenMetricsInstruments {
   // Performance metrics
   promptRenderLatencyHistogram?: Histogram;
   extractionLatencyHistogram?: Histogram;
-  assertionLatencyHistogram?: Histogram;
 
   // State management
   stateCreationLatencyHistogram?: Histogram;
@@ -204,13 +201,6 @@ export const createGenMetricsInstruments = (
       'ax_gen_validation_errors_total',
       {
         description: 'Total number of validation errors encountered',
-      }
-    ),
-
-    assertionErrorsCounter: meter.createCounter(
-      'ax_gen_assertion_errors_total',
-      {
-        description: 'Total number of assertion errors encountered',
       }
     ),
 
@@ -366,14 +356,6 @@ export const createGenMetricsInstruments = (
       }
     ),
 
-    assertionLatencyHistogram: meter.createHistogram(
-      'ax_gen_assertion_duration_ms',
-      {
-        description: 'Duration of assertion checking',
-        unit: 'ms',
-      }
-    ),
-
     // State management
     stateCreationLatencyHistogram: meter.createHistogram(
       'ax_gen_state_creation_duration_ms',
@@ -499,7 +481,7 @@ export const recordMultiStepMetric = (
 // Recording functions for error correction metrics
 export const recordValidationErrorMetric = (
   instruments: Readonly<AxGenMetricsInstruments>,
-  errorType: 'validation' | 'assertion',
+  errorType: 'validation',
   signatureName?: string,
   customLabels?: Record<string, string>
 ): void => {
@@ -512,10 +494,6 @@ export const recordValidationErrorMetric = (
 
     if (errorType === 'validation' && instruments.validationErrorsCounter) {
       instruments.validationErrorsCounter.add(1, labels);
-    }
-
-    if (errorType === 'assertion' && instruments.assertionErrorsCounter) {
-      instruments.assertionErrorsCounter.add(1, labels);
     }
   } catch (error) {
     console.warn('Failed to record validation error metric:', error);
@@ -776,7 +754,6 @@ export const recordPerformanceMetric = (
   metricType:
     | 'prompt_render'
     | 'extraction'
-    | 'assertion'
     | 'state_creation'
     | 'memory_update',
   duration: number,
@@ -799,11 +776,6 @@ export const recordPerformanceMetric = (
       case 'extraction':
         if (instruments.extractionLatencyHistogram) {
           instruments.extractionLatencyHistogram.record(duration, labels);
-        }
-        break;
-      case 'assertion':
-        if (instruments.assertionLatencyHistogram) {
-          instruments.assertionLatencyHistogram.record(duration, labels);
         }
         break;
       case 'state_creation':

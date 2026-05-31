@@ -308,7 +308,7 @@ class AxGen<IN, OUT> {
   forward(ai: AxAIService, values: IN, options?: AxProgramForwardOptions): Promise<OUT>;
   streamingForward(ai: AxAIService, values: IN, options?: AxProgramStreamingForwardOptions): AsyncGenerator<{ delta: Partial<OUT> }>;
   setExamples(examples: Array<Partial<IN & OUT>>): void;
-  addAssert(fn: (output: OUT) => boolean, message?: string): void;
+  addStreamingGuard(field: keyof OUT, fn: (chunk: string, done?: boolean) => boolean | string | undefined, message?: string): void;
   addFieldProcessor(field: keyof OUT, fn: (value: any) => any): void;
   addStreamingFieldProcessor(field: keyof OUT, fn: (chunk: string, ctx: any) => void): void;
   stop(): void;

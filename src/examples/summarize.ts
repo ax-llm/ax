@@ -30,11 +30,6 @@ gen.setExamples([
   },
 ]);
 
-// gen.addAssert(({ reason }: Readonly<{ reason: string }>) => {
-//   if (!reason) return true
-//   return !reason.includes('goat')
-// }, 'Reason should not contain "the"')
-
 // Example with OpenAI using custom labels in place of model names
 // const ai = createAI({
 //   name: 'openai',

@@ -74,7 +74,6 @@ export type AxRenderedPrompt = {
 };
 
 const exampleSeparator = renderPromptTemplate('dsp/example-separator.md');
-const exampleDisclaimer = '## Example Demonstrations';
 
 export type AxFieldTemplateFn = (
   field: Readonly<AxField>,
@@ -93,7 +92,7 @@ export class AxPromptTemplate {
 
   public setInstruction(instruction: string): void {
     this.customInstruction = instruction;
-    this.task = { type: 'text', text: instruction };
+    this.rebuildTask();
   }
 
   public getInstruction(): string | undefined {
@@ -223,10 +222,20 @@ export class AxPromptTemplate {
    * Returns empty string if no description is set.
    */
   private buildTaskDefinitionSection(): string {
+    const parts: string[] = [];
+    if (this.customInstruction) {
+      parts.push(this.customInstruction);
+    }
+
     const desc = this.sig.getDescription();
-    if (!desc) return '';
+    if (desc) {
+      parts.push(desc);
+    }
+
+    if (parts.length === 0) return '';
+
     const fieldMap = this.getFieldNameToTitleMap();
-    let text = formatDescription(desc);
+    let text = parts.map((part) => formatDescription(part)).join('\n\n');
     text = formatFieldReferences(text, fieldMap);
     return text;
   }
@@ -350,11 +359,10 @@ export class AxPromptTemplate {
 
     // System prompt contains only instructions (no examples)
     // Add disclaimer if examples/demos will follow
-    const systemContent = this.customInstruction
-      ? hasExamplesOrDemos
-        ? `${this.task.text}\n${exampleDisclaimer}`
-        : this.task.text
-      : this.buildStructuredPrompt(hasExamplesOrDemos, values).text;
+    const systemContent = this.buildStructuredPrompt(
+      hasExamplesOrDemos,
+      values
+    ).text;
 
     const systemPrompt = {
       role: 'system' as const,
