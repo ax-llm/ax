@@ -89,6 +89,15 @@ session id mismatches, unavailable optional capabilities, and host error
 envelopes as part of the conformance contract rather than adapter-specific
 details.
 
+Runtime lifecycle semantics are Core-owned. Generated targets must pass
+reserved names, timeout values, abort hints, session ids, and trace metadata
+through `create_session`/`execute` option envelopes, but adapters decide how to
+enforce cancellation. A `session_closed` execution result restarts the session
+and retries the same actor step at most once; `abort` and user-bubble errors
+escape instead of being turned into correction output. Process-backed helpers
+must surface EOF, malformed JSON, response id/session mismatches, nonzero exits,
+and stderr diagnostics as stable runtime protocol errors.
+
 Backends must consume the lowered Core IR module or a target package model made
 from Core IR. They must not use high-level Ax dialects as their primary input.
 They must also avoid target-only semantic escapes for Core-owned behavior; see

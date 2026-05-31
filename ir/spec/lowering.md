@@ -35,9 +35,9 @@ primitives, protocol-only actions such as `guideAgent`, runtime globals, and
 host boundaries. Runtime-session lowering also keeps the deterministic session
 lifecycle in Core: global bootstrap, reserved-name validation, fresh
 `agent.test(...)` sessions, single-step actor execution, host option envelopes,
-action-log/status records, closed-session restart notices, protocol
-normalization, reserved-name-safe state snapshots, state restore sanitization,
-and inspect/snapshot/patch/close shape.
+action-log/status records, timeout/abort option propagation, one automatic
+closed-session restart, protocol normalization, reserved-name-safe state
+snapshots, state restore sanitization, and inspect/snapshot/patch/close shape.
 AxAgent trace lowering is also Core-owned: Core begins a run trace, records
 normalized host-boundary events, finalizes status/output, and emits deterministic
 fixture replay helpers. Targets only expose idiomatic wrappers around that

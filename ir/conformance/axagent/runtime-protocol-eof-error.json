@@ -1,0 +1,7 @@
+{
+  "expected_error_contains": "closed without a response",
+  "kind": "agent_runtime_protocol",
+  "mode": "eof",
+  "name": "runtime-protocol-eof-error",
+  "operation": "capabilities_error"
+}

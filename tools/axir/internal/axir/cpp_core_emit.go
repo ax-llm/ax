@@ -155,6 +155,8 @@ var cppCoreFuncs = []cppCoreFuncSpec{
 	{Symbol: "normalize_agent_runtime_snapshot", Name: "_normalize_agent_runtime_snapshot"},
 	{Symbol: "agent_runtime_append_action_log", Name: "_agent_runtime_append_action_log"},
 	{Symbol: "normalize_agent_runtime_step_result", Name: "_normalize_agent_runtime_step_result"},
+	{Symbol: "agent_runtime_execution_options", Name: "_agent_runtime_execution_options"},
+	{Symbol: "agent_runtime_lifecycle_event", Name: "_agent_runtime_lifecycle_event"},
 	{Symbol: "agent_runtime_create_session", Name: "_agent_runtime_create_session"},
 	{Symbol: "agent_runtime_execute_step", Name: "_agent_runtime_execute_step"},
 	{Symbol: "agent_runtime_inspect_state", Name: "_agent_runtime_inspect_state"},

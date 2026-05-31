@@ -2059,20 +2059,76 @@ module @ax.agent version "0.1" {
     }
   }
 
+  op ax.agent.runtime @agent_runtime_execution_options {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(json, json) -> json"
+    body @entry(%state: json, %options: json) {
+      %empty_map = core.map
+      %reserved_names = core.call @agent_reserved_runtime_names()
+      %runtime_options = core.call intrinsic.map.merge(%empty_map, %options)
+      core.set %runtime_options["reservedNames"] = %reserved_names
+      %timeout_ms = core.get %options["timeout_ms"] default null
+      %timeout = core.get %options["timeout"] default %timeout_ms
+      %has_timeout = core.call intrinsic.is_not_none(%timeout)
+      core.if %has_timeout {
+        core.set %runtime_options["timeout"] = %timeout
+      } else {
+      }
+      %abort_snake = core.get %options["abort"] default false
+      %aborted = core.get %options["aborted"] default %abort_snake
+      %abort_signal = core.get %options["abortSignal"] default %aborted
+      %has_abort = core.call intrinsic.truthy(%abort_signal)
+      core.if %has_abort {
+        core.set %runtime_options["abort"] = true
+      } else {
+      }
+      %session_id_snake = core.get %options["session_id"] default null
+      %session_id = core.get %options["sessionId"] default %session_id_snake
+      %has_session_id = core.call intrinsic.is_not_none(%session_id)
+      core.if %has_session_id {
+        core.set %runtime_options["sessionId"] = %session_id
+      } else {
+      }
+      %trace_id_snake = core.get %options["trace_id"] default null
+      %trace_id = core.get %options["traceId"] default %trace_id_snake
+      %has_trace_id = core.call intrinsic.is_not_none(%trace_id)
+      core.if %has_trace_id {
+        core.set %runtime_options["traceId"] = %trace_id
+      } else {
+      }
+      core.return %runtime_options
+    }
+  }
+
+  op ax.agent.runtime @agent_runtime_lifecycle_event {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(json, string, json) -> json"
+    body @entry(%state: json, %action: string, %details: json) {
+      %empty_map = core.map
+      %entry = core.call intrinsic.map.merge(%empty_map, %details)
+      core.set %entry["type"] = "runtime_session"
+      core.set %entry["action"] = %action
+      core.call @agent_runtime_append_action_log(%state, %entry)
+      core.call @agent_record_trace_event(%state, "runtime_lifecycle", %entry)
+      core.return %entry
+    }
+  }
+
   op ax.agent.runtime @agent_runtime_create_session {
     attr core_kind = "func"
     attr emit_module = "agent"
     type signature = "(json, json, json, json) -> json"
     body @entry(%state: json, %runtime: json, %globals: json, %options: json) {
-      %session = core.call intrinsic.agent.runtime.create_session(%runtime, %globals, %options)
+      %runtime_options = core.call @agent_runtime_execution_options(%state, %options)
+      %session = core.call intrinsic.agent.runtime.create_session(%runtime, %globals, %runtime_options)
       core.set %state["runtime_session"] = %session
       core.set %state["runtime_globals"] = %globals
       %entry = core.map
-      core.set %entry["type"] = "runtime_session"
-      core.set %entry["action"] = "create_session"
       core.set %entry["globals"] = %globals
-      core.set %entry["options"] = %options
-      core.call @agent_runtime_append_action_log(%state, %entry)
+      core.set %entry["options"] = %runtime_options
+      core.call @agent_runtime_lifecycle_event(%state, "create_session", %entry)
       core.return %session
     }
   }
@@ -2082,10 +2138,8 @@ module @ax.agent version "0.1" {
     attr emit_module = "agent"
     type signature = "(json, json, json, string, json) -> json"
     body @entry(%state: json, %runtime: json, %session: json, %code: string, %options: json) {
+      %runtime_options = core.call @agent_runtime_execution_options(%state, %options)
       %empty_map = core.map
-      %reserved_names = core.call @agent_reserved_runtime_names()
-      %runtime_options = core.call intrinsic.map.merge(%empty_map, %options)
-      core.set %runtime_options["reservedNames"] = %reserved_names
       %globals = core.get %state["runtime_globals"] default %empty_map
       %missing_session = core.call intrinsic.is_none(%session)
       core.if %missing_session {
@@ -2098,10 +2152,8 @@ module @ax.agent version "0.1" {
       %is_closed = core.call intrinsic.eq(%closed, "session_closed")
       core.if %is_closed {
         %notice = core.map
-        core.set %notice["type"] = "runtime_session"
-        core.set %notice["action"] = "restart"
         core.set %notice["reason"] = "session_closed"
-        core.call @agent_runtime_append_action_log(%state, %notice)
+        core.call @agent_runtime_lifecycle_event(%state, "restart", %notice)
         %session = core.call @agent_runtime_create_session(%state, %runtime, %globals, %runtime_options)
         %raw = core.call intrinsic.agent.runtime.execute(%session, %code, %runtime_options)
         %normalized = core.call @normalize_agent_runtime_step_result(%raw, %code)
@@ -2241,9 +2293,8 @@ module @ax.agent version "0.1" {
       %closed = core.call intrinsic.agent.runtime.close(%session)
       core.set %state["runtime_session_closed"] = true
       %entry = core.map
-      core.set %entry["type"] = "runtime_session"
-      core.set %entry["action"] = "close_session"
-      core.call @agent_runtime_append_action_log(%state, %entry)
+      core.set %entry["result"] = %closed
+      core.call @agent_runtime_lifecycle_event(%state, "close_session", %entry)
       core.return %closed
     }
   }
@@ -2254,9 +2305,18 @@ module @ax.agent version "0.1" {
     type signature = "(json, json, string, json, json) -> json throws"
     body @entry(%state: json, %runtime: json, %code: string, %values: json, %options: json) {
       %globals = core.call @agent_runtime_build_globals(%state, %values)
-      %session = core.call @agent_runtime_create_session(%state, %runtime, %globals, %options)
-      %result = core.call @agent_runtime_execute_step(%state, %runtime, %session, %code, %options)
-      core.call @agent_runtime_close_session(%state, %session)
+      %runtime_options = core.call @agent_runtime_execution_options(%state, %options)
+      %session = core.call @agent_runtime_create_session(%state, %runtime, %globals, %runtime_options)
+      %result = core.map
+      core.try {
+        %result = core.call @agent_runtime_execute_step(%state, %runtime, %session, %code, %runtime_options)
+      } catch %runtime_test_error {
+        %error_session = core.get %state["runtime_session"] default %session
+        core.call @agent_runtime_close_session(%state, %error_session)
+        core.raise %runtime_test_error
+      }
+      %active_session = core.get %state["runtime_session"] default %session
+      core.call @agent_runtime_close_session(%state, %active_session)
       core.return %result
     }
   }

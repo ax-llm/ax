@@ -3267,10 +3267,11 @@ public final class Conformance {
         Map<String, Object> session = sessions.get(sessionId);
         if (session == null || Boolean.TRUE.equals(session.get("closed"))) {
           response = protocolFail(message.get("id"), "session_closed", "session closed or unknown");
-        } else {
-          Map<String, Object> payload = Core.asMap(message.getOrDefault("payload", Map.of()));
-          String code = String.valueOf(payload.getOrDefault("code", ""));
-          if ("timeout()".equals(code)) response = protocolFail(message.get("id"), "timeout", "fixture timeout");
+	        } else {
+	          Map<String, Object> payload = Core.asMap(message.getOrDefault("payload", Map.of()));
+	          String code = String.valueOf(payload.getOrDefault("code", ""));
+	          Core.asMap(session.get("globals")).put("__last_execute_options", new LinkedHashMap<>(Core.asMap(payload.getOrDefault("options", Map.of()))));
+	          if ("timeout()".equals(code)) response = protocolFail(message.get("id"), "timeout", "fixture timeout");
           else if ("sessionClosed()".equals(code)) response = protocolFail(message.get("id"), "session_closed", "fixture session closed");
           else if ("abort()".equals(code)) response = protocolFail(message.get("id"), "abort", "fixture abort");
           else if ("userError()".equals(code)) response = protocolFail(message.get("id"), "user_error", "fixture user error");
@@ -3863,9 +3864,10 @@ public final class Conformance {
       "JavaScript",
       "",
       Core.asMap(fixture.getOrDefault("runtime_capabilities", Map.of()))
-    );
-    Object result = null;
-    try {
+	    );
+	    Object result = null;
+	    boolean caughtExpectedError = false;
+	    try {
       String operation = String.valueOf(fixture.getOrDefault("operation", "test"));
       if ("test".equals(operation)) {
         result = agent.test(runtime, String.valueOf(fixture.getOrDefault("code", "")), Core.asMap(fixture.getOrDefault("context_values", fixture.getOrDefault("input", Map.of()))), Core.asMap(fixture.getOrDefault("runtime_options", Map.of())));
@@ -3883,19 +3885,28 @@ public final class Conformance {
       } else {
         throw new FixtureError("unknown agent runtime session operation " + operation);
       }
-    } catch (RuntimeException e) {
-      String expected = (String) fixture.get("expected_error_contains");
-      if (expected != null && String.valueOf(e.getMessage()).contains(expected)) return;
-      throw e;
-    }
-    if (fixture.containsKey("expected_error_contains")) throw new FixtureError("expected agent runtime session fixture to fail");
+	    } catch (RuntimeException e) {
+	      String expected = (String) fixture.get("expected_error_contains");
+	      if (expected != null && String.valueOf(e.getMessage()).contains(expected)) {
+	        caughtExpectedError = true;
+	        result = null;
+	      } else {
+	        throw e;
+	      }
+	    }
+	    if (fixture.containsKey("expected_error_contains") && !caughtExpectedError) throw new FixtureError("expected agent runtime session fixture to fail");
     if (fixture.containsKey("expected_result_subset")) assertSubset(result, fixture.get("expected_result_subset"), "runtime result");
     if (fixture.containsKey("expected_result")) assertEqual(result, fixture.get("expected_result"), "runtime result");
     Map<String, Object> exported = agent.exportRuntimeState();
     if (fixture.containsKey("expected_exported_state_subset")) assertSubset(exported, fixture.get("expected_exported_state_subset"), "runtime state");
     if (fixture.containsKey("expected_action_log_subset")) assertListSubset(Core.asList(exported.get("action_log")), fixture.get("expected_action_log_subset"), "action log");
     if (fixture.containsKey("expected_status_log_subset")) assertListSubset(Core.asList(exported.get("status_log")), fixture.get("expected_status_log_subset"), "status log");
-    if (fixture.containsKey("expected_session_count") && runtime.sessions.size() != Core.asInt(fixture.get("expected_session_count"))) throw new FixtureError("expected session count mismatch");
+	    if (fixture.containsKey("expected_session_count") && runtime.sessions.size() != Core.asInt(fixture.get("expected_session_count"))) throw new FixtureError("expected session count mismatch");
+	    if (fixture.containsKey("expected_closed_session_count")) {
+	      int closedCount = 0;
+	      for (FakeCodeSession session : runtime.sessions) if (session.closed) closedCount++;
+	      if (closedCount != Core.asInt(fixture.get("expected_closed_session_count"))) throw new FixtureError("expected closed session count mismatch");
+	    }
     if (fixture.containsKey("expected_executed")) assertEqual(runtime.executed, fixture.get("expected_executed"), "executed code");
     if (fixture.containsKey("expected_create_globals_subset")) {
       if (runtime.createRequests.isEmpty()) throw new FixtureError("expected at least one runtime create_session request");
@@ -3982,7 +3993,8 @@ public final class Conformance {
 	      if (fixture.containsKey("expected_result_subset")) sessionFixture.put("expected_result_subset", fixture.get("expected_result_subset"));
 	      if (fixture.containsKey("expected_action_log_subset")) sessionFixture.put("expected_action_log_subset", fixture.get("expected_action_log_subset"));
 	      if (fixture.containsKey("expected_trace_event_kinds")) sessionFixture.put("expected_trace_event_kinds", fixture.get("expected_trace_event_kinds"));
-      runAgentRuntimeSession(sessionFixture);
+	      if (fixture.containsKey("expected_closed_session_count")) sessionFixture.put("expected_closed_session_count", fixture.get("expected_closed_session_count"));
+	      runAgentRuntimeSession(sessionFixture);
     }
   }
 

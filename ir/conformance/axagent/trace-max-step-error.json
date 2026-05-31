@@ -5,6 +5,7 @@
     "stage_response",
     "stage_request",
     "stage_response",
+    "runtime_lifecycle",
     "runtime_execute",
     "status",
     "error"

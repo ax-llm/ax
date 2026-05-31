@@ -350,6 +350,7 @@ def s(signature: str) -> AxSignature:
 def _core_not(value): return not value
 def _core_and(left, right): return bool(left and right)
 def _core_or(left, right): return bool(left or right)
+def _core_truthy(value): return bool(value)
 def _core_eq(left, right): return left == right
 def _core_ne(left, right): return left != right
 def _core_lt(left, right): return left < right
@@ -951,6 +952,7 @@ class TemplateError(ValueError):
 def _core_not(value): return not value
 def _core_and(left, right): return bool(left and right)
 def _core_or(left, right): return bool(left or right)
+def _core_truthy(value): return bool(value)
 def _core_eq(left, right): return left == right
 def _core_ne(left, right): return left != right
 def _core_add(left, right): return left + right
@@ -3412,6 +3414,7 @@ def _parse_signature(signature):
 def _core_not(value): return not value
 def _core_and(left, right): return bool(left and right)
 def _core_or(left, right): return bool(left or right)
+def _core_truthy(value): return bool(value)
 def _core_eq(left, right): return left == right
 def _core_ne(left, right): return left != right
 def _core_gt(left, right): return left > right
@@ -3944,6 +3947,7 @@ def _runtime_protocol_fixture_server_main():
                 else:
                     payload = message.get("payload") if isinstance(message.get("payload"), dict) else {}
                     code = str(payload.get("code") or "")
+                    session["globals"]["__last_execute_options"] = copy.deepcopy(payload.get("options") if isinstance(payload.get("options"), dict) else {})
                     if code == "timeout()":
                         response = _runtime_protocol_fail(message, "timeout", "fixture timeout")
                     elif code == "sessionClosed()":
@@ -4747,6 +4751,8 @@ def _run_agent_runtime_session(fixture):
         fixture.get("runtime_script") or [],
         capabilities=fixture.get("runtime_capabilities") or {},
     )
+    caught_expected_error = False
+    result = None
     try:
         operation = fixture.get("operation", "test")
         if operation == "test":
@@ -4780,9 +4786,11 @@ def _run_agent_runtime_session(fixture):
     except Exception as exc:
         expected = fixture.get("expected_error_contains")
         if expected and expected in str(exc):
-            return
-        raise
-    if "expected_error_contains" in fixture:
+            caught_expected_error = True
+            result = None
+        else:
+            raise
+    if "expected_error_contains" in fixture and not caught_expected_error:
         raise FixtureError("expected agent runtime session fixture to fail")
     if "expected_result_subset" in fixture:
         _assert_subset(result, fixture["expected_result_subset"], "runtime result")
@@ -4797,6 +4805,10 @@ def _run_agent_runtime_session(fixture):
         _assert_list_subset(exported.get("status_log") or [], fixture["expected_status_log_subset"], "status log")
     if "expected_session_count" in fixture and len(runtime.sessions) != fixture["expected_session_count"]:
         raise FixtureError(f"expected {fixture['expected_session_count']} sessions, got {len(runtime.sessions)}")
+    if "expected_closed_session_count" in fixture:
+        closed_count = sum(1 for session in runtime.sessions if getattr(session, "closed", False))
+        if closed_count != fixture["expected_closed_session_count"]:
+            raise FixtureError(f"expected {fixture['expected_closed_session_count']} closed sessions, got {closed_count}")
     if "expected_executed" in fixture:
         _assert_equal(runtime.executed, fixture["expected_executed"], "executed code")
     if "expected_create_globals_subset" in fixture:
@@ -4888,6 +4900,7 @@ def _run_agent_runtime_adapter(fixture):
             "expected_result_subset": fixture.get("expected_result_subset"),
             "expected_action_log_subset": fixture.get("expected_action_log_subset"),
             "expected_trace_event_kinds": fixture.get("expected_trace_event_kinds"),
+            "expected_closed_session_count": fixture.get("expected_closed_session_count"),
         }
         _run_agent_runtime_session({k: v for k, v in session_fixture.items() if v is not None})
 

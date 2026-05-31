@@ -1,0 +1,59 @@
+{
+  "code": "sessionClosed()",
+  "context_values": {
+    "question": "restart once"
+  },
+  "expected_action_log_subset": [
+    {
+      "action": "restart",
+      "reason": "session_closed"
+    },
+    {
+      "error_category": "session_closed",
+      "kind": "error"
+    },
+    {
+      "action": "close_session"
+    }
+  ],
+  "expected_closed_session_count": 1,
+  "expected_result_subset": {
+    "error": "session closed again",
+    "error_category": "session_closed",
+    "is_error": true,
+    "kind": "error"
+  },
+  "expected_session_count": 2,
+  "expected_trace_event_kinds": [
+    "runtime_lifecycle",
+    "runtime_lifecycle",
+    "runtime_lifecycle",
+    "runtime_execute",
+    "error",
+    "runtime_lifecycle"
+  ],
+  "kind": "agent_runtime_session",
+  "name": "runtime-session-closed-restart-once",
+  "operation": "test",
+  "runtime_script": [
+    {
+      "expected_code": "sessionClosed()",
+      "result": {
+        "error": "session closed first",
+        "error_category": "session_closed",
+        "is_error": true,
+        "kind": "error"
+      }
+    },
+    {
+      "expected_code": "sessionClosed()",
+      "result": {
+        "error": "session closed again",
+        "error_category": "session_closed",
+        "is_error": true,
+        "kind": "error"
+      }
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

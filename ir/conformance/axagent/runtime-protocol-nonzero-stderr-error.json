@@ -1,0 +1,7 @@
+{
+  "expected_error_contains": "exit code 7",
+  "kind": "agent_runtime_protocol",
+  "mode": "nonzero",
+  "name": "runtime-protocol-nonzero-stderr-error",
+  "operation": "capabilities_error"
+}

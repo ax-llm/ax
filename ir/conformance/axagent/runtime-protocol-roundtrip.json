@@ -1,7 +1,4 @@
 {
-  "name": "runtime-protocol-roundtrip",
-  "kind": "agent_runtime_protocol",
-  "operation": "roundtrip",
   "create_globals": {
     "inputs": {
       "question": "adapter"
@@ -13,43 +10,44 @@
   },
   "execute_code": "final()",
   "execute_options": {
-    "timeoutMs": 7
-  },
-  "patch_globals": {
-    "bindings": {
-      "answer": "patched",
-      "safe": true
-    }
+    "abort": true,
+    "sessionId": "runtime-protocol-session",
+    "timeout": 7,
+    "traceId": "runtime-protocol-trace"
   },
   "expected_capabilities_subset": {
-    "language": "JavaScript",
-    "usage_instructions": "fixture protocol runtime",
+    "abort": true,
     "inspect": true,
-    "snapshot": true,
+    "language": "JavaScript",
     "patch": true,
-    "abort": true
+    "snapshot": true,
+    "usage_instructions": "fixture protocol runtime"
+  },
+  "expected_close_subset": {
+    "closed": true
   },
   "expected_execute_subset": {
-    "type": "final",
     "args": [
       {
         "answer": "fixture"
       }
-    ]
+    ],
+    "type": "final"
   },
   "expected_inspect_subset": {
-    "inputs": {
-      "question": "adapter"
-    },
     "__create_options": {
       "reservedNames": ["inputs", "final"],
       "timeoutMs": 123
     },
-    "answer": "fixture"
-  },
-  "expected_snapshot_subset": {
-    "bindings": {
-      "answer": "fixture"
+    "__last_execute_options": {
+      "abort": true,
+      "sessionId": "runtime-protocol-session",
+      "timeout": 7,
+      "traceId": "runtime-protocol-trace"
+    },
+    "answer": "fixture",
+    "inputs": {
+      "question": "adapter"
     }
   },
   "expected_patch_subset": {
@@ -58,7 +56,18 @@
       "safe": true
     }
   },
-  "expected_close_subset": {
-    "closed": true
+  "expected_snapshot_subset": {
+    "bindings": {
+      "answer": "fixture"
+    }
+  },
+  "kind": "agent_runtime_protocol",
+  "name": "runtime-protocol-roundtrip",
+  "operation": "roundtrip",
+  "patch_globals": {
+    "bindings": {
+      "answer": "patched",
+      "safe": true
+    }
   }
 }

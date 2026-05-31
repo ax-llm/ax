@@ -13,6 +13,7 @@
       "action": "close_session"
     }
   ],
+  "expected_closed_session_count": 1,
   "expected_result_subset": {
     "completion_payload": {
       "args": [
@@ -24,7 +25,12 @@
     },
     "kind": "final"
   },
-  "expected_trace_event_kinds": ["runtime_execute", "final"],
+  "expected_trace_event_kinds": [
+    "runtime_lifecycle",
+    "runtime_execute",
+    "final",
+    "runtime_lifecycle"
+  ],
   "kind": "agent_runtime_adapter",
   "name": "runtime-adapter-final-session",
   "run_session": {

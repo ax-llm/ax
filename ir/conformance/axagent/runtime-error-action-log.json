@@ -15,7 +15,12 @@
     "is_error": true,
     "kind": "error"
   },
-  "expected_trace_event_kinds": ["runtime_execute", "error"],
+  "expected_trace_event_kinds": [
+    "runtime_lifecycle",
+    "runtime_execute",
+    "error",
+    "runtime_lifecycle"
+  ],
   "kind": "agent_runtime_session",
   "name": "runtime-error-action-log",
   "operation": "test",

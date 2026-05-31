@@ -1,6 +1,6 @@
 {
-  "name": "runtime-protocol-unknown-op",
+  "expected_error_contains": "unknown runtime protocol op",
   "kind": "agent_runtime_protocol",
-  "operation": "unknown_op",
-  "expected_error_contains": "unknown runtime protocol op"
+  "name": "runtime-protocol-unknown-op",
+  "operation": "unknown_op"
 }

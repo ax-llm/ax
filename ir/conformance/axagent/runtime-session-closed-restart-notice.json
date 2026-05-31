@@ -1,4 +1,5 @@
 {
+  "close_runtime_session": true,
   "context_values": {
     "question": "restart"
   },
@@ -15,8 +16,12 @@
     },
     {
       "kind": "final"
+    },
+    {
+      "action": "close_session"
     }
   ],
+  "expected_closed_session_count": 1,
   "expected_result_subset": {
     "completion_payload": {
       "args": [
@@ -29,6 +34,14 @@
     "kind": "final"
   },
   "expected_session_count": 2,
+  "expected_trace_event_kinds": [
+    "runtime_lifecycle",
+    "runtime_lifecycle",
+    "runtime_lifecycle",
+    "runtime_execute",
+    "final",
+    "runtime_lifecycle"
+  ],
   "kind": "agent_runtime_session",
   "name": "runtime-session-closed-restart-notice",
   "operation": "steps",

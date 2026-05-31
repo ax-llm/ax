@@ -355,6 +355,8 @@ struct Core {
   static Value _normalize_agent_runtime_snapshot(Value snapshot);
   static Value _agent_runtime_append_action_log(Value state, Value entry);
   static Value _normalize_agent_runtime_step_result(Value raw, Value code);
+  static Value _agent_runtime_execution_options(Value state, Value options);
+  static Value _agent_runtime_lifecycle_event(Value state, Value action, Value details);
   static Value _agent_runtime_create_session(Value state, Value runtime, Value globals, Value options);
   static Value _agent_runtime_execute_step(Value state, Value runtime, Value session, Value code, Value options);
   static Value _agent_runtime_inspect_state(Value state, Value session, Value options);
@@ -4477,6 +4479,7 @@ static void run_agent_runtime_session(Value fixture) {
   AxAgent ag(Core::get(fixture, "signature", "question:string -> answer:string"), Core::get(fixture, "options", Value::object()));
   FakeCodeRuntime runtime(Core::get(fixture, "runtime_script", Value::array()), "JavaScript", "", Core::get(fixture, "runtime_capabilities", Value::object()));
   Value result;
+  bool caught_expected_error = false;
   try {
     std::string operation = display(Core::get(fixture, "operation", "test"));
     if (operation == "test") {
@@ -4499,9 +4502,9 @@ static void run_agent_runtime_session(Value fixture) {
     Value expected = Core::get(fixture, "expected_error_contains");
     if (expected.is_null()) throw;
     if (std::string(error.what()).find(display(expected)) == std::string::npos) throw AxError("fixture", std::string("expected error containing ") + display(expected) + ", got " + error.what());
-    return;
+    caught_expected_error = true;
   }
-  if (!Core::get(fixture, "expected_error_contains").is_null()) throw AxError("fixture", "expected agent runtime session fixture to fail");
+  if (!Core::get(fixture, "expected_error_contains").is_null() && !caught_expected_error) throw AxError("fixture", "expected agent runtime session fixture to fail");
   if (!Core::get(fixture, "expected_result_subset").is_null()) assert_subset(result, Core::get(fixture, "expected_result_subset"), "runtime result");
   if (!Core::get(fixture, "expected_result").is_null()) assert_equal(result, Core::get(fixture, "expected_result"), "runtime result");
   Value exported = ag.export_runtime_state();
@@ -4510,6 +4513,13 @@ static void run_agent_runtime_session(Value fixture) {
   if (!Core::get(fixture, "expected_status_log_subset").is_null()) assert_list_subset(Core::get(exported, "status_log", Value::array()), Core::get(fixture, "expected_status_log_subset"), "status log");
   if (!Core::get(fixture, "expected_session_count").is_null() && runtime.sessions.size() != static_cast<size_t>(std::stoi(display(Core::get(fixture, "expected_session_count"))))) {
     throw AxError("fixture", "expected session count mismatch");
+  }
+  if (!Core::get(fixture, "expected_closed_session_count").is_null()) {
+    size_t closed_count = 0;
+    for (const auto& session : runtime.sessions) if (session->closed) closed_count++;
+    if (closed_count != static_cast<size_t>(std::stoi(display(Core::get(fixture, "expected_closed_session_count"))))) {
+      throw AxError("fixture", "expected closed session count mismatch");
+    }
   }
   if (!Core::get(fixture, "expected_executed").is_null()) assert_equal(Value(runtime.executed), Core::get(fixture, "expected_executed"), "executed code");
   if (!Core::get(fixture, "expected_create_globals_subset").is_null()) {
@@ -4589,6 +4599,7 @@ static void run_agent_runtime_adapter(Value fixture) {
     if (!Core::get(fixture, "expected_result_subset").is_null()) Core::set(session_fixture, "expected_result_subset", Core::get(fixture, "expected_result_subset"));
     if (!Core::get(fixture, "expected_action_log_subset").is_null()) Core::set(session_fixture, "expected_action_log_subset", Core::get(fixture, "expected_action_log_subset"));
     if (!Core::get(fixture, "expected_trace_event_kinds").is_null()) Core::set(session_fixture, "expected_trace_event_kinds", Core::get(fixture, "expected_trace_event_kinds"));
+    if (!Core::get(fixture, "expected_closed_session_count").is_null()) Core::set(session_fixture, "expected_closed_session_count", Core::get(fixture, "expected_closed_session_count"));
     run_agent_runtime_session(session_fixture);
   }
 }
@@ -4620,6 +4631,8 @@ struct ProtocolFixtureTransport : RuntimeTransport {
   }
 
   Value call(Value message) override {
+    if (mode == "eof") throw AxError("runtime", "runtime protocol process closed without a response (exit code 0)");
+    if (mode == "nonzero") throw AxError("runtime", "runtime protocol process closed without a response (exit code 7): fixture stderr before nonzero exit");
     if (mode == "malformed_json") return Value("not an object");
     Value id = mode == "id_mismatch" ? Value("mismatch") : Core::get(message, "id");
     std::string op = display(Core::get(message, "op"));
@@ -4645,12 +4658,16 @@ struct ProtocolFixtureTransport : RuntimeTransport {
       std::string session_id = display(Core::get(message, "session_id"));
       Value session = sessions.count(session_id) ? sessions[session_id] : Value();
       if (session.is_null() || Core::truthy(Core::get(session, "closed", false))) return fail(Core::get(message, "id"), "session_closed", "session closed or unknown");
-      std::string code = display(Core::get(Core::get(message, "payload", Value::object()), "code", ""));
+      Value payload = Core::get(message, "payload", Value::object());
+      Value globals = Core::get(session, "globals", Value::object());
+      Core::set(globals, "__last_execute_options", Core::get(payload, "options", Value::object()));
+      Core::set(session, "globals", globals);
+      sessions[session_id] = session;
+      std::string code = display(Core::get(payload, "code", ""));
       if (code == "timeout()") return fail(Core::get(message, "id"), "timeout", "fixture timeout");
       if (code == "sessionClosed()") return fail(Core::get(message, "id"), "session_closed", "fixture session closed");
       if (code == "abort()") return fail(Core::get(message, "id"), "abort", "fixture abort");
       if (code == "userError()") return fail(Core::get(message, "id"), "user_error", "fixture user error");
-      Value globals = Core::get(session, "globals", Value::object());
       Core::set(globals, "answer", "fixture");
       Core::set(session, "globals", globals);
       sessions[session_id] = session;

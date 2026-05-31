@@ -217,6 +217,10 @@ func TestBuildRuntimeModel(t *testing.T) {
 		"axagent_runtime_protocol",
 		"axagent_runtime_protocol_conformance",
 		"axagent_runtime_process_error_handling",
+		"axagent_runtime_lifecycle_beta",
+		"axagent_runtime_cancellation_contract",
+		"axagent_runtime_restart_once",
+		"axagent_runtime_process_diagnostics",
 		"axagent_axjs_reference_adapter",
 		"axagent_process_runtime_helpers",
 		"axagent_actor_step_alpha",
@@ -1736,6 +1740,7 @@ func TestPythonGeneratedIdioms(t *testing.T) {
 		"def ask_clarification(",
 		"def guide_agent(",
 		"runtime protocol response id mismatch",
+		"closed_without_response_message",
 	} {
 		if !strings.Contains(runtimeText, want) {
 			t.Fatalf("generated Python runtime adapter helpers missing %q", want)
@@ -1945,7 +1950,7 @@ func TestJavaGeneratedCoreRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(processRuntimeFile), "public final class AxProcessCodeRuntime") || !strings.Contains(string(processRuntimeFile), "ProcessBuilder") {
+	if !strings.Contains(string(processRuntimeFile), "public final class AxProcessCodeRuntime") || !strings.Contains(string(processRuntimeFile), "ProcessBuilder") || !strings.Contains(string(processRuntimeFile), "closedWithoutResponseMessage") {
 		t.Fatal("generated Java process runtime protocol helper is missing expected implementation")
 	}
 }

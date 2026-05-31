@@ -29,7 +29,9 @@ until staged lowering.
   `agent.test(...)`, reserved-name-safe runtime snapshots, restart/error
   envelopes, minimal state helpers, and the process/transport protocol used by
   external runtime adapters, including protocol envelope conformance and
-  process/transport error handling.
+  process/transport error handling. Runtime lifecycle semantics include
+  timeout/abort option propagation, one automatic session-closed restart, and
+  cleanup guarantees for fresh `agent.test(...)` sessions.
   Volatile actor decisions live in the versioned policy registry: actor-visible
   primitives, protocol-only actions, runtime globals, and host boundaries are
   modeled separately so target runtimes do not hard-code today's prompt policy.

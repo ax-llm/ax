@@ -14,7 +14,12 @@
     },
     "kind": "askClarification"
   },
-  "expected_trace_event_kinds": ["runtime_execute", "clarification"],
+  "expected_trace_event_kinds": [
+    "runtime_lifecycle",
+    "runtime_execute",
+    "clarification",
+    "runtime_lifecycle"
+  ],
   "kind": "agent_runtime_session",
   "name": "runtime-clarification-payload-normalization-session",
   "operation": "test",

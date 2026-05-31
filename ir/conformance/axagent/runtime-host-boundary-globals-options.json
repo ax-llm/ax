@@ -17,9 +17,7 @@
     "user": "Ada"
   },
   "expected_create_options_subset": {
-    "traceId": "runtime-trace-1"
-  },
-  "expected_execute_options_subset": {
+    "abort": true,
     "reservedNames": [
       "inputs",
       "final",
@@ -31,6 +29,25 @@
       "reportSuccess",
       "reportFailure"
     ],
+    "sessionId": "session-from-options",
+    "timeout": 1234,
+    "traceId": "runtime-trace-1"
+  },
+  "expected_execute_options_subset": {
+    "abort": true,
+    "reservedNames": [
+      "inputs",
+      "final",
+      "askClarification",
+      "discover",
+      "recall",
+      "llmQuery",
+      "inspectRuntime",
+      "reportSuccess",
+      "reportFailure"
+    ],
+    "sessionId": "session-from-options",
+    "timeout": 1234,
     "traceId": "runtime-trace-1"
   },
   "expected_result_subset": {
@@ -48,12 +65,16 @@
   "name": "runtime-host-boundary-globals-options",
   "operation": "test",
   "runtime_options": {
+    "abort": true,
+    "sessionId": "session-from-options",
+    "timeout": 1234,
     "traceId": "runtime-trace-1"
   },
   "runtime_script": [
     {
       "expected_code": "final({ answer: inputs.question })",
       "expected_options_subset": {
+        "abort": true,
         "reservedNames": [
           "inputs",
           "final",
@@ -65,6 +86,8 @@
           "reportSuccess",
           "reportFailure"
         ],
+        "sessionId": "session-from-options",
+        "timeout": 1234,
         "traceId": "runtime-trace-1"
       },
       "result": {

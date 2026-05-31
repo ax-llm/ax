@@ -9,13 +9,19 @@
       "kind": "error"
     }
   ],
+  "expected_closed_session_count": 1,
   "expected_result_subset": {
     "error": "execution timed out",
     "error_category": "timeout",
     "is_error": true,
     "kind": "error"
   },
-  "expected_trace_event_kinds": ["runtime_execute", "error"],
+  "expected_trace_event_kinds": [
+    "runtime_lifecycle",
+    "runtime_execute",
+    "error",
+    "runtime_lifecycle"
+  ],
   "kind": "agent_runtime_session",
   "name": "runtime-timeout-error-is-logged",
   "operation": "test",

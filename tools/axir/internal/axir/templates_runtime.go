@@ -124,6 +124,7 @@ class ProcessCodeRuntime:
             env=merged_env,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
             bufsize=1,
         )
@@ -172,7 +173,7 @@ class ProcessCodeRuntime:
             self._process.stdin.flush()
             line = self._process.stdout.readline()
             if not line:
-                raise RuntimeError("runtime protocol process closed without a response")
+                raise RuntimeError(self._closed_without_response_message())
             try:
                 response = json.loads(line)
             except json.JSONDecodeError as exc:
@@ -190,6 +191,26 @@ class ProcessCodeRuntime:
                     str(error.get("category") or "runtime"),
                 )
             return response
+
+    def _closed_without_response_message(self) -> str:
+        code = self._process.poll()
+        if code is None:
+            try:
+                code = self._process.wait(timeout=0.1)
+            except subprocess.TimeoutExpired:
+                code = None
+        message = "runtime protocol process closed without a response"
+        if code is not None:
+            message += f" (exit code {code})"
+            stderr_text = ""
+            if self._process.stderr is not None:
+                try:
+                    stderr_text = self._process.stderr.read().strip()
+                except Exception:
+                    stderr_text = ""
+            if stderr_text:
+                message += f": {stderr_text}"
+        return message
 
 
 class ProcessCodeSession:
@@ -271,6 +292,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 public final class AxRuntimeEnvelope {
   private AxRuntimeEnvelope() {}
@@ -356,11 +378,13 @@ import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 public final class AxProcessCodeRuntime implements AxCodeRuntime, AutoCloseable {
   private final Process process;
   private final BufferedWriter writer;
   private final BufferedReader reader;
+  private final BufferedReader errorReader;
   private int nextId = 0;
 
   public AxProcessCodeRuntime(List<String> command) {
@@ -372,10 +396,10 @@ public final class AxProcessCodeRuntime implements AxCodeRuntime, AutoCloseable 
       ProcessBuilder builder = new ProcessBuilder(command);
       if (cwd != null) builder.directory(cwd);
       if (env != null) builder.environment().putAll(env);
-      builder.redirectError(ProcessBuilder.Redirect.INHERIT);
       this.process = builder.start();
       this.writer = new BufferedWriter(new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8));
       this.reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8));
+      this.errorReader = new BufferedReader(new InputStreamReader(process.getErrorStream(), StandardCharsets.UTF_8));
     } catch (Exception ex) {
       throw new RuntimeException("failed to start runtime protocol process: " + ex.getMessage(), ex);
     }
@@ -413,7 +437,7 @@ public final class AxProcessCodeRuntime implements AxCodeRuntime, AutoCloseable 
       writer.newLine();
       writer.flush();
       String line = reader.readLine();
-      if (line == null) throw new RuntimeException("runtime protocol process closed without a response");
+      if (line == null) throw new RuntimeException(closedWithoutResponseMessage());
       Object parsed;
       try {
         parsed = Json.parse(line);
@@ -442,6 +466,31 @@ public final class AxProcessCodeRuntime implements AxCodeRuntime, AutoCloseable 
     } catch (Exception ex) {
       throw new RuntimeException("runtime protocol request failed: " + ex.getMessage(), ex);
     }
+  }
+
+  private String closedWithoutResponseMessage() {
+    String message = "runtime protocol process closed without a response";
+    if (process.isAlive()) {
+      try {
+        process.waitFor(100, TimeUnit.MILLISECONDS);
+      } catch (InterruptedException ex) {
+        Thread.currentThread().interrupt();
+      }
+    }
+    if (!process.isAlive()) {
+      message += " (exit code " + process.exitValue() + ")";
+      StringBuilder stderr = new StringBuilder();
+      try {
+        String line;
+        while ((line = errorReader.readLine()) != null) {
+          if (stderr.length() > 0) stderr.append("\\n");
+          stderr.append(line);
+        }
+      } catch (Exception ignored) {
+      }
+      if (stderr.length() > 0) message += ": " + stderr;
+    }
+    return message;
   }
 
   public void close() {

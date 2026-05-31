@@ -3,6 +3,7 @@
   "context_values": {
     "question": "abort"
   },
+  "expected_closed_session_count": 1,
   "expected_error_contains": "runtime host boundary escaped abort",
   "kind": "agent_runtime_session",
   "name": "runtime-host-abort-escapes",

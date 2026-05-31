@@ -519,6 +519,7 @@ writeFixture('trace-replay-runtime-final', {
     'stage_response',
     'stage_request',
     'stage_response',
+    'runtime_lifecycle',
     'runtime_execute',
     'final',
     'stage_request',
@@ -616,6 +617,7 @@ writeFixture('trace-max-step-error', {
     'stage_response',
     'stage_request',
     'stage_response',
+    'runtime_lifecycle',
     'runtime_execute',
     'status',
     'error',
@@ -1448,7 +1450,12 @@ writeFixture('runtime-error-action-log', {
   expected_action_log_subset: [
     { kind: 'error', error_category: 'runtime_error' },
   ],
-  expected_trace_event_kinds: ['runtime_execute', 'error'],
+  expected_trace_event_kinds: [
+    'runtime_lifecycle',
+    'runtime_execute',
+    'error',
+    'runtime_lifecycle',
+  ],
   replay_trace: true,
 });
 
@@ -1468,7 +1475,11 @@ writeFixture('trace-malformed-runtime-protocol', {
     kind: 'result',
     result: 'not a protocol object',
   },
-  expected_trace_event_kinds: ['runtime_execute'],
+  expected_trace_event_kinds: [
+    'runtime_lifecycle',
+    'runtime_execute',
+    'runtime_lifecycle',
+  ],
   replay_trace: true,
 });
 
@@ -1477,6 +1488,7 @@ writeFixture('runtime-session-closed-restart-notice', {
   operation: 'steps',
   signature: 'question:string -> answer:string',
   context_values: { question: 'restart' },
+  close_runtime_session: true,
   steps: [{ code: 'final({ answer: "after restart" })' }],
   runtime_script: [
     {
@@ -1502,8 +1514,67 @@ writeFixture('runtime-session-closed-restart-notice', {
     { action: 'restart', reason: 'session_closed' },
     { action: 'create_session' },
     { kind: 'final' },
+    { action: 'close_session' },
   ],
   expected_session_count: 2,
+  expected_closed_session_count: 1,
+  expected_trace_event_kinds: [
+    'runtime_lifecycle',
+    'runtime_lifecycle',
+    'runtime_lifecycle',
+    'runtime_execute',
+    'final',
+    'runtime_lifecycle',
+  ],
+});
+
+writeFixture('runtime-session-closed-restart-once', {
+  kind: 'agent_runtime_session',
+  operation: 'test',
+  signature: 'question:string -> answer:string',
+  code: 'sessionClosed()',
+  context_values: { question: 'restart once' },
+  runtime_script: [
+    {
+      expected_code: 'sessionClosed()',
+      result: {
+        kind: 'error',
+        is_error: true,
+        error_category: 'session_closed',
+        error: 'session closed first',
+      },
+    },
+    {
+      expected_code: 'sessionClosed()',
+      result: {
+        kind: 'error',
+        is_error: true,
+        error_category: 'session_closed',
+        error: 'session closed again',
+      },
+    },
+  ],
+  expected_result_subset: {
+    kind: 'error',
+    is_error: true,
+    error_category: 'session_closed',
+    error: 'session closed again',
+  },
+  expected_action_log_subset: [
+    { action: 'restart', reason: 'session_closed' },
+    { kind: 'error', error_category: 'session_closed' },
+    { action: 'close_session' },
+  ],
+  expected_session_count: 2,
+  expected_closed_session_count: 1,
+  expected_trace_event_kinds: [
+    'runtime_lifecycle',
+    'runtime_lifecycle',
+    'runtime_lifecycle',
+    'runtime_execute',
+    'error',
+    'runtime_lifecycle',
+  ],
 });
 
 writeFixture('runtime-final-payload-normalization-session', {
@@ -1548,7 +1619,12 @@ writeFixture('runtime-clarification-payload-normalization-session', {
       args: [{ question: 'Which city?' }],
     },
   },
-  expected_trace_event_kinds: ['runtime_execute', 'clarification'],
+  expected_trace_event_kinds: [
+    'runtime_lifecycle',
+    'runtime_execute',
+    'clarification',
+    'runtime_lifecycle',
+  ],
   replay_trace: true,
 });
 
@@ -1623,12 +1699,20 @@ writeFixture('runtime-host-boundary-globals-options', {
   signature: 'question:string, user:string -> answer:string',
   code: 'final({ answer: inputs.question })',
   context_values: { question: 'hello', user: 'Ada' },
-  runtime_options: { traceId: 'runtime-trace-1' },
+  runtime_options: {
+    traceId: 'runtime-trace-1',
+    sessionId: 'session-from-options',
+    timeout: 1234,
+    abort: true,
+  },
   runtime_script: [
     {
       expected_code: 'final({ answer: inputs.question })',
       expected_options_subset: {
         traceId: 'runtime-trace-1',
+        sessionId: 'session-from-options',
+        timeout: 1234,
+        abort: true,
         reservedNames: [
           'inputs',
           'final',
@@ -1654,9 +1738,28 @@ writeFixture('runtime-host-boundary-globals-options', {
     question: 'hello',
     user: 'Ada',
   },
-  expected_create_options_subset: { traceId: 'runtime-trace-1' },
+  expected_create_options_subset: {
+    traceId: 'runtime-trace-1',
+    sessionId: 'session-from-options',
+    timeout: 1234,
+    abort: true,
+    reservedNames: [
+      'inputs',
+      'final',
+      'askClarification',
+      'discover',
+      'recall',
+      'llmQuery',
+      'inspectRuntime',
+      'reportSuccess',
+      'reportFailure',
+    ],
+  },
   expected_execute_options_subset: {
     traceId: 'runtime-trace-1',
+    sessionId: 'session-from-options',
+    timeout: 1234,
+    abort: true,
     reservedNames: [
       'inputs',
       'final',
@@ -1804,7 +1907,13 @@ writeFixture('runtime-timeout-error-is-logged', {
     error: 'execution timed out',
   },
   expected_action_log_subset: [{ kind: 'error', error_category: 'timeout' }],
-  expected_trace_event_kinds: ['runtime_execute', 'error'],
+  expected_trace_event_kinds: [
+    'runtime_lifecycle',
+    'runtime_execute',
+    'error',
+    'runtime_lifecycle',
+  ],
+  expected_closed_session_count: 1,
 });
 
 writeFixture('runtime-host-abort-escapes', {
@@ -1825,6 +1934,7 @@ writeFixture('runtime-host-abort-escapes', {
     },
   ],
   expected_error_contains: 'runtime host boundary escaped abort',
+  expected_closed_session_count: 1,
 });
 
 writeFixture('runtime-adapter-helper-envelopes', {
@@ -1988,5 +2098,145 @@ writeFixture('runtime-adapter-final-session', {
     { kind: 'final' },
     { action: 'close_session' },
   ],
-  expected_trace_event_kinds: ['runtime_execute', 'final'],
+  expected_closed_session_count: 1,
+  expected_trace_event_kinds: [
+    'runtime_lifecycle',
+    'runtime_execute',
+    'final',
+    'runtime_lifecycle',
+  ],
+});
+
+writeFixture('runtime-protocol-roundtrip', {
+  kind: 'agent_runtime_protocol',
+  operation: 'roundtrip',
+  create_globals: {
+    inputs: {
+      question: 'adapter',
+    },
+  },
+  create_options: {
+    reservedNames: ['inputs', 'final'],
+    timeoutMs: 123,
+  },
+  execute_code: 'final()',
+  execute_options: {
+    timeout: 7,
+    abort: true,
+    sessionId: 'runtime-protocol-session',
+    traceId: 'runtime-protocol-trace',
+  },
+  patch_globals: {
+    bindings: {
+      answer: 'patched',
+      safe: true,
+    },
+  },
+  expected_capabilities_subset: {
+    language: 'JavaScript',
+    usage_instructions: 'fixture protocol runtime',
+    inspect: true,
+    snapshot: true,
+    patch: true,
+    abort: true,
+  },
+  expected_execute_subset: {
+    type: 'final',
+    args: [
+      {
+        answer: 'fixture',
+      },
+    ],
+  },
+  expected_inspect_subset: {
+    inputs: {
+      question: 'adapter',
+    },
+    __create_options: {
+      reservedNames: ['inputs', 'final'],
+      timeoutMs: 123,
+    },
+    __last_execute_options: {
+      timeout: 7,
+      abort: true,
+      sessionId: 'runtime-protocol-session',
+      traceId: 'runtime-protocol-trace',
+    },
+    answer: 'fixture',
+  },
+  expected_snapshot_subset: {
+    bindings: {
+      answer: 'fixture',
+    },
+  },
+  expected_patch_subset: {
+    bindings: {
+      answer: 'patched',
+      safe: true,
+    },
+  },
+  expected_close_subset: {
+    closed: true,
+  },
+});
+
+writeFixture('runtime-protocol-timeout-error', {
+  kind: 'agent_runtime_protocol',
+  operation: 'execute_error',
+  execute_code: 'timeout()',
+  expected_execute_subset: {
+    kind: 'error',
+    is_error: true,
+    error_category: 'timeout',
+    error: 'fixture timeout',
+  },
+});
+
+writeFixture('runtime-protocol-unavailable-inspect', {
+  kind: 'agent_runtime_protocol',
+  operation: 'unavailable',
+  mode: 'unavailable',
+  method: 'inspect_globals',
+  expected_error_contains: 'inspectGlobals unavailable',
+});
+
+writeFixture('runtime-protocol-id-mismatch', {
+  kind: 'agent_runtime_protocol',
+  operation: 'capabilities_error',
+  mode: 'id_mismatch',
+  expected_error_contains: 'response id mismatch',
+});
+
+writeFixture('runtime-protocol-session-mismatch', {
+  kind: 'agent_runtime_protocol',
+  operation: 'session_mismatch',
+  mode: 'session_mismatch',
+  expected_error_contains: 'session_id mismatch',
+});
+
+writeFixture('runtime-protocol-malformed-response', {
+  kind: 'agent_runtime_protocol',
+  operation: 'capabilities_error',
+  mode: 'malformed_json',
+  expected_error_contains: 'runtime protocol',
+});
+
+writeFixture('runtime-protocol-unknown-op', {
+  kind: 'agent_runtime_protocol',
+  operation: 'unknown_op',
+  expected_error_contains: 'unknown runtime protocol op',
+});
+
+writeFixture('runtime-protocol-eof-error', {
+  kind: 'agent_runtime_protocol',
+  operation: 'capabilities_error',
+  mode: 'eof',
+  expected_error_contains: 'closed without a response',
+});
+
+writeFixture('runtime-protocol-nonzero-stderr-error', {
+  kind: 'agent_runtime_protocol',
+  operation: 'capabilities_error',
+  mode: 'nonzero',
+  expected_error_contains: 'exit code 7',
 });
