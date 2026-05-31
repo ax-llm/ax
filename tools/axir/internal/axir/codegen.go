@@ -137,6 +137,7 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 		"dev/ax/AxProcessCodeSession.java":                        javaAxProcessCodeSession,
 		"dev/ax/runtime/quickjs/AxQuickJsCodeRuntime.java":        javaQuickJSCodeRuntime,
 		"dev/ax/runtime/quickjs/AxQuickJsCodeSession.java":        javaQuickJSCodeSession,
+		"dev/ax/runtime/quickjs/AxQuickJsProtocolServer.java":     javaQuickJSProtocolServer,
 		"dev/ax/OpenAICompatibleClient.java":                      javaOpenAI,
 		"dev/ax/AxGen.java":                                       javaAxGen,
 		"dev/ax/OptimizerEngine.java":                             javaOptimizerEngine,

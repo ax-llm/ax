@@ -423,6 +423,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"dev/ax/AxProcessCodeSession.java",
 				"dev/ax/runtime/quickjs/AxQuickJsCodeRuntime.java",
 				"dev/ax/runtime/quickjs/AxQuickJsCodeSession.java",
+				"dev/ax/runtime/quickjs/AxQuickJsProtocolServer.java",
 				"dev/ax/OptimizerEngine.java",
 				"dev/ax/OptimizerEvaluator.java",
 				"dev/ax/OpenAICompatibleClient.java",

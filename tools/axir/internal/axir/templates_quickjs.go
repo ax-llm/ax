@@ -44,57 +44,61 @@ const javaQuickJSCodeSession = `package dev.ax.runtime.quickjs;
 
 import dev.ax.AxCodeSession;
 import dev.ax.Json;
+import io.roastedroot.quickjs4j.core.Engine;
+import io.roastedroot.quickjs4j.core.GuestFunction;
+import io.roastedroot.quickjs4j.core.Invokables;
+import io.roastedroot.quickjs4j.core.Runner;
+import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import javax.script.ScriptEngine;
-import javax.script.ScriptEngineManager;
 
 public final class AxQuickJsCodeSession implements AxCodeSession {
-  private final ScriptEngine engine;
+  private static final Invokables INVOKABLES = Invokables.builder("axir")
+    .add(new GuestFunction("__ax_run", List.of(String.class), String.class))
+    .build();
+  private final Map<String, Object> bindings = new LinkedHashMap<>();
   private final Map<String, Object> reserved = new LinkedHashMap<>();
+  private final int timeoutMs;
   private boolean closed = false;
 
   AxQuickJsCodeSession(Map<String, Object> globals, Map<String, Object> options) {
-    this.engine = new ScriptEngineManager().getEngineByName("quickjs4j");
-    if (this.engine == null) throw new RuntimeException("QuickJS4J script engine not found; add io.roastedroot:quickjs4j to the runtime classpath");
     Object reservedNames = options.get("reservedNames");
     if (reservedNames instanceof Iterable<?> items) {
       for (Object item : items) reserved.put(String.valueOf(item), true);
     }
     for (Map.Entry<String, Object> entry : globals.entrySet()) {
-      engine.put(entry.getKey(), entry.getValue());
+      bindings.put(entry.getKey(), entry.getValue());
     }
-    engine.put("__ax_bridge", new Bridge());
-    try {
-      engine.eval("""
-        function final() { return __ax_bridge.finalPayload(JSON.stringify(Array.from(arguments))); }
-        function askClarification() { return __ax_bridge.askClarification(JSON.stringify(Array.from(arguments))); }
-        function discover(request) { return __ax_bridge.discover(JSON.stringify(request)); }
-        function recall(request) { return __ax_bridge.recall(JSON.stringify(request)); }
-        function used(idOrRequest, reason) { return __ax_bridge.used(JSON.stringify(idOrRequest), reason == null ? null : String(reason)); }
-        function reportSuccess(message) { return __ax_bridge.status("success", String(message || "")); }
-        function reportFailure(message) { return __ax_bridge.status("failed", String(message || "")); }
-        function guideAgent(guidance) { return __ax_bridge.guideAgent(String(guidance || "")); }
-        function __ax_snapshot_json() {
-          const out = {};
-          for (const key of Object.getOwnPropertyNames(globalThis)) {
-            if (key.startsWith("__ax_")) continue;
-            const value = globalThis[key];
-            if (typeof value === "function" || typeof value === "undefined") continue;
-            try { JSON.stringify(value); out[key] = value; } catch (_) {}
-          }
-          return JSON.stringify(out);
-        }
-      """);
-    } catch (Exception ex) {
-      throw new RuntimeException("failed to initialize QuickJS runtime profile: " + ex.getMessage(), ex);
-    }
+    this.timeoutMs = intOption(options.get("timeoutMs"), 5000);
   }
 
   public Object execute(String code, Map<String, Object> options) {
     if (closed) return Map.of("kind", "error", "is_error", true, "error_category", "session_closed", "error", "session closed");
     try {
-      return engine.eval(code == null ? "" : code);
+      Map<String, Object> payload = new LinkedHashMap<>();
+      payload.put("code", code == null ? "" : code);
+      payload.put("bindings", new LinkedHashMap<>(bindings));
+      String raw = runQuickJs(Json.stringify(payload), intOption(options == null ? null : options.get("timeoutMs"), timeoutMs));
+      Map<String, Object> response = Json.asObject(Json.parse(raw));
+      if (Boolean.FALSE.equals(response.get("ok"))) {
+        return Map.of(
+          "kind", "error",
+          "is_error", true,
+          "error_category", String.valueOf(response.getOrDefault("category", "runtime")),
+          "error", String.valueOf(response.getOrDefault("error", "QuickJS runtime error"))
+        );
+      }
+      Map<String, Object> preservedReserved = new LinkedHashMap<>();
+      for (String name : reserved.keySet()) {
+        if (bindings.containsKey(name)) preservedReserved.put(name, bindings.get(name));
+      }
+      bindings.clear();
+      bindings.putAll(Json.asObject(response.get("bindings")));
+      for (String name : reserved.keySet()) {
+        if (preservedReserved.containsKey(name)) bindings.put(name, preservedReserved.get(name));
+        else bindings.remove(name);
+      }
+      return response.get("result");
     } catch (Exception ex) {
       return Map.of("kind", "error", "is_error", true, "error_category", "runtime", "error", ex.getMessage());
     }
@@ -109,11 +113,17 @@ public final class AxQuickJsCodeSession implements AxCodeSession {
   }
 
   public Object patchGlobals(Object snapshot, Map<String, Object> options) {
-    Map<String, Object> bindings = Json.asObject(snapshot);
-    if (bindings.containsKey("bindings")) bindings = Json.asObject(bindings.get("bindings"));
-    for (Map.Entry<String, Object> entry : bindings.entrySet()) {
+    Map<String, Object> next = Json.asObject(snapshot);
+    if (next.containsKey("bindings")) next = Json.asObject(next.get("bindings"));
+    Map<String, Object> preserved = new LinkedHashMap<>();
+    for (String name : reserved.keySet()) {
+      if (this.bindings.containsKey(name)) preserved.put(name, this.bindings.get(name));
+    }
+    this.bindings.clear();
+    this.bindings.putAll(preserved);
+    for (Map.Entry<String, Object> entry : next.entrySet()) {
       if (reserved.containsKey(entry.getKey())) continue;
-      engine.put(entry.getKey(), entry.getValue());
+      this.bindings.put(entry.getKey(), entry.getValue());
     }
     return snapshotGlobals(options);
   }
@@ -124,41 +134,209 @@ public final class AxQuickJsCodeSession implements AxCodeSession {
   }
 
   private Map<String, Object> snapshotBindings() {
-    try {
-      Object raw = engine.eval("__ax_snapshot_json()");
-      Map<String, Object> out = Json.asObject(Json.parse(String.valueOf(raw)));
-      for (String name : reserved.keySet()) out.remove(name);
-      return out;
-    } catch (Exception ex) {
-      return Map.of("error", ex.getMessage());
+    Map<String, Object> out = new LinkedHashMap<>(bindings);
+    for (String name : reserved.keySet()) out.remove(name);
+    return out;
+  }
+
+  private static int intOption(Object value, int fallback) {
+    if (value instanceof Number n) return Math.max(1, n.intValue());
+    if (value instanceof String s) {
+      try { return Math.max(1, Integer.parseInt(s)); } catch (NumberFormatException ignored) {}
+    }
+    return fallback;
+  }
+
+  private static String runQuickJs(String payloadJson, int timeoutMs) throws Exception {
+    Engine engine = Engine.builder().addInvokables(INVOKABLES).build();
+    try (Runner runner = Runner.builder().withEngine(engine).withTimeoutMs(timeoutMs).build()) {
+      Object raw = runner.invokeGuestFunction("axir", "__ax_run", List.of(payloadJson), QUICKJS_SOURCE);
+      return String.valueOf(raw);
     }
   }
 
-  public static final class Bridge {
-    public Map<String, Object> finalPayload(String argsJson) {
-      return Map.of("type", "final", "args", Json.parse(argsJson));
+  private static final String QUICKJS_SOURCE = """
+function __ax_run(payloadJson) {
+  const payload = JSON.parse(payloadJson || "{}");
+  const reserved = new Set([
+    "Object", "Function", "Array", "Number", "parseFloat", "parseInt", "Infinity", "NaN",
+    "undefined", "Boolean", "String", "Symbol", "Date", "Promise", "RegExp", "Error",
+    "AggregateError", "EvalError", "RangeError", "ReferenceError", "SyntaxError", "TypeError",
+    "URIError", "globalThis", "JSON", "Math", "Reflect", "Proxy", "eval", "isFinite",
+    "isNaN", "decodeURI", "decodeURIComponent", "encodeURI", "encodeURIComponent",
+    "console", "Javy", "plugin", "main", "quickjs4j_engine",
+    "final", "askClarification", "discover", "recall", "used", "reportSuccess",
+    "reportFailure", "guideAgent"
+  ]);
+  for (const [key, value] of Object.entries(payload.bindings || {})) {
+    if (!reserved.has(key) && !key.startsWith("__ax_")) globalThis[key] = value;
+  }
+  function complete(value) { globalThis.__ax_completion = value; return value; }
+  globalThis.final = function() { return complete({type: "final", args: Array.from(arguments)}); };
+  globalThis.askClarification = function() { return complete({type: "askClarification", args: Array.from(arguments)}); };
+  globalThis.discover = function(request) { return complete({kind: "discover", discover: request}); };
+  globalThis.recall = function(request) { return complete({kind: "recall", recall: request}); };
+  globalThis.used = function(idOrRequest, reason) {
+    const payload = (idOrRequest && typeof idOrRequest === "object") ? Object.assign({}, idOrRequest) : {id: idOrRequest};
+    if (reason !== undefined && reason !== null) payload.reason = String(reason);
+    return complete({kind: "used", used: payload});
+  };
+  globalThis.reportSuccess = function(message) {
+    return complete({kind: "status", status: {type: "success", message: String(message || "")}});
+  };
+  globalThis.reportFailure = function(message) {
+    return complete({kind: "status", status: {type: "failed", message: String(message || "")}});
+  };
+  globalThis.guideAgent = function(guidance) {
+    return complete({type: "guide_agent", guidance: String(guidance || "")});
+  };
+  let result;
+  try {
+    Function("with (globalThis) { " + (payload.code || "") + "\\n}")();
+    result = globalThis.__ax_completion;
+  } catch (error) {
+    return JSON.stringify({ok: false, category: "runtime", error: String((error && error.message) || error)});
+  }
+  const out = {};
+  for (const key of Object.getOwnPropertyNames(globalThis)) {
+    if (reserved.has(key) || key.startsWith("__ax_")) continue;
+    const value = globalThis[key];
+    if (typeof value === "function" || typeof value === "undefined") continue;
+    try { JSON.stringify(value); out[key] = value; } catch (_) {}
+  }
+  return JSON.stringify({ok: true, result, bindings: out});
+}
+""";
+}
+`
+
+const javaQuickJSProtocolServer = `package dev.ax.runtime.quickjs;
+
+import dev.ax.AxCodeSession;
+import dev.ax.Json;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
+import java.io.BufferedWriter;
+import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+public final class AxQuickJsProtocolServer {
+  private final AxQuickJsCodeRuntime runtime = new AxQuickJsCodeRuntime();
+  private final Map<String, AxCodeSession> sessions = new LinkedHashMap<>();
+  private int nextSession = 0;
+
+  public static void main(String[] args) throws Exception {
+    if (args.length > 0 && "--self-test".equals(args[0])) {
+      selfTest();
+      return;
     }
-    public Map<String, Object> askClarification(String argsJson) {
-      return Map.of("type", "askClarification", "args", Json.parse(argsJson));
+    new AxQuickJsProtocolServer().serve();
+  }
+
+  private static void selfTest() {
+    try (AxQuickJsCodeRuntime rt = new AxQuickJsCodeRuntime()) {
+      AxCodeSession session = rt.createSession(Map.of("inputs", Map.of("question", "quickjs")), Map.of("reservedNames", java.util.List.of("inputs")));
+      Object result = session.execute("answer = inputs.question; final({answer})", Map.of());
+      Map<String, Object> out = Json.asObject(result);
+      if (!"final".equals(out.get("type"))) throw new RuntimeException("bad final result: " + result);
+      session.close();
     }
-    public Map<String, Object> discover(String requestJson) {
-      return Map.of("kind", "discover", "discover", Json.parse(requestJson));
+    System.out.println("java-javascript-quickjs-protocol-server-ok");
+  }
+
+  private void serve() throws Exception {
+    BufferedReader reader = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
+    BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(System.out, StandardCharsets.UTF_8));
+    String line;
+    while ((line = reader.readLine()) != null) {
+      Map<String, Object> message;
+      try {
+        message = Json.asObject(Json.parse(line));
+      } catch (Exception ex) {
+        continue;
+      }
+      Map<String, Object> response = handle(message);
+      writer.write(Json.stringify(response));
+      writer.newLine();
+      writer.flush();
+      if ("shutdown".equals(String.valueOf(message.get("op")))) return;
     }
-    public Map<String, Object> recall(String requestJson) {
-      return Map.of("kind", "recall", "recall", Json.parse(requestJson));
+  }
+
+  private Map<String, Object> handle(Map<String, Object> message) {
+    String id = String.valueOf(message.get("id"));
+    String op = String.valueOf(message.get("op"));
+    String sessionId = message.get("session_id") == null ? null : String.valueOf(message.get("session_id"));
+    try {
+      if ("capabilities".equals(op)) {
+        return ok(message, Map.of(
+          "language", "JavaScript",
+          "usage_instructions", runtime.getUsageInstructions(),
+          "inspect", true,
+          "snapshot", true,
+          "patch", true,
+          "abort", false
+        ), null);
+      }
+      if ("create_session".equals(op)) {
+        Map<String, Object> payload = Json.asObject(message.get("payload"));
+        String newId = "qjs-" + (++nextSession);
+        AxCodeSession session = runtime.createSession(Json.asObject(payload.get("globals")), Json.asObject(payload.get("options")));
+        sessions.put(newId, session);
+        return ok(message, Map.of("session_id", newId), newId);
+      }
+      if ("execute".equals(op)) {
+        AxCodeSession session = sessions.get(sessionId);
+        if (session == null) return fail(id, sessionId, "session_closed", "session closed or unknown");
+        Map<String, Object> payload = Json.asObject(message.get("payload"));
+        return ok(message, session.execute(String.valueOf(payload.getOrDefault("code", "")), Json.asObject(payload.get("options"))), sessionId);
+      }
+      if ("inspect_globals".equals(op)) return ok(message, requireSession(sessionId).inspectGlobals(Json.asObject(message.get("payload"))), sessionId);
+      if ("snapshot_globals".equals(op)) return ok(message, requireSession(sessionId).snapshotGlobals(Json.asObject(message.get("payload"))), sessionId);
+      if ("patch_globals".equals(op)) {
+        Map<String, Object> payload = Json.asObject(message.get("payload"));
+        return ok(message, requireSession(sessionId).patchGlobals(payload.getOrDefault("globals", Map.of()), Json.asObject(payload.get("options"))), sessionId);
+      }
+      if ("close".equals(op)) {
+        AxCodeSession session = sessions.remove(sessionId);
+        Object result = session == null ? Map.of("closed", true) : session.close();
+        return ok(message, result, sessionId);
+      }
+      if ("shutdown".equals(op)) {
+        for (AxCodeSession session : sessions.values()) session.close();
+        sessions.clear();
+        return ok(message, Map.of("shutdown", true), null);
+      }
+      return fail(id, sessionId, "unsupported", "unknown runtime protocol op: " + op);
+    } catch (Exception ex) {
+      return fail(id, sessionId, "runtime", ex.getMessage());
     }
-    public Map<String, Object> used(String requestJson, String reason) {
-      Object parsed = Json.parse(requestJson);
-      Map<String, Object> payload = parsed instanceof Map<?, ?> ? new LinkedHashMap<>(Json.asObject(parsed)) : new LinkedHashMap<>(Map.of("id", parsed));
-      if (reason != null) payload.put("reason", reason);
-      return Map.of("kind", "used", "used", payload);
-    }
-    public Map<String, Object> status(String type, String message) {
-      return Map.of("kind", "status", "status", Map.of("type", type, "message", message));
-    }
-    public Map<String, Object> guideAgent(String guidance) {
-      return Map.of("type", "guide_agent", "guidance", guidance);
-    }
+  }
+
+  private AxCodeSession requireSession(String sessionId) {
+    AxCodeSession session = sessions.get(sessionId);
+    if (session == null) throw new RuntimeException("session closed or unknown");
+    return session;
+  }
+
+  private static Map<String, Object> ok(Map<String, Object> message, Object result, String sessionId) {
+    Map<String, Object> out = new LinkedHashMap<>();
+    out.put("id", String.valueOf(message.get("id")));
+    out.put("ok", true);
+    out.put("result", result == null ? Map.of() : result);
+    if (sessionId != null) out.put("session_id", sessionId);
+    return out;
+  }
+
+  private static Map<String, Object> fail(String id, String sessionId, String category, String text) {
+    Map<String, Object> out = new LinkedHashMap<>();
+    out.put("id", id);
+    out.put("ok", false);
+    out.put("error", Map.of("category", category, "message", text == null ? "runtime protocol error" : text));
+    if (sessionId != null) out.put("session_id", sessionId);
+    return out;
   }
 }
 `
@@ -176,11 +354,39 @@ public final class JavaScriptQuickJsExample {
   public static void main(String[] args) {
     try (AxQuickJsCodeRuntime runtime = new AxQuickJsCodeRuntime()) {
       AxAgent qa = Ax.agent("question:string -> answer:string", Map.of("runtime", Map.of("language", "JavaScript")));
-      Map<String, Object> out = qa.test(runtime, "answer = inputs.get('question'); final({answer: answer})", Map.of("question", "quickjs"));
+      Map<String, Object> out = qa.test(runtime, "answer = inputs.question; final({answer})", Map.of("question", "quickjs"));
       if (!"final".equals(out.get("kind"))) throw new RuntimeException("bad output: " + out);
       Map<String, Object> payload = asMap(out.get("completion_payload"));
       Map<String, Object> first = asMap(((List<?>) payload.get("args")).get(0));
       if (!"quickjs".equals(first.get("answer"))) throw new RuntimeException("bad payload: " + out);
+
+      AxCodeSession session = runtime.createSession(Map.of("inputs", Map.of("question", "quickjs")), Map.of("reservedNames", List.of("inputs")));
+      Map<String, Object> step1 = asMap(session.execute("counter = (typeof counter === 'undefined' ? 0 : counter) + 1; final({counter})", Map.of()));
+      Map<String, Object> step2 = asMap(session.execute("counter = counter + 1; final({counter})", Map.of()));
+      if (!"final".equals(step1.get("type")) || !"final".equals(step2.get("type"))) throw new RuntimeException("bad persistent final: " + step2);
+      Map<String, Object> step2First = asMap(((List<?>) step2.get("args")).get(0));
+      if (!Double.valueOf(2).equals(step2First.get("counter")) && !Integer.valueOf(2).equals(step2First.get("counter"))) {
+        throw new RuntimeException("binding did not persist: " + step2);
+      }
+      Map<String, Object> step3 = asMap(session.execute("final({answer: inputs.question, counter})", Map.of()));
+      Map<String, Object> step3First = asMap(((List<?>) step3.get("args")).get(0));
+      if (!"quickjs".equals(step3First.get("answer"))) throw new RuntimeException("reserved input did not persist: " + step3);
+      if (!"askClarification".equals(asMap(session.execute("askClarification('more?')", Map.of())).get("type"))) throw new RuntimeException("askClarification failed");
+      if (!"discover".equals(asMap(session.execute("discover({tools:['search']})", Map.of())).get("kind"))) throw new RuntimeException("discover failed");
+      if (!"recall".equals(asMap(session.execute("recall({query:'docs'})", Map.of())).get("kind"))) throw new RuntimeException("recall failed");
+      if (!"used".equals(asMap(session.execute("used('mem1', 'helpful')", Map.of())).get("kind"))) throw new RuntimeException("used failed");
+      if (!"status".equals(asMap(session.execute("reportSuccess('ok')", Map.of())).get("kind"))) throw new RuntimeException("status failed");
+      session.execute("safe = 7; final({safe})", Map.of());
+      Map<String, Object> snapshot = asMap(session.snapshotGlobals(Map.of()));
+      if (asMap(snapshot.get("bindings")).containsKey("inputs")) throw new RuntimeException("reserved input leaked into snapshot: " + snapshot);
+      session.patchGlobals(Map.of("bindings", Map.of("safe", 9)), Map.of());
+      Map<String, Object> inspected = asMap(session.inspectGlobals(Map.of()));
+      if (!Double.valueOf(9).equals(inspected.get("safe")) && !Integer.valueOf(9).equals(inspected.get("safe"))) {
+        throw new RuntimeException("patch/inspect failed: " + inspected);
+      }
+      if (!"runtime".equals(asMap(session.execute("throw new Error('boom')", Map.of())).get("error_category"))) throw new RuntimeException("runtime error normalization failed");
+      session.close();
+      if (!"session_closed".equals(asMap(session.execute("final({})", Map.of())).get("error_category"))) throw new RuntimeException("closed session behavior failed");
     }
     System.out.println("java-javascript-quickjs-profile-ok");
   }

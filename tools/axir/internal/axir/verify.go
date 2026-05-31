@@ -313,6 +313,9 @@ func verifyJavaQuickJSProfile(report VerifyTargetReport) (VerifyTargetReport, er
 	if err := runVerifyCommand(&report, "runtime profile javascript-quickjs", "", os.Environ(), java, "-cp", classpath, "JavaScriptQuickJsExample"); err != nil {
 		return report, err
 	}
+	if err := runVerifyCommand(&report, "runtime profile javascript-quickjs protocol server", "", os.Environ(), java, "-cp", classpath, "dev.ax.runtime.quickjs.AxQuickJsProtocolServer", "--self-test"); err != nil {
+		return report, err
+	}
 	return report, nil
 }
 
