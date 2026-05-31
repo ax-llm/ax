@@ -1,24 +1,19 @@
 // cspell:ignore Streamable
 
-import {
-  type ReadableStream,
-  TransformStream,
-  type TransformStreamDefaultController,
-} from 'node:stream/web';
 import type {
   JSONValue,
-  LanguageModelV2,
-  LanguageModelV2CallOptions,
-  LanguageModelV2CallWarning,
-  LanguageModelV2Content,
-  LanguageModelV2FinishReason,
-  LanguageModelV2FunctionTool,
-  LanguageModelV2Prompt,
-  LanguageModelV2StreamPart,
-  LanguageModelV2ToolCall,
-  LanguageModelV2ToolChoice,
-  LanguageModelV2Usage,
-  SharedV2ProviderMetadata,
+  LanguageModelV3,
+  LanguageModelV3CallOptions,
+  LanguageModelV3Content,
+  LanguageModelV3FinishReason,
+  LanguageModelV3FunctionTool,
+  LanguageModelV3Prompt,
+  LanguageModelV3StreamPart,
+  LanguageModelV3ToolCall,
+  LanguageModelV3ToolChoice,
+  LanguageModelV3Usage,
+  SharedV3ProviderMetadata,
+  SharedV3Warning,
 } from '@ai-sdk/provider';
 import type {
   AxAgentic,
@@ -30,8 +25,9 @@ import type {
   AxFunctionJSONSchema,
   AxGenIn,
   AxGenOut,
+  AxTokenUsage,
 } from '@ax-llm/ax/index.js';
-import type { CoreMessage } from 'ai';
+import type { ModelMessage } from 'ai';
 import { customAlphabet } from 'nanoid';
 import type { ReactNode } from 'react';
 import { z } from 'zod';
@@ -75,11 +71,11 @@ function toJSONValue(value: unknown): JSONValue | undefined {
 }
 
 function mergeProviderMetadata(
-  base?: SharedV2ProviderMetadata,
-  next?: SharedV2ProviderMetadata
-): SharedV2ProviderMetadata | undefined {
+  base?: SharedV3ProviderMetadata,
+  next?: SharedV3ProviderMetadata
+): SharedV3ProviderMetadata | undefined {
   if (!base && !next) return undefined;
-  const merged: SharedV2ProviderMetadata = {};
+  const merged: SharedV3ProviderMetadata = {};
   for (const source of [base, next]) {
     if (!source) continue;
     for (const [provider, metadata] of Object.entries(source)) {
@@ -95,8 +91,8 @@ function mergeProviderMetadata(
 function createProviderMetadata(
   res: Readonly<AxResponseLike>,
   provider: string
-): SharedV2ProviderMetadata | undefined {
-  let metadata: SharedV2ProviderMetadata | undefined;
+): SharedV3ProviderMetadata | undefined {
+  let metadata: SharedV3ProviderMetadata | undefined;
 
   if (res.providerMetadata) {
     metadata = {};
@@ -160,7 +156,7 @@ export class AxAgentProvider<IN extends AxGenIn, OUT extends AxGenOut> {
   private readonly config?: AxConfig;
   private readonly funcInfo: AxFunction;
   private generateFunction: Renderer<OUT>;
-  private updateState: (msgs: readonly CoreMessage[]) => void;
+  private updateState: (msgs: readonly ModelMessage[]) => void;
 
   constructor({
     agent,
@@ -169,7 +165,7 @@ export class AxAgentProvider<IN extends AxGenIn, OUT extends AxGenOut> {
     config,
   }: Readonly<{
     agent: AxAgentic<IN, OUT>;
-    updateState: (msgs: readonly CoreMessage[]) => void;
+    updateState: (msgs: readonly ModelMessage[]) => void;
     generate: Renderer<OUT>;
     config?: Readonly<AxConfig>;
   }>) {
@@ -228,8 +224,8 @@ export class AxAgentProvider<IN extends AxGenIn, OUT extends AxGenOut> {
   }
 }
 
-export class AxAIProvider implements LanguageModelV2 {
-  readonly specificationVersion = 'v2' as const;
+export class AxAIProvider implements LanguageModelV3 {
+  readonly specificationVersion = 'v3' as const;
   readonly supportedUrls: Record<string, RegExp[]> = {};
 
   private readonly ai: AxAIService;
@@ -248,8 +244,8 @@ export class AxAIProvider implements LanguageModelV2 {
   }
 
   async doGenerate(
-    options: LanguageModelV2CallOptions
-  ): Promise<Awaited<ReturnType<LanguageModelV2['doGenerate']>>> {
+    options: LanguageModelV3CallOptions
+  ): Promise<Awaited<ReturnType<LanguageModelV3['doGenerate']>>> {
     const req = createChatRequest(options);
     const res = (await this.ai.chat(req, {
       stream: false,
@@ -260,7 +256,7 @@ export class AxAIProvider implements LanguageModelV2 {
       throw new Error('No choice returned');
     }
 
-    const content: LanguageModelV2Content[] = [];
+    const content: LanguageModelV3Content[] = [];
 
     if (choice.content) {
       content.push({ type: 'text', text: choice.content });
@@ -286,22 +282,16 @@ export class AxAIProvider implements LanguageModelV2 {
     return {
       content,
       finishReason: mapAxFinishReason(choice.finishReason),
-      usage: {
-        inputTokens: res.modelUsage?.tokens?.promptTokens ?? 0,
-        outputTokens: res.modelUsage?.tokens?.completionTokens ?? 0,
-        totalTokens:
-          (res.modelUsage?.tokens?.promptTokens ?? 0) +
-          (res.modelUsage?.tokens?.completionTokens ?? 0),
-      },
+      usage: createUsage(res.modelUsage?.tokens),
       ...(providerMetadata ? { providerMetadata } : {}),
       ...(response ? { response } : {}),
-      warnings: [] as LanguageModelV2CallWarning[],
+      warnings: [] as SharedV3Warning[],
     };
   }
 
   async doStream(
-    options: LanguageModelV2CallOptions
-  ): Promise<Awaited<ReturnType<LanguageModelV2['doStream']>>> {
+    options: LanguageModelV3CallOptions
+  ): Promise<Awaited<ReturnType<LanguageModelV3['doStream']>>> {
     const req = createChatRequest(options);
 
     const res = (await this.ai.chat(req, {
@@ -309,14 +299,14 @@ export class AxAIProvider implements LanguageModelV2 {
     })) as ReadableStream<AxChatResponse>;
 
     return {
-      stream: res.pipeThrough(new AxToSDKTransformer(this.provider)) as any,
+      stream: res.pipeThrough(new AxToSDKTransformer(this.provider)),
     };
   }
 }
 
 function prepareToolsAndToolChoice(
-  tools: Array<LanguageModelV2FunctionTool>,
-  toolChoice?: LanguageModelV2ToolChoice
+  tools: Array<LanguageModelV3FunctionTool>,
+  toolChoice?: LanguageModelV3ToolChoice
 ): Pick<AxChatRequest, 'functions' | 'functionCall'> {
   // when the tools array is empty, change it to undefined to prevent errors:
   if (!tools || tools.length === 0) {
@@ -357,7 +347,7 @@ function prepareToolsAndToolChoice(
 }
 
 function convertToAxChatPrompt(
-  prompt: Readonly<LanguageModelV2Prompt>
+  prompt: Readonly<LanguageModelV3Prompt>
 ): AxChatRequest['chatPrompt'] {
   const messages: AxChatRequest['chatPrompt'] = [];
 
@@ -465,6 +455,9 @@ function convertToAxChatPrompt(
       }
       case 'tool': {
         for (const part of content) {
+          if (part.type !== 'tool-result') {
+            throw new Error(`Unsupported part: ${part.type}`);
+          }
           messages.push({
             role: 'function' as const,
             functionId: part.toolCallId,
@@ -488,16 +481,21 @@ function convertToAxChatPrompt(
 
 function mapAxFinishReason(
   finishReason: AxChatResponseResult['finishReason']
-): LanguageModelV2FinishReason {
+): LanguageModelV3FinishReason {
+  const raw = finishReason;
   switch (finishReason) {
     case 'stop':
-      return 'stop';
+      return { unified: 'stop', raw };
     case 'length':
-      return 'length';
+      return { unified: 'length', raw };
     case 'function_call':
-      return 'tool-calls';
+      return { unified: 'tool-calls', raw };
+    case 'content_filter':
+      return { unified: 'content-filter', raw };
+    case 'error':
+      return { unified: 'error', raw };
     default:
-      return 'other';
+      return { unified: 'other', raw };
   }
 }
 
@@ -511,7 +509,7 @@ function createChatRequest({
   frequencyPenalty,
   presencePenalty,
   //seed,
-}: Readonly<LanguageModelV2CallOptions>): AxChatRequest {
+}: Readonly<LanguageModelV3CallOptions>): AxChatRequest {
   const req: AxChatRequest = {
     chatPrompt: convertToAxChatPrompt(prompt),
     ...(frequencyPenalty != null ? { frequencyPenalty } : {}),
@@ -523,7 +521,7 @@ function createChatRequest({
 
   if (tools && tools.length > 0) {
     const functionTools = tools.filter(
-      (tool): tool is LanguageModelV2FunctionTool => tool.type === 'function'
+      (tool): tool is LanguageModelV3FunctionTool => tool.type === 'function'
     );
     return { ...req, ...prepareToolsAndToolChoice(functionTools, toolChoice) };
   }
@@ -531,20 +529,63 @@ function createChatRequest({
   return req;
 }
 
+function createUsage(tokens?: Readonly<AxTokenUsage>): LanguageModelV3Usage {
+  return {
+    inputTokens: {
+      total: tokens?.promptTokens,
+      noCache: undefined,
+      cacheRead: tokens?.cacheReadTokens,
+      cacheWrite: tokens?.cacheCreationTokens,
+    },
+    outputTokens: {
+      total: tokens?.completionTokens,
+      text: undefined,
+      reasoning: tokens?.reasoningTokens,
+    },
+  };
+}
+
+function addUsage(
+  usage: Readonly<LanguageModelV3Usage>,
+  tokens?: Readonly<AxTokenUsage>
+): LanguageModelV3Usage {
+  return {
+    inputTokens: {
+      ...usage.inputTokens,
+      total: (usage.inputTokens.total ?? 0) + (tokens?.promptTokens ?? 0),
+    },
+    outputTokens: {
+      ...usage.outputTokens,
+      total: (usage.outputTokens.total ?? 0) + (tokens?.completionTokens ?? 0),
+    },
+  };
+}
+
 class AxToSDKTransformer extends TransformStream<
   AxChatResponse,
-  LanguageModelV2StreamPart
+  LanguageModelV3StreamPart
 > {
-  private usage: LanguageModelV2Usage = {
-    inputTokens: 0,
-    outputTokens: 0,
-    totalTokens: 0,
+  private usage: LanguageModelV3Usage = {
+    inputTokens: {
+      total: 0,
+      noCache: undefined,
+      cacheRead: undefined,
+      cacheWrite: undefined,
+    },
+    outputTokens: {
+      total: 0,
+      text: undefined,
+      reasoning: undefined,
+    },
   };
 
-  private finishReason: LanguageModelV2FinishReason = 'other';
+  private finishReason: LanguageModelV3FinishReason = {
+    unified: 'other',
+    raw: undefined,
+  };
 
-  private functionCalls: LanguageModelV2ToolCall[] = [];
-  private providerMetadata: SharedV2ProviderMetadata | undefined;
+  private functionCalls: LanguageModelV3ToolCall[] = [];
+  private providerMetadata: SharedV3ProviderMetadata | undefined;
   private responseMetadataSent = false;
   private hasStarted = false;
   private textStarted = false;
@@ -554,13 +595,13 @@ class AxToSDKTransformer extends TransformStream<
     const transformer = {
       transform: (
         chunk: Readonly<AxChatResponse>,
-        controller: TransformStreamDefaultController<LanguageModelV2StreamPart>
+        controller: TransformStreamDefaultController<LanguageModelV3StreamPart>
       ) => {
         // Emit stream-start event only once
         if (!this.hasStarted) {
           controller.enqueue({
             type: 'stream-start',
-            warnings: [] as LanguageModelV2CallWarning[],
+            warnings: [] as SharedV3Warning[],
           });
           this.hasStarted = true;
         }
@@ -606,18 +647,7 @@ class AxToSDKTransformer extends TransformStream<
         }
 
         if (chunk.modelUsage) {
-          this.usage = {
-            inputTokens:
-              (this.usage.inputTokens ?? 0) +
-              (chunk.modelUsage?.tokens?.promptTokens ?? 0),
-            outputTokens:
-              (this.usage.outputTokens ?? 0) +
-              (chunk.modelUsage.tokens?.completionTokens ?? 0),
-            totalTokens:
-              (this.usage.totalTokens ?? 0) +
-              (chunk.modelUsage?.tokens?.promptTokens ?? 0) +
-              (chunk.modelUsage.tokens?.completionTokens ?? 0),
-          };
+          this.usage = addUsage(this.usage, chunk.modelUsage.tokens);
         }
 
         if (choice.functionCalls) {
@@ -646,7 +676,7 @@ class AxToSDKTransformer extends TransformStream<
                 obj.input = JSON.stringify(fc.function.params);
               }
             }
-            this.finishReason = 'tool-calls';
+            this.finishReason = { unified: 'tool-calls', raw: 'function_call' };
           }
         }
 
@@ -669,7 +699,7 @@ class AxToSDKTransformer extends TransformStream<
         }
       },
       flush: (
-        controller: TransformStreamDefaultController<LanguageModelV2StreamPart>
+        controller: TransformStreamDefaultController<LanguageModelV3StreamPart>
       ) => {
         // End text stream if it was started
         if (this.textStarted) {

@@ -418,7 +418,7 @@ Optional packages:
 
 ```bash
 npm install @ax-llm/ax-ai-aws-bedrock     # AWS Bedrock provider
-npm install @ax-llm/ax-ai-sdk-provider    # Vercel AI SDK v5 integration
+npm install @ax-llm/ax-ai-sdk-provider    # Vercel AI SDK v6 integration
 npm install @ax-llm/ax-tools              # MCP stdio transport, JS runtime extras
 ```
 
