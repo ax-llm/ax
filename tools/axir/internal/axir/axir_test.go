@@ -423,6 +423,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"dev/ax/AxProcessCodeSession.java",
 				"dev/ax/runtime/quickjs/AxQuickJsCodeRuntime.java",
 				"dev/ax/runtime/quickjs/AxQuickJsCodeSession.java",
+				"dev/ax/runtime/quickjs/AxQuickJsHostCallable.java",
 				"dev/ax/runtime/quickjs/AxQuickJsProtocolServer.java",
 				"dev/ax/OptimizerEngine.java",
 				"dev/ax/OptimizerEvaluator.java",
@@ -495,7 +496,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 					t.Fatalf("manifest missing suite %s: %#v", want, manifest.SupportedSuites)
 				}
 			}
-			for _, want := range []string{"axagent-runtime-profile-javascript-quickjs", "axagent-runtime-quickjs-session-state", "axagent-runtime-quickjs-host-calls", "axagent-runtime-quickjs-limits", "axagent-runtime-quickjs-diagnostics"} {
+			for _, want := range []string{"axagent-runtime-profile-javascript-quickjs", "axagent-runtime-quickjs-session-state", "axagent-runtime-quickjs-host-calls", "axagent-runtime-quickjs-native-host-calls", "axagent-runtime-quickjs-callback-errors", "axagent-runtime-quickjs-limits", "axagent-runtime-quickjs-diagnostics"} {
 				if !containsString(manifest.CoreOwnedFeatureGroups, want) {
 					t.Fatalf("manifest missing runtime profile feature %s: %#v", want, manifest.CoreOwnedFeatureGroups)
 				}

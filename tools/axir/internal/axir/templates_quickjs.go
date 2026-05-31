@@ -18,8 +18,8 @@ try:
     session = runtime.create_session(
         {
             "inputs": {"question": "quickjs"},
-            "search": {"__ax_host_callable": True, "result": {"title": "Docs"}},
-            "badTool": {"__ax_host_callable": True, "error": {"category": "runtime", "message": "tool failed"}},
+            "search": {"__ax_host_callable": True, "native": True},
+            "badTool": {"__ax_host_callable": True, "native": True},
         },
         {"reservedNames": ["inputs"]},
     )
@@ -41,18 +41,36 @@ const javaQuickJSCodeRuntime = `package dev.ax.runtime.quickjs;
 
 import dev.ax.AxCodeRuntime;
 import dev.ax.AxCodeSession;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 public final class AxQuickJsCodeRuntime implements AxCodeRuntime, AutoCloseable {
+  private final Map<String, AxQuickJsHostCallable> hostCallables = new LinkedHashMap<>();
+
   public String getUsageInstructions() {
     return "JavaScript QuickJS runtime profile. Use final(...), askClarification(...), discover(...), recall(...), used(...), reportSuccess(...), and reportFailure(...). Filesystem, network, and native host APIs are not exposed by default.";
   }
 
+  public AxQuickJsCodeRuntime registerCallable(String name, AxQuickJsHostCallable handler) {
+    if (name == null || name.isBlank()) throw new IllegalArgumentException("QuickJS host callable name is required");
+    if (handler == null) throw new IllegalArgumentException("QuickJS host callable handler is required");
+    hostCallables.put(name, handler);
+    return this;
+  }
+
   public AxCodeSession createSession(Map<String, Object> globals, Map<String, Object> options) {
-    return new AxQuickJsCodeSession(globals == null ? Map.of() : globals, options == null ? Map.of() : options);
+    return new AxQuickJsCodeSession(globals == null ? Map.of() : globals, options == null ? Map.of() : options, hostCallables);
   }
 
   public void close() {}
+}
+`
+
+const javaQuickJSHostCallable = `package dev.ax.runtime.quickjs;
+
+@FunctionalInterface
+public interface AxQuickJsHostCallable {
+  Object call(Object params) throws Exception;
 }
 `
 
@@ -60,8 +78,10 @@ const javaQuickJSCodeSession = `package dev.ax.runtime.quickjs;
 
 import dev.ax.AxCodeSession;
 import dev.ax.Json;
+import io.roastedroot.quickjs4j.core.Builtins;
 import io.roastedroot.quickjs4j.core.Engine;
 import io.roastedroot.quickjs4j.core.GuestFunction;
+import io.roastedroot.quickjs4j.core.HostFunction;
 import io.roastedroot.quickjs4j.core.Invokables;
 import io.roastedroot.quickjs4j.core.Runner;
 import java.util.List;
@@ -74,10 +94,12 @@ public final class AxQuickJsCodeSession implements AxCodeSession {
     .build();
   private final Map<String, Object> bindings = new LinkedHashMap<>();
   private final Map<String, Object> reserved = new LinkedHashMap<>();
+  private final Map<String, AxQuickJsHostCallable> hostCallables = new LinkedHashMap<>();
   private final int timeoutMs;
   private boolean closed = false;
 
-  AxQuickJsCodeSession(Map<String, Object> globals, Map<String, Object> options) {
+  AxQuickJsCodeSession(Map<String, Object> globals, Map<String, Object> options, Map<String, AxQuickJsHostCallable> hostCallables) {
+    if (hostCallables != null) this.hostCallables.putAll(hostCallables);
     Object reservedNames = options.get("reservedNames");
     if (reservedNames instanceof Iterable<?> items) {
       for (Object item : items) reserved.put(String.valueOf(item), true);
@@ -85,6 +107,10 @@ public final class AxQuickJsCodeSession implements AxCodeSession {
     for (Map.Entry<String, Object> entry : globals.entrySet()) {
       bindings.put(entry.getKey(), entry.getValue());
       if (isHostCallable(entry.getValue())) reserved.put(entry.getKey(), true);
+    }
+    for (String name : this.hostCallables.keySet()) {
+      reserved.put(name, true);
+      bindings.putIfAbsent(name, Map.of("__ax_host_callable", true, "native", true));
     }
     this.timeoutMs = intOption(options.get("timeoutMs"), 5000);
   }
@@ -176,8 +202,25 @@ public final class AxQuickJsCodeSession implements AxCodeSession {
     return "runtime";
   }
 
-  private static String runQuickJs(String payloadJson, int timeoutMs) throws Exception {
-    Engine engine = Engine.builder().addInvokables(INVOKABLES).build();
+  private String callHost(String name, String paramsJson) {
+    AxQuickJsHostCallable handler = hostCallables.get(name);
+    if (handler == null) {
+      return Json.stringify(Map.of("ok", false, "category", "runtime", "error", "unknown QuickJS host callable: " + name));
+    }
+    try {
+      Object params = paramsJson == null || paramsJson.isBlank() ? null : Json.parse(paramsJson);
+      Object result = handler.call(params);
+      return Json.stringify(Map.of("ok", true, "result", result == null ? Map.of() : result));
+    } catch (Exception ex) {
+      return Json.stringify(Map.of("ok", false, "category", errorCategory(ex), "error", ex.getMessage() == null ? "QuickJS host callable failed" : ex.getMessage()));
+    }
+  }
+
+  private String runQuickJs(String payloadJson, int timeoutMs) throws Exception {
+    Builtins hostBuiltins = Builtins.builder("axir_host")
+      .add(new HostFunction("__ax_host_call", List.of(String.class, String.class), String.class, args -> callHost(String.valueOf(args.get(0)), String.valueOf(args.get(1)))))
+      .build();
+    Engine engine = Engine.builder().addInvokables(INVOKABLES).addBuiltins(hostBuiltins).build();
     try (Runner runner = Runner.builder().withEngine(engine).withTimeoutMs(timeoutMs).build()) {
       Object raw = runner.invokeGuestFunction("axir", "__ax_run", List.of(payloadJson), QUICKJS_SOURCE);
       return String.valueOf(raw);
@@ -193,7 +236,7 @@ function __ax_run(payloadJson) {
     "AggregateError", "EvalError", "RangeError", "ReferenceError", "SyntaxError", "TypeError",
     "URIError", "globalThis", "JSON", "Math", "Reflect", "Proxy", "eval", "isFinite",
     "isNaN", "decodeURI", "decodeURIComponent", "encodeURI", "encodeURIComponent",
-    "console", "Javy", "plugin", "main", "quickjs4j_engine",
+    "console", "Javy", "plugin", "main", "quickjs4j_engine", "axir", "axir_host",
     "final", "askClarification", "discover", "recall", "used", "reportSuccess",
     "reportFailure", "guideAgent"
   ]);
@@ -206,6 +249,16 @@ function __ax_run(payloadJson) {
   }
   function makeHostCallable(name, spec) {
     return function(params) {
+      if (spec.native === true) {
+        const response = JSON.parse(axir_host.__ax_host_call(name, JSON.stringify(params === undefined ? null : params)));
+        if (response.ok) return response.result;
+        return {
+          kind: "error",
+          is_error: true,
+          error_category: String(response.category || "runtime"),
+          error: String(response.error || ("host callable failed: " + name))
+        };
+      }
       if (spec.error) {
         return {
           kind: "error",
@@ -275,7 +328,9 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 public final class AxQuickJsProtocolServer {
-  private final AxQuickJsCodeRuntime runtime = new AxQuickJsCodeRuntime();
+  private final AxQuickJsCodeRuntime runtime = new AxQuickJsCodeRuntime()
+    .registerCallable("search", params -> Map.of("title", "Docs", "query", Json.asObject(params).getOrDefault("query", "")))
+    .registerCallable("badTool", params -> { throw new RuntimeException("tool failed"); });
   private final Map<String, AxCodeSession> sessions = new LinkedHashMap<>();
   private int nextSession = 0;
 
@@ -288,11 +343,13 @@ public final class AxQuickJsProtocolServer {
   }
 
   private static void selfTest() {
-    try (AxQuickJsCodeRuntime rt = new AxQuickJsCodeRuntime()) {
+    try (AxQuickJsCodeRuntime rt = new AxQuickJsCodeRuntime().registerCallable("search", params -> Map.of("title", "Docs"))) {
       AxCodeSession session = rt.createSession(Map.of("inputs", Map.of("question", "quickjs")), Map.of("reservedNames", java.util.List.of("inputs")));
       Object result = session.execute("answer = inputs.question; final({answer})", Map.of());
       Map<String, Object> out = Json.asObject(result);
       if (!"final".equals(out.get("type"))) throw new RuntimeException("bad final result: " + result);
+      Map<String, Object> bridged = Json.asObject(session.execute("const hit = search({query: inputs.question}); final({title: hit.title})", Map.of()));
+      if (!"Docs".equals(Json.asObject(((java.util.List<?>) bridged.get("args")).get(0)).get("title"))) throw new RuntimeException("bad host callable result: " + bridged);
       session.close();
     }
     System.out.println("java-javascript-quickjs-protocol-server-ok");
@@ -404,7 +461,9 @@ public final class JavaScriptQuickJsExample {
   }
 
   public static void main(String[] args) {
-    try (AxQuickJsCodeRuntime runtime = new AxQuickJsCodeRuntime()) {
+    try (AxQuickJsCodeRuntime runtime = new AxQuickJsCodeRuntime()
+        .registerCallable("search", params -> Map.of("title", "Docs", "query", asMap(params).getOrDefault("query", "")))
+        .registerCallable("badTool", params -> { throw new RuntimeException("tool failed"); })) {
       AxAgent qa = Ax.agent("question:string -> answer:string", Map.of("runtime", Map.of("language", "JavaScript")));
       Map<String, Object> out = qa.test(runtime, "answer = inputs.question; final({answer})", Map.of("question", "quickjs"));
       if (!"final".equals(out.get("kind"))) throw new RuntimeException("bad output: " + out);
@@ -429,11 +488,7 @@ public final class JavaScriptQuickJsExample {
       if (!"used".equals(asMap(session.execute("used('mem1', 'helpful')", Map.of())).get("kind"))) throw new RuntimeException("used failed");
       if (!"status".equals(asMap(session.execute("reportSuccess('ok')", Map.of())).get("kind"))) throw new RuntimeException("status failed");
       AxCodeSession hostSession = runtime.createSession(
-        Map.of(
-          "inputs", Map.of("question", "quickjs"),
-          "search", Map.of("__ax_host_callable", true, "result", Map.of("title", "Docs")),
-          "badTool", Map.of("__ax_host_callable", true, "error", Map.of("category", "runtime", "message", "tool failed"))
-        ),
+        Map.of("inputs", Map.of("question", "quickjs")),
         Map.of("reservedNames", List.of("inputs"))
       );
       Map<String, Object> bridged = asMap(hostSession.execute("const hit = search({query: inputs.question}); final({title: hit.title})", Map.of()));
@@ -483,9 +538,11 @@ extern "C" {
 
 namespace ax::runtime::quickjs {
 
+using HostCallable = std::function<Value(Value)>;
+
 class QuickJsCodeSession : public AxCodeSession {
  public:
-  QuickJsCodeSession(Value globals, Value options);
+  QuickJsCodeSession(Value globals, Value options, std::map<std::string, HostCallable> host_callables);
   ~QuickJsCodeSession() override;
 
   Value execute(Value code, Value options = Value::object()) override;
@@ -493,12 +550,14 @@ class QuickJsCodeSession : public AxCodeSession {
   Value snapshot_globals(Value options = Value::object()) override;
   Value patch_globals(Value snapshot, Value options = Value::object()) override;
   Value close() override;
+  std::string call_host_json(const std::string& name, const std::string& params_json);
 
  private:
   JSRuntime* runtime_;
   JSContext* context_;
   bool closed_ = false;
   Value reserved_;
+  std::map<std::string, HostCallable> host_callables_;
 
   Value eval_json(const std::string& source);
   void set_global(const std::string& name, const Value& value);
@@ -506,8 +565,12 @@ class QuickJsCodeSession : public AxCodeSession {
 
 class QuickJsCodeRuntime : public AxCodeRuntime {
  public:
+  QuickJsCodeRuntime& register_callable(std::string name, HostCallable handler);
   std::string usage_instructions() const override;
   AxCodeSession* create_session(Value globals, Value options = Value::object()) override;
+
+ private:
+  std::map<std::string, HostCallable> host_callables_;
 };
 
 }  // namespace ax::runtime::quickjs
@@ -576,6 +639,16 @@ function __ax_clone_json(value) {
 }
 function __ax_make_host_callable(name, spec) {
   return function(params) {
+    if (spec && spec.native === true) {
+      const response = JSON.parse(globalThis.__ax_host_call(name, JSON.stringify(params === undefined ? null : params)));
+      if (response.ok) return response.result;
+      return {
+        kind: "error",
+        is_error: true,
+        error_category: String(response.category || "runtime"),
+        error: String(response.error || ("host callable failed: " + name))
+      };
+    }
     if (spec && spec.error) {
       return {
         kind: "error",
@@ -637,17 +710,38 @@ static int quickjs_interrupt_handler(JSRuntime*, void* opaque) {
   return std::chrono::steady_clock::now() > *deadline ? 1 : 0;
 }
 
-QuickJsCodeSession::QuickJsCodeSession(Value globals, Value options)
-    : runtime_(JS_NewRuntime()), context_(nullptr), reserved_(Core::get(options, "reservedNames", Value::array())) {
+static JSValue quickjs_host_call(JSContext* context, JSValueConst, int argc, JSValueConst* argv) {
+  auto* session = static_cast<QuickJsCodeSession*>(JS_GetContextOpaque(context));
+  if (session == nullptr || argc < 2) return JS_NewString(context, "{\"ok\":false,\"category\":\"runtime\",\"error\":\"invalid QuickJS host call\"}");
+  const char* raw_name = JS_ToCString(context, argv[0]);
+  const char* raw_params = JS_ToCString(context, argv[1]);
+  std::string name = raw_name ? raw_name : "";
+  std::string params = raw_params ? raw_params : "null";
+  JS_FreeCString(context, raw_name);
+  JS_FreeCString(context, raw_params);
+  std::string out = session->call_host_json(name, params);
+  return JS_NewString(context, out.c_str());
+}
+
+QuickJsCodeSession::QuickJsCodeSession(Value globals, Value options, std::map<std::string, HostCallable> host_callables)
+    : runtime_(JS_NewRuntime()), context_(nullptr), reserved_(Core::get(options, "reservedNames", Value::array())), host_callables_(std::move(host_callables)) {
   if (!runtime_) throw AxError("runtime", "failed to create QuickJS runtime");
   JS_SetMemoryLimit(runtime_, 32 * 1024 * 1024);
   context_ = JS_NewContext(runtime_);
   if (!context_) throw AxError("runtime", "failed to create QuickJS context");
+  JS_SetContextOpaque(context_, this);
+  JSValue global = JS_GetGlobalObject(context_);
+  JS_SetPropertyStr(context_, global, "__ax_host_call", JS_NewCFunction(context_, quickjs_host_call, "__ax_host_call", 2));
+  JS_FreeValue(context_, global);
   JS_FreeValue(context_, JS_Eval(context_, bootstrap_source, std::strlen(bootstrap_source), "<ax-bootstrap>", JS_EVAL_TYPE_GLOBAL));
   set_global("__ax_session_reserved", reserved_);
   for (const auto& entry : value_entries(globals)) {
     if (is_host_callable(entry.second) && !contains_name(reserved_, entry.first)) Core::append(reserved_, entry.first);
     set_global(entry.first, entry.second);
+  }
+  for (const auto& entry : host_callables_) {
+    if (!contains_name(reserved_, entry.first)) Core::append(reserved_, entry.first);
+    set_global(entry.first, object({{"__ax_host_callable", true}, {"native", true}}));
   }
   set_global("__ax_session_reserved", reserved_);
   JS_FreeValue(context_, JS_Eval(context_, "__ax_install_host_callables()", std::strlen("__ax_install_host_callables()"), "<ax-host-callables>", JS_EVAL_TYPE_GLOBAL));
@@ -721,6 +815,21 @@ Value QuickJsCodeSession::close() {
   return object({{"closed", true}});
 }
 
+std::string QuickJsCodeSession::call_host_json(const std::string& name, const std::string& params_json) {
+  auto it = host_callables_.find(name);
+  if (it == host_callables_.end()) {
+    return stringify(object({{"ok", false}, {"category", "runtime"}, {"error", "unknown QuickJS host callable: " + name}}));
+  }
+  try {
+    Value params = params_json.empty() ? Value() : parse_json(params_json);
+    return stringify(object({{"ok", true}, {"result", it->second(params)}}));
+  } catch (const AxError& error) {
+    return stringify(object({{"ok", false}, {"category", error.category.empty() ? "runtime" : error.category}, {"error", std::string(error.what())}}));
+  } catch (const std::exception& error) {
+    return stringify(object({{"ok", false}, {"category", "runtime"}, {"error", std::string(error.what())}}));
+  }
+}
+
 Value QuickJsCodeSession::eval_json(const std::string& source) {
   JSValue result = JS_Eval(context_, source.c_str(), source.size(), "<ax-inspect>", JS_EVAL_TYPE_GLOBAL);
   const char* text = JS_ToCString(context_, result);
@@ -739,8 +848,15 @@ std::string QuickJsCodeRuntime::usage_instructions() const {
   return "JavaScript QuickJS runtime profile. Use final(...), askClarification(...), discover(...), recall(...), used(...), reportSuccess(...), and reportFailure(...). Filesystem, network, and native host APIs are not exposed by default.";
 }
 
+QuickJsCodeRuntime& QuickJsCodeRuntime::register_callable(std::string name, HostCallable handler) {
+  if (name.empty()) throw AxError("runtime", "QuickJS host callable name is required");
+  if (!handler) throw AxError("runtime", "QuickJS host callable handler is required");
+  host_callables_[std::move(name)] = std::move(handler);
+  return *this;
+}
+
 AxCodeSession* QuickJsCodeRuntime::create_session(Value globals, Value options) {
-  return new QuickJsCodeSession(globals, options);
+  return new QuickJsCodeSession(globals, options, host_callables_);
 }
 
 }  // namespace ax::runtime::quickjs
@@ -756,6 +872,13 @@ static bool is_number(const ax::Value& value, const std::string& expected) {
 
 int main() {
   ax::runtime::quickjs::QuickJsCodeRuntime runtime;
+  runtime
+    .register_callable("search", [](ax::Value params) {
+      return ax::object({{"title", "Docs"}, {"query", ax::Core::get(params, "query", "")}});
+    })
+    .register_callable("badTool", [](ax::Value) -> ax::Value {
+      throw ax::AxError("runtime", "tool failed");
+    });
   auto qa = ax::agent("question:string -> answer:string", ax::object({{"runtime", ax::object({{"language", "JavaScript"}})}}));
   ax::Value out = qa.test(runtime, "answer = inputs.question; final({answer})", ax::object({{"question", "quickjs"}}));
   if (!ax::equal(ax::Core::get(out, "kind"), "final")) return 1;
@@ -780,11 +903,7 @@ int main() {
   if (!ax::equal(ax::Core::get(session->execute("used('mem1', 'helpful')"), "kind"), "used")) return 9;
   if (!ax::equal(ax::Core::get(session->execute("reportSuccess('ok')"), "kind"), "status")) return 10;
   ax::AxCodeSession* host_session = runtime.create_session(
-    ax::object({
-      {"inputs", ax::object({{"question", "quickjs"}})},
-      {"search", ax::object({{"__ax_host_callable", true}, {"result", ax::object({{"title", "Docs"}})}})},
-      {"badTool", ax::object({{"__ax_host_callable", true}, {"error", ax::object({{"category", "runtime"}, {"message", "tool failed"}})}})}
-    }),
+    ax::object({{"inputs", ax::object({{"question", "quickjs"}})}}),
     ax::object({{"reservedNames", ax::array({"inputs"})}})
   );
   ax::Value bridged = host_session->execute("const hit = search({query: inputs.question}); final({title: hit.title})");
@@ -812,6 +931,9 @@ const cppQuickJSProfileReadme = `# JavaScript QuickJS Runtime Profile
 This optional profile compiles only when QuickJS headers and libraries are supplied.
 On Homebrew systems, ` + "`axir verify`" + ` auto-detects the usual QuickJS prefix when
 ` + "`AXIR_QUICKJS_CFLAGS`" + ` and ` + "`AXIR_QUICKJS_LDFLAGS`" + ` are not set.
+Host callbacks are registered with ` + "`QuickJsCodeRuntime::register_callable`" + `
+and are exposed to actor JavaScript as ordinary functions returning
+JSON-compatible values.
 
 Example verification:
 
