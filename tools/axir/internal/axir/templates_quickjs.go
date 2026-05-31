@@ -15,6 +15,22 @@ try:
     assert out["kind"] == "final", out
     first = out["completion_payload"]["args"][0]
     assert first["answer"] == "quickjs", out
+    session = runtime.create_session(
+        {
+            "inputs": {"question": "quickjs"},
+            "search": {"__ax_host_callable": True, "result": {"title": "Docs"}},
+            "badTool": {"__ax_host_callable": True, "error": {"category": "runtime", "message": "tool failed"}},
+        },
+        {"reservedNames": ["inputs"]},
+    )
+    try:
+        bridged = session.execute("const hit = search({query: inputs.question}); final({title: hit.title})")
+        assert bridged["type"] == "final", bridged
+        assert bridged["args"][0]["title"] == "Docs", bridged
+        failed = session.execute("final({error: badTool({}).error})")
+        assert failed["args"][0]["error"] == "tool failed", failed
+    finally:
+        session.close()
 finally:
     runtime.shutdown()
 
@@ -68,6 +84,7 @@ public final class AxQuickJsCodeSession implements AxCodeSession {
     }
     for (Map.Entry<String, Object> entry : globals.entrySet()) {
       bindings.put(entry.getKey(), entry.getValue());
+      if (isHostCallable(entry.getValue())) reserved.put(entry.getKey(), true);
     }
     this.timeoutMs = intOption(options.get("timeoutMs"), 5000);
   }
@@ -78,6 +95,7 @@ public final class AxQuickJsCodeSession implements AxCodeSession {
       Map<String, Object> payload = new LinkedHashMap<>();
       payload.put("code", code == null ? "" : code);
       payload.put("bindings", new LinkedHashMap<>(bindings));
+      payload.put("reserved", reserved.keySet().stream().toList());
       String raw = runQuickJs(Json.stringify(payload), intOption(options == null ? null : options.get("timeoutMs"), timeoutMs));
       Map<String, Object> response = Json.asObject(Json.parse(raw));
       if (Boolean.FALSE.equals(response.get("ok"))) {
@@ -100,7 +118,7 @@ public final class AxQuickJsCodeSession implements AxCodeSession {
       }
       return response.get("result");
     } catch (Exception ex) {
-      return Map.of("kind", "error", "is_error", true, "error_category", "runtime", "error", ex.getMessage());
+      return Map.of("kind", "error", "is_error", true, "error_category", errorCategory(ex), "error", ex.getMessage());
     }
   }
 
@@ -147,6 +165,17 @@ public final class AxQuickJsCodeSession implements AxCodeSession {
     return fallback;
   }
 
+  private static boolean isHostCallable(Object value) {
+    if (!(value instanceof Map<?, ?> map)) return false;
+    return Boolean.TRUE.equals(map.get("__ax_host_callable"));
+  }
+
+  private static String errorCategory(Exception ex) {
+    String text = String.valueOf(ex.getMessage()).toLowerCase();
+    if (text.contains("timeout") || text.contains("timed out") || text.contains("interrupted")) return "timeout";
+    return "runtime";
+  }
+
   private static String runQuickJs(String payloadJson, int timeoutMs) throws Exception {
     Engine engine = Engine.builder().addInvokables(INVOKABLES).build();
     try (Runner runner = Runner.builder().withEngine(engine).withTimeoutMs(timeoutMs).build()) {
@@ -168,8 +197,31 @@ function __ax_run(payloadJson) {
     "final", "askClarification", "discover", "recall", "used", "reportSuccess",
     "reportFailure", "guideAgent"
   ]);
+  function isHostCallable(value) {
+    return value && typeof value === "object" && value.__ax_host_callable === true;
+  }
+  function cloneJson(value) {
+    if (value === undefined) return null;
+    return JSON.parse(JSON.stringify(value));
+  }
+  function makeHostCallable(name, spec) {
+    return function(params) {
+      if (spec.error) {
+        return {
+          kind: "error",
+          is_error: true,
+          error_category: String(spec.error.category || "runtime"),
+          error: String(spec.error.message || spec.error.error || ("host callable failed: " + name))
+        };
+      }
+      if (Object.prototype.hasOwnProperty.call(spec, "result")) return cloneJson(spec.result);
+      return {kind: "result", result: null};
+    };
+  }
   for (const [key, value] of Object.entries(payload.bindings || {})) {
-    if (!reserved.has(key) && !key.startsWith("__ax_")) globalThis[key] = value;
+    if (!key.startsWith("__ax_") && (!reserved.has(key) || isHostCallable(value))) {
+      globalThis[key] = isHostCallable(value) ? makeHostCallable(key, value) : value;
+    }
   }
   function complete(value) { globalThis.__ax_completion = value; return value; }
   globalThis.final = function() { return complete({type: "final", args: Array.from(arguments)}); };
@@ -376,6 +428,19 @@ public final class JavaScriptQuickJsExample {
       if (!"recall".equals(asMap(session.execute("recall({query:'docs'})", Map.of())).get("kind"))) throw new RuntimeException("recall failed");
       if (!"used".equals(asMap(session.execute("used('mem1', 'helpful')", Map.of())).get("kind"))) throw new RuntimeException("used failed");
       if (!"status".equals(asMap(session.execute("reportSuccess('ok')", Map.of())).get("kind"))) throw new RuntimeException("status failed");
+      AxCodeSession hostSession = runtime.createSession(
+        Map.of(
+          "inputs", Map.of("question", "quickjs"),
+          "search", Map.of("__ax_host_callable", true, "result", Map.of("title", "Docs")),
+          "badTool", Map.of("__ax_host_callable", true, "error", Map.of("category", "runtime", "message", "tool failed"))
+        ),
+        Map.of("reservedNames", List.of("inputs"))
+      );
+      Map<String, Object> bridged = asMap(hostSession.execute("const hit = search({query: inputs.question}); final({title: hit.title})", Map.of()));
+      if (!"Docs".equals(asMap(((List<?>) bridged.get("args")).get(0)).get("title"))) throw new RuntimeException("host callable bridge failed: " + bridged);
+      Map<String, Object> failedCall = asMap(hostSession.execute("final({error: badTool({}).error})", Map.of()));
+      if (!"tool failed".equals(asMap(((List<?>) failedCall.get("args")).get(0)).get("error"))) throw new RuntimeException("host callable error bridge failed: " + failedCall);
+      hostSession.close();
       session.execute("safe = 7; final({safe})", Map.of());
       Map<String, Object> snapshot = asMap(session.snapshotGlobals(Map.of()));
       if (asMap(snapshot.get("bindings")).containsKey("inputs")) throw new RuntimeException("reserved input leaked into snapshot: " + snapshot);
@@ -450,6 +515,7 @@ class QuickJsCodeRuntime : public AxCodeRuntime {
 
 const cppQuickJSRuntimeSource = `#include "ax/runtime/quickjs/quickjs_runtime.hpp"
 
+#include <chrono>
 #include <cstring>
 #include <vector>
 
@@ -471,6 +537,21 @@ static bool contains_name(Value values, const std::string& name) {
   return false;
 }
 
+static bool is_host_callable(Value value) {
+  return value.is_object() && Core::truthy(Core::get(value, "__ax_host_callable", Value(false)));
+}
+
+static int int_option(Value options, const std::string& key, int fallback) {
+  Value value = Core::get(options, key);
+  if (value.is_null()) return fallback;
+  try {
+    int parsed = static_cast<int>(std::stod(display(value)));
+    return parsed < 1 ? 1 : parsed;
+  } catch (...) {
+    return fallback;
+  }
+}
+
 static const char* bootstrap_source = R"JS(
 const __ax_builtin_reserved = [
   "Object", "Function", "Array", "Number", "parseFloat", "parseInt", "Infinity", "NaN",
@@ -488,18 +569,46 @@ function __ax_has_name(values, name) {
   }
   return false;
 }
-function final() { return { type: "final", args: Array.from(arguments) }; }
-function askClarification() { return { type: "askClarification", args: Array.from(arguments) }; }
-function discover(request) { return { kind: "discover", discover: request }; }
-function recall(request) { return { kind: "recall", recall: request }; }
+function __ax_complete(value) { globalThis.__ax_completion = value; return value; }
+function __ax_clone_json(value) {
+  if (value === undefined) return null;
+  return JSON.parse(JSON.stringify(value));
+}
+function __ax_make_host_callable(name, spec) {
+  return function(params) {
+    if (spec && spec.error) {
+      return {
+        kind: "error",
+        is_error: true,
+        error_category: String(spec.error.category || "runtime"),
+        error: String(spec.error.message || spec.error.error || ("host callable failed: " + name))
+      };
+    }
+    if (spec && Object.prototype.hasOwnProperty.call(spec, "result")) return __ax_clone_json(spec.result);
+    return { kind: "result", result: null };
+  };
+}
+function __ax_install_host_callables() {
+  for (const key of Object.getOwnPropertyNames(globalThis)) {
+    if (key.startsWith("__ax_")) continue;
+    const value = globalThis[key];
+    if (value && typeof value === "object" && value.__ax_host_callable === true) {
+      globalThis[key] = __ax_make_host_callable(key, value);
+    }
+  }
+}
+function final() { return __ax_complete({ type: "final", args: Array.from(arguments) }); }
+function askClarification() { return __ax_complete({ type: "askClarification", args: Array.from(arguments) }); }
+function discover(request) { return __ax_complete({ kind: "discover", discover: request }); }
+function recall(request) { return __ax_complete({ kind: "recall", recall: request }); }
 function used(idOrRequest, reason) {
   const payload = (idOrRequest && typeof idOrRequest === "object") ? idOrRequest : { id: idOrRequest };
   if (reason !== undefined && reason !== null) payload.reason = String(reason);
-  return { kind: "used", used: payload };
+  return __ax_complete({ kind: "used", used: payload });
 }
-function reportSuccess(message) { return { kind: "status", status: { type: "success", message: String(message || "") } }; }
-function reportFailure(message) { return { kind: "status", status: { type: "failed", message: String(message || "") } }; }
-function guideAgent(guidance) { return { type: "guide_agent", guidance: String(guidance || "") }; }
+function reportSuccess(message) { return __ax_complete({ kind: "status", status: { type: "success", message: String(message || "") } }); }
+function reportFailure(message) { return __ax_complete({ kind: "status", status: { type: "failed", message: String(message || "") } }); }
+function guideAgent(guidance) { return __ax_complete({ type: "guide_agent", guidance: String(guidance || "") }); }
 function __ax_snapshot_json() {
   const out = {};
   const sessionReserved = Array.isArray(globalThis.__ax_session_reserved) ? globalThis.__ax_session_reserved : [];
@@ -522,6 +631,12 @@ function __ax_clear_user_globals() {
 }
 )JS";
 
+static int quickjs_interrupt_handler(JSRuntime*, void* opaque) {
+  auto* deadline = static_cast<std::chrono::steady_clock::time_point*>(opaque);
+  if (deadline == nullptr) return 0;
+  return std::chrono::steady_clock::now() > *deadline ? 1 : 0;
+}
+
 QuickJsCodeSession::QuickJsCodeSession(Value globals, Value options)
     : runtime_(JS_NewRuntime()), context_(nullptr), reserved_(Core::get(options, "reservedNames", Value::array())) {
   if (!runtime_) throw AxError("runtime", "failed to create QuickJS runtime");
@@ -530,7 +645,12 @@ QuickJsCodeSession::QuickJsCodeSession(Value globals, Value options)
   if (!context_) throw AxError("runtime", "failed to create QuickJS context");
   JS_FreeValue(context_, JS_Eval(context_, bootstrap_source, std::strlen(bootstrap_source), "<ax-bootstrap>", JS_EVAL_TYPE_GLOBAL));
   set_global("__ax_session_reserved", reserved_);
-  for (const auto& entry : value_entries(globals)) set_global(entry.first, entry.second);
+  for (const auto& entry : value_entries(globals)) {
+    if (is_host_callable(entry.second) && !contains_name(reserved_, entry.first)) Core::append(reserved_, entry.first);
+    set_global(entry.first, entry.second);
+  }
+  set_global("__ax_session_reserved", reserved_);
+  JS_FreeValue(context_, JS_Eval(context_, "__ax_install_host_callables()", std::strlen("__ax_install_host_callables()"), "<ax-host-callables>", JS_EVAL_TYPE_GLOBAL));
 }
 
 QuickJsCodeSession::~QuickJsCodeSession() {
@@ -538,9 +658,13 @@ QuickJsCodeSession::~QuickJsCodeSession() {
   if (runtime_) JS_FreeRuntime(runtime_);
 }
 
-Value QuickJsCodeSession::execute(Value code, Value) {
+Value QuickJsCodeSession::execute(Value code, Value options) {
   if (closed_) return RuntimeEnvelope::session_closed("session closed");
   std::string source = display(code);
+  int timeout_ms = int_option(options, "timeoutMs", 5000);
+  auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+  JS_SetInterruptHandler(runtime_, quickjs_interrupt_handler, &deadline);
+  JS_FreeValue(context_, JS_Eval(context_, "globalThis.__ax_completion = undefined; __ax_install_host_callables();", std::strlen("globalThis.__ax_completion = undefined; __ax_install_host_callables();"), "<ax-before-execute>", JS_EVAL_TYPE_GLOBAL));
   JSValue result = JS_Eval(context_, source.c_str(), source.size(), "<actor>", JS_EVAL_TYPE_GLOBAL);
   if (JS_IsException(result)) {
     JSValue exception = JS_GetException(context_);
@@ -548,15 +672,31 @@ Value QuickJsCodeSession::execute(Value code, Value) {
     std::string message = text ? text : "QuickJS exception";
     JS_FreeCString(context_, text);
     JS_FreeValue(context_, exception);
+    JS_SetInterruptHandler(runtime_, nullptr, nullptr);
+    if (std::chrono::steady_clock::now() > deadline || message.find("interrupted") != std::string::npos) {
+      return RuntimeEnvelope::timeout("QuickJS execution timed out");
+    }
     return RuntimeEnvelope::error(message, "runtime");
+  }
+  if (JS_IsUndefined(result)) {
+    JS_FreeValue(context_, result);
+    result = JS_Eval(context_, "globalThis.__ax_completion", std::strlen("globalThis.__ax_completion"), "<ax-completion>", JS_EVAL_TYPE_GLOBAL);
   }
   JSValue json = JS_JSONStringify(context_, result, JS_UNDEFINED, JS_UNDEFINED);
   const char* text = JS_ToCString(context_, json);
-  Value out = text ? parse_json(text) : Value();
+  std::string json_text = text ? text : "";
   JS_FreeCString(context_, text);
   JS_FreeValue(context_, json);
   JS_FreeValue(context_, result);
-  return out;
+  JS_SetInterruptHandler(runtime_, nullptr, nullptr);
+  if (json_text.empty() || json_text == "undefined") {
+    return RuntimeEnvelope::error("QuickJS actor code did not return a JSON-compatible value", "runtime");
+  }
+  try {
+    return parse_json(json_text);
+  } catch (const std::exception& error) {
+    return RuntimeEnvelope::error(std::string("malformed QuickJS actor output: ") + error.what(), "runtime");
+  }
 }
 
 Value QuickJsCodeSession::inspect(Value) { return eval_json("__ax_snapshot_json()"); }
@@ -639,6 +779,20 @@ int main() {
   if (!ax::equal(ax::Core::get(session->execute("recall({query:'docs'})"), "kind"), "recall")) return 8;
   if (!ax::equal(ax::Core::get(session->execute("used('mem1', 'helpful')"), "kind"), "used")) return 9;
   if (!ax::equal(ax::Core::get(session->execute("reportSuccess('ok')"), "kind"), "status")) return 10;
+  ax::AxCodeSession* host_session = runtime.create_session(
+    ax::object({
+      {"inputs", ax::object({{"question", "quickjs"}})},
+      {"search", ax::object({{"__ax_host_callable", true}, {"result", ax::object({{"title", "Docs"}})}})},
+      {"badTool", ax::object({{"__ax_host_callable", true}, {"error", ax::object({{"category", "runtime"}, {"message", "tool failed"}})}})}
+    }),
+    ax::object({{"reservedNames", ax::array({"inputs"})}})
+  );
+  ax::Value bridged = host_session->execute("const hit = search({query: inputs.question}); final({title: hit.title})");
+  if (!ax::equal(ax::Core::get(ax::Core::get(ax::Core::get(bridged, "args", ax::Value::array()), 0), "title"), "Docs")) return 15;
+  ax::Value failed_call = host_session->execute("final({error: badTool({}).error})");
+  if (!ax::equal(ax::Core::get(ax::Core::get(ax::Core::get(failed_call, "args", ax::Value::array()), 0), "error"), "tool failed")) return 16;
+  host_session->close();
+  delete host_session;
   session->execute("safe = 7; final({safe})");
   ax::Value snapshot = session->snapshot_globals();
   if (!ax::Core::get(ax::Core::get(snapshot, "bindings", ax::Value::object()), "inputs").is_null()) return 11;
@@ -656,6 +810,8 @@ int main() {
 const cppQuickJSProfileReadme = `# JavaScript QuickJS Runtime Profile
 
 This optional profile compiles only when QuickJS headers and libraries are supplied.
+On Homebrew systems, ` + "`axir verify`" + ` auto-detects the usual QuickJS prefix when
+` + "`AXIR_QUICKJS_CFLAGS`" + ` and ` + "`AXIR_QUICKJS_LDFLAGS`" + ` are not set.
 
 Example verification:
 

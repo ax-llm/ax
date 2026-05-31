@@ -281,7 +281,7 @@ func verifyJavaTarget(report VerifyTargetReport, conformanceRoot string) (Verify
 func verifyJavaQuickJSProfile(report VerifyTargetReport) (VerifyTargetReport, error) {
 	cp := os.Getenv("AXIR_QUICKJS4J_CP")
 	if cp == "" {
-		report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile javascript-quickjs", Status: "skip", Message: "AXIR_QUICKJS4J_CP not set"})
+		report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile javascript-quickjs", Status: "skip", Message: "AXIR_QUICKJS4J_CP not set; see examples/runtime_profiles/quickjs4j-pom.xml"})
 		return report, nil
 	}
 	javac, err := findJavaTool("javac")
@@ -361,6 +361,9 @@ func verifyCppQuickJSProfile(report VerifyTargetReport) (VerifyTargetReport, err
 	cflags := strings.Fields(os.Getenv("AXIR_QUICKJS_CFLAGS"))
 	ldflags := strings.Fields(os.Getenv("AXIR_QUICKJS_LDFLAGS"))
 	if len(cflags) == 0 || len(ldflags) == 0 {
+		cflags, ldflags = detectHomebrewQuickJSFlags()
+	}
+	if len(cflags) == 0 || len(ldflags) == 0 {
 		report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile javascript-quickjs", Status: "skip", Message: "AXIR_QUICKJS_CFLAGS and AXIR_QUICKJS_LDFLAGS not set"})
 		return report, nil
 	}
@@ -386,6 +389,21 @@ func verifyCppQuickJSProfile(report VerifyTargetReport) (VerifyTargetReport, err
 		return report, err
 	}
 	return report, nil
+}
+
+func detectHomebrewQuickJSFlags() ([]string, []string) {
+	for _, prefix := range []string{"/opt/homebrew/opt/quickjs", "/usr/local/opt/quickjs"} {
+		header := filepath.Join(prefix, "include", "quickjs", "quickjs.h")
+		lib := filepath.Join(prefix, "lib", "quickjs", "libquickjs.a")
+		if _, err := os.Stat(header); err != nil {
+			continue
+		}
+		if _, err := os.Stat(lib); err != nil {
+			continue
+		}
+		return []string{"-I" + filepath.Dir(header)}, []string{lib, "-lm", "-ldl", "-pthread"}
+	}
+	return nil, nil
 }
 
 func conformanceSuitePaths(root string) []string {

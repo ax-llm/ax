@@ -106,6 +106,9 @@ C++ uses the QuickJS C API, and Python drives a QuickJS protocol server through
 profile-specific dependency/toolchain environment is present. QuickJS profiles
 must expose only explicit Ax runtime primitives and JSON-like globals by
 default; filesystem, network, and native host access remain adapter-owned.
+The beta profile also supports JSON-compatible host-call markers in session
+globals for tool/child-agent style callbacks, and treats runtime limits and
+diagnostics as profile behavior rather than Core semantics.
 
 Backends must consume the lowered Core IR module or a target package model made
 from Core IR. They must not use high-level Ax dialects as their primary input.
