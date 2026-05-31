@@ -1022,14 +1022,11 @@ describe('AxJSRuntime sandbox hardening', () => {
     });
   });
 
-  describe('allowedModules: opt-in passthrough', () => {
-    // Note: returning a real Node builtin module as the `importModuleDynamically`
-    // result requires wrapping it in a vm.SyntheticModule namespace, which
-    // depends on `--experimental-vm-modules` on older Node. The plan §3
-    // explicitly deferred full passthrough to a follow-up. Here we only verify
-    // that the allowlist short-circuits *before* the blanket rejection — i.e.
-    // an allowlisted specifier doesn't hit the "not allowed in this sandbox"
-    // message, and a non-allowlisted one does.
+  describe('allowedModules: dynamic-import allowlist gate', () => {
+    // This suite verifies the security boundary, not full Node module
+    // passthrough. Allowlisted specifiers reach Node's vm import callback, but
+    // complete namespace passthrough is runtime-dependent and may still fail.
+    // Non-allowlisted specifiers must always be blocked.
 
     it('rejects non-allowlisted modules even when others are allowed', async () => {
       const runtime = new AxJSRuntime({
@@ -1049,7 +1046,7 @@ describe('AxJSRuntime sandbox hardening', () => {
       }
     });
 
-    it('allowlisted specifiers do NOT hit the "not allowed" message', async () => {
+    it('allowlisted specifiers are attempted but may still fail in Node vm', async () => {
       const runtime = new AxJSRuntime({
         outputMode: 'return',
         permissions: [AxJSRuntimePermission.FILESYSTEM],
@@ -1063,9 +1060,8 @@ describe('AxJSRuntime sandbox hardening', () => {
         } catch (err) {
           outcome = err instanceof Error ? err.message : String(err);
         }
-        // Allowlisted modules are attempted; failure mode here is Node's
-        // vm-module-namespace requirement (a known follow-up from §3), NOT
-        // our sandbox rejection message.
+        // Allowlisted modules are attempted; any failure here should come from
+        // Node vm import semantics, NOT from the sandbox allowlist rejection.
         if (typeof outcome === 'string') {
           expect(outcome).not.toMatch(/not allowed in this sandbox/);
         }

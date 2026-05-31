@@ -435,6 +435,7 @@ describe('axWorkerRuntime in browser-like sandbox', () => {
 
     // These should be silently ignored — no crashes, no responses.
     onmessage({ data: { type: 'unknown-type' } });
+    onmessage({ data: { type: 'session-reset', id: 1 } });
     onmessage({ data: null });
     onmessage({ data: 'not-an-object' });
     onmessage({ data: { type: 42 } });
