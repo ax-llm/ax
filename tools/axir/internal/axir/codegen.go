@@ -99,9 +99,10 @@ func EmitPython(model AxRuntimeModel, outDir string) error {
 		"examples/axagent_pipeline.py":       pyAxAgentPipelineExample,
 		"examples/runtime_adapter.py":        pyRuntimeAdapterExample,
 		"examples/runtime_protocol.py":       pyRuntimeProtocolExample,
-		"examples/axflow_program_graph.py":   pyAxFlowProgramGraphExample,
-		"examples/optimizer_artifact.py":     pyOptimizerArtifactExample,
-		"README.md":                          packageREADME(model, "python"),
+		"examples/runtime_profiles/javascript_quickjs.py": pyJavaScriptQuickJSProfilePythonExample,
+		"examples/axflow_program_graph.py":                pyAxFlowProgramGraphExample,
+		"examples/optimizer_artifact.py":                  pyOptimizerArtifactExample,
+		"README.md":                                       packageREADME(model, "python"),
 	}
 	return writeFiles(outDir, files)
 }
@@ -112,44 +113,48 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 		return err
 	}
 	files := map[string]string{
-		"dev/ax/Ax.java":                            javaAx,
-		"dev/ax/AxProgram.java":                     javaAxProgram,
-		"dev/ax/AxSignature.java":                   javaSignature,
-		"dev/ax/Field.java":                         javaField,
-		"dev/ax/FieldType.java":                     javaFieldType,
-		"dev/ax/Tool.java":                          javaTool,
-		"dev/ax/PromptTemplate.java":                javaPromptTemplate,
-		"dev/ax/Core.java":                          core,
-		"dev/ax/AiClient.java":                      javaAiClient,
-		"dev/ax/AxAIService.java":                   javaAxAIService,
-		"dev/ax/AxBaseAI.java":                      javaAxBaseAI,
-		"dev/ax/AxAIServiceError.java":              javaAxAIServiceError,
-		"dev/ax/AxMemory.java":                      javaAxMemory,
-		"dev/ax/AxAgent.java":                       javaAxAgent,
-		"dev/ax/AxFlow.java":                        javaAxFlow,
-		"dev/ax/AxAgentClarificationException.java": javaAxAgentClarificationException,
-		"dev/ax/AxCodeRuntime.java":                 javaAxCodeRuntime,
-		"dev/ax/AxCodeSession.java":                 javaAxCodeSession,
-		"dev/ax/AxRuntimeCapabilities.java":         javaAxRuntimeCapabilities,
-		"dev/ax/AxRuntimeEnvelope.java":             javaAxRuntimeEnvelope,
-		"dev/ax/AxProcessCodeRuntime.java":          javaAxProcessCodeRuntime,
-		"dev/ax/AxProcessCodeSession.java":          javaAxProcessCodeSession,
-		"dev/ax/OpenAICompatibleClient.java":        javaOpenAI,
-		"dev/ax/AxGen.java":                         javaAxGen,
-		"dev/ax/OptimizerEngine.java":               javaOptimizerEngine,
-		"dev/ax/OptimizerEvaluator.java":            javaOptimizerEvaluator,
-		"dev/ax/Json.java":                          javaJson,
-		"dev/ax/Conformance.java":                   javaConformance,
-		"axir-capabilities.json":                    mustCapabilityManifest(model, "java"),
-		"examples/SignatureSchemaExample.java":      javaSignatureSchemaExample,
-		"examples/AxGenFakeClientToolExample.java":  javaAxGenFakeClientToolExample,
-		"examples/AxAIFakeTransportExample.java":    javaAxAIFakeTransportExample,
-		"examples/AxAgentPipelineExample.java":      javaAxAgentPipelineExample,
-		"examples/RuntimeAdapterExample.java":       javaRuntimeAdapterExample,
-		"examples/RuntimeProtocolExample.java":      javaRuntimeProtocolExample,
-		"examples/AxFlowProgramGraphExample.java":   javaAxFlowProgramGraphExample,
-		"examples/OptimizerArtifactExample.java":    javaOptimizerArtifactExample,
-		"README.md":                                 packageREADME(model, "java"),
+		"dev/ax/Ax.java":                                          javaAx,
+		"dev/ax/AxProgram.java":                                   javaAxProgram,
+		"dev/ax/AxSignature.java":                                 javaSignature,
+		"dev/ax/Field.java":                                       javaField,
+		"dev/ax/FieldType.java":                                   javaFieldType,
+		"dev/ax/Tool.java":                                        javaTool,
+		"dev/ax/PromptTemplate.java":                              javaPromptTemplate,
+		"dev/ax/Core.java":                                        core,
+		"dev/ax/AiClient.java":                                    javaAiClient,
+		"dev/ax/AxAIService.java":                                 javaAxAIService,
+		"dev/ax/AxBaseAI.java":                                    javaAxBaseAI,
+		"dev/ax/AxAIServiceError.java":                            javaAxAIServiceError,
+		"dev/ax/AxMemory.java":                                    javaAxMemory,
+		"dev/ax/AxAgent.java":                                     javaAxAgent,
+		"dev/ax/AxFlow.java":                                      javaAxFlow,
+		"dev/ax/AxAgentClarificationException.java":               javaAxAgentClarificationException,
+		"dev/ax/AxCodeRuntime.java":                               javaAxCodeRuntime,
+		"dev/ax/AxCodeSession.java":                               javaAxCodeSession,
+		"dev/ax/AxRuntimeCapabilities.java":                       javaAxRuntimeCapabilities,
+		"dev/ax/AxRuntimeEnvelope.java":                           javaAxRuntimeEnvelope,
+		"dev/ax/AxProcessCodeRuntime.java":                        javaAxProcessCodeRuntime,
+		"dev/ax/AxProcessCodeSession.java":                        javaAxProcessCodeSession,
+		"dev/ax/runtime/quickjs/AxQuickJsCodeRuntime.java":        javaQuickJSCodeRuntime,
+		"dev/ax/runtime/quickjs/AxQuickJsCodeSession.java":        javaQuickJSCodeSession,
+		"dev/ax/OpenAICompatibleClient.java":                      javaOpenAI,
+		"dev/ax/AxGen.java":                                       javaAxGen,
+		"dev/ax/OptimizerEngine.java":                             javaOptimizerEngine,
+		"dev/ax/OptimizerEvaluator.java":                          javaOptimizerEvaluator,
+		"dev/ax/Json.java":                                        javaJson,
+		"dev/ax/Conformance.java":                                 javaConformance,
+		"axir-capabilities.json":                                  mustCapabilityManifest(model, "java"),
+		"examples/SignatureSchemaExample.java":                    javaSignatureSchemaExample,
+		"examples/AxGenFakeClientToolExample.java":                javaAxGenFakeClientToolExample,
+		"examples/AxAIFakeTransportExample.java":                  javaAxAIFakeTransportExample,
+		"examples/AxAgentPipelineExample.java":                    javaAxAgentPipelineExample,
+		"examples/RuntimeAdapterExample.java":                     javaRuntimeAdapterExample,
+		"examples/RuntimeProtocolExample.java":                    javaRuntimeProtocolExample,
+		"examples/runtime_profiles/JavaScriptQuickJsExample.java": javaJavaScriptQuickJSProfileExample,
+		"examples/runtime_profiles/quickjs4j-pom.xml":             javaQuickJSProfilePom,
+		"examples/AxFlowProgramGraphExample.java":                 javaAxFlowProgramGraphExample,
+		"examples/OptimizerArtifactExample.java":                  javaOptimizerArtifactExample,
+		"README.md":                                               packageREADME(model, "java"),
 	}
 	return writeFiles(outDir, files)
 }
@@ -160,19 +165,23 @@ func EmitCpp(model AxRuntimeModel, outDir string) error {
 		return err
 	}
 	files := map[string]string{
-		"ax/ax.hpp":                           cppHeader,
-		"ax/ax.cpp":                           strings.Replace(cppRuntime, "// AXIR_CORE_CPP_FUNCTIONS\n", core, 1),
-		"conformance.cpp":                     cppConformance,
-		"axir-capabilities.json":              mustCapabilityManifest(model, "cpp"),
-		"examples/signature_schema.cpp":       cppSignatureSchemaExample,
-		"examples/axgen_fake_client_tool.cpp": cppAxGenFakeClientToolExample,
-		"examples/axai_fake_transport.cpp":    cppAxAIFakeTransportExample,
-		"examples/axagent_pipeline.cpp":       cppAxAgentPipelineExample,
-		"examples/runtime_adapter.cpp":        cppRuntimeAdapterExample,
-		"examples/runtime_protocol.cpp":       cppRuntimeProtocolExample,
-		"examples/axflow_program_graph.cpp":   cppAxFlowProgramGraphExample,
-		"examples/optimizer_artifact.cpp":     cppOptimizerArtifactExample,
-		"README.md":                           packageREADME(model, "cpp"),
+		"ax/ax.hpp":                                        cppHeader,
+		"ax/ax.cpp":                                        strings.Replace(cppRuntime, "// AXIR_CORE_CPP_FUNCTIONS\n", core, 1),
+		"conformance.cpp":                                  cppConformance,
+		"axir-capabilities.json":                           mustCapabilityManifest(model, "cpp"),
+		"examples/signature_schema.cpp":                    cppSignatureSchemaExample,
+		"examples/axgen_fake_client_tool.cpp":              cppAxGenFakeClientToolExample,
+		"examples/axai_fake_transport.cpp":                 cppAxAIFakeTransportExample,
+		"examples/axagent_pipeline.cpp":                    cppAxAgentPipelineExample,
+		"examples/runtime_adapter.cpp":                     cppRuntimeAdapterExample,
+		"examples/runtime_protocol.cpp":                    cppRuntimeProtocolExample,
+		"ax/runtime/quickjs/quickjs_runtime.hpp":           cppQuickJSRuntimeHeader,
+		"ax/runtime/quickjs/quickjs_runtime.cpp":           cppQuickJSRuntimeSource,
+		"examples/runtime_profiles/javascript_quickjs.cpp": cppJavaScriptQuickJSProfileExample,
+		"examples/runtime_profiles/README.md":              cppQuickJSProfileReadme,
+		"examples/axflow_program_graph.cpp":                cppAxFlowProgramGraphExample,
+		"examples/optimizer_artifact.cpp":                  cppOptimizerArtifactExample,
+		"README.md":                                        packageREADME(model, "cpp"),
 	}
 	return writeFiles(outDir, files)
 }
@@ -270,6 +279,12 @@ func BuildCapabilityManifest(model AxRuntimeModel, target string) (CapabilityMan
 			"axagent-runtime-adapter-helpers",
 			"axagent-runtime-adapter-examples",
 			"axagent-runtime-capability-negotiation",
+			"axagent-runtime-lifecycle-beta",
+			"axagent-runtime-cancellation-contract",
+			"axagent-runtime-restart-once",
+			"axagent-runtime-process-diagnostics",
+			"axagent-runtime-profile-javascript-quickjs",
+			"axagent-runtime-quickjs-session-state",
 			"axagent-actor-step-alpha",
 			"axagent-runtime-language",
 			"axagent-actor-prompt-cache",
@@ -392,7 +407,16 @@ See the files in `+"`examples/`"+` for:
 - AxAgent pipeline alpha with a fake service
 - Runtime adapter helpers and custom `+"`AxCodeRuntime`"+` implementation
 - Runtime protocol client against the AxJS reference adapter
+- Optional JavaScript QuickJS runtime profile files
 - AxFlow program graph with child Ax programs
 - Optimizer artifact save/load/apply lifecycle
+
+## Optional Runtime Profiles
+
+- `+"`javascript-quickjs`"+`: JavaScript actor code through QuickJS. Java uses
+  QuickJS4J (`+"`io.roastedroot:quickjs4j`"+`); C++ uses the QuickJS C API; Python
+  drives a QuickJS protocol server through `+"`ProcessCodeRuntime`"+`. This profile
+  is dependency-bearing and is verified only when its toolchain environment
+  variables are supplied.
 `, strings.ToUpper(target), manifest.AxIRVersion, manifest.PackageName, strings.Join(manifest.SupportedSuites, ", "), manifest.ProviderMode, manifest.FakeTransportSupport, network)
 }

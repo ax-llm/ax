@@ -225,6 +225,7 @@ func runVerify(args []string) error {
 	fs.SetOutput(os.Stderr)
 	targetsText := fs.String("targets", "python,java,cpp", "comma-separated targets: python,java,cpp")
 	workDir := fs.String("workdir", "", "optional verification output directory")
+	runtimeProfilesText := fs.String("runtime-profiles", "", "comma-separated optional runtime profiles, e.g. javascript-quickjs")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -232,7 +233,8 @@ func runVerify(args []string) error {
 		return fmt.Errorf("verify requires exactly one .axir root file")
 	}
 	targets := splitTargets(*targetsText)
-	report, err := axir.Verify(fs.Arg(0), axir.VerifyOptions{Targets: targets, WorkDir: *workDir})
+	runtimeProfiles := splitTargets(*runtimeProfilesText)
+	report, err := axir.Verify(fs.Arg(0), axir.VerifyOptions{Targets: targets, WorkDir: *workDir, RuntimeProfiles: runtimeProfiles})
 	fmt.Print(report.String())
 	return err
 }
@@ -275,6 +277,6 @@ commands:
   lint [--profile llm-core] <roots...>   lint for the LLM authoring profile
   explain --symbol NAME <root>           explain a lowered symbol
   compile --target python|java|cpp --out DIR <file>
-  verify [--targets python,java,cpp] [--workdir DIR] <root>
+  verify [--targets python,java,cpp] [--workdir DIR] [--runtime-profiles javascript-quickjs] <root>
 `
 }

@@ -398,6 +398,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/axagent_pipeline.py",
 				"examples/runtime_adapter.py",
 				"examples/runtime_protocol.py",
+				"examples/runtime_profiles/javascript_quickjs.py",
 				"examples/axflow_program_graph.py",
 				"examples/optimizer_artifact.py",
 			},
@@ -420,6 +421,8 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"dev/ax/AxRuntimeEnvelope.java",
 				"dev/ax/AxProcessCodeRuntime.java",
 				"dev/ax/AxProcessCodeSession.java",
+				"dev/ax/runtime/quickjs/AxQuickJsCodeRuntime.java",
+				"dev/ax/runtime/quickjs/AxQuickJsCodeSession.java",
 				"dev/ax/OptimizerEngine.java",
 				"dev/ax/OptimizerEvaluator.java",
 				"dev/ax/OpenAICompatibleClient.java",
@@ -430,6 +433,8 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/AxAgentPipelineExample.java",
 				"examples/RuntimeAdapterExample.java",
 				"examples/RuntimeProtocolExample.java",
+				"examples/runtime_profiles/JavaScriptQuickJsExample.java",
+				"examples/runtime_profiles/quickjs4j-pom.xml",
 				"examples/AxFlowProgramGraphExample.java",
 				"examples/OptimizerArtifactExample.java",
 			},
@@ -449,6 +454,10 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/axagent_pipeline.cpp",
 				"examples/runtime_adapter.cpp",
 				"examples/runtime_protocol.cpp",
+				"ax/runtime/quickjs/quickjs_runtime.hpp",
+				"ax/runtime/quickjs/quickjs_runtime.cpp",
+				"examples/runtime_profiles/javascript_quickjs.cpp",
+				"examples/runtime_profiles/README.md",
 				"examples/axflow_program_graph.cpp",
 				"examples/optimizer_artifact.cpp",
 			},
@@ -485,6 +494,11 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 					t.Fatalf("manifest missing suite %s: %#v", want, manifest.SupportedSuites)
 				}
 			}
+			for _, want := range []string{"axagent-runtime-profile-javascript-quickjs", "axagent-runtime-quickjs-session-state"} {
+				if !containsString(manifest.CoreOwnedFeatureGroups, want) {
+					t.Fatalf("manifest missing runtime profile feature %s: %#v", want, manifest.CoreOwnedFeatureGroups)
+				}
+			}
 			for _, want := range []string{"AxGen", "AxSignature", "OpenAICompatibleClient", "AxAgent", "AxFlow", "AxProgram", "RuntimeCapabilities", "RuntimeEnvelope", "ProcessCodeRuntime", "ProcessCodeSession", "RuntimeProtocolClient", "RuntimeTransport", "OptimizerEngine", "OptimizerEvaluator"} {
 				if !containsString(manifest.PublicSymbols, want) {
 					t.Fatalf("manifest missing public symbol %s: %#v", want, manifest.PublicSymbols)
@@ -494,7 +508,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !strings.Contains(string(readme), tc.wantReadme) || !strings.Contains(string(readme), "Core-owned") {
+			if !strings.Contains(string(readme), tc.wantReadme) || !strings.Contains(string(readme), "Core-owned") || !strings.Contains(string(readme), "javascript-quickjs") {
 				t.Fatalf("generated README missing contract text:\n%s", readme)
 			}
 		})

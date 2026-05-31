@@ -31,7 +31,10 @@ until staged lowering.
   external runtime adapters, including protocol envelope conformance and
   process/transport error handling. Runtime lifecycle semantics include
   timeout/abort option propagation, one automatic session-closed restart, and
-  cleanup guarantees for fresh `agent.test(...)` sessions.
+  cleanup guarantees for fresh `agent.test(...)` sessions. Runtime profiles are
+  actor-language execution adapters behind the same session contract; the
+  initial dependency-bearing profile is `javascript-quickjs` using QuickJS4J on
+  Java, QuickJS on C++, and a protocol-driven QuickJS server from Python.
   Volatile actor decisions live in the versioned policy registry: actor-visible
   primitives, protocol-only actions, runtime globals, and host boundaries are
   modeled separately so target runtimes do not hard-code today's prompt policy.

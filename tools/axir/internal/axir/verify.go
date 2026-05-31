@@ -11,8 +11,9 @@ import (
 )
 
 type VerifyOptions struct {
-	Targets []string
-	WorkDir string
+	Targets         []string
+	WorkDir         string
+	RuntimeProfiles []string
 }
 
 type VerifyReport struct {
@@ -88,10 +89,42 @@ func Verify(rootFile string, opts VerifyOptions) (VerifyReport, error) {
 		if targetErr != nil {
 			failures = append(failures, fmt.Sprintf("%s: %v", target, targetErr))
 		}
+		if len(opts.RuntimeProfiles) > 0 && targetErr == nil {
+			var profileErr error
+			targetReport, profileErr = verifyRuntimeProfilesTarget(targetReport, target, opts.RuntimeProfiles, conformanceRoot)
+			if profileErr != nil {
+				failures = append(failures, fmt.Sprintf("%s runtime profiles: %v", target, profileErr))
+			}
+		}
 		report.Targets = append(report.Targets, targetReport)
 	}
 	if len(failures) > 0 {
 		return report, fmt.Errorf("axir verify failed: %s", strings.Join(failures, "; "))
+	}
+	return report, nil
+}
+
+func verifyRuntimeProfilesTarget(report VerifyTargetReport, target string, profiles []string, conformanceRoot string) (VerifyTargetReport, error) {
+	for _, profile := range normalizeVerifyTargets(profiles) {
+		switch profile {
+		case "javascript-quickjs":
+			var err error
+			switch target {
+			case "python":
+				report, err = verifyPythonQuickJSProfile(report, conformanceRoot)
+			case "java":
+				report, err = verifyJavaQuickJSProfile(report)
+			case "cpp":
+				report, err = verifyCppQuickJSProfile(report)
+			default:
+				err = fmt.Errorf("unknown target %q", target)
+			}
+			if err != nil {
+				return report, err
+			}
+		default:
+			return report, fmt.Errorf("unknown runtime profile %q", profile)
+		}
 	}
 	return report, nil
 }
@@ -183,6 +216,21 @@ func verifyPythonTarget(report VerifyTargetReport, conformanceRoot string) (Veri
 	return report, nil
 }
 
+func verifyPythonQuickJSProfile(report VerifyTargetReport, conformanceRoot string) (VerifyTargetReport, error) {
+	server := os.Getenv("AXIR_QUICKJS_RUNTIME_SERVER")
+	if server == "" {
+		report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile javascript-quickjs", Status: "skip", Message: "AXIR_QUICKJS_RUNTIME_SERVER not set"})
+		return report, nil
+	}
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile javascript-quickjs", Status: "skip", Message: "python3 not found"})
+		return report, nil
+	}
+	env := runtimeProtocolEnv(conformanceRoot, append(os.Environ(), "PYTHONPATH="+report.OutDir, "AXIR_QUICKJS_RUNTIME_SERVER="+server))
+	return report, runVerifyCommand(&report, "runtime profile javascript-quickjs", "", env, python, filepath.Join(report.OutDir, "examples", "runtime_profiles", "javascript_quickjs.py"))
+}
+
 func verifyJavaTarget(report VerifyTargetReport, conformanceRoot string) (VerifyTargetReport, error) {
 	javac, err := findJavaTool("javac")
 	if err != nil {
@@ -230,6 +278,44 @@ func verifyJavaTarget(report VerifyTargetReport, conformanceRoot string) (Verify
 	return report, nil
 }
 
+func verifyJavaQuickJSProfile(report VerifyTargetReport) (VerifyTargetReport, error) {
+	cp := os.Getenv("AXIR_QUICKJS4J_CP")
+	if cp == "" {
+		report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile javascript-quickjs", Status: "skip", Message: "AXIR_QUICKJS4J_CP not set"})
+		return report, nil
+	}
+	javac, err := findJavaTool("javac")
+	if err != nil {
+		report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile javascript-quickjs javac", Status: "skip", Message: err.Error()})
+		return report, nil
+	}
+	java, err := findJavaTool("java")
+	if err != nil {
+		report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile javascript-quickjs java", Status: "skip", Message: err.Error()})
+		return report, nil
+	}
+	files, err := filepath.Glob(filepath.Join(report.OutDir, "dev", "ax", "*.java"))
+	if err != nil {
+		return report, err
+	}
+	profileFiles, err := filepath.Glob(filepath.Join(report.OutDir, "dev", "ax", "runtime", "quickjs", "*.java"))
+	if err != nil {
+		return report, err
+	}
+	files = append(files, profileFiles...)
+	files = append(files, filepath.Join(report.OutDir, "examples", "runtime_profiles", "JavaScriptQuickJsExample.java"))
+	sort.Strings(files)
+	classpath := report.OutDir + string(os.PathListSeparator) + cp
+	args := append([]string{"-cp", classpath, "-d", report.OutDir}, files...)
+	if err := runVerifyCommand(&report, "compile runtime profile javascript-quickjs", "", os.Environ(), javac, args...); err != nil {
+		return report, err
+	}
+	if err := runVerifyCommand(&report, "runtime profile javascript-quickjs", "", os.Environ(), java, "-cp", classpath, "JavaScriptQuickJsExample"); err != nil {
+		return report, err
+	}
+	return report, nil
+}
+
 func verifyCppTarget(report VerifyTargetReport, conformanceRoot string) (VerifyTargetReport, error) {
 	cpp, err := findCppCompiler()
 	if err != nil {
@@ -263,6 +349,37 @@ func verifyCppTarget(report VerifyTargetReport, conformanceRoot string) (VerifyT
 	}
 	args := append([]string{}, conformanceSuitePaths(conformanceRoot)...)
 	if err := runVerifyCommand(&report, "conformance", "", nil, conformanceBin, args...); err != nil {
+		return report, err
+	}
+	return report, nil
+}
+
+func verifyCppQuickJSProfile(report VerifyTargetReport) (VerifyTargetReport, error) {
+	cflags := strings.Fields(os.Getenv("AXIR_QUICKJS_CFLAGS"))
+	ldflags := strings.Fields(os.Getenv("AXIR_QUICKJS_LDFLAGS"))
+	if len(cflags) == 0 || len(ldflags) == 0 {
+		report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile javascript-quickjs", Status: "skip", Message: "AXIR_QUICKJS_CFLAGS and AXIR_QUICKJS_LDFLAGS not set"})
+		return report, nil
+	}
+	cpp, err := findCppCompiler()
+	if err != nil {
+		report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile javascript-quickjs c++", Status: "skip", Message: err.Error()})
+		return report, nil
+	}
+	bin := filepath.Join(report.OutDir, "javascript_quickjs")
+	args := []string{"-std=c++17", "-I", report.OutDir}
+	args = append(args, cflags...)
+	args = append(args,
+		filepath.Join(report.OutDir, "ax", "ax.cpp"),
+		filepath.Join(report.OutDir, "ax", "runtime", "quickjs", "quickjs_runtime.cpp"),
+		filepath.Join(report.OutDir, "examples", "runtime_profiles", "javascript_quickjs.cpp"),
+	)
+	args = append(args, ldflags...)
+	args = append(args, "-o", bin)
+	if err := runVerifyCommand(&report, "compile runtime profile javascript-quickjs", "", nil, cpp, args...); err != nil {
+		return report, err
+	}
+	if err := runVerifyCommand(&report, "runtime profile javascript-quickjs", "", nil, bin); err != nil {
 		return report, err
 	}
 	return report, nil

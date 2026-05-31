@@ -98,6 +98,15 @@ escape instead of being turned into correction output. Process-backed helpers
 must surface EOF, malformed JSON, response id/session mismatches, nonzero exits,
 and stderr diagnostics as stable runtime protocol errors.
 
+The first dependency-bearing runtime profile is `javascript-quickjs`.
+Generated packages emit optional profile sources: Java uses QuickJS4J,
+C++ uses the QuickJS C API, and Python drives a QuickJS protocol server through
+`ProcessCodeRuntime`. The profile is not part of default package compilation;
+`axir verify --runtime-profiles javascript-quickjs` runs it only when the
+profile-specific dependency/toolchain environment is present. QuickJS profiles
+must expose only explicit Ax runtime primitives and JSON-like globals by
+default; filesystem, network, and native host access remain adapter-owned.
+
 Backends must consume the lowered Core IR module or a target package model made
 from Core IR. They must not use high-level Ax dialects as their primary input.
 They must also avoid target-only semantic escapes for Core-owned behavior; see
