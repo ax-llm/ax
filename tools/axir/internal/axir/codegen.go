@@ -307,6 +307,10 @@ func BuildCapabilityManifest(model AxRuntimeModel, target string) (CapabilityMan
 			"axagent-runtime-pyodide-session-state",
 			"axagent-runtime-pyodide-host-calls",
 			"axagent-runtime-pyodide-diagnostics",
+			"axagent-runtime-profile-parity",
+			"axagent-runtime-axjs-reference",
+			"axagent-runtime-profile-state-parity",
+			"axagent-runtime-profile-diagnostics",
 			"axagent-actor-step-alpha",
 			"axagent-runtime-language",
 			"axagent-actor-prompt-cache",
@@ -430,10 +434,16 @@ See the files in `+"`examples/`"+` for:
 - Runtime adapter helpers and custom `+"`AxCodeRuntime`"+` implementation
 - Runtime protocol client against the AxJS reference adapter
 - Optional JavaScript QuickJS runtime profile files
+- Optional Python Pyodide runtime profile files
 - AxFlow program graph with child Ax programs
 - Optimizer artifact save/load/apply lifecycle
 
 ## Optional Runtime Profiles
+
+The TypeScript `+"`AxJSRuntime`"+` remains the canonical JavaScript host runtime
+reference for AxAgent actor sessions. Generated runtime profiles are portability
+proofs against that same contract; AxIR does not emit separate Node, Deno, or
+Bun profiles because those are the existing TypeScript implementation surface.
 
 - `+"`javascript-quickjs`"+`: JavaScript actor code through QuickJS. Java uses
   QuickJS4J (`+"`io.roastedroot:quickjs4j`"+`); C++ uses the QuickJS C API; Python

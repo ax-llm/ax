@@ -128,6 +128,16 @@ generated npm helper that resolves the optional `pyodide` package. Default
 verification still skips the dependency-bearing profile when those inputs are
 absent.
 
+The TypeScript `AxJSRuntime` is the reference JavaScript host runtime for the
+runtime/session contract. `javascript-quickjs` and `python-pyodide` are checked
+against the same observable behaviors where their languages overlap: actor
+primitive envelopes, host-call success/failure envelopes, persistent bindings,
+reserved-name protection, inspect/snapshot/patch/close, stdout/stderr
+diagnostics, runtime errors, and session-closed normalization. AxIR does not add
+generated Node, Deno, or Bun runtime profiles; those are the existing
+TypeScript runtime surface. Adapter-owned policy still covers filesystem,
+network, package loading, native cancellation, and process security.
+
 Backends must consume the lowered Core IR module or a target package model made
 from Core IR. They must not use high-level Ax dialects as their primary input.
 They must also avoid target-only semantic escapes for Core-owned behavior; see

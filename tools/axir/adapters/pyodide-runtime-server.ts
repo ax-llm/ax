@@ -180,6 +180,9 @@ class PyodideSession {
       void options;
       const raw = String(await this.pyodide.runPythonAsync(script));
       const response = JSON.parse(raw) as JsonObject;
+      if (Array.isArray(response.diagnostics)) {
+        this.diagnostics.push(...(response.diagnostics as JsonObject[]));
+      }
       if (response.ok === false) {
         return {
           kind: 'error',
@@ -283,6 +286,8 @@ class PyodideSession {
     const reserved = Array.from(this.reserved);
     return `
 import json
+import io
+import sys
 import traceback
 from js import globalThis
 
@@ -371,7 +376,20 @@ for __ax_name, __ax_value in list(__ax_globals.items()):
         __ax_globals[__ax_name] = __ax_make_host_callable(__ax_name)
 
 try:
+    __ax_stdout = io.StringIO()
+    __ax_stderr = io.StringIO()
+    __ax_old_stdout = sys.stdout
+    __ax_old_stderr = sys.stderr
+    sys.stdout = __ax_stdout
+    sys.stderr = __ax_stderr
     exec(__ax_code, __ax_globals, __ax_globals)
+    sys.stdout = __ax_old_stdout
+    sys.stderr = __ax_old_stderr
+    __ax_diagnostics = []
+    if __ax_stdout.getvalue():
+        __ax_diagnostics.append({"stream": "stdout", "text": __ax_stdout.getvalue()})
+    if __ax_stderr.getvalue():
+        __ax_diagnostics.append({"stream": "stderr", "text": __ax_stderr.getvalue()})
     __ax_result = __ax_globals.get("__ax_completion")
     if __ax_result is None:
         __ax_result = {"kind": "result", "result": None}
@@ -379,14 +397,26 @@ try:
         "ok": True,
         "result": __ax_result,
         "bindings": __ax_json_safe_bindings(__ax_globals),
+        "diagnostics": __ax_diagnostics,
     })
 except Exception as __ax_error:
+    try:
+        sys.stdout = __ax_old_stdout
+        sys.stderr = __ax_old_stderr
+        __ax_diagnostics = []
+        if __ax_stdout.getvalue():
+            __ax_diagnostics.append({"stream": "stdout", "text": __ax_stdout.getvalue()})
+        if __ax_stderr.getvalue():
+            __ax_diagnostics.append({"stream": "stderr", "text": __ax_stderr.getvalue()})
+    except Exception:
+        __ax_diagnostics = []
     __ax_response_json = json.dumps({
         "ok": False,
         "category": "runtime",
         "error": str(__ax_error),
         "traceback": traceback.format_exc(),
         "bindings": __ax_json_safe_bindings(__ax_globals),
+        "diagnostics": __ax_diagnostics,
     })
 __ax_response_json
 `;
@@ -582,8 +612,57 @@ async function selfTest(): Promise<void> {
   const result = executed.result as JsonObject;
   if (result.type !== 'final')
     throw new Error(`expected final, got ${JSON.stringify(executed)}`);
+  const execute = async (id: string, code: string) =>
+    (await server.handle({
+      id,
+      op: 'execute',
+      session_id: sessionId,
+      payload: { code },
+    })) as JsonObject;
+  const expect = async (
+    id: string,
+    code: string,
+    key: string,
+    value: string
+  ) => {
+    const response = await execute(id, code);
+    const responseResult = response.result as JsonObject;
+    if (responseResult[key] !== value) {
+      throw new Error(
+        `expected ${key}=${value}, got ${JSON.stringify(response)}`
+      );
+    }
+    return responseResult;
+  };
+  const counter1 = (
+    await execute(
+      '3',
+      "counter = globals().get('counter', 0) + 1\nfinal({'counter': counter})"
+    )
+  ).result as JsonObject;
+  const counter2 = (
+    await execute('4', "counter = counter + 1\nfinal({'counter': counter})")
+  ).result as JsonObject;
+  const counterPayload = (counter2.args as JsonObject[])[0] as JsonObject;
+  if (counterPayload.counter !== 2) {
+    throw new Error(
+      `persistent binding failed: ${JSON.stringify(counter1)} ${JSON.stringify(counter2)}`
+    );
+  }
+  await expect(
+    '5',
+    "askClarification({'question': 'Need detail?'})",
+    'type',
+    'askClarification'
+  );
+  await expect('6', "discover({'tools': ['search']})", 'kind', 'discover');
+  await expect('7', "recall({'query': 'docs'})", 'kind', 'recall');
+  await expect('8', "used('mem1', 'helpful')", 'kind', 'used');
+  await expect('9', "reportSuccess('ok')", 'kind', 'status');
+  await expect('10', "reportFailure('bad')", 'kind', 'status');
+  await expect('11', "guideAgent('try this')", 'type', 'guide_agent');
   const bridged = (await server.handle({
-    id: '3',
+    id: '12',
     op: 'execute',
     session_id: sessionId,
     payload: {
@@ -594,19 +673,52 @@ async function selfTest(): Promise<void> {
   if (JSON.stringify(bridgedResult).includes('Docs') === false) {
     throw new Error(`host callable bridge failed: ${JSON.stringify(bridged)}`);
   }
+  const failed = (
+    await execute('13', "err = badTool({})\nfinal({'error': err['error']})")
+  ).result as JsonObject;
+  if (!JSON.stringify(failed).includes('tool failed')) {
+    throw new Error(`host callable error failed: ${JSON.stringify(failed)}`);
+  }
+  const diagnostics = (
+    await execute('14', "print('hello from pyodide')\nfinal({'ok': True})")
+  ).result as JsonObject;
+  if (!JSON.stringify(diagnostics).includes('hello from pyodide')) {
+    throw new Error(
+      `stdout diagnostics failed: ${JSON.stringify(diagnostics)}`
+    );
+  }
+  const runtimeError = (await execute('15', "raise Exception('boom')"))
+    .result as JsonObject;
+  if (runtimeError.error_category !== 'runtime') {
+    throw new Error(
+      `runtime error normalization failed: ${JSON.stringify(runtimeError)}`
+    );
+  }
   await server.handle({
-    id: '4',
+    id: '16',
     op: 'snapshot_globals',
     session_id: sessionId,
   });
   await server.handle({
-    id: '5',
+    id: '17',
     op: 'patch_globals',
     session_id: sessionId,
     payload: { globals: { bindings: { safe: 9 } } },
   });
-  await server.handle({ id: '6', op: 'close', session_id: sessionId });
-  await server.handle({ id: '7', op: 'shutdown' });
+  const inspected = (await server.handle({
+    id: '18',
+    op: 'inspect_globals',
+    session_id: sessionId,
+  })) as JsonObject;
+  if (!JSON.stringify(inspected).includes('"safe":9')) {
+    throw new Error(`patch/inspect failed: ${JSON.stringify(inspected)}`);
+  }
+  await server.handle({ id: '19', op: 'close', session_id: sessionId });
+  const closed = await execute('20', "final({'answer': 'closed'})");
+  if (closed.ok !== false) {
+    throw new Error(`closed session failed: ${JSON.stringify(closed)}`);
+  }
+  await server.handle({ id: '21', op: 'shutdown' });
   console.log('pyodide-runtime-server-self-test-ok');
 }
 

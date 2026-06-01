@@ -24,13 +24,31 @@ try:
         {"reservedNames": ["inputs"]},
     )
     try:
+        step1 = session.execute("counter = (typeof counter === 'undefined' ? 0 : counter) + 1; final({counter})")
+        step2 = session.execute("counter = counter + 1; final({counter})")
+        assert step1["type"] == "final", step1
+        assert step2["args"][0]["counter"] == 2, step2
+        assert session.execute("askClarification('more?')")["type"] == "askClarification"
+        assert session.execute("discover({tools:['search']})")["kind"] == "discover"
+        assert session.execute("recall({query:'docs'})")["kind"] == "recall"
+        assert session.execute("used('mem1', 'helpful')")["kind"] == "used"
+        assert session.execute("reportSuccess('ok')")["kind"] == "status"
+        assert session.execute("reportFailure('bad')")["kind"] == "status"
+        assert session.execute("guideAgent('try this')")["type"] == "guide_agent"
         bridged = session.execute("const hit = search({query: inputs.question}); final({title: hit.title})")
         assert bridged["type"] == "final", bridged
         assert bridged["args"][0]["title"] == "Docs", bridged
         failed = session.execute("final({error: badTool({}).error})")
         assert failed["args"][0]["error"] == "tool failed", failed
+        snapshot = session.snapshot_globals()
+        assert "inputs" not in snapshot["bindings"], snapshot
+        session.patch_globals({"bindings": {"safe": 9}})
+        assert session.inspect_globals()["safe"] == 9
+        assert session.execute("throw new Error('boom')")["error_category"] == "runtime"
     finally:
         session.close()
+    closed = session.execute("final({})")
+    assert closed["error_category"] == "session_closed", closed
 finally:
     runtime.shutdown()
 
@@ -343,14 +361,32 @@ public final class AxQuickJsProtocolServer {
   }
 
   private static void selfTest() {
-    try (AxQuickJsCodeRuntime rt = new AxQuickJsCodeRuntime().registerCallable("search", params -> Map.of("title", "Docs"))) {
+    try (AxQuickJsCodeRuntime rt = new AxQuickJsCodeRuntime()
+        .registerCallable("search", params -> Map.of("title", "Docs"))
+        .registerCallable("badTool", params -> { throw new RuntimeException("tool failed"); })) {
       AxCodeSession session = rt.createSession(Map.of("inputs", Map.of("question", "quickjs")), Map.of("reservedNames", java.util.List.of("inputs")));
       Object result = session.execute("answer = inputs.question; final({answer})", Map.of());
       Map<String, Object> out = Json.asObject(result);
       if (!"final".equals(out.get("type"))) throw new RuntimeException("bad final result: " + result);
+      Map<String, Object> step1 = Json.asObject(session.execute("counter = (typeof counter === 'undefined' ? 0 : counter) + 1; final({counter})", Map.of()));
+      Map<String, Object> step2 = Json.asObject(session.execute("counter = counter + 1; final({counter})", Map.of()));
+      if (!"final".equals(step1.get("type")) || !"final".equals(step2.get("type"))) throw new RuntimeException("bad persistent state: " + step2);
+      if (!"askClarification".equals(Json.asObject(session.execute("askClarification('more?')", Map.of())).get("type"))) throw new RuntimeException("askClarification failed");
+      if (!"discover".equals(Json.asObject(session.execute("discover({tools:['search']})", Map.of())).get("kind"))) throw new RuntimeException("discover failed");
+      if (!"recall".equals(Json.asObject(session.execute("recall({query:'docs'})", Map.of())).get("kind"))) throw new RuntimeException("recall failed");
+      if (!"used".equals(Json.asObject(session.execute("used('mem1', 'helpful')", Map.of())).get("kind"))) throw new RuntimeException("used failed");
+      if (!"status".equals(Json.asObject(session.execute("reportSuccess('ok')", Map.of())).get("kind"))) throw new RuntimeException("status failed");
+      if (!"guide_agent".equals(Json.asObject(session.execute("guideAgent('try this')", Map.of())).get("type"))) throw new RuntimeException("guideAgent failed");
       Map<String, Object> bridged = Json.asObject(session.execute("const hit = search({query: inputs.question}); final({title: hit.title})", Map.of()));
       if (!"Docs".equals(Json.asObject(((java.util.List<?>) bridged.get("args")).get(0)).get("title"))) throw new RuntimeException("bad host callable result: " + bridged);
+      Map<String, Object> failedCall = Json.asObject(session.execute("final({error: badTool({}).error})", Map.of()));
+      if (!"tool failed".equals(Json.asObject(((java.util.List<?>) failedCall.get("args")).get(0)).get("error"))) throw new RuntimeException("bad host callable error: " + failedCall);
+      Map<String, Object> snapshot = Json.asObject(session.snapshotGlobals(Map.of()));
+      if (Json.asObject(snapshot.get("bindings")).containsKey("inputs")) throw new RuntimeException("reserved input leaked into snapshot: " + snapshot);
+      session.patchGlobals(Map.of("bindings", Map.of("safe", 9)), Map.of());
+      if (!Json.asObject(session.inspectGlobals(Map.of())).containsKey("safe")) throw new RuntimeException("patch/inspect failed");
       session.close();
+      if (!"session_closed".equals(Json.asObject(session.execute("final({})", Map.of())).get("error_category"))) throw new RuntimeException("closed session behavior failed");
     }
     System.out.println("java-javascript-quickjs-protocol-server-ok");
   }
@@ -576,6 +612,11 @@ are exposed to actor JavaScript as ordinary functions. Arguments and results mus
 be JSON-compatible. Callback failures are normalized to runtime error objects;
 filesystem, network, process, and arbitrary host object access are not exposed by
 default.
+
+Profile examples check the same observable runtime/session contract as the
+TypeScript ` + "`AxJSRuntime`" + ` reference: actor primitive envelopes, host-call
+success/failure, persistent bindings, reserved-name-safe snapshots,
+inspect/snapshot/patch, runtime errors, and session-closed normalization.
 `
 
 const cppQuickJSRuntimeHeader = `#pragma once

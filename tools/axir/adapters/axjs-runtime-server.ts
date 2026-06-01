@@ -302,37 +302,92 @@ async function selfTest(): Promise<void> {
     },
   })) as JsonObject;
   const sessionId = String(created.session_id);
-  const executed = (await server.handle({
-    id: '2',
-    op: 'execute',
-    session_id: sessionId,
-    payload: {
-      code: 'answer = inputs.question; await final({ answer })',
-      options: { reservedNames: ['inputs', 'final'] },
-    },
-  })) as JsonObject;
-  const result = executed.result as JsonObject;
-  if (result.type !== 'final') {
+  const execute = async (id: string, code: string) =>
+    (await server.handle({
+      id,
+      op: 'execute',
+      session_id: sessionId,
+      payload: {
+        code,
+        options: { reservedNames: ['inputs', 'final'] },
+      },
+    })) as JsonObject;
+  const expect = async (
+    id: string,
+    code: string,
+    key: string,
+    value: string
+  ) => {
+    const executed = await execute(id, code);
+    const result = executed.result as JsonObject;
+    if (result[key] !== value) {
+      throw new Error(
+        `self-test expected ${key}=${value}, got ${JSON.stringify(executed)}`
+      );
+    }
+    return result;
+  };
+  await expect(
+    '2',
+    'answer = inputs.question; await final({ answer })',
+    'type',
+    'final'
+  );
+  const counter1 = (
+    await execute(
+      '3',
+      "counter = (typeof counter === 'undefined' ? 0 : counter) + 1; await final({ counter })"
+    )
+  ).result as JsonObject;
+  const counter2 = (
+    await execute('4', 'counter = counter + 1; await final({ counter })')
+  ).result as JsonObject;
+  const counterPayload = (counter2.args as JsonObject[])[0] as JsonObject;
+  if (counterPayload.counter !== 2) {
     throw new Error(
-      `self-test expected final payload, got ${JSON.stringify(executed)}`
+      `self-test persistent state failed: ${JSON.stringify(counter1)} ${JSON.stringify(counter2)}`
     );
   }
+  await expect(
+    '5',
+    "await askClarification('more?')",
+    'type',
+    'askClarification'
+  );
+  await expect(
+    '6',
+    "await discover({ tools: ['search'] })",
+    'kind',
+    'discover'
+  );
+  await expect('7', "await recall({ query: 'docs' })", 'kind', 'recall');
+  await expect('8', "await used('mem1', 'helpful')", 'kind', 'used');
+  await expect('9', "await reportSuccess('ok')", 'kind', 'status');
+  await expect('10', "await reportFailure('bad')", 'kind', 'status');
+  await expect('11', "await guideAgent('try this')", 'type', 'guide_agent');
   const snapshot = (await server.handle({
-    id: '3',
+    id: '12',
     op: 'snapshot_globals',
     session_id: sessionId,
   })) as JsonObject;
   if (!snapshot.ok) throw new Error('self-test snapshot failed');
   await server.handle({
-    id: '4',
+    id: '13',
     op: 'patch_globals',
     session_id: sessionId,
     payload: {
       globals: (snapshot.result as JsonObject).bindings as JsonObject,
     },
   });
-  await server.handle({ id: '5', op: 'close', session_id: sessionId });
-  await server.handle({ id: '6', op: 'shutdown' });
+  await server.handle({ id: '14', op: 'close', session_id: sessionId });
+  const closed = (await server.handle({
+    id: '15',
+    op: 'execute',
+    session_id: sessionId,
+    payload: { code: 'await final({})' },
+  })) as JsonObject;
+  if (closed.ok !== false) throw new Error('self-test closed session failed');
+  await server.handle({ id: '16', op: 'shutdown' });
 
   const fixture = new RuntimeProtocolServer(new FixtureRuntime());
   const fixtureSession = (await fixture.handle({
