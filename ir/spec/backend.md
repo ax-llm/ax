@@ -115,6 +115,19 @@ profile behavior rather than Core semantics. Java verification may use
 to resolve the generated QuickJS4J Maven example classpath; default verification
 still skips the dependency-bearing profile when those inputs are absent.
 
+The second dependency-bearing runtime profile is `python-pyodide`. It is a
+Python actor-language profile, not a generated-Python-host feature. Python,
+Java, and C++ generated targets drive a Node-hosted Pyodide JSONL protocol
+server through the existing runtime protocol boundary. The profile injects the
+same actor primitives as callable Python globals, exposes only JSON-compatible
+host callables, snapshots safe user bindings, and captures stdout/stderr as
+diagnostics. Package loading, filesystem/network access, real cancellation,
+and Pyodide process policy stay adapter-owned. Verification accepts
+`AXIR_PYODIDE_RUNTIME_SERVER` directly, or `AXIR_PYODIDE_RESOLVE=1` to run the
+generated npm helper that resolves the optional `pyodide` package. Default
+verification still skips the dependency-bearing profile when those inputs are
+absent.
+
 Backends must consume the lowered Core IR module or a target package model made
 from Core IR. They must not use high-level Ax dialects as their primary input.
 They must also avoid target-only semantic escapes for Core-owned behavior; see

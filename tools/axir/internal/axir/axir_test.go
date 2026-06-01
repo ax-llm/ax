@@ -399,6 +399,10 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/runtime_adapter.py",
 				"examples/runtime_protocol.py",
 				"examples/runtime_profiles/javascript_quickjs.py",
+				"examples/runtime_profiles/python_pyodide.py",
+				"examples/runtime_profiles/pyodide-package.json",
+				"examples/runtime_profiles/resolve_pyodide_runtime_server.sh",
+				"examples/runtime_profiles/README.md",
 				"examples/axflow_program_graph.py",
 				"examples/optimizer_artifact.py",
 			},
@@ -436,9 +440,12 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/RuntimeAdapterExample.java",
 				"examples/RuntimeProtocolExample.java",
 				"examples/runtime_profiles/JavaScriptQuickJsExample.java",
+				"examples/runtime_profiles/PythonPyodideExample.java",
 				"examples/runtime_profiles/quickjs4j-pom.xml",
 				"examples/runtime_profiles/quickjs4j-build.gradle",
 				"examples/runtime_profiles/resolve_quickjs4j_cp.sh",
+				"examples/runtime_profiles/pyodide-package.json",
+				"examples/runtime_profiles/resolve_pyodide_runtime_server.sh",
 				"examples/runtime_profiles/README.md",
 				"examples/AxFlowProgramGraphExample.java",
 				"examples/OptimizerArtifactExample.java",
@@ -462,6 +469,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"ax/runtime/quickjs/quickjs_runtime.hpp",
 				"ax/runtime/quickjs/quickjs_runtime.cpp",
 				"examples/runtime_profiles/javascript_quickjs.cpp",
+				"examples/runtime_profiles/python_pyodide.cpp",
 				"examples/runtime_profiles/README.md",
 				"examples/axflow_program_graph.cpp",
 				"examples/optimizer_artifact.cpp",
@@ -499,7 +507,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 					t.Fatalf("manifest missing suite %s: %#v", want, manifest.SupportedSuites)
 				}
 			}
-			for _, want := range []string{"axagent-runtime-profile-javascript-quickjs", "axagent-runtime-quickjs-session-state", "axagent-runtime-quickjs-host-calls", "axagent-runtime-quickjs-native-host-calls", "axagent-runtime-quickjs-callback-errors", "axagent-runtime-quickjs-limits", "axagent-runtime-quickjs-diagnostics"} {
+			for _, want := range []string{"axagent-runtime-profile-javascript-quickjs", "axagent-runtime-quickjs-session-state", "axagent-runtime-quickjs-host-calls", "axagent-runtime-quickjs-native-host-calls", "axagent-runtime-quickjs-callback-errors", "axagent-runtime-quickjs-limits", "axagent-runtime-quickjs-diagnostics", "axagent-runtime-profile-python-pyodide", "axagent-runtime-pyodide-session-state", "axagent-runtime-pyodide-host-calls", "axagent-runtime-pyodide-diagnostics"} {
 				if !containsString(manifest.CoreOwnedFeatureGroups, want) {
 					t.Fatalf("manifest missing runtime profile feature %s: %#v", want, manifest.CoreOwnedFeatureGroups)
 				}
@@ -513,7 +521,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !strings.Contains(string(readme), tc.wantReadme) || !strings.Contains(string(readme), "Core-owned") || !strings.Contains(string(readme), "javascript-quickjs") {
+			if !strings.Contains(string(readme), tc.wantReadme) || !strings.Contains(string(readme), "Core-owned") || !strings.Contains(string(readme), "javascript-quickjs") || !strings.Contains(string(readme), "python-pyodide") {
 				t.Fatalf("generated README missing contract text:\n%s", readme)
 			}
 		})

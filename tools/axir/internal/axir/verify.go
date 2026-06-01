@@ -122,6 +122,21 @@ func verifyRuntimeProfilesTarget(report VerifyTargetReport, target string, profi
 			if err != nil {
 				return report, err
 			}
+		case "python-pyodide":
+			var err error
+			switch target {
+			case "python":
+				report, err = verifyPythonPyodideProfile(report, conformanceRoot)
+			case "java":
+				report, err = verifyJavaPyodideProfile(report, conformanceRoot)
+			case "cpp":
+				report, err = verifyCppPyodideProfile(report)
+			default:
+				err = fmt.Errorf("unknown target %q", target)
+			}
+			if err != nil {
+				return report, err
+			}
 		default:
 			return report, fmt.Errorf("unknown runtime profile %q", profile)
 		}
@@ -231,6 +246,25 @@ func verifyPythonQuickJSProfile(report VerifyTargetReport, conformanceRoot strin
 	return report, runVerifyCommand(&report, "runtime profile javascript-quickjs", "", env, python, filepath.Join(report.OutDir, "examples", "runtime_profiles", "javascript_quickjs.py"))
 }
 
+func verifyPythonPyodideProfile(report VerifyTargetReport, conformanceRoot string) (VerifyTargetReport, error) {
+	server, source, err := pyodideRuntimeServerCommand(report.OutDir, conformanceRoot)
+	if err != nil {
+		return report, err
+	}
+	if server == "" {
+		report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile python-pyodide", Status: "skip", Message: "AXIR_PYODIDE_RUNTIME_SERVER not set; use AXIR_PYODIDE_RESOLVE=1; see examples/runtime_profiles/README.md"})
+		return report, nil
+	}
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile python-pyodide", Status: "skip", Message: "python3 not found"})
+		return report, nil
+	}
+	report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile python-pyodide server", Status: "ok", Message: source})
+	env := runtimeProtocolEnv(conformanceRoot, append(os.Environ(), "PYTHONPATH="+report.OutDir, "AXIR_PYODIDE_RUNTIME_SERVER="+server))
+	return report, runVerifyCommand(&report, "runtime profile python-pyodide", "", env, python, filepath.Join(report.OutDir, "examples", "runtime_profiles", "python_pyodide.py"))
+}
+
 func verifyJavaTarget(report VerifyTargetReport, conformanceRoot string) (VerifyTargetReport, error) {
 	javac, err := findJavaTool("javac")
 	if err != nil {
@@ -321,6 +355,69 @@ func verifyJavaQuickJSProfile(report VerifyTargetReport) (VerifyTargetReport, er
 		return report, err
 	}
 	return report, nil
+}
+
+func verifyJavaPyodideProfile(report VerifyTargetReport, conformanceRoot string) (VerifyTargetReport, error) {
+	server, source, err := pyodideRuntimeServerCommand(report.OutDir, conformanceRoot)
+	if err != nil {
+		return report, err
+	}
+	if server == "" {
+		report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile python-pyodide", Status: "skip", Message: "AXIR_PYODIDE_RUNTIME_SERVER not set; use AXIR_PYODIDE_RESOLVE=1; see examples/runtime_profiles/README.md"})
+		return report, nil
+	}
+	javac, err := findJavaTool("javac")
+	if err != nil {
+		report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile python-pyodide javac", Status: "skip", Message: err.Error()})
+		return report, nil
+	}
+	java, err := findJavaTool("java")
+	if err != nil {
+		report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile python-pyodide java", Status: "skip", Message: err.Error()})
+		return report, nil
+	}
+	report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile python-pyodide server", Status: "ok", Message: source})
+	sourceFile := filepath.Join(report.OutDir, "examples", "runtime_profiles", "PythonPyodideExample.java")
+	if err := runVerifyCommand(&report, "compile runtime profile python-pyodide", "", os.Environ(), javac, "-cp", report.OutDir, "-d", report.OutDir, sourceFile); err != nil {
+		return report, err
+	}
+	env := runtimeProtocolEnv(conformanceRoot, append(os.Environ(), "AXIR_PYODIDE_RUNTIME_SERVER="+server))
+	if err := runVerifyCommand(&report, "runtime profile python-pyodide", "", env, java, "-cp", report.OutDir, "PythonPyodideExample"); err != nil {
+		return report, err
+	}
+	return report, nil
+}
+
+func pyodideRuntimeServerCommand(outDir, conformanceRoot string) (string, string, error) {
+	if server := strings.TrimSpace(os.Getenv("AXIR_PYODIDE_RUNTIME_SERVER")); server != "" {
+		return server, "AXIR_PYODIDE_RUNTIME_SERVER", nil
+	}
+	if !envFlag(os.Getenv("AXIR_PYODIDE_RESOLVE")) {
+		return "", "", nil
+	}
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		return "", "", fmt.Errorf("AXIR_PYODIDE_RESOLVE=1 requires sh: %w", err)
+	}
+	script := filepath.Join(outDir, "examples", "runtime_profiles", "resolve_pyodide_runtime_server.sh")
+	cmd := exec.Command(sh, script)
+	cmd.Env = runtimeProtocolEnv(conformanceRoot, os.Environ())
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	message := strings.TrimSpace(string(out))
+	if err != nil {
+		if errText := strings.TrimSpace(stderr.String()); errText != "" {
+			message = errText
+		} else if message == "" {
+			message = err.Error()
+		}
+		return "", "", fmt.Errorf("resolve Pyodide runtime server failed: %s", message)
+	}
+	if message == "" {
+		return "", "", fmt.Errorf("resolve Pyodide runtime server returned empty output")
+	}
+	return message, "AXIR_PYODIDE_RESOLVE generated npm helper", nil
 }
 
 func quickJS4JClasspath(outDir string) (string, string, error) {
@@ -442,6 +539,22 @@ func verifyCppQuickJSProfile(report VerifyTargetReport) (VerifyTargetReport, err
 		return report, err
 	}
 	if err := runVerifyCommand(&report, "runtime profile javascript-quickjs", "", nil, bin); err != nil {
+		return report, err
+	}
+	return report, nil
+}
+
+func verifyCppPyodideProfile(report VerifyTargetReport) (VerifyTargetReport, error) {
+	cpp, err := findCppCompiler()
+	if err != nil {
+		report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile python-pyodide c++", Status: "skip", Message: err.Error()})
+		return report, nil
+	}
+	bin := filepath.Join(report.OutDir, "python_pyodide")
+	if err := runVerifyCommand(&report, "compile runtime profile python-pyodide", "", nil, cpp, "-std=c++17", "-I", report.OutDir, filepath.Join(report.OutDir, "ax", "ax.cpp"), filepath.Join(report.OutDir, "examples", "runtime_profiles", "python_pyodide.cpp"), "-o", bin); err != nil {
+		return report, err
+	}
+	if err := runVerifyCommand(&report, "runtime profile python-pyodide", "", nil, bin); err != nil {
 		return report, err
 	}
 	return report, nil
