@@ -1,0 +1,84 @@
+{
+  "expected_action_log_subset": [
+    {
+      "searches": ["prefs"],
+      "type": "recall"
+    },
+    {
+      "code": "final(\"Answer\", {\"answer\": \"User likes concise docs.\"})",
+      "kind": "final"
+    }
+  ],
+  "expected_executed": [
+    "recall(\"prefs\")",
+    "final(\"Answer\", {\"answer\": \"User likes concise docs.\"})"
+  ],
+  "expected_exported_state_subset": {
+    "loaded_memories": [
+      {
+        "content": "User likes concise docs.",
+        "id": "mem-1"
+      }
+    ]
+  },
+  "expected_output": {
+    "answer": "User likes concise docs."
+  },
+  "expected_request_contains": ["User likes concise docs."],
+  "expected_request_count": 4,
+  "input": {
+    "question": "Use memory"
+  },
+  "kind": "agent_forward",
+  "name": "runtime-forward-recall-continues",
+  "options": {
+    "memoriesMode": true,
+    "runtime": {
+      "language": "Python"
+    },
+    "memory_search_results": {
+      "prefs": [
+        {
+          "content": "User likes concise docs.",
+          "id": "mem-1"
+        }
+      ]
+    }
+  },
+  "responses": [
+    {
+      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Recall preferences\",{}]}}"
+    },
+    {
+      "content": "{\"pythonCode\":\"recall(\\\"prefs\\\")\"}"
+    },
+    {
+      "content": "{\"pythonCode\":\"final(\\\"Answer\\\", {\\\"answer\\\": \\\"User likes concise docs.\\\"})\"}"
+    },
+    {
+      "content": "{\"answer\":\"User likes concise docs.\"}"
+    }
+  ],
+  "runtime_script": [
+    {
+      "expected_code": "recall(\"prefs\")",
+      "result": {
+        "kind": "recall",
+        "recall": "prefs"
+      }
+    },
+    {
+      "expected_code": "final(\"Answer\", {\"answer\": \"User likes concise docs.\"})",
+      "result": {
+        "args": [
+          "Answer",
+          {
+            "answer": "User likes concise docs."
+          }
+        ],
+        "type": "final"
+      }
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

@@ -33,15 +33,20 @@ try:
         {
             "runtime": {"language": "Python"},
             "functionDiscovery": True,
+            "memoriesMode": True,
             "functions": [{"name": "search", "description": "Search docs"}],
+            "memory_search_results": {
+                "prefs": [{"id": "mem1", "content": "likes concise docs"}]
+            },
         },
     )
     forward_client = FakeClient(
         [
             {"content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Run actor\",{}]}}"},
             {"content": "{\"pythonCode\":\"counter = 41\\ndiscover({'tools': ['search']})\"}"},
+            {"content": "{\"pythonCode\":\"recall('prefs')\"}"},
             {
-                "content": "{\"pythonCode\":\"counter = counter + 1\\nhit = search({'query': inputs['question']})\\nfinal('Answer', {'answer': hit['title'], 'counter': counter})\"}"
+                "content": "{\"pythonCode\":\"hit = search({'query': inputs['question']})\\nfinal('Answer', {'answer': hit['title']})\"}"
             },
             {"content": "{\"answer\":\"Docs\"}"},
         ]
@@ -49,12 +54,38 @@ try:
     forward_out = forward_agent.forward(
         forward_client,
         {"question": "pyodide"},
-        {"runtime": runtime, "max_actor_steps": 3},
+        {"runtime": runtime, "max_actor_steps": 4},
     )
     assert forward_out["answer"] == "Docs", forward_out
-    assert len(forward_client.requests) == 4, forward_client.requests
+    assert len(forward_client.requests) == 5, forward_client.requests
     action_log_text = str(forward_agent.get_action_log())
-    assert "discover" in action_log_text and "counter" in action_log_text and "Docs" in action_log_text, action_log_text
+    assert "discover" in action_log_text and "recall" in action_log_text and "Docs" in action_log_text, action_log_text
+    state_text = str(forward_agent.export_runtime_state())
+    assert "likes concise docs" in state_text, state_text
+    trace_kinds = [event.get("kind") for event in forward_agent.export_trace().get("events", [])]
+    for kind in ["runtime_execute", "discover", "recall", "final"]:
+        assert kind in trace_kinds, trace_kinds
+    restored_agent = agent("question:string -> answer:string", {"runtime": {"language": "Python"}})
+    restored_agent.restore_runtime_state(forward_agent.export_runtime_state())
+    assert "likes concise docs" in str(restored_agent.export_runtime_state()), restored_agent.export_runtime_state()
+
+    guide_agent = agent("question:string -> answer:string", {"runtime": {"language": "Python"}})
+    guide_client = FakeClient(
+        [
+            {"content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Guide\",{}]}}"},
+            {"content": "{\"pythonCode\":\"guideAgent('Prefer concise final.')\"}"},
+            {"content": "{\"pythonCode\":\"final('Answer', {'answer': 'Concise'})\"}"},
+            {"content": "{\"answer\":\"Concise\"}"},
+        ]
+    )
+    guide_out = guide_agent.forward(
+        guide_client,
+        {"question": "pyodide"},
+        {"runtime": runtime, "max_actor_steps": 3},
+    )
+    assert guide_out["answer"] == "Concise", guide_out
+    guide_text = str(guide_agent.get_action_log()) + str(guide_agent.export_trace()) + str(guide_client.requests)
+    assert "guide_agent" in guide_text and "Prefer concise final." in guide_text, guide_text
 
     clarification_agent = agent("question:string -> answer:string", {"runtime": {"language": "Python"}})
     clarification_client = FakeClient(
@@ -115,7 +146,7 @@ try:
 finally:
     runtime.shutdown()
 
-print("python-pyodide-profile-ok")
+print("python-pyodide-profile-ok runtime-behavior-parity-ok")
 `
 
 const javaPythonPyodideProfileExample = `import dev.ax.*;
@@ -168,24 +199,52 @@ public final class PythonPyodideExample {
       AxAgent forwardAgent = Ax.agent("question:string -> answer:string", Map.of(
         "runtime", Map.of("language", "Python"),
         "functionDiscovery", true,
+        "memoriesMode", true,
+        "memory_search_results", Map.of("prefs", List.of(Map.of("id", "mem1", "content", "likes concise docs"))),
         "functions", List.of(Map.of("name", "search", "description", "Search docs"))
       ));
       ScriptedAI forwardClient = new ScriptedAI(List.of(
         Map.of("content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Run actor\",{}]}}"),
         Map.of("content", "{\"pythonCode\":\"counter = 41\\ndiscover({'tools': ['search']})\"}"),
-        Map.of("content", "{\"pythonCode\":\"counter = counter + 1\\nhit = search({'query': inputs['question']})\\nfinal('Answer', {'answer': hit['title'], 'counter': counter})\"}"),
+        Map.of("content", "{\"pythonCode\":\"recall('prefs')\"}"),
+        Map.of("content", "{\"pythonCode\":\"hit = search({'query': inputs['question']})\\nfinal('Answer', {'answer': hit['title']})\"}"),
         Map.of("content", "{\"answer\":\"Docs\"}")
       ));
       Map<String, Object> forwardOut = forwardAgent.forward(
         forwardClient,
         Map.of("question", "pyodide"),
-        Map.of("runtime", runtime, "max_actor_steps", 3)
+        Map.of("runtime", runtime, "max_actor_steps", 4)
       );
       if (!"Docs".equals(forwardOut.get("answer"))) throw new RuntimeException("bad forward output: " + forwardOut);
       String actionLogText = String.valueOf(forwardAgent.getActionLog());
-      if (!actionLogText.contains("discover") || !actionLogText.contains("counter") || !actionLogText.contains("Docs")) {
+      if (!actionLogText.contains("discover") || !actionLogText.contains("recall") || !actionLogText.contains("Docs")) {
         throw new RuntimeException("runtime actor loop did not record expected actions: " + actionLogText);
       }
+      String forwardState = String.valueOf(forwardAgent.exportRuntimeState());
+      if (!forwardState.contains("likes concise docs")) throw new RuntimeException("runtime actor loop did not preserve recalled memory: " + forwardState);
+      String forwardTrace = String.valueOf(forwardAgent.exportTrace());
+      for (String kind : List.of("runtime_execute", "discover", "recall", "final")) {
+        if (!forwardTrace.contains(kind)) throw new RuntimeException("runtime actor trace missing " + kind + ": " + forwardTrace);
+      }
+      AxAgent restoredAgent = Ax.agent("question:string -> answer:string", Map.of("runtime", Map.of("language", "Python")));
+      restoredAgent.restoreRuntimeState(forwardAgent.exportRuntimeState());
+      if (!String.valueOf(restoredAgent.exportRuntimeState()).contains("likes concise docs")) throw new RuntimeException("state restore lost recalled memory");
+
+      AxAgent guideAgent = Ax.agent("question:string -> answer:string", Map.of("runtime", Map.of("language", "Python")));
+      ScriptedAI guideClient = new ScriptedAI(List.of(
+        Map.of("content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Guide\",{}]}}"),
+        Map.of("content", "{\"pythonCode\":\"guideAgent('Prefer concise final.')\"}"),
+        Map.of("content", "{\"pythonCode\":\"final('Answer', {'answer': 'Concise'})\"}"),
+        Map.of("content", "{\"answer\":\"Concise\"}")
+      ));
+      Map<String, Object> guideOut = guideAgent.forward(
+        guideClient,
+        Map.of("question", "pyodide"),
+        Map.of("runtime", runtime, "max_actor_steps", 3)
+      );
+      if (!"Concise".equals(guideOut.get("answer"))) throw new RuntimeException("bad guide output: " + guideOut);
+      String guideText = String.valueOf(guideAgent.getActionLog()) + String.valueOf(guideAgent.exportTrace()) + String.valueOf(guideClient.requests);
+      if (!guideText.contains("guide_agent") || !guideText.contains("Prefer concise final.")) throw new RuntimeException("guideAgent parity failed: " + guideText);
 
       AxAgent clarificationAgent = Ax.agent("question:string -> answer:string", Map.of("runtime", Map.of("language", "Python")));
       ScriptedAI clarificationClient = new ScriptedAI(List.of(
@@ -237,7 +296,7 @@ public final class PythonPyodideExample {
       session.close();
       if (!"session_closed".equals(asMap(session.execute("final({'answer': 'closed'})", Map.of())).get("error_category"))) throw new RuntimeException("closed session behavior failed");
     }
-    System.out.println("java-python-pyodide-profile-ok");
+    System.out.println("java-python-pyodide-profile-ok runtime-behavior-parity-ok");
   }
 }
 `
@@ -363,11 +422,13 @@ struct PyodideProfileTransport : ax::RuntimeTransport {
       } else if (code.find("discover") != std::string::npos) {
         result = ax::object({{"kind", "discover"}, {"discover", ax::object({{"tools", ax::array({"search"})}})}});
       } else if (code.find("recall") != std::string::npos) {
-        result = ax::object({{"kind", "recall"}, {"recall", ax::object({{"query", "docs"}})}});
+        result = ax::object({{"kind", "recall"}, {"recall", "docs"}});
       } else if (code.find("used") != std::string::npos) {
         result = ax::object({{"kind", "used"}, {"used", ax::object({{"id", "mem1"}, {"reason", "helpful"}})}});
       } else if (code.find("reportSuccess") != std::string::npos) {
         result = ax::object({{"kind", "status"}, {"status", ax::object({{"type", "success"}, {"message", "ok"}})}});
+      } else if (code.find("reportFailure") != std::string::npos) {
+        result = ax::object({{"kind", "status"}, {"status", ax::object({{"type", "failed"}, {"message", "bad"}})}});
       } else if (code.find("guideAgent") != std::string::npos) {
         result = ax::object({{"type", "guide_agent"}, {"guidance", "try this"}});
       } else if (code.find("search") != std::string::npos) {
@@ -415,23 +476,50 @@ int main() {
     ax::object({
       {"runtime", ax::object({{"language", "Python"}})},
       {"functionDiscovery", true},
+      {"memoriesMode", true},
+      {"memory_search_results", ax::object({{"docs", ax::array({ax::object({{"id", "mem1"}, {"content", "likes concise docs"}})})}})},
       {"functions", ax::array({ax::object({{"name", "search"}, {"description", "Search docs"}})})},
     })
   );
   ProfileAIClient forward_client({
     ax::object({{"content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Run actor\",{}]}}"}}),
     ax::object({{"content", "{\"pythonCode\":\"discover({'tools': ['search']})\"}"}}),
+    ax::object({{"content", "{\"pythonCode\":\"recall('docs')\"}"}}),
     ax::object({{"content", "{\"pythonCode\":\"hit = search({'query': inputs['question']})\\nfinal('Answer', {'answer': hit['title']})\"}"}}),
     ax::object({{"content", "{\"answer\":\"Docs\"}"}}),
   });
   ax::Value forward_out = forward_agent.forward(
     forward_client,
     ax::object({{"question", "pyodide"}}),
-    ax::object({{"runtime", ax::Core::code_runtime_ref(runtime)}, {"max_actor_steps", 3}})
+    ax::object({{"runtime", ax::Core::code_runtime_ref(runtime)}, {"max_actor_steps", 4}})
   );
   if (!ax::equal(ax::Core::get(forward_out, "answer"), "Docs")) return 17;
   std::string action_log_text = ax::stringify(forward_agent.get_action_log());
-  if (action_log_text.find("discover") == std::string::npos || action_log_text.find("Docs") == std::string::npos) return 18;
+  if (action_log_text.find("discover") == std::string::npos || action_log_text.find("recall") == std::string::npos || action_log_text.find("Docs") == std::string::npos) return 18;
+  if (ax::stringify(forward_agent.export_runtime_state()).find("likes concise docs") == std::string::npos) return 20;
+  std::string forward_trace = ax::stringify(forward_agent.export_trace());
+  for (const auto& kind : {"runtime_execute", "discover", "recall", "final"}) {
+    if (forward_trace.find(kind) == std::string::npos) return 21;
+  }
+  auto restored_agent = ax::agent("question:string -> answer:string", ax::object({{"runtime", ax::object({{"language", "Python"}})}}));
+  restored_agent.restore_runtime_state(forward_agent.export_runtime_state());
+  if (ax::stringify(restored_agent.export_runtime_state()).find("likes concise docs") == std::string::npos) return 22;
+
+  auto guide_agent = ax::agent("question:string -> answer:string", ax::object({{"runtime", ax::object({{"language", "Python"}})}}));
+  ProfileAIClient guide_client({
+    ax::object({{"content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Guide\",{}]}}"}}),
+    ax::object({{"content", "{\"pythonCode\":\"guideAgent('Prefer concise final.')\"}"}}),
+    ax::object({{"content", "{\"pythonCode\":\"final('Answer', {'answer': 'Concise'})\"}"}}),
+    ax::object({{"content", "{\"answer\":\"Concise\"}"}}),
+  });
+  ax::Value guide_out = guide_agent.forward(
+    guide_client,
+    ax::object({{"question", "pyodide"}}),
+    ax::object({{"runtime", ax::Core::code_runtime_ref(runtime)}, {"max_actor_steps", 3}})
+  );
+  if (!ax::equal(ax::Core::get(guide_out, "answer"), "Concise")) return 23;
+  std::string guide_text = ax::stringify(guide_agent.get_action_log()) + ax::stringify(guide_agent.export_trace());
+  if (guide_text.find("guide_agent") == std::string::npos || guide_text.find("try this") == std::string::npos) return 24;
 
   auto clarification_agent = ax::agent("question:string -> answer:string", ax::object({{"runtime", ax::object({{"language", "Python"}})}}));
   ProfileAIClient clarification_client({
@@ -463,6 +551,7 @@ int main() {
   if (!ax::equal(ax::Core::get(session->execute("recall({'query': 'docs'})"), "kind"), "recall")) return 7;
   if (!ax::equal(ax::Core::get(session->execute("used('mem1', 'helpful')"), "kind"), "used")) return 8;
   if (!ax::equal(ax::Core::get(session->execute("reportSuccess('ok')"), "kind"), "status")) return 9;
+  if (!ax::equal(ax::Core::get(session->execute("reportFailure('bad')"), "kind"), "status")) return 25;
   if (!ax::equal(ax::Core::get(session->execute("guideAgent('try this')"), "type"), "guide_agent")) return 10;
   if (!ax::equal(ax::Core::get(ax::Core::get(ax::Core::get(session->execute("hit = search({'query': inputs['question']})\nfinal({'title': hit['title']})"), "args", ax::Value::array()), 0), "title"), "Docs")) return 11;
   if (!ax::equal(ax::Core::get(ax::Core::get(ax::Core::get(session->execute("err = badTool({})\nfinal({'error': err['error']})"), "args", ax::Value::array()), 0), "error"), "tool failed")) return 12;
@@ -474,6 +563,6 @@ int main() {
   session->close();
   if (!ax::equal(ax::Core::get(session->execute("final({'answer': 'closed'})"), "error_category"), "session_closed")) return 16;
   runtime.shutdown();
-  std::cout << "cpp-python-pyodide-profile-ok\n";
+  std::cout << "cpp-python-pyodide-profile-ok runtime-behavior-parity-ok\n";
 }
 `

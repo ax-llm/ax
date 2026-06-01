@@ -494,7 +494,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 					t.Fatal(err)
 				}
 				text := string(data)
-				for _, want := range []string{"forward(", "max_actor_steps"} {
+				for _, want := range []string{"forward(", "max_actor_steps", "runtime-behavior-parity-ok"} {
 					if !strings.Contains(text, want) {
 						t.Fatalf("generated %s runtime profile example %s missing actor-loop marker %q", tc.target, profileExample, want)
 					}

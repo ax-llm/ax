@@ -1,0 +1,60 @@
+{
+  "expected_action_log_subset": [
+    {
+      "action": "create_session",
+      "type": "runtime_session"
+    },
+    {
+      "code": "final(\"Answer\", {\"answer\": \"from runtime\"})",
+      "kind": "final"
+    }
+  ],
+  "expected_executed": ["final(\"Answer\", {\"answer\": \"from runtime\"})"],
+  "expected_output": {
+    "answer": "from runtime"
+  },
+  "expected_request_count": 3,
+  "expected_runtime_contract_subset": {
+    "code_fence_language": "js",
+    "code_field_name": "javascriptCode",
+    "code_field_title": "Javascript Code",
+    "is_javascript": true,
+    "language": "JavaScript"
+  },
+  "input": {
+    "question": "Use runtime"
+  },
+  "kind": "agent_forward",
+  "name": "runtime-forward-javascript-final",
+  "options": {
+    "runtime": {
+      "language": "JavaScript"
+    }
+  },
+  "responses": [
+    {
+      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Execute runtime code\",{}]}}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Answer\\\", {\\\"answer\\\": \\\"from runtime\\\"})\"}"
+    },
+    {
+      "content": "{\"answer\":\"from runtime\"}"
+    }
+  ],
+  "runtime_script": [
+    {
+      "expected_code": "final(\"Answer\", {\"answer\": \"from runtime\"})",
+      "result": {
+        "args": [
+          "Answer",
+          {
+            "answer": "from runtime"
+          }
+        ],
+        "type": "final"
+      }
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

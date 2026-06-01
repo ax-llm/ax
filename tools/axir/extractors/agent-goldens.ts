@@ -475,6 +475,43 @@ writeFixture('runtime-forward-python-final', {
   ],
 });
 
+writeFixture('runtime-forward-javascript-final', {
+  kind: 'agent_forward',
+  signature: 'question:string -> answer:string',
+  options: {
+    runtime: { language: 'JavaScript' },
+  },
+  input: { question: 'Use runtime' },
+  responses: [
+    {
+      content:
+        '{"completion":{"type":"final","args":["Execute runtime code",{}]}}',
+    },
+    {
+      content:
+        '{"javascriptCode":"final(\\"Answer\\", {\\"answer\\": \\"from runtime\\"})"}',
+    },
+    { content: '{"answer":"from runtime"}' },
+  ],
+  runtime_script: [
+    {
+      expected_code: 'final("Answer", {"answer": "from runtime"})',
+      result: {
+        type: 'final',
+        args: ['Answer', { answer: 'from runtime' }],
+      },
+    },
+  ],
+  expected_output: { answer: 'from runtime' },
+  expected_request_count: 3,
+  expected_executed: ['final("Answer", {"answer": "from runtime"})'],
+  expected_runtime_contract_subset: runtimeContractSubset('JavaScript'),
+  expected_action_log_subset: [
+    { type: 'runtime_session', action: 'create_session' },
+    { kind: 'final', code: 'final("Answer", {"answer": "from runtime"})' },
+  ],
+});
+
 writeFixture('trace-replay-runtime-final', {
   kind: 'agent_forward',
   signature: 'question:string -> answer:string',
@@ -581,6 +618,109 @@ writeFixture('runtime-forward-discover-continues', {
     { kind: 'result', code: 'discover({"tools":["search"]})' },
     { type: 'discover', request: { tools: ['search'] } },
     { kind: 'final', code: 'final("Answer", {"answer": "Docs found"})' },
+  ],
+});
+
+writeFixture('runtime-forward-recall-continues', {
+  kind: 'agent_forward',
+  signature: 'question:string -> answer:string',
+  options: {
+    memoriesMode: true,
+    runtime: { language: 'Python' },
+    memory_search_results: {
+      prefs: [{ id: 'mem-1', content: 'User likes concise docs.' }],
+    },
+  },
+  input: { question: 'Use memory' },
+  responses: [
+    {
+      content:
+        '{"completion":{"type":"final","args":["Recall preferences",{}]}}',
+    },
+    { content: '{"pythonCode":"recall(\\"prefs\\")"}' },
+    {
+      content:
+        '{"pythonCode":"final(\\"Answer\\", {\\"answer\\": \\"User likes concise docs.\\"})"}',
+    },
+    { content: '{"answer":"User likes concise docs."}' },
+  ],
+  runtime_script: [
+    {
+      expected_code: 'recall("prefs")',
+      result: { kind: 'recall', recall: 'prefs' },
+    },
+    {
+      expected_code: 'final("Answer", {"answer": "User likes concise docs."})',
+      result: {
+        type: 'final',
+        args: ['Answer', { answer: 'User likes concise docs.' }],
+      },
+    },
+  ],
+  expected_output: { answer: 'User likes concise docs.' },
+  expected_request_count: 4,
+  expected_request_contains: ['User likes concise docs.'],
+  expected_executed: [
+    'recall("prefs")',
+    'final("Answer", {"answer": "User likes concise docs."})',
+  ],
+  expected_exported_state_subset: {
+    loaded_memories: [{ id: 'mem-1', content: 'User likes concise docs.' }],
+  },
+  expected_action_log_subset: [
+    { type: 'recall', searches: ['prefs'] },
+    {
+      kind: 'final',
+      code: 'final("Answer", {"answer": "User likes concise docs."})',
+    },
+  ],
+});
+
+writeFixture('runtime-forward-guide-continues', {
+  kind: 'agent_forward',
+  signature: 'question:string -> answer:string',
+  options: {
+    runtime: { language: 'Python' },
+  },
+  input: { question: 'Use guidance' },
+  responses: [
+    {
+      content:
+        '{"completion":{"type":"final","args":["Guide before answering",{}]}}',
+    },
+    { content: '{"pythonCode":"guideAgent(\\"Prefer concise final.\\")"}' },
+    {
+      content:
+        '{"pythonCode":"final(\\"Answer\\", {\\"answer\\": \\"Concise\\"})"}',
+    },
+    { content: '{"answer":"Concise"}' },
+  ],
+  runtime_script: [
+    {
+      expected_code: 'guideAgent("Prefer concise final.")',
+      result: { type: 'guide_agent', guidance: 'Prefer concise final.' },
+    },
+    {
+      expected_code: 'final("Answer", {"answer": "Concise"})',
+      result: {
+        type: 'final',
+        args: ['Answer', { answer: 'Concise' }],
+      },
+    },
+  ],
+  expected_output: { answer: 'Concise' },
+  expected_request_count: 4,
+  expected_request_contains: ['Prefer concise final.'],
+  expected_executed: [
+    'guideAgent("Prefer concise final.")',
+    'final("Answer", {"answer": "Concise"})',
+  ],
+  expected_exported_state_subset: {
+    guidance_log: [{ turn: 1, guidance: 'Prefer concise final.' }],
+  },
+  expected_action_log_subset: [
+    { type: 'guide_agent', guidance: 'Prefer concise final.' },
+    { kind: 'final', code: 'final("Answer", {"answer": "Concise"})' },
   ],
 });
 

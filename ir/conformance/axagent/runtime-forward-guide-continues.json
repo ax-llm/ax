@@ -1,0 +1,75 @@
+{
+  "expected_action_log_subset": [
+    {
+      "guidance": "Prefer concise final.",
+      "type": "guide_agent"
+    },
+    {
+      "code": "final(\"Answer\", {\"answer\": \"Concise\"})",
+      "kind": "final"
+    }
+  ],
+  "expected_executed": [
+    "guideAgent(\"Prefer concise final.\")",
+    "final(\"Answer\", {\"answer\": \"Concise\"})"
+  ],
+  "expected_exported_state_subset": {
+    "guidance_log": [
+      {
+        "guidance": "Prefer concise final.",
+        "turn": 1
+      }
+    ]
+  },
+  "expected_output": {
+    "answer": "Concise"
+  },
+  "expected_request_contains": ["Prefer concise final."],
+  "expected_request_count": 4,
+  "input": {
+    "question": "Use guidance"
+  },
+  "kind": "agent_forward",
+  "name": "runtime-forward-guide-continues",
+  "options": {
+    "runtime": {
+      "language": "Python"
+    }
+  },
+  "responses": [
+    {
+      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Guide before answering\",{}]}}"
+    },
+    {
+      "content": "{\"pythonCode\":\"guideAgent(\\\"Prefer concise final.\\\")\"}"
+    },
+    {
+      "content": "{\"pythonCode\":\"final(\\\"Answer\\\", {\\\"answer\\\": \\\"Concise\\\"})\"}"
+    },
+    {
+      "content": "{\"answer\":\"Concise\"}"
+    }
+  ],
+  "runtime_script": [
+    {
+      "expected_code": "guideAgent(\"Prefer concise final.\")",
+      "result": {
+        "guidance": "Prefer concise final.",
+        "type": "guide_agent"
+      }
+    },
+    {
+      "expected_code": "final(\"Answer\", {\"answer\": \"Concise\"})",
+      "result": {
+        "args": [
+          "Answer",
+          {
+            "answer": "Concise"
+          }
+        ],
+        "type": "final"
+      }
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}
