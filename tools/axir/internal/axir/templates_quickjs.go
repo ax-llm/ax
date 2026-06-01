@@ -4,6 +4,18 @@ const pyJavaScriptQuickJSProfilePythonExample = `import os
 
 from ax import ProcessCodeRuntime, agent
 
+
+class FakeClient:
+    def __init__(self, responses):
+        self.responses = list(responses)
+        self.requests = []
+
+    def complete(self, request):
+        self.requests.append(request)
+        if not self.responses:
+            raise RuntimeError("fake client exhausted")
+        return self.responses.pop(0)
+
 server = os.environ.get("AXIR_QUICKJS_RUNTIME_SERVER")
 if not server:
     raise RuntimeError("AXIR_QUICKJS_RUNTIME_SERVER is required for the javascript-quickjs profile example")
@@ -15,6 +27,53 @@ try:
     assert out["kind"] == "final", out
     first = out["completion_payload"]["args"][0]
     assert first["answer"] == "quickjs", out
+
+    forward_agent = agent(
+        "question:string -> answer:string",
+        {
+            "runtime": {"language": "JavaScript"},
+            "functionDiscovery": True,
+            "functions": [{"name": "search", "description": "Search docs"}],
+        },
+    )
+    forward_client = FakeClient(
+        [
+            {"content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Run actor\",{}]}}"},
+            {"content": "{\"javascriptCode\":\"counter = 41; discover({tools:['search']})\"}"},
+            {
+                "content": "{\"javascriptCode\":\"counter = counter + 1; const hit = search({query: inputs.question}); final('Answer', {answer: hit.title, counter})\"}"
+            },
+            {"content": "{\"answer\":\"Docs\"}"},
+        ]
+    )
+    forward_out = forward_agent.forward(
+        forward_client,
+        {"question": "quickjs"},
+        {"runtime": runtime, "max_actor_steps": 3},
+    )
+    assert forward_out["answer"] == "Docs", forward_out
+    assert len(forward_client.requests) == 4, forward_client.requests
+    action_log_text = str(forward_agent.get_action_log())
+    assert "discover" in action_log_text and "counter" in action_log_text and "Docs" in action_log_text, action_log_text
+
+    clarification_agent = agent("question:string -> answer:string", {"runtime": {"language": "JavaScript"}})
+    clarification_client = FakeClient(
+        [
+            {"content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Ask\",{}]}}"},
+            {"content": "{\"javascriptCode\":\"askClarification('Need detail?')\"}"},
+        ]
+    )
+    try:
+        clarification_agent.forward(
+            clarification_client,
+            {"question": "quickjs"},
+            {"runtime": runtime, "max_actor_steps": 1},
+        )
+    except Exception as exc:
+        assert "Need detail" in str(exc), exc
+    else:
+        raise AssertionError("expected runtime clarification")
+
     session = runtime.create_session(
         {
             "inputs": {"question": "quickjs"},
@@ -496,6 +555,21 @@ public final class JavaScriptQuickJsExample {
     return value instanceof Map<?, ?> ? (Map<String, Object>) value : new LinkedHashMap<>();
   }
 
+  static final class ScriptedAI implements AiClient {
+    final List<Map<String, Object>> responses = new ArrayList<>();
+    final List<Map<String, Object>> requests = new ArrayList<>();
+
+    ScriptedAI(List<Map<String, Object>> responses) {
+      this.responses.addAll(responses);
+    }
+
+    public Map<String, Object> complete(Map<String, Object> request) {
+      requests.add(new LinkedHashMap<>(request));
+      if (responses.isEmpty()) throw new RuntimeException("fake client exhausted");
+      return responses.remove(0);
+    }
+  }
+
   public static void main(String[] args) {
     try (AxQuickJsCodeRuntime runtime = new AxQuickJsCodeRuntime()
         .registerCallable("search", params -> Map.of("title", "Docs", "query", asMap(params).getOrDefault("query", "")))
@@ -506,6 +580,44 @@ public final class JavaScriptQuickJsExample {
       Map<String, Object> payload = asMap(out.get("completion_payload"));
       Map<String, Object> first = asMap(((List<?>) payload.get("args")).get(0));
       if (!"quickjs".equals(first.get("answer"))) throw new RuntimeException("bad payload: " + out);
+
+      AxAgent forwardAgent = Ax.agent("question:string -> answer:string", Map.of(
+        "runtime", Map.of("language", "JavaScript"),
+        "functionDiscovery", true,
+        "functions", List.of(Map.of("name", "search", "description", "Search docs"))
+      ));
+      ScriptedAI forwardClient = new ScriptedAI(List.of(
+        Map.of("content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Run actor\",{}]}}"),
+        Map.of("content", "{\"javascriptCode\":\"counter = 41; discover({tools:['search']})\"}"),
+        Map.of("content", "{\"javascriptCode\":\"counter = counter + 1; const hit = search({query: inputs.question}); final('Answer', {answer: hit.title, counter})\"}"),
+        Map.of("content", "{\"answer\":\"Docs\"}")
+      ));
+      Map<String, Object> forwardOut = forwardAgent.forward(
+        forwardClient,
+        Map.of("question", "quickjs"),
+        Map.of("runtime", runtime, "max_actor_steps", 3)
+      );
+      if (!"Docs".equals(forwardOut.get("answer"))) throw new RuntimeException("bad forward output: " + forwardOut);
+      String actionLogText = String.valueOf(forwardAgent.getActionLog());
+      if (!actionLogText.contains("discover") || !actionLogText.contains("counter") || !actionLogText.contains("Docs")) {
+        throw new RuntimeException("runtime actor loop did not record expected actions: " + actionLogText);
+      }
+
+      AxAgent clarificationAgent = Ax.agent("question:string -> answer:string", Map.of("runtime", Map.of("language", "JavaScript")));
+      ScriptedAI clarificationClient = new ScriptedAI(List.of(
+        Map.of("content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Ask\",{}]}}"),
+        Map.of("content", "{\"javascriptCode\":\"askClarification('Need detail?')\"}")
+      ));
+      try {
+        clarificationAgent.forward(
+          clarificationClient,
+          Map.of("question", "quickjs"),
+          Map.of("runtime", runtime, "max_actor_steps", 1)
+        );
+        throw new RuntimeException("expected runtime clarification");
+      } catch (AxAgentClarificationException expected) {
+        if (!String.valueOf(expected.getMessage()).contains("Need detail")) throw expected;
+      }
 
       AxCodeSession session = runtime.createSession(Map.of("inputs", Map.of("question", "quickjs")), Map.of("reservedNames", List.of("inputs")));
       Map<String, Object> step1 = asMap(session.execute("counter = (typeof counter === 'undefined' ? 0 : counter) + 1; final({counter})", Map.of()));
@@ -956,10 +1068,25 @@ AxCodeSession* QuickJsCodeRuntime::create_session(Value globals, Value options) 
 const cppJavaScriptQuickJSProfileExample = `#include "ax/ax.hpp"
 #include "ax/runtime/quickjs/quickjs_runtime.hpp"
 #include <iostream>
+#include <vector>
 
 static bool is_number(const ax::Value& value, const std::string& expected) {
   return ax::display(value) == expected;
 }
+
+struct ProfileAIClient : ax::AIClient {
+  std::vector<ax::Value> responses;
+  std::vector<ax::Value> requests;
+  std::size_t index = 0;
+
+  explicit ProfileAIClient(std::initializer_list<ax::Value> values) : responses(values) {}
+
+  ax::Value complete(ax::Value request) override {
+    requests.push_back(request);
+    if (index >= responses.size()) throw ax::AxError("runtime", "fake client exhausted");
+    return responses[index++];
+  }
+};
 
 int main() {
   ax::runtime::quickjs::QuickJsCodeRuntime runtime;
@@ -976,6 +1103,46 @@ int main() {
   ax::Value payload = ax::Core::get(out, "completion_payload", ax::Value::object());
   ax::Value args = ax::Core::get(payload, "args", ax::Value::array());
   if (!ax::equal(ax::Core::get(ax::Core::get(args, 0), "answer"), "quickjs")) return 2;
+
+  auto forward_agent = ax::agent(
+    "question:string -> answer:string",
+    ax::object({
+      {"runtime", ax::object({{"language", "JavaScript"}})},
+      {"functionDiscovery", true},
+      {"functions", ax::array({ax::object({{"name", "search"}, {"description", "Search docs"}})})},
+    })
+  );
+  ProfileAIClient forward_client({
+    ax::object({{"content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Run actor\",{}]}}"}}),
+    ax::object({{"content", "{\"javascriptCode\":\"counter = 41; discover({tools:['search']})\"}"}}),
+    ax::object({{"content", "{\"javascriptCode\":\"counter = counter + 1; const hit = search({query: inputs.question}); final('Answer', {answer: hit.title, counter})\"}"}}),
+    ax::object({{"content", "{\"answer\":\"Docs\"}"}}),
+  });
+  ax::Value forward_out = forward_agent.forward(
+    forward_client,
+    ax::object({{"question", "quickjs"}}),
+    ax::object({{"runtime", ax::Core::code_runtime_ref(runtime)}, {"max_actor_steps", 3}})
+  );
+  if (!ax::equal(ax::Core::get(forward_out, "answer"), "Docs")) return 17;
+  std::string action_log_text = ax::stringify(forward_agent.get_action_log());
+  if (action_log_text.find("discover") == std::string::npos || action_log_text.find("counter") == std::string::npos || action_log_text.find("Docs") == std::string::npos) return 18;
+
+  auto clarification_agent = ax::agent("question:string -> answer:string", ax::object({{"runtime", ax::object({{"language", "JavaScript"}})}}));
+  ProfileAIClient clarification_client({
+    ax::object({{"content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Ask\",{}]}}"}}),
+    ax::object({{"content", "{\"javascriptCode\":\"askClarification('Need detail?')\"}"}}),
+  });
+  bool saw_clarification = false;
+  try {
+    clarification_agent.forward(
+      clarification_client,
+      ax::object({{"question", "quickjs"}}),
+      ax::object({{"runtime", ax::Core::code_runtime_ref(runtime)}, {"max_actor_steps", 1}})
+    );
+  } catch (const ax::AxError& error) {
+    saw_clarification = std::string(error.what()).find("Need detail") != std::string::npos;
+  }
+  if (!saw_clarification) return 19;
 
   ax::AxCodeSession* session = runtime.create_session(
     ax::object({{"inputs", ax::object({{"question", "quickjs"}})}}),

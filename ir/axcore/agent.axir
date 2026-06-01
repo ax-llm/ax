@@ -2067,6 +2067,7 @@ module @ax.agent version "0.1" {
       %empty_map = core.map
       %reserved_names = core.call @agent_reserved_runtime_names()
       %runtime_options = core.call intrinsic.map.merge(%empty_map, %options)
+      core.call intrinsic.map.delete(%runtime_options, "runtime")
       core.set %runtime_options["reservedNames"] = %reserved_names
       %timeout_ms = core.get %options["timeout_ms"] default null
       %timeout = core.get %options["timeout"] default %timeout_ms

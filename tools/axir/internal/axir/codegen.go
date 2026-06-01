@@ -311,6 +311,8 @@ func BuildCapabilityManifest(model AxRuntimeModel, target string) (CapabilityMan
 			"axagent-runtime-axjs-reference",
 			"axagent-runtime-profile-state-parity",
 			"axagent-runtime-profile-diagnostics",
+			"axagent-runtime-profile-agent-forward",
+			"axagent-runtime-profile-actor-loop",
 			"axagent-actor-step-alpha",
 			"axagent-runtime-language",
 			"axagent-actor-prompt-cache",

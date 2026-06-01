@@ -507,7 +507,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 					t.Fatalf("manifest missing suite %s: %#v", want, manifest.SupportedSuites)
 				}
 			}
-			for _, want := range []string{"axagent-runtime-profile-javascript-quickjs", "axagent-runtime-quickjs-session-state", "axagent-runtime-quickjs-host-calls", "axagent-runtime-quickjs-native-host-calls", "axagent-runtime-quickjs-callback-errors", "axagent-runtime-quickjs-limits", "axagent-runtime-quickjs-diagnostics", "axagent-runtime-profile-python-pyodide", "axagent-runtime-pyodide-session-state", "axagent-runtime-pyodide-host-calls", "axagent-runtime-pyodide-diagnostics", "axagent-runtime-profile-parity", "axagent-runtime-axjs-reference", "axagent-runtime-profile-state-parity", "axagent-runtime-profile-diagnostics"} {
+			for _, want := range []string{"axagent-runtime-profile-javascript-quickjs", "axagent-runtime-quickjs-session-state", "axagent-runtime-quickjs-host-calls", "axagent-runtime-quickjs-native-host-calls", "axagent-runtime-quickjs-callback-errors", "axagent-runtime-quickjs-limits", "axagent-runtime-quickjs-diagnostics", "axagent-runtime-profile-python-pyodide", "axagent-runtime-pyodide-session-state", "axagent-runtime-pyodide-host-calls", "axagent-runtime-pyodide-diagnostics", "axagent-runtime-profile-parity", "axagent-runtime-axjs-reference", "axagent-runtime-profile-state-parity", "axagent-runtime-profile-diagnostics", "axagent-runtime-profile-agent-forward", "axagent-runtime-profile-actor-loop"} {
 				if !containsString(manifest.CoreOwnedFeatureGroups, want) {
 					t.Fatalf("manifest missing runtime profile feature %s: %#v", want, manifest.CoreOwnedFeatureGroups)
 				}
