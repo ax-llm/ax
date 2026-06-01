@@ -719,6 +719,12 @@ AXIR_QUICKJS4J_CP="$(sh examples/runtime_profiles/resolve_quickjs4j_cp.sh)"
 ` + "`AXIR_QUICKJS4J_CP_FILE`" + `, or ` + "`AXIR_QUICKJS4J_RESOLVE=1`" + ` to run the same
 generated Maven helper during verification.
 
+Python profile verification can point ` + "`AXIR_QUICKJS_RUNTIME_SERVER`" + ` at
+` + "`java -cp ... dev.ax.runtime.quickjs.AxQuickJsProtocolServer`" + ` explicitly. When
+that variable is not set, ` + "`axir verify --runtime-profiles javascript-quickjs`" + `
+auto-compiles and runs this generated Java protocol server whenever the
+QuickJS4J classpath is available.
+
 Host callbacks are registered with ` + "`AxQuickJsCodeRuntime.registerCallable`" + ` and
 are exposed to actor JavaScript as ordinary functions. Arguments and results must
 be JSON-compatible. Callback failures are normalized to runtime error objects;

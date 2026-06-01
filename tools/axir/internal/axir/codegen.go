@@ -454,7 +454,9 @@ Bun profiles because those are the existing TypeScript implementation surface.
   variables are supplied. Java profile verification accepts
   `+"`AXIR_QUICKJS4J_CP`"+`, `+"`AXIR_QUICKJS4J_CP_FILE`"+`, or
   `+"`AXIR_QUICKJS4J_RESOLVE=1`"+` to resolve the classpath with the generated
-  Maven helper.
+  Maven helper. Python profile verification accepts `+"`AXIR_QUICKJS_RUNTIME_SERVER`"+`
+  directly, or auto-starts the generated Java QuickJS4J protocol server when the
+  QuickJS4J classpath is available.
 - `+"`python-pyodide`"+`: Python actor code through a Pyodide JSONL protocol
   server. Python, Java, and C++ generated runtimes all use the existing runtime
   protocol boundary for this alpha; no host-native Python interpreter is

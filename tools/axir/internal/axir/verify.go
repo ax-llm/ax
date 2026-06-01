@@ -91,7 +91,7 @@ func Verify(rootFile string, opts VerifyOptions) (VerifyReport, error) {
 		}
 		if len(opts.RuntimeProfiles) > 0 && targetErr == nil {
 			var profileErr error
-			targetReport, profileErr = verifyRuntimeProfilesTarget(targetReport, target, opts.RuntimeProfiles, conformanceRoot)
+			targetReport, profileErr = verifyRuntimeProfilesTarget(targetReport, target, opts.RuntimeProfiles, conformanceRoot, bundle)
 			if profileErr != nil {
 				failures = append(failures, fmt.Sprintf("%s runtime profiles: %v", target, profileErr))
 			}
@@ -104,14 +104,14 @@ func Verify(rootFile string, opts VerifyOptions) (VerifyReport, error) {
 	return report, nil
 }
 
-func verifyRuntimeProfilesTarget(report VerifyTargetReport, target string, profiles []string, conformanceRoot string) (VerifyTargetReport, error) {
+func verifyRuntimeProfilesTarget(report VerifyTargetReport, target string, profiles []string, conformanceRoot string, bundle Bundle) (VerifyTargetReport, error) {
 	for _, profile := range normalizeVerifyTargets(profiles) {
 		switch profile {
 		case "javascript-quickjs":
 			var err error
 			switch target {
 			case "python":
-				report, err = verifyPythonQuickJSProfile(report, conformanceRoot)
+				report, err = verifyPythonQuickJSProfile(report, conformanceRoot, bundle)
 			case "java":
 				report, err = verifyJavaQuickJSProfile(report)
 			case "cpp":
@@ -231,17 +231,26 @@ func verifyPythonTarget(report VerifyTargetReport, conformanceRoot string) (Veri
 	return report, nil
 }
 
-func verifyPythonQuickJSProfile(report VerifyTargetReport, conformanceRoot string) (VerifyTargetReport, error) {
-	server := os.Getenv("AXIR_QUICKJS_RUNTIME_SERVER")
+func verifyPythonQuickJSProfile(report VerifyTargetReport, conformanceRoot string, bundle Bundle) (VerifyTargetReport, error) {
+	server := strings.TrimSpace(os.Getenv("AXIR_QUICKJS_RUNTIME_SERVER"))
+	serverSource := "AXIR_QUICKJS_RUNTIME_SERVER"
 	if server == "" {
-		report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile javascript-quickjs", Status: "skip", Message: "AXIR_QUICKJS_RUNTIME_SERVER not set"})
-		return report, nil
+		var err error
+		server, serverSource, err = quickJSJavaProtocolServerCommand(&report, bundle)
+		if err != nil {
+			return report, err
+		}
+		if server == "" {
+			report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile javascript-quickjs", Status: "skip", Message: "AXIR_QUICKJS_RUNTIME_SERVER not set and QuickJS4J classpath unavailable; use AXIR_QUICKJS_RUNTIME_SERVER, AXIR_QUICKJS4J_CP, AXIR_QUICKJS4J_CP_FILE, or AXIR_QUICKJS4J_RESOLVE=1"})
+			return report, nil
+		}
 	}
 	python, err := exec.LookPath("python3")
 	if err != nil {
 		report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile javascript-quickjs", Status: "skip", Message: "python3 not found"})
 		return report, nil
 	}
+	report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile javascript-quickjs server", Status: "ok", Message: serverSource})
 	env := runtimeProtocolEnv(conformanceRoot, append(os.Environ(), "PYTHONPATH="+report.OutDir, "AXIR_QUICKJS_RUNTIME_SERVER="+server))
 	return report, runVerifyCommand(&report, "runtime profile javascript-quickjs", "", env, python, filepath.Join(report.OutDir, "examples", "runtime_profiles", "javascript_quickjs.py"))
 }
@@ -388,6 +397,57 @@ func verifyJavaPyodideProfile(report VerifyTargetReport, conformanceRoot string)
 	return report, nil
 }
 
+func quickJSJavaProtocolServerCommand(report *VerifyTargetReport, bundle Bundle) (string, string, error) {
+	if !quickJS4JRequested() {
+		return "", "", nil
+	}
+	javac, err := findJavaTool("javac")
+	if err != nil {
+		report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile javascript-quickjs javac", Status: "skip", Message: err.Error()})
+		return "", "", nil
+	}
+	java, err := findJavaTool("java")
+	if err != nil {
+		report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile javascript-quickjs java", Status: "skip", Message: err.Error()})
+		return "", "", nil
+	}
+	javaOutDir := filepath.Join(filepath.Dir(report.OutDir), "_quickjs4j_protocol_server")
+	if err := os.RemoveAll(javaOutDir); err != nil {
+		return "", "", err
+	}
+	if err := Compile(bundle, "java", javaOutDir); err != nil {
+		return "", "", err
+	}
+	cp, cpSource, err := quickJS4JClasspath(javaOutDir)
+	if err != nil {
+		return "", "", err
+	}
+	if cp == "" {
+		return "", "", nil
+	}
+	report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile javascript-quickjs classpath", Status: "ok", Message: cpSource})
+	files, err := filepath.Glob(filepath.Join(javaOutDir, "dev", "ax", "*.java"))
+	if err != nil {
+		return "", "", err
+	}
+	profileFiles, err := filepath.Glob(filepath.Join(javaOutDir, "dev", "ax", "runtime", "quickjs", "*.java"))
+	if err != nil {
+		return "", "", err
+	}
+	files = append(files, profileFiles...)
+	sort.Strings(files)
+	classpath := javaOutDir + string(os.PathListSeparator) + cp
+	args := append([]string{"-cp", classpath, "-d", javaOutDir}, files...)
+	if err := runVerifyCommand(report, "compile runtime profile javascript-quickjs server", "", os.Environ(), javac, args...); err != nil {
+		return "", "", err
+	}
+	if err := runVerifyCommand(report, "runtime profile javascript-quickjs protocol server", "", os.Environ(), java, "-cp", classpath, "dev.ax.runtime.quickjs.AxQuickJsProtocolServer", "--self-test"); err != nil {
+		return "", "", err
+	}
+	server := quoteCommandArg(java) + " -cp " + quoteCommandArg(classpath) + " dev.ax.runtime.quickjs.AxQuickJsProtocolServer"
+	return server, "generated Java QuickJS4J protocol server via " + cpSource, nil
+}
+
 func pyodideRuntimeServerCommand(outDir, conformanceRoot string) (string, string, error) {
 	if server := strings.TrimSpace(os.Getenv("AXIR_PYODIDE_RUNTIME_SERVER")); server != "" {
 		return server, "AXIR_PYODIDE_RUNTIME_SERVER", nil
@@ -418,6 +478,16 @@ func pyodideRuntimeServerCommand(outDir, conformanceRoot string) (string, string
 		return "", "", fmt.Errorf("resolve Pyodide runtime server returned empty output")
 	}
 	return message, "AXIR_PYODIDE_RESOLVE generated npm helper", nil
+}
+
+func quickJS4JRequested() bool {
+	if strings.TrimSpace(os.Getenv("AXIR_QUICKJS4J_CP")) != "" {
+		return true
+	}
+	if strings.TrimSpace(os.Getenv("AXIR_QUICKJS4J_CP_FILE")) != "" {
+		return true
+	}
+	return envFlag(os.Getenv("AXIR_QUICKJS4J_RESOLVE"))
 }
 
 func quickJS4JClasspath(outDir string) (string, string, error) {
@@ -461,6 +531,16 @@ func quickJS4JClasspath(outDir string) (string, string, error) {
 		return "", "", fmt.Errorf("resolve QuickJS4J classpath returned empty output")
 	}
 	return message, "AXIR_QUICKJS4J_RESOLVE generated Maven helper", nil
+}
+
+func quoteCommandArg(value string) string {
+	if value == "" {
+		return "''"
+	}
+	if !strings.ContainsAny(value, " \t\n'\"\\") {
+		return value
+	}
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
 func envFlag(value string) bool {

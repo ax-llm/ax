@@ -113,7 +113,10 @@ arguments and results stay JSON-compatible; runtime limits and diagnostics are
 profile behavior rather than Core semantics. Java verification may use
 `AXIR_QUICKJS4J_CP`, `AXIR_QUICKJS4J_CP_FILE`, or `AXIR_QUICKJS4J_RESOLVE=1`
 to resolve the generated QuickJS4J Maven example classpath; default verification
-still skips the dependency-bearing profile when those inputs are absent.
+still skips the dependency-bearing profile when those inputs are absent. Python
+verification may use `AXIR_QUICKJS_RUNTIME_SERVER` directly, or automatically
+compile and run the generated Java QuickJS4J protocol server when the QuickJS4J
+classpath is available.
 
 The second dependency-bearing runtime profile is `python-pyodide`. It is a
 Python actor-language profile, not a generated-Python-host feature. Python,

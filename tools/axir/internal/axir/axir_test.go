@@ -488,6 +488,18 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 					t.Fatalf("generated %s package missing %s; files=%v", tc.target, want, files)
 				}
 			}
+			for _, profileExample := range runtimeProfileExampleGuards(tc.target) {
+				data, err := os.ReadFile(filepath.Join(dir, profileExample))
+				if err != nil {
+					t.Fatal(err)
+				}
+				text := string(data)
+				for _, want := range []string{"forward(", "max_actor_steps"} {
+					if !strings.Contains(text, want) {
+						t.Fatalf("generated %s runtime profile example %s missing actor-loop marker %q", tc.target, profileExample, want)
+					}
+				}
+			}
 			manifestData, err := os.ReadFile(filepath.Join(dir, "axir-capabilities.json"))
 			if err != nil {
 				t.Fatal(err)
@@ -525,6 +537,28 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				t.Fatalf("generated README missing contract text:\n%s", readme)
 			}
 		})
+	}
+}
+
+func runtimeProfileExampleGuards(target string) []string {
+	switch target {
+	case "python":
+		return []string{
+			"examples/runtime_profiles/javascript_quickjs.py",
+			"examples/runtime_profiles/python_pyodide.py",
+		}
+	case "java":
+		return []string{
+			"examples/runtime_profiles/JavaScriptQuickJsExample.java",
+			"examples/runtime_profiles/PythonPyodideExample.java",
+		}
+	case "cpp":
+		return []string{
+			"examples/runtime_profiles/javascript_quickjs.cpp",
+			"examples/runtime_profiles/python_pyodide.cpp",
+		}
+	default:
+		return nil
 	}
 }
 
@@ -2307,6 +2341,25 @@ func TestVerifyGeneratedPackages(t *testing.T) {
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("verify report missing %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestVerifyQuickJSProfileCanAutoDrivePythonThroughJavaServer(t *testing.T) {
+	data, err := os.ReadFile("verify.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, want := range []string{
+		"quickJSJavaProtocolServerCommand",
+		"AXIR_QUICKJS_RUNTIME_SERVER",
+		"generated Java QuickJS4J protocol server",
+		"compile runtime profile javascript-quickjs server",
+		"AxQuickJsProtocolServer",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("verify.go missing QuickJS Python-through-Java marker %q", want)
 		}
 	}
 }
