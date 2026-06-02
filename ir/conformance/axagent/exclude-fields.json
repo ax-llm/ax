@@ -5,11 +5,15 @@
   "expected_request_count": 3,
   "expected_stage_request_not_contains": [
     {
-      "absent": ["do-not-send-to-executor"],
+      "absent": [
+        "do-not-send-to-executor"
+      ],
       "index": 1
     },
     {
-      "absent": ["do-not-send-to-responder"],
+      "absent": [
+        "do-not-send-to-responder"
+      ],
       "index": 2
     }
   ],
@@ -22,12 +26,18 @@
   "kind": "agent_forward",
   "name": "exclude-fields",
   "options": {
-    "contextFields": ["document"],
+    "contextFields": [
+      "document"
+    ],
     "executorOptions": {
-      "excludeFields": ["secret"]
+      "excludeFields": [
+        "secret"
+      ]
     },
     "responderOptions": {
-      "excludeFields": ["scratch"]
+      "excludeFields": [
+        "scratch"
+      ]
     }
   },
   "responses": [

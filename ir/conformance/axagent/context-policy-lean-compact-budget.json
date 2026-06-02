@@ -1,0 +1,38 @@
+{
+  "context_operation": "resolve_policy",
+  "expected_context_result_subset": {
+    "actionReplay": "minimal",
+    "budget": "compact",
+    "checkpoints": {
+      "enabled": true,
+      "triggerChars": 7200
+    },
+    "contextHygiene": {
+      "defaultMode": "aggressive",
+      "pressureMode": "aggressive"
+    },
+    "maxRuntimeChars": 1500,
+    "preset": "lean",
+    "recentFullActions": 1,
+    "stateInspection": {
+      "contextThreshold": 10200,
+      "enabled": true
+    },
+    "stateSummary": {
+      "enabled": true,
+      "maxChars": 1200,
+      "maxEntries": 4
+    },
+    "targetPromptChars": 12000
+  },
+  "kind": "agent_runtime_policy",
+  "name": "context-policy-lean-compact-budget",
+  "options": {
+    "contextPolicy": {
+      "budget": "compact",
+      "preset": "lean"
+    },
+    "maxRuntimeChars": 1500
+  },
+  "signature": "question:string -> answer:string"
+}

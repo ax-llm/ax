@@ -15,8 +15,12 @@
     ],
     "policy_trace": [
       {
-        "skills": ["sql"],
-        "tools": ["docs"],
+        "skills": [
+          "sql"
+        ],
+        "tools": [
+          "docs"
+        ],
         "type": "discover"
       }
     ],
@@ -42,8 +46,12 @@
     ],
     "policy_trace": [
       {
-        "skills": ["sql"],
-        "tools": ["docs"],
+        "skills": [
+          "sql"
+        ],
+        "tools": [
+          "docs"
+        ],
         "type": "discover"
       }
     ],

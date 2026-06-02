@@ -19,7 +19,10 @@
       "triggeredBy": "tools.review"
     }
   ],
-  "expected_trace_event_kinds": ["function_call", "guide_agent"],
+  "expected_trace_event_kinds": [
+    "function_call",
+    "guide_agent"
+  ],
   "invoke_callable": {
     "args": {
       "draft": "rough answer"

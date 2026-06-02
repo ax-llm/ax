@@ -70,6 +70,25 @@ restart/error envelopes, action-log records, and trace events. Targets own the
 actual interpreter, sandbox permissions, native cancellation, filesystem/network
 access, and callback invocation.
 
+AxAgent long-run context behavior is also Core-owned. Generated targets resolve
+`contextPolicy`, `summarizerOptions`, `maxRuntimeChars`, and
+`executorModelPolicy` into the same actor prompt budget contract, then build
+stable cached actor fields and dynamic uncached fields consistently:
+`summarizedActorLog`, `actionLog`, `liveRuntimeState`, `contextPressure`,
+checkpoint summaries, restore notices, and context events. Model-generated
+checkpoint or tombstone summaries remain host AxGen/AxAI boundaries; AxIR owns
+when they are requested, deterministic fallback summaries, compaction records,
+checkpoint state shape, and exported/restored state placement.
+
+AxAgent policy vocabulary is data, not target template behavior. Core exposes a
+versioned policy vocabulary registry for actor primitive names, protocol action
+names, context-policy option keys, preset/budget profiles, pressure labels,
+context-event names, migration errors, and executor-model-policy legacy keys.
+Core procedures consume those registry entries through stable internal concepts
+and keep real mechanics procedural. Future TypeScript policy churn should update
+TS-derived fixtures plus registry data, not generated Python, Java, or C++
+surface code.
+
 Generated targets also expose small runtime adapter helpers so host runtimes can
 produce Core-compatible envelopes without copying fixture shapes by hand. These
 helpers are not interpreters or sandboxes; they only describe capabilities and

@@ -6,7 +6,9 @@
     },
     {
       "request": {
-        "tools": ["search"]
+        "tools": [
+          "search"
+        ]
       },
       "type": "discover"
     },
@@ -22,7 +24,10 @@
   "expected_output": {
     "answer": "Docs found"
   },
-  "expected_request_contains": ["Search docs", "Discovered Tool Docs"],
+  "expected_request_contains": [
+    "Search docs",
+    "Discovered Tool Docs"
+  ],
   "expected_request_count": 4,
   "input": {
     "question": "Find docs"
@@ -60,7 +65,9 @@
       "expected_code": "discover({\"tools\":[\"search\"]})",
       "result": {
         "discover": {
-          "tools": ["search"]
+          "tools": [
+            "search"
+          ]
         }
       }
     },

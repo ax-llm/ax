@@ -9,7 +9,9 @@
       "status": "error"
     }
   ],
-  "expected_trace_event_kinds": ["function_call"],
+  "expected_trace_event_kinds": [
+    "function_call"
+  ],
   "invoke_callable": {
     "args": {
       "input": "x"

@@ -1,0 +1,14 @@
+{
+  "context_operation": "resolve_policy",
+  "expected_error_contains": "contextPolicy.state.* has been removed. Use contextPolicy.budget instead.",
+  "kind": "agent_runtime_policy",
+  "name": "context-policy-state-migration-error",
+  "options": {
+    "contextPolicy": {
+      "state": {
+        "maxEntries": 2
+      }
+    }
+  },
+  "signature": "question:string -> answer:string"
+}

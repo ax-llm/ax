@@ -1,6 +1,8 @@
 {
   "discover": {
-    "tools": ["docs"]
+    "tools": [
+      "docs"
+    ]
   },
   "expected_discover_result": null,
   "expected_discovered_tool_docs_subset": [
@@ -14,7 +16,9 @@
   "expected_policy_trace_subset": [
     {
       "skills": [],
-      "tools": ["docs"],
+      "tools": [
+        "docs"
+      ],
       "type": "discover"
     }
   ],

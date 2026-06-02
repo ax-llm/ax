@@ -1,0 +1,14 @@
+{
+  "context_operation": "resolve_policy",
+  "expected_error_contains": "contextPolicy.checkpoints.* has been removed. Use contextPolicy.budget instead.",
+  "kind": "agent_runtime_policy",
+  "name": "context-policy-checkpoints-migration-error",
+  "options": {
+    "contextPolicy": {
+      "checkpoints": {
+        "triggerChars": 1
+      }
+    }
+  },
+  "signature": "question:string -> answer:string"
+}

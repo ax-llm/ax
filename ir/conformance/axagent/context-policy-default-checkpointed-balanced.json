@@ -1,0 +1,31 @@
+{
+  "context_operation": "resolve_policy",
+  "expected_context_result_subset": {
+    "actionReplay": "checkpointed",
+    "budget": "balanced",
+    "checkpoints": {
+      "enabled": true,
+      "triggerChars": 16000
+    },
+    "contextHygiene": {
+      "defaultMode": "none",
+      "pressureMode": "pressure"
+    },
+    "maxRuntimeChars": 3000,
+    "preset": "checkpointed",
+    "recentFullActions": 3,
+    "stateInspection": {
+      "contextThreshold": 13600,
+      "enabled": false
+    },
+    "stateSummary": {
+      "enabled": true,
+      "maxChars": 1200,
+      "maxEntries": 8
+    },
+    "targetPromptChars": 16000
+  },
+  "kind": "agent_runtime_policy",
+  "name": "context-policy-default-checkpointed-balanced",
+  "signature": "question:string -> answer:string"
+}

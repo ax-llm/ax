@@ -38,7 +38,10 @@
       "normalize": true
     },
     {
-      "args": ["boom", "runtime"],
+      "args": [
+        "boom",
+        "runtime"
+      ],
       "expected_normalized_subset": {
         "error_category": "runtime",
         "is_error": true,
@@ -54,7 +57,9 @@
       "normalize": true
     },
     {
-      "args": ["closed"],
+      "args": [
+        "closed"
+      ],
       "expected_normalized_subset": {
         "kind": "error",
         "restart_notice": "runtime session closed; restarting fresh session"
@@ -69,7 +74,9 @@
       "normalize": true
     },
     {
-      "args": ["slow"],
+      "args": [
+        "slow"
+      ],
       "expected_normalized_subset": {
         "error_category": "timeout",
         "kind": "error"
@@ -142,19 +149,25 @@
     {
       "args": [
         {
-          "tools": ["docs"]
+          "tools": [
+            "docs"
+          ]
         }
       ],
       "expected": {
         "discover": {
-          "tools": ["docs"]
+          "tools": [
+            "docs"
+          ]
         },
         "kind": "discover"
       },
       "name": "discover"
     },
     {
-      "args": ["prefs"],
+      "args": [
+        "prefs"
+      ],
       "expected": {
         "kind": "recall",
         "recall": "prefs"
@@ -162,7 +175,9 @@
       "name": "recall"
     },
     {
-      "args": ["mem-1"],
+      "args": [
+        "mem-1"
+      ],
       "expected": {
         "kind": "used",
         "used": {
@@ -178,7 +193,10 @@
       "name": "used"
     },
     {
-      "args": ["success", "loaded"],
+      "args": [
+        "success",
+        "loaded"
+      ],
       "expected": {
         "kind": "status",
         "status": {
@@ -189,7 +207,10 @@
       "name": "status"
     },
     {
-      "args": ["Use the loaded docs.", "tools.review"],
+      "args": [
+        "Use the loaded docs.",
+        "tools.review"
+      ],
       "expected": {
         "guidance": "Use the loaded docs.",
         "triggeredBy": "tools.review",

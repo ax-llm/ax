@@ -1,0 +1,24 @@
+{
+  "context_operation": "smart_stringify",
+  "expected_context_result": {
+    "text": "[\n  0,\n  1,\n  2,\n  ... [7 hidden items],\n  10,\n  11\n]"
+  },
+  "kind": "agent_runtime_policy",
+  "max_chars": 400,
+  "name": "context-smart-stringify-large-array",
+  "signature": "question:string -> answer:string",
+  "value": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11
+  ]
+}

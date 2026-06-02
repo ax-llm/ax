@@ -1,0 +1,17 @@
+{
+  "context_operation": "executor_model_policy",
+  "expected_error_contains": "executorModelPolicy[0].namespaces must contain at least one non-empty string",
+  "kind": "agent_runtime_policy",
+  "name": "executor-model-policy-empty-namespaces",
+  "options": {
+    "executorModelPolicy": [
+      {
+        "model": "tools",
+        "namespaces": [
+          "  "
+        ]
+      }
+    ]
+  },
+  "signature": "question:string -> answer:string"
+}

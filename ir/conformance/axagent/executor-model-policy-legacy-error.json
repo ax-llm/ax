@@ -1,0 +1,15 @@
+{
+  "context_operation": "executor_model_policy",
+  "expected_error_contains": "executorModelPolicy now expects an ordered array of { model, namespaces?, aboveErrorTurns? } entries. Manage prompt pressure with contextPolicy.budget instead of abovePromptChars.",
+  "kind": "agent_runtime_policy",
+  "name": "executor-model-policy-legacy-error",
+  "options": {
+    "executorModelPolicy": [
+      {
+        "abovePromptChars": 12000,
+        "model": "old"
+      }
+    ]
+  },
+  "signature": "question:string -> answer:string"
+}

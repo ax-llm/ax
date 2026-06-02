@@ -61,6 +61,8 @@ module @ax.agent version "0.1" {
       %policy = core.call @normalize_agent_policy(%options)
       %policy_flags = core.call @agent_policy_flags(%options)
       %policy_registry = core.call @agent_policy_registry(%policy, %policy_flags)
+      %context_policy = core.call @resolve_agent_context_policy(%options)
+      %executor_model_policy = core.call @resolve_agent_executor_model_policy(%options)
       %callable_inventory = core.call @normalize_agent_callable_inventory(%options)
       %callable_split = core.call @split_agent_callable_inventory(%callable_inventory)
       %discovery_catalog = core.call @render_agent_discovery_catalog(%callable_split)
@@ -72,6 +74,8 @@ module @ax.agent version "0.1" {
       %guidance_log = core.list
       %function_call_traces = core.list
       %policy_trace = core.list
+      %context_events = core.list
+      %actor_model_state = core.map
       %trace_events = core.list
       %trace = core.map
       core.set %trace["schema_version"] = "axir-agent-trace-v1"
@@ -85,7 +89,7 @@ module @ax.agent version "0.1" {
       core.set %state["responder_exclude_fields"] = %responder_exclude
       core.set %state["distiller_signature"] = "input:json, context:json -> completion:json"
       %code_field_name = core.get %runtime_contract["code_field_name"] default "javascriptCode"
-      %runtime_executor_signature = core.call intrinsic.string.format("input:json, executorRequest:string, distilledContext:json, discoveredToolDocs?:string, loadedSkills?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string -> {}:code", %code_field_name)
+      %runtime_executor_signature = core.call intrinsic.string.format("input:json, executorRequest:string, distilledContext:json, memories?:json, discoveredToolDocs?:string, loadedSkills?:string, summarizedActorLog?:string, guidanceLog?:string, actionLog:string, liveRuntimeState?:string, contextPressure?:string -> {}:code", %code_field_name)
       %executor_signature = core.let "input:json, executorRequest:string, distilledContext:json -> completion:json"
       core.if %runtime_enabled {
         %executor_signature = core.let %runtime_executor_signature
@@ -102,6 +106,10 @@ module @ax.agent version "0.1" {
       core.set %state["policy"] = %policy
       core.set %state["policy_flags"] = %policy_flags
       core.set %state["policy_registry"] = %policy_registry
+      core.set %state["context_policy"] = %context_policy
+      core.set %state["executor_model_policy"] = %executor_model_policy
+      core.set %state["context_events"] = %context_events
+      core.set %state["actor_model_state"] = %actor_model_state
       core.set %state["callable_inventory"] = %callable_inventory
       core.set %state["callable_split"] = %callable_split
       core.set %state["discovery_catalog"] = %discovery_catalog
@@ -127,16 +135,13 @@ module @ax.agent version "0.1" {
     attr emit_module = "agent"
     type signature = "() -> list<string>"
     body @entry {
-      %names = core.list
-      core.append %names, "inputs"
-      core.append %names, "final"
-      core.append %names, "askClarification"
-      core.append %names, "discover"
-      core.append %names, "recall"
-      core.append %names, "llmQuery"
-      core.append %names, "inspectRuntime"
-      core.append %names, "reportSuccess"
-      core.append %names, "reportFailure"
+      %registry = core.call @agent_policy_vocabulary_registry()
+      %names = core.get %registry["reserved_runtime_names"] default null
+      %names_is_list = core.type_is %names type "list"
+      core.if %names_is_list {
+      } else {
+        %names = core.list
+      }
       core.return %names
     }
   }
@@ -366,6 +371,7 @@ module @ax.agent version "0.1" {
     body @entry(%id: string, %category: string, %kind: string, %stages: json, %availability: string, %effect: string, %host_boundary: string, %actor_visible: bool) {
       %entry = core.map
       core.set %entry["id"] = %id
+      core.set %entry["public_name"] = %id
       core.set %entry["category"] = %category
       core.set %entry["kind"] = %kind
       core.set %entry["stages"] = %stages
@@ -378,11 +384,374 @@ module @ax.agent version "0.1" {
     }
   }
 
+  op ax.agent.policy @agent_policy_vocabulary_registry {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "() -> json"
+    body @entry {
+      %registry = core.map
+      %none_value = core.call intrinsic.none()
+      core.set %registry["policy_schema_version"] = "axir-agent-policy-vocabulary-v1"
+      core.set %registry["policy_version"] = "agent-runtime-decision-v1"
+
+      %primitive_names = core.map
+      core.set %primitive_names["llm_query"] = "llmQuery"
+      core.set %primitive_names["final"] = "final"
+      core.set %primitive_names["ask_clarification"] = "askClarification"
+      core.set %primitive_names["report_success"] = "reportSuccess"
+      core.set %primitive_names["report_failure"] = "reportFailure"
+      core.set %primitive_names["inspect_runtime"] = "inspectRuntime"
+      core.set %primitive_names["discover"] = "discover"
+      core.set %primitive_names["recall"] = "recall"
+      core.set %primitive_names["used"] = "used"
+      core.set %primitive_names["guide_agent"] = "guideAgent"
+      core.set %primitive_names["inputs"] = "inputs"
+      core.set %registry["actor_primitive_names"] = %primitive_names
+
+      %reserved = core.list
+      core.append %reserved, "inputs"
+      core.append %reserved, "final"
+      core.append %reserved, "askClarification"
+      core.append %reserved, "discover"
+      core.append %reserved, "recall"
+      core.append %reserved, "llmQuery"
+      core.append %reserved, "inspectRuntime"
+      core.append %reserved, "reportSuccess"
+      core.append %reserved, "reportFailure"
+      core.set %registry["reserved_runtime_names"] = %reserved
+
+      %effect_only = core.list
+      core.append %effect_only, "discover"
+      core.append %effect_only, "recall"
+      core.append %effect_only, "used"
+      core.set %registry["effect_only_actions"] = %effect_only
+
+      %context = core.map
+      core.set %context["default_preset"] = "checkpointed"
+      core.set %context["default_budget"] = "balanced"
+      core.set %context["full_preset"] = "full"
+      core.set %context["default_max_runtime_chars"] = 3000
+      core.set %context["state_summary_max_chars"] = 1200
+
+      %option_keys = core.map
+      core.set %option_keys["camel"] = "contextPolicy"
+      core.set %option_keys["snake"] = "context_policy"
+      core.set %option_keys["preset"] = "preset"
+      core.set %option_keys["budget"] = "budget"
+      core.set %option_keys["summarizer_camel"] = "summarizerOptions"
+      core.set %option_keys["summarizer_snake"] = "summarizer_options"
+      core.set %option_keys["max_runtime_camel"] = "maxRuntimeChars"
+      core.set %option_keys["max_runtime_snake"] = "max_runtime_chars"
+      core.set %context["option_keys"] = %option_keys
+
+      %allowed_keys = core.list
+      core.append %allowed_keys, "preset"
+      core.append %allowed_keys, "budget"
+      core.set %context["allowed_keys"] = %allowed_keys
+
+      %migration_errors = core.map
+      core.set %migration_errors["state"] = "contextPolicy.state.* has been removed. Use contextPolicy.budget instead."
+      core.set %migration_errors["checkpoints"] = "contextPolicy.checkpoints.* has been removed. Use contextPolicy.budget instead."
+      core.set %migration_errors["summarizerOptions"] = "contextPolicy.summarizerOptions has moved to top-level summarizerOptions."
+      core.set %migration_errors["default"] = "contextPolicy now only supports { preset?, budget? }. Use contextPolicy.budget instead of contextPolicy.state.*, contextPolicy.checkpoints.*, or other manual cutoff options."
+      core.set %context["migration_errors"] = %migration_errors
+
+      %budgets = core.map
+      %budget_compact = core.map
+      core.set %budget_compact["id"] = "compact"
+      core.set %budget_compact["targetPromptChars"] = 12000
+      core.set %budget_compact["inspectThreshold"] = 10200
+      core.set %budgets["compact"] = %budget_compact
+      %budget_balanced = core.map
+      core.set %budget_balanced["id"] = "balanced"
+      core.set %budget_balanced["targetPromptChars"] = 16000
+      core.set %budget_balanced["inspectThreshold"] = 13600
+      core.set %budgets["balanced"] = %budget_balanced
+      %budget_expanded = core.map
+      core.set %budget_expanded["id"] = "expanded"
+      core.set %budget_expanded["targetPromptChars"] = 20000
+      core.set %budget_expanded["inspectThreshold"] = 17000
+      core.set %budgets["expanded"] = %budget_expanded
+      core.set %context["budgets"] = %budgets
+
+      %presets = core.map
+      %preset_full = core.map
+      core.set %preset_full["id"] = "full"
+      core.set %preset_full["actionReplay"] = "full"
+      core.set %preset_full["recentFullActions"] = 1
+      core.set %preset_full["errorPruning"] = false
+      core.set %preset_full["hindsight"] = false
+      core.set %preset_full["pruneRank"] = 2
+      core.set %preset_full["stateSummary"] = false
+      core.set %preset_full["inspect"] = false
+      core.set %preset_full["maxEntries"] = %none_value
+      core.set %preset_full["defaultHygieneMode"] = "none"
+      core.set %preset_full["pressureHygieneMode"] = %none_value
+      core.set %preset_full["checkpointsEnabled"] = false
+      core.set %preset_full["checkpointTriggerRatio"] = %none_value
+      core.set %presets["full"] = %preset_full
+
+      %preset_adaptive = core.map
+      %adaptive_recent = core.map
+      core.set %adaptive_recent["compact"] = 1
+      core.set %adaptive_recent["balanced"] = 2
+      core.set %adaptive_recent["expanded"] = 3
+      core.set %preset_adaptive["id"] = "adaptive"
+      core.set %preset_adaptive["actionReplay"] = "adaptive"
+      core.set %preset_adaptive["recentFullActionsByBudget"] = %adaptive_recent
+      core.set %preset_adaptive["recentFullActions"] = 1
+      core.set %preset_adaptive["errorPruning"] = true
+      core.set %preset_adaptive["hindsight"] = false
+      core.set %preset_adaptive["pruneRank"] = 2
+      core.set %preset_adaptive["stateSummary"] = true
+      core.set %preset_adaptive["inspect"] = true
+      core.set %preset_adaptive["maxEntries"] = 8
+      core.set %preset_adaptive["defaultHygieneMode"] = "proactive"
+      core.set %preset_adaptive["pressureHygieneMode"] = "proactive"
+      core.set %preset_adaptive["checkpointsEnabled"] = true
+      core.set %preset_adaptive["checkpointTriggerRatio"] = 0.75
+      core.set %presets["adaptive"] = %preset_adaptive
+
+      %preset_lean = core.map
+      %lean_recent = core.map
+      core.set %lean_recent["compact"] = 1
+      core.set %lean_recent["balanced"] = 1
+      core.set %lean_recent["expanded"] = 2
+      core.set %preset_lean["id"] = "lean"
+      core.set %preset_lean["actionReplay"] = "minimal"
+      core.set %preset_lean["recentFullActionsByBudget"] = %lean_recent
+      core.set %preset_lean["recentFullActions"] = 1
+      core.set %preset_lean["errorPruning"] = true
+      core.set %preset_lean["hindsight"] = false
+      core.set %preset_lean["pruneRank"] = 2
+      core.set %preset_lean["stateSummary"] = true
+      core.set %preset_lean["inspect"] = true
+      core.set %preset_lean["maxEntries"] = 4
+      core.set %preset_lean["defaultHygieneMode"] = "aggressive"
+      core.set %preset_lean["pressureHygieneMode"] = "aggressive"
+      core.set %preset_lean["checkpointsEnabled"] = true
+      core.set %preset_lean["checkpointTriggerRatio"] = 0.6
+      core.set %presets["lean"] = %preset_lean
+
+      %preset_checkpointed = core.map
+      %checkpointed_recent = core.map
+      core.set %checkpointed_recent["compact"] = 2
+      core.set %checkpointed_recent["balanced"] = 3
+      core.set %checkpointed_recent["expanded"] = 4
+      core.set %preset_checkpointed["id"] = "checkpointed"
+      core.set %preset_checkpointed["actionReplay"] = "checkpointed"
+      core.set %preset_checkpointed["recentFullActionsByBudget"] = %checkpointed_recent
+      core.set %preset_checkpointed["recentFullActions"] = 2
+      core.set %preset_checkpointed["errorPruning"] = false
+      core.set %preset_checkpointed["hindsight"] = false
+      core.set %preset_checkpointed["pruneRank"] = 2
+      core.set %preset_checkpointed["stateSummary"] = true
+      core.set %preset_checkpointed["inspect"] = false
+      core.set %preset_checkpointed["maxEntries"] = 8
+      core.set %preset_checkpointed["defaultHygieneMode"] = "none"
+      core.set %preset_checkpointed["pressureHygieneMode"] = "pressure"
+      core.set %preset_checkpointed["checkpointsEnabled"] = true
+      core.set %preset_checkpointed["checkpointTriggerRatio"] = 1
+      core.set %presets["checkpointed"] = %preset_checkpointed
+      core.set %context["presets"] = %presets
+
+      %budget_math = core.map
+      core.set %budget_math["maxSystemPromptChars"] = 30000
+      core.set %budget_math["minEffectiveBudgetRatio"] = 0.25
+      core.set %context["budget_math"] = %budget_math
+
+      %runtime_output_budget = core.map
+      core.set %runtime_output_budget["floorRatio"] = 0.15
+      core.set %runtime_output_budget["minRuntimeChars"] = 400
+      core.set %context["runtime_output_budget"] = %runtime_output_budget
+
+      %smart_stringify = core.map
+      core.set %smart_stringify["arrayThreshold"] = 10
+      core.set %smart_stringify["arrayHeadItems"] = 3
+      core.set %smart_stringify["arrayTailItems"] = 2
+      core.set %context["smart_stringify"] = %smart_stringify
+
+      %pressure_levels = core.map
+      %pressure_ok = core.map
+      core.set %pressure_ok["id"] = "ok"
+      core.set %pressure_ok["threshold"] = 0
+      core.set %pressure_ok["text"] = "ok - normal context pressure; continue with focused, useful inspections."
+      core.set %pressure_levels["ok"] = %pressure_ok
+      %pressure_watch = core.map
+      core.set %pressure_watch["id"] = "watch"
+      core.set %pressure_watch["threshold"] = 0.7
+      core.set %pressure_watch["text"] = "watch - keep inspections compact and avoid logging large raw values."
+      core.set %pressure_levels["watch"] = %pressure_watch
+      %pressure_critical = core.map
+      core.set %pressure_critical["id"] = "critical"
+      core.set %pressure_critical["threshold"] = 0.9
+      core.set %pressure_critical["text"] = "critical - prefer compact inspections, avoid large logs, and rely on liveRuntimeState/checkpoints for older work."
+      core.set %pressure_levels["critical"] = %pressure_critical
+      core.set %context["pressure_levels"] = %pressure_levels
+
+      %event_names = core.map
+      core.set %event_names["budget_check"] = "budget_check"
+      core.set %event_names["action_compacted"] = "action_compacted"
+      core.set %event_names["checkpoint_created"] = "checkpoint_created"
+      core.set %event_names["checkpoint_cleared"] = "checkpoint_cleared"
+      core.set %event_names["tombstone_created"] = "tombstone_created"
+      core.set %context["event_names"] = %event_names
+
+      %event_reasons = core.map
+      core.set %event_reasons["over_budget"] = "over_budget"
+      core.set %event_reasons["under_budget"] = "under_budget"
+      core.set %event_reasons["disabled"] = "disabled"
+      core.set %event_reasons["pressure"] = "pressure"
+      core.set %event_reasons["proactive"] = "proactive"
+      core.set %event_reasons["lean"] = "lean"
+      core.set %context["event_reasons"] = %event_reasons
+
+      %hygiene_modes = core.map
+      core.set %hygiene_modes["none"] = "none"
+      core.set %hygiene_modes["proactive"] = "proactive"
+      core.set %hygiene_modes["pressure"] = "pressure"
+      core.set %hygiene_modes["aggressive"] = "aggressive"
+      core.set %context["hygiene_modes"] = %hygiene_modes
+
+      %executor_model = core.map
+      core.set %executor_model["migration_error"] = "executorModelPolicy now expects an ordered array of { model, namespaces?, aboveErrorTurns? } entries. Manage prompt pressure with contextPolicy.budget instead of abovePromptChars."
+      %legacy_keys = core.list
+      core.append %legacy_keys, "escalatedModel"
+      core.append %legacy_keys, "baseModel"
+      core.append %legacy_keys, "abovePromptChars"
+      core.append %legacy_keys, "escalateAtPromptChars"
+      core.append %legacy_keys, "escalateAtPromptCharsWhenCheckpointed"
+      core.append %legacy_keys, "recentErrorWindowTurns"
+      core.append %legacy_keys, "recentErrorThreshold"
+      core.append %legacy_keys, "discoveryStallTurns"
+      core.append %legacy_keys, "deescalateBelowPromptChars"
+      core.append %legacy_keys, "stableTurnsBeforeDeescalate"
+      core.append %legacy_keys, "minEscalatedTurns"
+      core.set %executor_model["legacy_keys"] = %legacy_keys
+      core.set %context["executor_model_policy"] = %executor_model
+
+      core.set %registry["context_policy"] = %context
+      core.return %registry
+    }
+  }
+
+  op ax.agent.policy @agent_context_policy_registry {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "() -> json"
+    body @entry {
+      %registry = core.call @agent_policy_vocabulary_registry()
+      %empty_map = core.map
+      %context = core.get %registry["context_policy"] default %empty_map
+      core.return %context
+    }
+  }
+
+  op ax.agent.policy @agent_context_policy_migration_error {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(string) -> string"
+    body @entry(%key: string) {
+      %context = core.call @agent_context_policy_registry()
+      %empty_map = core.map
+      %errors = core.get %context["migration_errors"] default %empty_map
+      %default_message = core.get %errors["default"] default "contextPolicy now only supports { preset?, budget? }."
+      %message = core.get %errors[%key] default %default_message
+      core.return %message
+    }
+  }
+
+  op ax.agent.policy @agent_context_budget_profile {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(string) -> json"
+    body @entry(%budget: string) {
+      %context = core.call @agent_context_policy_registry()
+      %empty_map = core.map
+      %budgets = core.get %context["budgets"] default %empty_map
+      %default_budget = core.get %context["default_budget"] default "balanced"
+      %fallback = core.get %budgets[%default_budget] default %empty_map
+      %profile = core.get %budgets[%budget] default %fallback
+      %is_map = core.type_is %profile type "object"
+      core.if %is_map {
+      } else {
+        %profile = core.let %fallback
+      }
+      core.return %profile
+    }
+  }
+
+  op ax.agent.policy @agent_context_preset_profile {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(string) -> json"
+    body @entry(%preset: string) {
+      %context = core.call @agent_context_policy_registry()
+      %empty_map = core.map
+      %presets = core.get %context["presets"] default %empty_map
+      %full_preset = core.get %context["full_preset"] default "full"
+      %fallback = core.get %presets[%full_preset] default %empty_map
+      %profile = core.get %presets[%preset] default %fallback
+      %is_map = core.type_is %profile type "object"
+      core.if %is_map {
+      } else {
+        %profile = core.let %fallback
+      }
+      core.return %profile
+    }
+  }
+
+  op ax.agent.policy @agent_context_event_name {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(string) -> string"
+    body @entry(%stable_id: string) {
+      %context = core.call @agent_context_policy_registry()
+      %empty_map = core.map
+      %names = core.get %context["event_names"] default %empty_map
+      %name = core.get %names[%stable_id] default %stable_id
+      core.return %name
+    }
+  }
+
+  op ax.agent.policy @agent_context_event_reason {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(string) -> string"
+    body @entry(%stable_id: string) {
+      %context = core.call @agent_context_policy_registry()
+      %empty_map = core.map
+      %names = core.get %context["event_reasons"] default %empty_map
+      %name = core.get %names[%stable_id] default %stable_id
+      core.return %name
+    }
+  }
+
   op ax.agent.policy @agent_policy_registry {
     attr core_kind = "func"
     attr emit_module = "agent"
     type signature = "(json, json) -> json"
     body @entry(%policy: json, %flags: json) {
+      %vocabulary = core.call @agent_policy_vocabulary_registry()
+      %empty_map = core.map
+      %primitive_names = core.get %vocabulary["actor_primitive_names"] default %empty_map
+      %llm_query_name = core.get %primitive_names["llm_query"] default "llmQuery"
+      %final_name = core.get %primitive_names["final"] default "final"
+      %ask_clarification_name = core.get %primitive_names["ask_clarification"] default "askClarification"
+      %report_success_name = core.get %primitive_names["report_success"] default "reportSuccess"
+      %report_failure_name = core.get %primitive_names["report_failure"] default "reportFailure"
+      %inspect_runtime_name = core.get %primitive_names["inspect_runtime"] default "inspectRuntime"
+      %discover_name = core.get %primitive_names["discover"] default "discover"
+      %recall_name = core.get %primitive_names["recall"] default "recall"
+      %used_name = core.get %primitive_names["used"] default "used"
+      %guide_agent_name = core.get %primitive_names["guide_agent"] default "guideAgent"
+      %inputs_name = core.get %primitive_names["inputs"] default "inputs"
       %distiller_executor = core.list
       core.append %distiller_executor, "distiller"
       core.append %distiller_executor, "executor"
@@ -392,37 +761,37 @@ module @ax.agent version "0.1" {
       core.append %all_actor, "distiller"
       core.append %all_actor, "executor"
       %actor_primitives = core.list
-      %llm = core.call @agent_policy_action("llmQuery", "actor_primitive", "sub_agent_query", %distiller_executor, "always", "returns string or string[]", "sub_agent_llm_query", true)
+      %llm = core.call @agent_policy_action(%llm_query_name, "actor_primitive", "sub_agent_query", %distiller_executor, "always", "returns string or string[]", "sub_agent_llm_query", true)
       core.append %actor_primitives, %llm
-      %final_action = core.call @agent_policy_action("final", "actor_primitive", "completion", %distiller_executor, "always", "ends actor turn with final payload", "runtime_completion_signal", true)
+      %final_action = core.call @agent_policy_action(%final_name, "actor_primitive", "completion", %distiller_executor, "always", "ends actor turn with final payload", "runtime_completion_signal", true)
       core.append %actor_primitives, %final_action
-      %clarify = core.call @agent_policy_action("askClarification", "actor_primitive", "completion", %distiller_executor, "always", "throws clarification payload", "runtime_completion_signal", true)
+      %clarify = core.call @agent_policy_action(%ask_clarification_name, "actor_primitive", "completion", %distiller_executor, "always", "throws clarification payload", "runtime_completion_signal", true)
       core.append %actor_primitives, %clarify
-      %success = core.call @agent_policy_action("reportSuccess", "actor_primitive", "status", %executor_only, "hasAgentStatusCallback", "records successful progress status", "status_callback", true)
+      %success = core.call @agent_policy_action(%report_success_name, "actor_primitive", "status", %executor_only, "hasAgentStatusCallback", "records successful progress status", "status_callback", true)
       core.append %actor_primitives, %success
-      %failure = core.call @agent_policy_action("reportFailure", "actor_primitive", "status", %executor_only, "hasAgentStatusCallback", "records failed progress status", "status_callback", true)
+      %failure = core.call @agent_policy_action(%report_failure_name, "actor_primitive", "status", %executor_only, "hasAgentStatusCallback", "records failed progress status", "status_callback", true)
       core.append %actor_primitives, %failure
-      %inspect = core.call @agent_policy_action("inspectRuntime", "actor_primitive", "runtime_inspection", %distiller_executor, "hasInspectRuntime", "returns compact runtime state", "runtime_inspection", true)
+      %inspect = core.call @agent_policy_action(%inspect_runtime_name, "actor_primitive", "runtime_inspection", %distiller_executor, "hasInspectRuntime", "returns compact runtime state", "runtime_inspection", true)
       core.append %actor_primitives, %inspect
-      %discover = core.call @agent_policy_action("discover", "actor_primitive", "discovery", %executor_only, "discoveryMode|skillsMode", "loads tool docs or skill guides for next turn", "tool_or_skill_discovery", true)
+      %discover = core.call @agent_policy_action(%discover_name, "actor_primitive", "discovery", %executor_only, "discoveryMode|skillsMode", "loads tool docs or skill guides for next turn", "tool_or_skill_discovery", true)
       core.append %actor_primitives, %discover
-      %recall = core.call @agent_policy_action("recall", "actor_primitive", "memory", %distiller_executor, "memoriesMode", "loads memories for next turn", "memory_search", true)
+      %recall = core.call @agent_policy_action(%recall_name, "actor_primitive", "memory", %distiller_executor, "memoriesMode", "loads memories for next turn", "memory_search", true)
       core.append %actor_primitives, %recall
-      %used = core.call @agent_policy_action("used", "actor_primitive", "usage_tracking", %distiller_executor, "usageTrackingMode", "records loaded memory or skill usage", "usage_tracking_callback", true)
+      %used = core.call @agent_policy_action(%used_name, "actor_primitive", "usage_tracking", %distiller_executor, "usageTrackingMode", "records loaded memory or skill usage", "usage_tracking_callback", true)
       core.append %actor_primitives, %used
       %protocol_actions = core.list
-      %protocol_final_action = core.call @agent_policy_action("final", "protocol_action", "completion", %all_actor, "always", "normalizes final protocol payload", "completion_protocol", false)
+      %protocol_final_action = core.call @agent_policy_action(%final_name, "protocol_action", "completion", %all_actor, "always", "normalizes final protocol payload", "completion_protocol", false)
       core.append %protocol_actions, %protocol_final_action
-      %protocol_clarify = core.call @agent_policy_action("askClarification", "protocol_action", "completion", %all_actor, "always", "normalizes clarification protocol payload", "completion_protocol", false)
+      %protocol_clarify = core.call @agent_policy_action(%ask_clarification_name, "protocol_action", "completion", %all_actor, "always", "normalizes clarification protocol payload", "completion_protocol", false)
       core.append %protocol_actions, %protocol_clarify
-      %guide = core.call @agent_policy_action("guideAgent", "protocol_action", "guidance", %executor_only, "host_protocol_only", "adds trusted guidance and continues actor loop", "host_function_protocol", false)
+      %guide = core.call @agent_policy_action(%guide_agent_name, "protocol_action", "guidance", %executor_only, "host_protocol_only", "adds trusted guidance and continues actor loop", "host_function_protocol", false)
       core.append %protocol_actions, %guide
       %protocol_success = core.call @agent_policy_action("success", "protocol_action", "status", %executor_only, "hasAgentStatusCallback", "reports successful status", "status_callback", false)
       core.append %protocol_actions, %protocol_success
       %protocol_failed = core.call @agent_policy_action("failed", "protocol_action", "status", %executor_only, "hasAgentStatusCallback", "reports failed status", "status_callback", false)
       core.append %protocol_actions, %protocol_failed
       %runtime_globals = core.list
-      %inputs = core.call @agent_policy_action("inputs", "runtime_global", "data", %all_actor, "always", "contains current actor inputs", "runtime_global", false)
+      %inputs = core.call @agent_policy_action(%inputs_name, "runtime_global", "data", %all_actor, "always", "contains current actor inputs", "runtime_global", false)
       core.append %runtime_globals, %inputs
       %callables = core.call @agent_policy_action("callable_namespaces", "runtime_global", "callable_namespace", %executor_only, "has_callables", "namespaced tools and child agents", "tool_or_child_agent_handler", false)
       core.append %runtime_globals, %callables
@@ -455,6 +824,7 @@ module @ax.agent version "0.1" {
       core.set %out["protocol_actions"] = %protocol_actions
       core.set %out["runtime_globals"] = %runtime_globals
       core.set %out["host_boundaries"] = %host_boundaries
+      core.set %out["vocabulary"] = %vocabulary
       core.return %out
     }
   }
@@ -596,13 +966,12 @@ module @ax.agent version "0.1" {
     body @entry(%action: string, %payload: json) {
       %out = core.map
       %null_value = core.call intrinsic.none()
+      %vocabulary = core.call @agent_policy_vocabulary_registry()
+      %empty_list = core.list
+      %effect_only_actions = core.get %vocabulary["effect_only_actions"] default %empty_list
       core.set %out["action"] = %action
       core.set %out["payload"] = %payload
-      %is_discover = core.call intrinsic.eq(%action, "discover")
-      %is_recall = core.call intrinsic.eq(%action, "recall")
-      %is_used = core.call intrinsic.eq(%action, "used")
-      %is_effect = core.call intrinsic.or(%is_discover, %is_recall)
-      %is_effect = core.call intrinsic.or(%is_effect, %is_used)
+      %is_effect = core.call intrinsic.contains(%effect_only_actions, %action)
       core.if %is_effect {
         core.set %out["returns"] = %null_value
         core.set %out["effect_only"] = true
@@ -645,6 +1014,1228 @@ module @ax.agent version "0.1" {
       core.set %out["code_field_title"] = %code_field_title
       core.set %out["code_fence_language"] = %code_fence_language
       core.set %out["cache_order"] = "stable_before_dynamic"
+      core.return %out
+    }
+  }
+
+  op ax.agent.semantic @resolve_agent_context_policy {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(json) -> json throws"
+    body @entry(%options: json) {
+      %empty_map = core.map
+      %context_registry = core.call @agent_context_policy_registry()
+      %option_keys = core.get %context_registry["option_keys"] default %empty_map
+      %policy_camel_key = core.get %option_keys["camel"] default "contextPolicy"
+      %policy_snake_key = core.get %option_keys["snake"] default "context_policy"
+      %preset_key = core.get %option_keys["preset"] default "preset"
+      %budget_key = core.get %option_keys["budget"] default "budget"
+      %summarizer_camel_key = core.get %option_keys["summarizer_camel"] default "summarizerOptions"
+      %summarizer_snake_key = core.get %option_keys["summarizer_snake"] default "summarizer_options"
+      %max_runtime_camel_key = core.get %option_keys["max_runtime_camel"] default "maxRuntimeChars"
+      %max_runtime_snake_key = core.get %option_keys["max_runtime_snake"] default "max_runtime_chars"
+      %policy_camel = core.get %options[%policy_camel_key] default %empty_map
+      %policy = core.get %options[%policy_snake_key] default %policy_camel
+      %policy_is_map = core.type_is %policy type "object"
+      core.if %policy_is_map {
+      } else {
+        %policy = core.let %empty_map
+      }
+      %allowed_keys = core.get %context_registry["allowed_keys"] default null
+      %allowed_is_list = core.type_is %allowed_keys type "list"
+      core.if %allowed_is_list {
+      } else {
+        %allowed_keys = core.list
+      }
+      core.for %key in %policy {
+        %allowed = core.call intrinsic.contains(%allowed_keys, %key)
+        %disallowed = core.call intrinsic.not(%allowed)
+        core.if %disallowed {
+          %error_message = core.call @agent_context_policy_migration_error(%key)
+          %error_policy = core.call intrinsic.error.runtime(%error_message)
+          core.raise %error_policy
+        } else {
+        }
+      }
+      %default_preset = core.get %context_registry["default_preset"] default "checkpointed"
+      %default_budget = core.get %context_registry["default_budget"] default "balanced"
+      %preset = core.get %policy[%preset_key] default %default_preset
+      %budget = core.get %policy[%budget_key] default %default_budget
+      %budget_profile = core.call @agent_context_budget_profile(%budget)
+      %preset_profile = core.call @agent_context_preset_profile(%preset)
+      %target_prompt_chars = core.get %budget_profile["targetPromptChars"] default 16000
+      %inspect_threshold = core.get %budget_profile["inspectThreshold"] default 13600
+      %action_replay = core.get %preset_profile["actionReplay"] default "full"
+      %recent_by_budget = core.get %preset_profile["recentFullActionsByBudget"] default %empty_map
+      %recent_default = core.get %preset_profile["recentFullActions"] default 1
+      %recent_full_actions = core.get %recent_by_budget[%budget] default %recent_default
+      %error_pruning = core.get %preset_profile["errorPruning"] default false
+      %hindsight = core.get %preset_profile["hindsight"] default false
+      %prune_rank = core.get %preset_profile["pruneRank"] default 2
+      %state_summary_enabled = core.get %preset_profile["stateSummary"] default false
+      %inspect_enabled = core.get %preset_profile["inspect"] default false
+      %max_entries = core.get %preset_profile["maxEntries"] default null
+      %hygiene_default = core.get %preset_profile["defaultHygieneMode"] default "none"
+      %hygiene_pressure = core.get %preset_profile["pressureHygieneMode"] default null
+      %checkpoints_enabled = core.get %preset_profile["checkpointsEnabled"] default false
+      %checkpoint_trigger = core.call intrinsic.none()
+      core.if %checkpoints_enabled {
+        %checkpoint_ratio = core.get %preset_profile["checkpointTriggerRatio"] default null
+        %has_checkpoint_ratio = core.call intrinsic.is_not_none(%checkpoint_ratio)
+        core.if %has_checkpoint_ratio {
+          %checkpoint_trigger = core.call intrinsic.mul(%target_prompt_chars, %checkpoint_ratio)
+        } else {
+        }
+      } else {
+      }
+      %summarizer_camel = core.get %options[%summarizer_camel_key] default %empty_map
+      %summarizer_options = core.get %options[%summarizer_snake_key] default %summarizer_camel
+      %max_runtime_snake = core.get %options[%max_runtime_snake_key] default null
+      %max_runtime_chars = core.get %options[%max_runtime_camel_key] default %max_runtime_snake
+      %has_max_runtime = core.call intrinsic.is_not_none(%max_runtime_chars)
+      core.if %has_max_runtime {
+      } else {
+        %max_runtime_chars = core.get %context_registry["default_max_runtime_chars"] default 3000
+      }
+      %context_hygiene = core.map
+      core.set %context_hygiene["defaultMode"] = %hygiene_default
+      %has_pressure = core.call intrinsic.is_not_none(%hygiene_pressure)
+      core.if %has_pressure {
+        core.set %context_hygiene["pressureMode"] = %hygiene_pressure
+      } else {
+      }
+      %state_summary = core.map
+      core.set %state_summary["enabled"] = %state_summary_enabled
+      core.set %state_summary["maxEntries"] = %max_entries
+      %state_summary_max_chars = core.get %context_registry["state_summary_max_chars"] default 1200
+      core.set %state_summary["maxChars"] = %state_summary_max_chars
+      %state_inspection = core.map
+      core.set %state_inspection["enabled"] = %inspect_enabled
+      core.set %state_inspection["contextThreshold"] = %inspect_threshold
+      %checkpoints = core.map
+      core.set %checkpoints["enabled"] = %checkpoints_enabled
+      core.set %checkpoints["triggerChars"] = %checkpoint_trigger
+      %out = core.map
+      %none_value = core.call intrinsic.none()
+      core.set %out["preset"] = %preset
+      core.set %out["budget"] = %budget
+      core.set %out["summarizerOptions"] = %summarizer_options
+      core.set %out["actionReplay"] = %action_replay
+      core.set %out["recentFullActions"] = %recent_full_actions
+      core.set %out["contextHygiene"] = %context_hygiene
+      core.set %out["errorPruning"] = %error_pruning
+      core.set %out["hindsightEvaluation"] = %hindsight
+      core.set %out["pruneRank"] = %prune_rank
+      core.set %out["rankPruneGraceTurns"] = 2
+      core.set %out["tombstoning"] = %none_value
+      core.set %out["stateSummary"] = %state_summary
+      core.set %out["stateInspection"] = %state_inspection
+      core.set %out["checkpoints"] = %checkpoints
+      core.set %out["targetPromptChars"] = %target_prompt_chars
+      core.set %out["maxRuntimeChars"] = %max_runtime_chars
+      core.return %out
+    }
+  }
+
+  op ax.agent.semantic @resolve_agent_executor_model_policy {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(json) -> json throws"
+    body @entry(%options: json) {
+      %empty_list = core.list
+      %context_registry = core.call @agent_context_policy_registry()
+      %empty_map = core.map
+      %executor_registry = core.get %context_registry["executor_model_policy"] default %empty_map
+      %migration_error = core.get %executor_registry["migration_error"] default "executorModelPolicy now expects an ordered array of { model, namespaces?, aboveErrorTurns? } entries. Manage prompt pressure with contextPolicy.budget instead of abovePromptChars."
+      %legacy_keys = core.get %executor_registry["legacy_keys"] default %empty_list
+      %policy_snake = core.get %options["executor_model_policy"] default null
+      %policy = core.get %options["executorModelPolicy"] default %policy_snake
+      %missing = core.call intrinsic.is_none(%policy)
+      core.if %missing {
+        %none = core.call intrinsic.none()
+        core.return %none
+      } else {
+      }
+      %is_list = core.type_is %policy type "list"
+      core.if %is_list {
+      } else {
+        %error_shape = core.call intrinsic.error.runtime(%migration_error)
+        core.raise %error_shape
+      }
+      %out = core.list
+      %index = core.let 0
+      core.for %entry in %policy {
+        %entry_is_map = core.type_is %entry type "object"
+        core.if %entry_is_map {
+        } else {
+          %message_entry = core.call intrinsic.string.format("executorModelPolicy[{}] must be an object", %index)
+          %error_entry = core.call intrinsic.error.runtime(%message_entry)
+          core.raise %error_entry
+        }
+        %legacy_any = core.let false
+        core.for %legacy_key in %legacy_keys {
+          %has_legacy_key = core.call intrinsic.map.contains(%entry, %legacy_key)
+          core.if %has_legacy_key {
+            %legacy_any = core.let true
+          } else {
+          }
+        }
+        core.if %legacy_any {
+          %error_legacy = core.call intrinsic.error.runtime(%migration_error)
+          core.raise %error_legacy
+        } else {
+        }
+        %model = core.get %entry["model"] default ""
+        %model_missing = core.call intrinsic.eq(%model, "")
+        core.if %model_missing {
+          %message_model = core.call intrinsic.string.format("executorModelPolicy[{}].model must be a non-empty string", %index)
+          %error_model = core.call intrinsic.error.runtime(%message_model)
+          core.raise %error_model
+        } else {
+        }
+        %above = core.get %entry["aboveErrorTurns"] default null
+        %namespaces = core.get %entry["namespaces"] default null
+        %has_above = core.call intrinsic.is_not_none(%above)
+        %has_namespaces = core.type_is %namespaces type "list"
+        core.if %has_above {
+          %above_is_number = core.type_is %above type "number"
+          %above_negative = core.call intrinsic.lt(%above, 0)
+          %above_invalid = core.call intrinsic.not(%above_is_number)
+          %above_invalid = core.call intrinsic.or(%above_invalid, %above_negative)
+          core.if %above_invalid {
+            %message_above = core.call intrinsic.string.format("executorModelPolicy[{}].aboveErrorTurns must be a finite number >= 0", %index)
+            %error_above = core.call intrinsic.error.runtime(%message_above)
+            core.raise %error_above
+          } else {
+          }
+        } else {
+        }
+        core.if %has_namespaces {
+          %valid_namespace_count = core.let 0
+          core.for %namespace in %namespaces {
+            %namespace_is_string = core.type_is %namespace type "string"
+            core.if %namespace_is_string {
+              %trimmed_namespace = core.string_trim %namespace
+              %namespace_nonempty = core.call intrinsic.ne(%trimmed_namespace, "")
+              core.if %namespace_nonempty {
+                %valid_namespace_count = core.call intrinsic.add(%valid_namespace_count, 1)
+              } else {
+              }
+            } else {
+            }
+          }
+          %no_valid_namespaces = core.call intrinsic.eq(%valid_namespace_count, 0)
+          core.if %no_valid_namespaces {
+            %message_namespaces = core.call intrinsic.string.format("executorModelPolicy[{}].namespaces must contain at least one non-empty string", %index)
+            %error_namespaces = core.call intrinsic.error.runtime(%message_namespaces)
+            core.raise %error_namespaces
+          } else {
+          }
+        } else {
+        }
+        %has_trigger = core.call intrinsic.or(%has_above, %has_namespaces)
+        core.if %has_trigger {
+        } else {
+          %message_trigger = core.call intrinsic.string.format("executorModelPolicy[{}] must define at least one of aboveErrorTurns or namespaces", %index)
+          %error_trigger = core.call intrinsic.error.runtime(%message_trigger)
+          core.raise %error_trigger
+        }
+        %normalized = core.map
+        core.set %normalized["model"] = %model
+        core.if %has_above {
+          core.set %normalized["aboveErrorTurns"] = %above
+        } else {
+        }
+        core.if %has_namespaces {
+          core.set %normalized["namespaces"] = %namespaces
+        } else {
+        }
+        core.append %out, %normalized
+        %index = core.call intrinsic.add(%index, 1)
+      }
+      %count = core.call intrinsic.len(%out)
+      %empty = core.call intrinsic.eq(%count, 0)
+      core.if %empty {
+        %error_empty = core.call intrinsic.error.runtime("executorModelPolicy must contain at least one entry")
+        core.raise %error_empty
+      } else {
+      }
+      core.return %out
+    }
+  }
+
+  op ax.agent.semantic @select_agent_executor_model {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(json, json) -> json"
+    body @entry(%policy: json, %actor_model_state: json) {
+      %none = core.call intrinsic.none()
+      %is_list = core.type_is %policy type "list"
+      core.if %is_list {
+      } else {
+        core.return %none
+      }
+      %errors = core.get %actor_model_state["consecutiveErrorTurns"] default 0
+      %matched = core.get %actor_model_state["matchedNamespaces"] default null
+      %matched_is_list = core.type_is %matched type "list"
+      core.if %matched_is_list {
+      } else {
+        %matched = core.list
+      }
+      %selected = core.call intrinsic.none()
+      core.for %entry in %policy {
+        %model = core.get %entry["model"] default ""
+        %above = core.get %entry["aboveErrorTurns"] default null
+        %namespaces = core.get %entry["namespaces"] default null
+        %trigger = core.let false
+        %has_above = core.call intrinsic.is_not_none(%above)
+        core.if %has_above {
+          %error_trigger = core.call intrinsic.gte(%errors, %above)
+          core.if %error_trigger {
+            %trigger = core.let true
+          } else {
+          }
+        } else {
+        }
+        %namespaces_is_list = core.type_is %namespaces type "list"
+        core.if %namespaces_is_list {
+          core.for %namespace in %namespaces {
+            %namespace_match = core.call intrinsic.contains(%matched, %namespace)
+            core.if %namespace_match {
+              %trigger = core.let true
+            } else {
+            }
+          }
+        } else {
+        }
+        core.if %trigger {
+          %selected = core.let %model
+        } else {
+        }
+      }
+      core.return %selected
+    }
+  }
+
+  op ax.agent.semantic @agent_compute_effective_chat_budget {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(number, number) -> number"
+    body @entry(%base_budget: json, %fixed_overhead_chars: json) {
+      %context_registry = core.call @agent_context_policy_registry()
+      %empty_map = core.map
+      %budget_math = core.get %context_registry["budget_math"] default %empty_map
+      %ratio = core.let 1
+      %max_system = core.get %budget_math["maxSystemPromptChars"] default 30000
+      %min_ratio = core.get %budget_math["minEffectiveBudgetRatio"] default 0.25
+      %overhead_ratio = core.call intrinsic.div(%fixed_overhead_chars, %max_system)
+      %negative_overhead = core.call intrinsic.mul(-1, %overhead_ratio)
+      %ratio = core.call intrinsic.add(1, %negative_overhead)
+      %too_low = core.call intrinsic.lt(%ratio, %min_ratio)
+      core.if %too_low {
+        %ratio = core.let %min_ratio
+      } else {
+      }
+      %too_high = core.call intrinsic.gt(%ratio, 1)
+      core.if %too_high {
+        %ratio = core.let 1
+      } else {
+      }
+      %budget = core.call intrinsic.mul(%base_budget, %ratio)
+      core.return %budget
+    }
+  }
+
+  op ax.agent.semantic @agent_action_log_char_count {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(list<json>) -> number"
+    body @entry(%entries: json) {
+      %total = core.let 0
+      core.for %entry in %entries {
+        %code = core.get %entry["code"] default ""
+        %output = core.get %entry["output"] default ""
+        %code_len = core.call intrinsic.len(%code)
+        %output_len = core.call intrinsic.len(%output)
+        %entry_len = core.call intrinsic.add(%code_len, %output_len)
+        %total = core.call intrinsic.add(%total, %entry_len)
+      }
+      core.return %total
+    }
+  }
+
+  op ax.agent.semantic @agent_compute_dynamic_runtime_chars {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(list<json>, number, number) -> number"
+    body @entry(%entries: json, %target_prompt_chars: json, %max_runtime_chars: json) {
+      %context_registry = core.call @agent_context_policy_registry()
+      %empty_map = core.map
+      %runtime_budget = core.get %context_registry["runtime_output_budget"] default %empty_map
+      %floor_ratio = core.get %runtime_budget["floorRatio"] default 0.15
+      %min_runtime_chars = core.get %runtime_budget["minRuntimeChars"] default 400
+      %current_chars = core.call @agent_action_log_char_count(%entries)
+      %usage_ratio = core.call intrinsic.div(%current_chars, %target_prompt_chars)
+      %negative_usage_ratio = core.call intrinsic.mul(-1, %usage_ratio)
+      %remaining_ratio = core.call intrinsic.add(1, %negative_usage_ratio)
+      %too_low = core.call intrinsic.lt(%remaining_ratio, %floor_ratio)
+      core.if %too_low {
+        %remaining_ratio = core.let %floor_ratio
+      } else {
+      }
+      %too_high = core.call intrinsic.gt(%remaining_ratio, 1)
+      core.if %too_high {
+        %remaining_ratio = core.let 1
+      } else {
+      }
+      %effective_min = core.let %min_runtime_chars
+      %max_below_min = core.call intrinsic.lt(%max_runtime_chars, %effective_min)
+      core.if %max_below_min {
+        %effective_min = core.let %max_runtime_chars
+      } else {
+      }
+      %candidate = core.call intrinsic.mul(%max_runtime_chars, %remaining_ratio)
+      %above_max = core.call intrinsic.gt(%candidate, %max_runtime_chars)
+      core.if %above_max {
+        %candidate = core.let %max_runtime_chars
+      } else {
+      }
+      %below_min = core.call intrinsic.lt(%candidate, %effective_min)
+      core.if %below_min {
+        %candidate = core.let %effective_min
+      } else {
+      }
+      core.return %candidate
+    }
+  }
+
+  op ax.agent.semantic @agent_context_pressure {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(number, number, bool) -> string"
+    body @entry(%mutable_prompt_chars: json, %effective_budget_chars: json, %checkpoint_active: json) {
+      %context_registry = core.call @agent_context_policy_registry()
+      %empty_map = core.map
+      %pressure_levels = core.get %context_registry["pressure_levels"] default %empty_map
+      %ok_level = core.get %pressure_levels["ok"] default %empty_map
+      %watch_level = core.get %pressure_levels["watch"] default %empty_map
+      %critical_level = core.get %pressure_levels["critical"] default %empty_map
+      %ok_id = core.get %ok_level["id"] default "ok"
+      %watch_id = core.get %watch_level["id"] default "watch"
+      %critical_id = core.get %critical_level["id"] default "critical"
+      %watch_threshold = core.get %watch_level["threshold"] default 0.7
+      %critical_threshold = core.get %critical_level["threshold"] default 0.9
+      core.if %checkpoint_active {
+        core.return %critical_id
+      } else {
+      }
+      %invalid_budget = core.call intrinsic.lte(%effective_budget_chars, 0)
+      core.if %invalid_budget {
+        core.return %ok_id
+      } else {
+      }
+      %ratio = core.call intrinsic.div(%mutable_prompt_chars, %effective_budget_chars)
+      %critical = core.call intrinsic.gte(%ratio, %critical_threshold)
+      core.if %critical {
+        core.return %critical_id
+      } else {
+      }
+      %watch = core.call intrinsic.gte(%ratio, %watch_threshold)
+      core.if %watch {
+        core.return %watch_id
+      } else {
+      }
+      core.return %ok_id
+    }
+  }
+
+  op ax.agent.semantic @agent_render_context_pressure {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(string) -> string"
+    body @entry(%pressure: string) {
+      %context_registry = core.call @agent_context_policy_registry()
+      %empty_map = core.map
+      %pressure_levels = core.get %context_registry["pressure_levels"] default %empty_map
+      %level = core.get %pressure_levels[%pressure] default %empty_map
+      %text = core.get %level["text"] default ""
+      %empty_text = core.call intrinsic.eq(%text, "")
+      core.if %empty_text {
+        %ok_level = core.get %pressure_levels["ok"] default %empty_map
+        %text = core.get %ok_level["text"] default "ok - normal context pressure; continue with focused, useful inspections."
+      } else {
+      }
+      core.return %text
+    }
+  }
+
+  op ax.agent.semantic @agent_smart_stringify {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(json, number) -> string"
+    body @entry(%value: json, %max_chars: json) {
+      %context_registry = core.call @agent_context_policy_registry()
+      %empty_map = core.map
+      %settings = core.get %context_registry["smart_stringify"] default %empty_map
+      %array_threshold = core.get %settings["arrayThreshold"] default 10
+      %array_head_items = core.get %settings["arrayHeadItems"] default 3
+      %array_tail_items = core.get %settings["arrayTailItems"] default 2
+      %is_list = core.type_is %value type "list"
+      core.if %is_list {
+        %count = core.call intrinsic.len(%value)
+        %large = core.call intrinsic.gt(%count, %array_threshold)
+        core.if %large {
+          %head = core.list
+          %tail = core.list
+          %negative_tail_items = core.call intrinsic.mul(-1, %array_tail_items)
+          %tail_start = core.call intrinsic.add(%count, %negative_tail_items)
+          %index = core.let 0
+          core.for %item in %value {
+            %item_text = core.call intrinsic.json.stringify(%item)
+            %in_head = core.call intrinsic.lt(%index, %array_head_items)
+            core.if %in_head {
+              core.append %head, %item_text
+            } else {
+            }
+            %in_tail = core.call intrinsic.gte(%index, %tail_start)
+            core.if %in_tail {
+              core.append %tail, %item_text
+            } else {
+            }
+            %index = core.call intrinsic.add(%index, 1)
+          }
+          %head_text = core.call intrinsic.string.join(",\n  ", %head)
+          %tail_text = core.call intrinsic.string.join(",\n  ", %tail)
+          %hidden = core.call intrinsic.add(%count, -5)
+          %out = core.call intrinsic.string.format("[\n  {},\n  ... [{} hidden items],\n  {}\n]", %head_text, %hidden, %tail_text)
+          core.return %out
+        } else {
+        }
+      } else {
+      }
+      %json = core.call intrinsic.json.pretty(%value)
+      core.return %json
+    }
+  }
+
+  op ax.agent.semantic @agent_record_context_event {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(json, json) -> json"
+    body @entry(%state: json, %event: json) {
+      %empty_list = core.list
+      %events = core.get %state["context_events"] default %empty_list
+      core.append %events, %event
+      core.set %state["context_events"] = %events
+      core.return %event
+    }
+  }
+
+  op ax.agent.semantic @agent_entry_turn {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, number) -> number"
+    body @entry(%entry: json, %fallback: json) {
+      %turn = core.get %entry["turn"] default %fallback
+      core.return %turn
+    }
+  }
+
+  op ax.agent.semantic @agent_entry_is_error {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json) -> bool"
+    body @entry(%entry: json) {
+      %tags = core.get %entry["tags"] default null
+      %tags_is_list = core.type_is %tags type "list"
+      core.if %tags_is_list {
+      } else {
+        %tags = core.list
+      }
+      %tag_error = core.call intrinsic.contains(%tags, "error")
+      %is_error = core.get %entry["is_error"] default %tag_error
+      core.return %is_error
+    }
+  }
+
+  op ax.agent.semantic @agent_entry_summary {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, number) -> string"
+    body @entry(%entry: json, %fallback_turn: json) {
+      %turn = core.call @agent_entry_turn(%entry, %fallback_turn)
+      %summary = core.get %entry["summary"] default ""
+      %has_summary = core.call intrinsic.ne(%summary, "")
+      core.if %has_summary {
+        core.return %summary
+      } else {
+      }
+      %kind = core.get %entry["kind"] default "result"
+      %output = core.get %entry["output"] default ""
+      %preview = core.call intrinsic.string.slice(%output, 0, 180)
+      %text = core.call intrinsic.string.format("{} turn result: {}", %kind, %preview)
+      %is_error = core.call @agent_entry_is_error(%entry)
+      core.if %is_error {
+        %text = core.call intrinsic.string.format("error turn {}: {}", %turn, %preview)
+      } else {
+      }
+      core.return %text
+    }
+  }
+
+  op ax.agent.semantic @agent_render_full_action_entry {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, json) -> string"
+    body @entry(%state: json, %entry: json) {
+      %runtime_contract = core.get %state["runtime_contract"] default null
+      %fence = core.get %runtime_contract["code_fence_language"] default "javascript"
+      %js_fence = core.call intrinsic.eq(%fence, "js")
+      core.if %js_fence {
+        %fence = core.let "javascript"
+      } else {
+      }
+      %code = core.get %entry["code"] default ""
+      %output = core.get %entry["output"] default ""
+      %text = core.call intrinsic.string.format("```{}\n{}\n```\nResult:\n{}", %fence, %code, %output)
+      core.return %text
+    }
+  }
+
+  op ax.agent.semantic @agent_render_compact_action_entry {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, number, string) -> string"
+    body @entry(%entry: json, %turn: json, %reason: string) {
+      %kind = core.get %entry["kind"] default "result"
+      %state_delta = core.get %entry["stateDelta"] default "No durable runtime state update"
+      %output = core.get %entry["output"] default ""
+      %preview = core.call intrinsic.string.slice(%output, 0, 180)
+      %head = core.call intrinsic.string.format("[COMPACT:{}]: Turn {}. {} step.", %reason, %turn, %kind)
+      %tail = core.call intrinsic.string.format(" State: {}. Result: {}.", %state_delta, %preview)
+      %text = core.call intrinsic.add(%head, %tail)
+      core.return %text
+    }
+  }
+
+  op ax.agent.semantic @agent_fallback_checkpoint_summary {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(list<json>, list<number>) -> string"
+    body @entry(%entries: json, %turns: json) {
+      %evidence = core.list
+      %failures = core.list
+      %artifacts = core.list
+      %objective = core.let "explore"
+      %fallback = core.let 1
+      core.for %entry in %entries {
+        %turn = core.call @agent_entry_turn(%entry, %fallback)
+        %covered = core.call intrinsic.contains(%turns, %turn)
+        core.if %covered {
+          %kind = core.get %entry["kind"] default "result"
+          %objective = core.let %kind
+          %output = core.get %entry["output"] default ""
+          %preview = core.call intrinsic.string.slice(%output, 0, 200)
+          %line = core.call intrinsic.string.format("Turn {}: {}", %turn, %preview)
+          core.append %evidence, %line
+          %state_delta = core.get %entry["stateDelta"] default ""
+          %has_state = core.call intrinsic.ne(%state_delta, "")
+          core.if %has_state {
+            %artifact = core.call intrinsic.string.format("Turn {}: {}", %turn, %state_delta)
+            core.append %artifacts, %artifact
+          } else {
+          }
+          %is_error = core.call @agent_entry_is_error(%entry)
+          core.if %is_error {
+            core.append %failures, %line
+          } else {
+          }
+        } else {
+        }
+        %fallback = core.call intrinsic.add(%fallback, 1)
+      }
+      %artifact_text = core.call intrinsic.string.join(" | ", %artifacts)
+      %evidence_text = core.call intrinsic.string.join(" | ", %evidence)
+      %failure_text = core.call intrinsic.string.join(" | ", %failures)
+      %empty_artifact = core.call intrinsic.eq(%artifact_text, "")
+      core.if %empty_artifact {
+        %artifact_text = core.let "Continue from liveRuntimeState and recent full action replay."
+      } else {
+      }
+      %empty_evidence = core.call intrinsic.eq(%evidence_text, "")
+      core.if %empty_evidence {
+        %evidence_text = core.let "none"
+      } else {
+      }
+      %empty_failures = core.call intrinsic.eq(%failure_text, "")
+      core.if %empty_failures {
+        %failure_text = core.let "none"
+      } else {
+      }
+      %head_summary = core.call intrinsic.string.format("Objective: {}\nCurrent state and artifacts: {}\nExact callables and formats: none\nEvidence: {}", %objective, %artifact_text, %evidence_text)
+      %tail_summary = core.call intrinsic.string.format("\nUser constraints and preferences: none\nFailures to avoid: {}\nNext step: Continue from the latest live runtime state.", %failure_text)
+      %summary = core.call intrinsic.add(%head_summary, %tail_summary)
+      core.return %summary
+    }
+  }
+
+  op ax.agent.semantic @agent_refresh_checkpoint_state {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(json) -> json"
+    body @entry(%state: json) {
+      %empty_list = core.list
+      %context_registry = core.call @agent_context_policy_registry()
+      %empty_map = core.map
+      %pressure_levels = core.get %context_registry["pressure_levels"] default %empty_map
+      %ok_level = core.get %pressure_levels["ok"] default %empty_map
+      %ok_pressure = core.get %ok_level["id"] default "ok"
+      %policy = core.get %state["context_policy"] default null
+      %checkpoints = core.get %policy["checkpoints"] default null
+      %enabled = core.get %checkpoints["enabled"] default false
+      core.if %enabled {
+      } else {
+        %existing = core.get %state["checkpoint_state"] default null
+        %has_existing = core.type_is %existing type "object"
+        core.if %has_existing {
+          %cleared = core.map
+          %cleared_kind = core.call @agent_context_event_name("checkpoint_cleared")
+          %disabled_reason = core.call @agent_context_event_reason("disabled")
+          core.set %cleared["kind"] = %cleared_kind
+          core.set %cleared["stage"] = "executor"
+          core.set %cleared["turn"] = 0
+          core.set %cleared["coveredTurns"] = %empty_list
+          core.set %cleared["reason"] = %disabled_reason
+          core.call @agent_record_context_event(%state, %cleared)
+        } else {
+        }
+        %none_checkpoint = core.call intrinsic.none()
+        core.set %state["checkpoint_state"] = %none_checkpoint
+        %none = core.call intrinsic.none()
+        core.return %none
+      }
+      %entries = core.get %state["action_log"] default %empty_list
+      %count = core.call intrinsic.len(%entries)
+      %has_entries = core.call intrinsic.gt(%count, 0)
+      core.if %has_entries {
+      } else {
+        %none_empty = core.call intrinsic.none()
+        core.return %none_empty
+      }
+      %chars = core.call @agent_action_log_char_count(%entries)
+      %trigger = core.get %checkpoints["triggerChars"] default 16000
+      %over = core.call intrinsic.gte(%chars, %trigger)
+      core.if %over {
+      } else {
+        %current = core.get %state["checkpoint_state"] default null
+        core.return %current
+      }
+      %recent = core.get %policy["recentFullActions"] default 1
+      %recent_start = core.let 0
+      %too_many = core.call intrinsic.gt(%count, %recent)
+      core.if %too_many {
+        %negative_recent = core.call intrinsic.mul(-1, %recent)
+        %recent_start = core.call intrinsic.add(%count, %negative_recent)
+      } else {
+      }
+      %covered_turns = core.list
+      %index = core.let 0
+      %fallback_turn = core.let 1
+      core.for %entry in %entries {
+        %turn = core.call @agent_entry_turn(%entry, %fallback_turn)
+        %is_error = core.call @agent_entry_is_error(%entry)
+        %is_recent = core.call intrinsic.gte(%index, %recent_start)
+        %coverable = core.call intrinsic.not(%is_error)
+        %not_recent = core.call intrinsic.not(%is_recent)
+        %coverable = core.call intrinsic.and(%coverable, %not_recent)
+        core.if %coverable {
+          core.append %covered_turns, %turn
+        } else {
+        }
+        %index = core.call intrinsic.add(%index, 1)
+        %fallback_turn = core.call intrinsic.add(%fallback_turn, 1)
+      }
+      %covered_count = core.call intrinsic.len(%covered_turns)
+      %has_covered = core.call intrinsic.gt(%covered_count, 0)
+      core.if %has_covered {
+      } else {
+        %none_no_covered = core.call intrinsic.none()
+        core.return %none_no_covered
+      }
+      %summary = core.call @agent_fallback_checkpoint_summary(%entries, %covered_turns)
+      %checkpoint = core.map
+      %fingerprint = core.call intrinsic.json.stable_stringify(%covered_turns)
+      core.set %checkpoint["fingerprint"] = %fingerprint
+      core.set %checkpoint["summary"] = %summary
+      core.set %checkpoint["turns"] = %covered_turns
+      core.set %state["checkpoint_state"] = %checkpoint
+      %event = core.map
+      %created_kind = core.call @agent_context_event_name("checkpoint_created")
+      %over_budget_reason = core.call @agent_context_event_reason("over_budget")
+      core.set %event["kind"] = %created_kind
+      core.set %event["stage"] = "executor"
+      core.set %event["turn"] = %count
+      core.set %event["coveredTurns"] = %covered_turns
+      %summary_len = core.call intrinsic.len(%summary)
+      core.set %event["summaryChars"] = %summary_len
+      core.set %event["reason"] = %over_budget_reason
+      core.call @agent_record_context_event(%state, %event)
+      core.return %checkpoint
+    }
+  }
+
+  op ax.agent.semantic @agent_build_action_log_parts {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(json, string) -> json"
+    body @entry(%state: json, %hygiene_mode: string) {
+      %empty_list = core.list
+      %context_registry = core.call @agent_context_policy_registry()
+      %empty_map = core.map
+      %hygiene_modes = core.get %context_registry["hygiene_modes"] default %empty_map
+      %pressure_hygiene_mode = core.get %hygiene_modes["pressure"] default "pressure"
+      %aggressive_hygiene_mode = core.get %hygiene_modes["aggressive"] default "aggressive"
+      %entries = core.get %state["action_log"] default %empty_list
+      %policy = core.get %state["context_policy"] default null
+      %action_replay = core.get %policy["actionReplay"] default "full"
+      %recent = core.get %policy["recentFullActions"] default 1
+      %checkpoint_state = core.get %state["checkpoint_state"] default null
+      %checkpoint_summary = core.get %checkpoint_state["summary"] default ""
+      %checkpoint_turns = core.get %checkpoint_state["turns"] default %empty_list
+      %restore_notice = core.get %state["restore_notice"] default ""
+      %delegated_summary = core.get %state["delegated_context_summary"] default ""
+      %summary_parts = core.list
+      %has_restore = core.call intrinsic.ne(%restore_notice, "")
+      core.if %has_restore {
+        core.append %summary_parts, %restore_notice
+      } else {
+      }
+      %has_delegated = core.call intrinsic.ne(%delegated_summary, "")
+      core.if %has_delegated {
+        %delegated_text = core.call intrinsic.string.format("Delegated Context (runtime-only - explore with code):\n{}", %delegated_summary)
+        core.append %summary_parts, %delegated_text
+      } else {
+      }
+      %has_checkpoint_summary = core.call intrinsic.ne(%checkpoint_summary, "")
+      core.if %has_checkpoint_summary {
+        %checkpoint_text = core.call intrinsic.string.format("Checkpoint Summary:\n{}", %checkpoint_summary)
+        core.append %summary_parts, %checkpoint_text
+      } else {
+      }
+      %summary = core.call intrinsic.string.join("\n\n", %summary_parts)
+      %history_parts = core.list
+      %compactions = core.list
+      %count = core.call intrinsic.len(%entries)
+      %recent_start = core.let 0
+      %too_many = core.call intrinsic.gt(%count, %recent)
+      core.if %too_many {
+        %negative_recent = core.call intrinsic.mul(-1, %recent)
+        %recent_start = core.call intrinsic.add(%count, %negative_recent)
+      } else {
+      }
+      %full_replay = core.call intrinsic.eq(%action_replay, "full")
+      %checkpointed = core.call intrinsic.eq(%action_replay, "checkpointed")
+      %index = core.let 0
+      %fallback_turn = core.let 1
+      core.for %entry in %entries {
+        %turn = core.call @agent_entry_turn(%entry, %fallback_turn)
+        %is_error = core.call @agent_entry_is_error(%entry)
+        %is_recent = core.call intrinsic.gte(%index, %recent_start)
+        %checkpoint_covered = core.call intrinsic.contains(%checkpoint_turns, %turn)
+        %not_error = core.call intrinsic.not(%is_error)
+        %replay_mode = core.get %entry["replayMode"] default ""
+        %replay_full = core.call intrinsic.eq(%replay_mode, "full")
+        %covered_success = core.call intrinsic.and(%checkpoint_covered, %not_error)
+        %not_replay_full = core.call intrinsic.not(%replay_full)
+        %covered_success = core.call intrinsic.and(%covered_success, %not_replay_full)
+        %rendered = core.let ""
+        core.if %covered_success {
+          %rendered = core.let ""
+        } else {
+          %render_full = core.let false
+          core.if %full_replay {
+            %render_full = core.let true
+          } else {
+          }
+          core.if %is_recent {
+            %render_full = core.let true
+          } else {
+          }
+          core.if %is_error {
+            %render_full = core.let true
+          } else {
+          }
+          core.if %render_full {
+            %rendered = core.call @agent_render_full_action_entry(%state, %entry)
+          } else {
+            %pressure = core.call intrinsic.eq(%hygiene_mode, %pressure_hygiene_mode)
+            %aggressive = core.call intrinsic.eq(%hygiene_mode, %aggressive_hygiene_mode)
+            %should_compact = core.call intrinsic.or(%pressure, %aggressive)
+            core.if %should_compact {
+              %reason = core.call @agent_context_event_reason("pressure")
+              core.if %aggressive {
+                %reason = core.call @agent_context_event_reason("lean")
+              } else {
+              }
+              %full_text = core.call @agent_render_full_action_entry(%state, %entry)
+              %rendered = core.call @agent_render_compact_action_entry(%entry, %turn, %reason)
+              %compaction = core.map
+              core.set %compaction["turn"] = %turn
+              core.set %compaction["mode"] = "compact"
+              core.set %compaction["reason"] = %reason
+              %original_chars = core.call intrinsic.len(%full_text)
+              %rendered_chars = core.call intrinsic.len(%rendered)
+              core.set %compaction["originalChars"] = %original_chars
+              core.set %compaction["renderedChars"] = %rendered_chars
+              core.append %compactions, %compaction
+            } else {
+              %entry_summary = core.call @agent_entry_summary(%entry, %turn)
+              %rendered = core.call intrinsic.string.format("- Action {}: {}", %turn, %entry_summary)
+            }
+          }
+        }
+        %has_rendered = core.call intrinsic.ne(%rendered, "")
+        core.if %has_rendered {
+          core.append %history_parts, %rendered
+        } else {
+        }
+        %index = core.call intrinsic.add(%index, 1)
+        %fallback_turn = core.call intrinsic.add(%fallback_turn, 1)
+      }
+      %history = core.call intrinsic.string.join("\n\n", %history_parts)
+      %out = core.map
+      core.set %out["summary"] = %summary
+      core.set %out["history"] = %history
+      core.set %out["compactions"] = %compactions
+      core.return %out
+    }
+  }
+
+  op ax.agent.semantic @agent_render_runtime_state_summary {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(json, json) -> string"
+    body @entry(%state: json, %policy: json) {
+      %empty_map = core.map
+      %session_state = core.get %state["runtime_session_state"] default %empty_map
+      %globals = core.get %session_state["globals"] default null
+      %bindings = core.get %session_state["bindings"] default %globals
+      %bindings_is_map = core.type_is %bindings type "object"
+      core.if %bindings_is_map {
+      } else {
+        core.return ""
+      }
+      %state_summary = core.get %policy["stateSummary"] default %empty_map
+      %enabled = core.get %state_summary["enabled"] default false
+      core.if %enabled {
+      } else {
+        core.return ""
+      }
+      %max_entries = core.get %state_summary["maxEntries"] default 8
+      %reserved = core.call @agent_reserved_runtime_names()
+      %parts = core.list
+      %count = core.let 0
+      core.for %key in %bindings {
+        %reserved_key = core.call intrinsic.contains(%reserved, %key)
+        %allowed_key = core.call intrinsic.not(%reserved_key)
+        %under_limit = core.call intrinsic.lt(%count, %max_entries)
+        %include_key = core.call intrinsic.and(%allowed_key, %under_limit)
+        core.if %include_key {
+          %value = core.get %bindings[%key]
+          %text = core.call intrinsic.json.stringify(%value)
+          %line = core.call intrinsic.string.format("- {}: {}", %key, %text)
+          core.append %parts, %line
+          %count = core.call intrinsic.add(%count, 1)
+        } else {
+        }
+      }
+      %body = core.call intrinsic.string.join("\n", %parts)
+      %empty = core.call intrinsic.eq(%body, "")
+      core.if %empty {
+        core.return ""
+      } else {
+      }
+      %out = core.call intrinsic.string.format("Current runtime state:\n{}", %body)
+      core.set %state["runtime_state_summary"] = %out
+      core.return %out
+    }
+  }
+
+  op ax.agent.semantic @agent_prepare_actor_context {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(json) -> json"
+    body @entry(%state: json) {
+      %empty_list = core.list
+      %context_registry = core.call @agent_context_policy_registry()
+      %empty_map = core.map
+      %pressure_levels = core.get %context_registry["pressure_levels"] default %empty_map
+      %ok_level = core.get %pressure_levels["ok"] default %empty_map
+      %ok_pressure = core.get %ok_level["id"] default "ok"
+      %policy = core.get %state["context_policy"] default null
+      %hygiene = core.get %policy["contextHygiene"] default null
+      %default_hygiene = core.get %hygiene["defaultMode"] default "none"
+      %pressure_hygiene = core.get %hygiene["pressureMode"] default %default_hygiene
+      %checkpoint = core.call @agent_refresh_checkpoint_state(%state)
+      %parts = core.call @agent_build_action_log_parts(%state, %default_hygiene)
+      %summary = core.get %parts["summary"] default ""
+      %history = core.get %parts["history"] default ""
+      %history_empty = core.call intrinsic.eq(%history, "")
+      core.if %history_empty {
+        %history = core.let "(no actions yet)"
+      } else {
+      }
+      %runtime_state_summary = core.call @agent_render_runtime_state_summary(%state, %policy)
+      %guidance_log = core.get %state["guidance_log"] default %empty_list
+      %guidance_text = core.call intrinsic.json.stringify(%guidance_log)
+      %history_chars = core.call intrinsic.len(%history)
+      %guidance_chars = core.call intrinsic.len(%guidance_text)
+      %runtime_chars = core.call intrinsic.len(%runtime_state_summary)
+      %summary_chars = core.call intrinsic.len(%summary)
+      %mutable_chars = core.call intrinsic.add(%history_chars, %guidance_chars)
+      %mutable_chars = core.call intrinsic.add(%mutable_chars, %runtime_chars)
+      %mutable_chars = core.call intrinsic.add(%mutable_chars, %summary_chars)
+      %target = core.get %policy["targetPromptChars"] default 16000
+      %fixed = core.get %state["fixed_prompt_chars"] default 0
+      %effective_budget = core.call @agent_compute_effective_chat_budget(%target, %fixed)
+      %checkpoint_is_map = core.type_is %checkpoint type "object"
+      %pressure = core.call @agent_context_pressure(%mutable_chars, %effective_budget, %checkpoint_is_map)
+      %pressure_is_ok = core.call intrinsic.eq(%pressure, %ok_pressure)
+      %hygiene_changes = core.call intrinsic.ne(%pressure_hygiene, %default_hygiene)
+      %pressure_not_ok = core.call intrinsic.not(%pressure_is_ok)
+      %should_pressure = core.call intrinsic.and(%pressure_not_ok, %hygiene_changes)
+      core.if %should_pressure {
+        %pressure_parts = core.call @agent_build_action_log_parts(%state, %pressure_hygiene)
+        %pressure_history = core.get %pressure_parts["history"] default ""
+        %pressure_history_empty = core.call intrinsic.eq(%pressure_history, "")
+        core.if %pressure_history_empty {
+          %pressure_history = core.let "(no actions yet)"
+        } else {
+        }
+        %pressure_len = core.call intrinsic.len(%pressure_history)
+        %history_len = core.call intrinsic.len(%history)
+        %shorter = core.call intrinsic.lt(%pressure_len, %history_len)
+        core.if %shorter {
+          %parts = core.let %pressure_parts
+          %summary = core.get %pressure_parts["summary"] default %summary
+          %history = core.let %pressure_history
+        } else {
+        }
+      } else {
+      }
+      %compactions = core.get %parts["compactions"] default %empty_list
+      core.for %compaction in %compactions {
+        %event = core.map
+        %action_compacted_kind = core.call @agent_context_event_name("action_compacted")
+        core.set %event["kind"] = %action_compacted_kind
+        core.set %event["stage"] = "executor"
+        %turn = core.get %compaction["turn"] default 0
+        %mode = core.get %compaction["mode"] default "compact"
+        %default_reason = core.call @agent_context_event_reason("pressure")
+        %reason = core.get %compaction["reason"] default %default_reason
+        %original_chars = core.get %compaction["originalChars"] default 0
+        %rendered_chars = core.get %compaction["renderedChars"] default 0
+        core.set %event["turn"] = %turn
+        core.set %event["mode"] = %mode
+        core.set %event["reason"] = %reason
+        core.set %event["originalChars"] = %original_chars
+        core.set %event["renderedChars"] = %rendered_chars
+        core.call @agent_record_context_event(%state, %event)
+      }
+      %action_log = core.get %state["action_log"] default %empty_list
+      %guidance_count = core.call intrinsic.len(%guidance_log)
+      %action_count = core.call intrinsic.len(%action_log)
+      %budget_event = core.map
+      %budget_check_kind = core.call @agent_context_event_name("budget_check")
+      core.set %budget_event["kind"] = %budget_check_kind
+      core.set %budget_event["stage"] = "executor"
+      %turn = core.call intrinsic.add(%action_count, 1)
+      core.set %budget_event["turn"] = %turn
+      core.set %budget_event["pressure"] = %pressure
+      core.set %budget_event["mutablePromptChars"] = %mutable_chars
+      core.set %budget_event["fixedPromptChars"] = %fixed
+      core.set %budget_event["effectiveBudgetChars"] = %effective_budget
+      core.set %budget_event["targetPromptChars"] = %target
+      core.set %budget_event["checkpointActive"] = %checkpoint_is_map
+      core.set %budget_event["actionLogEntryCount"] = %action_count
+      core.set %budget_event["guidanceLogEntryCount"] = %guidance_count
+      core.call @agent_record_context_event(%state, %budget_event)
+      %pressure_text = core.let ""
+      %default_preset = core.get %context_registry["default_preset"] default "checkpointed"
+      %full_preset = core.get %context_registry["full_preset"] default "full"
+      %preset = core.get %policy["preset"] default %default_preset
+      %is_full = core.call intrinsic.eq(%preset, %full_preset)
+      core.if %is_full {
+        %pressure_text = core.let ""
+      } else {
+        %pressure_text = core.call @agent_render_context_pressure(%pressure)
+      }
+      %max_runtime = core.get %policy["maxRuntimeChars"] default 3000
+      %dynamic_runtime_chars = core.call @agent_compute_dynamic_runtime_chars(%action_log, %target, %max_runtime)
+      %out = core.map
+      core.set %out["summarizedActorLog"] = %summary
+      core.set %out["actionLog"] = %history
+      core.set %out["guidanceLog"] = %guidance_text
+      core.set %out["liveRuntimeState"] = %runtime_state_summary
+      core.set %out["contextPressure"] = %pressure_text
+      core.set %out["pressure"] = %pressure
+      core.set %out["effectiveBudgetChars"] = %effective_budget
+      core.set %out["mutablePromptChars"] = %mutable_chars
+      core.set %out["dynamicRuntimeChars"] = %dynamic_runtime_chars
+      core.set %state["last_actor_context"] = %out
+      core.return %out
+    }
+  }
+
+  op ax.agent.semantic @agent_build_action_evidence_summary {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(json) -> string"
+    body @entry(%state: json) {
+      %empty_list = core.list
+      %entries = core.get %state["action_log"] default %empty_list
+      %checkpoint = core.get %state["checkpoint_state"] default null
+      %checkpoint_summary = core.get %checkpoint["summary"] default ""
+      %checkpoint_turns = core.get %checkpoint["turns"] default %empty_list
+      %runtime_summary = core.get %state["runtime_state_summary"] default ""
+      %parts = core.list
+      core.append %parts, "Actor stopped without calling final(...). Evidence summary:"
+      %has_checkpoint = core.call intrinsic.ne(%checkpoint_summary, "")
+      core.if %has_checkpoint {
+        %checkpoint_text = core.call intrinsic.string.format("Checkpoint summary:\n{}", %checkpoint_summary)
+        core.append %parts, %checkpoint_text
+      } else {
+      }
+      %lines = core.list
+      %fallback = core.let 1
+      core.for %entry in %entries {
+        %turn = core.call @agent_entry_turn(%entry, %fallback)
+        %covered = core.call intrinsic.contains(%checkpoint_turns, %turn)
+        %is_error = core.call @agent_entry_is_error(%entry)
+        %not_error_skip = core.call intrinsic.not(%is_error)
+        %skip = core.call intrinsic.and(%covered, %not_error_skip)
+        core.if %skip {
+        } else {
+          %summary = core.call @agent_entry_summary(%entry, %turn)
+          %line = core.call intrinsic.string.format("- Action {}: {}", %turn, %summary)
+          core.append %lines, %line
+        }
+        %fallback = core.call intrinsic.add(%fallback, 1)
+      }
+      %line_text = core.call intrinsic.string.join("\n", %lines)
+      %has_lines = core.call intrinsic.ne(%line_text, "")
+      core.if %has_lines {
+        core.append %parts, %line_text
+      } else {
+        %no_checkpoint = core.call intrinsic.not(%has_checkpoint)
+        core.if %no_checkpoint {
+          core.append %parts, "- No actions were taken."
+        } else {
+        }
+      }
+      %has_runtime = core.call intrinsic.ne(%runtime_summary, "")
+      core.if %has_runtime {
+        %runtime_text = core.call intrinsic.string.format("Current runtime state:\n{}", %runtime_summary)
+        core.append %parts, %runtime_text
+      } else {
+      }
+      %out = core.call intrinsic.string.join("\n", %parts)
+      core.return %out
+    }
+  }
+
+  op ax.agent.semantic @agent_context_fixture_result {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(json, json) -> json throws"
+    body @entry(%state: json, %fixture: json) {
+      %operation = core.get %fixture["context_operation"] default "prepare"
+      %is_policy = core.call intrinsic.eq(%operation, "resolve_policy")
+      core.if %is_policy {
+        %empty_map = core.map
+        %fixture_options = core.get %fixture["options"] default %empty_map
+        %options = core.get %fixture["context_options"] default %fixture_options
+        %policy = core.call @resolve_agent_context_policy(%options)
+        core.return %policy
+      } else {
+      }
+      %is_executor_policy = core.call intrinsic.eq(%operation, "executor_model_policy")
+      core.if %is_executor_policy {
+        %empty_map2 = core.map
+        %fixture_options2 = core.get %fixture["options"] default %empty_map2
+        %options2 = core.get %fixture["context_options"] default %fixture_options2
+        %policy2 = core.call @resolve_agent_executor_model_policy(%options2)
+        %empty_actor_state = core.map
+        %actor_state = core.get %fixture["actor_model_state"] default %empty_actor_state
+        %selected = core.call @select_agent_executor_model(%policy2, %actor_state)
+        %out2 = core.map
+        core.set %out2["policy"] = %policy2
+        core.set %out2["selectedModel"] = %selected
+        core.return %out2
+      } else {
+      }
+      %is_budget = core.call intrinsic.eq(%operation, "budget")
+      core.if %is_budget {
+        %base = core.get %fixture["base_budget"] default 16000
+        %fixed = core.get %fixture["fixed_overhead_chars"] default 0
+        %empty_entries = core.list
+        %entries = core.get %fixture["action_log"] default %empty_entries
+        %max_runtime = core.get %fixture["max_runtime_chars"] default 3000
+        %effective = core.call @agent_compute_effective_chat_budget(%base, %fixed)
+        %dynamic = core.call @agent_compute_dynamic_runtime_chars(%entries, %base, %max_runtime)
+        %mutable_prompt_chars = core.get %fixture["mutable_prompt_chars"] default 0
+        %checkpoint_active = core.get %fixture["checkpoint_active"] default false
+        %pressure = core.call @agent_context_pressure(%mutable_prompt_chars, %effective, %checkpoint_active)
+        %pressure_text_budget = core.call @agent_render_context_pressure(%pressure)
+        %out_budget = core.map
+        core.set %out_budget["effectiveBudgetChars"] = %effective
+        core.set %out_budget["dynamicRuntimeChars"] = %dynamic
+        core.set %out_budget["pressure"] = %pressure
+        core.set %out_budget["contextPressure"] = %pressure_text_budget
+        core.return %out_budget
+      } else {
+      }
+      %is_smart = core.call intrinsic.eq(%operation, "smart_stringify")
+      core.if %is_smart {
+        %value = core.get %fixture["value"] default null
+        %max_chars = core.get %fixture["max_chars"] default 400
+        %text = core.call @agent_smart_stringify(%value, %max_chars)
+        %out_smart = core.map
+        core.set %out_smart["text"] = %text
+        core.return %out_smart
+      } else {
+      }
+      %fixture_action_log = core.get %fixture["action_log"] default null
+      %has_fixture_action_log = core.type_is %fixture_action_log type "list"
+      core.if %has_fixture_action_log {
+        core.set %state["action_log"] = %fixture_action_log
+      } else {
+      }
+      %fixture_session_state = core.get %fixture["runtime_session_state"] default null
+      %has_session_state = core.type_is %fixture_session_state type "object"
+      core.if %has_session_state {
+        core.set %state["runtime_session_state"] = %fixture_session_state
+      } else {
+      }
+      %fixture_checkpoint = core.get %fixture["checkpoint_state"] default null
+      %has_fixture_checkpoint = core.type_is %fixture_checkpoint type "object"
+      core.if %has_fixture_checkpoint {
+        core.set %state["checkpoint_state"] = %fixture_checkpoint
+      } else {
+      }
+      %prepared = core.call @agent_prepare_actor_context(%state)
+      %evidence = core.call @agent_build_action_evidence_summary(%state)
+      %exported = core.call @agent_export_runtime_state(%state)
+      %out = core.map
+      core.set %out["prepared"] = %prepared
+      core.set %out["evidence"] = %evidence
+      core.set %out["exported"] = %exported
       core.return %out
     }
   }
@@ -1746,6 +3337,12 @@ module @ax.agent version "0.1" {
       %runtime_inspection = core.get %state["runtime_inspection"] default null
       %actor_prompt_policy = core.get %state["actor_prompt_policy"] default %empty_map
       %policy_registry = core.get %state["policy_registry"] default %empty_map
+      %context_policy = core.get %state["context_policy"] default %empty_map
+      %context_events = core.get %state["context_events"] default %empty_list
+      %checkpoint_state = core.get %state["checkpoint_state"] default null
+      %runtime_state_summary = core.get %state["runtime_state_summary"] default ""
+      %actor_model_state = core.get %state["actor_model_state"] default %empty_map
+      %last_actor_context = core.get %state["last_actor_context"] default %empty_map
       %run_trace = core.call @agent_export_trace(%state)
       core.set %out["runtime_state"] = %runtime_state
       core.set %out["discovered_tool_docs"] = %discovered
@@ -1763,6 +3360,12 @@ module @ax.agent version "0.1" {
       core.set %out["runtime_inspection"] = %runtime_inspection
       core.set %out["actor_prompt_policy"] = %actor_prompt_policy
       core.set %out["policy_registry"] = %policy_registry
+      core.set %out["context_policy"] = %context_policy
+      core.set %out["context_events"] = %context_events
+      core.set %out["checkpoint_state"] = %checkpoint_state
+      core.set %out["runtime_state_summary"] = %runtime_state_summary
+      core.set %out["actor_model_state"] = %actor_model_state
+      core.set %out["last_actor_context"] = %last_actor_context
       core.set %out["trace"] = %run_trace
       core.return %out
     }
@@ -1790,6 +3393,11 @@ module @ax.agent version "0.1" {
       %runtime_globals = core.get %snapshot["runtime_globals"] default %empty_map
       %policy_registry = core.get %snapshot["policy_registry"] default null
       %run_trace = core.get %snapshot["trace"] default null
+      %context_events = core.get %snapshot["context_events"] default %empty_list
+      %checkpoint_state = core.get %snapshot["checkpoint_state"] default null
+      %runtime_state_summary = core.get %snapshot["runtime_state_summary"] default ""
+      %actor_model_state = core.get %snapshot["actor_model_state"] default %empty_map
+      %last_actor_context = core.get %snapshot["last_actor_context"] default %empty_map
       core.set %state["runtime_state"] = %runtime_state
       core.set %state["discovered_tool_docs"] = %discovered
       core.set %state["loaded_skill_docs"] = %skills
@@ -1803,6 +3411,11 @@ module @ax.agent version "0.1" {
       core.set %state["status_log"] = %status_log
       core.set %state["runtime_session_state"] = %runtime_session_state
       core.set %state["runtime_globals"] = %runtime_globals
+      core.set %state["context_events"] = %context_events
+      core.set %state["checkpoint_state"] = %checkpoint_state
+      core.set %state["runtime_state_summary"] = %runtime_state_summary
+      core.set %state["actor_model_state"] = %actor_model_state
+      core.set %state["last_actor_context"] = %last_actor_context
       %has_policy_registry = core.type_is %policy_registry type "object"
       core.if %has_policy_registry {
         core.set %state["policy_registry"] = %policy_registry
@@ -1941,6 +3554,28 @@ module @ax.agent version "0.1" {
     body @entry(%state: json, %entry: json) {
       %empty_list = core.list
       %log = core.get %state["action_log"] default %empty_list
+      %entry_is_map = core.type_is %entry type "object"
+      core.if %entry_is_map {
+        %has_turn = core.call intrinsic.map.contains(%entry, "turn")
+        core.if %has_turn {
+        } else {
+          %count = core.call intrinsic.len(%log)
+          %turn = core.call intrinsic.add(%count, 1)
+          core.set %entry["turn"] = %turn
+        }
+        %has_tags = core.call intrinsic.map.contains(%entry, "tags")
+        core.if %has_tags {
+        } else {
+          %tags = core.list
+          %is_error = core.get %entry["is_error"] default false
+          core.if %is_error {
+            core.append %tags, "error"
+          } else {
+          }
+          core.set %entry["tags"] = %tags
+        }
+      } else {
+      }
       core.append %log, %entry
       core.set %state["action_log"] = %log
       core.return %entry
@@ -2383,18 +4018,22 @@ module @ax.agent version "0.1" {
       %discovered_docs = core.get %state["discovered_tool_docs"] default %empty_list
       %loaded_skills = core.get %state["loaded_skill_docs"] default %empty_list
       %loaded_memories = core.get %state["loaded_memories"] default %empty_list
-      %guidance_log = core.get %state["guidance_log"] default %empty_list
-      %action_log = core.get %state["action_log"] default %empty_list
       %discovered_text = core.call @agent_render_discovered_tool_docs(%discovered_docs)
       %skills_text = core.call @agent_render_loaded_skills(%loaded_skills)
-      %guidance_text = core.call intrinsic.json.stringify(%guidance_log)
-      %action_text = core.call intrinsic.json.stringify(%action_log)
+      %actor_context = core.call @agent_prepare_actor_context(%state)
+      %guidance_text = core.get %actor_context["guidanceLog"] default "[]"
+      %action_text = core.get %actor_context["actionLog"] default "(no actions yet)"
+      %summary_text = core.get %actor_context["summarizedActorLog"] default ""
+      %runtime_text = core.get %actor_context["liveRuntimeState"] default ""
+      %pressure_text = core.get %actor_context["contextPressure"] default ""
       core.set %out["discoveredToolDocs"] = %discovered_text
       core.set %out["loadedSkills"] = %skills_text
       core.set %out["memories"] = %loaded_memories
-      core.set %out["summarizedActorLog"] = ""
+      core.set %out["summarizedActorLog"] = %summary_text
       core.set %out["guidanceLog"] = %guidance_text
       core.set %out["actionLog"] = %action_text
+      core.set %out["liveRuntimeState"] = %runtime_text
+      core.set %out["contextPressure"] = %pressure_text
       %exclude = core.get %state["executor_exclude_fields"] default %empty_list
       core.for %key in %exclude {
         core.call intrinsic.map.delete(%out, %key)

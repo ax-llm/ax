@@ -20,7 +20,79 @@
       "usageTrackingMode": false
     },
     "policy_schema_version": "axir-agent-policy-v1",
-    "policy_version": "agent-runtime-decision-v1"
+    "policy_version": "agent-runtime-decision-v1",
+    "vocabulary": {
+      "actor_primitive_names": {
+        "ask_clarification": "askClarification",
+        "discover": "discover",
+        "final": "final",
+        "recall": "recall"
+      },
+      "context_policy": {
+        "budgets": {
+          "balanced": {
+            "inspectThreshold": 13600,
+            "targetPromptChars": 16000
+          },
+          "compact": {
+            "inspectThreshold": 10200,
+            "targetPromptChars": 12000
+          },
+          "expanded": {
+            "inspectThreshold": 17000,
+            "targetPromptChars": 20000
+          }
+        },
+        "default_budget": "balanced",
+        "default_preset": "checkpointed",
+        "event_names": {
+          "action_compacted": "action_compacted",
+          "budget_check": "budget_check",
+          "checkpoint_cleared": "checkpoint_cleared",
+          "checkpoint_created": "checkpoint_created"
+        },
+        "option_keys": {
+          "budget": "budget",
+          "camel": "contextPolicy",
+          "preset": "preset",
+          "snake": "context_policy"
+        },
+        "presets": {
+          "adaptive": {
+            "actionReplay": "adaptive",
+            "checkpointTriggerRatio": 0.75
+          },
+          "checkpointed": {
+            "actionReplay": "checkpointed",
+            "checkpointTriggerRatio": 1
+          },
+          "lean": {
+            "actionReplay": "minimal",
+            "checkpointTriggerRatio": 0.6
+          }
+        },
+        "pressure_levels": {
+          "critical": {
+            "id": "critical",
+            "threshold": 0.9
+          },
+          "ok": {
+            "id": "ok",
+            "threshold": 0
+          },
+          "watch": {
+            "id": "watch",
+            "threshold": 0.7
+          }
+        }
+      },
+      "effect_only_actions": [
+        "discover",
+        "recall",
+        "used"
+      ],
+      "policy_schema_version": "axir-agent-policy-vocabulary-v1"
+    }
   },
   "expected_policy_subset": {
     "policy_schema_version": "axir-agent-policy-v1",

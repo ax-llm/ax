@@ -5,7 +5,9 @@
   },
   "expected_result_subset": {
     "completion_payload": {
-      "args": ["done"],
+      "args": [
+        "done"
+      ],
       "type": "final"
     },
     "kind": "final"
@@ -18,7 +20,9 @@
       "expected_code": "final(\"done\")",
       "result": {
         "completion_payload": {
-          "args": ["done"],
+          "args": [
+            "done"
+          ],
           "type": "final"
         }
       }

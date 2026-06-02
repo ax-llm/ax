@@ -27,7 +27,10 @@
   ],
   "expected_discovery_catalog_subset": [
     {
-      "callables": ["tools.search", "tools.lookup"],
+      "callables": [
+        "tools.search",
+        "tools.lookup"
+      ],
       "namespace": "tools",
       "placement": "actor_prompt"
     }

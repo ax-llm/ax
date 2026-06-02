@@ -1,0 +1,15 @@
+{
+  "context_operation": "executor_model_policy",
+  "expected_error_contains": "executorModelPolicy[0].aboveErrorTurns must be a finite number >= 0",
+  "kind": "agent_runtime_policy",
+  "name": "executor-model-policy-negative-error-turns",
+  "options": {
+    "executorModelPolicy": [
+      {
+        "aboveErrorTurns": -1,
+        "model": "retry"
+      }
+    ]
+  },
+  "signature": "question:string -> answer:string"
+}

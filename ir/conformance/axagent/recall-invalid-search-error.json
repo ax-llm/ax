@@ -5,6 +5,8 @@
   "options": {
     "memoriesMode": true
   },
-  "recall": [""],
+  "recall": [
+    ""
+  ],
   "signature": "question:string -> answer:string"
 }

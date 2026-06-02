@@ -9,7 +9,9 @@
       "kind": "final"
     }
   ],
-  "expected_executed": ["final(\"Answer\", {\"answer\": \"from runtime\"})"],
+  "expected_executed": [
+    "final(\"Answer\", {\"answer\": \"from runtime\"})"
+  ],
   "expected_output": {
     "answer": "from runtime"
   },

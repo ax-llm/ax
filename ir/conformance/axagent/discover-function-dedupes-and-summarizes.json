@@ -1,11 +1,19 @@
 {
   "discover": {
-    "tools": ["docs.search", "search", "docs"]
+    "tools": [
+      "docs.search",
+      "search",
+      "docs"
+    ]
   },
   "expected_action_log_subset": [
     {
       "skills": [],
-      "tools": ["docs.search", "search", "docs"],
+      "tools": [
+        "docs.search",
+        "search",
+        "docs"
+      ],
       "type": "discover"
     }
   ],
@@ -29,7 +37,11 @@
   "expected_policy_trace_subset": [
     {
       "skills": [],
-      "tools": ["docs.search", "search", "docs"],
+      "tools": [
+        "docs.search",
+        "search",
+        "docs"
+      ],
       "type": "discover"
     }
   ],

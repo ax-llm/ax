@@ -1,7 +1,9 @@
 {
   "expected_discovery_catalog_subset": [
     {
-      "callables": ["math.sum"],
+      "callables": [
+        "math.sum"
+      ],
       "namespace": "math",
       "placement": "actor_prompt"
     }

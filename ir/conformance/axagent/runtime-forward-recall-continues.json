@@ -1,7 +1,9 @@
 {
   "expected_action_log_subset": [
     {
-      "searches": ["prefs"],
+      "searches": [
+        "prefs"
+      ],
       "type": "recall"
     },
     {
@@ -24,7 +26,9 @@
   "expected_output": {
     "answer": "User likes concise docs."
   },
-  "expected_request_contains": ["User likes concise docs."],
+  "expected_request_contains": [
+    "User likes concise docs."
+  ],
   "expected_request_count": 4,
   "input": {
     "question": "Use memory"

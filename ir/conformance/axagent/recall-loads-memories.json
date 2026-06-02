@@ -1,7 +1,9 @@
 {
   "expected_action_log_subset": [
     {
-      "searches": ["user prefs"],
+      "searches": [
+        "user prefs"
+      ],
       "type": "recall"
     }
   ],
@@ -13,7 +15,9 @@
   ],
   "expected_policy_trace_subset": [
     {
-      "searches": ["user prefs"],
+      "searches": [
+        "user prefs"
+      ],
       "type": "recall"
     }
   ],

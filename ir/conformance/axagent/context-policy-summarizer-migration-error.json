@@ -1,0 +1,14 @@
+{
+  "context_operation": "resolve_policy",
+  "expected_error_contains": "contextPolicy.summarizerOptions has moved to top-level summarizerOptions.",
+  "kind": "agent_runtime_policy",
+  "name": "context-policy-summarizer-migration-error",
+  "options": {
+    "contextPolicy": {
+      "summarizerOptions": {
+        "model": "mini"
+      }
+    }
+  },
+  "signature": "question:string -> answer:string"
+}

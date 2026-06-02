@@ -29,7 +29,9 @@
   "kind": "agent_forward",
   "name": "context-routing",
   "options": {
-    "contextFields": ["document"]
+    "contextFields": [
+      "document"
+    ]
   },
   "responses": [
     {

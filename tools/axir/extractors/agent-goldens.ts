@@ -1,8 +1,26 @@
 import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import {
+  computeEffectiveChatBudget,
+  resolveContextPolicy,
+  resolveExecutorModelPolicy,
+  selectActorModelFromPolicy,
+} from '../../../src/ax/agent/config.js';
+import {
+  buildActionLogParts,
+  type ActionLogEntry,
+} from '../../../src/ax/agent/contextManager.js';
+import {
+  classifyContextPressure,
+  renderContextPressure,
+} from '../../../src/ax/agent/contextEvents.js';
 import { getRuntimeLanguageInfo } from '../../../src/ax/agent/rlm.js';
 import { visibleRuntimePrimitives } from '../../../src/ax/agent/runtimePrimitives.js';
+import {
+  computeDynamicRuntimeChars,
+  smartStringify,
+} from '../../../src/ax/agent/truncate.js';
 import { AxSignature } from '../../../src/ax/dsp/sig.js';
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
@@ -64,6 +82,64 @@ function visiblePrimitiveIds(
 function primitiveSubset(ids: string[]): Json[] {
   return ids.map((id) => ({ id }));
 }
+
+function errorMessage(fn: () => unknown): string {
+  try {
+    fn();
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+  throw new Error('expected reference call to throw');
+}
+
+function contextPolicySubset(
+  options?: Parameters<typeof resolveContextPolicy>[0],
+  maxRuntimeChars?: number
+): Json {
+  const policy = resolveContextPolicy(options, undefined, maxRuntimeChars);
+  return {
+    preset: policy.preset,
+    budget: policy.budget,
+    actionReplay: policy.actionReplay,
+    recentFullActions: policy.recentFullActions,
+    contextHygiene: policy.contextHygiene as Json,
+    stateSummary: policy.stateSummary as Json,
+    stateInspection: policy.stateInspection as Json,
+    checkpoints: policy.checkpoints as Json,
+    targetPromptChars: policy.targetPromptChars,
+    maxRuntimeChars: policy.maxRuntimeChars,
+  };
+}
+
+const compactingActionLog: ActionLogEntry[] = [
+  {
+    turn: 1,
+    code: 'const docs = search({ query: inputs.question })',
+    output: JSON.stringify(
+      Array.from({ length: 24 }, (_, index) => ({
+        id: index,
+        title: `Document ${index}`,
+      }))
+    ),
+    tags: [],
+    producedVars: ['docs'],
+    stateDelta: 'docs loaded',
+    stepKind: 'query',
+  },
+  {
+    turn: 2,
+    code: 'const answer = docs[0].title',
+    output: 'Document 0',
+    tags: [],
+    producedVars: ['answer'],
+    referencedVars: ['docs'],
+    stateDelta: 'answer ready',
+    stepKind: 'finalize',
+  },
+];
+
+const checkpointSummary =
+  'Objective: answer\nCurrent state and artifacts: docs loaded\nExact callables and formats: tools.search\nEvidence: Turn 1 loaded docs\nUser constraints and preferences: none\nFailures to avoid: none\nNext step: answer from latest runtime state.';
 
 mkdirSync(outDir, { recursive: true });
 for (const file of readdirSync(outDir)) {
@@ -275,6 +351,56 @@ writeFixture('policy-registry-baseline', {
       hasAgentStatusCallback: false,
       hasInspectRuntime: false,
     },
+    vocabulary: {
+      policy_schema_version: 'axir-agent-policy-vocabulary-v1',
+      actor_primitive_names: {
+        final: 'final',
+        ask_clarification: 'askClarification',
+        discover: 'discover',
+        recall: 'recall',
+      },
+      context_policy: {
+        default_preset: 'checkpointed',
+        default_budget: 'balanced',
+        option_keys: {
+          camel: 'contextPolicy',
+          snake: 'context_policy',
+          preset: 'preset',
+          budget: 'budget',
+        },
+        budgets: {
+          compact: { targetPromptChars: 12000, inspectThreshold: 10200 },
+          balanced: { targetPromptChars: 16000, inspectThreshold: 13600 },
+          expanded: { targetPromptChars: 20000, inspectThreshold: 17000 },
+        },
+        presets: {
+          adaptive: {
+            actionReplay: 'adaptive',
+            checkpointTriggerRatio: 0.75,
+          },
+          lean: {
+            actionReplay: 'minimal',
+            checkpointTriggerRatio: 0.6,
+          },
+          checkpointed: {
+            actionReplay: 'checkpointed',
+            checkpointTriggerRatio: 1,
+          },
+        },
+        pressure_levels: {
+          ok: { id: 'ok', threshold: 0 },
+          watch: { id: 'watch', threshold: 0.7 },
+          critical: { id: 'critical', threshold: 0.9 },
+        },
+        event_names: {
+          budget_check: 'budget_check',
+          action_compacted: 'action_compacted',
+          checkpoint_created: 'checkpoint_created',
+          checkpoint_cleared: 'checkpoint_cleared',
+        },
+      },
+      effect_only_actions: ['discover', 'recall', 'used'],
+    },
   },
   expected_actor_primitives_subset: primitiveSubset(
     visiblePrimitiveIds('executor', {})
@@ -436,6 +562,336 @@ writeFixture('actor-prompt-cache-policy-python', {
       cache_order: 'stable_before_dynamic',
     },
   },
+});
+
+writeFixture('context-policy-default-checkpointed-balanced', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  context_operation: 'resolve_policy',
+  expected_context_result_subset: contextPolicySubset(),
+});
+
+writeFixture('context-policy-lean-compact-budget', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  options: {
+    contextPolicy: { preset: 'lean', budget: 'compact' },
+    maxRuntimeChars: 1500,
+  },
+  context_operation: 'resolve_policy',
+  expected_context_result_subset: contextPolicySubset(
+    { preset: 'lean', budget: 'compact' },
+    1500
+  ),
+});
+
+writeFixture('context-policy-state-migration-error', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  options: {
+    contextPolicy: { state: { maxEntries: 2 } },
+  },
+  context_operation: 'resolve_policy',
+  expected_error_contains:
+    errorMessage(() =>
+      resolveContextPolicy({ state: { maxEntries: 2 } } as never)
+    ),
+});
+
+writeFixture('context-policy-checkpoints-migration-error', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  options: {
+    contextPolicy: { checkpoints: { triggerChars: 1 } },
+  },
+  context_operation: 'resolve_policy',
+  expected_error_contains: errorMessage(() =>
+    resolveContextPolicy({ checkpoints: { triggerChars: 1 } } as never)
+  ),
+});
+
+writeFixture('context-policy-summarizer-migration-error', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  options: {
+    contextPolicy: { summarizerOptions: { model: 'mini' } },
+  },
+  context_operation: 'resolve_policy',
+  expected_error_contains: errorMessage(() =>
+    resolveContextPolicy({ summarizerOptions: { model: 'mini' } } as never)
+  ),
+});
+
+writeFixture('context-policy-unknown-key-migration-error', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  options: {
+    contextPolicy: { maxEntries: 2 },
+  },
+  context_operation: 'resolve_policy',
+  expected_error_contains: errorMessage(() =>
+    resolveContextPolicy({ maxEntries: 2 } as never)
+  ),
+});
+
+writeFixture('executor-model-policy-routing', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  options: {
+    executorModelPolicy: [
+      { model: 'standard', aboveErrorTurns: 2 },
+      { model: 'tools-model', namespaces: ['docs'] },
+    ],
+  },
+  actor_model_state: {
+    consecutiveErrorTurns: 1,
+    matchedNamespaces: ['docs'],
+  },
+  context_operation: 'executor_model_policy',
+  expected_context_result_subset: {
+    selectedModel: selectActorModelFromPolicy(
+      resolveExecutorModelPolicy([
+        { model: 'standard', aboveErrorTurns: 2 },
+        { model: 'tools-model', namespaces: ['docs'] },
+      ])!,
+      1,
+      ['docs']
+    )!,
+  },
+});
+
+writeFixture('executor-model-policy-legacy-error', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  options: {
+    executorModelPolicy: [{ model: 'old', abovePromptChars: 12000 }],
+  },
+  context_operation: 'executor_model_policy',
+  expected_error_contains: errorMessage(() =>
+    resolveExecutorModelPolicy([
+      { model: 'old', abovePromptChars: 12000 },
+    ] as never)
+  ),
+});
+
+writeFixture('executor-model-policy-expanded-legacy-error', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  options: {
+    executorModelPolicy: [{ model: 'old', minEscalatedTurns: 2 }],
+  },
+  context_operation: 'executor_model_policy',
+  expected_error_contains: errorMessage(() =>
+    resolveExecutorModelPolicy([
+      { model: 'old', minEscalatedTurns: 2 },
+    ] as never)
+  ),
+});
+
+writeFixture('executor-model-policy-negative-error-turns', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  options: {
+    executorModelPolicy: [{ model: 'retry', aboveErrorTurns: -1 }],
+  },
+  context_operation: 'executor_model_policy',
+  expected_error_contains: errorMessage(() =>
+    resolveExecutorModelPolicy([
+      { model: 'retry', aboveErrorTurns: -1 },
+    ] as never)
+  ),
+});
+
+writeFixture('executor-model-policy-empty-namespaces', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  options: {
+    executorModelPolicy: [{ model: 'tools', namespaces: ['  '] }],
+  },
+  context_operation: 'executor_model_policy',
+  expected_error_contains: errorMessage(() =>
+    resolveExecutorModelPolicy([
+      { model: 'tools', namespaces: ['  '] },
+    ] as never)
+  ),
+});
+
+const effectiveBudget = computeEffectiveChatBudget(16000, 6000);
+const budgetPressure = classifyContextPressure({
+  mutablePromptChars: 10000,
+  effectiveBudgetChars: effectiveBudget,
+  checkpointActive: false,
+});
+writeFixture('context-budget-runtime-decay', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  context_operation: 'budget',
+  base_budget: 16000,
+  fixed_overhead_chars: 6000,
+  mutable_prompt_chars: 10000,
+  max_runtime_chars: 3000,
+  action_log: [
+    {
+      code: 'x'.repeat(1000),
+      output: 'y'.repeat(3000),
+    },
+  ],
+  expected_context_result_subset: {
+    effectiveBudgetChars: effectiveBudget,
+    dynamicRuntimeChars: computeDynamicRuntimeChars(
+      [{ code: 'x'.repeat(1000), output: 'y'.repeat(3000) }],
+      16000,
+      3000
+    ),
+    pressure: budgetPressure,
+    contextPressure: renderContextPressure(budgetPressure),
+  },
+});
+
+writeFixture('context-smart-stringify-large-array', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  context_operation: 'smart_stringify',
+  value: Array.from({ length: 12 }, (_, index) => index),
+  max_chars: 400,
+  expected_context_result: {
+    text: smartStringify(
+      Array.from({ length: 12 }, (_, index) => index),
+      400
+    ),
+  },
+});
+
+const checkpointParts = buildActionLogParts(compactingActionLog, {
+  actionReplay: 'checkpointed',
+  recentFullActions: 1,
+  checkpointSummary,
+  checkpointTurns: [1],
+  hygieneMode: 'pressure',
+});
+writeFixture('context-action-log-checkpoint-replay', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  options: {
+    runtime: { language: 'JavaScript' },
+    contextPolicy: { preset: 'checkpointed', budget: 'compact' },
+  },
+  context_operation: 'prepare',
+  action_log: compactingActionLog as unknown as Json[],
+  checkpoint_state: {
+    fingerprint: '[1]',
+    summary: checkpointSummary,
+    turns: [1],
+  },
+  expected_context_result_subset: {
+    prepared: {
+      summarizedActorLog: checkpointParts.summary,
+      actionLog: checkpointParts.history,
+      pressure: 'critical',
+      contextPressure: renderContextPressure('critical'),
+    },
+  },
+  expected_context_events_subset: [
+    {
+      kind: 'budget_check',
+      stage: 'executor',
+      pressure: 'critical',
+      checkpointActive: true,
+    },
+  ],
+});
+
+writeFixture('context-action-log-pressure-compaction', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  options: {
+    runtime: { language: 'JavaScript' },
+    contextPolicy: { preset: 'lean', budget: 'compact' },
+  },
+  context_operation: 'prepare',
+  action_log: compactingActionLog as unknown as Json[],
+  expected_context_result_subset: {
+    prepared: {
+      pressure: 'ok',
+    },
+  },
+  expected_context_events_subset: [
+    {
+      kind: 'action_compacted',
+      stage: 'executor',
+      turn: 1,
+      mode: 'compact',
+      reason: 'lean',
+    },
+  ],
+});
+
+writeFixture('context-runtime-state-summary', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  options: {
+    runtime: { language: 'JavaScript' },
+    contextPolicy: { preset: 'adaptive', budget: 'balanced' },
+  },
+  context_operation: 'prepare',
+  runtime_session_state: {
+    globals: {
+      alpha: 1,
+      beta: { ok: true },
+      final: 'reserved and not rendered',
+    },
+  },
+  expected_context_result_subset: {
+    prepared: {
+      liveRuntimeState: 'Current runtime state:\n- alpha: 1\n- beta: {"ok":true}',
+    },
+  },
+});
+
+writeFixture('context-checkpoint-fallback-created', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  options: {
+    runtime: { language: 'JavaScript' },
+    contextPolicy: { preset: 'lean', budget: 'compact' },
+  },
+  context_operation: 'prepare',
+  action_log: [
+    {
+      turn: 1,
+      code: 'const docs = search(inputs.question)',
+      output: 'x'.repeat(8000),
+      tags: [],
+      producedVars: ['docs'],
+      stateDelta: 'docs loaded',
+      stepKind: 'query',
+    },
+    {
+      turn: 2,
+      code: 'const answer = docs.slice(0, 1)',
+      output: 'answer ready',
+      tags: [],
+      producedVars: ['answer'],
+      referencedVars: ['docs'],
+      stateDelta: 'answer ready',
+      stepKind: 'finalize',
+    },
+  ],
+  expected_context_result_subset: {
+    exported: {
+      checkpoint_state: {
+        turns: [1],
+      },
+    },
+  },
+  expected_context_events_subset: [
+    {
+      kind: 'checkpoint_created',
+      stage: 'executor',
+      reason: 'over_budget',
+      coveredTurns: [1],
+    },
+  ],
 });
 
 writeFixture('runtime-forward-python-final', {

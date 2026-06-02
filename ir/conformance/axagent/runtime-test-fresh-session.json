@@ -14,7 +14,9 @@
       "action": "close_session"
     }
   ],
-  "expected_executed": ["final({ answer: \"ok\" })"],
+  "expected_executed": [
+    "final({ answer: \"ok\" })"
+  ],
   "expected_result_subset": {
     "completion_payload": {
       "args": [

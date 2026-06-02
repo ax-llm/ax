@@ -1,0 +1,29 @@
+{
+  "actor_model_state": {
+    "consecutiveErrorTurns": 1,
+    "matchedNamespaces": [
+      "docs"
+    ]
+  },
+  "context_operation": "executor_model_policy",
+  "expected_context_result_subset": {
+    "selectedModel": "tools-model"
+  },
+  "kind": "agent_runtime_policy",
+  "name": "executor-model-policy-routing",
+  "options": {
+    "executorModelPolicy": [
+      {
+        "aboveErrorTurns": 2,
+        "model": "standard"
+      },
+      {
+        "model": "tools-model",
+        "namespaces": [
+          "docs"
+        ]
+      }
+    ]
+  },
+  "signature": "question:string -> answer:string"
+}

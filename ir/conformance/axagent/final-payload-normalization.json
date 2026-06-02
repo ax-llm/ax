@@ -1,6 +1,8 @@
 {
   "expected_final_payload": {
-    "args": ["done"],
+    "args": [
+      "done"
+    ],
     "type": "final"
   },
   "final_payload": "done",

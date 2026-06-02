@@ -24,7 +24,9 @@
   "expected_output": {
     "answer": "Concise"
   },
-  "expected_request_contains": ["Prefer concise final."],
+  "expected_request_contains": [
+    "Prefer concise final."
+  ],
   "expected_request_count": 4,
   "input": {
     "question": "Use guidance"

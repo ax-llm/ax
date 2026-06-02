@@ -50,8 +50,12 @@
       "expected_code": "discover({ tools: [\"docs\"], skills: [\"sql\"] })",
       "result": {
         "discover": {
-          "skills": ["sql"],
-          "tools": ["docs"]
+          "skills": [
+            "sql"
+          ],
+          "tools": [
+            "docs"
+          ]
         },
         "kind": "discover"
       }

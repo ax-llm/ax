@@ -1,6 +1,8 @@
 {
   "discover": {
-    "skills": ["sql"]
+    "skills": [
+      "sql"
+    ]
   },
   "expected_used_result": null,
   "expected_used_skills_subset": [

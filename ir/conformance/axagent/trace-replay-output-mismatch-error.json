@@ -3,7 +3,9 @@
   "kind": "agent_runtime_policy",
   "name": "trace-replay-output-mismatch-error",
   "replay_fixtures": {
-    "expected_event_kinds": ["final"],
+    "expected_event_kinds": [
+      "final"
+    ],
     "expected_output": {
       "answer": "new"
     }

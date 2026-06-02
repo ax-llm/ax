@@ -1,0 +1,92 @@
+{
+  "action_log": [
+    {
+      "_durableReads": [
+        "search",
+        "query",
+        "inputs",
+        "question"
+      ],
+      "_durableWrites": [
+        "docs"
+      ],
+      "code": "const docs = search({ query: inputs.question })",
+      "output": "[{\"id\":0,\"title\":\"Document 0\"},{\"id\":1,\"title\":\"Document 1\"},{\"id\":2,\"title\":\"Document 2\"},{\"id\":3,\"title\":\"Document 3\"},{\"id\":4,\"title\":\"Document 4\"},{\"id\":5,\"title\":\"Document 5\"},{\"id\":6,\"title\":\"Document 6\"},{\"id\":7,\"title\":\"Document 7\"},{\"id\":8,\"title\":\"Document 8\"},{\"id\":9,\"title\":\"Document 9\"},{\"id\":10,\"title\":\"Document 10\"},{\"id\":11,\"title\":\"Document 11\"},{\"id\":12,\"title\":\"Document 12\"},{\"id\":13,\"title\":\"Document 13\"},{\"id\":14,\"title\":\"Document 14\"},{\"id\":15,\"title\":\"Document 15\"},{\"id\":16,\"title\":\"Document 16\"},{\"id\":17,\"title\":\"Document 17\"},{\"id\":18,\"title\":\"Document 18\"},{\"id\":19,\"title\":\"Document 19\"},{\"id\":20,\"title\":\"Document 20\"},{\"id\":21,\"title\":\"Document 21\"},{\"id\":22,\"title\":\"Document 22\"},{\"id\":23,\"title\":\"Document 23\"}]",
+      "producedVars": [
+        "docs"
+      ],
+      "referencedVars": [
+        "docs",
+        "search",
+        "query",
+        "inputs",
+        "question"
+      ],
+      "replayMode": "full",
+      "stateDelta": "docs loaded",
+      "stepKind": "query",
+      "summary": "[SUMMARY]: Query step. docs loaded. Result: [{\"id\":0,\"title\":\"Document 0\"},{\"id\":1,\"title\":\"Document 1\"},{\"id\":2,\"title\":\"Document 2\"},{\"id\":3,\"title\":\"Document ....",
+      "tags": [],
+      "turn": 1
+    },
+    {
+      "_durableReads": [
+        "docs",
+        "title"
+      ],
+      "_durableWrites": [
+        "answer"
+      ],
+      "code": "const answer = docs[0].title",
+      "output": "Document 0",
+      "producedVars": [
+        "answer"
+      ],
+      "referencedVars": [
+        "docs"
+      ],
+      "replayMode": "full",
+      "stateDelta": "answer ready",
+      "stepKind": "finalize",
+      "summary": "[SUMMARY]: Finalize step. answer ready. Result: Document 0.",
+      "tags": [],
+      "turn": 2
+    }
+  ],
+  "checkpoint_state": {
+    "fingerprint": "[1]",
+    "summary": "Objective: answer\nCurrent state and artifacts: docs loaded\nExact callables and formats: tools.search\nEvidence: Turn 1 loaded docs\nUser constraints and preferences: none\nFailures to avoid: none\nNext step: answer from latest runtime state.",
+    "turns": [
+      1
+    ]
+  },
+  "context_operation": "prepare",
+  "expected_context_events_subset": [
+    {
+      "checkpointActive": true,
+      "kind": "budget_check",
+      "pressure": "critical",
+      "stage": "executor"
+    }
+  ],
+  "expected_context_result_subset": {
+    "prepared": {
+      "actionLog": "```javascript\nconst docs = search({ query: inputs.question })\n```\nResult:\n[{\"id\":0,\"title\":\"Document 0\"},{\"id\":1,\"title\":\"Document 1\"},{\"id\":2,\"title\":\"Document 2\"},{\"id\":3,\"title\":\"Document 3\"},{\"id\":4,\"title\":\"Document 4\"},{\"id\":5,\"title\":\"Document 5\"},{\"id\":6,\"title\":\"Document 6\"},{\"id\":7,\"title\":\"Document 7\"},{\"id\":8,\"title\":\"Document 8\"},{\"id\":9,\"title\":\"Document 9\"},{\"id\":10,\"title\":\"Document 10\"},{\"id\":11,\"title\":\"Document 11\"},{\"id\":12,\"title\":\"Document 12\"},{\"id\":13,\"title\":\"Document 13\"},{\"id\":14,\"title\":\"Document 14\"},{\"id\":15,\"title\":\"Document 15\"},{\"id\":16,\"title\":\"Document 16\"},{\"id\":17,\"title\":\"Document 17\"},{\"id\":18,\"title\":\"Document 18\"},{\"id\":19,\"title\":\"Document 19\"},{\"id\":20,\"title\":\"Document 20\"},{\"id\":21,\"title\":\"Document 21\"},{\"id\":22,\"title\":\"Document 22\"},{\"id\":23,\"title\":\"Document 23\"}]\n\n```javascript\nconst answer = docs[0].title\n```\nResult:\nDocument 0",
+      "contextPressure": "critical - prefer compact inspections, avoid large logs, and rely on liveRuntimeState/checkpoints for older work.",
+      "pressure": "critical",
+      "summarizedActorLog": "Checkpoint Summary:\nObjective: answer\nCurrent state and artifacts: docs loaded\nExact callables and formats: tools.search\nEvidence: Turn 1 loaded docs\nUser constraints and preferences: none\nFailures to avoid: none\nNext step: answer from latest runtime state."
+    }
+  },
+  "kind": "agent_runtime_policy",
+  "name": "context-action-log-checkpoint-replay",
+  "options": {
+    "runtime": {
+      "language": "JavaScript"
+    },
+    "contextPolicy": {
+      "budget": "compact",
+      "preset": "checkpointed"
+    }
+  },
+  "signature": "question:string -> answer:string"
+}

@@ -19,7 +19,11 @@
       }
     ],
     "policy_version": "agent-runtime-decision-v1",
-    "stage_ids": ["distiller", "executor", "responder"]
+    "stage_ids": [
+      "distiller",
+      "executor",
+      "responder"
+    ]
   },
   "kind": "agent_runtime_policy",
   "name": "optimizer-facing-metadata",

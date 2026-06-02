@@ -1,5 +1,9 @@
 {
-  "expected_cached_request_indices": [0, 1, 2],
+  "expected_cached_request_indices": [
+    0,
+    1,
+    2
+  ],
   "expected_output": {
     "answer": "cached"
   },
@@ -17,7 +21,9 @@
   "kind": "agent_forward",
   "name": "agent-context-cache-precedence",
   "options": {
-    "contextFields": ["document"],
+    "contextFields": [
+      "document"
+    ],
     "contextCache": {
       "ttlSeconds": 1111
     },

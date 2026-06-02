@@ -1,6 +1,8 @@
 {
   "discover": {
-    "skills": ["sql"]
+    "skills": [
+      "sql"
+    ]
   },
   "expected_discover_result": null,
   "expected_loaded_skill_docs_subset": [
@@ -12,7 +14,9 @@
   ],
   "expected_policy_trace_subset": [
     {
-      "skills": ["sql"],
+      "skills": [
+        "sql"
+      ],
       "tools": [],
       "type": "discover"
     }

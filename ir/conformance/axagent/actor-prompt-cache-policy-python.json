@@ -34,7 +34,9 @@
   "kind": "agent_runtime_policy",
   "name": "actor-prompt-cache-policy-python",
   "options": {
-    "contextFields": ["document"],
+    "contextFields": [
+      "document"
+    ],
     "functionDiscovery": true,
     "runtime": {
       "language": "Python"

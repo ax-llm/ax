@@ -2,7 +2,10 @@
   "context_values": {
     "question": "sanitize"
   },
-  "expected_absent_runtime_session_globals": ["inputs", "final"],
+  "expected_absent_runtime_session_globals": [
+    "inputs",
+    "final"
+  ],
   "expected_action_log_subset": [
     {
       "action": "snapshot_globals"

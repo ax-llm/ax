@@ -1,7 +1,11 @@
 {
   "discover": {
-    "skills": ["sql"],
-    "tools": ["docs"]
+    "skills": [
+      "sql"
+    ],
+    "tools": [
+      "docs"
+    ]
   },
   "expected_discovered_tool_docs_subset": [
     {
@@ -22,7 +26,11 @@
       "name": "sql"
     }
   ],
-  "expected_trace_event_kinds": ["discover", "recall", "used"],
+  "expected_trace_event_kinds": [
+    "discover",
+    "recall",
+    "used"
+  ],
   "expected_used_memories_subset": [
     {
       "id": "mem-1",

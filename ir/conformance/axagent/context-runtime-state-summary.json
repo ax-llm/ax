@@ -1,0 +1,29 @@
+{
+  "context_operation": "prepare",
+  "expected_context_result_subset": {
+    "prepared": {
+      "liveRuntimeState": "Current runtime state:\n- alpha: 1\n- beta: {\"ok\":true}"
+    }
+  },
+  "kind": "agent_runtime_policy",
+  "name": "context-runtime-state-summary",
+  "options": {
+    "runtime": {
+      "language": "JavaScript"
+    },
+    "contextPolicy": {
+      "budget": "balanced",
+      "preset": "adaptive"
+    }
+  },
+  "runtime_session_state": {
+    "globals": {
+      "alpha": 1,
+      "beta": {
+        "ok": true
+      },
+      "final": "reserved and not rendered"
+    }
+  },
+  "signature": "question:string -> answer:string"
+}
