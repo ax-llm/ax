@@ -23,7 +23,9 @@
             "name": "unsafe",
             "kind": "execute",
             "reads": [],
-            "writes": ["unsafeResult"],
+            "writes": [
+              "unsafeResult"
+            ],
             "barrier": true,
             "stepIndex": 0
           }
@@ -36,7 +38,9 @@
                 "name": "unsafe",
                 "kind": "execute",
                 "reads": [],
-                "writes": ["unsafeResult"],
+                "writes": [
+                  "unsafeResult"
+                ],
                 "barrier": true,
                 "stepIndex": 0
               }
@@ -53,7 +57,9 @@
       "signature": "question:string -> answer:string",
       "options": {
         "reads": [],
-        "writes": ["unsafeResult"],
+        "writes": [
+          "unsafeResult"
+        ],
         "isBarrier": true
       }
     }
@@ -67,7 +73,9 @@
         "name": "unsafe",
         "kind": "execute",
         "reads": [],
-        "writes": ["unsafeResult"],
+        "writes": [
+          "unsafeResult"
+        ],
         "barrier": true,
         "stepIndex": 0
       }
@@ -80,7 +88,9 @@
             "name": "unsafe",
             "kind": "execute",
             "reads": [],
-            "writes": ["unsafeResult"],
+            "writes": [
+              "unsafeResult"
+            ],
             "barrier": true,
             "stepIndex": 0
           }

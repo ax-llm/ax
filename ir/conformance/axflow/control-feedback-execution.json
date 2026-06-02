@@ -1,0 +1,167 @@
+{
+  "kind": "flow",
+  "name": "control-feedback-execution",
+  "source": {
+    "tsDerived": true,
+    "extractor": "tools/axir/extractors/flow-goldens.ts",
+    "reference": [
+      "src/ax/flow/flow.ts",
+      "src/ax/flow/steps.ts",
+      "src/ax/flow/executor.ts",
+      "src/ax/flow/executionPlanner.ts",
+      "src/ax/dsp/program.ts"
+    ],
+    "name": "control-feedback-execution",
+    "observed": {
+      "output": {
+        "attempts": 3
+      },
+      "plan": {
+        "totalSteps": 4,
+        "parallelGroups": 4,
+        "maxParallelism": 1,
+        "steps": [
+          {
+            "name": "map",
+            "kind": "map",
+            "reads": [],
+            "writes": [],
+            "barrier": true,
+            "stepIndex": 0
+          },
+          {
+            "name": "map",
+            "kind": "map",
+            "reads": [],
+            "writes": [],
+            "barrier": true,
+            "stepIndex": 1
+          },
+          {
+            "name": "feedback",
+            "kind": "feedback",
+            "reads": [],
+            "writes": [],
+            "barrier": true,
+            "stepIndex": 2
+          },
+          {
+            "name": "returns",
+            "kind": "returns",
+            "reads": [],
+            "writes": [],
+            "barrier": true,
+            "stepIndex": 3
+          }
+        ],
+        "groups": [
+          {
+            "level": 0,
+            "steps": [
+              {
+                "name": "map",
+                "kind": "map",
+                "reads": [],
+                "writes": [],
+                "barrier": true,
+                "stepIndex": 0
+              }
+            ]
+          },
+          {
+            "level": 1,
+            "steps": [
+              {
+                "name": "map",
+                "kind": "map",
+                "reads": [],
+                "writes": [],
+                "barrier": true,
+                "stepIndex": 1
+              }
+            ]
+          },
+          {
+            "level": 2,
+            "steps": [
+              {
+                "name": "feedback",
+                "kind": "feedback",
+                "reads": [],
+                "writes": [],
+                "barrier": true,
+                "stepIndex": 2
+              }
+            ]
+          },
+          {
+            "level": 3,
+            "steps": [
+              {
+                "name": "returns",
+                "kind": "returns",
+                "reads": [],
+                "writes": [],
+                "barrier": true,
+                "stepIndex": 3
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "input": {
+    "value": "x"
+  },
+  "steps": [
+    {
+      "kind": "map",
+      "name": "initAttempts",
+      "mapper": {
+        "op": "set",
+        "values": {
+          "attempts": 0
+        }
+      }
+    },
+    {
+      "kind": "map",
+      "name": "firstAttempt",
+      "mapper": {
+        "op": "increment",
+        "field": "attempts"
+      }
+    },
+    {
+      "kind": "feedback",
+      "name": "retry",
+      "condition": {
+        "op": "lt",
+        "field": "attempts",
+        "value": 3
+      },
+      "options": {
+        "maxIterations": 5,
+        "label": "retry"
+      },
+      "steps": [
+        {
+          "kind": "map",
+          "name": "retryAttempt",
+          "mapper": {
+            "op": "increment",
+            "field": "attempts"
+          }
+        }
+      ]
+    }
+  ],
+  "returns": {
+    "attempts": "attempts"
+  },
+  "expected_output": {
+    "attempts": 3
+  },
+  "expected_request_count": 0
+}

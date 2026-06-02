@@ -19,5 +19,8 @@
   "options": {
     "id": "qa"
   },
-  "expected_component_ids": ["qa::description", "qa::instruction"]
+  "expected_component_ids": [
+    "qa::description",
+    "qa::instruction"
+  ]
 }

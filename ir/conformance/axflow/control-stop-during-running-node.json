@@ -1,6 +1,6 @@
 {
   "kind": "flow",
-  "name": "cache-hit-skips-execution",
+  "name": "control-stop-during-running-node",
   "source": {
     "tsDerived": true,
     "extractor": "tools/axir/extractors/flow-goldens.ts",
@@ -11,39 +11,29 @@
       "src/ax/flow/executionPlanner.ts",
       "src/ax/dsp/program.ts"
     ],
-    "name": "cache-hit-skips-execution",
+    "name": "control-stop-during-running-node",
     "observed": {
-      "output": {
-        "answer": "Cached"
-      },
-      "calls": 0,
-      "cacheEvents": [
-        {}
-      ]
+      "rule": "TS stop() aborts an in-flight node through the forwarded abort signal."
     }
   },
   "input": {
-    "question": "Cached?"
+    "question": "stop during node?"
   },
   "steps": [
     {
       "kind": "execute",
-      "name": "qa",
+      "name": "slow",
       "signature": "question:string -> answer:string"
     }
   ],
-  "returns": {
-    "answer": "answer"
-  },
-  "cache_seed_value": {
-    "answer": "Cached"
-  },
   "forward_options": {
-    "cache_store": {}
+    "abort_during_step": true,
+    "abort_during_node": "slow"
   },
-  "expected_output": {
-    "answer": "Cached"
-  },
-  "expected_request_count": 0,
-  "expected_trace_kinds": []
+  "responses": [
+    {
+      "content": "{\"answer\":\"never\"}"
+    }
+  ],
+  "expected_error_contains": "Flow aborted at flow-node-slow"
 }

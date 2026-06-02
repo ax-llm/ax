@@ -1,0 +1,36 @@
+{
+  "kind": "flow",
+  "name": "control-parallel-merge-missing-results-error",
+  "source": {
+    "tsDerived": true,
+    "extractor": "tools/axir/extractors/flow-goldens.ts",
+    "reference": [
+      "src/ax/flow/flow.ts",
+      "src/ax/flow/steps.ts",
+      "src/ax/flow/executor.ts",
+      "src/ax/flow/executionPlanner.ts",
+      "src/ax/dsp/program.ts"
+    ],
+    "name": "control-parallel-merge-missing-results-error",
+    "observed": {
+      "rule": "TS throws when merge runs without parallel results."
+    }
+  },
+  "input": {},
+  "steps": [
+    {
+      "kind": "parallelMerge",
+      "name": "combined",
+      "options": {
+        "reads": [
+          "_parallelResults"
+        ],
+        "writes": [
+          "combined"
+        ],
+        "isBarrier": true
+      }
+    }
+  ],
+  "expected_error_contains": "No parallel results found for merge"
+}

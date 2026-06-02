@@ -32,8 +32,12 @@
       "name": "qa",
       "signature": "question:string -> answer:string",
       "options": {
-        "reads": ["question"],
-        "writes": ["qaResult"],
+        "reads": [
+          "question"
+        ],
+        "writes": [
+          "qaResult"
+        ],
         "isBarrier": false
       }
     }
@@ -54,5 +58,7 @@
     "answer": "dynamic"
   },
   "expected_request_count": 1,
-  "expected_request_contains": ["gpt-flow-fixture"]
+  "expected_request_contains": [
+    "gpt-flow-fixture"
+  ]
 }

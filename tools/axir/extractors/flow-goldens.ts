@@ -1,7 +1,8 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AxAIService } from '../../../src/ax/ai/types.js';
-import { AxSignature } from '../../../src/ax/dsp/sig.js';
+import { AxSignature, f } from '../../../src/ax/dsp/sig.js';
+import { axGlobals } from '../../../src/ax/dsp/globals.js';
 import type {
   AxChatLogEntry,
   AxProgramUsage,
@@ -733,6 +734,277 @@ const writeMapAndCacheFixtures = async () => {
   });
 };
 
+const writeControlFlowRuntimeFixtures = async () => {
+  const ai = { name: 'mock' } as unknown as AxAIService;
+
+  const whileFlow = flow<{ count: number }, { count: number }>()
+    .while((state) => state.count < 3)
+    .map((state) => ({ ...state, count: state.count + 1 }))
+    .endWhile()
+    .returns((state) => ({ count: state.count }));
+  const whileOut = await whileFlow.forward(ai, { count: 0 });
+
+  writeFixture(flowDir, 'control-while-execution.json', {
+    kind: 'flow',
+    name: 'control-while-execution',
+    source: source('control-while-execution', {
+      output: whileOut,
+      plan: normalizePlan(whileFlow.getExecutionPlan()),
+    }),
+    input: { count: 0 },
+    steps: [
+      {
+        kind: 'while',
+        name: 'countLoop',
+        condition: { op: 'lt', field: 'count', value: 3 },
+        options: { maxIterations: 100 },
+        steps: [
+          { kind: 'map', name: 'incrementCount', mapper: { op: 'increment', field: 'count' } },
+        ],
+      },
+    ],
+    returns: { count: 'count' },
+    expected_output: { count: 3 },
+    expected_request_count: 0,
+  });
+
+  const branchFlow = flow<{ needsComplex: boolean }, { strategy: string }>()
+    .branch((state) => state.needsComplex)
+    .when(true)
+    .map((state) => ({ ...state, strategy: 'complex' }))
+    .when(false)
+    .map((state) => ({ ...state, strategy: 'simple' }))
+    .merge()
+    .returns((state) => ({ strategy: String((state as any).strategy) }));
+  const branchOut = await branchFlow.forward(ai, { needsComplex: true });
+
+  writeFixture(flowDir, 'control-branch-execution.json', {
+    kind: 'flow',
+    name: 'control-branch-execution',
+    source: source('control-branch-execution', {
+      output: branchOut,
+      plan: normalizePlan(branchFlow.getExecutionPlan()),
+    }),
+    input: { needsComplex: true },
+    steps: [
+      {
+        kind: 'branch',
+        name: 'strategyBranch',
+        predicate: { op: 'field', field: 'needsComplex' },
+        branches: [
+          { when: true, steps: [{ kind: 'map', name: 'complexPath', mapper: { op: 'set', values: { strategy: 'complex' } } }] },
+          { when: false, steps: [{ kind: 'map', name: 'simplePath', mapper: { op: 'set', values: { strategy: 'simple' } } }] },
+        ],
+      },
+    ],
+    returns: { strategy: 'strategy' },
+    expected_output: { strategy: 'complex' },
+    expected_request_count: 0,
+  });
+
+  const feedbackFlow = flow<{ value: string }, { attempts: number }>()
+    .map((state) => ({ ...state, attempts: 0 }))
+    .label('retry')
+    .map((state) => ({ ...state, attempts: state.attempts + 1 }))
+    .feedback((state) => state.attempts < 3, 'retry', 5)
+    .returns((state) => ({ attempts: state.attempts }));
+  const feedbackOut = await feedbackFlow.forward(ai, { value: 'x' });
+
+  writeFixture(flowDir, 'control-feedback-execution.json', {
+    kind: 'flow',
+    name: 'control-feedback-execution',
+    source: source('control-feedback-execution', {
+      output: feedbackOut,
+      plan: normalizePlan(feedbackFlow.getExecutionPlan()),
+    }),
+    input: { value: 'x' },
+    steps: [
+      { kind: 'map', name: 'initAttempts', mapper: { op: 'set', values: { attempts: 0 } } },
+      { kind: 'map', name: 'firstAttempt', mapper: { op: 'increment', field: 'attempts' } },
+      {
+        kind: 'feedback',
+        name: 'retry',
+        condition: { op: 'lt', field: 'attempts', value: 3 },
+        options: { maxIterations: 5, label: 'retry' },
+        steps: [
+          { kind: 'map', name: 'retryAttempt', mapper: { op: 'increment', field: 'attempts' } },
+        ],
+      },
+    ],
+    returns: { attempts: 'attempts' },
+    expected_output: { attempts: 3 },
+    expected_request_count: 0,
+  });
+
+  const nestedFlow = flow<{ count: number }, { count: number; strategy: string }>()
+    .while((state) => state.count < 2)
+    .branch((state) => state.count === 0)
+    .when(true)
+    .map((state) => ({ ...state, strategy: 'first' }))
+    .when(false)
+    .map((state) => ({ ...state, strategy: 'later' }))
+    .merge()
+    .map((state) => ({ ...state, count: state.count + 1 }))
+    .endWhile()
+    .returns((state) => ({ count: state.count, strategy: String((state as any).strategy) }));
+  const nestedOut = await nestedFlow.forward(ai, { count: 0 });
+
+  writeFixture(flowDir, 'control-nested-branch-while.json', {
+    kind: 'flow',
+    name: 'control-nested-branch-while',
+    source: source('control-nested-branch-while', {
+      output: nestedOut,
+      plan: normalizePlan(nestedFlow.getExecutionPlan()),
+    }),
+    input: { count: 0 },
+    steps: [
+      {
+        kind: 'while',
+        name: 'outerLoop',
+        condition: { op: 'lt', field: 'count', value: 2 },
+        steps: [
+          {
+            kind: 'branch',
+            name: 'firstBranch',
+            predicate: { op: 'eq', field: 'count', value: 0 },
+            branches: [
+              { when: true, steps: [{ kind: 'map', name: 'firstStrategy', mapper: { op: 'set', values: { strategy: 'first' } } }] },
+              { when: false, steps: [{ kind: 'map', name: 'laterStrategy', mapper: { op: 'set', values: { strategy: 'later' } } }] },
+            ],
+          },
+          { kind: 'map', name: 'incrementNestedCount', mapper: { op: 'increment', field: 'count' } },
+        ],
+      },
+    ],
+    returns: { count: 'count', strategy: 'strategy' },
+    expected_output: { count: 2, strategy: 'later' },
+    expected_request_count: 0,
+  });
+
+  writeFixture(flowDir, 'control-parallel-merge-missing-results-error.json', {
+    kind: 'flow',
+    name: 'control-parallel-merge-missing-results-error',
+    source: source('control-parallel-merge-missing-results-error', {
+      rule: 'TS throws when merge runs without parallel results.',
+    }),
+    input: {},
+    steps: [
+      {
+        kind: 'parallelMerge',
+        name: 'combined',
+        options: { reads: ['_parallelResults'], writes: ['combined'], isBarrier: true },
+      },
+    ],
+    expected_error_contains: 'No parallel results found for merge',
+  });
+
+  writeFixture(flowDir, 'control-stop-during-running-node.json', {
+    kind: 'flow',
+    name: 'control-stop-during-running-node',
+    source: source('control-stop-during-running-node', {
+      rule: 'TS stop() aborts an in-flight node through the forwarded abort signal.',
+    }),
+    input: { question: 'stop during node?' },
+    steps: [
+      { kind: 'execute', name: 'slow', signature: 'question:string -> answer:string' },
+    ],
+    forward_options: { abort_during_step: true, abort_during_node: 'slow' },
+    responses: [{ content: '{"answer":"never"}' }],
+    expected_error_contains: 'Flow aborted at flow-node-slow',
+  });
+
+  writeFixture(flowDir, 'control-auto-parallel-flow-option-false.json', {
+    kind: 'flow',
+    name: 'control-auto-parallel-flow-option-false',
+    source: source('control-auto-parallel-flow-option-false', {
+      rule: 'TS does not re-enable constructor autoParallel:false from forward options.',
+    }),
+    flow_options: { autoParallel: false },
+    input: { question: 'parallel?' },
+    steps: [
+      { kind: 'execute', name: 'left', signature: 'question:string -> left:string', options: { reads: ['question'], writes: ['leftResult'], isBarrier: false } },
+      { kind: 'execute', name: 'right', signature: 'question:string -> right:string', options: { reads: ['question'], writes: ['rightResult'], isBarrier: false } },
+    ],
+    returns: { left: 'leftResult.left', right: 'rightResult.right' },
+    forward_options: { autoParallel: true, record_flow_groups: true },
+    responses: [{ content: '{"left":"l"}' }, { content: '{"right":"r"}' }],
+    expected_output: { left: 'l', right: 'r' },
+    expected_trace_kinds: ['flow_start', 'flow_group', 'flow_step', 'flow_child_trace', 'flow_group', 'flow_step', 'flow_child_trace', 'flow_group', 'flow_done'],
+    expected_request_count: 2,
+  });
+
+  writeFixture(flowDir, 'control-auto-parallel-forward-override-false.json', {
+    kind: 'flow',
+    name: 'control-auto-parallel-forward-override-false',
+    source: source('control-auto-parallel-forward-override-false', {
+      rule: 'TS forward autoParallel:false forces sequential execution for that run.',
+    }),
+    input: { question: 'override?' },
+    steps: [
+      { kind: 'execute', name: 'left', signature: 'question:string -> left:string', options: { reads: ['question'], writes: ['leftResult'], isBarrier: false } },
+      { kind: 'execute', name: 'right', signature: 'question:string -> right:string', options: { reads: ['question'], writes: ['rightResult'], isBarrier: false } },
+    ],
+    returns: { left: 'leftResult.left', right: 'rightResult.right' },
+    forward_options: { autoParallel: false, record_flow_groups: true },
+    responses: [{ content: '{"left":"l"}' }, { content: '{"right":"r"}' }],
+    expected_output: { left: 'l', right: 'r' },
+    expected_trace_kinds: ['flow_start', 'flow_group', 'flow_step', 'flow_child_trace', 'flow_group', 'flow_step', 'flow_child_trace', 'flow_group', 'flow_done'],
+    expected_request_count: 2,
+  });
+
+  const originalCaching = axGlobals.cachingFunction;
+  try {
+    const streamFlow = flow<{ userQuery: string }, { final: string }>()
+      .map((state) => ({ final: state.userQuery.toUpperCase() }))
+      .returns((state) => ({ final: String((state as any).final) }));
+    axGlobals.cachingFunction = async () => ({ final: 'cached-stream' }) as any;
+    const iterator = streamFlow.streamingForward(ai, { userQuery: 'zzz' });
+    const first = await iterator.next();
+    writeFixture(flowDir, 'control-streaming-cache-short-circuit.json', {
+      kind: 'flow',
+      name: 'control-streaming-cache-short-circuit',
+      operation: 'streaming',
+      source: source('control-streaming-cache-short-circuit', {
+        first,
+      }),
+      input: { userQuery: 'zzz' },
+      steps: [
+        { kind: 'map', name: 'final', mapper: { op: 'set', values: { final: 'ZZZ' } } },
+      ],
+      returns: { final: 'final' },
+      cache_seed_value: { final: 'cached-stream' },
+      forward_options: { cache_store: {} },
+      expected_streaming_output: [{ version: 1, index: 0, delta: { final: 'cached-stream' } }],
+      expected_request_count: 0,
+    });
+  } finally {
+    axGlobals.cachingFunction = originalCaching;
+  }
+
+  const extendedFlow = flow().nx('reasoner', 'userInput:string -> answer:string', {
+    prependOutputs: [{ name: 'reasoning', type: f.string('Reasoning').internal() }],
+  });
+  writeFixture(flowDir, 'control-node-extended-nx-signature.json', {
+    kind: 'flow',
+    name: 'control-node-extended-nx-signature',
+    source: source('control-node-extended-nx-signature', {
+      signature: extendedFlow.getSignature().toString(),
+    }),
+    input: { userInput: 'why?' },
+    steps: [
+      {
+        kind: 'execute',
+        name: 'reasoner',
+        extended_signature: 'userInput:string -> reasoning!:string, answer:string',
+      },
+    ],
+    returns: { answer: 'reasonerResult.answer' },
+    responses: [{ content: '{"reasoning":"because","answer":"ok"}' }],
+    expected_output: { answer: 'ok' },
+    expected_request_count: 1,
+  });
+};
+
 const writeProgramFixtures = () => {
   writeFixture(programDir, 'axgen-component-contract.json', {
     kind: 'program_contract',
@@ -798,6 +1070,7 @@ writePlanFixtures();
 await runSimpleForward();
 await writeExecutionRuntimeFixtures();
 await writeMapAndCacheFixtures();
+await writeControlFlowRuntimeFixtures();
 writeDemoFixture();
 
 console.log('wrote TS-derived AxFlow AxIR conformance fixtures');

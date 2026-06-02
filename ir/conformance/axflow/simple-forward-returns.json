@@ -25,8 +25,12 @@
           {
             "name": "qa",
             "kind": "execute",
-            "reads": ["question"],
-            "writes": ["qaResult"],
+            "reads": [
+              "question"
+            ],
+            "writes": [
+              "qaResult"
+            ],
             "barrier": false,
             "stepIndex": 0
           },
@@ -46,8 +50,12 @@
               {
                 "name": "qa",
                 "kind": "execute",
-                "reads": ["question"],
-                "writes": ["qaResult"],
+                "reads": [
+                  "question"
+                ],
+                "writes": [
+                  "qaResult"
+                ],
                 "barrier": false,
                 "stepIndex": 0
               }
@@ -68,7 +76,9 @@
           }
         ]
       },
-      "chatLogNames": ["qa"],
+      "chatLogNames": [
+        "qa"
+      ],
       "usageCount": 1,
       "traceCount": 1
     }
@@ -82,8 +92,12 @@
       "name": "qa",
       "signature": "question:string -> answer:string",
       "options": {
-        "reads": ["question"],
-        "writes": ["qaResult"],
+        "reads": [
+          "question"
+        ],
+        "writes": [
+          "qaResult"
+        ],
         "isBarrier": false
       }
     }

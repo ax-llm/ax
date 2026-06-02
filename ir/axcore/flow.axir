@@ -440,13 +440,35 @@ module @ax.flow version "0.1" {
         %keys = core.call intrinsic.map.keys(%spec)
         core.for %key in %keys {
           %path = core.get %spec[%key]
-          %value = core.call intrinsic.map.get(%state, %path)
+          %value = core.call @flow_get_path(%state, %path)
           core.set %projected[%key] = %value
         }
         %output = core.let %projected
       } else {
       }
       core.return %output
+    }
+  }
+
+  op ax.flow.semantic @flow_get_path {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    attr private = true
+    type signature = "(state:json, path:json) -> json"
+    body @entry(%state: json, %path: json) {
+      %none = core.call intrinsic.none()
+      %path_text = core.call intrinsic.string.str(%path)
+      %parts = core.call intrinsic.string.split(%path_text, ".")
+      %current = core.let %state
+      core.for %part in %parts {
+        %is_object = core.type_is %current type "object"
+        core.if %is_object {
+          %current = core.get %current[%part] default %none
+        } else {
+          %current = core.let %none
+        }
+      }
+      core.return %current
     }
   }
 
@@ -537,6 +559,21 @@ module @ax.flow version "0.1" {
       } else {
       }
       core.set %runtime_options["traceLabel"] = %trace_label
+      %abort_during_snake = core.get %options["abort_during_step"] default false
+      %abort_during = core.get %options["abortDuringStep"] default %abort_during_snake
+      %abort_node_snake = core.get %options["abort_during_node"] default ""
+      %abort_node = core.get %options["abortDuringNode"] default %abort_node_snake
+      %abort_named = core.call intrinsic.eq(%abort_node, %name)
+      %abort_no_name = core.call intrinsic.eq(%abort_node, "")
+      %abort_this_node = core.call intrinsic.and(%abort_during, %abort_named)
+      %abort_any_node = core.call intrinsic.and(%abort_during, %abort_no_name)
+      %abort_now = core.call intrinsic.or(%abort_this_node, %abort_any_node)
+      core.if %abort_now {
+        %abort_message = core.call intrinsic.string.format("Flow aborted at flow-node-{}", %name)
+        %abort_error = core.call intrinsic.error.runtime(%abort_message)
+        core.raise %abort_error
+      } else {
+      }
       %result = core.call intrinsic.agent.stage_forward(%program, %client, %state, %runtime_options)
       %out = core.call intrinsic.map.merge(%state, %empty_map)
       %result_key = core.call intrinsic.string.format("{}Result", %name)
@@ -590,6 +627,116 @@ module @ax.flow version "0.1" {
         core.return %out
       } else {
       }
+      %is_branch = core.call intrinsic.eq(%kind, "branch")
+      core.if %is_branch {
+        %step_options = core.get %step["options"] default %empty_map
+        %predicate = core.get %step_options["predicate"] default null
+        %has_predicate = core.call intrinsic.is_not_none(%predicate)
+        %branch_value_default = core.get %step_options["value"] default false
+        %branch_value = core.get %step_options["branchValue"] default %branch_value_default
+        core.if %has_predicate {
+          %branch_value = core.call intrinsic.object.call_method(%predicate, "call", %state)
+        } else {
+        }
+        %default_branches = core.list
+        %branches = core.get %step_options["branches"] default %default_branches
+        %current = core.let %state
+        %matched = core.let false
+        core.for %branch in %branches {
+          %when = core.get %branch["when"] default null
+          %matches = core.call intrinsic.eq(%when, %branch_value)
+          core.if %matches {
+            %branch_steps = core.get %branch["steps"] default %default_branches
+            %current = core.call @flow_execute_nested_steps(%flow, %client, %branch_steps, %current, %options)
+            %matched = core.let true
+          } else {
+          }
+        }
+        core.return %current
+      } else {
+      }
+      %is_while = core.call intrinsic.eq(%kind, "while")
+      core.if %is_while {
+        %step_options = core.get %step["options"] default %empty_map
+        %condition = core.get %step_options["condition"] default null
+        %has_condition = core.call intrinsic.is_not_none(%condition)
+        %default_body = core.list
+        %body_steps = core.get %step_options["steps"] default %default_body
+        %max_iterations_snake = core.get %step_options["max_iterations"] default 100
+        %max_iterations = core.get %step_options["maxIterations"] default %max_iterations_snake
+        %current = core.let %state
+        %iterations = core.let 0
+        core.loop {
+          %condition_result = core.get %step_options["conditionResult"] default false
+          core.if %has_condition {
+            %condition_result = core.call intrinsic.object.call_method(%condition, "call", %current)
+          } else {
+          }
+          %should_continue = core.call intrinsic.truthy(%condition_result)
+          %done = core.call intrinsic.not(%should_continue)
+          core.if %done {
+            core.break
+          } else {
+          }
+          %too_many = core.call intrinsic.gte(%iterations, %max_iterations)
+          core.if %too_many {
+            %message = core.call intrinsic.string.format("While loop exceeded maximum iterations ({})", %max_iterations)
+            %err = core.call intrinsic.error.runtime(%message)
+            core.raise %err
+          } else {
+          }
+          core.call @flow_check_abort(%options, "flow-while")
+          %current = core.call @flow_execute_nested_steps(%flow, %client, %body_steps, %current, %options)
+          %iterations = core.call intrinsic.add(%iterations, 1)
+        }
+        core.return %current
+      } else {
+      }
+      %is_feedback = core.call intrinsic.eq(%kind, "feedback")
+      core.if %is_feedback {
+        %step_options = core.get %step["options"] default %empty_map
+        %condition = core.get %step_options["condition"] default null
+        %has_condition = core.call intrinsic.is_not_none(%condition)
+        %default_body = core.list
+        %body_steps = core.get %step_options["steps"] default %default_body
+        %max_iterations_snake = core.get %step_options["max_iterations"] default 10
+        %max_iterations = core.get %step_options["maxIterations"] default %max_iterations_snake
+        %label = core.get %step_options["label"] default %name
+        %iteration_key = core.call intrinsic.string.format("_feedback_{}_iterations", %label)
+        %current = core.call intrinsic.map.merge(%state, %empty_map)
+        %existing_iterations = core.get %current[%iteration_key] default null
+        %missing_iterations = core.call intrinsic.is_none(%existing_iterations)
+        core.if %missing_iterations {
+          core.set %current[%iteration_key] = 1
+        } else {
+        }
+        %iterations = core.let 1
+        core.loop {
+          %condition_result = core.get %step_options["conditionResult"] default false
+          core.if %has_condition {
+            %condition_result = core.call intrinsic.object.call_method(%condition, "call", %current)
+          } else {
+          }
+          %should_continue = core.call intrinsic.truthy(%condition_result)
+          %done = core.call intrinsic.not(%should_continue)
+          core.if %done {
+            core.break
+          } else {
+          }
+          %too_many = core.call intrinsic.gte(%iterations, %max_iterations)
+          core.if %too_many {
+            core.break
+          } else {
+          }
+          %location = core.call intrinsic.string.format("flow-feedback-{}", %label)
+          core.call @flow_check_abort(%options, %location)
+          %iterations = core.call intrinsic.add(%iterations, 1)
+          core.set %current[%iteration_key] = %iterations
+          %current = core.call @flow_execute_nested_steps(%flow, %client, %body_steps, %current, %options)
+        }
+        core.return %current
+      } else {
+      }
       %is_parallel = core.call intrinsic.eq(%kind, "parallel")
       core.if %is_parallel {
         %step_options = core.get %step["options"] default %empty_map
@@ -605,9 +752,18 @@ module @ax.flow version "0.1" {
       core.if %is_parallel_merge {
         %step_options = core.get %step["options"] default %empty_map
         %results = core.get %state["_parallelResults"] default null
+        %results_is_list = core.type_is %results type "list"
+        %bad_results = core.call intrinsic.not(%results_is_list)
+        core.if %bad_results {
+          %err = core.call intrinsic.error.runtime("No parallel results found for merge")
+          core.raise %err
+        } else {
+        }
         %merge_output_snake = core.get %step_options["merge_output"] default %results
         %merge_output = core.get %step_options["mergeOutput"] default %merge_output_snake
         %out = core.call intrinsic.map.merge(%state, %empty_map)
+        %none = core.call intrinsic.none()
+        core.set %out["_parallelResults"] = %none
         core.set %out[%name] = %merge_output
         core.return %out
       } else {
@@ -628,6 +784,33 @@ module @ax.flow version "0.1" {
     }
   }
 
+  op ax.flow.semantic @flow_execute_nested_steps {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    attr private = true
+    type signature = "(flow:json, client:json, steps:list<json>, state:json, options:json) -> json throws"
+    body @entry(%flow: json, %client: json, %steps: json, %state: json, %options: json) {
+      %empty_map = core.map
+      %nested = core.call intrinsic.map.merge(%flow, %empty_map)
+      %traces = core.get %flow["traces"]
+      %chat_log = core.get %flow["chat_log"]
+      %usage = core.get %flow["usage"]
+      core.set %nested["steps"] = %steps
+      core.set %nested["returns"] = %empty_map
+      core.set %nested["traces"] = %traces
+      core.set %nested["chat_log"] = %chat_log
+      core.set %nested["usage"] = %usage
+      %out = core.call @flow_execute_steps(%nested, %client, %state, %options)
+      %nested_traces = core.get %nested["traces"]
+      %nested_chat_log = core.get %nested["chat_log"]
+      %nested_usage = core.get %nested["usage"]
+      core.set %flow["traces"] = %nested_traces
+      core.set %flow["chat_log"] = %nested_chat_log
+      core.set %flow["usage"] = %nested_usage
+      core.return %out
+    }
+  }
+
   op ax.flow.semantic @flow_execute_steps {
     attr core_kind = "func"
     attr emit_module = "flow"
@@ -640,8 +823,12 @@ module @ax.flow version "0.1" {
       %plan = core.call @flow_plan(%flow)
       %plan_steps = core.get %plan["steps"] default %empty_list
       %planned_groups = core.get %plan["groups"] default %empty_list
-      %auto_camel = core.get %options["autoParallel"] default true
-      %auto_parallel = core.get %options["auto_parallel"] default %auto_camel
+      %flow_options = core.get %flow["options"] default %empty_map
+      %flow_auto_camel = core.get %flow_options["autoParallel"] default true
+      %flow_auto = core.get %flow_options["auto_parallel"] default %flow_auto_camel
+      %option_auto_camel = core.get %options["autoParallel"] default true
+      %option_auto = core.get %options["auto_parallel"] default %option_auto_camel
+      %auto_parallel = core.call intrinsic.and(%flow_auto, %option_auto)
       %groups = core.let %planned_groups
       core.if %auto_parallel {
       } else {
@@ -664,6 +851,19 @@ module @ax.flow version "0.1" {
         core.call @flow_check_abort(%options, %location)
         %group_steps = core.get %group["steps"] default %empty_list
         %group_count = core.call intrinsic.len(%group_steps)
+        %record_groups_snake = core.get %options["record_flow_groups"] default false
+        %record_groups = core.get %options["recordFlowGroups"] default %record_groups_snake
+        core.if %record_groups {
+          %traces = core.get %flow["traces"] default %empty_list
+          %program_id = core.get %flow["program_id"] default "root.flow"
+          %group_payload = core.map
+          core.set %group_payload["level"] = %level
+          core.set %group_payload["stepCount"] = %group_count
+          core.set %group_payload["steps"] = %group_steps
+          %group_event = core.call @program_trace_event(%program_id, "flow_group", %group_payload)
+          core.append %traces, %group_event
+        } else {
+        }
         %is_parallel_group = core.call intrinsic.gt(%group_count, 1)
         core.if %is_parallel_group {
           %group_start = core.call intrinsic.map.merge(%current, %empty_map)

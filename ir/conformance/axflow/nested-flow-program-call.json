@@ -16,7 +16,9 @@
       "output": {
         "answer": "Nested Paris"
       },
-      "chatLogNames": ["nested.inner"]
+      "chatLogNames": [
+        "nested.inner"
+      ]
     }
   },
   "input": {
@@ -28,8 +30,12 @@
       "name": "nested",
       "program": "flow",
       "options": {
-        "reads": ["question"],
-        "writes": ["nestedResult"],
+        "reads": [
+          "question"
+        ],
+        "writes": [
+          "nestedResult"
+        ],
         "isBarrier": false
       },
       "steps": [
@@ -38,8 +44,12 @@
           "name": "inner",
           "signature": "question:string -> answer:string",
           "options": {
-            "reads": ["question"],
-            "writes": ["innerResult"],
+            "reads": [
+              "question"
+            ],
+            "writes": [
+              "innerResult"
+            ],
             "isBarrier": false
           }
         }

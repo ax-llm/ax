@@ -1,0 +1,106 @@
+{
+  "kind": "flow",
+  "name": "control-while-execution",
+  "source": {
+    "tsDerived": true,
+    "extractor": "tools/axir/extractors/flow-goldens.ts",
+    "reference": [
+      "src/ax/flow/flow.ts",
+      "src/ax/flow/steps.ts",
+      "src/ax/flow/executor.ts",
+      "src/ax/flow/executionPlanner.ts",
+      "src/ax/dsp/program.ts"
+    ],
+    "name": "control-while-execution",
+    "observed": {
+      "output": {
+        "count": 3
+      },
+      "plan": {
+        "totalSteps": 2,
+        "parallelGroups": 2,
+        "maxParallelism": 1,
+        "steps": [
+          {
+            "name": "while",
+            "kind": "while",
+            "reads": [],
+            "writes": [],
+            "barrier": true,
+            "stepIndex": 0
+          },
+          {
+            "name": "returns",
+            "kind": "returns",
+            "reads": [],
+            "writes": [],
+            "barrier": true,
+            "stepIndex": 1
+          }
+        ],
+        "groups": [
+          {
+            "level": 0,
+            "steps": [
+              {
+                "name": "while",
+                "kind": "while",
+                "reads": [],
+                "writes": [],
+                "barrier": true,
+                "stepIndex": 0
+              }
+            ]
+          },
+          {
+            "level": 1,
+            "steps": [
+              {
+                "name": "returns",
+                "kind": "returns",
+                "reads": [],
+                "writes": [],
+                "barrier": true,
+                "stepIndex": 1
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "input": {
+    "count": 0
+  },
+  "steps": [
+    {
+      "kind": "while",
+      "name": "countLoop",
+      "condition": {
+        "op": "lt",
+        "field": "count",
+        "value": 3
+      },
+      "options": {
+        "maxIterations": 100
+      },
+      "steps": [
+        {
+          "kind": "map",
+          "name": "incrementCount",
+          "mapper": {
+            "op": "increment",
+            "field": "count"
+          }
+        }
+      ]
+    }
+  ],
+  "returns": {
+    "count": "count"
+  },
+  "expected_output": {
+    "count": 3
+  },
+  "expected_request_count": 0
+}

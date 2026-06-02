@@ -1,0 +1,124 @@
+{
+  "kind": "flow",
+  "name": "control-branch-execution",
+  "source": {
+    "tsDerived": true,
+    "extractor": "tools/axir/extractors/flow-goldens.ts",
+    "reference": [
+      "src/ax/flow/flow.ts",
+      "src/ax/flow/steps.ts",
+      "src/ax/flow/executor.ts",
+      "src/ax/flow/executionPlanner.ts",
+      "src/ax/dsp/program.ts"
+    ],
+    "name": "control-branch-execution",
+    "observed": {
+      "output": {
+        "strategy": "complex"
+      },
+      "plan": {
+        "totalSteps": 2,
+        "parallelGroups": 2,
+        "maxParallelism": 1,
+        "steps": [
+          {
+            "name": "branch",
+            "kind": "branch",
+            "reads": [],
+            "writes": [],
+            "barrier": true,
+            "stepIndex": 0
+          },
+          {
+            "name": "returns",
+            "kind": "returns",
+            "reads": [],
+            "writes": [],
+            "barrier": true,
+            "stepIndex": 1
+          }
+        ],
+        "groups": [
+          {
+            "level": 0,
+            "steps": [
+              {
+                "name": "branch",
+                "kind": "branch",
+                "reads": [],
+                "writes": [],
+                "barrier": true,
+                "stepIndex": 0
+              }
+            ]
+          },
+          {
+            "level": 1,
+            "steps": [
+              {
+                "name": "returns",
+                "kind": "returns",
+                "reads": [],
+                "writes": [],
+                "barrier": true,
+                "stepIndex": 1
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "input": {
+    "needsComplex": true
+  },
+  "steps": [
+    {
+      "kind": "branch",
+      "name": "strategyBranch",
+      "predicate": {
+        "op": "field",
+        "field": "needsComplex"
+      },
+      "branches": [
+        {
+          "when": true,
+          "steps": [
+            {
+              "kind": "map",
+              "name": "complexPath",
+              "mapper": {
+                "op": "set",
+                "values": {
+                  "strategy": "complex"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "when": false,
+          "steps": [
+            {
+              "kind": "map",
+              "name": "simplePath",
+              "mapper": {
+                "op": "set",
+                "values": {
+                  "strategy": "simple"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "returns": {
+    "strategy": "strategy"
+  },
+  "expected_output": {
+    "strategy": "complex"
+  },
+  "expected_request_count": 0
+}

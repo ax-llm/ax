@@ -24,7 +24,9 @@
       "kind": "parallel",
       "name": "_parallelResults",
       "options": {
-        "writes": ["_parallelResults"],
+        "writes": [
+          "_parallelResults"
+        ],
         "isBarrier": true,
         "parallel_results": [
           {
@@ -40,8 +42,12 @@
       "kind": "parallelMerge",
       "name": "combined",
       "options": {
-        "reads": ["_parallelResults"],
-        "writes": ["combined"],
+        "reads": [
+          "_parallelResults"
+        ],
+        "writes": [
+          "combined"
+        ],
         "isBarrier": true
       }
     }

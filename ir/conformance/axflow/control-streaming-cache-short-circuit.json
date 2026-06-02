@@ -1,0 +1,63 @@
+{
+  "kind": "flow",
+  "name": "control-streaming-cache-short-circuit",
+  "operation": "streaming",
+  "source": {
+    "tsDerived": true,
+    "extractor": "tools/axir/extractors/flow-goldens.ts",
+    "reference": [
+      "src/ax/flow/flow.ts",
+      "src/ax/flow/steps.ts",
+      "src/ax/flow/executor.ts",
+      "src/ax/flow/executionPlanner.ts",
+      "src/ax/dsp/program.ts"
+    ],
+    "name": "control-streaming-cache-short-circuit",
+    "observed": {
+      "first": {
+        "value": {
+          "version": 1,
+          "index": 0,
+          "delta": {
+            "final": "cached-stream"
+          }
+        },
+        "done": false
+      }
+    }
+  },
+  "input": {
+    "userQuery": "zzz"
+  },
+  "steps": [
+    {
+      "kind": "map",
+      "name": "final",
+      "mapper": {
+        "op": "set",
+        "values": {
+          "final": "ZZZ"
+        }
+      }
+    }
+  ],
+  "returns": {
+    "final": "final"
+  },
+  "cache_seed_value": {
+    "final": "cached-stream"
+  },
+  "forward_options": {
+    "cache_store": {}
+  },
+  "expected_streaming_output": [
+    {
+      "version": 1,
+      "index": 0,
+      "delta": {
+        "final": "cached-stream"
+      }
+    }
+  ],
+  "expected_request_count": 0
+}

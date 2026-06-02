@@ -1,0 +1,41 @@
+{
+  "kind": "flow",
+  "name": "control-node-extended-nx-signature",
+  "source": {
+    "tsDerived": true,
+    "extractor": "tools/axir/extractors/flow-goldens.ts",
+    "reference": [
+      "src/ax/flow/flow.ts",
+      "src/ax/flow/steps.ts",
+      "src/ax/flow/executor.ts",
+      "src/ax/flow/executionPlanner.ts",
+      "src/ax/dsp/program.ts"
+    ],
+    "name": "control-node-extended-nx-signature",
+    "observed": {
+      "signature": "reasonerUserInput:string -> reasonerReasoning!:string \"Reasoning\", reasonerAnswer:string"
+    }
+  },
+  "input": {
+    "userInput": "why?"
+  },
+  "steps": [
+    {
+      "kind": "execute",
+      "name": "reasoner",
+      "extended_signature": "userInput:string -> reasoning!:string, answer:string"
+    }
+  ],
+  "returns": {
+    "answer": "reasonerResult.answer"
+  },
+  "responses": [
+    {
+      "content": "{\"reasoning\":\"because\",\"answer\":\"ok\"}"
+    }
+  ],
+  "expected_output": {
+    "answer": "ok"
+  },
+  "expected_request_count": 1
+}

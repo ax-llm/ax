@@ -62,6 +62,15 @@ candidate rollout evaluation, metric/judge payload shaping, and
 prompt/component optimization contract, not a GEPA runtime; optimizer algorithms
 remain engine-owned and may call back through the evaluator to score proposals.
 
+AxFlow is a Core-owned Ax program graph, not a generic workflow engine.
+Generated targets must preserve the TypeScript single-step/shared-executor
+semantics for execute, derive, map, returns, branch, while, feedback, explicit
+parallel/merge, and cache/streaming short-circuit behavior. Core owns planning
+barriers, nested block execution, state merge, `.returns()` projection,
+parallel merge errors, stop/abort checkpoints, and child-program trace/usage/
+chat-log aggregation. Target code owns native callback bodies, actual
+concurrency mechanics, and host program execution.
+
 All executable targets also expose the same AxAgent runtime host boundary:
 `AxCodeRuntime` creates persistent `AxCodeSession` objects, and sessions execute
 opaque code, inspect globals when supported, snapshot safe user bindings, patch

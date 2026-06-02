@@ -1,0 +1,147 @@
+{
+  "kind": "flow",
+  "name": "control-nested-branch-while",
+  "source": {
+    "tsDerived": true,
+    "extractor": "tools/axir/extractors/flow-goldens.ts",
+    "reference": [
+      "src/ax/flow/flow.ts",
+      "src/ax/flow/steps.ts",
+      "src/ax/flow/executor.ts",
+      "src/ax/flow/executionPlanner.ts",
+      "src/ax/dsp/program.ts"
+    ],
+    "name": "control-nested-branch-while",
+    "observed": {
+      "output": {
+        "count": 2,
+        "strategy": "later"
+      },
+      "plan": {
+        "totalSteps": 2,
+        "parallelGroups": 2,
+        "maxParallelism": 1,
+        "steps": [
+          {
+            "name": "while",
+            "kind": "while",
+            "reads": [],
+            "writes": [],
+            "barrier": true,
+            "stepIndex": 0
+          },
+          {
+            "name": "returns",
+            "kind": "returns",
+            "reads": [],
+            "writes": [],
+            "barrier": true,
+            "stepIndex": 1
+          }
+        ],
+        "groups": [
+          {
+            "level": 0,
+            "steps": [
+              {
+                "name": "while",
+                "kind": "while",
+                "reads": [],
+                "writes": [],
+                "barrier": true,
+                "stepIndex": 0
+              }
+            ]
+          },
+          {
+            "level": 1,
+            "steps": [
+              {
+                "name": "returns",
+                "kind": "returns",
+                "reads": [],
+                "writes": [],
+                "barrier": true,
+                "stepIndex": 1
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "input": {
+    "count": 0
+  },
+  "steps": [
+    {
+      "kind": "while",
+      "name": "outerLoop",
+      "condition": {
+        "op": "lt",
+        "field": "count",
+        "value": 2
+      },
+      "steps": [
+        {
+          "kind": "branch",
+          "name": "firstBranch",
+          "predicate": {
+            "op": "eq",
+            "field": "count",
+            "value": 0
+          },
+          "branches": [
+            {
+              "when": true,
+              "steps": [
+                {
+                  "kind": "map",
+                  "name": "firstStrategy",
+                  "mapper": {
+                    "op": "set",
+                    "values": {
+                      "strategy": "first"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "when": false,
+              "steps": [
+                {
+                  "kind": "map",
+                  "name": "laterStrategy",
+                  "mapper": {
+                    "op": "set",
+                    "values": {
+                      "strategy": "later"
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "map",
+          "name": "incrementNestedCount",
+          "mapper": {
+            "op": "increment",
+            "field": "count"
+          }
+        }
+      ]
+    }
+  ],
+  "returns": {
+    "count": "count",
+    "strategy": "strategy"
+  },
+  "expected_output": {
+    "count": 2,
+    "strategy": "later"
+  },
+  "expected_request_count": 0
+}

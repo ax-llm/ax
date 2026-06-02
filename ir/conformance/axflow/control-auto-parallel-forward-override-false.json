@@ -1,0 +1,84 @@
+{
+  "kind": "flow",
+  "name": "control-auto-parallel-forward-override-false",
+  "source": {
+    "tsDerived": true,
+    "extractor": "tools/axir/extractors/flow-goldens.ts",
+    "reference": [
+      "src/ax/flow/flow.ts",
+      "src/ax/flow/steps.ts",
+      "src/ax/flow/executor.ts",
+      "src/ax/flow/executionPlanner.ts",
+      "src/ax/dsp/program.ts"
+    ],
+    "name": "control-auto-parallel-forward-override-false",
+    "observed": {
+      "rule": "TS forward autoParallel:false forces sequential execution for that run."
+    }
+  },
+  "input": {
+    "question": "override?"
+  },
+  "steps": [
+    {
+      "kind": "execute",
+      "name": "left",
+      "signature": "question:string -> left:string",
+      "options": {
+        "reads": [
+          "question"
+        ],
+        "writes": [
+          "leftResult"
+        ],
+        "isBarrier": false
+      }
+    },
+    {
+      "kind": "execute",
+      "name": "right",
+      "signature": "question:string -> right:string",
+      "options": {
+        "reads": [
+          "question"
+        ],
+        "writes": [
+          "rightResult"
+        ],
+        "isBarrier": false
+      }
+    }
+  ],
+  "returns": {
+    "left": "leftResult.left",
+    "right": "rightResult.right"
+  },
+  "forward_options": {
+    "autoParallel": false,
+    "record_flow_groups": true
+  },
+  "responses": [
+    {
+      "content": "{\"left\":\"l\"}"
+    },
+    {
+      "content": "{\"right\":\"r\"}"
+    }
+  ],
+  "expected_output": {
+    "left": "l",
+    "right": "r"
+  },
+  "expected_trace_kinds": [
+    "flow_start",
+    "flow_group",
+    "flow_step",
+    "flow_child_trace",
+    "flow_group",
+    "flow_step",
+    "flow_child_trace",
+    "flow_group",
+    "flow_done"
+  ],
+  "expected_request_count": 2
+}
