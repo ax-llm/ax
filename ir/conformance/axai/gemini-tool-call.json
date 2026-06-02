@@ -1,0 +1,139 @@
+{
+  "expected_output": {
+    "model_usage": null,
+    "results": [
+      {
+        "content": "",
+        "finish_reason": "function_call",
+        "function_calls": [
+          {
+            "function": {
+              "name": "search",
+              "params": {
+                "query": "Search docs"
+              }
+            },
+            "id": "search",
+            "type": "function"
+          }
+        ],
+        "index": 0
+      }
+    ]
+  },
+  "expected_transport_request": {
+    "json": {
+      "generationConfig": {
+        "candidateCount": 1,
+        "responseJsonSchema": {
+          "properties": {
+            "answer": {
+              "type": "string"
+            }
+          },
+          "required": ["answer"],
+          "type": "object"
+        },
+        "responseMimeType": "application/json"
+      },
+      "toolConfig": {
+        "function_calling_config": {
+          "allowed_function_names": ["search"],
+          "mode": "ANY"
+        }
+      },
+      "tools": [
+        {
+          "function_declarations": [
+            {
+              "description": "Search docs",
+              "name": "search",
+              "parameters": {
+                "properties": {
+                  "query": {
+                    "type": "string"
+                  }
+                },
+                "required": ["query"],
+                "type": "object"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "kind": "ai_chat",
+  "name": "gemini-tool-call",
+  "provider": "gemini",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Search docs",
+        "role": "user"
+      }
+    ],
+    "function_call": {
+      "function": {
+        "name": "search"
+      }
+    },
+    "functions": [
+      {
+        "description": "Search docs",
+        "name": "search",
+        "parameters": {
+          "properties": {
+            "query": {
+              "type": "string"
+            }
+          },
+          "required": ["query"],
+          "type": "object"
+        }
+      }
+    ],
+    "model_config": {
+      "stream": false
+    },
+    "response_format": {
+      "schema": {
+        "name": "search_result",
+        "schema": {
+          "properties": {
+            "answer": {
+              "type": "string"
+            }
+          },
+          "required": ["answer"],
+          "type": "object"
+        }
+      },
+      "type": "json_schema"
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "candidates": [
+          {
+            "content": {
+              "parts": [
+                {
+                  "functionCall": {
+                    "args": {
+                      "query": "Search docs"
+                    },
+                    "name": "search"
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP"
+          }
+        ]
+      },
+      "status": 200
+    }
+  ]
+}

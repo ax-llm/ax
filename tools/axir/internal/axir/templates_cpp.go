@@ -9,6 +9,7 @@ const cppHeader = `#pragma once
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <iomanip>
 #include <initializer_list>
 #include <map>
 #include <memory>
@@ -42,6 +43,7 @@ class RuntimeTransport;
 class AxAIService;
 class OpenAICompatibleClient;
 class OpenAIResponsesClient;
+class GoogleGeminiClient;
 class OptimizerEngine;
 class OptimizerEvaluator;
 
@@ -336,6 +338,19 @@ struct Core {
   static Value openai_responses_build_transcribe_request(Value request);
   static Value openai_responses_build_speak_request(Value request);
   static Value openai_responses_normalize_realtime_event(Value event, Value state, Value ai_name, Value model);
+  static Value gemini_build_chat_request(Value request);
+  static Value _gemini_apply_model_config_impl(Value payload, Value model_config);
+  static Value _gemini_message_impl(Value message);
+  static Value _gemini_content_parts_impl(Value content);
+  static Value _gemini_content_part_impl(Value part);
+  static Value _gemini_function_declaration_impl(Value fn);
+  static Value _gemini_tool_config_impl(Value request);
+  static Value gemini_build_embed_request(Value request);
+  static Value gemini_normalize_chat_response(Value raw, Value ai_name, Value model);
+  static Value _gemini_merge_response_part_impl(Value result, Value text_parts, Value function_calls, Value part);
+  static Value _gemini_extract_citations_impl(Value candidate);
+  static Value _gemini_usage_impl(Value usage);
+  static Value gemini_normalize_embed_response(Value raw, Value ai_name, Value model);
   static Value build_chat_request(Value service, Value request, Value options);
   static Value normalize_chat_response(Value raw);
   static Value normalize_stream_delta(Value raw, Value state);
@@ -568,11 +583,13 @@ class OpenAICompatibleClient : public AxBaseAI {
   std::string profile_;
   std::string base_url_;
   std::string api_key_;
+  Value descriptor_;
   double timeout_seconds_;
   Transport* transport_;
   Value request_json(const std::string& endpoint, Value payload, bool stream);
   Value request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key);
   std::string operation_path(const std::string& operation) const;
+  std::string operation_path(const std::string& operation, Value model) const;
   Value headers() const;
   Value transport_result(Value result, Value request);
   std::vector<Value> iter_sse_json(Value raw);
@@ -581,6 +598,11 @@ class OpenAICompatibleClient : public AxBaseAI {
 class OpenAIResponsesClient : public OpenAICompatibleClient {
  public:
   explicit OpenAIResponsesClient(Value options = Value::object(), Transport* transport = nullptr);
+};
+
+class GoogleGeminiClient : public OpenAICompatibleClient {
+ public:
+  explicit GoogleGeminiClient(Value options = Value::object(), Transport* transport = nullptr);
 };
 
 class Tool {
@@ -2676,6 +2698,18 @@ static std::string strip_trailing_slashes(std::string value) {
   return value;
 }
 
+static std::string url_component(std::string value) {
+  std::ostringstream out;
+  for (unsigned char ch : value) {
+    if (std::isalnum(ch) || ch == '-' || ch == '_' || ch == '.' || ch == '~') {
+      out << static_cast<char>(ch);
+    } else {
+      out << '%' << std::uppercase << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(ch) << std::nouppercase << std::dec;
+    }
+  }
+  return out.str();
+}
+
 OpenAICompatibleClient::OpenAICompatibleClient(Value options, Transport* transport)
     : OpenAICompatibleClient("openai-compatible", "openai", std::move(options), transport, "gpt-4.1-mini", "text-embedding-3-small") {}
 
@@ -2687,6 +2721,7 @@ OpenAICompatibleClient::OpenAICompatibleClient(std::string profile, std::string 
           Core::get(options, "model_config", Value::object()),
           Core::get(options, "options", Value::object())),
       profile_(std::move(profile)),
+      descriptor_(Core::provider_descriptor(profile_)),
       base_url_(strip_trailing_slashes(option_string(options, "base_url", "baseUrl", env_or_default("OPENAI_BASE_URL", str(Core::get(Core::provider_descriptor(profile_), "baseUrl", "https://api.openai.com/v1")))))),
       api_key_(option_string(options, "api_key", "apiKey", env_or_default("OPENAI_API_KEY", ""))),
       timeout_seconds_(Core::get(options, "timeout", 60).is_number() ? num(Core::get(options, "timeout", 60)) : 60.0),
@@ -2695,26 +2730,37 @@ OpenAICompatibleClient::OpenAICompatibleClient(std::string profile, std::string 
 OpenAIResponsesClient::OpenAIResponsesClient(Value options, Transport* transport)
     : OpenAICompatibleClient("openai-responses", "openai-responses", std::move(options), transport, "gpt-4o", "text-embedding-ada-002") {}
 
+GoogleGeminiClient::GoogleGeminiClient(Value options, Transport* transport)
+    : OpenAICompatibleClient("google-gemini", "GoogleGeminiAI", [&]() {
+        Value out = std::move(options);
+        if (Core::get(out, "api_key").is_null() && Core::get(out, "apiKey").is_null()) Core::set(out, "api_key", env_or_default("GOOGLE_API_KEY", env_or_default("GEMINI_API_KEY", "")));
+        if (Core::get(out, "base_url").is_null() && Core::get(out, "baseUrl").is_null()) Core::set(out, "base_url", env_or_default("GOOGLE_GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta"));
+        return out;
+      }(), transport, "gemini-2.5-flash", "gemini-embedding-2") {}
+
 Value OpenAICompatibleClient::do_chat(Value request, Value) {
   Value payload = Core::provider_build_chat_request(profile_, request);
   bool stream = Core::truthy(Core::get(payload, "stream"));
   if (stream) {
-    Value raw = request_json(operation_path("stream_chat"), payload, true);
+    Value model = Core::get(request, "model", Core::get(payload, "model", model_));
+    Value raw = request_json(operation_path("stream_chat", model), payload, true);
     Value state = Value::object();
     Value results = Value::array();
     for (const auto& event : iter_sse_json(raw)) {
-      Core::append(results, Core::provider_normalize_stream_delta(profile_, event, state, name_, Core::get(payload, "model")));
+      Core::append(results, Core::provider_normalize_stream_delta(profile_, event, state, name_, model));
     }
     return Value(Object{{"results", results}});
   }
-  Value raw = request_json(operation_path("chat"), payload, false);
-  return Core::provider_normalize_chat_response(profile_, raw, name_, Core::get(payload, "model"));
+  Value model = Core::get(request, "model", Core::get(payload, "model", model_));
+  Value raw = request_json(operation_path("chat", model), payload, false);
+  return Core::provider_normalize_chat_response(profile_, raw, name_, model);
 }
 
 Value OpenAICompatibleClient::do_embed(Value request, Value) {
   Value payload = Core::provider_build_embed_request(profile_, request);
-  Value raw = request_json(operation_path("embed"), payload, false);
-  return Core::provider_normalize_embed_response(profile_, raw, name_, Core::get(payload, "model"));
+  Value model = Core::get(request, "embed_model", Core::get(request, "embedModel", Core::get(payload, "model", embed_model_)));
+  Value raw = request_json(operation_path("embed", model), payload, false);
+  return Core::provider_normalize_embed_response(profile_, raw, name_, model);
 }
 
 std::vector<Value> OpenAICompatibleClient::stream(Value request) {
@@ -2725,10 +2771,11 @@ std::vector<Value> OpenAICompatibleClient::stream(Value request) {
   Core::set(req, "model", Core::get(req, "model", model_));
   Core::set(req, "model_config", config);
   Value payload = Core::provider_build_chat_request(profile_, req);
-  Value raw = request_json(operation_path("stream_chat"), payload, true);
+  Value model = Core::get(req, "model", Core::get(payload, "model", model_));
+  Value raw = request_json(operation_path("stream_chat", model), payload, true);
   Value state = Value::object();
   std::vector<Value> out;
-  for (const auto& event : iter_sse_json(raw)) out.push_back(Core::provider_normalize_stream_delta(profile_, event, state, name_, Core::get(payload, "model")));
+  for (const auto& event : iter_sse_json(raw)) out.push_back(Core::provider_normalize_stream_delta(profile_, event, state, name_, model));
   return out;
 }
 
@@ -2752,7 +2799,10 @@ std::vector<Value> OpenAICompatibleClient::realtime(Value events) {
 }
 
 Value OpenAICompatibleClient::headers() const {
-  return Value(Object{{"Authorization", "Bearer " + api_key_}, {"Content-Type", "application/json"}});
+  Value headers = Value::object();
+  Core::set(headers, "Content-Type", "application/json");
+  if (str(Core::get(descriptor_, "auth")) == "bearer") Core::set(headers, "Authorization", "Bearer " + api_key_);
+  return headers;
 }
 
 Value OpenAICompatibleClient::request_json(const std::string& endpoint, Value payload, bool stream) {
@@ -2772,7 +2822,24 @@ Value OpenAICompatibleClient::request_json(const std::string& endpoint, Value pa
 }
 
 std::string OpenAICompatibleClient::operation_path(const std::string& operation) const {
-  return str(Core::get(Core::provider_operation_descriptor(profile_, operation), "path", "/" + operation));
+  return operation_path(operation, Value());
+}
+
+std::string OpenAICompatibleClient::operation_path(const std::string& operation, Value model) const {
+  std::string path = str(Core::get(Core::provider_operation_descriptor(profile_, operation), "path", "/" + operation));
+  if (!model.is_null()) {
+    std::string token = "{model}";
+    std::string::size_type pos = 0;
+    while ((pos = path.find(token, pos)) != std::string::npos) {
+      path.replace(pos, token.size(), url_component(str(model)));
+      pos += str(model).size();
+    }
+  }
+  if (str(Core::get(descriptor_, "auth")) == "api_key_query") {
+    std::string key = str(Core::get(descriptor_, "apiKeyQuery", "key"));
+    path += (path.find('?') == std::string::npos ? "?" : "&") + url_component(key) + "=" + url_component(api_key_);
+  }
+  return path;
 }
 
 Value OpenAICompatibleClient::transport_result(Value result, Value request) {
@@ -3720,6 +3787,9 @@ std::shared_ptr<AxAIService> ai(const std::string& provider, Value options) {
   }
   if (normalized == "openai_responses" || normalized == "responses") {
     return std::make_shared<OpenAIResponsesClient>(std::move(options));
+  }
+  if (normalized == "google_gemini" || normalized == "gemini") {
+    return std::make_shared<GoogleGeminiClient>(std::move(options));
   }
   throw AxError("runtime", "unsupported AxAI provider: " + provider);
 }
@@ -4953,6 +5023,7 @@ struct ClientFixture {
     std::string provider = display(Core::get(fixture, "provider", "openai-compatible"));
     std::replace(provider.begin(), provider.end(), '-', '_');
     std::transform(provider.begin(), provider.end(), provider.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+    if (provider == "google_gemini" || provider == "gemini") return std::make_unique<GoogleGeminiClient>(options(fixture), transport);
     if (provider == "openai_responses" || provider == "responses") return std::make_unique<OpenAIResponsesClient>(options(fixture), transport);
     return std::make_unique<OpenAICompatibleClient>(options(fixture), transport);
   }
@@ -4963,8 +5034,9 @@ struct ClientFixture {
     std::replace(provider.begin(), provider.end(), '-', '_');
     std::transform(provider.begin(), provider.end(), provider.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
     bool responses_provider = provider == "openai_responses" || provider == "responses";
-    Core::set(out, "model", Core::get(fixture, "model", responses_provider ? "gpt-4o" : "gpt-4.1-mini"));
-    Core::set(out, "embed_model", Core::get(fixture, "embed_model", responses_provider ? "text-embedding-ada-002" : "text-embedding-3-small"));
+    bool gemini_provider = provider == "google_gemini" || provider == "gemini";
+    Core::set(out, "model", Core::get(fixture, "model", gemini_provider ? "gemini-2.5-flash" : responses_provider ? "gpt-4o" : "gpt-4.1-mini"));
+    Core::set(out, "embed_model", Core::get(fixture, "embed_model", gemini_provider ? "gemini-embedding-2" : responses_provider ? "text-embedding-ada-002" : "text-embedding-3-small"));
     Core::set(out, "api_key", "test-key");
     Core::set(out, "model_config", Core::get(fixture, "model_config", Value::object()));
     return out;

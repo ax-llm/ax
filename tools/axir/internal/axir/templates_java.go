@@ -47,6 +47,9 @@ public final class Ax {
     if (normalized.equals("openai_responses") || normalized.equals("responses")) {
       return new OpenAIResponsesClient(options == null ? java.util.Map.of() : options);
     }
+    if (normalized.equals("google_gemini") || normalized.equals("gemini")) {
+      return new GoogleGeminiClient(options == null ? java.util.Map.of() : options);
+    }
     throw new IllegalArgumentException("unsupported AxAI provider: " + provider);
   }
 
@@ -685,9 +688,11 @@ const javaOpenAI = `package dev.ax;
 
 import java.io.IOException;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -700,6 +705,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
   }
 
   protected final String profile;
+  private final Map<String, Object> descriptor;
   private final String baseUrl;
   private final String apiKey;
   private final double timeoutSeconds;
@@ -723,8 +729,8 @@ public class OpenAICompatibleClient extends AxBaseAI {
       Core.asMap(options.get("options"))
     );
     this.profile = profile == null || profile.isBlank() ? "openai-compatible" : profile;
-    Map<String, Object> descriptor = Core.asMap(Core.provider_descriptor(this.profile));
-    String descriptorBaseUrl = String.valueOf(descriptor.getOrDefault("baseUrl", "https://api.openai.com/v1"));
+    this.descriptor = Core.asMap(Core.provider_descriptor(this.profile));
+    String descriptorBaseUrl = String.valueOf(this.descriptor.getOrDefault("baseUrl", "https://api.openai.com/v1"));
     this.baseUrl = String.valueOf(options.getOrDefault("base_url", options.getOrDefault("baseUrl", System.getenv().getOrDefault("OPENAI_BASE_URL", descriptorBaseUrl)))).replaceAll("/+$", "");
     this.apiKey = String.valueOf(options.getOrDefault("api_key", options.getOrDefault("apiKey", System.getenv("OPENAI_API_KEY"))));
     Object timeout = options.getOrDefault("timeout", 60.0);
@@ -738,19 +744,22 @@ public class OpenAICompatibleClient extends AxBaseAI {
     if (Boolean.TRUE.equals(stream)) {
       List<Map<String, Object>> out = new ArrayList<>();
       Map<String, Object> state = new LinkedHashMap<>();
-      for (Object event : iterSseJson(requestJson(operationPath("stream_chat"), payload, true))) {
-        out.add(Core.asMap(Core.provider_normalize_stream_delta(profile, event, state, name, payload.get("model"))));
+      Object modelName = request.getOrDefault("model", payload.getOrDefault("model", model));
+      for (Object event : iterSseJson(requestJson(operationPath("stream_chat", modelName), payload, true))) {
+        out.add(Core.asMap(Core.provider_normalize_stream_delta(profile, event, state, name, modelName)));
       }
       return Map.of("results", out);
     }
-    Object raw = requestJson(operationPath("chat"), payload, false);
-    return Core.asMap(Core.provider_normalize_chat_response(profile, raw, name, payload.get("model")));
+    Object modelName = request.getOrDefault("model", payload.getOrDefault("model", model));
+    Object raw = requestJson(operationPath("chat", modelName), payload, false);
+    return Core.asMap(Core.provider_normalize_chat_response(profile, raw, name, modelName));
   }
 
   protected Map<String, Object> doEmbed(Map<String, Object> request, Map<String, Object> options) throws Exception {
     Map<String, Object> payload = Core.asMap(Core.provider_build_embed_request(profile, request));
-    Object raw = requestJson(operationPath("embed"), payload, false);
-    return Core.asMap(Core.provider_normalize_embed_response(profile, raw, name, payload.get("model")));
+    Object modelName = request.getOrDefault("embed_model", request.getOrDefault("embedModel", payload.getOrDefault("model", embedModel)));
+    Object raw = requestJson(operationPath("embed", modelName), payload, false);
+    return Core.asMap(Core.provider_normalize_embed_response(profile, raw, name, modelName));
   }
 
   public Iterable<Map<String, Object>> stream(Map<String, Object> request) throws Exception {
@@ -761,10 +770,11 @@ public class OpenAICompatibleClient extends AxBaseAI {
     req.put("model", req.getOrDefault("model", model));
     req.put("model_config", modelConfig);
     Map<String, Object> payload = Core.asMap(Core.provider_build_chat_request(profile, req));
-    Object raw = requestJson(operationPath("stream_chat"), payload, true);
+    Object modelName = req.getOrDefault("model", payload.getOrDefault("model", model));
+    Object raw = requestJson(operationPath("stream_chat", modelName), payload, true);
     Map<String, Object> state = new LinkedHashMap<>();
     List<Map<String, Object>> out = new ArrayList<>();
-    for (Object event : iterSseJson(raw)) out.add(Core.asMap(Core.provider_normalize_stream_delta(profile, event, state, name, payload.get("model"))));
+    for (Object event : iterSseJson(raw)) out.add(Core.asMap(Core.provider_normalize_stream_delta(profile, event, state, name, modelName)));
     return out;
   }
 
@@ -807,10 +817,18 @@ public class OpenAICompatibleClient extends AxBaseAI {
     HttpRequest req = HttpRequest.newBuilder()
       .uri(URI.create(baseUrl + endpoint))
       .timeout(Duration.ofMillis((long) (timeoutSeconds * 1000)))
-      .header("Authorization", "Bearer " + apiKey)
       .header("Content-Type", "application/json")
       .POST(HttpRequest.BodyPublishers.ofString(Json.stringify(payload)))
       .build();
+    if ("bearer".equals(String.valueOf(descriptor.get("auth")))) {
+      req = HttpRequest.newBuilder()
+        .uri(URI.create(baseUrl + endpoint))
+        .timeout(Duration.ofMillis((long) (timeoutSeconds * 1000)))
+        .header("Authorization", "Bearer " + apiKey)
+        .header("Content-Type", "application/json")
+        .POST(HttpRequest.BodyPublishers.ofString(Json.stringify(payload)))
+        .build();
+    }
     HttpResponse<String> res = http.send(req, HttpResponse.BodyHandlers.ofString());
     Object body;
     try { body = Json.parse(res.body()); } catch (RuntimeException ex) { body = res.body(); }
@@ -819,12 +837,29 @@ public class OpenAICompatibleClient extends AxBaseAI {
   }
 
   private String operationPath(String operation) {
+    return operationPath(operation, null);
+  }
+
+  private String operationPath(String operation, Object modelName) {
     Map<String, Object> desc = Core.asMap(Core.provider_operation_descriptor(profile, operation));
-    return String.valueOf(desc.getOrDefault("path", "/" + operation));
+    String path = String.valueOf(desc.getOrDefault("path", "/" + operation));
+    if (modelName != null) {
+      path = path.replace("{model}", URLEncoder.encode(String.valueOf(modelName), StandardCharsets.UTF_8));
+    }
+    if ("api_key_query".equals(String.valueOf(descriptor.get("auth")))) {
+      String keyName = String.valueOf(descriptor.getOrDefault("apiKeyQuery", "key"));
+      path += (path.contains("?") ? "&" : "?") + URLEncoder.encode(keyName, StandardCharsets.UTF_8) + "=" + URLEncoder.encode(apiKey == null || "null".equals(apiKey) ? "" : apiKey, StandardCharsets.UTF_8);
+    }
+    return path;
   }
 
   private Map<String, Object> headers() {
-    return Map.of("Authorization", "Bearer " + (apiKey == null ? "" : apiKey), "Content-Type", "application/json");
+    Map<String, Object> headers = new LinkedHashMap<>();
+    headers.put("Content-Type", "application/json");
+    if ("bearer".equals(String.valueOf(descriptor.get("auth")))) {
+      headers.put("Authorization", "Bearer " + (apiKey == null ? "" : apiKey));
+    }
+    return headers;
   }
 
   private Object transportResult(Object result, Map<String, Object> request) {
@@ -870,6 +905,34 @@ public final class OpenAIResponsesClient extends OpenAICompatibleClient {
 
   public OpenAIResponsesClient(Map<String, Object> options) {
     super("openai-responses", "openai-responses", options == null ? Map.of() : options, "gpt-4o", "text-embedding-ada-002");
+  }
+}
+`
+
+const javaGoogleGemini = `package dev.ax;
+
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+public final class GoogleGeminiClient extends OpenAICompatibleClient {
+  public GoogleGeminiClient(String model) {
+    this(Map.of("model", model));
+  }
+
+  public GoogleGeminiClient(Map<String, Object> options) {
+    super("google-gemini", "GoogleGeminiAI", normalize(options), "gemini-2.5-flash", "gemini-embedding-2");
+  }
+
+  private static Map<String, Object> normalize(Map<String, Object> options) {
+    Map<String, Object> out = new LinkedHashMap<>(options == null ? Map.of() : options);
+    out.putIfAbsent("api_key", firstNonBlank(System.getenv("GOOGLE_API_KEY"), System.getenv("GEMINI_API_KEY")));
+    out.putIfAbsent("base_url", System.getenv().getOrDefault("GOOGLE_GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta"));
+    return out;
+  }
+
+  private static String firstNonBlank(String first, String second) {
+    if (first != null && !first.isBlank()) return first;
+    return second;
   }
 }
 `
@@ -4458,13 +4521,16 @@ public final class Conformance {
     FakeTransport transport = new FakeTransport(Core.asList(fixture.getOrDefault("transport_responses", fixture.getOrDefault("responses", List.of()))));
     String provider = String.valueOf(fixture.getOrDefault("provider", "openai-compatible")).replace("-", "_").toLowerCase();
     boolean responsesProvider = provider.equals("openai_responses") || provider.equals("responses");
+    boolean geminiProvider = provider.equals("google_gemini") || provider.equals("gemini");
     Map<String, Object> options = new LinkedHashMap<>();
-    options.put("model", fixture.getOrDefault("model", responsesProvider ? "gpt-4o" : "gpt-4.1-mini"));
-    options.put("embed_model", fixture.getOrDefault("embed_model", responsesProvider ? "text-embedding-ada-002" : "text-embedding-3-small"));
+    options.put("model", fixture.getOrDefault("model", geminiProvider ? "gemini-2.5-flash" : responsesProvider ? "gpt-4o" : "gpt-4.1-mini"));
+    options.put("embed_model", fixture.getOrDefault("embed_model", geminiProvider ? "gemini-embedding-2" : responsesProvider ? "text-embedding-ada-002" : "text-embedding-3-small"));
     options.put("api_key", "test-key");
     options.put("transport", transport);
     options.put("model_config", fixture.get("model_config"));
-    OpenAICompatibleClient client = responsesProvider
+    OpenAICompatibleClient client = geminiProvider
+      ? new GoogleGeminiClient(options)
+      : responsesProvider
       ? new OpenAIResponsesClient(options)
       : new OpenAICompatibleClient(options);
     return new ClientFixture(client, transport);

@@ -20,4 +20,9 @@ Reference areas:
 - `src/ax/ai/openai/audio.ts` and `src/ax/ai/openai/realtime.ts` for audio and
   realtime normalization fixtures. Generated targets use fake transports for
   these operations; live multipart/WebSocket transports remain host-owned.
+- `src/ax/ai/google-gemini/api.ts` and `src/ax/ai/catalog.ts` for
+  descriptor-backed Gemini Developer API chat, stream, media-part, tool/schema,
+  usage, and embeddings normalization fixtures. Vertex routing, Gemini Live
+  audio, explicit context-cache resources, auth loading, and live network
+  behavior remain host-owned follow-up scope.
 - `src/ax/util/apicall.ts` for error classes and HTTP status normalization.

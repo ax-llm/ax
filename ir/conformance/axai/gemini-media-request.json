@@ -1,0 +1,98 @@
+{
+  "expected_output": {
+    "model_usage": null,
+    "results": [
+      {
+        "content": "ok",
+        "finish_reason": "stop",
+        "function_calls": [],
+        "index": 0
+      }
+    ]
+  },
+  "expected_transport_request": {
+    "json": {
+      "contents": [
+        {
+          "parts": [
+            {
+              "text": "inspect"
+            },
+            {
+              "inlineData": {
+                "data": "image-base64",
+                "mimeType": "image/png"
+              }
+            },
+            {
+              "inlineData": {
+                "data": "audio-base64",
+                "mimeType": "audio/wav"
+              }
+            },
+            {
+              "fileData": {
+                "fileUri": "gs://bucket/doc.pdf",
+                "mimeType": "application/pdf"
+              }
+            }
+          ],
+          "role": "user"
+        }
+      ]
+    }
+  },
+  "kind": "ai_chat",
+  "name": "gemini-media-request",
+  "provider": "google-gemini",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": [
+          {
+            "text": "inspect",
+            "type": "text"
+          },
+          {
+            "data": "image-base64",
+            "mimeType": "image/png",
+            "type": "image"
+          },
+          {
+            "data": "audio-base64",
+            "format": "wav",
+            "type": "audio"
+          },
+          {
+            "fileUri": "gs://bucket/doc.pdf",
+            "mimeType": "application/pdf",
+            "type": "file"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "candidates": [
+          {
+            "content": {
+              "parts": [
+                {
+                  "text": "ok"
+                }
+              ]
+            },
+            "finishReason": "STOP"
+          }
+        ]
+      },
+      "status": 200
+    }
+  ]
+}

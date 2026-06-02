@@ -1,0 +1,54 @@
+{
+  "embed_model": "gemini-embedding-2",
+  "expected_output": {
+    "embeddings": [[0.1, 0.2], [0.3, 0.4]]
+  },
+  "expected_transport_request": {
+    "json": {
+      "requests": [
+        {
+          "content": {
+            "parts": [
+              {
+                "text": "one"
+              }
+            ]
+          },
+          "model": "models/gemini-embedding-2"
+        },
+        {
+          "content": {
+            "parts": [
+              {
+                "text": "two"
+              }
+            ]
+          },
+          "model": "models/gemini-embedding-2"
+        }
+      ]
+    },
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2:batchEmbedContents?key=test-key"
+  },
+  "kind": "ai_embed",
+  "name": "gemini-embeddings",
+  "provider": "google-gemini",
+  "request": {
+    "texts": ["one", "two"]
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "embeddings": [
+          {
+            "values": [0.1, 0.2]
+          },
+          {
+            "values": [0.3, 0.4]
+          }
+        ]
+      },
+      "status": 200
+    }
+  ]
+}

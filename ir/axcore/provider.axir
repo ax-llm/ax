@@ -17,6 +17,14 @@ module @ax.provider version "0.1" {
     type default_base_url = "https://api.openai.com/v1"
   }
 
+  op ax.provider.class @GoogleGeminiClient {
+    attr core_kind = "record"
+    attr public = true
+    ref interface = @AxAIService
+    tag "google-gemini"
+    type default_base_url = "https://generativelanguage.googleapis.com/v1beta"
+  }
+
   op ax.provider.semantic @openai_build_chat_request {
     attr core_kind = "func"
     attr effect = "throws"
@@ -2405,6 +2413,11 @@ module @ax.provider version "0.1" {
       %is_responses_dash = core.call intrinsic.eq(%normalized, "openai-responses")
       %is_responses_under = core.call intrinsic.eq(%normalized, "openai_responses")
       %is_responses = core.call intrinsic.or(%is_responses_dash, %is_responses_under)
+      %is_gemini_google = core.call intrinsic.eq(%normalized, "google-gemini")
+      %is_gemini_google_under = core.call intrinsic.eq(%normalized, "google_gemini")
+      %is_gemini_alias = core.call intrinsic.eq(%normalized, "gemini")
+      %is_gemini_one = core.call intrinsic.or(%is_gemini_google, %is_gemini_google_under)
+      %is_gemini = core.call intrinsic.or(%is_gemini_one, %is_gemini_alias)
       %descriptor = core.map
       %operations = core.map
       %features = core.map
@@ -2412,8 +2425,6 @@ module @ax.provider version "0.1" {
       %audio = core.map
       %audio_output = core.map
       core.set %descriptor["provider"] = %normalized
-      core.set %descriptor["baseUrl"] = "https://api.openai.com/v1"
-      core.set %descriptor["auth"] = "bearer"
       core.set %features["functions"] = true
       core.set %features["streaming"] = true
       core.set %features["structured_outputs"] = true
@@ -2422,6 +2433,8 @@ module @ax.provider version "0.1" {
       %image_media = core.call intrinsic.json.parse("{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\",\"image/webp\"]}")
       core.set %media["images"] = %image_media
       core.if %is_responses {
+        core.set %descriptor["baseUrl"] = "https://api.openai.com/v1"
+        core.set %descriptor["auth"] = "bearer"
         core.set %descriptor["id"] = "openai-responses"
         core.set %descriptor["name"] = "openai-responses"
         core.set %descriptor["defaultModel"] = "gpt-4o"
@@ -2444,31 +2457,79 @@ module @ax.provider version "0.1" {
         core.set %audio_output["supported"] = true
         core.set %audio_output["formats"] = %audio_formats
       } else {
-        core.set %descriptor["id"] = "openai-compatible"
-        core.set %descriptor["name"] = "openai"
-        core.set %descriptor["defaultModel"] = "gpt-4.1-mini"
-        core.set %descriptor["defaultEmbedModel"] = "text-embedding-3-small"
-        %compatible_chat = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":false}")
-        %compatible_stream = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":true}")
-        %compatible_embed = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/embeddings\",\"body\":\"json\",\"stream\":false}")
-        core.set %operations["chat"] = %compatible_chat
-        core.set %operations["stream_chat"] = %compatible_stream
-        core.set %operations["embed"] = %compatible_embed
-        core.set %audio["supported"] = false
-        %empty_audio_formats = core.list
-        core.set %audio["formats"] = %empty_audio_formats
-        core.set %audio_output["supported"] = false
-        core.set %audio_output["formats"] = %empty_audio_formats
+        core.if %is_gemini {
+          core.set %descriptor["baseUrl"] = "https://generativelanguage.googleapis.com/v1beta"
+          core.set %descriptor["auth"] = "api_key_query"
+          core.set %descriptor["apiKeyQuery"] = "key"
+          core.set %descriptor["id"] = "google-gemini"
+          core.set %descriptor["name"] = "GoogleGeminiAI"
+          core.set %descriptor["defaultModel"] = "gemini-2.5-flash"
+          core.set %descriptor["defaultEmbedModel"] = "gemini-embedding-2"
+          %gemini_chat = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/models/{model}:generateContent\",\"body\":\"json\",\"stream\":false}")
+          %gemini_stream = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/models/{model}:streamGenerateContent?alt=sse\",\"body\":\"json\",\"stream\":true}")
+          %gemini_embed = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/models/{model}:batchEmbedContents\",\"body\":\"json\",\"stream\":false}")
+          core.set %operations["chat"] = %gemini_chat
+          core.set %operations["stream_chat"] = %gemini_stream
+          core.set %operations["embed"] = %gemini_embed
+          %gemini_images = core.call intrinsic.json.parse("{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\",\"image/gif\",\"image/webp\"],\"maxSize\":20971520}")
+          core.set %media["images"] = %gemini_images
+          core.set %audio["supported"] = true
+          %gemini_audio_formats = core.call intrinsic.json.parse("[\"wav\",\"mp3\",\"aac\",\"ogg\"]")
+          core.set %audio["formats"] = %gemini_audio_formats
+          core.set %audio_output["supported"] = false
+          %empty_gemini_audio_output_formats = core.list
+          core.set %audio_output["formats"] = %empty_gemini_audio_output_formats
+          %gemini_files = core.call intrinsic.json.parse("{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\",\"text/csv\",\"text/html\",\"text/xml\"],\"upload_method\":\"cloud\"}")
+          core.set %media["files"] = %gemini_files
+          %gemini_urls = core.call intrinsic.json.parse("{\"supported\":true,\"web_search\":true,\"context_fetching\":true}")
+          core.set %media["urls"] = %gemini_urls
+          %gemini_caching = core.call intrinsic.json.parse("{\"supported\":true,\"types\":[\"persistent\"]}")
+          core.set %features["caching"] = %gemini_caching
+          core.set %features["thinking"] = true
+        } else {
+          core.set %descriptor["baseUrl"] = "https://api.openai.com/v1"
+          core.set %descriptor["auth"] = "bearer"
+          core.set %descriptor["id"] = "openai-compatible"
+          core.set %descriptor["name"] = "openai"
+          core.set %descriptor["defaultModel"] = "gpt-4.1-mini"
+          core.set %descriptor["defaultEmbedModel"] = "text-embedding-3-small"
+          %compatible_chat = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":false}")
+          %compatible_stream = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":true}")
+          %compatible_embed = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/embeddings\",\"body\":\"json\",\"stream\":false}")
+          core.set %operations["chat"] = %compatible_chat
+          core.set %operations["stream_chat"] = %compatible_stream
+          core.set %operations["embed"] = %compatible_embed
+          core.set %audio["supported"] = false
+          %empty_audio_formats = core.list
+          core.set %audio["formats"] = %empty_audio_formats
+          core.set %audio_output["supported"] = false
+          core.set %audio_output["formats"] = %empty_audio_formats
+        }
       }
       core.set %audio["output"] = %audio_output
       core.set %media["audio"] = %audio
-      %files_media = core.call intrinsic.json.parse("{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"}")
-      %urls_media = core.call intrinsic.json.parse("{\"supported\":false,\"web_search\":false,\"context_fetching\":false}")
-      core.set %media["files"] = %files_media
-      core.set %media["urls"] = %urls_media
+      %existing_files = core.get %media["files"]
+      %has_files = core.call intrinsic.is_not_none(%existing_files)
+      core.if %has_files {
+      } else {
+        %files_media = core.call intrinsic.json.parse("{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"}")
+        core.set %media["files"] = %files_media
+      }
+      %existing_urls = core.get %media["urls"]
+      %has_urls = core.call intrinsic.is_not_none(%existing_urls)
+      core.if %has_urls {
+      } else {
+        %urls_media = core.call intrinsic.json.parse("{\"supported\":false,\"web_search\":false,\"context_fetching\":false}")
+        core.set %media["urls"] = %urls_media
+      }
       core.set %features["media"] = %media
-      %caching = core.call intrinsic.json.parse("{\"supported\":false,\"types\":[]}")
-      core.set %features["caching"] = %caching
+      %existing_caching = core.get %features["caching"]
+      %has_caching = core.call intrinsic.is_not_none(%existing_caching)
+      core.if %has_caching {
+      } else {
+        %caching = core.call intrinsic.json.parse("{\"supported\":false,\"types\":[]}")
+        core.set %features["caching"] = %caching
+      }
       core.set %descriptor["operations"] = %operations
       core.set %descriptor["features"] = %features
       core.return %descriptor
@@ -2506,13 +2567,23 @@ module @ax.provider version "0.1" {
       %is_responses_dash = core.call intrinsic.eq(%normalized, "openai-responses")
       %is_responses_under = core.call intrinsic.eq(%normalized, "openai_responses")
       %is_responses = core.call intrinsic.or(%is_responses_dash, %is_responses_under)
+      %is_gemini_google = core.call intrinsic.eq(%normalized, "google-gemini")
+      %is_gemini_google_under = core.call intrinsic.eq(%normalized, "google_gemini")
+      %is_gemini_alias = core.call intrinsic.eq(%normalized, "gemini")
+      %is_gemini_one = core.call intrinsic.or(%is_gemini_google, %is_gemini_google_under)
+      %is_gemini = core.call intrinsic.or(%is_gemini_one, %is_gemini_alias)
       %payload = core.map
       core.if %is_responses {
         %responses_payload = core.call @openai_responses_build_chat_request(%request)
         %payload = core.let %responses_payload
       } else {
-        %compatible_payload = core.call @openai_build_chat_request(%request)
-        %payload = core.let %compatible_payload
+        core.if %is_gemini {
+          %gemini_payload = core.call @gemini_build_chat_request(%request)
+          %payload = core.let %gemini_payload
+        } else {
+          %compatible_payload = core.call @openai_build_chat_request(%request)
+          %payload = core.let %compatible_payload
+        }
       }
       core.return %payload
     }
@@ -2524,7 +2595,20 @@ module @ax.provider version "0.1" {
     tag "provider-operation-dispatch"
     type signature = "(profile:string, AxEmbedRequest) -> json"
     body @entry(%profile: string, %request: AxEmbedRequest) {
-      %payload = core.call @openai_build_embed_request(%request)
+      %normalized = core.call intrinsic.string.lower(%profile)
+      %is_gemini_google = core.call intrinsic.eq(%normalized, "google-gemini")
+      %is_gemini_google_under = core.call intrinsic.eq(%normalized, "google_gemini")
+      %is_gemini_alias = core.call intrinsic.eq(%normalized, "gemini")
+      %is_gemini_one = core.call intrinsic.or(%is_gemini_google, %is_gemini_google_under)
+      %is_gemini = core.call intrinsic.or(%is_gemini_one, %is_gemini_alias)
+      %payload = core.map
+      core.if %is_gemini {
+        %gemini_payload = core.call @gemini_build_embed_request(%request)
+        %payload = core.let %gemini_payload
+      } else {
+        %openai_payload = core.call @openai_build_embed_request(%request)
+        %payload = core.let %openai_payload
+      }
       core.return %payload
     }
   }
@@ -2540,13 +2624,23 @@ module @ax.provider version "0.1" {
       %is_responses_dash = core.call intrinsic.eq(%normalized, "openai-responses")
       %is_responses_under = core.call intrinsic.eq(%normalized, "openai_responses")
       %is_responses = core.call intrinsic.or(%is_responses_dash, %is_responses_under)
+      %is_gemini_google = core.call intrinsic.eq(%normalized, "google-gemini")
+      %is_gemini_google_under = core.call intrinsic.eq(%normalized, "google_gemini")
+      %is_gemini_alias = core.call intrinsic.eq(%normalized, "gemini")
+      %is_gemini_one = core.call intrinsic.or(%is_gemini_google, %is_gemini_google_under)
+      %is_gemini = core.call intrinsic.or(%is_gemini_one, %is_gemini_alias)
       %response = core.map
       core.if %is_responses {
         %responses_response = core.call @openai_responses_normalize_chat_response(%raw, %ai_name, %model)
         %response = core.let %responses_response
       } else {
-        %compatible_response = core.call @openai_normalize_chat_response(%raw, %ai_name, %model)
-        %response = core.let %compatible_response
+        core.if %is_gemini {
+          %gemini_response = core.call @gemini_normalize_chat_response(%raw, %ai_name, %model)
+          %response = core.let %gemini_response
+        } else {
+          %compatible_response = core.call @openai_normalize_chat_response(%raw, %ai_name, %model)
+          %response = core.let %compatible_response
+        }
       }
       core.return %response
     }
@@ -2563,13 +2657,23 @@ module @ax.provider version "0.1" {
       %is_responses_dash = core.call intrinsic.eq(%normalized, "openai-responses")
       %is_responses_under = core.call intrinsic.eq(%normalized, "openai_responses")
       %is_responses = core.call intrinsic.or(%is_responses_dash, %is_responses_under)
+      %is_gemini_google = core.call intrinsic.eq(%normalized, "google-gemini")
+      %is_gemini_google_under = core.call intrinsic.eq(%normalized, "google_gemini")
+      %is_gemini_alias = core.call intrinsic.eq(%normalized, "gemini")
+      %is_gemini_one = core.call intrinsic.or(%is_gemini_google, %is_gemini_google_under)
+      %is_gemini = core.call intrinsic.or(%is_gemini_one, %is_gemini_alias)
       %response = core.map
       core.if %is_responses {
         %responses_response = core.call @openai_responses_normalize_stream_delta(%raw, %state, %ai_name, %model)
         %response = core.let %responses_response
       } else {
-        %compatible_response = core.call @openai_normalize_stream_delta(%raw, %state, %ai_name, %model)
-        %response = core.let %compatible_response
+        core.if %is_gemini {
+          %gemini_response = core.call @gemini_normalize_chat_response(%raw, %ai_name, %model)
+          %response = core.let %gemini_response
+        } else {
+          %compatible_response = core.call @openai_normalize_stream_delta(%raw, %state, %ai_name, %model)
+          %response = core.let %compatible_response
+        }
       }
       core.return %response
     }
@@ -2582,7 +2686,20 @@ module @ax.provider version "0.1" {
     tag "provider-operation-dispatch"
     type signature = "(profile:string, json, string, string) -> AxEmbedResponse throws"
     body @entry(%profile: string, %raw: json, %ai_name: string, %model: string) {
-      %response = core.call @openai_normalize_embed_response(%raw, %ai_name, %model)
+      %normalized = core.call intrinsic.string.lower(%profile)
+      %is_gemini_google = core.call intrinsic.eq(%normalized, "google-gemini")
+      %is_gemini_google_under = core.call intrinsic.eq(%normalized, "google_gemini")
+      %is_gemini_alias = core.call intrinsic.eq(%normalized, "gemini")
+      %is_gemini_one = core.call intrinsic.or(%is_gemini_google, %is_gemini_google_under)
+      %is_gemini = core.call intrinsic.or(%is_gemini_one, %is_gemini_alias)
+      %response = core.map
+      core.if %is_gemini {
+        %gemini_response = core.call @gemini_normalize_embed_response(%raw, %ai_name, %model)
+        %response = core.let %gemini_response
+      } else {
+        %openai_response = core.call @openai_normalize_embed_response(%raw, %ai_name, %model)
+        %response = core.let %openai_response
+      }
       core.return %response
     }
   }
@@ -3277,6 +3394,687 @@ module @ax.provider version "0.1" {
       core.set %out["results"] = %results
       core.set %out["remote_id"] = %remote_id
       core.set %out["model_usage"] = %model_usage
+      core.return %out
+    }
+  }
+
+  op ax.provider.semantic @gemini_build_chat_request {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr effect = "throws"
+    tag "src/ax/ai/google-gemini/api.ts"
+    type signature = "(AxChatRequest) -> json throws"
+    body @entry(%request: AxChatRequest) {
+      %payload = core.map
+      %empty_prompt = core.list
+      %prompt = core.get %request["chat_prompt"] default %empty_prompt
+      %system_parts = core.list
+      %contents = core.list
+      core.for %message in %prompt {
+        %role = core.get %message["role"]
+        %is_system = core.call intrinsic.eq(%role, "system")
+        core.if %is_system {
+          %system_text = core.get %message["content"] default ""
+          core.append %system_parts, %system_text
+        } else {
+          %mapped = core.call @gemini_message_impl(%message)
+          %has_mapped = core.call intrinsic.is_not_none(%mapped)
+          core.if %has_mapped {
+            core.append %contents, %mapped
+          } else {
+          }
+        }
+      }
+      %system_count = core.call intrinsic.len(%system_parts)
+      %has_system = core.call intrinsic.gt(%system_count, 0)
+      core.if %has_system {
+        %system_text_joined = core.call intrinsic.string.join(" ", %system_parts)
+        %system_part = core.map
+        core.set %system_part["text"] = %system_text_joined
+        %system_part_list = core.list
+        core.append %system_part_list, %system_part
+        %system_instruction = core.map
+        core.set %system_instruction["role"] = "user"
+        core.set %system_instruction["parts"] = %system_part_list
+        core.set %payload["systemInstruction"] = %system_instruction
+      } else {
+      }
+      core.set %payload["contents"] = %contents
+      %generation_config = core.map
+      core.set %generation_config["candidateCount"] = 1
+      core.set %generation_config["responseMimeType"] = "text/plain"
+      %empty_model_config = core.map
+      %model_config = core.get %request["model_config"] default %empty_model_config
+      core.call @gemini_apply_model_config_impl(%generation_config, %model_config)
+      %response_format = core.get %request["response_format"]
+      %has_response_format = core.call intrinsic.truthy(%response_format)
+      core.if %has_response_format {
+        core.set %generation_config["responseMimeType"] = "application/json"
+        %format_type = core.get %response_format["type"] default ""
+        %is_json_schema = core.call intrinsic.eq(%format_type, "json_schema")
+        core.if %is_json_schema {
+          %schema_container = core.get %response_format["schema"]
+          %schema = core.get %schema_container["schema"] default %schema_container
+          core.set %generation_config["responseJsonSchema"] = %schema
+        } else {
+        }
+      } else {
+      }
+      %model = core.get %request["model"] default "gemini-2.5-flash"
+      %is_gemini3 = core.call intrinsic.string.starts_with(%model, "gemini-3")
+      core.if %is_gemini3 {
+        %temperature = core.get %generation_config["temperature"]
+        %missing_temperature = core.call intrinsic.is_none(%temperature)
+        core.if %missing_temperature {
+          core.set %generation_config["temperature"] = 1
+        } else {
+          %too_low = core.call intrinsic.lt(%temperature, 1)
+          core.if %too_low {
+            core.set %generation_config["temperature"] = 1
+          } else {
+          }
+        }
+      } else {
+      }
+      core.set %payload["generationConfig"] = %generation_config
+      %empty_functions = core.list
+      %functions = core.get %request["functions"] default %empty_functions
+      %has_functions = core.call intrinsic.truthy(%functions)
+      core.if %has_functions {
+        %function_declarations = core.list
+        core.for %fn in %functions {
+          %decl = core.call @gemini_function_declaration_impl(%fn)
+          core.append %function_declarations, %decl
+        }
+        %tool = core.map
+        core.set %tool["function_declarations"] = %function_declarations
+        %tools = core.list
+        core.append %tools, %tool
+        core.set %payload["tools"] = %tools
+        %tool_config = core.call @gemini_tool_config_impl(%request)
+        core.set %payload["toolConfig"] = %tool_config
+      } else {
+      }
+      core.return %payload
+    }
+  }
+
+  op ax.provider.semantic @gemini_apply_model_config_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "gemini-model-config-core-helper"
+    type signature = "(json, json) -> void"
+    body @entry(%payload: json, %model_config: json) {
+      core.call @openai_copy_config_key_impl(%payload, %model_config, "maxTokens", "maxOutputTokens")
+      core.call @openai_copy_config_key_impl(%payload, %model_config, "max_tokens", "maxOutputTokens")
+      core.call @openai_copy_config_key_impl(%payload, %model_config, "temperature", "temperature")
+      core.call @openai_copy_config_key_impl(%payload, %model_config, "topP", "topP")
+      core.call @openai_copy_config_key_impl(%payload, %model_config, "top_p", "topP")
+      core.call @openai_copy_config_key_impl(%payload, %model_config, "topK", "topK")
+      core.call @openai_copy_config_key_impl(%payload, %model_config, "top_k", "topK")
+      core.call @openai_copy_config_key_impl(%payload, %model_config, "frequencyPenalty", "frequencyPenalty")
+      core.call @openai_copy_config_key_impl(%payload, %model_config, "frequency_penalty", "frequencyPenalty")
+      core.call @openai_copy_config_key_impl(%payload, %model_config, "n", "candidateCount")
+      core.call @openai_copy_config_key_impl(%payload, %model_config, "stopSequences", "stopSequences")
+      core.call @openai_copy_config_key_impl(%payload, %model_config, "stop_sequences", "stopSequences")
+      core.return
+    }
+  }
+
+  op ax.provider.semantic @gemini_message_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr effect = "throws"
+    attr private = true
+    tag "gemini-message-core-helper"
+    type signature = "(json) -> json throws"
+    body @entry(%message: json) {
+      %role = core.get %message["role"]
+      %is_user = core.call intrinsic.eq(%role, "user")
+      core.if %is_user {
+        %content = core.get %message["content"] default ""
+        %parts = core.call @gemini_content_parts_impl(%content)
+        %out = core.map
+        core.set %out["role"] = "user"
+        core.set %out["parts"] = %parts
+        core.return %out
+      } else {
+      }
+      %is_assistant = core.call intrinsic.eq(%role, "assistant")
+      core.if %is_assistant {
+        %parts = core.list
+        %content = core.get %message["content"] default ""
+        %has_content = core.call intrinsic.truthy(%content)
+        core.if %has_content {
+          %text_part = core.map
+          core.set %text_part["text"] = %content
+          core.append %parts, %text_part
+        } else {
+        }
+        %empty_calls = core.list
+        %calls = core.get %message["function_calls"] default %empty_calls
+        %calls_camel = core.get %message["functionCalls"] default %calls
+        core.for %call in %calls_camel {
+          %function = core.get %call["function"]
+          %name = core.get %function["name"]
+          %empty_args = core.map
+          %args = core.get %function["params"] default %empty_args
+          %args_is_string = core.type_is %args type "string"
+          core.if %args_is_string {
+            core.try {
+              %parsed = core.call intrinsic.json.parse(%args)
+              %args = core.let %parsed
+            } catch %parse_error {
+              %args = core.map
+            }
+          } else {
+          }
+          %function_call = core.map
+          core.set %function_call["name"] = %name
+          core.set %function_call["args"] = %args
+          %part = core.map
+          core.set %part["functionCall"] = %function_call
+          core.append %parts, %part
+        }
+        %out = core.map
+        core.set %out["role"] = "model"
+        core.set %out["parts"] = %parts
+        core.return %out
+      } else {
+      }
+      %is_function = core.call intrinsic.eq(%role, "function")
+      core.if %is_function {
+        %name = core.get %message["name"]
+        %function_id = core.get %message["function_id"] default %name
+        %function_id_camel = core.get %message["functionId"] default %function_id
+        %result_value = core.get %message["result"]
+        %response = core.map
+        core.set %response["result"] = %result_value
+        %function_response = core.map
+        core.set %function_response["name"] = %function_id_camel
+        core.set %function_response["response"] = %response
+        %part = core.map
+        core.set %part["functionResponse"] = %function_response
+        %parts = core.list
+        core.append %parts, %part
+        %out = core.map
+        core.set %out["role"] = "user"
+        core.set %out["parts"] = %parts
+        core.return %out
+      } else {
+      }
+      %none = core.call intrinsic.none()
+      core.return %none
+    }
+  }
+
+  op ax.provider.semantic @gemini_content_parts_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr effect = "throws"
+    attr private = true
+    tag "gemini-content-core-helper"
+    type signature = "(json) -> list<json> throws"
+    body @entry(%content: json) {
+      %parts = core.list
+      %is_list = core.type_is %content type "list"
+      core.if %is_list {
+        core.for %part in %content {
+          %mapped = core.call @gemini_content_part_impl(%part)
+          core.append %parts, %mapped
+        }
+      } else {
+        %part = core.map
+        core.set %part["text"] = %content
+        core.append %parts, %part
+      }
+      core.return %parts
+    }
+  }
+
+  op ax.provider.semantic @gemini_content_part_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr effect = "throws"
+    attr private = true
+    tag "gemini-content-core-helper"
+    type signature = "(json) -> json throws"
+    body @entry(%part: json) {
+      %type = core.get %part["type"] default "text"
+      %is_text = core.call intrinsic.eq(%type, "text")
+      core.if %is_text {
+        %out = core.map
+        %text = core.get %part["text"] default ""
+        core.set %out["text"] = %text
+        core.return %out
+      } else {
+      }
+      %is_image = core.call intrinsic.eq(%type, "image")
+      core.if %is_image {
+        %mime = core.get %part["mimeType"] default "image/png"
+        %image_alt = core.get %part["data"]
+        %image = core.get %part["image"] default %image_alt
+        %inline = core.map
+        core.set %inline["mimeType"] = %mime
+        core.set %inline["data"] = %image
+        %out = core.map
+        core.set %out["inlineData"] = %inline
+        core.return %out
+      } else {
+      }
+      %is_audio = core.call intrinsic.eq(%type, "audio")
+      core.if %is_audio {
+        %format = core.get %part["format"] default "wav"
+        %default_mime = core.call intrinsic.string.format("audio/{}", %format)
+        %mime = core.get %part["mimeType"] default %default_mime
+        %audio_alt = core.get %part["audio"]
+        %data = core.get %part["data"] default %audio_alt
+        %inline = core.map
+        core.set %inline["mimeType"] = %mime
+        core.set %inline["data"] = %data
+        %out = core.map
+        core.set %out["inlineData"] = %inline
+        core.return %out
+      } else {
+      }
+      %is_file = core.call intrinsic.eq(%type, "file")
+      core.if %is_file {
+        %mime = core.get %part["mimeType"] default "application/octet-stream"
+        %file_uri = core.get %part["fileUri"]
+        %has_uri = core.call intrinsic.truthy(%file_uri)
+        core.if %has_uri {
+          %file_data = core.map
+          core.set %file_data["mimeType"] = %mime
+          core.set %file_data["fileUri"] = %file_uri
+          %out = core.map
+          core.set %out["fileData"] = %file_data
+          core.return %out
+        } else {
+          %data = core.get %part["data"]
+          %inline = core.map
+          core.set %inline["mimeType"] = %mime
+          core.set %inline["data"] = %data
+          %out = core.map
+          core.set %out["inlineData"] = %inline
+          core.return %out
+        }
+      } else {
+      }
+      %message = core.call intrinsic.string.format("Chat prompt content type not supported: {}", %type)
+      %error = core.call intrinsic.ai.error.unsupported(%message)
+      core.raise %error
+    }
+  }
+
+  op ax.provider.semantic @gemini_function_declaration_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "gemini-tool-core-helper"
+    type signature = "(json) -> json"
+    body @entry(%fn: json) {
+      %decl = core.map
+      %name = core.get %fn["name"]
+      %description = core.get %fn["description"] default ""
+      %empty_parameters = core.map
+      %parameters = core.get %fn["parameters"] default %empty_parameters
+      core.set %decl["name"] = %name
+      core.set %decl["description"] = %description
+      core.set %decl["parameters"] = %parameters
+      core.return %decl
+    }
+  }
+
+  op ax.provider.semantic @gemini_tool_config_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "gemini-tool-core-helper"
+    type signature = "(json) -> json"
+    body @entry(%request: json) {
+      %function_call = core.get %request["function_call"] default "auto"
+      %config = core.map
+      %function_calling = core.map
+      %is_none = core.call intrinsic.eq(%function_call, "none")
+      %is_required = core.call intrinsic.eq(%function_call, "required")
+      %is_auto = core.call intrinsic.eq(%function_call, "auto")
+      core.if %is_none {
+        core.set %function_calling["mode"] = "NONE"
+      } else {
+        core.if %is_required {
+          core.set %function_calling["mode"] = "ANY"
+        } else {
+          core.if %is_auto {
+            core.set %function_calling["mode"] = "AUTO"
+          } else {
+            core.set %function_calling["mode"] = "ANY"
+            %function = core.get %function_call["function"]
+            %name = core.get %function["name"]
+            %has_name = core.call intrinsic.truthy(%name)
+            core.if %has_name {
+              %allowed = core.list
+              core.append %allowed, %name
+              core.set %function_calling["allowed_function_names"] = %allowed
+            } else {
+            }
+          }
+        }
+      }
+      core.set %config["function_calling_config"] = %function_calling
+      core.return %config
+    }
+  }
+
+  op ax.provider.semantic @gemini_build_embed_request {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "src/ax/ai/google-gemini/api.ts"
+    type signature = "(AxEmbedRequest) -> json"
+    body @entry(%request: AxEmbedRequest) {
+      %payload = core.map
+      %empty_texts = core.list
+      %texts = core.get %request["texts"] default %empty_texts
+      %model = core.get %request["embed_model"] default "gemini-embedding-2"
+      %requests = core.list
+      core.for %text in %texts {
+        %part = core.map
+        core.set %part["text"] = %text
+        %parts = core.list
+        core.append %parts, %part
+        %content = core.map
+        core.set %content["parts"] = %parts
+        %item = core.map
+        %model_name = core.call intrinsic.string.format("models/{}", %model)
+        core.set %item["model"] = %model_name
+        core.set %item["content"] = %content
+        core.append %requests, %item
+      }
+      core.set %payload["requests"] = %requests
+      core.return %payload
+    }
+  }
+
+  op ax.provider.semantic @gemini_normalize_chat_response {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr effect = "throws"
+    tag "src/ax/ai/google-gemini/api.ts"
+    type signature = "(json, string, string) -> AxChatResponse throws"
+    body @entry(%raw: json, %ai_name: string, %model: string) {
+      %empty_candidates = core.list
+      %candidates = core.get %raw["candidates"] default %empty_candidates
+      %results = core.list
+      %maps_widget_token = core.call intrinsic.none()
+      core.for %candidate in %candidates {
+        %result = core.map
+        core.set %result["index"] = 0
+        %finish = core.get %candidate["finishReason"] default "STOP"
+        %is_max = core.call intrinsic.eq(%finish, "MAX_TOKENS")
+        core.if %is_max {
+          core.set %result["finish_reason"] = "length"
+        } else {
+          %is_stop = core.call intrinsic.eq(%finish, "STOP")
+          core.if %is_stop {
+            core.set %result["finish_reason"] = "stop"
+          } else {
+            %message = core.call intrinsic.string.format("Gemini finish reason was blocked: {}", %finish)
+            %error = core.call intrinsic.ai.error.refusal(%message, %raw)
+            core.raise %error
+          }
+        }
+        %empty_content = core.map
+        %content = core.get %candidate["content"] default %empty_content
+        %empty_parts = core.list
+        %parts = core.get %content["parts"] default %empty_parts
+        %text_parts = core.list
+        %function_calls = core.list
+        core.for %part in %parts {
+          core.call @gemini_merge_response_part_impl(%result, %text_parts, %function_calls, %part)
+        }
+        %content_text = core.call intrinsic.string.join("", %text_parts)
+        core.set %result["content"] = %content_text
+        core.set %result["function_calls"] = %function_calls
+        %call_count = core.call intrinsic.len(%function_calls)
+        %has_calls = core.call intrinsic.gt(%call_count, 0)
+        core.if %has_calls {
+          core.set %result["finish_reason"] = "function_call"
+        } else {
+        }
+        %citations = core.call @gemini_extract_citations_impl(%candidate)
+        %has_citations = core.call intrinsic.truthy(%citations)
+        core.if %has_citations {
+          core.set %result["citations"] = %citations
+        } else {
+        }
+        core.append %results, %result
+        %grounding = core.get %candidate["groundingMetadata"]
+        %token = core.get %grounding["googleMapsWidgetContextToken"]
+        %has_token = core.call intrinsic.truthy(%token)
+        core.if %has_token {
+          %maps_widget_token = core.let %token
+        } else {
+        }
+      }
+      %usage_raw = core.get %raw["usageMetadata"]
+      %usage = core.call @gemini_usage_impl(%usage_raw)
+      %model_version = core.get %raw["modelVersion"]
+      %raw_model = core.get %raw["modelVersion"] default %model
+      %model_usage = core.call @ai_model_usage_impl(%ai_name, %raw_model, %usage)
+      %out = core.map
+      core.set %out["results"] = %results
+      %remote_id = core.get %raw["responseId"]
+      %has_remote = core.call intrinsic.truthy(%remote_id)
+      core.if %has_remote {
+        core.set %out["remote_id"] = %remote_id
+      } else {
+      }
+      core.set %out["model_usage"] = %model_usage
+      %has_model_version = core.call intrinsic.truthy(%model_version)
+      %has_widget = core.call intrinsic.is_not_none(%maps_widget_token)
+      %has_metadata = core.call intrinsic.or(%has_model_version, %has_widget)
+      core.if %has_metadata {
+        %google = core.map
+        core.if %has_model_version {
+          core.set %google["modelVersion"] = %model_version
+        } else {
+        }
+        core.if %has_widget {
+          core.set %google["mapsWidgetContextToken"] = %maps_widget_token
+        } else {
+        }
+        %metadata = core.map
+        core.set %metadata["google"] = %google
+        core.set %out["provider_metadata"] = %metadata
+      } else {
+      }
+      core.return %out
+    }
+  }
+
+  op ax.provider.semantic @gemini_merge_response_part_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "gemini-output-core-helper"
+    type signature = "(json, list<json>, list<json>, json) -> void"
+    body @entry(%result: json, %text_parts: list<json>, %function_calls: list<json>, %part: json) {
+      %text = core.get %part["text"]
+      %has_text = core.call intrinsic.is_not_none(%text)
+      core.if %has_text {
+        %is_thought = core.get %part["thought"] default false
+        core.if %is_thought {
+          core.set %result["thought"] = %text
+        } else {
+          core.append %text_parts, %text
+        }
+      } else {
+      }
+      %function_call = core.get %part["functionCall"]
+      %has_call = core.call intrinsic.is_not_none(%function_call)
+      core.if %has_call {
+        %name = core.get %function_call["name"]
+        %empty_args = core.map
+        %args = core.get %function_call["args"] default %empty_args
+        %function = core.map
+        core.set %function["name"] = %name
+        core.set %function["params"] = %args
+        %call = core.map
+        core.set %call["id"] = %name
+        core.set %call["type"] = "function"
+        core.set %call["function"] = %function
+        core.append %function_calls, %call
+      } else {
+      }
+      core.return
+    }
+  }
+
+  op ax.provider.semantic @gemini_extract_citations_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "gemini-citations-core-helper"
+    type signature = "(json) -> list<json>"
+    body @entry(%candidate: json) {
+      %out = core.list
+      %citation_meta = core.get %candidate["citationMetadata"]
+      %empty_citations = core.list
+      %citations = core.get %citation_meta["citations"] default %empty_citations
+      core.for %citation in %citations {
+        %uri = core.get %citation["uri"]
+        %has_uri = core.call intrinsic.truthy(%uri)
+        core.if %has_uri {
+          %item = core.map
+          core.set %item["url"] = %uri
+          %title = core.get %citation["title"]
+          %has_title = core.call intrinsic.is_not_none(%title)
+          core.if %has_title {
+            core.set %item["title"] = %title
+          } else {
+          }
+          %license = core.get %citation["license"]
+          %has_license = core.call intrinsic.is_not_none(%license)
+          core.if %has_license {
+            core.set %item["license"] = %license
+          } else {
+          }
+          core.append %out, %item
+        } else {
+        }
+      }
+      %grounding = core.get %candidate["groundingMetadata"]
+      %chunks = core.get %grounding["groundingChunks"] default %empty_citations
+      core.for %chunk in %chunks {
+        %maps = core.get %chunk["maps"]
+        %maps_uri = core.get %maps["uri"]
+        %has_maps = core.call intrinsic.truthy(%maps_uri)
+        core.if %has_maps {
+          %item = core.map
+          core.set %item["url"] = %maps_uri
+          %title = core.get %maps["title"]
+          %has_title = core.call intrinsic.is_not_none(%title)
+          core.if %has_title {
+            core.set %item["title"] = %title
+          } else {
+          }
+          core.append %out, %item
+        } else {
+        }
+        %retrieved = core.get %chunk["retrievedContext"]
+        %retrieved_uri = core.get %retrieved["uri"]
+        %media_id = core.get %retrieved["media_id"]
+        %has_retrieved_uri = core.call intrinsic.truthy(%retrieved_uri)
+        %has_media = core.call intrinsic.truthy(%media_id)
+        %has_retrieved = core.call intrinsic.or(%has_retrieved_uri, %has_media)
+        core.if %has_retrieved {
+          %item = core.map
+          %url = core.get %retrieved["uri"] default ""
+          core.set %item["url"] = %url
+          %title = core.get %retrieved["title"]
+          %has_title = core.call intrinsic.is_not_none(%title)
+          core.if %has_title {
+            core.set %item["title"] = %title
+          } else {
+          }
+          core.if %has_media {
+            core.set %item["mediaId"] = %media_id
+          } else {
+          }
+          %pages = core.get %retrieved["page_numbers"]
+          %has_pages = core.call intrinsic.is_not_none(%pages)
+          core.if %has_pages {
+            core.set %item["pageNumbers"] = %pages
+          } else {
+          }
+          core.append %out, %item
+        } else {
+        }
+      }
+      core.return %out
+    }
+  }
+
+  op ax.provider.semantic @gemini_usage_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "gemini-usage-core-helper"
+    type signature = "(json) -> json"
+    body @entry(%usage: json) {
+      %has_usage = core.call intrinsic.truthy(%usage)
+      core.if %has_usage {
+      } else {
+        %none = core.call intrinsic.none()
+        core.return %none
+      }
+      %out = core.map
+      %cached = core.get %usage["cachedContentTokenCount"] default 0
+      %prompt_raw = core.get %usage["promptTokenCount"] default 0
+      %negative_cached = core.call intrinsic.mul(-1, %cached)
+      %prompt = core.call intrinsic.add(%prompt_raw, %negative_cached)
+      %completion = core.get %usage["candidatesTokenCount"] default 0
+      %total = core.get %usage["totalTokenCount"] default 0
+      core.set %out["prompt_tokens"] = %prompt
+      core.set %out["completion_tokens"] = %completion
+      core.set %out["total_tokens"] = %total
+      %thoughts = core.get %usage["thoughtsTokenCount"]
+      %has_thoughts = core.call intrinsic.is_not_none(%thoughts)
+      core.if %has_thoughts {
+        core.set %out["reasoning_tokens"] = %thoughts
+      } else {
+      }
+      %has_cached = core.call intrinsic.gt(%cached, 0)
+      core.if %has_cached {
+        core.set %out["cache_read_tokens"] = %cached
+      } else {
+      }
+      core.return %out
+    }
+  }
+
+  op ax.provider.semantic @gemini_normalize_embed_response {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "src/ax/ai/google-gemini/api.ts"
+    type signature = "(json, string, string) -> AxEmbedResponse"
+    body @entry(%raw: json, %ai_name: string, %model: string) {
+      %out = core.map
+      %embeddings = core.list
+      %empty_raw_embeddings = core.list
+      %raw_embeddings = core.get %raw["embeddings"] default %empty_raw_embeddings
+      core.for %embedding in %raw_embeddings {
+        %values = core.get %embedding["values"] default %embedding
+        core.append %embeddings, %values
+      }
+      %empty_predictions = core.list
+      %predictions = core.get %raw["predictions"] default %empty_predictions
+      core.for %prediction in %predictions {
+        %prediction_embedding = core.get %prediction["embeddings"]
+        %values = core.get %prediction_embedding["values"] default %prediction_embedding
+        core.append %embeddings, %values
+      }
+      core.set %out["embeddings"] = %embeddings
       core.return %out
     }
   }

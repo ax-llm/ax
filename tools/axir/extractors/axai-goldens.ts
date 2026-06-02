@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { axAIGoogleGeminiDefaultConfig } from '../../../src/ax/ai/google-gemini/api.js';
 import { axAIOpenAIResponsesDefaultConfig } from '../../../src/ax/ai/openai/responses_api_base.js';
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
@@ -31,6 +32,8 @@ mkdirSync(outDir, { recursive: true });
 
 const responsesDefaultModel = axAIOpenAIResponsesDefaultConfig()
   .model as string;
+const geminiDefaultModel = axAIGoogleGeminiDefaultConfig().model as string;
+const geminiDefaultEmbedModel = 'gemini-embedding-2';
 
 writeFixture('responses-provider-descriptor', {
   kind: 'ai_provider_descriptor',
@@ -71,6 +74,48 @@ writeFixture('responses-provider-descriptor', {
       media: {
         audio: { supported: true, output: { supported: true } },
       },
+    },
+  },
+});
+
+writeFixture('gemini-provider-descriptor', {
+  kind: 'ai_provider_descriptor',
+  provider: 'google-gemini',
+  expected_output: {
+    id: 'google-gemini',
+    name: 'GoogleGeminiAI',
+    defaultModel: geminiDefaultModel,
+    defaultEmbedModel: geminiDefaultEmbedModel,
+    auth: 'api_key_query',
+    apiKeyQuery: 'key',
+    operations: {
+      chat: {
+        method: 'POST',
+        path: '/models/{model}:generateContent',
+        body: 'json',
+        stream: false,
+      },
+      stream_chat: {
+        method: 'POST',
+        path: '/models/{model}:streamGenerateContent?alt=sse',
+        body: 'json',
+        stream: true,
+      },
+      embed: {
+        method: 'POST',
+        path: '/models/{model}:batchEmbedContents',
+        body: 'json',
+        stream: false,
+      },
+    },
+    features: {
+      media: {
+        images: { supported: true },
+        audio: { supported: true, output: { supported: false } },
+        files: { supported: true, upload_method: 'cloud' },
+      },
+      caching: { supported: true, types: ['persistent'] },
+      thinking: true,
     },
   },
 });
@@ -479,4 +524,361 @@ writeFixture('responses-realtime-event', {
       },
     },
   ],
+});
+
+writeFixture('gemini-simple-chat', {
+  kind: 'ai_chat',
+  provider: 'google-gemini',
+  request: {
+    chat_prompt: [
+      { role: 'system', content: 'Answer briefly.', cache: true },
+      { role: 'user', content: 'What is Ax?' },
+    ],
+    model_config: {
+      stream: false,
+      temperature: 0.2,
+      maxTokens: 64,
+      n: 2,
+      stopSequences: ['END'],
+    },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        responseId: 'gem_resp_1',
+        modelVersion: geminiDefaultModel,
+        candidates: [
+          {
+            finishReason: 'STOP',
+            content: { parts: [{ text: 'Ax is portable.' }] },
+            citationMetadata: {
+              citations: [
+                {
+                  uri: 'https://axllm.dev',
+                  title: 'Ax',
+                  license: 'CC',
+                },
+              ],
+            },
+            groundingMetadata: {
+              googleMapsWidgetContextToken: 'maps-token',
+            },
+          },
+        ],
+        usageMetadata: {
+          promptTokenCount: 12,
+          cachedContentTokenCount: 2,
+          candidatesTokenCount: 4,
+          thoughtsTokenCount: 1,
+          totalTokenCount: 16,
+        },
+      },
+    },
+  ],
+  expected_output: {
+    results: [
+      {
+        index: 0,
+        content: 'Ax is portable.',
+        function_calls: [],
+        finish_reason: 'stop',
+        citations: [{ url: 'https://axllm.dev', title: 'Ax', license: 'CC' }],
+      },
+    ],
+    remote_id: 'gem_resp_1',
+    model_usage: {
+      ai: 'GoogleGeminiAI',
+      model: geminiDefaultModel,
+      tokens: {
+        prompt_tokens: 10,
+        completion_tokens: 4,
+        total_tokens: 16,
+        reasoning_tokens: 1,
+        cache_read_tokens: 2,
+      },
+    },
+    provider_metadata: {
+      google: {
+        modelVersion: geminiDefaultModel,
+        mapsWidgetContextToken: 'maps-token',
+      },
+    },
+  },
+  expected_transport_request: {
+    method: 'POST',
+    url: `https://generativelanguage.googleapis.com/v1beta/models/${geminiDefaultModel}:generateContent?key=test-key`,
+    json: {
+      systemInstruction: {
+        role: 'user',
+        parts: [{ text: 'Answer briefly.' }],
+      },
+      contents: [{ role: 'user', parts: [{ text: 'What is Ax?' }] }],
+      generationConfig: {
+        candidateCount: 2,
+        maxOutputTokens: 64,
+        responseMimeType: 'text/plain',
+        stopSequences: ['END'],
+        temperature: 0.2,
+      },
+    },
+  },
+});
+
+writeFixture('gemini-tool-call', {
+  kind: 'ai_chat',
+  provider: 'gemini',
+  request: {
+    chat_prompt: [{ role: 'user', content: 'Search docs' }],
+    functions: [
+      {
+        name: 'search',
+        description: 'Search docs',
+        parameters: {
+          type: 'object',
+          properties: { query: { type: 'string' } },
+          required: ['query'],
+        },
+      },
+    ],
+    function_call: {
+      function: { name: 'search' },
+    },
+    response_format: {
+      type: 'json_schema',
+      schema: {
+        name: 'search_result',
+        schema: {
+          type: 'object',
+          properties: { answer: { type: 'string' } },
+          required: ['answer'],
+        },
+      },
+    },
+    model_config: { stream: false },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        candidates: [
+          {
+            finishReason: 'STOP',
+            content: {
+              parts: [
+                {
+                  functionCall: {
+                    name: 'search',
+                    args: { query: 'Search docs' },
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      },
+    },
+  ],
+  expected_output: {
+    results: [
+      {
+        index: 0,
+        content: '',
+        function_calls: [
+          {
+            id: 'search',
+            type: 'function',
+            function: { name: 'search', params: { query: 'Search docs' } },
+          },
+        ],
+        finish_reason: 'function_call',
+      },
+    ],
+    model_usage: null,
+  },
+  expected_transport_request: {
+    json: {
+      generationConfig: {
+        candidateCount: 1,
+        responseMimeType: 'application/json',
+        responseJsonSchema: {
+          type: 'object',
+          properties: { answer: { type: 'string' } },
+          required: ['answer'],
+        },
+      },
+      tools: [
+        {
+          function_declarations: [
+            {
+              name: 'search',
+              description: 'Search docs',
+              parameters: {
+                type: 'object',
+                properties: { query: { type: 'string' } },
+                required: ['query'],
+              },
+            },
+          ],
+        },
+      ],
+      toolConfig: {
+        function_calling_config: {
+          mode: 'ANY',
+          allowed_function_names: ['search'],
+        },
+      },
+    },
+  },
+});
+
+writeFixture('gemini-streaming-text', {
+  kind: 'ai_stream',
+  provider: 'google-gemini',
+  request: {
+    chat_prompt: [{ role: 'user', content: 'stream' }],
+    model_config: { stream: true },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      body:
+        'data: {"candidates":[{"finishReason":"STOP","content":{"parts":[{"text":"he"}]}}]}\n\n' +
+        'data: {"responseId":"gem_stream","candidates":[{"finishReason":"STOP","content":{"parts":[{"text":"llo"}]}}],"usageMetadata":{"promptTokenCount":4,"candidatesTokenCount":2,"totalTokenCount":6}}\n\n' +
+        'data: [DONE]\n\n',
+    },
+  ],
+  expected_output: [
+    {
+      results: [
+        {
+          index: 0,
+          content: 'he',
+          function_calls: [],
+          finish_reason: 'stop',
+        },
+      ],
+      model_usage: null,
+    },
+    {
+      results: [
+        {
+          index: 0,
+          content: 'llo',
+          function_calls: [],
+          finish_reason: 'stop',
+        },
+      ],
+      remote_id: 'gem_stream',
+      model_usage: {
+        ai: 'GoogleGeminiAI',
+        model: geminiDefaultModel,
+        tokens: { prompt_tokens: 4, completion_tokens: 2, total_tokens: 6 },
+      },
+    },
+  ],
+  expected_transport_request: {
+    url: `https://generativelanguage.googleapis.com/v1beta/models/${geminiDefaultModel}:streamGenerateContent?alt=sse&key=test-key`,
+    json: { generationConfig: { responseMimeType: 'text/plain' } },
+  },
+});
+
+writeFixture('gemini-media-request', {
+  kind: 'ai_chat',
+  provider: 'google-gemini',
+  request: {
+    chat_prompt: [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'inspect' },
+          { type: 'image', data: 'image-base64', mimeType: 'image/png' },
+          { type: 'audio', data: 'audio-base64', format: 'wav' },
+          {
+            type: 'file',
+            fileUri: 'gs://bucket/doc.pdf',
+            mimeType: 'application/pdf',
+          },
+        ],
+      },
+    ],
+    model_config: { stream: false },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        candidates: [
+          { finishReason: 'STOP', content: { parts: [{ text: 'ok' }] } },
+        ],
+      },
+    },
+  ],
+  expected_output: {
+    results: [
+      {
+        index: 0,
+        content: 'ok',
+        function_calls: [],
+        finish_reason: 'stop',
+      },
+    ],
+    model_usage: null,
+  },
+  expected_transport_request: {
+    json: {
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { text: 'inspect' },
+            { inlineData: { mimeType: 'image/png', data: 'image-base64' } },
+            { inlineData: { mimeType: 'audio/wav', data: 'audio-base64' } },
+            {
+              fileData: {
+                mimeType: 'application/pdf',
+                fileUri: 'gs://bucket/doc.pdf',
+              },
+            },
+          ],
+        },
+      ],
+    },
+  },
+});
+
+writeFixture('gemini-embeddings', {
+  kind: 'ai_embed',
+  provider: 'google-gemini',
+  embed_model: geminiDefaultEmbedModel,
+  request: { texts: ['one', 'two'] },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        embeddings: [{ values: [0.1, 0.2] }, { values: [0.3, 0.4] }],
+      },
+    },
+  ],
+  expected_output: {
+    embeddings: [
+      [0.1, 0.2],
+      [0.3, 0.4],
+    ],
+  },
+  expected_transport_request: {
+    url: `https://generativelanguage.googleapis.com/v1beta/models/${geminiDefaultEmbedModel}:batchEmbedContents?key=test-key`,
+    json: {
+      requests: [
+        {
+          model: `models/${geminiDefaultEmbedModel}`,
+          content: { parts: [{ text: 'one' }] },
+        },
+        {
+          model: `models/${geminiDefaultEmbedModel}`,
+          content: { parts: [{ text: 'two' }] },
+        },
+      ],
+    },
+  },
 });

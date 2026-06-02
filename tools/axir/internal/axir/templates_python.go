@@ -16,6 +16,7 @@ from .ai import (
     AxAIServiceTimeoutError,
     AxBaseAI,
     AxUnsupportedCapabilityError,
+    GoogleGeminiClient,
     OpenAICompatibleClient,
     OpenAIResponsesClient,
     ai,
@@ -57,6 +58,7 @@ __all__ = [
     "AxValidationError",
     "Field",
     "FieldType",
+    "GoogleGeminiClient",
     "OpenAICompatibleClient",
     "OpenAIResponsesClient",
     "RuntimeCapabilities",
@@ -1483,6 +1485,7 @@ import os
 import time
 import uuid
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Any, Callable, Iterable
 
@@ -1544,6 +1547,8 @@ def ai(provider: str = "openai", **options):
         return OpenAICompatibleClient(**options)
     if normalized in ("openai_responses", "responses"):
         return OpenAIResponsesClient(**options)
+    if normalized in ("google_gemini", "gemini"):
+        return GoogleGeminiClient(**options)
     raise ValueError(f"unsupported AxAI provider: {provider}")
 
 
@@ -1796,22 +1801,39 @@ class ProviderOperationClient(AxBaseAI):
         payload = provider_build_chat_request(self.profile, request)
         if payload.get("stream"):
             return self._stream_chat(payload, request)
-        endpoint = self._operation_path("chat")
+        model = request.get("model") or payload.get("model") or self.model
+        endpoint = self._operation_path("chat", model)
         raw = self._request_json(endpoint, payload, stream=False)
-        return provider_normalize_chat_response(self.profile, raw, self.name, payload.get("model"))
+        return provider_normalize_chat_response(self.profile, raw, self.name, model)
+
+    def stream(self, request: dict[str, Any], options: dict[str, Any] | None = None):
+        req = _coerce_chat_request(request)
+        req.setdefault("model_config", {})["stream"] = True
+        validate_chat_request(req)
+        merged_options = {**self.options, **(options or {}), "stream": True}
+        model = req.get("model") or self.model
+        model_config = merge_model_config(self.model_config, req.get("model_config"), merged_options)
+        model_config["stream"] = True
+        req = {**req, "model": model, "model_config": model_config}
+        self.last_used_chat_model = model
+        self.last_used_model_config = copy.deepcopy(model_config)
+        payload = provider_build_chat_request(self.profile, req)
+        yield from self._stream_chat(payload, req)
 
     def _embed(self, request: dict[str, Any], options: dict[str, Any]):
         payload = provider_build_embed_request(self.profile, request)
-        endpoint = self._operation_path("embed")
+        model = request.get("embed_model") or request.get("embedModel") or payload.get("model") or self.embed_model
+        endpoint = self._operation_path("embed", model)
         raw = self._request_json(endpoint, payload, stream=False)
-        return provider_normalize_embed_response(self.profile, raw, self.name, payload.get("model"))
+        return provider_normalize_embed_response(self.profile, raw, self.name, model)
 
     def _stream_chat(self, payload: dict[str, Any], request: dict[str, Any]):
-        endpoint = self._operation_path("stream_chat")
+        model = request.get("model") or payload.get("model") or self.model
+        endpoint = self._operation_path("stream_chat", model)
         raw = self._request_json(endpoint, payload, stream=True)
         state: dict[str, Any] = {}
         for event in _iter_sse_json(raw):
-            yield provider_normalize_stream_delta(self.profile, event, state, self.name, payload.get("model"))
+            yield provider_normalize_stream_delta(self.profile, event, state, self.name, model)
 
     def transcribe(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         payload = provider_build_transcribe_request(self.profile, request)
@@ -1828,9 +1850,16 @@ class ProviderOperationClient(AxBaseAI):
         for event in events:
             yield provider_normalize_realtime_event(self.profile, event, state, self.name, model or self.model)
 
-    def _operation_path(self, operation: str):
+    def _operation_path(self, operation: str, model: str | None = None):
         descriptor = provider_operation_descriptor(self.profile, operation)
-        return descriptor.get("path", "/" + operation)
+        path = str(descriptor.get("path", "/" + operation))
+        if model is not None:
+            path = path.replace("{model}", urllib.parse.quote(str(model), safe=""))
+        if self.descriptor.get("auth") == "api_key_query":
+            key_name = self.descriptor.get("apiKeyQuery") or "key"
+            separator = "&" if "?" in path else "?"
+            path += separator + urllib.parse.quote(str(key_name), safe="") + "=" + urllib.parse.quote(self.api_key or "", safe="")
+        return path
 
     def _request_json(self, endpoint: str, payload: dict[str, Any], *, stream: bool, body_key: str = "json"):
         call = {
@@ -1874,10 +1903,12 @@ class ProviderOperationClient(AxBaseAI):
             raise AxAIServiceNetworkError(str(exc), request=call, retryable=True) from exc
 
     def _headers(self):
-        return {
-            "Authorization": "Bearer " + (self.api_key or ""),
+        headers = {
             "Content-Type": "application/json",
         }
+        if self.descriptor.get("auth") == "bearer":
+            headers["Authorization"] = "Bearer " + (self.api_key or "")
+        return headers
 
 
 class OpenAICompatibleClient(ProviderOperationClient):
@@ -1908,12 +1939,32 @@ class OpenAIResponsesClient(ProviderOperationClient):
         )
 
 
+class GoogleGeminiClient(ProviderOperationClient):
+    def __init__(self, **options):
+        embed_model = options.pop("embed_model", None)
+        if embed_model is None:
+            embed_model = options.pop("embedModel", "gemini-embedding-2")
+        api_key = options.pop("api_key", None) or options.pop("apiKey", None) or os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
+        base_url = options.pop("base_url", None) or options.pop("baseUrl", None) or os.environ.get("GOOGLE_GEMINI_BASE_URL") or "https://generativelanguage.googleapis.com/v1beta"
+        super().__init__(
+            "google-gemini",
+            "GoogleGeminiAI",
+            model=options.pop("model", "gemini-2.5-flash"),
+            embed_model=embed_model,
+            api_key=api_key,
+            base_url=base_url,
+            **options,
+        )
+
+
 def _core_not(value): return not value
 def _core_and(left, right): return bool(left and right)
 def _core_or(left, right): return bool(left or right)
 def _core_add(left, right): return left + right
+def _core_mul(left, right): return left * right
 def _core_eq(left, right): return left == right
 def _core_ne(left, right): return left != right
+def _core_gt(left, right): return left > right
 def _core_gte(left, right): return left >= right
 def _core_contains(container, item): return False if container is None else item in container
 def _core_len(value): return len(value or [])
@@ -3945,7 +3996,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .ai import AxAIServiceError, AxBaseAI, OpenAICompatibleClient, OpenAIResponsesClient, provider_descriptor
+from .ai import AxAIServiceError, AxBaseAI, GoogleGeminiClient, OpenAICompatibleClient, OpenAIResponsesClient, provider_descriptor
 from .gen import ax, fold_stream
 from .flow import (
     _FlowCallable,
@@ -5429,9 +5480,18 @@ def _error_category(exc):
 def _openai_fixture_client(fixture):
     transport = FakeTransport(fixture.get("transport_responses") or fixture.get("responses") or [])
     provider = str(fixture.get("provider", "openai-compatible")).replace("-", "_").lower()
-    client_cls = OpenAIResponsesClient if provider in ("openai_responses", "responses") else OpenAICompatibleClient
-    default_model = "gpt-4o" if client_cls is OpenAIResponsesClient else "gpt-4.1-mini"
-    default_embed_model = "text-embedding-ada-002" if client_cls is OpenAIResponsesClient else "text-embedding-3-small"
+    if provider in ("openai_responses", "responses"):
+        client_cls = OpenAIResponsesClient
+        default_model = "gpt-4o"
+        default_embed_model = "text-embedding-ada-002"
+    elif provider in ("google_gemini", "gemini"):
+        client_cls = GoogleGeminiClient
+        default_model = "gemini-2.5-flash"
+        default_embed_model = "gemini-embedding-2"
+    else:
+        client_cls = OpenAICompatibleClient
+        default_model = "gpt-4.1-mini"
+        default_embed_model = "text-embedding-3-small"
     client = client_cls(
         model=fixture.get("model", default_model),
         embed_model=fixture.get("embed_model", default_embed_model),
@@ -5609,12 +5669,12 @@ if __name__ == "__main__":
     main()
 `
 
-const pyProvidersInit = `from .openai import OpenAICompatibleClient, OpenAIResponsesClient
+const pyProvidersInit = `from .openai import GoogleGeminiClient, OpenAICompatibleClient, OpenAIResponsesClient
 
-__all__ = ["OpenAICompatibleClient", "OpenAIResponsesClient"]
+__all__ = ["GoogleGeminiClient", "OpenAICompatibleClient", "OpenAIResponsesClient"]
 `
 
-const pyOpenAIProvider = `from ..ai import OpenAICompatibleClient, OpenAIResponsesClient
+const pyOpenAIProvider = `from ..ai import GoogleGeminiClient, OpenAICompatibleClient, OpenAIResponsesClient
 
-__all__ = ["OpenAICompatibleClient", "OpenAIResponsesClient"]
+__all__ = ["GoogleGeminiClient", "OpenAICompatibleClient", "OpenAIResponsesClient"]
 `

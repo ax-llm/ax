@@ -1,0 +1,63 @@
+{
+  "expected_output": [
+    {
+      "model_usage": null,
+      "results": [
+        {
+          "content": "he",
+          "finish_reason": "stop",
+          "function_calls": [],
+          "index": 0
+        }
+      ]
+    },
+    {
+      "model_usage": {
+        "ai": "GoogleGeminiAI",
+        "model": "gemini-2.5-flash",
+        "tokens": {
+          "completion_tokens": 2,
+          "prompt_tokens": 4,
+          "total_tokens": 6
+        }
+      },
+      "remote_id": "gem_stream",
+      "results": [
+        {
+          "content": "llo",
+          "finish_reason": "stop",
+          "function_calls": [],
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "expected_transport_request": {
+    "json": {
+      "generationConfig": {
+        "responseMimeType": "text/plain"
+      }
+    },
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse&key=test-key"
+  },
+  "kind": "ai_stream",
+  "name": "gemini-streaming-text",
+  "provider": "google-gemini",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "stream",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": true
+    }
+  },
+  "transport_responses": [
+    {
+      "body": "data: {\"candidates\":[{\"finishReason\":\"STOP\",\"content\":{\"parts\":[{\"text\":\"he\"}]}}]}\n\ndata: {\"responseId\":\"gem_stream\",\"candidates\":[{\"finishReason\":\"STOP\",\"content\":{\"parts\":[{\"text\":\"llo\"}]}}],\"usageMetadata\":{\"promptTokenCount\":4,\"candidatesTokenCount\":2,\"totalTokenCount\":6}}\n\ndata: [DONE]\n\n",
+      "status": 200
+    }
+  ]
+}
