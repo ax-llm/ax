@@ -1,0 +1,53 @@
+{
+  "expected_output": {
+    "defaultEmbedModel": "text-embedding-ada-002",
+    "defaultModel": "gpt-4o",
+    "features": {
+      "media": {
+        "audio": {
+          "output": {
+            "supported": true
+          },
+          "supported": true
+        }
+      }
+    },
+    "id": "openai-responses",
+    "name": "openai-responses",
+    "operations": {
+      "chat": {
+        "body": "json",
+        "method": "POST",
+        "path": "/responses",
+        "stream": false
+      },
+      "realtime": {
+        "body": "events",
+        "method": "WS",
+        "path": "/realtime",
+        "stream": true
+      },
+      "speak": {
+        "body": "json",
+        "method": "POST",
+        "path": "/audio/speech",
+        "stream": false
+      },
+      "stream_chat": {
+        "body": "json",
+        "method": "POST",
+        "path": "/responses",
+        "stream": true
+      },
+      "transcribe": {
+        "body": "multipart",
+        "method": "POST",
+        "path": "/audio/transcriptions",
+        "stream": false
+      }
+    }
+  },
+  "kind": "ai_provider_descriptor",
+  "name": "responses-provider-descriptor",
+  "provider": "openai-responses"
+}

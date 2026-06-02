@@ -44,6 +44,9 @@ public final class Ax {
     if (normalized.equals("openai") || normalized.equals("openai_compatible") || normalized.equals("compatible")) {
       return new OpenAICompatibleClient(options == null ? java.util.Map.of() : options);
     }
+    if (normalized.equals("openai_responses") || normalized.equals("responses")) {
+      return new OpenAIResponsesClient(options == null ? java.util.Map.of() : options);
+    }
     throw new IllegalArgumentException("unsupported AxAI provider: " + provider);
   }
 
@@ -452,11 +455,11 @@ public interface AxAIService extends AiClient {
   Map<String, Object> getOptions();
   Map<String, Object> embed(Map<String, Object> request) throws Exception;
 
-  default Map<String, Object> transcribe(Map<String, Object> request) {
+  default Map<String, Object> transcribe(Map<String, Object> request) throws Exception {
     throw new AxUnsupportedCapabilityError("transcribe is not supported by this generated AxAI beta provider");
   }
 
-  default Map<String, Object> speak(Map<String, Object> request) {
+  default Map<String, Object> speak(Map<String, Object> request) throws Exception {
     throw new AxUnsupportedCapabilityError("speak is not supported by this generated AxAI beta provider");
   }
 }
@@ -691,11 +694,12 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-public final class OpenAICompatibleClient extends AxBaseAI {
+public class OpenAICompatibleClient extends AxBaseAI {
   public interface Transport {
     Object call(Map<String, Object> request) throws Exception;
   }
 
+  protected final String profile;
   private final String baseUrl;
   private final String apiKey;
   private final double timeoutSeconds;
@@ -707,14 +711,21 @@ public final class OpenAICompatibleClient extends AxBaseAI {
   }
 
   public OpenAICompatibleClient(Map<String, Object> options) {
+    this("openai-compatible", "openai", options == null ? Map.of() : options, "gpt-4.1-mini", "text-embedding-3-small");
+  }
+
+  protected OpenAICompatibleClient(String profile, String name, Map<String, Object> options, String defaultModel, String defaultEmbedModel) {
     super(
-      "openai",
-      String.valueOf(options.getOrDefault("model", "gpt-4.1-mini")),
-      String.valueOf(options.getOrDefault("embed_model", options.getOrDefault("embedModel", "text-embedding-3-small"))),
+      name,
+      String.valueOf(options.getOrDefault("model", defaultModel)),
+      String.valueOf(options.getOrDefault("embed_model", options.getOrDefault("embedModel", defaultEmbedModel))),
       Core.asMap(options.get("model_config")),
       Core.asMap(options.get("options"))
     );
-    this.baseUrl = String.valueOf(options.getOrDefault("base_url", options.getOrDefault("baseUrl", System.getenv().getOrDefault("OPENAI_BASE_URL", "https://api.openai.com/v1")))).replaceAll("/+$", "");
+    this.profile = profile == null || profile.isBlank() ? "openai-compatible" : profile;
+    Map<String, Object> descriptor = Core.asMap(Core.provider_descriptor(this.profile));
+    String descriptorBaseUrl = String.valueOf(descriptor.getOrDefault("baseUrl", "https://api.openai.com/v1"));
+    this.baseUrl = String.valueOf(options.getOrDefault("base_url", options.getOrDefault("baseUrl", System.getenv().getOrDefault("OPENAI_BASE_URL", descriptorBaseUrl)))).replaceAll("/+$", "");
     this.apiKey = String.valueOf(options.getOrDefault("api_key", options.getOrDefault("apiKey", System.getenv("OPENAI_API_KEY"))));
     Object timeout = options.getOrDefault("timeout", 60.0);
     this.timeoutSeconds = timeout instanceof Number n ? n.doubleValue() : 60.0;
@@ -722,24 +733,24 @@ public final class OpenAICompatibleClient extends AxBaseAI {
   }
 
   protected Map<String, Object> doChat(Map<String, Object> request, Map<String, Object> options) throws Exception {
-    Map<String, Object> payload = Core.asMap(Core.openai_build_chat_request(request));
+    Map<String, Object> payload = Core.asMap(Core.provider_build_chat_request(profile, request));
     Object stream = payload.get("stream");
     if (Boolean.TRUE.equals(stream)) {
       List<Map<String, Object>> out = new ArrayList<>();
       Map<String, Object> state = new LinkedHashMap<>();
-      for (Object event : iterSseJson(requestJson("/chat/completions", payload, true))) {
-        out.add(Core.asMap(Core.openai_normalize_stream_delta(event, state, name, payload.get("model"))));
+      for (Object event : iterSseJson(requestJson(operationPath("stream_chat"), payload, true))) {
+        out.add(Core.asMap(Core.provider_normalize_stream_delta(profile, event, state, name, payload.get("model"))));
       }
       return Map.of("results", out);
     }
-    Object raw = requestJson("/chat/completions", payload, false);
-    return Core.asMap(Core.openai_normalize_chat_response(raw, name, payload.get("model")));
+    Object raw = requestJson(operationPath("chat"), payload, false);
+    return Core.asMap(Core.provider_normalize_chat_response(profile, raw, name, payload.get("model")));
   }
 
   protected Map<String, Object> doEmbed(Map<String, Object> request, Map<String, Object> options) throws Exception {
-    Map<String, Object> payload = Core.asMap(Core.openai_build_embed_request(request));
-    Object raw = requestJson("/embeddings", payload, false);
-    return Core.asMap(Core.openai_normalize_embed_response(raw, name, payload.get("model")));
+    Map<String, Object> payload = Core.asMap(Core.provider_build_embed_request(profile, request));
+    Object raw = requestJson(operationPath("embed"), payload, false);
+    return Core.asMap(Core.provider_normalize_embed_response(profile, raw, name, payload.get("model")));
   }
 
   public Iterable<Map<String, Object>> stream(Map<String, Object> request) throws Exception {
@@ -749,11 +760,30 @@ public final class OpenAICompatibleClient extends AxBaseAI {
     modelConfig.put("stream", true);
     req.put("model", req.getOrDefault("model", model));
     req.put("model_config", modelConfig);
-    Map<String, Object> payload = Core.asMap(Core.openai_build_chat_request(req));
-    Object raw = requestJson("/chat/completions", payload, true);
+    Map<String, Object> payload = Core.asMap(Core.provider_build_chat_request(profile, req));
+    Object raw = requestJson(operationPath("stream_chat"), payload, true);
     Map<String, Object> state = new LinkedHashMap<>();
     List<Map<String, Object>> out = new ArrayList<>();
-    for (Object event : iterSseJson(raw)) out.add(Core.asMap(Core.openai_normalize_stream_delta(event, state, name, payload.get("model"))));
+    for (Object event : iterSseJson(raw)) out.add(Core.asMap(Core.provider_normalize_stream_delta(profile, event, state, name, payload.get("model"))));
+    return out;
+  }
+
+  public Map<String, Object> transcribe(Map<String, Object> request) throws Exception {
+    Map<String, Object> payload = Core.asMap(Core.provider_build_transcribe_request(profile, request));
+    Object raw = requestJson(operationPath("transcribe"), payload, false, "data");
+    return Core.asMap(Core.provider_normalize_transcribe_response(profile, raw));
+  }
+
+  public Map<String, Object> speak(Map<String, Object> request) throws Exception {
+    Map<String, Object> payload = Core.asMap(Core.provider_build_speak_request(profile, request));
+    Object raw = requestJson(operationPath("speak"), payload, false);
+    return Core.asMap(Core.provider_normalize_speak_response(profile, raw, request));
+  }
+
+  public Iterable<Map<String, Object>> realtime(Iterable<?> events) {
+    List<Map<String, Object>> out = new ArrayList<>();
+    Map<String, Object> state = new LinkedHashMap<>();
+    for (Object event : events) out.add(Core.asMap(Core.provider_normalize_realtime_event(profile, event, state, name, model)));
     return out;
   }
 
@@ -762,11 +792,15 @@ public final class OpenAICompatibleClient extends AxBaseAI {
   }
 
   private Object requestJson(String endpoint, Map<String, Object> payload, boolean stream) throws Exception {
+    return requestJson(endpoint, payload, stream, "json");
+  }
+
+  private Object requestJson(String endpoint, Map<String, Object> payload, boolean stream, String bodyKey) throws Exception {
     Map<String, Object> call = new LinkedHashMap<>();
     call.put("method", "POST");
     call.put("url", baseUrl + endpoint);
     call.put("headers", headers());
-    call.put("json", payload);
+    call.put(bodyKey == null || bodyKey.isBlank() ? "json" : bodyKey, payload);
     call.put("stream", stream);
     if (transport != null) return transportResult(transport.call(call), call);
     if (apiKey == null || apiKey.isBlank() || "null".equals(apiKey)) throw new AxAIServiceAuthenticationError("OPENAI_API_KEY is required", null, null, null, call);
@@ -782,6 +816,11 @@ public final class OpenAICompatibleClient extends AxBaseAI {
     try { body = Json.parse(res.body()); } catch (RuntimeException ex) { body = res.body(); }
     if (res.statusCode() >= 400) throw Core.asRuntime(Core.openai_normalize_error(res.statusCode(), body, call));
     return body;
+  }
+
+  private String operationPath(String operation) {
+    Map<String, Object> desc = Core.asMap(Core.provider_operation_descriptor(profile, operation));
+    return String.valueOf(desc.getOrDefault("path", "/" + operation));
   }
 
   private Map<String, Object> headers() {
@@ -816,6 +855,21 @@ public final class OpenAICompatibleClient extends AxBaseAI {
       out.add(Json.parse(data));
     }
     return out;
+  }
+}
+`
+
+const javaOpenAIResponses = `package dev.ax;
+
+import java.util.Map;
+
+public final class OpenAIResponsesClient extends OpenAICompatibleClient {
+  public OpenAIResponsesClient(String model) {
+    this(Map.of("model", model));
+  }
+
+  public OpenAIResponsesClient(Map<String, Object> options) {
+    super("openai-responses", "openai-responses", options == null ? Map.of() : options, "gpt-4o", "text-embedding-ada-002");
   }
 }
 `
@@ -1167,6 +1221,43 @@ public final class AxFlow implements AxProgram {
     return addStep("map", name, mapper, options == null ? Map.of() : options);
   }
 
+  public AxFlow branch(String name, Mapper predicate, List<Map<String, Object>> branches) {
+    return branch(name, predicate, branches, Map.of());
+  }
+
+  public AxFlow branch(String name, Mapper predicate, List<Map<String, Object>> branches, Map<String, Object> options) {
+    Map<String, Object> opts = new LinkedHashMap<>(options == null ? Map.of() : options);
+    opts.put("predicate", predicate);
+    opts.put("branches", branches == null ? List.of() : branches);
+    return addStep("branch", name, null, opts);
+  }
+
+  public AxFlow whileLoop(String name, Mapper condition, List<Map<String, Object>> steps, int maxIterations) {
+    Map<String, Object> opts = new LinkedHashMap<>();
+    opts.put("condition", condition);
+    opts.put("steps", steps == null ? List.of() : steps);
+    opts.put("maxIterations", maxIterations);
+    return addStep("while", name, null, opts);
+  }
+
+  public AxFlow feedback(String name, Mapper condition, List<Map<String, Object>> steps, int maxIterations) {
+    Map<String, Object> opts = new LinkedHashMap<>();
+    opts.put("condition", condition);
+    opts.put("steps", steps == null ? List.of() : steps);
+    opts.put("maxIterations", maxIterations);
+    opts.put("label", name);
+    return addStep("feedback", name, null, opts);
+  }
+
+  public AxFlow nodeExtended(String name, String baseSignature, Map<String, Object> extensions, Map<String, Object> options) {
+    String signature = String.valueOf((extensions == null ? Map.of() : extensions).getOrDefault("extended_signature", (extensions == null ? Map.of() : extensions).getOrDefault("extendedSignature", baseSignature)));
+    return execute(name, new AxGen(AxSignature.create(signature), options == null ? Map.of() : options), options == null ? Map.of() : options);
+  }
+
+  public AxFlow nx(String name, String baseSignature, Map<String, Object> extensions, Map<String, Object> options) {
+    return nodeExtended(name, baseSignature, extensions, options);
+  }
+
   public AxFlow parallel(List<Map<String, Object>> steps) {
     for (Map<String, Object> step : steps == null ? List.<Map<String, Object>>of() : steps) {
       addStep(String.valueOf(step.getOrDefault("kind", "execute")), String.valueOf(step.get("name")), step.get("program"), Core.asMap(step.getOrDefault("options", Map.of())));
@@ -1287,6 +1378,10 @@ public final class AxFlow implements AxProgram {
 
   public Map<String, Object> forward(AiClient client, Map<String, Object> values, Map<String, Object> options) {
     return Core.asMap(Core._flow_forward(state, client, values == null ? Map.of() : values, options == null ? Map.of() : options));
+  }
+
+  public List<Map<String, Object>> streamingForward(AiClient client, Map<String, Object> values, Map<String, Object> options) {
+    return List.of(Map.of("version", 1, "index", 0, "delta", forward(client, values, options)));
   }
 
   private AxFlow addStep(String kind, String name, Object program, Map<String, Object> options) {
@@ -1723,7 +1818,8 @@ public final class Json {
   public static String stringify(Object value) {
     if (value == null) return "null";
     if (value instanceof String s) return "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n") + "\"";
-    if (value instanceof Number || value instanceof Boolean) return String.valueOf(value);
+    if (value instanceof Number number) return numberString(number);
+    if (value instanceof Boolean) return String.valueOf(value);
     if (value instanceof Map<?, ?> map) {
       List<String> parts = new ArrayList<>();
       for (Map.Entry<?, ?> e : map.entrySet()) parts.add(stringify(String.valueOf(e.getKey())) + ":" + stringify(e.getValue()));
@@ -1735,6 +1831,12 @@ public final class Json {
       return "[" + String.join(",", parts) + "]";
     }
     return stringify(String.valueOf(value));
+  }
+
+  private static String numberString(Number number) {
+    if (number instanceof Double d && Double.isFinite(d) && d == Math.rint(d)) return String.valueOf(d.longValue());
+    if (number instanceof Float f && Float.isFinite(f) && f == Math.rint(f)) return String.valueOf(f.longValue());
+    return String.valueOf(number);
   }
 
   public static String stableStringify(Object value) {
@@ -2084,9 +2186,10 @@ final class Core {
   static Object stringReplace(Object value, Object oldValue, Object newValue) { return String.valueOf(value).replace(String.valueOf(oldValue), String.valueOf(newValue)); }
   static Object stringSlice(Object value, Object start, Object end) {
     String text = String.valueOf(value);
-    int s = asInt(start);
+    int s = Math.max(0, Math.min(text.length(), asInt(start)));
     if (end == null) return text.substring(s);
-    return text.substring(s, asInt(end));
+    int e = Math.max(s, Math.min(text.length(), asInt(end)));
+    return text.substring(s, e);
   }
   static Object stringSlice(Object value, Object start) { return stringSlice(value, start, null); }
   static Object stringRemoveSuffix(Object value, Object suffix) {
@@ -3355,6 +3458,10 @@ public final class Conformance {
       case "ai_stream" -> runAIStream(fixture);
       case "ai_error" -> runAIError(fixture);
       case "ai_unsupported" -> runAIUnsupported(fixture);
+      case "ai_provider_descriptor" -> runAIProviderDescriptor(fixture);
+      case "ai_transcribe" -> runAITranscribe(fixture);
+      case "ai_speak" -> runAISpeak(fixture);
+      case "ai_realtime" -> runAIRealtime(fixture);
       case "agent_forward" -> runAgentForward(fixture);
       case "agent_runtime_policy" -> runAgentRuntimePolicy(fixture);
       case "agent_runtime_session" -> runAgentRuntimeSession(fixture);
@@ -3478,42 +3585,101 @@ public final class Conformance {
 	    }
 	  }
 
+  static Object flowStateValue(Map<String, Object> state, Object field, Object fallback) {
+    if (field == null) return fallback;
+    Object cur = state;
+    for (String part : String.valueOf(field).split("\\.")) {
+      if (cur instanceof Map<?, ?> map) cur = Core.asMap(map).getOrDefault(part, fallback);
+      else return fallback;
+    }
+    return cur;
+  }
+
+  static AxFlow.Mapper flowConditionFromSpec(Object rawSpec) {
+    Map<String, Object> spec = Core.asMap(rawSpec == null ? Map.of() : rawSpec);
+    return state -> {
+      String op = String.valueOf(spec.getOrDefault("op", "truthy"));
+      if ("field".equals(op)) return flowStateValue(state, spec.get("field"), spec.get("default"));
+      if ("lt".equals(op)) return Core.asDouble(flowStateValue(state, spec.get("field"), 0)) < Core.asDouble(spec.getOrDefault("value", 0));
+      if ("eq".equals(op)) return java.util.Objects.equals(flowStateValue(state, spec.get("field"), null), spec.get("value"));
+      if ("always".equals(op)) return !Boolean.FALSE.equals(spec.getOrDefault("value", Boolean.TRUE));
+      return Core.truthy(flowStateValue(state, spec.get("field"), null));
+    };
+  }
+
+  static AxFlow.Mapper flowMapperFromSpec(Object rawSpec) {
+    Map<String, Object> spec = Core.asMap(rawSpec == null ? Map.of() : rawSpec);
+    return state -> {
+      Map<String, Object> out = new LinkedHashMap<>(state == null ? Map.of() : state);
+      String op = String.valueOf(spec.getOrDefault("op", "set"));
+      if ("increment".equals(op)) {
+        String field = String.valueOf(spec.get("field"));
+        out.put(field, Core.asDouble(flowStateValue(out, field, 0)) + Core.asDouble(spec.getOrDefault("by", 1)));
+      } else if ("append".equals(op)) {
+        String field = String.valueOf(spec.get("field"));
+        List<Object> values = new ArrayList<>(Core.asList(flowStateValue(out, field, List.of())));
+        values.add(spec.containsKey("valueField") ? flowStateValue(out, spec.get("valueField"), null) : spec.get("value"));
+        out.put(field, values);
+      } else if ("copy".equals(op)) {
+        out.put(String.valueOf(spec.get("to")), flowStateValue(out, spec.get("from"), null));
+      } else {
+        out.putAll(Core.asMap(spec.getOrDefault("values", Map.of())));
+      }
+      return out;
+    };
+  }
+
+  static Map<String, Object> buildFlowStep(Map<String, Object> step, Map<String, Object> fixture) {
+    String kind = String.valueOf(step.getOrDefault("kind", "execute"));
+    String name = String.valueOf(step.get("name"));
+    Map<String, Object> options = new LinkedHashMap<>(Core.asMap(step.getOrDefault("options", Map.of())));
+    if ("map".equals(kind)) {
+      Object mapper = step.containsKey("mapper") ? flowMapperFromSpec(step.get("mapper")) : (AxFlow.Mapper) state -> step.getOrDefault("output", Map.of());
+      return Core.asMap(Core._flow_step("map", name, mapper, options));
+    }
+    if ("branch".equals(kind)) {
+      options.put("predicate", flowConditionFromSpec(step.getOrDefault("predicate", options.get("predicate"))));
+      List<Object> branches = new ArrayList<>();
+      for (Object rawBranch : Core.asList(step.getOrDefault("branches", options.getOrDefault("branches", List.of())))) {
+        Map<String, Object> branch = Core.asMap(rawBranch);
+        List<Object> branchSteps = new ArrayList<>();
+        for (Object rawChild : Core.asList(branch.getOrDefault("steps", List.of()))) branchSteps.add(buildFlowStep(Core.asMap(rawChild), fixture));
+        branches.add(Map.of("when", branch.get("when"), "steps", branchSteps));
+      }
+      options.put("branches", branches);
+      return Core.asMap(Core._flow_step("branch", name, null, options));
+    }
+    if ("while".equals(kind) || "feedback".equals(kind)) {
+      options.put("condition", flowConditionFromSpec(step.getOrDefault("condition", options.get("condition"))));
+      List<Object> bodySteps = new ArrayList<>();
+      for (Object rawChild : Core.asList(step.getOrDefault("steps", options.getOrDefault("steps", List.of())))) bodySteps.add(buildFlowStep(Core.asMap(rawChild), fixture));
+      options.put("steps", bodySteps);
+      return Core.asMap(Core._flow_step(kind, name, null, options));
+    }
+    if ("parallel".equals(kind) || "parallelMerge".equals(kind)) return Core.asMap(Core._flow_step(kind, name, null, options));
+    Object program;
+    if ("flow".equals(step.get("program"))) {
+      Map<String, Object> nestedFixture = new LinkedHashMap<>();
+      nestedFixture.put("flow_options", step.getOrDefault("flow_options", Map.of("id", step.getOrDefault("program_id", "root." + name))));
+      nestedFixture.put("steps", step.getOrDefault("steps", List.of()));
+      nestedFixture.put("returns", step.getOrDefault("returns", Map.of()));
+      nestedFixture.put("signature", step.getOrDefault("signature", fixture.getOrDefault("signature", "question:string -> answer:string")));
+      program = buildFlow(nestedFixture);
+    } else if ("agent".equals(step.get("program"))) {
+      program = Ax.agent(String.valueOf(step.getOrDefault("signature", fixture.getOrDefault("signature", "question:string -> answer:string"))), Core.asMap(step.getOrDefault("options", Map.of())));
+    } else {
+      String signature = String.valueOf(step.getOrDefault("extended_signature", step.getOrDefault("extendedSignature", step.getOrDefault("signature", fixture.getOrDefault("signature", "question:string -> answer:string")))));
+      program = new AxGen(AxSignature.create(signature), Core.asMap(step.getOrDefault("options", Map.of())));
+    }
+    Map<String, Object> stepOptions = new LinkedHashMap<>(Core.asMap(step.getOrDefault("forward_options", Map.of())));
+    stepOptions.putAll(options);
+    return Core.asMap(Core._flow_step(kind, name, program, stepOptions));
+  }
+
   static AxFlow buildFlow(Map<String, Object> fixture) {
     AxFlow fl = Ax.flow(Core.asMap(fixture.getOrDefault("flow_options", Map.of("id", fixture.getOrDefault("program_id", "root.flow")))));
     for (Object rawStep : Core.asList(fixture.getOrDefault("steps", List.of()))) {
-      Map<String, Object> step = Core.asMap(rawStep);
-      String kind = String.valueOf(step.getOrDefault("kind", "execute"));
-      String name = String.valueOf(step.get("name"));
-      if ("parallel".equals(kind) || "parallelMerge".equals(kind)) {
-        fl.parallel(List.of(Map.of(
-          "kind", kind,
-          "name", name,
-          "options", Core.asMap(step.getOrDefault("options", Map.of()))
-        )));
-        continue;
-      }
-      if ("map".equals(kind)) {
-        Object output = step.getOrDefault("output", Map.of());
-        fl.map(name, state -> output, Core.asMap(step.getOrDefault("options", Map.of())));
-        continue;
-      }
-      AxProgram program;
-      if ("flow".equals(step.get("program"))) {
-        Map<String, Object> nestedFixture = new LinkedHashMap<>();
-        nestedFixture.put("flow_options", step.getOrDefault("flow_options", Map.of("id", step.getOrDefault("program_id", "root." + name))));
-        nestedFixture.put("steps", step.getOrDefault("steps", List.of()));
-        nestedFixture.put("returns", step.getOrDefault("returns", Map.of()));
-        nestedFixture.put("signature", step.getOrDefault("signature", fixture.getOrDefault("signature", "question:string -> answer:string")));
-        program = buildFlow(nestedFixture);
-      } else if ("agent".equals(step.get("program"))) {
-        program = Ax.agent(String.valueOf(step.getOrDefault("signature", fixture.getOrDefault("signature", "question:string -> answer:string"))), Core.asMap(step.getOrDefault("options", Map.of())));
-      } else {
-        program = new AxGen(AxSignature.create(String.valueOf(step.getOrDefault("signature", fixture.getOrDefault("signature", "question:string -> answer:string")))), Core.asMap(step.getOrDefault("options", Map.of())));
-      }
-      Map<String, Object> stepOptions = new LinkedHashMap<>(Core.asMap(step.getOrDefault("forward_options", Map.of())));
-      stepOptions.putAll(Core.asMap(step.getOrDefault("options", Map.of())));
-      if ("derive".equals(kind)) fl.derive(name, program, stepOptions);
-      else fl.execute(name, program, stepOptions);
+      Core._flow_add_step(fl.state, buildFlowStep(Core.asMap(rawStep), fixture));
     }
     if (fixture.containsKey("returns")) fl.returns(Core.asMap(fixture.getOrDefault("returns", Map.of())));
     if (fixture.containsKey("demos")) fl.setDemos(fixture.get("demos"));
@@ -3551,8 +3717,11 @@ public final class Conformance {
         cacheStore.put(String.valueOf(Core._flow_cache_key(fixture.getOrDefault("input", Map.of()))), fixture.get("cache_seed_value"));
         forwardOptions.put("cache_store", cacheStore);
       }
-      Object output = fl.forward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), forwardOptions);
+      Object output = "streaming".equals(fixture.get("operation"))
+        ? fl.streamingForward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), forwardOptions)
+        : fl.forward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), forwardOptions);
       if (fixture.containsKey("expected_output")) assertEqual(output, fixture.get("expected_output"), "flow output");
+      if (fixture.containsKey("expected_streaming_output")) assertEqual(output, fixture.get("expected_streaming_output"), "flow streaming output");
       if (fixture.containsKey("expected_request_count") && client.requests.size() != Core.asInt(fixture.get("expected_request_count"))) throw new FixtureError("expected request count mismatch");
       if (fixture.containsKey("expected_request_contains")) {
         String text = Json.stringify(client.requests);
@@ -3825,6 +3994,16 @@ public final class Conformance {
         if (fixture.containsKey("expected_replay_result_subset")) assertSubset(result, fixture.get("expected_replay_result_subset"), "agent replay");
       }
       if (fixture.containsKey("restore_runtime_state")) agent.restoreRuntimeState(Core.asMap(fixture.get("restore_runtime_state")));
+      if (fixture.containsKey("context_operation")) {
+        Object result = Core._agent_context_fixture_result(agent.state, fixture);
+        if (fixture.containsKey("expected_context_result")) assertEqual(result, fixture.get("expected_context_result"), "agent context result");
+        if (fixture.containsKey("expected_context_result_subset")) assertSubset(result, fixture.get("expected_context_result_subset"), "agent context result");
+        if (fixture.containsKey("expected_context_events_subset")) {
+          Map<String, Object> contextResult = Core.asMap(result);
+          Map<String, Object> exportedContext = Core.asMap(contextResult.getOrDefault("exported", Map.of()));
+          assertListSubset(Core.asList(exportedContext.get("context_events")), fixture.get("expected_context_events_subset"), "agent context events");
+        }
+      }
       if (fixture.containsKey("final_payload")) assertEqual(Core._normalize_agent_final_payload(fixture.get("final_payload")), fixture.get("expected_final_payload"), "final payload");
       if (fixture.containsKey("clarification_payload")) assertEqual(Core._normalize_agent_clarification_payload(fixture.get("clarification_payload")), fixture.get("expected_clarification_payload"), "clarification payload");
     } catch (RuntimeException e) {
@@ -4097,6 +4276,8 @@ public final class Conformance {
       String method = String.valueOf(fixture.getOrDefault("method", "chat"));
       if ("stream".equals(method)) for (Object ignored : cf.client.stream(Core.asMap(fixture.get("request")))) {}
       else if ("embed".equals(method)) cf.client.embed(Core.asMap(fixture.get("request")));
+      else if ("transcribe".equals(method)) cf.client.transcribe(Core.asMap(fixture.getOrDefault("request", Map.of())));
+      else if ("speak".equals(method)) cf.client.speak(Core.asMap(fixture.getOrDefault("request", Map.of())));
       else cf.client.chat(Core.asMap(fixture.get("request")));
     } catch (Exception e) {
       String expected = (String) fixture.get("expected_error_contains");
@@ -4114,12 +4295,40 @@ public final class Conformance {
     try {
       if ("speak".equals(fixture.get("method"))) cf.client.speak(Core.asMap(fixture.getOrDefault("request", Map.of())));
       else cf.client.transcribe(Core.asMap(fixture.getOrDefault("request", Map.of())));
-    } catch (RuntimeException e) {
+    } catch (Exception e) {
       String expected = (String) fixture.get("expected_error_contains");
       if (expected != null && !String.valueOf(e.getMessage()).contains(expected)) throw new FixtureError("expected error containing " + expected + ", got " + e);
       return;
     }
     throw new FixtureError("expected unsupported capability error");
+  }
+
+  static void runAIProviderDescriptor(Map<String, Object> fixture) {
+    Object descriptor = Core.provider_descriptor(String.valueOf(fixture.getOrDefault("provider", "openai-compatible")));
+    if (fixture.containsKey("expected_output")) assertSubset(descriptor, fixture.get("expected_output"), "provider descriptor");
+  }
+
+  static void runAITranscribe(Map<String, Object> fixture) {
+    ClientFixture cf = openaiClient(fixture);
+    Object result;
+    try { result = cf.client.transcribe(Core.asMap(fixture.getOrDefault("request", Map.of()))); } catch (Exception e) { throw Core.asRuntime(e); }
+    if (fixture.containsKey("expected_output")) assertEqual(result, fixture.get("expected_output"), "ai transcribe output");
+    assertTransport(fixture, cf.transport);
+  }
+
+  static void runAISpeak(Map<String, Object> fixture) {
+    ClientFixture cf = openaiClient(fixture);
+    Object result;
+    try { result = cf.client.speak(Core.asMap(fixture.getOrDefault("request", Map.of()))); } catch (Exception e) { throw Core.asRuntime(e); }
+    if (fixture.containsKey("expected_output")) assertEqual(result, fixture.get("expected_output"), "ai speak output");
+    assertTransport(fixture, cf.transport);
+  }
+
+  static void runAIRealtime(Map<String, Object> fixture) {
+    ClientFixture cf = openaiClient(fixture);
+    List<Object> result = new ArrayList<>();
+    for (Object item : cf.client.realtime(Core.asList(fixture.getOrDefault("events", List.of())))) result.add(item);
+    if (fixture.containsKey("expected_output")) assertEqual(result, fixture.get("expected_output"), "ai realtime output");
   }
 
   interface ThrowingSupplier { Object get(); }
@@ -4247,13 +4456,18 @@ public final class Conformance {
   }
   static ClientFixture openaiClient(Map<String, Object> fixture) {
     FakeTransport transport = new FakeTransport(Core.asList(fixture.getOrDefault("transport_responses", fixture.getOrDefault("responses", List.of()))));
+    String provider = String.valueOf(fixture.getOrDefault("provider", "openai-compatible")).replace("-", "_").toLowerCase();
+    boolean responsesProvider = provider.equals("openai_responses") || provider.equals("responses");
     Map<String, Object> options = new LinkedHashMap<>();
-    options.put("model", fixture.getOrDefault("model", "gpt-4.1-mini"));
-    options.put("embed_model", fixture.getOrDefault("embed_model", "text-embedding-3-small"));
+    options.put("model", fixture.getOrDefault("model", responsesProvider ? "gpt-4o" : "gpt-4.1-mini"));
+    options.put("embed_model", fixture.getOrDefault("embed_model", responsesProvider ? "text-embedding-ada-002" : "text-embedding-3-small"));
     options.put("api_key", "test-key");
     options.put("transport", transport);
     options.put("model_config", fixture.get("model_config"));
-    return new ClientFixture(new OpenAICompatibleClient(options), transport);
+    OpenAICompatibleClient client = responsesProvider
+      ? new OpenAIResponsesClient(options)
+      : new OpenAICompatibleClient(options);
+    return new ClientFixture(client, transport);
   }
 
   static void assertTransport(Map<String, Object> fixture, FakeTransport transport) {

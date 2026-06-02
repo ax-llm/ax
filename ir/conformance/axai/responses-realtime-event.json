@@ -1,0 +1,60 @@
+{
+  "events": [
+    {
+      "delta": "hi",
+      "id": "rt_1",
+      "item_id": "item_1",
+      "type": "response.text.delta"
+    },
+    {
+      "response": {
+        "id": "rt_resp",
+        "usage": {
+          "input_tokens": 2,
+          "output_tokens": 1,
+          "total_tokens": 3
+        }
+      },
+      "type": "response.done"
+    }
+  ],
+  "expected_output": [
+    {
+      "model_usage": null,
+      "remote_id": "rt_1",
+      "results": [
+        {
+          "content": "hi",
+          "finish_reason": null,
+          "function_calls": [],
+          "id": "item_1",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "model_usage": {
+        "ai": "openai-responses",
+        "model": "gpt-4o",
+        "tokens": {
+          "completion_tokens": 1,
+          "prompt_tokens": 2,
+          "total_tokens": 3
+        }
+      },
+      "remote_id": "rt_resp",
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "stop",
+          "function_calls": [],
+          "id": "0",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "kind": "ai_realtime",
+  "name": "responses-realtime-event",
+  "provider": "openai-responses"
+}

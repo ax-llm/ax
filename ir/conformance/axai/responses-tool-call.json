@@ -1,0 +1,127 @@
+{
+  "expected_output": {
+    "model_usage": null,
+    "remote_id": "resp_tool",
+    "results": [
+      {
+        "content": "",
+        "finish_reason": "function_call",
+        "function_calls": [
+          {
+            "function": {
+              "name": "search",
+              "params": {
+                "query": "Search docs"
+              }
+            },
+            "id": "call_1",
+            "type": "function"
+          }
+        ],
+        "id": "0",
+        "index": 0
+      }
+    ]
+  },
+  "expected_transport_request": {
+    "json": {
+      "text": {
+        "format": {
+          "json_schema": {
+            "name": "search_result",
+            "schema": {
+              "properties": {
+                "answer": {
+                  "type": "string"
+                }
+              },
+              "required": ["answer"],
+              "type": "object"
+            }
+          },
+          "type": "json_schema"
+        }
+      },
+      "tool_choice": "auto",
+      "tools": [
+        {
+          "description": "Search docs",
+          "name": "search",
+          "parameters": {
+            "properties": {
+              "query": {
+                "type": "string"
+              }
+            },
+            "required": ["query"],
+            "type": "object"
+          },
+          "type": "function"
+        }
+      ]
+    }
+  },
+  "kind": "ai_chat",
+  "name": "responses-tool-call",
+  "provider": "openai-responses",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Search docs",
+        "role": "user"
+      }
+    ],
+    "function_call": "auto",
+    "functions": [
+      {
+        "description": "Search docs",
+        "name": "search",
+        "parameters": {
+          "properties": {
+            "query": {
+              "type": "string"
+            }
+          },
+          "required": ["query"],
+          "type": "object"
+        }
+      }
+    ],
+    "model_config": {
+      "stream": false
+    },
+    "response_format": {
+      "schema": {
+        "name": "search_result",
+        "schema": {
+          "properties": {
+            "answer": {
+              "type": "string"
+            }
+          },
+          "required": ["answer"],
+          "type": "object"
+        }
+      },
+      "type": "json_schema"
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "id": "resp_tool",
+        "model": "gpt-4o",
+        "output": [
+          {
+            "arguments": "{\"query\":\"Search docs\"}",
+            "call_id": "call_1",
+            "id": "fc_1",
+            "name": "search",
+            "type": "function_call"
+          }
+        ]
+      },
+      "status": 200
+    }
+  ]
+}

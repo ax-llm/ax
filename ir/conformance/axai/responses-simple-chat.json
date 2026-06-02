@@ -1,0 +1,112 @@
+{
+  "expected_output": {
+    "model_usage": {
+      "ai": "openai-responses",
+      "model": "gpt-4o",
+      "tokens": {
+        "completion_tokens": 5,
+        "prompt_tokens": 10,
+        "total_tokens": 15
+      }
+    },
+    "remote_id": "resp_1",
+    "results": [
+      {
+        "citations": [
+          {
+            "title": "Ax",
+            "url": "https://axllm.dev"
+          }
+        ],
+        "content": "Ax is portable.",
+        "finish_reason": "stop",
+        "function_calls": [],
+        "id": "msg_1",
+        "index": 0
+      }
+    ]
+  },
+  "expected_transport_request": {
+    "json": {
+      "include": ["file_search_call.results"],
+      "input": [
+        {
+          "content": [
+            {
+              "text": "What is Ax?",
+              "type": "input_text"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "instructions": "Answer briefly.",
+      "max_output_tokens": 64,
+      "model": "gpt-4o",
+      "reasoning": {
+        "effort": "low"
+      },
+      "stream": false,
+      "temperature": 0.2
+    },
+    "method": "POST",
+    "url": "https://api.openai.com/v1/responses"
+  },
+  "kind": "ai_chat",
+  "name": "responses-simple-chat",
+  "provider": "openai-responses",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Answer briefly.",
+        "role": "system"
+      },
+      {
+        "content": "What is Ax?",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "include": ["file_search_call.results"],
+      "maxTokens": 64,
+      "reasoning": {
+        "effort": "low"
+      },
+      "stream": false,
+      "temperature": 0.2
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "id": "resp_1",
+        "model": "gpt-4o",
+        "output": [
+          {
+            "content": [
+              {
+                "annotations": [
+                  {
+                    "title": "Ax",
+                    "type": "url_citation",
+                    "url": "https://axllm.dev"
+                  }
+                ],
+                "text": "Ax is portable.",
+                "type": "output_text"
+              }
+            ],
+            "id": "msg_1",
+            "type": "message"
+          }
+        ],
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 5,
+          "total_tokens": 15
+        }
+      },
+      "status": 200
+    }
+  ]
+}

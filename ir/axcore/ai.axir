@@ -503,6 +503,12 @@ module @ax.ai version "0.1" {
         }
         op core.get {
           attr default = 0
+          attr key = "input_tokens"
+          attr result = %input_tokens
+          attr target = %usage
+        }
+        op core.get {
+          attr default = %input_tokens
           attr key = "prompt_tokens"
           attr result = %prompt_tokens_snake
           attr target = %usage
@@ -515,6 +521,12 @@ module @ax.ai version "0.1" {
         }
         op core.get {
           attr default = 0
+          attr key = "output_tokens"
+          attr result = %output_tokens
+          attr target = %usage
+        }
+        op core.get {
+          attr default = %output_tokens
           attr key = "completion_tokens"
           attr result = %completion_tokens_snake
           attr target = %usage
@@ -525,8 +537,13 @@ module @ax.ai version "0.1" {
           attr result = %completion_tokens
           attr target = %usage
         }
+        op core.call {
+          attr args = [%prompt_tokens, %completion_tokens]
+          attr callee = "intrinsic.add"
+          attr result = %computed_total_tokens
+        }
         op core.get {
-          attr default = 0
+          attr default = %computed_total_tokens
           attr key = "total_tokens"
           attr result = %total_tokens_snake
           attr target = %usage

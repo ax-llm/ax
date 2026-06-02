@@ -9,6 +9,14 @@ module @ax.provider version "0.1" {
     type default_base_url = "https://api.openai.com/v1"
   }
 
+  op ax.provider.class @OpenAIResponsesClient {
+    attr core_kind = "record"
+    attr public = true
+    ref interface = @AxAIService
+    tag "openai-responses"
+    type default_base_url = "https://api.openai.com/v1"
+  }
+
   op ax.provider.semantic @openai_build_chat_request {
     attr core_kind = "func"
     attr effect = "throws"
@@ -2384,6 +2392,892 @@ module @ax.provider version "0.1" {
           attr value = %error
         }
       }
+    }
+  }
+
+  op ax.provider.semantic @provider_descriptor {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "provider-operation-descriptor"
+    type signature = "(profile:string) -> json"
+    body @entry(%profile: string) {
+      %normalized = core.call intrinsic.string.lower(%profile)
+      %is_responses_dash = core.call intrinsic.eq(%normalized, "openai-responses")
+      %is_responses_under = core.call intrinsic.eq(%normalized, "openai_responses")
+      %is_responses = core.call intrinsic.or(%is_responses_dash, %is_responses_under)
+      %descriptor = core.map
+      %operations = core.map
+      %features = core.map
+      %media = core.map
+      %audio = core.map
+      %audio_output = core.map
+      core.set %descriptor["provider"] = %normalized
+      core.set %descriptor["baseUrl"] = "https://api.openai.com/v1"
+      core.set %descriptor["auth"] = "bearer"
+      core.set %features["functions"] = true
+      core.set %features["streaming"] = true
+      core.set %features["structured_outputs"] = true
+      core.set %features["multi_turn"] = true
+      core.set %features["thinking"] = false
+      %image_media = core.call intrinsic.json.parse("{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\",\"image/webp\"]}")
+      core.set %media["images"] = %image_media
+      core.if %is_responses {
+        core.set %descriptor["id"] = "openai-responses"
+        core.set %descriptor["name"] = "openai-responses"
+        core.set %descriptor["defaultModel"] = "gpt-4o"
+        core.set %descriptor["defaultEmbedModel"] = "text-embedding-ada-002"
+        %responses_chat = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/responses\",\"body\":\"json\",\"stream\":false}")
+        %responses_stream = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/responses\",\"body\":\"json\",\"stream\":true}")
+        %responses_embed = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/embeddings\",\"body\":\"json\",\"stream\":false}")
+        %responses_transcribe = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/audio/transcriptions\",\"body\":\"multipart\",\"stream\":false}")
+        %responses_speak = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false}")
+        %responses_realtime = core.call intrinsic.json.parse("{\"method\":\"WS\",\"path\":\"/realtime\",\"body\":\"events\",\"stream\":true}")
+        core.set %operations["chat"] = %responses_chat
+        core.set %operations["stream_chat"] = %responses_stream
+        core.set %operations["embed"] = %responses_embed
+        core.set %operations["transcribe"] = %responses_transcribe
+        core.set %operations["speak"] = %responses_speak
+        core.set %operations["realtime"] = %responses_realtime
+        core.set %audio["supported"] = true
+        %audio_formats = core.call intrinsic.json.parse("[\"wav\",\"mp3\",\"pcm16\"]")
+        core.set %audio["formats"] = %audio_formats
+        core.set %audio_output["supported"] = true
+        core.set %audio_output["formats"] = %audio_formats
+      } else {
+        core.set %descriptor["id"] = "openai-compatible"
+        core.set %descriptor["name"] = "openai"
+        core.set %descriptor["defaultModel"] = "gpt-4.1-mini"
+        core.set %descriptor["defaultEmbedModel"] = "text-embedding-3-small"
+        %compatible_chat = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":false}")
+        %compatible_stream = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":true}")
+        %compatible_embed = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/embeddings\",\"body\":\"json\",\"stream\":false}")
+        core.set %operations["chat"] = %compatible_chat
+        core.set %operations["stream_chat"] = %compatible_stream
+        core.set %operations["embed"] = %compatible_embed
+        core.set %audio["supported"] = false
+        %empty_audio_formats = core.list
+        core.set %audio["formats"] = %empty_audio_formats
+        core.set %audio_output["supported"] = false
+        core.set %audio_output["formats"] = %empty_audio_formats
+      }
+      core.set %audio["output"] = %audio_output
+      core.set %media["audio"] = %audio
+      %files_media = core.call intrinsic.json.parse("{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"}")
+      %urls_media = core.call intrinsic.json.parse("{\"supported\":false,\"web_search\":false,\"context_fetching\":false}")
+      core.set %media["files"] = %files_media
+      core.set %media["urls"] = %urls_media
+      core.set %features["media"] = %media
+      %caching = core.call intrinsic.json.parse("{\"supported\":false,\"types\":[]}")
+      core.set %features["caching"] = %caching
+      core.set %descriptor["operations"] = %operations
+      core.set %descriptor["features"] = %features
+      core.return %descriptor
+    }
+  }
+
+  op ax.provider.semantic @provider_operation_descriptor {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "provider-operation-descriptor"
+    type signature = "(profile:string, operation:string) -> json"
+    body @entry(%profile: string, %operation: string) {
+      %descriptor = core.call @provider_descriptor(%profile)
+      %operations = core.get %descriptor["operations"]
+      %operation_desc = core.get %operations[%operation]
+      %missing = core.call intrinsic.is_none(%operation_desc)
+      core.if %missing {
+        %message = core.call intrinsic.string.format("provider operation is not supported: {}", %operation)
+        %error = core.call intrinsic.ai.error.unsupported(%message)
+        core.raise %error
+      } else {
+      }
+      core.return %operation_desc
+    }
+  }
+
+  op ax.provider.semantic @provider_build_chat_request {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr effect = "throws"
+    tag "provider-operation-dispatch"
+    type signature = "(profile:string, AxChatRequest) -> json throws"
+    body @entry(%profile: string, %request: AxChatRequest) {
+      %normalized = core.call intrinsic.string.lower(%profile)
+      %is_responses_dash = core.call intrinsic.eq(%normalized, "openai-responses")
+      %is_responses_under = core.call intrinsic.eq(%normalized, "openai_responses")
+      %is_responses = core.call intrinsic.or(%is_responses_dash, %is_responses_under)
+      %payload = core.map
+      core.if %is_responses {
+        %responses_payload = core.call @openai_responses_build_chat_request(%request)
+        %payload = core.let %responses_payload
+      } else {
+        %compatible_payload = core.call @openai_build_chat_request(%request)
+        %payload = core.let %compatible_payload
+      }
+      core.return %payload
+    }
+  }
+
+  op ax.provider.semantic @provider_build_embed_request {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "provider-operation-dispatch"
+    type signature = "(profile:string, AxEmbedRequest) -> json"
+    body @entry(%profile: string, %request: AxEmbedRequest) {
+      %payload = core.call @openai_build_embed_request(%request)
+      core.return %payload
+    }
+  }
+
+  op ax.provider.semantic @provider_normalize_chat_response {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr effect = "throws"
+    tag "provider-operation-dispatch"
+    type signature = "(profile:string, json, string, string) -> AxChatResponse throws"
+    body @entry(%profile: string, %raw: json, %ai_name: string, %model: string) {
+      %normalized = core.call intrinsic.string.lower(%profile)
+      %is_responses_dash = core.call intrinsic.eq(%normalized, "openai-responses")
+      %is_responses_under = core.call intrinsic.eq(%normalized, "openai_responses")
+      %is_responses = core.call intrinsic.or(%is_responses_dash, %is_responses_under)
+      %response = core.map
+      core.if %is_responses {
+        %responses_response = core.call @openai_responses_normalize_chat_response(%raw, %ai_name, %model)
+        %response = core.let %responses_response
+      } else {
+        %compatible_response = core.call @openai_normalize_chat_response(%raw, %ai_name, %model)
+        %response = core.let %compatible_response
+      }
+      core.return %response
+    }
+  }
+
+  op ax.provider.semantic @provider_normalize_stream_delta {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr effect = "throws"
+    tag "provider-operation-dispatch"
+    type signature = "(profile:string, json, json, string, string) -> AxChatResponse throws"
+    body @entry(%profile: string, %raw: json, %state: json, %ai_name: string, %model: string) {
+      %normalized = core.call intrinsic.string.lower(%profile)
+      %is_responses_dash = core.call intrinsic.eq(%normalized, "openai-responses")
+      %is_responses_under = core.call intrinsic.eq(%normalized, "openai_responses")
+      %is_responses = core.call intrinsic.or(%is_responses_dash, %is_responses_under)
+      %response = core.map
+      core.if %is_responses {
+        %responses_response = core.call @openai_responses_normalize_stream_delta(%raw, %state, %ai_name, %model)
+        %response = core.let %responses_response
+      } else {
+        %compatible_response = core.call @openai_normalize_stream_delta(%raw, %state, %ai_name, %model)
+        %response = core.let %compatible_response
+      }
+      core.return %response
+    }
+  }
+
+  op ax.provider.semantic @provider_normalize_embed_response {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr effect = "throws"
+    tag "provider-operation-dispatch"
+    type signature = "(profile:string, json, string, string) -> AxEmbedResponse throws"
+    body @entry(%profile: string, %raw: json, %ai_name: string, %model: string) {
+      %response = core.call @openai_normalize_embed_response(%raw, %ai_name, %model)
+      core.return %response
+    }
+  }
+
+  op ax.provider.semantic @provider_build_transcribe_request {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr effect = "throws"
+    tag "provider-audio-operation"
+    type signature = "(profile:string, json) -> json throws"
+    body @entry(%profile: string, %request: json) {
+      %normalized = core.call intrinsic.string.lower(%profile)
+      %is_responses_dash = core.call intrinsic.eq(%normalized, "openai-responses")
+      %is_responses_under = core.call intrinsic.eq(%normalized, "openai_responses")
+      %is_responses = core.call intrinsic.or(%is_responses_dash, %is_responses_under)
+      %payload = core.map
+      core.if %is_responses {
+        %responses_payload = core.call @openai_responses_build_transcribe_request(%request)
+        %payload = core.let %responses_payload
+      } else {
+        %error = core.call intrinsic.ai.error.unsupported("transcribe is not supported by this generated AxAI beta provider")
+        core.raise %error
+      }
+      core.return %payload
+    }
+  }
+
+  op ax.provider.semantic @provider_build_speak_request {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr effect = "throws"
+    tag "provider-audio-operation"
+    type signature = "(profile:string, json) -> json throws"
+    body @entry(%profile: string, %request: json) {
+      %normalized = core.call intrinsic.string.lower(%profile)
+      %is_responses_dash = core.call intrinsic.eq(%normalized, "openai-responses")
+      %is_responses_under = core.call intrinsic.eq(%normalized, "openai_responses")
+      %is_responses = core.call intrinsic.or(%is_responses_dash, %is_responses_under)
+      %payload = core.map
+      core.if %is_responses {
+        %responses_payload = core.call @openai_responses_build_speak_request(%request)
+        %payload = core.let %responses_payload
+      } else {
+        %error = core.call intrinsic.ai.error.unsupported("speak is not supported by this generated AxAI beta provider")
+        core.raise %error
+      }
+      core.return %payload
+    }
+  }
+
+  op ax.provider.semantic @provider_normalize_transcribe_response {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "provider-audio-operation"
+    type signature = "(profile:string, json) -> json"
+    body @entry(%profile: string, %raw: json) {
+      %text = core.get %raw["text"] default ""
+      %out = core.map
+      core.set %out["text"] = %text
+      %language = core.get %raw["language"]
+      %has_language = core.call intrinsic.is_not_none(%language)
+      core.if %has_language {
+        core.set %out["language"] = %language
+      } else {
+      }
+      %duration = core.get %raw["duration"]
+      %has_duration = core.call intrinsic.is_not_none(%duration)
+      core.if %has_duration {
+        core.set %out["duration"] = %duration
+      } else {
+      }
+      core.return %out
+    }
+  }
+
+  op ax.provider.semantic @provider_normalize_speak_response {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "provider-audio-operation"
+    type signature = "(profile:string, json, json) -> json"
+    body @entry(%profile: string, %raw: json, %request: json) {
+      %data = core.get %raw["audio"] default %raw
+      %format = core.get %request["format"] default "mp3"
+      %out = core.map
+      core.set %out["audio"] = %data
+      core.set %out["format"] = %format
+      core.return %out
+    }
+  }
+
+  op ax.provider.semantic @provider_normalize_realtime_event {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr effect = "throws"
+    tag "provider-realtime-operation"
+    type signature = "(profile:string, json, json, string, string) -> AxChatResponse throws"
+    body @entry(%profile: string, %event: json, %state: json, %ai_name: string, %model: string) {
+      %response = core.call @openai_responses_normalize_realtime_event(%event, %state, %ai_name, %model)
+      core.return %response
+    }
+  }
+
+  op ax.provider.semantic @openai_responses_build_chat_request {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr effect = "throws"
+    tag "src/ax/ai/openai/responses_api.ts"
+    type signature = "(AxChatRequest) -> json throws"
+    body @entry(%request: AxChatRequest) {
+      %payload = core.map
+      %model = core.get %request["model"] default "gpt-4o"
+      core.set %payload["model"] = %model
+      %empty_prompt = core.list
+      %prompt = core.get %request["chat_prompt"] default %empty_prompt
+      %input = core.list
+      %instructions = core.call intrinsic.none()
+      core.for %message in %prompt {
+        %role = core.get %message["role"]
+        %is_system = core.call intrinsic.eq(%role, "system")
+        core.if %is_system {
+          %system_content = core.get %message["content"] default ""
+          %instructions = core.let %system_content
+        } else {
+          %item = core.call @openai_responses_input_item_impl(%message)
+          core.append %input, %item
+        }
+      }
+      %has_instructions = core.call intrinsic.is_not_none(%instructions)
+      core.if %has_instructions {
+        core.set %payload["instructions"] = %instructions
+      } else {
+      }
+      core.set %payload["input"] = %input
+      %empty_functions = core.list
+      %functions = core.get %request["functions"] default %empty_functions
+      %has_functions = core.call intrinsic.truthy(%functions)
+      core.if %has_functions {
+        %tools = core.list
+        core.for %fn in %functions {
+          %tool = core.call @openai_responses_tool_spec_impl(%fn)
+          core.append %tools, %tool
+        }
+        core.set %payload["tools"] = %tools
+        %tool_choice = core.get %request["function_call"] default "auto"
+        core.set %payload["tool_choice"] = %tool_choice
+      } else {
+      }
+      %response_format = core.get %request["response_format"]
+      %has_response_format = core.call intrinsic.truthy(%response_format)
+      core.if %has_response_format {
+        %format_type = core.get %response_format["type"] default "text"
+        %is_json_schema = core.call intrinsic.eq(%format_type, "json_schema")
+        %format = core.map
+        core.if %is_json_schema {
+          %schema = core.get %response_format["schema"]
+          core.set %format["type"] = "json_schema"
+          core.set %format["json_schema"] = %schema
+        } else {
+          core.set %format["type"] = %format_type
+        }
+        %text_config = core.map
+        core.set %text_config["format"] = %format
+        core.set %payload["text"] = %text_config
+      } else {
+      }
+      %empty_model_config = core.map
+      %model_config = core.get %request["model_config"] default %empty_model_config
+      %stream = core.get %model_config["stream"] default false
+      core.set %payload["stream"] = %stream
+      core.call @openai_responses_apply_model_config_impl(%payload, %model_config)
+      %reasoning = core.get %model_config["reasoning"]
+      %has_reasoning = core.call intrinsic.truthy(%reasoning)
+      core.if %has_reasoning {
+        core.set %payload["reasoning"] = %reasoning
+      } else {
+      }
+      %include = core.get %model_config["include"]
+      %has_include = core.call intrinsic.truthy(%include)
+      core.if %has_include {
+        core.set %payload["include"] = %include
+      } else {
+      }
+      %parallel = core.get %model_config["parallel_tool_calls"]
+      %has_parallel = core.call intrinsic.is_not_none(%parallel)
+      core.if %has_parallel {
+        core.set %payload["parallel_tool_calls"] = %parallel
+      } else {
+      }
+      core.return %payload
+    }
+  }
+
+  op ax.provider.semantic @openai_responses_apply_model_config_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "openai-responses-model-config-core-helper"
+    type signature = "(json, json) -> void"
+    body @entry(%payload: json, %model_config: json) {
+      core.call @openai_copy_config_key_impl(%payload, %model_config, "maxTokens", "max_output_tokens")
+      core.call @openai_copy_config_key_impl(%payload, %model_config, "max_tokens", "max_output_tokens")
+      core.call @openai_copy_config_key_impl(%payload, %model_config, "temperature", "temperature")
+      core.call @openai_copy_config_key_impl(%payload, %model_config, "topP", "top_p")
+      core.call @openai_copy_config_key_impl(%payload, %model_config, "top_p", "top_p")
+      core.call @openai_copy_config_key_impl(%payload, %model_config, "presencePenalty", "presence_penalty")
+      core.call @openai_copy_config_key_impl(%payload, %model_config, "presence_penalty", "presence_penalty")
+      core.call @openai_copy_config_key_impl(%payload, %model_config, "frequencyPenalty", "frequency_penalty")
+      core.call @openai_copy_config_key_impl(%payload, %model_config, "frequency_penalty", "frequency_penalty")
+      core.return
+    }
+  }
+
+  op ax.provider.semantic @openai_responses_tool_spec_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "openai-responses-tool-core-helper"
+    type signature = "(json) -> json"
+    body @entry(%fn: json) {
+      %tool = core.map
+      %name = core.get %fn["name"]
+      %description = core.get %fn["description"] default ""
+      %empty_parameters = core.map
+      %parameters = core.get %fn["parameters"] default %empty_parameters
+      core.set %tool["type"] = "function"
+      core.set %tool["name"] = %name
+      core.set %tool["description"] = %description
+      core.set %tool["parameters"] = %parameters
+      core.return %tool
+    }
+  }
+
+  op ax.provider.semantic @openai_responses_input_item_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "openai-responses-message-core-helper"
+    type signature = "(json) -> json"
+    body @entry(%message: json) {
+      %role = core.get %message["role"]
+      %is_function = core.call intrinsic.eq(%role, "function")
+      core.if %is_function {
+        %message_id = core.get %message["id"]
+        %message_content = core.get %message["content"]
+        %call_id = core.get %message["function_call_id"] default %message_id
+        %result = core.get %message["result"] default %message_content
+        %out = core.map
+        core.set %out["type"] = "function_call_output"
+        core.set %out["call_id"] = %call_id
+        core.set %out["output"] = %result
+        core.return %out
+      } else {
+      }
+      %content = core.get %message["content"] default ""
+      %parts = core.call @openai_responses_content_parts_impl(%content, %role)
+      %out = core.map
+      core.set %out["role"] = %role
+      core.set %out["content"] = %parts
+      core.return %out
+    }
+  }
+
+  op ax.provider.semantic @openai_responses_content_parts_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "openai-responses-content-core-helper"
+    type signature = "(json, string) -> list<json>"
+    body @entry(%content: json, %role: string) {
+      %is_list = core.type_is %content type "list"
+      %parts = core.list
+      core.if %is_list {
+        core.for %part in %content {
+          %mapped = core.call @openai_responses_content_part_impl(%part, %role)
+          core.append %parts, %mapped
+        }
+      } else {
+        %part_type = core.let "input_text"
+        %is_assistant = core.call intrinsic.eq(%role, "assistant")
+        core.if %is_assistant {
+          %part_type = core.let "output_text"
+        } else {
+        }
+        %part = core.map
+        core.set %part["type"] = %part_type
+        core.set %part["text"] = %content
+        core.append %parts, %part
+      }
+      core.return %parts
+    }
+  }
+
+  op ax.provider.semantic @openai_responses_content_part_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr effect = "throws"
+    attr private = true
+    tag "openai-responses-content-core-helper"
+    type signature = "(json, string) -> json throws"
+    body @entry(%part: json, %role: string) {
+      %type = core.get %part["type"] default "text"
+      %is_assistant = core.call intrinsic.eq(%role, "assistant")
+      %is_text = core.call intrinsic.eq(%type, "text")
+      core.if %is_text {
+        %out = core.map
+        %out_type = core.let "input_text"
+        core.if %is_assistant {
+          %out_type = core.let "output_text"
+        } else {
+        }
+        core.set %out["type"] = %out_type
+        %part_text = core.get %part["text"] default ""
+        core.set %out["text"] = %part_text
+        core.return %out
+      } else {
+      }
+      %is_image = core.call intrinsic.eq(%type, "image")
+      core.if %is_image {
+        %mime_camel = core.get %part["mimeType"] default "image/png"
+        %mime = core.get %part["mime_type"] default %mime_camel
+        %part_data = core.get %part["data"]
+        %data = core.get %part["image"] default %part_data
+        %url = core.call intrinsic.string.format("data:{};base64,{}", %mime, %data)
+        %details = core.get %part["details"] default "auto"
+        %out = core.map
+        core.set %out["type"] = "input_image"
+        %image_url = core.map
+        core.set %image_url["url"] = %url
+        core.set %image_url["details"] = %details
+        core.set %out["image_url"] = %image_url
+        core.return %out
+      } else {
+      }
+      %is_audio = core.call intrinsic.eq(%type, "audio")
+      core.if %is_audio {
+        %audio_alt = core.get %part["audio"]
+        %data = core.get %part["data"] default %audio_alt
+        %format = core.get %part["format"] default "wav"
+        %out = core.map
+        core.set %out["type"] = "input_audio"
+        %input_audio = core.map
+        core.set %input_audio["data"] = %data
+        core.set %input_audio["format"] = %format
+        core.set %out["input_audio"] = %input_audio
+        core.return %out
+      } else {
+      }
+      %message = core.call intrinsic.string.format("Unsupported Responses content part: {}", %type)
+      %error = core.call intrinsic.ai.error.unsupported(%message)
+      core.raise %error
+    }
+  }
+
+  op ax.provider.semantic @openai_responses_normalize_chat_response {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr effect = "throws"
+    tag "src/ax/ai/openai/responses_api.ts"
+    type signature = "(json, string, string) -> AxChatResponse throws"
+    body @entry(%raw: json, %ai_name: string, %model: string) {
+      %empty_output = core.list
+      %output = core.get %raw["output"] default %empty_output
+      %result = core.map
+      core.set %result["index"] = 0
+      core.set %result["id"] = "0"
+      core.set %result["content"] = ""
+      %empty_function_calls = core.list
+      core.set %result["function_calls"] = %empty_function_calls
+      core.set %result["finish_reason"] = "stop"
+      core.for %item in %output {
+        core.call @openai_responses_merge_output_item_impl(%result, %item)
+      }
+      %results = core.list
+      core.append %results, %result
+      %raw_model = core.get %raw["model"] default %model
+      %usage = core.get %raw["usage"]
+      %model_usage = core.call @ai_model_usage_impl(%ai_name, %raw_model, %usage)
+      %out = core.map
+      core.set %out["results"] = %results
+      %raw_id = core.get %raw["id"]
+      core.set %out["remote_id"] = %raw_id
+      core.set %out["model_usage"] = %model_usage
+      core.return %out
+    }
+  }
+
+  op ax.provider.semantic @openai_responses_merge_output_item_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "openai-responses-output-core-helper"
+    type signature = "(json, json) -> void"
+    body @entry(%result: json, %item: json) {
+      %type = core.get %item["type"]
+      %is_message = core.call intrinsic.eq(%type, "message")
+      core.if %is_message {
+        %item_id = core.get %item["id"] default "0"
+        core.set %result["id"] = %item_id
+        %empty_content = core.list
+        %item_content = core.get %item["content"] default %empty_content
+        %content = core.call @openai_responses_content_to_text_impl(%item_content)
+        core.set %result["content"] = %content
+        %citations = core.call @openai_responses_extract_citations_impl(%item_content)
+        %has_citations = core.call intrinsic.truthy(%citations)
+        core.if %has_citations {
+          core.set %result["citations"] = %citations
+        } else {
+        }
+      } else {
+      }
+      %is_function = core.call intrinsic.eq(%type, "function_call")
+      core.if %is_function {
+        %call = core.call @openai_responses_function_call_impl(%item)
+        %calls = core.list
+        core.append %calls, %call
+        core.set %result["function_calls"] = %calls
+        core.set %result["finish_reason"] = "function_call"
+      } else {
+      }
+      core.return
+    }
+  }
+
+  op ax.provider.semantic @openai_responses_content_to_text_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "openai-responses-output-core-helper"
+    type signature = "(list<json>) -> string"
+    body @entry(%content: list<json>) {
+      %parts = core.list
+      core.for %part in %content {
+        %type = core.get %part["type"]
+        %is_text = core.call intrinsic.eq(%type, "output_text")
+        core.if %is_text {
+          %text = core.get %part["text"] default ""
+          core.append %parts, %text
+        } else {
+        }
+        %is_refusal = core.call intrinsic.eq(%type, "refusal")
+        core.if %is_refusal {
+          %text = core.get %part["refusal"] default ""
+          core.append %parts, %text
+        } else {
+        }
+      }
+      %out = core.call intrinsic.string.join("", %parts)
+      core.return %out
+    }
+  }
+
+  op ax.provider.semantic @openai_responses_extract_citations_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "openai-responses-citations-core-helper"
+    type signature = "(list<json>) -> list<json>"
+    body @entry(%content: list<json>) {
+      %out = core.list
+      core.for %part in %content {
+        %empty_annotations = core.list
+        %annotations = core.get %part["annotations"] default %empty_annotations
+        core.for %annotation in %annotations {
+          %url = core.get %annotation["url"]
+          %has_url = core.call intrinsic.truthy(%url)
+          core.if %has_url {
+            %title = core.get %annotation["title"]
+            %citation = core.map
+            core.set %citation["url"] = %url
+            %has_title = core.call intrinsic.is_not_none(%title)
+            core.if %has_title {
+              core.set %citation["title"] = %title
+            } else {
+            }
+            core.append %out, %citation
+          } else {
+          }
+        }
+      }
+      core.return %out
+    }
+  }
+
+  op ax.provider.semantic @openai_responses_function_call_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "openai-responses-output-core-helper"
+    type signature = "(json) -> json"
+    body @entry(%item: json) {
+      %empty_args = core.map
+      %args = core.get %item["arguments"] default %empty_args
+      %args_is_string = core.type_is %args type "string"
+      core.if %args_is_string {
+        core.try {
+          %parsed = core.call intrinsic.json.parse(%args)
+          %args = core.let %parsed
+        } catch %parse_error {
+        }
+      } else {
+      }
+      %function = core.map
+      %item_name = core.get %item["name"]
+      core.set %function["name"] = %item_name
+      core.set %function["params"] = %args
+      %call = core.map
+      %item_id = core.get %item["id"]
+      %call_id = core.get %item["call_id"] default %item_id
+      core.set %call["id"] = %call_id
+      core.set %call["type"] = "function"
+      core.set %call["function"] = %function
+      core.return %call
+    }
+  }
+
+  op ax.provider.semantic @openai_responses_normalize_stream_delta {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr effect = "throws"
+    tag "src/ax/ai/openai/responses_api.ts"
+    type signature = "(json, json, string, string) -> AxChatResponse throws"
+    body @entry(%event: json, %state: json, %ai_name: string, %model: string) {
+      %type = core.get %event["type"]
+      %empty_response = core.map
+      %event_response = core.get %event["response"] default %empty_response
+      %event_response_id = core.get %event_response["id"]
+      %event_response_id_fallback = core.get %event["response_id"] default %event_response_id
+      %remote_id = core.get %event["id"] default %event_response_id_fallback
+      %has_remote = core.call intrinsic.truthy(%remote_id)
+      core.if %has_remote {
+        core.set %state["remote_id"] = %remote_id
+      } else {
+      }
+      %stable_remote = core.get %state["remote_id"] default %remote_id
+      %result = core.map
+      core.set %result["index"] = 0
+      %event_item_id = core.get %event["item_id"] default "0"
+      core.set %result["id"] = %event_item_id
+      core.set %result["content"] = ""
+      %empty_calls = core.list
+      core.set %result["function_calls"] = %empty_calls
+      %none_finish = core.call intrinsic.none()
+      core.set %result["finish_reason"] = %none_finish
+      %is_text_delta = core.call intrinsic.eq(%type, "response.output_text.delta")
+      core.if %is_text_delta {
+        %text_delta = core.get %event["delta"] default ""
+        core.set %result["content"] = %text_delta
+      } else {
+      }
+      %is_output_added = core.call intrinsic.eq(%type, "response.output_item.added")
+      core.if %is_output_added {
+        %empty_item = core.map
+        %item = core.get %event["item"] default %empty_item
+        core.call @openai_responses_merge_output_item_impl(%result, %item)
+      } else {
+      }
+      %is_args_delta = core.call intrinsic.eq(%type, "response.function_call_arguments.delta")
+      core.if %is_args_delta {
+        %event_call_id = core.get %event["call_id"] default "0"
+        %call_id = core.get %event["item_id"] default %event_call_id
+        %event_name = core.get %event["name"]
+        %event_delta = core.get %event["delta"] default ""
+        %function = core.map
+        core.set %function["name"] = %event_name
+        core.set %function["params"] = %event_delta
+        %call = core.map
+        core.set %call["id"] = %call_id
+        core.set %call["type"] = "function"
+        core.set %call["function"] = %function
+        %calls = core.list
+        core.append %calls, %call
+        core.set %result["function_calls"] = %calls
+        core.set %result["finish_reason"] = "function_call"
+      } else {
+      }
+      %is_completed = core.call intrinsic.eq(%type, "response.completed")
+      %usage = core.call intrinsic.none()
+      core.if %is_completed {
+        %usage = core.get %event_response["usage"]
+        core.set %result["finish_reason"] = "stop"
+      } else {
+      }
+      %results = core.list
+      core.append %results, %result
+      %raw_model = core.get %event_response["model"] default %model
+      %model_usage = core.call @ai_model_usage_impl(%ai_name, %raw_model, %usage)
+      %out = core.map
+      core.set %out["results"] = %results
+      core.set %out["remote_id"] = %stable_remote
+      core.set %out["model_usage"] = %model_usage
+      core.return %out
+    }
+  }
+
+  op ax.provider.semantic @openai_responses_build_transcribe_request {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "src/ax/ai/openai/api.ts"
+    type signature = "(json) -> json"
+    body @entry(%request: json) {
+      %payload = core.map
+      %request_file = core.get %request["file"]
+      %audio_file = core.get %request["audio"] default %request_file
+      core.set %payload["file"] = %audio_file
+      %transcribe_model = core.get %request["model"] default "whisper-1"
+      core.set %payload["model"] = %transcribe_model
+      %format = core.get %request["format"] default "json"
+      core.set %payload["response_format"] = %format
+      %language = core.get %request["language"]
+      %has_language = core.call intrinsic.is_not_none(%language)
+      core.if %has_language {
+        core.set %payload["language"] = %language
+      } else {
+      }
+      core.return %payload
+    }
+  }
+
+  op ax.provider.semantic @openai_responses_build_speak_request {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "src/ax/ai/openai/api.ts"
+    type signature = "(json) -> json"
+    body @entry(%request: json) {
+      %payload = core.map
+      %speak_model = core.get %request["model"] default "tts-1"
+      %request_input = core.get %request["input"] default ""
+      %speak_input = core.get %request["text"] default %request_input
+      %voice = core.get %request["voice"] default "alloy"
+      %response_format = core.get %request["format"] default "mp3"
+      core.set %payload["model"] = %speak_model
+      core.set %payload["input"] = %speak_input
+      core.set %payload["voice"] = %voice
+      core.set %payload["response_format"] = %response_format
+      core.return %payload
+    }
+  }
+
+  op ax.provider.semantic @openai_responses_normalize_realtime_event {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr effect = "throws"
+    tag "src/ax/ai/openai/realtime.ts"
+    type signature = "(json, json, string, string) -> AxChatResponse throws"
+    body @entry(%event: json, %state: json, %ai_name: string, %model: string) {
+      %type = core.get %event["type"]
+      %result = core.map
+      core.set %result["index"] = 0
+      %realtime_item_id = core.get %event["item_id"] default "0"
+      core.set %result["id"] = %realtime_item_id
+      core.set %result["content"] = ""
+      %realtime_empty_calls = core.list
+      core.set %result["function_calls"] = %realtime_empty_calls
+      %realtime_none_finish = core.call intrinsic.none()
+      core.set %result["finish_reason"] = %realtime_none_finish
+      %is_text = core.call intrinsic.eq(%type, "response.text.delta")
+      %is_transcript = core.call intrinsic.eq(%type, "conversation.item.input_audio_transcription.delta")
+      %is_audio = core.call intrinsic.eq(%type, "response.audio.delta")
+      core.if %is_text {
+        %realtime_text_delta = core.get %event["delta"] default ""
+        core.set %result["content"] = %realtime_text_delta
+      } else {
+      }
+      core.if %is_transcript {
+        %realtime_transcript_delta = core.get %event["delta"] default ""
+        core.set %result["content"] = %realtime_transcript_delta
+      } else {
+      }
+      core.if %is_audio {
+        %audio_delta = core.get %event["delta"] default ""
+        %audio = core.map
+        core.set %audio["data"] = %audio_delta
+        core.set %audio["format"] = "pcm16"
+        core.set %result["audio"] = %audio
+      } else {
+      }
+      %is_done = core.call intrinsic.string.ends_with(%type, ".done")
+      core.if %is_done {
+        core.set %result["finish_reason"] = "stop"
+      } else {
+      }
+      %realtime_empty_response = core.map
+      %realtime_response = core.get %event["response"] default %realtime_empty_response
+      %event_usage = core.get %event["usage"]
+      %usage = core.get %realtime_response["usage"] default %event_usage
+      %model_usage = core.call @ai_model_usage_impl(%ai_name, %model, %usage)
+      %results = core.list
+      core.append %results, %result
+      %event_id = core.get %event["id"]
+      %remote_id = core.get %realtime_response["id"] default %event_id
+      %out = core.map
+      core.set %out["results"] = %results
+      core.set %out["remote_id"] = %remote_id
+      core.set %out["model_usage"] = %model_usage
+      core.return %out
     }
   }
 

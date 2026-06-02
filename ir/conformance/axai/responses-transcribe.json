@@ -1,0 +1,35 @@
+{
+  "expected_output": {
+    "duration": 1.25,
+    "language": "en",
+    "text": "hello world"
+  },
+  "expected_transport_request": {
+    "data": {
+      "file": "base64-audio",
+      "language": "en",
+      "model": "whisper-1",
+      "response_format": "json"
+    },
+    "url": "https://api.openai.com/v1/audio/transcriptions"
+  },
+  "kind": "ai_transcribe",
+  "name": "responses-transcribe",
+  "provider": "openai-responses",
+  "request": {
+    "audio": "base64-audio",
+    "format": "json",
+    "language": "en",
+    "model": "whisper-1"
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "duration": 1.25,
+        "language": "en",
+        "text": "hello world"
+      },
+      "status": 200
+    }
+  ]
+}

@@ -66,6 +66,7 @@ func TestLoadCheckLowerAxCore(t *testing.T) {
 		"op core.record @AxSignature",
 		"op core.interface @AIClient",
 		"op core.record @OpenAICompatibleClient",
+		"op core.record @OpenAIResponsesClient",
 		"op core.func @execute_tool_call",
 		"op core.func @build_gen_chat_request",
 		"op core.method @forward",
@@ -91,6 +92,8 @@ func TestLoadCheckLowerAxCore(t *testing.T) {
 		"op core.func @normalize_agent_runtime",
 		"op core.func @normalize_agent_policy",
 		"op core.func @agent_policy_registry",
+		"op core.func @agent_policy_vocabulary_registry",
+		"op core.func @agent_context_policy_registry",
 		"op core.func @select_actor_primitives",
 		"op core.func @render_actor_primitive_guidance",
 		"op core.func @normalize_agent_callable_inventory",
@@ -104,6 +107,11 @@ func TestLoadCheckLowerAxCore(t *testing.T) {
 		"op core.func @agent_record_trace_event",
 		"op core.func @agent_export_trace",
 		"op core.func @agent_replay_trace",
+		"op core.func @resolve_agent_context_policy",
+		"op core.func @agent_prepare_actor_context",
+		"op core.func @agent_build_action_log_parts",
+		"op core.func @agent_refresh_checkpoint_state",
+		"op core.func @agent_context_fixture_result",
 		"op core.func @optimization_component",
 		"op core.func @optimized_artifact",
 		"op core.func @validate_optimized_artifact",
@@ -123,6 +131,7 @@ func TestLoadCheckLowerAxCore(t *testing.T) {
 		"op core.func @flow",
 		"op core.func @flow_factory",
 		"op core.func @flow_plan",
+		"op core.func @flow_execute_nested_steps",
 		"op core.func @flow_forward",
 		"op core.func @agent_runtime_test",
 		"op core.func @agent_runtime_execute_step",
@@ -227,7 +236,15 @@ func TestBuildRuntimeModel(t *testing.T) {
 		"axagent_runtime_language",
 		"axagent_actor_prompt_cache",
 		"axagent_context_cache_precedence",
+		"axagent_context_budget",
+		"axagent_checkpointing",
+		"axagent_action_log_compaction",
+		"axagent_runtime_state_summary",
+		"axagent_context_events",
+		"axagent_executor_model_policy",
 		"axagent_policy_registry",
+		"axagent_policy_vocabulary_registry",
+		"axagent_context_policy_registry",
 		"axagent_policy_versioning",
 		"axagent_dynamic_primitives",
 		"axagent_host_boundaries",
@@ -272,6 +289,13 @@ func TestBuildRuntimeModel(t *testing.T) {
 		"axflow_cache_runtime",
 		"axflow_dynamic_options",
 		"axflow_abort_boundary",
+		"axflow_control_flow_runtime",
+		"axflow_feedback_loop",
+		"axflow_branch_runtime",
+		"axflow_node_extension_helpers",
+		"axflow_streaming_cache",
+		"axflow_stop_inflight",
+		"axflow_parallel_merge_errors",
 		"axflow_optimization_components",
 		"axflow_optimization_apply",
 		"axflow_optimization_evaluation",
@@ -282,7 +306,7 @@ func TestBuildRuntimeModel(t *testing.T) {
 			t.Fatalf("runtime model missing prompt feature flag %s: %#v", feature, model.Features)
 		}
 	}
-	for _, want := range []string{"ai", "AxAIService", "AxBaseAI", "OpenAICompatibleClient", "agent", "AxAgent", "AxAgentClarificationError", "flow", "AxFlow", "AxProgram"} {
+	for _, want := range []string{"ai", "AxAIService", "AxBaseAI", "OpenAICompatibleClient", "OpenAIResponsesClient", "agent", "AxAgent", "AxAgentClarificationError", "flow", "AxFlow", "AxProgram"} {
 		if _, ok := model.Symbols[want]; !ok {
 			t.Fatalf("runtime model missing symbol %s", want)
 		}
@@ -333,6 +357,12 @@ func TestBuildRuntimeModel(t *testing.T) {
 		"agent_finalize_trace",
 		"agent_export_trace",
 		"agent_replay_trace",
+		"resolve_agent_context_policy",
+		"resolve_agent_executor_model_policy",
+		"agent_prepare_actor_context",
+		"agent_build_action_log_parts",
+		"agent_refresh_checkpoint_state",
+		"agent_build_action_evidence_summary",
 		"agent_export_runtime_state",
 		"agent_restore_runtime_state",
 		"split_context_values",
@@ -354,6 +384,7 @@ func TestBuildRuntimeModel(t *testing.T) {
 		"flow_set_returns",
 		"flow_plan",
 		"flow_cache_key",
+		"flow_execute_nested_steps",
 		"flow_forward",
 	} {
 		if model.BodySources[want] != "core" {
@@ -432,6 +463,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"dev/ax/OptimizerEngine.java",
 				"dev/ax/OptimizerEvaluator.java",
 				"dev/ax/OpenAICompatibleClient.java",
+				"dev/ax/OpenAIResponsesClient.java",
 				"dev/ax/Conformance.java",
 				"examples/SignatureSchemaExample.java",
 				"examples/AxGenFakeClientToolExample.java",
@@ -508,7 +540,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 			if err := json.Unmarshal(manifestData, &manifest); err != nil {
 				t.Fatal(err)
 			}
-			if manifest.Target != tc.target || manifest.ProviderMode != "openai-compatible-mapping" || !manifest.FakeTransportSupport {
+			if manifest.Target != tc.target || manifest.ProviderMode != "provider-operation-descriptors-openai-compatible-openai-responses" || !manifest.FakeTransportSupport {
 				t.Fatalf("bad manifest for %s: %#v", tc.target, manifest)
 			}
 			if tc.target == "cpp" && manifest.RealNetworkSupport {
@@ -524,7 +556,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 					t.Fatalf("manifest missing runtime profile feature %s: %#v", want, manifest.CoreOwnedFeatureGroups)
 				}
 			}
-			for _, want := range []string{"AxGen", "AxSignature", "OpenAICompatibleClient", "AxAgent", "AxFlow", "AxProgram", "RuntimeCapabilities", "RuntimeEnvelope", "ProcessCodeRuntime", "ProcessCodeSession", "RuntimeProtocolClient", "RuntimeTransport", "OptimizerEngine", "OptimizerEvaluator"} {
+			for _, want := range []string{"AxGen", "AxSignature", "OpenAICompatibleClient", "OpenAIResponsesClient", "AxAgent", "AxFlow", "AxProgram", "RuntimeCapabilities", "RuntimeEnvelope", "ProcessCodeRuntime", "ProcessCodeSession", "RuntimeProtocolClient", "RuntimeTransport", "OptimizerEngine", "OptimizerEvaluator"} {
 				if !containsString(manifest.PublicSymbols, want) {
 					t.Fatalf("manifest missing public symbol %s: %#v", want, manifest.PublicSymbols)
 				}
@@ -1163,6 +1195,9 @@ func TestAxAgentConformanceFixturesLoad(t *testing.T) {
 				"expected_trace_subset",
 				"expected_trace_event_kinds",
 				"expected_replay_result_subset",
+				"expected_context_result",
+				"expected_context_result_subset",
+				"expected_context_events_subset",
 				"expected_error_contains",
 			} {
 				if _, ok := fixture[key]; ok {
@@ -1383,7 +1418,7 @@ func TestCompilePythonGeneratedAxLibrary(t *testing.T) {
 	script := filepath.Join(dir, "smoke.py")
 	err = os.WriteFile(script, []byte(`import sys
 sys.path.insert(0, sys.argv[1])
-from ax import AIClient, AxBaseAI, OpenAICompatibleClient, agent, ai, ax, f, fn, s
+from ax import AIClient, AxBaseAI, OpenAICompatibleClient, OpenAIResponsesClient, agent, ai, ax, f, fn, s
 
 sig = s('question:string -> answer:string')
 assert sig.get_input_fields()[0].name == 'question'
@@ -1444,6 +1479,13 @@ assert isinstance(service, OpenAICompatibleClient)
 chat = service.chat({'chat_prompt': [{'role': 'user', 'content': 'hello'}], 'model_config': {'stream': False}})
 assert chat['results'][0]['content'] == 'ok', chat
 assert service.get_last_used_chat_model() == 'gpt-4.1-mini'
+responses_service = ai('openai-responses', api_key='test', transport=lambda req: {
+    'status': 200,
+    'json': {'id': 'resp_smoke', 'model': 'gpt-4o', 'output': [{'id': 'm1', 'type': 'message', 'content': [{'type': 'output_text', 'text': 'ok'}]}]},
+})
+assert isinstance(responses_service, OpenAIResponsesClient)
+responses_chat = responses_service.chat({'chat_prompt': [{'role': 'user', 'content': 'hello'}], 'model_config': {'stream': False}})
+assert responses_chat['results'][0]['content'] == 'ok', responses_chat
 assert AxBaseAI
 print('python-ok')
 `), 0o644)
@@ -1629,10 +1671,13 @@ func TestPythonGeneratedIdioms(t *testing.T) {
 		"model_config",
 		"class AxBaseAI",
 		"class OpenAICompatibleClient",
+		"class OpenAIResponsesClient",
 		"# BEGIN AXIR CORE EMITTED FUNCTIONS",
 		"def validate_chat_request(",
 		"def merge_model_config(",
 		"def chat_response_to_completion(",
+		"def provider_descriptor(",
+		"def provider_build_chat_request(",
 		"def openai_build_chat_request(",
 		"def openai_normalize_chat_response(",
 		"def openai_normalize_stream_delta(",
@@ -1983,15 +2028,23 @@ func TestJavaGeneratedCoreRuntime(t *testing.T) {
 	}
 	openAIText := string(openAIFile)
 	for _, want := range []string{
-		"Core.openai_build_chat_request(",
-		"Core.openai_normalize_chat_response(",
-		"Core.openai_normalize_stream_delta(",
-		"Core.openai_build_embed_request(",
+		"Core.provider_build_chat_request(",
+		"Core.provider_normalize_chat_response(",
+		"Core.provider_normalize_stream_delta(",
+		"Core.provider_build_embed_request(",
+		"Core.provider_build_transcribe_request(",
 		"Core.openai_normalize_error(",
 	} {
 		if !strings.Contains(openAIText, want) {
 			t.Fatalf("generated Java OpenAI client missing Core delegation %q", want)
 		}
+	}
+	openAIResponsesFile, err := os.ReadFile(filepath.Join(dir, "dev", "ax", "OpenAIResponsesClient.java"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(openAIResponsesFile), "openai-responses") {
+		t.Fatalf("generated Java OpenAI Responses client missing provider marker")
 	}
 	conformanceFile, err := os.ReadFile(filepath.Join(dir, "dev", "ax", "Conformance.java"))
 	if err != nil {
@@ -2124,6 +2177,7 @@ func TestCppGeneratedCoreRuntime(t *testing.T) {
 		"class AIClient",
 		"class AxAIService",
 		"class OpenAICompatibleClient",
+		"class OpenAIResponsesClient",
 		"class Tool",
 		"class AxGen",
 		"class AxAgent",
@@ -2161,6 +2215,8 @@ func TestCppGeneratedCoreRuntime(t *testing.T) {
 		"Value Core::_forward_impl(",
 		"Value Core::_execute_tool_call(",
 		"Value Core::fold_stream(",
+		"Value Core::provider_descriptor(",
+		"Value Core::provider_build_chat_request(",
 		"Value Core::openai_build_chat_request(",
 		"Value Core::openai_normalize_chat_response(",
 		"Value Core::openai_normalize_stream_delta(",

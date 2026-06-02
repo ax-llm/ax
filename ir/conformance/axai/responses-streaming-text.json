@@ -1,0 +1,77 @@
+{
+  "expected_output": [
+    {
+      "model_usage": null,
+      "remote_id": "resp_stream",
+      "results": [
+        {
+          "content": "hel",
+          "finish_reason": null,
+          "function_calls": [],
+          "id": "msg_1",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "model_usage": null,
+      "remote_id": "resp_stream",
+      "results": [
+        {
+          "content": "lo",
+          "finish_reason": null,
+          "function_calls": [],
+          "id": "msg_1",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "model_usage": {
+        "ai": "openai-responses",
+        "model": "gpt-4o",
+        "tokens": {
+          "completion_tokens": 2,
+          "prompt_tokens": 4,
+          "total_tokens": 6
+        }
+      },
+      "remote_id": "resp_stream",
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "stop",
+          "function_calls": [],
+          "id": "0",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "expected_transport_request": {
+    "json": {
+      "stream": true
+    },
+    "url": "https://api.openai.com/v1/responses"
+  },
+  "kind": "ai_stream",
+  "name": "responses-streaming-text",
+  "options": {
+    "stream": true
+  },
+  "provider": "openai-responses",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "stream",
+        "role": "user"
+      }
+    ]
+  },
+  "transport_responses": [
+    {
+      "body": "data: {\"type\":\"response.output_text.delta\",\"response_id\":\"resp_stream\",\"item_id\":\"msg_1\",\"delta\":\"hel\"}\n\ndata: {\"type\":\"response.output_text.delta\",\"response_id\":\"resp_stream\",\"item_id\":\"msg_1\",\"delta\":\"lo\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_stream\",\"model\":\"gpt-4o\",\"usage\":{\"input_tokens\":4,\"output_tokens\":2,\"total_tokens\":6}}}\n\ndata: [DONE]\n\n",
+      "status": 200
+    }
+  ]
+}

@@ -41,6 +41,7 @@ class RuntimeProtocolSession;
 class RuntimeTransport;
 class AxAIService;
 class OpenAICompatibleClient;
+class OpenAIResponsesClient;
 class OptimizerEngine;
 class OptimizerEvaluator;
 
@@ -308,6 +309,33 @@ struct Core {
   static Value openai_normalize_embed_response(Value raw);
   static Value openai_normalize_embed_response(Value raw, Value ai_name, Value model);
   static Value openai_normalize_error(Value status, Value body, Value request);
+  static Value provider_descriptor(Value profile);
+  static Value provider_operation_descriptor(Value profile, Value operation);
+  static Value provider_build_chat_request(Value profile, Value request);
+  static Value provider_build_embed_request(Value profile, Value request);
+  static Value provider_normalize_chat_response(Value profile, Value raw, Value ai_name, Value model);
+  static Value provider_normalize_stream_delta(Value profile, Value raw, Value state, Value ai_name, Value model);
+  static Value provider_normalize_embed_response(Value profile, Value raw, Value ai_name, Value model);
+  static Value provider_build_transcribe_request(Value profile, Value request);
+  static Value provider_build_speak_request(Value profile, Value request);
+  static Value provider_normalize_transcribe_response(Value profile, Value raw);
+  static Value provider_normalize_speak_response(Value profile, Value raw, Value request);
+  static Value provider_normalize_realtime_event(Value profile, Value event, Value state, Value ai_name, Value model);
+  static Value openai_responses_build_chat_request(Value request);
+  static Value _openai_responses_apply_model_config_impl(Value payload, Value model_config);
+  static Value _openai_responses_tool_spec_impl(Value fn);
+  static Value _openai_responses_input_item_impl(Value message);
+  static Value _openai_responses_content_parts_impl(Value content, Value role);
+  static Value _openai_responses_content_part_impl(Value part, Value role);
+  static Value openai_responses_normalize_chat_response(Value raw, Value ai_name, Value model);
+  static Value _openai_responses_merge_output_item_impl(Value result, Value item);
+  static Value _openai_responses_content_to_text_impl(Value content);
+  static Value _openai_responses_extract_citations_impl(Value content);
+  static Value _openai_responses_function_call_impl(Value item);
+  static Value openai_responses_normalize_stream_delta(Value event, Value state, Value ai_name, Value model);
+  static Value openai_responses_build_transcribe_request(Value request);
+  static Value openai_responses_build_speak_request(Value request);
+  static Value openai_responses_normalize_realtime_event(Value event, Value state, Value ai_name, Value model);
   static Value build_chat_request(Value service, Value request, Value options);
   static Value normalize_chat_response(Value raw);
   static Value normalize_stream_delta(Value raw, Value state);
@@ -323,6 +351,13 @@ struct Core {
   static Value _normalize_agent_policy(Value options);
   static Value _agent_policy_flags(Value options);
   static Value _agent_policy_action(Value id, Value category, Value kind, Value stages, Value availability, Value effect, Value host_boundary, Value actor_visible);
+  static Value _agent_policy_vocabulary_registry();
+  static Value _agent_context_policy_registry();
+  static Value _agent_context_policy_migration_error(Value key);
+  static Value _agent_context_budget_profile(Value budget);
+  static Value _agent_context_preset_profile(Value preset);
+  static Value _agent_context_event_name(Value stable_id);
+  static Value _agent_context_event_reason(Value stable_id);
   static Value _agent_policy_registry(Value policy, Value flags);
   static Value _policy_flag_enabled(Value flags, Value condition);
   static Value _select_actor_primitives(Value registry, Value stage);
@@ -333,6 +368,28 @@ struct Core {
   static Value _record_policy_event(Value state, Value action, Value payload);
   static Value _normalize_policy_action_result(Value action, Value payload);
   static Value _build_agent_actor_prompt_policy(Value state);
+  static Value _resolve_agent_context_policy(Value options);
+  static Value _resolve_agent_executor_model_policy(Value options);
+  static Value _select_agent_executor_model(Value policy, Value actor_model_state);
+  static Value _agent_compute_effective_chat_budget(Value base_budget, Value fixed_overhead_chars);
+  static Value _agent_action_log_char_count(Value entries);
+  static Value _agent_compute_dynamic_runtime_chars(Value entries, Value target_prompt_chars, Value max_runtime_chars);
+  static Value _agent_context_pressure(Value mutable_prompt_chars, Value effective_budget_chars, Value checkpoint_active);
+  static Value _agent_render_context_pressure(Value pressure);
+  static Value _agent_smart_stringify(Value value, Value max_chars);
+  static Value _agent_record_context_event(Value state, Value event);
+  static Value _agent_entry_turn(Value entry, Value fallback);
+  static Value _agent_entry_is_error(Value entry);
+  static Value _agent_entry_summary(Value entry, Value fallback_turn);
+  static Value _agent_render_full_action_entry(Value state, Value entry);
+  static Value _agent_render_compact_action_entry(Value entry, Value turn, Value reason);
+  static Value _agent_fallback_checkpoint_summary(Value entries, Value turns);
+  static Value _agent_refresh_checkpoint_state(Value state);
+  static Value _agent_build_action_log_parts(Value state, Value hygiene_mode);
+  static Value _agent_render_runtime_state_summary(Value state, Value policy);
+  static Value _agent_prepare_actor_context(Value state);
+  static Value _agent_build_action_evidence_summary(Value state);
+  static Value _agent_context_fixture_result(Value state, Value fixture);
   static Value _normalize_agent_callable(Value raw, Value namespace_);
   static Value _normalize_agent_group(Value raw);
   static Value _normalize_agent_callable_inventory(Value options);
@@ -425,12 +482,14 @@ struct Core {
   static Value _flow_cache_read_write(Value flow, Value values, Value options, Value mode, Value output);
   static Value _flow_check_abort(Value options, Value location);
   static Value _flow_project_returns(Value state, Value returns);
+  static Value _flow_get_path(Value state, Value path);
   static Value _flow_record_child_chat_log(Value flow, Value node, Value program);
   static Value _flow_record_child_usage(Value flow, Value node, Value program);
   static Value _flow_record_child_traces(Value flow, Value node, Value program);
   static Value _flow_execute_program_node(Value flow, Value step, Value client, Value state, Value options);
   static Value _flow_execute_step(Value flow, Value step, Value plan_step, Value client, Value state, Value options);
   static Value _flow_merge_parallel_results(Value state, Value result);
+  static Value _flow_execute_nested_steps(Value flow, Value client, Value steps, Value state, Value options);
   static Value _flow_execute_steps(Value flow, Value client, Value state, Value options);
   static Value _flow_forward(Value flow, Value client, Value values, Value options);
 };
@@ -496,20 +555,32 @@ class OpenAICompatibleClient : public AxBaseAI {
  public:
   explicit OpenAICompatibleClient(Value options = Value::object(), Transport* transport = nullptr);
   std::vector<Value> stream(Value request) override;
+  Value transcribe(Value request) override;
+  Value speak(Value request) override;
+  std::vector<Value> realtime(Value events);
 
  protected:
+  OpenAICompatibleClient(std::string profile, std::string name, Value options, Transport* transport, std::string default_model, std::string default_embed_model);
   Value do_chat(Value request, Value options) override;
   Value do_embed(Value request, Value options) override;
 
  private:
+  std::string profile_;
   std::string base_url_;
   std::string api_key_;
   double timeout_seconds_;
   Transport* transport_;
   Value request_json(const std::string& endpoint, Value payload, bool stream);
+  Value request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key);
+  std::string operation_path(const std::string& operation) const;
   Value headers() const;
   Value transport_result(Value result, Value request);
   std::vector<Value> iter_sse_json(Value raw);
+};
+
+class OpenAIResponsesClient : public OpenAICompatibleClient {
+ public:
+  explicit OpenAIResponsesClient(Value options = Value::object(), Transport* transport = nullptr);
 };
 
 class Tool {
@@ -600,10 +671,16 @@ class AxFlow : public AxProgram {
   AxFlow& derive(std::string name, AxProgram& program, Value options = Value::object());
   AxFlow& map(std::string name, std::function<Value(Value)> mapper);
   AxFlow& map(std::string name, std::function<Value(Value)> mapper, Value options);
+  AxFlow& branch(std::string name, std::function<Value(Value)> predicate, Value branches, Value options = Value::object());
+  AxFlow& while_loop(std::string name, std::function<Value(Value)> condition, Value steps, int max_iterations = 100, Value options = Value::object());
+  AxFlow& feedback(std::string name, std::function<Value(Value)> condition, Value steps, int max_iterations = 10, Value options = Value::object());
+  AxFlow& node_extended(std::string name, Value base_signature, Value extensions = Value::object(), Value options = Value::object());
+  AxFlow& nx(std::string name, Value base_signature, Value extensions = Value::object(), Value options = Value::object());
   AxFlow& parallel(Value steps);
   AxFlow& returns(Value spec);
   AxFlow& set_demos(Value demos);
   Value forward(AIClient& client, Value values, Value options = Value::object());
+  Value streaming_forward(AIClient& client, Value values, Value options = Value::object());
   Value get_plan() const;
   Value get_traces() const;
   Value get_chat_log() const;
@@ -615,11 +692,14 @@ class AxFlow : public AxProgram {
   Value optimize_with(OptimizerEngine& engine, Value dataset, Value options = Value::object());
   Value optimize_with(OptimizerEngine& engine, AIClient& client, Value dataset, Value options = Value::object());
   Value value() const;
+  AxFlow& add_raw_step(Value step);
 
  private:
   Value state_;
   AxFlow& add_step(Value kind, Value name, Value program, Value options);
 };
+
+Value flow_callback(std::function<Value(Value)> mapper);
 
 class AxCodeSession {
  public:
@@ -875,6 +955,16 @@ static std::map<std::string, std::function<void(Value)>>& function_hook_registry
 static std::map<std::string, std::function<Value(Value)>>& flow_mapper_registry() {
   static std::map<std::string, std::function<Value(Value)>> handlers;
   return handlers;
+}
+
+static Value register_flow_mapper(std::string prefix, std::function<Value(Value)> mapper) {
+  std::string id = std::move(prefix) + ":flow_mapper:" + std::to_string(flow_mapper_registry().size());
+  flow_mapper_registry()[id] = std::move(mapper);
+  return object({{"__flow_mapper_id", Value(id)}});
+}
+
+Value flow_callback(std::function<Value(Value)> mapper) {
+  return register_flow_mapper("host", std::move(mapper));
 }
 
 static std::string pointer_id(const void* ptr) {
@@ -2587,37 +2677,44 @@ static std::string strip_trailing_slashes(std::string value) {
 }
 
 OpenAICompatibleClient::OpenAICompatibleClient(Value options, Transport* transport)
+    : OpenAICompatibleClient("openai-compatible", "openai", std::move(options), transport, "gpt-4.1-mini", "text-embedding-3-small") {}
+
+OpenAICompatibleClient::OpenAICompatibleClient(std::string profile, std::string name, Value options, Transport* transport, std::string default_model, std::string default_embed_model)
     : AxBaseAI(
-          "openai",
-          option_string(options, "model", "model", "gpt-4.1-mini"),
-          option_string(options, "embed_model", "embedModel", "text-embedding-3-small"),
+          std::move(name),
+          option_string(options, "model", "model", default_model),
+          option_string(options, "embed_model", "embedModel", default_embed_model),
           Core::get(options, "model_config", Value::object()),
           Core::get(options, "options", Value::object())),
-      base_url_(strip_trailing_slashes(option_string(options, "base_url", "baseUrl", env_or_default("OPENAI_BASE_URL", "https://api.openai.com/v1")))),
+      profile_(std::move(profile)),
+      base_url_(strip_trailing_slashes(option_string(options, "base_url", "baseUrl", env_or_default("OPENAI_BASE_URL", str(Core::get(Core::provider_descriptor(profile_), "baseUrl", "https://api.openai.com/v1")))))),
       api_key_(option_string(options, "api_key", "apiKey", env_or_default("OPENAI_API_KEY", ""))),
       timeout_seconds_(Core::get(options, "timeout", 60).is_number() ? num(Core::get(options, "timeout", 60)) : 60.0),
       transport_(transport) {}
 
+OpenAIResponsesClient::OpenAIResponsesClient(Value options, Transport* transport)
+    : OpenAICompatibleClient("openai-responses", "openai-responses", std::move(options), transport, "gpt-4o", "text-embedding-ada-002") {}
+
 Value OpenAICompatibleClient::do_chat(Value request, Value) {
-  Value payload = Core::openai_build_chat_request(request);
+  Value payload = Core::provider_build_chat_request(profile_, request);
   bool stream = Core::truthy(Core::get(payload, "stream"));
   if (stream) {
-    Value raw = request_json("/chat/completions", payload, true);
+    Value raw = request_json(operation_path("stream_chat"), payload, true);
     Value state = Value::object();
     Value results = Value::array();
     for (const auto& event : iter_sse_json(raw)) {
-      Core::append(results, Core::openai_normalize_stream_delta(event, state, name_, Core::get(payload, "model")));
+      Core::append(results, Core::provider_normalize_stream_delta(profile_, event, state, name_, Core::get(payload, "model")));
     }
     return Value(Object{{"results", results}});
   }
-  Value raw = request_json("/chat/completions", payload, false);
-  return Core::openai_normalize_chat_response(raw, name_, Core::get(payload, "model"));
+  Value raw = request_json(operation_path("chat"), payload, false);
+  return Core::provider_normalize_chat_response(profile_, raw, name_, Core::get(payload, "model"));
 }
 
 Value OpenAICompatibleClient::do_embed(Value request, Value) {
-  Value payload = Core::openai_build_embed_request(request);
-  Value raw = request_json("/embeddings", payload, false);
-  return Core::openai_normalize_embed_response(raw, name_, Core::get(payload, "model"));
+  Value payload = Core::provider_build_embed_request(profile_, request);
+  Value raw = request_json(operation_path("embed"), payload, false);
+  return Core::provider_normalize_embed_response(profile_, raw, name_, Core::get(payload, "model"));
 }
 
 std::vector<Value> OpenAICompatibleClient::stream(Value request) {
@@ -2627,11 +2724,30 @@ std::vector<Value> OpenAICompatibleClient::stream(Value request) {
   Core::set(config, "stream", true);
   Core::set(req, "model", Core::get(req, "model", model_));
   Core::set(req, "model_config", config);
-  Value payload = Core::openai_build_chat_request(req);
-  Value raw = request_json("/chat/completions", payload, true);
+  Value payload = Core::provider_build_chat_request(profile_, req);
+  Value raw = request_json(operation_path("stream_chat"), payload, true);
   Value state = Value::object();
   std::vector<Value> out;
-  for (const auto& event : iter_sse_json(raw)) out.push_back(Core::openai_normalize_stream_delta(event, state, name_, Core::get(payload, "model")));
+  for (const auto& event : iter_sse_json(raw)) out.push_back(Core::provider_normalize_stream_delta(profile_, event, state, name_, Core::get(payload, "model")));
+  return out;
+}
+
+Value OpenAICompatibleClient::transcribe(Value request) {
+  Value payload = Core::provider_build_transcribe_request(profile_, request);
+  Value raw = request_json(operation_path("transcribe"), payload, false, "data");
+  return Core::provider_normalize_transcribe_response(profile_, raw);
+}
+
+Value OpenAICompatibleClient::speak(Value request) {
+  Value payload = Core::provider_build_speak_request(profile_, request);
+  Value raw = request_json(operation_path("speak"), payload, false);
+  return Core::provider_normalize_speak_response(profile_, raw, request);
+}
+
+std::vector<Value> OpenAICompatibleClient::realtime(Value events) {
+  std::vector<Value> out;
+  Value state = Value::object();
+  for (const auto& event : array_ref(events)) out.push_back(Core::provider_normalize_realtime_event(profile_, event, state, name_, model_));
   return out;
 }
 
@@ -2640,15 +2756,23 @@ Value OpenAICompatibleClient::headers() const {
 }
 
 Value OpenAICompatibleClient::request_json(const std::string& endpoint, Value payload, bool stream) {
+  return request_json(endpoint, std::move(payload), stream, "json");
+}
+
+Value OpenAICompatibleClient::request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key) {
   Value call = Value::object();
   Core::set(call, "method", "POST");
   Core::set(call, "url", base_url_ + endpoint);
   Core::set(call, "headers", headers());
-  Core::set(call, "json", payload);
+  Core::set(call, body_key.empty() ? "json" : body_key, payload);
   Core::set(call, "stream", stream);
   if (transport_ != nullptr) return transport_result(transport_->call(call), call);
   if (api_key_.empty() || api_key_ == "null") throw Core::as_error(Core::ai_error_auth("OPENAI_API_KEY is required", Value(), Value(), Value(), call));
   throw Core::as_error(Core::ai_error_unsupported("C++ OpenAI network transport is not implemented in generated alpha"));
+}
+
+std::string OpenAICompatibleClient::operation_path(const std::string& operation) const {
+  return str(Core::get(Core::provider_operation_descriptor(profile_, operation), "path", "/" + operation));
 }
 
 Value OpenAICompatibleClient::transport_result(Value result, Value request) {
@@ -3082,9 +3206,38 @@ AxFlow& AxFlow::map(std::string name, std::function<Value(Value)> mapper) {
 }
 
 AxFlow& AxFlow::map(std::string name, std::function<Value(Value)> mapper, Value options) {
-  std::string id = pointer_id(this) + ":flow_mapper:" + std::to_string(flow_mapper_registry().size());
-  flow_mapper_registry()[id] = std::move(mapper);
-  return add_step(Value("map"), Value(std::move(name)), object({{"__flow_mapper_id", Value(id)}}), std::move(options));
+  return add_step(Value("map"), Value(std::move(name)), register_flow_mapper(pointer_id(this), std::move(mapper)), std::move(options));
+}
+
+AxFlow& AxFlow::branch(std::string name, std::function<Value(Value)> predicate, Value branches, Value options) {
+  Core::set(options, "predicate", register_flow_mapper(pointer_id(this), std::move(predicate)));
+  Core::set(options, "branches", std::move(branches));
+  return add_step(Value("branch"), Value(std::move(name)), Value(), std::move(options));
+}
+
+AxFlow& AxFlow::while_loop(std::string name, std::function<Value(Value)> condition, Value steps, int max_iterations, Value options) {
+  Core::set(options, "condition", register_flow_mapper(pointer_id(this), std::move(condition)));
+  Core::set(options, "steps", std::move(steps));
+  Core::set(options, "maxIterations", Value(static_cast<double>(max_iterations)));
+  return add_step(Value("while"), Value(std::move(name)), Value(), std::move(options));
+}
+
+AxFlow& AxFlow::feedback(std::string name, std::function<Value(Value)> condition, Value steps, int max_iterations, Value options) {
+  Core::set(options, "condition", register_flow_mapper(pointer_id(this), std::move(condition)));
+  Core::set(options, "steps", std::move(steps));
+  Core::set(options, "maxIterations", Value(static_cast<double>(max_iterations)));
+  Core::set(options, "label", Value(name));
+  return add_step(Value("feedback"), Value(std::move(name)), Value(), std::move(options));
+}
+
+AxFlow& AxFlow::node_extended(std::string name, Value base_signature, Value extensions, Value options) {
+  Value signature = Core::get(extensions, "extended_signature", Core::get(extensions, "extendedSignature", base_signature));
+  auto* gen = new AxGen(Core::parse_signature(signature), options);
+  return execute(std::move(name), *gen, std::move(options));
+}
+
+AxFlow& AxFlow::nx(std::string name, Value base_signature, Value extensions, Value options) {
+  return node_extended(std::move(name), std::move(base_signature), std::move(extensions), std::move(options));
 }
 
 AxFlow& AxFlow::parallel(Value steps) {
@@ -3145,6 +3298,10 @@ Value AxFlow::forward(AIClient& client, Value values, Value options) {
   return Core::_flow_forward(state_, Core::client_ref(client), std::move(values), std::move(options));
 }
 
+Value AxFlow::streaming_forward(AIClient& client, Value values, Value options) {
+  return array({object({{"version", Value(1)}, {"index", Value(0)}, {"delta", forward(client, std::move(values), std::move(options))}})});
+}
+
 Value AxFlow::get_plan() const { return Core::_flow_plan(state_); }
 Value AxFlow::get_traces() const { return Core::get(state_, "traces", Value::array()); }
 Value AxFlow::get_chat_log() const { return Core::get(state_, "chat_log", Value::array()); }
@@ -3190,6 +3347,11 @@ Value AxFlow::optimize_with(OptimizerEngine& engine, AIClient& client, Value dat
   return artifact;
 }
 Value AxFlow::value() const { return state_; }
+
+AxFlow& AxFlow::add_raw_step(Value step) {
+  state_ = Core::_flow_add_step(state_, std::move(step));
+  return *this;
+}
 
 AxFlow& AxFlow::add_step(Value kind, Value name, Value program, Value options) {
   state_ = Core::_flow_add_step(state_, Core::_flow_step(std::move(kind), std::move(name), std::move(program), std::move(options)));
@@ -3555,6 +3717,9 @@ std::shared_ptr<AxAIService> ai(const std::string& provider, Value options) {
   for (char ch : provider) normalized.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(ch == '-' ? '_' : ch))));
   if (normalized == "openai" || normalized == "openai_compatible" || normalized == "compatible") {
     return std::make_shared<OpenAICompatibleClient>(std::move(options));
+  }
+  if (normalized == "openai_responses" || normalized == "responses") {
+    return std::make_shared<OpenAIResponsesClient>(std::move(options));
   }
   throw AxError("runtime", "unsupported AxAI provider: " + provider);
 }
@@ -4442,6 +4607,16 @@ static void run_agent_runtime_policy(Value fixture) {
       if (!Core::get(fixture, "expected_replay_result_subset").is_null()) assert_subset(result, Core::get(fixture, "expected_replay_result_subset"), "agent replay");
     }
     if (!Core::get(fixture, "restore_runtime_state").is_null()) ag->restore_runtime_state(Core::get(fixture, "restore_runtime_state"));
+    if (!Core::get(fixture, "context_operation").is_null()) {
+      Value context_state = ag->export_runtime_state();
+      Value result = Core::_agent_context_fixture_result(context_state, fixture);
+      if (!Core::get(fixture, "expected_context_result").is_null()) assert_equal(result, Core::get(fixture, "expected_context_result"), "agent context result");
+      if (!Core::get(fixture, "expected_context_result_subset").is_null()) assert_subset(result, Core::get(fixture, "expected_context_result_subset"), "agent context result");
+      if (!Core::get(fixture, "expected_context_events_subset").is_null()) {
+        Value exported_context = Core::get(result, "exported", Value::object());
+        assert_list_subset(Core::get(exported_context, "context_events", Value::array()), Core::get(fixture, "expected_context_events_subset"), "agent context events");
+      }
+    }
     if (!Core::get(fixture, "final_payload").is_null()) assert_equal(Core::_normalize_agent_final_payload(Core::get(fixture, "final_payload")), Core::get(fixture, "expected_final_payload"), "final payload");
     if (!Core::get(fixture, "clarification_payload").is_null()) assert_equal(Core::_normalize_agent_clarification_payload(Core::get(fixture, "clarification_payload")), Core::get(fixture, "expected_clarification_payload"), "clarification payload");
   } catch (const AxError& error) {
@@ -4768,16 +4943,28 @@ static void run_agent_runtime_protocol(Value fixture) {
 
 struct ClientFixture {
   FakeTransport transport;
-  OpenAICompatibleClient client;
+  std::unique_ptr<OpenAICompatibleClient> client;
 
   explicit ClientFixture(Value fixture)
       : transport(Core::get(fixture, "transport_responses", Core::get(fixture, "responses", Value::array()))),
-        client(options(fixture), &transport) {}
+        client(make_client(fixture, &transport)) {}
+
+  static std::unique_ptr<OpenAICompatibleClient> make_client(Value fixture, FakeTransport* transport) {
+    std::string provider = display(Core::get(fixture, "provider", "openai-compatible"));
+    std::replace(provider.begin(), provider.end(), '-', '_');
+    std::transform(provider.begin(), provider.end(), provider.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+    if (provider == "openai_responses" || provider == "responses") return std::make_unique<OpenAIResponsesClient>(options(fixture), transport);
+    return std::make_unique<OpenAICompatibleClient>(options(fixture), transport);
+  }
 
   static Value options(Value fixture) {
     Value out = Value::object();
-    Core::set(out, "model", Core::get(fixture, "model", "gpt-4.1-mini"));
-    Core::set(out, "embed_model", Core::get(fixture, "embed_model", "text-embedding-3-small"));
+    std::string provider = display(Core::get(fixture, "provider", "openai-compatible"));
+    std::replace(provider.begin(), provider.end(), '-', '_');
+    std::transform(provider.begin(), provider.end(), provider.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+    bool responses_provider = provider == "openai_responses" || provider == "responses";
+    Core::set(out, "model", Core::get(fixture, "model", responses_provider ? "gpt-4o" : "gpt-4.1-mini"));
+    Core::set(out, "embed_model", Core::get(fixture, "embed_model", responses_provider ? "text-embedding-ada-002" : "text-embedding-3-small"));
     Core::set(out, "api_key", "test-key");
     Core::set(out, "model_config", Core::get(fixture, "model_config", Value::object()));
     return out;
@@ -4809,7 +4996,7 @@ static void assert_ai_error(const AxError& error, Value fixture, const FakeTrans
 
 static void run_ai_chat(Value fixture) {
   ClientFixture cf(fixture);
-  Value result = cf.client.chat(Core::get(fixture, "request", Value::object()));
+  Value result = cf.client->chat(Core::get(fixture, "request", Value::object()));
   Value expected = Core::get(fixture, "expected_output");
   if (!expected.is_null()) assert_equal(result, expected, "ai chat output");
   assert_transport(fixture, cf.transport);
@@ -4817,7 +5004,7 @@ static void run_ai_chat(Value fixture) {
 
 static void run_ai_embed(Value fixture) {
   ClientFixture cf(fixture);
-  Value result = cf.client.embed(Core::get(fixture, "request", Value::object()));
+  Value result = cf.client->embed(Core::get(fixture, "request", Value::object()));
   Value expected = Core::get(fixture, "expected_output");
   if (!expected.is_null()) assert_equal(result, expected, "ai embed output");
   assert_transport(fixture, cf.transport);
@@ -4826,7 +5013,7 @@ static void run_ai_embed(Value fixture) {
 static void run_ai_stream(Value fixture) {
   ClientFixture cf(fixture);
   Value out = Value::array();
-  for (const auto& item : cf.client.stream(Core::get(fixture, "request", Value::object()))) Core::append(out, item);
+  for (const auto& item : cf.client->stream(Core::get(fixture, "request", Value::object()))) Core::append(out, item);
   Value expected = Core::get(fixture, "expected_output");
   if (!expected.is_null()) assert_equal(out, expected, "ai stream output");
   assert_transport(fixture, cf.transport);
@@ -4837,11 +5024,15 @@ static void run_ai_error(Value fixture) {
   try {
     std::string method = display(Core::get(fixture, "method", "chat"));
     if (method == "stream") {
-      for (const auto& ignored : cf.client.stream(Core::get(fixture, "request", Value::object()))) (void)ignored;
+      for (const auto& ignored : cf.client->stream(Core::get(fixture, "request", Value::object()))) (void)ignored;
     } else if (method == "embed") {
-      cf.client.embed(Core::get(fixture, "request", Value::object()));
+      cf.client->embed(Core::get(fixture, "request", Value::object()));
+    } else if (method == "transcribe") {
+      cf.client->transcribe(Core::get(fixture, "request", Value::object()));
+    } else if (method == "speak") {
+      cf.client->speak(Core::get(fixture, "request", Value::object()));
     } else {
-      cf.client.chat(Core::get(fixture, "request", Value::object()));
+      cf.client->chat(Core::get(fixture, "request", Value::object()));
     }
   } catch (const AxError& error) {
     assert_ai_error(error, fixture, cf.transport);
@@ -4854,8 +5045,8 @@ static void run_ai_unsupported(Value fixture) {
   ClientFixture cf(fixture);
   try {
     std::string method = display(Core::get(fixture, "method", "transcribe"));
-    if (method == "speak") cf.client.speak(Core::get(fixture, "request", Value::object()));
-    else cf.client.transcribe(Core::get(fixture, "request", Value::object()));
+    if (method == "speak") cf.client->speak(Core::get(fixture, "request", Value::object()));
+    else cf.client->transcribe(Core::get(fixture, "request", Value::object()));
   } catch (const AxError& error) {
     Value expected = Core::get(fixture, "expected_error_contains");
     if (!expected.is_null() && std::string(error.what()).find(display(expected)) == std::string::npos) {
@@ -4866,49 +5057,137 @@ static void run_ai_unsupported(Value fixture) {
   throw AxError("fixture", "expected unsupported capability error");
 }
 
+static void run_ai_provider_descriptor(Value fixture) {
+  Value descriptor = Core::provider_descriptor(Core::get(fixture, "provider", "openai-compatible"));
+  Value expected = Core::get(fixture, "expected_output");
+  if (!expected.is_null()) assert_subset(descriptor, expected, "provider descriptor");
+}
+
+static void run_ai_transcribe(Value fixture) {
+  ClientFixture cf(fixture);
+  Value result = cf.client->transcribe(Core::get(fixture, "request", Value::object()));
+  Value expected = Core::get(fixture, "expected_output");
+  if (!expected.is_null()) assert_equal(result, expected, "ai transcribe output");
+  assert_transport(fixture, cf.transport);
+}
+
+static void run_ai_speak(Value fixture) {
+  ClientFixture cf(fixture);
+  Value result = cf.client->speak(Core::get(fixture, "request", Value::object()));
+  Value expected = Core::get(fixture, "expected_output");
+  if (!expected.is_null()) assert_equal(result, expected, "ai speak output");
+  assert_transport(fixture, cf.transport);
+}
+
+static void run_ai_realtime(Value fixture) {
+  ClientFixture cf(fixture);
+  Value out = Value::array();
+  for (const auto& item : cf.client->realtime(Core::get(fixture, "events", Value::array()))) Core::append(out, item);
+  Value expected = Core::get(fixture, "expected_output");
+  if (!expected.is_null()) assert_equal(out, expected, "ai realtime output");
+}
+
+static Value flow_state_value(Value state, Value field, Value fallback = Value()) {
+  if (field.is_null()) return fallback;
+  Value cur = state;
+  std::stringstream ss(display(field));
+  std::string part;
+  while (std::getline(ss, part, '.')) cur = Core::get(cur, part, fallback);
+  return cur;
+}
+
+static Value flow_condition_from_spec(Value spec) {
+  return flow_callback([spec](Value state) {
+    std::string op = display(Core::get(spec, "op", Value("truthy")));
+    if (op == "field") return flow_state_value(state, Core::get(spec, "field"), Core::get(spec, "default"));
+    if (op == "lt") return Core::lt(flow_state_value(state, Core::get(spec, "field"), Value(0)), Core::get(spec, "value", Value(0)));
+    if (op == "eq") return Core::eq(flow_state_value(state, Core::get(spec, "field")), Core::get(spec, "value"));
+    if (op == "always") return Value(Core::truthy(Core::get(spec, "value", Value(true))));
+    return Value(Core::truthy(flow_state_value(state, Core::get(spec, "field"))));
+  });
+}
+
+static Value flow_mapper_from_spec(Value spec) {
+  return flow_callback([spec](Value state) {
+    Value out = Core::map_merge(Value::object(), state);
+    std::string op = display(Core::get(spec, "op", Value("set")));
+    if (op == "increment") {
+      Value field = Core::get(spec, "field");
+      Core::set(out, field, Core::add(flow_state_value(out, field, Value(0)), Core::get(spec, "by", Value(1))));
+    } else if (op == "append") {
+      Value field = Core::get(spec, "field");
+      Value values = flow_state_value(out, field, Value::array());
+      Core::append(values, Core::get(spec, "valueField").is_null() ? Core::get(spec, "value") : flow_state_value(out, Core::get(spec, "valueField")));
+      Core::set(out, field, values);
+    } else if (op == "copy") {
+      Core::set(out, Core::get(spec, "to"), flow_state_value(out, Core::get(spec, "from")));
+    } else {
+      out = Core::map_update(out, Core::get(spec, "values", Value::object()));
+    }
+    return out;
+  });
+}
+
+static Value build_flow_step(Value step, Value fixture, std::vector<std::unique_ptr<AxGen>>& programs, std::vector<std::unique_ptr<AxFlow>>& flows, std::vector<std::unique_ptr<AxAgent>>& agents) {
+  std::string kind = display(Core::get(step, "kind", Value("execute")));
+  std::string name = display(Core::get(step, "name"));
+  Value options = Core::get(step, "options", Value::object());
+  if (kind == "map") {
+    Value mapper = Core::get(step, "mapper").is_null()
+      ? flow_callback([output = Core::get(step, "output", Value::object())](Value) { return output; })
+      : flow_mapper_from_spec(Core::get(step, "mapper"));
+    return Core::_flow_step(Value("map"), Value(name), mapper, options);
+  }
+  if (kind == "branch") {
+    Core::set(options, "predicate", flow_condition_from_spec(Core::get(step, "predicate", Core::get(options, "predicate", Value::object()))));
+    Value branches = Value::array();
+    for (const auto& raw_branch : Core::iter(Core::get(step, "branches", Core::get(options, "branches", Value::array())))) {
+      Value branch_steps = Value::array();
+      for (const auto& raw_child : Core::iter(Core::get(raw_branch, "steps", Value::array()))) {
+        Core::append(branch_steps, build_flow_step(raw_child, fixture, programs, flows, agents));
+      }
+      Core::append(branches, object({{"when", Core::get(raw_branch, "when")}, {"steps", branch_steps}}));
+    }
+    Core::set(options, "branches", branches);
+    return Core::_flow_step(Value("branch"), Value(name), Value(), options);
+  }
+  if (kind == "while" || kind == "feedback") {
+    Core::set(options, "condition", flow_condition_from_spec(Core::get(step, "condition", Core::get(options, "condition", Value::object()))));
+    Value body_steps = Value::array();
+    for (const auto& raw_child : Core::iter(Core::get(step, "steps", Core::get(options, "steps", Value::array())))) {
+      Core::append(body_steps, build_flow_step(raw_child, fixture, programs, flows, agents));
+    }
+    Core::set(options, "steps", body_steps);
+    return Core::_flow_step(Value(kind), Value(name), Value(), options);
+  }
+  if (kind == "parallel" || kind == "parallelMerge") return Core::_flow_step(Value(kind), Value(name), Value(), options);
+  Value step_options = Core::map_merge(Core::get(step, "forward_options", Value::object()), options);
+  if (display(Core::get(step, "program", Value(""))) == "flow") {
+    Value nested = object({
+      {"flow_options", Core::get(step, "flow_options", object({{"id", Core::get(step, "program_id", Value("root." + name))}}))},
+      {"steps", Core::get(step, "steps", Value::array())},
+      {"returns", Core::get(step, "returns", Value::object())},
+      {"signature", Core::get(step, "signature", Core::get(fixture, "signature", Value("question:string -> answer:string")))}
+    });
+    flows.push_back(std::make_unique<AxFlow>(build_flow(nested, programs, flows, agents)));
+    return Core::_flow_step(Value(kind), Value(name), Core::agent_stage_ref(*flows.back()), step_options);
+  }
+  if (display(Core::get(step, "program", Value(""))) == "agent") {
+    agents.push_back(std::make_unique<AxAgent>(
+        Core::get(step, "signature", Core::get(fixture, "signature", Value("question:string -> answer:string"))),
+        Core::get(step, "options", Value::object())));
+    return Core::_flow_step(Value(kind), Value(name), Core::agent_stage_ref(*agents.back()), step_options);
+  }
+  Value signature = Core::get(step, "extended_signature", Core::get(step, "extendedSignature", Core::get(step, "signature", Core::get(fixture, "signature", Value("question:string -> answer:string")))));
+  programs.push_back(std::make_unique<AxGen>(Core::parse_signature(signature), Core::get(step, "options", Value::object())));
+  return Core::_flow_step(Value(kind), Value(name), Core::agent_stage_ref(*programs.back()), step_options);
+}
+
 static AxFlow build_flow(Value fixture, std::vector<std::unique_ptr<AxGen>>& programs, std::vector<std::unique_ptr<AxFlow>>& flows, std::vector<std::unique_ptr<AxAgent>>& agents) {
   Value flow_options = Core::get(fixture, "flow_options", object({{"id", Core::get(fixture, "program_id", Value("root.flow"))}}));
   AxFlow fl(flow_options);
   for (const auto& raw_step : Core::iter(Core::get(fixture, "steps", Value::array()))) {
-    Value step = raw_step;
-    std::string kind = display(Core::get(step, "kind", Value("execute")));
-    std::string name = display(Core::get(step, "name"));
-    if (kind == "parallel" || kind == "parallelMerge") {
-      fl.parallel(array({object({
-        {"kind", Value(kind)},
-        {"name", Value(name)},
-        {"options", Core::get(step, "options", Value::object())}
-      })}));
-      continue;
-    }
-    if (kind == "map") {
-      Value output = Core::get(step, "output", Value::object());
-      fl.map(name, [output](Value) { return output; }, Core::get(step, "options", Value::object()));
-      continue;
-    }
-    Value step_options = Core::map_merge(Core::get(step, "forward_options", Value::object()), Core::get(step, "options", Value::object()));
-    if (display(Core::get(step, "program", Value(""))) == "flow") {
-      Value nested = object({
-        {"flow_options", Core::get(step, "flow_options", object({{"id", Core::get(step, "program_id", Value("root." + name))}}))},
-        {"steps", Core::get(step, "steps", Value::array())},
-        {"returns", Core::get(step, "returns", Value::object())},
-        {"signature", Core::get(step, "signature", Core::get(fixture, "signature", Value("question:string -> answer:string")))}
-      });
-      flows.push_back(std::make_unique<AxFlow>(build_flow(nested, programs, flows, agents)));
-      if (kind == "derive") fl.derive(name, *flows.back(), step_options);
-      else fl.execute(name, *flows.back(), step_options);
-    } else if (display(Core::get(step, "program", Value(""))) == "agent") {
-      agents.push_back(std::make_unique<AxAgent>(
-          Core::get(step, "signature", Core::get(fixture, "signature", Value("question:string -> answer:string"))),
-          Core::get(step, "options", Value::object())));
-      if (kind == "derive") fl.derive(name, *agents.back(), step_options);
-      else fl.execute(name, *agents.back(), step_options);
-    } else {
-      Value sig = Core::parse_signature(Core::get(step, "signature", Core::get(fixture, "signature", Value("question:string -> answer:string"))));
-      programs.push_back(std::make_unique<AxGen>(sig, Core::get(step, "options", Value::object())));
-      if (kind == "derive") fl.derive(name, *programs.back(), step_options);
-      else fl.execute(name, *programs.back(), step_options);
-    }
+    fl.add_raw_step(build_flow_step(raw_step, fixture, programs, flows, agents));
   }
   if (!Core::get(fixture, "returns").is_null()) fl.returns(Core::get(fixture, "returns", Value::object()));
   if (!Core::get(fixture, "demos").is_null()) fl.set_demos(Core::get(fixture, "demos", Value::object()));
@@ -4962,8 +5241,11 @@ static void run_flow(Value fixture) {
       Core::set(cache_store, Core::_flow_cache_key(Core::get(fixture, "input", Value::object())), Core::get(fixture, "cache_seed_value"));
       Core::set(forward_options, "cache_store", cache_store);
     }
-    Value output = fl.forward(client, Core::get(fixture, "input", Value::object()), forward_options);
+    Value output = display(Core::get(fixture, "operation", Value(""))) == "streaming"
+      ? fl.streaming_forward(client, Core::get(fixture, "input", Value::object()), forward_options)
+      : fl.forward(client, Core::get(fixture, "input", Value::object()), forward_options);
     if (!Core::get(fixture, "expected_output").is_null()) assert_equal(output, Core::get(fixture, "expected_output"), "flow output");
+    if (!Core::get(fixture, "expected_streaming_output").is_null()) assert_equal(output, Core::get(fixture, "expected_streaming_output"), "flow streaming output");
     Value expected_count = Core::get(fixture, "expected_request_count");
     if (!expected_count.is_null() && client.requests.size() != static_cast<size_t>(std::stoul(display(expected_count)))) throw AxError("fixture", "expected request count mismatch");
     if (!Core::get(fixture, "expected_request_contains").is_null()) {
@@ -5063,6 +5345,14 @@ static void run(Value fixture) {
     run_ai_error(fixture);
   } else if (kind == "ai_unsupported") {
     run_ai_unsupported(fixture);
+  } else if (kind == "ai_provider_descriptor") {
+    run_ai_provider_descriptor(fixture);
+  } else if (kind == "ai_transcribe") {
+    run_ai_transcribe(fixture);
+  } else if (kind == "ai_speak") {
+    run_ai_speak(fixture);
+  } else if (kind == "ai_realtime") {
+    run_ai_realtime(fixture);
   } else {
     throw AxError("fixture", "unsupported C++ alpha fixture kind " + kind);
   }

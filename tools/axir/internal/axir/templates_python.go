@@ -17,6 +17,7 @@ from .ai import (
     AxBaseAI,
     AxUnsupportedCapabilityError,
     OpenAICompatibleClient,
+    OpenAIResponsesClient,
     ai,
 )
 from .gen import AxGen, AxMemory, ax
@@ -57,6 +58,7 @@ __all__ = [
     "Field",
     "FieldType",
     "OpenAICompatibleClient",
+    "OpenAIResponsesClient",
     "RuntimeCapabilities",
     "RuntimeEnvelope",
     "SignatureBuilder",
@@ -728,6 +730,10 @@ def _core_string_ends_with(value, suffix):
 
 def _core_string_join(sep, values):
     return str(sep).join(str(item) for item in values)
+
+
+def _core_string_lower(value):
+    return str(value).lower()
 
 
 def _core_string_format(template, *args):
@@ -1536,6 +1542,8 @@ def ai(provider: str = "openai", **options):
     normalized = provider.replace("-", "_").lower()
     if normalized in ("openai", "openai_compatible", "compatible"):
         return OpenAICompatibleClient(**options)
+    if normalized in ("openai_responses", "responses"):
+        return OpenAIResponsesClient(**options)
     raise ValueError(f"unsupported AxAI provider: {provider}")
 
 
@@ -1748,9 +1756,11 @@ class AxBaseAI(AIClient):
         errors["rate"] = errors["count"] / errors["total"] if errors["total"] else 0.0
 
 
-class OpenAICompatibleClient(AxBaseAI):
+class ProviderOperationClient(AxBaseAI):
     def __init__(
         self,
+        profile: str,
+        name: str,
         model: str = "gpt-4.1-mini",
         embed_model: str = "text-embedding-3-small",
         base_url: str | None = None,
@@ -1760,15 +1770,18 @@ class OpenAICompatibleClient(AxBaseAI):
         model_config: dict[str, Any] | None = None,
         transport: Callable[[dict[str, Any]], Any] | None = None,
     ):
+        descriptor = provider_descriptor(profile)
         super().__init__(
-            name="openai",
+            name=name,
             model=model,
             embed_model=embed_model,
             model_config=model_config,
             options=options,
-            features=default_features(),
+            features=descriptor.get("features") or default_features(),
         )
-        self.base_url = (base_url or os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com/v1").rstrip("/")
+        self.profile = profile
+        self.descriptor = descriptor
+        self.base_url = (base_url or os.environ.get("OPENAI_BASE_URL") or descriptor.get("baseUrl") or "https://api.openai.com/v1").rstrip("/")
         self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
         self.timeout = timeout
         self.transport = transport
@@ -1780,29 +1793,51 @@ class OpenAICompatibleClient(AxBaseAI):
         return False
 
     def _chat(self, request: dict[str, Any], options: dict[str, Any]):
-        payload = openai_build_chat_request(request)
+        payload = provider_build_chat_request(self.profile, request)
         if payload.get("stream"):
             return self._stream_chat(payload, request)
-        raw = self._request_json("/chat/completions", payload, stream=False)
-        return openai_normalize_chat_response(raw, self.name, payload.get("model"))
+        endpoint = self._operation_path("chat")
+        raw = self._request_json(endpoint, payload, stream=False)
+        return provider_normalize_chat_response(self.profile, raw, self.name, payload.get("model"))
 
     def _embed(self, request: dict[str, Any], options: dict[str, Any]):
-        payload = openai_build_embed_request(request)
-        raw = self._request_json("/embeddings", payload, stream=False)
-        return openai_normalize_embed_response(raw, self.name, payload.get("model"))
+        payload = provider_build_embed_request(self.profile, request)
+        endpoint = self._operation_path("embed")
+        raw = self._request_json(endpoint, payload, stream=False)
+        return provider_normalize_embed_response(self.profile, raw, self.name, payload.get("model"))
 
     def _stream_chat(self, payload: dict[str, Any], request: dict[str, Any]):
-        raw = self._request_json("/chat/completions", payload, stream=True)
+        endpoint = self._operation_path("stream_chat")
+        raw = self._request_json(endpoint, payload, stream=True)
         state: dict[str, Any] = {}
         for event in _iter_sse_json(raw):
-            yield openai_normalize_stream_delta(event, state, self.name, payload.get("model"))
+            yield provider_normalize_stream_delta(self.profile, event, state, self.name, payload.get("model"))
 
-    def _request_json(self, endpoint: str, payload: dict[str, Any], *, stream: bool):
+    def transcribe(self, request: dict[str, Any], options: dict[str, Any] | None = None):
+        payload = provider_build_transcribe_request(self.profile, request)
+        raw = self._request_json(self._operation_path("transcribe"), payload, stream=False, body_key="data")
+        return provider_normalize_transcribe_response(self.profile, raw)
+
+    def speak(self, request: dict[str, Any], options: dict[str, Any] | None = None):
+        payload = provider_build_speak_request(self.profile, request)
+        raw = self._request_json(self._operation_path("speak"), payload, stream=False)
+        return provider_normalize_speak_response(self.profile, raw, request)
+
+    def realtime(self, events: Iterable[dict[str, Any]], model: str | None = None):
+        state: dict[str, Any] = {}
+        for event in events:
+            yield provider_normalize_realtime_event(self.profile, event, state, self.name, model or self.model)
+
+    def _operation_path(self, operation: str):
+        descriptor = provider_operation_descriptor(self.profile, operation)
+        return descriptor.get("path", "/" + operation)
+
+    def _request_json(self, endpoint: str, payload: dict[str, Any], *, stream: bool, body_key: str = "json"):
         call = {
             "method": "POST",
             "url": self.base_url + endpoint,
             "headers": self._headers(),
-            "json": payload,
+            body_key: payload,
             "stream": stream,
         }
         if self.transport:
@@ -1845,9 +1880,38 @@ class OpenAICompatibleClient(AxBaseAI):
         }
 
 
+class OpenAICompatibleClient(ProviderOperationClient):
+    def __init__(self, **options):
+        embed_model = options.pop("embed_model", None)
+        if embed_model is None:
+            embed_model = options.pop("embedModel", "text-embedding-3-small")
+        super().__init__(
+            "openai-compatible",
+            "openai",
+            model=options.pop("model", "gpt-4.1-mini"),
+            embed_model=embed_model,
+            **options,
+        )
+
+
+class OpenAIResponsesClient(ProviderOperationClient):
+    def __init__(self, **options):
+        embed_model = options.pop("embed_model", None)
+        if embed_model is None:
+            embed_model = options.pop("embedModel", "text-embedding-ada-002")
+        super().__init__(
+            "openai-responses",
+            "openai-responses",
+            model=options.pop("model", "gpt-4o"),
+            embed_model=embed_model,
+            **options,
+        )
+
+
 def _core_not(value): return not value
 def _core_and(left, right): return bool(left and right)
 def _core_or(left, right): return bool(left or right)
+def _core_add(left, right): return left + right
 def _core_eq(left, right): return left == right
 def _core_ne(left, right): return left != right
 def _core_gte(left, right): return left >= right
@@ -1918,6 +1982,18 @@ def _core_string_starts_with(value, prefix):
     return isinstance(value, str) and value.startswith(str(prefix))
 
 
+def _core_string_ends_with(value, suffix):
+    return str(value).endswith(str(suffix))
+
+
+def _core_string_join(sep, values):
+    return str(sep).join(str(item) for item in values)
+
+
+def _core_string_lower(value):
+    return str(value).lower()
+
+
 def _core_string_format(template, *args):
     return str(template).format(*args)
 
@@ -1955,6 +2031,35 @@ def _core_ai_error_status(message, status=None, code=None, response_body=None, r
 
 
 # AXIR_CORE_AI_FUNCTIONS
+
+for _axir_provider_public_name in (
+    "provider_descriptor",
+    "provider_operation_descriptor",
+    "provider_build_chat_request",
+    "provider_build_embed_request",
+    "provider_normalize_chat_response",
+    "provider_normalize_stream_delta",
+    "provider_normalize_embed_response",
+    "provider_build_transcribe_request",
+    "provider_build_speak_request",
+    "provider_normalize_transcribe_response",
+    "provider_normalize_speak_response",
+    "provider_normalize_realtime_event",
+    "openai_build_chat_request",
+    "openai_build_embed_request",
+    "openai_normalize_chat_response",
+    "openai_normalize_stream_delta",
+    "openai_normalize_embed_response",
+    "openai_responses_build_chat_request",
+    "openai_responses_normalize_chat_response",
+    "openai_responses_normalize_stream_delta",
+    "openai_responses_build_transcribe_request",
+    "openai_responses_build_speak_request",
+    "openai_responses_normalize_realtime_event",
+):
+    if _axir_provider_public_name in globals():
+        globals().setdefault(f"_{_axir_provider_public_name}", globals()[_axir_provider_public_name])
+del _axir_provider_public_name
 
 
 def _coerce_chat_request(request: dict[str, Any]):
@@ -2346,6 +2451,8 @@ def _core_not(value): return not value
 def _core_or(left, right): return bool(left or right)
 def _core_eq(left, right): return left == right
 def _core_ne(left, right): return left != right
+def _core_lt(left, right): return left < right
+def _core_lte(left, right): return left <= right
 def _core_gt(left, right): return left > right
 def _core_gte(left, right): return left >= right
 def _core_add(left, right): return left + right
@@ -2496,6 +2603,10 @@ def _core_stream_event_content_parts(event) -> list[str]:
 
 def _core_string_join(sep, values):
     return str(sep).join(str(item) for item in values)
+
+
+def _core_string_str(value):
+    return str(value)
 
 
 def _core_axgen_value_text(value):
@@ -2815,6 +2926,71 @@ class _FlowCallable:
         return self.fn(copy.deepcopy(state or {}))
 
 
+def _flow_get_state_value(state, field, default=None):
+    if not field:
+        return default
+    cur = state or {}
+    for part in str(field).split("."):
+        if isinstance(cur, dict):
+            cur = cur.get(part, default)
+        else:
+            return default
+    return cur
+
+
+def _flow_eval_spec(spec, state):
+    if not isinstance(spec, dict):
+        return spec
+    op = spec.get("op", "value")
+    if op == "field":
+        return _flow_get_state_value(state, spec.get("field"), spec.get("default"))
+    if op == "len":
+        return len(_flow_get_state_value(state, spec.get("field"), []) or [])
+    if "value" in spec:
+        return spec.get("value")
+    return spec
+
+
+def _flow_condition_from_spec(spec):
+    def _condition(state):
+        if not isinstance(spec, dict):
+            return bool(spec)
+        op = spec.get("op", "truthy")
+        if op == "truthy":
+            return bool(_flow_get_state_value(state, spec.get("field")))
+        if op == "field":
+            return _flow_get_state_value(state, spec.get("field"))
+        if op == "lt":
+            return (_flow_get_state_value(state, spec.get("field"), 0) or 0) < spec.get("value", 0)
+        if op == "eq":
+            return _flow_get_state_value(state, spec.get("field")) == spec.get("value")
+        if op == "always":
+            return bool(spec.get("value", True))
+        return False
+    return _FlowCallable(_condition)
+
+
+def _flow_mapper_from_spec(spec):
+    def _mapper(state):
+        out = dict(state or {})
+        if not isinstance(spec, dict):
+            return out
+        op = spec.get("op", "set")
+        if op == "set":
+            out.update(copy.deepcopy(spec.get("values") or {}))
+        elif op == "increment":
+            field = spec.get("field")
+            out[field] = (_flow_get_state_value(out, field, 0) or 0) + spec.get("by", 1)
+        elif op == "append":
+            field = spec.get("field")
+            value = _flow_get_state_value(out, spec.get("valueField")) if spec.get("valueField") else spec.get("value")
+            out[field] = list(_flow_get_state_value(out, field, []) or []) + [value]
+        elif op == "copy":
+            out[spec.get("to")] = _flow_get_state_value(out, spec.get("from"))
+        return out
+    return _FlowCallable(_mapper)
+
+
 class AxProgram:
     def forward(self, client, values, options=None):
         raise NotImplementedError
@@ -2838,6 +3014,34 @@ class AxFlow(AxProgram):
 
     def map(self, name: str, mapper: Callable[[dict[str, Any]], Any], options: dict[str, Any] | None = None):
         return self._add_step("map", name, _FlowCallable(mapper), options or {})
+
+    def branch(self, name: str, predicate: Callable[[dict[str, Any]], Any], branches: list[dict[str, Any]], options: dict[str, Any] | None = None):
+        opts = dict(options or {})
+        opts["predicate"] = _FlowCallable(predicate)
+        opts["branches"] = list(branches or [])
+        return self._add_step("branch", name, None, opts)
+
+    def while_loop(self, name: str, condition: Callable[[dict[str, Any]], bool], steps: list[dict[str, Any]], max_iterations: int = 100, options: dict[str, Any] | None = None):
+        opts = dict(options or {})
+        opts["condition"] = _FlowCallable(condition)
+        opts["steps"] = list(steps or [])
+        opts["maxIterations"] = max_iterations
+        return self._add_step("while", name, None, opts)
+
+    def feedback(self, name: str, condition: Callable[[dict[str, Any]], bool], steps: list[dict[str, Any]], max_iterations: int = 10, options: dict[str, Any] | None = None):
+        opts = dict(options or {})
+        opts["condition"] = _FlowCallable(condition)
+        opts["steps"] = list(steps or [])
+        opts["maxIterations"] = max_iterations
+        opts.setdefault("label", name)
+        return self._add_step("feedback", name, None, opts)
+
+    def node_extended(self, name: str, base_signature: str, extensions: dict[str, Any] | None = None, options: dict[str, Any] | None = None):
+        signature = (extensions or {}).get("extended_signature") or (extensions or {}).get("extendedSignature") or base_signature
+        return self.execute(name, ax(signature, options or {}), options or {})
+
+    def nx(self, name: str, base_signature: str, extensions: dict[str, Any] | None = None, options: dict[str, Any] | None = None):
+        return self.node_extended(name, base_signature, extensions, options)
 
     def parallel(self, steps):
         for step in steps or []:
@@ -2941,6 +3145,9 @@ class AxFlow(AxProgram):
     def forward(self, client: AIClient, values: dict[str, Any], options: dict[str, Any] | None = None):
         return _flow_forward(self.state, client, values or {}, options or {})
 
+    def streaming_forward(self, client: AIClient, values: dict[str, Any], options: dict[str, Any] | None = None):
+        yield {"version": 1, "index": 0, "delta": self.forward(client, values or {}, options or {})}
+
     def _add_step(self, kind, name, program, options):
         _flow_add_step(self.state, _flow_step(kind, name, program, options or {}))
         return self
@@ -3033,6 +3240,14 @@ def _core_map_delete(target, key):
 
 def _core_string_slice(value, start, end=None):
     return str(value)[int(start):] if end is None else str(value)[int(start):int(end)]
+
+
+def _core_string_split(value, sep):
+    return str(value).split(str(sep))
+
+
+def _core_string_str(value):
+    return str(value)
 
 
 def _core_string_starts_with(value, prefix):
@@ -3417,6 +3632,8 @@ def _core_or(left, right): return bool(left or right)
 def _core_truthy(value): return bool(value)
 def _core_eq(left, right): return left == right
 def _core_ne(left, right): return left != right
+def _core_lt(left, right): return left < right
+def _core_lte(left, right): return left <= right
 def _core_gt(left, right): return left > right
 def _core_gte(left, right): return left >= right
 def _core_add(left, right): return left + right
@@ -3495,7 +3712,12 @@ def _core_list_get(values, index, default=None):
 
 def _core_json_stringify(value):
     import json
-    return json.dumps(value or {}, sort_keys=True)
+    return json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+
+def _core_json_stable_stringify(value):
+    import json
+    return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
 
 def _core_json_parse(value):
@@ -3504,6 +3726,15 @@ def _core_json_parse(value):
 
 def _core_string_format(template, *args):
     return str(template).format(*args)
+
+
+def _core_string_slice(value, start, end=None):
+    text = str(value)
+    s = max(0, min(len(text), int(start)))
+    if end is None:
+        return text[s:]
+    e = max(s, min(len(text), int(end)))
+    return text[s:e]
 
 
 def _core_regex_replace(pattern, repl, value):
@@ -3714,9 +3945,17 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .ai import AxAIServiceError, AxBaseAI, OpenAICompatibleClient
+from .ai import AxAIServiceError, AxBaseAI, OpenAICompatibleClient, OpenAIResponsesClient, provider_descriptor
 from .gen import ax, fold_stream
-from .flow import _flow_cache_key, flow
+from .flow import (
+    _FlowCallable,
+    _flow_add_step,
+    _flow_cache_key,
+    _flow_condition_from_spec,
+    _flow_mapper_from_spec,
+    _flow_step,
+    flow,
+)
 from .agent import (
     AxAgent,
     AxAgentClarificationError,
@@ -3724,6 +3963,7 @@ from .agent import (
     AxCodeSession,
     OptimizerEngine,
     _adjust_optimization_score_for_actions,
+    _agent_context_fixture_result,
     _build_agent_eval_prediction,
     _build_optimizer_evidence_batch,
     _build_optimization_eval_result,
@@ -4053,6 +4293,14 @@ def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
             _run_ai_error(fixture)
         elif kind == "ai_unsupported":
             _run_ai_unsupported(fixture)
+        elif kind == "ai_provider_descriptor":
+            _run_ai_provider_descriptor(fixture)
+        elif kind == "ai_transcribe":
+            _run_ai_transcribe(fixture)
+        elif kind == "ai_speak":
+            _run_ai_speak(fixture)
+        elif kind == "ai_realtime":
+            _run_ai_realtime(fixture)
         elif kind == "agent_forward":
             _run_agent_forward(fixture)
         elif kind == "agent_runtime_policy":
@@ -4278,34 +4526,51 @@ def _run_forward(fixture):
                 raise FixtureError(f"chat prompt missing {item!r}: {prompt_text}")
 
 
+def _flow_build_step_from_fixture(step, fixture):
+    kind = step.get("kind", "execute")
+    name = step.get("name")
+    options = copy.deepcopy(step.get("options") or {})
+    if kind == "map":
+        mapper = _flow_mapper_from_spec(step["mapper"]) if "mapper" in step else _FlowCallable(lambda _state, output=copy.deepcopy(step.get("output") or {}): copy.deepcopy(output))
+        return _flow_step("map", name, mapper, options)
+    if kind == "branch":
+        predicate_spec = step.get("predicate", options.get("predicate"))
+        options["predicate"] = _flow_condition_from_spec(predicate_spec)
+        branches = []
+        for branch in step.get("branches", options.get("branches") or []):
+            branches.append({
+                "when": branch.get("when"),
+                "steps": [_flow_build_step_from_fixture(child, fixture) for child in branch.get("steps") or []],
+            })
+        options["branches"] = branches
+        return _flow_step("branch", name, None, options)
+    if kind == "while" or kind == "feedback":
+        condition_spec = step.get("condition", options.get("condition"))
+        options["condition"] = _flow_condition_from_spec(condition_spec)
+        options["steps"] = [_flow_build_step_from_fixture(child, fixture) for child in step.get("steps", options.get("steps") or [])]
+        return _flow_step(kind, name, None, options)
+    if kind == "parallel" or kind == "parallelMerge":
+        return _flow_step(kind, name, None, options)
+    step_options = {**(step.get("forward_options") or {}), **options}
+    if step.get("program") == "flow":
+        program = _build_flow({
+            "flow_options": step.get("flow_options") or {"id": step.get("program_id", f"root.{name}")},
+            "steps": step.get("steps") or [],
+            "returns": step.get("returns") or {},
+            "signature": step.get("signature", fixture.get("signature", "question:string -> answer:string")),
+        })
+    elif step.get("program") == "agent":
+        program = agent(step.get("signature", fixture.get("signature", "question:string -> answer:string")), step.get("options") or {})
+    else:
+        signature = step.get("extended_signature") or step.get("extendedSignature") or step.get("signature", fixture.get("signature", "question:string -> answer:string"))
+        program = ax(signature, step.get("options") or {})
+    return _flow_step(kind, name, program, step_options)
+
+
 def _build_flow(fixture):
     fl = flow(fixture.get("flow_options") or {"id": fixture.get("program_id", "root.flow")})
     for step in fixture.get("steps") or []:
-        kind = step.get("kind", "execute")
-        name = step.get("name")
-        if kind == "parallel" or kind == "parallelMerge":
-            fl.parallel([{"kind": kind, "name": name, "program": None, "options": step.get("options") or {}}])
-            continue
-        if kind == "map":
-            output = copy.deepcopy(step.get("output") or {})
-            fl.map(name, lambda _state, output=output: copy.deepcopy(output), step.get("options") or {})
-            continue
-        if step.get("program") == "flow":
-            program = _build_flow({
-                "flow_options": step.get("flow_options") or {"id": step.get("program_id", f"root.{name}")},
-                "steps": step.get("steps") or [],
-                "returns": step.get("returns") or {},
-                "signature": step.get("signature", fixture.get("signature", "question:string -> answer:string")),
-            })
-        elif step.get("program") == "agent":
-            program = agent(step.get("signature", fixture.get("signature", "question:string -> answer:string")), step.get("options") or {})
-        else:
-            program = ax(step.get("signature", fixture.get("signature", "question:string -> answer:string")), step.get("options") or {})
-        step_options = {**(step.get("forward_options") or {}), **(step.get("options") or {})}
-        if kind == "derive":
-            fl.derive(name, program, step_options)
-        else:
-            fl.execute(name, program, step_options)
+        _flow_add_step(fl.state, _flow_build_step_from_fixture(step, fixture))
     if "returns" in fixture:
         fl.returns(fixture.get("returns") or {})
     if "demos" in fixture:
@@ -4345,7 +4610,10 @@ def _run_flow(fixture):
         if "cache_seed_value" in fixture:
             cache_store = forward_options.setdefault("cache_store", {})
             cache_store[_flow_cache_key(fixture.get("input") or {})] = copy.deepcopy(fixture.get("cache_seed_value"))
-        output = fl.forward(client, fixture.get("input") or {}, forward_options)
+        if fixture.get("operation") == "streaming":
+            output = list(fl.streaming_forward(client, fixture.get("input") or {}, forward_options))
+        else:
+            output = fl.forward(client, fixture.get("input") or {}, forward_options)
     except Exception as exc:
         expected = fixture.get("expected_error_contains")
         if expected and expected in str(exc):
@@ -4355,6 +4623,8 @@ def _run_flow(fixture):
         raise FixtureError("expected flow to fail")
     if "expected_output" in fixture:
         _assert_equal(output, fixture["expected_output"], "flow output")
+    if "expected_streaming_output" in fixture:
+        _assert_equal(output, fixture["expected_streaming_output"], "flow streaming output")
     if "expected_request_count" in fixture and len(client.requests) != fixture["expected_request_count"]:
         raise FixtureError(f"expected {fixture['expected_request_count']} requests, got {len(client.requests)}")
     if "expected_request_contains" in fixture:
@@ -4687,6 +4957,15 @@ def _run_agent_runtime_policy(fixture):
                 _assert_subset(result, fixture.get("expected_replay_result_subset"), "agent replay")
         if "restore_runtime_state" in fixture:
             ag.restore_runtime_state(fixture.get("restore_runtime_state") or {})
+        if "context_operation" in fixture:
+            result = _agent_context_fixture_result(ag.state, fixture)
+            if "expected_context_result" in fixture:
+                _assert_equal(result, fixture.get("expected_context_result"), "agent context result")
+            if "expected_context_result_subset" in fixture:
+                _assert_subset(result, fixture.get("expected_context_result_subset"), "agent context result")
+            if "expected_context_events_subset" in fixture:
+                exported = (result or {}).get("exported") or {}
+                _assert_list_subset(exported.get("context_events") or [], fixture.get("expected_context_events_subset"), "agent context events")
         if "final_payload" in fixture:
             payload = _normalize_agent_final_payload(fixture.get("final_payload"))
             _assert_equal(payload, fixture.get("expected_final_payload"), "final payload")
@@ -5002,6 +5281,8 @@ def _run_ai_error(fixture):
             list(client.stream(fixture["request"], fixture.get("options")))
         elif method == "embed":
             client.embed(fixture["request"], fixture.get("options"))
+        elif method in ("transcribe", "speak"):
+            getattr(client, method)(fixture.get("request") or {}, fixture.get("options"))
         else:
             client.chat(fixture["request"], fixture.get("options"))
     except Exception as exc:
@@ -5029,6 +5310,35 @@ def _run_ai_unsupported(fixture):
             raise FixtureError(f"expected error containing {expected!r}, got {exc!r}")
         return
     raise FixtureError("expected unsupported capability error")
+
+
+def _run_ai_provider_descriptor(fixture):
+    descriptor = provider_descriptor(fixture.get("provider", "openai-compatible"))
+    if "expected_output" in fixture:
+        _assert_subset(descriptor, fixture["expected_output"], "provider descriptor")
+
+
+def _run_ai_transcribe(fixture):
+    client, transport = _openai_fixture_client(fixture)
+    result = client.transcribe(fixture.get("request") or {}, fixture.get("options"))
+    if "expected_output" in fixture:
+        _assert_equal(result, fixture["expected_output"], "ai transcribe output")
+    _assert_transport_request(fixture, transport)
+
+
+def _run_ai_speak(fixture):
+    client, transport = _openai_fixture_client(fixture)
+    result = client.speak(fixture.get("request") or {}, fixture.get("options"))
+    if "expected_output" in fixture:
+        _assert_equal(result, fixture["expected_output"], "ai speak output")
+    _assert_transport_request(fixture, transport)
+
+
+def _run_ai_realtime(fixture):
+    client, _ = _openai_fixture_client(fixture)
+    result = list(client.realtime(fixture.get("events") or []))
+    if "expected_output" in fixture:
+        _assert_equal(result, fixture["expected_output"], "ai realtime output")
 
 
 def _build_signature(fixture):
@@ -5118,9 +5428,13 @@ def _error_category(exc):
 
 def _openai_fixture_client(fixture):
     transport = FakeTransport(fixture.get("transport_responses") or fixture.get("responses") or [])
-    client = OpenAICompatibleClient(
-        model=fixture.get("model", "gpt-4.1-mini"),
-        embed_model=fixture.get("embed_model", "text-embedding-3-small"),
+    provider = str(fixture.get("provider", "openai-compatible")).replace("-", "_").lower()
+    client_cls = OpenAIResponsesClient if provider in ("openai_responses", "responses") else OpenAICompatibleClient
+    default_model = "gpt-4o" if client_cls is OpenAIResponsesClient else "gpt-4.1-mini"
+    default_embed_model = "text-embedding-ada-002" if client_cls is OpenAIResponsesClient else "text-embedding-3-small"
+    client = client_cls(
+        model=fixture.get("model", default_model),
+        embed_model=fixture.get("embed_model", default_embed_model),
         api_key="test-key",
         transport=transport,
         model_config=fixture.get("model_config"),
@@ -5295,12 +5609,12 @@ if __name__ == "__main__":
     main()
 `
 
-const pyProvidersInit = `from .openai import OpenAICompatibleClient
+const pyProvidersInit = `from .openai import OpenAICompatibleClient, OpenAIResponsesClient
 
-__all__ = ["OpenAICompatibleClient"]
+__all__ = ["OpenAICompatibleClient", "OpenAIResponsesClient"]
 `
 
-const pyOpenAIProvider = `from ..ai import OpenAICompatibleClient
+const pyOpenAIProvider = `from ..ai import OpenAICompatibleClient, OpenAIResponsesClient
 
-__all__ = ["OpenAICompatibleClient"]
+__all__ = ["OpenAICompatibleClient", "OpenAIResponsesClient"]
 `

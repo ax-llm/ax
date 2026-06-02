@@ -1,0 +1,31 @@
+{
+  "expected_output": {
+    "audio": "base64-speech",
+    "format": "mp3"
+  },
+  "expected_transport_request": {
+    "json": {
+      "input": "hello",
+      "model": "tts-1",
+      "response_format": "mp3",
+      "voice": "alloy"
+    },
+    "url": "https://api.openai.com/v1/audio/speech"
+  },
+  "kind": "ai_speak",
+  "name": "responses-speak",
+  "provider": "openai-responses",
+  "request": {
+    "format": "mp3",
+    "text": "hello",
+    "voice": "alloy"
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "audio": "base64-speech"
+      },
+      "status": 200
+    }
+  ]
+}

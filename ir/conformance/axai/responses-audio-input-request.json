@@ -1,0 +1,82 @@
+{
+  "expected_output": {
+    "model_usage": null,
+    "remote_id": "resp_audio",
+    "results": [
+      {
+        "content": "Heard it.",
+        "finish_reason": "stop",
+        "function_calls": [],
+        "id": "msg_audio",
+        "index": 0
+      }
+    ]
+  },
+  "expected_transport_request": {
+    "json": {
+      "input": [
+        {
+          "content": [
+            {
+              "text": "Transcribe this",
+              "type": "input_text"
+            },
+            {
+              "input_audio": {
+                "data": "UklGRg==",
+                "format": "wav"
+              },
+              "type": "input_audio"
+            }
+          ],
+          "role": "user"
+        }
+      ]
+    }
+  },
+  "kind": "ai_chat",
+  "name": "responses-audio-input-request",
+  "provider": "openai-responses",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": [
+          {
+            "text": "Transcribe this",
+            "type": "text"
+          },
+          {
+            "data": "UklGRg==",
+            "format": "wav",
+            "type": "audio"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "id": "resp_audio",
+        "model": "gpt-4o",
+        "output": [
+          {
+            "content": [
+              {
+                "text": "Heard it.",
+                "type": "output_text"
+              }
+            ],
+            "id": "msg_audio",
+            "type": "message"
+          }
+        ]
+      },
+      "status": 200
+    }
+  ]
+}
