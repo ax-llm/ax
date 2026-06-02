@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { axAIAnthropicDefaultConfig } from '../../../src/ax/ai/anthropic/api.js';
 import { axAIGoogleGeminiDefaultConfig } from '../../../src/ax/ai/google-gemini/api.js';
 import { axAIOpenAIResponsesDefaultConfig } from '../../../src/ax/ai/openai/responses_api_base.js';
 
@@ -34,6 +35,7 @@ const responsesDefaultModel = axAIOpenAIResponsesDefaultConfig()
   .model as string;
 const geminiDefaultModel = axAIGoogleGeminiDefaultConfig().model as string;
 const geminiDefaultEmbedModel = 'gemini-embedding-2';
+const anthropicDefaultModel = axAIAnthropicDefaultConfig().model as string;
 
 writeFixture('responses-provider-descriptor', {
   kind: 'ai_provider_descriptor',
@@ -115,6 +117,39 @@ writeFixture('gemini-provider-descriptor', {
         files: { supported: true, upload_method: 'cloud' },
       },
       caching: { supported: true, types: ['persistent'] },
+      thinking: true,
+    },
+  },
+});
+
+writeFixture('anthropic-provider-descriptor', {
+  kind: 'ai_provider_descriptor',
+  provider: 'anthropic',
+  expected_output: {
+    id: 'anthropic',
+    name: 'anthropic',
+    defaultModel: anthropicDefaultModel,
+    auth: 'anthropic_key',
+    baseUrl: 'https://api.anthropic.com/v1',
+    headers: {
+      'anthropic-version': '2023-06-01',
+      'anthropic-beta': 'structured-outputs-2025-11-13, web-search-2025-03-05',
+    },
+    operations: {
+      chat: { method: 'POST', path: '/messages', body: 'json', stream: false },
+      stream_chat: {
+        method: 'POST',
+        path: '/messages',
+        body: 'json',
+        stream: true,
+      },
+    },
+    features: {
+      media: {
+        images: { supported: true },
+        audio: { supported: false, output: { supported: false } },
+      },
+      caching: { supported: true, types: ['ephemeral_block'] },
       thinking: true,
     },
   },
@@ -524,6 +559,370 @@ writeFixture('responses-realtime-event', {
       },
     },
   ],
+});
+
+writeFixture('anthropic-simple-chat', {
+  kind: 'ai_chat',
+  provider: 'anthropic',
+  request: {
+    chat_prompt: [
+      { role: 'system', content: 'Answer briefly.', cache: true },
+      { role: 'user', content: 'What is Ax?' },
+    ],
+    model_config: {
+      stream: false,
+      maxTokens: 64,
+      temperature: 0.2,
+    },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        id: 'msg_anthropic_1',
+        type: 'message',
+        role: 'assistant',
+        content: [
+          {
+            type: 'text',
+            text: 'Ax is portable.',
+            citations: [
+              {
+                url: 'https://axllm.dev',
+                title: 'Ax',
+                cited_text: 'Ax docs',
+              },
+            ],
+          },
+        ],
+        model: anthropicDefaultModel,
+        stop_reason: 'end_turn',
+        usage: {
+          input_tokens: 8,
+          output_tokens: 3,
+          cache_creation_input_tokens: 2,
+          cache_read_input_tokens: 1,
+        },
+      },
+    },
+  ],
+  expected_output: {
+    results: [
+      {
+        index: 0,
+        id: 'msg_anthropic_1',
+        content: 'Ax is portable.',
+        function_calls: [],
+        finish_reason: 'stop',
+        citations: [
+          { url: 'https://axllm.dev', title: 'Ax', snippet: 'Ax docs' },
+        ],
+      },
+    ],
+    remote_id: 'msg_anthropic_1',
+    model_usage: {
+      ai: 'anthropic',
+      model: anthropicDefaultModel,
+      tokens: {
+        prompt_tokens: 8,
+        completion_tokens: 3,
+        total_tokens: 14,
+        cache_creation_tokens: 2,
+        cache_read_tokens: 1,
+      },
+    },
+  },
+  expected_transport_request: {
+    method: 'POST',
+    url: 'https://api.anthropic.com/v1/messages',
+    headers: {
+      'x-api-key': 'test-key',
+      'anthropic-version': '2023-06-01',
+    },
+    json: {
+      model: anthropicDefaultModel,
+      max_tokens: 64,
+      temperature: 0.2,
+      system: [
+        {
+          type: 'text',
+          text: 'Answer briefly.',
+          cache_control: { type: 'ephemeral' },
+        },
+      ],
+      messages: [{ role: 'user', content: 'What is Ax?' }],
+    },
+  },
+});
+
+writeFixture('anthropic-cache-tool-request', {
+  kind: 'ai_chat',
+  provider: 'anthropic',
+  request: {
+    chat_prompt: [
+      {
+        role: 'user',
+        cache: true,
+        content: [
+          { type: 'text', text: 'Look at this.' },
+          { type: 'image', mimeType: 'image/png', image: 'iVBORw0=' },
+        ],
+      },
+    ],
+    functions: [
+      {
+        name: 'search',
+        description: 'Search docs',
+        cache: true,
+        parameters: {
+          type: 'object',
+          properties: { query: { type: 'string' } },
+          required: ['query'],
+        },
+      },
+    ],
+    function_call: 'required',
+    model_config: { stream: false },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        id: 'msg_tool',
+        type: 'message',
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'toolu_1',
+            name: 'search',
+            input: { query: 'Look at this.' },
+          },
+        ],
+        model: anthropicDefaultModel,
+        stop_reason: 'tool_use',
+        usage: { input_tokens: 12, output_tokens: 4 },
+      },
+    },
+  ],
+  expected_output: {
+    results: [
+      {
+        index: 0,
+        id: 'msg_tool',
+        content: '',
+        function_calls: [
+          {
+            id: 'toolu_1',
+            type: 'function',
+            function: { name: 'search', params: { query: 'Look at this.' } },
+          },
+        ],
+        finish_reason: 'function_call',
+      },
+    ],
+    remote_id: 'msg_tool',
+    model_usage: {
+      ai: 'anthropic',
+      model: anthropicDefaultModel,
+      tokens: { prompt_tokens: 12, completion_tokens: 4, total_tokens: 16 },
+    },
+  },
+  expected_transport_request: {
+    json: {
+      tool_choice: { type: 'any' },
+      tools: [
+        {
+          name: 'search',
+          description: 'Search docs',
+          input_schema: {
+            type: 'object',
+            properties: { query: { type: 'string' } },
+            required: ['query'],
+          },
+          cache_control: { type: 'ephemeral' },
+        },
+      ],
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'Look at this.' },
+            {
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: 'image/png',
+                data: 'iVBORw0=',
+              },
+              cache_control: { type: 'ephemeral' },
+            },
+          ],
+        },
+      ],
+    },
+  },
+});
+
+writeFixture('anthropic-thinking-response', {
+  kind: 'ai_chat',
+  provider: 'anthropic',
+  model: 'claude-opus-4-8',
+  request: {
+    chat_prompt: [{ role: 'user', content: 'Think then answer.' }],
+    model_config: { stream: false, thinkingTokenBudget: 'high' },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        id: 'msg_think',
+        type: 'message',
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: 'plan', signature: 'sig1' },
+          { type: 'redacted_thinking', data: 'secret', signature: 'sig2' },
+          { type: 'text', text: 'Done.' },
+        ],
+        model: 'claude-opus-4-8',
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 6, output_tokens: 5, speed: 'standard' },
+      },
+    },
+  ],
+  expected_output: {
+    results: [
+      {
+        index: 0,
+        id: 'msg_think',
+        content: 'Done.',
+        function_calls: [],
+        finish_reason: 'stop',
+        thought: 'plansecret',
+        thought_blocks: [
+          { data: 'plan', encrypted: false, signature: 'sig1' },
+          { data: 'secret', encrypted: true, signature: 'sig2' },
+        ],
+      },
+    ],
+    remote_id: 'msg_think',
+    model_usage: {
+      ai: 'anthropic',
+      model: 'claude-opus-4-8',
+      tokens: {
+        prompt_tokens: 6,
+        completion_tokens: 5,
+        total_tokens: 11,
+      },
+    },
+  },
+  expected_transport_request: {
+    json: {
+      model: 'claude-opus-4-8',
+      thinking: { type: 'adaptive' },
+      output_config: { effort: 'high' },
+    },
+  },
+});
+
+writeFixture('anthropic-streaming-tool-thinking', {
+  kind: 'ai_stream',
+  provider: 'anthropic',
+  request: {
+    chat_prompt: [{ role: 'user', content: 'stream' }],
+  },
+  options: { stream: true },
+  transport_responses: [
+    {
+      status: 200,
+      body:
+        `data: {"type":"message_start","message":{"id":"msg_stream_a","type":"message","role":"assistant","content":[],"model":"${anthropicDefaultModel}","stop_reason":null,"usage":{"input_tokens":4,"output_tokens":0,"cache_read_input_tokens":1}}}\n\n` +
+        'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hel"}}\n\n' +
+        'data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_stream","name":"search","input":{}}}\n\n' +
+        'data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\\"query\\":\\"Ax\\"}"}}\n\n' +
+        'data: {"type":"content_block_delta","index":2,"delta":{"type":"thinking_delta","thinking":"plan"}}\n\n' +
+        'data: {"type":"message_delta","delta":{"stop_reason":"tool_use","stop_sequence":null},"usage":{"output_tokens":3}}\n\n',
+    },
+  ],
+  expected_output: [
+    {
+      results: [{ index: 0, id: 'msg_stream_a', content: '' }],
+      remote_id: 'msg_stream_a',
+      model_usage: {
+        ai: 'anthropic',
+        model: anthropicDefaultModel,
+        tokens: {
+          prompt_tokens: 4,
+          completion_tokens: 0,
+          total_tokens: 5,
+          cache_read_tokens: 1,
+        },
+      },
+    },
+    {
+      results: [{ index: 0, content: 'hel' }],
+      remote_id: 'msg_stream_a',
+    },
+    {
+      results: [
+        {
+          index: 0,
+          function_calls: [
+            {
+              id: 'toolu_stream',
+              type: 'function',
+              function: { name: 'search', params: '' },
+            },
+          ],
+        },
+      ],
+      remote_id: 'msg_stream_a',
+    },
+    {
+      results: [
+        {
+          index: 0,
+          function_calls: [
+            {
+              id: 'toolu_stream',
+              type: 'function',
+              function: { name: 'search', params: '{"query":"Ax"}' },
+            },
+          ],
+        },
+      ],
+      remote_id: 'msg_stream_a',
+    },
+    {
+      results: [
+        {
+          index: 0,
+          thought: 'plan',
+          thought_blocks: [{ data: 'plan', encrypted: false }],
+        },
+      ],
+      remote_id: 'msg_stream_a',
+    },
+    {
+      results: [{ index: 0, content: '', finish_reason: 'function_call' }],
+      remote_id: 'msg_stream_a',
+      model_usage: {
+        ai: 'anthropic',
+        model: anthropicDefaultModel,
+        tokens: {
+          prompt_tokens: 4,
+          completion_tokens: 3,
+          total_tokens: 8,
+          cache_creation_tokens: 0,
+          cache_read_tokens: 1,
+        },
+      },
+    },
+  ],
+  expected_transport_request: {
+    url: 'https://api.anthropic.com/v1/messages',
+    json: { stream: true },
+  },
 });
 
 writeFixture('gemini-simple-chat', {

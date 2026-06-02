@@ -28,7 +28,9 @@
   },
   "expected_transport_request": {
     "json": {
-      "include": ["file_search_call.results"],
+      "include": [
+        "file_search_call.results"
+      ],
       "input": [
         {
           "content": [
@@ -67,7 +69,9 @@
       }
     ],
     "model_config": {
-      "include": ["file_search_call.results"],
+      "include": [
+        "file_search_call.results"
+      ],
       "maxTokens": 64,
       "reasoning": {
         "effort": "low"

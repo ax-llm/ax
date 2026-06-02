@@ -1,0 +1,153 @@
+{
+  "expected_output": {
+    "model_usage": {
+      "ai": "anthropic",
+      "model": "claude-3-7-sonnet-latest",
+      "tokens": {
+        "completion_tokens": 4,
+        "prompt_tokens": 12,
+        "total_tokens": 16
+      }
+    },
+    "remote_id": "msg_tool",
+    "results": [
+      {
+        "content": "",
+        "finish_reason": "function_call",
+        "function_calls": [
+          {
+            "function": {
+              "name": "search",
+              "params": {
+                "query": "Look at this."
+              }
+            },
+            "id": "toolu_1",
+            "type": "function"
+          }
+        ],
+        "id": "msg_tool",
+        "index": 0
+      }
+    ]
+  },
+  "expected_transport_request": {
+    "json": {
+      "messages": [
+        {
+          "content": [
+            {
+              "text": "Look at this.",
+              "type": "text"
+            },
+            {
+              "cache_control": {
+                "type": "ephemeral"
+              },
+              "source": {
+                "data": "iVBORw0=",
+                "media_type": "image/png",
+                "type": "base64"
+              },
+              "type": "image"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "tool_choice": {
+        "type": "any"
+      },
+      "tools": [
+        {
+          "cache_control": {
+            "type": "ephemeral"
+          },
+          "description": "Search docs",
+          "input_schema": {
+            "properties": {
+              "query": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "query"
+            ],
+            "type": "object"
+          },
+          "name": "search"
+        }
+      ]
+    }
+  },
+  "kind": "ai_chat",
+  "name": "anthropic-cache-tool-request",
+  "provider": "anthropic",
+  "request": {
+    "chat_prompt": [
+      {
+        "cache": true,
+        "content": [
+          {
+            "text": "Look at this.",
+            "type": "text"
+          },
+          {
+            "image": "iVBORw0=",
+            "mimeType": "image/png",
+            "type": "image"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "function_call": "required",
+    "functions": [
+      {
+        "cache": true,
+        "description": "Search docs",
+        "name": "search",
+        "parameters": {
+          "properties": {
+            "query": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "query"
+          ],
+          "type": "object"
+        }
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "content": [
+          {
+            "id": "toolu_1",
+            "input": {
+              "query": "Look at this."
+            },
+            "name": "search",
+            "type": "tool_use"
+          }
+        ],
+        "id": "msg_tool",
+        "model": "claude-3-7-sonnet-latest",
+        "role": "assistant",
+        "stop_reason": "tool_use",
+        "type": "message",
+        "usage": {
+          "input_tokens": 12,
+          "output_tokens": 4
+        }
+      },
+      "status": 200
+    }
+  ]
+}

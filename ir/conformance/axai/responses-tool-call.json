@@ -35,7 +35,9 @@
                   "type": "string"
                 }
               },
-              "required": ["answer"],
+              "required": [
+                "answer"
+              ],
               "type": "object"
             }
           },
@@ -53,7 +55,9 @@
                 "type": "string"
               }
             },
-            "required": ["query"],
+            "required": [
+              "query"
+            ],
             "type": "object"
           },
           "type": "function"
@@ -82,7 +86,9 @@
               "type": "string"
             }
           },
-          "required": ["query"],
+          "required": [
+            "query"
+          ],
           "type": "object"
         }
       }
@@ -99,7 +105,9 @@
               "type": "string"
             }
           },
-          "required": ["answer"],
+          "required": [
+            "answer"
+          ],
           "type": "object"
         }
       },

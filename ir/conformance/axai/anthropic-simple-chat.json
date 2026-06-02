@@ -1,0 +1,112 @@
+{
+  "expected_output": {
+    "model_usage": {
+      "ai": "anthropic",
+      "model": "claude-3-7-sonnet-latest",
+      "tokens": {
+        "cache_creation_tokens": 2,
+        "cache_read_tokens": 1,
+        "completion_tokens": 3,
+        "prompt_tokens": 8,
+        "total_tokens": 14
+      }
+    },
+    "remote_id": "msg_anthropic_1",
+    "results": [
+      {
+        "citations": [
+          {
+            "snippet": "Ax docs",
+            "title": "Ax",
+            "url": "https://axllm.dev"
+          }
+        ],
+        "content": "Ax is portable.",
+        "finish_reason": "stop",
+        "function_calls": [],
+        "id": "msg_anthropic_1",
+        "index": 0
+      }
+    ]
+  },
+  "expected_transport_request": {
+    "headers": {
+      "anthropic-version": "2023-06-01",
+      "x-api-key": "test-key"
+    },
+    "json": {
+      "max_tokens": 64,
+      "messages": [
+        {
+          "content": "What is Ax?",
+          "role": "user"
+        }
+      ],
+      "model": "claude-3-7-sonnet-latest",
+      "system": [
+        {
+          "cache_control": {
+            "type": "ephemeral"
+          },
+          "text": "Answer briefly.",
+          "type": "text"
+        }
+      ],
+      "temperature": 0.2
+    },
+    "method": "POST",
+    "url": "https://api.anthropic.com/v1/messages"
+  },
+  "kind": "ai_chat",
+  "name": "anthropic-simple-chat",
+  "provider": "anthropic",
+  "request": {
+    "chat_prompt": [
+      {
+        "cache": true,
+        "content": "Answer briefly.",
+        "role": "system"
+      },
+      {
+        "content": "What is Ax?",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "maxTokens": 64,
+      "stream": false,
+      "temperature": 0.2
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "content": [
+          {
+            "citations": [
+              {
+                "cited_text": "Ax docs",
+                "title": "Ax",
+                "url": "https://axllm.dev"
+              }
+            ],
+            "text": "Ax is portable.",
+            "type": "text"
+          }
+        ],
+        "id": "msg_anthropic_1",
+        "model": "claude-3-7-sonnet-latest",
+        "role": "assistant",
+        "stop_reason": "end_turn",
+        "type": "message",
+        "usage": {
+          "cache_creation_input_tokens": 2,
+          "cache_read_input_tokens": 1,
+          "input_tokens": 8,
+          "output_tokens": 3
+        }
+      },
+      "status": 200
+    }
+  ]
+}

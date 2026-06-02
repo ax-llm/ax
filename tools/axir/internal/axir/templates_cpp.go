@@ -44,6 +44,7 @@ class AxAIService;
 class OpenAICompatibleClient;
 class OpenAIResponsesClient;
 class GoogleGeminiClient;
+class AnthropicClient;
 class OptimizerEngine;
 class OptimizerEvaluator;
 
@@ -351,6 +352,20 @@ struct Core {
   static Value _gemini_extract_citations_impl(Value candidate);
   static Value _gemini_usage_impl(Value usage);
   static Value gemini_normalize_embed_response(Value raw, Value ai_name, Value model);
+  static Value anthropic_build_chat_request(Value request);
+  static Value _anthropic_apply_model_config_impl(Value payload, Value model_config, Value model);
+  static Value _anthropic_thinking_config_impl(Value model, Value level);
+  static Value _anthropic_message_impl(Value message);
+  static Value _anthropic_content_parts_impl(Value content);
+  static Value _anthropic_content_part_impl(Value part);
+  static Value _anthropic_tool_spec_impl(Value fn);
+  static Value _anthropic_tool_choice_impl(Value request);
+  static Value anthropic_normalize_chat_response(Value raw, Value ai_name, Value model);
+  static Value _anthropic_merge_response_block_impl(Value text_parts, Value function_calls, Value thought_parts, Value thought_blocks, Value citations, Value block);
+  static Value _anthropic_append_citations_impl(Value out, Value block);
+  static Value _anthropic_finish_reason_impl(Value reason);
+  static Value _anthropic_usage_impl(Value usage);
+  static Value anthropic_normalize_stream_delta(Value event, Value state, Value ai_name, Value model);
   static Value build_chat_request(Value service, Value request, Value options);
   static Value normalize_chat_response(Value raw);
   static Value normalize_stream_delta(Value raw, Value state);
@@ -603,6 +618,11 @@ class OpenAIResponsesClient : public OpenAICompatibleClient {
 class GoogleGeminiClient : public OpenAICompatibleClient {
  public:
   explicit GoogleGeminiClient(Value options = Value::object(), Transport* transport = nullptr);
+};
+
+class AnthropicClient : public OpenAICompatibleClient {
+ public:
+  explicit AnthropicClient(Value options = Value::object(), Transport* transport = nullptr);
 };
 
 class Tool {
@@ -2738,6 +2758,14 @@ GoogleGeminiClient::GoogleGeminiClient(Value options, Transport* transport)
         return out;
       }(), transport, "gemini-2.5-flash", "gemini-embedding-2") {}
 
+AnthropicClient::AnthropicClient(Value options, Transport* transport)
+    : OpenAICompatibleClient("anthropic", "anthropic", [&]() {
+        Value out = std::move(options);
+        if (Core::get(out, "api_key").is_null() && Core::get(out, "apiKey").is_null()) Core::set(out, "api_key", env_or_default("ANTHROPIC_API_KEY", ""));
+        if (Core::get(out, "base_url").is_null() && Core::get(out, "baseUrl").is_null()) Core::set(out, "base_url", env_or_default("ANTHROPIC_BASE_URL", "https://api.anthropic.com/v1"));
+        return out;
+      }(), transport, "claude-3-7-sonnet-latest", "") {}
+
 Value OpenAICompatibleClient::do_chat(Value request, Value) {
   Value payload = Core::provider_build_chat_request(profile_, request);
   bool stream = Core::truthy(Core::get(payload, "stream"));
@@ -2802,6 +2830,10 @@ Value OpenAICompatibleClient::headers() const {
   Value headers = Value::object();
   Core::set(headers, "Content-Type", "application/json");
   if (str(Core::get(descriptor_, "auth")) == "bearer") Core::set(headers, "Authorization", "Bearer " + api_key_);
+  if (str(Core::get(descriptor_, "auth")) == "anthropic_key") Core::set(headers, "x-api-key", api_key_);
+  for (const auto& entry : object_ref(Core::get(descriptor_, "headers", Value::object()))) {
+    Core::set(headers, entry.first, str(entry.second));
+  }
   return headers;
 }
 
@@ -3790,6 +3822,9 @@ std::shared_ptr<AxAIService> ai(const std::string& provider, Value options) {
   }
   if (normalized == "google_gemini" || normalized == "gemini") {
     return std::make_shared<GoogleGeminiClient>(std::move(options));
+  }
+  if (normalized == "anthropic" || normalized == "claude") {
+    return std::make_shared<AnthropicClient>(std::move(options));
   }
   throw AxError("runtime", "unsupported AxAI provider: " + provider);
 }
@@ -5024,6 +5059,7 @@ struct ClientFixture {
     std::replace(provider.begin(), provider.end(), '-', '_');
     std::transform(provider.begin(), provider.end(), provider.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
     if (provider == "google_gemini" || provider == "gemini") return std::make_unique<GoogleGeminiClient>(options(fixture), transport);
+    if (provider == "anthropic" || provider == "claude") return std::make_unique<AnthropicClient>(options(fixture), transport);
     if (provider == "openai_responses" || provider == "responses") return std::make_unique<OpenAIResponsesClient>(options(fixture), transport);
     return std::make_unique<OpenAICompatibleClient>(options(fixture), transport);
   }
@@ -5035,8 +5071,9 @@ struct ClientFixture {
     std::transform(provider.begin(), provider.end(), provider.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
     bool responses_provider = provider == "openai_responses" || provider == "responses";
     bool gemini_provider = provider == "google_gemini" || provider == "gemini";
-    Core::set(out, "model", Core::get(fixture, "model", gemini_provider ? "gemini-2.5-flash" : responses_provider ? "gpt-4o" : "gpt-4.1-mini"));
-    Core::set(out, "embed_model", Core::get(fixture, "embed_model", gemini_provider ? "gemini-embedding-2" : responses_provider ? "text-embedding-ada-002" : "text-embedding-3-small"));
+    bool anthropic_provider = provider == "anthropic" || provider == "claude";
+    Core::set(out, "model", Core::get(fixture, "model", anthropic_provider ? "claude-3-7-sonnet-latest" : gemini_provider ? "gemini-2.5-flash" : responses_provider ? "gpt-4o" : "gpt-4.1-mini"));
+    Core::set(out, "embed_model", Core::get(fixture, "embed_model", anthropic_provider ? "" : gemini_provider ? "gemini-embedding-2" : responses_provider ? "text-embedding-ada-002" : "text-embedding-3-small"));
     Core::set(out, "api_key", "test-key");
     Core::set(out, "model_config", Core::get(fixture, "model_config", Value::object()));
     return out;

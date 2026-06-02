@@ -25,6 +25,14 @@ module @ax.provider version "0.1" {
     type default_base_url = "https://generativelanguage.googleapis.com/v1beta"
   }
 
+  op ax.provider.class @AnthropicClient {
+    attr core_kind = "record"
+    attr public = true
+    ref interface = @AxAIService
+    tag "anthropic"
+    type default_base_url = "https://api.anthropic.com/v1"
+  }
+
   op ax.provider.semantic @openai_build_chat_request {
     attr core_kind = "func"
     attr effect = "throws"
@@ -2418,6 +2426,9 @@ module @ax.provider version "0.1" {
       %is_gemini_alias = core.call intrinsic.eq(%normalized, "gemini")
       %is_gemini_one = core.call intrinsic.or(%is_gemini_google, %is_gemini_google_under)
       %is_gemini = core.call intrinsic.or(%is_gemini_one, %is_gemini_alias)
+      %is_anthropic_main = core.call intrinsic.eq(%normalized, "anthropic")
+      %is_anthropic_alias = core.call intrinsic.eq(%normalized, "claude")
+      %is_anthropic = core.call intrinsic.or(%is_anthropic_main, %is_anthropic_alias)
       %descriptor = core.map
       %operations = core.map
       %features = core.map
@@ -2487,23 +2498,47 @@ module @ax.provider version "0.1" {
           core.set %features["caching"] = %gemini_caching
           core.set %features["thinking"] = true
         } else {
-          core.set %descriptor["baseUrl"] = "https://api.openai.com/v1"
-          core.set %descriptor["auth"] = "bearer"
-          core.set %descriptor["id"] = "openai-compatible"
-          core.set %descriptor["name"] = "openai"
-          core.set %descriptor["defaultModel"] = "gpt-4.1-mini"
-          core.set %descriptor["defaultEmbedModel"] = "text-embedding-3-small"
-          %compatible_chat = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":false}")
-          %compatible_stream = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":true}")
-          %compatible_embed = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/embeddings\",\"body\":\"json\",\"stream\":false}")
-          core.set %operations["chat"] = %compatible_chat
-          core.set %operations["stream_chat"] = %compatible_stream
-          core.set %operations["embed"] = %compatible_embed
-          core.set %audio["supported"] = false
-          %empty_audio_formats = core.list
-          core.set %audio["formats"] = %empty_audio_formats
-          core.set %audio_output["supported"] = false
-          core.set %audio_output["formats"] = %empty_audio_formats
+          core.if %is_anthropic {
+            core.set %descriptor["baseUrl"] = "https://api.anthropic.com/v1"
+            core.set %descriptor["auth"] = "anthropic_key"
+            core.set %descriptor["id"] = "anthropic"
+            core.set %descriptor["name"] = "anthropic"
+            core.set %descriptor["defaultModel"] = "claude-3-7-sonnet-latest"
+            %extra_headers = core.call intrinsic.json.parse("{\"anthropic-version\":\"2023-06-01\",\"anthropic-beta\":\"structured-outputs-2025-11-13, web-search-2025-03-05\"}")
+            core.set %descriptor["headers"] = %extra_headers
+            %anthropic_chat = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/messages\",\"body\":\"json\",\"stream\":false}")
+            %anthropic_stream = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/messages\",\"body\":\"json\",\"stream\":true}")
+            core.set %operations["chat"] = %anthropic_chat
+            core.set %operations["stream_chat"] = %anthropic_stream
+            %anthropic_images = core.call intrinsic.json.parse("{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\",\"image/gif\",\"image/webp\"]}")
+            core.set %media["images"] = %anthropic_images
+            core.set %audio["supported"] = false
+            %empty_anthropic_audio_formats = core.list
+            core.set %audio["formats"] = %empty_anthropic_audio_formats
+            core.set %audio_output["supported"] = false
+            core.set %audio_output["formats"] = %empty_anthropic_audio_formats
+            %anthropic_caching = core.call intrinsic.json.parse("{\"supported\":true,\"types\":[\"ephemeral_block\"]}")
+            core.set %features["caching"] = %anthropic_caching
+            core.set %features["thinking"] = true
+          } else {
+            core.set %descriptor["baseUrl"] = "https://api.openai.com/v1"
+            core.set %descriptor["auth"] = "bearer"
+            core.set %descriptor["id"] = "openai-compatible"
+            core.set %descriptor["name"] = "openai"
+            core.set %descriptor["defaultModel"] = "gpt-4.1-mini"
+            core.set %descriptor["defaultEmbedModel"] = "text-embedding-3-small"
+            %compatible_chat = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":false}")
+            %compatible_stream = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":true}")
+            %compatible_embed = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/embeddings\",\"body\":\"json\",\"stream\":false}")
+            core.set %operations["chat"] = %compatible_chat
+            core.set %operations["stream_chat"] = %compatible_stream
+            core.set %operations["embed"] = %compatible_embed
+            core.set %audio["supported"] = false
+            %empty_audio_formats = core.list
+            core.set %audio["formats"] = %empty_audio_formats
+            core.set %audio_output["supported"] = false
+            core.set %audio_output["formats"] = %empty_audio_formats
+          }
         }
       }
       core.set %audio["output"] = %audio_output
@@ -2572,6 +2607,9 @@ module @ax.provider version "0.1" {
       %is_gemini_alias = core.call intrinsic.eq(%normalized, "gemini")
       %is_gemini_one = core.call intrinsic.or(%is_gemini_google, %is_gemini_google_under)
       %is_gemini = core.call intrinsic.or(%is_gemini_one, %is_gemini_alias)
+      %is_anthropic_main = core.call intrinsic.eq(%normalized, "anthropic")
+      %is_anthropic_alias = core.call intrinsic.eq(%normalized, "claude")
+      %is_anthropic = core.call intrinsic.or(%is_anthropic_main, %is_anthropic_alias)
       %payload = core.map
       core.if %is_responses {
         %responses_payload = core.call @openai_responses_build_chat_request(%request)
@@ -2581,8 +2619,13 @@ module @ax.provider version "0.1" {
           %gemini_payload = core.call @gemini_build_chat_request(%request)
           %payload = core.let %gemini_payload
         } else {
-          %compatible_payload = core.call @openai_build_chat_request(%request)
-          %payload = core.let %compatible_payload
+          core.if %is_anthropic {
+            %anthropic_payload = core.call @anthropic_build_chat_request(%request)
+            %payload = core.let %anthropic_payload
+          } else {
+            %compatible_payload = core.call @openai_build_chat_request(%request)
+            %payload = core.let %compatible_payload
+          }
         }
       }
       core.return %payload
@@ -2601,13 +2644,21 @@ module @ax.provider version "0.1" {
       %is_gemini_alias = core.call intrinsic.eq(%normalized, "gemini")
       %is_gemini_one = core.call intrinsic.or(%is_gemini_google, %is_gemini_google_under)
       %is_gemini = core.call intrinsic.or(%is_gemini_one, %is_gemini_alias)
+      %is_anthropic_main = core.call intrinsic.eq(%normalized, "anthropic")
+      %is_anthropic_alias = core.call intrinsic.eq(%normalized, "claude")
+      %is_anthropic = core.call intrinsic.or(%is_anthropic_main, %is_anthropic_alias)
       %payload = core.map
       core.if %is_gemini {
         %gemini_payload = core.call @gemini_build_embed_request(%request)
         %payload = core.let %gemini_payload
       } else {
-        %openai_payload = core.call @openai_build_embed_request(%request)
-        %payload = core.let %openai_payload
+        core.if %is_anthropic {
+          %error = core.call intrinsic.ai.error.unsupported("embed is not supported by Anthropic provider")
+          core.raise %error
+        } else {
+          %openai_payload = core.call @openai_build_embed_request(%request)
+          %payload = core.let %openai_payload
+        }
       }
       core.return %payload
     }
@@ -2629,6 +2680,9 @@ module @ax.provider version "0.1" {
       %is_gemini_alias = core.call intrinsic.eq(%normalized, "gemini")
       %is_gemini_one = core.call intrinsic.or(%is_gemini_google, %is_gemini_google_under)
       %is_gemini = core.call intrinsic.or(%is_gemini_one, %is_gemini_alias)
+      %is_anthropic_main = core.call intrinsic.eq(%normalized, "anthropic")
+      %is_anthropic_alias = core.call intrinsic.eq(%normalized, "claude")
+      %is_anthropic = core.call intrinsic.or(%is_anthropic_main, %is_anthropic_alias)
       %response = core.map
       core.if %is_responses {
         %responses_response = core.call @openai_responses_normalize_chat_response(%raw, %ai_name, %model)
@@ -2638,8 +2692,13 @@ module @ax.provider version "0.1" {
           %gemini_response = core.call @gemini_normalize_chat_response(%raw, %ai_name, %model)
           %response = core.let %gemini_response
         } else {
-          %compatible_response = core.call @openai_normalize_chat_response(%raw, %ai_name, %model)
-          %response = core.let %compatible_response
+          core.if %is_anthropic {
+            %anthropic_response = core.call @anthropic_normalize_chat_response(%raw, %ai_name, %model)
+            %response = core.let %anthropic_response
+          } else {
+            %compatible_response = core.call @openai_normalize_chat_response(%raw, %ai_name, %model)
+            %response = core.let %compatible_response
+          }
         }
       }
       core.return %response
@@ -2662,6 +2721,9 @@ module @ax.provider version "0.1" {
       %is_gemini_alias = core.call intrinsic.eq(%normalized, "gemini")
       %is_gemini_one = core.call intrinsic.or(%is_gemini_google, %is_gemini_google_under)
       %is_gemini = core.call intrinsic.or(%is_gemini_one, %is_gemini_alias)
+      %is_anthropic_main = core.call intrinsic.eq(%normalized, "anthropic")
+      %is_anthropic_alias = core.call intrinsic.eq(%normalized, "claude")
+      %is_anthropic = core.call intrinsic.or(%is_anthropic_main, %is_anthropic_alias)
       %response = core.map
       core.if %is_responses {
         %responses_response = core.call @openai_responses_normalize_stream_delta(%raw, %state, %ai_name, %model)
@@ -2671,8 +2733,13 @@ module @ax.provider version "0.1" {
           %gemini_response = core.call @gemini_normalize_chat_response(%raw, %ai_name, %model)
           %response = core.let %gemini_response
         } else {
-          %compatible_response = core.call @openai_normalize_stream_delta(%raw, %state, %ai_name, %model)
-          %response = core.let %compatible_response
+          core.if %is_anthropic {
+            %anthropic_response = core.call @anthropic_normalize_stream_delta(%raw, %state, %ai_name, %model)
+            %response = core.let %anthropic_response
+          } else {
+            %compatible_response = core.call @openai_normalize_stream_delta(%raw, %state, %ai_name, %model)
+            %response = core.let %compatible_response
+          }
         }
       }
       core.return %response
@@ -4075,6 +4142,1019 @@ module @ax.provider version "0.1" {
         core.append %embeddings, %values
       }
       core.set %out["embeddings"] = %embeddings
+      core.return %out
+    }
+  }
+
+  op ax.provider.semantic @anthropic_build_chat_request {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr effect = "throws"
+    tag "src/ax/ai/anthropic/api.ts"
+    type signature = "(AxChatRequest) -> json throws"
+    body @entry(%request: AxChatRequest) {
+      %payload = core.map
+      %model = core.get %request["model"] default "claude-3-7-sonnet-latest"
+      core.set %payload["model"] = %model
+      %empty_prompt = core.list
+      %prompt = core.get %request["chat_prompt"] default %empty_prompt
+      %supports_mid = core.call intrinsic.string.starts_with(%model, "claude-opus-4-8")
+      %system = core.list
+      %messages = core.list
+      %seen_non_system = core.let false
+      core.for %message in %prompt {
+        %role = core.get %message["role"] default ""
+        %is_system = core.call intrinsic.eq(%role, "system")
+        core.if %is_system {
+          %hoist_later = core.call intrinsic.not(%supports_mid)
+          %hoist = core.call intrinsic.or(%hoist_later, %seen_non_system)
+          %should_preserve = core.call intrinsic.and(%supports_mid, %seen_non_system)
+          core.if %should_preserve {
+            %mapped_system = core.call @anthropic_message_impl(%message)
+            core.append %messages, %mapped_system
+          } else {
+            %sys_item = core.map
+            core.set %sys_item["type"] = "text"
+            %sys_text = core.get %message["content"] default ""
+            core.set %sys_item["text"] = %sys_text
+            %cache = core.get %message["cache"] default false
+            core.if %cache {
+              %cache_control = core.call intrinsic.json.parse("{\"type\":\"ephemeral\"}")
+              core.set %sys_item["cache_control"] = %cache_control
+            } else {
+            }
+            core.append %system, %sys_item
+          }
+        } else {
+          %seen_non_system = core.let true
+          %mapped = core.call @anthropic_message_impl(%message)
+          core.append %messages, %mapped
+        }
+      }
+      %system_count = core.call intrinsic.len(%system)
+      %has_system = core.call intrinsic.gt(%system_count, 0)
+      core.if %has_system {
+        core.set %payload["system"] = %system
+      } else {
+      }
+      core.set %payload["messages"] = %messages
+      %empty_model_config = core.map
+      %model_config = core.get %request["model_config"] default %empty_model_config
+      core.call @anthropic_apply_model_config_impl(%payload, %model_config, %model)
+      %response_format = core.get %request["response_format"]
+      %has_response_format = core.call intrinsic.truthy(%response_format)
+      core.if %has_response_format {
+        %format_type = core.get %response_format["type"] default ""
+        %is_json_schema = core.call intrinsic.eq(%format_type, "json_schema")
+        core.if %is_json_schema {
+          %schema_container = core.get %response_format["schema"]
+          %schema = core.get %schema_container["schema"] default %schema_container
+          %output_config = core.get %payload["output_config"] default %empty_model_config
+          %format = core.map
+          core.set %format["type"] = "json_schema"
+          core.set %format["schema"] = %schema
+          core.set %output_config["format"] = %format
+          core.set %payload["output_config"] = %output_config
+        } else {
+        }
+      } else {
+      }
+      %empty_functions = core.list
+      %functions = core.get %request["functions"] default %empty_functions
+      %has_functions = core.call intrinsic.truthy(%functions)
+      core.if %has_functions {
+        %tools = core.list
+        core.for %fn in %functions {
+          %tool = core.call @anthropic_tool_spec_impl(%fn)
+          core.append %tools, %tool
+        }
+        core.set %payload["tools"] = %tools
+        %tool_choice = core.call @anthropic_tool_choice_impl(%request)
+        %has_choice = core.call intrinsic.is_not_none(%tool_choice)
+        core.if %has_choice {
+          core.set %payload["tool_choice"] = %tool_choice
+        } else {
+        }
+      } else {
+      }
+      core.return %payload
+    }
+  }
+
+  op ax.provider.semantic @anthropic_apply_model_config_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr effect = "throws"
+    attr private = true
+    tag "anthropic-model-config-core-helper"
+    type signature = "(json, json, string) -> void throws"
+    body @entry(%payload: json, %model_config: json, %model: string) {
+      core.call @openai_copy_config_key_impl(%payload, %model_config, "maxTokens", "max_tokens")
+      core.call @openai_copy_config_key_impl(%payload, %model_config, "max_tokens", "max_tokens")
+      core.call @openai_copy_config_key_impl(%payload, %model_config, "stopSequences", "stop_sequences")
+      core.call @openai_copy_config_key_impl(%payload, %model_config, "stop_sequences", "stop_sequences")
+      core.call @openai_copy_config_key_impl(%payload, %model_config, "temperature", "temperature")
+      core.call @openai_copy_config_key_impl(%payload, %model_config, "topP", "top_p")
+      core.call @openai_copy_config_key_impl(%payload, %model_config, "top_p", "top_p")
+      core.call @openai_copy_config_key_impl(%payload, %model_config, "topK", "top_k")
+      core.call @openai_copy_config_key_impl(%payload, %model_config, "top_k", "top_k")
+      core.call @openai_copy_config_key_impl(%payload, %model_config, "stream", "stream")
+      %has_max = core.get %payload["max_tokens"]
+      %missing_max = core.call intrinsic.is_none(%has_max)
+      core.if %missing_max {
+        core.set %payload["max_tokens"] = 40000
+      } else {
+      }
+      %n = core.get %model_config["n"]
+      %has_n = core.call intrinsic.is_not_none(%n)
+      core.if %has_n {
+        %too_many = core.call intrinsic.gt(%n, 1)
+        core.if %too_many {
+          %error = core.call intrinsic.ai.error.unsupported("Anthropic does not support sampling (n > 1)")
+          core.raise %error
+        } else {
+        }
+      } else {
+      }
+      %budget = core.get %model_config["thinkingTokenBudget"]
+      %budget_alt = core.get %model_config["thinking_token_budget"] default %budget
+      %has_budget = core.call intrinsic.truthy(%budget_alt)
+      core.if %has_budget {
+        %thinking_config = core.call @anthropic_thinking_config_impl(%model, %budget_alt)
+        %thinking = core.get %thinking_config["thinking"]
+        %has_thinking = core.call intrinsic.is_not_none(%thinking)
+        core.if %has_thinking {
+          core.set %payload["thinking"] = %thinking
+        } else {
+        }
+        %output_config = core.get %thinking_config["output_config"]
+        %has_output = core.call intrinsic.is_not_none(%output_config)
+        core.if %has_output {
+          core.set %payload["output_config"] = %output_config
+        } else {
+        }
+      } else {
+      }
+      %effort = core.get %model_config["effort"]
+      %has_effort = core.call intrinsic.truthy(%effort)
+      core.if %has_effort {
+        %output_config = core.get %payload["output_config"] default %model_config
+        core.set %output_config["effort"] = %effort
+        core.set %payload["output_config"] = %output_config
+      } else {
+      }
+      core.return
+    }
+  }
+
+  op ax.provider.semantic @anthropic_thinking_config_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "anthropic-thinking-core-helper"
+    type signature = "(string, string) -> json"
+    body @entry(%model: string, %level: string) {
+      %out = core.map
+      %is_none = core.call intrinsic.eq(%level, "none")
+      core.if %is_none {
+        core.return %out
+      } else {
+      }
+      %budget = core.let 10000
+      %effort = core.let "medium"
+      %is_minimal = core.call intrinsic.eq(%level, "minimal")
+      core.if %is_minimal {
+        %budget = core.let 1024
+        %effort = core.let "low"
+      } else {
+      }
+      %is_low = core.call intrinsic.eq(%level, "low")
+      core.if %is_low {
+        %budget = core.let 5000
+        %effort = core.let "low"
+      } else {
+      }
+      %is_high = core.call intrinsic.eq(%level, "high")
+      core.if %is_high {
+        %budget = core.let 20000
+        %effort = core.let "high"
+      } else {
+      }
+      %is_highest = core.call intrinsic.eq(%level, "highest")
+      core.if %is_highest {
+        %budget = core.let 32000
+        %effort = core.let "max"
+      } else {
+      }
+      %is_48 = core.call intrinsic.string.starts_with(%model, "claude-opus-4-8")
+      %is_47 = core.call intrinsic.string.starts_with(%model, "claude-opus-4-7")
+      %is_46 = core.call intrinsic.string.starts_with(%model, "claude-opus-4-6")
+      %is_47_plus = core.call intrinsic.or(%is_48, %is_47)
+      %is_adaptive = core.call intrinsic.or(%is_47_plus, %is_46)
+      core.if %is_adaptive {
+        %thinking = core.map
+        core.set %thinking["type"] = "adaptive"
+        core.set %out["thinking"] = %thinking
+        %output_config = core.map
+        core.set %output_config["effort"] = %effort
+        core.set %out["output_config"] = %output_config
+      } else {
+        %thinking = core.map
+        core.set %thinking["type"] = "enabled"
+        core.set %thinking["budget_tokens"] = %budget
+        core.set %out["thinking"] = %thinking
+        %is_45 = core.call intrinsic.string.starts_with(%model, "claude-opus-4-5")
+        core.if %is_45 {
+          %output_config = core.map
+          %is_max = core.call intrinsic.eq(%effort, "max")
+          core.if %is_max {
+            core.set %output_config["effort"] = "high"
+          } else {
+            core.set %output_config["effort"] = %effort
+          }
+          core.set %out["output_config"] = %output_config
+        } else {
+        }
+      }
+      core.return %out
+    }
+  }
+
+  op ax.provider.semantic @anthropic_message_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr effect = "throws"
+    attr private = true
+    tag "anthropic-message-core-helper"
+    type signature = "(json) -> json throws"
+    body @entry(%message: json) {
+      %role = core.get %message["role"] default "user"
+      %out = core.map
+      %is_system = core.call intrinsic.eq(%role, "system")
+      core.if %is_system {
+        core.set %out["role"] = "system"
+        %system_content = core.get %message["content"] default ""
+        core.set %out["content"] = %system_content
+        core.return %out
+      } else {
+      }
+      %is_function = core.call intrinsic.eq(%role, "function")
+      core.if %is_function {
+        core.set %out["role"] = "user"
+        %content = core.list
+        %block = core.map
+        core.set %block["type"] = "tool_result"
+        %result = core.get %message["result"] default ""
+        core.set %block["content"] = %result
+        %function_id = core.get %message["function_id"]
+        %function_id_camel = core.get %message["functionId"] default %function_id
+        core.set %block["tool_use_id"] = %function_id_camel
+        %is_error = core.get %message["is_error"] default false
+        %is_error_camel = core.get %message["isError"] default %is_error
+        core.if %is_error_camel {
+          core.set %block["is_error"] = true
+        } else {
+        }
+        %cache = core.get %message["cache"] default false
+        core.if %cache {
+          %cache_control = core.call intrinsic.json.parse("{\"type\":\"ephemeral\"}")
+          core.set %block["cache_control"] = %cache_control
+        } else {
+        }
+        core.append %content, %block
+        core.set %out["content"] = %content
+        core.return %out
+      } else {
+      }
+      %is_assistant = core.call intrinsic.eq(%role, "assistant")
+      core.if %is_assistant {
+        core.set %out["role"] = "assistant"
+        %blocks = core.list
+        %content_value = core.get %message["content"] default ""
+        %has_content = core.call intrinsic.truthy(%content_value)
+        core.if %has_content {
+          %text_block = core.map
+          core.set %text_block["type"] = "text"
+          core.set %text_block["text"] = %content_value
+          core.append %blocks, %text_block
+        } else {
+        }
+        %empty_calls = core.list
+        %calls = core.get %message["function_calls"] default %empty_calls
+        %calls_camel = core.get %message["functionCalls"] default %calls
+        core.for %call in %calls_camel {
+          %function = core.get %call["function"]
+          %name = core.get %function["name"] default ""
+          %params = core.get %function["params"] default %empty_calls
+          %params_is_string = core.type_is %params type "string"
+          core.if %params_is_string {
+            core.try {
+              %parsed = core.call intrinsic.json.parse(%params)
+              %params = core.let %parsed
+            } catch %parse_error {
+              %params = core.map
+            }
+          } else {
+          }
+          %tool_use = core.map
+          core.set %tool_use["type"] = "tool_use"
+          %id = core.get %call["id"] default %name
+          core.set %tool_use["id"] = %id
+          core.set %tool_use["name"] = %name
+          core.set %tool_use["input"] = %params
+          core.append %blocks, %tool_use
+        }
+        %cache = core.get %message["cache"] default false
+        core.if %cache {
+          %count = core.call intrinsic.len(%blocks)
+          %has_blocks = core.call intrinsic.gt(%count, 0)
+          core.if %has_blocks {
+            %index = core.call intrinsic.add(%count, -1)
+            %last = core.get %blocks[%index]
+            %cache_control = core.call intrinsic.json.parse("{\"type\":\"ephemeral\"}")
+            core.set %last["cache_control"] = %cache_control
+          } else {
+          }
+        } else {
+        }
+        %count = core.call intrinsic.len(%blocks)
+        %has_blocks = core.call intrinsic.gt(%count, 0)
+        core.if %has_blocks {
+          core.set %out["content"] = %blocks
+        } else {
+          core.set %out["content"] = ""
+        }
+        core.return %out
+      } else {
+      }
+      core.set %out["role"] = "user"
+      %raw_content = core.get %message["content"] default ""
+      %cache = core.get %message["cache"] default false
+      %content_is_string = core.type_is %raw_content type "string"
+      %not_cache = core.call intrinsic.not(%cache)
+      %plain_string = core.call intrinsic.and(%content_is_string, %not_cache)
+      core.if %plain_string {
+        core.set %out["content"] = %raw_content
+      } else {
+        %parts = core.call @anthropic_content_parts_impl(%raw_content)
+        core.if %cache {
+          %count = core.call intrinsic.len(%parts)
+          %has_parts = core.call intrinsic.gt(%count, 0)
+          core.if %has_parts {
+            %index = core.call intrinsic.add(%count, -1)
+            %last = core.get %parts[%index]
+            %cache_control = core.call intrinsic.json.parse("{\"type\":\"ephemeral\"}")
+            core.set %last["cache_control"] = %cache_control
+          } else {
+          }
+        } else {
+        }
+        core.set %out["content"] = %parts
+      }
+      core.return %out
+    }
+  }
+
+  op ax.provider.semantic @anthropic_content_parts_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr effect = "throws"
+    attr private = true
+    tag "anthropic-content-core-helper"
+    type signature = "(json) -> list<json> throws"
+    body @entry(%content: json) {
+      %parts = core.list
+      %is_list = core.type_is %content type "list"
+      core.if %is_list {
+        core.for %part in %content {
+          %mapped = core.call @anthropic_content_part_impl(%part)
+          core.append %parts, %mapped
+        }
+      } else {
+        %part = core.map
+        core.set %part["type"] = "text"
+        core.set %part["text"] = %content
+        core.append %parts, %part
+      }
+      core.return %parts
+    }
+  }
+
+  op ax.provider.semantic @anthropic_content_part_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr effect = "throws"
+    attr private = true
+    tag "anthropic-content-core-helper"
+    type signature = "(json) -> json throws"
+    body @entry(%part: json) {
+      %type = core.get %part["type"] default "text"
+      %is_text = core.call intrinsic.eq(%type, "text")
+      core.if %is_text {
+        %out = core.map
+        core.set %out["type"] = "text"
+        %text = core.get %part["text"] default ""
+        core.set %out["text"] = %text
+        %cache = core.get %part["cache"] default false
+        core.if %cache {
+          %cache_control = core.call intrinsic.json.parse("{\"type\":\"ephemeral\"}")
+          core.set %out["cache_control"] = %cache_control
+        } else {
+        }
+        core.return %out
+      } else {
+      }
+      %is_image = core.call intrinsic.eq(%type, "image")
+      core.if %is_image {
+        %out = core.map
+        core.set %out["type"] = "image"
+        %source = core.map
+        core.set %source["type"] = "base64"
+        %mime = core.get %part["mimeType"] default "image/png"
+        core.set %source["media_type"] = %mime
+        %image_alt = core.get %part["data"]
+        %image = core.get %part["image"] default %image_alt
+        core.set %source["data"] = %image
+        core.set %out["source"] = %source
+        %cache = core.get %part["cache"] default false
+        core.if %cache {
+          %cache_control = core.call intrinsic.json.parse("{\"type\":\"ephemeral\"}")
+          core.set %out["cache_control"] = %cache_control
+        } else {
+        }
+        core.return %out
+      } else {
+      }
+      %message = core.call intrinsic.string.format("Anthropic content type not supported: {}", %type)
+      %error = core.call intrinsic.ai.error.unsupported(%message)
+      core.raise %error
+    }
+  }
+
+  op ax.provider.semantic @anthropic_tool_spec_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "anthropic-tool-core-helper"
+    type signature = "(json) -> json"
+    body @entry(%fn: json) {
+      %tool = core.map
+      %name = core.get %fn["name"]
+      %description = core.get %fn["description"] default ""
+      %empty_schema = core.map
+      %parameters = core.get %fn["parameters"] default %empty_schema
+      core.set %tool["name"] = %name
+      core.set %tool["description"] = %description
+      core.set %tool["input_schema"] = %parameters
+      %cache = core.get %fn["cache"] default false
+      core.if %cache {
+        %cache_control = core.call intrinsic.json.parse("{\"type\":\"ephemeral\"}")
+        core.set %tool["cache_control"] = %cache_control
+      } else {
+      }
+      core.return %tool
+    }
+  }
+
+  op ax.provider.semantic @anthropic_tool_choice_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr effect = "throws"
+    attr private = true
+    tag "anthropic-tool-core-helper"
+    type signature = "(json) -> json throws"
+    body @entry(%request: json) {
+      %function_call = core.get %request["function_call"] default "auto"
+      %choice = core.map
+      %is_none = core.call intrinsic.eq(%function_call, "none")
+      core.if %is_none {
+        %error = core.call intrinsic.ai.error.unsupported("functionCall none not supported")
+        core.raise %error
+      } else {
+      }
+      %is_required = core.call intrinsic.eq(%function_call, "required")
+      core.if %is_required {
+        core.set %choice["type"] = "any"
+        core.return %choice
+      } else {
+      }
+      %is_auto = core.call intrinsic.eq(%function_call, "auto")
+      core.if %is_auto {
+        core.set %choice["type"] = "auto"
+        core.return %choice
+      } else {
+      }
+      %function = core.get %function_call["function"]
+      %name = core.get %function["name"]
+      %has_name = core.call intrinsic.truthy(%name)
+      core.if %has_name {
+        core.set %choice["type"] = "tool"
+        core.set %choice["name"] = %name
+        core.return %choice
+      } else {
+      }
+      %none = core.call intrinsic.none()
+      core.return %none
+    }
+  }
+
+  op ax.provider.semantic @anthropic_normalize_chat_response {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr effect = "throws"
+    tag "src/ax/ai/anthropic/api.ts"
+    type signature = "(json, string, string) -> AxChatResponse throws"
+    body @entry(%raw: json, %ai_name: string, %model: string) {
+      %type = core.get %raw["type"] default ""
+      %is_error = core.call intrinsic.eq(%type, "error")
+      core.if %is_error {
+        %error_body = core.get %raw["error"]
+        %message = core.get %error_body["message"] default "Anthropic API error"
+        %error = core.call intrinsic.ai.error.refusal(%message, %raw)
+        core.raise %error
+      } else {
+      }
+      %stop_reason = core.get %raw["stop_reason"]
+      %is_refusal = core.call intrinsic.eq(%stop_reason, "refusal")
+      core.if %is_refusal {
+        %details = core.get %raw["stop_details"]
+        %message = core.get %details["explanation"] default "Anthropic refused to fulfill this request"
+        %error = core.call intrinsic.ai.error.refusal(%message, %raw)
+        core.raise %error
+      } else {
+      }
+      %text_parts = core.list
+      %function_calls = core.list
+      %thought_parts = core.list
+      %thought_blocks = core.list
+      %citations = core.list
+      %empty_content = core.list
+      %content = core.get %raw["content"] default %empty_content
+      core.for %block in %content {
+        core.call @anthropic_merge_response_block_impl(%text_parts, %function_calls, %thought_parts, %thought_blocks, %citations, %block)
+      }
+      %result = core.map
+      core.set %result["index"] = 0
+      %id = core.get %raw["id"] default "0"
+      core.set %result["id"] = %id
+      %finish = core.call @anthropic_finish_reason_impl(%stop_reason)
+      %has_finish = core.call intrinsic.is_not_none(%finish)
+      core.if %has_finish {
+        core.set %result["finish_reason"] = %finish
+      } else {
+      }
+      %text = core.call intrinsic.string.join("", %text_parts)
+      core.set %result["content"] = %text
+      core.set %result["function_calls"] = %function_calls
+      %has_calls = core.call intrinsic.truthy(%function_calls)
+      core.if %has_calls {
+        core.set %result["finish_reason"] = "function_call"
+      } else {
+      }
+      %has_thought = core.call intrinsic.truthy(%thought_parts)
+      core.if %has_thought {
+        %thought = core.call intrinsic.string.join("", %thought_parts)
+        core.set %result["thought"] = %thought
+        core.set %result["thought_blocks"] = %thought_blocks
+      } else {
+      }
+      %has_citations = core.call intrinsic.truthy(%citations)
+      core.if %has_citations {
+        core.set %result["citations"] = %citations
+      } else {
+      }
+      %results = core.list
+      core.append %results, %result
+      %usage_raw = core.get %raw["usage"]
+      %usage = core.call @anthropic_usage_impl(%usage_raw)
+      %raw_model = core.get %raw["model"] default %model
+      %model_usage = core.call @ai_model_usage_impl(%ai_name, %raw_model, %usage)
+      %out = core.map
+      core.set %out["results"] = %results
+      core.set %out["remote_id"] = %id
+      core.set %out["model_usage"] = %model_usage
+      core.return %out
+    }
+  }
+
+  op ax.provider.semantic @anthropic_merge_response_block_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "anthropic-output-core-helper"
+    type signature = "(list<json>, list<json>, list<json>, list<json>, list<json>, json) -> void"
+    body @entry(%text_parts: list<json>, %function_calls: list<json>, %thought_parts: list<json>, %thought_blocks: list<json>, %citations: list<json>, %block: json) {
+      %type = core.get %block["type"] default ""
+      %is_text = core.call intrinsic.eq(%type, "text")
+      core.if %is_text {
+        %text = core.get %block["text"] default ""
+        core.append %text_parts, %text
+        core.call @anthropic_append_citations_impl(%citations, %block)
+      } else {
+      }
+      %is_tool = core.call intrinsic.eq(%type, "tool_use")
+      core.if %is_tool {
+        %function = core.map
+        %name = core.get %block["name"] default ""
+        %input = core.get %block["input"] default ""
+        core.set %function["name"] = %name
+        core.set %function["params"] = %input
+        %call = core.map
+        %id = core.get %block["id"] default %name
+        core.set %call["id"] = %id
+        core.set %call["type"] = "function"
+        core.set %call["function"] = %function
+        core.append %function_calls, %call
+      } else {
+      }
+      %is_thinking = core.call intrinsic.eq(%type, "thinking")
+      core.if %is_thinking {
+        %thinking = core.get %block["thinking"] default ""
+        core.append %thought_parts, %thinking
+        %thought_block = core.map
+        core.set %thought_block["data"] = %thinking
+        core.set %thought_block["encrypted"] = false
+        %signature = core.get %block["signature"]
+        %has_signature = core.call intrinsic.is_not_none(%signature)
+        core.if %has_signature {
+          core.set %thought_block["signature"] = %signature
+        } else {
+        }
+        core.append %thought_blocks, %thought_block
+      } else {
+      }
+      %is_redacted = core.call intrinsic.eq(%type, "redacted_thinking")
+      core.if %is_redacted {
+        %data = core.get %block["data"]
+        %data_alt = core.get %block["thinking"] default %data
+        core.append %thought_parts, %data_alt
+        %thought_block = core.map
+        core.set %thought_block["data"] = %data_alt
+        core.set %thought_block["encrypted"] = true
+        %signature = core.get %block["signature"]
+        %has_signature = core.call intrinsic.is_not_none(%signature)
+        core.if %has_signature {
+          core.set %thought_block["signature"] = %signature
+        } else {
+        }
+        core.append %thought_blocks, %thought_block
+      } else {
+      }
+      core.return
+    }
+  }
+
+  op ax.provider.semantic @anthropic_append_citations_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "anthropic-citations-core-helper"
+    type signature = "(list<json>, json) -> void"
+    body @entry(%out: list<json>, %block: json) {
+      %empty = core.list
+      %citations = core.get %block["citations"] default %empty
+      core.for %citation in %citations {
+        %url = core.get %citation["url"]
+        %has_url = core.call intrinsic.truthy(%url)
+        core.if %has_url {
+          %item = core.map
+          core.set %item["url"] = %url
+          %title = core.get %citation["title"]
+          %has_title = core.call intrinsic.is_not_none(%title)
+          core.if %has_title {
+            core.set %item["title"] = %title
+          } else {
+          }
+          %snippet = core.get %citation["cited_text"]
+          %has_snippet = core.call intrinsic.is_not_none(%snippet)
+          core.if %has_snippet {
+            core.set %item["snippet"] = %snippet
+          } else {
+          }
+          core.append %out, %item
+        } else {
+        }
+      }
+      core.return
+    }
+  }
+
+  op ax.provider.semantic @anthropic_finish_reason_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "anthropic-output-core-helper"
+    type signature = "(json) -> string"
+    body @entry(%reason: json) {
+      %missing = core.call intrinsic.is_none(%reason)
+      core.if %missing {
+        %none = core.call intrinsic.none()
+        core.return %none
+      } else {
+      }
+      %is_max = core.call intrinsic.eq(%reason, "max_tokens")
+      %is_context = core.call intrinsic.eq(%reason, "model_context_window_exceeded")
+      %is_length = core.call intrinsic.or(%is_max, %is_context)
+      core.if %is_length {
+        core.return "length"
+      } else {
+      }
+      %is_tool = core.call intrinsic.eq(%reason, "tool_use")
+      core.if %is_tool {
+        core.return "function_call"
+      } else {
+      }
+      %is_refusal = core.call intrinsic.eq(%reason, "refusal")
+      core.if %is_refusal {
+        core.return "content_filter"
+      } else {
+      }
+      core.return "stop"
+    }
+  }
+
+  op ax.provider.semantic @anthropic_usage_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "anthropic-usage-core-helper"
+    type signature = "(json) -> json"
+    body @entry(%usage: json) {
+      %has_usage = core.call intrinsic.truthy(%usage)
+      core.if %has_usage {
+      } else {
+        %none = core.call intrinsic.none()
+        core.return %none
+      }
+      %out = core.map
+      %prompt = core.get %usage["input_tokens"] default 0
+      %completion = core.get %usage["output_tokens"] default 0
+      %cache_creation = core.get %usage["cache_creation_input_tokens"] default 0
+      %cache_read = core.get %usage["cache_read_input_tokens"] default 0
+      %total_base = core.call intrinsic.add(%prompt, %completion)
+      %total_cache = core.call intrinsic.add(%cache_creation, %cache_read)
+      %total = core.call intrinsic.add(%total_base, %total_cache)
+      core.set %out["prompt_tokens"] = %prompt
+      core.set %out["completion_tokens"] = %completion
+      core.set %out["total_tokens"] = %total
+      %has_creation = core.call intrinsic.gt(%cache_creation, 0)
+      core.if %has_creation {
+        core.set %out["cache_creation_tokens"] = %cache_creation
+      } else {
+      }
+      %has_read = core.call intrinsic.gt(%cache_read, 0)
+      core.if %has_read {
+        core.set %out["cache_read_tokens"] = %cache_read
+      } else {
+      }
+      %speed = core.get %usage["speed"]
+      %has_speed = core.call intrinsic.is_not_none(%speed)
+      core.if %has_speed {
+        core.set %out["speed"] = %speed
+      } else {
+      }
+      core.return %out
+    }
+  }
+
+  op ax.provider.semantic @anthropic_normalize_stream_delta {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr effect = "throws"
+    tag "src/ax/ai/anthropic/api.ts"
+    type signature = "(json, json, string, string) -> AxChatResponse throws"
+    body @entry(%event: json, %state: json, %ai_name: string, %model: string) {
+      %type = core.get %event["type"] default ""
+      %is_error = core.call intrinsic.eq(%type, "error")
+      core.if %is_error {
+        %error_body = core.get %event["error"]
+        %message = core.get %error_body["message"] default "Anthropic stream error"
+        %error = core.call intrinsic.ai.error.refusal(%message, %event)
+        core.raise %error
+      } else {
+      }
+      %index = core.let 0
+      %is_start = core.call intrinsic.eq(%type, "message_start")
+      core.if %is_start {
+        %message = core.get %event["message"]
+        %id = core.get %message["id"] default ""
+        core.set %state["remote_id"] = %id
+        %usage_raw = core.get %message["usage"]
+        %usage = core.call @anthropic_usage_impl(%usage_raw)
+        core.set %state["usage"] = %usage
+        %result = core.map
+        core.set %result["index"] = %index
+        core.set %result["id"] = %id
+        core.set %result["content"] = ""
+        %results = core.list
+        core.append %results, %result
+        %out = core.map
+        core.set %out["results"] = %results
+        core.set %out["remote_id"] = %id
+        %model_usage = core.call @ai_model_usage_impl(%ai_name, %model, %usage)
+        core.set %out["model_usage"] = %model_usage
+        core.return %out
+      } else {
+      }
+      %remote_id = core.get %state["remote_id"]
+      %is_block_start = core.call intrinsic.eq(%type, "content_block_start")
+      core.if %is_block_start {
+        %block = core.get %event["content_block"]
+        %block_type = core.get %block["type"] default ""
+        %is_text = core.call intrinsic.eq(%block_type, "text")
+        core.if %is_text {
+          %result = core.map
+          core.set %result["index"] = %index
+          %text = core.get %block["text"] default ""
+          core.set %result["content"] = %text
+          %citations = core.list
+          core.call @anthropic_append_citations_impl(%citations, %block)
+          %has_citations = core.call intrinsic.truthy(%citations)
+          core.if %has_citations {
+            core.set %result["citations"] = %citations
+          } else {
+          }
+          %results = core.list
+          core.append %results, %result
+          %out = core.map
+          core.set %out["results"] = %results
+          core.set %out["remote_id"] = %remote_id
+          core.return %out
+        } else {
+        }
+        %is_thinking = core.call intrinsic.eq(%block_type, "thinking")
+        core.if %is_thinking {
+          %thinking = core.get %block["thinking"] default ""
+          %thought_block = core.map
+          core.set %thought_block["data"] = %thinking
+          core.set %thought_block["encrypted"] = false
+          %blocks = core.list
+          core.append %blocks, %thought_block
+          %result = core.map
+          core.set %result["index"] = %index
+          core.set %result["thought"] = %thinking
+          core.set %result["thought_blocks"] = %blocks
+          %results = core.list
+          core.append %results, %result
+          %out = core.map
+          core.set %out["results"] = %results
+          core.set %out["remote_id"] = %remote_id
+          core.return %out
+        } else {
+        }
+        %is_tool = core.call intrinsic.eq(%block_type, "tool_use")
+        core.if %is_tool {
+          %event_index = core.get %event["index"] default 0
+          %key = core.call intrinsic.string.format("tool_id_{}", %event_index)
+          %name_key = core.call intrinsic.string.format("tool_name_{}", %event_index)
+          %id = core.get %block["id"] default ""
+          %name = core.get %block["name"] default ""
+          core.set %state[%key] = %id
+          core.set %state[%name_key] = %name
+          %function = core.map
+          core.set %function["name"] = %name
+          core.set %function["params"] = ""
+          %call = core.map
+          core.set %call["id"] = %id
+          core.set %call["type"] = "function"
+          core.set %call["function"] = %function
+          %calls = core.list
+          core.append %calls, %call
+          %result = core.map
+          core.set %result["index"] = %index
+          core.set %result["function_calls"] = %calls
+          %results = core.list
+          core.append %results, %result
+          %out = core.map
+          core.set %out["results"] = %results
+          core.set %out["remote_id"] = %remote_id
+          core.return %out
+        } else {
+        }
+      } else {
+      }
+      %is_delta = core.call intrinsic.eq(%type, "content_block_delta")
+      core.if %is_delta {
+        %delta = core.get %event["delta"]
+        %delta_type = core.get %delta["type"] default ""
+        %is_text_delta = core.call intrinsic.eq(%delta_type, "text_delta")
+        core.if %is_text_delta {
+          %result = core.map
+          core.set %result["index"] = %index
+          %text = core.get %delta["text"] default ""
+          core.set %result["content"] = %text
+          %results = core.list
+          core.append %results, %result
+          %out = core.map
+          core.set %out["results"] = %results
+          core.set %out["remote_id"] = %remote_id
+          core.return %out
+        } else {
+        }
+        %is_thinking_delta = core.call intrinsic.eq(%delta_type, "thinking_delta")
+        core.if %is_thinking_delta {
+          %thinking = core.get %delta["thinking"] default ""
+          %thought_block = core.map
+          core.set %thought_block["data"] = %thinking
+          core.set %thought_block["encrypted"] = false
+          %blocks = core.list
+          core.append %blocks, %thought_block
+          %result = core.map
+          core.set %result["index"] = %index
+          core.set %result["thought"] = %thinking
+          core.set %result["thought_blocks"] = %blocks
+          %results = core.list
+          core.append %results, %result
+          %out = core.map
+          core.set %out["results"] = %results
+          core.set %out["remote_id"] = %remote_id
+          core.return %out
+        } else {
+        }
+        %is_json_delta = core.call intrinsic.eq(%delta_type, "input_json_delta")
+        core.if %is_json_delta {
+          %event_index = core.get %event["index"] default 0
+          %key = core.call intrinsic.string.format("tool_id_{}", %event_index)
+          %name_key = core.call intrinsic.string.format("tool_name_{}", %event_index)
+          %id = core.get %state[%key] default ""
+          %name = core.get %state[%name_key] default ""
+          %partial = core.get %delta["partial_json"] default ""
+          %function = core.map
+          core.set %function["name"] = %name
+          core.set %function["params"] = %partial
+          %call = core.map
+          core.set %call["id"] = %id
+          core.set %call["type"] = "function"
+          core.set %call["function"] = %function
+          %calls = core.list
+          core.append %calls, %call
+          %result = core.map
+          core.set %result["index"] = %index
+          core.set %result["function_calls"] = %calls
+          %results = core.list
+          core.append %results, %result
+          %out = core.map
+          core.set %out["results"] = %results
+          core.set %out["remote_id"] = %remote_id
+          core.return %out
+        } else {
+        }
+      } else {
+      }
+      %is_message_delta = core.call intrinsic.eq(%type, "message_delta")
+      core.if %is_message_delta {
+        %delta = core.get %event["delta"]
+        %stop = core.get %delta["stop_reason"]
+        %is_refusal = core.call intrinsic.eq(%stop, "refusal")
+        core.if %is_refusal {
+          %details = core.get %delta["stop_details"]
+          %message = core.get %details["explanation"] default "Anthropic refused to fulfill this request"
+          %error = core.call intrinsic.ai.error.refusal(%message, %event)
+          core.raise %error
+        } else {
+        }
+        %usage_delta = core.get %event["usage"]
+        %usage_existing = core.get %state["usage"] default %usage_delta
+        %completion = core.get %usage_delta["output_tokens"] default 0
+        %prompt = core.get %usage_existing["prompt_tokens"] default 0
+        %cache_creation = core.get %usage_existing["cache_creation_tokens"] default 0
+        %cache_read = core.get %usage_existing["cache_read_tokens"] default 0
+        %usage = core.map
+        core.set %usage["prompt_tokens"] = %prompt
+        core.set %usage["completion_tokens"] = %completion
+        %total_base = core.call intrinsic.add(%prompt, %completion)
+        %total_cache = core.call intrinsic.add(%cache_creation, %cache_read)
+        %total = core.call intrinsic.add(%total_base, %total_cache)
+        core.set %usage["total_tokens"] = %total
+        core.set %usage["cache_creation_tokens"] = %cache_creation
+        core.set %usage["cache_read_tokens"] = %cache_read
+        %result = core.map
+        core.set %result["index"] = %index
+        core.set %result["content"] = ""
+        %finish = core.call @anthropic_finish_reason_impl(%stop)
+        %has_finish = core.call intrinsic.is_not_none(%finish)
+        core.if %has_finish {
+          core.set %result["finish_reason"] = %finish
+        } else {
+        }
+        %results = core.list
+        core.append %results, %result
+        %out = core.map
+        core.set %out["results"] = %results
+        core.set %out["remote_id"] = %remote_id
+        %model_usage = core.call @ai_model_usage_impl(%ai_name, %model, %usage)
+        core.set %out["model_usage"] = %model_usage
+        core.return %out
+      } else {
+      }
+      %result = core.map
+      core.set %result["index"] = %index
+      core.set %result["content"] = ""
+      %results = core.list
+      core.append %results, %result
+      %out = core.map
+      core.set %out["results"] = %results
+      core.set %out["remote_id"] = %remote_id
       core.return %out
     }
   }

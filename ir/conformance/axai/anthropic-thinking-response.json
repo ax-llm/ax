@@ -1,0 +1,96 @@
+{
+  "expected_output": {
+    "model_usage": {
+      "ai": "anthropic",
+      "model": "claude-opus-4-8",
+      "tokens": {
+        "completion_tokens": 5,
+        "prompt_tokens": 6,
+        "total_tokens": 11
+      }
+    },
+    "remote_id": "msg_think",
+    "results": [
+      {
+        "content": "Done.",
+        "finish_reason": "stop",
+        "function_calls": [],
+        "id": "msg_think",
+        "index": 0,
+        "thought": "plansecret",
+        "thought_blocks": [
+          {
+            "data": "plan",
+            "encrypted": false,
+            "signature": "sig1"
+          },
+          {
+            "data": "secret",
+            "encrypted": true,
+            "signature": "sig2"
+          }
+        ]
+      }
+    ]
+  },
+  "expected_transport_request": {
+    "json": {
+      "model": "claude-opus-4-8",
+      "output_config": {
+        "effort": "high"
+      },
+      "thinking": {
+        "type": "adaptive"
+      }
+    }
+  },
+  "kind": "ai_chat",
+  "model": "claude-opus-4-8",
+  "name": "anthropic-thinking-response",
+  "provider": "anthropic",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Think then answer.",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false,
+      "thinkingTokenBudget": "high"
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "content": [
+          {
+            "signature": "sig1",
+            "thinking": "plan",
+            "type": "thinking"
+          },
+          {
+            "data": "secret",
+            "signature": "sig2",
+            "type": "redacted_thinking"
+          },
+          {
+            "text": "Done.",
+            "type": "text"
+          }
+        ],
+        "id": "msg_think",
+        "model": "claude-opus-4-8",
+        "role": "assistant",
+        "stop_reason": "end_turn",
+        "type": "message",
+        "usage": {
+          "input_tokens": 6,
+          "output_tokens": 5,
+          "speed": "standard"
+        }
+      },
+      "status": 200
+    }
+  ]
+}

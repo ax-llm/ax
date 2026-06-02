@@ -25,4 +25,9 @@ Reference areas:
   usage, and embeddings normalization fixtures. Vertex routing, Gemini Live
   audio, explicit context-cache resources, auth loading, and live network
   behavior remain host-owned follow-up scope.
+- `src/ax/ai/anthropic/api.ts` for descriptor-backed Anthropic Developer API
+  chat/stream mapping, system hoisting, block-level cache control, tool-use
+  shapes, thinking blocks, citations, stop reasons, and usage/cache-token
+  normalization. Vertex Anthropic, live web-search behavior, retries, auth
+  loading, and live network behavior remain host-owned follow-up scope.
 - `src/ax/util/apicall.ts` for error classes and HTTP status normalization.

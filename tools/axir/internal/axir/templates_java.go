@@ -50,6 +50,9 @@ public final class Ax {
     if (normalized.equals("google_gemini") || normalized.equals("gemini")) {
       return new GoogleGeminiClient(options == null ? java.util.Map.of() : options);
     }
+    if (normalized.equals("anthropic") || normalized.equals("claude")) {
+      return new AnthropicClient(options == null ? java.util.Map.of() : options);
+    }
     throw new IllegalArgumentException("unsupported AxAI provider: " + provider);
   }
 
@@ -859,6 +862,13 @@ public class OpenAICompatibleClient extends AxBaseAI {
     if ("bearer".equals(String.valueOf(descriptor.get("auth")))) {
       headers.put("Authorization", "Bearer " + (apiKey == null ? "" : apiKey));
     }
+    if ("anthropic_key".equals(String.valueOf(descriptor.get("auth")))) {
+      headers.put("x-api-key", apiKey == null ? "" : apiKey);
+    }
+    Object extraHeaders = descriptor.get("headers");
+    if (extraHeaders instanceof Map<?, ?> rawHeaders) {
+      for (Map.Entry<?, ?> entry : rawHeaders.entrySet()) headers.put(String.valueOf(entry.getKey()), String.valueOf(entry.getValue()));
+    }
     return headers;
   }
 
@@ -933,6 +943,29 @@ public final class GoogleGeminiClient extends OpenAICompatibleClient {
   private static String firstNonBlank(String first, String second) {
     if (first != null && !first.isBlank()) return first;
     return second;
+  }
+}
+`
+
+const javaAnthropic = `package dev.ax;
+
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+public final class AnthropicClient extends OpenAICompatibleClient {
+  public AnthropicClient(String model) {
+    this(Map.of("model", model));
+  }
+
+  public AnthropicClient(Map<String, Object> options) {
+    super("anthropic", "anthropic", normalize(options), "claude-3-7-sonnet-latest", "");
+  }
+
+  private static Map<String, Object> normalize(Map<String, Object> options) {
+    Map<String, Object> out = new LinkedHashMap<>(options == null ? Map.of() : options);
+    out.putIfAbsent("api_key", System.getenv("ANTHROPIC_API_KEY"));
+    out.putIfAbsent("base_url", System.getenv().getOrDefault("ANTHROPIC_BASE_URL", "https://api.anthropic.com/v1"));
+    return out;
   }
 }
 `
@@ -4522,14 +4555,17 @@ public final class Conformance {
     String provider = String.valueOf(fixture.getOrDefault("provider", "openai-compatible")).replace("-", "_").toLowerCase();
     boolean responsesProvider = provider.equals("openai_responses") || provider.equals("responses");
     boolean geminiProvider = provider.equals("google_gemini") || provider.equals("gemini");
+    boolean anthropicProvider = provider.equals("anthropic") || provider.equals("claude");
     Map<String, Object> options = new LinkedHashMap<>();
-    options.put("model", fixture.getOrDefault("model", geminiProvider ? "gemini-2.5-flash" : responsesProvider ? "gpt-4o" : "gpt-4.1-mini"));
-    options.put("embed_model", fixture.getOrDefault("embed_model", geminiProvider ? "gemini-embedding-2" : responsesProvider ? "text-embedding-ada-002" : "text-embedding-3-small"));
+    options.put("model", fixture.getOrDefault("model", anthropicProvider ? "claude-3-7-sonnet-latest" : geminiProvider ? "gemini-2.5-flash" : responsesProvider ? "gpt-4o" : "gpt-4.1-mini"));
+    options.put("embed_model", fixture.getOrDefault("embed_model", anthropicProvider ? "" : geminiProvider ? "gemini-embedding-2" : responsesProvider ? "text-embedding-ada-002" : "text-embedding-3-small"));
     options.put("api_key", "test-key");
     options.put("transport", transport);
     options.put("model_config", fixture.get("model_config"));
     OpenAICompatibleClient client = geminiProvider
       ? new GoogleGeminiClient(options)
+      : anthropicProvider
+      ? new AnthropicClient(options)
       : responsesProvider
       ? new OpenAIResponsesClient(options)
       : new OpenAICompatibleClient(options);

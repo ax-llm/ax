@@ -303,16 +303,21 @@ func TestBuildRuntimeModel(t *testing.T) {
 		"axflow_optimization_rollback",
 		"google_gemini_provider_mapping",
 		"gemini_media_content_mapping",
-		"gemini_tool_schema_mapping",
-		"gemini_stream_folding",
-		"gemini_usage_normalization",
-		"gemini_embeddings_normalization",
-	} {
-		if !model.Features[feature] {
-			t.Fatalf("runtime model missing prompt feature flag %s: %#v", feature, model.Features)
+			"gemini_tool_schema_mapping",
+			"gemini_stream_folding",
+			"gemini_usage_normalization",
+			"gemini_embeddings_normalization",
+			"anthropic_provider_mapping",
+			"anthropic_cache_control_mapping",
+			"anthropic_thinking_normalization",
+			"anthropic_stream_folding",
+			"anthropic_usage_normalization",
+		} {
+			if !model.Features[feature] {
+				t.Fatalf("runtime model missing prompt feature flag %s: %#v", feature, model.Features)
+			}
 		}
-	}
-	for _, want := range []string{"ai", "AxAIService", "AxBaseAI", "OpenAICompatibleClient", "OpenAIResponsesClient", "GoogleGeminiClient", "agent", "AxAgent", "AxAgentClarificationError", "flow", "AxFlow", "AxProgram"} {
+	for _, want := range []string{"ai", "AxAIService", "AxBaseAI", "OpenAICompatibleClient", "OpenAIResponsesClient", "GoogleGeminiClient", "AnthropicClient", "agent", "AxAgent", "AxAgentClarificationError", "flow", "AxFlow", "AxProgram"} {
 		if _, ok := model.Symbols[want]; !ok {
 			t.Fatalf("runtime model missing symbol %s", want)
 		}
@@ -471,6 +476,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"dev/ax/OpenAICompatibleClient.java",
 				"dev/ax/OpenAIResponsesClient.java",
 				"dev/ax/GoogleGeminiClient.java",
+				"dev/ax/AnthropicClient.java",
 				"dev/ax/Conformance.java",
 				"examples/SignatureSchemaExample.java",
 				"examples/AxGenFakeClientToolExample.java",
@@ -547,7 +553,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 			if err := json.Unmarshal(manifestData, &manifest); err != nil {
 				t.Fatal(err)
 			}
-			if manifest.Target != tc.target || manifest.ProviderMode != "provider-operation-descriptors-openai-compatible-openai-responses-google-gemini" || !manifest.FakeTransportSupport {
+			if manifest.Target != tc.target || manifest.ProviderMode != "provider-operation-descriptors-openai-compatible-openai-responses-google-gemini-anthropic" || !manifest.FakeTransportSupport {
 				t.Fatalf("bad manifest for %s: %#v", tc.target, manifest)
 			}
 			if tc.target == "cpp" && manifest.RealNetworkSupport {
@@ -563,7 +569,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 					t.Fatalf("manifest missing runtime profile feature %s: %#v", want, manifest.CoreOwnedFeatureGroups)
 				}
 			}
-			for _, want := range []string{"AxGen", "AxSignature", "OpenAICompatibleClient", "OpenAIResponsesClient", "GoogleGeminiClient", "AxAgent", "AxFlow", "AxProgram", "RuntimeCapabilities", "RuntimeEnvelope", "ProcessCodeRuntime", "ProcessCodeSession", "RuntimeProtocolClient", "RuntimeTransport", "OptimizerEngine", "OptimizerEvaluator"} {
+			for _, want := range []string{"AxGen", "AxSignature", "OpenAICompatibleClient", "OpenAIResponsesClient", "GoogleGeminiClient", "AnthropicClient", "AxAgent", "AxFlow", "AxProgram", "RuntimeCapabilities", "RuntimeEnvelope", "ProcessCodeRuntime", "ProcessCodeSession", "RuntimeProtocolClient", "RuntimeTransport", "OptimizerEngine", "OptimizerEvaluator"} {
 				if !containsString(manifest.PublicSymbols, want) {
 					t.Fatalf("manifest missing public symbol %s: %#v", want, manifest.PublicSymbols)
 				}
@@ -1425,7 +1431,7 @@ func TestCompilePythonGeneratedAxLibrary(t *testing.T) {
 	script := filepath.Join(dir, "smoke.py")
 	err = os.WriteFile(script, []byte(`import sys
 sys.path.insert(0, sys.argv[1])
-from ax import AIClient, AxBaseAI, GoogleGeminiClient, OpenAICompatibleClient, OpenAIResponsesClient, agent, ai, ax, f, fn, s
+from ax import AIClient, AnthropicClient, AxBaseAI, GoogleGeminiClient, OpenAICompatibleClient, OpenAIResponsesClient, agent, ai, ax, f, fn, s
 
 sig = s('question:string -> answer:string')
 assert sig.get_input_fields()[0].name == 'question'
@@ -1504,6 +1510,18 @@ assert isinstance(gemini_service, GoogleGeminiClient)
 gemini_chat = gemini_service.chat({'chat_prompt': [{'role': 'user', 'content': 'hello'}], 'model_config': {'stream': False}})
 assert gemini_chat['results'][0]['content'] == 'ok', gemini_chat
 assert gemini_requests[0]['url'].endswith('/models/gemini-2.5-flash:generateContent?key=test'), gemini_requests[0]
+anthropic_requests = []
+anthropic_service = ai('anthropic', api_key='test', transport=lambda req: (
+    anthropic_requests.append(req) or {
+        'status': 200,
+        'json': {'id': 'msg_smoke', 'model': 'claude-3-7-sonnet-latest', 'content': [{'type': 'text', 'text': 'ok'}], 'stop_reason': 'end_turn'},
+    }
+))
+assert isinstance(anthropic_service, AnthropicClient)
+anthropic_chat = anthropic_service.chat({'chat_prompt': [{'role': 'user', 'content': 'hello'}], 'model_config': {'stream': False}})
+assert anthropic_chat['results'][0]['content'] == 'ok', anthropic_chat
+assert anthropic_requests[0]['url'].endswith('/messages'), anthropic_requests[0]
+assert anthropic_requests[0]['headers']['anthropic-version'] == '2023-06-01', anthropic_requests[0]
 assert AxBaseAI
 print('python-ok')
 `), 0o644)
@@ -1691,6 +1709,7 @@ func TestPythonGeneratedIdioms(t *testing.T) {
 		"class OpenAICompatibleClient",
 		"class OpenAIResponsesClient",
 		"class GoogleGeminiClient",
+		"class AnthropicClient",
 		"# BEGIN AXIR CORE EMITTED FUNCTIONS",
 		"def validate_chat_request(",
 		"def merge_model_config(",
@@ -1704,6 +1723,9 @@ func TestPythonGeneratedIdioms(t *testing.T) {
 		"def _gemini_build_chat_request(",
 		"def _gemini_normalize_chat_response(",
 		"def _gemini_normalize_embed_response(",
+		"def _anthropic_build_chat_request(",
+		"def _anthropic_normalize_chat_response(",
+		"def _anthropic_normalize_stream_delta(",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("generated Python missing idiom marker %q", want)
@@ -2075,6 +2097,13 @@ func TestJavaGeneratedCoreRuntime(t *testing.T) {
 	if !strings.Contains(string(googleGeminiFile), "google-gemini") || !strings.Contains(string(openAIText), "Core.provider_build_chat_request(") {
 		t.Fatalf("generated Java Gemini client missing provider marker or Core delegation")
 	}
+	anthropicFile, err := os.ReadFile(filepath.Join(dir, "dev", "ax", "AnthropicClient.java"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(anthropicFile), "anthropic") || !strings.Contains(string(openAIText), "Core.provider_build_chat_request(") {
+		t.Fatalf("generated Java Anthropic client missing provider marker or Core delegation")
+	}
 	conformanceFile, err := os.ReadFile(filepath.Join(dir, "dev", "ax", "Conformance.java"))
 	if err != nil {
 		t.Fatal(err)
@@ -2208,6 +2237,7 @@ func TestCppGeneratedCoreRuntime(t *testing.T) {
 		"class OpenAICompatibleClient",
 		"class OpenAIResponsesClient",
 		"class GoogleGeminiClient",
+		"class AnthropicClient",
 		"class Tool",
 		"class AxGen",
 		"class AxAgent",
@@ -2255,6 +2285,9 @@ func TestCppGeneratedCoreRuntime(t *testing.T) {
 		"Value Core::gemini_build_chat_request(",
 		"Value Core::gemini_normalize_chat_response(",
 		"Value Core::gemini_normalize_embed_response(",
+		"Value Core::anthropic_build_chat_request(",
+		"Value Core::anthropic_normalize_chat_response(",
+		"Value Core::anthropic_normalize_stream_delta(",
 		"Value Core::_normalize_agent_runtime(",
 		"Value Core::_normalize_agent_policy(",
 		"Value Core::_normalize_agent_callable_inventory(",

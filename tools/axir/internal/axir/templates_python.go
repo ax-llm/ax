@@ -16,6 +16,7 @@ from .ai import (
     AxAIServiceTimeoutError,
     AxBaseAI,
     AxUnsupportedCapabilityError,
+    AnthropicClient,
     GoogleGeminiClient,
     OpenAICompatibleClient,
     OpenAIResponsesClient,
@@ -56,6 +57,7 @@ __all__ = [
     "AxSignatureError",
     "AxUnsupportedCapabilityError",
     "AxValidationError",
+    "AnthropicClient",
     "Field",
     "FieldType",
     "GoogleGeminiClient",
@@ -1549,6 +1551,8 @@ def ai(provider: str = "openai", **options):
         return OpenAIResponsesClient(**options)
     if normalized in ("google_gemini", "gemini"):
         return GoogleGeminiClient(**options)
+    if normalized in ("anthropic", "claude"):
+        return AnthropicClient(**options)
     raise ValueError(f"unsupported AxAI provider: {provider}")
 
 
@@ -1908,6 +1912,10 @@ class ProviderOperationClient(AxBaseAI):
         }
         if self.descriptor.get("auth") == "bearer":
             headers["Authorization"] = "Bearer " + (self.api_key or "")
+        if self.descriptor.get("auth") == "anthropic_key":
+            headers["x-api-key"] = self.api_key or ""
+        for key, value in (self.descriptor.get("headers") or {}).items():
+            headers[str(key)] = str(value)
         return headers
 
 
@@ -1951,6 +1959,21 @@ class GoogleGeminiClient(ProviderOperationClient):
             "GoogleGeminiAI",
             model=options.pop("model", "gemini-2.5-flash"),
             embed_model=embed_model,
+            api_key=api_key,
+            base_url=base_url,
+            **options,
+        )
+
+
+class AnthropicClient(ProviderOperationClient):
+    def __init__(self, **options):
+        api_key = options.pop("api_key", None) or options.pop("apiKey", None) or os.environ.get("ANTHROPIC_API_KEY")
+        base_url = options.pop("base_url", None) or options.pop("baseUrl", None) or os.environ.get("ANTHROPIC_BASE_URL") or "https://api.anthropic.com/v1"
+        super().__init__(
+            "anthropic",
+            "anthropic",
+            model=options.pop("model", "claude-3-7-sonnet-latest"),
+            embed_model=options.pop("embed_model", options.pop("embedModel", "")),
             api_key=api_key,
             base_url=base_url,
             **options,
@@ -3996,7 +4019,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .ai import AxAIServiceError, AxBaseAI, GoogleGeminiClient, OpenAICompatibleClient, OpenAIResponsesClient, provider_descriptor
+from .ai import AnthropicClient, AxAIServiceError, AxBaseAI, GoogleGeminiClient, OpenAICompatibleClient, OpenAIResponsesClient, provider_descriptor
 from .gen import ax, fold_stream
 from .flow import (
     _FlowCallable,
@@ -5488,6 +5511,10 @@ def _openai_fixture_client(fixture):
         client_cls = GoogleGeminiClient
         default_model = "gemini-2.5-flash"
         default_embed_model = "gemini-embedding-2"
+    elif provider in ("anthropic", "claude"):
+        client_cls = AnthropicClient
+        default_model = "claude-3-7-sonnet-latest"
+        default_embed_model = ""
     else:
         client_cls = OpenAICompatibleClient
         default_model = "gpt-4.1-mini"
@@ -5669,12 +5696,12 @@ if __name__ == "__main__":
     main()
 `
 
-const pyProvidersInit = `from .openai import GoogleGeminiClient, OpenAICompatibleClient, OpenAIResponsesClient
+const pyProvidersInit = `from .openai import AnthropicClient, GoogleGeminiClient, OpenAICompatibleClient, OpenAIResponsesClient
 
-__all__ = ["GoogleGeminiClient", "OpenAICompatibleClient", "OpenAIResponsesClient"]
+__all__ = ["AnthropicClient", "GoogleGeminiClient", "OpenAICompatibleClient", "OpenAIResponsesClient"]
 `
 
-const pyOpenAIProvider = `from ..ai import GoogleGeminiClient, OpenAICompatibleClient, OpenAIResponsesClient
+const pyOpenAIProvider = `from ..ai import AnthropicClient, GoogleGeminiClient, OpenAICompatibleClient, OpenAIResponsesClient
 
-__all__ = ["GoogleGeminiClient", "OpenAICompatibleClient", "OpenAIResponsesClient"]
+__all__ = ["AnthropicClient", "GoogleGeminiClient", "OpenAICompatibleClient", "OpenAIResponsesClient"]
 `

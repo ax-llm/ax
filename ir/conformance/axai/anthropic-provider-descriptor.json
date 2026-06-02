@@ -1,0 +1,50 @@
+{
+  "expected_output": {
+    "auth": "anthropic_key",
+    "baseUrl": "https://api.anthropic.com/v1",
+    "defaultModel": "claude-3-7-sonnet-latest",
+    "features": {
+      "caching": {
+        "supported": true,
+        "types": [
+          "ephemeral_block"
+        ]
+      },
+      "media": {
+        "audio": {
+          "output": {
+            "supported": false
+          },
+          "supported": false
+        },
+        "images": {
+          "supported": true
+        }
+      },
+      "thinking": true
+    },
+    "headers": {
+      "anthropic-beta": "structured-outputs-2025-11-13, web-search-2025-03-05",
+      "anthropic-version": "2023-06-01"
+    },
+    "id": "anthropic",
+    "name": "anthropic",
+    "operations": {
+      "chat": {
+        "body": "json",
+        "method": "POST",
+        "path": "/messages",
+        "stream": false
+      },
+      "stream_chat": {
+        "body": "json",
+        "method": "POST",
+        "path": "/messages",
+        "stream": true
+      }
+    }
+  },
+  "kind": "ai_provider_descriptor",
+  "name": "anthropic-provider-descriptor",
+  "provider": "anthropic"
+}

@@ -31,14 +31,18 @@
               "type": "string"
             }
           },
-          "required": ["answer"],
+          "required": [
+            "answer"
+          ],
           "type": "object"
         },
         "responseMimeType": "application/json"
       },
       "toolConfig": {
         "function_calling_config": {
-          "allowed_function_names": ["search"],
+          "allowed_function_names": [
+            "search"
+          ],
           "mode": "ANY"
         }
       },
@@ -54,7 +58,9 @@
                     "type": "string"
                   }
                 },
-                "required": ["query"],
+                "required": [
+                  "query"
+                ],
                 "type": "object"
               }
             }
@@ -88,7 +94,9 @@
               "type": "string"
             }
           },
-          "required": ["query"],
+          "required": [
+            "query"
+          ],
           "type": "object"
         }
       }
@@ -105,7 +113,9 @@
               "type": "string"
             }
           },
-          "required": ["answer"],
+          "required": [
+            "answer"
+          ],
           "type": "object"
         }
       },

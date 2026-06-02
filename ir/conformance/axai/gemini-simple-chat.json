@@ -50,7 +50,9 @@
         "candidateCount": 2,
         "maxOutputTokens": 64,
         "responseMimeType": "text/plain",
-        "stopSequences": ["END"],
+        "stopSequences": [
+          "END"
+        ],
         "temperature": 0.2
       },
       "systemInstruction": {
@@ -83,7 +85,9 @@
     "model_config": {
       "maxTokens": 64,
       "n": 2,
-      "stopSequences": ["END"],
+      "stopSequences": [
+        "END"
+      ],
       "stream": false,
       "temperature": 0.2
     }
