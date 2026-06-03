@@ -20,6 +20,28 @@ type PyodideLike = {
 
 type HostCallable = (params: unknown) => unknown | Promise<unknown>;
 
+type RuntimePolicy = {
+  allowFilesystem: boolean;
+  allowNetwork: boolean;
+  allowPackageLoading: boolean;
+  allowMicropip: boolean;
+  packageAllowlist: string[];
+  maxDiagnosticsChars: number;
+  maxSnapshotBytes: number;
+  timeoutMs: number;
+};
+
+const DEFAULT_POLICY: RuntimePolicy = {
+  allowFilesystem: false,
+  allowNetwork: false,
+  allowPackageLoading: false,
+  allowMicropip: false,
+  packageAllowlist: [],
+  maxDiagnosticsChars: 8192,
+  maxSnapshotBytes: 262144,
+  timeoutMs: 5000,
+};
+
 function ok(id: ProtocolMessage['id'], result: unknown, extra?: JsonObject) {
   return { id, ok: true, result, ...(extra ?? {}) };
 }
@@ -110,6 +132,84 @@ function jsonLiteral(value: unknown): string {
   return JSON.stringify(JSON.stringify(value));
 }
 
+function boolOption(value: unknown, fallback: boolean): boolean {
+  return typeof value === 'boolean' ? value : fallback;
+}
+
+function intOption(value: unknown, fallback: number): number {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.max(1, Math.floor(value));
+  }
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return Math.max(1, Math.floor(parsed));
+  }
+  return fallback;
+}
+
+function policyFrom(
+  raw: unknown,
+  base: RuntimePolicy = DEFAULT_POLICY
+): RuntimePolicy {
+  const value = raw && typeof raw === 'object' ? (raw as JsonObject) : {};
+  return {
+    allowFilesystem: boolOption(value.allowFilesystem, base.allowFilesystem),
+    allowNetwork: boolOption(value.allowNetwork, base.allowNetwork),
+    allowPackageLoading: boolOption(
+      value.allowPackageLoading,
+      base.allowPackageLoading
+    ),
+    allowMicropip: boolOption(value.allowMicropip, base.allowMicropip),
+    packageAllowlist: Array.isArray(value.packageAllowlist)
+      ? value.packageAllowlist.map(String)
+      : [...base.packageAllowlist],
+    maxDiagnosticsChars: intOption(
+      value.maxDiagnosticsChars,
+      base.maxDiagnosticsChars
+    ),
+    maxSnapshotBytes: intOption(value.maxSnapshotBytes, base.maxSnapshotBytes),
+    timeoutMs: intOption(value.timeoutMs, base.timeoutMs),
+  };
+}
+
+function policyFromEnv(): RuntimePolicy {
+  const raw = process.env.AXIR_PYODIDE_RUNTIME_POLICY;
+  if (!raw) return { ...DEFAULT_POLICY };
+  try {
+    return policyFrom(JSON.parse(raw));
+  } catch (error) {
+    throw new Error(
+      `invalid AXIR_PYODIDE_RUNTIME_POLICY JSON: ${errorMessage(error)}`
+    );
+  }
+}
+
+function truncateText(text: string, limit: number): string {
+  if (text.length <= limit) return text;
+  return `${text.slice(0, Math.max(0, limit))}...[truncated]`;
+}
+
+function jsonByteLength(value: unknown): number {
+  return Buffer.byteLength(JSON.stringify(value), 'utf8');
+}
+
+function enforceSnapshotLimit(
+  bindings: JsonObject,
+  maxBytes: number
+): JsonObject {
+  if (jsonByteLength(bindings) <= maxBytes) return bindings;
+  const out: JsonObject = {};
+  for (const [key, value] of Object.entries(bindings)) {
+    out[key] = value;
+    if (jsonByteLength(out) > maxBytes) {
+      delete out[key];
+      out.__ax_snapshot_truncated = true;
+      break;
+    }
+  }
+  return out;
+}
+
 function safeBindings(bindings: JsonObject, reserved: Set<string>): JsonObject {
   const out: JsonObject = {};
   for (const [key, value] of Object.entries(bindings)) {
@@ -141,6 +241,7 @@ class PyodideSession {
     private readonly sessionId: string,
     globals: JsonObject,
     options: JsonObject,
+    private readonly policy: RuntimePolicy,
     private readonly hostCallables: Map<string, HostCallable>,
     private readonly diagnostics: JsonObject[]
   ) {
@@ -222,7 +323,10 @@ class PyodideSession {
   }
 
   snapshotGlobals(): unknown {
-    const bindings = safeBindings(this.bindings, this.reserved);
+    const bindings = enforceSnapshotLimit(
+      safeBindings(this.bindings, this.reserved),
+      this.policy.maxSnapshotBytes
+    );
     return { version: 1, bindings, globals: bindings };
   }
 
@@ -278,7 +382,13 @@ class PyodideSession {
   }
 
   private flushDiagnostics(): JsonObject[] {
-    const out = this.diagnostics.splice(0);
+    const out = this.diagnostics.splice(0).map((item) => {
+      const next = { ...item };
+      if (typeof next.text === 'string') {
+        next.text = truncateText(next.text, this.policy.maxDiagnosticsChars);
+      }
+      return next;
+    });
     return out;
   }
 
@@ -330,6 +440,27 @@ def reportFailure(message=""):
 def guideAgent(guidance=""):
     return __ax_complete({"type": "guide_agent", "guidance": str(guidance)})
 
+def loadPackage(*names):
+    allowed = set(json.loads(${jsonLiteral(this.policy.packageAllowlist)}))
+    package_loading = bool(json.loads(${jsonLiteral(this.policy.allowPackageLoading)}))
+    requested = []
+    for name in names:
+        if isinstance(name, (list, tuple)):
+            requested.extend([str(item) for item in name])
+        else:
+            requested.append(str(name))
+    if not package_loading:
+        return {"kind": "error", "is_error": True, "error_category": "runtime", "error": "Pyodide package loading is disabled by runtimePolicy"}
+    denied = [name for name in requested if name not in allowed]
+    if denied:
+        return {"kind": "error", "is_error": True, "error_category": "runtime", "error": "Pyodide package not allowed by runtimePolicy: " + ", ".join(denied)}
+    return {"kind": "status", "status": {"type": "success", "message": "package request allowed: " + ", ".join(requested)}}
+
+def micropipInstall(*names):
+    if not bool(json.loads(${jsonLiteral(this.policy.allowMicropip)})):
+        return {"kind": "error", "is_error": True, "error_category": "runtime", "error": "Pyodide micropip is disabled by runtimePolicy"}
+    return loadPackage(*names)
+
 def __ax_make_host_callable(name):
     def __ax_call(params=None):
         raw = globalThis.__ax_host_call(__ax_session_id, name, json.dumps(params))
@@ -368,6 +499,8 @@ __ax_globals.update({
     "reportSuccess": reportSuccess,
     "reportFailure": reportFailure,
     "guideAgent": guideAgent,
+    "loadPackage": loadPackage,
+    "micropipInstall": micropipInstall,
     "__ax_completion": None,
 })
 
@@ -429,7 +562,10 @@ class PyodideRuntimeServer {
   private nextSessionId = 0;
   private readonly diagnostics: JsonObject[] = [];
 
-  constructor(private readonly pyodide: PyodideLike) {
+  constructor(
+    private readonly pyodide: PyodideLike,
+    private readonly policy: RuntimePolicy
+  ) {
     this.hostCallables.set('search', (params) => ({
       title: 'Docs',
       query:
@@ -444,6 +580,7 @@ class PyodideRuntimeServer {
 
   static async create(): Promise<PyodideRuntimeServer> {
     const { loadPyodide } = await importPyodidePackage();
+    const policy = policyFromEnv();
     const diagnostics: JsonObject[] = [];
     const pyodide = await loadPyodide({
       stdout: (text: string) => diagnostics.push({ stream: 'stdout', text }),
@@ -455,7 +592,7 @@ class PyodideRuntimeServer {
     pyodide.setStderr?.({
       batched: (text: string) => diagnostics.push({ stream: 'stderr', text }),
     });
-    const server = new PyodideRuntimeServer(pyodide);
+    const server = new PyodideRuntimeServer(pyodide, policy);
     server.diagnostics.push(...diagnostics);
     (globalThis as JsonObject).__ax_host_call = (
       sessionId: string,
@@ -487,6 +624,16 @@ class PyodideRuntimeServer {
             snapshot: true,
             patch: true,
             abort: false,
+            runtime_policy: this.policy,
+            policy_support: {
+              filesystem: false,
+              network: false,
+              packageLoading: 'allowlist',
+              micropip: 'disabled-by-default',
+              maxDiagnosticsChars: true,
+              maxSnapshotBytes: true,
+              timeoutMs: 'protocol-level',
+            },
           });
         case 'create_session': {
           const sessionId = `p${++this.nextSessionId}`;
@@ -499,11 +646,13 @@ class PyodideRuntimeServer {
             payload.options && typeof payload.options === 'object'
               ? (payload.options as JsonObject)
               : {};
+          const sessionPolicy = policyFrom(options.runtimePolicy, this.policy);
           const session = new PyodideSession(
             this.pyodide,
             sessionId,
             globals,
             options,
+            sessionPolicy,
             this.hostCallables,
             this.diagnostics
           );
@@ -601,6 +750,21 @@ async function selfTest(): Promise<void> {
     },
   })) as JsonObject;
   const sessionId = String(created.session_id);
+  const capabilities = (await server.handle({
+    id: 'cap',
+    op: 'capabilities',
+  })) as JsonObject;
+  const capabilityPolicy = (capabilities.result as JsonObject)
+    .runtime_policy as JsonObject;
+  if (
+    capabilityPolicy.allowFilesystem !== false ||
+    capabilityPolicy.allowNetwork !== false ||
+    capabilityPolicy.allowPackageLoading !== false
+  ) {
+    throw new Error(
+      `bad default runtime policy: ${JSON.stringify(capabilities)}`
+    );
+  }
   const executed = (await server.handle({
     id: '2',
     op: 'execute',
@@ -687,6 +851,43 @@ async function selfTest(): Promise<void> {
       `stdout diagnostics failed: ${JSON.stringify(diagnostics)}`
     );
   }
+  const packageDenied = (
+    await execute(
+      '14b',
+      "pkg = loadPackage('numpy')\nfinal({'error': pkg['error']})"
+    )
+  ).result as JsonObject;
+  if (!JSON.stringify(packageDenied).includes('package loading is disabled')) {
+    throw new Error(`package denial failed: ${JSON.stringify(packageDenied)}`);
+  }
+  const allowedCreated = (await server.handle({
+    id: '14c',
+    op: 'create_session',
+    payload: {
+      globals: {},
+      options: {
+        runtimePolicy: {
+          allowPackageLoading: true,
+          packageAllowlist: ['numpy'],
+        },
+      },
+    },
+  })) as JsonObject;
+  const allowedSessionId = String(allowedCreated.session_id);
+  const packageAllowed = (await server.handle({
+    id: '14d',
+    op: 'execute',
+    session_id: allowedSessionId,
+    payload: {
+      code: "pkg = loadPackage('numpy')\nfinal({'kind': pkg['kind']})",
+    },
+  })) as JsonObject;
+  if (!JSON.stringify(packageAllowed).includes('status')) {
+    throw new Error(
+      `package allowlist failed: ${JSON.stringify(packageAllowed)}`
+    );
+  }
+  await server.handle({ id: '14e', op: 'close', session_id: allowedSessionId });
   const runtimeError = (await execute('15', "raise Exception('boom')"))
     .result as JsonObject;
   if (runtimeError.error_category !== 'runtime') {

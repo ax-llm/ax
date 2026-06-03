@@ -205,6 +205,18 @@ Deno, or Bun runtime profiles; those are the existing TypeScript runtime
 surface. Adapter-owned policy still covers filesystem, network, package
 loading, native cancellation, and process security.
 
+Runtime profile productization is profile-specific and deny-by-default. The
+generated QuickJS and Pyodide profile artifacts expose JSON-compatible
+`runtimePolicy` examples and capability metadata for timeout, snapshot,
+diagnostic, memory, package-loading, and host-access policy. AxIR does not turn
+these policies into Core AxAgent semantics: envelopes, lifecycle, state, logs,
+and traces stay portable, while actual sandboxing, filesystem/network/process
+permissions, package repository access, hard cancellation, and dependency
+distribution remain adapter responsibilities. Generated examples and optional
+profile verification assert default denial for ambient host APIs and package
+loading, explicit host-callable registration, bounded snapshot/diagnostic
+behavior, and clear unsupported-limit reporting.
+
 Backends must consume the lowered Core IR module or a target package model made
 from Core IR. They must not use high-level Ax dialects as their primary input.
 They must also avoid target-only semantic escapes for Core-owned behavior; see

@@ -132,6 +132,8 @@ try:
         assert failed["args"][0]["error"] == "tool failed", failed
         diagnostic = session.execute("print('hello from pyodide')\nfinal({'ok': True})")
         assert "hello from pyodide" in str(diagnostic), diagnostic
+        package_denied = session.execute("pkg = loadPackage('numpy')\nfinal({'error': pkg['error']})")
+        assert "package loading is disabled" in package_denied["args"][0]["error"], package_denied
         snapshot = session.snapshot_globals()
         assert "inputs" not in snapshot["bindings"], snapshot
         session.patch_globals({"bindings": {"safe": 9}})
@@ -287,6 +289,8 @@ public final class PythonPyodideExample {
       if (!"tool failed".equals(asMap(((List<?>) failed.get("args")).get(0)).get("error"))) throw new RuntimeException("host error failed: " + failed);
       Map<String, Object> diagnostic = asMap(session.execute("print('hello from pyodide')\nfinal({'ok': True})", Map.of()));
       if (!String.valueOf(diagnostic).contains("hello from pyodide")) throw new RuntimeException("diagnostics failed: " + diagnostic);
+      Map<String, Object> packageDenied = asMap(session.execute("pkg = loadPackage('numpy')\nfinal({'error': pkg['error']})", Map.of()));
+      if (!String.valueOf(packageDenied).contains("package loading is disabled")) throw new RuntimeException("package policy denial failed: " + packageDenied);
       Map<String, Object> snapshot = asMap(session.snapshotGlobals(Map.of()));
       if (asMap(snapshot.get("bindings")).containsKey("inputs")) throw new RuntimeException("reserved input leaked into snapshot: " + snapshot);
       session.patchGlobals(Map.of("bindings", Map.of("safe", 9)), Map.of());
@@ -310,6 +314,18 @@ const pyodidePackageJSON = `{
   "devDependencies": {
     "tsx": "^4.22.3"
   }
+}
+`
+
+const pyodideRuntimePolicyJSON = `{
+  "allowFilesystem": false,
+  "allowNetwork": false,
+  "allowPackageLoading": false,
+  "allowMicropip": false,
+  "packageAllowlist": [],
+  "timeoutMs": 5000,
+  "maxDiagnosticsChars": 8192,
+  "maxSnapshotBytes": 262144
 }
 `
 
@@ -352,6 +368,14 @@ run the generated helper.
 Host callbacks are exposed to Python actor code as ordinary functions and must
 use JSON-compatible arguments/results. Filesystem, network, package loading, and
 process permissions remain adapter-owned and are not exposed by default.
+
+Runtime productization policy is explicit and deny-by-default. Set
+` + "`AXIR_PYODIDE_RUNTIME_POLICY`" + ` to a JSON object before starting the server to
+tune ` + "`timeoutMs`" + `, ` + "`maxDiagnosticsChars`" + `, ` + "`maxSnapshotBytes`" + `, and
+package allowlisting. The generated ` + "`pyodide-runtime-policy.json`" + ` shows the
+supported keys. Package loading is disabled by default; when enabled, package
+names must appear in ` + "`packageAllowlist`" + `. ` + "`micropip`" + ` remains disabled unless
+` + "`allowMicropip`" + ` is set.
 
 Profile examples check parity with the AxJS reference runtime for actor
 primitive envelopes, host-call success/failure, persistent bindings,
@@ -435,6 +459,8 @@ struct PyodideProfileTransport : ax::RuntimeTransport {
         result = ax::object({{"type", "final"}, {"args", ax::array({ax::object({{"title", "Docs"}})})}});
       } else if (code.find("badTool") != std::string::npos) {
         result = ax::object({{"type", "final"}, {"args", ax::array({ax::object({{"error", "tool failed"}})})}});
+      } else if (code.find("loadPackage") != std::string::npos) {
+        result = ax::object({{"type", "final"}, {"args", ax::array({ax::object({{"error", "Pyodide package loading is disabled by runtimePolicy"}})})}});
       } else if (code.find("raise") != std::string::npos) {
         result = ax::RuntimeEnvelope::error("boom", "runtime");
       }
@@ -555,6 +581,7 @@ int main() {
   if (!ax::equal(ax::Core::get(session->execute("guideAgent('try this')"), "type"), "guide_agent")) return 10;
   if (!ax::equal(ax::Core::get(ax::Core::get(ax::Core::get(session->execute("hit = search({'query': inputs['question']})\nfinal({'title': hit['title']})"), "args", ax::Value::array()), 0), "title"), "Docs")) return 11;
   if (!ax::equal(ax::Core::get(ax::Core::get(ax::Core::get(session->execute("err = badTool({})\nfinal({'error': err['error']})"), "args", ax::Value::array()), 0), "error"), "tool failed")) return 12;
+  if (ax::stringify(session->execute("pkg = loadPackage('numpy')\nfinal({'error': pkg['error']})")).find("package loading is disabled") == std::string::npos) return 26;
   ax::Value snapshot = session->snapshot_globals();
   if (!ax::Core::get(ax::Core::get(snapshot, "bindings", ax::Value::object()), "inputs").is_null()) return 13;
   session->patch_globals(ax::object({{"bindings", ax::object({{"safe", 9}})}}));

@@ -154,9 +154,22 @@ import java.util.Map;
 
 public final class AxQuickJsCodeRuntime implements AxCodeRuntime, AutoCloseable {
   private final Map<String, AxQuickJsHostCallable> hostCallables = new LinkedHashMap<>();
+  private final Map<String, Object> runtimePolicy;
+
+  public AxQuickJsCodeRuntime() {
+    this(Map.of());
+  }
+
+  public AxQuickJsCodeRuntime(Map<String, Object> runtimePolicy) {
+    this.runtimePolicy = defaultPolicy(runtimePolicy == null ? Map.of() : runtimePolicy);
+  }
 
   public String getUsageInstructions() {
     return "JavaScript QuickJS runtime profile. Use final(...), askClarification(...), discover(...), recall(...), used(...), reportSuccess(...), and reportFailure(...). Filesystem, network, and native host APIs are not exposed by default.";
+  }
+
+  public Map<String, Object> getRuntimePolicy() {
+    return new LinkedHashMap<>(runtimePolicy);
   }
 
   public AxQuickJsCodeRuntime registerCallable(String name, AxQuickJsHostCallable handler) {
@@ -167,10 +180,33 @@ public final class AxQuickJsCodeRuntime implements AxCodeRuntime, AutoCloseable 
   }
 
   public AxCodeSession createSession(Map<String, Object> globals, Map<String, Object> options) {
-    return new AxQuickJsCodeSession(globals == null ? Map.of() : globals, options == null ? Map.of() : options, hostCallables);
+    Map<String, Object> mergedOptions = new LinkedHashMap<>(options == null ? Map.of() : options);
+    mergedOptions.put("runtimePolicy", mergePolicy(runtimePolicy, mergedOptions.get("runtimePolicy")));
+    return new AxQuickJsCodeSession(globals == null ? Map.of() : globals, mergedOptions, hostCallables);
   }
 
   public void close() {}
+
+  private static Map<String, Object> defaultPolicy(Map<String, Object> overrides) {
+    Map<String, Object> policy = new LinkedHashMap<>();
+    policy.put("allowFilesystem", false);
+    policy.put("allowNetwork", false);
+    policy.put("allowProcess", false);
+    policy.put("allowNativeHostAccess", false);
+    policy.put("maxSnapshotBytes", 262144);
+    policy.put("timeoutMs", 5000);
+    policy.putAll(overrides);
+    return policy;
+  }
+
+  @SuppressWarnings("unchecked")
+  static Map<String, Object> mergePolicy(Map<String, Object> base, Object override) {
+    Map<String, Object> policy = defaultPolicy(base == null ? Map.of() : base);
+    if (override instanceof Map<?, ?> raw) {
+      for (Map.Entry<?, ?> entry : raw.entrySet()) policy.put(String.valueOf(entry.getKey()), entry.getValue());
+    }
+    return policy;
+  }
 }
 `
 
@@ -203,11 +239,13 @@ public final class AxQuickJsCodeSession implements AxCodeSession {
   private final Map<String, Object> bindings = new LinkedHashMap<>();
   private final Map<String, Object> reserved = new LinkedHashMap<>();
   private final Map<String, AxQuickJsHostCallable> hostCallables = new LinkedHashMap<>();
+  private final Map<String, Object> runtimePolicy;
   private final int timeoutMs;
   private boolean closed = false;
 
   AxQuickJsCodeSession(Map<String, Object> globals, Map<String, Object> options, Map<String, AxQuickJsHostCallable> hostCallables) {
     if (hostCallables != null) this.hostCallables.putAll(hostCallables);
+    this.runtimePolicy = AxQuickJsCodeRuntime.mergePolicy(Map.of(), options.get("runtimePolicy"));
     Object reservedNames = options.get("reservedNames");
     if (reservedNames instanceof Iterable<?> items) {
       for (Object item : items) reserved.put(String.valueOf(item), true);
@@ -220,7 +258,7 @@ public final class AxQuickJsCodeSession implements AxCodeSession {
       reserved.put(name, true);
       bindings.putIfAbsent(name, Map.of("__ax_host_callable", true, "native", true));
     }
-    this.timeoutMs = intOption(options.get("timeoutMs"), 5000);
+    this.timeoutMs = intOption(options.get("timeoutMs"), intOption(runtimePolicy.get("timeoutMs"), 5000));
   }
 
   public Object execute(String code, Map<String, Object> options) {
@@ -288,6 +326,18 @@ public final class AxQuickJsCodeSession implements AxCodeSession {
   private Map<String, Object> snapshotBindings() {
     Map<String, Object> out = new LinkedHashMap<>(bindings);
     for (String name : reserved.keySet()) out.remove(name);
+    int maxBytes = intOption(runtimePolicy.get("maxSnapshotBytes"), 262144);
+    if (Json.stringify(out).getBytes(java.nio.charset.StandardCharsets.UTF_8).length > maxBytes) {
+      Map<String, Object> trimmed = new LinkedHashMap<>();
+      for (Map.Entry<String, Object> entry : out.entrySet()) {
+        trimmed.put(entry.getKey(), entry.getValue());
+        if (Json.stringify(trimmed).getBytes(java.nio.charset.StandardCharsets.UTF_8).length > maxBytes) {
+          trimmed.remove(entry.getKey());
+          trimmed.put("__ax_snapshot_truncated", true);
+          return trimmed;
+        }
+      }
+    }
     return out;
   }
 
@@ -454,6 +504,9 @@ public final class AxQuickJsProtocolServer {
     try (AxQuickJsCodeRuntime rt = new AxQuickJsCodeRuntime()
         .registerCallable("search", params -> Map.of("title", "Docs"))
         .registerCallable("badTool", params -> { throw new RuntimeException("tool failed"); })) {
+      if (!Boolean.FALSE.equals(rt.getRuntimePolicy().get("allowFilesystem")) || !Boolean.FALSE.equals(rt.getRuntimePolicy().get("allowNetwork"))) {
+        throw new RuntimeException("QuickJS protocol runtime policy must default-deny filesystem/network access");
+      }
       AxCodeSession session = rt.createSession(Map.of("inputs", Map.of("question", "quickjs")), Map.of("reservedNames", java.util.List.of("inputs")));
       Object result = session.execute("answer = inputs.question; final({answer})", Map.of());
       Map<String, Object> out = Json.asObject(result);
@@ -471,6 +524,11 @@ public final class AxQuickJsProtocolServer {
       if (!"Docs".equals(Json.asObject(((java.util.List<?>) bridged.get("args")).get(0)).get("title"))) throw new RuntimeException("bad host callable result: " + bridged);
       Map<String, Object> failedCall = Json.asObject(session.execute("final({error: badTool({}).error})", Map.of()));
       if (!"tool failed".equals(Json.asObject(((java.util.List<?>) failedCall.get("args")).get(0)).get("error"))) throw new RuntimeException("bad host callable error: " + failedCall);
+      Map<String, Object> ambient = Json.asObject(session.execute("final({fetchType: typeof fetch, requireType: typeof require, processType: typeof process})", Map.of()));
+      Map<String, Object> ambientPayload = Json.asObject(((java.util.List<?>) ambient.get("args")).get(0));
+      if (!"undefined".equals(ambientPayload.get("fetchType")) || !"undefined".equals(ambientPayload.get("requireType")) || !"undefined".equals(ambientPayload.get("processType"))) {
+        throw new RuntimeException("ambient host APIs should be absent by default: " + ambient);
+      }
       Map<String, Object> snapshot = Json.asObject(session.snapshotGlobals(Map.of()));
       if (Json.asObject(snapshot.get("bindings")).containsKey("inputs")) throw new RuntimeException("reserved input leaked into snapshot: " + snapshot);
       session.patchGlobals(Map.of("bindings", Map.of("safe", 9)), Map.of());
@@ -512,7 +570,17 @@ public final class AxQuickJsProtocolServer {
           "inspect", true,
           "snapshot", true,
           "patch", true,
-          "abort", false
+          "abort", false,
+          "runtime_policy", runtime.getRuntimePolicy(),
+          "policy_support", Map.of(
+            "filesystem", false,
+            "network", false,
+            "process", false,
+            "nativeHostAccess", "explicit-callables-only",
+            "maxSnapshotBytes", true,
+            "timeoutMs", "engine-supported",
+            "memoryLimitBytes", false
+          )
         ), null);
       }
       if ("create_session".equals(op)) {
@@ -605,6 +673,11 @@ public final class JavaScriptQuickJsExample {
     try (AxQuickJsCodeRuntime runtime = new AxQuickJsCodeRuntime()
         .registerCallable("search", params -> Map.of("title", "Docs", "query", asMap(params).getOrDefault("query", "")))
         .registerCallable("badTool", params -> { throw new RuntimeException("tool failed"); })) {
+      Map<String, Object> policy = runtime.getRuntimePolicy();
+      if (!Boolean.FALSE.equals(policy.get("allowFilesystem")) || !Boolean.FALSE.equals(policy.get("allowNetwork"))) {
+        throw new RuntimeException("QuickJS runtime policy must default-deny filesystem/network access: " + policy);
+      }
+
       AxAgent qa = Ax.agent("question:string -> answer:string", Map.of("runtime", Map.of("language", "JavaScript")));
       Map<String, Object> out = qa.test(runtime, "answer = inputs.question; final({answer})", Map.of("question", "quickjs"));
       if (!"final".equals(out.get("kind"))) throw new RuntimeException("bad output: " + out);
@@ -703,6 +776,18 @@ public final class JavaScriptQuickJsExample {
       Map<String, Object> failedCall = asMap(hostSession.execute("final({error: badTool({}).error})", Map.of()));
       if (!"tool failed".equals(asMap(((List<?>) failedCall.get("args")).get(0)).get("error"))) throw new RuntimeException("host callable error bridge failed: " + failedCall);
       hostSession.close();
+      Map<String, Object> ambient = asMap(session.execute("final({fetchType: typeof fetch, requireType: typeof require, processType: typeof process})", Map.of()));
+      Map<String, Object> ambientPayload = asMap(((List<?>) ambient.get("args")).get(0));
+      if (!"undefined".equals(ambientPayload.get("fetchType")) || !"undefined".equals(ambientPayload.get("requireType")) || !"undefined".equals(ambientPayload.get("processType"))) {
+        throw new RuntimeException("ambient host APIs should be absent by default: " + ambient);
+      }
+      AxCodeSession cappedSession = runtime.createSession(Map.of(), Map.of("runtimePolicy", Map.of("maxSnapshotBytes", 64)));
+      cappedSession.execute("big = 'x'.repeat(1000); final({ok:true})", Map.of());
+      Map<String, Object> cappedSnapshot = asMap(cappedSession.snapshotGlobals(Map.of()));
+      if (!Boolean.TRUE.equals(asMap(cappedSnapshot.get("bindings")).get("__ax_snapshot_truncated"))) {
+        throw new RuntimeException("snapshot cap did not mark truncation: " + cappedSnapshot);
+      }
+      cappedSession.close();
       session.execute("safe = 7; final({safe})", Map.of());
       Map<String, Object> snapshot = asMap(session.snapshotGlobals(Map.of()));
       if (asMap(snapshot.get("bindings")).containsKey("inputs")) throw new RuntimeException("reserved input leaked into snapshot: " + snapshot);
@@ -762,6 +847,17 @@ mvn -q -f "$POM_FILE" dependency:build-classpath -Dmaven.repo.local="$M2_REPO" -
 cat "$OUT_FILE"
 `
 
+const quickJSRuntimePolicyJSON = `{
+  "allowFilesystem": false,
+  "allowNetwork": false,
+  "allowProcess": false,
+  "allowNativeHostAccess": false,
+  "timeoutMs": 5000,
+  "maxSnapshotBytes": 262144,
+  "memoryLimitBytes": 33554432
+}
+`
+
 const javaQuickJSProfileReadme = `# JavaScript QuickJS Runtime Profile
 
 This optional profile runs JavaScript actor code in QuickJS4J. It is not part of
@@ -794,6 +890,14 @@ be JSON-compatible. Callback failures are normalized to runtime error objects;
 filesystem, network, process, and arbitrary host object access are not exposed by
 default.
 
+Runtime productization policy is explicit and deny-by-default. Java accepts a
+JSON-compatible ` + "`runtimePolicy`" + ` map in ` + "`AxQuickJsCodeRuntime`" + ` and per-session
+options. C++ accepts the same policy object in ` + "`QuickJsCodeRuntime`" + `. The
+generated ` + "`quickjs-runtime-policy.json`" + ` shows the supported keys. Java reports
+` + "`memoryLimitBytes`" + ` as unsupported capability metadata because QuickJS4J does not
+expose that limit through the profile surface; C++ applies it through the
+QuickJS C API.
+
 Profile examples check the same observable runtime/session contract as the
 TypeScript ` + "`AxJSRuntime`" + ` reference: actor primitive envelopes, host-call
 success/failure, persistent bindings, reserved-name-safe snapshots,
@@ -814,7 +918,7 @@ using HostCallable = std::function<Value(Value)>;
 
 class QuickJsCodeSession : public AxCodeSession {
  public:
-  QuickJsCodeSession(Value globals, Value options, std::map<std::string, HostCallable> host_callables);
+  QuickJsCodeSession(Value globals, Value options, Value runtime_policy, std::map<std::string, HostCallable> host_callables);
   ~QuickJsCodeSession() override;
 
   Value execute(Value code, Value options = Value::object()) override;
@@ -829,6 +933,7 @@ class QuickJsCodeSession : public AxCodeSession {
   JSContext* context_;
   bool closed_ = false;
   Value reserved_;
+  Value runtime_policy_;
   std::map<std::string, HostCallable> host_callables_;
 
   Value eval_json(const std::string& source);
@@ -837,11 +942,14 @@ class QuickJsCodeSession : public AxCodeSession {
 
 class QuickJsCodeRuntime : public AxCodeRuntime {
  public:
+  explicit QuickJsCodeRuntime(Value runtime_policy = Value::object());
   QuickJsCodeRuntime& register_callable(std::string name, HostCallable handler);
   std::string usage_instructions() const override;
   AxCodeSession* create_session(Value globals, Value options = Value::object()) override;
+  Value runtime_policy() const;
 
  private:
+  Value runtime_policy_;
   std::map<std::string, HostCallable> host_callables_;
 };
 
@@ -885,6 +993,31 @@ static int int_option(Value options, const std::string& key, int fallback) {
   } catch (...) {
     return fallback;
   }
+}
+
+static Value default_runtime_policy(Value overrides = Value::object()) {
+  Value policy = object({
+      {"allowFilesystem", false},
+      {"allowNetwork", false},
+      {"allowProcess", false},
+      {"allowNativeHostAccess", false},
+      {"maxSnapshotBytes", 262144},
+      {"memoryLimitBytes", 32 * 1024 * 1024},
+      {"timeoutMs", 5000},
+  });
+  for (const auto& entry : value_entries(overrides)) {
+    Core::set(policy, entry.first, entry.second);
+  }
+  return policy;
+}
+
+static Value merge_runtime_policy(Value base, Value options) {
+  Value policy = default_runtime_policy(std::move(base));
+  Value overrides = Core::get(options, "runtimePolicy", Value::object());
+  for (const auto& entry : value_entries(overrides)) {
+    Core::set(policy, entry.first, entry.second);
+  }
+  return policy;
 }
 
 static const char* bootstrap_source = R"JS(
@@ -995,10 +1128,10 @@ static JSValue quickjs_host_call(JSContext* context, JSValueConst, int argc, JSV
   return JS_NewString(context, out.c_str());
 }
 
-QuickJsCodeSession::QuickJsCodeSession(Value globals, Value options, std::map<std::string, HostCallable> host_callables)
-    : runtime_(JS_NewRuntime()), context_(nullptr), reserved_(Core::get(options, "reservedNames", Value::array())), host_callables_(std::move(host_callables)) {
+QuickJsCodeSession::QuickJsCodeSession(Value globals, Value options, Value runtime_policy, std::map<std::string, HostCallable> host_callables)
+    : runtime_(JS_NewRuntime()), context_(nullptr), reserved_(Core::get(options, "reservedNames", Value::array())), runtime_policy_(merge_runtime_policy(std::move(runtime_policy), options)), host_callables_(std::move(host_callables)) {
   if (!runtime_) throw AxError("runtime", "failed to create QuickJS runtime");
-  JS_SetMemoryLimit(runtime_, 32 * 1024 * 1024);
+  JS_SetMemoryLimit(runtime_, static_cast<size_t>(int_option(runtime_policy_, "memoryLimitBytes", 32 * 1024 * 1024)));
   context_ = JS_NewContext(runtime_);
   if (!context_) throw AxError("runtime", "failed to create QuickJS context");
   JS_SetContextOpaque(context_, this);
@@ -1027,7 +1160,7 @@ QuickJsCodeSession::~QuickJsCodeSession() {
 Value QuickJsCodeSession::execute(Value code, Value options) {
   if (closed_) return RuntimeEnvelope::session_closed("session closed");
   std::string source = display(code);
-  int timeout_ms = int_option(options, "timeoutMs", 5000);
+  int timeout_ms = int_option(options, "timeoutMs", int_option(runtime_policy_, "timeoutMs", 5000));
   auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
   JS_SetInterruptHandler(runtime_, quickjs_interrupt_handler, &deadline);
   JS_FreeValue(context_, JS_Eval(context_, "globalThis.__ax_completion = undefined; __ax_install_host_callables();", std::strlen("globalThis.__ax_completion = undefined; __ax_install_host_callables();"), "<ax-before-execute>", JS_EVAL_TYPE_GLOBAL));
@@ -1069,6 +1202,19 @@ Value QuickJsCodeSession::inspect(Value) { return eval_json("__ax_snapshot_json(
 
 Value QuickJsCodeSession::snapshot_globals(Value) {
   Value bindings = inspect(Value::object());
+  int max_bytes = int_option(runtime_policy_, "maxSnapshotBytes", 262144);
+  if (static_cast<int>(stringify(bindings).size()) > max_bytes) {
+    Value trimmed = Value::object();
+    for (const auto& entry : value_entries(bindings)) {
+      Core::set(trimmed, entry.first, entry.second);
+      if (static_cast<int>(stringify(trimmed).size()) > max_bytes) {
+        Core::set(trimmed, entry.first, Value());
+        Core::set(trimmed, "__ax_snapshot_truncated", true);
+        bindings = trimmed;
+        break;
+      }
+    }
+  }
   return object({{"version", 1}, {"bindings", bindings}, {"globals", bindings}});
 }
 
@@ -1120,6 +1266,8 @@ std::string QuickJsCodeRuntime::usage_instructions() const {
   return "JavaScript QuickJS runtime profile. Use final(...), askClarification(...), discover(...), recall(...), used(...), reportSuccess(...), and reportFailure(...). Filesystem, network, and native host APIs are not exposed by default.";
 }
 
+QuickJsCodeRuntime::QuickJsCodeRuntime(Value runtime_policy) : runtime_policy_(default_runtime_policy(std::move(runtime_policy))) {}
+
 QuickJsCodeRuntime& QuickJsCodeRuntime::register_callable(std::string name, HostCallable handler) {
   if (name.empty()) throw AxError("runtime", "QuickJS host callable name is required");
   if (!handler) throw AxError("runtime", "QuickJS host callable handler is required");
@@ -1128,8 +1276,10 @@ QuickJsCodeRuntime& QuickJsCodeRuntime::register_callable(std::string name, Host
 }
 
 AxCodeSession* QuickJsCodeRuntime::create_session(Value globals, Value options) {
-  return new QuickJsCodeSession(globals, options, host_callables_);
+  return new QuickJsCodeSession(globals, options, runtime_policy_, host_callables_);
 }
+
+Value QuickJsCodeRuntime::runtime_policy() const { return runtime_policy_; }
 
 }  // namespace ax::runtime::quickjs
 `
@@ -1166,6 +1316,9 @@ int main() {
     .register_callable("badTool", [](ax::Value) -> ax::Value {
       throw ax::AxError("runtime", "tool failed");
     });
+  ax::Value policy = runtime.runtime_policy();
+  if (!ax::equal(ax::Core::get(policy, "allowFilesystem"), false) || !ax::equal(ax::Core::get(policy, "allowNetwork"), false)) return 28;
+
   auto qa = ax::agent("question:string -> answer:string", ax::object({{"runtime", ax::object({{"language", "JavaScript"}})}}));
   ax::Value out = qa.test(runtime, "answer = inputs.question; final({answer})", ax::object({{"question", "quickjs"}}));
   if (!ax::equal(ax::Core::get(out, "kind"), "final")) return 1;
@@ -1266,6 +1419,16 @@ int main() {
   if (!ax::equal(ax::Core::get(ax::Core::get(ax::Core::get(failed_call, "args", ax::Value::array()), 0), "error"), "tool failed")) return 16;
   host_session->close();
   delete host_session;
+  ax::Value ambient = session->execute("final({fetchType: typeof fetch, requireType: typeof require, processType: typeof process})");
+  ax::Value ambient_payload = ax::Core::get(ax::Core::get(ax::Core::get(ambient, "args", ax::Value::array()), 0), "fetchType");
+  if (!ax::equal(ambient_payload, "undefined")) return 29;
+  ax::runtime::quickjs::QuickJsCodeRuntime capped_runtime(ax::object({{"maxSnapshotBytes", 64}}));
+  ax::AxCodeSession* capped_session = capped_runtime.create_session(ax::Value::object(), ax::Value::object());
+  capped_session->execute("big = 'x'.repeat(1000); final({ok:true})");
+  ax::Value capped_snapshot = capped_session->snapshot_globals();
+  if (!ax::equal(ax::Core::get(ax::Core::get(capped_snapshot, "bindings", ax::Value::object()), "__ax_snapshot_truncated"), true)) return 30;
+  capped_session->close();
+  delete capped_session;
   session->execute("safe = 7; final({safe})");
   ax::Value snapshot = session->snapshot_globals();
   if (!ax::Core::get(ax::Core::get(snapshot, "bindings", ax::Value::object()), "inputs").is_null()) return 11;
@@ -1288,6 +1451,11 @@ On Homebrew systems, ` + "`axir verify`" + ` auto-detects the usual QuickJS pref
 Host callbacks are registered with ` + "`QuickJsCodeRuntime::register_callable`" + `
 and are exposed to actor JavaScript as ordinary functions returning
 JSON-compatible values.
+
+Runtime policy is explicit and deny-by-default. Pass a policy object to
+` + "`QuickJsCodeRuntime`" + ` to tune ` + "`timeoutMs`" + `, ` + "`maxSnapshotBytes`" + `, or
+` + "`memoryLimitBytes`" + `. Filesystem, network, process, and arbitrary native host
+access remain unavailable unless host code exposes an explicit callback.
 
 Example verification:
 

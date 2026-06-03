@@ -102,6 +102,7 @@ func EmitPython(model AxRuntimeModel, outDir string) error {
 		"examples/runtime_profiles/javascript_quickjs.py":             pyJavaScriptQuickJSProfilePythonExample,
 		"examples/runtime_profiles/python_pyodide.py":                 pyPythonPyodideProfileExample,
 		"examples/runtime_profiles/pyodide-package.json":              pyodidePackageJSON,
+		"examples/runtime_profiles/pyodide-runtime-policy.json":       pyodideRuntimePolicyJSON,
 		"examples/runtime_profiles/resolve_pyodide_runtime_server.sh": pyodideRuntimeHelper,
 		"examples/runtime_profiles/README.md":                         pyodideProfileReadme,
 		"examples/axflow_program_graph.py":                            pyAxFlowProgramGraphExample,
@@ -173,8 +174,10 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 		"examples/runtime_profiles/PythonPyodideExample.java":         javaPythonPyodideProfileExample,
 		"examples/runtime_profiles/quickjs4j-pom.xml":                 javaQuickJSProfilePom,
 		"examples/runtime_profiles/quickjs4j-build.gradle":            javaQuickJSProfileGradle,
+		"examples/runtime_profiles/quickjs-runtime-policy.json":       quickJSRuntimePolicyJSON,
 		"examples/runtime_profiles/resolve_quickjs4j_cp.sh":           javaQuickJSClasspathHelper,
 		"examples/runtime_profiles/pyodide-package.json":              pyodidePackageJSON,
+		"examples/runtime_profiles/pyodide-runtime-policy.json":       pyodideRuntimePolicyJSON,
 		"examples/runtime_profiles/resolve_pyodide_runtime_server.sh": pyodideRuntimeHelper,
 		"examples/runtime_profiles/README.md":                         javaRuntimeProfilesReadme,
 		"examples/AxFlowProgramGraphExample.java":                     javaAxFlowProgramGraphExample,
@@ -190,24 +193,26 @@ func EmitCpp(model AxRuntimeModel, outDir string) error {
 		return err
 	}
 	files := map[string]string{
-		"ax/ax.hpp":                                        cppHeader,
-		"ax/ax.cpp":                                        strings.Replace(cppRuntime, "// AXIR_CORE_CPP_FUNCTIONS\n", core, 1),
-		"conformance.cpp":                                  cppConformance,
-		"axir-capabilities.json":                           mustCapabilityManifest(model, "cpp"),
-		"examples/signature_schema.cpp":                    cppSignatureSchemaExample,
-		"examples/axgen_fake_client_tool.cpp":              cppAxGenFakeClientToolExample,
-		"examples/axai_fake_transport.cpp":                 cppAxAIFakeTransportExample,
-		"examples/axagent_pipeline.cpp":                    cppAxAgentPipelineExample,
-		"examples/runtime_adapter.cpp":                     cppRuntimeAdapterExample,
-		"examples/runtime_protocol.cpp":                    cppRuntimeProtocolExample,
-		"ax/runtime/quickjs/quickjs_runtime.hpp":           cppQuickJSRuntimeHeader,
-		"ax/runtime/quickjs/quickjs_runtime.cpp":           cppQuickJSRuntimeSource,
-		"examples/runtime_profiles/javascript_quickjs.cpp": cppJavaScriptQuickJSProfileExample,
-		"examples/runtime_profiles/python_pyodide.cpp":     cppPythonPyodideProfileExample,
-		"examples/runtime_profiles/README.md":              cppRuntimeProfilesReadme,
-		"examples/axflow_program_graph.cpp":                cppAxFlowProgramGraphExample,
-		"examples/optimizer_artifact.cpp":                  cppOptimizerArtifactExample,
-		"README.md":                                        packageREADME(model, "cpp"),
+		"ax/ax.hpp":                                             cppHeader,
+		"ax/ax.cpp":                                             strings.Replace(cppRuntime, "// AXIR_CORE_CPP_FUNCTIONS\n", core, 1),
+		"conformance.cpp":                                       cppConformance,
+		"axir-capabilities.json":                                mustCapabilityManifest(model, "cpp"),
+		"examples/signature_schema.cpp":                         cppSignatureSchemaExample,
+		"examples/axgen_fake_client_tool.cpp":                   cppAxGenFakeClientToolExample,
+		"examples/axai_fake_transport.cpp":                      cppAxAIFakeTransportExample,
+		"examples/axagent_pipeline.cpp":                         cppAxAgentPipelineExample,
+		"examples/runtime_adapter.cpp":                          cppRuntimeAdapterExample,
+		"examples/runtime_protocol.cpp":                         cppRuntimeProtocolExample,
+		"ax/runtime/quickjs/quickjs_runtime.hpp":                cppQuickJSRuntimeHeader,
+		"ax/runtime/quickjs/quickjs_runtime.cpp":                cppQuickJSRuntimeSource,
+		"examples/runtime_profiles/javascript_quickjs.cpp":      cppJavaScriptQuickJSProfileExample,
+		"examples/runtime_profiles/python_pyodide.cpp":          cppPythonPyodideProfileExample,
+		"examples/runtime_profiles/quickjs-runtime-policy.json": quickJSRuntimePolicyJSON,
+		"examples/runtime_profiles/pyodide-runtime-policy.json": pyodideRuntimePolicyJSON,
+		"examples/runtime_profiles/README.md":                   cppRuntimeProfilesReadme,
+		"examples/axflow_program_graph.cpp":                     cppAxFlowProgramGraphExample,
+		"examples/optimizer_artifact.cpp":                       cppOptimizerArtifactExample,
+		"README.md":                                             packageREADME(model, "cpp"),
 	}
 	return writeFiles(outDir, files)
 }
@@ -351,6 +356,9 @@ func BuildCapabilityManifest(model AxRuntimeModel, target string) (CapabilityMan
 			"axagent-runtime-profile-diagnostics",
 			"axagent-runtime-profile-agent-forward",
 			"axagent-runtime-profile-actor-loop",
+			"axagent-runtime-profile-productization-alpha",
+			"axagent-runtime-profile-policy",
+			"axagent-runtime-profile-package-policy",
 			"axagent-actor-step-alpha",
 			"axagent-runtime-language",
 			"axagent-actor-prompt-cache",
@@ -521,5 +529,13 @@ Bun profiles because those are the existing TypeScript implementation surface.
   embedded in the generated packages. Verification accepts
   `+"`AXIR_PYODIDE_RUNTIME_SERVER`"+` directly, or `+"`AXIR_PYODIDE_RESOLVE=1`"+`
   to install/resolve Pyodide with the generated npm helper.
+
+Both optional profiles expose a JSON-compatible runtime policy surface. The
+generated `+"`quickjs-runtime-policy.json`"+` and `+"`pyodide-runtime-policy.json`"+`
+files document conservative defaults: filesystem, network, process/native host
+access, and package loading are disabled unless profile adapter code explicitly
+supports and enables them. AxIR still owns envelopes, state, logs, and traces;
+adapter policy owns sandboxing, dependency loading, hard cancellation, and
+process security.
 `, strings.ToUpper(target), manifest.AxIRVersion, manifest.PackageName, strings.Join(manifest.SupportedSuites, ", "), manifest.ProviderMode, manifest.FakeTransportSupport, network)
 }
