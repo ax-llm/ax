@@ -40,17 +40,21 @@ public final class Ax {
   }
 
   public static AxAIService ai(String provider, java.util.Map<String, Object> options) {
-    String normalized = provider == null ? "openai" : provider.replace("-", "_").toLowerCase();
-    if (normalized.equals("openai") || normalized.equals("openai_compatible") || normalized.equals("compatible")) {
+    java.util.Map<String, Object> resolved = Core.asMap(Core.provider_resolve_profile(provider == null ? "openai" : provider));
+    if (!Core.truthy(resolved.get("known"))) {
+      throw new IllegalArgumentException("unsupported AxAI provider: " + provider);
+    }
+    String canonical = String.valueOf(resolved.get("id"));
+    if (canonical.equals("openai-compatible")) {
       return new OpenAICompatibleClient(options == null ? java.util.Map.of() : options);
     }
-    if (normalized.equals("openai_responses") || normalized.equals("responses")) {
+    if (canonical.equals("openai-responses")) {
       return new OpenAIResponsesClient(options == null ? java.util.Map.of() : options);
     }
-    if (normalized.equals("google_gemini") || normalized.equals("gemini")) {
+    if (canonical.equals("google-gemini")) {
       return new GoogleGeminiClient(options == null ? java.util.Map.of() : options);
     }
-    if (normalized.equals("anthropic") || normalized.equals("claude")) {
+    if (canonical.equals("anthropic")) {
       return new AnthropicClient(options == null ? java.util.Map.of() : options);
     }
     throw new IllegalArgumentException("unsupported AxAI provider: " + provider);
@@ -3555,6 +3559,8 @@ public final class Conformance {
       case "ai_error" -> runAIError(fixture);
       case "ai_unsupported" -> runAIUnsupported(fixture);
       case "ai_provider_descriptor" -> runAIProviderDescriptor(fixture);
+      case "ai_provider_registry" -> runAIProviderRegistry(fixture);
+      case "ai_model_catalog_audit" -> runAIModelCatalogAudit(fixture);
       case "ai_transcribe" -> runAITranscribe(fixture);
       case "ai_speak" -> runAISpeak(fixture);
       case "ai_realtime" -> runAIRealtime(fixture);
@@ -4404,6 +4410,20 @@ public final class Conformance {
     if (fixture.containsKey("expected_output")) assertSubset(descriptor, fixture.get("expected_output"), "provider descriptor");
   }
 
+  static void runAIProviderRegistry(Map<String, Object> fixture) {
+    Object registry = Core.provider_profile_registry();
+    if (fixture.containsKey("expected_output")) assertSubset(registry, fixture.get("expected_output"), "provider profile registry");
+    Map<String, Object> aliases = Core.asMap(fixture.getOrDefault("alias_expectations", Map.of()));
+    for (Map.Entry<String, Object> entry : aliases.entrySet()) {
+      assertEqual(Core.provider_normalize_profile(entry.getKey()), entry.getValue(), "provider alias " + entry.getKey());
+    }
+  }
+
+  static void runAIModelCatalogAudit(Map<String, Object> fixture) {
+    Object summary = Core.provider_model_catalog_summary();
+    if (fixture.containsKey("expected_output")) assertSubset(summary, fixture.get("expected_output"), "provider model catalog audit");
+  }
+
   static void runAITranscribe(Map<String, Object> fixture) {
     ClientFixture cf = openaiClient(fixture);
     Object result;
@@ -4552,10 +4572,10 @@ public final class Conformance {
   }
   static ClientFixture openaiClient(Map<String, Object> fixture) {
     FakeTransport transport = new FakeTransport(Core.asList(fixture.getOrDefault("transport_responses", fixture.getOrDefault("responses", List.of()))));
-    String provider = String.valueOf(fixture.getOrDefault("provider", "openai-compatible")).replace("-", "_").toLowerCase();
-    boolean responsesProvider = provider.equals("openai_responses") || provider.equals("responses");
-    boolean geminiProvider = provider.equals("google_gemini") || provider.equals("gemini");
-    boolean anthropicProvider = provider.equals("anthropic") || provider.equals("claude");
+    String provider = String.valueOf(Core.provider_normalize_profile(String.valueOf(fixture.getOrDefault("provider", "openai-compatible"))));
+    boolean responsesProvider = provider.equals("openai-responses");
+    boolean geminiProvider = provider.equals("google-gemini");
+    boolean anthropicProvider = provider.equals("anthropic");
     Map<String, Object> options = new LinkedHashMap<>();
     options.put("model", fixture.getOrDefault("model", anthropicProvider ? "claude-3-7-sonnet-latest" : geminiProvider ? "gemini-2.5-flash" : responsesProvider ? "gpt-4o" : "gpt-4.1-mini"));
     options.put("embed_model", fixture.getOrDefault("embed_model", anthropicProvider ? "" : geminiProvider ? "gemini-embedding-2" : responsesProvider ? "text-embedding-ada-002" : "text-embedding-3-small"));

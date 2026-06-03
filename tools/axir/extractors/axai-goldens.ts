@@ -2,7 +2,10 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { axAIAnthropicDefaultConfig } from '../../../src/ax/ai/anthropic/api.js';
+import { axGetSupportedAIModels } from '../../../src/ax/ai/catalog.js';
 import { axAIGoogleGeminiDefaultConfig } from '../../../src/ax/ai/google-gemini/api.js';
+import { AxAIGoogleGeminiEmbedModel } from '../../../src/ax/ai/google-gemini/types.js';
+import { AxAIOpenAIModel } from '../../../src/ax/ai/openai/chat_types.js';
 import { axAIOpenAIResponsesDefaultConfig } from '../../../src/ax/ai/openai/responses_api_base.js';
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
@@ -36,6 +39,189 @@ const responsesDefaultModel = axAIOpenAIResponsesDefaultConfig()
 const geminiDefaultModel = axAIGoogleGeminiDefaultConfig().model as string;
 const geminiDefaultEmbedModel = 'gemini-embedding-2';
 const anthropicDefaultModel = axAIAnthropicDefaultConfig().model as string;
+const catalogAll = axGetSupportedAIModels();
+const catalogText = axGetSupportedAIModels({ type: 'text' });
+const catalogEmbeddings = axGetSupportedAIModels({ type: 'embeddings' });
+const catalogCode = axGetSupportedAIModels({ type: 'code' });
+const catalogAudio = axGetSupportedAIModels({ type: 'audio' });
+const catalogProviderNames = [
+  'openai',
+  'openai-responses',
+  'azure-openai',
+  'anthropic',
+  'google-gemini',
+  'cohere',
+  'deepseek',
+  'mistral',
+  'huggingface',
+  'reka',
+  'grok',
+];
+const descriptorCoveredProviderIds = [
+  'openai-compatible',
+  'openai-responses',
+  'google-gemini',
+  'anthropic',
+];
+const deferredProviderIds = [
+  'azure-openai',
+  'cohere',
+  'deepseek',
+  'mistral',
+  'huggingface',
+  'reka',
+  'grok',
+];
+const openAIProvider = catalogAll.find(
+  (provider) => provider.name === 'openai'
+);
+const textOpenAIProvider = catalogText.find(
+  (provider) => provider.name === 'openai'
+);
+const embeddingOpenAIProvider = catalogEmbeddings.find(
+  (provider) => provider.name === 'openai'
+);
+const codeOpenAIProvider = catalogCode.find(
+  (provider) => provider.name === 'openai'
+);
+const audioOpenAIProvider = catalogAudio.find(
+  (provider) => provider.name === 'openai'
+);
+const geminiCatalogProvider = catalogAll.find(
+  (provider) => provider.name === 'google-gemini'
+);
+const geminiEmbeddingModel = geminiCatalogProvider?.models.find(
+  (model) => model.name === AxAIGoogleGeminiEmbedModel.GeminiEmbedding2
+);
+const firstCatalog = axGetSupportedAIModels();
+const firstOpenAI = firstCatalog.find((provider) => provider.name === 'openai');
+const firstOpenAIModel = firstOpenAI?.models.find(
+  (model) => model.name === AxAIOpenAIModel.GPT5Mini
+);
+firstOpenAI?.models.push({
+  name: 'mutated',
+  provider: 'openai',
+  type: 'text',
+  isDefault: false,
+  capabilities: {
+    thinkingBudget: false,
+    showThoughts: false,
+    structuredOutputs: false,
+    temperature: true,
+    topP: true,
+    audioInput: false,
+    audioOutput: false,
+  },
+});
+if (firstOpenAIModel) {
+  firstOpenAIModel.promptTokenCostPer1M = 999;
+  firstOpenAIModel.capabilities.structuredOutputs = false;
+}
+const clonedOpenAIModel = axGetSupportedAIModels()
+  .find((provider) => provider.name === 'openai')
+  ?.models.find((model) => model.name === AxAIOpenAIModel.GPT5Mini);
+
+writeFixture('provider-profile-registry', {
+  kind: 'ai_provider_registry',
+  alias_expectations: {
+    openai: 'openai-compatible',
+    'openai-compatible': 'openai-compatible',
+    compatible: 'openai-compatible',
+    'openai-responses': 'openai-responses',
+    openai_responses: 'openai-responses',
+    responses: 'openai-responses',
+    'google-gemini': 'google-gemini',
+    google_gemini: 'google-gemini',
+    gemini: 'google-gemini',
+    anthropic: 'anthropic',
+    claude: 'anthropic',
+  },
+  expected_output: {
+    registryVersion: 'provider-profile-registry-v1',
+    supportedProfileIds: descriptorCoveredProviderIds,
+    profiles: {
+      'openai-compatible': {
+        id: 'openai-compatible',
+        generatedClient: 'OpenAICompatibleClient',
+        aliases: ['openai-compatible', 'openai', 'compatible'],
+        catalogStatus: 'descriptor-covered',
+      },
+      'openai-responses': {
+        id: 'openai-responses',
+        generatedClient: 'OpenAIResponsesClient',
+        aliases: ['openai-responses', 'openai_responses', 'responses'],
+        catalogStatus: 'descriptor-covered',
+      },
+      'google-gemini': {
+        id: 'google-gemini',
+        generatedClient: 'GoogleGeminiClient',
+        aliases: ['google-gemini', 'google_gemini', 'gemini'],
+        catalogStatus: 'descriptor-covered',
+      },
+      anthropic: {
+        id: 'anthropic',
+        generatedClient: 'AnthropicClient',
+        aliases: ['anthropic', 'claude'],
+        catalogStatus: 'descriptor-covered',
+      },
+    },
+    deferredCatalogProviderIds: deferredProviderIds,
+  },
+});
+
+writeFixture('model-catalog-audit', {
+  kind: 'ai_model_catalog_audit',
+  ts_catalog_evidence: {
+    providerCount: catalogAll.length,
+    providerNames: catalogProviderNames,
+    returnedProviderNames: catalogAll.map((provider) => provider.name),
+    openaiDefaultModel: openAIProvider?.defaultModel ?? null,
+    openaiFirstModel: openAIProvider?.models.at(0)?.name ?? null,
+    textOpenAIFirstModel: textOpenAIProvider?.models.at(0)?.name ?? null,
+    textFilterIncludesCode:
+      textOpenAIProvider?.models.some((model) => model.type === 'code') ??
+      false,
+    embeddingsFilterOnlyEmbeddings:
+      embeddingOpenAIProvider?.models.every(
+        (model) => model.type === 'embeddings'
+      ) ?? false,
+    codeFilterOnlyCode:
+      codeOpenAIProvider?.models.every((model) => model.type === 'code') ??
+      false,
+    audioFilterOnlyAudio:
+      audioOpenAIProvider?.models.every((model) => model.type === 'audio') ??
+      false,
+    geminiDefaultEmbedModel: geminiCatalogProvider?.defaultEmbedModel ?? null,
+    geminiEmbedding2: geminiEmbeddingModel
+      ? {
+          type: geminiEmbeddingModel.type,
+          isDefault: geminiEmbeddingModel.isDefault,
+          promptTokenCostPer1M:
+            geminiEmbeddingModel.promptTokenCostPer1M ?? null,
+        }
+      : null,
+    clonedMetadata:
+      clonedOpenAIModel?.promptTokenCostPer1M !== 999 &&
+      clonedOpenAIModel?.capabilities.structuredOutputs !== false,
+  },
+  expected_output: {
+    catalogVersion: 'provider-model-catalog-audit-v1',
+    source: 'src/ax/ai/catalog.ts',
+    providerCount: 11,
+    providerNames: catalogProviderNames,
+    descriptorCoveredProviderIds,
+    deferredProviderIds,
+    filterOptions: ['all', 'text', 'embeddings', 'code', 'audio'],
+    semantics: {
+      codeMatchesTextFilter: true,
+      modelSort: 'price-then-name',
+      providerSort: 'cheapest-model-then-display-name',
+      metadataClonedPerCall: true,
+      dynamicProvidersMayHaveEmptyModels: true,
+    },
+    nextMilestone: 'AxAI Model Catalog and Provider Routing Runtime Parity',
+  },
+});
 
 writeFixture('responses-provider-descriptor', {
   kind: 'ai_provider_descriptor',

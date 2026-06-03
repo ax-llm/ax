@@ -1,0 +1,61 @@
+{
+  "alias_expectations": {
+    "anthropic": "anthropic",
+    "claude": "anthropic",
+    "compatible": "openai-compatible",
+    "gemini": "google-gemini",
+    "google_gemini": "google-gemini",
+    "google-gemini": "google-gemini",
+    "openai": "openai-compatible",
+    "openai_responses": "openai-responses",
+    "openai-compatible": "openai-compatible",
+    "openai-responses": "openai-responses",
+    "responses": "openai-responses"
+  },
+  "expected_output": {
+    "deferredCatalogProviderIds": [
+      "azure-openai",
+      "cohere",
+      "deepseek",
+      "mistral",
+      "huggingface",
+      "reka",
+      "grok"
+    ],
+    "profiles": {
+      "anthropic": {
+        "aliases": ["anthropic", "claude"],
+        "catalogStatus": "descriptor-covered",
+        "generatedClient": "AnthropicClient",
+        "id": "anthropic"
+      },
+      "google-gemini": {
+        "aliases": ["google-gemini", "google_gemini", "gemini"],
+        "catalogStatus": "descriptor-covered",
+        "generatedClient": "GoogleGeminiClient",
+        "id": "google-gemini"
+      },
+      "openai-compatible": {
+        "aliases": ["openai-compatible", "openai", "compatible"],
+        "catalogStatus": "descriptor-covered",
+        "generatedClient": "OpenAICompatibleClient",
+        "id": "openai-compatible"
+      },
+      "openai-responses": {
+        "aliases": ["openai-responses", "openai_responses", "responses"],
+        "catalogStatus": "descriptor-covered",
+        "generatedClient": "OpenAIResponsesClient",
+        "id": "openai-responses"
+      }
+    },
+    "registryVersion": "provider-profile-registry-v1",
+    "supportedProfileIds": [
+      "openai-compatible",
+      "openai-responses",
+      "google-gemini",
+      "anthropic"
+    ]
+  },
+  "kind": "ai_provider_registry",
+  "name": "provider-profile-registry"
+}

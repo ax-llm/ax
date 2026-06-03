@@ -2411,16 +2411,18 @@ module @ax.provider version "0.1" {
     }
   }
 
-  op ax.provider.semantic @provider_descriptor {
+  op ax.provider.semantic @provider_normalize_profile {
     attr core_kind = "func"
     attr emit_module = "ai"
-    tag "provider-operation-descriptor"
-    type signature = "(profile:string) -> json"
+    tag "provider-profile-registry"
+    type signature = "(profile:string) -> string"
     body @entry(%profile: string) {
       %normalized = core.call intrinsic.string.lower(%profile)
       %is_responses_dash = core.call intrinsic.eq(%normalized, "openai-responses")
       %is_responses_under = core.call intrinsic.eq(%normalized, "openai_responses")
-      %is_responses = core.call intrinsic.or(%is_responses_dash, %is_responses_under)
+      %is_responses_alias = core.call intrinsic.eq(%normalized, "responses")
+      %is_responses_one = core.call intrinsic.or(%is_responses_dash, %is_responses_under)
+      %is_responses = core.call intrinsic.or(%is_responses_one, %is_responses_alias)
       %is_gemini_google = core.call intrinsic.eq(%normalized, "google-gemini")
       %is_gemini_google_under = core.call intrinsic.eq(%normalized, "google_gemini")
       %is_gemini_alias = core.call intrinsic.eq(%normalized, "gemini")
@@ -2429,13 +2431,101 @@ module @ax.provider version "0.1" {
       %is_anthropic_main = core.call intrinsic.eq(%normalized, "anthropic")
       %is_anthropic_alias = core.call intrinsic.eq(%normalized, "claude")
       %is_anthropic = core.call intrinsic.or(%is_anthropic_main, %is_anthropic_alias)
+      %provider_id = core.let "openai-compatible"
+      core.if %is_responses {
+        %provider_id = core.let "openai-responses"
+      } else {
+        core.if %is_gemini {
+          %provider_id = core.let "google-gemini"
+        } else {
+          core.if %is_anthropic {
+            %provider_id = core.let "anthropic"
+          } else {
+          }
+        }
+      }
+      core.return %provider_id
+    }
+  }
+
+  op ax.provider.semantic @provider_profile_registry {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "provider-profile-registry"
+    type signature = "() -> json"
+    body @entry() {
+      %registry = core.call intrinsic.json.parse("{\"registryVersion\":\"provider-profile-registry-v1\",\"supportedProfileIds\":[\"openai-compatible\",\"openai-responses\",\"google-gemini\",\"anthropic\"],\"profiles\":{\"openai-compatible\":{\"id\":\"openai-compatible\",\"publicNames\":[\"openai-compatible\",\"openai\"],\"aliases\":[\"openai-compatible\",\"openai\",\"compatible\"],\"generatedClient\":\"OpenAICompatibleClient\",\"descriptorBacked\":true,\"catalogStatus\":\"descriptor-covered\"},\"openai-responses\":{\"id\":\"openai-responses\",\"publicNames\":[\"openai-responses\"],\"aliases\":[\"openai-responses\",\"openai_responses\",\"responses\"],\"generatedClient\":\"OpenAIResponsesClient\",\"descriptorBacked\":true,\"catalogStatus\":\"descriptor-covered\"},\"google-gemini\":{\"id\":\"google-gemini\",\"publicNames\":[\"google-gemini\",\"gemini\"],\"aliases\":[\"google-gemini\",\"google_gemini\",\"gemini\"],\"generatedClient\":\"GoogleGeminiClient\",\"descriptorBacked\":true,\"catalogStatus\":\"descriptor-covered\"},\"anthropic\":{\"id\":\"anthropic\",\"publicNames\":[\"anthropic\",\"claude\"],\"aliases\":[\"anthropic\",\"claude\"],\"generatedClient\":\"AnthropicClient\",\"descriptorBacked\":true,\"catalogStatus\":\"descriptor-covered\"}},\"deferredCatalogProviderIds\":[\"azure-openai\",\"cohere\",\"deepseek\",\"mistral\",\"huggingface\",\"reka\",\"grok\"]}")
+      core.return %registry
+    }
+  }
+
+  op ax.provider.semantic @provider_resolve_profile {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "provider-profile-registry"
+    type signature = "(profile:string) -> json"
+    body @entry(%profile: string) {
+      %normalized = core.call intrinsic.string.lower(%profile)
+      %is_openai = core.call intrinsic.eq(%normalized, "openai")
+      %is_openai_compatible_dash = core.call intrinsic.eq(%normalized, "openai-compatible")
+      %is_openai_compatible_under = core.call intrinsic.eq(%normalized, "openai_compatible")
+      %is_compatible = core.call intrinsic.eq(%normalized, "compatible")
+      %is_openai_one = core.call intrinsic.or(%is_openai, %is_openai_compatible_dash)
+      %is_openai_two = core.call intrinsic.or(%is_openai_compatible_under, %is_compatible)
+      %is_openai_alias = core.call intrinsic.or(%is_openai_one, %is_openai_two)
+      %is_responses_dash = core.call intrinsic.eq(%normalized, "openai-responses")
+      %is_responses_under = core.call intrinsic.eq(%normalized, "openai_responses")
+      %is_responses_alias = core.call intrinsic.eq(%normalized, "responses")
+      %is_responses_one = core.call intrinsic.or(%is_responses_dash, %is_responses_under)
+      %is_responses = core.call intrinsic.or(%is_responses_one, %is_responses_alias)
+      %is_gemini_google = core.call intrinsic.eq(%normalized, "google-gemini")
+      %is_gemini_google_under = core.call intrinsic.eq(%normalized, "google_gemini")
+      %is_gemini_alias = core.call intrinsic.eq(%normalized, "gemini")
+      %is_gemini_one = core.call intrinsic.or(%is_gemini_google, %is_gemini_google_under)
+      %is_gemini = core.call intrinsic.or(%is_gemini_one, %is_gemini_alias)
+      %is_anthropic_main = core.call intrinsic.eq(%normalized, "anthropic")
+      %is_anthropic_alias = core.call intrinsic.eq(%normalized, "claude")
+      %is_anthropic = core.call intrinsic.or(%is_anthropic_main, %is_anthropic_alias)
+      %is_known_one = core.call intrinsic.or(%is_openai_alias, %is_responses)
+      %is_known_two = core.call intrinsic.or(%is_gemini, %is_anthropic)
+      %is_known = core.call intrinsic.or(%is_known_one, %is_known_two)
+      %provider_id = core.call @provider_normalize_profile(%profile)
+      %resolved = core.map
+      core.set %resolved["id"] = %provider_id
+      core.set %resolved["known"] = %is_known
+      core.set %resolved["input"] = %profile
+      core.return %resolved
+    }
+  }
+
+  op ax.provider.semantic @provider_model_catalog_summary {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "provider-model-catalog-audit"
+    type signature = "() -> json"
+    body @entry() {
+      %summary = core.call intrinsic.json.parse("{\"catalogVersion\":\"provider-model-catalog-audit-v1\",\"source\":\"src/ax/ai/catalog.ts\",\"providerCount\":11,\"providerNames\":[\"openai\",\"openai-responses\",\"azure-openai\",\"anthropic\",\"google-gemini\",\"cohere\",\"deepseek\",\"mistral\",\"huggingface\",\"reka\",\"grok\"],\"descriptorCoveredProviderIds\":[\"openai-compatible\",\"openai-responses\",\"google-gemini\",\"anthropic\"],\"deferredProviderIds\":[\"azure-openai\",\"cohere\",\"deepseek\",\"mistral\",\"huggingface\",\"reka\",\"grok\"],\"filterOptions\":[\"all\",\"text\",\"embeddings\",\"code\",\"audio\"],\"semantics\":{\"codeMatchesTextFilter\":true,\"modelSort\":\"price-then-name\",\"providerSort\":\"cheapest-model-then-display-name\",\"metadataClonedPerCall\":true,\"dynamicProvidersMayHaveEmptyModels\":true},\"nextMilestone\":\"AxAI Model Catalog and Provider Routing Runtime Parity\"}")
+      core.return %summary
+    }
+  }
+
+  op ax.provider.semantic @provider_descriptor {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "provider-operation-descriptor"
+    type signature = "(profile:string) -> json"
+    body @entry(%profile: string) {
+      %provider_id = core.call @provider_normalize_profile(%profile)
+      %is_responses = core.call intrinsic.eq(%provider_id, "openai-responses")
+      %is_gemini = core.call intrinsic.eq(%provider_id, "google-gemini")
+      %is_anthropic = core.call intrinsic.eq(%provider_id, "anthropic")
       %descriptor = core.map
       %operations = core.map
       %features = core.map
       %media = core.map
       %audio = core.map
       %audio_output = core.map
-      core.set %descriptor["provider"] = %normalized
+      core.set %descriptor["provider"] = %provider_id
       core.set %features["functions"] = true
       core.set %features["streaming"] = true
       core.set %features["structured_outputs"] = true
@@ -2598,18 +2688,10 @@ module @ax.provider version "0.1" {
     tag "provider-operation-dispatch"
     type signature = "(profile:string, AxChatRequest) -> json throws"
     body @entry(%profile: string, %request: AxChatRequest) {
-      %normalized = core.call intrinsic.string.lower(%profile)
-      %is_responses_dash = core.call intrinsic.eq(%normalized, "openai-responses")
-      %is_responses_under = core.call intrinsic.eq(%normalized, "openai_responses")
-      %is_responses = core.call intrinsic.or(%is_responses_dash, %is_responses_under)
-      %is_gemini_google = core.call intrinsic.eq(%normalized, "google-gemini")
-      %is_gemini_google_under = core.call intrinsic.eq(%normalized, "google_gemini")
-      %is_gemini_alias = core.call intrinsic.eq(%normalized, "gemini")
-      %is_gemini_one = core.call intrinsic.or(%is_gemini_google, %is_gemini_google_under)
-      %is_gemini = core.call intrinsic.or(%is_gemini_one, %is_gemini_alias)
-      %is_anthropic_main = core.call intrinsic.eq(%normalized, "anthropic")
-      %is_anthropic_alias = core.call intrinsic.eq(%normalized, "claude")
-      %is_anthropic = core.call intrinsic.or(%is_anthropic_main, %is_anthropic_alias)
+      %provider_id = core.call @provider_normalize_profile(%profile)
+      %is_responses = core.call intrinsic.eq(%provider_id, "openai-responses")
+      %is_gemini = core.call intrinsic.eq(%provider_id, "google-gemini")
+      %is_anthropic = core.call intrinsic.eq(%provider_id, "anthropic")
       %payload = core.map
       core.if %is_responses {
         %responses_payload = core.call @openai_responses_build_chat_request(%request)
@@ -2638,15 +2720,9 @@ module @ax.provider version "0.1" {
     tag "provider-operation-dispatch"
     type signature = "(profile:string, AxEmbedRequest) -> json"
     body @entry(%profile: string, %request: AxEmbedRequest) {
-      %normalized = core.call intrinsic.string.lower(%profile)
-      %is_gemini_google = core.call intrinsic.eq(%normalized, "google-gemini")
-      %is_gemini_google_under = core.call intrinsic.eq(%normalized, "google_gemini")
-      %is_gemini_alias = core.call intrinsic.eq(%normalized, "gemini")
-      %is_gemini_one = core.call intrinsic.or(%is_gemini_google, %is_gemini_google_under)
-      %is_gemini = core.call intrinsic.or(%is_gemini_one, %is_gemini_alias)
-      %is_anthropic_main = core.call intrinsic.eq(%normalized, "anthropic")
-      %is_anthropic_alias = core.call intrinsic.eq(%normalized, "claude")
-      %is_anthropic = core.call intrinsic.or(%is_anthropic_main, %is_anthropic_alias)
+      %provider_id = core.call @provider_normalize_profile(%profile)
+      %is_gemini = core.call intrinsic.eq(%provider_id, "google-gemini")
+      %is_anthropic = core.call intrinsic.eq(%provider_id, "anthropic")
       %payload = core.map
       core.if %is_gemini {
         %gemini_payload = core.call @gemini_build_embed_request(%request)
@@ -2671,18 +2747,10 @@ module @ax.provider version "0.1" {
     tag "provider-operation-dispatch"
     type signature = "(profile:string, json, string, string) -> AxChatResponse throws"
     body @entry(%profile: string, %raw: json, %ai_name: string, %model: string) {
-      %normalized = core.call intrinsic.string.lower(%profile)
-      %is_responses_dash = core.call intrinsic.eq(%normalized, "openai-responses")
-      %is_responses_under = core.call intrinsic.eq(%normalized, "openai_responses")
-      %is_responses = core.call intrinsic.or(%is_responses_dash, %is_responses_under)
-      %is_gemini_google = core.call intrinsic.eq(%normalized, "google-gemini")
-      %is_gemini_google_under = core.call intrinsic.eq(%normalized, "google_gemini")
-      %is_gemini_alias = core.call intrinsic.eq(%normalized, "gemini")
-      %is_gemini_one = core.call intrinsic.or(%is_gemini_google, %is_gemini_google_under)
-      %is_gemini = core.call intrinsic.or(%is_gemini_one, %is_gemini_alias)
-      %is_anthropic_main = core.call intrinsic.eq(%normalized, "anthropic")
-      %is_anthropic_alias = core.call intrinsic.eq(%normalized, "claude")
-      %is_anthropic = core.call intrinsic.or(%is_anthropic_main, %is_anthropic_alias)
+      %provider_id = core.call @provider_normalize_profile(%profile)
+      %is_responses = core.call intrinsic.eq(%provider_id, "openai-responses")
+      %is_gemini = core.call intrinsic.eq(%provider_id, "google-gemini")
+      %is_anthropic = core.call intrinsic.eq(%provider_id, "anthropic")
       %response = core.map
       core.if %is_responses {
         %responses_response = core.call @openai_responses_normalize_chat_response(%raw, %ai_name, %model)
@@ -2712,18 +2780,10 @@ module @ax.provider version "0.1" {
     tag "provider-operation-dispatch"
     type signature = "(profile:string, json, json, string, string) -> AxChatResponse throws"
     body @entry(%profile: string, %raw: json, %state: json, %ai_name: string, %model: string) {
-      %normalized = core.call intrinsic.string.lower(%profile)
-      %is_responses_dash = core.call intrinsic.eq(%normalized, "openai-responses")
-      %is_responses_under = core.call intrinsic.eq(%normalized, "openai_responses")
-      %is_responses = core.call intrinsic.or(%is_responses_dash, %is_responses_under)
-      %is_gemini_google = core.call intrinsic.eq(%normalized, "google-gemini")
-      %is_gemini_google_under = core.call intrinsic.eq(%normalized, "google_gemini")
-      %is_gemini_alias = core.call intrinsic.eq(%normalized, "gemini")
-      %is_gemini_one = core.call intrinsic.or(%is_gemini_google, %is_gemini_google_under)
-      %is_gemini = core.call intrinsic.or(%is_gemini_one, %is_gemini_alias)
-      %is_anthropic_main = core.call intrinsic.eq(%normalized, "anthropic")
-      %is_anthropic_alias = core.call intrinsic.eq(%normalized, "claude")
-      %is_anthropic = core.call intrinsic.or(%is_anthropic_main, %is_anthropic_alias)
+      %provider_id = core.call @provider_normalize_profile(%profile)
+      %is_responses = core.call intrinsic.eq(%provider_id, "openai-responses")
+      %is_gemini = core.call intrinsic.eq(%provider_id, "google-gemini")
+      %is_anthropic = core.call intrinsic.eq(%provider_id, "anthropic")
       %response = core.map
       core.if %is_responses {
         %responses_response = core.call @openai_responses_normalize_stream_delta(%raw, %state, %ai_name, %model)
@@ -2753,12 +2813,8 @@ module @ax.provider version "0.1" {
     tag "provider-operation-dispatch"
     type signature = "(profile:string, json, string, string) -> AxEmbedResponse throws"
     body @entry(%profile: string, %raw: json, %ai_name: string, %model: string) {
-      %normalized = core.call intrinsic.string.lower(%profile)
-      %is_gemini_google = core.call intrinsic.eq(%normalized, "google-gemini")
-      %is_gemini_google_under = core.call intrinsic.eq(%normalized, "google_gemini")
-      %is_gemini_alias = core.call intrinsic.eq(%normalized, "gemini")
-      %is_gemini_one = core.call intrinsic.or(%is_gemini_google, %is_gemini_google_under)
-      %is_gemini = core.call intrinsic.or(%is_gemini_one, %is_gemini_alias)
+      %provider_id = core.call @provider_normalize_profile(%profile)
+      %is_gemini = core.call intrinsic.eq(%provider_id, "google-gemini")
       %response = core.map
       core.if %is_gemini {
         %gemini_response = core.call @gemini_normalize_embed_response(%raw, %ai_name, %model)
@@ -2778,10 +2834,8 @@ module @ax.provider version "0.1" {
     tag "provider-audio-operation"
     type signature = "(profile:string, json) -> json throws"
     body @entry(%profile: string, %request: json) {
-      %normalized = core.call intrinsic.string.lower(%profile)
-      %is_responses_dash = core.call intrinsic.eq(%normalized, "openai-responses")
-      %is_responses_under = core.call intrinsic.eq(%normalized, "openai_responses")
-      %is_responses = core.call intrinsic.or(%is_responses_dash, %is_responses_under)
+      %provider_id = core.call @provider_normalize_profile(%profile)
+      %is_responses = core.call intrinsic.eq(%provider_id, "openai-responses")
       %payload = core.map
       core.if %is_responses {
         %responses_payload = core.call @openai_responses_build_transcribe_request(%request)
@@ -2801,10 +2855,8 @@ module @ax.provider version "0.1" {
     tag "provider-audio-operation"
     type signature = "(profile:string, json) -> json throws"
     body @entry(%profile: string, %request: json) {
-      %normalized = core.call intrinsic.string.lower(%profile)
-      %is_responses_dash = core.call intrinsic.eq(%normalized, "openai-responses")
-      %is_responses_under = core.call intrinsic.eq(%normalized, "openai_responses")
-      %is_responses = core.call intrinsic.or(%is_responses_dash, %is_responses_under)
+      %provider_id = core.call @provider_normalize_profile(%profile)
+      %is_responses = core.call intrinsic.eq(%provider_id, "openai-responses")
       %payload = core.map
       core.if %is_responses {
         %responses_payload = core.call @openai_responses_build_speak_request(%request)

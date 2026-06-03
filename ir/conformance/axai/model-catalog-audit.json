@@ -1,0 +1,89 @@
+{
+  "expected_output": {
+    "catalogVersion": "provider-model-catalog-audit-v1",
+    "deferredProviderIds": [
+      "azure-openai",
+      "cohere",
+      "deepseek",
+      "mistral",
+      "huggingface",
+      "reka",
+      "grok"
+    ],
+    "descriptorCoveredProviderIds": [
+      "openai-compatible",
+      "openai-responses",
+      "google-gemini",
+      "anthropic"
+    ],
+    "filterOptions": ["all", "text", "embeddings", "code", "audio"],
+    "nextMilestone": "AxAI Model Catalog and Provider Routing Runtime Parity",
+    "providerCount": 11,
+    "providerNames": [
+      "openai",
+      "openai-responses",
+      "azure-openai",
+      "anthropic",
+      "google-gemini",
+      "cohere",
+      "deepseek",
+      "mistral",
+      "huggingface",
+      "reka",
+      "grok"
+    ],
+    "semantics": {
+      "codeMatchesTextFilter": true,
+      "dynamicProvidersMayHaveEmptyModels": true,
+      "metadataClonedPerCall": true,
+      "modelSort": "price-then-name",
+      "providerSort": "cheapest-model-then-display-name"
+    },
+    "source": "src/ax/ai/catalog.ts"
+  },
+  "kind": "ai_model_catalog_audit",
+  "name": "model-catalog-audit",
+  "ts_catalog_evidence": {
+    "audioFilterOnlyAudio": true,
+    "clonedMetadata": true,
+    "codeFilterOnlyCode": true,
+    "embeddingsFilterOnlyEmbeddings": true,
+    "geminiDefaultEmbedModel": "gemini-embedding-2",
+    "geminiEmbedding2": {
+      "isDefault": true,
+      "promptTokenCostPer1M": 0.2,
+      "type": "embeddings"
+    },
+    "openaiDefaultModel": "gpt-5-mini",
+    "openaiFirstModel": "text-embedding-3-small",
+    "providerCount": 11,
+    "providerNames": [
+      "openai",
+      "openai-responses",
+      "azure-openai",
+      "anthropic",
+      "google-gemini",
+      "cohere",
+      "deepseek",
+      "mistral",
+      "huggingface",
+      "reka",
+      "grok"
+    ],
+    "returnedProviderNames": [
+      "google-gemini",
+      "openai",
+      "cohere",
+      "mistral",
+      "deepseek",
+      "openai-responses",
+      "grok",
+      "reka",
+      "anthropic",
+      "azure-openai",
+      "huggingface"
+    ],
+    "textFilterIncludesCode": true,
+    "textOpenAIFirstModel": "gpt-5-nano"
+  }
+}

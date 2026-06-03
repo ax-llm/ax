@@ -312,6 +312,10 @@ struct Core {
   static Value openai_normalize_embed_response(Value raw);
   static Value openai_normalize_embed_response(Value raw, Value ai_name, Value model);
   static Value openai_normalize_error(Value status, Value body, Value request);
+  static Value provider_normalize_profile(Value profile);
+  static Value provider_profile_registry();
+  static Value provider_resolve_profile(Value profile);
+  static Value provider_model_catalog_summary();
   static Value provider_descriptor(Value profile);
   static Value provider_operation_descriptor(Value profile, Value operation);
   static Value provider_build_chat_request(Value profile, Value request);
@@ -3818,18 +3822,21 @@ AxAgent agent(const char* source, Value options) { return agent(std::string(sour
 AxAgent agent(Value signature, Value options) { return AxAgent(std::move(signature), std::move(options)); }
 AxFlow flow(Value options) { return AxFlow(std::move(options)); }
 std::shared_ptr<AxAIService> ai(const std::string& provider, Value options) {
-  std::string normalized;
-  for (char ch : provider) normalized.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(ch == '-' ? '_' : ch))));
-  if (normalized == "openai" || normalized == "openai_compatible" || normalized == "compatible") {
+  Value resolved = Core::provider_resolve_profile(provider.empty() ? "openai" : provider);
+  if (!Core::truthy(Core::get(resolved, "known"))) {
+    throw AxError("provider", "unsupported AxAI provider: " + provider);
+  }
+  std::string canonical = display(Core::get(resolved, "id"));
+  if (canonical == "openai-compatible") {
     return std::make_shared<OpenAICompatibleClient>(std::move(options));
   }
-  if (normalized == "openai_responses" || normalized == "responses") {
+  if (canonical == "openai-responses") {
     return std::make_shared<OpenAIResponsesClient>(std::move(options));
   }
-  if (normalized == "google_gemini" || normalized == "gemini") {
+  if (canonical == "google-gemini") {
     return std::make_shared<GoogleGeminiClient>(std::move(options));
   }
-  if (normalized == "anthropic" || normalized == "claude") {
+  if (canonical == "anthropic") {
     return std::make_shared<AnthropicClient>(std::move(options));
   }
   throw AxError("runtime", "unsupported AxAI provider: " + provider);
@@ -5061,23 +5068,19 @@ struct ClientFixture {
         client(make_client(fixture, &transport)) {}
 
   static std::unique_ptr<OpenAICompatibleClient> make_client(Value fixture, FakeTransport* transport) {
-    std::string provider = display(Core::get(fixture, "provider", "openai-compatible"));
-    std::replace(provider.begin(), provider.end(), '-', '_');
-    std::transform(provider.begin(), provider.end(), provider.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
-    if (provider == "google_gemini" || provider == "gemini") return std::make_unique<GoogleGeminiClient>(options(fixture), transport);
-    if (provider == "anthropic" || provider == "claude") return std::make_unique<AnthropicClient>(options(fixture), transport);
-    if (provider == "openai_responses" || provider == "responses") return std::make_unique<OpenAIResponsesClient>(options(fixture), transport);
+    std::string provider = display(Core::provider_normalize_profile(Core::get(fixture, "provider", "openai-compatible")));
+    if (provider == "google-gemini") return std::make_unique<GoogleGeminiClient>(options(fixture), transport);
+    if (provider == "anthropic") return std::make_unique<AnthropicClient>(options(fixture), transport);
+    if (provider == "openai-responses") return std::make_unique<OpenAIResponsesClient>(options(fixture), transport);
     return std::make_unique<OpenAICompatibleClient>(options(fixture), transport);
   }
 
   static Value options(Value fixture) {
     Value out = Value::object();
-    std::string provider = display(Core::get(fixture, "provider", "openai-compatible"));
-    std::replace(provider.begin(), provider.end(), '-', '_');
-    std::transform(provider.begin(), provider.end(), provider.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
-    bool responses_provider = provider == "openai_responses" || provider == "responses";
-    bool gemini_provider = provider == "google_gemini" || provider == "gemini";
-    bool anthropic_provider = provider == "anthropic" || provider == "claude";
+    std::string provider = display(Core::provider_normalize_profile(Core::get(fixture, "provider", "openai-compatible")));
+    bool responses_provider = provider == "openai-responses";
+    bool gemini_provider = provider == "google-gemini";
+    bool anthropic_provider = provider == "anthropic";
     Core::set(out, "model", Core::get(fixture, "model", anthropic_provider ? "claude-3-7-sonnet-latest" : gemini_provider ? "gemini-2.5-flash" : responses_provider ? "gpt-4o" : "gpt-4.1-mini"));
     Core::set(out, "embed_model", Core::get(fixture, "embed_model", anthropic_provider ? "" : gemini_provider ? "gemini-embedding-2" : responses_provider ? "text-embedding-ada-002" : "text-embedding-3-small"));
     Core::set(out, "api_key", "test-key");
@@ -5176,6 +5179,23 @@ static void run_ai_provider_descriptor(Value fixture) {
   Value descriptor = Core::provider_descriptor(Core::get(fixture, "provider", "openai-compatible"));
   Value expected = Core::get(fixture, "expected_output");
   if (!expected.is_null()) assert_subset(descriptor, expected, "provider descriptor");
+}
+
+static void run_ai_provider_registry(Value fixture) {
+  Value registry = Core::provider_profile_registry();
+  Value expected = Core::get(fixture, "expected_output");
+  if (!expected.is_null()) assert_subset(registry, expected, "provider profile registry");
+  Value aliases = Core::get(fixture, "alias_expectations", Value::object());
+  for (const auto& kv : as_object(aliases)) {
+    if (kv.first == "__order") continue;
+    assert_equal(Core::provider_normalize_profile(kv.first), kv.second, "provider alias " + kv.first);
+  }
+}
+
+static void run_ai_model_catalog_audit(Value fixture) {
+  Value summary = Core::provider_model_catalog_summary();
+  Value expected = Core::get(fixture, "expected_output");
+  if (!expected.is_null()) assert_subset(summary, expected, "provider model catalog audit");
 }
 
 static void run_ai_transcribe(Value fixture) {
@@ -5462,6 +5482,10 @@ static void run(Value fixture) {
     run_ai_unsupported(fixture);
   } else if (kind == "ai_provider_descriptor") {
     run_ai_provider_descriptor(fixture);
+  } else if (kind == "ai_provider_registry") {
+    run_ai_provider_registry(fixture);
+  } else if (kind == "ai_model_catalog_audit") {
+    run_ai_model_catalog_audit(fixture);
   } else if (kind == "ai_transcribe") {
     run_ai_transcribe(fixture);
   } else if (kind == "ai_speak") {

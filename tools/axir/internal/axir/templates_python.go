@@ -1544,14 +1544,17 @@ class AxUnsupportedCapabilityError(AxAIServiceError):
 
 
 def ai(provider: str = "openai", **options):
-    normalized = provider.replace("-", "_").lower()
-    if normalized in ("openai", "openai_compatible", "compatible"):
+    resolved = provider_resolve_profile(provider or "openai")
+    if not resolved.get("known"):
+        raise ValueError(f"unsupported AxAI provider: {provider}")
+    canonical = resolved.get("id")
+    if canonical == "openai-compatible":
         return OpenAICompatibleClient(**options)
-    if normalized in ("openai_responses", "responses"):
+    if canonical == "openai-responses":
         return OpenAIResponsesClient(**options)
-    if normalized in ("google_gemini", "gemini"):
+    if canonical == "google-gemini":
         return GoogleGeminiClient(**options)
-    if normalized in ("anthropic", "claude"):
+    if canonical == "anthropic":
         return AnthropicClient(**options)
     raise ValueError(f"unsupported AxAI provider: {provider}")
 
@@ -2107,6 +2110,10 @@ def _core_ai_error_status(message, status=None, code=None, response_body=None, r
 # AXIR_CORE_AI_FUNCTIONS
 
 for _axir_provider_public_name in (
+    "provider_normalize_profile",
+    "provider_profile_registry",
+    "provider_resolve_profile",
+    "provider_model_catalog_summary",
     "provider_descriptor",
     "provider_operation_descriptor",
     "provider_build_chat_request",
@@ -3320,6 +3327,10 @@ def _core_string_split(value, sep):
     return str(value).split(str(sep))
 
 
+def _core_string_split_trim_nonempty(value, sep):
+    return [part.strip() for part in str(value).split(str(sep)) if part.strip()]
+
+
 def _core_string_str(value):
     return str(value)
 
@@ -3827,6 +3838,14 @@ def _core_string_join(sep, values):
     return str(sep).join(str(item) for item in (values or []))
 
 
+def _core_string_split_trim_nonempty(value, sep):
+    return [part.strip() for part in str(value).split(str(sep)) if part.strip()]
+
+
+def _core_string_starts_with(value, prefix):
+    return str(value).startswith(str(prefix))
+
+
 def _core_string_ends_with(value, suffix):
     return str(value).endswith(str(suffix))
 
@@ -4019,7 +4038,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .ai import AnthropicClient, AxAIServiceError, AxBaseAI, GoogleGeminiClient, OpenAICompatibleClient, OpenAIResponsesClient, provider_descriptor
+from .ai import AnthropicClient, AxAIServiceError, AxBaseAI, GoogleGeminiClient, OpenAICompatibleClient, OpenAIResponsesClient, provider_descriptor, provider_model_catalog_summary, provider_normalize_profile, provider_profile_registry
 from .gen import ax, fold_stream
 from .flow import (
     _FlowCallable,
@@ -4369,6 +4388,10 @@ def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
             _run_ai_unsupported(fixture)
         elif kind == "ai_provider_descriptor":
             _run_ai_provider_descriptor(fixture)
+        elif kind == "ai_provider_registry":
+            _run_ai_provider_registry(fixture)
+        elif kind == "ai_model_catalog_audit":
+            _run_ai_model_catalog_audit(fixture)
         elif kind == "ai_transcribe":
             _run_ai_transcribe(fixture)
         elif kind == "ai_speak":
@@ -5392,6 +5415,20 @@ def _run_ai_provider_descriptor(fixture):
         _assert_subset(descriptor, fixture["expected_output"], "provider descriptor")
 
 
+def _run_ai_provider_registry(fixture):
+    registry = provider_profile_registry()
+    if "expected_output" in fixture:
+        _assert_subset(registry, fixture["expected_output"], "provider profile registry")
+    for alias, expected in (fixture.get("alias_expectations") or {}).items():
+        _assert_equal(provider_normalize_profile(alias), expected, f"provider alias {alias}")
+
+
+def _run_ai_model_catalog_audit(fixture):
+    summary = provider_model_catalog_summary()
+    if "expected_output" in fixture:
+        _assert_subset(summary, fixture["expected_output"], "provider model catalog audit")
+
+
 def _run_ai_transcribe(fixture):
     client, transport = _openai_fixture_client(fixture)
     result = client.transcribe(fixture.get("request") or {}, fixture.get("options"))
@@ -5502,16 +5539,16 @@ def _error_category(exc):
 
 def _openai_fixture_client(fixture):
     transport = FakeTransport(fixture.get("transport_responses") or fixture.get("responses") or [])
-    provider = str(fixture.get("provider", "openai-compatible")).replace("-", "_").lower()
-    if provider in ("openai_responses", "responses"):
+    provider = provider_normalize_profile(str(fixture.get("provider", "openai-compatible")))
+    if provider == "openai-responses":
         client_cls = OpenAIResponsesClient
         default_model = "gpt-4o"
         default_embed_model = "text-embedding-ada-002"
-    elif provider in ("google_gemini", "gemini"):
+    elif provider == "google-gemini":
         client_cls = GoogleGeminiClient
         default_model = "gemini-2.5-flash"
         default_embed_model = "gemini-embedding-2"
-    elif provider in ("anthropic", "claude"):
+    elif provider == "anthropic":
         client_cls = AnthropicClient
         default_model = "claude-3-7-sonnet-latest"
         default_embed_model = ""

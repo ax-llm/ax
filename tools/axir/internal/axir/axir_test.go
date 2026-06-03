@@ -301,6 +301,10 @@ func TestBuildRuntimeModel(t *testing.T) {
 		"axflow_optimization_evaluation",
 		"axflow_nested_component_paths",
 		"axflow_optimization_rollback",
+		"axai_provider_descriptor_registry",
+		"axai_provider_alias_registry",
+		"axai_model_catalog_audit",
+		"axai_provider_routing_audit",
 		"google_gemini_provider_mapping",
 		"gemini_media_content_mapping",
 			"gemini_tool_schema_mapping",
@@ -553,7 +557,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 			if err := json.Unmarshal(manifestData, &manifest); err != nil {
 				t.Fatal(err)
 			}
-			if manifest.Target != tc.target || manifest.ProviderMode != "provider-operation-descriptors-openai-compatible-openai-responses-google-gemini-anthropic" || !manifest.FakeTransportSupport {
+			if manifest.Target != tc.target || manifest.ProviderMode != "provider-descriptor-registry-openai-compatible-openai-responses-google-gemini-anthropic" || !manifest.FakeTransportSupport {
 				t.Fatalf("bad manifest for %s: %#v", tc.target, manifest)
 			}
 			if tc.target == "cpp" && manifest.RealNetworkSupport {
@@ -1714,6 +1718,10 @@ func TestPythonGeneratedIdioms(t *testing.T) {
 		"def validate_chat_request(",
 		"def merge_model_config(",
 		"def chat_response_to_completion(",
+		"def provider_normalize_profile(",
+		"def provider_profile_registry(",
+		"def provider_resolve_profile(",
+		"def provider_model_catalog_summary(",
 		"def provider_descriptor(",
 		"def provider_build_chat_request(",
 		"def openai_build_chat_request(",
@@ -1744,6 +1752,9 @@ func TestPythonGeneratedIdioms(t *testing.T) {
 		if strings.Contains(text, forbidden) {
 			t.Fatalf("generated Python AI runtime still contains old hand-authored provider body %q", forbidden)
 		}
+	}
+	if !strings.Contains(text, "resolved = provider_resolve_profile(") {
+		t.Fatal("generated Python ai(...) factory does not use Core provider resolver")
 	}
 	promptFile, err := os.ReadFile(filepath.Join(dir, "ax", "prompt.py"))
 	if err != nil {
@@ -1999,6 +2010,10 @@ func TestJavaGeneratedCoreRuntime(t *testing.T) {
 		"static Object validate_output(",
 		"static Object render_prompt(",
 		"static Object fold_stream(",
+		"static Object provider_normalize_profile(",
+		"static Object provider_profile_registry(",
+		"static Object provider_resolve_profile(",
+		"static Object provider_model_catalog_summary(",
 		"static Object _forward_impl(",
 		"static Object openai_build_chat_request(",
 		"static Object openai_normalize_chat_response(",
@@ -2032,9 +2047,16 @@ func TestJavaGeneratedCoreRuntime(t *testing.T) {
 		"intrinsic.schema.to_json_schema",
 		"intrinsic.validate.output",
 	} {
-		if strings.Contains(coreText, forbidden) {
+	if strings.Contains(coreText, forbidden) {
 			t.Fatalf("generated Java Core runtime contains forbidden semantic escape %q", forbidden)
 		}
+	}
+	axFile, err := os.ReadFile(filepath.Join(dir, "dev", "ax", "Ax.java"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(axFile), "Core.provider_resolve_profile(") {
+		t.Fatal("generated Java Ax.ai factory does not use Core provider resolver")
 	}
 	axGenFile, err := os.ReadFile(filepath.Join(dir, "dev", "ax", "AxGen.java"))
 	if err != nil {
@@ -2275,6 +2297,10 @@ func TestCppGeneratedCoreRuntime(t *testing.T) {
 		"Value Core::_forward_impl(",
 		"Value Core::_execute_tool_call(",
 		"Value Core::fold_stream(",
+		"Value Core::provider_normalize_profile(",
+		"Value Core::provider_profile_registry(",
+		"Value Core::provider_resolve_profile(",
+		"Value Core::provider_model_catalog_summary(",
 		"Value Core::provider_descriptor(",
 		"Value Core::provider_build_chat_request(",
 		"Value Core::openai_build_chat_request(",
@@ -2302,6 +2328,7 @@ func TestCppGeneratedCoreRuntime(t *testing.T) {
 		"Value Core::_split_context_values(",
 		"Value Core::_normalize_agent_completion_payload(",
 		"Value Core::agent_stage_forward(",
+		"Core::provider_resolve_profile(",
 	} {
 		if !strings.Contains(sourceText, want) {
 			t.Fatalf("generated C++ source missing Core marker %q", want)
