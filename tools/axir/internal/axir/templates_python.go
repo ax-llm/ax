@@ -1892,6 +1892,12 @@ class ProviderOperationClient(AxBaseAI):
         for event in events:
             yield provider_normalize_realtime_event(self.profile, event, state, self.name, model or self.model)
 
+    def realtime_audio_setup(self, request: dict[str, Any]):
+        return provider_build_realtime_audio_setup(self.profile, request)
+
+    def realtime_audio_input(self, request: dict[str, Any]):
+        return provider_build_realtime_audio_input(self.profile, request)
+
     def _operation_path(self, operation: str, model: str | None = None):
         descriptor = provider_operation_descriptor(self.profile, operation)
         path = str(descriptor.get("path", "/" + operation))
@@ -6861,9 +6867,22 @@ def _run_ai_speak(fixture):
 
 def _run_ai_realtime(fixture):
     client, _ = _openai_fixture_client(fixture)
-    result = list(client.realtime(fixture.get("events") or []))
-    if "expected_output" in fixture:
-        _assert_equal(result, fixture["expected_output"], "ai realtime output")
+    try:
+        request = fixture.get("request") or {}
+        if "expected_setup" in fixture:
+            _assert_equal(client.realtime_audio_setup(request), fixture["expected_setup"], "ai realtime setup")
+        if "expected_input" in fixture:
+            _assert_equal(client.realtime_audio_input(request), fixture["expected_input"], "ai realtime input")
+        result = list(client.realtime(fixture.get("events") or []))
+        if fixture.get("expected_error_contains"):
+            raise FixtureError("expected ai realtime fixture to fail")
+        if "expected_output" in fixture:
+            _assert_equal(result, fixture["expected_output"], "ai realtime output")
+    except Exception as exc:
+        if not fixture.get("expected_error_contains"):
+            raise
+        if fixture["expected_error_contains"] not in str(exc):
+            raise FixtureError(f"expected error containing {fixture['expected_error_contains']}, got {exc}")
 
 
 def _build_signature(fixture):

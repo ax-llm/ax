@@ -1428,6 +1428,14 @@ public class OpenAICompatibleClient extends AxBaseAI {
     return out;
   }
 
+  public Map<String, Object> realtimeAudioSetup(Map<String, Object> request) {
+    return Core.asMap(Core.provider_build_realtime_audio_setup(profile, request));
+  }
+
+  public List<Object> realtimeAudioInput(Map<String, Object> request) {
+    return Core.asList(Core.provider_build_realtime_audio_input(profile, request));
+  }
+
   private Map<String, Object> modelConfig() {
     return new LinkedHashMap<>(this.modelConfig);
   }
@@ -5979,9 +5987,19 @@ public final class Conformance {
 
   static void runAIRealtime(Map<String, Object> fixture) {
     ClientFixture cf = openaiClient(fixture);
-    List<Object> result = new ArrayList<>();
-    for (Object item : cf.client.realtime(Core.asList(fixture.getOrDefault("events", List.of())))) result.add(item);
-    if (fixture.containsKey("expected_output")) assertEqual(result, fixture.get("expected_output"), "ai realtime output");
+    try {
+      Map<String, Object> request = Core.asMap(fixture.getOrDefault("request", Map.of()));
+      if (fixture.containsKey("expected_setup")) assertEqual(cf.client.realtimeAudioSetup(request), fixture.get("expected_setup"), "ai realtime setup");
+      if (fixture.containsKey("expected_input")) assertEqual(cf.client.realtimeAudioInput(request), fixture.get("expected_input"), "ai realtime input");
+      List<Object> result = new ArrayList<>();
+      for (Object item : cf.client.realtime(Core.asList(fixture.getOrDefault("events", List.of())))) result.add(item);
+      if (fixture.containsKey("expected_error_contains")) throw new FixtureError("expected ai realtime fixture to fail");
+      if (fixture.containsKey("expected_output")) assertEqual(result, fixture.get("expected_output"), "ai realtime output");
+    } catch (RuntimeException e) {
+      if (!fixture.containsKey("expected_error_contains")) throw e;
+      String expected = (String) fixture.get("expected_error_contains");
+      if (expected != null && !String.valueOf(e.getMessage()).contains(expected)) throw new FixtureError("expected error containing " + expected + ", got " + e);
+    }
   }
 
   interface ThrowingSupplier { Object get(); }

@@ -2220,10 +2220,18 @@ func TestJavaGeneratedCoreRuntime(t *testing.T) {
 		"Core.provider_normalize_stream_delta(",
 		"Core.provider_build_embed_request(",
 		"Core.provider_build_transcribe_request(",
+		"Core.provider_build_realtime_audio_setup(",
+		"Core.provider_build_realtime_audio_input(",
+		"Core.provider_normalize_realtime_event(",
 		"Core.openai_normalize_error(",
 	} {
 		if !strings.Contains(openAIText, want) {
 			t.Fatalf("generated Java OpenAI client missing Core delegation %q", want)
+		}
+	}
+	for _, forbidden := range []string{"BidiGenerateContent", "output_audio_transcript", "gemini_live_bidi", "grok-voice"} {
+		if strings.Contains(openAIText, forbidden) {
+			t.Fatalf("generated Java OpenAI client contains provider-specific realtime logic %q", forbidden)
 		}
 	}
 	openAIResponsesFile, err := os.ReadFile(filepath.Join(dir, "dev", "ax", "OpenAIResponsesClient.java"))

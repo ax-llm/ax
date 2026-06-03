@@ -1,0 +1,22 @@
+{
+  "expected_error_contains": "PCM",
+  "expected_input": [],
+  "kind": "ai_realtime",
+  "name": "gemini-live-realtime-audio-pcm-validation-error",
+  "provider": "google-gemini",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": [
+          {
+            "data": "UklGRg==",
+            "format": "wav",
+            "type": "audio"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "model": "gemini-2.5-flash-native-audio-preview-12-2025"
+  }
+}

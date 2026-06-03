@@ -27,6 +27,13 @@
         "path": "/realtime",
         "stream": true
       },
+      "realtime_audio": {
+        "body": "events",
+        "grammar": "openai_realtime_compatible",
+        "method": "WS",
+        "path": "/realtime",
+        "stream": true
+      },
       "speak": {
         "body": "json",
         "method": "POST",

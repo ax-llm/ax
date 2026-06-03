@@ -22,8 +22,8 @@ Reference areas:
   these operations; live multipart/WebSocket transports remain host-owned.
 - `src/ax/ai/google-gemini/api.ts` and `src/ax/ai/catalog.ts` for
   descriptor-backed Gemini Developer API chat, stream, media-part, tool/schema,
-  usage, and embeddings normalization fixtures. Vertex routing, Gemini Live
-  audio, explicit context-cache resources, auth loading, and live network
+  usage, embeddings, and Gemini Live realtime-audio normalization fixtures.
+  Vertex routing, explicit context-cache resources, auth loading, and live network
   behavior remain host-owned follow-up scope.
 - `src/ax/ai/anthropic/api.ts` for descriptor-backed Anthropic Developer API
   chat/stream mapping, system hoisting, block-level cache control, tool-use
@@ -36,12 +36,13 @@ Reference areas:
   descriptor-backed OpenAI-compatible catalog clients. Fixtures cover base URLs,
   auth/versioning, model defaults, chat request/response mapping, stream/usage
   normalization, provider-specific option stripping, Grok search parameters,
-  and DeepSeek/Grok thinking quirks.
+  DeepSeek/Grok thinking quirks, and Grok realtime audio through the shared
+  OpenAI-compatible realtime grammar.
 - `src/ax/ai/catalog.ts`, `src/ax/ai/router.ts`,
   `src/ax/ai/multiservice.ts`, and `src/ax/ai/balance.ts` for provider
   catalog/routing audit fixtures. Generated AxIR targets expose
   descriptor-backed OpenAI-compatible, OpenAI Responses, Gemini, Anthropic,
   Azure OpenAI, DeepSeek, Mistral, Reka, Cohere, and Grok clients, plus router,
-  multi-service, and balancer runtime parity. Hugging Face and live transport
-  productization remain deferred.
+  multi-service, and balancer runtime parity. Removed/non-generated catalog
+  providers and live transport productization remain deferred.
 - `src/ax/util/apicall.ts` for error classes and HTTP status normalization.

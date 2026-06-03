@@ -3336,6 +3336,18 @@ module @ax.provider version "0.1" {
       %openai_family_descriptor = core.get %openai_family[%provider_id]
       %is_openai_family = core.call intrinsic.is_not_none(%openai_family_descriptor)
       core.if %is_openai_family {
+        %is_grok_family = core.call intrinsic.eq(%provider_id, "grok")
+        core.if %is_grok_family {
+          %family_operations = core.get %openai_family_descriptor["operations"]
+          %grok_realtime_audio = core.call intrinsic.json.parse("{\"method\":\"WS\",\"path\":\"/realtime\",\"body\":\"events\",\"stream\":true,\"grammar\":\"openai_realtime_compatible\",\"url\":\"wss://api.x.ai/v1/realtime\",\"defaultModel\":\"grok-voice-think-fast-1.0\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"eve\",\"ara\",\"rex\",\"sal\",\"leo\"],\"defaultVoice\":\"eve\"}},\"validation\":{\"structuredOutputWithAudio\":false}}")
+          core.set %family_operations["realtime_audio"] = %grok_realtime_audio
+          core.set %openai_family_descriptor["defaultRealtimeModel"] = "grok-voice-think-fast-1.0"
+          %family_features = core.get %openai_family_descriptor["features"]
+          %family_media = core.get %family_features["media"]
+          %grok_audio = core.call intrinsic.json.parse("{\"supported\":true,\"formats\":[\"pcm16\",\"pcm\"],\"output\":{\"supported\":true,\"formats\":[\"pcm16\",\"pcm\"],\"voices\":[\"eve\",\"ara\",\"rex\",\"sal\",\"leo\"]},\"realtime\":true}")
+          core.set %family_media["audio"] = %grok_audio
+        } else {
+        }
         core.return %openai_family_descriptor
       } else {
       }
@@ -3369,12 +3381,14 @@ module @ax.provider version "0.1" {
         %responses_transcribe = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/audio/transcriptions\",\"body\":\"multipart\",\"stream\":false}")
         %responses_speak = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false}")
         %responses_realtime = core.call intrinsic.json.parse("{\"method\":\"WS\",\"path\":\"/realtime\",\"body\":\"events\",\"stream\":true}")
+        %responses_realtime_audio = core.call intrinsic.json.parse("{\"method\":\"WS\",\"path\":\"/realtime\",\"body\":\"events\",\"stream\":true,\"grammar\":\"openai_realtime_compatible\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"alloy\",\"ash\",\"ballad\",\"coral\",\"echo\",\"sage\",\"shimmer\",\"verse\"],\"defaultVoice\":\"alloy\"}},\"validation\":{\"structuredOutputWithAudio\":false}}")
         core.set %operations["chat"] = %responses_chat
         core.set %operations["stream_chat"] = %responses_stream
         core.set %operations["embed"] = %responses_embed
         core.set %operations["transcribe"] = %responses_transcribe
         core.set %operations["speak"] = %responses_speak
         core.set %operations["realtime"] = %responses_realtime
+        core.set %operations["realtime_audio"] = %responses_realtime_audio
         core.set %audio["supported"] = true
         %audio_formats = core.call intrinsic.json.parse("[\"wav\",\"mp3\",\"pcm16\"]")
         core.set %audio["formats"] = %audio_formats
@@ -3392,17 +3406,21 @@ module @ax.provider version "0.1" {
           %gemini_chat = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/models/{model}:generateContent\",\"body\":\"json\",\"stream\":false}")
           %gemini_stream = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/models/{model}:streamGenerateContent?alt=sse\",\"body\":\"json\",\"stream\":true}")
           %gemini_embed = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/models/{model}:batchEmbedContents\",\"body\":\"json\",\"stream\":false}")
+          %gemini_realtime_audio = core.call intrinsic.json.parse("{\"method\":\"WS\",\"path\":\"/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"body\":\"events\",\"stream\":true,\"grammar\":\"gemini_live_bidi\",\"defaultModel\":\"gemini-2.5-flash-native-audio-preview-12-2025\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":16000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"Kore\",\"Puck\",\"Charon\",\"Fenrir\",\"Aoede\"],\"defaultVoice\":\"Kore\"}},\"validation\":{\"pcmInputOnly\":true,\"rejectStructuredOutputWithAudio\":true}}")
           core.set %operations["chat"] = %gemini_chat
           core.set %operations["stream_chat"] = %gemini_stream
           core.set %operations["embed"] = %gemini_embed
+          core.set %operations["realtime_audio"] = %gemini_realtime_audio
           %gemini_images = core.call intrinsic.json.parse("{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\",\"image/gif\",\"image/webp\"],\"maxSize\":20971520}")
           core.set %media["images"] = %gemini_images
           core.set %audio["supported"] = true
           %gemini_audio_formats = core.call intrinsic.json.parse("[\"wav\",\"mp3\",\"aac\",\"ogg\"]")
           core.set %audio["formats"] = %gemini_audio_formats
-          core.set %audio_output["supported"] = false
-          %empty_gemini_audio_output_formats = core.list
-          core.set %audio_output["formats"] = %empty_gemini_audio_output_formats
+          core.set %audio_output["supported"] = true
+          %gemini_audio_output_formats = core.call intrinsic.json.parse("[\"pcm16\",\"pcm\"]")
+          core.set %audio_output["formats"] = %gemini_audio_output_formats
+          %gemini_audio_voices = core.call intrinsic.json.parse("[\"Kore\",\"Puck\",\"Charon\",\"Fenrir\",\"Aoede\"]")
+          core.set %audio_output["voices"] = %gemini_audio_voices
           %gemini_files = core.call intrinsic.json.parse("{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\",\"text/csv\",\"text/html\",\"text/xml\"],\"upload_method\":\"cloud\"}")
           core.set %media["files"] = %gemini_files
           %gemini_urls = core.call intrinsic.json.parse("{\"supported\":true,\"web_search\":true,\"context_fetching\":true}")
@@ -3501,6 +3519,424 @@ module @ax.provider version "0.1" {
       } else {
       }
       core.return %operation_desc
+    }
+  }
+
+  op ax.provider.semantic @provider_realtime_audio_descriptor {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr effect = "throws"
+    tag "provider-realtime-audio-descriptor"
+    type signature = "(profile:string) -> json throws"
+    body @entry(%profile: string) {
+      %descriptor = core.call @provider_operation_descriptor(%profile, "realtime_audio")
+      core.return %descriptor
+    }
+  }
+
+  op ax.provider.semantic @provider_build_realtime_audio_setup {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr effect = "throws"
+    tag "provider-realtime-audio-operation"
+    type signature = "(profile:string, request:json) -> json throws"
+    body @entry(%profile: string, %request: json) {
+      %descriptor = core.call @provider_realtime_audio_descriptor(%profile)
+      %grammar = core.get %descriptor["grammar"] default "openai_realtime_compatible"
+      %is_gemini_live = core.call intrinsic.eq(%grammar, "gemini_live_bidi")
+      core.if %is_gemini_live {
+        %setup = core.call @gemini_live_bidi_build_setup(%descriptor, %request)
+        core.return %setup
+      } else {
+      }
+      %openai_setup = core.call @openai_realtime_compatible_build_setup(%descriptor, %request)
+      core.return %openai_setup
+    }
+  }
+
+  op ax.provider.semantic @provider_build_realtime_audio_input {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr effect = "throws"
+    tag "provider-realtime-audio-operation"
+    type signature = "(profile:string, request:json) -> list<json> throws"
+    body @entry(%profile: string, %request: json) {
+      %descriptor = core.call @provider_realtime_audio_descriptor(%profile)
+      %grammar = core.get %descriptor["grammar"] default "openai_realtime_compatible"
+      %is_gemini_live = core.call intrinsic.eq(%grammar, "gemini_live_bidi")
+      core.if %is_gemini_live {
+        %input = core.call @gemini_live_bidi_build_input(%descriptor, %request)
+        core.return %input
+      } else {
+      }
+      %openai_input = core.call @openai_realtime_compatible_build_input(%descriptor, %request)
+      core.return %openai_input
+    }
+  }
+
+  op ax.provider.semantic @openai_realtime_compatible_build_setup {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "openai-compatible-realtime-audio-core-helper"
+    type signature = "(descriptor:json, request:json) -> json"
+    body @entry(%descriptor: json, %request: json) {
+      %audio_descriptor = core.get %descriptor["audio"]
+      %output_audio_descriptor = core.get %audio_descriptor["output"]
+      %default_voice = core.get %output_audio_descriptor["defaultVoice"] default "alloy"
+      %request_audio = core.get %request["audio"]
+      %request_output_audio = core.get %request_audio["output"]
+      %request_voice = core.get %request_output_audio["voice"] default %default_voice
+      %voice_id = core.get %request_voice["id"] default %request_voice
+      %output_rate = core.get %request_output_audio["sampleRate"]
+      %output_rate_snake = core.get %request_output_audio["sample_rate"] default %output_rate
+      %default_output_rate = core.get %output_audio_descriptor["sampleRate"] default 24000
+      %output_sample_rate = core.get %request_output_audio["rate"] default %output_rate_snake
+      %has_output_sample_rate = core.call intrinsic.is_not_none(%output_sample_rate)
+      core.if %has_output_sample_rate {
+      } else {
+        %output_sample_rate = core.let %default_output_rate
+      }
+      %input_audio_descriptor = core.get %audio_descriptor["input"]
+      %request_input_audio = core.get %request_audio["input"]
+      %input_rate = core.get %request_input_audio["sampleRate"]
+      %input_rate_snake = core.get %request_input_audio["sample_rate"] default %input_rate
+      %default_input_rate = core.get %input_audio_descriptor["sampleRate"] default 24000
+      %input_sample_rate = core.get %request_input_audio["rate"] default %input_rate_snake
+      %has_input_sample_rate = core.call intrinsic.is_not_none(%input_sample_rate)
+      core.if %has_input_sample_rate {
+      } else {
+        %input_sample_rate = core.let %default_input_rate
+      }
+      %session = core.map
+      core.set %session["voice"] = %voice_id
+      %turn_detection_none = core.call intrinsic.none()
+      core.set %session["turn_detection"] = %turn_detection_none
+      %audio = core.map
+      %input = core.map
+      %input_format = core.map
+      core.set %input_format["type"] = "audio/pcm"
+      core.set %input_format["rate"] = %input_sample_rate
+      core.set %input["format"] = %input_format
+      core.set %audio["input"] = %input
+      %output = core.map
+      %output_format = core.map
+      core.set %output_format["type"] = "audio/pcm"
+      core.set %output_format["rate"] = %output_sample_rate
+      core.set %output["format"] = %output_format
+      core.set %audio["output"] = %output
+      core.set %session["audio"] = %audio
+      %modalities = core.call intrinsic.json.parse("[\"audio\"]")
+      core.set %session["modalities"] = %modalities
+      %instructions = core.call @realtime_request_system_instruction_impl(%request)
+      %has_instructions = core.call intrinsic.truthy(%instructions)
+      core.if %has_instructions {
+        core.set %session["instructions"] = %instructions
+      } else {
+      }
+      %out = core.map
+      core.set %out["type"] = "session.update"
+      core.set %out["session"] = %session
+      core.return %out
+    }
+  }
+
+  op ax.provider.semantic @openai_realtime_compatible_build_input {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "openai-compatible-realtime-audio-core-helper"
+    type signature = "(descriptor:json, request:json) -> list<json>"
+    body @entry(%descriptor: json, %request: json) {
+      %events = core.list
+      %messages = core.call @realtime_request_user_messages_impl(%request)
+      core.for %message in %messages {
+        %content = core.get %message["content"] default ""
+        %parts = core.call @openai_realtime_content_parts_impl(%content)
+        %item = core.map
+        core.set %item["type"] = "message"
+        core.set %item["role"] = "user"
+        core.set %item["content"] = %parts
+        %event = core.map
+        core.set %event["type"] = "conversation.item.create"
+        core.set %event["item"] = %item
+        core.append %events, %event
+      }
+      %response = core.map
+      %response_modalities = core.call intrinsic.json.parse("[\"audio\"]")
+      core.set %response["modalities"] = %response_modalities
+      %response_event = core.map
+      core.set %response_event["type"] = "response.create"
+      core.set %response_event["response"] = %response
+      core.append %events, %response_event
+      core.return %events
+    }
+  }
+
+  op ax.provider.semantic @gemini_live_bidi_build_setup {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr effect = "throws"
+    attr private = true
+    tag "gemini-live-bidi-realtime-audio-core-helper"
+    type signature = "(descriptor:json, request:json) -> json throws"
+    body @entry(%descriptor: json, %request: json) {
+      %response_format = core.get %request["response_format"]
+      %has_response_format = core.call intrinsic.truthy(%response_format)
+      core.if %has_response_format {
+        %error = core.call intrinsic.ai.error.unsupported("Gemini Live audio does not support structured response formats")
+        core.raise %error
+      } else {
+      }
+      %default_model = core.get %descriptor["defaultModel"] default "gemini-2.5-flash-native-audio-preview-12-2025"
+      %request_model = core.get %request["model"] default %default_model
+      %model_prefix = core.call intrinsic.contains(%request_model, "models/")
+      %model = core.let %request_model
+      core.if %model_prefix {
+      } else {
+        %model = core.call intrinsic.string.format("models/{}", %request_model)
+      }
+      %audio_descriptor = core.get %descriptor["audio"]
+      %output_audio_descriptor = core.get %audio_descriptor["output"]
+      %request_audio = core.get %request["audio"]
+      %request_output_audio = core.get %request_audio["output"]
+      %default_voice = core.get %output_audio_descriptor["defaultVoice"] default "Kore"
+      %voice = core.get %request_output_audio["voice"] default %default_voice
+      %voice_name = core.get %voice["name"] default %voice
+      %setup = core.map
+      core.set %setup["model"] = %model
+      %generation_config = core.map
+      %modalities = core.call intrinsic.json.parse("[\"AUDIO\"]")
+      core.set %generation_config["responseModalities"] = %modalities
+      %speech_config = core.map
+      %voice_config = core.map
+      %prebuilt_voice = core.map
+      core.set %prebuilt_voice["voiceName"] = %voice_name
+      core.set %voice_config["prebuiltVoiceConfig"] = %prebuilt_voice
+      core.set %speech_config["voiceConfig"] = %voice_config
+      core.set %generation_config["speechConfig"] = %speech_config
+      core.set %setup["generationConfig"] = %generation_config
+      %include_transcript = core.get %request_output_audio["transcript"] default true
+      core.if %include_transcript {
+        %transcript = core.map
+        core.set %setup["outputAudioTranscription"] = %transcript
+      } else {
+      }
+      %instructions = core.call @realtime_request_system_instruction_impl(%request)
+      %has_instructions = core.call intrinsic.truthy(%instructions)
+      core.if %has_instructions {
+        %part = core.map
+        core.set %part["text"] = %instructions
+        %parts = core.list
+        core.append %parts, %part
+        %system_instruction = core.map
+        core.set %system_instruction["parts"] = %parts
+        core.set %setup["systemInstruction"] = %system_instruction
+      } else {
+      }
+      %out = core.map
+      core.set %out["setup"] = %setup
+      core.return %out
+    }
+  }
+
+  op ax.provider.semantic @gemini_live_bidi_build_input {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr effect = "throws"
+    attr private = true
+    tag "gemini-live-bidi-realtime-audio-core-helper"
+    type signature = "(descriptor:json, request:json) -> list<json> throws"
+    body @entry(%descriptor: json, %request: json) {
+      %events = core.list
+      %messages = core.call @realtime_request_user_messages_impl(%request)
+      core.for %message in %messages {
+        %content = core.get %message["content"] default ""
+        %is_list = core.type_is %content type "list"
+        %text_parts = core.list
+        %audio_events = core.list
+        core.if %is_list {
+          core.for %part in %content {
+            %part_type = core.get %part["type"] default "text"
+            %is_text = core.call intrinsic.eq(%part_type, "text")
+            core.if %is_text {
+              %text_part = core.map
+              %text = core.get %part["text"] default ""
+              core.set %text_part["text"] = %text
+              core.append %text_parts, %text_part
+            } else {
+            }
+            %is_audio = core.call intrinsic.eq(%part_type, "audio")
+            core.if %is_audio {
+              %format = core.get %part["format"] default "pcm16"
+              %format_lower = core.call intrinsic.string.lower(%format)
+              %is_pcm16 = core.call intrinsic.eq(%format_lower, "pcm16")
+              %is_pcm = core.call intrinsic.eq(%format_lower, "pcm")
+              %valid_pcm = core.call intrinsic.or(%is_pcm16, %is_pcm)
+              core.if %valid_pcm {
+              } else {
+                %error = core.call intrinsic.ai.error.unsupported("Gemini Live audio input must be PCM")
+                core.raise %error
+              }
+              %data = core.get %part["data"] default ""
+              %sample_rate = core.get %part["sampleRate"]
+              %sample_rate_snake = core.get %part["sample_rate"] default %sample_rate
+              %sample_rate_final = core.let %sample_rate_snake
+              %has_sample_rate = core.call intrinsic.is_not_none(%sample_rate_final)
+              core.if %has_sample_rate {
+              } else {
+                %sample_rate_final = core.let 16000
+              }
+              %mime = core.call intrinsic.string.format("audio/pcm;rate={}", %sample_rate_final)
+              %audio = core.map
+              core.set %audio["data"] = %data
+              core.set %audio["mimeType"] = %mime
+              %realtime_input = core.map
+              core.set %realtime_input["audio"] = %audio
+              %audio_event = core.map
+              core.set %audio_event["realtimeInput"] = %realtime_input
+              core.append %audio_events, %audio_event
+            } else {
+            }
+          }
+        } else {
+          %text_part = core.map
+          core.set %text_part["text"] = %content
+          core.append %text_parts, %text_part
+        }
+        %text_count = core.call intrinsic.len(%text_parts)
+        %has_text = core.call intrinsic.gt(%text_count, 0)
+        core.if %has_text {
+          %turn = core.map
+          core.set %turn["role"] = "user"
+          core.set %turn["parts"] = %text_parts
+          %turns = core.list
+          core.append %turns, %turn
+          %client_content = core.map
+          core.set %client_content["turns"] = %turns
+          core.set %client_content["turnComplete"] = false
+          %content_event = core.map
+          core.set %content_event["clientContent"] = %client_content
+          core.append %events, %content_event
+        } else {
+        }
+        core.for %audio_event in %audio_events {
+          core.append %events, %audio_event
+        }
+      }
+      %stream_end = core.map
+      core.set %stream_end["audioStreamEnd"] = true
+      %end_event = core.map
+      core.set %end_event["realtimeInput"] = %stream_end
+      core.append %events, %end_event
+      core.return %events
+    }
+  }
+
+  op ax.provider.semantic @realtime_request_system_instruction_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "provider-realtime-audio-core-helper"
+    type signature = "(request:json) -> string"
+    body @entry(%request: json) {
+      %direct = core.get %request["instructions"]
+      %has_direct = core.call intrinsic.truthy(%direct)
+      core.if %has_direct {
+        core.return %direct
+      } else {
+      }
+      %empty_prompt = core.list
+      %prompt = core.get %request["chat_prompt"] default %empty_prompt
+      %parts = core.list
+      core.for %message in %prompt {
+        %role = core.get %message["role"]
+        %is_system = core.call intrinsic.eq(%role, "system")
+        core.if %is_system {
+          %content = core.get %message["content"] default ""
+          core.append %parts, %content
+        } else {
+        }
+      }
+      %out = core.call intrinsic.string.join("\n", %parts)
+      core.return %out
+    }
+  }
+
+  op ax.provider.semantic @realtime_request_user_messages_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "provider-realtime-audio-core-helper"
+    type signature = "(request:json) -> list<json>"
+    body @entry(%request: json) {
+      %empty_prompt = core.list
+      %prompt = core.get %request["chat_prompt"] default %empty_prompt
+      %out = core.list
+      core.for %message in %prompt {
+        %role = core.get %message["role"]
+        %is_user = core.call intrinsic.eq(%role, "user")
+        core.if %is_user {
+          core.append %out, %message
+        } else {
+        }
+      }
+      %count = core.call intrinsic.len(%out)
+      %has_out = core.call intrinsic.gt(%count, 0)
+      core.if %has_out {
+      } else {
+        %input = core.get %request["input"]
+        %has_input = core.call intrinsic.is_not_none(%input)
+        core.if %has_input {
+          %message = core.map
+          core.set %message["role"] = "user"
+          core.set %message["content"] = %input
+          core.append %out, %message
+        } else {
+        }
+      }
+      core.return %out
+    }
+  }
+
+  op ax.provider.semantic @openai_realtime_content_parts_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "openai-compatible-realtime-audio-core-helper"
+    type signature = "(content:json) -> list<json>"
+    body @entry(%content: json) {
+      %parts = core.list
+      %is_list = core.type_is %content type "list"
+      core.if %is_list {
+        core.for %part in %content {
+          %type = core.get %part["type"] default "text"
+          %is_audio = core.call intrinsic.eq(%type, "audio")
+          core.if %is_audio {
+            %audio_part = core.map
+            core.set %audio_part["type"] = "input_audio"
+            %input_audio = core.map
+            %data = core.get %part["data"] default ""
+            core.set %input_audio["data"] = %data
+            %format = core.get %part["format"] default "pcm16"
+            core.set %input_audio["format"] = %format
+            core.set %audio_part["input_audio"] = %input_audio
+            core.append %parts, %audio_part
+          } else {
+            %text_part = core.map
+            core.set %text_part["type"] = "input_text"
+            %text = core.get %part["text"] default ""
+            core.set %text_part["text"] = %text
+            core.append %parts, %text_part
+          }
+        }
+      } else {
+        %part = core.map
+        core.set %part["type"] = "input_text"
+        core.set %part["text"] = %content
+        core.append %parts, %part
+      }
+      core.return %parts
     }
   }
 
@@ -4028,6 +4464,15 @@ module @ax.provider version "0.1" {
     tag "provider-realtime-operation"
     type signature = "(profile:string, json, json, string, string) -> AxChatResponse throws"
     body @entry(%profile: string, %event: json, %state: json, %ai_name: string, %model: string) {
+      %provider_id = core.call @provider_normalize_profile(%profile)
+      %descriptor = core.call @provider_realtime_audio_descriptor(%provider_id)
+      %grammar = core.get %descriptor["grammar"] default "openai_realtime_compatible"
+      %is_gemini_live = core.call intrinsic.eq(%grammar, "gemini_live_bidi")
+      core.if %is_gemini_live {
+        %gemini_response = core.call @gemini_live_bidi_normalize_realtime_event(%event, %state, %ai_name, %model)
+        core.return %gemini_response
+      } else {
+      }
       %response = core.call @openai_responses_normalize_realtime_event(%event, %state, %ai_name, %model)
       core.return %response
     }
@@ -4577,9 +5022,24 @@ module @ax.provider version "0.1" {
     type signature = "(json, json, string, string) -> AxChatResponse throws"
     body @entry(%event: json, %state: json, %ai_name: string, %model: string) {
       %type = core.get %event["type"]
+      %is_error_event = core.call intrinsic.contains(%type, "error")
+      core.if %is_error_event {
+        %empty_error_payload = core.map
+        %error_payload = core.get %event["error"] default %empty_error_payload
+        %error_message = core.get %error_payload["message"] default "realtime audio provider error"
+        %error = core.call intrinsic.ai.error.response(%error_message, %event)
+        core.raise %error
+      } else {
+      }
       %result = core.map
       core.set %result["index"] = 0
-      %realtime_item_id = core.get %event["item_id"] default "0"
+      %realtime_response_id = core.get %event["response_id"]
+      %realtime_item_id = core.get %event["item_id"] default %realtime_response_id
+      %has_realtime_item_id = core.call intrinsic.is_not_none(%realtime_item_id)
+      core.if %has_realtime_item_id {
+      } else {
+        %realtime_item_id = core.let "0"
+      }
       core.set %result["id"] = %realtime_item_id
       core.set %result["content"] = ""
       %realtime_empty_calls = core.list
@@ -4587,23 +5047,32 @@ module @ax.provider version "0.1" {
       %realtime_none_finish = core.call intrinsic.none()
       core.set %result["finish_reason"] = %realtime_none_finish
       %is_text = core.call intrinsic.eq(%type, "response.text.delta")
+      %is_output_text = core.call intrinsic.eq(%type, "response.output_text.delta")
+      %is_any_text = core.call intrinsic.or(%is_text, %is_output_text)
       %is_transcript = core.call intrinsic.eq(%type, "conversation.item.input_audio_transcription.delta")
+      %is_output_transcript = core.call intrinsic.eq(%type, "response.output_audio_transcript.delta")
+      %is_audio_transcript = core.call intrinsic.eq(%type, "response.audio_transcript.delta")
+      %is_realtime_transcript = core.call intrinsic.or(%is_transcript, %is_output_transcript)
+      %is_realtime_transcript = core.call intrinsic.or(%is_realtime_transcript, %is_audio_transcript)
       %is_audio = core.call intrinsic.eq(%type, "response.audio.delta")
-      core.if %is_text {
+      %is_output_audio = core.call intrinsic.eq(%type, "response.output_audio.delta")
+      %is_any_audio = core.call intrinsic.or(%is_audio, %is_output_audio)
+      core.if %is_any_text {
         %realtime_text_delta = core.get %event["delta"] default ""
         core.set %result["content"] = %realtime_text_delta
       } else {
       }
-      core.if %is_transcript {
+      core.if %is_realtime_transcript {
         %realtime_transcript_delta = core.get %event["delta"] default ""
         core.set %result["content"] = %realtime_transcript_delta
       } else {
       }
-      core.if %is_audio {
+      core.if %is_any_audio {
         %audio_delta = core.get %event["delta"] default ""
         %audio = core.map
         core.set %audio["data"] = %audio_delta
         core.set %audio["format"] = "pcm16"
+        core.set %audio["is_delta"] = true
         core.set %result["audio"] = %audio
       } else {
       }
@@ -4620,10 +5089,111 @@ module @ax.provider version "0.1" {
       %results = core.list
       core.append %results, %result
       %event_id = core.get %event["id"]
-      %remote_id = core.get %realtime_response["id"] default %event_id
+      %event_response_id = core.get %event["response_id"] default %event_id
+      %remote_id = core.get %realtime_response["id"] default %event_response_id
       %out = core.map
       core.set %out["results"] = %results
       core.set %out["remote_id"] = %remote_id
+      core.set %out["model_usage"] = %model_usage
+      core.return %out
+    }
+  }
+
+  op ax.provider.semantic @gemini_live_bidi_normalize_realtime_event {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr effect = "throws"
+    attr private = true
+    tag "gemini-live-bidi-realtime-audio-core-helper"
+    type signature = "(json, json, string, string) -> AxChatResponse throws"
+    body @entry(%event: json, %state: json, %ai_name: string, %model: string) {
+      %error_payload = core.get %event["error"]
+      %has_error = core.call intrinsic.is_not_none(%error_payload)
+      core.if %has_error {
+        %error_message = core.get %error_payload["message"] default "Gemini Live realtime audio provider error"
+        %error = core.call intrinsic.ai.error.response(%error_message, %event)
+        core.raise %error
+      } else {
+      }
+      %result = core.map
+      core.set %result["index"] = 0
+      core.set %result["id"] = "0"
+      core.set %result["content"] = ""
+      %calls = core.list
+      core.set %result["function_calls"] = %calls
+      %none_finish = core.call intrinsic.none()
+      core.set %result["finish_reason"] = %none_finish
+      %text_parts = core.list
+      %function_calls = core.list
+      %empty_top_tool_call = core.map
+      %top_tool_call = core.get %event["toolCall"] default %empty_top_tool_call
+      %empty_top_function_calls = core.list
+      %top_function_calls = core.get %top_tool_call["functionCalls"] default %empty_top_function_calls
+      core.for %top_function_call in %top_function_calls {
+        %top_part = core.map
+        core.set %top_part["functionCall"] = %top_function_call
+        core.call @gemini_merge_response_part_impl(%result, %text_parts, %function_calls, %top_part)
+      }
+      %empty_server = core.map
+      %server = core.get %event["serverContent"] default %empty_server
+      %output_transcription = core.get %server["outputTranscription"]
+      %has_output_transcription = core.call intrinsic.is_not_none(%output_transcription)
+      core.if %has_output_transcription {
+        %transcript_text = core.get %output_transcription["text"] default ""
+        core.append %text_parts, %transcript_text
+      } else {
+      }
+      %input_transcription = core.get %server["inputTranscription"]
+      %has_input_transcription = core.call intrinsic.is_not_none(%input_transcription)
+      core.if %has_input_transcription {
+        %input_text = core.get %input_transcription["text"] default ""
+        core.append %text_parts, %input_text
+      } else {
+      }
+      %empty_model_turn = core.map
+      %model_turn = core.get %server["modelTurn"] default %empty_model_turn
+      %empty_parts = core.list
+      %parts = core.get %model_turn["parts"] default %empty_parts
+      core.for %part in %parts {
+        %inline_data = core.get %part["inlineData"]
+        %has_inline_data = core.call intrinsic.is_not_none(%inline_data)
+        core.if %has_inline_data {
+          %mime = core.get %inline_data["mimeType"] default "audio/pcm"
+          %data = core.get %inline_data["data"] default ""
+          %audio = core.map
+          core.set %audio["data"] = %data
+          core.set %audio["mimeType"] = %mime
+          core.set %audio["format"] = "pcm16"
+          core.set %audio["sampleRate"] = 24000
+          core.set %audio["is_delta"] = true
+          core.set %result["audio"] = %audio
+        } else {
+          core.call @gemini_merge_response_part_impl(%result, %text_parts, %function_calls, %part)
+        }
+      }
+      %content = core.call intrinsic.string.join("", %text_parts)
+      core.set %result["content"] = %content
+      %call_count = core.call intrinsic.len(%function_calls)
+      %has_calls = core.call intrinsic.gt(%call_count, 0)
+      core.if %has_calls {
+        core.set %result["function_calls"] = %function_calls
+        core.set %result["finish_reason"] = "function_call"
+      } else {
+      }
+      %turn_complete = core.get %server["turnComplete"] default false
+      core.if %turn_complete {
+        core.set %result["finish_reason"] = "stop"
+      } else {
+      }
+      %usage = core.get %event["usageMetadata"]
+      %gemini_usage = core.call @gemini_usage_impl(%usage)
+      %model_usage = core.call @ai_model_usage_impl(%ai_name, %model, %gemini_usage)
+      %results = core.list
+      core.append %results, %result
+      %event_id = core.get %event["id"] default "gemini-live"
+      %out = core.map
+      core.set %out["results"] = %results
+      core.set %out["remote_id"] = %event_id
       core.set %out["model_usage"] = %model_usage
       core.return %out
     }

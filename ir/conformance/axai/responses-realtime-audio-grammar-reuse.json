@@ -1,0 +1,73 @@
+{
+  "events": [],
+  "expected_input": [
+    {
+      "item": {
+        "content": [
+          {
+            "text": "Say hi.",
+            "type": "input_text"
+          }
+        ],
+        "role": "user",
+        "type": "message"
+      },
+      "type": "conversation.item.create"
+    },
+    {
+      "response": {
+        "modalities": ["audio"]
+      },
+      "type": "response.create"
+    }
+  ],
+  "expected_output": [],
+  "expected_setup": {
+    "session": {
+      "audio": {
+        "input": {
+          "format": {
+            "rate": 24000,
+            "type": "audio/pcm"
+          }
+        },
+        "output": {
+          "format": {
+            "rate": 24000,
+            "type": "audio/pcm"
+          }
+        }
+      },
+      "instructions": "Speak briefly.",
+      "modalities": ["audio"],
+      "turn_detection": null,
+      "voice": "alloy"
+    },
+    "type": "session.update"
+  },
+  "kind": "ai_realtime",
+  "name": "responses-realtime-audio-grammar-reuse",
+  "provider": "openai-responses",
+  "request": {
+    "audio": {
+      "input": {
+        "sampleRate": 24000
+      },
+      "output": {
+        "sampleRate": 24000,
+        "voice": "alloy"
+      }
+    },
+    "chat_prompt": [
+      {
+        "content": "Speak briefly.",
+        "role": "system"
+      },
+      {
+        "content": "Say hi.",
+        "role": "user"
+      }
+    ],
+    "model": "gpt-4o"
+  }
+}

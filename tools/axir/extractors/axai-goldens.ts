@@ -8,7 +8,10 @@ import { axGetSupportedAIModels } from '../../../src/ax/ai/catalog.js';
 import { axAICohereDefaultConfig } from '../../../src/ax/ai/cohere/api.js';
 import { AxAICohereEmbedModel } from '../../../src/ax/ai/cohere/types.js';
 import { axAIDeepSeekDefaultConfig } from '../../../src/ax/ai/deepseek/api.js';
-import { axAIGoogleGeminiDefaultConfig } from '../../../src/ax/ai/google-gemini/api.js';
+import {
+  axAIGoogleGeminiDefaultConfig,
+  axAIGoogleGeminiLiveAudioDefaultConfig,
+} from '../../../src/ax/ai/google-gemini/api.js';
 import { AxAIGoogleGeminiEmbedModel } from '../../../src/ax/ai/google-gemini/types.js';
 import { axAIMistralDefaultConfig } from '../../../src/ax/ai/mistral/api.js';
 import { AxMultiServiceRouter } from '../../../src/ax/ai/multiservice.js';
@@ -16,7 +19,10 @@ import { AxAIOpenAIModel } from '../../../src/ax/ai/openai/chat_types.js';
 import { axAIOpenAIResponsesDefaultConfig } from '../../../src/ax/ai/openai/responses_api_base.js';
 import { axAIRekaDefaultConfig } from '../../../src/ax/ai/reka/api.js';
 import { AxProviderRouter } from '../../../src/ax/ai/router.js';
-import { axAIGrokDefaultConfig } from '../../../src/ax/ai/x-grok/api.js';
+import {
+  axAIGrokDefaultConfig,
+  axAIGrokVoiceDefaultConfig,
+} from '../../../src/ax/ai/x-grok/api.js';
 import {
   AxAIServiceAuthenticationError,
   AxAIServiceNetworkError,
@@ -60,7 +66,10 @@ const rekaDefaultModel = axAIRekaDefaultConfig().model as string;
 const cohereDefaultModel = axAICohereDefaultConfig().model as string;
 const cohereDefaultEmbedModel = AxAICohereEmbedModel.EmbedEnglishV30;
 const grokDefaultModel = axAIGrokDefaultConfig().model as string;
+const grokVoiceDefaultModel = axAIGrokVoiceDefaultConfig().model as string;
 const geminiDefaultModel = axAIGoogleGeminiDefaultConfig().model as string;
+const geminiLiveDefaultModel = axAIGoogleGeminiLiveAudioDefaultConfig()
+  .model as string;
 const geminiDefaultEmbedModel = 'gemini-embedding-2';
 const anthropicDefaultModel = axAIAnthropicDefaultConfig().model as string;
 const catalogAll = axGetSupportedAIModels();
@@ -1045,6 +1054,13 @@ writeFixture('responses-provider-descriptor', {
         body: 'events',
         stream: true,
       },
+      realtime_audio: {
+        method: 'WS',
+        path: '/realtime',
+        body: 'events',
+        stream: true,
+        grammar: 'openai_realtime_compatible',
+      },
     },
     features: {
       media: {
@@ -1083,11 +1099,18 @@ writeFixture('gemini-provider-descriptor', {
         body: 'json',
         stream: false,
       },
+      realtime_audio: {
+        method: 'WS',
+        path: '/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent',
+        body: 'events',
+        stream: true,
+        grammar: 'gemini_live_bidi',
+      },
     },
     features: {
       media: {
         images: { supported: true },
-        audio: { supported: true, output: { supported: false } },
+        audio: { supported: true, output: { supported: true } },
         files: { supported: true, upload_method: 'cloud' },
       },
       caching: { supported: true, types: ['persistent'] },
@@ -1291,10 +1314,18 @@ writeFixture('grok-provider-descriptor', {
         body: 'json',
         stream: true,
       },
+      realtime_audio: {
+        method: 'WS',
+        path: '/realtime',
+        body: 'events',
+        stream: true,
+        grammar: 'openai_realtime_compatible',
+      },
     },
     features: {
       media: {
         images: { supported: true },
+        audio: { supported: true, realtime: true, output: { supported: true } },
         urls: { web_search: true },
       },
       thinking: true,
@@ -1961,6 +1992,329 @@ writeFixture('responses-realtime-event', {
       },
     },
   ],
+});
+
+writeFixture('responses-realtime-audio-grammar-reuse', {
+  kind: 'ai_realtime',
+  provider: 'openai-responses',
+  request: {
+    model: responsesDefaultModel,
+    chat_prompt: [
+      { role: 'system', content: 'Speak briefly.' },
+      { role: 'user', content: 'Say hi.' },
+    ],
+    audio: {
+      output: { voice: 'alloy', sampleRate: 24000 },
+      input: { sampleRate: 24000 },
+    },
+  },
+  expected_setup: {
+    type: 'session.update',
+    session: {
+      voice: 'alloy',
+      turn_detection: null,
+      audio: {
+        input: { format: { type: 'audio/pcm', rate: 24000 } },
+        output: { format: { type: 'audio/pcm', rate: 24000 } },
+      },
+      modalities: ['audio'],
+      instructions: 'Speak briefly.',
+    },
+  },
+  expected_input: [
+    {
+      type: 'conversation.item.create',
+      item: {
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'input_text', text: 'Say hi.' }],
+      },
+    },
+    { type: 'response.create', response: { modalities: ['audio'] } },
+  ],
+  events: [],
+  expected_output: [],
+});
+
+writeFixture('grok-realtime-audio-session-and-events', {
+  kind: 'ai_realtime',
+  provider: 'grok',
+  model: grokVoiceDefaultModel,
+  request: {
+    model: grokVoiceDefaultModel,
+    chat_prompt: [
+      { role: 'system', content: 'You are a concise voice agent.' },
+      { role: 'user', content: 'Say hello.' },
+    ],
+    audio: {
+      output: { voice: 'eve', sampleRate: 24000 },
+      input: { sampleRate: 24000 },
+    },
+  },
+  expected_setup: {
+    type: 'session.update',
+    session: {
+      voice: 'eve',
+      turn_detection: null,
+      audio: {
+        input: { format: { type: 'audio/pcm', rate: 24000 } },
+        output: { format: { type: 'audio/pcm', rate: 24000 } },
+      },
+      modalities: ['audio'],
+      instructions: 'You are a concise voice agent.',
+    },
+  },
+  expected_input: [
+    {
+      type: 'conversation.item.create',
+      item: {
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'input_text', text: 'Say hello.' }],
+      },
+    },
+    { type: 'response.create', response: { modalities: ['audio'] } },
+  ],
+  events: [
+    {
+      type: 'response.output_audio_transcript.delta',
+      response_id: 'grok_rt',
+      delta: 'hello ',
+    },
+    {
+      type: 'response.output_audio.delta',
+      response_id: 'grok_rt',
+      delta: 'AQI=',
+    },
+    {
+      type: 'response.done',
+      response: {
+        id: 'grok_rt',
+        usage: { input_tokens: 3, output_tokens: 2, total_tokens: 5 },
+      },
+    },
+  ],
+  expected_output: [
+    {
+      results: [
+        {
+          index: 0,
+          id: 'grok_rt',
+          content: 'hello ',
+          function_calls: [],
+          finish_reason: null,
+        },
+      ],
+      remote_id: 'grok_rt',
+      model_usage: null,
+    },
+    {
+      results: [
+        {
+          index: 0,
+          id: 'grok_rt',
+          content: '',
+          function_calls: [],
+          finish_reason: null,
+          audio: { data: 'AQI=', format: 'pcm16', is_delta: true },
+        },
+      ],
+      remote_id: 'grok_rt',
+      model_usage: null,
+    },
+    {
+      results: [
+        {
+          index: 0,
+          id: '0',
+          content: '',
+          function_calls: [],
+          finish_reason: 'stop',
+        },
+      ],
+      remote_id: 'grok_rt',
+      model_usage: {
+        ai: 'Grok',
+        model: grokVoiceDefaultModel,
+        tokens: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 },
+      },
+    },
+  ],
+});
+
+writeFixture('gemini-live-realtime-audio-session-and-events', {
+  kind: 'ai_realtime',
+  provider: 'google-gemini',
+  model: geminiLiveDefaultModel,
+  request: {
+    model: geminiLiveDefaultModel,
+    chat_prompt: [
+      { role: 'system', content: 'Answer with audio.' },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Live question' },
+          { type: 'audio', data: 'AAAA', format: 'pcm16', sampleRate: 16000 },
+        ],
+      },
+    ],
+    audio: { output: { voice: 'Kore', transcript: true } },
+  },
+  expected_setup: {
+    setup: {
+      model: `models/${geminiLiveDefaultModel}`,
+      generationConfig: {
+        responseModalities: ['AUDIO'],
+        speechConfig: {
+          voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } },
+        },
+      },
+      outputAudioTranscription: {},
+      systemInstruction: { parts: [{ text: 'Answer with audio.' }] },
+    },
+  },
+  expected_input: [
+    {
+      clientContent: {
+        turns: [{ role: 'user', parts: [{ text: 'Live question' }] }],
+        turnComplete: false,
+      },
+    },
+    {
+      realtimeInput: {
+        audio: { data: 'AAAA', mimeType: 'audio/pcm;rate=16000' },
+      },
+    },
+    { realtimeInput: { audioStreamEnd: true } },
+  ],
+  events: [
+    {
+      id: 'gemini_live_1',
+      serverContent: { outputTranscription: { text: 'spoken ' } },
+    },
+    {
+      id: 'gemini_live_2',
+      serverContent: {
+        modelTurn: {
+          parts: [{ inlineData: { mimeType: 'audio/pcm', data: 'AQI=' } }],
+        },
+      },
+    },
+    {
+      id: 'gemini_live_3',
+      toolCall: {
+        functionCalls: [{ name: 'lookup', args: { q: 'ax' } }],
+      },
+    },
+    {
+      id: 'gemini_live_done',
+      serverContent: { turnComplete: true },
+      usageMetadata: {
+        promptTokenCount: 3,
+        candidatesTokenCount: 4,
+        totalTokenCount: 7,
+      },
+    },
+  ],
+  expected_output: [
+    {
+      results: [
+        {
+          index: 0,
+          id: '0',
+          content: 'spoken ',
+          function_calls: [],
+          finish_reason: null,
+        },
+      ],
+      remote_id: 'gemini_live_1',
+      model_usage: null,
+    },
+    {
+      results: [
+        {
+          index: 0,
+          id: '0',
+          content: '',
+          function_calls: [],
+          finish_reason: null,
+          audio: {
+            data: 'AQI=',
+            mimeType: 'audio/pcm',
+            format: 'pcm16',
+            sampleRate: 24000,
+            is_delta: true,
+          },
+        },
+      ],
+      remote_id: 'gemini_live_2',
+      model_usage: null,
+    },
+    {
+      results: [
+        {
+          index: 0,
+          id: '0',
+          content: '',
+          function_calls: [
+            {
+              id: 'lookup',
+              type: 'function',
+              function: { name: 'lookup', params: { q: 'ax' } },
+            },
+          ],
+          finish_reason: 'function_call',
+        },
+      ],
+      remote_id: 'gemini_live_3',
+      model_usage: null,
+    },
+    {
+      results: [
+        {
+          index: 0,
+          id: '0',
+          content: '',
+          function_calls: [],
+          finish_reason: 'stop',
+        },
+      ],
+      remote_id: 'gemini_live_done',
+      model_usage: {
+        ai: 'GoogleGeminiAI',
+        model: geminiLiveDefaultModel,
+        tokens: { prompt_tokens: 3, completion_tokens: 4, total_tokens: 7 },
+      },
+    },
+  ],
+});
+
+writeFixture('gemini-live-realtime-audio-structured-output-error', {
+  kind: 'ai_realtime',
+  provider: 'google-gemini',
+  request: {
+    model: geminiLiveDefaultModel,
+    chat_prompt: [{ role: 'user', content: 'nope' }],
+    response_format: { type: 'json_schema', schema: { type: 'object' } },
+  },
+  expected_setup: {},
+  expected_error_contains: 'structured response formats',
+});
+
+writeFixture('gemini-live-realtime-audio-pcm-validation-error', {
+  kind: 'ai_realtime',
+  provider: 'google-gemini',
+  request: {
+    model: geminiLiveDefaultModel,
+    chat_prompt: [
+      {
+        role: 'user',
+        content: [{ type: 'audio', data: 'UklGRg==', format: 'wav' }],
+      },
+    ],
+  },
+  expected_input: [],
+  expected_error_contains: 'PCM',
 });
 
 writeFixture('anthropic-simple-chat', {

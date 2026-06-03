@@ -1,0 +1,22 @@
+{
+  "expected_error_contains": "structured response formats",
+  "expected_setup": {},
+  "kind": "ai_realtime",
+  "name": "gemini-live-realtime-audio-structured-output-error",
+  "provider": "google-gemini",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "nope",
+        "role": "user"
+      }
+    ],
+    "model": "gemini-2.5-flash-native-audio-preview-12-2025",
+    "response_format": {
+      "schema": {
+        "type": "object"
+      },
+      "type": "json_schema"
+    }
+  }
+}

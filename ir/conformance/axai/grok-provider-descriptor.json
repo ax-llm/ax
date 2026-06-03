@@ -4,6 +4,13 @@
     "defaultModel": "grok-4.3",
     "features": {
       "media": {
+        "audio": {
+          "output": {
+            "supported": true
+          },
+          "realtime": true,
+          "supported": true
+        },
         "images": {
           "supported": true
         },
@@ -21,6 +28,13 @@
         "method": "POST",
         "path": "/chat/completions",
         "stream": false
+      },
+      "realtime_audio": {
+        "body": "events",
+        "grammar": "openai_realtime_compatible",
+        "method": "WS",
+        "path": "/realtime",
+        "stream": true
       },
       "stream_chat": {
         "body": "json",

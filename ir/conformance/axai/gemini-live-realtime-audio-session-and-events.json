@@ -1,0 +1,218 @@
+{
+  "events": [
+    {
+      "id": "gemini_live_1",
+      "serverContent": {
+        "outputTranscription": {
+          "text": "spoken "
+        }
+      }
+    },
+    {
+      "id": "gemini_live_2",
+      "serverContent": {
+        "modelTurn": {
+          "parts": [
+            {
+              "inlineData": {
+                "data": "AQI=",
+                "mimeType": "audio/pcm"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "gemini_live_3",
+      "toolCall": {
+        "functionCalls": [
+          {
+            "args": {
+              "q": "ax"
+            },
+            "name": "lookup"
+          }
+        ]
+      }
+    },
+    {
+      "id": "gemini_live_done",
+      "serverContent": {
+        "turnComplete": true
+      },
+      "usageMetadata": {
+        "candidatesTokenCount": 4,
+        "promptTokenCount": 3,
+        "totalTokenCount": 7
+      }
+    }
+  ],
+  "expected_input": [
+    {
+      "clientContent": {
+        "turnComplete": false,
+        "turns": [
+          {
+            "parts": [
+              {
+                "text": "Live question"
+              }
+            ],
+            "role": "user"
+          }
+        ]
+      }
+    },
+    {
+      "realtimeInput": {
+        "audio": {
+          "data": "AAAA",
+          "mimeType": "audio/pcm;rate=16000"
+        }
+      }
+    },
+    {
+      "realtimeInput": {
+        "audioStreamEnd": true
+      }
+    }
+  ],
+  "expected_output": [
+    {
+      "model_usage": null,
+      "remote_id": "gemini_live_1",
+      "results": [
+        {
+          "content": "spoken ",
+          "finish_reason": null,
+          "function_calls": [],
+          "id": "0",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "model_usage": null,
+      "remote_id": "gemini_live_2",
+      "results": [
+        {
+          "audio": {
+            "data": "AQI=",
+            "format": "pcm16",
+            "is_delta": true,
+            "mimeType": "audio/pcm",
+            "sampleRate": 24000
+          },
+          "content": "",
+          "finish_reason": null,
+          "function_calls": [],
+          "id": "0",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "model_usage": null,
+      "remote_id": "gemini_live_3",
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "function_call",
+          "function_calls": [
+            {
+              "function": {
+                "name": "lookup",
+                "params": {
+                  "q": "ax"
+                }
+              },
+              "id": "lookup",
+              "type": "function"
+            }
+          ],
+          "id": "0",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "model_usage": {
+        "ai": "GoogleGeminiAI",
+        "model": "gemini-2.5-flash-native-audio-preview-12-2025",
+        "tokens": {
+          "completion_tokens": 4,
+          "prompt_tokens": 3,
+          "total_tokens": 7
+        }
+      },
+      "remote_id": "gemini_live_done",
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "stop",
+          "function_calls": [],
+          "id": "0",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "expected_setup": {
+    "setup": {
+      "generationConfig": {
+        "responseModalities": ["AUDIO"],
+        "speechConfig": {
+          "voiceConfig": {
+            "prebuiltVoiceConfig": {
+              "voiceName": "Kore"
+            }
+          }
+        }
+      },
+      "model": "models/gemini-2.5-flash-native-audio-preview-12-2025",
+      "outputAudioTranscription": {},
+      "systemInstruction": {
+        "parts": [
+          {
+            "text": "Answer with audio."
+          }
+        ]
+      }
+    }
+  },
+  "kind": "ai_realtime",
+  "model": "gemini-2.5-flash-native-audio-preview-12-2025",
+  "name": "gemini-live-realtime-audio-session-and-events",
+  "provider": "google-gemini",
+  "request": {
+    "audio": {
+      "output": {
+        "transcript": true,
+        "voice": "Kore"
+      }
+    },
+    "chat_prompt": [
+      {
+        "content": "Answer with audio.",
+        "role": "system"
+      },
+      {
+        "content": [
+          {
+            "text": "Live question",
+            "type": "text"
+          },
+          {
+            "data": "AAAA",
+            "format": "pcm16",
+            "sampleRate": 16000,
+            "type": "audio"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "model": "gemini-2.5-flash-native-audio-preview-12-2025"
+  }
+}

@@ -35,8 +35,8 @@ The categories are:
 | AxFlow graph execution | complete for current portable slice | Fixtures cover compact planner, execute/derive/map, returns, branch, while, feedback, node extension helpers, nested control-flow barriers, explicit parallel/merge errors, cache keys, streaming cache short-circuit, dynamic options, nested Flow, trace labels, usage/chat logs, autoParallel overrides, and stop/abort checkpoints. |
 | AxProgram shared contract | partial | AxGen and Flow component contracts exist, but the shared program surface is still thin. More nested Agent/Flow rollout evidence should be added only when a concrete feature needs it. |
 | AxOptimize contract and GEPA engine | complete for current portable slice | Fixtures cover components, artifacts, apply/rollback, evaluator-aware engines, evidence batches, metrics, judge payloads, Flow/Agent/Gen component maps, plus generated `AxGEPA` selection, reflection validation retry, selector state restore, Pareto metadata, bootstrapped demos, metric-call budgets, and dependency-group optimization. |
-| AxAI provider descriptors/catalog/routing/balancing | complete for current portable slice | Fixtures cover OpenAI-compatible, OpenAI Responses/audio/realtime normalization, Gemini Developer API, Anthropic Developer API, Azure OpenAI, DeepSeek, Mistral, Reka, Cohere, Grok, TS model catalog semantics, generated catalog APIs, multi-service model-key routing, stable provider-router analysis/validation/stats, and AxBalancer selection/failover semantics. |
-| Broader providers and live routing | deferred feature | Hugging Face remains catalog-audited but not generated, and TS still has Vertex routes, Gemini Live depth, Grok deeper realtime/audio parity, Anthropic Vertex/web-search transport, and product-grade live backoff/timer policy. These are deferred because transport/auth/retry/media processing are host-owned or product-level choices. |
+| AxAI provider descriptors/catalog/routing/balancing | complete for current portable slice | Fixtures cover OpenAI-compatible, OpenAI Responses/audio/realtime normalization, Gemini Developer API plus Gemini Live realtime-audio setup/input/event folding, Anthropic Developer API, Azure OpenAI, DeepSeek, Mistral, Reka, Cohere, Grok chat plus realtime audio, TS model catalog semantics, generated catalog APIs, multi-service model-key routing, stable provider-router analysis/validation/stats, and AxBalancer selection/failover semantics. |
+| Broader providers and live routing | deferred feature | TS still has Vertex routes, Anthropic Vertex/web-search transport, live provider transport/productization, and product-grade live backoff/timer policy. These are deferred because transport/auth/retry/media processing are host-owned or product-level choices. |
 | TypeScript public AxIR API | complete by omission | No public TypeScript AxIR APIs are added; generated target packages remain the portability surface. |
 
 No current gap is classified as `compiler/runtime bug` or `TS behavior changed`.
@@ -46,8 +46,8 @@ The remaining work is mostly deliberate feature selection.
 
 1. **Provider Product Depth, If Needed**
    - Why: Descriptor-backed text/chat coverage is broad enough. The remaining
-     provider work is Hugging Face, Vertex variants, Gemini Live, Grok audio or
-     realtime depth, Anthropic web-search/Vertex, and live retry/backoff policy.
+     provider work is Vertex variants, Anthropic web-search/Vertex, live
+     transport/productization, and live retry/backoff policy.
    - Fixtures: provider-specific request/response/stream/usage shapes from TS.
    - Backends: Python, Java, C++.
    - Boundary: Core-owned mapping and target-owned transport.

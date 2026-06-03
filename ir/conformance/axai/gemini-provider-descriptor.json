@@ -7,14 +7,12 @@
     "features": {
       "caching": {
         "supported": true,
-        "types": [
-          "persistent"
-        ]
+        "types": ["persistent"]
       },
       "media": {
         "audio": {
           "output": {
-            "supported": false
+            "supported": true
           },
           "supported": true
         },
@@ -42,6 +40,13 @@
         "method": "POST",
         "path": "/models/{model}:batchEmbedContents",
         "stream": false
+      },
+      "realtime_audio": {
+        "body": "events",
+        "grammar": "gemini_live_bidi",
+        "method": "WS",
+        "path": "/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent",
+        "stream": true
       },
       "stream_chat": {
         "body": "json",

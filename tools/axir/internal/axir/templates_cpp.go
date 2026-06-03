@@ -344,6 +344,16 @@ struct Core {
   static Value provider_build_speak_request(Value profile, Value request);
   static Value provider_normalize_transcribe_response(Value profile, Value raw);
   static Value provider_normalize_speak_response(Value profile, Value raw, Value request);
+  static Value _provider_realtime_audio_descriptor(Value profile);
+  static Value provider_build_realtime_audio_setup(Value profile, Value request);
+  static Value provider_build_realtime_audio_input(Value profile, Value request);
+  static Value _openai_realtime_compatible_build_setup(Value descriptor, Value request);
+  static Value _openai_realtime_compatible_build_input(Value descriptor, Value request);
+  static Value _gemini_live_bidi_build_setup(Value descriptor, Value request);
+  static Value _gemini_live_bidi_build_input(Value descriptor, Value request);
+  static Value _realtime_request_system_instruction_impl(Value request);
+  static Value _realtime_request_user_messages_impl(Value request);
+  static Value _openai_realtime_content_parts_impl(Value content);
   static Value provider_normalize_realtime_event(Value profile, Value event, Value state, Value ai_name, Value model);
   static Value openai_responses_build_chat_request(Value request);
   static Value _openai_responses_apply_model_config_impl(Value payload, Value model_config);
@@ -360,6 +370,7 @@ struct Core {
   static Value openai_responses_build_transcribe_request(Value request);
   static Value openai_responses_build_speak_request(Value request);
   static Value openai_responses_normalize_realtime_event(Value event, Value state, Value ai_name, Value model);
+  static Value _gemini_live_bidi_normalize_realtime_event(Value event, Value state, Value ai_name, Value model);
   static Value gemini_build_chat_request(Value request);
   static Value _gemini_apply_model_config_impl(Value payload, Value model_config);
   static Value _gemini_message_impl(Value message);
@@ -733,6 +744,8 @@ class OpenAICompatibleClient : public AxBaseAI {
   Value transcribe(Value request) override;
   Value speak(Value request) override;
   std::vector<Value> realtime(Value events);
+  Value realtime_audio_setup(Value request);
+  Value realtime_audio_input(Value request);
 
  protected:
   OpenAICompatibleClient(std::string profile, std::string name, Value options, Transport* transport, std::string default_model, std::string default_embed_model);
@@ -3108,6 +3121,14 @@ std::vector<Value> OpenAICompatibleClient::realtime(Value events) {
   Value state = Value::object();
   for (const auto& event : array_ref(events)) out.push_back(Core::provider_normalize_realtime_event(profile_, event, state, name_, model_));
   return out;
+}
+
+Value OpenAICompatibleClient::realtime_audio_setup(Value request) {
+  return Core::provider_build_realtime_audio_setup(profile_, request);
+}
+
+Value OpenAICompatibleClient::realtime_audio_input(Value request) {
+  return Core::provider_build_realtime_audio_input(profile_, request);
 }
 
 Value OpenAICompatibleClient::headers() const {
@@ -6778,10 +6799,22 @@ static void run_ai_speak(Value fixture) {
 
 static void run_ai_realtime(Value fixture) {
   ClientFixture cf(fixture);
-  Value out = Value::array();
-  for (const auto& item : cf.client->realtime(Core::get(fixture, "events", Value::array()))) Core::append(out, item);
-  Value expected = Core::get(fixture, "expected_output");
-  if (!expected.is_null()) assert_equal(out, expected, "ai realtime output");
+  try {
+    Value request = Core::get(fixture, "request", Value::object());
+    Value expected_setup = Core::get(fixture, "expected_setup");
+    if (!expected_setup.is_null()) assert_equal(cf.client->realtime_audio_setup(request), expected_setup, "ai realtime setup");
+    Value expected_input = Core::get(fixture, "expected_input");
+    if (!expected_input.is_null()) assert_equal(cf.client->realtime_audio_input(request), expected_input, "ai realtime input");
+    Value out = Value::array();
+    for (const auto& item : cf.client->realtime(Core::get(fixture, "events", Value::array()))) Core::append(out, item);
+    if (!Core::get(fixture, "expected_error_contains").is_null()) throw AxError("fixture", "expected ai realtime fixture to fail");
+    Value expected = Core::get(fixture, "expected_output");
+    if (!expected.is_null()) assert_equal(out, expected, "ai realtime output");
+  } catch (const AxError& error) {
+    Value expected = Core::get(fixture, "expected_error_contains");
+    if (expected.is_null()) throw;
+    if (std::string(error.what()).find(display(expected)) == std::string::npos) throw AxError("fixture", "expected error containing " + display(expected) + ", got " + error.what());
+  }
 }
 
 static Value flow_state_value(Value state, Value field, Value fallback = Value()) {
