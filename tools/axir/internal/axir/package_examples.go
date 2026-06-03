@@ -1,6 +1,6 @@
 package axir
 
-const pySignatureSchemaExample = `from ax import s
+const pySignatureSchemaExample = `from axllm import s
 
 sig = s("question:string -> answer:string")
 schema = sig.to_json_schema("outputs")
@@ -8,7 +8,7 @@ assert "answer" in schema["properties"], schema
 print("python-signature-schema-ok")
 `
 
-const pyAxGenFakeClientToolExample = `from ax import ax, f, fn
+const pyAxGenFakeClientToolExample = `from axllm import ax, f, fn
 
 
 class FakeClient:
@@ -44,7 +44,7 @@ assert qa.get_traces()[-1]["output"] == out
 print("python-axgen-ok")
 `
 
-const pyAxAIFakeTransportExample = `from ax import ai
+const pyAxAIFakeTransportExample = `from axllm import ai
 
 
 def fake_transport(request):
@@ -71,7 +71,7 @@ assert response["results"][0]["content"] == "hello from fake transport", respons
 print("python-axai-ok")
 `
 
-const pyAxAgentPipelineExample = `from ax import AxCodeRuntime, AxCodeSession, agent
+const pyAxAgentPipelineExample = `from axllm import AxCodeRuntime, AxCodeSession, agent
 
 
 class FakeService:
@@ -117,7 +117,7 @@ assert runtime_out["kind"] == "final", runtime_out
 print("python-axagent-ok")
 `
 
-const pyAxFlowProgramGraphExample = `from ax import ax, flow
+const pyAxFlowProgramGraphExample = `from axllm import ax, flow
 
 
 class FakeClient:
@@ -133,7 +133,7 @@ assert program.get_plan()["steps"][0]["name"] == "qa"
 print("python-axflow-ok")
 `
 
-const pyRuntimeAdapterExample = `from ax import AxCodeRuntime, AxCodeSession, RuntimeCapabilities, RuntimeEnvelope, agent
+const pyRuntimeAdapterExample = `from axllm import AxCodeRuntime, AxCodeSession, RuntimeCapabilities, RuntimeEnvelope, agent
 
 
 class DemoSession(AxCodeSession):
@@ -196,7 +196,7 @@ print("python-runtime-adapter-ok")
 const pyRuntimeProtocolExample = `import os
 from pathlib import Path
 
-from ax import ProcessCodeRuntime, agent
+from axllm import ProcessCodeRuntime, agent
 
 
 repo_root = Path(os.environ["AXIR_REPO_ROOT"])
@@ -229,7 +229,7 @@ print("python-runtime-protocol-ok")
 
 const pyOptimizerArtifactExample = `import json
 
-from ax import OptimizerEngine, ax
+from axllm import OptimizerEngine, ax
 
 
 class FakeOptimizer(OptimizerEngine):
@@ -257,7 +257,7 @@ assert any(
 print("python-optimizer-artifact-ok")
 `
 
-const javaSignatureSchemaExample = `import dev.ax.*;
+const javaSignatureSchemaExample = `import dev.axllm.ax.*;
 import java.util.*;
 
 public final class SignatureSchemaExample {
@@ -271,7 +271,7 @@ public final class SignatureSchemaExample {
 }
 `
 
-const javaAxGenFakeClientToolExample = `import dev.ax.*;
+const javaAxGenFakeClientToolExample = `import dev.axllm.ax.*;
 import java.util.*;
 
 public final class AxGenFakeClientToolExample {
@@ -308,7 +308,7 @@ public final class AxGenFakeClientToolExample {
 }
 `
 
-const javaAxAIFakeTransportExample = `import dev.ax.*;
+const javaAxAIFakeTransportExample = `import dev.axllm.ax.*;
 import java.util.*;
 
 public final class AxAIFakeTransportExample {
@@ -338,7 +338,7 @@ public final class AxAIFakeTransportExample {
 }
 `
 
-const javaAxAgentPipelineExample = `import dev.ax.*;
+const javaAxAgentPipelineExample = `import dev.axllm.ax.*;
 import java.util.*;
 
 public final class AxAgentPipelineExample {
@@ -383,7 +383,7 @@ public final class AxAgentPipelineExample {
 }
 `
 
-const javaAxFlowProgramGraphExample = `import dev.ax.*;
+const javaAxFlowProgramGraphExample = `import dev.axllm.ax.*;
 import java.util.*;
 
 public final class AxFlowProgramGraphExample {
@@ -404,7 +404,7 @@ public final class AxFlowProgramGraphExample {
 }
 `
 
-const javaRuntimeAdapterExample = `import dev.ax.*;
+const javaRuntimeAdapterExample = `import dev.axllm.ax.*;
 import java.util.*;
 
 public final class RuntimeAdapterExample {
@@ -470,7 +470,7 @@ public final class RuntimeAdapterExample {
 }
 `
 
-const javaRuntimeProtocolExample = `import dev.ax.*;
+const javaRuntimeProtocolExample = `import dev.axllm.ax.*;
 import java.io.File;
 import java.util.*;
 
@@ -513,7 +513,7 @@ public final class RuntimeProtocolExample {
 }
 `
 
-const javaOptimizerArtifactExample = `import dev.ax.*;
+const javaOptimizerArtifactExample = `import dev.axllm.ax.*;
 import java.util.*;
 
 public final class OptimizerArtifactExample {
@@ -549,76 +549,76 @@ public final class OptimizerArtifactExample {
 }
 `
 
-const cppSignatureSchemaExample = `#include "ax/ax.hpp"
+const cppSignatureSchemaExample = `#include "axllm/axllm.hpp"
 #include <iostream>
 
 int main() {
-  ax::Value sig = ax::s("question:string -> answer:string");
-  ax::Value schema = ax::to_json_schema(ax::Core::get(sig, "outputs"));
-  if (!ax::Core::truthy(ax::Core::get(ax::Core::get(schema, "properties"), "answer"))) return 1;
+  axllm::Value sig = axllm::s("question:string -> answer:string");
+  axllm::Value schema = axllm::to_json_schema(axllm::Core::get(sig, "outputs"));
+  if (!axllm::Core::truthy(axllm::Core::get(axllm::Core::get(schema, "properties"), "answer"))) return 1;
   std::cout << "cpp-signature-schema-ok\n";
 }
 `
 
-const cppAxGenFakeClientToolExample = `#include "ax/ax.hpp"
+const cppAxGenFakeClientToolExample = `#include "axllm/axllm.hpp"
 #include <iostream>
 
-struct FakeClient : ax::AIClient {
+struct FakeClient : axllm::AIClient {
   int calls = 0;
 
-  ax::Value complete(ax::Value) override {
+  axllm::Value complete(axllm::Value) override {
     calls += 1;
     if (calls == 1) {
-      return ax::object({
+      return axllm::object({
         {"content", ""},
-        {"function_calls", ax::array({
-          ax::object({{"id", "call_1"}, {"name", "search"}, {"params", ax::object({{"query", "ax docs"}})}})
+        {"function_calls", axllm::array({
+          axllm::object({{"id", "call_1"}, {"name", "search"}, {"params", axllm::object({{"query", "ax docs"}})}})
         })}
       });
     }
-    return ax::object({{"content", "{\"answer\":\"Found Ax docs\"}"}});
+    return axllm::object({{"content", "{\"answer\":\"Found Ax docs\"}"}});
   }
 };
 
 int main() {
-  ax::Value parameters = ax::object({
+  axllm::Value parameters = axllm::object({
     {"type", "object"},
-    {"properties", ax::object({{"query", ax::object({{"type", "string"}})}})},
-    {"required", ax::array({"query"})}
+    {"properties", axllm::object({{"query", axllm::object({{"type", "string"}})}})},
+    {"required", axllm::array({"query"})}
   });
-  ax::Tool search("search", "Search docs", parameters, [](ax::Value) {
-    return ax::object({{"title", "Ax docs"}});
+  axllm::Tool search("search", "Search docs", parameters, [](axllm::Value) {
+    return axllm::object({{"title", "Ax docs"}});
   });
-  auto qa = ax::ax("query:string -> answer:string")
+  auto qa = axllm::ax("query:string -> answer:string")
       .add_tool(search)
-      .add_assertion(ax::object({{"field", "answer"}, {"contains", "Ax"}, {"message", "answer should mention Ax"}}))
+      .add_assertion(axllm::object({{"field", "answer"}, {"contains", "Ax"}, {"message", "answer should mention Ax"}}))
       .add_field_processor("answer", "trim");
   FakeClient client;
-  ax::Value out = qa.forward(client, ax::object({{"query", "ax docs"}}));
-  if (!ax::equal(ax::Core::get(out, "answer"), "Found Ax docs")) return 1;
-  if (ax::Core::truthy(ax::Core::is_none(ax::Core::get(qa.get_traces(), 0)))) return 1;
+  axllm::Value out = qa.forward(client, axllm::object({{"query", "ax docs"}}));
+  if (!axllm::equal(axllm::Core::get(out, "answer"), "Found Ax docs")) return 1;
+  if (axllm::Core::truthy(axllm::Core::is_none(axllm::Core::get(qa.get_traces(), 0)))) return 1;
   std::cout << "cpp-axgen-ok\n";
 }
 `
 
-const cppAxAIFakeTransportExample = `#include "ax/ax.hpp"
+const cppAxAIFakeTransportExample = `#include "axllm/axllm.hpp"
 #include <iostream>
 
-struct FakeTransport : ax::Transport {
-  ax::Value call(ax::Value) override {
-    return ax::object({
+struct FakeTransport : axllm::Transport {
+  axllm::Value call(axllm::Value) override {
+    return axllm::object({
       {"status", 200},
-      {"json", ax::object({
+      {"json", axllm::object({
         {"id", "chatcmpl_example"},
         {"model", "gpt-4.1-mini"},
-        {"choices", ax::array({
-          ax::object({
+        {"choices", axllm::array({
+          axllm::object({
             {"index", 0},
             {"finish_reason", "stop"},
-            {"message", ax::object({{"content", "hello from fake transport"}})}
+            {"message", axllm::object({{"content", "hello from fake transport"}})}
           })
         })},
-        {"usage", ax::object({{"prompt_tokens", 1}, {"completion_tokens", 2}, {"total_tokens", 3}})}
+        {"usage", axllm::object({{"prompt_tokens", 1}, {"completion_tokens", 2}, {"total_tokens", 3}})}
       })}
     });
   }
@@ -626,116 +626,116 @@ struct FakeTransport : ax::Transport {
 
 int main() {
   FakeTransport transport;
-  ax::OpenAICompatibleClient service(ax::object({{"model", "gpt-4.1-mini"}, {"api_key", "test-key"}}), &transport);
-  ax::Value response = service.chat(ax::object({
-    {"chat_prompt", ax::array({ax::object({{"role", "user"}, {"content", "hello"}})})}
+  axllm::OpenAICompatibleClient service(axllm::object({{"model", "gpt-4.1-mini"}, {"api_key", "test-key"}}), &transport);
+  axllm::Value response = service.chat(axllm::object({
+    {"chat_prompt", axllm::array({axllm::object({{"role", "user"}, {"content", "hello"}})})}
   }));
-  ax::Value first = ax::Core::get(ax::Core::get(response, "results"), 0);
-  if (!ax::equal(ax::Core::get(first, "content"), "hello from fake transport")) return 1;
+  axllm::Value first = axllm::Core::get(axllm::Core::get(response, "results"), 0);
+  if (!axllm::equal(axllm::Core::get(first, "content"), "hello from fake transport")) return 1;
   std::cout << "cpp-axai-ok\n";
 }
 `
 
-const cppAxAgentPipelineExample = `#include "ax/ax.hpp"
+const cppAxAgentPipelineExample = `#include "axllm/axllm.hpp"
 #include <iostream>
 
-struct FakeService : ax::AIClient {
-  ax::Array responses = {
-    ax::object({{"content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{}]}}"}}),
-    ax::object({{"content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{\"answer\":\"Paris\"}]}}"}}),
-    ax::object({{"content", "{\"answer\":\"Paris\"}"}})
+struct FakeService : axllm::AIClient {
+  axllm::Array responses = {
+    axllm::object({{"content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{}]}}"}}),
+    axllm::object({{"content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{\"answer\":\"Paris\"}]}}"}}),
+    axllm::object({{"content", "{\"answer\":\"Paris\"}"}})
   };
 
-  ax::Value complete(ax::Value) override {
-    if (responses.empty()) throw ax::AxError("fixture", "fake service exhausted");
-    ax::Value out = responses.front();
+  axllm::Value complete(axllm::Value) override {
+    if (responses.empty()) throw axllm::AxError("fixture", "fake service exhausted");
+    axllm::Value out = responses.front();
     responses.erase(responses.begin());
     return out;
   }
 };
 
-struct FakeSession : ax::AxCodeSession {
-  ax::Value execute(ax::Value, ax::Value = ax::Value::object()) override {
-    return ax::object({{"type", "final"}, {"args", ax::array({ax::object({{"answer", "runtime"}})})}});
+struct FakeSession : axllm::AxCodeSession {
+  axllm::Value execute(axllm::Value, axllm::Value = axllm::Value::object()) override {
+    return axllm::object({{"type", "final"}, {"args", axllm::array({axllm::object({{"answer", "runtime"}})})}});
   }
-  ax::Value inspect(ax::Value = ax::Value::object()) override { return ax::Value::object(); }
-  ax::Value export_state(ax::Value = ax::Value::object()) override { return ax::object({{"globals", ax::Value::object()}}); }
-  ax::Value restore_state(ax::Value snapshot, ax::Value = ax::Value::object()) override { return snapshot; }
-  ax::Value close() override { return ax::object({{"closed", true}}); }
+  axllm::Value inspect(axllm::Value = axllm::Value::object()) override { return axllm::Value::object(); }
+  axllm::Value export_state(axllm::Value = axllm::Value::object()) override { return axllm::object({{"globals", axllm::Value::object()}}); }
+  axllm::Value restore_state(axllm::Value snapshot, axllm::Value = axllm::Value::object()) override { return snapshot; }
+  axllm::Value close() override { return axllm::object({{"closed", true}}); }
 };
 
-struct FakeRuntime : ax::AxCodeRuntime {
+struct FakeRuntime : axllm::AxCodeRuntime {
   FakeSession session;
-  ax::AxCodeSession* create_session(ax::Value, ax::Value = ax::Value::object()) override { return &session; }
+  axllm::AxCodeSession* create_session(axllm::Value, axllm::Value = axllm::Value::object()) override { return &session; }
 };
 
 int main() {
-  auto qa = ax::agent("question:string -> answer:string", ax::object({{"contextFields", ax::array({})}}));
+  auto qa = axllm::agent("question:string -> answer:string", axllm::object({{"contextFields", axllm::array({})}}));
   FakeService service;
-  ax::Value out = qa.forward(service, ax::object({{"question", "Capital of France?"}}));
-  if (!ax::equal(ax::Core::get(out, "answer"), "Paris")) return 1;
-  ax::Value last = ax::Core::get(qa.get_chat_log(), 2);
-  if (!ax::equal(ax::Core::get(last, "name"), "responder")) return 2;
+  axllm::Value out = qa.forward(service, axllm::object({{"question", "Capital of France?"}}));
+  if (!axllm::equal(axllm::Core::get(out, "answer"), "Paris")) return 1;
+  axllm::Value last = axllm::Core::get(qa.get_chat_log(), 2);
+  if (!axllm::equal(axllm::Core::get(last, "name"), "responder")) return 2;
   FakeRuntime runtime;
-  ax::Value runtime_out = qa.test(runtime, "final({answer:'runtime'})");
-  if (!ax::equal(ax::Core::get(runtime_out, "kind"), "final")) return 3;
+  axllm::Value runtime_out = qa.test(runtime, "final({answer:'runtime'})");
+  if (!axllm::equal(axllm::Core::get(runtime_out, "kind"), "final")) return 3;
   std::cout << "cpp-axagent-ok\n";
 }
 `
 
-const cppAxFlowProgramGraphExample = `#include "ax/ax.hpp"
+const cppAxFlowProgramGraphExample = `#include "axllm/axllm.hpp"
 #include <iostream>
 
-struct FakeClient : ax::AIClient {
-  ax::Value complete(ax::Value) override {
-    return ax::object({{"content", "{\"answer\":\"Paris\"}"}});
+struct FakeClient : axllm::AIClient {
+  axllm::Value complete(axllm::Value) override {
+    return axllm::object({{"content", "{\"answer\":\"Paris\"}"}});
   }
 };
 
 int main() {
-  ax::AxGen qa = ax::ax("question:string -> answer:string");
-  ax::AxFlow program = ax::flow(ax::object({{"id", "example.flow"}})).execute("qa", qa).returns(ax::object({{"answer", "answer"}}));
+  axllm::AxGen qa = axllm::ax("question:string -> answer:string");
+  axllm::AxFlow program = axllm::flow(axllm::object({{"id", "example.flow"}})).execute("qa", qa).returns(axllm::object({{"answer", "answer"}}));
   FakeClient client;
-  ax::Value out = program.forward(client, ax::object({{"question", "Capital of France?"}}));
-  if (!ax::equal(ax::Core::get(out, "answer"), "Paris")) return 1;
-  if (!ax::equal(ax::Core::get(ax::Core::get(ax::Core::get(program.get_plan(), "steps"), 0), "name"), "qa")) return 2;
+  axllm::Value out = program.forward(client, axllm::object({{"question", "Capital of France?"}}));
+  if (!axllm::equal(axllm::Core::get(out, "answer"), "Paris")) return 1;
+  if (!axllm::equal(axllm::Core::get(axllm::Core::get(axllm::Core::get(program.get_plan(), "steps"), 0), "name"), "qa")) return 2;
   std::cout << "cpp-axflow-ok\n";
 }
 `
 
-const cppRuntimeAdapterExample = `#include "ax/ax.hpp"
+const cppRuntimeAdapterExample = `#include "axllm/axllm.hpp"
 #include <iostream>
 
-struct DemoSession : ax::AxCodeSession {
-  ax::Value globals;
-  ax::Value create_options;
+struct DemoSession : axllm::AxCodeSession {
+  axllm::Value globals;
+  axllm::Value create_options;
   bool closed = false;
 
-  DemoSession(ax::Value globals_, ax::Value options_) : globals(std::move(globals_)), create_options(std::move(options_)) {}
+  DemoSession(axllm::Value globals_, axllm::Value options_) : globals(std::move(globals_)), create_options(std::move(options_)) {}
 
-  ax::Value execute(ax::Value code, ax::Value options = ax::Value::object()) override {
-    if (!ax::Core::truthy(ax::Core::map_contains(options, "reservedNames"))) throw ax::AxError("fixture", "missing reservedNames");
-    if (ax::equal(code, "timeout()")) return ax::RuntimeEnvelope::timeout("demo timeout");
-    ax::Core::set(globals, "answer", "runtime");
-    return ax::RuntimeEnvelope::final_payload({ax::object({{"answer", ax::Core::get(globals, "answer")}})});
+  axllm::Value execute(axllm::Value code, axllm::Value options = axllm::Value::object()) override {
+    if (!axllm::Core::truthy(axllm::Core::map_contains(options, "reservedNames"))) throw axllm::AxError("fixture", "missing reservedNames");
+    if (axllm::equal(code, "timeout()")) return axllm::RuntimeEnvelope::timeout("demo timeout");
+    axllm::Core::set(globals, "answer", "runtime");
+    return axllm::RuntimeEnvelope::final_payload({axllm::object({{"answer", axllm::Core::get(globals, "answer")}})});
   }
 
-  ax::Value inspect(ax::Value = ax::Value::object()) override { return globals; }
-  ax::Value snapshot_globals(ax::Value = ax::Value::object()) override {
-    return ax::object({{"version", 1}, {"bindings", globals}, {"globals", globals}, {"closed", closed}});
+  axllm::Value inspect(axllm::Value = axllm::Value::object()) override { return globals; }
+  axllm::Value snapshot_globals(axllm::Value = axllm::Value::object()) override {
+    return axllm::object({{"version", 1}, {"bindings", globals}, {"globals", globals}, {"closed", closed}});
   }
-  ax::Value patch_globals(ax::Value snapshot, ax::Value options = ax::Value::object()) override {
-    globals = ax::Core::get(snapshot, "bindings", ax::Value::object());
+  axllm::Value patch_globals(axllm::Value snapshot, axllm::Value options = axllm::Value::object()) override {
+    globals = axllm::Core::get(snapshot, "bindings", axllm::Value::object());
     return snapshot_globals(options);
   }
-  ax::Value close() override {
+  axllm::Value close() override {
     closed = true;
-    return ax::object({{"closed", true}});
+    return axllm::object({{"closed", true}});
   }
 };
 
-struct DemoRuntime : ax::AxCodeRuntime {
-  ax::RuntimeCapabilities capabilities;
+struct DemoRuntime : axllm::AxCodeRuntime {
+  axllm::RuntimeCapabilities capabilities;
   std::vector<std::unique_ptr<DemoSession>> sessions;
 
   DemoRuntime() {
@@ -745,7 +745,7 @@ struct DemoRuntime : ax::AxCodeRuntime {
   }
 
   std::string language() const override { return "Python"; }
-  ax::AxCodeSession* create_session(ax::Value globals, ax::Value options = ax::Value::object()) override {
+  axllm::AxCodeSession* create_session(axllm::Value globals, axllm::Value options = axllm::Value::object()) override {
     sessions.push_back(std::make_unique<DemoSession>(std::move(globals), std::move(options)));
     return sessions.back().get();
   }
@@ -753,115 +753,115 @@ struct DemoRuntime : ax::AxCodeRuntime {
 
 int main() {
   DemoRuntime runtime;
-  auto qa = ax::agent("question:string -> answer:string", ax::object({{"runtime", ax::object({{"language", "Python"}})}}));
-  ax::Value out = qa.test(runtime, "final()", ax::object({{"question", "adapter"}}));
-  if (!ax::equal(ax::Core::get(out, "kind"), "final")) return 1;
+  auto qa = axllm::agent("question:string -> answer:string", axllm::object({{"runtime", axllm::object({{"language", "Python"}})}}));
+  axllm::Value out = qa.test(runtime, "final()", axllm::object({{"question", "adapter"}}));
+  if (!axllm::equal(axllm::Core::get(out, "kind"), "final")) return 1;
   if (!runtime.sessions.back()->closed) return 2;
 
-  auto runner = ax::agent("question:string -> answer:string", ax::object({{"runtime", ax::object({{"language", "Python"}})}}));
-  ax::Value step = runner.execute_actor_step(runtime, "final()", ax::object({{"question", "adapter"}}));
-  if (!ax::equal(ax::Core::get(step, "kind"), "final")) return 3;
-  ax::Value snapshot = runner.export_session_state();
+  auto runner = axllm::agent("question:string -> answer:string", axllm::object({{"runtime", axllm::object({{"language", "Python"}})}}));
+  axllm::Value step = runner.execute_actor_step(runtime, "final()", axllm::object({{"question", "adapter"}}));
+  if (!axllm::equal(axllm::Core::get(step, "kind"), "final")) return 3;
+  axllm::Value snapshot = runner.export_session_state();
   runner.restore_session_state(snapshot);
-  ax::Value timeout = runner.execute_actor_step(runtime, "timeout()", ax::object({{"question", "adapter"}}));
-  if (!ax::equal(ax::Core::get(timeout, "error_category"), "timeout")) return 4;
+  axllm::Value timeout = runner.execute_actor_step(runtime, "timeout()", axllm::object({{"question", "adapter"}}));
+  if (!axllm::equal(axllm::Core::get(timeout, "error_category"), "timeout")) return 4;
   std::cout << "cpp-runtime-adapter-ok\n";
 }
 `
 
-const cppRuntimeProtocolExample = `#include "ax/ax.hpp"
+const cppRuntimeProtocolExample = `#include "axllm/axllm.hpp"
 #include <iostream>
 
-struct FakeRuntimeTransport : ax::RuntimeTransport {
+struct FakeRuntimeTransport : axllm::RuntimeTransport {
   int next_session = 0;
 
-  ax::Value call(ax::Value message) override {
-    ax::Value id = ax::Core::get(message, "id");
-    ax::Value op = ax::Core::get(message, "op");
-    if (ax::equal(op, "capabilities")) {
-      return ax::object({{"id", id}, {"ok", true}, {"result", ax::object({{"language", "JavaScript"}, {"usage_instructions", "fake protocol"}})}});
+  axllm::Value call(axllm::Value message) override {
+    axllm::Value id = axllm::Core::get(message, "id");
+    axllm::Value op = axllm::Core::get(message, "op");
+    if (axllm::equal(op, "capabilities")) {
+      return axllm::object({{"id", id}, {"ok", true}, {"result", axllm::object({{"language", "JavaScript"}, {"usage_instructions", "fake protocol"}})}});
     }
-    if (ax::equal(op, "create_session")) {
+    if (axllm::equal(op, "create_session")) {
       std::string session_id = "s" + std::to_string(++next_session);
-      return ax::object({{"id", id}, {"ok", true}, {"session_id", session_id}, {"result", ax::object({{"session_id", session_id}})}});
+      return axllm::object({{"id", id}, {"ok", true}, {"session_id", session_id}, {"result", axllm::object({{"session_id", session_id}})}});
     }
-    if (ax::equal(op, "execute")) {
-      return ax::object({{"id", id}, {"ok", true}, {"result", ax::object({{"type", "final"}, {"args", ax::array({ax::object({{"answer", "protocol"}})})}})}});
+    if (axllm::equal(op, "execute")) {
+      return axllm::object({{"id", id}, {"ok", true}, {"result", axllm::object({{"type", "final"}, {"args", axllm::array({axllm::object({{"answer", "protocol"}})})}})}});
     }
-    if (ax::equal(op, "snapshot_globals")) {
-      return ax::object({{"id", id}, {"ok", true}, {"result", ax::object({{"version", 1}, {"bindings", ax::object({{"answer", "protocol"}})}, {"globals", ax::object({{"answer", "protocol"}})}})}});
+    if (axllm::equal(op, "snapshot_globals")) {
+      return axllm::object({{"id", id}, {"ok", true}, {"result", axllm::object({{"version", 1}, {"bindings", axllm::object({{"answer", "protocol"}})}, {"globals", axllm::object({{"answer", "protocol"}})}})}});
     }
-    if (ax::equal(op, "patch_globals")) {
-      ax::Value payload = ax::Core::get(message, "payload", ax::Value::object());
-      return ax::object({{"id", id}, {"ok", true}, {"result", ax::Core::get(payload, "globals", ax::Value::object())}});
+    if (axllm::equal(op, "patch_globals")) {
+      axllm::Value payload = axllm::Core::get(message, "payload", axllm::Value::object());
+      return axllm::object({{"id", id}, {"ok", true}, {"result", axllm::Core::get(payload, "globals", axllm::Value::object())}});
     }
-    if (ax::equal(op, "inspect_globals")) {
-      return ax::object({{"id", id}, {"ok", true}, {"result", ax::object({{"answer", "protocol"}})}});
+    if (axllm::equal(op, "inspect_globals")) {
+      return axllm::object({{"id", id}, {"ok", true}, {"result", axllm::object({{"answer", "protocol"}})}});
     }
-    if (ax::equal(op, "close")) {
-      return ax::object({{"id", id}, {"ok", true}, {"result", ax::object({{"closed", true}})}});
+    if (axllm::equal(op, "close")) {
+      return axllm::object({{"id", id}, {"ok", true}, {"result", axllm::object({{"closed", true}})}});
     }
-    if (ax::equal(op, "shutdown")) {
-      return ax::object({{"id", id}, {"ok", true}, {"result", ax::object({{"shutdown", true}})}});
+    if (axllm::equal(op, "shutdown")) {
+      return axllm::object({{"id", id}, {"ok", true}, {"result", axllm::object({{"shutdown", true}})}});
     }
-    return ax::object({{"id", id}, {"ok", false}, {"error", ax::object({{"category", "protocol"}, {"message", "unknown op"}})}});
+    return axllm::object({{"id", id}, {"ok", false}, {"error", axllm::object({{"category", "protocol"}, {"message", "unknown op"}})}});
   }
 };
 
 int main() {
   FakeRuntimeTransport transport;
-  ax::RuntimeProtocolClient runtime(transport);
-  auto qa = ax::agent("question:string -> answer:string", ax::object({{"runtime", ax::object({{"language", "JavaScript"}})}}));
-  ax::Value out = qa.test(runtime, "final()", ax::object({{"question", "protocol"}}));
-  if (!ax::equal(ax::Core::get(out, "kind"), "final")) return 1;
-  auto runner = ax::agent("question:string -> answer:string", ax::object({{"runtime", ax::object({{"language", "JavaScript"}})}}));
-  ax::Value step = runner.execute_actor_step(runtime, "final()", ax::object({{"question", "protocol"}}));
-  if (!ax::equal(ax::Core::get(step, "kind"), "final")) return 2;
-  ax::Value snapshot = runner.export_session_state();
+  axllm::RuntimeProtocolClient runtime(transport);
+  auto qa = axllm::agent("question:string -> answer:string", axllm::object({{"runtime", axllm::object({{"language", "JavaScript"}})}}));
+  axllm::Value out = qa.test(runtime, "final()", axllm::object({{"question", "protocol"}}));
+  if (!axllm::equal(axllm::Core::get(out, "kind"), "final")) return 1;
+  auto runner = axllm::agent("question:string -> answer:string", axllm::object({{"runtime", axllm::object({{"language", "JavaScript"}})}}));
+  axllm::Value step = runner.execute_actor_step(runtime, "final()", axllm::object({{"question", "protocol"}}));
+  if (!axllm::equal(axllm::Core::get(step, "kind"), "final")) return 2;
+  axllm::Value snapshot = runner.export_session_state();
   runner.restore_session_state(snapshot);
-  ax::Value inspected = runner.inspect_runtime();
-  if (!ax::equal(ax::Core::get(inspected, "answer"), "protocol")) return 3;
-  ax::Value closed = runner.close_runtime_session();
-  if (!ax::equal(ax::Core::get(closed, "closed"), true)) return 4;
+  axllm::Value inspected = runner.inspect_runtime();
+  if (!axllm::equal(axllm::Core::get(inspected, "answer"), "protocol")) return 3;
+  axllm::Value closed = runner.close_runtime_session();
+  if (!axllm::equal(axllm::Core::get(closed, "closed"), true)) return 4;
   runtime.shutdown();
   std::cout << "cpp-runtime-protocol-ok\n";
 }
 `
 
-const cppOptimizerArtifactExample = `#include "ax/ax.hpp"
+const cppOptimizerArtifactExample = `#include "axllm/axllm.hpp"
 #include <iostream>
 
-struct FakeOptimizer : ax::OptimizerEngine {
+struct FakeOptimizer : axllm::OptimizerEngine {
   std::string name() const override { return "fixture"; }
   std::string version() const override { return "1"; }
-  ax::Value optimize(ax::Value) override {
-    return ax::object({
-      {"componentMap", ax::object({{"qa::instruction", "Prefer artifact-backed answers."}})},
-      {"metadata", ax::object({
-        {"evidence", ax::object({{"avg", 1}})},
-        {"provenance", ax::object({{"sourceProgramKind", "axgen"}})}
+  axllm::Value optimize(axllm::Value) override {
+    return axllm::object({
+      {"componentMap", axllm::object({{"qa::instruction", "Prefer artifact-backed answers."}})},
+      {"metadata", axllm::object({
+        {"evidence", axllm::object({{"avg", 1}})},
+        {"provenance", axllm::object({{"sourceProgramKind", "axgen"}})}
       })}
     });
   }
 };
 
-static bool has_instruction(const ax::AxGen& gen, const std::string& value) {
-  ax::Value components = gen.get_optimizable_components();
+static bool has_instruction(const axllm::AxGen& gen, const std::string& value) {
+  axllm::Value components = gen.get_optimizable_components();
   for (int i = 0; ; ++i) {
-    ax::Value item = ax::Core::get(components, i);
-    if (ax::Core::truthy(ax::Core::is_none(item))) break;
-    if (ax::equal(ax::Core::get(item, "id"), "qa::instruction") &&
-        ax::equal(ax::Core::get(item, "current"), value)) return true;
+    axllm::Value item = axllm::Core::get(components, i);
+    if (axllm::Core::truthy(axllm::Core::is_none(item))) break;
+    if (axllm::equal(axllm::Core::get(item, "id"), "qa::instruction") &&
+        axllm::equal(axllm::Core::get(item, "current"), value)) return true;
   }
   return false;
 }
 
 int main() {
-  ax::AxGen qa = ax::ax("question:string -> answer:string", ax::object({{"id", "qa"}, {"instruction", "Base."}}));
+  axllm::AxGen qa = axllm::ax("question:string -> answer:string", axllm::object({{"id", "qa"}, {"instruction", "Base."}}));
   FakeOptimizer engine;
-  ax::Value artifact = qa.optimize_with(engine, ax::Value::array(), ax::object({{"apply", false}}));
+  axllm::Value artifact = qa.optimize_with(engine, axllm::Value::array(), axllm::object({{"apply", false}}));
   if (!has_instruction(qa, "Base.")) return 1;
-  qa.apply_optimization(ax::Value(ax::stringify(artifact)));
+  qa.apply_optimization(axllm::Value(axllm::stringify(artifact)));
   if (!has_instruction(qa, "Prefer artifact-backed answers.")) return 2;
   std::cout << "cpp-optimizer-artifact-ok\n";
 }

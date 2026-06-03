@@ -19,8 +19,8 @@ module @ax.root version "0.1" {
 
   op ax.api.package @ax_package {
     attr core_kind = "package"
-    attr java = "dev.ax"
-    attr python = "ax"
+    attr java = "dev.axllm.ax"
+    attr python = "axllm"
     tag "root"
   }
 }

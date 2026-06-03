@@ -10,13 +10,16 @@ Every generated package must include:
 
 - `axir-capabilities.json`, the machine-readable target contract
 - `README.md`, the human-readable package contract
+- target package/build metadata for local library consumption
 - runnable examples for signature/schema, AxGen with a fake client/tool, and
   AxAI with a fake OpenAI-compatible transport
 - a conformance runner when the target is executable in V1
 
 Python target:
 
-- emits an `ax/` package
+- emits an `axllm/` package
+- emits `pyproject.toml`, `MANIFEST.in`, and `axllm/py.typed`
+- package import name and default distribution metadata name are `axllm`
 - Python 3.10+
 - standard library only
 - idiomatic Python is primary: `snake_case`, sync-first methods, dict/list
@@ -28,14 +31,15 @@ Python target:
   `RekaClient`, `CohereClient`, `GrokClient`, `AxBalancer`,
   `MultiServiceRouter`, `ProviderRouter`, `OptimizerEngine`,
   `OptimizerEvaluator`, `AxGEPA`
-- includes a generated `ax.conformance` module that can run backend-neutral
+- includes a generated `axllm.conformance` module that can run backend-neutral
   fixture JSON from all current `ir/conformance/*` suites
 - real OpenAI-compatible HTTP transport is implemented with the Python standard
   library; default verification uses fake transport fixtures
 
 Java target:
 
-- emits `dev.ax` sources
+- emits `dev.axllm.ax` sources
+- emits base Maven/Gradle metadata for `dev.axllm:ax`
 - Java 17
 - standard library only
 - public API: `Ax.s`, `Ax.f`, `Ax.fn`, `Ax.ax`,
@@ -54,12 +58,14 @@ Java target:
 
 C++ target:
 
-- emits `ax/ax.hpp`, `ax/ax.cpp`, and a fixture conformance executable source
+- emits `axllm/axllm.hpp`, `axllm/axllm.cpp`, and a fixture conformance
+  executable source
+- emits `CMakeLists.txt` with base target `axllm::axllm`
 - C++17
 - standard library only
 - executable conformance target for signatures, schema, validation, prompt,
   AxGen, AxAI/OpenAI-compatible mapping, and the prompt optimizer contract
-- idiom contract: value types, `namespace ax`, standard containers, and
+- idiom contract: value types, `namespace axllm`, standard containers, and
   explicit exceptions rather than TypeScript-shaped dynamic objects
 - OpenAI-compatible request/response mapping is Core-owned and executable
   through fake transport; real C++ HTTP transport is deferred

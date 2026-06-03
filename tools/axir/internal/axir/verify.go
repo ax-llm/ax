@@ -207,7 +207,7 @@ func verifyPythonTarget(report VerifyTargetReport, conformanceRoot string) (Veri
 		return report, nil
 	}
 	env := runtimeProtocolEnv(conformanceRoot, append(os.Environ(), "PYTHONPATH="+report.OutDir))
-	if err := runVerifyCommand(&report, "compileall", "", env, python, "-m", "compileall", "-q", filepath.Join(report.OutDir, "ax")); err != nil {
+	if err := runVerifyCommand(&report, "compileall", "", env, python, "-m", "compileall", "-q", filepath.Join(report.OutDir, "axllm")); err != nil {
 		return report, err
 	}
 	for _, example := range []string{
@@ -224,11 +224,42 @@ func verifyPythonTarget(report VerifyTargetReport, conformanceRoot string) (Veri
 			return report, err
 		}
 	}
-	args := append([]string{"-m", "ax.conformance"}, conformanceSuitePaths(conformanceRoot)...)
+	args := append([]string{"-m", "axllm.conformance"}, conformanceSuitePaths(conformanceRoot)...)
 	if err := runVerifyCommand(&report, "conformance", "", env, python, args...); err != nil {
 		return report, err
 	}
+	if err := verifyPythonPackageSmoke(&report, conformanceRoot, python); err != nil {
+		return report, err
+	}
 	return report, nil
+}
+
+func verifyPythonPackageSmoke(report *VerifyTargetReport, conformanceRoot string, python string) error {
+	if err := exec.Command(python, "-m", "pip", "--version").Run(); err != nil {
+		report.Steps = append(report.Steps, VerifyStep{Name: "package python install", Status: "skip", Message: "pip not available"})
+		return nil
+	}
+	if err := exec.Command(python, "-c", "import setuptools.build_meta").Run(); err != nil {
+		report.Steps = append(report.Steps, VerifyStep{Name: "package python install", Status: "skip", Message: "setuptools.build_meta not available"})
+		env := runtimeProtocolEnv(conformanceRoot, append(os.Environ(), "PYTHONPATH="+report.OutDir))
+		return runVerifyCommand(report, "package python source import", "", env, python, "-c", "import axllm; print('python-package-source-ok', axllm.s('question:string -> answer:string').to_json_schema()['type'])")
+	}
+	installDir := filepath.Join(report.OutDir, "_package_python", "site")
+	if err := os.RemoveAll(installDir); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(installDir, 0o755); err != nil {
+		return err
+	}
+	env := runtimeProtocolEnv(conformanceRoot, os.Environ())
+	if err := runVerifyCommand(report, "package python install", "", env, python, "-m", "pip", "install", "--no-deps", "--no-build-isolation", "--target", installDir, report.OutDir); err != nil {
+		return err
+	}
+	env = runtimeProtocolEnv(conformanceRoot, append(os.Environ(), "PYTHONPATH="+installDir))
+	if err := runVerifyCommand(report, "package python import", "", env, python, "-c", "import axllm; print('python-package-ok', axllm.s('question:string -> answer:string').to_json_schema()['type'])"); err != nil {
+		return err
+	}
+	return runVerifyCommand(report, "package python example", "", env, python, filepath.Join(report.OutDir, "examples", "signature_schema.py"))
 }
 
 func verifyPythonQuickJSProfile(report VerifyTargetReport, conformanceRoot string, bundle Bundle) (VerifyTargetReport, error) {
@@ -285,7 +316,7 @@ func verifyJavaTarget(report VerifyTargetReport, conformanceRoot string) (Verify
 		report.Steps = append(report.Steps, VerifyStep{Name: "java", Status: "skip", Message: err.Error()})
 		return report, nil
 	}
-	files, err := filepath.Glob(filepath.Join(report.OutDir, "dev", "ax", "*.java"))
+	files, err := filepath.Glob(filepath.Join(report.OutDir, "dev", "axllm", "ax", "*.java"))
 	if err != nil {
 		return report, err
 	}
@@ -314,11 +345,72 @@ func verifyJavaTarget(report VerifyTargetReport, conformanceRoot string) (Verify
 			return report, err
 		}
 	}
-	args = append([]string{"-cp", report.OutDir, "dev.ax.Conformance"}, conformanceSuitePaths(conformanceRoot)...)
+	args = append([]string{"-cp", report.OutDir, "dev.axllm.ax.Conformance"}, conformanceSuitePaths(conformanceRoot)...)
 	if err := runVerifyCommand(&report, "conformance", "", nil, java, args...); err != nil {
 		return report, err
 	}
+	if err := verifyJavaPackageSmoke(&report, javac, java); err != nil {
+		return report, err
+	}
 	return report, nil
+}
+
+func verifyJavaPackageSmoke(report *VerifyTargetReport, javac, java string) error {
+	jar, err := findJarTool()
+	if err != nil {
+		report.Steps = append(report.Steps, VerifyStep{Name: "package java jar", Status: "skip", Message: err.Error()})
+		return nil
+	}
+	pkgDir := filepath.Join(report.OutDir, "_package_java")
+	classesDir := filepath.Join(pkgDir, "classes")
+	exampleClassesDir := filepath.Join(pkgDir, "example-classes")
+	if err := os.RemoveAll(pkgDir); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(classesDir, 0o755); err != nil {
+		return err
+	}
+	baseFiles, err := filepath.Glob(filepath.Join(report.OutDir, "dev", "axllm", "ax", "*.java"))
+	if err != nil {
+		return err
+	}
+	sort.Strings(baseFiles)
+	args := append([]string{"-d", classesDir}, baseFiles...)
+	if err := runVerifyCommand(report, "package java compile", "", os.Environ(), javac, args...); err != nil {
+		return err
+	}
+	jarPath := filepath.Join(pkgDir, "ax.jar")
+	if err := runVerifyCommand(report, "package java jar", "", os.Environ(), jar, "--create", "--file", jarPath, "-C", classesDir, "."); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(exampleClassesDir, 0o755); err != nil {
+		return err
+	}
+	example := filepath.Join(report.OutDir, "examples", "SignatureSchemaExample.java")
+	if err := runVerifyCommand(report, "package java example compile", "", os.Environ(), javac, "-cp", jarPath, "-d", exampleClassesDir, example); err != nil {
+		return err
+	}
+	classpath := jarPath + string(os.PathListSeparator) + exampleClassesDir
+	if err := runVerifyCommand(report, "package java example", "", os.Environ(), java, "-cp", classpath, "SignatureSchemaExample"); err != nil {
+		return err
+	}
+	if err := verifyOptionalJavaBuildTool(report, "maven package", "mvn", "AXIR_VERIFY_MAVEN", "-q", "-DskipTests", "package"); err != nil {
+		return err
+	}
+	return verifyOptionalJavaBuildTool(report, "gradle package", "gradle", "AXIR_VERIFY_GRADLE", "--quiet", "jar")
+}
+
+func verifyOptionalJavaBuildTool(report *VerifyTargetReport, name, command, flag string, args ...string) error {
+	if !envFlag(os.Getenv(flag)) {
+		report.Steps = append(report.Steps, VerifyStep{Name: "package java " + name, Status: "skip", Message: "set " + flag + "=1 to run"})
+		return nil
+	}
+	path, err := exec.LookPath(command)
+	if err != nil {
+		report.Steps = append(report.Steps, VerifyStep{Name: "package java " + name, Status: "skip", Message: command + " not found"})
+		return nil
+	}
+	return runVerifyCommand(report, "package java "+name, report.OutDir, os.Environ(), path, args...)
 }
 
 func verifyJavaQuickJSProfile(report VerifyTargetReport) (VerifyTargetReport, error) {
@@ -341,11 +433,11 @@ func verifyJavaQuickJSProfile(report VerifyTargetReport) (VerifyTargetReport, er
 		return report, nil
 	}
 	report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile javascript-quickjs classpath", Status: "ok", Message: cpSource})
-	files, err := filepath.Glob(filepath.Join(report.OutDir, "dev", "ax", "*.java"))
+	files, err := filepath.Glob(filepath.Join(report.OutDir, "dev", "axllm", "ax", "*.java"))
 	if err != nil {
 		return report, err
 	}
-	profileFiles, err := filepath.Glob(filepath.Join(report.OutDir, "dev", "ax", "runtime", "quickjs", "*.java"))
+	profileFiles, err := filepath.Glob(filepath.Join(report.OutDir, "dev", "axllm", "axllm", "runtime", "quickjs", "*.java"))
 	if err != nil {
 		return report, err
 	}
@@ -360,7 +452,7 @@ func verifyJavaQuickJSProfile(report VerifyTargetReport) (VerifyTargetReport, er
 	if err := runVerifyCommand(&report, "runtime profile javascript-quickjs", "", os.Environ(), java, "-cp", classpath, "JavaScriptQuickJsExample"); err != nil {
 		return report, err
 	}
-	if err := runVerifyCommand(&report, "runtime profile javascript-quickjs protocol server", "", os.Environ(), java, "-cp", classpath, "dev.ax.runtime.quickjs.AxQuickJsProtocolServer", "--self-test"); err != nil {
+	if err := runVerifyCommand(&report, "runtime profile javascript-quickjs protocol server", "", os.Environ(), java, "-cp", classpath, "dev.axllm.ax.runtime.quickjs.AxQuickJsProtocolServer", "--self-test"); err != nil {
 		return report, err
 	}
 	return report, nil
@@ -426,11 +518,11 @@ func quickJSJavaProtocolServerCommand(report *VerifyTargetReport, bundle Bundle)
 		return "", "", nil
 	}
 	report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile javascript-quickjs classpath", Status: "ok", Message: cpSource})
-	files, err := filepath.Glob(filepath.Join(javaOutDir, "dev", "ax", "*.java"))
+	files, err := filepath.Glob(filepath.Join(javaOutDir, "dev", "axllm", "ax", "*.java"))
 	if err != nil {
 		return "", "", err
 	}
-	profileFiles, err := filepath.Glob(filepath.Join(javaOutDir, "dev", "ax", "runtime", "quickjs", "*.java"))
+	profileFiles, err := filepath.Glob(filepath.Join(javaOutDir, "dev", "axllm", "axllm", "runtime", "quickjs", "*.java"))
 	if err != nil {
 		return "", "", err
 	}
@@ -441,10 +533,10 @@ func quickJSJavaProtocolServerCommand(report *VerifyTargetReport, bundle Bundle)
 	if err := runVerifyCommand(report, "compile runtime profile javascript-quickjs server", "", os.Environ(), javac, args...); err != nil {
 		return "", "", err
 	}
-	if err := runVerifyCommand(report, "runtime profile javascript-quickjs protocol server", "", os.Environ(), java, "-cp", classpath, "dev.ax.runtime.quickjs.AxQuickJsProtocolServer", "--self-test"); err != nil {
+	if err := runVerifyCommand(report, "runtime profile javascript-quickjs protocol server", "", os.Environ(), java, "-cp", classpath, "dev.axllm.ax.runtime.quickjs.AxQuickJsProtocolServer", "--self-test"); err != nil {
 		return "", "", err
 	}
-	server := quoteCommandArg(java) + " -cp " + quoteCommandArg(classpath) + " dev.ax.runtime.quickjs.AxQuickJsProtocolServer"
+	server := quoteCommandArg(java) + " -cp " + quoteCommandArg(classpath) + " dev.axllm.ax.runtime.quickjs.AxQuickJsProtocolServer"
 	return server, "generated Java QuickJS4J protocol server via " + cpSource, nil
 }
 
@@ -558,7 +650,7 @@ func verifyCppTarget(report VerifyTargetReport, conformanceRoot string) (VerifyT
 		report.Steps = append(report.Steps, VerifyStep{Name: "c++", Status: "skip", Message: err.Error()})
 		return report, nil
 	}
-	axSource := filepath.Join(report.OutDir, "ax", "ax.cpp")
+	axSource := filepath.Join(report.OutDir, "axllm", "axllm.cpp")
 	examples := []string{
 		"signature_schema",
 		"axgen_fake_client_tool",
@@ -587,7 +679,89 @@ func verifyCppTarget(report VerifyTargetReport, conformanceRoot string) (VerifyT
 	if err := runVerifyCommand(&report, "conformance", "", nil, conformanceBin, args...); err != nil {
 		return report, err
 	}
+	if err := verifyCppPackageSmoke(&report, cpp); err != nil {
+		return report, err
+	}
 	return report, nil
+}
+
+func verifyCppPackageSmoke(report *VerifyTargetReport, cpp string) error {
+	ar, err := exec.LookPath("ar")
+	if err != nil {
+		report.Steps = append(report.Steps, VerifyStep{Name: "package cpp static library", Status: "skip", Message: "ar not found"})
+		return nil
+	}
+	pkgDir := filepath.Join(report.OutDir, "_package_cpp")
+	if err := os.RemoveAll(pkgDir); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		return err
+	}
+	obj := filepath.Join(pkgDir, "axllm.o")
+	lib := filepath.Join(pkgDir, "libaxllm.a")
+	if err := runVerifyCommand(report, "package cpp compile library", "", nil, cpp, "-std=c++17", "-I", report.OutDir, "-c", filepath.Join(report.OutDir, "axllm", "axllm.cpp"), "-o", obj); err != nil {
+		return err
+	}
+	if err := runVerifyCommand(report, "package cpp static library", "", nil, ar, "rcs", lib, obj); err != nil {
+		return err
+	}
+	bin := filepath.Join(pkgDir, "signature_schema")
+	if err := runVerifyCommand(report, "package cpp example link", "", nil, cpp, "-std=c++17", "-I", report.OutDir, filepath.Join(report.OutDir, "examples", "signature_schema.cpp"), lib, "-o", bin); err != nil {
+		return err
+	}
+	if err := runVerifyCommand(report, "package cpp example", "", nil, bin); err != nil {
+		return err
+	}
+	cmake, err := exec.LookPath("cmake")
+	if err != nil {
+		report.Steps = append(report.Steps, VerifyStep{Name: "package cpp cmake", Status: "skip", Message: "cmake not found"})
+		return nil
+	}
+	buildDir := filepath.Join(pkgDir, "cmake-build")
+	if err := runVerifyCommand(report, "package cpp cmake configure", "", nil, cmake, "-S", report.OutDir, "-B", buildDir, "-DAX_BUILD_EXAMPLES=ON", "-DAX_BUILD_CONFORMANCE=OFF"); err != nil {
+		return err
+	}
+	if err := runVerifyCommand(report, "package cpp cmake build", "", nil, cmake, "--build", buildDir, "--target", "signature_schema"); err != nil {
+		return err
+	}
+	installDir := filepath.Join(pkgDir, "install")
+	if err := runVerifyCommand(report, "package cpp cmake install", "", nil, cmake, "--install", buildDir, "--prefix", installDir); err != nil {
+		return err
+	}
+	consumerDir := filepath.Join(pkgDir, "consumer")
+	if err := os.MkdirAll(consumerDir, 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(consumerDir, "CMakeLists.txt"), []byte(`cmake_minimum_required(VERSION 3.16)
+project(axllm_consumer LANGUAGES CXX)
+find_package(axllm CONFIG REQUIRED)
+add_executable(consumer main.cpp)
+target_link_libraries(consumer PRIVATE axllm::axllm)
+`), 0o644); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(consumerDir, "main.cpp"), []byte(`#include <axllm/axllm.hpp>
+#include <iostream>
+
+int main() {
+  auto sig = axllm::s("question:string -> answer:string");
+  auto schema = axllm::to_json_schema(axllm::Core::get(sig, "outputs"));
+  if (!axllm::Core::truthy(axllm::Core::get(axllm::Core::get(schema, "properties"), "answer"))) return 1;
+  std::cout << "cpp-package-consumer-ok\n";
+  return 0;
+}
+`), 0o644); err != nil {
+		return err
+	}
+	consumerBuild := filepath.Join(pkgDir, "consumer-build")
+	if err := runVerifyCommand(report, "package cpp consumer configure", "", nil, cmake, "-S", consumerDir, "-B", consumerBuild, "-DCMAKE_PREFIX_PATH="+installDir); err != nil {
+		return err
+	}
+	if err := runVerifyCommand(report, "package cpp consumer build", "", nil, cmake, "--build", consumerBuild); err != nil {
+		return err
+	}
+	return runVerifyCommand(report, "package cpp consumer", "", nil, filepath.Join(consumerBuild, "consumer"))
 }
 
 func verifyCppQuickJSProfile(report VerifyTargetReport) (VerifyTargetReport, error) {
@@ -609,8 +783,8 @@ func verifyCppQuickJSProfile(report VerifyTargetReport) (VerifyTargetReport, err
 	args := []string{"-std=c++17", "-I", report.OutDir}
 	args = append(args, cflags...)
 	args = append(args,
-		filepath.Join(report.OutDir, "ax", "ax.cpp"),
-		filepath.Join(report.OutDir, "ax", "runtime", "quickjs", "quickjs_runtime.cpp"),
+		filepath.Join(report.OutDir, "axllm", "axllm.cpp"),
+		filepath.Join(report.OutDir, "axllm", "runtime", "quickjs", "quickjs_runtime.cpp"),
 		filepath.Join(report.OutDir, "examples", "runtime_profiles", "javascript_quickjs.cpp"),
 	)
 	args = append(args, ldflags...)
@@ -631,7 +805,7 @@ func verifyCppPyodideProfile(report VerifyTargetReport) (VerifyTargetReport, err
 		return report, nil
 	}
 	bin := filepath.Join(report.OutDir, "python_pyodide")
-	if err := runVerifyCommand(&report, "compile runtime profile python-pyodide", "", nil, cpp, "-std=c++17", "-I", report.OutDir, filepath.Join(report.OutDir, "ax", "ax.cpp"), filepath.Join(report.OutDir, "examples", "runtime_profiles", "python_pyodide.cpp"), "-o", bin); err != nil {
+	if err := runVerifyCommand(&report, "compile runtime profile python-pyodide", "", nil, cpp, "-std=c++17", "-I", report.OutDir, filepath.Join(report.OutDir, "axllm", "axllm.cpp"), filepath.Join(report.OutDir, "examples", "runtime_profiles", "python_pyodide.cpp"), "-o", bin); err != nil {
 		return report, err
 	}
 	if err := runVerifyCommand(&report, "runtime profile python-pyodide", "", nil, bin); err != nil {
@@ -734,6 +908,37 @@ func findJavaTool(name string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("usable %s not found", name)
+}
+
+func findJarTool() (string, error) {
+	var candidates []string
+	if path, err := exec.LookPath("jar"); err == nil {
+		candidates = append(candidates, path)
+	}
+	candidates = append(candidates,
+		"/opt/homebrew/opt/openjdk/bin/jar",
+		"/usr/local/opt/openjdk/bin/jar",
+		"/opt/homebrew/bin/jar",
+		"/usr/local/bin/jar",
+	)
+	seen := map[string]bool{}
+	for _, candidate := range candidates {
+		if candidate == "" || seen[candidate] {
+			continue
+		}
+		seen[candidate] = true
+		if _, err := os.Stat(candidate); err != nil {
+			continue
+		}
+		out, err := exec.Command(candidate, "--version").CombinedOutput()
+		if err == nil {
+			return candidate, nil
+		}
+		if strings.Contains(string(out), "Unable to locate a Java Runtime") {
+			continue
+		}
+	}
+	return "", fmt.Errorf("usable jar not found")
 }
 
 func findCppCompiler() (string, error) {

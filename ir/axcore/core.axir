@@ -2,8 +2,8 @@ module @ax.core version "0.1" {
   dialect @core version "0.1"
 
   op core.package @core_runtime {
-    attr java = "dev.ax"
-    attr python = "ax"
+    attr java = "dev.axllm.ax"
+    attr python = "axllm"
   }
 
   op core.enum @Effect {

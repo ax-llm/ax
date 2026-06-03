@@ -253,7 +253,7 @@ class ProcessCodeSession:
         return self._runtime._request("close", self._session_id, {}).get("result")
 `
 
-const javaAxRuntimeCapabilities = `package dev.ax;
+const javaAxRuntimeCapabilities = `package dev.axllm.ax;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -286,7 +286,7 @@ public final class AxRuntimeCapabilities {
 }
 `
 
-const javaAxRuntimeEnvelope = `package dev.ax;
+const javaAxRuntimeEnvelope = `package dev.axllm.ax;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -367,7 +367,7 @@ public final class AxRuntimeEnvelope {
 }
 `
 
-const javaAxProcessCodeRuntime = `package dev.ax;
+const javaAxProcessCodeRuntime = `package dev.axllm.ax;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
@@ -504,7 +504,7 @@ public final class AxProcessCodeRuntime implements AxCodeRuntime, AutoCloseable 
 }
 `
 
-const javaAxProcessCodeSession = `package dev.ax;
+const javaAxProcessCodeSession = `package dev.axllm.ax;
 
 import java.util.LinkedHashMap;
 import java.util.Map;

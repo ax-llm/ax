@@ -22,7 +22,7 @@ const cppHeader = `#pragma once
 #include <variant>
 #include <vector>
 
-namespace ax {
+namespace axllm {
 
 struct Value;
 using Array = std::vector<Value>;
@@ -1119,16 +1119,16 @@ Value strip_internal(Value fields, Value values);
 Value render_prompt(Value signature, Value values, Value functions = Value::array(), Value options = Value::object());
 Value fold_stream(Value events);
 
-}  // namespace ax
+}  // namespace axllm
 `
 
-const cppRuntime = `#include "ax.hpp"
+const cppRuntime = `#include "axllm.hpp"
 
 #include <fstream>
 #include <iostream>
 #include <set>
 
-namespace ax {
+namespace axllm {
 
 Value::Value() : data(nullptr) {}
 Value::Value(std::nullptr_t) : data(nullptr) {}
@@ -5110,15 +5110,15 @@ Value strip_internal(Value fields, Value values) { return Core::strip_internal(f
 Value render_prompt(Value signature, Value values, Value functions, Value options) { return Core::render_prompt(signature, values, functions, options); }
 Value fold_stream(Value events) { return Core::fold_stream(events); }
 
-}  // namespace ax
+}  // namespace axllm
 `
 
-const cppConformance = `#include "ax/ax.hpp"
+const cppConformance = `#include "axllm/axllm.hpp"
 
 #include <fstream>
 #include <iostream>
 
-using namespace ax;
+using namespace axllm;
 
 static Array as_array(Value value) {
   if (auto p = std::get_if<std::shared_ptr<Array>>(&value.data)) return **p;

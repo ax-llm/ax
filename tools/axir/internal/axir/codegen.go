@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -50,6 +51,7 @@ func validateCoreForBackend(core Module) error {
 }
 
 func EmitPython(model AxRuntimeModel, outDir string) error {
+	version := generatedPackageVersion()
 	signature, err := BuildPythonSignature(model)
 	if err != nil {
 		return err
@@ -79,30 +81,33 @@ func EmitPython(model AxRuntimeModel, outDir string) error {
 		return err
 	}
 	files := map[string]string{
-		"ax/__init__.py":                     pyInit,
-		"ax/signature.py":                    signature,
-		"ax/schema.py":                       schema,
-		"ax/tool.py":                         pyTool,
-		"ax/runtime.py":                      pyRuntime,
-		"ax/prompt.py":                       prompt,
-		"ax/ai.py":                           ai,
-		"ax/gen.py":                          gen,
-		"ax/agent.py":                        agent,
-		"ax/flow.py":                         flow,
-		"ax/conformance.py":                  pyConformance,
-		"ax/providers/__init__.py":           pyProvidersInit,
-		"ax/providers/openai.py":             pyOpenAIProvider,
-		"axir-capabilities.json":             mustCapabilityManifest(model, "python"),
-		"examples/signature_schema.py":       pySignatureSchemaExample,
-		"examples/axgen_fake_client_tool.py": pyAxGenFakeClientToolExample,
-		"examples/axai_fake_transport.py":    pyAxAIFakeTransportExample,
-		"examples/axagent_pipeline.py":       pyAxAgentPipelineExample,
-		"examples/runtime_adapter.py":        pyRuntimeAdapterExample,
-		"examples/runtime_protocol.py":       pyRuntimeProtocolExample,
-		"examples/runtime_profiles/javascript_quickjs.py":             pyJavaScriptQuickJSProfilePythonExample,
-		"examples/runtime_profiles/python_pyodide.py":                 pyPythonPyodideProfileExample,
-		"examples/runtime_profiles/pyodide-package.json":              pyodidePackageJSON,
-		"examples/runtime_profiles/pyodide-runtime-policy.json":       pyodideRuntimePolicyJSON,
+		"pyproject.toml":                                        renderPackageTemplate(pyProjectToml, version),
+		"MANIFEST.in":                                           pyManifestIn,
+		"axllm/__init__.py":                                     pyInit,
+		"axllm/py.typed":                                        "",
+		"axllm/signature.py":                                    signature,
+		"axllm/schema.py":                                       schema,
+		"axllm/tool.py":                                         pyTool,
+		"axllm/runtime.py":                                      pyRuntime,
+		"axllm/prompt.py":                                       prompt,
+		"axllm/ai.py":                                           ai,
+		"axllm/gen.py":                                          gen,
+		"axllm/agent.py":                                        agent,
+		"axllm/flow.py":                                         flow,
+		"axllm/conformance.py":                                  pyConformance,
+		"axllm/providers/__init__.py":                           pyProvidersInit,
+		"axllm/providers/openai.py":                             pyOpenAIProvider,
+		"axir-capabilities.json":                                mustCapabilityManifest(model, "python"),
+		"examples/signature_schema.py":                          pySignatureSchemaExample,
+		"examples/axgen_fake_client_tool.py":                    pyAxGenFakeClientToolExample,
+		"examples/axai_fake_transport.py":                       pyAxAIFakeTransportExample,
+		"examples/axagent_pipeline.py":                          pyAxAgentPipelineExample,
+		"examples/runtime_adapter.py":                           pyRuntimeAdapterExample,
+		"examples/runtime_protocol.py":                          pyRuntimeProtocolExample,
+		"examples/runtime_profiles/javascript_quickjs.py":       pyJavaScriptQuickJSProfilePythonExample,
+		"examples/runtime_profiles/python_pyodide.py":           pyPythonPyodideProfileExample,
+		"examples/runtime_profiles/pyodide-package.json":        pyodidePackageJSON,
+		"examples/runtime_profiles/pyodide-runtime-policy.json": pyodideRuntimePolicyJSON,
 		"examples/runtime_profiles/resolve_pyodide_runtime_server.sh": pyodideRuntimeHelper,
 		"examples/runtime_profiles/README.md":                         pyodideProfileReadme,
 		"examples/axflow_program_graph.py":                            pyAxFlowProgramGraphExample,
@@ -113,56 +118,60 @@ func EmitPython(model AxRuntimeModel, outDir string) error {
 }
 
 func EmitJava(model AxRuntimeModel, outDir string) error {
+	version := generatedPackageVersion()
 	core, err := BuildJavaCore(model)
 	if err != nil {
 		return err
 	}
 	files := map[string]string{
-		"dev/ax/Ax.java":                                              javaAx,
-		"dev/ax/AxProgram.java":                                       javaAxProgram,
-		"dev/ax/AxSignature.java":                                     javaSignature,
-		"dev/ax/Field.java":                                           javaField,
-		"dev/ax/FieldType.java":                                       javaFieldType,
-		"dev/ax/Tool.java":                                            javaTool,
-		"dev/ax/PromptTemplate.java":                                  javaPromptTemplate,
-		"dev/ax/Core.java":                                            core,
-		"dev/ax/AiClient.java":                                        javaAiClient,
-		"dev/ax/AxAIService.java":                                     javaAxAIService,
-		"dev/ax/AxMultiServiceRouter.java":                            javaAxMultiServiceRouter,
-		"dev/ax/AxBalancer.java":                                      javaAxBalancer,
-		"dev/ax/AxProviderRouter.java":                                javaAxProviderRouter,
-		"dev/ax/AxBaseAI.java":                                        javaAxBaseAI,
-		"dev/ax/AxAIServiceError.java":                                javaAxAIServiceError,
-		"dev/ax/AxMemory.java":                                        javaAxMemory,
-		"dev/ax/AxAgent.java":                                         javaAxAgent,
-		"dev/ax/AxFlow.java":                                          javaAxFlow,
-		"dev/ax/AxAgentClarificationException.java":                   javaAxAgentClarificationException,
-		"dev/ax/AxCodeRuntime.java":                                   javaAxCodeRuntime,
-		"dev/ax/AxCodeSession.java":                                   javaAxCodeSession,
-		"dev/ax/AxRuntimeCapabilities.java":                           javaAxRuntimeCapabilities,
-		"dev/ax/AxRuntimeEnvelope.java":                               javaAxRuntimeEnvelope,
-		"dev/ax/AxProcessCodeRuntime.java":                            javaAxProcessCodeRuntime,
-		"dev/ax/AxProcessCodeSession.java":                            javaAxProcessCodeSession,
-		"dev/ax/runtime/quickjs/AxQuickJsCodeRuntime.java":            javaQuickJSCodeRuntime,
-		"dev/ax/runtime/quickjs/AxQuickJsCodeSession.java":            javaQuickJSCodeSession,
-		"dev/ax/runtime/quickjs/AxQuickJsHostCallable.java":           javaQuickJSHostCallable,
-		"dev/ax/runtime/quickjs/AxQuickJsProtocolServer.java":         javaQuickJSProtocolServer,
-		"dev/ax/OpenAICompatibleClient.java":                          javaOpenAI,
-		"dev/ax/OpenAIResponsesClient.java":                           javaOpenAIResponses,
-		"dev/ax/GoogleGeminiClient.java":                              javaGoogleGemini,
-		"dev/ax/AnthropicClient.java":                                 javaAnthropic,
-		"dev/ax/AzureOpenAIClient.java":                               javaAzureOpenAI,
-		"dev/ax/DeepSeekClient.java":                                  javaDeepSeek,
-		"dev/ax/MistralClient.java":                                   javaMistral,
-		"dev/ax/RekaClient.java":                                      javaReka,
-		"dev/ax/CohereClient.java":                                    javaCohere,
-		"dev/ax/GrokClient.java":                                      javaGrok,
-		"dev/ax/AxGen.java":                                           javaAxGen,
-		"dev/ax/AxGEPA.java":                                          javaAxGEPA,
-		"dev/ax/OptimizerEngine.java":                                 javaOptimizerEngine,
-		"dev/ax/OptimizerEvaluator.java":                              javaOptimizerEvaluator,
-		"dev/ax/Json.java":                                            javaJson,
-		"dev/ax/Conformance.java":                                     javaConformance,
+		"pom.xml":                                                     renderPackageTemplate(javaPomXML, version),
+		"build.gradle":                                                renderPackageTemplate(javaBuildGradle, version),
+		"settings.gradle":                                             javaSettingsGradle,
+		"dev/axllm/ax/Ax.java":                                        javaAx,
+		"dev/axllm/ax/AxProgram.java":                                 javaAxProgram,
+		"dev/axllm/ax/AxSignature.java":                               javaSignature,
+		"dev/axllm/ax/Field.java":                                     javaField,
+		"dev/axllm/ax/FieldType.java":                                 javaFieldType,
+		"dev/axllm/ax/Tool.java":                                      javaTool,
+		"dev/axllm/ax/PromptTemplate.java":                            javaPromptTemplate,
+		"dev/axllm/ax/Core.java":                                      core,
+		"dev/axllm/ax/AiClient.java":                                  javaAiClient,
+		"dev/axllm/ax/AxAIService.java":                               javaAxAIService,
+		"dev/axllm/ax/AxMultiServiceRouter.java":                      javaAxMultiServiceRouter,
+		"dev/axllm/ax/AxBalancer.java":                                javaAxBalancer,
+		"dev/axllm/ax/AxProviderRouter.java":                          javaAxProviderRouter,
+		"dev/axllm/ax/AxBaseAI.java":                                  javaAxBaseAI,
+		"dev/axllm/ax/AxAIServiceError.java":                          javaAxAIServiceError,
+		"dev/axllm/ax/AxMemory.java":                                  javaAxMemory,
+		"dev/axllm/ax/AxAgent.java":                                   javaAxAgent,
+		"dev/axllm/ax/AxFlow.java":                                    javaAxFlow,
+		"dev/axllm/ax/AxAgentClarificationException.java":             javaAxAgentClarificationException,
+		"dev/axllm/ax/AxCodeRuntime.java":                             javaAxCodeRuntime,
+		"dev/axllm/ax/AxCodeSession.java":                             javaAxCodeSession,
+		"dev/axllm/ax/AxRuntimeCapabilities.java":                     javaAxRuntimeCapabilities,
+		"dev/axllm/ax/AxRuntimeEnvelope.java":                         javaAxRuntimeEnvelope,
+		"dev/axllm/ax/AxProcessCodeRuntime.java":                      javaAxProcessCodeRuntime,
+		"dev/axllm/ax/AxProcessCodeSession.java":                      javaAxProcessCodeSession,
+		"dev/axllm/ax/runtime/quickjs/AxQuickJsCodeRuntime.java":      javaQuickJSCodeRuntime,
+		"dev/axllm/ax/runtime/quickjs/AxQuickJsCodeSession.java":      javaQuickJSCodeSession,
+		"dev/axllm/ax/runtime/quickjs/AxQuickJsHostCallable.java":     javaQuickJSHostCallable,
+		"dev/axllm/ax/runtime/quickjs/AxQuickJsProtocolServer.java":   javaQuickJSProtocolServer,
+		"dev/axllm/ax/OpenAICompatibleClient.java":                    javaOpenAI,
+		"dev/axllm/ax/OpenAIResponsesClient.java":                     javaOpenAIResponses,
+		"dev/axllm/ax/GoogleGeminiClient.java":                        javaGoogleGemini,
+		"dev/axllm/ax/AnthropicClient.java":                           javaAnthropic,
+		"dev/axllm/ax/AzureOpenAIClient.java":                         javaAzureOpenAI,
+		"dev/axllm/ax/DeepSeekClient.java":                            javaDeepSeek,
+		"dev/axllm/ax/MistralClient.java":                             javaMistral,
+		"dev/axllm/ax/RekaClient.java":                                javaReka,
+		"dev/axllm/ax/CohereClient.java":                              javaCohere,
+		"dev/axllm/ax/GrokClient.java":                                javaGrok,
+		"dev/axllm/ax/AxGen.java":                                     javaAxGen,
+		"dev/axllm/ax/AxGEPA.java":                                    javaAxGEPA,
+		"dev/axllm/ax/OptimizerEngine.java":                           javaOptimizerEngine,
+		"dev/axllm/ax/OptimizerEvaluator.java":                        javaOptimizerEvaluator,
+		"dev/axllm/ax/Json.java":                                      javaJson,
+		"dev/axllm/ax/Conformance.java":                               javaConformance,
 		"axir-capabilities.json":                                      mustCapabilityManifest(model, "java"),
 		"examples/SignatureSchemaExample.java":                        javaSignatureSchemaExample,
 		"examples/AxGenFakeClientToolExample.java":                    javaAxGenFakeClientToolExample,
@@ -188,13 +197,16 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 }
 
 func EmitCpp(model AxRuntimeModel, outDir string) error {
+	version := generatedPackageVersion()
 	core, err := BuildCppCore(model)
 	if err != nil {
 		return err
 	}
 	files := map[string]string{
-		"ax/ax.hpp":                                             cppHeader,
-		"ax/ax.cpp":                                             strings.Replace(cppRuntime, "// AXIR_CORE_CPP_FUNCTIONS\n", core, 1),
+		"CMakeLists.txt":                                        renderPackageTemplate(cppCMakeLists, version),
+		"cmake/axllmConfig.cmake.in":                            cppCMakeConfig,
+		"axllm/axllm.hpp":                                       cppHeader,
+		"axllm/axllm.cpp":                                       strings.Replace(cppRuntime, "// AXIR_CORE_CPP_FUNCTIONS\n", core, 1),
 		"conformance.cpp":                                       cppConformance,
 		"axir-capabilities.json":                                mustCapabilityManifest(model, "cpp"),
 		"examples/signature_schema.cpp":                         cppSignatureSchemaExample,
@@ -203,8 +215,8 @@ func EmitCpp(model AxRuntimeModel, outDir string) error {
 		"examples/axagent_pipeline.cpp":                         cppAxAgentPipelineExample,
 		"examples/runtime_adapter.cpp":                          cppRuntimeAdapterExample,
 		"examples/runtime_protocol.cpp":                         cppRuntimeProtocolExample,
-		"ax/runtime/quickjs/quickjs_runtime.hpp":                cppQuickJSRuntimeHeader,
-		"ax/runtime/quickjs/quickjs_runtime.cpp":                cppQuickJSRuntimeSource,
+		"axllm/runtime/quickjs/quickjs_runtime.hpp":             cppQuickJSRuntimeHeader,
+		"axllm/runtime/quickjs/quickjs_runtime.cpp":             cppQuickJSRuntimeSource,
 		"examples/runtime_profiles/javascript_quickjs.cpp":      cppJavaScriptQuickJSProfileExample,
 		"examples/runtime_profiles/python_pyodide.cpp":          cppPythonPyodideProfileExample,
 		"examples/runtime_profiles/quickjs-runtime-policy.json": quickJSRuntimePolicyJSON,
@@ -228,6 +240,56 @@ func writeFiles(root string, files map[string]string) error {
 		}
 	}
 	return nil
+}
+
+func renderPackageTemplate(text, version string) string {
+	return strings.ReplaceAll(text, "{{AX_VERSION}}", version)
+}
+
+func generatedPackageVersion() string {
+	for _, key := range []string{"AX_PACKAGE_VERSION", "AXIR_PACKAGE_VERSION"} {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			return normalizePackageVersion(value)
+		}
+	}
+	if version, ok := findRootPackageVersion(); ok {
+		return normalizePackageVersion(version)
+	}
+	return "0.1.0"
+}
+
+func findRootPackageVersion() (string, bool) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", false
+	}
+	for {
+		data, err := os.ReadFile(filepath.Join(dir, "package.json"))
+		if err == nil {
+			var pkg struct {
+				Version string `json:"version"`
+			}
+			if json.Unmarshal(data, &pkg) == nil && strings.TrimSpace(pkg.Version) != "" {
+				return pkg.Version, true
+			}
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", false
+		}
+		dir = parent
+	}
+}
+
+func normalizePackageVersion(version string) string {
+	version = strings.TrimSpace(version)
+	if version == "" {
+		return "0.1.0"
+	}
+	if regexp.MustCompile(`^[0-9]+(\.[0-9]+){1,2}([a-zA-Z0-9.+-]*)?$`).MatchString(version) {
+		return version
+	}
+	return "0.1.0"
 }
 
 type CapabilityManifest struct {
@@ -456,11 +518,11 @@ func mustCapabilityManifest(model AxRuntimeModel, target string) string {
 func packageNameForTarget(target string) string {
 	switch target {
 	case "python":
-		return "ax"
+		return "axllm"
 	case "java":
-		return "dev.ax"
+		return "dev.axllm:ax"
 	case "cpp":
-		return "ax"
+		return "axllm"
 	default:
 		return target
 	}
@@ -477,11 +539,11 @@ func packageREADME(model AxRuntimeModel, target string) string {
 	}
 	return fmt.Sprintf(`# Generated Ax %s Library
 
-Generated from AxIR AxCore modules.
+Generated from shared Ax compiler modules.
 
 ## Contract
 
-- AxIR version: %s
+- Compiler contract version: %s
 - Package: %s
 - Supported conformance suites: %s
 - Provider mode: %s
@@ -490,6 +552,18 @@ Generated from AxIR AxCore modules.
 
 The deterministic Ax runtime semantics are Core-owned. Target-owned code is
 limited to idiomatic wrappers, transport boundaries, and language primitives.
+
+## Packaging
+
+- Python emits `+"`pyproject.toml`"+`, `+"`MANIFEST.in`"+`, package import `+"`axllm`"+`, and
+  `+"`axllm/py.typed`"+`. The default distribution metadata name is
+  `+"`axllm`"+`.
+- Java emits package `+"`dev.axllm.ax`"+`, base Maven/Gradle metadata for
+  `+"`dev.axllm:ax`"+`, and keeps QuickJS4J metadata isolated under
+  `+"`examples/runtime_profiles/`"+`.
+- C++ emits `+"`axllm/axllm.hpp`"+`, `+"`axllm/axllm.cpp`"+`, and `+"`CMakeLists.txt`"+` with target
+  `+"`axllm::axllm`"+`. Optional QuickJS sources are not part of the default CMake
+  build.
 
 ## Examples
 
@@ -510,7 +584,7 @@ See the files in `+"`examples/`"+` for:
 
 The TypeScript `+"`AxJSRuntime`"+` remains the canonical JavaScript host runtime
 reference for AxAgent actor sessions. Generated runtime profiles are portability
-proofs against that same contract; AxIR does not emit separate Node, Deno, or
+proofs against that same contract; the compiler does not emit separate Node, Deno, or
 Bun profiles because those are the existing TypeScript implementation surface.
 
 - `+"`javascript-quickjs`"+`: JavaScript actor code through QuickJS. Java uses
@@ -534,8 +608,8 @@ Both optional profiles expose a JSON-compatible runtime policy surface. The
 generated `+"`quickjs-runtime-policy.json`"+` and `+"`pyodide-runtime-policy.json`"+`
 files document conservative defaults: filesystem, network, process/native host
 access, and package loading are disabled unless profile adapter code explicitly
-supports and enables them. AxIR still owns envelopes, state, logs, and traces;
-adapter policy owns sandboxing, dependency loading, hard cancellation, and
-process security.
+supports and enables them. The shared Ax compiler contract still owns envelopes,
+state, logs, and traces; adapter policy owns sandboxing, dependency loading,
+hard cancellation, and process security.
 `, strings.ToUpper(target), manifest.AxIRVersion, manifest.PackageName, strings.Join(manifest.SupportedSuites, ", "), manifest.ProviderMode, manifest.FakeTransportSupport, network)
 }

@@ -1,6 +1,6 @@
 package axir
 
-const javaAx = `package dev.ax;
+const javaAx = `package dev.axllm.ax;
 
 public final class Ax {
   public static AxSignature s(String signature) {
@@ -90,7 +90,7 @@ public final class Ax {
 }
 `
 
-const javaAxProgram = `package dev.ax;
+const javaAxProgram = `package dev.axllm.ax;
 
 import java.util.List;
 import java.util.Map;
@@ -105,7 +105,7 @@ public interface AxProgram {
 }
 `
 
-const javaFieldType = `package dev.ax;
+const javaFieldType = `package dev.axllm.ax;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -147,7 +147,7 @@ public final class FieldType {
 }
 `
 
-const javaField = `package dev.ax;
+const javaField = `package dev.axllm.ax;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -297,7 +297,7 @@ public final class Field {
 }
 `
 
-const javaSignature = `package dev.ax;
+const javaSignature = `package dev.axllm.ax;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -359,7 +359,7 @@ class AxSignatureError extends IllegalArgumentException {
 }
 `
 
-const javaTool = `package dev.ax;
+const javaTool = `package dev.axllm.ax;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -423,7 +423,7 @@ public final class Tool {
 }
 `
 
-const javaPromptTemplate = `package dev.ax;
+const javaPromptTemplate = `package dev.axllm.ax;
 
 import java.util.List;
 import java.util.Map;
@@ -458,7 +458,7 @@ public final class PromptTemplate {
 }
 `
 
-const javaAiClient = `package dev.ax;
+const javaAiClient = `package dev.axllm.ax;
 
 import java.util.Map;
 
@@ -475,7 +475,7 @@ public interface AiClient {
 }
 `
 
-const javaAxAIService = `package dev.ax;
+const javaAxAIService = `package dev.axllm.ax;
 
 import java.util.Map;
 
@@ -509,7 +509,7 @@ public interface AxAIService extends AiClient {
 }
 `
 
-const javaAxMultiServiceRouter = `package dev.ax;
+const javaAxMultiServiceRouter = `package dev.axllm.ax;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -703,7 +703,7 @@ public final class AxMultiServiceRouter implements AxAIService {
 }
 `
 
-const javaAxBalancer = `package dev.ax;
+const javaAxBalancer = `package dev.axllm.ax;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -1023,7 +1023,7 @@ public final class AxBalancer implements AxAIService {
 }
 `
 
-const javaAxProviderRouter = `package dev.ax;
+const javaAxProviderRouter = `package dev.axllm.ax;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -1089,7 +1089,7 @@ public final class AxProviderRouter {
 }
 `
 
-const javaAxBaseAI = `package dev.ax;
+const javaAxBaseAI = `package dev.axllm.ax;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -1172,7 +1172,7 @@ public abstract class AxBaseAI implements AxAIService {
 }
 `
 
-const javaAxAIServiceError = `package dev.ax;
+const javaAxAIServiceError = `package dev.axllm.ax;
 
 public class AxAIServiceError extends RuntimeException {
   public final Integer status;
@@ -1213,7 +1213,7 @@ class AxAIRefusalError extends AxAIServiceError { AxAIRefusalError(String messag
 class AxUnsupportedCapabilityError extends AxAIServiceError { AxUnsupportedCapabilityError(String message) { super(message); } }
 `
 
-const javaAxMemory = `package dev.ax;
+const javaAxMemory = `package dev.axllm.ax;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -1313,7 +1313,7 @@ public final class AxMemory {
 }
 `
 
-const javaOpenAI = `package dev.ax;
+const javaOpenAI = `package dev.axllm.ax;
 
 import java.io.IOException;
 import java.net.URI;
@@ -1536,7 +1536,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
 }
 `
 
-const javaOpenAIResponses = `package dev.ax;
+const javaOpenAIResponses = `package dev.axllm.ax;
 
 import java.util.Map;
 
@@ -1551,7 +1551,7 @@ public final class OpenAIResponsesClient extends OpenAICompatibleClient {
 }
 `
 
-const javaGoogleGemini = `package dev.ax;
+const javaGoogleGemini = `package dev.axllm.ax;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -1579,7 +1579,7 @@ public final class GoogleGeminiClient extends OpenAICompatibleClient {
 }
 `
 
-const javaAnthropic = `package dev.ax;
+const javaAnthropic = `package dev.axllm.ax;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -1602,7 +1602,7 @@ public final class AnthropicClient extends OpenAICompatibleClient {
 }
 `
 
-const javaAzureOpenAI = `package dev.ax;
+const javaAzureOpenAI = `package dev.axllm.ax;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -1651,7 +1651,7 @@ public final class AzureOpenAIClient extends OpenAICompatibleClient {
 }
 `
 
-const javaDeepSeek = `package dev.ax;
+const javaDeepSeek = `package dev.axllm.ax;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -1674,7 +1674,7 @@ public final class DeepSeekClient extends OpenAICompatibleClient {
 }
 `
 
-const javaMistral = `package dev.ax;
+const javaMistral = `package dev.axllm.ax;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -1697,7 +1697,7 @@ public final class MistralClient extends OpenAICompatibleClient {
 }
 `
 
-const javaReka = `package dev.ax;
+const javaReka = `package dev.axllm.ax;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -1720,7 +1720,7 @@ public final class RekaClient extends OpenAICompatibleClient {
 }
 `
 
-const javaCohere = `package dev.ax;
+const javaCohere = `package dev.axllm.ax;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -1743,7 +1743,7 @@ public final class CohereClient extends OpenAICompatibleClient {
 }
 `
 
-const javaGrok = `package dev.ax;
+const javaGrok = `package dev.axllm.ax;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -1770,7 +1770,7 @@ public final class GrokClient extends OpenAICompatibleClient {
 }
 `
 
-const javaAxGen = `package dev.ax;
+const javaAxGen = `package dev.axllm.ax;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -2075,7 +2075,7 @@ public final class AxGen implements AxProgram {
 }
 `
 
-const javaAxFlow = `package dev.ax;
+const javaAxFlow = `package dev.axllm.ax;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -2295,7 +2295,7 @@ public final class AxFlow implements AxProgram {
 }
 `
 
-const javaOptimizerEngine = `package dev.ax;
+const javaOptimizerEngine = `package dev.axllm.ax;
 
 import java.util.Map;
 
@@ -2309,7 +2309,7 @@ public interface OptimizerEngine {
 }
 `
 
-const javaOptimizerEvaluator = `package dev.ax;
+const javaOptimizerEvaluator = `package dev.axllm.ax;
 
 import java.util.Map;
 
@@ -2318,7 +2318,7 @@ public interface OptimizerEvaluator {
 }
 `
 
-const javaAxGEPA = `package dev.ax;
+const javaAxGEPA = `package dev.axllm.ax;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -2755,7 +2755,7 @@ public final class AxGEPA implements OptimizerEngine {
 }
 `
 
-const javaAxAgentClarificationException = `package dev.ax;
+const javaAxAgentClarificationException = `package dev.axllm.ax;
 
 public final class AxAgentClarificationException extends RuntimeException {
   private final Object clarification;
@@ -2775,7 +2775,7 @@ public final class AxAgentClarificationException extends RuntimeException {
 }
 `
 
-const javaAxCodeRuntime = `package dev.ax;
+const javaAxCodeRuntime = `package dev.axllm.ax;
 
 import java.util.Map;
 
@@ -2786,7 +2786,7 @@ public interface AxCodeRuntime {
 }
 `
 
-const javaAxCodeSession = `package dev.ax;
+const javaAxCodeSession = `package dev.axllm.ax;
 
 import java.util.Map;
 
@@ -2807,7 +2807,7 @@ public interface AxCodeSession {
 }
 `
 
-const javaAxAgent = `package dev.ax;
+const javaAxAgent = `package dev.axllm.ax;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -3137,7 +3137,7 @@ public final class AxAgent implements AxProgram {
 }
 `
 
-const javaJson = `package dev.ax;
+const javaJson = `package dev.axllm.ax;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -3273,7 +3273,7 @@ public final class Json {
 }
 `
 
-const javaCore = `package dev.ax;
+const javaCore = `package dev.axllm.ax;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -4412,7 +4412,7 @@ class PromptRuntime {
 }
 `
 
-const javaConformance = `package dev.ax;
+const javaConformance = `package dev.axllm.ax;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -4898,7 +4898,7 @@ public final class Conformance {
       runRuntimeProtocolFixtureServer();
       return;
     }
-    if (args.length == 0) throw new IllegalArgumentException("usage: java dev.ax.Conformance <fixture-or-dir>...");
+    if (args.length == 0) throw new IllegalArgumentException("usage: java dev.axllm.ax.Conformance <fixture-or-dir>...");
     for (String arg : args) {
       for (Path path : expand(Path.of(arg))) {
         Map<String, Object> fixture = Core.asMap(Json.parse(Files.readString(path)));
@@ -5685,7 +5685,7 @@ public final class Conformance {
     String javaBin = System.getProperty("java.home") + File.separator + "bin" + File.separator + "java";
     String classPath = System.getProperty("java.class.path");
     return new AxProcessCodeRuntime(
-      List.of(javaBin, "-cp", classPath, "dev.ax.Conformance", "--runtime-protocol-fixture-server"),
+      List.of(javaBin, "-cp", classPath, "dev.axllm.ax.Conformance", "--runtime-protocol-fixture-server"),
       null,
       Map.of("AXIR_RUNTIME_PROTOCOL_FIXTURE_MODE", mode == null ? "normal" : mode)
     );

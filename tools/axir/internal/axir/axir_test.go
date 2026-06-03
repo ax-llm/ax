@@ -455,14 +455,17 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 			target: "python",
 			wantFiles: []string{
 				"README.md",
+				"pyproject.toml",
+				"MANIFEST.in",
 				"axir-capabilities.json",
-				"ax/__init__.py",
-				"ax/ai.py",
-				"ax/agent.py",
-				"ax/runtime.py",
-				"ax/flow.py",
-				"ax/gen.py",
-				"ax/conformance.py",
+				"axllm/__init__.py",
+				"axllm/py.typed",
+				"axllm/ai.py",
+				"axllm/agent.py",
+				"axllm/runtime.py",
+				"axllm/flow.py",
+				"axllm/gen.py",
+				"axllm/conformance.py",
 				"examples/signature_schema.py",
 				"examples/axgen_fake_client_tool.py",
 				"examples/axai_fake_transport.py",
@@ -484,40 +487,43 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 			target: "java",
 			wantFiles: []string{
 				"README.md",
+				"pom.xml",
+				"build.gradle",
+				"settings.gradle",
 				"axir-capabilities.json",
-				"dev/ax/Ax.java",
-				"dev/ax/AxProgram.java",
-				"dev/ax/Core.java",
-				"dev/ax/AxAgent.java",
-				"dev/ax/AxFlow.java",
-				"dev/ax/AxAgentClarificationException.java",
-				"dev/ax/AxCodeRuntime.java",
-				"dev/ax/AxCodeSession.java",
-				"dev/ax/AxRuntimeCapabilities.java",
-				"dev/ax/AxRuntimeEnvelope.java",
-				"dev/ax/AxProcessCodeRuntime.java",
-				"dev/ax/AxProcessCodeSession.java",
-				"dev/ax/runtime/quickjs/AxQuickJsCodeRuntime.java",
-				"dev/ax/runtime/quickjs/AxQuickJsCodeSession.java",
-				"dev/ax/runtime/quickjs/AxQuickJsHostCallable.java",
-				"dev/ax/runtime/quickjs/AxQuickJsProtocolServer.java",
-				"dev/ax/OptimizerEngine.java",
-				"dev/ax/OptimizerEvaluator.java",
-				"dev/ax/AxGEPA.java",
-				"dev/ax/OpenAICompatibleClient.java",
-				"dev/ax/OpenAIResponsesClient.java",
-				"dev/ax/GoogleGeminiClient.java",
-				"dev/ax/AnthropicClient.java",
-				"dev/ax/AzureOpenAIClient.java",
-				"dev/ax/DeepSeekClient.java",
-				"dev/ax/MistralClient.java",
-				"dev/ax/RekaClient.java",
-				"dev/ax/CohereClient.java",
-				"dev/ax/GrokClient.java",
-				"dev/ax/AxMultiServiceRouter.java",
-				"dev/ax/AxBalancer.java",
-				"dev/ax/AxProviderRouter.java",
-				"dev/ax/Conformance.java",
+				"dev/axllm/ax/Ax.java",
+				"dev/axllm/ax/AxProgram.java",
+				"dev/axllm/ax/Core.java",
+				"dev/axllm/ax/AxAgent.java",
+				"dev/axllm/ax/AxFlow.java",
+				"dev/axllm/ax/AxAgentClarificationException.java",
+				"dev/axllm/ax/AxCodeRuntime.java",
+				"dev/axllm/ax/AxCodeSession.java",
+				"dev/axllm/ax/AxRuntimeCapabilities.java",
+				"dev/axllm/ax/AxRuntimeEnvelope.java",
+				"dev/axllm/ax/AxProcessCodeRuntime.java",
+				"dev/axllm/ax/AxProcessCodeSession.java",
+				"dev/axllm/ax/runtime/quickjs/AxQuickJsCodeRuntime.java",
+				"dev/axllm/ax/runtime/quickjs/AxQuickJsCodeSession.java",
+				"dev/axllm/ax/runtime/quickjs/AxQuickJsHostCallable.java",
+				"dev/axllm/ax/runtime/quickjs/AxQuickJsProtocolServer.java",
+				"dev/axllm/ax/OptimizerEngine.java",
+				"dev/axllm/ax/OptimizerEvaluator.java",
+				"dev/axllm/ax/AxGEPA.java",
+				"dev/axllm/ax/OpenAICompatibleClient.java",
+				"dev/axllm/ax/OpenAIResponsesClient.java",
+				"dev/axllm/ax/GoogleGeminiClient.java",
+				"dev/axllm/ax/AnthropicClient.java",
+				"dev/axllm/ax/AzureOpenAIClient.java",
+				"dev/axllm/ax/DeepSeekClient.java",
+				"dev/axllm/ax/MistralClient.java",
+				"dev/axllm/ax/RekaClient.java",
+				"dev/axllm/ax/CohereClient.java",
+				"dev/axllm/ax/GrokClient.java",
+				"dev/axllm/ax/AxMultiServiceRouter.java",
+				"dev/axllm/ax/AxBalancer.java",
+				"dev/axllm/ax/AxProviderRouter.java",
+				"dev/axllm/ax/Conformance.java",
 				"examples/SignatureSchemaExample.java",
 				"examples/AxGenFakeClientToolExample.java",
 				"examples/AxAIFakeTransportExample.java",
@@ -543,9 +549,11 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 			target: "cpp",
 			wantFiles: []string{
 				"README.md",
+				"CMakeLists.txt",
+				"cmake/axllmConfig.cmake.in",
 				"axir-capabilities.json",
-				"ax/ax.hpp",
-				"ax/ax.cpp",
+				"axllm/axllm.hpp",
+				"axllm/axllm.cpp",
 				"conformance.cpp",
 				"examples/signature_schema.cpp",
 				"examples/axgen_fake_client_tool.cpp",
@@ -553,8 +561,8 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/axagent_pipeline.cpp",
 				"examples/runtime_adapter.cpp",
 				"examples/runtime_protocol.cpp",
-				"ax/runtime/quickjs/quickjs_runtime.hpp",
-				"ax/runtime/quickjs/quickjs_runtime.cpp",
+				"axllm/runtime/quickjs/quickjs_runtime.hpp",
+				"axllm/runtime/quickjs/quickjs_runtime.cpp",
 				"examples/runtime_profiles/javascript_quickjs.cpp",
 				"examples/runtime_profiles/python_pyodide.cpp",
 				"examples/runtime_profiles/quickjs-runtime-policy.json",
@@ -600,6 +608,10 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 			if manifest.Target != tc.target || manifest.ProviderMode != "provider-descriptor-registry-openai-compatible-openai-responses-google-gemini-anthropic" || !manifest.FakeTransportSupport {
 				t.Fatalf("bad manifest for %s: %#v", tc.target, manifest)
 			}
+			wantPackage := map[string]string{"python": "axllm", "java": "dev.axllm:ax", "cpp": "axllm"}[tc.target]
+			if manifest.PackageName != wantPackage {
+				t.Fatalf("bad package name for %s: got %q want %q", tc.target, manifest.PackageName, wantPackage)
+			}
 			if tc.target == "cpp" && manifest.RealNetworkSupport {
 				t.Fatalf("C++ manifest should not claim real network support: %#v", manifest)
 			}
@@ -635,8 +647,110 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 			if !strings.Contains(string(readme), tc.wantReadme) || !strings.Contains(string(readme), "Core-owned") || !strings.Contains(string(readme), "AxJSRuntime") || !strings.Contains(string(readme), "javascript-quickjs") || !strings.Contains(string(readme), "python-pyodide") {
 				t.Fatalf("generated README missing contract text:\n%s", readme)
 			}
+			switch tc.target {
+			case "python":
+				checkGeneratedFileContains(t, dir, "pyproject.toml", "axllm", "setuptools", "Typing :: Typed")
+			case "java":
+				checkGeneratedFileContains(t, dir, "pom.xml", "<groupId>dev.axllm</groupId>", "<artifactId>ax</artifactId>", "dev/axllm/ax/*.java")
+				checkGeneratedFileContains(t, dir, "build.gradle", "java-library", "dev/axllm/ax/*.java")
+			case "cpp":
+				checkGeneratedFileContains(t, dir, "CMakeLists.txt", "add_library(axllm axllm/axllm.cpp)", "add_library(axllm::axllm ALIAS axllm)", "AX_BUILD_QUICKJS_PROFILE")
+				checkGeneratedFileContains(t, dir, "cmake/axllmConfig.cmake.in", "axllmTargets.cmake")
+			}
+			assertNoUserFacingInternalPackageNames(t, dir, tc.target)
 		})
 	}
+}
+
+func assertNoUserFacingInternalPackageNames(t *testing.T, root, target string) {
+	t.Helper()
+	metadata := map[string][]string{
+		"python": {"pyproject.toml", "MANIFEST.in"},
+		"java":   {"pom.xml", "build.gradle", "settings.gradle"},
+		"cpp":    {"CMakeLists.txt", "cmake/axllmConfig.cmake.in"},
+	}[target]
+	for _, rel := range metadata {
+		text := strings.ToLower(readRepoFile(t, root, filepath.FromSlash(rel)))
+		for _, forbidden := range []string{"ax-llm-axir", "ax-go", "<groupid>dev.ax</groupid>", "dev.ax;", "ax::ax", "namespace ax "} {
+			if strings.Contains(text, forbidden) {
+				t.Fatalf("%s contains user-facing internal or collision-prone package name %q:\n%s", rel, forbidden, text)
+			}
+		}
+	}
+}
+
+func TestDocsCoverCompilerAndArchitecture(t *testing.T) {
+	root := filepath.Join("..", "..", "..", "..")
+	compiler := readRepoFile(t, root, "docs", "COMPILER.md")
+	for _, want := range []string{
+		"AxIR Compiler",
+		"TypeScript",
+		".axir",
+		"Core-owned",
+		"target-owned",
+		"Python",
+		"Java",
+		"C++",
+		"AxAgent",
+		"AxFlow",
+		"GEPA",
+		"audio",
+		"realtime",
+		"docs/RELEASE.md",
+	} {
+		if !strings.Contains(compiler, want) {
+			t.Fatalf("docs/COMPILER.md missing %q", want)
+		}
+	}
+	architecture := readRepoFile(t, root, "docs", "ARCHITECTURE.md")
+	for _, want := range []string{
+		"language-agnostic",
+		"docs/COMPILER.md",
+		"docs/AUDIO.md",
+		"AxAgent",
+		"GEPA",
+		"audio",
+		"realtime",
+		"Python",
+		"Java",
+		"C++",
+		"docs/RELEASE.md",
+	} {
+		if !strings.Contains(architecture, want) {
+			t.Fatalf("docs/ARCHITECTURE.md missing %q", want)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, "DESIGN.md")); err == nil {
+		t.Fatal("root DESIGN.md should not be added; use docs/COMPILER.md")
+	} else if !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	release := readRepoFile(t, root, "docs", "RELEASE.md")
+	for _, want := range []string{"@ax-llm/ax", "axllm", "dev.axllm:ax", "axllm::axllm", "github.com/ax-llm/ax/go"} {
+		if !strings.Contains(release, want) {
+			t.Fatalf("docs/RELEASE.md missing %q", want)
+		}
+	}
+}
+
+func checkGeneratedFileContains(t *testing.T, root, rel string, wants ...string) {
+	t.Helper()
+	text := readRepoFile(t, root, filepath.FromSlash(rel))
+	for _, want := range wants {
+		if !strings.Contains(text, want) {
+			t.Fatalf("%s missing %q:\n%s", rel, want, text)
+		}
+	}
+}
+
+func readRepoFile(t *testing.T, root string, parts ...string) string {
+	t.Helper()
+	path := filepath.Join(append([]string{root}, parts...)...)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
 }
 
 func runtimeProfileExampleGuards(target string) []string {
@@ -1492,7 +1606,7 @@ func TestCompilePythonGeneratedAxLibrary(t *testing.T) {
 	script := filepath.Join(dir, "smoke.py")
 	err = os.WriteFile(script, []byte(`import sys
 sys.path.insert(0, sys.argv[1])
-from ax import AIClient, AnthropicClient, AzureOpenAIClient, AxBaseAI, CohereClient, DeepSeekClient, GoogleGeminiClient, GrokClient, MistralClient, OpenAICompatibleClient, OpenAIResponsesClient, RekaClient, agent, ai, ax, f, fn, s
+from axllm import AIClient, AnthropicClient, AzureOpenAIClient, AxBaseAI, CohereClient, DeepSeekClient, GoogleGeminiClient, GrokClient, MistralClient, OpenAICompatibleClient, OpenAIResponsesClient, RekaClient, agent, ai, ax, f, fn, s
 
 sig = s('question:string -> answer:string')
 assert sig.get_input_fields()[0].name == 'question'
@@ -1635,7 +1749,7 @@ func TestPythonPromptConformanceFixtures(t *testing.T) {
 	if err := Compile(bundle, "python", dir); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("python3", "-m", "ax.conformance", promptConformancePath())
+	cmd := exec.Command("python3", "-m", "axllm.conformance", promptConformancePath())
 	cmd.Env = append(os.Environ(), "PYTHONPATH="+dir)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -1658,7 +1772,7 @@ func TestPythonAxGenConformanceFixtures(t *testing.T) {
 	if err := Compile(bundle, "python", dir); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("python3", "-m", "ax.conformance", axgenConformancePath())
+	cmd := exec.Command("python3", "-m", "axllm.conformance", axgenConformancePath())
 	cmd.Env = append(os.Environ(), "PYTHONPATH="+dir)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -1681,7 +1795,7 @@ func TestPythonAxAIConformanceFixtures(t *testing.T) {
 	if err := Compile(bundle, "python", dir); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("python3", "-m", "ax.conformance", axaiConformancePath())
+	cmd := exec.Command("python3", "-m", "axllm.conformance", axaiConformancePath())
 	cmd.Env = append(os.Environ(), "PYTHONPATH="+dir)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -1704,7 +1818,7 @@ func TestPythonAxAgentConformanceFixtures(t *testing.T) {
 	if err := Compile(bundle, "python", dir); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("python3", "-m", "ax.conformance", axagentConformancePath())
+	cmd := exec.Command("python3", "-m", "axllm.conformance", axagentConformancePath())
 	cmd.Env = append(os.Environ(), "PYTHONPATH="+dir)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -1727,7 +1841,7 @@ func TestPythonAxOptimizeConformanceFixtures(t *testing.T) {
 	if err := Compile(bundle, "python", dir); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("python3", "-m", "ax.conformance", axoptimizeConformancePath())
+	cmd := exec.Command("python3", "-m", "axllm.conformance", axoptimizeConformancePath())
 	cmd.Env = append(os.Environ(), "PYTHONPATH="+dir)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -1759,7 +1873,7 @@ func TestPythonSignatureSchemaValidationConformanceFixtures(t *testing.T) {
 		{name: "schema", path: schemaConformancePath(), want: "ok primitive-and-class-output"},
 		{name: "validation", path: validationConformancePath(), want: "ok output-valid-nested"},
 	} {
-		cmd := exec.Command("python3", "-m", "ax.conformance", tc.path)
+		cmd := exec.Command("python3", "-m", "axllm.conformance", tc.path)
 		cmd.Env = append(os.Environ(), "PYTHONPATH="+dir)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
@@ -1780,7 +1894,7 @@ func TestPythonGeneratedIdioms(t *testing.T) {
 	if err := Compile(bundle, "python", dir); err != nil {
 		t.Fatal(err)
 	}
-	aiFile, err := os.ReadFile(filepath.Join(dir, "ax", "ai.py"))
+	aiFile, err := os.ReadFile(filepath.Join(dir, "axllm", "ai.py"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1851,7 +1965,7 @@ func TestPythonGeneratedIdioms(t *testing.T) {
 	if !strings.Contains(text, "resolved = provider_resolve_profile(") {
 		t.Fatal("generated Python ai(...) factory does not use Core provider resolver")
 	}
-	promptFile, err := os.ReadFile(filepath.Join(dir, "ax", "prompt.py"))
+	promptFile, err := os.ReadFile(filepath.Join(dir, "axllm", "prompt.py"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1884,7 +1998,7 @@ func TestPythonGeneratedIdioms(t *testing.T) {
 			t.Fatalf("generated Python prompt runtime still contains old hand-authored prompt body %q", forbidden)
 		}
 	}
-	genFile, err := os.ReadFile(filepath.Join(dir, "ax", "gen.py"))
+	genFile, err := os.ReadFile(filepath.Join(dir, "axllm", "gen.py"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1930,7 +2044,7 @@ func TestPythonGeneratedIdioms(t *testing.T) {
 			t.Fatalf("generated Python gen runtime still contains old hand-authored fold_stream body %q", forbidden)
 		}
 	}
-	agentFile, err := os.ReadFile(filepath.Join(dir, "ax", "agent.py"))
+	agentFile, err := os.ReadFile(filepath.Join(dir, "axllm", "agent.py"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1982,7 +2096,7 @@ func TestPythonGeneratedIdioms(t *testing.T) {
 			t.Fatalf("generated Python agent runtime contains forbidden semantic escape %q", forbidden)
 		}
 	}
-	runtimeFile, err := os.ReadFile(filepath.Join(dir, "ax", "runtime.py"))
+	runtimeFile, err := os.ReadFile(filepath.Join(dir, "axllm", "runtime.py"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2002,7 +2116,7 @@ func TestPythonGeneratedIdioms(t *testing.T) {
 			t.Fatalf("generated Python runtime adapter helpers missing %q", want)
 		}
 	}
-	signatureFile, err := os.ReadFile(filepath.Join(dir, "ax", "signature.py"))
+	signatureFile, err := os.ReadFile(filepath.Join(dir, "axllm", "signature.py"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2038,7 +2152,7 @@ func TestPythonGeneratedIdioms(t *testing.T) {
 	if strings.Contains(signatureText, "def parse_signature(signature: str) -> AxSignature:\n    text = signature.strip()") {
 		t.Fatal("generated Python signature runtime still contains old template parse_signature body")
 	}
-	schemaFile, err := os.ReadFile(filepath.Join(dir, "ax", "schema.py"))
+	schemaFile, err := os.ReadFile(filepath.Join(dir, "axllm", "schema.py"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2093,7 +2207,7 @@ func TestJavaGeneratedCoreRuntime(t *testing.T) {
 	if err := Compile(bundle, "java", dir); err != nil {
 		t.Fatal(err)
 	}
-	coreFile, err := os.ReadFile(filepath.Join(dir, "dev", "ax", "Core.java"))
+	coreFile, err := os.ReadFile(filepath.Join(dir, "dev", "axllm", "ax", "Core.java"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2146,7 +2260,7 @@ func TestJavaGeneratedCoreRuntime(t *testing.T) {
 			t.Fatalf("generated Java Core runtime contains forbidden semantic escape %q", forbidden)
 		}
 	}
-	axFile, err := os.ReadFile(filepath.Join(dir, "dev", "ax", "Ax.java"))
+	axFile, err := os.ReadFile(filepath.Join(dir, "dev", "axllm", "ax", "Ax.java"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2156,42 +2270,42 @@ func TestJavaGeneratedCoreRuntime(t *testing.T) {
 	if !strings.Contains(string(axFile), "getSupportedAIModels(") {
 		t.Fatal("generated Java Ax does not expose model catalog helpers")
 	}
-	javaRouterFile, err := os.ReadFile(filepath.Join(dir, "dev", "ax", "AxMultiServiceRouter.java"))
+	javaRouterFile, err := os.ReadFile(filepath.Join(dir, "dev", "axllm", "ax", "AxMultiServiceRouter.java"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(javaRouterFile), "public final class AxMultiServiceRouter") || !strings.Contains(string(javaRouterFile), "Model key must be specified") || !strings.Contains(string(javaRouterFile), "duplicate model key") {
 		t.Fatal("generated Java multi-service router is missing expected implementation")
 	}
-	javaBalancerFile, err := os.ReadFile(filepath.Join(dir, "dev", "ax", "AxBalancer.java"))
+	javaBalancerFile, err := os.ReadFile(filepath.Join(dir, "dev", "axllm", "ax", "AxBalancer.java"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(javaBalancerFile), "public final class AxBalancer") || !strings.Contains(string(javaBalancerFile), "Core.provider_balancer_retry_policy(") || !strings.Contains(string(javaBalancerFile), "Core.provider_balancer_candidate_allowed(") {
 		t.Fatal("generated Java balancer is missing Core delegation")
 	}
-	javaGEPAFile, err := os.ReadFile(filepath.Join(dir, "dev", "ax", "AxGEPA.java"))
+	javaGEPAFile, err := os.ReadFile(filepath.Join(dir, "dev", "axllm", "ax", "AxGEPA.java"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(javaGEPAFile), "public final class AxGEPA implements OptimizerEngine") || !strings.Contains(string(javaGEPAFile), "AxGEPA requires an OptimizerEvaluator") {
 		t.Fatal("generated Java GEPA engine is missing optimizer boundary implementation")
 	}
-	javaProviderRouterFile, err := os.ReadFile(filepath.Join(dir, "dev", "ax", "AxProviderRouter.java"))
+	javaProviderRouterFile, err := os.ReadFile(filepath.Join(dir, "dev", "axllm", "ax", "AxProviderRouter.java"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(javaProviderRouterFile), "public final class AxProviderRouter") || !strings.Contains(string(javaProviderRouterFile), "Core.provider_route_recommendation(") {
 		t.Fatal("generated Java provider router is missing Core delegation")
 	}
-	axGenFile, err := os.ReadFile(filepath.Join(dir, "dev", "ax", "AxGen.java"))
+	axGenFile, err := os.ReadFile(filepath.Join(dir, "dev", "axllm", "ax", "AxGen.java"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(axGenFile), "Core._forward_impl(") {
 		t.Fatal("generated Java AxGen does not delegate forward to Core")
 	}
-	axAgentFile, err := os.ReadFile(filepath.Join(dir, "dev", "ax", "AxAgent.java"))
+	axAgentFile, err := os.ReadFile(filepath.Join(dir, "dev", "axllm", "ax", "AxAgent.java"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2214,7 +2328,7 @@ func TestJavaGeneratedCoreRuntime(t *testing.T) {
 			t.Fatalf("generated Java AxAgent missing marker %q", want)
 		}
 	}
-	openAIFile, err := os.ReadFile(filepath.Join(dir, "dev", "ax", "OpenAICompatibleClient.java"))
+	openAIFile, err := os.ReadFile(filepath.Join(dir, "dev", "axllm", "ax", "OpenAICompatibleClient.java"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2239,21 +2353,21 @@ func TestJavaGeneratedCoreRuntime(t *testing.T) {
 			t.Fatalf("generated Java OpenAI client contains provider-specific realtime logic %q", forbidden)
 		}
 	}
-	openAIResponsesFile, err := os.ReadFile(filepath.Join(dir, "dev", "ax", "OpenAIResponsesClient.java"))
+	openAIResponsesFile, err := os.ReadFile(filepath.Join(dir, "dev", "axllm", "ax", "OpenAIResponsesClient.java"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(openAIResponsesFile), "openai-responses") {
 		t.Fatalf("generated Java OpenAI Responses client missing provider marker")
 	}
-	googleGeminiFile, err := os.ReadFile(filepath.Join(dir, "dev", "ax", "GoogleGeminiClient.java"))
+	googleGeminiFile, err := os.ReadFile(filepath.Join(dir, "dev", "axllm", "ax", "GoogleGeminiClient.java"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(googleGeminiFile), "google-gemini") || !strings.Contains(string(openAIText), "Core.provider_build_chat_request(") {
 		t.Fatalf("generated Java Gemini client missing provider marker or Core delegation")
 	}
-	anthropicFile, err := os.ReadFile(filepath.Join(dir, "dev", "ax", "AnthropicClient.java"))
+	anthropicFile, err := os.ReadFile(filepath.Join(dir, "dev", "axllm", "ax", "AnthropicClient.java"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2268,7 +2382,7 @@ func TestJavaGeneratedCoreRuntime(t *testing.T) {
 		"CohereClient.java":      "cohere",
 		"GrokClient.java":        "grok",
 	} {
-		fileText, err := os.ReadFile(filepath.Join(dir, "dev", "ax", providerFile))
+		fileText, err := os.ReadFile(filepath.Join(dir, "dev", "axllm", "ax", providerFile))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2276,21 +2390,21 @@ func TestJavaGeneratedCoreRuntime(t *testing.T) {
 			t.Fatalf("generated Java provider client %s missing provider marker or Core delegation", providerFile)
 		}
 	}
-	conformanceFile, err := os.ReadFile(filepath.Join(dir, "dev", "ax", "Conformance.java"))
+	conformanceFile, err := os.ReadFile(filepath.Join(dir, "dev", "axllm", "ax", "Conformance.java"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(conformanceFile), "public final class Conformance") || !strings.Contains(string(conformanceFile), "case \"ai_chat\"") || !strings.Contains(string(conformanceFile), "case \"agent_forward\"") || !strings.Contains(string(conformanceFile), "case \"agent_runtime_policy\"") || !strings.Contains(string(conformanceFile), "case \"agent_runtime_session\"") || !strings.Contains(string(conformanceFile), "case \"agent_runtime_adapter\"") || !strings.Contains(string(conformanceFile), "case \"agent_runtime_protocol\"") || !strings.Contains(string(conformanceFile), "case \"optimize\"") {
 		t.Fatal("generated Java conformance runner is missing expected fixture dispatch")
 	}
-	runtimeEnvelopeFile, err := os.ReadFile(filepath.Join(dir, "dev", "ax", "AxRuntimeEnvelope.java"))
+	runtimeEnvelopeFile, err := os.ReadFile(filepath.Join(dir, "dev", "axllm", "ax", "AxRuntimeEnvelope.java"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(runtimeEnvelopeFile), "public final class AxRuntimeEnvelope") || !strings.Contains(string(runtimeEnvelopeFile), "sessionClosed") || !strings.Contains(string(runtimeEnvelopeFile), "askClarification") {
 		t.Fatal("generated Java runtime adapter helpers are missing expected factories")
 	}
-	processRuntimeFile, err := os.ReadFile(filepath.Join(dir, "dev", "ax", "AxProcessCodeRuntime.java"))
+	processRuntimeFile, err := os.ReadFile(filepath.Join(dir, "dev", "axllm", "ax", "AxProcessCodeRuntime.java"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2317,7 +2431,7 @@ func TestCompileJavaGeneratedAxLibrary(t *testing.T) {
 		t.Fatal(err)
 	}
 	smoke := filepath.Join(dir, "Smoke.java")
-	err = os.WriteFile(smoke, []byte(`import dev.ax.*;
+	err = os.WriteFile(smoke, []byte(`import dev.axllm.ax.*;
 import java.util.*;
 
 public class Smoke {
@@ -2350,7 +2464,7 @@ public class Smoke {
 	if err != nil {
 		t.Fatal(err)
 	}
-	files, err := filepath.Glob(filepath.Join(dir, "dev", "ax", "*.java"))
+	files, err := filepath.Glob(filepath.Join(dir, "dev", "axllm", "ax", "*.java"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2374,7 +2488,7 @@ public class Smoke {
 	if !strings.Contains(string(out), "java-ok") {
 		t.Fatalf("unexpected java output: %s", out)
 	}
-	java = exec.Command(javaPath, "-cp", dir, "dev.ax.Conformance", signatureConformancePath(), schemaConformancePath(), validationConformancePath(), promptConformancePath(), axgenConformancePath(), axaiConformancePath(), axagentConformancePath(), axoptimizeConformancePath())
+	java = exec.Command(javaPath, "-cp", dir, "dev.axllm.ax.Conformance", signatureConformancePath(), schemaConformancePath(), validationConformancePath(), promptConformancePath(), axgenConformancePath(), axaiConformancePath(), axagentConformancePath(), axoptimizeConformancePath())
 	out, err = java.CombinedOutput()
 	if err != nil {
 		if strings.Contains(string(out), "Unable to locate a Java Runtime") {
@@ -2396,13 +2510,13 @@ func TestCppGeneratedCoreRuntime(t *testing.T) {
 	if err := Compile(bundle, "cpp", dir); err != nil {
 		t.Fatal(err)
 	}
-	header, err := os.ReadFile(filepath.Join(dir, "ax", "ax.hpp"))
+	header, err := os.ReadFile(filepath.Join(dir, "axllm", "axllm.hpp"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	headerText := string(header)
 	for _, want := range []string{
-		"namespace ax",
+		"namespace axllm",
 		"Value s(const std::string& signature)",
 		"class AIClient",
 		"class AxAIService",
@@ -2443,7 +2557,7 @@ func TestCppGeneratedCoreRuntime(t *testing.T) {
 			t.Fatalf("generated C++ header missing %q", want)
 		}
 	}
-	source, err := os.ReadFile(filepath.Join(dir, "ax", "ax.cpp"))
+	source, err := os.ReadFile(filepath.Join(dir, "axllm", "axllm.cpp"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2555,40 +2669,40 @@ func TestCompileCppGeneratedAxLibrary(t *testing.T) {
 		t.Fatal(err)
 	}
 	smoke := filepath.Join(dir, "smoke.cpp")
-	err = os.WriteFile(smoke, []byte(`#include "ax/ax.hpp"
+	err = os.WriteFile(smoke, []byte(`#include "axllm/axllm.hpp"
 #include <iostream>
 
 int main() {
-  ax::Value sig = ax::s("question:string -> answer:string");
-  ax::Value schema = ax::to_json_schema(ax::Core::get(sig, "outputs"));
-  ax::Value values = ax::Value::object();
-  ax::Core::set(values, "answer", "Paris");
-  ax::validate_output(ax::Core::get(sig, "outputs"), values);
-  ax::Value input = ax::Value::object();
-  ax::Core::set(input, "question", "Capital?");
-  ax::Value messages = ax::render_prompt(sig, input);
-  if (!ax::Core::truthy(messages) || !ax::Core::truthy(schema)) return 1;
-  struct FakeClient : ax::AIClient {
-    ax::Value complete(ax::Value) override {
-      return ax::object({{"content", "{\"answer\":\"Paris\"}"}});
+  axllm::Value sig = axllm::s("question:string -> answer:string");
+  axllm::Value schema = axllm::to_json_schema(axllm::Core::get(sig, "outputs"));
+  axllm::Value values = axllm::Value::object();
+  axllm::Core::set(values, "answer", "Paris");
+  axllm::validate_output(axllm::Core::get(sig, "outputs"), values);
+  axllm::Value input = axllm::Value::object();
+  axllm::Core::set(input, "question", "Capital?");
+  axllm::Value messages = axllm::render_prompt(sig, input);
+  if (!axllm::Core::truthy(messages) || !axllm::Core::truthy(schema)) return 1;
+  struct FakeClient : axllm::AIClient {
+    axllm::Value complete(axllm::Value) override {
+      return axllm::object({{"content", "{\"answer\":\"Paris\"}"}});
     }
   } client;
-  auto qa = ax::ax("question:string -> answer:string");
-  ax::Value out = qa.forward(client, ax::object({{"question", "Capital?"}}));
-  if (!ax::equal(ax::Core::get(out, "answer"), "Paris")) return 2;
-  struct AgentFakeClient : ax::AIClient {
+  auto qa = axllm::ax("question:string -> answer:string");
+  axllm::Value out = qa.forward(client, axllm::object({{"question", "Capital?"}}));
+  if (!axllm::equal(axllm::Core::get(out, "answer"), "Paris")) return 2;
+  struct AgentFakeClient : axllm::AIClient {
     int calls = 0;
-    ax::Value complete(ax::Value) override {
+    axllm::Value complete(axllm::Value) override {
       ++calls;
-      if (calls == 1) return ax::object({{"content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{}]}}"}});
-      if (calls == 2) return ax::object({{"content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{\"answer\":\"Paris\"}]}}"}});
-      return ax::object({{"content", "{\"answer\":\"Paris\"}"}});
+      if (calls == 1) return axllm::object({{"content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{}]}}"}});
+      if (calls == 2) return axllm::object({{"content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{\"answer\":\"Paris\"}]}}"}});
+      return axllm::object({{"content", "{\"answer\":\"Paris\"}"}});
     }
   } agent_client;
-  auto ag = ax::agent("question:string -> answer:string", ax::object({{"contextFields", ax::array({})}}));
-  ax::Value agent_out = ag.forward(agent_client, ax::object({{"question", "Capital?"}}));
-  if (!ax::equal(ax::Core::get(agent_out, "answer"), "Paris")) return 3;
-  auto service = ax::ai("openai", ax::object({{"model", "gpt-4.1-mini"}, {"api_key", "test-key"}}));
+  auto ag = axllm::agent("question:string -> answer:string", axllm::object({{"contextFields", axllm::array({})}}));
+  axllm::Value agent_out = ag.forward(agent_client, axllm::object({{"question", "Capital?"}}));
+  if (!axllm::equal(axllm::Core::get(agent_out, "answer"), "Paris")) return 3;
+  auto service = axllm::ai("openai", axllm::object({{"model", "gpt-4.1-mini"}, {"api_key", "test-key"}}));
   (void)service;
   std::cout << "cpp-ok\n";
 }
@@ -2596,7 +2710,7 @@ int main() {
 	if err != nil {
 		t.Fatal(err)
 	}
-	axSource := filepath.Join(dir, "ax", "ax.cpp")
+	axSource := filepath.Join(dir, "axllm", "axllm.cpp")
 	smokeBin := filepath.Join(dir, "smoke")
 	cmd := exec.Command(cpp, "-std=c++17", "-I", dir, axSource, smoke, "-o", smokeBin)
 	out, err := cmd.CombinedOutput()

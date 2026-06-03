@@ -119,7 +119,7 @@ Semantic parity does not mean TypeScript-shaped APIs everywhere.
 - Java should use packages, classes, records/builders, functional interfaces at
   callback boundaries, and `Map<String,Object>` only where the data is genuinely
   dynamic.
-- C++ should use `namespace ax`, value types, RAII-friendly ownership, standard
+- C++ should use `namespace axllm`, value types, RAII-friendly ownership, standard
   containers, `std::function` callback boundaries, and explicit exceptions.
 - Future Go should use packages, interfaces, structs, `context.Context` at IO
   boundaries, and explicit error returns.

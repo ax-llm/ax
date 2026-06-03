@@ -5546,7 +5546,7 @@ def _runtime_protocol_fixture_server_main():
 
 def _runtime_protocol_command(mode="normal"):
     env = {"AXIR_RUNTIME_PROTOCOL_FIXTURE_MODE": mode}
-    return ProcessCodeRuntime([sys.executable, "-m", "ax.conformance", "--runtime-protocol-fixture-server"], env=env)
+    return ProcessCodeRuntime([sys.executable, "-m", "axllm.conformance", "--runtime-protocol-fixture-server"], env=env)
 
 
 def run_fixtures(paths):
@@ -7186,7 +7186,7 @@ def main(argv=None):
         _runtime_protocol_fixture_server_main()
         return
     if not argv:
-        raise SystemExit("usage: python -m ax.conformance <fixture-or-dir>...")
+        raise SystemExit("usage: python -m axllm.conformance <fixture-or-dir>...")
     for result in run_fixtures(argv):
         print("ok", result["name"])
 

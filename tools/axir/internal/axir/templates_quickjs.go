@@ -2,7 +2,7 @@ package axir
 
 const pyJavaScriptQuickJSProfilePythonExample = `import os
 
-from ax import ProcessCodeRuntime, agent
+from axllm import ProcessCodeRuntime, agent
 
 
 class FakeClient:
@@ -145,10 +145,10 @@ finally:
 print("python-javascript-quickjs-profile-ok runtime-behavior-parity-ok")
 `
 
-const javaQuickJSCodeRuntime = `package dev.ax.runtime.quickjs;
+const javaQuickJSCodeRuntime = `package dev.axllm.ax.runtime.quickjs;
 
-import dev.ax.AxCodeRuntime;
-import dev.ax.AxCodeSession;
+import dev.axllm.ax.AxCodeRuntime;
+import dev.axllm.ax.AxCodeSession;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -210,7 +210,7 @@ public final class AxQuickJsCodeRuntime implements AxCodeRuntime, AutoCloseable 
 }
 `
 
-const javaQuickJSHostCallable = `package dev.ax.runtime.quickjs;
+const javaQuickJSHostCallable = `package dev.axllm.ax.runtime.quickjs;
 
 @FunctionalInterface
 public interface AxQuickJsHostCallable {
@@ -218,10 +218,10 @@ public interface AxQuickJsHostCallable {
 }
 `
 
-const javaQuickJSCodeSession = `package dev.ax.runtime.quickjs;
+const javaQuickJSCodeSession = `package dev.axllm.ax.runtime.quickjs;
 
-import dev.ax.AxCodeSession;
-import dev.ax.Json;
+import dev.axllm.ax.AxCodeSession;
+import dev.axllm.ax.Json;
 import io.roastedroot.quickjs4j.core.Builtins;
 import io.roastedroot.quickjs4j.core.Engine;
 import io.roastedroot.quickjs4j.core.GuestFunction;
@@ -473,10 +473,10 @@ function __ax_run(payloadJson) {
 }
 `
 
-const javaQuickJSProtocolServer = `package dev.ax.runtime.quickjs;
+const javaQuickJSProtocolServer = `package dev.axllm.ax.runtime.quickjs;
 
-import dev.ax.AxCodeSession;
-import dev.ax.Json;
+import dev.axllm.ax.AxCodeSession;
+import dev.axllm.ax.Json;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
@@ -644,8 +644,8 @@ public final class AxQuickJsProtocolServer {
 }
 `
 
-const javaJavaScriptQuickJSProfileExample = `import dev.ax.*;
-import dev.ax.runtime.quickjs.*;
+const javaJavaScriptQuickJSProfileExample = `import dev.axllm.ax.*;
+import dev.axllm.ax.runtime.quickjs.*;
 import java.util.*;
 
 public final class JavaScriptQuickJsExample {
@@ -807,7 +807,7 @@ public final class JavaScriptQuickJsExample {
 
 const javaQuickJSProfilePom = `<project xmlns="http://maven.apache.org/POM/4.0.0">
   <modelVersion>4.0.0</modelVersion>
-  <groupId>dev.ax.generated</groupId>
+  <groupId>dev.axllm.ax.generated</groupId>
   <artifactId>axir-quickjs-profile-example</artifactId>
   <version>0.1.0</version>
   <dependencies>
@@ -879,7 +879,7 @@ repository under ` + "`AXIR_QUICKJS4J_WORKDIR`" + ` by default; set
 ` + "`AXIR_QUICKJS4J_M2_REPO`" + ` to override it.
 
 Python profile verification can point ` + "`AXIR_QUICKJS_RUNTIME_SERVER`" + ` at
-` + "`java -cp ... dev.ax.runtime.quickjs.AxQuickJsProtocolServer`" + ` explicitly. When
+` + "`java -cp ... dev.axllm.ax.runtime.quickjs.AxQuickJsProtocolServer`" + ` explicitly. When
 that variable is not set, ` + "`axir verify --runtime-profiles javascript-quickjs`" + `
 auto-compiles and runs this generated Java protocol server whenever the
 QuickJS4J classpath is available.
@@ -906,13 +906,13 @@ inspect/snapshot/patch, runtime errors, and session-closed normalization.
 
 const cppQuickJSRuntimeHeader = `#pragma once
 
-#include "ax/ax.hpp"
+#include "axllm/axllm.hpp"
 
 extern "C" {
 #include <quickjs.h>
 }
 
-namespace ax::runtime::quickjs {
+namespace axllm::runtime::quickjs {
 
 using HostCallable = std::function<Value(Value)>;
 
@@ -953,16 +953,16 @@ class QuickJsCodeRuntime : public AxCodeRuntime {
   std::map<std::string, HostCallable> host_callables_;
 };
 
-}  // namespace ax::runtime::quickjs
+}  // namespace axllm::runtime::quickjs
 `
 
-const cppQuickJSRuntimeSource = `#include "ax/runtime/quickjs/quickjs_runtime.hpp"
+const cppQuickJSRuntimeSource = `#include "axllm/runtime/quickjs/quickjs_runtime.hpp"
 
 #include <chrono>
 #include <cstring>
 #include <vector>
 
-namespace ax::runtime::quickjs {
+namespace axllm::runtime::quickjs {
 
 static std::vector<std::pair<std::string, Value>> value_entries(Value value) {
   std::vector<std::pair<std::string, Value>> out;
@@ -1281,162 +1281,162 @@ AxCodeSession* QuickJsCodeRuntime::create_session(Value globals, Value options) 
 
 Value QuickJsCodeRuntime::runtime_policy() const { return runtime_policy_; }
 
-}  // namespace ax::runtime::quickjs
+}  // namespace axllm::runtime::quickjs
 `
 
-const cppJavaScriptQuickJSProfileExample = `#include "ax/ax.hpp"
-#include "ax/runtime/quickjs/quickjs_runtime.hpp"
+const cppJavaScriptQuickJSProfileExample = `#include "axllm/axllm.hpp"
+#include "axllm/runtime/quickjs/quickjs_runtime.hpp"
 #include <iostream>
 #include <vector>
 
-static bool is_number(const ax::Value& value, const std::string& expected) {
-  return ax::display(value) == expected;
+static bool is_number(const axllm::Value& value, const std::string& expected) {
+  return axllm::display(value) == expected;
 }
 
-struct ProfileAIClient : ax::AIClient {
-  std::vector<ax::Value> responses;
-  std::vector<ax::Value> requests;
+struct ProfileAIClient : axllm::AIClient {
+  std::vector<axllm::Value> responses;
+  std::vector<axllm::Value> requests;
   std::size_t index = 0;
 
-  explicit ProfileAIClient(std::initializer_list<ax::Value> values) : responses(values) {}
+  explicit ProfileAIClient(std::initializer_list<axllm::Value> values) : responses(values) {}
 
-  ax::Value complete(ax::Value request) override {
+  axllm::Value complete(axllm::Value request) override {
     requests.push_back(request);
-    if (index >= responses.size()) throw ax::AxError("runtime", "fake client exhausted");
+    if (index >= responses.size()) throw axllm::AxError("runtime", "fake client exhausted");
     return responses[index++];
   }
 };
 
 int main() {
-  ax::runtime::quickjs::QuickJsCodeRuntime runtime;
+  axllm::runtime::quickjs::QuickJsCodeRuntime runtime;
   runtime
-    .register_callable("search", [](ax::Value params) {
-      return ax::object({{"title", "Docs"}, {"query", ax::Core::get(params, "query", "")}});
+    .register_callable("search", [](axllm::Value params) {
+      return axllm::object({{"title", "Docs"}, {"query", axllm::Core::get(params, "query", "")}});
     })
-    .register_callable("badTool", [](ax::Value) -> ax::Value {
-      throw ax::AxError("runtime", "tool failed");
+    .register_callable("badTool", [](axllm::Value) -> axllm::Value {
+      throw axllm::AxError("runtime", "tool failed");
     });
-  ax::Value policy = runtime.runtime_policy();
-  if (!ax::equal(ax::Core::get(policy, "allowFilesystem"), false) || !ax::equal(ax::Core::get(policy, "allowNetwork"), false)) return 28;
+  axllm::Value policy = runtime.runtime_policy();
+  if (!axllm::equal(axllm::Core::get(policy, "allowFilesystem"), false) || !axllm::equal(axllm::Core::get(policy, "allowNetwork"), false)) return 28;
 
-  auto qa = ax::agent("question:string -> answer:string", ax::object({{"runtime", ax::object({{"language", "JavaScript"}})}}));
-  ax::Value out = qa.test(runtime, "answer = inputs.question; final({answer})", ax::object({{"question", "quickjs"}}));
-  if (!ax::equal(ax::Core::get(out, "kind"), "final")) return 1;
-  ax::Value payload = ax::Core::get(out, "completion_payload", ax::Value::object());
-  ax::Value args = ax::Core::get(payload, "args", ax::Value::array());
-  if (!ax::equal(ax::Core::get(ax::Core::get(args, 0), "answer"), "quickjs")) return 2;
+  auto qa = axllm::agent("question:string -> answer:string", axllm::object({{"runtime", axllm::object({{"language", "JavaScript"}})}}));
+  axllm::Value out = qa.test(runtime, "answer = inputs.question; final({answer})", axllm::object({{"question", "quickjs"}}));
+  if (!axllm::equal(axllm::Core::get(out, "kind"), "final")) return 1;
+  axllm::Value payload = axllm::Core::get(out, "completion_payload", axllm::Value::object());
+  axllm::Value args = axllm::Core::get(payload, "args", axllm::Value::array());
+  if (!axllm::equal(axllm::Core::get(axllm::Core::get(args, 0), "answer"), "quickjs")) return 2;
 
-  auto forward_agent = ax::agent(
+  auto forward_agent = axllm::agent(
     "question:string -> answer:string",
-    ax::object({
-      {"runtime", ax::object({{"language", "JavaScript"}})},
+    axllm::object({
+      {"runtime", axllm::object({{"language", "JavaScript"}})},
       {"functionDiscovery", true},
       {"memoriesMode", true},
-      {"memory_search_results", ax::object({{"prefs", ax::array({ax::object({{"id", "mem1"}, {"content", "likes concise docs"}})})}})},
-      {"functions", ax::array({ax::object({{"name", "search"}, {"description", "Search docs"}})})},
+      {"memory_search_results", axllm::object({{"prefs", axllm::array({axllm::object({{"id", "mem1"}, {"content", "likes concise docs"}})})}})},
+      {"functions", axllm::array({axllm::object({{"name", "search"}, {"description", "Search docs"}})})},
     })
   );
   ProfileAIClient forward_client({
-    ax::object({{"content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Run actor\",{}]}}"}}),
-    ax::object({{"content", "{\"javascriptCode\":\"counter = 41; discover({tools:['search']})\"}"}}),
-    ax::object({{"content", "{\"javascriptCode\":\"recall('prefs')\"}"}}),
-    ax::object({{"content", "{\"javascriptCode\":\"const hit = search({query: inputs.question}); final('Answer', {answer: hit.title})\"}"}}),
-    ax::object({{"content", "{\"answer\":\"Docs\"}"}}),
+    axllm::object({{"content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Run actor\",{}]}}"}}),
+    axllm::object({{"content", "{\"javascriptCode\":\"counter = 41; discover({tools:['search']})\"}"}}),
+    axllm::object({{"content", "{\"javascriptCode\":\"recall('prefs')\"}"}}),
+    axllm::object({{"content", "{\"javascriptCode\":\"const hit = search({query: inputs.question}); final('Answer', {answer: hit.title})\"}"}}),
+    axllm::object({{"content", "{\"answer\":\"Docs\"}"}}),
   });
-  ax::Value forward_out = forward_agent.forward(
+  axllm::Value forward_out = forward_agent.forward(
     forward_client,
-    ax::object({{"question", "quickjs"}}),
-    ax::object({{"runtime", ax::Core::code_runtime_ref(runtime)}, {"max_actor_steps", 4}})
+    axllm::object({{"question", "quickjs"}}),
+    axllm::object({{"runtime", axllm::Core::code_runtime_ref(runtime)}, {"max_actor_steps", 4}})
   );
-  if (!ax::equal(ax::Core::get(forward_out, "answer"), "Docs")) return 17;
-  std::string action_log_text = ax::stringify(forward_agent.get_action_log());
+  if (!axllm::equal(axllm::Core::get(forward_out, "answer"), "Docs")) return 17;
+  std::string action_log_text = axllm::stringify(forward_agent.get_action_log());
   if (action_log_text.find("discover") == std::string::npos || action_log_text.find("recall") == std::string::npos || action_log_text.find("Docs") == std::string::npos) return 18;
-  if (ax::stringify(forward_agent.export_runtime_state()).find("likes concise docs") == std::string::npos) return 20;
-  std::string forward_trace = ax::stringify(forward_agent.export_trace());
+  if (axllm::stringify(forward_agent.export_runtime_state()).find("likes concise docs") == std::string::npos) return 20;
+  std::string forward_trace = axllm::stringify(forward_agent.export_trace());
   for (const auto& kind : {"runtime_execute", "discover", "recall", "final"}) {
     if (forward_trace.find(kind) == std::string::npos) return 21;
   }
-  auto restored_agent = ax::agent("question:string -> answer:string", ax::object({{"runtime", ax::object({{"language", "JavaScript"}})}}));
+  auto restored_agent = axllm::agent("question:string -> answer:string", axllm::object({{"runtime", axllm::object({{"language", "JavaScript"}})}}));
   restored_agent.restore_runtime_state(forward_agent.export_runtime_state());
-  if (ax::stringify(restored_agent.export_runtime_state()).find("likes concise docs") == std::string::npos) return 22;
+  if (axllm::stringify(restored_agent.export_runtime_state()).find("likes concise docs") == std::string::npos) return 22;
 
-  auto guide_agent = ax::agent("question:string -> answer:string", ax::object({{"runtime", ax::object({{"language", "JavaScript"}})}}));
+  auto guide_agent = axllm::agent("question:string -> answer:string", axllm::object({{"runtime", axllm::object({{"language", "JavaScript"}})}}));
   ProfileAIClient guide_client({
-    ax::object({{"content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Guide\",{}]}}"}}),
-    ax::object({{"content", "{\"javascriptCode\":\"guideAgent('Prefer concise final.')\"}"}}),
-    ax::object({{"content", "{\"javascriptCode\":\"final('Answer', {answer: 'Concise'})\"}"}}),
-    ax::object({{"content", "{\"answer\":\"Concise\"}"}}),
+    axllm::object({{"content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Guide\",{}]}}"}}),
+    axllm::object({{"content", "{\"javascriptCode\":\"guideAgent('Prefer concise final.')\"}"}}),
+    axllm::object({{"content", "{\"javascriptCode\":\"final('Answer', {answer: 'Concise'})\"}"}}),
+    axllm::object({{"content", "{\"answer\":\"Concise\"}"}}),
   });
-  ax::Value guide_out = guide_agent.forward(
+  axllm::Value guide_out = guide_agent.forward(
     guide_client,
-    ax::object({{"question", "quickjs"}}),
-    ax::object({{"runtime", ax::Core::code_runtime_ref(runtime)}, {"max_actor_steps", 3}})
+    axllm::object({{"question", "quickjs"}}),
+    axllm::object({{"runtime", axllm::Core::code_runtime_ref(runtime)}, {"max_actor_steps", 3}})
   );
-  if (!ax::equal(ax::Core::get(guide_out, "answer"), "Concise")) return 23;
-  std::string guide_text = ax::stringify(guide_agent.get_action_log()) + ax::stringify(guide_agent.export_trace());
+  if (!axllm::equal(axllm::Core::get(guide_out, "answer"), "Concise")) return 23;
+  std::string guide_text = axllm::stringify(guide_agent.get_action_log()) + axllm::stringify(guide_agent.export_trace());
   if (guide_text.find("guide_agent") == std::string::npos || guide_text.find("Prefer concise final.") == std::string::npos) return 24;
 
-  auto clarification_agent = ax::agent("question:string -> answer:string", ax::object({{"runtime", ax::object({{"language", "JavaScript"}})}}));
+  auto clarification_agent = axllm::agent("question:string -> answer:string", axllm::object({{"runtime", axllm::object({{"language", "JavaScript"}})}}));
   ProfileAIClient clarification_client({
-    ax::object({{"content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Ask\",{}]}}"}}),
-    ax::object({{"content", "{\"javascriptCode\":\"askClarification('Need detail?')\"}"}}),
+    axllm::object({{"content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Ask\",{}]}}"}}),
+    axllm::object({{"content", "{\"javascriptCode\":\"askClarification('Need detail?')\"}"}}),
   });
   bool saw_clarification = false;
   try {
     clarification_agent.forward(
       clarification_client,
-      ax::object({{"question", "quickjs"}}),
-      ax::object({{"runtime", ax::Core::code_runtime_ref(runtime)}, {"max_actor_steps", 1}})
+      axllm::object({{"question", "quickjs"}}),
+      axllm::object({{"runtime", axllm::Core::code_runtime_ref(runtime)}, {"max_actor_steps", 1}})
     );
-  } catch (const ax::AxError& error) {
+  } catch (const axllm::AxError& error) {
     saw_clarification = std::string(error.what()).find("Need detail") != std::string::npos;
   }
   if (!saw_clarification) return 19;
 
-  ax::AxCodeSession* session = runtime.create_session(
-    ax::object({{"inputs", ax::object({{"question", "quickjs"}})}}),
-    ax::object({{"reservedNames", ax::array({"inputs"})}})
+  axllm::AxCodeSession* session = runtime.create_session(
+    axllm::object({{"inputs", axllm::object({{"question", "quickjs"}})}}),
+    axllm::object({{"reservedNames", axllm::array({"inputs"})}})
   );
-  ax::Value step1 = session->execute("counter = (typeof counter === 'undefined' ? 0 : counter) + 1; final({counter})");
-  ax::Value step2 = session->execute("counter = counter + 1; final({counter})");
-  if (!ax::equal(ax::Core::get(step1, "type"), "final") || !ax::equal(ax::Core::get(step2, "type"), "final")) return 3;
-  ax::Value step2_args = ax::Core::get(step2, "args", ax::Value::array());
-  if (!is_number(ax::Core::get(ax::Core::get(step2_args, 0), "counter"), "2")) return 4;
-  ax::Value step3 = session->execute("final({answer: inputs.question, counter})");
-  if (!ax::equal(ax::Core::get(ax::Core::get(ax::Core::get(step3, "args", ax::Value::array()), 0), "answer"), "quickjs")) return 5;
-  if (!ax::equal(ax::Core::get(session->execute("askClarification('more?')"), "type"), "askClarification")) return 6;
-  if (!ax::equal(ax::Core::get(session->execute("discover({tools:['search']})"), "kind"), "discover")) return 7;
-  if (!ax::equal(ax::Core::get(session->execute("recall({query:'docs'})"), "kind"), "recall")) return 8;
-  if (!ax::equal(ax::Core::get(session->execute("used('mem1', 'helpful')"), "kind"), "used")) return 9;
-  if (!ax::equal(ax::Core::get(session->execute("reportSuccess('ok')"), "kind"), "status")) return 10;
-  ax::AxCodeSession* host_session = runtime.create_session(
-    ax::object({{"inputs", ax::object({{"question", "quickjs"}})}}),
-    ax::object({{"reservedNames", ax::array({"inputs"})}})
+  axllm::Value step1 = session->execute("counter = (typeof counter === 'undefined' ? 0 : counter) + 1; final({counter})");
+  axllm::Value step2 = session->execute("counter = counter + 1; final({counter})");
+  if (!axllm::equal(axllm::Core::get(step1, "type"), "final") || !axllm::equal(axllm::Core::get(step2, "type"), "final")) return 3;
+  axllm::Value step2_args = axllm::Core::get(step2, "args", axllm::Value::array());
+  if (!is_number(axllm::Core::get(axllm::Core::get(step2_args, 0), "counter"), "2")) return 4;
+  axllm::Value step3 = session->execute("final({answer: inputs.question, counter})");
+  if (!axllm::equal(axllm::Core::get(axllm::Core::get(axllm::Core::get(step3, "args", axllm::Value::array()), 0), "answer"), "quickjs")) return 5;
+  if (!axllm::equal(axllm::Core::get(session->execute("askClarification('more?')"), "type"), "askClarification")) return 6;
+  if (!axllm::equal(axllm::Core::get(session->execute("discover({tools:['search']})"), "kind"), "discover")) return 7;
+  if (!axllm::equal(axllm::Core::get(session->execute("recall({query:'docs'})"), "kind"), "recall")) return 8;
+  if (!axllm::equal(axllm::Core::get(session->execute("used('mem1', 'helpful')"), "kind"), "used")) return 9;
+  if (!axllm::equal(axllm::Core::get(session->execute("reportSuccess('ok')"), "kind"), "status")) return 10;
+  axllm::AxCodeSession* host_session = runtime.create_session(
+    axllm::object({{"inputs", axllm::object({{"question", "quickjs"}})}}),
+    axllm::object({{"reservedNames", axllm::array({"inputs"})}})
   );
-  ax::Value bridged = host_session->execute("const hit = search({query: inputs.question}); final({title: hit.title})");
-  if (!ax::equal(ax::Core::get(ax::Core::get(ax::Core::get(bridged, "args", ax::Value::array()), 0), "title"), "Docs")) return 15;
-  ax::Value failed_call = host_session->execute("final({error: badTool({}).error})");
-  if (!ax::equal(ax::Core::get(ax::Core::get(ax::Core::get(failed_call, "args", ax::Value::array()), 0), "error"), "tool failed")) return 16;
+  axllm::Value bridged = host_session->execute("const hit = search({query: inputs.question}); final({title: hit.title})");
+  if (!axllm::equal(axllm::Core::get(axllm::Core::get(axllm::Core::get(bridged, "args", axllm::Value::array()), 0), "title"), "Docs")) return 15;
+  axllm::Value failed_call = host_session->execute("final({error: badTool({}).error})");
+  if (!axllm::equal(axllm::Core::get(axllm::Core::get(axllm::Core::get(failed_call, "args", axllm::Value::array()), 0), "error"), "tool failed")) return 16;
   host_session->close();
   delete host_session;
-  ax::Value ambient = session->execute("final({fetchType: typeof fetch, requireType: typeof require, processType: typeof process})");
-  ax::Value ambient_payload = ax::Core::get(ax::Core::get(ax::Core::get(ambient, "args", ax::Value::array()), 0), "fetchType");
-  if (!ax::equal(ambient_payload, "undefined")) return 29;
-  ax::runtime::quickjs::QuickJsCodeRuntime capped_runtime(ax::object({{"maxSnapshotBytes", 64}}));
-  ax::AxCodeSession* capped_session = capped_runtime.create_session(ax::Value::object(), ax::Value::object());
+  axllm::Value ambient = session->execute("final({fetchType: typeof fetch, requireType: typeof require, processType: typeof process})");
+  axllm::Value ambient_payload = axllm::Core::get(axllm::Core::get(axllm::Core::get(ambient, "args", axllm::Value::array()), 0), "fetchType");
+  if (!axllm::equal(ambient_payload, "undefined")) return 29;
+  axllm::runtime::quickjs::QuickJsCodeRuntime capped_runtime(axllm::object({{"maxSnapshotBytes", 64}}));
+  axllm::AxCodeSession* capped_session = capped_runtime.create_session(axllm::Value::object(), axllm::Value::object());
   capped_session->execute("big = 'x'.repeat(1000); final({ok:true})");
-  ax::Value capped_snapshot = capped_session->snapshot_globals();
-  if (!ax::equal(ax::Core::get(ax::Core::get(capped_snapshot, "bindings", ax::Value::object()), "__ax_snapshot_truncated"), true)) return 30;
+  axllm::Value capped_snapshot = capped_session->snapshot_globals();
+  if (!axllm::equal(axllm::Core::get(axllm::Core::get(capped_snapshot, "bindings", axllm::Value::object()), "__ax_snapshot_truncated"), true)) return 30;
   capped_session->close();
   delete capped_session;
   session->execute("safe = 7; final({safe})");
-  ax::Value snapshot = session->snapshot_globals();
-  if (!ax::Core::get(ax::Core::get(snapshot, "bindings", ax::Value::object()), "inputs").is_null()) return 11;
-  session->patch_globals(ax::object({{"bindings", ax::object({{"safe", 9}})}}));
-  if (!is_number(ax::Core::get(session->inspect(), "safe"), "9")) return 12;
-  if (!ax::equal(ax::Core::get(session->execute("throw new Error('boom')"), "error_category"), "runtime")) return 13;
+  axllm::Value snapshot = session->snapshot_globals();
+  if (!axllm::Core::get(axllm::Core::get(snapshot, "bindings", axllm::Value::object()), "inputs").is_null()) return 11;
+  session->patch_globals(axllm::object({{"bindings", axllm::object({{"safe", 9}})}}));
+  if (!is_number(axllm::Core::get(session->inspect(), "safe"), "9")) return 12;
+  if (!axllm::equal(axllm::Core::get(session->execute("throw new Error('boom')"), "error_category"), "runtime")) return 13;
   session->close();
-  if (!ax::equal(ax::Core::get(session->execute("final({})"), "error_category"), "session_closed")) return 14;
+  if (!axllm::equal(axllm::Core::get(session->execute("final({})"), "error_category"), "session_closed")) return 14;
   delete session;
 
   std::cout << "cpp-javascript-quickjs-profile-ok runtime-behavior-parity-ok\n";
