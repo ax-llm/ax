@@ -1,0 +1,99 @@
+{
+  "action_log": [
+    {
+      "_durableReads": ["db", "search", "query"],
+      "_durableWrites": ["rows"],
+      "_functionCalls": [
+        {
+          "arguments": {
+            "query": "widgets"
+          },
+          "name": "search",
+          "qualifiedName": "db.search",
+          "result": [
+            {
+              "id": 1
+            }
+          ]
+        }
+      ],
+      "code": "const rows = await db.search({ query: \"widgets\" })",
+      "output": "[{\"id\":1}]",
+      "producedVars": ["rows"],
+      "referencedVars": ["db", "search"],
+      "stateDelta": "Updated live runtime values: rows; callables: db.search",
+      "stepKind": "transform",
+      "summary": "[SUMMARY]: Transform step. Updated live runtime values: rows; callables: db.search. Result: [{\"id\":1}].",
+      "tags": [],
+      "turn": 1
+    },
+    {
+      "_directQualifiedCalls": ["console.log"],
+      "_durableReads": ["rows", "length"],
+      "_durableWrites": [],
+      "code": "console.log(rows.length)",
+      "output": "1",
+      "producedVars": [],
+      "referencedVars": ["rows"],
+      "stateDelta": "read: rows",
+      "stepKind": "explore",
+      "summary": "[SUMMARY]: Explore step. read: rows. Result: 1.",
+      "tags": [],
+      "turn": 2
+    }
+  ],
+  "context_operation": "prepare",
+  "expected_context_result_subset": {
+    "exported": {
+      "provenance": {
+        "rows": {
+          "code": "const rows = await db.search({ query: \"widgets\" })",
+          "createdTurn": 1,
+          "lastReadTurn": 2,
+          "source": "db.search",
+          "stepKind": "transform"
+        }
+      }
+    },
+    "prepared": {
+      "liveRuntimeState": "Current runtime state:\nrows: array (1 items) = [{\"id\":1}] [from t1 via db.search; read t2]\nstaleNote: string (6 chars) = \"unused\""
+    }
+  },
+  "kind": "agent_runtime_policy",
+  "name": "context-runtime-state-provenance-summary",
+  "options": {
+    "runtime": {
+      "language": "JavaScript"
+    },
+    "contextPolicy": {
+      "budget": "compact",
+      "preset": "adaptive"
+    }
+  },
+  "provenance": {
+    "rows": {
+      "code": "const rows = await db.search({ query: \"widgets\" })",
+      "createdTurn": 1,
+      "lastReadTurn": 2,
+      "source": "db.search",
+      "stepKind": "transform"
+    }
+  },
+  "runtime_session_state": {
+    "entries": [
+      {
+        "name": "rows",
+        "preview": "[{\"id\":1}]",
+        "size": "1 items",
+        "type": "array"
+      },
+      {
+        "name": "staleNote",
+        "preview": "\"unused\"",
+        "size": "6 chars",
+        "type": "string"
+      }
+    ]
+  },
+  "signature": "question:string -> answer:string"
+}

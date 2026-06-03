@@ -1,0 +1,49 @@
+{
+  "action_log": [
+    {
+      "code": "triggerError()",
+      "output": "Error: Execution timed out",
+      "stateDelta": "Runtime error; no durable runtime state update",
+      "stepKind": "error",
+      "tags": ["error"],
+      "turn": 1
+    },
+    {
+      "code": "var y = 99; y",
+      "output": "99",
+      "producedVars": ["y"],
+      "referencedVars": [],
+      "stateDelta": "Updated live runtime values: y",
+      "stepKind": "transform",
+      "tags": [],
+      "turn": 2
+    }
+  ],
+  "context_operation": "manage_context",
+  "expected_context_events_subset": [
+    {
+      "kind": "tombstone_created",
+      "resolvedByTurn": 2,
+      "source": "deterministic",
+      "stage": "executor",
+      "summaryChars": 59,
+      "turn": 1
+    }
+  ],
+  "expected_context_result_subset": {
+    "prepared": {
+      "actionLog": "[TOMBSTONE]: Resolved Error: Execution timed out in turn 2.\n\n```javascript\nvar y = 99; y\n```\nResult:\n99"
+    }
+  },
+  "kind": "agent_runtime_policy",
+  "name": "context-tombstone-resolved-error-adaptive",
+  "options": {
+    "runtime": {
+      "language": "JavaScript"
+    },
+    "contextPolicy": {
+      "preset": "adaptive"
+    }
+  },
+  "signature": "question:string -> answer:string"
+}

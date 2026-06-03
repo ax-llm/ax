@@ -1,0 +1,12 @@
+{
+  "context_operation": "resolve_policy",
+  "expected_error_contains": "contextPolicy now only supports { preset?, budget? }. Use contextPolicy.budget instead of contextPolicy.state.*, contextPolicy.checkpoints.*, or other manual cutoff options.",
+  "kind": "agent_runtime_policy",
+  "name": "context-policy-prune-errors-migration-error",
+  "options": {
+    "contextPolicy": {
+      "pruneErrors": true
+    }
+  },
+  "signature": "question:string -> answer:string"
+}

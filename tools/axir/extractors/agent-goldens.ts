@@ -8,14 +8,18 @@ import {
   selectActorModelFromPolicy,
 } from '../../../src/ax/agent/config.js';
 import {
-  buildActionLogParts,
-  type ActionLogEntry,
-} from '../../../src/ax/agent/contextManager.js';
-import {
   classifyContextPressure,
   renderContextPressure,
 } from '../../../src/ax/agent/contextEvents.js';
+import {
+  type ActionLogEntry,
+  buildActionLogParts,
+  buildRuntimeStateProvenance,
+  extractWorkingCodeState,
+  manageContext,
+} from '../../../src/ax/agent/contextManager.js';
 import { getRuntimeLanguageInfo } from '../../../src/ax/agent/rlm.js';
+import { formatStructuredRuntimeState } from '../../../src/ax/agent/runtime.js';
 import { visibleRuntimePrimitives } from '../../../src/ax/agent/runtimePrimitives.js';
 import {
   computeDynamicRuntimeChars,
@@ -592,10 +596,9 @@ writeFixture('context-policy-state-migration-error', {
     contextPolicy: { state: { maxEntries: 2 } },
   },
   context_operation: 'resolve_policy',
-  expected_error_contains:
-    errorMessage(() =>
-      resolveContextPolicy({ state: { maxEntries: 2 } } as never)
-    ),
+  expected_error_contains: errorMessage(() =>
+    resolveContextPolicy({ state: { maxEntries: 2 } } as never)
+  ),
 });
 
 writeFixture('context-policy-checkpoints-migration-error', {
@@ -631,6 +634,18 @@ writeFixture('context-policy-unknown-key-migration-error', {
   context_operation: 'resolve_policy',
   expected_error_contains: errorMessage(() =>
     resolveContextPolicy({ maxEntries: 2 } as never)
+  ),
+});
+
+writeFixture('context-policy-prune-errors-migration-error', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  options: {
+    contextPolicy: { pruneErrors: true },
+  },
+  context_operation: 'resolve_policy',
+  expected_error_contains: errorMessage(() =>
+    resolveContextPolicy({ pruneErrors: true } as never)
   ),
 });
 
@@ -843,7 +858,8 @@ writeFixture('context-runtime-state-summary', {
   },
   expected_context_result_subset: {
     prepared: {
-      liveRuntimeState: 'Current runtime state:\n- alpha: 1\n- beta: {"ok":true}',
+      liveRuntimeState:
+        'Current runtime state:\n- alpha: 1\n- beta: {"ok":true}',
     },
   },
 });
@@ -892,6 +908,325 @@ writeFixture('context-checkpoint-fallback-created', {
       coveredTurns: [1],
     },
   ],
+});
+
+const tombstoneOriginalActionLog: ActionLogEntry[] = [
+  {
+    turn: 1,
+    code: 'triggerError()',
+    output: 'Error: Execution timed out',
+    tags: ['error'],
+    stepKind: 'error',
+    stateDelta: 'Runtime error; no durable runtime state update',
+  },
+  {
+    turn: 2,
+    code: 'var y = 99; y',
+    output: '99',
+    tags: [],
+    producedVars: ['y'],
+    referencedVars: [],
+    stepKind: 'transform',
+    stateDelta: 'Updated live runtime values: y',
+  },
+];
+const tombstoneManagedActionLog = JSON.parse(
+  JSON.stringify(tombstoneOriginalActionLog)
+) as ActionLogEntry[];
+const tombstoneEvents: Json[] = [];
+await manageContext(
+  tombstoneManagedActionLog,
+  1,
+  resolveContextPolicy({ preset: 'adaptive' }),
+  undefined,
+  undefined,
+  {
+    stage: 'executor',
+    onContextEvent: (event) => {
+      tombstoneEvents.push(event as unknown as Json);
+    },
+  }
+);
+const tombstoneParts = buildActionLogParts(tombstoneManagedActionLog, {
+  actionReplay: 'adaptive',
+  recentFullActions: 2,
+  hygieneMode: 'proactive',
+});
+writeFixture('context-tombstone-resolved-error-adaptive', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  options: {
+    runtime: { language: 'JavaScript' },
+    contextPolicy: { preset: 'adaptive' },
+  },
+  context_operation: 'manage_context',
+  action_log: tombstoneOriginalActionLog as unknown as Json[],
+  expected_context_result_subset: {
+    prepared: {
+      actionLog: tombstoneParts.history,
+    },
+  },
+  expected_context_events_subset: tombstoneEvents,
+});
+
+const verboseTestOutput = [
+  'FAILED tests/auth.test.ts::rejects_bad_token - AssertionError: expected 401 got 200',
+  ...Array.from(
+    { length: 40 },
+    (_, index) => `verbose passing test log line ${index}`
+  ),
+  '================ 94 passed, 1 failed in 3.5s ================',
+].join('\n');
+const distillActionLog: ActionLogEntry[] = [
+  {
+    turn: 1,
+    code: 'const testOutput = await runTests(); console.log(testOutput)',
+    output: verboseTestOutput,
+    tags: [],
+    producedVars: ['testOutput'],
+    referencedVars: [],
+    stepKind: 'query',
+    stateDelta: 'Updated live runtime values: testOutput',
+  },
+  {
+    turn: 2,
+    code: 'console.log("middle")',
+    output: 'middle',
+    tags: [],
+    producedVars: [],
+    referencedVars: [],
+    stepKind: 'explore',
+    stateDelta:
+      'Inspected runtime state without creating durable runtime values',
+  },
+];
+const distillParts = buildActionLogParts(distillActionLog, {
+  actionReplay: 'minimal',
+  recentFullActions: 1,
+  hygieneMode: 'aggressive',
+});
+writeFixture('context-action-log-distilled-test-output', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  options: {
+    runtime: { language: 'JavaScript' },
+    contextPolicy: { preset: 'lean', budget: 'balanced' },
+  },
+  context_operation: 'prepare',
+  action_log: distillActionLog as unknown as Json[],
+  expected_context_result_subset: {
+    prepared: {
+      actionLog: distillParts.history,
+    },
+  },
+  expected_context_events_subset: [
+    {
+      kind: 'action_compacted',
+      stage: 'executor',
+      turn: 1,
+      mode: 'distill',
+      reason: 'structured_output',
+    },
+  ],
+});
+
+const checkpointWorkingEntries: ActionLogEntry[] = [
+  {
+    turn: 1,
+    code: 'const draft = "v1"',
+    output: 'draft ready',
+    tags: [],
+    producedVars: ['draft'],
+    referencedVars: [],
+    _durableReads: [],
+    stepKind: 'transform',
+    stateDelta: 'Updated live runtime values: draft',
+  },
+  {
+    turn: 2,
+    code: 'const finalDraft = draft + " polished"',
+    output: 'final ready',
+    tags: [],
+    producedVars: ['finalDraft'],
+    referencedVars: ['draft'],
+    _durableReads: ['draft'],
+    stepKind: 'transform',
+    stateDelta: 'Updated live runtime values: finalDraft; read: draft',
+  },
+];
+writeFixture('context-checkpoint-working-state-summary', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  context_operation: 'checkpoint_summary',
+  checkpoint_entries: checkpointWorkingEntries as unknown as Json[],
+  checkpoint_turns: [1, 2],
+  expected_context_result: {
+    summary: extractWorkingCodeState(checkpointWorkingEntries),
+  },
+});
+
+const provenanceActionLog: ActionLogEntry[] = [
+  {
+    turn: 1,
+    code: 'const rows = await db.search({ query: "widgets" })',
+    output: '[{"id":1}]',
+    tags: [],
+    producedVars: ['rows'],
+    referencedVars: ['db', 'search'],
+    _functionCalls: [
+      {
+        qualifiedName: 'db.search',
+        name: 'search',
+        arguments: { query: 'widgets' },
+        result: [{ id: 1 }],
+      },
+    ],
+    stepKind: 'transform',
+    stateDelta: 'Updated live runtime values: rows; callables: db.search',
+  },
+  {
+    turn: 2,
+    code: 'console.log(rows.length)',
+    output: '1',
+    tags: [],
+    producedVars: [],
+    referencedVars: ['rows'],
+    stepKind: 'explore',
+    stateDelta: 'read: rows',
+  },
+];
+const runtimeEntries = [
+  {
+    name: 'rows',
+    type: 'array',
+    size: '1 items',
+    preview: '[{"id":1}]',
+  },
+  {
+    name: 'staleNote',
+    type: 'string',
+    size: '6 chars',
+    preview: '"unused"',
+  },
+];
+const provenance = Object.fromEntries(
+  buildRuntimeStateProvenance(provenanceActionLog).entries()
+) as Json;
+const provenanceRuntimeState = `Current runtime state:\n${formatStructuredRuntimeState(
+  runtimeEntries,
+  buildRuntimeStateProvenance(provenanceActionLog),
+  { maxEntries: 8, maxChars: 1200 }
+)}`;
+writeFixture('context-runtime-state-provenance-summary', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  options: {
+    runtime: { language: 'JavaScript' },
+    contextPolicy: { preset: 'adaptive', budget: 'compact' },
+  },
+  context_operation: 'prepare',
+  action_log: provenanceActionLog as unknown as Json[],
+  provenance,
+  runtime_session_state: {
+    entries: runtimeEntries,
+  },
+  expected_context_result_subset: {
+    prepared: {
+      liveRuntimeState: provenanceRuntimeState,
+    },
+    exported: {
+      provenance,
+    },
+  },
+});
+
+writeFixture('context-full-preset-omits-pressure-field', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  options: {
+    runtime: { language: 'JavaScript' },
+    contextPolicy: { preset: 'full' },
+  },
+  context_operation: 'prepare',
+  action_log: compactingActionLog as unknown as Json[],
+  expected_context_result_subset: {
+    prepared: {
+      contextPressure: '',
+    },
+  },
+});
+
+writeFixture('context-export-restore-preserves-provenance-state', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  options: {
+    runtime: { language: 'JavaScript' },
+    contextPolicy: { preset: 'adaptive' },
+  },
+  restore_runtime_state: {
+    action_log: provenanceActionLog as unknown as Json[],
+    checkpoint_state: {
+      fingerprint: 'checkpoint-1',
+      turns: [1],
+      summary: checkpointSummary,
+    },
+    context_events: [
+      {
+        kind: 'checkpoint_created',
+        stage: 'executor',
+        turn: 2,
+        coveredTurns: [1],
+        reason: 'over_budget',
+      },
+    ],
+    guidance_log: [{ turn: 1, guidance: 'Keep it concise.' }],
+    provenance,
+    runtime_session_state: {
+      entries: runtimeEntries,
+    },
+    actor_model_state: {
+      consecutiveErrorTurns: 1,
+      matchedNamespaces: ['db'],
+    },
+  },
+  context_operation: 'prepare',
+  expected_context_result_subset: {
+    exported: {
+      checkpoint_state: {
+        fingerprint: 'checkpoint-1',
+        turns: [1],
+        summary: checkpointSummary,
+      },
+      guidance_log: [{ turn: 1, guidance: 'Keep it concise.' }],
+      provenance,
+      actor_model_state: {
+        consecutiveErrorTurns: 1,
+        matchedNamespaces: ['db'],
+      },
+      action_log: [
+        {
+          turn: 1,
+          code: 'const rows = await db.search({ query: "widgets" })',
+          output: '[{"id":1}]',
+          tags: [],
+          producedVars: ['rows'],
+          referencedVars: ['db', 'search'],
+          stateDelta: 'Updated live runtime values: rows; callables: db.search',
+          stepKind: 'transform',
+        },
+        {
+          turn: 2,
+          code: 'console.log(rows.length)',
+          output: '1',
+          tags: [],
+          producedVars: [],
+          referencedVars: ['rows'],
+          stateDelta: 'read: rows',
+          stepKind: 'explore',
+        },
+      ],
+    },
+  },
 });
 
 writeFixture('runtime-forward-python-final', {

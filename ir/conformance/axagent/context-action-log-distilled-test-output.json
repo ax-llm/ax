@@ -1,0 +1,59 @@
+{
+  "action_log": [
+    {
+      "_durableReads": ["runTests"],
+      "_durableWrites": ["testOutput"],
+      "code": "const testOutput = await runTests(); console.log(testOutput)",
+      "output": "FAILED tests/auth.test.ts::rejects_bad_token - AssertionError: expected 401 got 200\nverbose passing test log line 0\nverbose passing test log line 1\nverbose passing test log line 2\nverbose passing test log line 3\nverbose passing test log line 4\nverbose passing test log line 5\nverbose passing test log line 6\nverbose passing test log line 7\nverbose passing test log line 8\nverbose passing test log line 9\nverbose passing test log line 10\nverbose passing test log line 11\nverbose passing test log line 12\nverbose passing test log line 13\nverbose passing test log line 14\nverbose passing test log line 15\nverbose passing test log line 16\nverbose passing test log line 17\nverbose passing test log line 18\nverbose passing test log line 19\nverbose passing test log line 20\nverbose passing test log line 21\nverbose passing test log line 22\nverbose passing test log line 23\nverbose passing test log line 24\nverbose passing test log line 25\nverbose passing test log line 26\nverbose passing test log line 27\nverbose passing test log line 28\nverbose passing test log line 29\nverbose passing test log line 30\nverbose passing test log line 31\nverbose passing test log line 32\nverbose passing test log line 33\nverbose passing test log line 34\nverbose passing test log line 35\nverbose passing test log line 36\nverbose passing test log line 37\nverbose passing test log line 38\nverbose passing test log line 39\n================ 94 passed, 1 failed in 3.5s ================",
+      "producedVars": ["testOutput"],
+      "referencedVars": [],
+      "replayMode": "distill",
+      "stateDelta": "Updated live runtime values: testOutput",
+      "stepKind": "query",
+      "summary": "[SUMMARY]: Query step. Updated live runtime values: testOutput. Result: FAILED tests/auth.test.ts::rejects_bad_token - AssertionError: expected 401 got 200 verbose passing test log line 0 v....",
+      "tags": [],
+      "turn": 1
+    },
+    {
+      "_durableReads": [],
+      "_durableWrites": [],
+      "code": "console.log(\"middle\")",
+      "output": "middle",
+      "producedVars": [],
+      "referencedVars": [],
+      "replayMode": "full",
+      "stateDelta": "Inspected runtime state without creating durable runtime values",
+      "stepKind": "explore",
+      "summary": "[SUMMARY]: Explore step. Inspected runtime state without creating durable runtime values. Result: middle.",
+      "tags": [],
+      "turn": 2
+    }
+  ],
+  "context_operation": "prepare",
+  "expected_context_events_subset": [
+    {
+      "kind": "action_compacted",
+      "mode": "distill",
+      "reason": "structured_output",
+      "stage": "executor",
+      "turn": 1
+    }
+  ],
+  "expected_context_result_subset": {
+    "prepared": {
+      "actionLog": "```javascript\nconst testOutput = await runTests(); console.log(testOutput)\n```\nResult:\n[DISTILLED:test-output]: 94 passed, 1 failed\nFailures: tests/auth.test.ts::rejects_bad_token\nError details: FAILED tests/auth.test.ts::rejects_bad_token - AssertionError: expected 401 got 200\n\n```javascript\nconsole.log(\"middle\")\n```\nResult:\nmiddle"
+    }
+  },
+  "kind": "agent_runtime_policy",
+  "name": "context-action-log-distilled-test-output",
+  "options": {
+    "runtime": {
+      "language": "JavaScript"
+    },
+    "contextPolicy": {
+      "budget": "balanced",
+      "preset": "lean"
+    }
+  },
+  "signature": "question:string -> answer:string"
+}

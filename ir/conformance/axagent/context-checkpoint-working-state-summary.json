@@ -1,0 +1,40 @@
+{
+  "checkpoint_entries": [
+    {
+      "_directQualifiedCalls": [],
+      "_durableReads": [],
+      "_durableWrites": ["draft"],
+      "code": "const draft = \"v1\"",
+      "output": "draft ready",
+      "producedVars": ["draft"],
+      "referencedVars": [],
+      "stateDelta": "Updated live runtime values: draft",
+      "stepKind": "transform",
+      "summary": "[SUMMARY]: Transform step. Updated live runtime values: draft. Result: draft ready.",
+      "tags": [],
+      "turn": 1
+    },
+    {
+      "_directQualifiedCalls": [],
+      "_durableReads": ["draft"],
+      "_durableWrites": ["finalDraft"],
+      "code": "const finalDraft = draft + \" polished\"",
+      "output": "final ready",
+      "producedVars": ["finalDraft"],
+      "referencedVars": ["draft"],
+      "stateDelta": "Updated live runtime values: finalDraft; read: draft",
+      "stepKind": "transform",
+      "summary": "[SUMMARY]: Transform step. Updated live runtime values: finalDraft; read: draft. Result: final ready.",
+      "tags": [],
+      "turn": 2
+    }
+  ],
+  "checkpoint_turns": [1, 2],
+  "context_operation": "checkpoint_summary",
+  "expected_context_result": {
+    "summary": "=== Working Code State (verbatim) ===\nCode:\nconst draft = \"v1\"\nProduced: draft\nRead: none\nDirect callables: none\nState delta: Updated live runtime values: draft\nOutput: draft ready\n\nCode:\nconst finalDraft = draft + \" polished\"\nProduced: finalDraft\nRead: draft\nDirect callables: none\nState delta: Updated live runtime values: finalDraft; read: draft\nOutput: final ready"
+  },
+  "kind": "agent_runtime_policy",
+  "name": "context-checkpoint-working-state-summary",
+  "signature": "question:string -> answer:string"
+}

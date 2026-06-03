@@ -1567,6 +1567,12 @@ module @ax.agent version "0.1" {
     attr private = true
     type signature = "(json, number) -> string"
     body @entry(%entry: json, %fallback_turn: json) {
+      %tombstone = core.get %entry["tombstone"] default ""
+      %has_tombstone = core.call intrinsic.ne(%tombstone, "")
+      core.if %has_tombstone {
+        core.return %tombstone
+      } else {
+      }
       %turn = core.call @agent_entry_turn(%entry, %fallback_turn)
       %summary = core.get %entry["summary"] default ""
       %has_summary = core.call intrinsic.ne(%summary, "")
@@ -1587,12 +1593,127 @@ module @ax.agent version "0.1" {
     }
   }
 
+  op ax.agent.semantic @agent_entry_callables_text {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json) -> string"
+    body @entry(%entry: json) {
+      %empty_list = core.list
+      %calls = core.get %entry["_functionCalls"] default %empty_list
+      %names = core.list
+      %calls_is_list = core.type_is %calls type "list"
+      core.if %calls_is_list {
+        core.for %call in %calls {
+          %qualified = core.get %call["qualifiedName"] default ""
+          %has_qualified = core.call intrinsic.ne(%qualified, "")
+          core.if %has_qualified {
+            %known = core.call intrinsic.contains(%names, %qualified)
+            %new_name = core.call intrinsic.not(%known)
+            core.if %new_name {
+              core.append %names, %qualified
+            } else {
+            }
+          } else {
+          }
+        }
+      } else {
+      }
+      %direct = core.get %entry["_directQualifiedCalls"] default %empty_list
+      %direct_is_list = core.type_is %direct type "list"
+      core.if %direct_is_list {
+        core.for %direct_name in %direct {
+          %has_direct = core.call intrinsic.ne(%direct_name, "")
+          core.if %has_direct {
+            %known_direct = core.call intrinsic.contains(%names, %direct_name)
+            %new_direct = core.call intrinsic.not(%known_direct)
+            core.if %new_direct {
+              core.append %names, %direct_name
+            } else {
+            }
+          } else {
+          }
+        }
+      } else {
+      }
+      %count = core.call intrinsic.len(%names)
+      %empty = core.call intrinsic.eq(%count, 0)
+      core.if %empty {
+        core.return "none"
+      } else {
+      }
+      %text = core.call intrinsic.string.join(", ", %names)
+      core.return %text
+    }
+  }
+
+  op ax.agent.semantic @agent_distill_structured_action_output {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(string) -> string"
+    body @entry(%output: string) {
+      %has_failed_line = core.call intrinsic.contains(%output, "FAILED ")
+      %has_passed = core.call intrinsic.contains(%output, " passed")
+      %has_failed_count = core.call intrinsic.contains(%output, " failed")
+      %looks_test = core.call intrinsic.and(%has_failed_line, %has_passed)
+      %looks_test = core.call intrinsic.and(%looks_test, %has_failed_count)
+      core.if %looks_test {
+        %lines = core.call intrinsic.string.split_trim_nonempty(%output, "\n")
+        %failure = core.let ""
+        %counts = core.let ""
+        core.for %line in %lines {
+          %line_is_failure = core.call intrinsic.string.starts_with(%line, "FAILED ")
+          %no_failure_yet = core.call intrinsic.eq(%failure, "")
+          %take_failure = core.call intrinsic.and(%line_is_failure, %no_failure_yet)
+          core.if %take_failure {
+            %failure = core.let %line
+          } else {
+          }
+          %line_has_passed = core.call intrinsic.contains(%line, " passed")
+          %line_has_failed = core.call intrinsic.contains(%line, " failed")
+          %line_counts = core.call intrinsic.and(%line_has_passed, %line_has_failed)
+          core.if %line_counts {
+            %counts = core.let %line
+          } else {
+          }
+        }
+        %clean_counts = core.call intrinsic.regex.replace("^=+\\s*", "", %counts)
+        %clean_counts = core.call intrinsic.regex.replace("\\s*=+$", "", %clean_counts)
+        %clean_counts = core.call intrinsic.regex.replace("\\s+in\\s+.*$", "", %clean_counts)
+        %test_name = core.call intrinsic.regex.replace("^FAILED\\s+", "", %failure)
+        %test_name = core.call intrinsic.regex.replace("\\s+-\\s+.*$", "", %test_name)
+        %detail = core.call intrinsic.string.slice(%failure, 0, 180)
+        %out = core.call intrinsic.string.format("[DISTILLED:test-output]: {}\nFailures: {}\nError details: {}", %clean_counts, %test_name, %detail)
+        core.return %out
+      } else {
+      }
+      %looks_json_array = core.call intrinsic.string.starts_with(%output, "[")
+      %output_len = core.call intrinsic.len(%output)
+      %long_output = core.call intrinsic.gt(%output_len, 220)
+      %json_distill = core.call intrinsic.and(%looks_json_array, %long_output)
+      core.if %json_distill {
+        %preview = core.call intrinsic.string.slice(%output, 0, 180)
+        %out_json = core.call intrinsic.string.format("[DISTILLED:json]: array\nPreview: {}", %preview)
+        core.return %out_json
+      } else {
+      }
+      core.return ""
+    }
+  }
+
   op ax.agent.semantic @agent_render_full_action_entry {
     attr core_kind = "func"
     attr emit_module = "agent"
     attr private = true
     type signature = "(json, json) -> string"
     body @entry(%state: json, %entry: json) {
+      %tombstone = core.get %entry["tombstone"] default ""
+      %has_tombstone = core.call intrinsic.ne(%tombstone, "")
+      core.if %has_tombstone {
+        core.return %tombstone
+      } else {
+      }
       %runtime_contract = core.get %state["runtime_contract"] default null
       %fence = core.get %runtime_contract["code_fence_language"] default "javascript"
       %js_fence = core.call intrinsic.eq(%fence, "js")
@@ -1616,9 +1737,16 @@ module @ax.agent version "0.1" {
       %kind = core.get %entry["kind"] default "result"
       %state_delta = core.get %entry["stateDelta"] default "No durable runtime state update"
       %output = core.get %entry["output"] default ""
+      %callables = core.call @agent_entry_callables_text(%entry)
+      %distilled = core.call @agent_distill_structured_action_output(%output)
+      %has_distilled = core.call intrinsic.ne(%distilled, "")
       %preview = core.call intrinsic.string.slice(%output, 0, 180)
+      core.if %has_distilled {
+        %preview = core.let %distilled
+      } else {
+      }
       %head = core.call intrinsic.string.format("[COMPACT:{}]: Turn {}. {} step.", %reason, %turn, %kind)
-      %tail = core.call intrinsic.string.format(" State: {}. Result: {}.", %state_delta, %preview)
+      %tail = core.call intrinsic.string.format(" State: {}. Callables: {}. Result: {}.", %state_delta, %callables, %preview)
       %text = core.call intrinsic.add(%head, %tail)
       core.return %text
     }
@@ -1629,6 +1757,7 @@ module @ax.agent version "0.1" {
     attr emit_module = "agent"
     type signature = "(list<json>, list<number>) -> string"
     body @entry(%entries: json, %turns: json) {
+      %empty_list = core.list
       %evidence = core.list
       %failures = core.list
       %artifacts = core.list
@@ -1681,7 +1810,207 @@ module @ax.agent version "0.1" {
       %head_summary = core.call intrinsic.string.format("Objective: {}\nCurrent state and artifacts: {}\nExact callables and formats: none\nEvidence: {}", %objective, %artifact_text, %evidence_text)
       %tail_summary = core.call intrinsic.string.format("\nUser constraints and preferences: none\nFailures to avoid: {}\nNext step: Continue from the latest live runtime state.", %failure_text)
       %summary = core.call intrinsic.add(%head_summary, %tail_summary)
+      %working = core.call @agent_working_code_state(%entries, %turns)
+      %working_text = core.get %working["text"] default ""
+      %working_turns = core.get %working["turns"] default %empty_list
+      %working_count = core.call intrinsic.len(%working_turns)
+      %turn_count = core.call intrinsic.len(%turns)
+      %has_working = core.call intrinsic.ne(%working_text, "")
+      %all_working = core.call intrinsic.eq(%working_count, %turn_count)
+      core.if %has_working {
+        core.if %all_working {
+          %summary = core.let %working_text
+        } else {
+          %summary = core.call intrinsic.string.format("{}\n\n{}", %working_text, %summary)
+        }
+      } else {
+      }
       core.return %summary
+    }
+  }
+
+  op ax.agent.semantic @agent_build_deterministic_tombstone {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, json) -> string"
+    body @entry(%error_entry: json, %resolution_entry: json) {
+      %output = core.get %error_entry["output"] default ""
+      %signature = core.call intrinsic.string.slice(%output, 0, 96)
+      %empty_signature = core.call intrinsic.eq(%signature, "")
+      core.if %empty_signature {
+        %signature = core.let "runtime error"
+      } else {
+      }
+      %resolved_turn = core.call @agent_entry_turn(%resolution_entry, 0)
+      %text = core.call intrinsic.string.format("[TOMBSTONE]: Resolved {} in turn {}.", %signature, %resolved_turn)
+      core.return %text
+    }
+  }
+
+  op ax.agent.semantic @agent_apply_context_management {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    type signature = "(json) -> json"
+    body @entry(%state: json) {
+      %empty_list = core.list
+      %entries = core.get %state["action_log"] default %empty_list
+      %policy = core.get %state["context_policy"] default null
+      %error_pruning = core.get %policy["errorPruning"] default false
+      %tombstoning = core.get %policy["tombstoning"] default false
+      %enabled = core.call intrinsic.or(%error_pruning, %tombstoning)
+      core.if %enabled {
+      } else {
+        core.return %entries
+      }
+      %count = core.call intrinsic.len(%entries)
+      %has_pairs = core.call intrinsic.gt(%count, 1)
+      core.if %has_pairs {
+      } else {
+        core.return %entries
+      }
+      %prev = core.call intrinsic.none()
+      %has_prev = core.let false
+      core.for %entry in %entries {
+        core.if %has_prev {
+          %prev_is_error = core.call @agent_entry_is_error(%prev)
+          %current_is_error = core.call @agent_entry_is_error(%entry)
+          %current_success = core.call intrinsic.not(%current_is_error)
+          %resolved = core.call intrinsic.and(%prev_is_error, %current_success)
+          core.if %resolved {
+            %existing = core.get %prev["tombstone"] default ""
+            %missing = core.call intrinsic.eq(%existing, "")
+            core.if %missing {
+              %tombstone = core.call @agent_build_deterministic_tombstone(%prev, %entry)
+              core.set %prev["tombstone"] = %tombstone
+              %event = core.map
+              %kind = core.call @agent_context_event_name("tombstone_created")
+              core.set %event["kind"] = %kind
+              core.set %event["stage"] = "executor"
+              %turn = core.call @agent_entry_turn(%prev, 0)
+              %resolved_turn = core.call @agent_entry_turn(%entry, 0)
+              core.set %event["turn"] = %turn
+              core.set %event["resolvedByTurn"] = %resolved_turn
+              core.set %event["source"] = "deterministic"
+              %summary_chars = core.call intrinsic.len(%tombstone)
+              core.set %event["summaryChars"] = %summary_chars
+              core.call @agent_record_context_event(%state, %event)
+            } else {
+            }
+          } else {
+          }
+        } else {
+        }
+        %prev = core.let %entry
+        %has_prev = core.let true
+      }
+      core.set %state["action_log"] = %entries
+      core.return %entries
+    }
+  }
+
+  op ax.agent.semantic @agent_working_code_state {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(list<json>, list<number>) -> json"
+    body @entry(%entries: json, %turns: json) {
+      %empty_list = core.list
+      %working_turns = core.list
+      %coverable_count = core.let 0
+      %fallback = core.let 1
+      core.for %entry in %entries {
+        %turn = core.call @agent_entry_turn(%entry, %fallback)
+        %covered = core.call intrinsic.contains(%turns, %turn)
+        %is_error = core.call @agent_entry_is_error(%entry)
+        %not_error = core.call intrinsic.not(%is_error)
+        %tombstone = core.get %entry["tombstone"] default ""
+        %has_tombstone = core.call intrinsic.ne(%tombstone, "")
+        %not_tombstone = core.call intrinsic.not(%has_tombstone)
+        %include = core.call intrinsic.and(%covered, %not_error)
+        %include = core.call intrinsic.and(%include, %not_tombstone)
+        core.if %include {
+          %coverable_count = core.call intrinsic.add(%coverable_count, 1)
+        } else {
+        }
+        %fallback = core.call intrinsic.add(%fallback, 1)
+      }
+      %start = core.let 0
+      %more_than_two = core.call intrinsic.gt(%coverable_count, 2)
+      core.if %more_than_two {
+        %start = core.call intrinsic.add(%coverable_count, -2)
+      } else {
+      }
+      %blocks = core.list
+      %index = core.let 0
+      %fallback2 = core.let 1
+      core.for %entry2 in %entries {
+        %turn2 = core.call @agent_entry_turn(%entry2, %fallback2)
+        %covered2 = core.call intrinsic.contains(%turns, %turn2)
+        %is_error2 = core.call @agent_entry_is_error(%entry2)
+        %not_error2 = core.call intrinsic.not(%is_error2)
+        %tombstone2 = core.get %entry2["tombstone"] default ""
+        %has_tombstone2 = core.call intrinsic.ne(%tombstone2, "")
+        %not_tombstone2 = core.call intrinsic.not(%has_tombstone2)
+        %coverable2 = core.call intrinsic.and(%covered2, %not_error2)
+        %coverable2 = core.call intrinsic.and(%coverable2, %not_tombstone2)
+        core.if %coverable2 {
+          %include_working = core.call intrinsic.gte(%index, %start)
+          core.if %include_working {
+            core.append %working_turns, %turn2
+            %code = core.get %entry2["code"] default "(no code)"
+            %code_len = core.call intrinsic.len(%code)
+            %code_too_long = core.call intrinsic.gt(%code_len, 2000)
+            core.if %code_too_long {
+              %code_head = core.call intrinsic.string.slice(%code, 0, 2000)
+              %code = core.call intrinsic.string.format("{}\n// ... (truncated)", %code_head)
+            } else {
+            }
+            %produced = core.get %entry2["producedVars"] default %empty_list
+            %produced_text = core.call intrinsic.string.join(", ", %produced)
+            %produced_empty = core.call intrinsic.eq(%produced_text, "")
+            core.if %produced_empty {
+              %produced_text = core.let "none"
+            } else {
+            }
+            %reads = core.get %entry2["_durableReads"] default null
+            %reads_is_list = core.type_is %reads type "list"
+            core.if %reads_is_list {
+            } else {
+              %reads = core.get %entry2["referencedVars"] default %empty_list
+            }
+            %read_text = core.call intrinsic.string.join(", ", %reads)
+            %read_empty = core.call intrinsic.eq(%read_text, "")
+            core.if %read_empty {
+              %read_text = core.let "none"
+            } else {
+            }
+            %callables = core.call @agent_entry_callables_text(%entry2)
+            %state_delta = core.get %entry2["stateDelta"] default "none"
+            %output = core.get %entry2["output"] default "(no output)"
+            %output_preview = core.call intrinsic.string.slice(%output, 0, 800)
+            %block_head = core.call intrinsic.string.format("Code:\n{}\nProduced: {}\nRead: {}", %code, %produced_text, %read_text)
+            %block_tail = core.call intrinsic.string.format("\nDirect callables: {}\nState delta: {}\nOutput: {}", %callables, %state_delta, %output_preview)
+            %block = core.call intrinsic.add(%block_head, %block_tail)
+            core.append %blocks, %block
+          } else {
+          }
+          %index = core.call intrinsic.add(%index, 1)
+        } else {
+        }
+        %fallback2 = core.call intrinsic.add(%fallback2, 1)
+      }
+      %body = core.call intrinsic.string.join("\n\n", %blocks)
+      %out = core.map
+      core.set %out["turns"] = %working_turns
+      %has_body = core.call intrinsic.ne(%body, "")
+      core.if %has_body {
+        %text = core.call intrinsic.string.format("=== Working Code State (verbatim) ===\n{}", %body)
+        core.set %out["text"] = %text
+      } else {
+        core.set %out["text"] = ""
+      }
+      core.return %out
     }
   }
 
@@ -1846,11 +2175,16 @@ module @ax.agent version "0.1" {
       core.for %entry in %entries {
         %turn = core.call @agent_entry_turn(%entry, %fallback_turn)
         %is_error = core.call @agent_entry_is_error(%entry)
+        %tombstone = core.get %entry["tombstone"] default ""
+        %has_tombstone = core.call intrinsic.ne(%tombstone, "")
         %is_recent = core.call intrinsic.gte(%index, %recent_start)
         %checkpoint_covered = core.call intrinsic.contains(%checkpoint_turns, %turn)
         %not_error = core.call intrinsic.not(%is_error)
         %replay_mode = core.get %entry["replayMode"] default ""
         %replay_full = core.call intrinsic.eq(%replay_mode, "full")
+        %replay_distill = core.call intrinsic.eq(%replay_mode, "distill")
+        %replay_compact = core.call intrinsic.eq(%replay_mode, "compact")
+        %replay_omit = core.call intrinsic.eq(%replay_mode, "omit")
         %covered_success = core.call intrinsic.and(%checkpoint_covered, %not_error)
         %not_replay_full = core.call intrinsic.not(%replay_full)
         %covered_success = core.call intrinsic.and(%covered_success, %not_replay_full)
@@ -1859,6 +2193,10 @@ module @ax.agent version "0.1" {
           %rendered = core.let ""
         } else {
           %render_full = core.let false
+          core.if %replay_full {
+            %render_full = core.let true
+          } else {
+          }
           core.if %full_replay {
             %render_full = core.let true
           } else {
@@ -1871,12 +2209,67 @@ module @ax.agent version "0.1" {
             %render_full = core.let true
           } else {
           }
+          %pressure_pre = core.call intrinsic.eq(%hygiene_mode, %pressure_hygiene_mode)
+          %aggressive_pre = core.call intrinsic.eq(%hygiene_mode, %aggressive_hygiene_mode)
+          %pressure_compaction = core.call intrinsic.or(%pressure_pre, %aggressive_pre)
+          %old_success = core.call intrinsic.not(%is_recent)
+          %old_success = core.call intrinsic.and(%old_success, %not_error)
+          %pressure_can_compact = core.call intrinsic.and(%pressure_compaction, %old_success)
+          core.if %pressure_can_compact {
+            %render_full = core.let false
+          } else {
+          }
+          core.if %has_tombstone {
+            %rendered = core.let %tombstone
+          } else {
+          }
+          %has_rendered_pre = core.call intrinsic.ne(%rendered, "")
+          core.if %has_rendered_pre {
+          } else {
           core.if %render_full {
             %rendered = core.call @agent_render_full_action_entry(%state, %entry)
           } else {
             %pressure = core.call intrinsic.eq(%hygiene_mode, %pressure_hygiene_mode)
             %aggressive = core.call intrinsic.eq(%hygiene_mode, %aggressive_hygiene_mode)
             %should_compact = core.call intrinsic.or(%pressure, %aggressive)
+            %should_compact = core.call intrinsic.or(%should_compact, %replay_compact)
+            %should_distill = core.let %replay_distill
+            core.if %should_distill {
+              %distilled_output = core.get %entry["distilledOutput"] default ""
+              %has_distilled_output = core.call intrinsic.ne(%distilled_output, "")
+              core.if %has_distilled_output {
+              } else {
+                %raw_output_for_distill = core.get %entry["output"] default ""
+                %distilled_output = core.call @agent_distill_structured_action_output(%raw_output_for_distill)
+              }
+              %has_distill = core.call intrinsic.ne(%distilled_output, "")
+              core.if %has_distill {
+                %full_text_distill = core.call @agent_render_full_action_entry(%state, %entry)
+                %runtime_contract_distill = core.get %state["runtime_contract"] default null
+                %fence_distill = core.get %runtime_contract_distill["code_fence_language"] default "javascript"
+                %js_fence_distill = core.call intrinsic.eq(%fence_distill, "js")
+                core.if %js_fence_distill {
+                  %fence_distill = core.let "javascript"
+                } else {
+                }
+                %code_distill = core.get %entry["code"] default ""
+                %rendered = core.call intrinsic.string.format("```{}\n{}\n```\nResult:\n{}", %fence_distill, %code_distill, %distilled_output)
+                %compaction_distill = core.map
+                core.set %compaction_distill["turn"] = %turn
+                core.set %compaction_distill["mode"] = "distill"
+                core.set %compaction_distill["reason"] = "structured_output"
+                %original_chars_distill = core.call intrinsic.len(%full_text_distill)
+                %rendered_chars_distill = core.call intrinsic.len(%rendered)
+                core.set %compaction_distill["originalChars"] = %original_chars_distill
+                core.set %compaction_distill["renderedChars"] = %rendered_chars_distill
+                core.append %compactions, %compaction_distill
+              } else {
+              }
+            } else {
+            }
+            %rendered_after_distill = core.call intrinsic.ne(%rendered, "")
+            core.if %rendered_after_distill {
+            } else {
             core.if %should_compact {
               %reason = core.call @agent_context_event_reason("pressure")
               core.if %aggressive {
@@ -1895,9 +2288,15 @@ module @ax.agent version "0.1" {
               core.set %compaction["renderedChars"] = %rendered_chars
               core.append %compactions, %compaction
             } else {
-              %entry_summary = core.call @agent_entry_summary(%entry, %turn)
-              %rendered = core.call intrinsic.string.format("- Action {}: {}", %turn, %entry_summary)
+              core.if %replay_omit {
+                %rendered = core.call @agent_entry_summary(%entry, %turn)
+              } else {
+                %entry_summary = core.call @agent_entry_summary(%entry, %turn)
+                %rendered = core.call intrinsic.string.format("- Action {}: {}", %turn, %entry_summary)
+              }
             }
+            }
+          }
           }
         }
         %has_rendered = core.call intrinsic.ne(%rendered, "")
@@ -1923,14 +2322,8 @@ module @ax.agent version "0.1" {
     type signature = "(json, json) -> string"
     body @entry(%state: json, %policy: json) {
       %empty_map = core.map
+      %empty_list = core.list
       %session_state = core.get %state["runtime_session_state"] default %empty_map
-      %globals = core.get %session_state["globals"] default null
-      %bindings = core.get %session_state["bindings"] default %globals
-      %bindings_is_map = core.type_is %bindings type "object"
-      core.if %bindings_is_map {
-      } else {
-        core.return ""
-      }
       %state_summary = core.get %policy["stateSummary"] default %empty_map
       %enabled = core.get %state_summary["enabled"] default false
       core.if %enabled {
@@ -1938,6 +2331,98 @@ module @ax.agent version "0.1" {
         core.return ""
       }
       %max_entries = core.get %state_summary["maxEntries"] default 8
+      %entries = core.get %session_state["entries"] default %empty_list
+      %entries_is_list = core.type_is %entries type "list"
+      core.if %entries_is_list {
+        %entry_count = core.call intrinsic.len(%entries)
+        %has_entries = core.call intrinsic.gt(%entry_count, 0)
+        core.if %has_entries {
+          %provenance = core.get %state["provenance"] default %empty_map
+          %lines_structured = core.list
+          %structured_count = core.let 0
+          core.for %entry in %entries {
+            %under_structured_limit = core.call intrinsic.lt(%structured_count, %max_entries)
+            core.if %under_structured_limit {
+              %name = core.get %entry["name"] default ""
+              %type = core.get %entry["type"] default "unknown"
+              %size = core.get %entry["size"] default ""
+              %preview = core.get %entry["preview"] default ""
+              %ctor = core.get %entry["ctor"] default ""
+              %type_label = core.let %type
+              %object_type = core.call intrinsic.eq(%type, "object")
+              %has_ctor = core.call intrinsic.ne(%ctor, "")
+              %object_with_ctor = core.call intrinsic.and(%object_type, %has_ctor)
+              core.if %object_with_ctor {
+                %type_label = core.call intrinsic.string.format("object<{}>", %ctor)
+              } else {
+              }
+              %has_size = core.call intrinsic.ne(%size, "")
+              core.if %has_size {
+                %type_label = core.call intrinsic.string.format("{} ({})", %type_label, %size)
+              } else {
+              }
+              %preview_text = core.let ""
+              %has_preview = core.call intrinsic.ne(%preview, "")
+              core.if %has_preview {
+                %preview_text = core.call intrinsic.string.format(" = {}", %preview)
+              } else {
+              }
+              %prov = core.get %provenance[%name] default null
+              %prov_text = core.let ""
+              %has_prov = core.type_is %prov type "object"
+              core.if %has_prov {
+                %created_turn = core.get %prov["createdTurn"] default 0
+                %source = core.get %prov["source"] default ""
+                %last_read = core.get %prov["lastReadTurn"] default 0
+                %has_source = core.call intrinsic.ne(%source, "")
+                core.if %has_source {
+                  %prov_text = core.call intrinsic.string.format(" [from t{} via {}", %created_turn, %source)
+                } else {
+                  %prov_text = core.call intrinsic.string.format(" [from t{}", %created_turn)
+                }
+                %read_after = core.call intrinsic.gt(%last_read, %created_turn)
+                core.if %read_after {
+                  %prov_text = core.call intrinsic.string.format("{}; read t{}", %prov_text, %last_read)
+                } else {
+                }
+                %prov_text = core.call intrinsic.add(%prov_text, "]")
+              } else {
+              }
+              %restorable = core.get %entry["restorable"] default true
+              %snapshot_only = core.call intrinsic.eq(%restorable, false)
+              %restore_text = core.let ""
+              core.if %snapshot_only {
+                %restore_text = core.let " [snapshot only]"
+              } else {
+              }
+              %line_base = core.call intrinsic.string.format("{}: {}{}", %name, %type_label, %preview_text)
+              %line_with_prov = core.call intrinsic.add(%line_base, %prov_text)
+              %line = core.call intrinsic.add(%line_with_prov, %restore_text)
+              core.append %lines_structured, %line
+              %structured_count = core.call intrinsic.add(%structured_count, 1)
+            } else {
+            }
+          }
+          %body_structured = core.call intrinsic.string.join("\n", %lines_structured)
+          %empty_structured = core.call intrinsic.eq(%body_structured, "")
+          core.if %empty_structured {
+            %body_structured = core.let "(no user variables)"
+          } else {
+          }
+          %out_structured = core.call intrinsic.string.format("Current runtime state:\n{}", %body_structured)
+          core.set %state["runtime_state_summary"] = %out_structured
+          core.return %out_structured
+        } else {
+        }
+      } else {
+      }
+      %globals = core.get %session_state["globals"] default null
+      %bindings = core.get %session_state["bindings"] default %globals
+      %bindings_is_map = core.type_is %bindings type "object"
+      core.if %bindings_is_map {
+      } else {
+        core.return ""
+      }
       %reserved = core.call @agent_reserved_runtime_names()
       %parts = core.list
       %count = core.let 0
@@ -2150,11 +2635,184 @@ module @ax.agent version "0.1" {
     }
   }
 
+  op ax.agent.runtime @agent_sanitize_action_log_entries {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(list<json>) -> list<json>"
+    body @entry(%entries: json) {
+      %out = core.list
+      core.for %entry in %entries {
+        %clean = core.map
+        %public_type = core.get %entry["type"] default ""
+        %has_public_type = core.call intrinsic.ne(%public_type, "")
+        core.if %has_public_type {
+          core.set %clean["type"] = %public_type
+        } else {
+        }
+        %public_kind = core.get %entry["kind"] default ""
+        %has_public_kind = core.call intrinsic.ne(%public_kind, "")
+        core.if %has_public_kind {
+          core.set %clean["kind"] = %public_kind
+        } else {
+        }
+        %public_action = core.get %entry["action"] default ""
+        %has_public_action = core.call intrinsic.ne(%public_action, "")
+        core.if %has_public_action {
+          core.set %clean["action"] = %public_action
+        } else {
+        }
+        %public_reason = core.get %entry["reason"] default ""
+        %has_public_reason = core.call intrinsic.ne(%public_reason, "")
+        core.if %has_public_reason {
+          core.set %clean["reason"] = %public_reason
+        } else {
+        }
+        %public_status = core.get %entry["status"] default ""
+        %has_public_status = core.call intrinsic.ne(%public_status, "")
+        core.if %has_public_status {
+          core.set %clean["status"] = %public_status
+        } else {
+        }
+        %qualified_name = core.get %entry["qualified_name"] default ""
+        %has_qualified_name = core.call intrinsic.ne(%qualified_name, "")
+        core.if %has_qualified_name {
+          core.set %clean["qualified_name"] = %qualified_name
+        } else {
+        }
+        %entry_name = core.get %entry["name"] default ""
+        %has_entry_name = core.call intrinsic.ne(%entry_name, "")
+        core.if %has_entry_name {
+          core.set %clean["name"] = %entry_name
+        } else {
+        }
+        %entry_namespace = core.get %entry["namespace"] default ""
+        %has_entry_namespace = core.call intrinsic.ne(%entry_namespace, "")
+        core.if %has_entry_namespace {
+          core.set %clean["namespace"] = %entry_namespace
+        } else {
+        }
+        %entry_error = core.get %entry["error"] default ""
+        %has_entry_error = core.call intrinsic.ne(%entry_error, "")
+        core.if %has_entry_error {
+          core.set %clean["error"] = %entry_error
+        } else {
+        }
+        %error_category = core.get %entry["error_category"] default ""
+        %has_error_category = core.call intrinsic.ne(%error_category, "")
+        core.if %has_error_category {
+          core.set %clean["error_category"] = %error_category
+        } else {
+        }
+        %entry_message = core.get %entry["message"] default ""
+        %has_entry_message = core.call intrinsic.ne(%entry_message, "")
+        core.if %has_entry_message {
+          core.set %clean["message"] = %entry_message
+        } else {
+        }
+        %guidance = core.get %entry["guidance"] default ""
+        %has_guidance = core.call intrinsic.ne(%guidance, "")
+        core.if %has_guidance {
+          core.set %clean["guidance"] = %guidance
+        } else {
+        }
+        %triggered_by = core.get %entry["triggered_by"] default ""
+        %has_triggered_by = core.call intrinsic.ne(%triggered_by, "")
+        core.if %has_triggered_by {
+          core.set %clean["triggered_by"] = %triggered_by
+        } else {
+        }
+        %searches = core.get %entry["searches"] default null
+        %searches_is_list = core.type_is %searches type "list"
+        core.if %searches_is_list {
+          core.set %clean["searches"] = %searches
+        } else {
+        }
+        %tools = core.get %entry["tools"] default null
+        %tools_is_list = core.type_is %tools type "list"
+        core.if %tools_is_list {
+          core.set %clean["tools"] = %tools
+        } else {
+        }
+        %skills = core.get %entry["skills"] default null
+        %skills_is_list = core.type_is %skills type "list"
+        core.if %skills_is_list {
+          core.set %clean["skills"] = %skills
+        } else {
+        }
+        %request = core.get %entry["request"] default null
+        %request_is_object = core.type_is %request type "object"
+        core.if %request_is_object {
+          core.set %clean["request"] = %request
+        } else {
+        }
+        %turn = core.get %entry["turn"] default 0
+        %code = core.get %entry["code"] default ""
+        %output = core.get %entry["output"] default ""
+        %tags = core.get %entry["tags"] default null
+        %tags_is_list = core.type_is %tags type "list"
+        core.if %tags_is_list {
+        } else {
+          %tags = core.list
+        }
+        core.set %clean["turn"] = %turn
+        core.set %clean["code"] = %code
+        core.set %clean["output"] = %output
+        core.set %clean["tags"] = %tags
+        %produced = core.get %entry["producedVars"] default null
+        %produced_is_list = core.type_is %produced type "list"
+        core.if %produced_is_list {
+          core.set %clean["producedVars"] = %produced
+        } else {
+        }
+        %referenced = core.get %entry["referencedVars"] default null
+        %referenced_is_list = core.type_is %referenced type "list"
+        core.if %referenced_is_list {
+          core.set %clean["referencedVars"] = %referenced
+        } else {
+        }
+        %state_delta = core.get %entry["stateDelta"] default ""
+        %has_state_delta = core.call intrinsic.ne(%state_delta, "")
+        core.if %has_state_delta {
+          core.set %clean["stateDelta"] = %state_delta
+        } else {
+        }
+        %step_kind = core.get %entry["stepKind"] default ""
+        %has_step_kind = core.call intrinsic.ne(%step_kind, "")
+        core.if %has_step_kind {
+          core.set %clean["stepKind"] = %step_kind
+        } else {
+        }
+        %replay_mode = core.get %entry["replayMode"] default ""
+        %has_replay_mode = core.call intrinsic.ne(%replay_mode, "")
+        core.if %has_replay_mode {
+          core.set %clean["replayMode"] = %replay_mode
+        } else {
+        }
+        %rank = core.get %entry["rank"] default null
+        %has_rank = core.call intrinsic.is_not_none(%rank)
+        core.if %has_rank {
+          core.set %clean["rank"] = %rank
+        } else {
+        }
+        %tombstone = core.get %entry["tombstone"] default ""
+        %has_tombstone = core.call intrinsic.ne(%tombstone, "")
+        core.if %has_tombstone {
+          core.set %clean["tombstone"] = %tombstone
+        } else {
+        }
+        core.append %out, %clean
+      }
+      core.return %out
+    }
+  }
+
   op ax.agent.semantic @agent_context_fixture_result {
     attr core_kind = "func"
     attr emit_module = "agent"
     type signature = "(json, json) -> json throws"
     body @entry(%state: json, %fixture: json) {
+      %empty_list = core.list
       %operation = core.get %fixture["context_operation"] default "prepare"
       %is_policy = core.call intrinsic.eq(%operation, "resolve_policy")
       core.if %is_policy {
@@ -2227,6 +2885,33 @@ module @ax.agent version "0.1" {
       %has_fixture_checkpoint = core.type_is %fixture_checkpoint type "object"
       core.if %has_fixture_checkpoint {
         core.set %state["checkpoint_state"] = %fixture_checkpoint
+      } else {
+      }
+      %fixture_provenance = core.get %fixture["provenance"] default null
+      %has_fixture_provenance = core.type_is %fixture_provenance type "object"
+      core.if %has_fixture_provenance {
+        core.set %state["provenance"] = %fixture_provenance
+      } else {
+      }
+      %fixture_restore_notice = core.get %fixture["restore_notice"] default ""
+      %has_fixture_restore_notice = core.call intrinsic.ne(%fixture_restore_notice, "")
+      core.if %has_fixture_restore_notice {
+        core.set %state["restore_notice"] = %fixture_restore_notice
+      } else {
+      }
+      %is_checkpoint_summary = core.call intrinsic.eq(%operation, "checkpoint_summary")
+      core.if %is_checkpoint_summary {
+        %checkpoint_entries = core.get %fixture["checkpoint_entries"] default %fixture_action_log
+        %checkpoint_turns = core.get %fixture["checkpoint_turns"] default %empty_list
+        %summary = core.call @agent_fallback_checkpoint_summary(%checkpoint_entries, %checkpoint_turns)
+        %out_summary = core.map
+        core.set %out_summary["summary"] = %summary
+        core.return %out_summary
+      } else {
+      }
+      %is_manage_context = core.call intrinsic.eq(%operation, "manage_context")
+      core.if %is_manage_context {
+        core.call @agent_apply_context_management(%state)
       } else {
       }
       %prepared = core.call @agent_prepare_actor_context(%state)
@@ -3342,7 +4027,9 @@ module @ax.agent version "0.1" {
       %checkpoint_state = core.get %state["checkpoint_state"] default null
       %runtime_state_summary = core.get %state["runtime_state_summary"] default ""
       %actor_model_state = core.get %state["actor_model_state"] default %empty_map
+      %provenance = core.get %state["provenance"] default %empty_map
       %last_actor_context = core.get %state["last_actor_context"] default %empty_map
+      %clean_action_log = core.call @agent_sanitize_action_log_entries(%action_log)
       %run_trace = core.call @agent_export_trace(%state)
       core.set %out["runtime_state"] = %runtime_state
       core.set %out["discovered_tool_docs"] = %discovered
@@ -3353,7 +4040,7 @@ module @ax.agent version "0.1" {
       core.set %out["guidance_log"] = %guidance_log
       core.set %out["function_call_traces"] = %function_call_traces
       core.set %out["policy_trace"] = %trace
-      core.set %out["action_log"] = %action_log
+      core.set %out["action_log"] = %clean_action_log
       core.set %out["status_log"] = %status_log
       core.set %out["runtime_session_state"] = %runtime_session_state
       core.set %out["runtime_globals"] = %runtime_globals
@@ -3365,6 +4052,7 @@ module @ax.agent version "0.1" {
       core.set %out["checkpoint_state"] = %checkpoint_state
       core.set %out["runtime_state_summary"] = %runtime_state_summary
       core.set %out["actor_model_state"] = %actor_model_state
+      core.set %out["provenance"] = %provenance
       core.set %out["last_actor_context"] = %last_actor_context
       core.set %out["trace"] = %run_trace
       core.return %out
@@ -3397,7 +4085,9 @@ module @ax.agent version "0.1" {
       %checkpoint_state = core.get %snapshot["checkpoint_state"] default null
       %runtime_state_summary = core.get %snapshot["runtime_state_summary"] default ""
       %actor_model_state = core.get %snapshot["actor_model_state"] default %empty_map
+      %provenance = core.get %snapshot["provenance"] default %empty_map
       %last_actor_context = core.get %snapshot["last_actor_context"] default %empty_map
+      %clean_restore_action_log = core.call @agent_sanitize_action_log_entries(%action_log)
       core.set %state["runtime_state"] = %runtime_state
       core.set %state["discovered_tool_docs"] = %discovered
       core.set %state["loaded_skill_docs"] = %skills
@@ -3407,7 +4097,7 @@ module @ax.agent version "0.1" {
       core.set %state["guidance_log"] = %guidance_log
       core.set %state["function_call_traces"] = %function_call_traces
       core.set %state["policy_trace"] = %trace
-      core.set %state["action_log"] = %action_log
+      core.set %state["action_log"] = %clean_restore_action_log
       core.set %state["status_log"] = %status_log
       core.set %state["runtime_session_state"] = %runtime_session_state
       core.set %state["runtime_globals"] = %runtime_globals
@@ -3415,6 +4105,7 @@ module @ax.agent version "0.1" {
       core.set %state["checkpoint_state"] = %checkpoint_state
       core.set %state["runtime_state_summary"] = %runtime_state_summary
       core.set %state["actor_model_state"] = %actor_model_state
+      core.set %state["provenance"] = %provenance
       core.set %state["last_actor_context"] = %last_actor_context
       %has_policy_registry = core.type_is %policy_registry type "object"
       core.if %has_policy_registry {
