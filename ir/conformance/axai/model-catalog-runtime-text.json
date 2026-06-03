@@ -1,0 +1,25 @@
+{
+  "check_clone": true,
+  "expected_output": {
+    "modelCount": 154,
+    "openaiFirstModel": "gpt-5-nano",
+    "openaiModelTypes": ["code", "text"],
+    "providerCount": 11,
+    "providerNames": [
+      "google-gemini",
+      "mistral",
+      "deepseek",
+      "openai",
+      "openai-responses",
+      "grok",
+      "cohere",
+      "reka",
+      "anthropic",
+      "azure-openai",
+      "huggingface"
+    ]
+  },
+  "kind": "ai_model_catalog_runtime",
+  "model_type": "text",
+  "name": "model-catalog-runtime-text"
+}

@@ -1,0 +1,277 @@
+{
+  "expected_output": {
+    "features": {
+      "caching": {
+        "supported": false,
+        "types": []
+      },
+      "functions": true,
+      "media": {
+        "audio": {
+          "formats": [],
+          "supported": false
+        },
+        "files": {
+          "formats": [],
+          "supported": false,
+          "uploadMethod": "none"
+        },
+        "images": {
+          "formats": [],
+          "supported": false
+        },
+        "urls": {
+          "contextFetching": false,
+          "supported": false,
+          "webSearch": false
+        }
+      },
+      "multiTurn": true,
+      "streaming": true,
+      "structuredOutputs": true,
+      "thinking": false
+    },
+    "id": "Fast-id",
+    "lastChat": "fixture-model",
+    "metrics": {
+      "errors": {
+        "chat": {
+          "count": 0,
+          "rate": 0,
+          "total": 2
+        },
+        "embed": {
+          "count": 0,
+          "rate": 0,
+          "total": 2
+        }
+      },
+      "latency": {
+        "chat": {
+          "mean": 110,
+          "p95": 205,
+          "p99": 209,
+          "samples": []
+        },
+        "embed": {
+          "mean": 50,
+          "p95": 75,
+          "p99": 79,
+          "samples": []
+        }
+      }
+    },
+    "modelList": [
+      {
+        "description": "Fast chat",
+        "key": "balanced-chat",
+        "model": "fast-model"
+      }
+    ],
+    "name": "Fast",
+    "options": {
+      "debug": true,
+      "trace": "all"
+    },
+    "outputs": {
+      "chat": {
+        "results": [
+          {
+            "content": "Fast chat",
+            "index": 0
+          }
+        ]
+      }
+    },
+    "serviceCalls": [
+      [
+        {
+          "method": "chat",
+          "opt": {
+            "trace": "balance-default"
+          }
+        }
+      ]
+    ]
+  },
+  "kind": "ai_balancer",
+  "name": "balancer-runtime-metric",
+  "operations": [
+    {
+      "name": "chat",
+      "options": {
+        "trace": "balance-default"
+      },
+      "request": {
+        "chatPrompt": [
+          {
+            "content": "balance",
+            "role": "user"
+          }
+        ],
+        "model": "fixture-model"
+      }
+    },
+    {
+      "name": "set_options",
+      "options": {
+        "debug": true,
+        "trace": "all"
+      }
+    }
+  ],
+  "options": {
+    "debug": false,
+    "strategy": "metric"
+  },
+  "services": [
+    {
+      "features": {
+        "caching": {
+          "supported": false,
+          "types": []
+        },
+        "functions": true,
+        "media": {
+          "audio": {
+            "formats": [],
+            "output": {
+              "formats": [],
+              "supported": false
+            },
+            "supported": false
+          },
+          "files": {
+            "formats": [],
+            "supported": false,
+            "uploadMethod": "none"
+          },
+          "images": {
+            "formats": [],
+            "supported": false
+          },
+          "urls": {
+            "contextFetching": false,
+            "supported": false,
+            "webSearch": false
+          }
+        },
+        "multiTurn": true,
+        "streaming": false,
+        "structuredOutputs": true,
+        "thinking": false
+      },
+      "id": "Slow-id",
+      "metrics": {
+        "errors": {
+          "chat": {
+            "count": 0,
+            "rate": 0,
+            "total": 1
+          },
+          "embed": {
+            "count": 0,
+            "rate": 0,
+            "total": 1
+          }
+        },
+        "latency": {
+          "chat": {
+            "mean": 200,
+            "p95": 205,
+            "p99": 209,
+            "samples": [200]
+          },
+          "embed": {
+            "mean": 70,
+            "p95": 75,
+            "p99": 79,
+            "samples": [70]
+          }
+        }
+      },
+      "modelList": [
+        {
+          "description": "Slow chat",
+          "key": "balanced-chat",
+          "model": "slow-model"
+        }
+      ],
+      "name": "Slow"
+    },
+    {
+      "features": {
+        "caching": {
+          "supported": false,
+          "types": []
+        },
+        "functions": false,
+        "media": {
+          "audio": {
+            "formats": [],
+            "output": {
+              "formats": [],
+              "supported": false
+            },
+            "supported": false
+          },
+          "files": {
+            "formats": [],
+            "supported": false,
+            "uploadMethod": "none"
+          },
+          "images": {
+            "formats": [],
+            "supported": false
+          },
+          "urls": {
+            "contextFetching": false,
+            "supported": false,
+            "webSearch": false
+          }
+        },
+        "multiTurn": true,
+        "streaming": true,
+        "structuredOutputs": true,
+        "thinking": false
+      },
+      "id": "Fast-id",
+      "metrics": {
+        "errors": {
+          "chat": {
+            "count": 0,
+            "rate": 0,
+            "total": 1
+          },
+          "embed": {
+            "count": 0,
+            "rate": 0,
+            "total": 1
+          }
+        },
+        "latency": {
+          "chat": {
+            "mean": 20,
+            "p95": 25,
+            "p99": 29,
+            "samples": [20]
+          },
+          "embed": {
+            "mean": 30,
+            "p95": 35,
+            "p99": 39,
+            "samples": [30]
+          }
+        }
+      },
+      "modelList": [
+        {
+          "description": "Fast chat",
+          "key": "balanced-chat",
+          "model": "fast-model"
+        }
+      ],
+      "name": "Fast"
+    }
+  ]
+}

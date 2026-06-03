@@ -1,0 +1,139 @@
+{
+  "alternative_indices": [1],
+  "expected_output": {
+    "recommendation": {
+      "degradations": [],
+      "processingApplied": [],
+      "provider": "Vision",
+      "warnings": ["Content caching not supported"]
+    },
+    "stats": {
+      "capabilityMatrix": {
+        "Functions": ["TextOnly", "Vision"],
+        "Images": ["Vision"],
+        "Streaming": ["Vision"]
+      },
+      "recommendedProvider": "TextOnly",
+      "totalProviders": 2
+    },
+    "validation": {
+      "canHandle": false,
+      "issues": ["Content caching not supported"],
+      "recommendations": []
+    }
+  },
+  "kind": "ai_provider_router",
+  "name": "provider-router-recommendation",
+  "primary_index": 0,
+  "request": {
+    "chatPrompt": [
+      {
+        "content": [
+          {
+            "text": "see",
+            "type": "text"
+          },
+          {
+            "altText": "diagram",
+            "cache": true,
+            "image": "abc",
+            "type": "image"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "functions": [
+      {
+        "name": "tool"
+      }
+    ],
+    "modelConfig": {
+      "stream": true
+    }
+  },
+  "routing": {
+    "capability": {
+      "allowDegradation": true,
+      "requireExactMatch": false
+    }
+  },
+  "services": [
+    {
+      "features": {
+        "caching": {
+          "supported": false,
+          "types": []
+        },
+        "functions": true,
+        "media": {
+          "audio": {
+            "formats": [],
+            "output": {
+              "formats": [],
+              "supported": false
+            },
+            "supported": false
+          },
+          "files": {
+            "formats": [],
+            "supported": false,
+            "uploadMethod": "none"
+          },
+          "images": {
+            "formats": [],
+            "supported": false
+          },
+          "urls": {
+            "contextFetching": false,
+            "supported": false,
+            "webSearch": false
+          }
+        },
+        "multiTurn": true,
+        "streaming": false,
+        "thinking": false
+      },
+      "id": "TextOnly-id",
+      "name": "TextOnly"
+    },
+    {
+      "features": {
+        "caching": {
+          "supported": false,
+          "types": []
+        },
+        "functions": true,
+        "media": {
+          "audio": {
+            "formats": [],
+            "output": {
+              "formats": [],
+              "supported": false
+            },
+            "supported": false
+          },
+          "files": {
+            "formats": [],
+            "supported": false,
+            "uploadMethod": "none"
+          },
+          "images": {
+            "formats": ["png"],
+            "supported": true
+          },
+          "urls": {
+            "contextFetching": false,
+            "supported": false,
+            "webSearch": false
+          }
+        },
+        "multiTurn": true,
+        "streaming": true,
+        "thinking": false
+      },
+      "id": "Vision-id",
+      "name": "Vision"
+    }
+  ]
+}

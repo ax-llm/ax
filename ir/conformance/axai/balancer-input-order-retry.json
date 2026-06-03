@@ -1,0 +1,205 @@
+{
+  "expected_output": {
+    "lastChat": "retry-model",
+    "outputs": {
+      "chat": {
+        "results": [
+          {
+            "content": "RetryBackup chat",
+            "index": 0
+          }
+        ]
+      }
+    },
+    "serviceCalls": [
+      [
+        {
+          "method": "chat",
+          "opt": {
+            "trace": "retry"
+          }
+        }
+      ],
+      [
+        {
+          "method": "chat",
+          "opt": {
+            "trace": "retry"
+          }
+        }
+      ]
+    ]
+  },
+  "kind": "ai_balancer",
+  "name": "balancer-input-order-retry",
+  "operations": [
+    {
+      "name": "chat",
+      "options": {
+        "trace": "retry"
+      },
+      "request": {
+        "chatPrompt": [
+          {
+            "content": "retry",
+            "role": "user"
+          }
+        ],
+        "model": "retry-model"
+      }
+    }
+  ],
+  "options": {
+    "debug": false,
+    "maxRetries": 2,
+    "strategy": "input_order"
+  },
+  "services": [
+    {
+      "features": {
+        "caching": {
+          "supported": false,
+          "types": []
+        },
+        "functions": false,
+        "media": {
+          "audio": {
+            "formats": [],
+            "output": {
+              "formats": [],
+              "supported": false
+            },
+            "supported": false
+          },
+          "files": {
+            "formats": [],
+            "supported": false,
+            "uploadMethod": "none"
+          },
+          "images": {
+            "formats": [],
+            "supported": false
+          },
+          "urls": {
+            "contextFetching": false,
+            "supported": false,
+            "webSearch": false
+          }
+        },
+        "multiTurn": true,
+        "streaming": false,
+        "thinking": false
+      },
+      "id": "RetryPrimary-id",
+      "metrics": {
+        "errors": {
+          "chat": {
+            "count": 0,
+            "rate": 0,
+            "total": 1
+          },
+          "embed": {
+            "count": 0,
+            "rate": 0,
+            "total": 1
+          }
+        },
+        "latency": {
+          "chat": {
+            "mean": 100,
+            "p95": 105,
+            "p99": 109,
+            "samples": [100]
+          },
+          "embed": {
+            "mean": 100,
+            "p95": 105,
+            "p99": 109,
+            "samples": [100]
+          }
+        }
+      },
+      "name": "RetryPrimary",
+      "responses": [
+        {
+          "error": {
+            "message": "first network miss",
+            "type": "network"
+          }
+        },
+        {
+          "error": {
+            "message": "second network miss",
+            "type": "network"
+          }
+        }
+      ]
+    },
+    {
+      "features": {
+        "caching": {
+          "supported": false,
+          "types": []
+        },
+        "functions": false,
+        "media": {
+          "audio": {
+            "formats": [],
+            "output": {
+              "formats": [],
+              "supported": false
+            },
+            "supported": false
+          },
+          "files": {
+            "formats": [],
+            "supported": false,
+            "uploadMethod": "none"
+          },
+          "images": {
+            "formats": [],
+            "supported": false
+          },
+          "urls": {
+            "contextFetching": false,
+            "supported": false,
+            "webSearch": false
+          }
+        },
+        "multiTurn": true,
+        "streaming": false,
+        "thinking": false
+      },
+      "id": "RetryBackup-id",
+      "metrics": {
+        "errors": {
+          "chat": {
+            "count": 0,
+            "rate": 0,
+            "total": 1
+          },
+          "embed": {
+            "count": 0,
+            "rate": 0,
+            "total": 1
+          }
+        },
+        "latency": {
+          "chat": {
+            "mean": 300,
+            "p95": 305,
+            "p99": 309,
+            "samples": [300]
+          },
+          "embed": {
+            "mean": 300,
+            "p95": 305,
+            "p99": 309,
+            "samples": [300]
+          }
+        }
+      },
+      "name": "RetryBackup"
+    }
+  ]
+}

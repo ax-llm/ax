@@ -1,0 +1,245 @@
+{
+  "expected_output": {
+    "lastChat": "chat-a",
+    "lastConfig": {
+      "temperature": 0.2
+    },
+    "metrics": {
+      "calls": 4,
+      "service": "A"
+    },
+    "modelList": [
+      {
+        "description": "Chat A",
+        "key": "chat-a",
+        "model": "a-model"
+      },
+      {
+        "description": "Embed A",
+        "embedModel": "a-embed",
+        "key": "embed-a"
+      },
+      {
+        "description": "Chat B",
+        "key": "chat-b",
+        "model": "b-model"
+      }
+    ],
+    "options": {
+      "debug": true
+    },
+    "outputs": {
+      "chat": {
+        "results": [
+          {
+            "content": "A chat",
+            "index": 0
+          }
+        ]
+      },
+      "embed": {
+        "embeddings": [[1, 2]],
+        "modelUsage": {
+          "ai": "A"
+        }
+      },
+      "speak": {
+        "audio": "pcm"
+      },
+      "transcribe": {
+        "text": "A transcript"
+      }
+    },
+    "serviceCalls": [
+      [
+        {
+          "method": "chat",
+          "opt": {
+            "trace": "chat"
+          }
+        },
+        {
+          "method": "embed",
+          "opt": {
+            "trace": "embed"
+          }
+        },
+        {
+          "method": "transcribe",
+          "opt": {
+            "trace": "transcribe"
+          }
+        },
+        {
+          "method": "speak",
+          "opt": {
+            "trace": "speak"
+          }
+        }
+      ]
+    ]
+  },
+  "kind": "ai_multiservice_router",
+  "name": "multiservice-router-runtime",
+  "operations": [
+    {
+      "name": "chat",
+      "options": {
+        "trace": "chat"
+      },
+      "request": {
+        "chatPrompt": [
+          {
+            "content": "hi",
+            "role": "user"
+          }
+        ],
+        "model": "chat-a",
+        "modelConfig": {
+          "temperature": 0.2
+        }
+      }
+    },
+    {
+      "name": "embed",
+      "options": {
+        "trace": "embed"
+      },
+      "request": {
+        "embedModel": "embed-a",
+        "texts": ["x"]
+      }
+    },
+    {
+      "name": "transcribe",
+      "options": {
+        "trace": "transcribe"
+      },
+      "request": {
+        "text": "x"
+      }
+    },
+    {
+      "name": "speak",
+      "options": {
+        "trace": "speak"
+      },
+      "request": {
+        "text": "y"
+      }
+    },
+    {
+      "name": "set_options",
+      "options": {
+        "debug": true
+      }
+    }
+  ],
+  "router_entries": [
+    {
+      "kind": "service",
+      "service_index": 0
+    },
+    {
+      "kind": "service",
+      "service_index": 1
+    }
+  ],
+  "services": [
+    {
+      "features": {
+        "caching": {
+          "supported": true,
+          "types": ["ephemeral"]
+        },
+        "functions": true,
+        "media": {
+          "audio": {
+            "formats": [],
+            "output": {
+              "formats": [],
+              "supported": false
+            },
+            "supported": false
+          },
+          "files": {
+            "formats": [],
+            "supported": false,
+            "uploadMethod": "none"
+          },
+          "images": {
+            "formats": ["png"],
+            "supported": true
+          },
+          "urls": {
+            "contextFetching": false,
+            "supported": false,
+            "webSearch": false
+          }
+        },
+        "multiTurn": true,
+        "streaming": true,
+        "thinking": false
+      },
+      "id": "A-id",
+      "modelList": [
+        {
+          "description": "Chat A",
+          "key": "chat-a",
+          "model": "a-model"
+        },
+        {
+          "description": "Embed A",
+          "embedModel": "a-embed",
+          "key": "embed-a"
+        }
+      ],
+      "name": "A"
+    },
+    {
+      "features": {
+        "caching": {
+          "supported": false,
+          "types": []
+        },
+        "functions": false,
+        "media": {
+          "audio": {
+            "formats": [],
+            "output": {
+              "formats": [],
+              "supported": false
+            },
+            "supported": false
+          },
+          "files": {
+            "formats": [],
+            "supported": false,
+            "uploadMethod": "none"
+          },
+          "images": {
+            "formats": [],
+            "supported": false
+          },
+          "urls": {
+            "contextFetching": false,
+            "supported": false,
+            "webSearch": false
+          }
+        },
+        "multiTurn": true,
+        "streaming": false,
+        "thinking": false
+      },
+      "id": "B-id",
+      "modelList": [
+        {
+          "description": "Chat B",
+          "key": "chat-b",
+          "model": "b-model"
+        }
+      ],
+      "name": "B"
+    }
+  ]
+}

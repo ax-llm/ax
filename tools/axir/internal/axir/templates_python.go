@@ -15,12 +15,16 @@ from .ai import (
     AxAIServiceStreamTerminatedError,
     AxAIServiceTimeoutError,
     AxBaseAI,
+    AxBalancer,
     AxUnsupportedCapabilityError,
     AnthropicClient,
     GoogleGeminiClient,
+    MultiServiceRouter,
     OpenAICompatibleClient,
     OpenAIResponsesClient,
+    ProviderRouter,
     ai,
+    get_supported_ai_models,
 )
 from .gen import AxGen, AxMemory, ax
 from .agent import AxAgent, AxAgentClarificationError, AxCodeRuntime, AxCodeSession, OptimizerEngine, OptimizerEvaluator, agent
@@ -40,6 +44,7 @@ __all__ = [
     "AxAIServiceStreamTerminatedError",
     "AxAIServiceTimeoutError",
     "AxBaseAI",
+    "AxBalancer",
     "AxGen",
     "AxFlow",
     "AxAgent",
@@ -61,8 +66,10 @@ __all__ = [
     "Field",
     "FieldType",
     "GoogleGeminiClient",
+    "MultiServiceRouter",
     "OpenAICompatibleClient",
     "OpenAIResponsesClient",
+    "ProviderRouter",
     "RuntimeCapabilities",
     "RuntimeEnvelope",
     "SignatureBuilder",
@@ -74,6 +81,7 @@ __all__ = [
     "f",
     "fn",
     "flow",
+    "get_supported_ai_models",
     "render_template_content",
     "s",
     "validate_prompt_template_syntax",
@@ -1983,6 +1991,526 @@ class AnthropicClient(ProviderOperationClient):
         )
 
 
+def get_supported_ai_models(model_type: str | None = None):
+    options = {} if model_type is None else {"type": model_type}
+    return copy.deepcopy(provider_model_catalog(options))
+
+
+def _router_default_features() -> dict[str, Any]:
+    return {
+        "functions": False,
+        "streaming": False,
+        "media": {
+            "images": {"supported": False, "formats": []},
+            "audio": {"supported": False, "formats": [], "output": {"supported": False, "formats": []}},
+            "files": {"supported": False, "formats": [], "uploadMethod": "none"},
+            "urls": {"supported": False, "webSearch": False, "contextFetching": False},
+        },
+        "caching": {"supported": False, "types": []},
+        "thinking": False,
+        "multiTurn": True,
+    }
+
+
+class MultiServiceRouter(AxAIService):
+    def __init__(self, services):
+        if not services:
+            raise ValueError("No AI services provided.")
+        self.services: dict[Any, dict[str, Any]] = {}
+        self.options: dict[str, Any] | None = None
+        self.last_used_service = None
+        for index, item in enumerate(services):
+            if isinstance(item, dict) and "key" in item:
+                key = item["key"]
+                if key in self.services:
+                    raise ValueError(f"Duplicate model key: {key}")
+                self.services[key] = {
+                    "service": item["service"],
+                    "description": item.get("description", ""),
+                    "isInternal": item.get("isInternal", item.get("is_internal")),
+                }
+                continue
+            service = item
+            model_list = service.get_model_list()
+            if not model_list:
+                raise ValueError(f"Service {index} '{service.get_name()}' has no model list.")
+            for entry in model_list:
+                key = entry.get("key")
+                if key in self.services:
+                    other = self.services[key]["service"]
+                    raise ValueError(f"Service {index} '{service.get_name()}' has duplicate model key: {key} as service {other.get_name()}")
+                if "model" in entry and entry.get("model") is not None:
+                    self.services[key] = {"service": service, "description": entry.get("description", ""), "model": entry.get("model")}
+                elif "embedModel" in entry and entry.get("embedModel"):
+                    self.services[key] = {"service": service, "description": entry.get("description", ""), "embedModel": entry.get("embedModel")}
+                elif "embed_model" in entry and entry.get("embed_model"):
+                    self.services[key] = {"service": service, "description": entry.get("description", ""), "embedModel": entry.get("embed_model")}
+                else:
+                    raise ValueError(f"Key {key} in model list for service {index} '{service.get_name()}' is missing a model or embedModel property.")
+
+    @staticmethod
+    def create(services):
+        return MultiServiceRouter(services)
+
+    def get_id(self) -> str:
+        return "MultiServiceRouter:" + ",".join(str(entry["service"].get_id()) for entry in self.services.values())
+
+    def get_name(self) -> str:
+        return "MultiServiceRouter"
+
+    def get_model_list(self):
+        out = []
+        for key, entry in self.services.items():
+            if entry.get("isInternal"):
+                continue
+            item = {"key": key, "description": entry.get("description", "")}
+            if "model" in entry:
+                item["model"] = entry["model"]
+            elif "embedModel" in entry:
+                item["embedModel"] = entry["embedModel"]
+            else:
+                raise ValueError(f"Service {key} has no model or embedModel")
+            out.append(item)
+        return out
+
+    def get_features(self, model: str | None = None) -> dict[str, Any]:
+        if model is not None and model in self.services:
+            return copy.deepcopy(self.services[model]["service"].get_features(model))
+        return _router_default_features()
+
+    def chat(self, request: dict[str, Any], options: dict[str, Any] | None = None):
+        model_key = request.get("model")
+        if not model_key:
+            raise ValueError("Model key must be specified for multi-service")
+        entry = self.services.get(model_key)
+        if entry is None:
+            raise ValueError(f"No service found for model key: {model_key}")
+        self.last_used_service = entry["service"]
+        req = copy.deepcopy(request)
+        if "modelConfig" in req and "model_config" not in req:
+            req["model_config"] = copy.deepcopy(req["modelConfig"])
+        if "model" not in entry:
+            req.pop("model", None)
+            return entry["service"].chat(req, options)
+        return entry["service"].chat(req, options)
+
+    def embed(self, request: dict[str, Any], options: dict[str, Any] | None = None):
+        embed_key = request.get("embedModel", request.get("embed_model"))
+        if not embed_key:
+            raise ValueError("Embed model key must be specified for multi-service")
+        entry = self.services.get(embed_key)
+        if entry is None:
+            raise ValueError(f"No service found for embed model key: {embed_key}")
+        self.last_used_service = entry["service"]
+        if "model" not in entry:
+            req = copy.deepcopy(request)
+            req.pop("embedModel", None)
+            req.pop("embed_model", None)
+            return entry["service"].embed(req, options)
+        return entry["service"].embed(copy.deepcopy(request), options)
+
+    def transcribe(self, request: dict[str, Any], options: dict[str, Any] | None = None):
+        model_key = request.get("model")
+        if not model_key:
+            if not self.services:
+                raise ValueError("No AI services provided.")
+            service = next(iter(self.services.values()))["service"]
+            self.last_used_service = service
+            return service.transcribe(request, options)
+        entry = self.services.get(model_key)
+        if entry is None:
+            raise ValueError(f"No service found for transcription model key: {model_key}")
+        self.last_used_service = entry["service"]
+        return entry["service"].transcribe(request, options)
+
+    def speak(self, request: dict[str, Any], options: dict[str, Any] | None = None):
+        model_key = request.get("model")
+        if not model_key:
+            if not self.services:
+                raise ValueError("No AI services provided.")
+            service = next(iter(self.services.values()))["service"]
+            self.last_used_service = service
+            return service.speak(request, options)
+        entry = self.services.get(model_key)
+        if entry is None:
+            raise ValueError(f"No service found for speech model key: {model_key}")
+        self.last_used_service = entry["service"]
+        return entry["service"].speak(request, options)
+
+    def get_metrics(self) -> dict[str, Any]:
+        service = self.last_used_service or (next(iter(self.services.values()))["service"] if self.services else None)
+        if service is None:
+            raise ValueError("No service available to get metrics.")
+        return service.get_metrics()
+
+    def get_estimated_cost(self, model_usage: dict[str, Any] | None = None) -> float:
+        return self.last_used_service.get_estimated_cost(model_usage) if self.last_used_service else 0.0
+
+    def get_logger(self):
+        service = self.last_used_service or (next(iter(self.services.values()))["service"] if self.services else None)
+        if service is None:
+            raise ValueError("No service available to get logger.")
+        return service.get_logger()
+
+    def set_options(self, options: dict[str, Any]):
+        for entry in self.services.values():
+            entry["service"].set_options(options)
+        self.options = dict(options or {})
+
+    def get_options(self) -> dict[str, Any]:
+        return dict(self.options or {})
+
+    def get_last_used_chat_model(self):
+        return self.last_used_service.get_last_used_chat_model() if self.last_used_service else None
+
+    def get_last_used_embed_model(self):
+        return self.last_used_service.get_last_used_embed_model() if self.last_used_service else None
+
+    def get_last_used_model_config(self):
+        return self.last_used_service.get_last_used_model_config() if self.last_used_service else None
+
+    def complete(self, request: dict[str, Any]) -> dict[str, Any]:
+        return chat_response_to_completion(self.chat(_coerce_chat_request(request)))
+
+
+def _feature_bool(features: dict[str, Any], key: str, fallback: bool = False) -> bool:
+    if key in features:
+        return bool(features.get(key))
+    snake = {
+        "structuredOutputs": "structured_outputs",
+        "multiTurn": "multi_turn",
+        "functionCot": "function_cot",
+        "hasThinkingBudget": "has_thinking_budget",
+        "hasShowThoughts": "has_show_thoughts",
+    }.get(key)
+    if snake and snake in features:
+        return bool(features.get(snake))
+    return fallback
+
+
+def _append_unique(left: list[Any], values: list[Any]):
+    for value in values or []:
+        if value not in left:
+            left.append(value)
+
+
+def _service_latency_score(service: AxAIService) -> float:
+    try:
+        return float(provider_balancer_metric_score(service.get_metrics()))
+    except Exception:
+        return 0.0
+
+
+def _is_retryable_ai_error(exc: AxAIServiceError) -> bool:
+    if isinstance(exc, AxAIServiceAuthenticationError):
+        return False
+    if isinstance(exc, AxAIServiceStatusError):
+        return getattr(exc, "status", None) in {408, 429, 500, 502, 503, 504}
+    return isinstance(
+        exc,
+        (
+            AxAIServiceNetworkError,
+            AxAIServiceResponseError,
+            AxAIServiceStreamTerminatedError,
+            AxAIServiceTimeoutError,
+        ),
+    )
+
+
+class AxBalancer(AxAIService):
+    input_order_comparator = "input_order"
+
+    @staticmethod
+    def create(services, options: dict[str, Any] | None = None):
+        return AxBalancer(services, options)
+
+    def __init__(self, services, options: dict[str, Any] | None = None):
+        if not services:
+            raise ValueError("No AI services provided.")
+        self.policy = provider_balancer_retry_policy(options or {})
+        self.debug = bool(self.policy.get("debug", True))
+        self.max_retries = int(self.policy.get("maxRetries", 3))
+        self.initial_backoff_ms = int(self.policy.get("initialBackoffMs", 1000))
+        self.max_backoff_ms = int(self.policy.get("maxBackoffMs", 32000))
+        self.service_failures: dict[str, dict[str, Any]] = {}
+        self.services = list(services)
+        self._validate_models()
+        if self.policy.get("strategy") != "input_order":
+            self.services.sort(key=_service_latency_score)
+        self.current_service_index = 0
+        self.current_service = self.services[0]
+
+    def _validate_models(self):
+        reference = next((service.get_model_list() for service in self.services if service.get_model_list() is not None), None)
+        if reference is None:
+            return
+        reference_keys = {entry.get("key") for entry in reference}
+        for index, service in enumerate(self.services):
+            model_list = service.get_model_list()
+            if model_list is None:
+                raise ValueError(f"Service at index {index} ({service.get_name()}) has no model list while another service does.")
+            keys = {entry.get("key") for entry in model_list}
+            for key in reference_keys:
+                if key not in keys:
+                    raise ValueError(f"Service at index {index} ({service.get_name()}) is missing model {key!r}")
+            for key in keys:
+                if key not in reference_keys:
+                    raise ValueError(f"Service at index {index} ({service.get_name()}) has extra model {key!r}")
+
+    def _next_service(self, services, current_index: int):
+        next_index = current_index + 1
+        return (services[next_index] if next_index < len(services) else None, next_index)
+
+    def _reset(self):
+        self.current_service_index = 0
+        self.current_service = self.services[0]
+
+    def _can_retry_service(self, service: AxAIService) -> bool:
+        return service.get_id() not in self.service_failures
+
+    def _handle_failure(self, service: AxAIService, exc: AxAIServiceError):
+        failure = self.service_failures.get(service.get_id(), {"retries": 0})
+        self.service_failures[service.get_id()] = {"retries": int(failure.get("retries", 0)) + 1}
+
+    def _handle_success(self, service: AxAIService):
+        self.service_failures.pop(service.get_id(), None)
+
+    def _candidate_services(self, request: dict[str, Any]):
+        candidates = [service for service in self.services if provider_balancer_candidate_allowed(service.get_features(str(request.get("model"))) or {}, request)]
+        if candidates:
+            return candidates
+        requirements = []
+        if (request.get("responseFormat") or request.get("response_format") or {}).get("type") == "json_schema":
+            requirements.append("structured outputs")
+        caps = request.get("capabilities") or {}
+        if caps.get("requiresImages") or caps.get("requires_images"):
+            requirements.append("images")
+        if caps.get("requiresAudio") or caps.get("requires_audio"):
+            requirements.append("audio")
+        raise ValueError(f"No services available that support required capabilities: {', '.join(requirements)}.")
+
+    def get_id(self) -> str:
+        return self.current_service.get_id()
+
+    def get_name(self) -> str:
+        return self.current_service.get_name()
+
+    def get_model_list(self):
+        for service in self.services:
+            model_list = service.get_model_list()
+            if model_list:
+                return copy.deepcopy(model_list)
+        return None
+
+    def get_features(self, model: str | None = None) -> dict[str, Any]:
+        features = {
+            "functions": False,
+            "streaming": False,
+            "thinking": False,
+            "multiTurn": False,
+            "structuredOutputs": False,
+            "media": {
+                "images": {"supported": False, "formats": []},
+                "audio": {"supported": False, "formats": []},
+                "files": {"supported": False, "formats": [], "uploadMethod": "none"},
+                "urls": {"supported": False, "webSearch": False, "contextFetching": False},
+            },
+            "caching": {"supported": False, "types": []},
+        }
+        for service in self.services:
+            raw = service.get_features(model) or {}
+            for key in ("functions", "streaming", "thinking", "multiTurn", "structuredOutputs", "functionCot", "hasThinkingBudget", "hasShowThoughts"):
+                if _feature_bool(raw, key):
+                    features[key] = True
+            media = raw.get("media") or {}
+            for kind in ("images", "audio", "files"):
+                src = media.get(kind) or {}
+                if src.get("supported"):
+                    features["media"][kind]["supported"] = True
+                _append_unique(features["media"][kind]["formats"], list(src.get("formats") or []))
+            upload = (media.get("files") or {}).get("uploadMethod") or (media.get("files") or {}).get("upload_method")
+            if upload and upload != "none":
+                features["media"]["files"]["uploadMethod"] = upload
+            urls = media.get("urls") or {}
+            if urls.get("supported"):
+                features["media"]["urls"]["supported"] = True
+            if urls.get("webSearch") or urls.get("web_search"):
+                features["media"]["urls"]["webSearch"] = True
+            if urls.get("contextFetching") or urls.get("context_fetching"):
+                features["media"]["urls"]["contextFetching"] = True
+            caching = raw.get("caching") or {}
+            if caching.get("supported"):
+                features["caching"]["supported"] = True
+            _append_unique(features["caching"]["types"], list(caching.get("types") or []))
+        return features
+
+    def get_metrics(self) -> dict[str, Any]:
+        out = default_metrics()
+        chat_sum = chat_count = embed_sum = embed_count = 0.0
+        for service in self.services:
+            metrics = service.get_metrics() or {}
+            errors = metrics.get("errors") or {}
+            for kind in ("chat", "embed"):
+                src = errors.get(kind) or {}
+                out["errors"][kind]["count"] += src.get("count", 0) or 0
+                out["errors"][kind]["total"] += src.get("total", 0) or 0
+            latency = metrics.get("latency") or {}
+            chat = latency.get("chat") or {}
+            chat_samples = len(chat.get("samples") or [])
+            if chat_samples:
+                chat_sum += (chat.get("mean", 0) or 0) * chat_samples
+                chat_count += chat_samples
+            embed = latency.get("embed") or {}
+            embed_samples = len(embed.get("samples") or [])
+            if embed_samples:
+                embed_sum += (embed.get("mean", 0) or 0) * embed_samples
+                embed_count += embed_samples
+            out["latency"]["chat"]["p95"] = max(out["latency"]["chat"]["p95"], chat.get("p95", 0) or 0)
+            out["latency"]["chat"]["p99"] = max(out["latency"]["chat"]["p99"], chat.get("p99", 0) or 0)
+            out["latency"]["embed"]["p95"] = max(out["latency"]["embed"]["p95"], embed.get("p95", 0) or 0)
+            out["latency"]["embed"]["p99"] = max(out["latency"]["embed"]["p99"], embed.get("p99", 0) or 0)
+        for kind in ("chat", "embed"):
+            total = out["errors"][kind]["total"]
+            if total:
+                out["errors"][kind]["rate"] = out["errors"][kind]["count"] / total
+        if chat_count:
+            out["latency"]["chat"]["mean"] = chat_sum / chat_count
+        if embed_count:
+            out["latency"]["embed"]["mean"] = embed_sum / embed_count
+        return out
+
+    def chat(self, request: dict[str, Any], options: dict[str, Any] | None = None):
+        candidates = self._candidate_services(request)
+        index = 0
+        current = candidates[index]
+        self.current_service = current
+        while True:
+            if not self._can_retry_service(current):
+                current, index = self._next_service(candidates, index)
+                if current is None:
+                    raise ValueError(f"All candidate services exhausted (tried {len(candidates)} service(s))")
+                self.current_service = current
+                continue
+            try:
+                response = current.chat(request, options)
+                self._handle_success(current)
+                return response
+            except AxAIServiceError as exc:
+                if not _is_retryable_ai_error(exc):
+                    raise
+                self._handle_failure(current, exc)
+                failure = self.service_failures.get(current.get_id(), {})
+                if int(failure.get("retries", 0)) >= self.max_retries:
+                    current, index = self._next_service(candidates, index)
+                    if current is None:
+                        raise
+                    self.current_service = current
+            except Exception:
+                raise
+
+    def embed(self, request: dict[str, Any], options: dict[str, Any] | None = None):
+        self._reset()
+        index = self.current_service_index
+        while True:
+            if not self._can_retry_service(self.current_service):
+                next_service, index = self._next_service(self.services, index)
+                if next_service is None:
+                    raise ValueError(f"All services exhausted (tried {len(self.services)} service(s))")
+                self.current_service = next_service
+                self.current_service_index = index
+                continue
+            try:
+                response = self.current_service.embed(request, options)
+                self._handle_success(self.current_service)
+                return response
+            except AxAIServiceError as exc:
+                if not _is_retryable_ai_error(exc):
+                    raise
+                self._handle_failure(self.current_service, exc)
+                failure = self.service_failures.get(self.current_service.get_id(), {})
+                if int(failure.get("retries", 0)) >= self.max_retries:
+                    next_service, index = self._next_service(self.services, index)
+                    if next_service is None:
+                        raise
+                    self.current_service = next_service
+                    self.current_service_index = index
+
+    def transcribe(self, request: dict[str, Any], options: dict[str, Any] | None = None):
+        return self.current_service.transcribe(request, options)
+
+    def speak(self, request: dict[str, Any], options: dict[str, Any] | None = None):
+        return self.current_service.speak(request, options)
+
+    def get_estimated_cost(self, model_usage: dict[str, Any] | None = None) -> float:
+        return self.current_service.get_estimated_cost(model_usage)
+
+    def get_logger(self):
+        return self.current_service.get_logger()
+
+    def set_options(self, options: dict[str, Any]):
+        for service in self.services:
+            service.set_options(options)
+        self.current_service.set_options(options)
+        self.debug = bool((options or {}).get("debug", self.debug))
+
+    def get_options(self) -> dict[str, Any]:
+        return self.current_service.get_options()
+
+    def get_last_used_chat_model(self):
+        return self.current_service.get_last_used_chat_model()
+
+    def get_last_used_embed_model(self):
+        return self.current_service.get_last_used_embed_model()
+
+    def get_last_used_model_config(self):
+        return self.current_service.get_last_used_model_config()
+
+    def complete(self, request: dict[str, Any]) -> dict[str, Any]:
+        return chat_response_to_completion(self.chat(_coerce_chat_request(request)))
+
+
+class ProviderRouter:
+    def __init__(self, config: dict[str, Any]):
+        providers_config = config.get("providers") or {}
+        self.providers = [providers_config.get("primary"), *(providers_config.get("alternatives") or [])]
+        self.providers = [provider for provider in self.providers if provider is not None]
+        self.processing = config.get("processing") or {}
+        routing = config.get("routing") or {}
+        self.routing = routing.get("capability") or {}
+
+    def _provider_records(self):
+        return [
+            {"name": provider.get_name(), "id": provider.get_id(), "features": copy.deepcopy(provider.get_features())}
+            for provider in self.providers
+        ]
+
+    def _service_for_name(self, name: str):
+        for provider in self.providers:
+            if provider.get_name() == name:
+                return provider
+        return self.providers[0] if self.providers else None
+
+    def get_routing_recommendation(self, request: dict[str, Any]):
+        rec = provider_route_recommendation(self._provider_records(), _coerce_chat_request(request), self.routing)
+        out = copy.deepcopy(rec)
+        out["provider"] = self._service_for_name(out.get("providerName"))
+        return out
+
+    def validate_request(self, request: dict[str, Any]):
+        return provider_route_validation(self._provider_records(), _coerce_chat_request(request), self.processing, self.routing)
+
+    def get_routing_stats(self):
+        return provider_routing_stats(self._provider_records())
+
+    def chat(self, request: dict[str, Any], options: dict[str, Any] | None = None):
+        rec = self.get_routing_recommendation(request)
+        provider = rec.get("provider")
+        if provider is None:
+            raise AxUnsupportedCapabilityError("No provider selected")
+        response = provider.chat(request, options)
+        return {"response": response, "routing": rec}
+
+
 def _core_not(value): return not value
 def _core_and(left, right): return bool(left and right)
 def _core_or(left, right): return bool(left or right)
@@ -2114,6 +2642,14 @@ for _axir_provider_public_name in (
     "provider_profile_registry",
     "provider_resolve_profile",
     "provider_model_catalog_summary",
+    "provider_model_catalog",
+    "provider_route_request_requirements",
+    "provider_route_recommendation",
+    "provider_route_validation",
+    "provider_balancer_retry_policy",
+    "provider_balancer_metric_score",
+    "provider_balancer_candidate_allowed",
+    "provider_routing_stats",
     "provider_descriptor",
     "provider_operation_descriptor",
     "provider_build_chat_request",
@@ -4038,7 +4574,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .ai import AnthropicClient, AxAIServiceError, AxBaseAI, GoogleGeminiClient, OpenAICompatibleClient, OpenAIResponsesClient, provider_descriptor, provider_model_catalog_summary, provider_normalize_profile, provider_profile_registry
+from .ai import AnthropicClient, AxAIServiceAuthenticationError, AxAIServiceError, AxAIServiceNetworkError, AxAIServiceResponseError, AxAIServiceStatusError, AxAIServiceStreamTerminatedError, AxAIServiceTimeoutError, AxBaseAI, AxBalancer, GoogleGeminiClient, MultiServiceRouter, OpenAICompatibleClient, OpenAIResponsesClient, ProviderRouter, get_supported_ai_models, provider_descriptor, provider_model_catalog_summary, provider_normalize_profile, provider_profile_registry
 from .gen import ax, fold_stream
 from .flow import (
     _FlowCallable,
@@ -4112,6 +4648,99 @@ class FakeAIService(AxBaseAI):
         self.requests.append(copy.deepcopy(request))
         for event in self.stream_events:
             yield copy.deepcopy(event)
+
+
+def _fixture_ai_service_error(spec):
+    error_type = (spec or {}).get("type", "network")
+    message = (spec or {}).get("message", "fixture error")
+    if error_type == "status":
+        return AxAIServiceStatusError(message, status=int((spec or {}).get("status", 500)), retryable=True)
+    if error_type == "authentication":
+        return AxAIServiceAuthenticationError("Authentication failed", status=int((spec or {}).get("status", 401)))
+    if error_type == "response":
+        return AxAIServiceResponseError(message)
+    if error_type == "timeout":
+        return AxAIServiceTimeoutError(message, retryable=True)
+    if error_type == "plain":
+        return RuntimeError(message)
+    return AxAIServiceNetworkError("Network Error: " + str(message), retryable=True)
+
+
+class RouterFixtureService(AxBaseAI):
+    def __init__(self, spec):
+        super().__init__(
+            name=spec.get("name", "fixture"),
+            model=spec.get("model", "fixture-chat"),
+            embed_model=spec.get("embed_model", spec.get("embedModel", "fixture-embed")),
+            features=copy.deepcopy(spec.get("features") or _router_fixture_features()),
+        )
+        self.fixture_id = spec.get("id", f"{self.name}-id")
+        self.model_list = copy.deepcopy(spec.get("modelList", spec.get("model_list")))
+        self.requests = []
+        self.responses = list(spec.get("responses") or [])
+        self.metrics_value = copy.deepcopy(spec.get("metrics") or {"service": self.name, "calls": 0})
+
+    def get_id(self):
+        return self.fixture_id
+
+    def get_model_list(self):
+        return copy.deepcopy(self.model_list)
+
+    def get_metrics(self):
+        out = copy.deepcopy(self.metrics_value)
+        if isinstance(out, dict) and "calls" in out:
+            out["calls"] = len(self.requests)
+        return out
+
+    def _chat(self, request: dict[str, Any], options: dict[str, Any]):
+        self.requests.append({"method": "chat", "opt": copy.deepcopy(options or {})})
+        if self.responses:
+            next_response = self.responses.pop(0)
+            if isinstance(next_response, dict) and "error" in next_response:
+                raise _fixture_ai_service_error(next_response.get("error") or {})
+            return copy.deepcopy(next_response.get("response", next_response)) if isinstance(next_response, dict) else copy.deepcopy(next_response)
+        return {"results": [{"index": 0, "content": f"{self.name} chat"}]}
+
+    def _embed(self, request: dict[str, Any], options: dict[str, Any]):
+        self.requests.append({"method": "embed", "opt": copy.deepcopy(options or {})})
+        return {"embeddings": [[1, 2]], "modelUsage": {"ai": self.name}}
+
+    def transcribe(self, request: dict[str, Any], options: dict[str, Any] | None = None):
+        self.requests.append({"method": "transcribe", "opt": copy.deepcopy(options or {})})
+        return {"text": f"{self.name} transcript"}
+
+    def speak(self, request: dict[str, Any], options: dict[str, Any] | None = None):
+        self.requests.append({"method": "speak", "opt": copy.deepcopy(options or {})})
+        return {"audio": "pcm"}
+
+
+def _router_fixture_features(overrides=None):
+    base = {
+        "functions": False,
+        "streaming": False,
+        "media": {
+            "images": {"supported": False, "formats": []},
+            "audio": {"supported": False, "formats": [], "output": {"supported": False, "formats": []}},
+            "files": {"supported": False, "formats": [], "uploadMethod": "none"},
+            "urls": {"supported": False, "webSearch": False, "contextFetching": False},
+        },
+        "caching": {"supported": False, "types": []},
+        "thinking": False,
+        "multiTurn": True,
+    }
+    if overrides:
+        base = _deep_merge(base, overrides)
+    return base
+
+
+def _deep_merge(left, right):
+    out = copy.deepcopy(left)
+    for key, value in (right or {}).items():
+        if isinstance(value, dict) and isinstance(out.get(key), dict):
+            out[key] = _deep_merge(out[key], value)
+        else:
+            out[key] = copy.deepcopy(value)
+    return out
 
 
 class FakeTransport:
@@ -4392,6 +5021,14 @@ def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
             _run_ai_provider_registry(fixture)
         elif kind == "ai_model_catalog_audit":
             _run_ai_model_catalog_audit(fixture)
+        elif kind == "ai_model_catalog_runtime":
+            _run_ai_model_catalog_runtime(fixture)
+        elif kind == "ai_multiservice_router":
+            _run_ai_multiservice_router(fixture)
+        elif kind == "ai_provider_router":
+            _run_ai_provider_router(fixture)
+        elif kind == "ai_balancer":
+            _run_ai_balancer(fixture)
         elif kind == "ai_transcribe":
             _run_ai_transcribe(fixture)
         elif kind == "ai_speak":
@@ -5427,6 +6064,146 @@ def _run_ai_model_catalog_audit(fixture):
     summary = provider_model_catalog_summary()
     if "expected_output" in fixture:
         _assert_subset(summary, fixture["expected_output"], "provider model catalog audit")
+
+
+def _run_ai_model_catalog_runtime(fixture):
+    model_type = fixture.get("model_type")
+    result = get_supported_ai_models(model_type)
+    expected = fixture.get("expected_output")
+    if expected is not None:
+        actual = {
+            "providerCount": len(result),
+            "providerNames": [item.get("name") for item in result],
+            "modelCount": sum(len(item.get("models") or []) for item in result),
+            "openaiFirstModel": next((p.get("models", [{}])[0].get("name") for p in result if p.get("name") == "openai" and p.get("models")), None),
+            "openaiModelTypes": sorted(set(model.get("type") for p in result if p.get("name") == "openai" for model in p.get("models", []))),
+        }
+        _assert_subset(actual, expected, "provider model catalog runtime")
+    if fixture.get("check_clone"):
+        result[0]["models"].append({"name": "mutated"})
+        fresh = get_supported_ai_models(model_type)
+        _assert_equal(any(model.get("name") == "mutated" for model in fresh[0].get("models", [])), False, "catalog clone")
+
+
+def _build_router_services(fixture):
+    return [RouterFixtureService(spec) for spec in fixture.get("services", [])]
+
+
+def _run_ai_multiservice_router(fixture):
+    services = _build_router_services(fixture)
+    entries = []
+    for raw in fixture.get("router_entries", []):
+        if raw.get("kind") == "key":
+            entries.append({"key": raw["key"], "description": raw.get("description", ""), "service": services[raw.get("service_index", 0)], "isInternal": raw.get("isInternal", raw.get("is_internal"))})
+        else:
+            entries.append(services[raw.get("service_index", 0)])
+    try:
+        router = MultiServiceRouter(entries)
+        outputs = {}
+        for op in fixture.get("operations", []):
+            name = op.get("name")
+            if name == "chat":
+                outputs[name] = router.chat(op.get("request") or {}, op.get("options"))
+            elif name == "embed":
+                outputs[name] = router.embed(op.get("request") or {}, op.get("options"))
+            elif name == "transcribe":
+                outputs[name] = router.transcribe(op.get("request") or {}, op.get("options"))
+            elif name == "speak":
+                outputs[name] = router.speak(op.get("request") or {}, op.get("options"))
+            elif name == "set_options":
+                router.set_options(op.get("options") or {})
+        actual = {
+            "outputs": outputs,
+            "lastChat": router.get_last_used_chat_model(),
+            "lastEmbed": router.get_last_used_embed_model(),
+            "lastConfig": router.get_last_used_model_config(),
+            "metrics": router.get_metrics(),
+            "options": router.get_options(),
+            "serviceCalls": [service.requests for service in services if service.requests],
+        }
+        expected_output = fixture.get("expected_output") or {}
+        if "modelList" in expected_output:
+            actual["modelList"] = router.get_model_list()
+        if fixture.get("expected_error_contains"):
+            raise FixtureError("expected multi-service router to fail")
+        if "expected_output" in fixture:
+            _assert_subset(actual, expected_output, "multi-service router")
+    except Exception as exc:
+        if not fixture.get("expected_error_contains"):
+            raise
+        if fixture["expected_error_contains"] not in str(exc):
+            raise FixtureError(f"expected error containing {fixture['expected_error_contains']}, got {exc}")
+
+
+def _run_ai_provider_router(fixture):
+    services = _build_router_services(fixture)
+    primary = services[fixture.get("primary_index", 0)] if services else None
+    alternatives = [services[index] for index in fixture.get("alternative_indices", [])]
+    router = ProviderRouter({
+        "providers": {"primary": primary, "alternatives": alternatives},
+        "routing": fixture.get("routing") or {"capability": {"requireExactMatch": False, "allowDegradation": True}},
+        "processing": fixture.get("processing") or {},
+    })
+    request = fixture.get("request") or {}
+    rec = router.get_routing_recommendation(request)
+    provider = rec.get("provider")
+    recommendation = {
+        "provider": provider.get_name() if provider else rec.get("providerName"),
+        "processingApplied": rec.get("processingApplied"),
+        "degradations": rec.get("degradations"),
+        "warnings": rec.get("warnings"),
+    }
+    actual = {
+        "recommendation": recommendation,
+        "validation": router.validate_request(request),
+        "stats": router.get_routing_stats(),
+    }
+    if "expected_output" in fixture:
+        _assert_subset(actual, fixture["expected_output"], "provider router")
+
+
+def _run_ai_balancer(fixture):
+    services = _build_router_services(fixture)
+    try:
+        balancer = AxBalancer(services, fixture.get("options") or {})
+        outputs = {}
+        for op in fixture.get("operations", []):
+            name = op.get("name")
+            if name == "chat":
+                outputs[name] = balancer.chat(op.get("request") or {}, op.get("options"))
+            elif name == "embed":
+                outputs[name] = balancer.embed(op.get("request") or {}, op.get("options"))
+            elif name == "transcribe":
+                outputs[name] = balancer.transcribe(op.get("request") or {}, op.get("options"))
+            elif name == "speak":
+                outputs[name] = balancer.speak(op.get("request") or {}, op.get("options"))
+            elif name == "set_options":
+                balancer.set_options(op.get("options") or {})
+        actual = {
+            "id": balancer.get_id(),
+            "name": balancer.get_name(),
+            "outputs": outputs,
+            "lastChat": balancer.get_last_used_chat_model(),
+            "lastEmbed": balancer.get_last_used_embed_model(),
+            "lastConfig": balancer.get_last_used_model_config(),
+            "metrics": balancer.get_metrics(),
+            "options": balancer.get_options(),
+            "serviceCalls": [service.requests for service in services if service.requests],
+        }
+        expected_output = fixture.get("expected_output") or {}
+        if "modelList" in expected_output:
+            actual["modelList"] = balancer.get_model_list()
+        if "features" in expected_output:
+            actual["features"] = balancer.get_features()
+        if fixture.get("expected_error_contains"):
+            raise FixtureError("expected balancer to fail")
+        if "expected_output" in fixture:
+            _assert_subset(actual, fixture["expected_output"], "balancer")
+    except Exception as exc:
+        if not fixture.get("expected_error_contains"):
+            raise
+        if fixture["expected_error_contains"] not in str(exc):
+            raise FixtureError(f"expected error containing {fixture['expected_error_contains']}, got {exc}")
 
 
 def _run_ai_transcribe(fixture):

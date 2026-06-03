@@ -2,11 +2,21 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { axAIAnthropicDefaultConfig } from '../../../src/ax/ai/anthropic/api.js';
+import { AxBalancer } from '../../../src/ax/ai/balance.js';
 import { axGetSupportedAIModels } from '../../../src/ax/ai/catalog.js';
 import { axAIGoogleGeminiDefaultConfig } from '../../../src/ax/ai/google-gemini/api.js';
 import { AxAIGoogleGeminiEmbedModel } from '../../../src/ax/ai/google-gemini/types.js';
+import { AxMultiServiceRouter } from '../../../src/ax/ai/multiservice.js';
 import { AxAIOpenAIModel } from '../../../src/ax/ai/openai/chat_types.js';
 import { axAIOpenAIResponsesDefaultConfig } from '../../../src/ax/ai/openai/responses_api_base.js';
+import { AxProviderRouter } from '../../../src/ax/ai/router.js';
+import {
+  AxAIServiceAuthenticationError,
+  AxAIServiceNetworkError,
+  AxAIServiceResponseError,
+  AxAIServiceStatusError,
+  AxAIServiceTimeoutError,
+} from '../../../src/ax/util/apicall.js';
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 type Fixture = Record<string, Json>;
@@ -121,6 +131,182 @@ const clonedOpenAIModel = axGetSupportedAIModels()
   .find((provider) => provider.name === 'openai')
   ?.models.find((model) => model.name === AxAIOpenAIModel.GPT5Mini);
 
+const routerFeatures = (overrides: Record<string, unknown> = {}) => ({
+  functions: false,
+  streaming: false,
+  media: {
+    images: { supported: false, formats: [] },
+    audio: {
+      supported: false,
+      formats: [],
+      output: { supported: false, formats: [] },
+    },
+    files: { supported: false, formats: [], uploadMethod: 'none' },
+    urls: { supported: false, webSearch: false, contextFetching: false },
+  },
+  caching: { supported: false, types: [] },
+  thinking: false,
+  multiTurn: true,
+  ...overrides,
+});
+
+class FixtureAIService {
+  id: string;
+  name: string;
+  modelList?: any[];
+  features: any;
+  requests: any[] = [];
+  options: Record<string, unknown> = {};
+  lastChat?: unknown;
+  lastEmbed?: unknown;
+  lastConfig?: unknown;
+  responses: any[] = [];
+  metricsValue: any;
+
+  constructor(spec: {
+    name: string;
+    id?: string;
+    modelList?: any[];
+    features?: any;
+    responses?: any[];
+    metrics?: any;
+  }) {
+    this.name = spec.name;
+    this.id = spec.id ?? `${spec.name}-id`;
+    this.modelList = spec.modelList;
+    this.features = spec.features ?? routerFeatures();
+    this.responses = [...(spec.responses ?? [])];
+    this.metricsValue = spec.metrics ?? { service: this.name, calls: 0 };
+  }
+
+  getId() {
+    return this.id;
+  }
+  getName() {
+    return this.name;
+  }
+  getFeatures() {
+    return this.features;
+  }
+  getModelList() {
+    return this.modelList;
+  }
+  getMetrics() {
+    const out = structuredClone(this.metricsValue);
+    if (out && typeof out === 'object' && 'calls' in out) {
+      out.calls = this.requests.length;
+    }
+    return out;
+  }
+  getLogger() {
+    return (message: string) => this.requests.push({ logger: message });
+  }
+  getLastUsedChatModel() {
+    return this.lastChat;
+  }
+  getLastUsedEmbedModel() {
+    return this.lastEmbed;
+  }
+  getLastUsedModelConfig() {
+    return this.lastConfig;
+  }
+  setOptions(options: Record<string, unknown>) {
+    this.options = options;
+  }
+  getOptions() {
+    return this.options;
+  }
+  async chat(req: any, opt?: any) {
+    this.lastChat = req.model;
+    this.lastConfig = req.modelConfig;
+    this.requests.push({ method: 'chat', req, opt });
+    if (this.responses.length > 0) {
+      const next = this.responses.shift();
+      if (next?.error) {
+        throw fixtureAIError(next.error);
+      }
+      return structuredClone(next.response ?? next);
+    }
+    return { results: [{ index: 0, content: `${this.name} chat` }] };
+  }
+  async embed(req: any, opt?: any) {
+    this.lastEmbed = req.embedModel;
+    this.requests.push({ method: 'embed', req, opt });
+    return { embeddings: [[1, 2]], modelUsage: { ai: this.name } };
+  }
+  async transcribe(req: any, opt?: any) {
+    this.requests.push({ method: 'transcribe', req, opt });
+    return { text: `${this.name} transcript` };
+  }
+  async speak(req: any, opt?: any) {
+    this.requests.push({ method: 'speak', req, opt });
+    return { audio: 'pcm' };
+  }
+  getEstimatedCost() {
+    return 0;
+  }
+}
+
+const normalizeFixtureServiceCalls = (calls: any[]) =>
+  calls.map((call) => ({
+    method: call.method,
+    ...(call.opt !== undefined ? { opt: call.opt } : {}),
+  }));
+
+function fixtureAIError(spec: any): Error {
+  const message = spec.message ?? 'fixture error';
+  switch (spec.type ?? 'network') {
+    case 'status':
+      return new AxAIServiceStatusError(
+        spec.status ?? 500,
+        spec.statusText ?? 'Fixture',
+        'fixture://ai',
+        {},
+        {}
+      );
+    case 'authentication':
+      return new AxAIServiceAuthenticationError('fixture://ai', {}, {});
+    case 'response':
+      return new AxAIServiceResponseError(message, 'fixture://ai', {});
+    case 'timeout':
+      return new AxAIServiceTimeoutError(
+        'fixture://ai',
+        spec.timeoutMs ?? 1000,
+        {}
+      );
+    case 'plain':
+      return new Error(message);
+    default:
+      return new AxAIServiceNetworkError(
+        new Error(message),
+        'fixture://ai',
+        {},
+        {}
+      );
+  }
+}
+
+const balancerMetrics = (chatMean: number, embedMean = chatMean) => ({
+  latency: {
+    chat: {
+      mean: chatMean,
+      p95: chatMean + 5,
+      p99: chatMean + 9,
+      samples: [chatMean],
+    },
+    embed: {
+      mean: embedMean,
+      p95: embedMean + 5,
+      p99: embedMean + 9,
+      samples: [embedMean],
+    },
+  },
+  errors: {
+    chat: { count: 0, rate: 0, total: 1 },
+    embed: { count: 0, rate: 0, total: 1 },
+  },
+});
+
 writeFixture('provider-profile-registry', {
   kind: 'ai_provider_registry',
   alias_expectations: {
@@ -219,8 +405,550 @@ writeFixture('model-catalog-audit', {
       metadataClonedPerCall: true,
       dynamicProvidersMayHaveEmptyModels: true,
     },
-    nextMilestone: 'AxAI Model Catalog and Provider Routing Runtime Parity',
+    nextMilestone: 'AxIR GEPA Engine Port',
   },
+});
+
+for (const [fixtureName, modelType, catalog] of [
+  ['model-catalog-runtime-all', null, catalogAll],
+  ['model-catalog-runtime-text', 'text', catalogText],
+  ['model-catalog-runtime-embeddings', 'embeddings', catalogEmbeddings],
+  ['model-catalog-runtime-code', 'code', catalogCode],
+  ['model-catalog-runtime-audio', 'audio', catalogAudio],
+] as const) {
+  const openai = catalog.find((provider) => provider.name === 'openai');
+  writeFixture(fixtureName, {
+    kind: 'ai_model_catalog_runtime',
+    model_type: modelType,
+    check_clone: true,
+    expected_output: {
+      providerCount: catalog.length,
+      providerNames: catalog.map((provider) => provider.name),
+      modelCount: catalog.reduce(
+        (count, provider) => count + provider.models.length,
+        0
+      ),
+      openaiFirstModel: openai?.models.at(0)?.name ?? null,
+      openaiModelTypes: [
+        ...new Set(openai?.models.map((model) => model.type) ?? []),
+      ].sort(),
+    },
+  });
+}
+
+const routerServiceSpecs = [
+  {
+    name: 'A',
+    id: 'A-id',
+    modelList: [
+      { key: 'chat-a', description: 'Chat A', model: 'a-model' },
+      { key: 'embed-a', description: 'Embed A', embedModel: 'a-embed' },
+    ],
+    features: routerFeatures({
+      functions: true,
+      streaming: true,
+      media: {
+        images: { supported: true, formats: ['png'] },
+        audio: {
+          supported: false,
+          formats: [],
+          output: { supported: false, formats: [] },
+        },
+        files: { supported: false, formats: [], uploadMethod: 'none' },
+        urls: { supported: false, webSearch: false, contextFetching: false },
+      },
+      caching: { supported: true, types: ['ephemeral'] },
+    }),
+  },
+  {
+    name: 'B',
+    id: 'B-id',
+    modelList: [{ key: 'chat-b', description: 'Chat B', model: 'b-model' }],
+    features: routerFeatures(),
+  },
+];
+const routerServiceA = new FixtureAIService(routerServiceSpecs[0]);
+const routerServiceB = new FixtureAIService(routerServiceSpecs[1]);
+const multiRouter = new AxMultiServiceRouter([
+  routerServiceA as any,
+  routerServiceB as any,
+]);
+const multiChat = await multiRouter.chat(
+  {
+    model: 'chat-a',
+    chatPrompt: [{ role: 'user', content: 'hi' }],
+    modelConfig: { temperature: 0.2 },
+  } as any,
+  { trace: 'chat' } as any
+);
+const multiEmbed = await multiRouter.embed(
+  { embedModel: 'embed-a', texts: ['x'] } as any,
+  { trace: 'embed' } as any
+);
+const multiTranscribe = await multiRouter.transcribe(
+  { text: 'x' } as any,
+  { trace: 'transcribe' } as any
+);
+const multiSpeak = await multiRouter.speak(
+  { text: 'y' } as any,
+  { trace: 'speak' } as any
+);
+multiRouter.setOptions({ debug: true } as any);
+
+writeFixture('multiservice-router-runtime', {
+  kind: 'ai_multiservice_router',
+  services: routerServiceSpecs,
+  router_entries: [
+    { kind: 'service', service_index: 0 },
+    { kind: 'service', service_index: 1 },
+  ],
+  operations: [
+    {
+      name: 'chat',
+      request: {
+        model: 'chat-a',
+        chatPrompt: [{ role: 'user', content: 'hi' }],
+        modelConfig: { temperature: 0.2 },
+      },
+      options: { trace: 'chat' },
+    },
+    {
+      name: 'embed',
+      request: { embedModel: 'embed-a', texts: ['x'] },
+      options: { trace: 'embed' },
+    },
+    {
+      name: 'transcribe',
+      request: { text: 'x' },
+      options: { trace: 'transcribe' },
+    },
+    { name: 'speak', request: { text: 'y' }, options: { trace: 'speak' } },
+    { name: 'set_options', options: { debug: true } },
+  ],
+  expected_output: {
+    modelList: multiRouter.getModelList() as any,
+    outputs: {
+      chat: multiChat as any,
+      embed: multiEmbed as any,
+      transcribe: multiTranscribe as any,
+      speak: multiSpeak as any,
+    },
+    lastChat: multiRouter.getLastUsedChatModel() as Json,
+    lastConfig: multiRouter.getLastUsedModelConfig() as Json,
+    metrics: multiRouter.getMetrics() as any,
+    options: multiRouter.getOptions() as any,
+    serviceCalls: [normalizeFixtureServiceCalls(routerServiceA.requests)],
+  },
+});
+
+let duplicateModelKeyError = '';
+try {
+  new AxMultiServiceRouter([
+    new FixtureAIService(routerServiceSpecs[0]) as any,
+    new FixtureAIService(routerServiceSpecs[0]) as any,
+  ]);
+} catch (error) {
+  duplicateModelKeyError =
+    error instanceof Error ? error.message.replaceAll('`', "'") : String(error);
+}
+writeFixture('multiservice-router-duplicate-key', {
+  kind: 'ai_multiservice_router',
+  services: [routerServiceSpecs[0], routerServiceSpecs[0]],
+  router_entries: [
+    { kind: 'service', service_index: 0 },
+    { kind: 'service', service_index: 1 },
+  ],
+  expected_error_contains: duplicateModelKeyError,
+});
+
+const keyServiceSpec = {
+  name: 'Key',
+  id: 'Key-id',
+  features: routerFeatures(),
+};
+const keyService = new FixtureAIService(keyServiceSpec);
+const keyRouter = new AxMultiServiceRouter([
+  { key: 'direct', description: 'Direct key', service: keyService as any },
+]);
+const keyChat = await keyRouter.chat(
+  { model: 'direct', chatPrompt: [{ role: 'user', content: 'go' }] } as any,
+  { trace: 'direct' } as any
+);
+writeFixture('multiservice-router-key-entry', {
+  kind: 'ai_multiservice_router',
+  services: [keyServiceSpec],
+  router_entries: [
+    {
+      kind: 'key',
+      key: 'direct',
+      description: 'Direct key',
+      service_index: 0,
+    },
+  ],
+  operations: [
+    {
+      name: 'chat',
+      request: {
+        model: 'direct',
+        chatPrompt: [{ role: 'user', content: 'go' }],
+      },
+      options: { trace: 'direct' },
+    },
+  ],
+  expected_output: {
+    outputs: { chat: keyChat as any },
+    serviceCalls: [normalizeFixtureServiceCalls(keyService.requests)],
+  },
+});
+
+const textOnlySpec = {
+  name: 'TextOnly',
+  id: 'TextOnly-id',
+  features: routerFeatures({ functions: true, streaming: false }),
+};
+const visionSpec = {
+  name: 'Vision',
+  id: 'Vision-id',
+  features: routerFeatures({
+    functions: true,
+    streaming: true,
+    media: {
+      images: { supported: true, formats: ['png'] },
+      audio: {
+        supported: false,
+        formats: [],
+        output: { supported: false, formats: [] },
+      },
+      files: { supported: false, formats: [], uploadMethod: 'none' },
+      urls: { supported: false, webSearch: false, contextFetching: false },
+    },
+  }),
+};
+const routingRequest = {
+  chatPrompt: [
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: 'see' },
+        { type: 'image', image: 'abc', altText: 'diagram', cache: true },
+      ],
+    },
+  ],
+  functions: [{ name: 'tool' }],
+  modelConfig: { stream: true },
+};
+const providerRouter = new AxProviderRouter({
+  providers: {
+    primary: new FixtureAIService(textOnlySpec) as any,
+    alternatives: [new FixtureAIService(visionSpec) as any],
+  },
+  routing: {
+    preferenceOrder: ['capability'],
+    capability: { requireExactMatch: false, allowDegradation: true },
+  },
+  processing: {},
+});
+const recommendation = await providerRouter.getRoutingRecommendation(
+  routingRequest as any
+);
+writeFixture('provider-router-recommendation', {
+  kind: 'ai_provider_router',
+  services: [textOnlySpec, visionSpec],
+  primary_index: 0,
+  alternative_indices: [1],
+  routing: {
+    capability: { requireExactMatch: false, allowDegradation: true },
+  },
+  request: routingRequest,
+  expected_output: {
+    recommendation: {
+      provider: recommendation.provider.getName(),
+      processingApplied: recommendation.processingApplied,
+      degradations: recommendation.degradations,
+      warnings: recommendation.warnings,
+    },
+    validation: (await providerRouter.validateRequest(routingRequest as any)) as
+      | Json
+      | any,
+    stats: providerRouter.getRoutingStats() as any,
+  },
+});
+
+const degradedRequest = {
+  chatPrompt: [
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: 'see' },
+        { type: 'image', image: 'abc', cache: true },
+        { type: 'audio', data: 'pcm', format: 'wav' },
+      ],
+    },
+  ],
+  functions: [{ name: 'tool' }],
+  modelConfig: { stream: true },
+};
+const degradedRouter = new AxProviderRouter({
+  providers: {
+    primary: new FixtureAIService(textOnlySpec) as any,
+    alternatives: [],
+  },
+  routing: {
+    preferenceOrder: ['capability'],
+    capability: { requireExactMatch: false, allowDegradation: true },
+  },
+  processing: {},
+});
+const degradedRecommendation = await degradedRouter.getRoutingRecommendation(
+  degradedRequest as any
+);
+writeFixture('provider-router-degradation', {
+  kind: 'ai_provider_router',
+  services: [textOnlySpec],
+  primary_index: 0,
+  alternative_indices: [],
+  routing: {
+    capability: { requireExactMatch: false, allowDegradation: true },
+  },
+  request: degradedRequest,
+  expected_output: {
+    recommendation: {
+      provider: degradedRecommendation.provider.getName(),
+      processingApplied: degradedRecommendation.processingApplied,
+      degradations: degradedRecommendation.degradations,
+      warnings: degradedRecommendation.warnings,
+    },
+    validation: (await degradedRouter.validateRequest(
+      degradedRequest as any
+    )) as Json | any,
+    stats: degradedRouter.getRoutingStats() as any,
+  },
+});
+
+const balancerSlowSpec = {
+  name: 'Slow',
+  id: 'Slow-id',
+  modelList: [
+    { key: 'balanced-chat', description: 'Slow chat', model: 'slow-model' },
+  ],
+  features: routerFeatures({ functions: true, structuredOutputs: true }),
+  metrics: balancerMetrics(200, 70),
+};
+const balancerFastSpec = {
+  name: 'Fast',
+  id: 'Fast-id',
+  modelList: [
+    { key: 'balanced-chat', description: 'Fast chat', model: 'fast-model' },
+  ],
+  features: routerFeatures({ streaming: true, structuredOutputs: true }),
+  metrics: balancerMetrics(20, 30),
+};
+const balancerDefaultServices = [
+  new FixtureAIService(balancerSlowSpec),
+  new FixtureAIService(balancerFastSpec),
+];
+const balancerDefault = new AxBalancer(balancerDefaultServices as any, {
+  debug: false,
+});
+const balancerDefaultChat = await balancerDefault.chat(
+  {
+    model: 'fixture-model',
+    chatPrompt: [{ role: 'user', content: 'balance' }],
+  } as any,
+  { trace: 'balance-default' } as any
+);
+balancerDefault.setOptions({ debug: true, trace: 'all' } as any);
+writeFixture('balancer-runtime-metric', {
+  kind: 'ai_balancer',
+  services: [balancerSlowSpec, balancerFastSpec],
+  options: { strategy: 'metric', debug: false },
+  operations: [
+    {
+      name: 'chat',
+      request: {
+        model: 'fixture-model',
+        chatPrompt: [{ role: 'user', content: 'balance' }],
+      },
+      options: { trace: 'balance-default' },
+    },
+    { name: 'set_options', options: { debug: true, trace: 'all' } },
+  ],
+  expected_output: {
+    id: balancerDefault.getId(),
+    name: balancerDefault.getName(),
+    modelList: balancerDefault.getModelList() as any,
+    features: balancerDefault.getFeatures() as any,
+    outputs: { chat: balancerDefaultChat as any },
+    metrics: balancerDefault.getMetrics() as any,
+    options: balancerDefault.getOptions() as any,
+    lastChat: balancerDefault.getLastUsedChatModel() as Json,
+    lastConfig: balancerDefault.getLastUsedModelConfig() as Json,
+    serviceCalls: balancerDefaultServices
+      .map((service) => normalizeFixtureServiceCalls(service.requests))
+      .filter((calls) => calls.length > 0),
+  },
+});
+
+const retryPrimarySpec = {
+  name: 'RetryPrimary',
+  id: 'RetryPrimary-id',
+  features: routerFeatures(),
+  metrics: balancerMetrics(100),
+  responses: [
+    { error: { type: 'network', message: 'first network miss' } },
+    { error: { type: 'network', message: 'second network miss' } },
+  ],
+};
+const retryBackupSpec = {
+  name: 'RetryBackup',
+  id: 'RetryBackup-id',
+  features: routerFeatures(),
+  metrics: balancerMetrics(300),
+};
+const balancerRetryServices = [
+  new FixtureAIService(retryPrimarySpec),
+  new FixtureAIService(retryBackupSpec),
+];
+const balancerRetry = new AxBalancer(balancerRetryServices as any, {
+  comparator: AxBalancer.inputOrderComparator,
+  debug: false,
+  maxRetries: 2,
+});
+const balancerRetryChat = await balancerRetry.chat(
+  {
+    model: 'retry-model',
+    chatPrompt: [{ role: 'user', content: 'retry' }],
+  } as any,
+  { trace: 'retry' } as any
+);
+writeFixture('balancer-input-order-retry', {
+  kind: 'ai_balancer',
+  services: [retryPrimarySpec, retryBackupSpec],
+  options: { strategy: 'input_order', debug: false, maxRetries: 2 },
+  operations: [
+    {
+      name: 'chat',
+      request: {
+        model: 'retry-model',
+        chatPrompt: [{ role: 'user', content: 'retry' }],
+      },
+      options: { trace: 'retry' },
+    },
+  ],
+  expected_output: {
+    outputs: { chat: balancerRetryChat as any },
+    lastChat: balancerRetry.getLastUsedChatModel() as Json,
+    serviceCalls: balancerRetryServices
+      .map((service) => normalizeFixtureServiceCalls(service.requests))
+      .filter((calls) => calls.length > 0),
+  },
+});
+
+const textOnlyBalancerSpec = {
+  name: 'TextBalancer',
+  id: 'TextBalancer-id',
+  features: routerFeatures(),
+  metrics: balancerMetrics(10),
+};
+const imageBalancerSpec = {
+  name: 'ImageBalancer',
+  id: 'ImageBalancer-id',
+  features: routerFeatures({
+    media: {
+      images: { supported: true, formats: ['png', 'jpeg'] },
+      audio: {
+        supported: false,
+        formats: [],
+        output: { supported: false, formats: [] },
+      },
+      files: { supported: false, formats: [], uploadMethod: 'none' },
+      urls: { supported: false, webSearch: false, contextFetching: false },
+    },
+  }),
+  metrics: balancerMetrics(50),
+};
+const balancerCapabilityServices = [
+  new FixtureAIService(textOnlyBalancerSpec),
+  new FixtureAIService(imageBalancerSpec),
+];
+const balancerCapability = new AxBalancer(balancerCapabilityServices as any, {
+  comparator: AxBalancer.inputOrderComparator,
+  debug: false,
+});
+const balancerCapabilityChat = await balancerCapability.chat(
+  {
+    model: 'vision-model',
+    chatPrompt: [{ role: 'user', content: 'look' }],
+    capabilities: { requiresImages: true },
+  } as any,
+  { trace: 'vision' } as any
+);
+writeFixture('balancer-capability-filter', {
+  kind: 'ai_balancer',
+  services: [textOnlyBalancerSpec, imageBalancerSpec],
+  options: { strategy: 'input_order', debug: false },
+  operations: [
+    {
+      name: 'chat',
+      request: {
+        model: 'vision-model',
+        chatPrompt: [{ role: 'user', content: 'look' }],
+        capabilities: { requiresImages: true },
+      },
+      options: { trace: 'vision' },
+    },
+  ],
+  expected_output: {
+    outputs: { chat: balancerCapabilityChat as any },
+    lastChat: balancerCapability.getLastUsedChatModel() as Json,
+    serviceCalls: balancerCapabilityServices
+      .map((service) => normalizeFixtureServiceCalls(service.requests))
+      .filter((calls) => calls.length > 0),
+  },
+});
+
+const exhaustedSpec = {
+  name: 'Exhausted',
+  id: 'Exhausted-id',
+  features: routerFeatures(),
+  metrics: balancerMetrics(10),
+  responses: [
+    { error: { type: 'network', message: 'first exhausted miss' } },
+    { error: { type: 'network', message: 'final exhausted miss' } },
+  ],
+};
+let exhaustedError = '';
+try {
+  const exhaustedBalancer = new AxBalancer(
+    [new FixtureAIService(exhaustedSpec)] as any,
+    {
+      comparator: AxBalancer.inputOrderComparator,
+      debug: false,
+      maxRetries: 2,
+    }
+  );
+  await exhaustedBalancer.chat({
+    model: 'exhausted-model',
+    chatPrompt: [{ role: 'user', content: 'fail' }],
+  } as any);
+} catch (error) {
+  exhaustedError =
+    error instanceof Error ? error.message.replaceAll('`', "'") : String(error);
+}
+writeFixture('balancer-max-retries-error', {
+  kind: 'ai_balancer',
+  services: [exhaustedSpec],
+  options: { strategy: 'input_order', debug: false, maxRetries: 2 },
+  operations: [
+    {
+      name: 'chat',
+      request: {
+        model: 'exhausted-model',
+        chatPrompt: [{ role: 'user', content: 'fail' }],
+      },
+    },
+  ],
+  expected_error_contains: exhaustedError,
 });
 
 writeFixture('responses-provider-descriptor', {

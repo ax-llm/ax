@@ -1,0 +1,25 @@
+{
+  "check_clone": true,
+  "expected_output": {
+    "modelCount": 12,
+    "openaiFirstModel": "gpt-5.1-codex-mini",
+    "openaiModelTypes": ["code"],
+    "providerCount": 11,
+    "providerNames": [
+      "mistral",
+      "openai",
+      "openai-responses",
+      "azure-openai",
+      "anthropic",
+      "google-gemini",
+      "cohere",
+      "deepseek",
+      "huggingface",
+      "reka",
+      "grok"
+    ]
+  },
+  "kind": "ai_model_catalog_runtime",
+  "model_type": "code",
+  "name": "model-catalog-runtime-code"
+}

@@ -1,0 +1,25 @@
+{
+  "check_clone": true,
+  "expected_output": {
+    "modelCount": 175,
+    "openaiFirstModel": "text-embedding-3-small",
+    "openaiModelTypes": ["audio", "code", "embeddings", "text"],
+    "providerCount": 11,
+    "providerNames": [
+      "google-gemini",
+      "openai",
+      "cohere",
+      "mistral",
+      "deepseek",
+      "openai-responses",
+      "grok",
+      "reka",
+      "anthropic",
+      "azure-openai",
+      "huggingface"
+    ]
+  },
+  "kind": "ai_model_catalog_runtime",
+  "model_type": null,
+  "name": "model-catalog-runtime-all"
+}

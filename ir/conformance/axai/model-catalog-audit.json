@@ -17,7 +17,7 @@
       "anthropic"
     ],
     "filterOptions": ["all", "text", "embeddings", "code", "audio"],
-    "nextMilestone": "AxAI Model Catalog and Provider Routing Runtime Parity",
+    "nextMilestone": "AxIR GEPA Engine Port",
     "providerCount": 11,
     "providerNames": [
       "openai",

@@ -1,0 +1,117 @@
+{
+  "expected_error_contains": "Service 1 'A' has duplicate model key: chat-a as service A",
+  "kind": "ai_multiservice_router",
+  "name": "multiservice-router-duplicate-key",
+  "router_entries": [
+    {
+      "kind": "service",
+      "service_index": 0
+    },
+    {
+      "kind": "service",
+      "service_index": 1
+    }
+  ],
+  "services": [
+    {
+      "features": {
+        "caching": {
+          "supported": true,
+          "types": ["ephemeral"]
+        },
+        "functions": true,
+        "media": {
+          "audio": {
+            "formats": [],
+            "output": {
+              "formats": [],
+              "supported": false
+            },
+            "supported": false
+          },
+          "files": {
+            "formats": [],
+            "supported": false,
+            "uploadMethod": "none"
+          },
+          "images": {
+            "formats": ["png"],
+            "supported": true
+          },
+          "urls": {
+            "contextFetching": false,
+            "supported": false,
+            "webSearch": false
+          }
+        },
+        "multiTurn": true,
+        "streaming": true,
+        "thinking": false
+      },
+      "id": "A-id",
+      "modelList": [
+        {
+          "description": "Chat A",
+          "key": "chat-a",
+          "model": "a-model"
+        },
+        {
+          "description": "Embed A",
+          "embedModel": "a-embed",
+          "key": "embed-a"
+        }
+      ],
+      "name": "A"
+    },
+    {
+      "features": {
+        "caching": {
+          "supported": true,
+          "types": ["ephemeral"]
+        },
+        "functions": true,
+        "media": {
+          "audio": {
+            "formats": [],
+            "output": {
+              "formats": [],
+              "supported": false
+            },
+            "supported": false
+          },
+          "files": {
+            "formats": [],
+            "supported": false,
+            "uploadMethod": "none"
+          },
+          "images": {
+            "formats": ["png"],
+            "supported": true
+          },
+          "urls": {
+            "contextFetching": false,
+            "supported": false,
+            "webSearch": false
+          }
+        },
+        "multiTurn": true,
+        "streaming": true,
+        "thinking": false
+      },
+      "id": "A-id",
+      "modelList": [
+        {
+          "description": "Chat A",
+          "key": "chat-a",
+          "model": "a-model"
+        },
+        {
+          "description": "Embed A",
+          "embedModel": "a-embed",
+          "key": "embed-a"
+        }
+      ],
+      "name": "A"
+    }
+  ]
+}

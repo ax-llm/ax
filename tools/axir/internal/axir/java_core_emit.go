@@ -99,6 +99,18 @@ var javaCoreFuncs = []javaCoreFuncSpec{
 	{Symbol: "provider_profile_registry", Name: "provider_profile_registry"},
 	{Symbol: "provider_resolve_profile", Name: "provider_resolve_profile"},
 	{Symbol: "provider_model_catalog_summary", Name: "provider_model_catalog_summary"},
+	{Symbol: "provider_model_catalog_registry", Name: "_provider_model_catalog_registry"},
+	{Symbol: "provider_model_catalog", Name: "provider_model_catalog"},
+	{Symbol: "provider_route_request_requirements", Name: "provider_route_request_requirements"},
+	{Symbol: "provider_features_support", Name: "_provider_features_support"},
+	{Symbol: "provider_route_score", Name: "_provider_route_score"},
+	{Symbol: "provider_route_recommendation", Name: "provider_route_recommendation"},
+	{Symbol: "provider_route_any_supports", Name: "_provider_route_any_supports"},
+	{Symbol: "provider_route_validation", Name: "provider_route_validation"},
+	{Symbol: "provider_balancer_retry_policy", Name: "provider_balancer_retry_policy"},
+	{Symbol: "provider_balancer_metric_score", Name: "provider_balancer_metric_score"},
+	{Symbol: "provider_balancer_candidate_allowed", Name: "provider_balancer_candidate_allowed"},
+	{Symbol: "provider_routing_stats", Name: "provider_routing_stats"},
 	{Symbol: "provider_descriptor", Name: "provider_descriptor"},
 	{Symbol: "provider_operation_descriptor", Name: "provider_operation_descriptor"},
 	{Symbol: "provider_build_chat_request", Name: "provider_build_chat_request"},
@@ -754,7 +766,7 @@ func javaLiteral(value interface{}) string {
 		if strings.HasPrefix(v, "%") {
 			return javaName(v)
 		}
-		return strconv.Quote(v)
+		return javaStringLiteral(v)
 	case bool:
 		if v {
 			return "Boolean.TRUE"
@@ -767,6 +779,22 @@ func javaLiteral(value interface{}) string {
 	default:
 		return strconv.Quote(fmt.Sprint(v))
 	}
+}
+
+func javaStringLiteral(value string) string {
+	const maxChunk = 12000
+	if len(value) <= maxChunk {
+		return strconv.Quote(value)
+	}
+	parts := make([]string, 0, (len(value)/maxChunk)+1)
+	for start := 0; start < len(value); start += maxChunk {
+		end := start + maxChunk
+		if end > len(value) {
+			end = len(value)
+		}
+		parts = append(parts, strconv.Quote(value[start:end]))
+	}
+	return "String.join(\"\", new String[] {\n        " + strings.Join(parts, ",\n        ") + "\n      })"
 }
 
 func javaName(value string) string {

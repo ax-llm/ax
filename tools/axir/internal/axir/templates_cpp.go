@@ -316,6 +316,18 @@ struct Core {
   static Value provider_profile_registry();
   static Value provider_resolve_profile(Value profile);
   static Value provider_model_catalog_summary();
+  static Value _provider_model_catalog_registry();
+  static Value provider_model_catalog(Value options);
+  static Value provider_route_request_requirements(Value request);
+  static Value _provider_features_support(Value features, Value path);
+  static Value _provider_route_score(Value provider, Value requirements);
+  static Value provider_route_recommendation(Value providers, Value request, Value options);
+  static Value _provider_route_any_supports(Value providers, Value path);
+  static Value provider_route_validation(Value providers, Value request, Value processing, Value options);
+  static Value provider_balancer_retry_policy(Value options);
+  static Value provider_balancer_metric_score(Value metrics);
+  static Value provider_balancer_candidate_allowed(Value features, Value request);
+  static Value provider_routing_stats(Value providers);
   static Value provider_descriptor(Value profile);
   static Value provider_operation_descriptor(Value profile, Value operation);
   static Value provider_build_chat_request(Value profile, Value request);
@@ -544,12 +556,22 @@ class AIClient {
 class AxAIService : public AIClient {
  public:
   ~AxAIService() override = default;
+  virtual std::string get_id();
+  virtual std::string get_name();
+  Value chat(Value request) override;
+  virtual Value chat(Value request, Value options);
   virtual std::vector<Value> stream(Value request);
+  virtual Value embed(Value request, Value options);
   virtual Value embed(Value request) = 0;
   virtual Value transcribe(Value request);
+  virtual Value transcribe(Value request, Value options);
   virtual Value speak(Value request);
+  virtual Value speak(Value request, Value options);
   virtual Value get_features(Value model = Value());
+  virtual Value get_model_list();
   virtual Value get_metrics();
+  virtual std::function<void(std::string)> get_logger();
+  virtual double get_estimated_cost(Value model_usage);
   virtual Value get_options();
   virtual void set_options(Value options);
   virtual Value get_last_used_chat_model();
@@ -562,9 +584,13 @@ class AxBaseAI : public AxAIService {
   AxBaseAI(std::string name, std::string model, std::string embed_model,
            Value model_config = Value::object(), Value options = Value::object());
   Value chat(Value request) override;
+  Value chat(Value request, Value options) override;
   Value complete(Value request) override;
   Value embed(Value request) override;
+  Value embed(Value request, Value options) override;
   Value get_features(Value model = Value()) override;
+  std::string get_id() override;
+  std::string get_name() override;
   Value get_metrics() override;
   Value get_options() override;
   void set_options(Value options) override;
@@ -583,6 +609,110 @@ class AxBaseAI : public AxAIService {
   Value last_used_model_config_;
   virtual Value do_chat(Value request, Value options) = 0;
   virtual Value do_embed(Value request, Value options) = 0;
+};
+
+Value get_supported_ai_models(Value options = Value::object());
+
+class AxBalancer : public AxAIService {
+ public:
+  AxBalancer();
+  explicit AxBalancer(std::vector<std::shared_ptr<AxAIService>> services, Value options = Value::object());
+  std::string get_id() override;
+  std::string get_name() override;
+  Value get_model_list() override;
+  Value get_features(Value model = Value()) override;
+  Value chat(Value request) override;
+  Value chat(Value request, Value options) override;
+  Value embed(Value request) override;
+  Value embed(Value request, Value options) override;
+  Value transcribe(Value request) override;
+  Value transcribe(Value request, Value options) override;
+  Value speak(Value request) override;
+  Value speak(Value request, Value options) override;
+  Value get_metrics() override;
+  std::function<void(std::string)> get_logger() override;
+  double get_estimated_cost(Value model_usage) override;
+  Value get_options() override;
+  void set_options(Value options) override;
+  Value get_last_used_chat_model() override;
+  Value get_last_used_embed_model() override;
+  Value get_last_used_model_config() override;
+  Value complete(Value request) override;
+
+ private:
+  std::vector<std::shared_ptr<AxAIService>> services_;
+  std::shared_ptr<AxAIService> current_service_;
+  size_t current_service_index_ = 0;
+  std::map<std::string, int> service_failures_;
+  Value policy_ = Value::object();
+  int max_retries_ = 3;
+  void validate_models();
+  bool can_retry_service(const std::shared_ptr<AxAIService>& service) const;
+  void handle_failure(const std::shared_ptr<AxAIService>& service);
+  void handle_success(const std::shared_ptr<AxAIService>& service);
+  bool retryable(const AxError& error) const;
+  std::vector<std::shared_ptr<AxAIService>> candidate_services(Value request);
+  void reset();
+};
+
+class MultiServiceRouter : public AxAIService {
+ public:
+  MultiServiceRouter();
+  explicit MultiServiceRouter(std::vector<std::shared_ptr<AxAIService>> services);
+  explicit MultiServiceRouter(Value entries);
+  std::string get_id() override;
+  std::string get_name() override;
+  Value get_model_list() override;
+  Value get_features(Value model = Value()) override;
+  Value chat(Value request) override;
+  Value chat(Value request, Value options) override;
+  Value embed(Value request) override;
+  Value embed(Value request, Value options) override;
+  Value transcribe(Value request) override;
+  Value transcribe(Value request, Value options) override;
+  Value speak(Value request) override;
+  Value speak(Value request, Value options) override;
+  Value get_metrics() override;
+  std::function<void(std::string)> get_logger() override;
+  double get_estimated_cost(Value model_usage) override;
+  Value get_options() override;
+  void set_options(Value options) override;
+  Value get_last_used_chat_model() override;
+  Value get_last_used_embed_model() override;
+  Value get_last_used_model_config() override;
+  Value complete(Value request) override;
+  void set_service_entry(std::string key, Value entry);
+  void set_service_entry(std::string key, std::shared_ptr<AxAIService> service, std::string description = "", bool is_internal = false);
+
+ private:
+  struct Entry {
+    std::shared_ptr<AxAIService> service;
+    std::string description;
+    bool is_internal = false;
+    Value model;
+    Value embed_model;
+  };
+  std::map<std::string, Entry> services_;
+  std::vector<std::string> service_keys_;
+  std::shared_ptr<AxAIService> last_used_service_;
+  Value options_ = Value::object();
+};
+
+class ProviderRouter {
+ public:
+  explicit ProviderRouter(Value config);
+  ProviderRouter(std::vector<std::shared_ptr<AxAIService>> providers, Value routing = Value::object(), Value processing = Value::object());
+  Value get_routing_recommendation(Value request);
+  Value validate_request(Value request);
+  Value get_routing_stats();
+  Value chat(Value request, Value options = Value::object());
+
+ private:
+  std::vector<std::shared_ptr<AxAIService>> providers_;
+  Value routing_;
+  Value processing_;
+  Value provider_records() const;
+  std::shared_ptr<AxAIService> service_for_name(Value name) const;
 };
 
 class Transport {
@@ -2655,13 +2785,23 @@ Value AIClient::chat(Value request) {
   return Core::legacy_response_to_chat_response(complete(std::move(request)));
 }
 
+std::string AxAIService::get_id() { return get_name() + "-id"; }
+std::string AxAIService::get_name() { return "ai"; }
+Value AxAIService::chat(Value request) { return AIClient::chat(std::move(request)); }
+Value AxAIService::chat(Value request, Value) { return chat(std::move(request)); }
 std::vector<Value> AxAIService::stream(Value request) { return {chat(std::move(request))}; }
+Value AxAIService::embed(Value request, Value) { return embed(std::move(request)); }
 Value AxAIService::transcribe(Value) { throw Core::as_error(Core::ai_error_unsupported("transcribe is not supported by this generated AxAI beta provider")); }
+Value AxAIService::transcribe(Value request, Value) { return transcribe(std::move(request)); }
 Value AxAIService::speak(Value) { throw Core::as_error(Core::ai_error_unsupported("speak is not supported by this generated AxAI beta provider")); }
+Value AxAIService::speak(Value request, Value) { return speak(std::move(request)); }
 Value AxAIService::get_features(Value) {
   return Value(Object{{"functions", true}, {"streaming", true}, {"structured_outputs", true}, {"multi_turn", true}});
 }
+Value AxAIService::get_model_list() { return Value(); }
 Value AxAIService::get_metrics() { return Value::object(); }
+std::function<void(std::string)> AxAIService::get_logger() { return [](std::string) {}; }
+double AxAIService::get_estimated_cost(Value) { return 0.0; }
 Value AxAIService::get_options() { return Value::object(); }
 void AxAIService::set_options(Value) {}
 Value AxAIService::get_last_used_chat_model() { return Value(); }
@@ -2679,15 +2819,20 @@ AxBaseAI::AxBaseAI(std::string name, std::string model, std::string embed_model,
 }
 
 Value AxBaseAI::chat(Value request) {
+  return chat(std::move(request), options_);
+}
+
+Value AxBaseAI::chat(Value request, Value call_options) {
   Value req = Core::coerce_chat_request(std::move(request));
   Core::validate_chat_request(req);
+  Value merged_options = Core::map_merge(options_, std::move(call_options));
   Value selected_model = Core::get(req, "model", model_);
-  Value merged_config = Core::merge_model_config(model_config_, Core::get(req, "model_config"), options_);
+  Value merged_config = Core::merge_model_config(model_config_, Core::get(req, "model_config"), merged_options);
   Core::set(req, "model", selected_model);
   Core::set(req, "model_config", merged_config);
   last_used_chat_model_ = selected_model;
   last_used_model_config_ = merged_config;
-  return do_chat(req, options_);
+  return do_chat(req, merged_options);
 }
 
 Value AxBaseAI::complete(Value request) {
@@ -2695,6 +2840,10 @@ Value AxBaseAI::complete(Value request) {
 }
 
 Value AxBaseAI::embed(Value request) {
+  return embed(std::move(request), options_);
+}
+
+Value AxBaseAI::embed(Value request, Value call_options) {
   Value texts = Core::get(request, "texts");
   if (!texts.is_array() || array_ref(texts).empty()) throw Core::as_error(Core::ai_error_response("Embed texts is empty"));
   Value selected = Core::get(request, "embed_model", Core::get(request, "embedModel", embed_model_));
@@ -2702,10 +2851,13 @@ Value AxBaseAI::embed(Value request) {
   Value req(object_ref(request));
   Core::set(req, "embed_model", selected);
   last_used_embed_model_ = selected;
-  return do_embed(req, options_);
+  Value merged_options = Core::map_merge(options_, std::move(call_options));
+  return do_embed(req, merged_options);
 }
 
 Value AxBaseAI::get_features(Value) { return AxAIService::get_features(Value()); }
+std::string AxBaseAI::get_id() { return name_ + "-id"; }
+std::string AxBaseAI::get_name() { return name_; }
 Value AxBaseAI::get_metrics() { return Value::object(); }
 Value AxBaseAI::get_options() { return options_; }
 void AxBaseAI::set_options(Value options) { options_ = std::move(options); }
@@ -3842,6 +3994,504 @@ std::shared_ptr<AxAIService> ai(const std::string& provider, Value options) {
   throw AxError("runtime", "unsupported AxAI provider: " + provider);
 }
 std::shared_ptr<AxAIService> ai(const char* provider, Value options) { return ai(std::string(provider == nullptr ? "" : provider), std::move(options)); }
+
+Value get_supported_ai_models(Value options) { return Core::provider_model_catalog(std::move(options)); }
+
+static Value balancer_base_features_cpp() {
+  return object({
+      {"functions", false},
+      {"streaming", false},
+      {"thinking", false},
+      {"multiTurn", false},
+      {"structuredOutputs", false},
+      {"media", object({
+          {"images", object({{"supported", false}, {"formats", Value::array()}})},
+          {"audio", object({{"supported", false}, {"formats", Value::array()}})},
+          {"files", object({{"supported", false}, {"formats", Value::array()}, {"uploadMethod", "none"}})},
+          {"urls", object({{"supported", false}, {"webSearch", false}, {"contextFetching", false}})}
+      })},
+      {"caching", object({{"supported", false}, {"types", Value::array()}})}
+  });
+}
+
+static bool feature_truthy_cpp(Value features, const std::string& key, const std::string& alt = "") {
+  if (Core::truthy(Core::get(features, key))) return true;
+  return !alt.empty() && Core::truthy(Core::get(features, alt));
+}
+
+static void append_unique_cpp(Value& target, Value values) {
+  for (const auto& item : Core::iter(values)) {
+    bool found = false;
+    for (const auto& existing : Core::iter(target)) {
+      if (equal(existing, item)) { found = true; break; }
+    }
+    if (!found) Core::append(target, item);
+  }
+}
+
+static Value metric_bucket_cpp() {
+  return object({{"mean", 0}, {"p95", 0}, {"p99", 0}, {"samples", Value::array()}});
+}
+
+static Value error_bucket_cpp() {
+  return object({{"count", 0}, {"rate", 0}, {"total", 0}});
+}
+
+static Value balancer_base_metrics_cpp() {
+  return object({
+      {"latency", object({{"chat", metric_bucket_cpp()}, {"embed", metric_bucket_cpp()}})},
+      {"errors", object({{"chat", error_bucket_cpp()}, {"embed", error_bucket_cpp()}})}
+  });
+}
+
+AxBalancer::AxBalancer() = default;
+
+AxBalancer::AxBalancer(std::vector<std::shared_ptr<AxAIService>> services, Value options)
+    : services_(std::move(services)), policy_(Core::provider_balancer_retry_policy(std::move(options))) {
+  if (services_.empty()) throw AxError("runtime", "No AI services provided.");
+  max_retries_ = static_cast<int>(num(Core::get(policy_, "maxRetries", 3)));
+  validate_models();
+  if (str(Core::get(policy_, "strategy", "metric")) != "input_order") {
+    std::stable_sort(services_.begin(), services_.end(), [](const auto& a, const auto& b) {
+      return num(Core::provider_balancer_metric_score(a->get_metrics())) < num(Core::provider_balancer_metric_score(b->get_metrics()));
+    });
+  }
+  current_service_ = services_.front();
+}
+
+void AxBalancer::validate_models() {
+  Value reference;
+  bool has_reference = false;
+  for (const auto& service : services_) {
+    Value model_list = service->get_model_list();
+    if (!model_list.is_null()) { reference = model_list; has_reference = true; break; }
+  }
+  if (!has_reference) return;
+  std::set<std::string> reference_keys;
+  for (const auto& entry : Core::iter(reference)) reference_keys.insert(str(Core::get(entry, "key")));
+  for (size_t index = 0; index < services_.size(); ++index) {
+    Value model_list = services_[index]->get_model_list();
+    if (model_list.is_null()) throw AxError("runtime", "Service at index " + std::to_string(index) + " (" + services_[index]->get_name() + ") has no model list while another service does.");
+    std::set<std::string> keys;
+    for (const auto& entry : Core::iter(model_list)) keys.insert(str(Core::get(entry, "key")));
+    for (const auto& key : reference_keys) if (!keys.count(key)) throw AxError("runtime", "Service at index " + std::to_string(index) + " (" + services_[index]->get_name() + ") is missing model \"" + key + "\"");
+    for (const auto& key : keys) if (!reference_keys.count(key)) throw AxError("runtime", "Service at index " + std::to_string(index) + " (" + services_[index]->get_name() + ") has extra model \"" + key + "\"");
+  }
+}
+
+bool AxBalancer::can_retry_service(const std::shared_ptr<AxAIService>& service) const {
+  return service_failures_.find(service->get_id()) == service_failures_.end();
+}
+
+void AxBalancer::handle_failure(const std::shared_ptr<AxAIService>& service) {
+  service_failures_[service->get_id()] += 1;
+}
+
+void AxBalancer::handle_success(const std::shared_ptr<AxAIService>& service) {
+  service_failures_.erase(service->get_id());
+}
+
+bool AxBalancer::retryable(const AxError& error) const {
+  if (error.category != "ai") return false;
+  if (error.type == "AxAIServiceAuthenticationError") return false;
+  if (error.type == "AxAIServiceStatusError") {
+    return error.status == 408 || error.status == 429 || error.status == 500 || error.status == 502 || error.status == 503 || error.status == 504;
+  }
+  return error.type == "AxAIServiceNetworkError" || error.type == "AxAIServiceResponseError" || error.type == "AxAIServiceStreamTerminatedError" || error.type == "AxAIServiceTimeoutError";
+}
+
+std::vector<std::shared_ptr<AxAIService>> AxBalancer::candidate_services(Value request) {
+  std::vector<std::shared_ptr<AxAIService>> out;
+  Value model = Core::get(request, "model");
+  for (const auto& service : services_) {
+    if (Core::truthy(Core::provider_balancer_candidate_allowed(service->get_features(model), request))) out.push_back(service);
+  }
+  if (!out.empty()) return out;
+  std::vector<std::string> requirements;
+  if (str(Core::get(Core::get(request, "responseFormat", Core::get(request, "response_format", Value::object())), "type", "")) == "json_schema") requirements.push_back("structured outputs");
+  Value caps = Core::get(request, "capabilities", Value::object());
+  if (Core::truthy(Core::get(caps, "requiresImages", Core::get(caps, "requires_images", false)))) requirements.push_back("images");
+  if (Core::truthy(Core::get(caps, "requiresAudio", Core::get(caps, "requires_audio", false)))) requirements.push_back("audio");
+  Value reqs = Value::array();
+  for (const auto& item : requirements) Core::append(reqs, item);
+  throw AxError("runtime", "No services available that support required capabilities: " + str(Core::string_join(", ", reqs)) + ".");
+}
+
+void AxBalancer::reset() {
+  current_service_index_ = 0;
+  current_service_ = services_.front();
+}
+
+std::string AxBalancer::get_id() { return current_service_ ? current_service_->get_id() : ""; }
+std::string AxBalancer::get_name() { return current_service_ ? current_service_->get_name() : ""; }
+
+Value AxBalancer::get_model_list() {
+  for (const auto& service : services_) {
+    Value model_list = service->get_model_list();
+    if (!model_list.is_null()) return model_list;
+  }
+  return Value();
+}
+
+Value AxBalancer::get_features(Value model) {
+  Value features = balancer_base_features_cpp();
+  for (const auto& service : services_) {
+    Value raw = service->get_features(model);
+    for (const auto& pair : std::vector<std::pair<std::string, std::string>>{{"functions", ""}, {"streaming", ""}, {"thinking", ""}, {"multiTurn", "multi_turn"}, {"structuredOutputs", "structured_outputs"}, {"functionCot", "function_cot"}, {"hasThinkingBudget", "has_thinking_budget"}, {"hasShowThoughts", "has_show_thoughts"}}) {
+      if (feature_truthy_cpp(raw, pair.first, pair.second)) Core::set(features, pair.first, true);
+    }
+    Value media = Core::get(features, "media", Value::object());
+    Value raw_media = Core::get(raw, "media", Value::object());
+    for (const auto& kind : std::vector<std::string>{"images", "audio", "files"}) {
+      Value dst = Core::get(media, kind, Value::object());
+      Value src = Core::get(raw_media, kind, Value::object());
+      if (Core::truthy(Core::get(src, "supported", false))) Core::set(dst, "supported", true);
+      Value formats = Core::get(dst, "formats", Value::array());
+      append_unique_cpp(formats, Core::get(src, "formats", Value::array()));
+      Core::set(dst, "formats", formats);
+      if (kind == "files") {
+        Value upload = Core::get(src, "uploadMethod", Core::get(src, "upload_method", Value()));
+        if (!upload.is_null() && str(upload) != "none") Core::set(dst, "uploadMethod", upload);
+      }
+      Core::set(media, kind, dst);
+    }
+    Value urls = Core::get(media, "urls", Value::object());
+    Value raw_urls = Core::get(raw_media, "urls", Value::object());
+    if (Core::truthy(Core::get(raw_urls, "supported", false))) Core::set(urls, "supported", true);
+    if (Core::truthy(Core::get(raw_urls, "webSearch", Core::get(raw_urls, "web_search", false)))) Core::set(urls, "webSearch", true);
+    if (Core::truthy(Core::get(raw_urls, "contextFetching", Core::get(raw_urls, "context_fetching", false)))) Core::set(urls, "contextFetching", true);
+    Core::set(media, "urls", urls);
+    Core::set(features, "media", media);
+    Value caching = Core::get(features, "caching", Value::object());
+    Value raw_caching = Core::get(raw, "caching", Value::object());
+    if (Core::truthy(Core::get(raw_caching, "supported", false))) Core::set(caching, "supported", true);
+    Value types = Core::get(caching, "types", Value::array());
+    append_unique_cpp(types, Core::get(raw_caching, "types", Value::array()));
+    Core::set(caching, "types", types);
+    Core::set(features, "caching", caching);
+  }
+  return features;
+}
+
+Value AxBalancer::get_metrics() {
+  double chat_error_count = 0, chat_error_total = 0, embed_error_count = 0, embed_error_total = 0;
+  double chat_sum = 0, chat_count = 0, embed_sum = 0, embed_count = 0;
+  double chat_p95 = 0, chat_p99 = 0, embed_p95 = 0, embed_p99 = 0;
+  for (const auto& service : services_) {
+    Value metrics = service->get_metrics();
+    Value errors = Core::get(metrics, "errors", Value::object());
+    Value chat_errors = Core::get(errors, "chat", Value::object());
+    Value embed_errors = Core::get(errors, "embed", Value::object());
+    chat_error_count += num(Core::get(chat_errors, "count", 0));
+    chat_error_total += num(Core::get(chat_errors, "total", 0));
+    embed_error_count += num(Core::get(embed_errors, "count", 0));
+    embed_error_total += num(Core::get(embed_errors, "total", 0));
+    Value latency = Core::get(metrics, "latency", Value::object());
+    Value chat = Core::get(latency, "chat", Value::object());
+    double chat_samples = static_cast<double>(Core::iter(Core::get(chat, "samples", Value::array())).size());
+    if (chat_samples > 0) { chat_sum += num(Core::get(chat, "mean", 0)) * chat_samples; chat_count += chat_samples; }
+    Value embed = Core::get(latency, "embed", Value::object());
+    double embed_samples = static_cast<double>(Core::iter(Core::get(embed, "samples", Value::array())).size());
+    if (embed_samples > 0) { embed_sum += num(Core::get(embed, "mean", 0)) * embed_samples; embed_count += embed_samples; }
+    chat_p95 = std::max(chat_p95, num(Core::get(chat, "p95", 0)));
+    chat_p99 = std::max(chat_p99, num(Core::get(chat, "p99", 0)));
+    embed_p95 = std::max(embed_p95, num(Core::get(embed, "p95", 0)));
+    embed_p99 = std::max(embed_p99, num(Core::get(embed, "p99", 0)));
+  }
+  return object({
+      {"latency", object({
+          {"chat", object({{"mean", chat_count > 0 ? chat_sum / chat_count : 0}, {"p95", chat_p95}, {"p99", chat_p99}, {"samples", Value::array()}})},
+          {"embed", object({{"mean", embed_count > 0 ? embed_sum / embed_count : 0}, {"p95", embed_p95}, {"p99", embed_p99}, {"samples", Value::array()}})}
+      })},
+      {"errors", object({
+          {"chat", object({{"count", chat_error_count}, {"rate", chat_error_total > 0 ? chat_error_count / chat_error_total : 0}, {"total", chat_error_total}})},
+          {"embed", object({{"count", embed_error_count}, {"rate", embed_error_total > 0 ? embed_error_count / embed_error_total : 0}, {"total", embed_error_total}})}
+      })}
+  });
+}
+
+Value AxBalancer::chat(Value request) { return chat(std::move(request), Value::object()); }
+Value AxBalancer::chat(Value request, Value options) {
+  auto candidates = candidate_services(request);
+  size_t index = 0;
+  auto service = candidates.at(index);
+  current_service_ = service;
+  while (true) {
+    if (!can_retry_service(service)) {
+      ++index;
+      if (index >= candidates.size()) throw AxError("runtime", "All candidate services exhausted (tried " + std::to_string(candidates.size()) + " service(s))");
+      service = candidates.at(index);
+      current_service_ = service;
+      continue;
+    }
+    try {
+      Value response = service->chat(request, options);
+      handle_success(service);
+      return response;
+    } catch (const AxError& error) {
+      if (!retryable(error)) throw;
+      handle_failure(service);
+      if (service_failures_[service->get_id()] >= max_retries_) {
+        ++index;
+        if (index >= candidates.size()) throw;
+        service = candidates.at(index);
+        current_service_ = service;
+      }
+    }
+  }
+}
+
+Value AxBalancer::embed(Value request) { return embed(std::move(request), Value::object()); }
+Value AxBalancer::embed(Value request, Value options) {
+  reset();
+  size_t index = current_service_index_;
+  while (true) {
+    if (!can_retry_service(current_service_)) {
+      ++index;
+      if (index >= services_.size()) throw AxError("runtime", "All services exhausted (tried " + std::to_string(services_.size()) + " service(s))");
+      current_service_ = services_.at(index);
+      current_service_index_ = index;
+      continue;
+    }
+    try {
+      Value response = current_service_->embed(request, options);
+      handle_success(current_service_);
+      return response;
+    } catch (const AxError& error) {
+      if (!retryable(error)) throw;
+      handle_failure(current_service_);
+      if (service_failures_[current_service_->get_id()] >= max_retries_) {
+        ++index;
+        if (index >= services_.size()) throw;
+        current_service_ = services_.at(index);
+        current_service_index_ = index;
+      }
+    }
+  }
+}
+
+Value AxBalancer::transcribe(Value request) { return transcribe(std::move(request), Value::object()); }
+Value AxBalancer::transcribe(Value request, Value options) { return current_service_->transcribe(std::move(request), std::move(options)); }
+Value AxBalancer::speak(Value request) { return speak(std::move(request), Value::object()); }
+Value AxBalancer::speak(Value request, Value options) { return current_service_->speak(std::move(request), std::move(options)); }
+std::function<void(std::string)> AxBalancer::get_logger() { return current_service_->get_logger(); }
+double AxBalancer::get_estimated_cost(Value usage) { return current_service_->get_estimated_cost(std::move(usage)); }
+Value AxBalancer::get_options() { return current_service_->get_options(); }
+void AxBalancer::set_options(Value options) { for (auto& service : services_) service->set_options(options); if (current_service_) current_service_->set_options(options); }
+Value AxBalancer::get_last_used_chat_model() { return current_service_ ? current_service_->get_last_used_chat_model() : Value(); }
+Value AxBalancer::get_last_used_embed_model() { return current_service_ ? current_service_->get_last_used_embed_model() : Value(); }
+Value AxBalancer::get_last_used_model_config() { return current_service_ ? current_service_->get_last_used_model_config() : Value(); }
+Value AxBalancer::complete(Value request) { return Core::chat_response_to_completion(chat(Core::coerce_chat_request(std::move(request)))); }
+
+static Value router_default_features_cpp() {
+  return object({
+      {"functions", false},
+      {"streaming", false},
+      {"media", object({
+          {"images", object({{"supported", false}, {"formats", Value::array()}})},
+          {"audio", object({{"supported", false}, {"formats", Value::array()}, {"output", object({{"supported", false}, {"formats", Value::array()}})}})},
+          {"files", object({{"supported", false}, {"formats", Value::array()}, {"uploadMethod", "none"}})},
+          {"urls", object({{"supported", false}, {"webSearch", false}, {"contextFetching", false}})}
+      })},
+      {"caching", object({{"supported", false}, {"types", Value::array()}})},
+      {"thinking", false},
+      {"multiTurn", true}
+  });
+}
+
+MultiServiceRouter::MultiServiceRouter() = default;
+
+MultiServiceRouter::MultiServiceRouter(std::vector<std::shared_ptr<AxAIService>> services) {
+  if (services.empty()) throw AxError("runtime", "No AI services provided.");
+  for (size_t index = 0; index < services.size(); ++index) {
+    auto service = services[index];
+    Value model_list = service->get_model_list();
+    if (!model_list.is_array() || array_ref(model_list).empty()) {
+      throw AxError("runtime", "Service " + std::to_string(index) + " '" + service->get_name() + "' has no model list.");
+    }
+    for (const auto& raw : array_ref(model_list)) {
+      std::string key = display(Core::get(raw, "key"));
+      if (services_.count(key)) {
+        throw AxError("runtime", "Service " + std::to_string(index) + " '" + service->get_name() + "' has duplicate model key: " + key + " as service " + services_[key].service->get_name());
+      }
+      Entry entry;
+      entry.service = service;
+      entry.description = display(Core::get(raw, "description", ""));
+      if (!Core::get(raw, "model").is_null()) entry.model = Core::get(raw, "model");
+      else if (!Core::get(raw, "embedModel").is_null()) entry.embed_model = Core::get(raw, "embedModel");
+      else throw AxError("runtime", "Key " + key + " in model list for service " + std::to_string(index) + " '" + service->get_name() + "' is missing a model or embedModel property.");
+      services_[key] = std::move(entry);
+      service_keys_.push_back(key);
+    }
+  }
+}
+
+MultiServiceRouter::MultiServiceRouter(Value) {
+  throw AxError("runtime", "C++ MultiServiceRouter dynamic entries require host-owned service pointers");
+}
+
+void MultiServiceRouter::set_service_entry(std::string key, std::shared_ptr<AxAIService> service, std::string description, bool is_internal) {
+  if (services_.count(key)) throw AxError("runtime", "Duplicate model key: " + key);
+  Entry entry;
+  entry.service = std::move(service);
+  entry.description = std::move(description);
+  entry.is_internal = is_internal;
+  service_keys_.push_back(key);
+  services_[std::move(key)] = std::move(entry);
+}
+
+void MultiServiceRouter::set_service_entry(std::string, Value) {
+  throw AxError("runtime", "C++ MultiServiceRouter dynamic entries require host-owned service pointers");
+}
+
+std::string MultiServiceRouter::get_id() {
+  std::vector<std::string> ids;
+  for (const auto& key : service_keys_) ids.push_back(services_[key].service->get_id());
+  std::string out = "MultiServiceRouter:";
+  for (size_t i = 0; i < ids.size(); ++i) { if (i) out += ","; out += ids[i]; }
+  return out;
+}
+
+std::string MultiServiceRouter::get_name() { return "MultiServiceRouter"; }
+
+Value MultiServiceRouter::get_model_list() {
+  Value out = Value::array();
+  for (const auto& key : service_keys_) {
+    const Entry& entry = services_[key];
+    if (entry.is_internal) continue;
+    Value item = object({{"key", key}, {"description", entry.description}});
+    if (!entry.model.is_null()) Core::set(item, "model", entry.model);
+    else if (!entry.embed_model.is_null()) Core::set(item, "embedModel", entry.embed_model);
+    else throw AxError("runtime", "Service " + key + " has no model or embedModel");
+    Core::append(out, item);
+  }
+  return out;
+}
+
+Value MultiServiceRouter::get_features(Value model) {
+  if (!model.is_null()) {
+    auto it = services_.find(display(model));
+    if (it != services_.end()) return it->second.service->get_features(model);
+  }
+  return router_default_features_cpp();
+}
+
+Value MultiServiceRouter::chat(Value request) { return chat(std::move(request), Value::object()); }
+Value MultiServiceRouter::chat(Value request, Value options) {
+  Value model_key = Core::get(request, "model");
+  if (model_key.is_null()) throw AxError("runtime", "Model key must be specified for multi-service");
+  auto it = services_.find(display(model_key));
+  if (it == services_.end()) throw AxError("runtime", "No service found for model key: " + display(model_key));
+  last_used_service_ = it->second.service;
+  Value req(object_ref(request));
+  if (Core::get(req, "model_config").is_null() && !Core::get(req, "modelConfig").is_null()) Core::set(req, "model_config", Core::get(req, "modelConfig"));
+  if (it->second.model.is_null()) Core::map_delete(req, "model");
+  return last_used_service_->chat(req, options);
+}
+
+Value MultiServiceRouter::embed(Value request) { return embed(std::move(request), Value::object()); }
+Value MultiServiceRouter::embed(Value request, Value options) {
+  Value model_key = Core::get(request, "embedModel", Core::get(request, "embed_model"));
+  if (model_key.is_null()) throw AxError("runtime", "Embed model key must be specified for multi-service");
+  auto it = services_.find(display(model_key));
+  if (it == services_.end()) throw AxError("runtime", "No service found for embed model key: " + display(model_key));
+  last_used_service_ = it->second.service;
+  Value req(object_ref(request));
+  if (it->second.model.is_null()) {
+    Core::map_delete(req, "embedModel");
+    Core::map_delete(req, "embed_model");
+  }
+  return last_used_service_->embed(req, options);
+}
+
+Value MultiServiceRouter::transcribe(Value request) { return transcribe(std::move(request), Value::object()); }
+Value MultiServiceRouter::transcribe(Value request, Value options) {
+  Value model_key = Core::get(request, "model");
+  if (model_key.is_null()) {
+    if (services_.empty()) throw AxError("runtime", "No AI services provided.");
+    last_used_service_ = services_.begin()->second.service;
+    return last_used_service_->transcribe(request, options);
+  }
+  auto it = services_.find(display(model_key));
+  if (it == services_.end()) throw AxError("runtime", "No service found for transcription model key: " + display(model_key));
+  last_used_service_ = it->second.service;
+  return last_used_service_->transcribe(request, options);
+}
+
+Value MultiServiceRouter::speak(Value request) { return speak(std::move(request), Value::object()); }
+Value MultiServiceRouter::speak(Value request, Value options) {
+  Value model_key = Core::get(request, "model");
+  if (model_key.is_null()) {
+    if (services_.empty()) throw AxError("runtime", "No AI services provided.");
+    last_used_service_ = services_.begin()->second.service;
+    return last_used_service_->speak(request, options);
+  }
+  auto it = services_.find(display(model_key));
+  if (it == services_.end()) throw AxError("runtime", "No service found for speech model key: " + display(model_key));
+  last_used_service_ = it->second.service;
+  return last_used_service_->speak(request, options);
+}
+
+Value MultiServiceRouter::get_metrics() {
+  auto service = last_used_service_;
+  if (!service && !services_.empty()) service = services_.begin()->second.service;
+  if (!service) throw AxError("runtime", "No service available to get metrics.");
+  return service->get_metrics();
+}
+std::function<void(std::string)> MultiServiceRouter::get_logger() {
+  auto service = last_used_service_;
+  if (!service && !services_.empty()) service = services_.begin()->second.service;
+  if (!service) throw AxError("runtime", "No service available to get logger.");
+  return service->get_logger();
+}
+double MultiServiceRouter::get_estimated_cost(Value usage) { return last_used_service_ ? last_used_service_->get_estimated_cost(usage) : 0.0; }
+Value MultiServiceRouter::get_options() { return options_; }
+void MultiServiceRouter::set_options(Value options) { options_ = options; for (auto& kv : services_) kv.second.service->set_options(options); }
+Value MultiServiceRouter::get_last_used_chat_model() { return last_used_service_ ? last_used_service_->get_last_used_chat_model() : Value(); }
+Value MultiServiceRouter::get_last_used_embed_model() { return last_used_service_ ? last_used_service_->get_last_used_embed_model() : Value(); }
+Value MultiServiceRouter::get_last_used_model_config() { return last_used_service_ ? last_used_service_->get_last_used_model_config() : Value(); }
+Value MultiServiceRouter::complete(Value request) { return Core::chat_response_to_completion(chat(Core::coerce_chat_request(std::move(request)))); }
+
+ProviderRouter::ProviderRouter(Value config) {
+  Value providers = Core::get(config, "providers", Value::object());
+  routing_ = Core::get(Core::get(config, "routing", Value::object()), "capability", Value::object());
+  processing_ = Core::get(config, "processing", Value::object());
+  (void)providers;
+}
+
+ProviderRouter::ProviderRouter(std::vector<std::shared_ptr<AxAIService>> providers, Value routing, Value processing)
+    : providers_(std::move(providers)), routing_(std::move(routing)), processing_(std::move(processing)) {}
+
+Value ProviderRouter::provider_records() const {
+  Value out = Value::array();
+  for (const auto& provider : providers_) {
+    Core::append(out, object({{"name", provider->get_name()}, {"id", provider->get_id()}, {"features", provider->get_features(Value())}}));
+  }
+  return out;
+}
+
+std::shared_ptr<AxAIService> ProviderRouter::service_for_name(Value name) const {
+  for (auto provider : providers_) if (provider->get_name() == display(name)) return provider;
+  return providers_.empty() ? nullptr : providers_.front();
+}
+
+Value ProviderRouter::get_routing_recommendation(Value request) {
+  Value rec = Core::provider_route_recommendation(provider_records(), Core::coerce_chat_request(request), routing_);
+  return rec;
+}
+
+Value ProviderRouter::validate_request(Value request) {
+  return Core::provider_route_validation(provider_records(), Core::coerce_chat_request(request), processing_, routing_);
+}
+
+Value ProviderRouter::get_routing_stats() { return Core::provider_routing_stats(provider_records()); }
+Value ProviderRouter::chat(Value request, Value options) {
+  Value rec = get_routing_recommendation(request);
+  auto provider = service_for_name(Core::get(rec, "providerName"));
+  if (!provider) throw Core::as_error(Core::ai_error_unsupported("No provider selected"));
+  return object({{"response", provider->chat(request, options)}, {"routing", rec}});
+}
+
 Value to_json_schema(Value fields, const std::string& title, Value options) { return Core::to_json_schema(fields, title, options); }
 Value validate_output(Value fields, Value values) { return Core::validate_output(fields, values); }
 Value strip_internal(Value fields, Value values) { return Core::strip_internal(fields, values); }
@@ -3901,6 +4551,94 @@ struct FakeTransport : Transport {
     Value out = responses.front();
     responses.erase(responses.begin());
     return out;
+  }
+};
+
+static Value router_fixture_default_features() {
+  return object({
+      {"functions", false},
+      {"streaming", false},
+      {"media", object({
+          {"images", object({{"supported", false}, {"formats", Value::array()}})},
+          {"audio", object({{"supported", false}, {"formats", Value::array()}, {"output", object({{"supported", false}, {"formats", Value::array()}})}})},
+          {"files", object({{"supported", false}, {"formats", Value::array()}, {"uploadMethod", "none"}})},
+          {"urls", object({{"supported", false}, {"webSearch", false}, {"contextFetching", false}})}
+      })},
+      {"caching", object({{"supported", false}, {"types", Value::array()}})},
+      {"thinking", false},
+      {"multiTurn", true}
+  });
+}
+
+static AxError fixture_ai_service_error_cpp(Value spec) {
+  std::string type = display(Core::get(spec, "type", "network"));
+  std::string message = display(Core::get(spec, "message", "fixture error"));
+  auto number = [](Value value, int fallback) {
+    if (value.is_null()) return fallback;
+    return static_cast<int>(std::stod(display(value)));
+  };
+  if (type == "status") return AxError("ai", message, "AxAIServiceStatusError", number(Core::get(spec, "status"), 500), "", true);
+  if (type == "authentication") return AxError("ai", "Authentication failed", "AxAIServiceAuthenticationError", number(Core::get(spec, "status"), 401), "", false);
+  if (type == "response") return AxError("ai", message, "AxAIServiceResponseError", 0, "", false);
+  if (type == "timeout") return AxError("ai", message, "AxAIServiceTimeoutError", 0, "", true);
+  if (type == "plain") return AxError("runtime", message);
+  return AxError("ai", "Network Error: " + message, "AxAIServiceNetworkError", 0, "", true);
+}
+
+struct RouterFixtureService : AxBaseAI {
+  std::string fixture_id;
+  Value model_list;
+  Value features;
+  Value metrics;
+  std::vector<Value> requests;
+  Array responses;
+
+  explicit RouterFixtureService(Value spec)
+      : AxBaseAI(display(Core::get(spec, "name", "fixture")),
+                 display(Core::get(spec, "model", "fixture-chat")),
+                 display(Core::get(spec, "embedModel", Core::get(spec, "embed_model", "fixture-embed")))),
+        fixture_id(display(Core::get(spec, "id", display(Core::get(spec, "name", "fixture")) + "-id"))),
+        model_list(Core::get(spec, "modelList")),
+        features(Core::get(spec, "features", router_fixture_default_features())),
+        metrics(Core::get(spec, "metrics", object({{"service", display(Core::get(spec, "name", "fixture"))}, {"calls", 0}}))),
+        responses(as_array(Core::get(spec, "responses", Value::array()))) {}
+
+  std::string get_id() override { return fixture_id; }
+  Value get_model_list() override { return model_list; }
+  Value get_features(Value = Value()) override { return features; }
+  Value get_metrics() override {
+    Value out(as_object(metrics));
+    if (!Core::get(out, "calls").is_null()) Core::set(out, "calls", static_cast<double>(requests.size()));
+    return out;
+  }
+
+ protected:
+  Value do_chat(Value request, Value options) override {
+    requests.push_back(object({{"method", "chat"}, {"opt", options}}));
+    if (!responses.empty()) {
+      Value out = responses.front();
+      responses.erase(responses.begin());
+      Value error = Core::get(out, "error");
+      if (!error.is_null()) throw fixture_ai_service_error_cpp(error);
+      return Core::get(out, "response", out);
+    }
+    return object({{"results", Value(Array{object({{"index", 0}, {"content", name_ + " chat"}})})}});
+  }
+
+  Value do_embed(Value request, Value options) override {
+    requests.push_back(object({{"method", "embed"}, {"opt", options}}));
+    return object({{"embeddings", Value(Array{Value(Array{1, 2})})}, {"modelUsage", object({{"ai", name_}})}});
+  }
+
+ public:
+  Value transcribe(Value request, Value options) override {
+    requests.push_back(object({{"method", "transcribe"}, {"opt", options}}));
+    return object({{"text", name_ + " transcript"}});
+  }
+
+  Value speak(Value request, Value options) override {
+    requests.push_back(object({{"method", "speak"}, {"opt", options}}));
+    return object({{"audio", "pcm"}});
   }
 };
 
@@ -5198,6 +5936,150 @@ static void run_ai_model_catalog_audit(Value fixture) {
   if (!expected.is_null()) assert_subset(summary, expected, "provider model catalog audit");
 }
 
+static void run_ai_model_catalog_runtime(Value fixture) {
+  Value type = Core::get(fixture, "model_type");
+  Value result = type.is_null() ? get_supported_ai_models(Value::object()) : get_supported_ai_models(object({{"type", type}}));
+  Value expected = Core::get(fixture, "expected_output");
+  if (!expected.is_null()) {
+    Value provider_names = Value::array();
+    std::set<std::string> openai_types;
+    int model_count = 0;
+    Value openai_first;
+    for (const auto& raw : as_array(result)) {
+      Core::append(provider_names, Core::get(raw, "name"));
+      Value models = Core::get(raw, "models", Value::array());
+      model_count += static_cast<int>(as_array(models).size());
+      if (display(Core::get(raw, "name")) == "openai") {
+        if (!as_array(models).empty()) openai_first = Core::get(as_array(models).front(), "name");
+        for (const auto& model : as_array(models)) openai_types.insert(display(Core::get(model, "type")));
+      }
+    }
+    Value type_values = Value::array();
+    for (const auto& item : openai_types) Core::append(type_values, item);
+    Value actual = object({{"providerCount", static_cast<double>(as_array(result).size())}, {"providerNames", provider_names}, {"modelCount", model_count}, {"openaiFirstModel", openai_first}, {"openaiModelTypes", type_values}});
+    assert_subset(actual, expected, "provider model catalog runtime");
+  }
+}
+
+static std::vector<std::shared_ptr<RouterFixtureService>> router_services(Value fixture) {
+  std::vector<std::shared_ptr<RouterFixtureService>> services;
+  for (const auto& spec : as_array(Core::get(fixture, "services", Value::array()))) {
+    services.push_back(std::make_shared<RouterFixtureService>(spec));
+  }
+  return services;
+}
+
+static void run_ai_multiservice_router(Value fixture) {
+  auto services = router_services(fixture);
+  MultiServiceRouter router;
+  bool use_vector_constructor = true;
+  for (const auto& raw : as_array(Core::get(fixture, "router_entries", Value::array()))) {
+    if (display(Core::get(raw, "kind", "")) == "key") use_vector_constructor = false;
+  }
+  try {
+    if (use_vector_constructor) {
+      std::vector<std::shared_ptr<AxAIService>> base;
+      for (const auto& raw : as_array(Core::get(fixture, "router_entries", Value::array()))) {
+        int index = static_cast<int>(conf_number(Core::get(raw, "service_index", 0)));
+        base.push_back(services.at(index));
+      }
+      router = MultiServiceRouter(base);
+    } else {
+      for (const auto& raw : as_array(Core::get(fixture, "router_entries", Value::array()))) {
+        int index = static_cast<int>(conf_number(Core::get(raw, "service_index", 0)));
+        router.set_service_entry(display(Core::get(raw, "key")), services.at(index), display(Core::get(raw, "description", "")), Core::truthy(Core::get(raw, "isInternal", Core::get(raw, "is_internal", false))));
+      }
+    }
+    Value outputs = Value::object();
+    for (const auto& raw : as_array(Core::get(fixture, "operations", Value::array()))) {
+      std::string name = display(Core::get(raw, "name"));
+      Value request = Core::get(raw, "request", Value::object());
+      Value options = Core::get(raw, "options", Value::object());
+      if (name == "chat") Core::set(outputs, name, router.chat(request, options));
+      else if (name == "embed") Core::set(outputs, name, router.embed(request, options));
+      else if (name == "transcribe") Core::set(outputs, name, router.transcribe(request, options));
+      else if (name == "speak") Core::set(outputs, name, router.speak(request, options));
+      else if (name == "set_options") router.set_options(options);
+    }
+    Value service_calls = Value::array();
+    for (const auto& service : services) {
+      Value calls = Value::array();
+      for (const auto& call : service->requests) Core::append(calls, call);
+      if (!as_array(calls).empty()) Core::append(service_calls, calls);
+    }
+    Value actual = object({{"outputs", outputs}, {"lastChat", router.get_last_used_chat_model()}, {"lastEmbed", router.get_last_used_embed_model()}, {"lastConfig", router.get_last_used_model_config()}, {"metrics", router.get_metrics()}, {"options", router.get_options()}, {"serviceCalls", service_calls}});
+    if (!Core::get(fixture, "expected_error_contains").is_null()) throw AxError("fixture", "expected multi-service router to fail");
+    Value expected = Core::get(fixture, "expected_output");
+    if (!Core::get(expected, "modelList").is_null()) Core::set(actual, "modelList", router.get_model_list());
+    if (!expected.is_null()) assert_subset(actual, expected, "multi-service router");
+  } catch (const AxError& error) {
+    Value expected = Core::get(fixture, "expected_error_contains");
+    if (expected.is_null()) throw;
+    if (std::string(error.what()).find(display(expected)) == std::string::npos) throw AxError("fixture", "expected error containing " + display(expected) + ", got " + error.what());
+  }
+}
+
+static void run_ai_provider_router(Value fixture) {
+  auto services = router_services(fixture);
+  std::vector<std::shared_ptr<AxAIService>> providers;
+  if (!services.empty()) providers.push_back(services.at(static_cast<int>(conf_number(Core::get(fixture, "primary_index", 0)))));
+  for (const auto& index : as_array(Core::get(fixture, "alternative_indices", Value::array()))) providers.push_back(services.at(static_cast<int>(conf_number(index))));
+  Value routing = Core::get(Core::get(fixture, "routing", object({{"capability", object({{"requireExactMatch", false}, {"allowDegradation", true}})}})), "capability", Value::object());
+  ProviderRouter router(providers, routing, Core::get(fixture, "processing", Value::object()));
+  Value request = Core::get(fixture, "request", Value::object());
+  Value rec = router.get_routing_recommendation(request);
+  Value recommendation = object({{"provider", Core::get(rec, "providerName")}, {"processingApplied", Core::get(rec, "processingApplied")}, {"degradations", Core::get(rec, "degradations")}, {"warnings", Core::get(rec, "warnings")}});
+  Value actual = object({{"recommendation", recommendation}, {"validation", router.validate_request(request)}, {"stats", router.get_routing_stats()}});
+  Value expected = Core::get(fixture, "expected_output");
+  if (!expected.is_null()) assert_subset(actual, expected, "provider router");
+}
+
+static void run_ai_balancer(Value fixture) {
+  auto services = router_services(fixture);
+  std::vector<std::shared_ptr<AxAIService>> base;
+  for (const auto& service : services) base.push_back(service);
+  try {
+    AxBalancer balancer(base, Core::get(fixture, "options", Value::object()));
+    Value outputs = Value::object();
+    for (const auto& raw : Core::iter(Core::get(fixture, "operations", Value::array()))) {
+      std::string name = display(Core::get(raw, "name"));
+      Value request = Core::get(raw, "request", Value::object());
+      Value options = Core::get(raw, "options", Value::object());
+      if (name == "chat") Core::set(outputs, name, balancer.chat(request, options));
+      else if (name == "embed") Core::set(outputs, name, balancer.embed(request, options));
+      else if (name == "transcribe") Core::set(outputs, name, balancer.transcribe(request, options));
+      else if (name == "speak") Core::set(outputs, name, balancer.speak(request, options));
+      else if (name == "set_options") balancer.set_options(options);
+    }
+    Value service_calls = Value::array();
+    for (const auto& service : services) {
+      Value calls = Value::array();
+      for (const auto& call : service->requests) Core::append(calls, call);
+      if (!Core::iter(calls).empty()) Core::append(service_calls, calls);
+    }
+    Value actual = object({
+        {"id", balancer.get_id()},
+        {"name", balancer.get_name()},
+        {"outputs", outputs},
+        {"lastChat", balancer.get_last_used_chat_model()},
+        {"lastEmbed", balancer.get_last_used_embed_model()},
+        {"lastConfig", balancer.get_last_used_model_config()},
+        {"metrics", balancer.get_metrics()},
+        {"options", balancer.get_options()},
+        {"serviceCalls", service_calls}
+    });
+    if (!Core::get(fixture, "expected_error_contains").is_null()) throw AxError("fixture", "expected balancer to fail");
+    Value expected = Core::get(fixture, "expected_output");
+    if (!Core::get(expected, "modelList").is_null()) Core::set(actual, "modelList", balancer.get_model_list());
+    if (!Core::get(expected, "features").is_null()) Core::set(actual, "features", balancer.get_features());
+    if (!expected.is_null()) assert_subset(actual, expected, "balancer");
+  } catch (const AxError& error) {
+    Value expected = Core::get(fixture, "expected_error_contains");
+    if (expected.is_null()) throw;
+    if (std::string(error.what()).find(display(expected)) == std::string::npos) throw AxError("fixture", "expected error containing " + display(expected) + ", got " + error.what());
+  }
+}
+
 static void run_ai_transcribe(Value fixture) {
   ClientFixture cf(fixture);
   Value result = cf.client->transcribe(Core::get(fixture, "request", Value::object()));
@@ -5486,6 +6368,14 @@ static void run(Value fixture) {
     run_ai_provider_registry(fixture);
   } else if (kind == "ai_model_catalog_audit") {
     run_ai_model_catalog_audit(fixture);
+  } else if (kind == "ai_model_catalog_runtime") {
+    run_ai_model_catalog_runtime(fixture);
+  } else if (kind == "ai_multiservice_router") {
+    run_ai_multiservice_router(fixture);
+  } else if (kind == "ai_provider_router") {
+    run_ai_provider_router(fixture);
+  } else if (kind == "ai_balancer") {
+    run_ai_balancer(fixture);
   } else if (kind == "ai_transcribe") {
     run_ai_transcribe(fixture);
   } else if (kind == "ai_speak") {

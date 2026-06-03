@@ -1,0 +1,25 @@
+{
+  "check_clone": true,
+  "expected_output": {
+    "modelCount": 12,
+    "openaiFirstModel": "gpt-audio",
+    "openaiModelTypes": ["audio"],
+    "providerCount": 11,
+    "providerNames": [
+      "google-gemini",
+      "openai",
+      "openai-responses",
+      "azure-openai",
+      "anthropic",
+      "cohere",
+      "deepseek",
+      "mistral",
+      "huggingface",
+      "reka",
+      "grok"
+    ]
+  },
+  "kind": "ai_model_catalog_runtime",
+  "model_type": "audio",
+  "name": "model-catalog-runtime-audio"
+}

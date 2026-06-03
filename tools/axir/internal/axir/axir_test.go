@@ -305,25 +305,37 @@ func TestBuildRuntimeModel(t *testing.T) {
 		"axai_provider_alias_registry",
 		"axai_model_catalog_audit",
 		"axai_provider_routing_audit",
+		"axai_model_catalog_runtime_api",
+		"axai_multi_service_routing",
+		"axai_provider_routing_analysis",
+		"axai_balancer_runtime",
+		"axai_balancer_retry_policy",
+		"axai_balancer_metrics",
+		"axai_host_processing_callbacks",
 		"google_gemini_provider_mapping",
 		"gemini_media_content_mapping",
-			"gemini_tool_schema_mapping",
-			"gemini_stream_folding",
-			"gemini_usage_normalization",
-			"gemini_embeddings_normalization",
-			"anthropic_provider_mapping",
-			"anthropic_cache_control_mapping",
-			"anthropic_thinking_normalization",
-			"anthropic_stream_folding",
-			"anthropic_usage_normalization",
-		} {
-			if !model.Features[feature] {
-				t.Fatalf("runtime model missing prompt feature flag %s: %#v", feature, model.Features)
-			}
+		"gemini_tool_schema_mapping",
+		"gemini_stream_folding",
+		"gemini_usage_normalization",
+		"gemini_embeddings_normalization",
+		"anthropic_provider_mapping",
+		"anthropic_cache_control_mapping",
+		"anthropic_thinking_normalization",
+		"anthropic_stream_folding",
+		"anthropic_usage_normalization",
+	} {
+		if !model.Features[feature] {
+			t.Fatalf("runtime model missing prompt feature flag %s: %#v", feature, model.Features)
 		}
+	}
 	for _, want := range []string{"ai", "AxAIService", "AxBaseAI", "OpenAICompatibleClient", "OpenAIResponsesClient", "GoogleGeminiClient", "AnthropicClient", "agent", "AxAgent", "AxAgentClarificationError", "flow", "AxFlow", "AxProgram"} {
 		if _, ok := model.Symbols[want]; !ok {
 			t.Fatalf("runtime model missing symbol %s", want)
+		}
+	}
+	for _, want := range []string{"AxBalancer", "MultiServiceRouter", "ProviderRouter", "get_supported_ai_models"} {
+		if !containsString(model.PublicSymbols, want) {
+			t.Fatalf("runtime model missing generated public symbol %s: %#v", want, model.PublicSymbols)
 		}
 	}
 	for _, want := range []string{
@@ -481,6 +493,9 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"dev/ax/OpenAIResponsesClient.java",
 				"dev/ax/GoogleGeminiClient.java",
 				"dev/ax/AnthropicClient.java",
+				"dev/ax/AxMultiServiceRouter.java",
+				"dev/ax/AxBalancer.java",
+				"dev/ax/AxProviderRouter.java",
 				"dev/ax/Conformance.java",
 				"examples/SignatureSchemaExample.java",
 				"examples/AxGenFakeClientToolExample.java",
@@ -573,9 +588,14 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 					t.Fatalf("manifest missing runtime profile feature %s: %#v", want, manifest.CoreOwnedFeatureGroups)
 				}
 			}
-			for _, want := range []string{"AxGen", "AxSignature", "OpenAICompatibleClient", "OpenAIResponsesClient", "GoogleGeminiClient", "AnthropicClient", "AxAgent", "AxFlow", "AxProgram", "RuntimeCapabilities", "RuntimeEnvelope", "ProcessCodeRuntime", "ProcessCodeSession", "RuntimeProtocolClient", "RuntimeTransport", "OptimizerEngine", "OptimizerEvaluator"} {
+			for _, want := range []string{"AxGen", "AxSignature", "OpenAICompatibleClient", "OpenAIResponsesClient", "GoogleGeminiClient", "AnthropicClient", "AxBalancer", "MultiServiceRouter", "ProviderRouter", "get_supported_ai_models", "AxAgent", "AxFlow", "AxProgram", "RuntimeCapabilities", "RuntimeEnvelope", "ProcessCodeRuntime", "ProcessCodeSession", "RuntimeProtocolClient", "RuntimeTransport", "OptimizerEngine", "OptimizerEvaluator"} {
 				if !containsString(manifest.PublicSymbols, want) {
 					t.Fatalf("manifest missing public symbol %s: %#v", want, manifest.PublicSymbols)
+				}
+			}
+			for _, want := range []string{"axai-model-catalog-runtime-api", "axai-multi-service-routing", "axai-provider-routing-analysis", "axai-balancer-runtime", "axai-balancer-retry-policy", "axai-balancer-metrics", "axai-host-processing-callbacks"} {
+				if !containsString(manifest.CoreOwnedFeatureGroups, want) {
+					t.Fatalf("manifest missing provider routing feature %s: %#v", want, manifest.CoreOwnedFeatureGroups)
 				}
 			}
 			readme, err := os.ReadFile(filepath.Join(dir, "README.md"))
@@ -1714,6 +1734,10 @@ func TestPythonGeneratedIdioms(t *testing.T) {
 		"class OpenAIResponsesClient",
 		"class GoogleGeminiClient",
 		"class AnthropicClient",
+		"class AxBalancer",
+		"class MultiServiceRouter",
+		"class ProviderRouter",
+		"def get_supported_ai_models(",
 		"# BEGIN AXIR CORE EMITTED FUNCTIONS",
 		"def validate_chat_request(",
 		"def merge_model_config(",
@@ -1722,6 +1746,10 @@ func TestPythonGeneratedIdioms(t *testing.T) {
 		"def provider_profile_registry(",
 		"def provider_resolve_profile(",
 		"def provider_model_catalog_summary(",
+		"def provider_model_catalog(",
+		"def provider_route_recommendation(",
+		"def provider_route_validation(",
+		"def provider_routing_stats(",
 		"def provider_descriptor(",
 		"def provider_build_chat_request(",
 		"def openai_build_chat_request(",
@@ -2047,7 +2075,7 @@ func TestJavaGeneratedCoreRuntime(t *testing.T) {
 		"intrinsic.schema.to_json_schema",
 		"intrinsic.validate.output",
 	} {
-	if strings.Contains(coreText, forbidden) {
+		if strings.Contains(coreText, forbidden) {
 			t.Fatalf("generated Java Core runtime contains forbidden semantic escape %q", forbidden)
 		}
 	}
@@ -2057,6 +2085,30 @@ func TestJavaGeneratedCoreRuntime(t *testing.T) {
 	}
 	if !strings.Contains(string(axFile), "Core.provider_resolve_profile(") {
 		t.Fatal("generated Java Ax.ai factory does not use Core provider resolver")
+	}
+	if !strings.Contains(string(axFile), "getSupportedAIModels(") {
+		t.Fatal("generated Java Ax does not expose model catalog helpers")
+	}
+	javaRouterFile, err := os.ReadFile(filepath.Join(dir, "dev", "ax", "AxMultiServiceRouter.java"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(javaRouterFile), "public final class AxMultiServiceRouter") || !strings.Contains(string(javaRouterFile), "Model key must be specified") || !strings.Contains(string(javaRouterFile), "duplicate model key") {
+		t.Fatal("generated Java multi-service router is missing expected implementation")
+	}
+	javaBalancerFile, err := os.ReadFile(filepath.Join(dir, "dev", "ax", "AxBalancer.java"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(javaBalancerFile), "public final class AxBalancer") || !strings.Contains(string(javaBalancerFile), "Core.provider_balancer_retry_policy(") || !strings.Contains(string(javaBalancerFile), "Core.provider_balancer_candidate_allowed(") {
+		t.Fatal("generated Java balancer is missing Core delegation")
+	}
+	javaProviderRouterFile, err := os.ReadFile(filepath.Join(dir, "dev", "ax", "AxProviderRouter.java"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(javaProviderRouterFile), "public final class AxProviderRouter") || !strings.Contains(string(javaProviderRouterFile), "Core.provider_route_recommendation(") {
+		t.Fatal("generated Java provider router is missing Core delegation")
 	}
 	axGenFile, err := os.ReadFile(filepath.Join(dir, "dev", "ax", "AxGen.java"))
 	if err != nil {
@@ -2260,6 +2312,9 @@ func TestCppGeneratedCoreRuntime(t *testing.T) {
 		"class OpenAIResponsesClient",
 		"class GoogleGeminiClient",
 		"class AnthropicClient",
+		"class AxBalancer",
+		"class MultiServiceRouter",
+		"class ProviderRouter",
 		"class Tool",
 		"class AxGen",
 		"class AxAgent",
@@ -2273,6 +2328,7 @@ func TestCppGeneratedCoreRuntime(t *testing.T) {
 		"Value validate_output(",
 		"Value render_prompt(",
 		"Value fold_stream(",
+		"Value get_supported_ai_models(",
 		"AxAgent agent(",
 		"Value test(AxCodeRuntime& runtime",
 		"Value execute_actor_step(AxCodeRuntime& runtime",
@@ -2301,6 +2357,10 @@ func TestCppGeneratedCoreRuntime(t *testing.T) {
 		"Value Core::provider_profile_registry(",
 		"Value Core::provider_resolve_profile(",
 		"Value Core::provider_model_catalog_summary(",
+		"Value Core::provider_model_catalog(",
+		"Value Core::provider_route_recommendation(",
+		"Value Core::provider_route_validation(",
+		"Value Core::provider_routing_stats(",
 		"Value Core::provider_descriptor(",
 		"Value Core::provider_build_chat_request(",
 		"Value Core::openai_build_chat_request(",

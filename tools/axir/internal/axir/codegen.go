@@ -127,6 +127,9 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 		"dev/ax/Core.java":                                            core,
 		"dev/ax/AiClient.java":                                        javaAiClient,
 		"dev/ax/AxAIService.java":                                     javaAxAIService,
+		"dev/ax/AxMultiServiceRouter.java":                            javaAxMultiServiceRouter,
+		"dev/ax/AxBalancer.java":                                      javaAxBalancer,
+		"dev/ax/AxProviderRouter.java":                                javaAxProviderRouter,
 		"dev/ax/AxBaseAI.java":                                        javaAxBaseAI,
 		"dev/ax/AxAIServiceError.java":                                javaAxAIServiceError,
 		"dev/ax/AxMemory.java":                                        javaAxMemory,
@@ -235,7 +238,6 @@ func BuildCapabilityManifest(model AxRuntimeModel, target string) (CapabilityMan
 		return CapabilityManifest{}, fmt.Errorf("unknown target %q", target)
 	}
 	unsupported := []string{
-		"provider balancing",
 		"OpenTelemetry",
 		"live realtime transport",
 		"real multipart audio upload transport",
@@ -277,6 +279,13 @@ func BuildCapabilityManifest(model AxRuntimeModel, target string) (CapabilityMan
 			"axai-provider-alias-registry",
 			"axai-model-catalog-audit",
 			"axai-provider-routing-audit",
+			"axai-model-catalog-runtime-api",
+			"axai-multi-service-routing",
+			"axai-provider-routing-analysis",
+			"axai-balancer-runtime",
+			"axai-balancer-retry-policy",
+			"axai-balancer-metrics",
+			"axai-host-processing-callbacks",
 			"openai-compatible-provider-mapping",
 			"provider-operation-descriptors",
 			"openai-responses-provider-mapping",

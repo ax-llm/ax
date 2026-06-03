@@ -1,0 +1,91 @@
+{
+  "expected_output": {
+    "outputs": {
+      "chat": {
+        "results": [
+          {
+            "content": "Key chat",
+            "index": 0
+          }
+        ]
+      }
+    },
+    "serviceCalls": [
+      [
+        {
+          "method": "chat",
+          "opt": {
+            "trace": "direct"
+          }
+        }
+      ]
+    ]
+  },
+  "kind": "ai_multiservice_router",
+  "name": "multiservice-router-key-entry",
+  "operations": [
+    {
+      "name": "chat",
+      "options": {
+        "trace": "direct"
+      },
+      "request": {
+        "chatPrompt": [
+          {
+            "content": "go",
+            "role": "user"
+          }
+        ],
+        "model": "direct"
+      }
+    }
+  ],
+  "router_entries": [
+    {
+      "description": "Direct key",
+      "key": "direct",
+      "kind": "key",
+      "service_index": 0
+    }
+  ],
+  "services": [
+    {
+      "features": {
+        "caching": {
+          "supported": false,
+          "types": []
+        },
+        "functions": false,
+        "media": {
+          "audio": {
+            "formats": [],
+            "output": {
+              "formats": [],
+              "supported": false
+            },
+            "supported": false
+          },
+          "files": {
+            "formats": [],
+            "supported": false,
+            "uploadMethod": "none"
+          },
+          "images": {
+            "formats": [],
+            "supported": false
+          },
+          "urls": {
+            "contextFetching": false,
+            "supported": false,
+            "webSearch": false
+          }
+        },
+        "multiTurn": true,
+        "streaming": false,
+        "thinking": false
+      },
+      "id": "Key-id",
+      "name": "Key"
+    }
+  ]
+}

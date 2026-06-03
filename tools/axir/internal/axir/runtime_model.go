@@ -62,6 +62,13 @@ var betaRuntimeSymbols = []string{
 	"flow",
 }
 
+var generatedRuntimePublicSymbols = []string{
+	"AxBalancer",
+	"MultiServiceRouter",
+	"ProviderRouter",
+	"get_supported_ai_models",
+}
+
 func BuildRuntimeModel(core Module) (AxRuntimeModel, error) {
 	symbols := map[string]Operation{}
 	bodySources := map[string]string{}
@@ -102,6 +109,12 @@ func BuildRuntimeModel(core Module) (AxRuntimeModel, error) {
 	if len(missing) > 0 {
 		return AxRuntimeModel{}, fmt.Errorf("lowered core module missing beta runtime symbols: %s", strings.Join(missing, ", "))
 	}
+	for _, symbol := range generatedRuntimePublicSymbols {
+		if !containsRuntimeSymbol(publicSymbols, symbol) {
+			publicSymbols = append(publicSymbols, symbol)
+		}
+	}
+	sort.Strings(publicSymbols)
 
 	return AxRuntimeModel{
 		PackageName:   "ax",
@@ -236,6 +249,13 @@ func BuildRuntimeModel(core Module) (AxRuntimeModel, error) {
 			"axai_provider_alias_registry":               true,
 			"axai_model_catalog_audit":                   true,
 			"axai_provider_routing_audit":                true,
+			"axai_model_catalog_runtime_api":             true,
+			"axai_multi_service_routing":                 true,
+			"axai_provider_routing_analysis":             true,
+			"axai_balancer_runtime":                      true,
+			"axai_balancer_retry_policy":                 true,
+			"axai_balancer_metrics":                      true,
+			"axai_host_processing_callbacks":             true,
 			"google_gemini_provider_mapping":             true,
 			"gemini_media_content_mapping":               true,
 			"gemini_tool_schema_mapping":                 true,
@@ -277,4 +297,13 @@ func BuildRuntimeModel(core Module) (AxRuntimeModel, error) {
 			},
 		},
 	}, nil
+}
+
+func containsRuntimeSymbol(items []string, want string) bool {
+	for _, item := range items {
+		if item == want {
+			return true
+		}
+	}
+	return false
 }
