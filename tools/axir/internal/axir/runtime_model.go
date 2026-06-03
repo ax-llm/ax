@@ -64,6 +64,7 @@ var betaRuntimeSymbols = []string{
 
 var generatedRuntimePublicSymbols = []string{
 	"AxBalancer",
+	"AxGEPA",
 	"MultiServiceRouter",
 	"ProviderRouter",
 	"get_supported_ai_models",
@@ -218,6 +219,11 @@ func BuildRuntimeModel(core Module) (AxRuntimeModel, error) {
 			"axoptimize_shared_program_contract":         true,
 			"axoptimize_evidence_batches":                true,
 			"axoptimize_gepa_adapter_contract":           true,
+			"axoptimize_gepa_engine":                     true,
+			"axoptimize_gepa_reflection":                 true,
+			"axoptimize_gepa_pareto":                     true,
+			"axoptimize_gepa_bootstrap":                  true,
+			"axoptimize_gepa_selector_state":             true,
 			"axoptimize_runtime_beta_contract":           true,
 			"axoptimize_artifact_lifecycle":              true,
 			"axprogram_contract":                         true,

@@ -1,0 +1,63 @@
+{
+  "components": [
+    {
+      "constraints": "Keep the word answer in the instruction.",
+      "current": "Base answer instruction",
+      "description": "Primary prompt instruction.",
+      "id": "qa::instruction",
+      "kind": "instruction",
+      "owner": "qa",
+      "preserve": ["answer"]
+    }
+  ],
+  "dataset": [
+    {
+      "input": {
+        "question": "Capital?"
+      },
+      "score": 1
+    }
+  ],
+  "expected_artifact_subset": {
+    "componentMap": {
+      "qa::instruction": "answer with citations"
+    },
+    "metadata": {
+      "bestScore": 0.9,
+      "candidatesExplored": 2
+    },
+    "optimizerName": "GEPA"
+  },
+  "gepa_scores": {
+    "answer with citations": 0.9,
+    "Base answer instruction": 0.2
+  },
+  "kind": "optimize",
+  "name": "gepa-reflection-validation-retry",
+  "operation": "gepa",
+  "optimize_options": {
+    "maxMetricCalls": 6,
+    "minibatchSize": 1,
+    "numTrials": 1,
+    "seed": 7
+  },
+  "program": "axgen",
+  "reflection_responses": [
+    {
+      "results": [
+        {
+          "content": "New Value: cite sources clearly",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "New Value: answer with citations",
+          "index": 0
+        }
+      ]
+    }
+  ]
+}

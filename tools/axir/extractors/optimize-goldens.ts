@@ -8,7 +8,14 @@ import {
   normalizeAgentEvalDataset,
   resolveAgentOptimizeTargetIds,
 } from '../../../src/ax/agent/optimize.js';
+import { getGEPAUpdateGroup } from '../../../src/ax/dsp/optimizers/gepaDependencies.js';
 import { scalarizeGEPAScores } from '../../../src/ax/dsp/optimizers/gepaEvaluation.js';
+import { summarizeGEPATraces } from '../../../src/ax/dsp/optimizers/gepaReflection.js';
+import { AxGEPAComponentSelector } from '../../../src/ax/dsp/optimizers/gepaSelection.js';
+import {
+  buildParetoFront,
+  hypervolume2D,
+} from '../../../src/ax/dsp/optimizers/paretoUtils.js';
 import { AxSignature } from '../../../src/ax/dsp/sig.js';
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
@@ -74,6 +81,51 @@ function touchReferenceBehavior(): void {
     'all'
   );
   scalarizeGEPAScores({ faithfulness: 0.7, helpfulness: 0.9 });
+  const targets = [
+    {
+      id: 'qa::instruction',
+      kind: 'instruction',
+      current: 'answer',
+      owner: 'qa',
+    },
+    {
+      id: 'qa::rubric',
+      kind: 'instruction',
+      current: 'be precise',
+      owner: 'qa',
+      dependsOn: ['qa::instruction'],
+    },
+  ];
+  const selector = new AxGEPAComponentSelector(targets);
+  selector.recordProposal('qa::instruction');
+  selector.recordResult('qa::instruction', true, 0);
+  selector.pick(1, () => 0.5);
+  selector.snapshot();
+  getGEPAUpdateGroup(targets[1]!, targets);
+  summarizeGEPATraces([
+    {
+      score: 0.7,
+      calls: [
+        {
+          componentId: 'search',
+          fn: 'search',
+          ok: true,
+          ms: 5,
+          args: { query: 'x' },
+          result: { ok: true },
+        },
+      ],
+      output: { answer: 'yes' },
+    },
+  ]);
+  buildParetoFront([
+    { idx: 0, scores: { faithfulness: 0.8, helpfulness: 0.6 } },
+    { idx: 1, scores: { faithfulness: 0.7, helpfulness: 0.9 } },
+  ]);
+  hypervolume2D([
+    { faithfulness: 0.8, helpfulness: 0.6 },
+    { faithfulness: 0.7, helpfulness: 0.9 },
+  ]);
 }
 
 mkdirSync(outDir, { recursive: true });
@@ -115,6 +167,310 @@ writeFixture('axgen-component-inventory', {
       kind: 'fn-name',
     },
   ],
+});
+
+const gepaComponents = [
+  {
+    constraints: 'Keep the word answer in the instruction.',
+    current: 'Base answer instruction',
+    description: 'Primary prompt instruction.',
+    id: 'qa::instruction',
+    kind: 'instruction',
+    owner: 'qa',
+    preserve: ['answer'],
+  },
+  {
+    current: 'base_style',
+    dependsOn: ['qa::instruction'],
+    description: 'Naming style primitive.',
+    format: 'snake_case',
+    id: 'qa::style',
+    kind: 'instruction',
+    owner: 'qa',
+  },
+];
+
+const selectorTargets = gepaComponents.map((component) => ({
+  current: component.current,
+  dependsOn: component.dependsOn,
+  id: component.id,
+  kind: component.kind,
+  owner: component.owner,
+}));
+const selector = new AxGEPAComponentSelector(selectorTargets);
+selector.recordProposal('qa::instruction');
+selector.recordResult('qa::instruction', true, 0);
+selector.recordProposal('qa::style');
+selector.recordResult('qa::style', false, 1);
+const selectorSnapshot = selector.snapshot();
+const gepaPareto = buildParetoFront(
+  [
+    { idx: 0, scores: { faithfulness: 0.6, helpfulness: 0.7 } },
+    { idx: 1, scores: { faithfulness: 0.8, helpfulness: 0.8 } },
+    { idx: 2, scores: { faithfulness: 0.9, helpfulness: 0.4 } },
+  ],
+  0
+);
+const gepaTraceSummary = summarizeGEPATraces(
+  [
+    {
+      calls: [
+        {
+          args: { query: 'What changed in the prompt?' },
+          componentId: 'qa::instruction',
+          fn: 'search_docs',
+          ms: 12,
+          ok: true,
+          result: {
+            body: 'Reflection improved the instruction.',
+            title: 'GEPA notes',
+          },
+        },
+      ],
+      output: { answer: 'Improved.' },
+      score: 0.82,
+    },
+  ],
+  { maxRows: 1, maxValueChars: 80 }
+);
+
+writeFixture('gepa-max-metric-calls-error', {
+  kind: 'optimize',
+  operation: 'gepa',
+  program: 'axgen',
+  components: [gepaComponents[0]],
+  dataset: [
+    { input: { question: 'One?' }, score: 1 },
+    { input: { question: 'Two?' }, score: 1 },
+  ],
+  optimize_options: { maxMetricCalls: 1, numTrials: 0 },
+  gepa_scores: { 'Base answer instruction': 0.5 },
+  expected_error_contains:
+    'AxGEPA: options.maxMetricCalls=1 is too small to evaluate the initial Pareto set',
+});
+
+writeFixture('gepa-selector-state-artifact', {
+  kind: 'optimize',
+  operation: 'gepa',
+  program: 'axgen',
+  components: gepaComponents,
+  dataset: [{ input: { question: 'Capital?' }, score: 1 }],
+  optimize_options: {
+    maxMetricCalls: 2,
+    numTrials: 0,
+    paretoSetSize: 2,
+    selectorState: selectorSnapshot,
+  },
+  gepa_scores: {
+    'Base answer instruction': { faithfulness: 0.6, helpfulness: 0.7 },
+    base_style: { faithfulness: 0.3, helpfulness: 0.4 },
+  },
+  score_options: { paretoMetricKey: 'faithfulness' },
+  expected_artifact_subset: {
+    artifactVersion: 'axir-optimized-artifact-v1',
+    componentMap: {
+      'qa::instruction': 'Base answer instruction',
+      'qa::style': 'base_style',
+    },
+    metadata: {
+      optimizer: 'GEPA',
+      report: {
+        summary: 'GEPA Multi-Objective Optimization Complete',
+      },
+      selectorState: selectorSnapshot,
+    },
+    optimizerName: 'GEPA',
+    optimizerVersion: 'axir-gepa-v1',
+    provenance: {
+      sourceProgramKind: 'axgen',
+    },
+  },
+  expected_gepa_evaluations_subset: [
+    {
+      avg: scalarizeGEPAScores({ faithfulness: 0.6, helpfulness: 0.7 }, {
+        paretoMetricKey: 'faithfulness',
+      } as any),
+      count: 1,
+      phase: 'initial Pareto evaluation',
+    },
+  ],
+});
+
+writeFixture('gepa-reflection-validation-retry', {
+  kind: 'optimize',
+  operation: 'gepa',
+  program: 'axgen',
+  components: [gepaComponents[0]],
+  dataset: [{ input: { question: 'Capital?' }, score: 1 }],
+  optimize_options: {
+    maxMetricCalls: 6,
+    minibatchSize: 1,
+    numTrials: 1,
+    seed: 7,
+  },
+  reflection_responses: [
+    { results: [{ content: 'New Value: cite sources clearly', index: 0 }] },
+    { results: [{ content: 'New Value: answer with citations', index: 0 }] },
+  ],
+  gepa_scores: {
+    'Base answer instruction': 0.2,
+    'answer with citations': 0.9,
+  },
+  expected_artifact_subset: {
+    componentMap: {
+      'qa::instruction': 'answer with citations',
+    },
+    metadata: {
+      bestScore: 0.9,
+      candidatesExplored: 2,
+    },
+    optimizerName: 'GEPA',
+  },
+});
+
+writeFixture('gepa-bootstrap-demos', {
+  kind: 'optimize',
+  operation: 'gepa',
+  program: 'axgen',
+  components: [gepaComponents[0]],
+  dataset: [{ input: { question: 'Keep?' }, score: 1 }],
+  optimize_options: {
+    bootstrap: {
+      maxBootstrapDemos: 1,
+      maxBootstrapMetricCalls: 1,
+      scoreThreshold: 0.8,
+    },
+    maxMetricCalls: 3,
+    numTrials: 0,
+  },
+  gepa_scores: {
+    'Base answer instruction': 0.95,
+  },
+  expected_artifact_subset: {
+    demos: [
+      {
+        programId: 'root',
+        traces: [
+          {
+            actionLog: [],
+            completionType: 'final',
+            finalOutput: {
+              componentValue: 'Base answer instruction',
+            },
+            functionCalls: [],
+            output: {
+              componentValue: 'Base answer instruction',
+            },
+            trace: {
+              componentValue: 'Base answer instruction',
+            },
+            usage: {},
+          },
+        ],
+      },
+    ],
+    metadata: {
+      totalMetricCalls: 2,
+    },
+  },
+});
+
+writeFixture('gepa-descendant-component-optimization', {
+  kind: 'optimize',
+  operation: 'gepa',
+  program: 'axgen',
+  components: gepaComponents,
+  dataset: [{ input: { question: 'Name style?' }, score: 1 }],
+  optimize_options: {
+    maxMetricCalls: 8,
+    minibatchSize: 1,
+    numTrials: 1,
+    seed: 123,
+  },
+  reflection_responses: [
+    { results: [{ content: 'New Value: improved_style', index: 0 }] },
+    {
+      results: [
+        { content: 'New Value: answer dependency instruction', index: 0 },
+      ],
+    },
+  ],
+  gepa_scores: {
+    'Base answer instruction': 0.2,
+    'answer dependency instruction': 0.85,
+    improved_style: 0.85,
+  },
+  expected_artifact_subset: {
+    metadata: {
+      optimizer: 'GEPA',
+    },
+    optimizerName: 'GEPA',
+    provenance: {
+      componentOwners: {
+        'qa::instruction': 'qa',
+        'qa::style': 'qa',
+      },
+    },
+  },
+});
+
+writeFixture('gepa-ts-helper-contract', {
+  kind: 'optimize',
+  operation: 'evidence',
+  components: gepaComponents,
+  eval_result: {
+    avg: scalarizeGEPAScores({ faithfulness: 0.8, helpfulness: 0.8 }),
+    candidateMap: {
+      'qa::instruction': 'answer with citations',
+    },
+    count: 1,
+    rows: [
+      {
+        input: { question: 'Trace?' },
+        prediction: { completionType: 'final', output: { answer: 'Done.' } },
+        scalar: scalarizeGEPAScores({ faithfulness: 0.8, helpfulness: 0.8 }),
+        scores: { faithfulness: 0.8, helpfulness: 0.8 },
+        trace: {
+          gepaTraceSummary,
+          updateGroup: getGEPAUpdateGroup(
+            selectorTargets[1]!,
+            selectorTargets
+          ).map((item) => item.id),
+        },
+      },
+    ],
+    sum: scalarizeGEPAScores({ faithfulness: 0.8, helpfulness: 0.8 }),
+  },
+  expected_evidence_subset: {
+    reflectiveDataset: {
+      'qa::instruction': [
+        {
+          output: {
+            answer: 'Done.',
+          },
+          score: scalarizeGEPAScores({ faithfulness: 0.8, helpfulness: 0.8 }),
+          trace: {
+            gepaTraceSummary,
+            updateGroup: ['qa::style', 'qa::instruction'],
+          },
+        },
+      ],
+      'qa::style': [
+        {
+          output: {
+            answer: 'Done.',
+          },
+          score: scalarizeGEPAScores({ faithfulness: 0.8, helpfulness: 0.8 }),
+          trace: {
+            gepaTraceSummary,
+            updateGroup: ['qa::style', 'qa::instruction'],
+          },
+        },
+      ],
+    },
+    contractVersion: 'axir-optimizer-evidence-v1',
+    scoreVectors: [{ faithfulness: 0.8, helpfulness: 0.8 }],
+  },
 });
 
 writeFixture('agent-component-inventory', {

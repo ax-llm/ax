@@ -1,0 +1,64 @@
+{
+  "components": [
+    {
+      "constraints": "Keep the word answer in the instruction.",
+      "current": "Base answer instruction",
+      "description": "Primary prompt instruction.",
+      "id": "qa::instruction",
+      "kind": "instruction",
+      "owner": "qa",
+      "preserve": ["answer"]
+    }
+  ],
+  "dataset": [
+    {
+      "input": {
+        "question": "Keep?"
+      },
+      "score": 1
+    }
+  ],
+  "expected_artifact_subset": {
+    "demos": [
+      {
+        "programId": "root",
+        "traces": [
+          {
+            "actionLog": [],
+            "completionType": "final",
+            "finalOutput": {
+              "componentValue": "Base answer instruction"
+            },
+            "functionCalls": [],
+            "output": {
+              "componentValue": "Base answer instruction"
+            },
+            "trace": {
+              "componentValue": "Base answer instruction"
+            },
+            "usage": {}
+          }
+        ]
+      }
+    ],
+    "metadata": {
+      "totalMetricCalls": 2
+    }
+  },
+  "gepa_scores": {
+    "Base answer instruction": 0.95
+  },
+  "kind": "optimize",
+  "name": "gepa-bootstrap-demos",
+  "operation": "gepa",
+  "optimize_options": {
+    "bootstrap": {
+      "maxBootstrapDemos": 1,
+      "maxBootstrapMetricCalls": 1,
+      "scoreThreshold": 0.8
+    },
+    "maxMetricCalls": 3,
+    "numTrials": 0
+  },
+  "program": "axgen"
+}

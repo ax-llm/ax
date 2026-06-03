@@ -1,0 +1,39 @@
+{
+  "components": [
+    {
+      "constraints": "Keep the word answer in the instruction.",
+      "current": "Base answer instruction",
+      "description": "Primary prompt instruction.",
+      "id": "qa::instruction",
+      "kind": "instruction",
+      "owner": "qa",
+      "preserve": ["answer"]
+    }
+  ],
+  "dataset": [
+    {
+      "input": {
+        "question": "One?"
+      },
+      "score": 1
+    },
+    {
+      "input": {
+        "question": "Two?"
+      },
+      "score": 1
+    }
+  ],
+  "expected_error_contains": "AxGEPA: options.maxMetricCalls=1 is too small to evaluate the initial Pareto set",
+  "gepa_scores": {
+    "Base answer instruction": 0.5
+  },
+  "kind": "optimize",
+  "name": "gepa-max-metric-calls-error",
+  "operation": "gepa",
+  "optimize_options": {
+    "maxMetricCalls": 1,
+    "numTrials": 0
+  },
+  "program": "axgen"
+}

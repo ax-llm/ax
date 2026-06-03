@@ -1,0 +1,135 @@
+{
+  "components": [
+    {
+      "constraints": "Keep the word answer in the instruction.",
+      "current": "Base answer instruction",
+      "description": "Primary prompt instruction.",
+      "id": "qa::instruction",
+      "kind": "instruction",
+      "owner": "qa",
+      "preserve": ["answer"]
+    },
+    {
+      "current": "base_style",
+      "dependsOn": ["qa::instruction"],
+      "description": "Naming style primitive.",
+      "format": "snake_case",
+      "id": "qa::style",
+      "kind": "instruction",
+      "owner": "qa"
+    }
+  ],
+  "eval_result": {
+    "avg": 0.8,
+    "candidateMap": {
+      "qa::instruction": "answer with citations"
+    },
+    "count": 1,
+    "rows": [
+      {
+        "input": {
+          "question": "Trace?"
+        },
+        "prediction": {
+          "completionType": "final",
+          "output": {
+            "answer": "Done."
+          }
+        },
+        "scalar": 0.8,
+        "scores": {
+          "faithfulness": 0.8,
+          "helpfulness": 0.8
+        },
+        "trace": {
+          "gepaTraceSummary": [
+            {
+              "calls": [
+                {
+                  "args": "{\n  \"query\": \"What changed in the prompt?\"\n}",
+                  "componentId": "qa::instruction",
+                  "fn": "search_docs",
+                  "ms": 12,
+                  "ok": true,
+                  "result": "{\n  \"body\": \"Reflection improved the instruction.\",\n  \"title\": \"GEPA notes\"\n}"
+                }
+              ],
+              "output": "{\n  \"answer\": \"Improved.\"\n}",
+              "score": 0.82
+            }
+          ],
+          "updateGroup": ["qa::style", "qa::instruction"]
+        }
+      }
+    ],
+    "sum": 0.8
+  },
+  "expected_evidence_subset": {
+    "contractVersion": "axir-optimizer-evidence-v1",
+    "reflectiveDataset": {
+      "qa::instruction": [
+        {
+          "output": {
+            "answer": "Done."
+          },
+          "score": 0.8,
+          "trace": {
+            "gepaTraceSummary": [
+              {
+                "calls": [
+                  {
+                    "args": "{\n  \"query\": \"What changed in the prompt?\"\n}",
+                    "componentId": "qa::instruction",
+                    "fn": "search_docs",
+                    "ms": 12,
+                    "ok": true,
+                    "result": "{\n  \"body\": \"Reflection improved the instruction.\",\n  \"title\": \"GEPA notes\"\n}"
+                  }
+                ],
+                "output": "{\n  \"answer\": \"Improved.\"\n}",
+                "score": 0.82
+              }
+            ],
+            "updateGroup": ["qa::style", "qa::instruction"]
+          }
+        }
+      ],
+      "qa::style": [
+        {
+          "output": {
+            "answer": "Done."
+          },
+          "score": 0.8,
+          "trace": {
+            "gepaTraceSummary": [
+              {
+                "calls": [
+                  {
+                    "args": "{\n  \"query\": \"What changed in the prompt?\"\n}",
+                    "componentId": "qa::instruction",
+                    "fn": "search_docs",
+                    "ms": 12,
+                    "ok": true,
+                    "result": "{\n  \"body\": \"Reflection improved the instruction.\",\n  \"title\": \"GEPA notes\"\n}"
+                  }
+                ],
+                "output": "{\n  \"answer\": \"Improved.\"\n}",
+                "score": 0.82
+              }
+            ],
+            "updateGroup": ["qa::style", "qa::instruction"]
+          }
+        }
+      ]
+    },
+    "scoreVectors": [
+      {
+        "faithfulness": 0.8,
+        "helpfulness": 0.8
+      }
+    ]
+  },
+  "kind": "optimize",
+  "name": "gepa-ts-helper-contract",
+  "operation": "evidence"
+}

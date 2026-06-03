@@ -45,6 +45,7 @@ class OpenAICompatibleClient;
 class OpenAIResponsesClient;
 class GoogleGeminiClient;
 class AnthropicClient;
+class AxGEPA;
 class OptimizerEngine;
 class OptimizerEvaluator;
 
@@ -983,6 +984,22 @@ class OptimizerEngine {
   virtual std::string version() const { return "host"; }
   virtual Value optimize(Value request) = 0;
   virtual Value optimize(Value request, OptimizerEvaluator* evaluator) { return optimize(std::move(request)); }
+};
+
+class AxGEPA : public OptimizerEngine {
+ public:
+  explicit AxGEPA(AIClient* reflection_client = nullptr, Value options = Value::object());
+  std::string name() const override;
+  std::string version() const override;
+  Value optimize(Value request) override;
+  Value optimize(Value request, OptimizerEvaluator* evaluator) override;
+
+ private:
+  AIClient* reflection_client_;
+  Value options_;
+  uint32_t rng_state_;
+  Value selector_state_;
+  double rand();
 };
 
 class AxAgent : public AxProgram {
@@ -3363,6 +3380,450 @@ AxGen& AxGen::apply_optimization(Value artifact) {
   return apply_optimized_components(Core::get(map, "componentMap", Value::object()));
 }
 
+static int gepa_int(Value value, int fallback) {
+  if (value.is_null()) return fallback;
+  if (value.is_number()) return static_cast<int>(std::floor(num(value)));
+  try {
+    return std::stoi(display(value));
+  } catch (...) {
+    return fallback;
+  }
+}
+
+static double gepa_num(Value value, double fallback = 0.0) {
+  if (value.is_null()) return fallback;
+  if (value.is_number()) return num(value);
+  try {
+    return std::stod(display(value));
+  } catch (...) {
+    return fallback;
+  }
+}
+
+static Value gepa_current_map(Value components) {
+  Value out = Value::object();
+  for (const auto& raw : Core::iter(components)) {
+    std::string id = display(Core::get(raw, "id", Value("")));
+    Value current = Core::get(raw, "current", Value(""));
+    if (!id.empty() && current.is_string()) Core::set(out, id, current);
+  }
+  return out;
+}
+
+static Value gepa_dataset_for(const std::vector<Value>& examples) {
+  Value train = Value::array();
+  for (const auto& example : examples) Core::append(train, example);
+  Value out = Value::object();
+  Core::set(out, "train", train);
+  Core::set(out, "validation", Value::array());
+  return out;
+}
+
+static std::vector<Value> gepa_train(Value dataset) {
+  return Core::iter(Core::get(dataset, "train", Value::array()));
+}
+
+static std::vector<Value> gepa_validation(Value dataset) {
+  std::vector<Value> validation = Core::iter(Core::get(dataset, "validation", Value::array()));
+  if (validation.empty()) return gepa_train(dataset);
+  return validation;
+}
+
+static Value gepa_avg_vec(Value rows) {
+  std::map<std::string, double> sums;
+  std::map<std::string, int> counts;
+  for (const auto& row : Core::iter(rows)) {
+    for (const auto& kv : object_ref(Core::get(row, "scores", Value::object()))) {
+      if (kv.second.is_number()) {
+        sums[kv.first] += num(kv.second);
+        counts[kv.first] += 1;
+      }
+    }
+  }
+  Value out = Value::object();
+  for (const auto& kv : sums) Core::set(out, kv.first, Value(kv.second / std::max(1, counts[kv.first])));
+  return out;
+}
+
+static double gepa_scalar(Value scores, Value options) {
+  Value key = Core::get(options, "paretoMetricKey", Core::get(options, "pareto_metric_key", Value()));
+  if (!key.is_null()) return gepa_num(Core::get(scores, display(key), Value()), 0.0);
+  double sum = 0.0;
+  int count = 0;
+  for (const auto& kv : object_ref(scores)) {
+    if (kv.second.is_number()) {
+      sum += num(kv.second);
+      count += 1;
+    }
+  }
+  return count == 0 ? 0.0 : sum / count;
+}
+
+static bool gepa_dominates(Value a, Value b, double eps) {
+  std::set<std::string> keys;
+  for (const auto& kv : object_ref(a)) keys.insert(kv.first);
+  for (const auto& kv : object_ref(b)) keys.insert(kv.first);
+  bool at_least = true;
+  bool strict = false;
+  for (const auto& key : keys) {
+    double av = gepa_num(Core::get(a, key, Value(0)), 0.0);
+    double bv = gepa_num(Core::get(b, key, Value(0)), 0.0);
+    if (av + eps < bv) {
+      at_least = false;
+      break;
+    }
+    if (av > bv + eps) strict = true;
+  }
+  return at_least && strict;
+}
+
+struct GepCandidate {
+  Value cfg;
+  Value scores;
+  int parent = -1;
+};
+
+static Value gepa_pareto_front(const std::vector<GepCandidate>& candidates, double eps) {
+  Value front = Value::array();
+  for (size_t i = 0; i < candidates.size(); ++i) {
+    bool dominated = false;
+    int dominated_count = 0;
+    for (size_t j = 0; j < candidates.size(); ++j) {
+      if (i == j) continue;
+      if (gepa_dominates(candidates[j].scores, candidates[i].scores, eps)) {
+        dominated = true;
+        break;
+      }
+      if (gepa_dominates(candidates[i].scores, candidates[j].scores, eps)) dominated_count += 1;
+    }
+    if (!dominated) {
+      Value item = Value::object();
+      Core::set(item, "idx", Value(static_cast<int>(i)));
+      Core::set(item, "scores", candidates[i].scores);
+      Core::set(item, "dominated", Value(dominated_count));
+      Core::append(front, item);
+    }
+  }
+  return front;
+}
+
+static std::string gepa_extract_text(Value response) {
+  Value results = Core::get(response, "results", Value::array());
+  if (Core::iter(results).empty()) return "";
+  std::string text = display(Core::get(Core::iter(results)[0], "content", Value("")));
+  auto trim = [](std::string s) {
+    while (!s.empty() && std::isspace(static_cast<unsigned char>(s.front()))) s.erase(s.begin());
+    while (!s.empty() && std::isspace(static_cast<unsigned char>(s.back()))) s.pop_back();
+    return s;
+  };
+  text = trim(text);
+  const std::string prefix = "New Value:";
+  if (text.rfind(prefix, 0) == 0) return trim(text.substr(prefix.size()));
+  const std::string fence = "\x60\x60\x60";
+  size_t start = text.find(fence);
+  size_t end = text.rfind(fence);
+  if (start != std::string::npos && end != std::string::npos && end > start) {
+    std::string inner = trim(text.substr(start + 3, end - start - 3));
+    size_t newline = inner.find('\n');
+    if (newline != std::string::npos) inner = inner.substr(newline + 1);
+    return trim(inner);
+  }
+  return text;
+}
+
+static Value gepa_validate_value(Value component, const std::string& value) {
+  if (value.empty()) return Value("component value must be a non-empty string");
+  if (display(Core::get(component, "format", Value(""))) == "snake_case") {
+    if (!std::regex_match(value, std::regex("^[a-z_][a-z0-9_]*$"))) return Value("must be snake_case");
+  }
+  Value max_len = Core::get(component, "maxLength", Value());
+  if (max_len.is_number() && value.size() > static_cast<size_t>(num(max_len))) return Value("must be at most " + display(max_len) + " characters");
+  for (const auto& literal : Core::iter(Core::get(component, "preserve", Value::array()))) {
+    if (value.find(display(literal)) == std::string::npos) return Value("must preserve " + display(literal));
+  }
+  return Value(true);
+}
+
+static void gepa_component_visit(const std::string& id, const std::map<std::string, Value>& by_id, std::set<std::string>& seen, std::vector<Value>& out) {
+  if (seen.count(id) != 0) return;
+  auto it = by_id.find(id);
+  if (it == by_id.end()) return;
+  seen.insert(id);
+  out.push_back(it->second);
+  Value deps = Core::get(it->second, "dependsOn", Core::get(it->second, "depends_on", Value::array()));
+  for (const auto& dep : Core::iter(deps)) gepa_component_visit(display(dep), by_id, seen, out);
+}
+
+static std::vector<Value> gepa_component_group(Value target, const std::vector<Value>& components) {
+  std::map<std::string, Value> by_id;
+  for (const auto& component : components) by_id[display(Core::get(component, "id", Value("")))] = component;
+  std::vector<Value> out;
+  std::set<std::string> seen;
+  gepa_component_visit(display(Core::get(target, "id", Value(""))), by_id, seen, out);
+  return out;
+}
+
+AxGEPA::AxGEPA(AIClient* reflection_client, Value options)
+    : reflection_client_(reflection_client), options_(std::move(options)), rng_state_(123456789), selector_state_(Value::object()) {
+  int seed = gepa_int(Core::get(options_, "seed", Value(123456789)), 123456789);
+  rng_state_ = static_cast<uint32_t>(seed == 0 ? 123456789 : seed);
+}
+
+std::string AxGEPA::name() const { return "GEPA"; }
+std::string AxGEPA::version() const { return "axir-gepa-v1"; }
+Value AxGEPA::optimize(Value request) { return optimize(std::move(request), nullptr); }
+
+double AxGEPA::rand() {
+  rng_state_ ^= (rng_state_ << 13);
+  rng_state_ ^= (rng_state_ >> 17);
+  rng_state_ ^= (rng_state_ << 5);
+  return static_cast<double>(rng_state_) / 4294967296.0;
+}
+
+Value AxGEPA::optimize(Value request, OptimizerEvaluator* evaluator) {
+  if (evaluator == nullptr) throw AxError("runtime", "AxGEPA requires an OptimizerEvaluator");
+  Value options = Core::map_merge(Value::object(), options_);
+  options = Core::map_merge(options, Core::get(request, "options", Value::object()));
+  Value components = Core::get(request, "components", Value::array());
+  if (Core::iter(components).empty()) throw AxError("runtime", "AxGEPA: program exposes no optimizable components");
+  Value dataset = Core::get(request, "dataset", Value::object());
+  std::vector<Value> train = gepa_train(dataset);
+  std::vector<Value> validation = gepa_validation(dataset);
+  int max_calls = gepa_int(Core::get(options, "maxMetricCalls", Core::get(options, "max_metric_calls", Value(0))), 0);
+  if (max_calls <= 0) throw AxError("runtime", "AxGEPA: options.maxMetricCalls must be set to a positive integer");
+  int num_trials = gepa_int(Core::get(options, "numTrials", Core::get(options, "num_trials", Value(30))), 30);
+  bool minibatch = !Core::truthy(Core::eq(Core::get(options, "minibatch", Value(true)), Value(false)));
+  int minibatch_size = std::max(1, gepa_int(Core::get(options, "minibatchSize", Core::get(options, "minibatch_size", Value(20))), 20));
+  int early_stop = std::max(1, gepa_int(Core::get(options, "earlyStoppingTrials", Core::get(options, "early_stopping_trials", Value(5))), 5));
+  double min_improvement = gepa_num(Core::get(options, "minImprovementThreshold", Core::get(options, "min_improvement_threshold", Value(0))), 0.0);
+  int pareto_size = std::min(1000, std::max(1, gepa_int(Core::get(options, "paretoSetSize", Core::get(options, "pareto_set_size", Value(std::max(10, std::min(200, minibatch_size * 3))))), 10)));
+  double tie_eps = gepa_num(Core::get(options, "tieEpsilon", Core::get(options, "tie_epsilon", Value(0))), 0.0);
+  Value base_cfg = gepa_current_map(components);
+  std::vector<Value> pareto_set(validation.begin(), validation.begin() + std::min(validation.size(), static_cast<size_t>(pareto_size)));
+  selector_state_ = Value::object();
+  Value initial_selector = Core::get(options, "selectorState", Core::get(options, "selector_state", Value::object()));
+  for (const auto& raw : Core::iter(components)) {
+    std::string id = display(Core::get(raw, "id", Value("")));
+    Value old = Core::get(initial_selector, id, Value::object());
+    Value state = Value::object();
+    Core::set(state, "proposals", Value(std::max(0, gepa_int(Core::get(old, "proposals", Value(0)), 0))));
+    Core::set(state, "accepts", Value(std::max(0, gepa_int(Core::get(old, "accepts", Value(0)), 0))));
+    Core::set(state, "lastAcceptIter", Value(gepa_int(Core::get(old, "lastAcceptIter", Value(-1)), -1)));
+    Core::set(state, "stagnation", Value(std::max(0, gepa_int(Core::get(old, "stagnation", Value(0)), 0))));
+    Core::set(selector_state_, id, state);
+  }
+
+  int total_calls = 0;
+  auto evaluate = [&](Value cfg, const std::vector<Value>& examples, const std::string& phase, bool required, bool capture) -> Value {
+    if (total_calls + static_cast<int>(examples.size()) > max_calls) {
+      if (required) throw AxError("runtime", "AxGEPA: options.maxMetricCalls=" + std::to_string(max_calls) + " is too small to evaluate the initial Pareto set; need at least " + std::to_string(examples.size()) + " metric calls");
+      return Value();
+    }
+    Value eval_options = Value::object();
+    Core::set(eval_options, "dataset", gepa_dataset_for(examples));
+    Core::set(eval_options, "phase", Value(phase));
+    Core::set(eval_options, "captureTraces", Value(capture));
+    Value result = evaluator->evaluate(cfg, eval_options);
+    total_calls += static_cast<int>(gepa_num(Core::get(result, "count", Value(static_cast<int>(examples.size()))), examples.size()));
+    Value rows = Core::get(result, "rows", Value::array());
+    Value scalars = Value::array();
+    for (const auto& row : Core::iter(rows)) Core::append(scalars, Core::get(row, "scalar", Value(0)));
+    Value out = Value::object();
+    Core::set(out, "rows", rows);
+    Core::set(out, "avgScores", gepa_avg_vec(rows));
+    Core::set(out, "avg", Core::get(result, "avg", Value(0)));
+    Core::set(out, "sum", Core::get(result, "sum", Value(0)));
+    Core::set(out, "scalars", scalars);
+    return out;
+  };
+
+  Value demos = Value::array();
+  if (Core::truthy(Core::get(options, "bootstrap", Value(false)))) {
+    Value bootstrap = Core::get(options, "bootstrap", Value::object());
+    double threshold = gepa_num(Core::get(bootstrap, "scoreThreshold", Core::get(bootstrap, "score_threshold", Value(0.8))), 0.8);
+    int max_demos = std::max(1, gepa_int(Core::get(bootstrap, "maxBootstrapDemos", Core::get(bootstrap, "max_bootstrap_demos", Value(4))), 4));
+    int max_boot_calls = std::max(1, gepa_int(Core::get(bootstrap, "maxBootstrapMetricCalls", Core::get(bootstrap, "max_bootstrap_metric_calls", Value(static_cast<int>(std::min<size_t>(train.size(), 8))))), static_cast<int>(std::min<size_t>(train.size(), 8))));
+    int boot_calls = 0;
+    for (const auto& example : train) {
+      if (boot_calls >= max_boot_calls || static_cast<int>(Core::iter(demos).size()) >= max_demos) break;
+      Value boot_eval = evaluate(base_cfg, std::vector<Value>{example}, "bootstrap", false, false);
+      boot_calls += 1;
+      if (boot_eval.is_null()) break;
+      std::vector<Value> rows = Core::iter(Core::get(boot_eval, "rows", Value::array()));
+      if (!rows.empty() && gepa_num(Core::get(rows[0], "scalar", Value(0)), 0.0) >= threshold) {
+        Value demo = Value::object();
+        Core::set(demo, "programId", Value("root"));
+        Value traces = Value::array();
+        Core::append(traces, Core::get(rows[0], "prediction", Core::get(rows[0], "input", Value::object())));
+        Core::set(demo, "traces", traces);
+        Core::append(demos, demo);
+      }
+    }
+  }
+
+  Value base_eval = evaluate(base_cfg, pareto_set, "initial Pareto evaluation", true, false);
+  std::vector<GepCandidate> candidates{{base_cfg, Core::get(base_eval, "avgScores", Value::object()), -1}};
+  std::vector<std::vector<double>> per_instance;
+  std::vector<double> base_scalars;
+  for (const auto& scalar : Core::iter(Core::get(base_eval, "scalars", Value::array()))) base_scalars.push_back(gepa_num(scalar, 0.0));
+  per_instance.push_back(base_scalars);
+  int stagnation = 0;
+  std::vector<Value> component_list = Core::iter(components);
+
+  for (int iteration = 0; iteration < num_trials; ++iteration) {
+    if (total_calls >= max_calls) break;
+    int parent_idx = 0;
+    double parent_avg = -1e100;
+    for (size_t i = 0; i < per_instance.size(); ++i) {
+      double sum = 0.0;
+      for (double v : per_instance[i]) sum += v;
+      double avg = per_instance[i].empty() ? 0.0 : sum / per_instance[i].size();
+      if (avg > parent_avg) {
+        parent_avg = avg;
+        parent_idx = static_cast<int>(i);
+      }
+    }
+    std::vector<Value> mini;
+    if (minibatch) {
+      for (int i = 0; i < std::min(minibatch_size, static_cast<int>(train.size())); ++i) mini.push_back(train[(iteration * minibatch_size + i) % train.size()]);
+    } else {
+      mini = train;
+    }
+    Value parent_eval = evaluate(candidates[parent_idx].cfg, mini, "parent minibatch", false, true);
+    if (parent_eval.is_null()) break;
+    double perfect = gepa_num(Core::get(options, "perfectScore", Core::get(options, "perfect_score", Value(1))), 1.0);
+    bool all_perfect = !Core::iter(Core::get(parent_eval, "scalars", Value::array())).empty();
+    for (const auto& score : Core::iter(Core::get(parent_eval, "scalars", Value::array()))) if (gepa_num(score, 0.0) < perfect) all_perfect = false;
+    if (!Core::truthy(Core::eq(Core::get(options, "skipPerfectScore", Core::get(options, "skip_perfect_score", Value(true))), Value(false))) && all_perfect) continue;
+    Value target = component_list.empty() ? Value::object() : component_list[static_cast<size_t>(std::floor(rand() * component_list.size())) % component_list.size()];
+    std::vector<Value> group = gepa_component_group(target, component_list);
+    Value proposed = Core::map_merge(Value::object(), candidates[parent_idx].cfg);
+    Value rows = Core::get(parent_eval, "rows", Value::array());
+    Value tuples = Value::array();
+    Value trace_dataset = Value::array();
+    for (const auto& row : Core::iter(rows)) {
+      Value tuple = Value::object();
+      Core::set(tuple, "input", Core::get(row, "input", Value()));
+      Core::set(tuple, "prediction", Core::get(row, "prediction", Value()));
+      Core::set(tuple, "score", Core::get(row, "scalar", Value(0)));
+      Core::append(tuples, tuple);
+      Value trace = Value::object();
+      Core::set(trace, "score", Core::get(row, "scalar", Value(0)));
+      Core::set(trace, "trace", Core::get(row, "trace", Value()));
+      Core::set(trace, "output", Core::get(row, "prediction", Value()));
+      Core::append(trace_dataset, trace);
+    }
+    if (reflection_client_ == nullptr) throw AxError("runtime", "AxGEPA requires a reflection_client for reflective trials");
+    for (const auto& group_target : group) {
+      std::string target_id = display(Core::get(group_target, "id", Value("")));
+      Value state = Core::get(selector_state_, target_id, Value::object());
+      Core::set(state, "proposals", Value(gepa_int(Core::get(state, "proposals", Value(0)), 0) + 1));
+      Core::set(selector_state_, target_id, state);
+      std::string current = display(Core::get(proposed, target_id, Value("")));
+      std::string candidate_text = current;
+      Value previous;
+      for (int attempt = 0; attempt < 2; ++attempt) {
+        Value payload = Value::object();
+        Core::set(payload, "componentKey", Value(target_id));
+        Core::set(payload, "componentKind", Core::get(group_target, "kind", Value("component")));
+        Core::set(payload, "currentValue", Value(current));
+        Core::set(payload, "previousValidationError", previous);
+        Core::set(payload, "minibatch", tuples);
+        Core::set(payload, "traceDataset", trace_dataset);
+        Value request_chat = Value::object();
+        Value messages = Value::array();
+        Value message = Value::object();
+        Core::set(message, "role", Value("user"));
+        Core::set(message, "content", Core::json_stringify(payload));
+        Core::append(messages, message);
+        Core::set(request_chat, "chatPrompt", messages);
+        candidate_text = gepa_extract_text(reflection_client_->chat(request_chat));
+        Value validation = gepa_validate_value(group_target, candidate_text);
+        if (Core::truthy(Core::eq(validation, Value(true)))) break;
+        previous = validation;
+        candidate_text = current;
+      }
+      Core::set(proposed, target_id, Value(candidate_text));
+    }
+    Value child_mini = evaluate(proposed, mini, "child minibatch", false, false);
+    if (child_mini.is_null()) break;
+    bool accepted = gepa_num(Core::get(child_mini, "sum", Value(0)), 0.0) > gepa_num(Core::get(parent_eval, "sum", Value(0)), 0.0) + min_improvement;
+    for (const auto& group_target : group) {
+      std::string target_id = display(Core::get(group_target, "id", Value("")));
+      Value state = Core::get(selector_state_, target_id, Value::object());
+      if (accepted) {
+        Core::set(state, "accepts", Value(gepa_int(Core::get(state, "accepts", Value(0)), 0) + 1));
+        Core::set(state, "lastAcceptIter", Value(iteration));
+        Core::set(state, "stagnation", Value(0));
+      } else {
+        Core::set(state, "stagnation", Value(gepa_int(Core::get(state, "stagnation", Value(0)), 0) + 1));
+      }
+      Core::set(selector_state_, target_id, state);
+    }
+    if (!accepted) {
+      if (++stagnation >= early_stop) break;
+      continue;
+    }
+    Value child_eval = evaluate(proposed, pareto_set, "validation evaluation", false, false);
+    if (child_eval.is_null()) break;
+    candidates.push_back(GepCandidate{proposed, Core::get(child_eval, "avgScores", Value::object()), parent_idx});
+    std::vector<double> child_scalars;
+    for (const auto& scalar : Core::iter(Core::get(child_eval, "scalars", Value::array()))) child_scalars.push_back(gepa_num(scalar, 0.0));
+    per_instance.push_back(child_scalars);
+    stagnation = 0;
+  }
+
+  Value front = gepa_pareto_front(candidates, tie_eps);
+  int best_idx = 0;
+  double best_score = -1e100;
+  for (const auto& item : Core::iter(front)) {
+    int idx = static_cast<int>(gepa_num(Core::get(item, "idx", Value(0)), 0));
+    double score = gepa_scalar(Core::get(item, "scores", Value::object()), options);
+    if (score > best_score) {
+      best_score = score;
+      best_idx = idx;
+    }
+  }
+  Value owners = Value::object();
+  for (const auto& component : component_list) {
+    std::string id = display(Core::get(component, "id", Value("")));
+    std::string owner = display(Core::get(component, "owner", Value(id.substr(0, id.find("::")))));
+    Core::set(owners, id, Value(owner));
+  }
+  Value metadata = Value::object();
+  Core::set(metadata, "optimizer", Value("GEPA"));
+  Core::set(metadata, "selectorState", selector_state_);
+  Core::set(metadata, "paretoFront", front);
+  Core::set(metadata, "bestScore", Value(best_score == -1e100 ? 0.0 : best_score));
+  Core::set(metadata, "totalMetricCalls", Value(total_calls));
+  Core::set(metadata, "candidatesExplored", Value(static_cast<int>(candidates.size())));
+  Value report = Value::object();
+  Core::set(report, "summary", Value("GEPA Multi-Objective Optimization Complete"));
+  Value stats = Value::object();
+  Core::set(stats, "totalEvaluations", Value(total_calls));
+  Core::set(stats, "candidatesExplored", Value(static_cast<int>(candidates.size())));
+  Core::set(stats, "converged", Value(true));
+  Core::set(report, "statistics", stats);
+  Core::set(metadata, "report", report);
+  Value artifact = Value::object();
+  Core::set(artifact, "artifactVersion", Value("axir-optimized-artifact-v1"));
+  Core::set(artifact, "optimizerName", Value("GEPA"));
+  Core::set(artifact, "optimizerVersion", Value(version()));
+  Core::set(artifact, "componentMap", candidates[static_cast<size_t>(best_idx)].cfg);
+  Core::set(artifact, "demos", demos);
+  Core::set(artifact, "metadata", metadata);
+  Value evidence = Value::object();
+  Core::set(evidence, "avg", Value(best_score == -1e100 ? 0.0 : best_score));
+  Core::set(evidence, "count", Value(static_cast<int>(pareto_set.size())));
+  Core::set(evidence, "totalMetricCalls", Value(total_calls));
+  Core::set(artifact, "evidence", evidence);
+  Value provenance = Value::object();
+  Core::set(provenance, "sourceProgramKind", Core::get(request, "programKind", Value("unknown")));
+  Core::set(provenance, "componentOwners", owners);
+  Core::set(artifact, "provenance", provenance);
+  return artifact;
+}
+
 Value AxGen::evaluate_optimization(AIClient& client, Value dataset, Value candidate_map, Value options) {
   Value normalized = Core::_normalize_optimization_dataset(dataset.is_null() ? Value::array() : dataset);
   Value rows = Value::array();
@@ -3404,7 +3865,8 @@ struct AxGenOptimizerEvaluator : OptimizerEvaluator {
       : gen(gen_), client(client_), dataset(std::move(dataset_)), options(std::move(options_)) {}
   Value evaluate(Value candidate_map, Value eval_options = Value::object()) override {
     Value merged = Core::map_merge(options, eval_options);
-    return gen.evaluate_optimization(client, dataset, std::move(candidate_map), merged);
+    Value eval_dataset = Core::get(merged, "dataset", Core::get(merged, "_dataset", dataset));
+    return gen.evaluate_optimization(client, eval_dataset, std::move(candidate_map), merged);
   }
 };
 
@@ -3591,7 +4053,8 @@ struct AxFlowOptimizerEvaluator : OptimizerEvaluator {
       : flow(flow_), client(client_), dataset(std::move(dataset_)), options(std::move(options_)) {}
   Value evaluate(Value candidate_map, Value eval_options = Value::object()) override {
     Value merged = Core::map_merge(options, eval_options);
-    return flow.evaluate_optimization(client, dataset, std::move(candidate_map), merged);
+    Value eval_dataset = Core::get(merged, "dataset", Core::get(merged, "_dataset", dataset));
+    return flow.evaluate_optimization(client, eval_dataset, std::move(candidate_map), merged);
   }
 };
 Value AxFlow::optimize_with(OptimizerEngine& engine, Value dataset, Value options) {
@@ -3785,7 +4248,8 @@ struct AxAgentOptimizerEvaluator : OptimizerEvaluator {
       : agent(agent_), client(client_), dataset(std::move(dataset_)), options(std::move(options_)) {}
   Value evaluate(Value candidate_map, Value eval_options = Value::object()) override {
     Value merged = Core::map_merge(options, eval_options);
-    return agent.evaluate_optimization(client, dataset, std::move(candidate_map), merged);
+    Value eval_dataset = Core::get(merged, "dataset", Core::get(merged, "_dataset", dataset));
+    return agent.evaluate_optimization(client, eval_dataset, std::move(candidate_map), merged);
   }
 };
 
@@ -4702,6 +5166,52 @@ struct FakeOptimizerEngine : OptimizerEngine {
   }
 };
 
+struct ScriptedGEPAEvaluator : OptimizerEvaluator {
+  Value fixture;
+  std::vector<Value> evaluations;
+
+  explicit ScriptedGEPAEvaluator(Value fixture_) : fixture(std::move(fixture_)) {}
+
+  std::string component_id(Value candidate_map) const {
+    std::string explicit_id = display(Core::get(fixture, "score_component_id", Value("")));
+    if (!explicit_id.empty()) return explicit_id;
+    Array keys = Core::iter(Core::map_keys(candidate_map));
+    return keys.empty() ? "component" : display(keys[0]);
+  }
+
+  Value evaluate(Value candidate_map, Value options) override {
+    Value dataset_input = !Core::get(options, "dataset").is_null() ? Core::get(options, "dataset") : Core::get(fixture, "dataset", Value::array());
+    Value normalized = Core::_normalize_optimization_dataset(dataset_input);
+    Array examples = Core::iter(Core::get(normalized, "train", Value::array()));
+    if (examples.empty()) examples.push_back(object({{"input", object({{"fixture", "gepa"}})}}));
+    std::string id = component_id(candidate_map);
+    Value value = Core::get(candidate_map, id, Core::get(fixture, "base_component_value", Value("")));
+    Value score_map = Core::get(fixture, "gepa_scores", Value::object());
+    Value raw_score = Core::get(score_map, display(value), Core::get(score_map, "*", Value(0)));
+    Array score_list = as_array(raw_score);
+    Value rows = Value::array();
+    for (size_t i = 0; i < examples.size(); ++i) {
+      Value item_score = score_list.empty() ? raw_score : score_list[std::min(i, score_list.size() - 1)];
+      Value scores = Core::_normalize_optimization_metric_scores(item_score);
+      Value scalar = Core::_scalarize_optimization_scores(scores, Core::get(fixture, "score_options", Value::object()));
+      Value trace = object({{"componentValue", display(value)}});
+      Value prediction = object({
+          {"completionType", "final"},
+          {"output", object({{"componentValue", display(value)}})},
+          {"finalOutput", object({{"componentValue", display(value)}})},
+          {"functionCalls", Value::array()},
+          {"actionLog", Value::array()},
+          {"usage", Value::object()},
+          {"trace", trace},
+      });
+      Core::append(rows, Core::_build_optimization_eval_row(examples[i], prediction, scores, scalar, trace, Value()));
+    }
+    Value result = Core::_build_optimization_eval_result(rows, candidate_map, Core::get(options, "phase", "gepa"));
+    evaluations.push_back(result);
+    return result;
+  }
+};
+
 static void assert_subset(Value actual, Value expected, const std::string& label);
 
 struct FakeCodeRuntime;
@@ -5163,6 +5673,31 @@ static void run_optimize(Value fixture) {
     if (op == "evidence") {
       Value evidence = Core::_build_optimizer_evidence_batch(Core::get(fixture, "eval_result", Value::object()), Core::get(fixture, "components", Value::array()));
       if (!Core::get(fixture, "expected_evidence_subset").is_null()) assert_subset(evidence, Core::get(fixture, "expected_evidence_subset"), "optimizer evidence");
+      return;
+    }
+    if (op == "gepa") {
+      Value components = Core::get(fixture, "components", Value::array());
+      Value request = object({
+          {"contractVersion", "axir-optimize-v1"},
+          {"programId", program_kind},
+          {"programKind", program_kind},
+          {"components", components},
+          {"targetComponents", components},
+          {"dataset", Core::_normalize_optimization_dataset(Core::get(fixture, "dataset", Value::array()))},
+          {"options", Core::get(fixture, "optimize_options", Value::object())},
+          {"evidence", object({{"source", "fixture"}})},
+      });
+      std::unique_ptr<FakeAIClient> reflection;
+      AIClient* reflection_ptr = nullptr;
+      if (!Core::get(fixture, "reflection_responses").is_null()) {
+        reflection = std::make_unique<FakeAIClient>(Core::get(fixture, "reflection_responses", Value::array()));
+        reflection_ptr = reflection.get();
+      }
+      AxGEPA engine(reflection_ptr, Core::get(fixture, "gepa_options", Value::object()));
+      ScriptedGEPAEvaluator evaluator(fixture);
+      Value artifact = engine.optimize(request, &evaluator);
+      if (!Core::get(fixture, "expected_artifact_subset").is_null()) assert_subset(artifact, Core::get(fixture, "expected_artifact_subset"), "GEPA artifact");
+      if (!Core::get(fixture, "expected_gepa_evaluations_subset").is_null()) assert_list_subset(Value(evaluator.evaluations), Core::get(fixture, "expected_gepa_evaluations_subset"), "GEPA evaluations");
       return;
     }
     if (program_kind == "axgen") {

@@ -1,0 +1,75 @@
+{
+  "components": [
+    {
+      "constraints": "Keep the word answer in the instruction.",
+      "current": "Base answer instruction",
+      "description": "Primary prompt instruction.",
+      "id": "qa::instruction",
+      "kind": "instruction",
+      "owner": "qa",
+      "preserve": ["answer"]
+    },
+    {
+      "current": "base_style",
+      "dependsOn": ["qa::instruction"],
+      "description": "Naming style primitive.",
+      "format": "snake_case",
+      "id": "qa::style",
+      "kind": "instruction",
+      "owner": "qa"
+    }
+  ],
+  "dataset": [
+    {
+      "input": {
+        "question": "Name style?"
+      },
+      "score": 1
+    }
+  ],
+  "expected_artifact_subset": {
+    "metadata": {
+      "optimizer": "GEPA"
+    },
+    "optimizerName": "GEPA",
+    "provenance": {
+      "componentOwners": {
+        "qa::instruction": "qa",
+        "qa::style": "qa"
+      }
+    }
+  },
+  "gepa_scores": {
+    "answer dependency instruction": 0.85,
+    "Base answer instruction": 0.2,
+    "improved_style": 0.85
+  },
+  "kind": "optimize",
+  "name": "gepa-descendant-component-optimization",
+  "operation": "gepa",
+  "optimize_options": {
+    "maxMetricCalls": 8,
+    "minibatchSize": 1,
+    "numTrials": 1,
+    "seed": 123
+  },
+  "program": "axgen",
+  "reflection_responses": [
+    {
+      "results": [
+        {
+          "content": "New Value: improved_style",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "New Value: answer dependency instruction",
+          "index": 0
+        }
+      ]
+    }
+  ]
+}

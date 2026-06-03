@@ -63,9 +63,12 @@ C++ target:
 All executable targets expose the same optimizer-ready boundary: component
 inventory, optimized artifact validation/serialization, component-map apply,
 candidate rollout evaluation, metric/judge payload shaping, and
-`OptimizerEngine.optimize(request, evaluator?)` host integration. This is a
-prompt/component optimization contract, not a GEPA runtime; optimizer algorithms
-remain engine-owned and may call back through the evaluator to score proposals.
+`OptimizerEngine.optimize(request, evaluator?)` host integration. The contract
+remains prompt/component-oriented and engine-agnostic, but generated packages
+also ship `AxGEPA` as one concrete engine that runs GEPA selection, reflection,
+Pareto, bootstrapping, and selector-state logic through that same evaluator
+boundary. Other optimizer algorithms remain engine-owned and may call back
+through the evaluator to score proposals.
 
 AxAI provider behavior is descriptor-driven. Core owns provider profile
 identity, alias normalization, model-catalog data, operation descriptors,

@@ -34,8 +34,7 @@ The categories are:
 | Runtime profiles | complete for portability proof | QuickJS and Pyodide prove real model-facing code execution across generated targets. Further sandbox/product policy is not on the AxIR critical path unless selected as product work. |
 | AxFlow graph execution | complete for current portable slice | Fixtures cover compact planner, execute/derive/map, returns, branch, while, feedback, node extension helpers, nested control-flow barriers, explicit parallel/merge errors, cache keys, streaming cache short-circuit, dynamic options, nested Flow, trace labels, usage/chat logs, autoParallel overrides, and stop/abort checkpoints. |
 | AxProgram shared contract | partial | AxGen and Flow component contracts exist, but the shared program surface is still thin. More nested Agent/Flow rollout evidence should be added only when a concrete feature needs it. |
-| AxOptimize contract | complete for engine boundary | Fixtures cover components, artifacts, apply/rollback, evaluator-aware engines, evidence batches, metrics, judge payloads, and Flow/Agent/Gen component maps. |
-| GEPA algorithm | deferred feature | TS has GEPA selection, reflection, bootstrapping, Pareto/minibatch behavior, and selector state. AxIR intentionally models only the swappable optimizer contract and GEPA-compatible evidence shape. |
+| AxOptimize contract and GEPA engine | complete for current portable slice | Fixtures cover components, artifacts, apply/rollback, evaluator-aware engines, evidence batches, metrics, judge payloads, Flow/Agent/Gen component maps, plus generated `AxGEPA` selection, reflection validation retry, selector state restore, Pareto metadata, bootstrapped demos, metric-call budgets, and dependency-group optimization. |
 | AxAI provider descriptors/catalog/routing/balancing | complete for current portable slice | Fixtures cover OpenAI-compatible, OpenAI Responses/audio/realtime normalization, Gemini Developer API, Anthropic Developer API, TS model catalog semantics, generated catalog APIs, multi-service model-key routing, stable provider-router analysis/validation/stats, and AxBalancer selection/failover semantics. |
 | Broader providers and live routing | deferred feature | TS still has catalog-only providers, Vertex routes, Gemini Live depth, Anthropic Vertex/web-search transport, and product-grade live backoff/timer policy. These are deferred because transport/auth/retry/media processing are host-owned or product-level choices. |
 | TypeScript public AxIR API | complete by omission | No public TypeScript AxIR APIs are added; generated target packages remain the portability surface. |
@@ -45,19 +44,7 @@ The remaining work is mostly deliberate feature selection.
 
 ## Prioritized Roadmap
 
-1. **GEPA Engine Port**
-   - Why: The optimizer contract is done, but TS GEPA remains an algorithmic
-     engine with reflection, selection, Pareto, bootstrapping, and dependency
-     logic. Port it only if generated targets should ship GEPA, not merely
-     accept optimizer engines.
-   - Fixtures: GEPA reflection summaries, selector state, Pareto acceptance,
-     bootstrap demos, feedback-only examples, max metric call budgets, and
-     descendant component optimization.
-   - Backends: Python, Java, C++.
-   - Boundary: generated optimizer engine implementation, not Core contract
-     expansion unless reusable semantics fall out.
-
-2. **Additional Catalog Provider Clients**
+1. **Additional Catalog Provider Clients**
    - Why: Catalog-only providers such as Cohere, Mistral, Grok, Reka, and
      Hugging Face remain audited but not generated. Add one only when product
      priority requires its wire mapping.
@@ -65,7 +52,7 @@ The remaining work is mostly deliberate feature selection.
    - Backends: Python, Java, C++.
    - Boundary: Core-owned mapping and target-owned transport.
 
-3. **Runtime Productization**
+2. **Runtime Productization**
    - Why: QuickJS/Pyodide profiles are done as portability proofs. Production
      sandbox policy, filesystem/network permissions, package loading, hard
      cancellation, and dependency packaging are real work but not required for
@@ -76,7 +63,8 @@ The remaining work is mostly deliberate feature selection.
 
 ## Default Recommendation
 
-Do **GEPA Engine Port** next if AxIR should continue toward TypeScript feature
-parity. It is now the largest remaining semantic algorithm gap. Runtime
-profiles and provider transports should stay frozen unless a real bug or
-product requirement falls out of GEPA work.
+GEPA is no longer the obvious semantic blocker once the generated engine
+fixtures are green. The next milestone should be chosen by product priority:
+add another descriptor-backed provider only if a catalog-only provider needs a
+real portable client, or start runtime productization only if QuickJS/Pyodide
+are being promoted from portability proofs to supported production adapters.

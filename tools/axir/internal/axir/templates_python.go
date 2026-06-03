@@ -27,7 +27,7 @@ from .ai import (
     get_supported_ai_models,
 )
 from .gen import AxGen, AxMemory, ax
-from .agent import AxAgent, AxAgentClarificationError, AxCodeRuntime, AxCodeSession, OptimizerEngine, OptimizerEvaluator, agent
+from .agent import AxAgent, AxAgentClarificationError, AxCodeRuntime, AxCodeSession, AxGEPA, OptimizerEngine, OptimizerEvaluator, agent
 from .flow import AxFlow, AxProgram, flow
 from .prompt import AxPromptTemplate, TemplateError, render_template_content, validate_prompt_template_syntax
 from .runtime import ProcessCodeRuntime, ProcessCodeSession, RuntimeCapabilities, RuntimeEnvelope
@@ -51,6 +51,7 @@ __all__ = [
     "AxAgentClarificationError",
     "AxCodeRuntime",
     "AxCodeSession",
+    "AxGEPA",
     "AxMemory",
     "OptimizerEngine",
     "OptimizerEvaluator",
@@ -2966,6 +2967,8 @@ class AxGen:
             artifact = _deserialize_optimized_artifact(artifact, components)
         else:
             artifact = _validate_optimized_artifact(artifact or {}, components)
+        if "demos" in artifact and hasattr(self, "set_demos"):
+            self.set_demos(artifact.get("demos") or [])
         return self.apply_optimized_components(artifact.get("componentMap") or {})
 
     def evaluate_optimization(self, client, dataset, candidate_map: dict[str, Any] | None = None, options: dict[str, Any] | None = None):
@@ -3004,7 +3007,9 @@ class AxGen:
 
             class _Evaluator(OptimizerEvaluator):
                 def evaluate(self, candidate_map, options=None):
-                    return outer.evaluate_optimization(client, dataset or [], candidate_map or {}, {**opts, **(options or {})})
+                    merged = {**opts, **(options or {})}
+                    eval_dataset = merged.pop("dataset", None) or merged.pop("_dataset", None) or dataset or []
+                    return outer.evaluate_optimization(client, eval_dataset, candidate_map or {}, merged)
 
             evaluator = _Evaluator()
         response = _call_optimizer_engine(engine, request, evaluator)
@@ -3723,6 +3728,8 @@ class AxFlow(AxProgram):
             artifact = _deserialize_optimized_artifact(artifact, components)
         else:
             artifact = _validate_optimized_artifact(artifact or {}, components)
+        if "demos" in artifact and hasattr(self, "set_demos"):
+            self.set_demos(artifact.get("demos") or [])
         return self.apply_optimized_components(artifact.get("componentMap") or {})
 
     def evaluate_optimization(self, client, dataset, candidate_map: dict[str, Any] | None = None, options: dict[str, Any] | None = None):
@@ -3738,7 +3745,9 @@ class AxFlow(AxProgram):
 
             class _Evaluator(OptimizerEvaluator):
                 def evaluate(self, candidate_map, options=None):
-                    return outer.evaluate_optimization(client, dataset or [], candidate_map or {}, {**opts, **(options or {})})
+                    merged = {**opts, **(options or {})}
+                    eval_dataset = merged.pop("dataset", None) or merged.pop("_dataset", None) or dataset or []
+                    return outer.evaluate_optimization(client, eval_dataset, candidate_map or {}, merged)
 
             evaluator = _Evaluator()
         response = _call_optimizer_engine(engine, request, evaluator)
@@ -3898,6 +3907,7 @@ const pyAgent = `from __future__ import annotations
 
 import copy
 import json
+import math
 import re
 from typing import Any
 
@@ -3973,6 +3983,422 @@ def _call_optimizer_engine(engine: OptimizerEngine, request: dict[str, Any], eva
             return engine.optimize(request)
         except TypeError:
             raise exc
+
+
+def _gepa_num(value, default=0.0):
+    return float(value) if isinstance(value, (int, float)) and math.isfinite(float(value)) else float(default)
+
+
+def _gepa_int(value, default=0, minimum=None, maximum=None):
+    out = int(math.floor(_gepa_num(value, default)))
+    if minimum is not None:
+        out = max(int(minimum), out)
+    if maximum is not None:
+        out = min(int(maximum), out)
+    return out
+
+
+def _gepa_current_map(components):
+    return {
+        str(component.get("id")): str(component.get("current", ""))
+        for component in (components or [])
+        if isinstance(component, dict) and component.get("id") is not None and isinstance(component.get("current", ""), str)
+    }
+
+
+def _gepa_avg_vec(rows):
+    sums, counts = {}, {}
+    for row in rows or []:
+        for key, value in (row.get("scores") or {}).items():
+            if isinstance(value, (int, float)) and math.isfinite(float(value)):
+                sums[key] = sums.get(key, 0.0) + float(value)
+                counts[key] = counts.get(key, 0) + 1
+    return {key: sums[key] / max(counts.get(key, 1), 1) for key in sorted(sums)}
+
+
+def _gepa_scalar(scores, options):
+    key = (options or {}).get("paretoMetricKey") or (options or {}).get("pareto_metric_key")
+    if key and isinstance(scores, dict):
+        return _gepa_num(scores.get(key), 0)
+    vals = [float(v) for v in (scores or {}).values() if isinstance(v, (int, float)) and math.isfinite(float(v))]
+    return sum(vals) / len(vals) if vals else 0.0
+
+
+def _gepa_dominates(a, b, eps=0.0):
+    keys = set((a or {}).keys()) | set((b or {}).keys())
+    at_least = True
+    strict = False
+    for key in keys:
+        av = _gepa_num((a or {}).get(key), 0)
+        bv = _gepa_num((b or {}).get(key), 0)
+        if av + eps < bv:
+            at_least = False
+            break
+        if av > bv + eps:
+            strict = True
+    return at_least and strict
+
+
+def _gepa_pareto_front(candidates, eps=0.0):
+    front = []
+    for i, item in enumerate(candidates):
+        dominated = False
+        dominated_count = 0
+        for j, other in enumerate(candidates):
+            if i == j:
+                continue
+            if _gepa_dominates(other.get("scores") or {}, item.get("scores") or {}, eps):
+                dominated = True
+                break
+            if _gepa_dominates(item.get("scores") or {}, other.get("scores") or {}, eps):
+                dominated_count += 1
+        if not dominated:
+            front.append({"idx": i, "scores": copy.deepcopy(item.get("scores") or {}), "dominated": dominated_count})
+    return front
+
+
+def _gepa_hypervolume_2d(front_scores):
+    if not front_scores:
+        return None
+    keys = list((front_scores[0] or {}).keys())
+    if len(keys) != 2:
+        return None
+    k1, k2 = keys
+    hv = 0.0
+    prev_y = 0.0
+    for point in sorted(front_scores, key=lambda item: _gepa_num(item.get(k1), 0), reverse=True):
+        x = _gepa_num(point.get(k1), 0)
+        y = _gepa_num(point.get(k2), 0)
+        dy = max(y - prev_y, 0)
+        hv += x * dy
+        prev_y = max(prev_y, y)
+    return hv
+
+
+def _gepa_extract_text(response):
+    if isinstance(response, dict):
+        results = response.get("results") or []
+        if results and isinstance(results[0], dict):
+            content = results[0].get("content")
+            if isinstance(content, str):
+                text = content.strip()
+                if text.startswith("New Value:"):
+                    return text.split(":", 1)[1].strip()
+                fence = "\x60\x60\x60"
+                start = text.find(fence)
+                end = text.rfind(fence)
+                if start >= 0 and end > start:
+                    inner = text[start + 3 : end].strip()
+                    if "\n" in inner and inner.split("\n", 1)[0].strip().isidentifier():
+                        inner = inner.split("\n", 1)[1]
+                    return inner.strip()
+                return text
+    return ""
+
+
+def _gepa_validate_component_value(component, value):
+    if not isinstance(value, str) or not value.strip():
+        return "component value must be a non-empty string"
+    fmt = (component or {}).get("format")
+    if fmt == "snake_case":
+        import re
+
+        if not re.match(r"^[a-z_][a-z0-9_]*$", value):
+            return "must be snake_case"
+    max_len = (component or {}).get("maxLength")
+    if isinstance(max_len, (int, float)) and len(value) > int(max_len):
+        return f"must be at most {int(max_len)} characters"
+    for literal in (component or {}).get("preserve") or []:
+        if str(literal) not in value:
+            return f"must preserve {literal}"
+    return True
+
+
+def _gepa_option(options, *keys, default=None):
+    for key in keys:
+        if key in options and options.get(key) is not None:
+            return options.get(key)
+    return default
+
+
+class AxGEPA(OptimizerEngine):
+    name = "GEPA"
+    version = "axir-gepa-v1"
+
+    def __init__(self, reflection_client=None, **options):
+        self.reflection_client = reflection_client
+        self.options = dict(options or {})
+        self.rng_state = _gepa_int(self.options.get("seed"), 123456789) or 123456789
+        self.selector_state = {}
+        self.feedback_memory = []
+
+    def _rand(self):
+        self.rng_state ^= (self.rng_state << 13) & 0xFFFFFFFF
+        self.rng_state ^= (self.rng_state >> 17) & 0xFFFFFFFF
+        self.rng_state ^= (self.rng_state << 5) & 0xFFFFFFFF
+        self.rng_state &= 0xFFFFFFFF
+        return self.rng_state / 4294967296.0
+
+    def _selector_init(self, components, initial=None):
+        self.selector_state = {}
+        initial = initial or {}
+        for component in components:
+            cid = component.get("id")
+            old = initial.get(cid) if isinstance(initial, dict) else {}
+            self.selector_state[cid] = {
+                "proposals": max(0, int(old.get("proposals", 0) if isinstance(old, dict) else 0)),
+                "accepts": max(0, int(old.get("accepts", 0) if isinstance(old, dict) else 0)),
+                "lastAcceptIter": int(old.get("lastAcceptIter", -1) if isinstance(old, dict) else -1),
+                "stagnation": max(0, int(old.get("stagnation", 0) if isinstance(old, dict) else 0)),
+            }
+
+    def _pick_component(self, components, iteration):
+        if len(components) == 1:
+            return components[0]
+        if self._rand() < 0.1:
+            return components[min(len(components) - 1, int(self._rand() * len(components)))]
+        total_props = max(1, sum(state["proposals"] for state in self.selector_state.values()))
+        weights = []
+        for component in components:
+            state = self.selector_state[component["id"]]
+            accept_rate = 0 if state["proposals"] == 0 else state["accepts"] / state["proposals"]
+            pressure = state["proposals"] / total_props
+            stale = min(iteration + 1, 10) if state["lastAcceptIter"] < 0 else min(iteration - state["lastAcceptIter"], 10)
+            weights.append(1.4 * (1 - accept_rate) + 0.8 * state["stagnation"] + 0.2 * stale - 0.7 * pressure)
+        max_w = max(weights)
+        exp = [math.exp(w - max_w) for w in weights]
+        threshold = self._rand() * sum(exp)
+        for component, weight in zip(components, exp):
+            threshold -= weight
+            if threshold <= 0:
+                return component
+        return components[-1]
+
+    def _record_proposal(self, cid):
+        if cid in self.selector_state:
+            self.selector_state[cid]["proposals"] += 1
+
+    def _record_result(self, cid, accepted, iteration):
+        if cid not in self.selector_state:
+            return
+        state = self.selector_state[cid]
+        if accepted:
+            state["accepts"] += 1
+            state["lastAcceptIter"] = iteration
+            state["stagnation"] = 0
+        else:
+            state["stagnation"] += 1
+
+    def _component_group(self, component, components):
+        by_id = {item.get("id"): item for item in components}
+        out = []
+        seen = set()
+
+        def visit(cid):
+            if cid in seen or cid not in by_id:
+                return
+            seen.add(cid)
+            item = by_id[cid]
+            out.append(item)
+            for dep in item.get("dependsOn") or item.get("depends_on") or []:
+                visit(dep)
+
+        visit(component.get("id"))
+        return out
+
+    def _dataset_for(self, examples):
+        return {"train": list(examples or []), "validation": []}
+
+    def _evaluate(self, evaluator, cfg, examples, phase, max_calls, total_calls, throw=False, capture_traces=False):
+        needed = len(examples or [])
+        if total_calls + needed > max_calls:
+            if throw:
+                raise RuntimeError(f"AxGEPA: options.maxMetricCalls={max_calls} is too small to evaluate the initial Pareto set; need at least {needed} metric calls")
+            return None, total_calls
+        result = evaluator.evaluate(dict(cfg), {"dataset": self._dataset_for(examples), "phase": phase, "captureTraces": capture_traces})
+        rows = list((result or {}).get("rows") or [])
+        scalars = [_gepa_num(row.get("scalar"), 0) for row in rows]
+        out = {
+            "rows": rows,
+            "avgScores": _gepa_avg_vec(rows),
+            "avg": _gepa_num((result or {}).get("avg"), sum(scalars) / len(scalars) if scalars else 0),
+            "sum": _gepa_num((result or {}).get("sum"), sum(scalars)),
+            "count": int((result or {}).get("count", len(rows))),
+            "scalars": scalars,
+            "candidateMap": dict(cfg),
+        }
+        return out, total_calls + out["count"]
+
+    def _reflect(self, component, current, tuples, trace_dataset, options):
+        if self.reflection_client is None:
+            raise RuntimeError("AxGEPA requires a reflection_client for reflective trials")
+        attempts = max(1, _gepa_int(_gepa_option(options, "maxReflectionAttempts", "max_reflection_attempts", default=2), 2))
+        previous_error = None
+        for _ in range(attempts):
+            prompt = {
+                "chatPrompt": [
+                    {
+                        "role": "user",
+                        "content": json.dumps(
+                            {
+                                "componentKey": component.get("id"),
+                                "componentKind": component.get("kind"),
+                                "currentValue": current,
+                                "previousValidationError": previous_error,
+                                "minibatch": tuples,
+                                "traceDataset": trace_dataset,
+                            },
+                            sort_keys=True,
+                        ),
+                    }
+                ],
+                "model": _gepa_option(options, "reflectionModel", "reflection_model"),
+            }
+            response = self.reflection_client.chat(prompt, {"stream": False})
+            candidate = _gepa_extract_text(response).strip()
+            validation = _gepa_validate_component_value(component, candidate)
+            if validation is True:
+                return candidate
+            previous_error = validation
+        return current
+
+    def _next_minibatch(self, train, iteration, size):
+        if not train:
+            return []
+        if size <= 0 or size >= len(train):
+            return list(train)
+        start = (iteration * size) % len(train)
+        out = []
+        for i in range(size):
+            out.append(train[(start + i) % len(train)])
+        return out
+
+    def _bootstrap(self, evaluator, base_cfg, train, options, total_calls, max_calls):
+        raw = options.get("bootstrap")
+        if not raw:
+            return [], total_calls
+        opts = raw if isinstance(raw, dict) else {}
+        threshold = _gepa_num(_gepa_option(opts, "scoreThreshold", "score_threshold", default=0.8), 0.8)
+        max_demos = _gepa_int(_gepa_option(opts, "maxBootstrapDemos", "max_bootstrap_demos", default=4), 4, 1)
+        max_boot_calls = _gepa_int(_gepa_option(opts, "maxBootstrapMetricCalls", "max_bootstrap_metric_calls", default=min(len(train), 8) or 1), min(len(train), 8) or 1, 1)
+        demos = []
+        calls = 0
+        for example in train:
+            if calls >= max_boot_calls or len(demos) >= max_demos:
+                break
+            result, total_calls = self._evaluate(evaluator, base_cfg, [example], "bootstrap", max_calls, total_calls)
+            calls += 1
+            if not result or not result["rows"]:
+                continue
+            row = result["rows"][0]
+            if _gepa_num(row.get("scalar"), 0) >= threshold:
+                demos.append({"programId": "root", "traces": [copy.deepcopy(row.get("prediction", row.get("input", {})))]})
+        return demos, total_calls
+
+    def optimize(self, request: dict[str, Any], evaluator: OptimizerEvaluator | None = None) -> dict[str, Any]:
+        if evaluator is None:
+            raise RuntimeError("AxGEPA requires an OptimizerEvaluator")
+        options = {**self.options, **((request or {}).get("options") or {})}
+        components = [copy.deepcopy(c) for c in ((request or {}).get("components") or []) if isinstance(c, dict) and isinstance(c.get("current", ""), str)]
+        if not components:
+            raise RuntimeError("AxGEPA: program exposes no optimizable components")
+        dataset = (request or {}).get("dataset") or {}
+        train = list(dataset.get("train") or [])
+        validation = list(dataset.get("validation") or []) or train
+        max_calls = _gepa_int(_gepa_option(options, "maxMetricCalls", "max_metric_calls", default=0), 0)
+        if max_calls <= 0:
+            raise RuntimeError("AxGEPA: options.maxMetricCalls must be set to a positive integer")
+        num_trials = _gepa_int(_gepa_option(options, "numTrials", "num_trials", default=30), 30, 0)
+        minibatch = options.get("minibatch", True) is not False
+        minibatch_size = _gepa_int(_gepa_option(options, "minibatchSize", "minibatch_size", default=20), 20, 1)
+        early_stop = _gepa_int(_gepa_option(options, "earlyStoppingTrials", "early_stopping_trials", default=5), 5, 1)
+        min_improvement = _gepa_num(_gepa_option(options, "minImprovementThreshold", "min_improvement_threshold", default=0), 0)
+        pareto_size = _gepa_int(_gepa_option(options, "paretoSetSize", "pareto_set_size", default=max(10, min(200, minibatch_size * 3))), max(10, min(200, minibatch_size * 3)), 1, 1000)
+        tie_eps = _gepa_num(_gepa_option(options, "tieEpsilon", "tie_epsilon", default=0), 0)
+        base_cfg = _gepa_current_map(components)
+        pareto_set = validation[:pareto_size]
+        self._selector_init(components, _gepa_option(options, "selectorState", "selector_state"))
+        total_calls = 0
+        demos, total_calls = self._bootstrap(evaluator, base_cfg, train, options, total_calls, max_calls)
+        base_eval, total_calls = self._evaluate(evaluator, base_cfg, pareto_set, "initial Pareto evaluation", max_calls, total_calls, True)
+        candidates = [{"cfg": dict(base_cfg), "scores": base_eval["avgScores"] or {"score": base_eval["avg"]}, "parent": None}]
+        per_instance = [base_eval["scalars"]]
+        stagnation = 0
+        for iteration in range(num_trials):
+            if total_calls >= max_calls:
+                break
+            parent_idx = max(range(len(candidates)), key=lambda idx: sum(per_instance[idx]) / max(len(per_instance[idx]), 1))
+            mini = self._next_minibatch(train, iteration, minibatch_size) if minibatch else train
+            parent_eval, total_calls = self._evaluate(evaluator, candidates[parent_idx]["cfg"], mini, "parent minibatch", max_calls, total_calls, False, True)
+            if parent_eval is None:
+                break
+            perfect = _gepa_num(_gepa_option(options, "perfectScore", "perfect_score", default=1), 1)
+            if _gepa_option(options, "skipPerfectScore", "skip_perfect_score", default=True) is not False and parent_eval["scalars"] and all(score >= perfect for score in parent_eval["scalars"]):
+                continue
+            target = self._pick_component(components, iteration)
+            group = self._component_group(target, components)
+            proposed = dict(candidates[parent_idx]["cfg"])
+            rows = parent_eval["rows"]
+            tuples = [{"input": row.get("input"), "prediction": row.get("prediction"), "score": row.get("scalar", 0)} for row in rows]
+            for component in group:
+                self._record_proposal(component["id"])
+                current = proposed.get(component["id"], "")
+                trace_dataset = [{"score": row.get("scalar", 0), "trace": row.get("trace"), "output": row.get("prediction")} for row in rows]
+                proposed[component["id"]] = self._reflect(component, current, tuples, trace_dataset, options)
+            child_mini, total_calls = self._evaluate(evaluator, proposed, mini, "child minibatch", max_calls, total_calls)
+            if child_mini is None:
+                break
+            accepted = child_mini["sum"] > parent_eval["sum"] + min_improvement
+            for component in group:
+                self._record_result(component["id"], accepted, iteration)
+            if not accepted:
+                stagnation += 1
+                if stagnation >= early_stop:
+                    break
+                continue
+            child_eval, total_calls = self._evaluate(evaluator, proposed, pareto_set, "validation evaluation", max_calls, total_calls)
+            if child_eval is None:
+                break
+            candidates.append({"cfg": dict(proposed), "scores": child_eval["avgScores"] or {"score": child_eval["avg"]}, "parent": parent_idx})
+            per_instance.append(child_eval["scalars"])
+            stagnation = 0
+        front = _gepa_pareto_front(candidates, tie_eps)
+        best_idx = front[0]["idx"] if front else 0
+        best_score = -1e100
+        for item in front:
+            score = _gepa_scalar(item["scores"], options)
+            if score > best_score:
+                best_score = score
+                best_idx = item["idx"]
+        best_cfg = dict(candidates[best_idx]["cfg"])
+        owners = {component["id"]: component.get("owner", component.get("id", "").split("::", 1)[0]) for component in components}
+        pareto_meta = [
+            {"candidate": item["idx"], "scores": item["scores"], "dominatedSolutions": item["dominated"], "componentMap": candidates[item["idx"]]["cfg"]}
+            for item in front
+        ]
+        hv = _gepa_hypervolume_2d([item["scores"] for item in front])
+        return {
+            "artifactVersion": "axir-optimized-artifact-v1",
+            "optimizerName": "GEPA",
+            "optimizerVersion": self.version,
+            "componentMap": best_cfg,
+            "demos": demos,
+            "metadata": {
+                "optimizer": "GEPA",
+                "selectorState": copy.deepcopy(self.selector_state),
+                "paretoFront": pareto_meta,
+                "bestScore": 0 if best_score == -1e100 else best_score,
+                "totalMetricCalls": total_calls,
+                "candidatesExplored": len(candidates),
+                "report": {
+                    "summary": "GEPA Multi-Objective Optimization Complete",
+                    "statistics": {"totalEvaluations": total_calls, "candidatesExplored": len(candidates), "converged": True},
+                    "paretoFrontier": {"solutionCount": len(front), "hypervolume": hv or 0},
+                },
+            },
+            "evidence": {"avg": 0 if best_score == -1e100 else best_score, "count": len(pareto_set), "totalMetricCalls": total_calls},
+            "provenance": {"sourceProgramKind": (request or {}).get("programKind", "unknown"), "componentOwners": owners},
+        }
 
 
 def _score_optimization_prediction(task, prediction, options):
@@ -4151,6 +4577,8 @@ class AxAgent:
             artifact = _deserialize_optimized_artifact(artifact, components)
         else:
             artifact = _validate_optimized_artifact(artifact or {}, components)
+        if "demos" in artifact and hasattr(self, "set_demos"):
+            self.set_demos(artifact.get("demos") or [])
         return self.apply_optimized_components(artifact.get("componentMap") or {})
 
     def evaluate_optimization_task(self, client, task: dict[str, Any], options: dict[str, Any] | None = None):
@@ -4217,7 +4645,9 @@ class AxAgent:
 
             class _Evaluator(OptimizerEvaluator):
                 def evaluate(self, candidate_map, options=None):
-                    return outer.evaluate_optimization(client, dataset or [], candidate_map or {}, {**opts, **(options or {})})
+                    merged = {**opts, **(options or {})}
+                    eval_dataset = merged.pop("dataset", None) or merged.pop("_dataset", None) or dataset or []
+                    return outer.evaluate_optimization(client, eval_dataset, candidate_map or {}, merged)
 
             evaluator = _Evaluator()
         response = _call_optimizer_engine(engine, request, evaluator)
@@ -4590,11 +5020,14 @@ from .agent import (
     AxAgentClarificationError,
     AxCodeRuntime,
     AxCodeSession,
+    AxGEPA,
     OptimizerEngine,
+    OptimizerEvaluator,
     _adjust_optimization_score_for_actions,
     _agent_context_fixture_result,
     _build_agent_eval_prediction,
     _build_optimizer_evidence_batch,
+    _build_optimization_eval_row,
     _build_optimization_eval_result,
     _build_optimization_judge_payload,
     _deserialize_optimized_artifact,
@@ -5438,6 +5871,55 @@ def _run_optimize(fixture):
                     })
             return copy.deepcopy(self.response)
 
+    class ScriptedGEPAEvaluator(OptimizerEvaluator):
+        def __init__(self, fixture):
+            self.fixture = fixture
+            self.evaluations = []
+
+        def evaluate(self, candidate_map, options=None):
+            opts = options or {}
+            normalized = _normalize_optimization_dataset(opts.get("dataset") or self.fixture.get("dataset") or [])
+            rows = []
+            score_component = self.fixture.get("score_component_id")
+            components = self.fixture.get("components") or []
+            if not score_component and components:
+                score_component = components[0].get("id")
+            component_value = (candidate_map or {}).get(score_component, self.fixture.get("base_component_value", ""))
+            score_map = self.fixture.get("gepa_scores") or {}
+            scripted = score_map.get(str(component_value), score_map.get("*", 0))
+            for index, task in enumerate(normalized.get("train") or []):
+                raw_score = scripted[index] if isinstance(scripted, list) and scripted else scripted
+                if isinstance(scripted, list) and index >= len(scripted):
+                    raw_score = scripted[-1]
+                scores = _normalize_optimization_metric_scores(raw_score)
+                scalar = _scalarize_optimization_scores(scores, self.fixture.get("score_options") or {})
+                prediction = {
+                    "completionType": "final",
+                    "output": {"componentValue": component_value},
+                    "finalOutput": {"componentValue": component_value},
+                    "functionCalls": [],
+                    "actionLog": [],
+                    "usage": {},
+                    "trace": {"componentValue": component_value},
+                }
+                rows.append(_build_optimization_eval_row(task, prediction, scores, scalar, prediction.get("trace"), None))
+            result = _build_optimization_eval_result(rows, candidate_map or {}, opts.get("phase", "train"))
+            self.evaluations.append(copy.deepcopy(result))
+            return result
+
+    def build_gepa_request():
+        components = copy.deepcopy(fixture.get("components") or program.get_optimizable_components())
+        dataset = _normalize_optimization_dataset(fixture.get("dataset") or [])
+        return {
+            "contractVersion": "axir-optimize-contract-v1",
+            "programKind": fixture.get("program", "axgen"),
+            "components": components,
+            "dataset": dataset,
+            "options": copy.deepcopy(fixture.get("optimize_options") or {}),
+            "trace": {},
+            "evaluator": {"available": True, "contractVersion": "axir-optimizer-evaluator-v1"},
+        }
+
     def build_program():
         sig = fixture.get("signature", "question:string -> answer:string")
         options = copy.deepcopy(fixture.get("options") or {})
@@ -5544,6 +6026,16 @@ def _run_optimize(fixture):
                 _assert_subset(artifact, fixture["expected_artifact_subset"], "optimizer artifact")
             if "expected_components_subset" in fixture:
                 _assert_list_subset(program.get_optimizable_components(), fixture["expected_components_subset"], "optimized components")
+            return
+        if operation == "gepa":
+            reflection = FakeAIService(fixture.get("reflection_responses") or [], fixture.get("stream_events") or [])
+            engine = AxGEPA(reflection, **copy.deepcopy(fixture.get("gepa_options") or {}))
+            evaluator = ScriptedGEPAEvaluator(fixture)
+            artifact = engine.optimize(build_gepa_request(), evaluator)
+            if "expected_artifact_subset" in fixture:
+                _assert_subset(artifact, fixture["expected_artifact_subset"], "GEPA artifact")
+            if "expected_gepa_evaluations_subset" in fixture:
+                _assert_list_subset(evaluator.evaluations, fixture["expected_gepa_evaluations_subset"], "GEPA evaluations")
             return
         if operation == "eval":
             if not isinstance(program, AxAgent):

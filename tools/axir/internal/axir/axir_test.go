@@ -489,6 +489,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"dev/ax/runtime/quickjs/AxQuickJsProtocolServer.java",
 				"dev/ax/OptimizerEngine.java",
 				"dev/ax/OptimizerEvaluator.java",
+				"dev/ax/AxGEPA.java",
 				"dev/ax/OpenAICompatibleClient.java",
 				"dev/ax/OpenAIResponsesClient.java",
 				"dev/ax/GoogleGeminiClient.java",
@@ -588,9 +589,14 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 					t.Fatalf("manifest missing runtime profile feature %s: %#v", want, manifest.CoreOwnedFeatureGroups)
 				}
 			}
-			for _, want := range []string{"AxGen", "AxSignature", "OpenAICompatibleClient", "OpenAIResponsesClient", "GoogleGeminiClient", "AnthropicClient", "AxBalancer", "MultiServiceRouter", "ProviderRouter", "get_supported_ai_models", "AxAgent", "AxFlow", "AxProgram", "RuntimeCapabilities", "RuntimeEnvelope", "ProcessCodeRuntime", "ProcessCodeSession", "RuntimeProtocolClient", "RuntimeTransport", "OptimizerEngine", "OptimizerEvaluator"} {
+			for _, want := range []string{"AxGen", "AxSignature", "OpenAICompatibleClient", "OpenAIResponsesClient", "GoogleGeminiClient", "AnthropicClient", "AxBalancer", "AxGEPA", "MultiServiceRouter", "ProviderRouter", "get_supported_ai_models", "AxAgent", "AxFlow", "AxProgram", "RuntimeCapabilities", "RuntimeEnvelope", "ProcessCodeRuntime", "ProcessCodeSession", "RuntimeProtocolClient", "RuntimeTransport", "OptimizerEngine", "OptimizerEvaluator"} {
 				if !containsString(manifest.PublicSymbols, want) {
 					t.Fatalf("manifest missing public symbol %s: %#v", want, manifest.PublicSymbols)
+				}
+			}
+			for _, want := range []string{"axoptimize-gepa-engine", "axoptimize-gepa-reflection", "axoptimize-gepa-pareto", "axoptimize-gepa-bootstrap", "axoptimize-gepa-selector-state"} {
+				if !containsString(manifest.CoreOwnedFeatureGroups, want) {
+					t.Fatalf("manifest missing GEPA feature %s: %#v", want, manifest.CoreOwnedFeatureGroups)
 				}
 			}
 			for _, want := range []string{"axai-model-catalog-runtime-api", "axai-multi-service-routing", "axai-provider-routing-analysis", "axai-balancer-runtime", "axai-balancer-retry-policy", "axai-balancer-metrics", "axai-host-processing-callbacks"} {
@@ -1345,6 +1351,13 @@ func TestAxOptimizeConformanceFixturesLoad(t *testing.T) {
 		case "engine":
 			if _, ok := fixture["engine_response"]; !ok {
 				t.Fatalf("%s missing engine_response", file)
+			}
+		case "gepa":
+			if _, ok := fixture["components"]; !ok {
+				t.Fatalf("%s missing components", file)
+			}
+			if _, ok := fixture["optimize_options"]; !ok {
+				t.Fatalf("%s missing optimize_options", file)
 			}
 		case "eval":
 			if _, ok := fixture["responses"]; !ok {
@@ -2102,6 +2115,13 @@ func TestJavaGeneratedCoreRuntime(t *testing.T) {
 	}
 	if !strings.Contains(string(javaBalancerFile), "public final class AxBalancer") || !strings.Contains(string(javaBalancerFile), "Core.provider_balancer_retry_policy(") || !strings.Contains(string(javaBalancerFile), "Core.provider_balancer_candidate_allowed(") {
 		t.Fatal("generated Java balancer is missing Core delegation")
+	}
+	javaGEPAFile, err := os.ReadFile(filepath.Join(dir, "dev", "ax", "AxGEPA.java"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(javaGEPAFile), "public final class AxGEPA implements OptimizerEngine") || !strings.Contains(string(javaGEPAFile), "AxGEPA requires an OptimizerEvaluator") {
+		t.Fatal("generated Java GEPA engine is missing optimizer boundary implementation")
 	}
 	javaProviderRouterFile, err := os.ReadFile(filepath.Join(dir, "dev", "ax", "AxProviderRouter.java"))
 	if err != nil {

@@ -1,0 +1,105 @@
+{
+  "components": [
+    {
+      "constraints": "Keep the word answer in the instruction.",
+      "current": "Base answer instruction",
+      "description": "Primary prompt instruction.",
+      "id": "qa::instruction",
+      "kind": "instruction",
+      "owner": "qa",
+      "preserve": ["answer"]
+    },
+    {
+      "current": "base_style",
+      "dependsOn": ["qa::instruction"],
+      "description": "Naming style primitive.",
+      "format": "snake_case",
+      "id": "qa::style",
+      "kind": "instruction",
+      "owner": "qa"
+    }
+  ],
+  "dataset": [
+    {
+      "input": {
+        "question": "Capital?"
+      },
+      "score": 1
+    }
+  ],
+  "expected_artifact_subset": {
+    "artifactVersion": "axir-optimized-artifact-v1",
+    "componentMap": {
+      "qa::instruction": "Base answer instruction",
+      "qa::style": "base_style"
+    },
+    "metadata": {
+      "optimizer": "GEPA",
+      "report": {
+        "summary": "GEPA Multi-Objective Optimization Complete"
+      },
+      "selectorState": {
+        "qa::instruction": {
+          "accepts": 1,
+          "lastAcceptIter": 0,
+          "proposals": 1,
+          "stagnation": 0
+        },
+        "qa::style": {
+          "accepts": 0,
+          "lastAcceptIter": -1,
+          "proposals": 1,
+          "stagnation": 1
+        }
+      }
+    },
+    "optimizerName": "GEPA",
+    "optimizerVersion": "axir-gepa-v1",
+    "provenance": {
+      "sourceProgramKind": "axgen"
+    }
+  },
+  "expected_gepa_evaluations_subset": [
+    {
+      "avg": 0.6,
+      "count": 1,
+      "phase": "initial Pareto evaluation"
+    }
+  ],
+  "gepa_scores": {
+    "Base answer instruction": {
+      "faithfulness": 0.6,
+      "helpfulness": 0.7
+    },
+    "base_style": {
+      "faithfulness": 0.3,
+      "helpfulness": 0.4
+    }
+  },
+  "kind": "optimize",
+  "name": "gepa-selector-state-artifact",
+  "operation": "gepa",
+  "optimize_options": {
+    "maxMetricCalls": 2,
+    "numTrials": 0,
+    "paretoSetSize": 2,
+    "selectorState": {
+      "qa::instruction": {
+        "accepts": 1,
+        "lastAcceptIter": 0,
+        "proposals": 1,
+        "stagnation": 0
+      },
+      "qa::style": {
+        "accepts": 0,
+        "lastAcceptIter": -1,
+        "proposals": 1,
+        "stagnation": 1
+      }
+    }
+  },
+  "program": "axgen",
+  "score_options": {
+    "paretoMetricKey": "faithfulness"
+  }
+}
