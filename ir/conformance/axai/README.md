@@ -30,10 +30,18 @@ Reference areas:
   shapes, thinking blocks, citations, stop reasons, and usage/cache-token
   normalization. Vertex Anthropic, live web-search behavior, retries, auth
   loading, and live network behavior remain host-owned follow-up scope.
+- `src/ax/ai/azure-openai/api.ts`, `src/ax/ai/deepseek/api.ts`,
+  `src/ax/ai/mistral/api.ts`, `src/ax/ai/reka/api.ts`,
+  `src/ax/ai/cohere/api.ts`, and `src/ax/ai/x-grok/api.ts` for
+  descriptor-backed OpenAI-compatible catalog clients. Fixtures cover base URLs,
+  auth/versioning, model defaults, chat request/response mapping, stream/usage
+  normalization, provider-specific option stripping, Grok search parameters,
+  and DeepSeek/Grok thinking quirks.
 - `src/ax/ai/catalog.ts`, `src/ax/ai/router.ts`,
   `src/ax/ai/multiservice.ts`, and `src/ax/ai/balance.ts` for provider
-  catalog/routing audit fixtures. Generated AxIR targets currently expose
-  descriptor-backed OpenAI-compatible, OpenAI Responses, Gemini, and Anthropic
-  clients; broader catalog providers, router, multi-service, and balancer
-  runtime parity are deferred provider milestones.
+  catalog/routing audit fixtures. Generated AxIR targets expose
+  descriptor-backed OpenAI-compatible, OpenAI Responses, Gemini, Anthropic,
+  Azure OpenAI, DeepSeek, Mistral, Reka, Cohere, and Grok clients, plus router,
+  multi-service, and balancer runtime parity. Hugging Face and live transport
+  productization remain deferred.
 - `src/ax/util/apicall.ts` for error classes and HTTP status normalization.

@@ -1,0 +1,19 @@
+{
+  "expected_output": {
+    "baseUrl": "https://api.reka.ai/v1",
+    "defaultModel": "reka-core",
+    "id": "reka",
+    "name": "Reka",
+    "operations": {
+      "chat": {
+        "body": "json",
+        "method": "POST",
+        "path": "/chat/completions",
+        "stream": false
+      }
+    }
+  },
+  "kind": "ai_provider_descriptor",
+  "name": "reka-provider-descriptor",
+  "provider": "reka"
+}

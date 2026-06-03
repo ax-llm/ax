@@ -1,0 +1,26 @@
+{
+  "expected_output": {
+    "baseUrl": "https://api.cohere.ai/compatibility/v1",
+    "defaultEmbedModel": "embed-english-v3.0",
+    "defaultModel": "command-r-plus",
+    "id": "cohere",
+    "name": "Cohere",
+    "operations": {
+      "chat": {
+        "body": "json",
+        "method": "POST",
+        "path": "/chat/completions",
+        "stream": false
+      },
+      "embed": {
+        "body": "json",
+        "method": "POST",
+        "path": "/embeddings",
+        "stream": false
+      }
+    }
+  },
+  "kind": "ai_provider_descriptor",
+  "name": "cohere-provider-descriptor",
+  "provider": "cohere"
+}

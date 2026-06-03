@@ -1,30 +1,15 @@
-import type { AxAPI } from '../../util/apicall.js';
 import {
-  AxBaseAI,
+  type AxAIFeatures,
   axBaseAIDefaultConfig,
   axBaseAIDefaultCreativeConfig,
 } from '../base.js';
-import type {
-  AxAIInputModelList,
-  AxAIServiceImpl,
-  AxAIServiceOptions,
-  AxChatRequest,
-  AxChatResponse,
-  AxChatResponseResult,
-  AxInternalChatRequest,
-  AxModelConfig,
-  AxModelInfo,
-  AxTokenUsage,
-} from '../types.js';
+import { type AxAIOpenAIArgs, AxAIOpenAIBase } from '../openai/api.js';
+import type { AxAIOpenAIConfig } from '../openai/chat_types.js';
 
 import { axModelInfoReka } from './info.js';
-import {
-  type AxAIRekaChatRequest,
-  type AxAIRekaChatResponse,
-  type AxAIRekaChatResponseDelta,
-  type AxAIRekaConfig,
-  AxAIRekaModel,
-} from './types.js';
+import { type AxAIRekaConfig, AxAIRekaModel } from './types.js';
+
+type AxAIRekaOpenAIConfig = AxAIOpenAIConfig<AxAIRekaModel, undefined>;
 
 export const axAIRekaDefaultConfig = (): AxAIRekaConfig =>
   structuredClone({
@@ -49,231 +34,77 @@ export const axAIRekaFastConfig = (): AxAIRekaConfig => ({
   model: AxAIRekaModel.RekaFlash,
 });
 
-export interface AxAIRekaArgs<TModelKey> {
-  name: 'reka';
-  apiKey: string;
-  apiURL?: string;
-  config?: Readonly<Partial<AxAIRekaConfig>>;
-  options?: Readonly<AxAIServiceOptions & { streamingUsage?: boolean }>;
-  modelInfo?: Readonly<AxModelInfo[]>;
-  models?: AxAIInputModelList<AxAIRekaModel, undefined, TModelKey>;
-}
-
-class AxAIRekaImpl
-  implements
-    AxAIServiceImpl<
-      AxAIRekaModel,
-      undefined,
-      AxAIRekaChatRequest,
-      unknown,
-      AxAIRekaChatResponse,
-      AxAIRekaChatResponseDelta,
-      unknown
-    >
-{
-  private tokensUsed: AxTokenUsage | undefined;
-
-  constructor(private config: AxAIRekaConfig) {}
-
-  getTokenUsage(): AxTokenUsage | undefined {
-    return this.tokensUsed;
-  }
-
-  getModelConfig(): AxModelConfig {
-    const { config } = this;
-    return {
-      maxTokens: config.maxTokens,
-      temperature: config.temperature,
-      presencePenalty: config.presencePenalty,
-      frequencyPenalty: config.frequencyPenalty,
-      stopSequences: config.stopSequences,
-      topP: config.topP,
-      n: config.n,
-      stream: config.stream,
-    };
-  }
-
-  createChatReq = (
-    req: Readonly<AxInternalChatRequest<AxAIRekaModel>>
-  ): [AxAPI, AxAIRekaChatRequest] => {
-    const model = req.model;
-
-    if (!req.chatPrompt || req.chatPrompt.length === 0) {
-      throw new Error('Chat prompt is empty');
-    }
-
-    const apiConfig = {
-      name: '/chat/completions',
-    };
-
-    const messages = createMessages(req);
-
-    const frequencyPenalty =
-      req.modelConfig?.frequencyPenalty ?? this.config.frequencyPenalty;
-
-    const stream = req.modelConfig?.stream ?? this.config.stream;
-
-    const reqValue: AxAIRekaChatRequest = {
-      model,
-      messages,
-      max_tokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
-      ...(req.modelConfig?.temperature !== undefined
-        ? { temperature: req.modelConfig.temperature }
-        : {}),
-      top_k: req.modelConfig?.n ?? this.config.n,
-      ...(req.modelConfig?.topP !== undefined
-        ? { top_p: req.modelConfig.topP }
-        : {}),
-      stop: req.modelConfig?.stopSequences ?? this.config.stop,
-      presence_penalty:
-        req.modelConfig?.presencePenalty ?? this.config.presencePenalty,
-      ...(frequencyPenalty ? { frequency_penalty: frequencyPenalty } : {}),
-      ...(stream ? { stream: true } : {}),
-    };
-
-    return [apiConfig, reqValue];
-  };
-
-  createChatResp = (resp: Readonly<AxAIRekaChatResponse>): AxChatResponse => {
-    const { id, usage, responses } = resp;
-
-    this.tokensUsed = usage
-      ? {
-          promptTokens: usage.input_tokens,
-          completionTokens: usage.output_tokens,
-          totalTokens: usage.input_tokens + usage.output_tokens,
-        }
-      : undefined;
-
-    const results = responses.map((res, index) => {
-      const finishReason = mapFinishReason(res.finish_reason);
-      let content: string;
-      if (typeof res.message.content === 'string') {
-        content = res.message.content;
-      } else {
-        content = res.message.content.text;
-      }
-
-      return {
-        index,
-        id: `${id}`,
-        content,
-        finishReason,
-      };
-    });
-
-    return { results, remoteId: id };
-  };
-
-  createChatStreamResp = (
-    resp: Readonly<AxAIRekaChatResponseDelta>
-  ): AxChatResponse => {
-    const { id, usage, responses } = resp;
-
-    this.tokensUsed = usage
-      ? {
-          promptTokens: usage.input_tokens,
-          completionTokens: usage.output_tokens,
-          totalTokens: usage.input_tokens + usage.output_tokens,
-        }
-      : undefined;
-
-    const results = responses.map((res, index) => {
-      const finishReason = mapFinishReason(res.finish_reason);
-      let content: string;
-      if (typeof res.chunk.content === 'string') {
-        content = res.chunk.content;
-      } else {
-        content = res.chunk.content.text;
-      }
-
-      return {
-        index,
-        id: `${id}`,
-        content,
-        finishReason,
-      };
-    });
-
-    return { results };
-  };
-}
-
-const mapFinishReason = (
-  finishReason: AxAIRekaChatResponse['responses'][0]['finish_reason']
-): AxChatResponseResult['finishReason'] => {
-  switch (finishReason) {
-    case 'stop':
-      return 'stop' as const;
-    case 'context':
-      return 'length' as const;
-    case 'length':
-      return 'length' as const;
-  }
-};
-
-function createMessages(
-  req: Readonly<AxChatRequest>
-): AxAIRekaChatRequest['messages'] {
-  return req.chatPrompt.map((msg) => {
-    switch (msg.role) {
-      case 'system':
-        return { role: 'user' as const, content: msg.content };
-
-      case 'user':
-        if (Array.isArray(msg.content)) {
-          return {
-            role: 'user' as const,
-            content: msg.content.map((c) => {
-              switch (c.type) {
-                case 'text':
-                  return { type: 'text' as const, text: c.text };
-                case 'image': {
-                  throw new Error('Image type not supported');
-                }
-                default:
-                  throw new Error('Invalid content type');
-              }
-            }),
-          };
-        }
-        return { role: 'user' as const, content: msg.content };
-
-      case 'assistant':
-        if (Array.isArray(msg.content)) {
-          return {
-            role: 'assistant' as const,
-            content: msg.content.map((c) => {
-              switch (c.type) {
-                case 'text':
-                  return { type: 'text' as const, text: c.text };
-                case 'image': {
-                  throw new Error('Image type not supported');
-                }
-                default:
-                  throw new Error('Invalid content type');
-              }
-            }),
-          };
-        }
-        if (!msg.content) {
-          throw new Error('Assistant content is empty');
-        }
-        return { role: 'user' as const, content: msg.content };
-      default:
-        throw new Error('Invalid role');
-    }
-  });
-}
-
-export class AxAIReka<TModelKey> extends AxBaseAI<
+export type AxAIRekaArgs<TModelKey> = AxAIOpenAIArgs<
+  'reka',
   AxAIRekaModel,
   undefined,
-  AxAIRekaChatRequest,
-  unknown,
-  AxAIRekaChatResponse,
-  AxAIRekaChatResponseDelta,
-  unknown,
+  TModelKey
+>;
+
+const rekaSupportFor: AxAIFeatures = {
+  functions: true,
+  streaming: true,
+  hasThinkingBudget: false,
+  hasShowThoughts: false,
+  media: {
+    images: {
+      supported: false,
+      formats: [],
+    },
+    audio: {
+      supported: false,
+      formats: [],
+    },
+    files: {
+      supported: false,
+      formats: [],
+      uploadMethod: 'none',
+    },
+    urls: {
+      supported: false,
+      webSearch: false,
+      contextFetching: false,
+    },
+  },
+  caching: {
+    supported: false,
+    types: [],
+  },
+  thinking: false,
+  multiTurn: true,
+};
+
+const normalizeOpenAIModelPresets = <TModelKey>(
+  models: AxAIRekaArgs<TModelKey>['models']
+): AxAIRekaArgs<TModelKey>['models'] =>
+  models?.map((item) => {
+    const anyItem = item as any;
+    const cfg = anyItem?.config;
+    if (!cfg) return item;
+    const modelConfig: Record<string, unknown> = {};
+    if (cfg.maxTokens !== undefined) modelConfig.maxTokens = cfg.maxTokens;
+    if (cfg.temperature !== undefined)
+      modelConfig.temperature = cfg.temperature;
+    if (cfg.topP !== undefined) modelConfig.topP = cfg.topP;
+    if (cfg.presencePenalty !== undefined)
+      modelConfig.presencePenalty = cfg.presencePenalty;
+    if (cfg.frequencyPenalty !== undefined)
+      modelConfig.frequencyPenalty = cfg.frequencyPenalty;
+    const stopSeq = cfg.stopSequences ?? cfg.stop;
+    if (stopSeq !== undefined) modelConfig.stopSequences = stopSeq;
+    if (cfg.n !== undefined) modelConfig.n = cfg.n;
+    if (cfg.stream !== undefined) modelConfig.stream = cfg.stream;
+    return Object.keys(modelConfig).length > 0
+      ? {
+          ...anyItem,
+          modelConfig: { ...(anyItem.modelConfig ?? {}), ...modelConfig },
+        }
+      : item;
+  }) as AxAIRekaArgs<TModelKey>['models'];
+
+export class AxAIReka<TModelKey> extends AxAIOpenAIBase<
+  AxAIRekaModel,
+  undefined,
   TModelKey
 > {
   constructor({
@@ -281,59 +112,30 @@ export class AxAIReka<TModelKey> extends AxBaseAI<
     config,
     options,
     apiURL,
-    modelInfo = axModelInfoReka,
+    modelInfo,
     models,
   }: Readonly<Omit<AxAIRekaArgs<TModelKey>, 'name'>>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Reka API key not set');
     }
+
     const Config = {
       ...axAIRekaDefaultConfig(),
       ...config,
-    };
+    } as AxAIRekaOpenAIConfig;
 
-    const aiImpl = new AxAIRekaImpl(Config);
+    modelInfo = [...axModelInfoReka, ...(modelInfo ?? [])];
 
-    super(aiImpl, {
-      name: 'Reka',
-      apiURL: apiURL ? apiURL : 'https://api.reka.ai/v1/chat',
-      headers: async () => ({ 'X-Api-Key': apiKey }),
-      modelInfo,
-      defaults: {
-        model: Config.model,
-      },
+    super({
+      apiKey,
+      config: Config,
       options,
-      supportFor: {
-        functions: true,
-        streaming: true,
-        media: {
-          images: {
-            supported: false,
-            formats: [],
-          },
-          audio: {
-            supported: false,
-            formats: [],
-          },
-          files: {
-            supported: false,
-            formats: [],
-            uploadMethod: 'none' as const,
-          },
-          urls: {
-            supported: false,
-            webSearch: false,
-            contextFetching: false,
-          },
-        },
-        caching: {
-          supported: false,
-          types: [],
-        },
-        thinking: false,
-        multiTurn: true,
-      },
-      models,
+      apiURL: apiURL ? apiURL : 'https://api.reka.ai/v1',
+      modelInfo,
+      models: normalizeOpenAIModelPresets(models),
+      supportFor: rekaSupportFor,
     });
+
+    super.setName('Reka');
   }
 }

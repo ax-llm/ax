@@ -1,27 +1,30 @@
 {
   "alias_expectations": {
     "anthropic": "anthropic",
+    "azure": "azure-openai",
+    "azure_openai": "azure-openai",
+    "azure-openai": "azure-openai",
     "claude": "anthropic",
+    "cohere": "cohere",
     "compatible": "openai-compatible",
+    "deepseek": "deepseek",
     "gemini": "google-gemini",
     "google_gemini": "google-gemini",
     "google-gemini": "google-gemini",
+    "grok": "grok",
+    "mistral": "mistral",
     "openai": "openai-compatible",
     "openai_responses": "openai-responses",
     "openai-compatible": "openai-compatible",
     "openai-responses": "openai-responses",
-    "responses": "openai-responses"
+    "reka": "reka",
+    "responses": "openai-responses",
+    "x_grok": "grok",
+    "x-grok": "grok",
+    "xai": "grok"
   },
   "expected_output": {
-    "deferredCatalogProviderIds": [
-      "azure-openai",
-      "cohere",
-      "deepseek",
-      "mistral",
-      "huggingface",
-      "reka",
-      "grok"
-    ],
+    "deferredCatalogProviderIds": ["huggingface"],
     "profiles": {
       "anthropic": {
         "aliases": ["anthropic", "claude"],
@@ -29,11 +32,41 @@
         "generatedClient": "AnthropicClient",
         "id": "anthropic"
       },
+      "azure-openai": {
+        "aliases": ["azure-openai", "azure_openai", "azure"],
+        "catalogStatus": "descriptor-covered",
+        "generatedClient": "AzureOpenAIClient",
+        "id": "azure-openai"
+      },
+      "cohere": {
+        "aliases": ["cohere"],
+        "catalogStatus": "descriptor-covered",
+        "generatedClient": "CohereClient",
+        "id": "cohere"
+      },
+      "deepseek": {
+        "aliases": ["deepseek"],
+        "catalogStatus": "descriptor-covered",
+        "generatedClient": "DeepSeekClient",
+        "id": "deepseek"
+      },
       "google-gemini": {
         "aliases": ["google-gemini", "google_gemini", "gemini"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "GoogleGeminiClient",
         "id": "google-gemini"
+      },
+      "grok": {
+        "aliases": ["grok", "xai", "x-grok", "x_grok"],
+        "catalogStatus": "descriptor-covered",
+        "generatedClient": "GrokClient",
+        "id": "grok"
+      },
+      "mistral": {
+        "aliases": ["mistral"],
+        "catalogStatus": "descriptor-covered",
+        "generatedClient": "MistralClient",
+        "id": "mistral"
       },
       "openai-compatible": {
         "aliases": ["openai-compatible", "openai", "compatible"],
@@ -46,6 +79,12 @@
         "catalogStatus": "descriptor-covered",
         "generatedClient": "OpenAIResponsesClient",
         "id": "openai-responses"
+      },
+      "reka": {
+        "aliases": ["reka"],
+        "catalogStatus": "descriptor-covered",
+        "generatedClient": "RekaClient",
+        "id": "reka"
       }
     },
     "registryVersion": "provider-profile-registry-v1",
@@ -53,7 +92,13 @@
       "openai-compatible",
       "openai-responses",
       "google-gemini",
-      "anthropic"
+      "anthropic",
+      "azure-openai",
+      "deepseek",
+      "mistral",
+      "reka",
+      "cohere",
+      "grok"
     ]
   },
   "kind": "ai_provider_registry",

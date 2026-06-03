@@ -1,0 +1,94 @@
+{
+  "expected_output": {
+    "model_usage": {
+      "ai": "DeepSeek",
+      "model": "deepseek-v4-flash",
+      "tokens": {
+        "completion_tokens": 2,
+        "prompt_tokens": 1,
+        "total_tokens": 3
+      }
+    },
+    "remote_id": "chatcmpl_deepseek",
+    "results": [
+      {
+        "content": "ok",
+        "finish_reason": "stop",
+        "function_calls": [],
+        "id": "0",
+        "index": 0
+      }
+    ]
+  },
+  "expected_transport_request": {
+    "json": {
+      "messages": [
+        {
+          "content": "hello deepseek",
+          "role": "user"
+        }
+      ],
+      "model": "deepseek-v4-flash",
+      "reasoning_effort": "max",
+      "thinking": {
+        "type": "enabled"
+      }
+    },
+    "method": "POST",
+    "url": "https://api.deepseek.com/chat/completions"
+  },
+  "kind": "ai_chat",
+  "model": "deepseek-v4-flash",
+  "name": "deepseek-openai-compatible-chat",
+  "provider": "deepseek",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "hello deepseek",
+        "role": "user"
+      }
+    ],
+    "function_call": "none",
+    "functions": [
+      {
+        "description": "Lookup",
+        "name": "lookup",
+        "parameters": {}
+      }
+    ],
+    "model_config": {
+      "frequencyPenalty": 0.1,
+      "presencePenalty": 0.2,
+      "stream": false,
+      "temperature": 0.3,
+      "thinkingTokenBudget": "highest",
+      "topP": 0.9
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "ok",
+              "refusal": null,
+              "role": "assistant"
+            }
+          }
+        ],
+        "id": "chatcmpl_deepseek",
+        "model": "deepseek-v4-flash",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 2,
+          "prompt_tokens": 1,
+          "total_tokens": 3
+        }
+      },
+      "status": 200
+    }
+  ]
+}

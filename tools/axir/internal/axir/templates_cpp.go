@@ -332,6 +332,10 @@ struct Core {
   static Value provider_descriptor(Value profile);
   static Value provider_operation_descriptor(Value profile, Value operation);
   static Value provider_build_chat_request(Value profile, Value request);
+  static Value _provider_apply_openai_compatible_profile_quirks(Value profile, Value payload, Value request);
+  static Value _provider_apply_deepseek_chat_quirks(Value payload, Value model_config);
+  static Value _provider_apply_mistral_chat_quirks(Value payload);
+  static Value _provider_apply_grok_chat_quirks(Value payload, Value request, Value model_config);
   static Value provider_build_embed_request(Value profile, Value request);
   static Value provider_normalize_chat_response(Value profile, Value raw, Value ai_name, Value model);
   static Value provider_normalize_stream_delta(Value profile, Value raw, Value state, Value ai_name, Value model);
@@ -740,6 +744,7 @@ class OpenAICompatibleClient : public AxBaseAI {
   std::string base_url_;
   std::string api_key_;
   Value descriptor_;
+  std::string api_version_;
   double timeout_seconds_;
   Transport* transport_;
   Value request_json(const std::string& endpoint, Value payload, bool stream);
@@ -764,6 +769,36 @@ class GoogleGeminiClient : public OpenAICompatibleClient {
 class AnthropicClient : public OpenAICompatibleClient {
  public:
   explicit AnthropicClient(Value options = Value::object(), Transport* transport = nullptr);
+};
+
+class AzureOpenAIClient : public OpenAICompatibleClient {
+ public:
+  explicit AzureOpenAIClient(Value options = Value::object(), Transport* transport = nullptr);
+};
+
+class DeepSeekClient : public OpenAICompatibleClient {
+ public:
+  explicit DeepSeekClient(Value options = Value::object(), Transport* transport = nullptr);
+};
+
+class MistralClient : public OpenAICompatibleClient {
+ public:
+  explicit MistralClient(Value options = Value::object(), Transport* transport = nullptr);
+};
+
+class RekaClient : public OpenAICompatibleClient {
+ public:
+  explicit RekaClient(Value options = Value::object(), Transport* transport = nullptr);
+};
+
+class CohereClient : public OpenAICompatibleClient {
+ public:
+  explicit CohereClient(Value options = Value::object(), Transport* transport = nullptr);
+};
+
+class GrokClient : public OpenAICompatibleClient {
+ public:
+  explicit GrokClient(Value options = Value::object(), Transport* transport = nullptr);
 };
 
 class Tool {
@@ -2923,6 +2958,7 @@ OpenAICompatibleClient::OpenAICompatibleClient(std::string profile, std::string 
       descriptor_(Core::provider_descriptor(profile_)),
       base_url_(strip_trailing_slashes(option_string(options, "base_url", "baseUrl", env_or_default("OPENAI_BASE_URL", str(Core::get(Core::provider_descriptor(profile_), "baseUrl", "https://api.openai.com/v1")))))),
       api_key_(option_string(options, "api_key", "apiKey", env_or_default("OPENAI_API_KEY", ""))),
+      api_version_(option_string(options, "api_version", "apiVersion", str(Core::get(descriptor_, "apiVersion", "")))),
       timeout_seconds_(Core::get(options, "timeout", 60).is_number() ? num(Core::get(options, "timeout", 60)) : 60.0),
       transport_(transport) {}
 
@@ -2944,6 +2980,75 @@ AnthropicClient::AnthropicClient(Value options, Transport* transport)
         if (Core::get(out, "base_url").is_null() && Core::get(out, "baseUrl").is_null()) Core::set(out, "base_url", env_or_default("ANTHROPIC_BASE_URL", "https://api.anthropic.com/v1"));
         return out;
       }(), transport, "claude-3-7-sonnet-latest", "") {}
+
+AzureOpenAIClient::AzureOpenAIClient(Value options, Transport* transport)
+    : OpenAICompatibleClient("azure-openai", "Azure OpenAI", [&]() {
+        Value out = std::move(options);
+        if (Core::get(out, "api_key").is_null() && Core::get(out, "apiKey").is_null()) Core::set(out, "api_key", env_or_default("AZURE_OPENAI_API_KEY", ""));
+        std::string version = option_string(out, "api_version", "apiVersion", option_string(out, "version", "version", "2024-02-15-preview"));
+        std::string marker = "api-version=";
+        auto idx = version.find(marker);
+        if (idx != std::string::npos) {
+          version = version.substr(idx + marker.size());
+          auto amp = version.find('&');
+          if (amp != std::string::npos) version = version.substr(0, amp);
+        }
+        Core::set(out, "api_version", version);
+        if (Core::get(out, "base_url").is_null() && Core::get(out, "baseUrl").is_null()) {
+          std::string env_base = env_or_default("AZURE_OPENAI_BASE_URL", "");
+          if (!env_base.empty()) {
+            Core::set(out, "base_url", env_base);
+          } else {
+            std::string resource = option_string(out, "resource_name", "resourceName", env_or_default("AZURE_OPENAI_RESOURCE_NAME", ""));
+            std::string deployment = option_string(out, "deployment_name", "deploymentName", env_or_default("AZURE_OPENAI_DEPLOYMENT_NAME", ""));
+            if (!resource.empty() && !deployment.empty()) {
+              std::string host = resource.find("://") == std::string::npos ? "https://" + resource + ".openai.azure.com" : resource;
+              Core::set(out, "base_url", strip_trailing_slashes(host) + "/openai/deployments/" + url_component(deployment));
+            }
+          }
+        }
+        return out;
+      }(), transport, "gpt-5-mini", "text-embedding-3-small") {}
+
+DeepSeekClient::DeepSeekClient(Value options, Transport* transport)
+    : OpenAICompatibleClient("deepseek", "DeepSeek", [&]() {
+        Value out = std::move(options);
+        if (Core::get(out, "api_key").is_null() && Core::get(out, "apiKey").is_null()) Core::set(out, "api_key", env_or_default("DEEPSEEK_API_KEY", ""));
+        if (Core::get(out, "base_url").is_null() && Core::get(out, "baseUrl").is_null()) Core::set(out, "base_url", env_or_default("DEEPSEEK_BASE_URL", "https://api.deepseek.com"));
+        return out;
+      }(), transport, "deepseek-v4-flash", "") {}
+
+MistralClient::MistralClient(Value options, Transport* transport)
+    : OpenAICompatibleClient("mistral", "Mistral", [&]() {
+        Value out = std::move(options);
+        if (Core::get(out, "api_key").is_null() && Core::get(out, "apiKey").is_null()) Core::set(out, "api_key", env_or_default("MISTRAL_API_KEY", ""));
+        if (Core::get(out, "base_url").is_null() && Core::get(out, "baseUrl").is_null()) Core::set(out, "base_url", env_or_default("MISTRAL_BASE_URL", "https://api.mistral.ai/v1"));
+        return out;
+      }(), transport, "mistral-small-latest", "mistral-embed") {}
+
+RekaClient::RekaClient(Value options, Transport* transport)
+    : OpenAICompatibleClient("reka", "Reka", [&]() {
+        Value out = std::move(options);
+        if (Core::get(out, "api_key").is_null() && Core::get(out, "apiKey").is_null()) Core::set(out, "api_key", env_or_default("REKA_API_KEY", ""));
+        if (Core::get(out, "base_url").is_null() && Core::get(out, "baseUrl").is_null()) Core::set(out, "base_url", env_or_default("REKA_BASE_URL", "https://api.reka.ai/v1"));
+        return out;
+      }(), transport, "reka-core", "") {}
+
+CohereClient::CohereClient(Value options, Transport* transport)
+    : OpenAICompatibleClient("cohere", "Cohere", [&]() {
+        Value out = std::move(options);
+        if (Core::get(out, "api_key").is_null() && Core::get(out, "apiKey").is_null()) Core::set(out, "api_key", env_or_default("COHERE_API_KEY", ""));
+        if (Core::get(out, "base_url").is_null() && Core::get(out, "baseUrl").is_null()) Core::set(out, "base_url", env_or_default("COHERE_BASE_URL", "https://api.cohere.ai/compatibility/v1"));
+        return out;
+      }(), transport, "command-r-plus", "embed-english-v3.0") {}
+
+GrokClient::GrokClient(Value options, Transport* transport)
+    : OpenAICompatibleClient("grok", "Grok", [&]() {
+        Value out = std::move(options);
+        if (Core::get(out, "api_key").is_null() && Core::get(out, "apiKey").is_null()) Core::set(out, "api_key", env_or_default("XAI_API_KEY", env_or_default("GROK_API_KEY", "")));
+        if (Core::get(out, "base_url").is_null() && Core::get(out, "baseUrl").is_null()) Core::set(out, "base_url", env_or_default("XAI_BASE_URL", env_or_default("GROK_BASE_URL", "https://api.x.ai/v1")));
+        return out;
+      }(), transport, "grok-4.3", "") {}
 
 Value OpenAICompatibleClient::do_chat(Value request, Value) {
   Value payload = Core::provider_build_chat_request(profile_, request);
@@ -3010,6 +3115,7 @@ Value OpenAICompatibleClient::headers() const {
   Core::set(headers, "Content-Type", "application/json");
   if (str(Core::get(descriptor_, "auth")) == "bearer") Core::set(headers, "Authorization", "Bearer " + api_key_);
   if (str(Core::get(descriptor_, "auth")) == "anthropic_key") Core::set(headers, "x-api-key", api_key_);
+  if (str(Core::get(descriptor_, "auth")) == "api_key_header") Core::set(headers, str(Core::get(descriptor_, "apiKeyHeader", "api-key")), api_key_);
   for (const auto& entry : object_ref(Core::get(descriptor_, "headers", Value::object()))) {
     Core::set(headers, entry.first, str(entry.second));
   }
@@ -3049,6 +3155,9 @@ std::string OpenAICompatibleClient::operation_path(const std::string& operation,
   if (str(Core::get(descriptor_, "auth")) == "api_key_query") {
     std::string key = str(Core::get(descriptor_, "apiKeyQuery", "key"));
     path += (path.find('?') == std::string::npos ? "?" : "&") + url_component(key) + "=" + url_component(api_key_);
+  }
+  if (!api_version_.empty() && api_version_ != "null") {
+    path += (path.find('?') == std::string::npos ? "?" : "&") + std::string("api-version=") + url_component(api_version_);
   }
   return path;
 }
@@ -4454,6 +4563,24 @@ std::shared_ptr<AxAIService> ai(const std::string& provider, Value options) {
   }
   if (canonical == "anthropic") {
     return std::make_shared<AnthropicClient>(std::move(options));
+  }
+  if (canonical == "azure-openai") {
+    return std::make_shared<AzureOpenAIClient>(std::move(options));
+  }
+  if (canonical == "deepseek") {
+    return std::make_shared<DeepSeekClient>(std::move(options));
+  }
+  if (canonical == "mistral") {
+    return std::make_shared<MistralClient>(std::move(options));
+  }
+  if (canonical == "reka") {
+    return std::make_shared<RekaClient>(std::move(options));
+  }
+  if (canonical == "cohere") {
+    return std::make_shared<CohereClient>(std::move(options));
+  }
+  if (canonical == "grok") {
+    return std::make_shared<GrokClient>(std::move(options));
   }
   throw AxError("runtime", "unsupported AxAI provider: " + provider);
 }
@@ -6345,6 +6472,12 @@ struct ClientFixture {
     if (provider == "google-gemini") return std::make_unique<GoogleGeminiClient>(options(fixture), transport);
     if (provider == "anthropic") return std::make_unique<AnthropicClient>(options(fixture), transport);
     if (provider == "openai-responses") return std::make_unique<OpenAIResponsesClient>(options(fixture), transport);
+    if (provider == "azure-openai") return std::make_unique<AzureOpenAIClient>(options(fixture), transport);
+    if (provider == "deepseek") return std::make_unique<DeepSeekClient>(options(fixture), transport);
+    if (provider == "mistral") return std::make_unique<MistralClient>(options(fixture), transport);
+    if (provider == "reka") return std::make_unique<RekaClient>(options(fixture), transport);
+    if (provider == "cohere") return std::make_unique<CohereClient>(options(fixture), transport);
+    if (provider == "grok") return std::make_unique<GrokClient>(options(fixture), transport);
     return std::make_unique<OpenAICompatibleClient>(options(fixture), transport);
   }
 
@@ -6354,10 +6487,22 @@ struct ClientFixture {
     bool responses_provider = provider == "openai-responses";
     bool gemini_provider = provider == "google-gemini";
     bool anthropic_provider = provider == "anthropic";
-    Core::set(out, "model", Core::get(fixture, "model", anthropic_provider ? "claude-3-7-sonnet-latest" : gemini_provider ? "gemini-2.5-flash" : responses_provider ? "gpt-4o" : "gpt-4.1-mini"));
-    Core::set(out, "embed_model", Core::get(fixture, "embed_model", anthropic_provider ? "" : gemini_provider ? "gemini-embedding-2" : responses_provider ? "text-embedding-ada-002" : "text-embedding-3-small"));
+    bool azure_provider = provider == "azure-openai";
+    bool deepseek_provider = provider == "deepseek";
+    bool mistral_provider = provider == "mistral";
+    bool reka_provider = provider == "reka";
+    bool cohere_provider = provider == "cohere";
+    bool grok_provider = provider == "grok";
+    std::string default_model = anthropic_provider ? "claude-3-7-sonnet-latest" : gemini_provider ? "gemini-2.5-flash" : responses_provider ? "gpt-4o" : azure_provider ? "gpt-5-mini" : deepseek_provider ? "deepseek-v4-flash" : mistral_provider ? "mistral-small-latest" : reka_provider ? "reka-core" : cohere_provider ? "command-r-plus" : grok_provider ? "grok-4.3" : "gpt-4.1-mini";
+    std::string default_embed_model = anthropic_provider || deepseek_provider || reka_provider || grok_provider ? "" : gemini_provider ? "gemini-embedding-2" : responses_provider ? "text-embedding-ada-002" : mistral_provider ? "mistral-embed" : cohere_provider ? "embed-english-v3.0" : "text-embedding-3-small";
+    Core::set(out, "model", Core::get(fixture, "model", default_model));
+    Core::set(out, "embed_model", Core::get(fixture, "embed_model", default_embed_model));
     Core::set(out, "api_key", "test-key");
     Core::set(out, "model_config", Core::get(fixture, "model_config", Value::object()));
+    for (const std::string& key : {"base_url", "baseUrl", "resource_name", "resourceName", "deployment_name", "deploymentName", "api_version", "apiVersion", "version"}) {
+      Value value = Core::get(fixture, key);
+      if (!value.is_null()) Core::set(out, key, value);
+    }
     return out;
   }
 };

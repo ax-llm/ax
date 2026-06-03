@@ -1,0 +1,106 @@
+{
+  "expected_output": {
+    "model_usage": {
+      "ai": "Grok",
+      "model": "grok-4.3",
+      "tokens": {
+        "completion_tokens": 2,
+        "prompt_tokens": 1,
+        "total_tokens": 3
+      }
+    },
+    "remote_id": "chatcmpl_grok",
+    "results": [
+      {
+        "content": "ok",
+        "finish_reason": "stop",
+        "function_calls": [],
+        "id": "0",
+        "index": 0
+      }
+    ]
+  },
+  "expected_transport_request": {
+    "json": {
+      "messages": [
+        {
+          "content": "hello grok",
+          "role": "user"
+        }
+      ],
+      "model": "grok-4.3",
+      "reasoning_effort": "medium",
+      "search_parameters": {
+        "max_search_results": 3,
+        "mode": "auto",
+        "return_citations": true,
+        "sources": [
+          {
+            "country": "US",
+            "safe_search": true,
+            "type": "web"
+          }
+        ]
+      }
+    },
+    "method": "POST",
+    "url": "https://api.x.ai/v1/chat/completions"
+  },
+  "kind": "ai_chat",
+  "model": "grok-4.3",
+  "name": "grok-openai-compatible-chat",
+  "provider": "grok",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "hello grok",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "frequencyPenalty": 0.5,
+      "presencePenalty": 0.5,
+      "searchParameters": {
+        "maxSearchResults": 3,
+        "mode": "auto",
+        "returnCitations": true,
+        "sources": [
+          {
+            "country": "US",
+            "safeSearch": true,
+            "type": "web"
+          }
+        ]
+      },
+      "stopSequences": ["END"],
+      "stream": false,
+      "thinkingTokenBudget": "medium"
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "ok",
+              "refusal": null,
+              "role": "assistant"
+            }
+          }
+        ],
+        "id": "chatcmpl_grok",
+        "model": "grok-4.3",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 2,
+          "prompt_tokens": 1,
+          "total_tokens": 3
+        }
+      },
+      "status": 200
+    }
+  ]
+}

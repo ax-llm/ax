@@ -24,8 +24,10 @@ Python target:
 - public API: `ai`, `s`, `f`, `fn`, `ax`, `get_supported_ai_models`,
   `AxAIService`, `AxBaseAI`, `AxSignature`, `AxGen`, `AIClient`,
   `OpenAICompatibleClient`, `OpenAIResponsesClient`, `GoogleGeminiClient`,
-  `AnthropicClient`, `AxBalancer`, `MultiServiceRouter`, `ProviderRouter`,
-  `OptimizerEngine`, `OptimizerEvaluator`
+  `AnthropicClient`, `AzureOpenAIClient`, `DeepSeekClient`, `MistralClient`,
+  `RekaClient`, `CohereClient`, `GrokClient`, `AxBalancer`,
+  `MultiServiceRouter`, `ProviderRouter`, `OptimizerEngine`,
+  `OptimizerEvaluator`, `AxGEPA`
 - includes a generated `ax.conformance` module that can run backend-neutral
   fixture JSON from all current `ir/conformance/*` suites
 - real OpenAI-compatible HTTP transport is implemented with the Python standard
@@ -39,8 +41,10 @@ Java target:
 - public API: `Ax.s`, `Ax.f`, `Ax.fn`, `Ax.ax`,
   `Ax.getSupportedAIModels`, `AxSignature`, `AxGen`,
   `OpenAICompatibleClient`, `OpenAIResponsesClient`, `GoogleGeminiClient`,
-  `AnthropicClient`, `AxBalancer`, `AxMultiServiceRouter`, `AxProviderRouter`,
-  `OptimizerEngine`, `OptimizerEvaluator`
+  `AnthropicClient`, `AzureOpenAIClient`, `DeepSeekClient`, `MistralClient`,
+  `RekaClient`, `CohereClient`, `GrokClient`, `AxBalancer`,
+  `AxMultiServiceRouter`, `AxProviderRouter`, `OptimizerEngine`,
+  `OptimizerEvaluator`, `AxGEPA`
 - executable conformance target for signatures, schema, validation, prompt,
   AxGen, AxAI/OpenAI-compatible mapping, and the prompt optimizer contract
 - real OpenAI-compatible HTTP transport is implemented with `java.net.http`;
@@ -74,12 +78,12 @@ AxAI provider behavior is descriptor-driven. Core owns provider profile
 identity, alias normalization, model-catalog data, operation descriptors,
 request mapping, response normalization, stream folding, usage normalization,
 and the portable parts of provider routing analysis. Generated targets expose
-thin clients for OpenAI-compatible, OpenAI Responses, Google Gemini, and
-Anthropic, plus model catalog helpers, multi-service model-key routing, and
-provider-router analysis/validation/stat helpers, and AxBalancer selection and
-retryable-error failover. Targets still own HTTP, SSE, WebSocket, auth, retries,
-binary upload, media conversion, live provider calls, timers, and
-content-processing callbacks.
+thin clients for OpenAI-compatible, OpenAI Responses, Google Gemini, Anthropic,
+Azure OpenAI, DeepSeek, Mistral, Reka, Cohere, and Grok, plus model catalog
+helpers, multi-service model-key routing, provider-router analysis/validation/
+stat helpers, and AxBalancer selection and retryable-error failover. Targets
+still own HTTP, SSE, WebSocket, auth, retries, binary upload, media conversion,
+live provider calls, timers, and content-processing callbacks.
 
 AxFlow is a Core-owned Ax program graph, not a generic workflow engine.
 Generated targets must preserve the TypeScript single-step/shared-executor

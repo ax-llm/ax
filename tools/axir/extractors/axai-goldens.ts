@@ -2,14 +2,21 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { axAIAnthropicDefaultConfig } from '../../../src/ax/ai/anthropic/api.js';
+import { axAIAzureOpenAIDefaultConfig } from '../../../src/ax/ai/azure-openai/api.js';
 import { AxBalancer } from '../../../src/ax/ai/balance.js';
 import { axGetSupportedAIModels } from '../../../src/ax/ai/catalog.js';
+import { axAICohereDefaultConfig } from '../../../src/ax/ai/cohere/api.js';
+import { AxAICohereEmbedModel } from '../../../src/ax/ai/cohere/types.js';
+import { axAIDeepSeekDefaultConfig } from '../../../src/ax/ai/deepseek/api.js';
 import { axAIGoogleGeminiDefaultConfig } from '../../../src/ax/ai/google-gemini/api.js';
 import { AxAIGoogleGeminiEmbedModel } from '../../../src/ax/ai/google-gemini/types.js';
+import { axAIMistralDefaultConfig } from '../../../src/ax/ai/mistral/api.js';
 import { AxMultiServiceRouter } from '../../../src/ax/ai/multiservice.js';
 import { AxAIOpenAIModel } from '../../../src/ax/ai/openai/chat_types.js';
 import { axAIOpenAIResponsesDefaultConfig } from '../../../src/ax/ai/openai/responses_api_base.js';
+import { axAIRekaDefaultConfig } from '../../../src/ax/ai/reka/api.js';
 import { AxProviderRouter } from '../../../src/ax/ai/router.js';
+import { axAIGrokDefaultConfig } from '../../../src/ax/ai/x-grok/api.js';
 import {
   AxAIServiceAuthenticationError,
   AxAIServiceNetworkError,
@@ -46,6 +53,13 @@ mkdirSync(outDir, { recursive: true });
 
 const responsesDefaultModel = axAIOpenAIResponsesDefaultConfig()
   .model as string;
+const azureDefaultModel = axAIAzureOpenAIDefaultConfig().model as string;
+const deepseekDefaultModel = axAIDeepSeekDefaultConfig().model as string;
+const mistralDefaultModel = axAIMistralDefaultConfig().model as string;
+const rekaDefaultModel = axAIRekaDefaultConfig().model as string;
+const cohereDefaultModel = axAICohereDefaultConfig().model as string;
+const cohereDefaultEmbedModel = AxAICohereEmbedModel.EmbedEnglishV30;
+const grokDefaultModel = axAIGrokDefaultConfig().model as string;
 const geminiDefaultModel = axAIGoogleGeminiDefaultConfig().model as string;
 const geminiDefaultEmbedModel = 'gemini-embedding-2';
 const anthropicDefaultModel = axAIAnthropicDefaultConfig().model as string;
@@ -72,16 +86,14 @@ const descriptorCoveredProviderIds = [
   'openai-responses',
   'google-gemini',
   'anthropic',
-];
-const deferredProviderIds = [
   'azure-openai',
-  'cohere',
   'deepseek',
   'mistral',
-  'huggingface',
   'reka',
+  'cohere',
   'grok',
 ];
+const deferredProviderIds = ['huggingface'];
 const openAIProvider = catalogAll.find(
   (provider) => provider.name === 'openai'
 );
@@ -321,6 +333,17 @@ writeFixture('provider-profile-registry', {
     gemini: 'google-gemini',
     anthropic: 'anthropic',
     claude: 'anthropic',
+    'azure-openai': 'azure-openai',
+    azure_openai: 'azure-openai',
+    azure: 'azure-openai',
+    deepseek: 'deepseek',
+    mistral: 'mistral',
+    reka: 'reka',
+    cohere: 'cohere',
+    grok: 'grok',
+    xai: 'grok',
+    'x-grok': 'grok',
+    x_grok: 'grok',
   },
   expected_output: {
     registryVersion: 'provider-profile-registry-v1',
@@ -348,6 +371,42 @@ writeFixture('provider-profile-registry', {
         id: 'anthropic',
         generatedClient: 'AnthropicClient',
         aliases: ['anthropic', 'claude'],
+        catalogStatus: 'descriptor-covered',
+      },
+      'azure-openai': {
+        id: 'azure-openai',
+        generatedClient: 'AzureOpenAIClient',
+        aliases: ['azure-openai', 'azure_openai', 'azure'],
+        catalogStatus: 'descriptor-covered',
+      },
+      deepseek: {
+        id: 'deepseek',
+        generatedClient: 'DeepSeekClient',
+        aliases: ['deepseek'],
+        catalogStatus: 'descriptor-covered',
+      },
+      mistral: {
+        id: 'mistral',
+        generatedClient: 'MistralClient',
+        aliases: ['mistral'],
+        catalogStatus: 'descriptor-covered',
+      },
+      reka: {
+        id: 'reka',
+        generatedClient: 'RekaClient',
+        aliases: ['reka'],
+        catalogStatus: 'descriptor-covered',
+      },
+      cohere: {
+        id: 'cohere',
+        generatedClient: 'CohereClient',
+        aliases: ['cohere'],
+        catalogStatus: 'descriptor-covered',
+      },
+      grok: {
+        id: 'grok',
+        generatedClient: 'GrokClient',
+        aliases: ['grok', 'xai', 'x-grok', 'x_grok'],
         catalogStatus: 'descriptor-covered',
       },
     },
@@ -405,7 +464,8 @@ writeFixture('model-catalog-audit', {
       metadataClonedPerCall: true,
       dynamicProvidersMayHaveEmptyModels: true,
     },
-    nextMilestone: 'AxIR GEPA Engine Port',
+    nextMilestone:
+      'Additional catalog provider clients complete except Hugging Face',
   },
 });
 
@@ -1065,6 +1125,434 @@ writeFixture('anthropic-provider-descriptor', {
       },
       caching: { supported: true, types: ['ephemeral_block'] },
       thinking: true,
+    },
+  },
+});
+
+writeFixture('azure-openai-provider-descriptor', {
+  kind: 'ai_provider_descriptor',
+  provider: 'azure-openai',
+  expected_output: {
+    id: 'azure-openai',
+    name: 'Azure OpenAI',
+    defaultModel: azureDefaultModel,
+    defaultEmbedModel: 'text-embedding-3-small',
+    auth: 'api_key_header',
+    apiKeyHeader: 'api-key',
+    apiVersion: '2024-02-15-preview',
+    operations: {
+      chat: {
+        method: 'POST',
+        path: '/chat/completions',
+        body: 'json',
+        stream: false,
+      },
+      stream_chat: {
+        method: 'POST',
+        path: '/chat/completions',
+        body: 'json',
+        stream: true,
+      },
+      embed: {
+        method: 'POST',
+        path: '/embeddings',
+        body: 'json',
+        stream: false,
+      },
+    },
+    features: {
+      media: {
+        images: { supported: true },
+      },
+      thinking: true,
+    },
+  },
+});
+
+writeFixture('deepseek-provider-descriptor', {
+  kind: 'ai_provider_descriptor',
+  provider: 'deepseek',
+  expected_output: {
+    id: 'deepseek',
+    name: 'DeepSeek',
+    defaultModel: deepseekDefaultModel,
+    auth: 'bearer',
+    baseUrl: 'https://api.deepseek.com',
+    operations: {
+      chat: {
+        method: 'POST',
+        path: '/chat/completions',
+        body: 'json',
+        stream: false,
+      },
+      stream_chat: {
+        method: 'POST',
+        path: '/chat/completions',
+        body: 'json',
+        stream: true,
+      },
+    },
+    features: {
+      thinking: true,
+      media: { images: { supported: false } },
+    },
+  },
+});
+
+writeFixture('mistral-provider-descriptor', {
+  kind: 'ai_provider_descriptor',
+  provider: 'mistral',
+  expected_output: {
+    id: 'mistral',
+    name: 'Mistral',
+    defaultModel: mistralDefaultModel,
+    defaultEmbedModel: 'mistral-embed',
+    baseUrl: 'https://api.mistral.ai/v1',
+    operations: {
+      chat: {
+        method: 'POST',
+        path: '/chat/completions',
+        body: 'json',
+        stream: false,
+      },
+      embed: {
+        method: 'POST',
+        path: '/embeddings',
+        body: 'json',
+        stream: false,
+      },
+    },
+  },
+});
+
+writeFixture('reka-provider-descriptor', {
+  kind: 'ai_provider_descriptor',
+  provider: 'reka',
+  expected_output: {
+    id: 'reka',
+    name: 'Reka',
+    defaultModel: rekaDefaultModel,
+    baseUrl: 'https://api.reka.ai/v1',
+    operations: {
+      chat: {
+        method: 'POST',
+        path: '/chat/completions',
+        body: 'json',
+        stream: false,
+      },
+    },
+  },
+});
+
+writeFixture('cohere-provider-descriptor', {
+  kind: 'ai_provider_descriptor',
+  provider: 'cohere',
+  expected_output: {
+    id: 'cohere',
+    name: 'Cohere',
+    defaultModel: cohereDefaultModel,
+    defaultEmbedModel: cohereDefaultEmbedModel,
+    baseUrl: 'https://api.cohere.ai/compatibility/v1',
+    operations: {
+      chat: {
+        method: 'POST',
+        path: '/chat/completions',
+        body: 'json',
+        stream: false,
+      },
+      embed: {
+        method: 'POST',
+        path: '/embeddings',
+        body: 'json',
+        stream: false,
+      },
+    },
+  },
+});
+
+writeFixture('grok-provider-descriptor', {
+  kind: 'ai_provider_descriptor',
+  provider: 'grok',
+  expected_output: {
+    id: 'grok',
+    name: 'Grok',
+    defaultModel: grokDefaultModel,
+    baseUrl: 'https://api.x.ai/v1',
+    operations: {
+      chat: {
+        method: 'POST',
+        path: '/chat/completions',
+        body: 'json',
+        stream: false,
+      },
+      stream_chat: {
+        method: 'POST',
+        path: '/chat/completions',
+        body: 'json',
+        stream: true,
+      },
+    },
+    features: {
+      media: {
+        images: { supported: true },
+        urls: { web_search: true },
+      },
+      thinking: true,
+    },
+  },
+});
+
+const compatibleResponse = (id: string, model: string, content = 'ok') => ({
+  status: 200,
+  json: {
+    id,
+    object: 'chat.completion',
+    model,
+    choices: [
+      {
+        index: 0,
+        message: { role: 'assistant', content, refusal: null },
+        finish_reason: 'stop',
+      },
+    ],
+    usage: {
+      prompt_tokens: 1,
+      completion_tokens: 2,
+      total_tokens: 3,
+    },
+  },
+});
+
+const compatibleExpectedOutput = (
+  aiName: string,
+  remoteId: string,
+  model: string,
+  content = 'ok'
+) => ({
+  results: [
+    {
+      index: 0,
+      id: '0',
+      content,
+      function_calls: [],
+      finish_reason: 'stop',
+    },
+  ],
+  remote_id: remoteId,
+  model_usage: {
+    ai: aiName,
+    model,
+    tokens: {
+      prompt_tokens: 1,
+      completion_tokens: 2,
+      total_tokens: 3,
+    },
+  },
+});
+
+writeFixture('azure-openai-compatible-chat', {
+  kind: 'ai_chat',
+  provider: 'azure-openai',
+  model: azureDefaultModel,
+  resource_name: 'example',
+  deployment_name: 'deployment',
+  api_version: 'api-version=2024-02-15-preview',
+  request: {
+    chat_prompt: [{ role: 'user', content: 'hello azure' }],
+    model_config: { stream: false, maxTokens: 32 },
+  },
+  transport_responses: [
+    compatibleResponse('chatcmpl_azure', azureDefaultModel),
+  ],
+  expected_output: compatibleExpectedOutput(
+    'Azure OpenAI',
+    'chatcmpl_azure',
+    azureDefaultModel
+  ),
+  expected_transport_request: {
+    method: 'POST',
+    url: 'https://example.openai.azure.com/openai/deployments/deployment/chat/completions?api-version=2024-02-15-preview',
+    headers: { 'api-key': 'test-key' },
+    json: {
+      model: azureDefaultModel,
+      messages: [{ role: 'user', content: 'hello azure' }],
+      max_completion_tokens: 32,
+    },
+  },
+});
+
+writeFixture('deepseek-openai-compatible-chat', {
+  kind: 'ai_chat',
+  provider: 'deepseek',
+  model: deepseekDefaultModel,
+  request: {
+    chat_prompt: [{ role: 'user', content: 'hello deepseek' }],
+    functions: [{ name: 'lookup', description: 'Lookup', parameters: {} }],
+    function_call: 'none',
+    model_config: {
+      stream: false,
+      temperature: 0.3,
+      topP: 0.9,
+      presencePenalty: 0.2,
+      frequencyPenalty: 0.1,
+      thinkingTokenBudget: 'highest',
+    },
+  },
+  transport_responses: [
+    compatibleResponse('chatcmpl_deepseek', deepseekDefaultModel),
+  ],
+  expected_output: compatibleExpectedOutput(
+    'DeepSeek',
+    'chatcmpl_deepseek',
+    deepseekDefaultModel
+  ),
+  expected_transport_request: {
+    method: 'POST',
+    url: 'https://api.deepseek.com/chat/completions',
+    json: {
+      model: deepseekDefaultModel,
+      messages: [{ role: 'user', content: 'hello deepseek' }],
+      thinking: { type: 'enabled' },
+      reasoning_effort: 'max',
+    },
+  },
+});
+
+writeFixture('mistral-openai-compatible-chat', {
+  kind: 'ai_chat',
+  provider: 'mistral',
+  model: mistralDefaultModel,
+  request: {
+    chat_prompt: [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'describe' },
+          { type: 'image', image: 'aW1hZ2U=', mimeType: 'image/png' },
+        ],
+      },
+    ],
+    model_config: { stream: false, maxTokens: 48 },
+  },
+  transport_responses: [
+    compatibleResponse('chatcmpl_mistral', mistralDefaultModel),
+  ],
+  expected_output: compatibleExpectedOutput(
+    'Mistral',
+    'chatcmpl_mistral',
+    mistralDefaultModel
+  ),
+  expected_transport_request: {
+    method: 'POST',
+    url: 'https://api.mistral.ai/v1/chat/completions',
+    json: {
+      model: mistralDefaultModel,
+      max_tokens: 48,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'describe' },
+            {
+              type: 'image_url',
+              image_url: { url: 'data:image/png;base64,aW1hZ2U=' },
+            },
+          ],
+        },
+      ],
+    },
+  },
+});
+
+writeFixture('reka-openai-compatible-chat', {
+  kind: 'ai_chat',
+  provider: 'reka',
+  model: rekaDefaultModel,
+  request: {
+    chat_prompt: [{ role: 'user', content: 'hello reka' }],
+    model_config: { stream: false },
+  },
+  transport_responses: [compatibleResponse('chatcmpl_reka', rekaDefaultModel)],
+  expected_output: compatibleExpectedOutput(
+    'Reka',
+    'chatcmpl_reka',
+    rekaDefaultModel
+  ),
+  expected_transport_request: {
+    method: 'POST',
+    url: 'https://api.reka.ai/v1/chat/completions',
+    json: {
+      model: rekaDefaultModel,
+      messages: [{ role: 'user', content: 'hello reka' }],
+    },
+  },
+});
+
+writeFixture('cohere-openai-compatible-chat', {
+  kind: 'ai_chat',
+  provider: 'cohere',
+  model: cohereDefaultModel,
+  request: {
+    chat_prompt: [{ role: 'user', content: 'hello cohere' }],
+    model_config: { stream: false },
+  },
+  transport_responses: [
+    compatibleResponse('chatcmpl_cohere', cohereDefaultModel),
+  ],
+  expected_output: compatibleExpectedOutput(
+    'Cohere',
+    'chatcmpl_cohere',
+    cohereDefaultModel
+  ),
+  expected_transport_request: {
+    method: 'POST',
+    url: 'https://api.cohere.ai/compatibility/v1/chat/completions',
+    json: {
+      model: cohereDefaultModel,
+      messages: [{ role: 'user', content: 'hello cohere' }],
+    },
+  },
+});
+
+writeFixture('grok-openai-compatible-chat', {
+  kind: 'ai_chat',
+  provider: 'grok',
+  model: grokDefaultModel,
+  request: {
+    chat_prompt: [{ role: 'user', content: 'hello grok' }],
+    model_config: {
+      stream: false,
+      thinkingTokenBudget: 'medium',
+      presencePenalty: 0.5,
+      frequencyPenalty: 0.5,
+      stopSequences: ['END'],
+      searchParameters: {
+        mode: 'auto',
+        returnCitations: true,
+        maxSearchResults: 3,
+        sources: [{ type: 'web', country: 'US', safeSearch: true }],
+      },
+    },
+  },
+  transport_responses: [compatibleResponse('chatcmpl_grok', grokDefaultModel)],
+  expected_output: compatibleExpectedOutput(
+    'Grok',
+    'chatcmpl_grok',
+    grokDefaultModel
+  ),
+  expected_transport_request: {
+    method: 'POST',
+    url: 'https://api.x.ai/v1/chat/completions',
+    json: {
+      model: grokDefaultModel,
+      messages: [{ role: 'user', content: 'hello grok' }],
+      reasoning_effort: 'medium',
+      search_parameters: {
+        mode: 'auto',
+        return_citations: true,
+        max_search_results: 3,
+        sources: [{ type: 'web', country: 'US', safe_search: true }],
+      },
     },
   },
 });

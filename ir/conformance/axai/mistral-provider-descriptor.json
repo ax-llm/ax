@@ -1,0 +1,26 @@
+{
+  "expected_output": {
+    "baseUrl": "https://api.mistral.ai/v1",
+    "defaultEmbedModel": "mistral-embed",
+    "defaultModel": "mistral-small-latest",
+    "id": "mistral",
+    "name": "Mistral",
+    "operations": {
+      "chat": {
+        "body": "json",
+        "method": "POST",
+        "path": "/chat/completions",
+        "stream": false
+      },
+      "embed": {
+        "body": "json",
+        "method": "POST",
+        "path": "/embeddings",
+        "stream": false
+      }
+    }
+  },
+  "kind": "ai_provider_descriptor",
+  "name": "mistral-provider-descriptor",
+  "provider": "mistral"
+}

@@ -1,0 +1,42 @@
+{
+  "expected_output": {
+    "apiKeyHeader": "api-key",
+    "apiVersion": "2024-02-15-preview",
+    "auth": "api_key_header",
+    "defaultEmbedModel": "text-embedding-3-small",
+    "defaultModel": "gpt-5-mini",
+    "features": {
+      "media": {
+        "images": {
+          "supported": true
+        }
+      },
+      "thinking": true
+    },
+    "id": "azure-openai",
+    "name": "Azure OpenAI",
+    "operations": {
+      "chat": {
+        "body": "json",
+        "method": "POST",
+        "path": "/chat/completions",
+        "stream": false
+      },
+      "embed": {
+        "body": "json",
+        "method": "POST",
+        "path": "/embeddings",
+        "stream": false
+      },
+      "stream_chat": {
+        "body": "json",
+        "method": "POST",
+        "path": "/chat/completions",
+        "stream": true
+      }
+    }
+  },
+  "kind": "ai_provider_descriptor",
+  "name": "azure-openai-provider-descriptor",
+  "provider": "azure-openai"
+}

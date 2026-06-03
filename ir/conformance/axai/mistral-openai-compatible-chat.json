@@ -1,0 +1,100 @@
+{
+  "expected_output": {
+    "model_usage": {
+      "ai": "Mistral",
+      "model": "mistral-small-latest",
+      "tokens": {
+        "completion_tokens": 2,
+        "prompt_tokens": 1,
+        "total_tokens": 3
+      }
+    },
+    "remote_id": "chatcmpl_mistral",
+    "results": [
+      {
+        "content": "ok",
+        "finish_reason": "stop",
+        "function_calls": [],
+        "id": "0",
+        "index": 0
+      }
+    ]
+  },
+  "expected_transport_request": {
+    "json": {
+      "max_tokens": 48,
+      "messages": [
+        {
+          "content": [
+            {
+              "text": "describe",
+              "type": "text"
+            },
+            {
+              "image_url": {
+                "url": "data:image/png;base64,aW1hZ2U="
+              },
+              "type": "image_url"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "model": "mistral-small-latest"
+    },
+    "method": "POST",
+    "url": "https://api.mistral.ai/v1/chat/completions"
+  },
+  "kind": "ai_chat",
+  "model": "mistral-small-latest",
+  "name": "mistral-openai-compatible-chat",
+  "provider": "mistral",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": [
+          {
+            "text": "describe",
+            "type": "text"
+          },
+          {
+            "image": "aW1hZ2U=",
+            "mimeType": "image/png",
+            "type": "image"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "maxTokens": 48,
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "ok",
+              "refusal": null,
+              "role": "assistant"
+            }
+          }
+        ],
+        "id": "chatcmpl_mistral",
+        "model": "mistral-small-latest",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 2,
+          "prompt_tokens": 1,
+          "total_tokens": 3
+        }
+      },
+      "status": 200
+    }
+  ]
+}

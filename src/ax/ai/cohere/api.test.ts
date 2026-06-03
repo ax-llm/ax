@@ -28,11 +28,22 @@ describe('AxAICohere model key preset merging', () => {
     });
 
     const fetch = createMockFetch({
-      text: 'ok',
-      generation_id: 'gid',
-      response_id: 'rid',
-      finish_reason: 'COMPLETE',
-      meta: { billed_units: { input_tokens: 1, output_tokens: 1 } },
+      id: 'chatcmpl-cohere',
+      object: 'chat.completion',
+      created: 0,
+      model: AxAICohereModel.CommandR,
+      choices: [
+        {
+          index: 0,
+          message: { role: 'assistant', content: 'ok', refusal: null },
+          finish_reason: 'stop',
+        },
+      ],
+      usage: {
+        prompt_tokens: 1,
+        completion_tokens: 1,
+        total_tokens: 2,
+      },
     });
 
     ai.setOptions({ fetch });
@@ -47,6 +58,9 @@ describe('AxAICohere model key preset merging', () => {
 
     expect(res.results[0]?.content).toBe('ok');
     expect(fetch).toHaveBeenCalled();
+    expect(String(fetch.mock.calls[0]?.[0])).toBe(
+      'https://api.cohere.ai/compatibility/v1/chat/completions'
+    );
 
     const mc = ai.getLastUsedModelConfig();
     expect(mc?.maxTokens).toBe(333);

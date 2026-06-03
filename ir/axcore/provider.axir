@@ -33,6 +33,54 @@ module @ax.provider version "0.1" {
     type default_base_url = "https://api.anthropic.com/v1"
   }
 
+  op ax.provider.class @AzureOpenAIClient {
+    attr core_kind = "record"
+    attr public = true
+    ref interface = @AxAIService
+    tag "azure-openai"
+    type default_base_url = "https://{resource}.openai.azure.com/openai/deployments/{deployment}"
+  }
+
+  op ax.provider.class @DeepSeekClient {
+    attr core_kind = "record"
+    attr public = true
+    ref interface = @AxAIService
+    tag "deepseek"
+    type default_base_url = "https://api.deepseek.com"
+  }
+
+  op ax.provider.class @MistralClient {
+    attr core_kind = "record"
+    attr public = true
+    ref interface = @AxAIService
+    tag "mistral"
+    type default_base_url = "https://api.mistral.ai/v1"
+  }
+
+  op ax.provider.class @RekaClient {
+    attr core_kind = "record"
+    attr public = true
+    ref interface = @AxAIService
+    tag "reka"
+    type default_base_url = "https://api.reka.ai/v1"
+  }
+
+  op ax.provider.class @CohereClient {
+    attr core_kind = "record"
+    attr public = true
+    ref interface = @AxAIService
+    tag "cohere"
+    type default_base_url = "https://api.cohere.ai/compatibility/v1"
+  }
+
+  op ax.provider.class @GrokClient {
+    attr core_kind = "record"
+    attr public = true
+    ref interface = @AxAIService
+    tag "grok"
+    type default_base_url = "https://api.x.ai/v1"
+  }
+
   op ax.provider.semantic @openai_build_chat_request {
     attr core_kind = "func"
     attr effect = "throws"
@@ -2418,32 +2466,8 @@ module @ax.provider version "0.1" {
     type signature = "(profile:string) -> string"
     body @entry(%profile: string) {
       %normalized = core.call intrinsic.string.lower(%profile)
-      %is_responses_dash = core.call intrinsic.eq(%normalized, "openai-responses")
-      %is_responses_under = core.call intrinsic.eq(%normalized, "openai_responses")
-      %is_responses_alias = core.call intrinsic.eq(%normalized, "responses")
-      %is_responses_one = core.call intrinsic.or(%is_responses_dash, %is_responses_under)
-      %is_responses = core.call intrinsic.or(%is_responses_one, %is_responses_alias)
-      %is_gemini_google = core.call intrinsic.eq(%normalized, "google-gemini")
-      %is_gemini_google_under = core.call intrinsic.eq(%normalized, "google_gemini")
-      %is_gemini_alias = core.call intrinsic.eq(%normalized, "gemini")
-      %is_gemini_one = core.call intrinsic.or(%is_gemini_google, %is_gemini_google_under)
-      %is_gemini = core.call intrinsic.or(%is_gemini_one, %is_gemini_alias)
-      %is_anthropic_main = core.call intrinsic.eq(%normalized, "anthropic")
-      %is_anthropic_alias = core.call intrinsic.eq(%normalized, "claude")
-      %is_anthropic = core.call intrinsic.or(%is_anthropic_main, %is_anthropic_alias)
-      %provider_id = core.let "openai-compatible"
-      core.if %is_responses {
-        %provider_id = core.let "openai-responses"
-      } else {
-        core.if %is_gemini {
-          %provider_id = core.let "google-gemini"
-        } else {
-          core.if %is_anthropic {
-            %provider_id = core.let "anthropic"
-          } else {
-          }
-        }
-      }
+      %aliases = core.call intrinsic.json.parse("{\"openai\":\"openai-compatible\",\"openai-compatible\":\"openai-compatible\",\"openai_compatible\":\"openai-compatible\",\"compatible\":\"openai-compatible\",\"openai-responses\":\"openai-responses\",\"openai_responses\":\"openai-responses\",\"responses\":\"openai-responses\",\"google-gemini\":\"google-gemini\",\"google_gemini\":\"google-gemini\",\"gemini\":\"google-gemini\",\"anthropic\":\"anthropic\",\"claude\":\"anthropic\",\"azure-openai\":\"azure-openai\",\"azure_openai\":\"azure-openai\",\"azure\":\"azure-openai\",\"deepseek\":\"deepseek\",\"mistral\":\"mistral\",\"reka\":\"reka\",\"cohere\":\"cohere\",\"grok\":\"grok\",\"xai\":\"grok\",\"x-grok\":\"grok\",\"x_grok\":\"grok\"}")
+      %provider_id = core.get %aliases[%normalized] default "openai-compatible"
       core.return %provider_id
     }
   }
@@ -2454,7 +2478,7 @@ module @ax.provider version "0.1" {
     tag "provider-profile-registry"
     type signature = "() -> json"
     body @entry() {
-      %registry = core.call intrinsic.json.parse("{\"registryVersion\":\"provider-profile-registry-v1\",\"supportedProfileIds\":[\"openai-compatible\",\"openai-responses\",\"google-gemini\",\"anthropic\"],\"profiles\":{\"openai-compatible\":{\"id\":\"openai-compatible\",\"publicNames\":[\"openai-compatible\",\"openai\"],\"aliases\":[\"openai-compatible\",\"openai\",\"compatible\"],\"generatedClient\":\"OpenAICompatibleClient\",\"descriptorBacked\":true,\"catalogStatus\":\"descriptor-covered\"},\"openai-responses\":{\"id\":\"openai-responses\",\"publicNames\":[\"openai-responses\"],\"aliases\":[\"openai-responses\",\"openai_responses\",\"responses\"],\"generatedClient\":\"OpenAIResponsesClient\",\"descriptorBacked\":true,\"catalogStatus\":\"descriptor-covered\"},\"google-gemini\":{\"id\":\"google-gemini\",\"publicNames\":[\"google-gemini\",\"gemini\"],\"aliases\":[\"google-gemini\",\"google_gemini\",\"gemini\"],\"generatedClient\":\"GoogleGeminiClient\",\"descriptorBacked\":true,\"catalogStatus\":\"descriptor-covered\"},\"anthropic\":{\"id\":\"anthropic\",\"publicNames\":[\"anthropic\",\"claude\"],\"aliases\":[\"anthropic\",\"claude\"],\"generatedClient\":\"AnthropicClient\",\"descriptorBacked\":true,\"catalogStatus\":\"descriptor-covered\"}},\"deferredCatalogProviderIds\":[\"azure-openai\",\"cohere\",\"deepseek\",\"mistral\",\"huggingface\",\"reka\",\"grok\"]}")
+      %registry = core.call intrinsic.json.parse("{\"registryVersion\":\"provider-profile-registry-v1\",\"supportedProfileIds\":[\"openai-compatible\",\"openai-responses\",\"google-gemini\",\"anthropic\",\"azure-openai\",\"deepseek\",\"mistral\",\"reka\",\"cohere\",\"grok\"],\"profiles\":{\"openai-compatible\":{\"id\":\"openai-compatible\",\"publicNames\":[\"openai-compatible\",\"openai\"],\"aliases\":[\"openai-compatible\",\"openai\",\"compatible\"],\"generatedClient\":\"OpenAICompatibleClient\",\"descriptorBacked\":true,\"catalogStatus\":\"descriptor-covered\"},\"openai-responses\":{\"id\":\"openai-responses\",\"publicNames\":[\"openai-responses\"],\"aliases\":[\"openai-responses\",\"openai_responses\",\"responses\"],\"generatedClient\":\"OpenAIResponsesClient\",\"descriptorBacked\":true,\"catalogStatus\":\"descriptor-covered\"},\"google-gemini\":{\"id\":\"google-gemini\",\"publicNames\":[\"google-gemini\",\"gemini\"],\"aliases\":[\"google-gemini\",\"google_gemini\",\"gemini\"],\"generatedClient\":\"GoogleGeminiClient\",\"descriptorBacked\":true,\"catalogStatus\":\"descriptor-covered\"},\"anthropic\":{\"id\":\"anthropic\",\"publicNames\":[\"anthropic\",\"claude\"],\"aliases\":[\"anthropic\",\"claude\"],\"generatedClient\":\"AnthropicClient\",\"descriptorBacked\":true,\"catalogStatus\":\"descriptor-covered\"},\"azure-openai\":{\"id\":\"azure-openai\",\"publicNames\":[\"azure-openai\"],\"aliases\":[\"azure-openai\",\"azure_openai\",\"azure\"],\"generatedClient\":\"AzureOpenAIClient\",\"descriptorBacked\":true,\"catalogStatus\":\"descriptor-covered\"},\"deepseek\":{\"id\":\"deepseek\",\"publicNames\":[\"deepseek\"],\"aliases\":[\"deepseek\"],\"generatedClient\":\"DeepSeekClient\",\"descriptorBacked\":true,\"catalogStatus\":\"descriptor-covered\"},\"mistral\":{\"id\":\"mistral\",\"publicNames\":[\"mistral\"],\"aliases\":[\"mistral\"],\"generatedClient\":\"MistralClient\",\"descriptorBacked\":true,\"catalogStatus\":\"descriptor-covered\"},\"reka\":{\"id\":\"reka\",\"publicNames\":[\"reka\"],\"aliases\":[\"reka\"],\"generatedClient\":\"RekaClient\",\"descriptorBacked\":true,\"catalogStatus\":\"descriptor-covered\"},\"cohere\":{\"id\":\"cohere\",\"publicNames\":[\"cohere\"],\"aliases\":[\"cohere\"],\"generatedClient\":\"CohereClient\",\"descriptorBacked\":true,\"catalogStatus\":\"descriptor-covered\"},\"grok\":{\"id\":\"grok\",\"publicNames\":[\"grok\"],\"aliases\":[\"grok\",\"xai\",\"x-grok\",\"x_grok\"],\"generatedClient\":\"GrokClient\",\"descriptorBacked\":true,\"catalogStatus\":\"descriptor-covered\"}},\"deferredCatalogProviderIds\":[\"huggingface\"]}")
       core.return %registry
     }
   }
@@ -2466,29 +2490,8 @@ module @ax.provider version "0.1" {
     type signature = "(profile:string) -> json"
     body @entry(%profile: string) {
       %normalized = core.call intrinsic.string.lower(%profile)
-      %is_openai = core.call intrinsic.eq(%normalized, "openai")
-      %is_openai_compatible_dash = core.call intrinsic.eq(%normalized, "openai-compatible")
-      %is_openai_compatible_under = core.call intrinsic.eq(%normalized, "openai_compatible")
-      %is_compatible = core.call intrinsic.eq(%normalized, "compatible")
-      %is_openai_one = core.call intrinsic.or(%is_openai, %is_openai_compatible_dash)
-      %is_openai_two = core.call intrinsic.or(%is_openai_compatible_under, %is_compatible)
-      %is_openai_alias = core.call intrinsic.or(%is_openai_one, %is_openai_two)
-      %is_responses_dash = core.call intrinsic.eq(%normalized, "openai-responses")
-      %is_responses_under = core.call intrinsic.eq(%normalized, "openai_responses")
-      %is_responses_alias = core.call intrinsic.eq(%normalized, "responses")
-      %is_responses_one = core.call intrinsic.or(%is_responses_dash, %is_responses_under)
-      %is_responses = core.call intrinsic.or(%is_responses_one, %is_responses_alias)
-      %is_gemini_google = core.call intrinsic.eq(%normalized, "google-gemini")
-      %is_gemini_google_under = core.call intrinsic.eq(%normalized, "google_gemini")
-      %is_gemini_alias = core.call intrinsic.eq(%normalized, "gemini")
-      %is_gemini_one = core.call intrinsic.or(%is_gemini_google, %is_gemini_google_under)
-      %is_gemini = core.call intrinsic.or(%is_gemini_one, %is_gemini_alias)
-      %is_anthropic_main = core.call intrinsic.eq(%normalized, "anthropic")
-      %is_anthropic_alias = core.call intrinsic.eq(%normalized, "claude")
-      %is_anthropic = core.call intrinsic.or(%is_anthropic_main, %is_anthropic_alias)
-      %is_known_one = core.call intrinsic.or(%is_openai_alias, %is_responses)
-      %is_known_two = core.call intrinsic.or(%is_gemini, %is_anthropic)
-      %is_known = core.call intrinsic.or(%is_known_one, %is_known_two)
+      %aliases = core.call intrinsic.json.parse("{\"openai\":\"openai-compatible\",\"openai-compatible\":\"openai-compatible\",\"openai_compatible\":\"openai-compatible\",\"compatible\":\"openai-compatible\",\"openai-responses\":\"openai-responses\",\"openai_responses\":\"openai-responses\",\"responses\":\"openai-responses\",\"google-gemini\":\"google-gemini\",\"google_gemini\":\"google-gemini\",\"gemini\":\"google-gemini\",\"anthropic\":\"anthropic\",\"claude\":\"anthropic\",\"azure-openai\":\"azure-openai\",\"azure_openai\":\"azure-openai\",\"azure\":\"azure-openai\",\"deepseek\":\"deepseek\",\"mistral\":\"mistral\",\"reka\":\"reka\",\"cohere\":\"cohere\",\"grok\":\"grok\",\"xai\":\"grok\",\"x-grok\":\"grok\",\"x_grok\":\"grok\"}")
+      %is_known = core.call intrinsic.map.contains(%aliases, %normalized)
       %provider_id = core.call @provider_normalize_profile(%profile)
       %resolved = core.map
       core.set %resolved["id"] = %provider_id
@@ -2504,7 +2507,7 @@ module @ax.provider version "0.1" {
     tag "provider-model-catalog-audit"
     type signature = "() -> json"
     body @entry() {
-      %summary = core.call intrinsic.json.parse("{\"catalogVersion\":\"provider-model-catalog-audit-v1\",\"source\":\"src/ax/ai/catalog.ts\",\"providerCount\":11,\"providerNames\":[\"openai\",\"openai-responses\",\"azure-openai\",\"anthropic\",\"google-gemini\",\"cohere\",\"deepseek\",\"mistral\",\"huggingface\",\"reka\",\"grok\"],\"descriptorCoveredProviderIds\":[\"openai-compatible\",\"openai-responses\",\"google-gemini\",\"anthropic\"],\"deferredProviderIds\":[\"azure-openai\",\"cohere\",\"deepseek\",\"mistral\",\"huggingface\",\"reka\",\"grok\"],\"filterOptions\":[\"all\",\"text\",\"embeddings\",\"code\",\"audio\"],\"semantics\":{\"codeMatchesTextFilter\":true,\"modelSort\":\"price-then-name\",\"providerSort\":\"cheapest-model-then-display-name\",\"metadataClonedPerCall\":true,\"dynamicProvidersMayHaveEmptyModels\":true},\"nextMilestone\":\"AxIR GEPA Engine Port\"}")
+      %summary = core.call intrinsic.json.parse("{\"catalogVersion\":\"provider-model-catalog-audit-v1\",\"source\":\"src/ax/ai/catalog.ts\",\"providerCount\":11,\"providerNames\":[\"openai\",\"openai-responses\",\"azure-openai\",\"anthropic\",\"google-gemini\",\"cohere\",\"deepseek\",\"mistral\",\"huggingface\",\"reka\",\"grok\"],\"descriptorCoveredProviderIds\":[\"openai-compatible\",\"openai-responses\",\"google-gemini\",\"anthropic\",\"azure-openai\",\"deepseek\",\"mistral\",\"reka\",\"cohere\",\"grok\"],\"deferredProviderIds\":[\"huggingface\"],\"filterOptions\":[\"all\",\"text\",\"embeddings\",\"code\",\"audio\"],\"semantics\":{\"codeMatchesTextFilter\":true,\"modelSort\":\"price-then-name\",\"providerSort\":\"cheapest-model-then-display-name\",\"metadataClonedPerCall\":true,\"dynamicProvidersMayHaveEmptyModels\":true},\"nextMilestone\":\"Additional catalog provider clients complete except Hugging Face\"}")
       core.return %summary
     }
   }
@@ -3329,6 +3332,13 @@ module @ax.provider version "0.1" {
     type signature = "(profile:string) -> json"
     body @entry(%profile: string) {
       %provider_id = core.call @provider_normalize_profile(%profile)
+      %openai_family = core.call intrinsic.json.parse("{\"openai-compatible\":{\"provider\":\"openai-compatible\",\"id\":\"openai-compatible\",\"name\":\"openai\",\"baseUrl\":\"https://api.openai.com/v1\",\"auth\":\"bearer\",\"defaultModel\":\"gpt-4.1-mini\",\"defaultEmbedModel\":\"text-embedding-3-small\",\"operations\":{\"chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":true},\"embed\":{\"method\":\"POST\",\"path\":\"/embeddings\",\"body\":\"json\",\"stream\":false}},\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"multi_turn\":true,\"thinking\":false,\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\",\"image/webp\"]},\"audio\":{\"supported\":false,\"formats\":[],\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"azure-openai\":{\"provider\":\"azure-openai\",\"id\":\"azure-openai\",\"name\":\"Azure OpenAI\",\"baseUrl\":\"https://{resource}.openai.azure.com/openai/deployments/{deployment}\",\"auth\":\"api_key_header\",\"apiKeyHeader\":\"api-key\",\"apiVersion\":\"2024-02-15-preview\",\"defaultModel\":\"gpt-5-mini\",\"defaultEmbedModel\":\"text-embedding-3-small\",\"operations\":{\"chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":true},\"embed\":{\"method\":\"POST\",\"path\":\"/embeddings\",\"body\":\"json\",\"stream\":false}},\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"multi_turn\":true,\"thinking\":true,\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\",\"image/gif\",\"image/webp\"],\"maxSize\":20971520},\"audio\":{\"supported\":false,\"formats\":[],\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"deepseek\":{\"provider\":\"deepseek\",\"id\":\"deepseek\",\"name\":\"DeepSeek\",\"baseUrl\":\"https://api.deepseek.com\",\"auth\":\"bearer\",\"defaultModel\":\"deepseek-v4-flash\",\"operations\":{\"chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":true}},\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"multi_turn\":true,\"thinking\":true,\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"mistral\":{\"provider\":\"mistral\",\"id\":\"mistral\",\"name\":\"Mistral\",\"baseUrl\":\"https://api.mistral.ai/v1\",\"auth\":\"bearer\",\"defaultModel\":\"mistral-small-latest\",\"defaultEmbedModel\":\"mistral-embed\",\"operations\":{\"chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":true},\"embed\":{\"method\":\"POST\",\"path\":\"/embeddings\",\"body\":\"json\",\"stream\":false}},\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"multi_turn\":true,\"thinking\":false,\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"reka\":{\"provider\":\"reka\",\"id\":\"reka\",\"name\":\"Reka\",\"baseUrl\":\"https://api.reka.ai/v1\",\"auth\":\"bearer\",\"defaultModel\":\"reka-core\",\"operations\":{\"chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":true}},\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"multi_turn\":true,\"thinking\":false,\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"cohere\":{\"provider\":\"cohere\",\"id\":\"cohere\",\"name\":\"Cohere\",\"baseUrl\":\"https://api.cohere.ai/compatibility/v1\",\"auth\":\"bearer\",\"defaultModel\":\"command-r-plus\",\"defaultEmbedModel\":\"embed-english-v3.0\",\"operations\":{\"chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":true},\"embed\":{\"method\":\"POST\",\"path\":\"/embeddings\",\"body\":\"json\",\"stream\":false}},\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"multi_turn\":true,\"thinking\":false,\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"grok\":{\"provider\":\"grok\",\"id\":\"grok\",\"name\":\"Grok\",\"baseUrl\":\"https://api.x.ai/v1\",\"auth\":\"bearer\",\"defaultModel\":\"grok-4.3\",\"operations\":{\"chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":true}},\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"multi_turn\":true,\"thinking\":true,\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"],\"maxSize\":20971520},\"audio\":{\"supported\":false,\"formats\":[],\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":true,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}}}")
+      %openai_family_descriptor = core.get %openai_family[%provider_id]
+      %is_openai_family = core.call intrinsic.is_not_none(%openai_family_descriptor)
+      core.if %is_openai_family {
+        core.return %openai_family_descriptor
+      } else {
+      }
       %is_responses = core.call intrinsic.eq(%provider_id, "openai-responses")
       %is_gemini = core.call intrinsic.eq(%provider_id, "google-gemini")
       %is_anthropic = core.call intrinsic.eq(%provider_id, "anthropic")
@@ -3522,6 +3532,295 @@ module @ax.provider version "0.1" {
             %payload = core.let %compatible_payload
           }
         }
+      }
+      %payload_with_quirks = core.call @provider_apply_openai_compatible_profile_quirks(%provider_id, %payload, %request)
+      %payload = core.let %payload_with_quirks
+      core.return %payload
+    }
+  }
+
+  op ax.provider.semantic @provider_apply_openai_compatible_profile_quirks {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "provider-operation-dispatch"
+    type signature = "(profile:string, payload:json, request:json) -> json"
+    body @entry(%profile: string, %payload: json, %request: json) {
+      %empty_map = core.map
+      %model_config = core.get %request["model_config"] default %empty_map
+      %is_deepseek = core.call intrinsic.eq(%profile, "deepseek")
+      core.if %is_deepseek {
+        %payload = core.call @provider_apply_deepseek_chat_quirks(%payload, %model_config)
+      } else {
+      }
+      %is_mistral = core.call intrinsic.eq(%profile, "mistral")
+      core.if %is_mistral {
+        %payload = core.call @provider_apply_mistral_chat_quirks(%payload)
+      } else {
+      }
+      %is_grok = core.call intrinsic.eq(%profile, "grok")
+      core.if %is_grok {
+        %payload = core.call @provider_apply_grok_chat_quirks(%payload, %request, %model_config)
+      } else {
+      }
+      core.return %payload
+    }
+  }
+
+  op ax.provider.semantic @provider_apply_deepseek_chat_quirks {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "deepseek-openai-compatible-quirks"
+    type signature = "(payload:json, model_config:json) -> json"
+    body @entry(%payload: json, %model_config: json) {
+      %model = core.get %payload["model"] default ""
+      %is_flash = core.call intrinsic.eq(%model, "deepseek-v4-flash")
+      %is_pro = core.call intrinsic.eq(%model, "deepseek-v4-pro")
+      %supports_thinking = core.call intrinsic.or(%is_flash, %is_pro)
+      %is_reasoner = core.call intrinsic.eq(%model, "deepseek-reasoner")
+      %unsupported_tool_choice_left = core.call intrinsic.or(%supports_thinking, %is_reasoner)
+      core.if %supports_thinking {
+        %budget_snake = core.get %model_config["thinking_token_budget"]
+        %budget = core.get %model_config["thinkingTokenBudget"] default %budget_snake
+        %reasoning = core.get %payload["reasoning_effort"]
+        %has_budget = core.call intrinsic.is_not_none(%budget)
+        %has_reasoning = core.call intrinsic.is_not_none(%reasoning)
+        %has_thinking_signal = core.call intrinsic.or(%has_budget, %has_reasoning)
+        %budget_is_none = core.call intrinsic.eq(%budget, "none")
+        %reasoning_is_none = core.call intrinsic.eq(%reasoning, "none")
+        %disabled_signal = core.call intrinsic.or(%budget_is_none, %reasoning_is_none)
+        %not_disabled_signal = core.call intrinsic.not(%disabled_signal)
+        %thinking_enabled = core.call intrinsic.and(%has_thinking_signal, %not_disabled_signal)
+        %thinking = core.map
+        core.if %thinking_enabled {
+          core.set %thinking["type"] = "enabled"
+          %is_xhigh = core.call intrinsic.eq(%reasoning, "xhigh")
+          %budget_is_highest = core.call intrinsic.eq(%budget, "highest")
+          %is_max_effort = core.call intrinsic.or(%is_xhigh, %budget_is_highest)
+          core.if %is_max_effort {
+            core.set %payload["reasoning_effort"] = "max"
+          } else {
+            %is_high = core.call intrinsic.eq(%reasoning, "high")
+            core.if %is_high {
+              core.set %payload["reasoning_effort"] = "high"
+            } else {
+              core.set %payload["reasoning_effort"] = "high"
+            }
+          }
+          core.call intrinsic.map.delete(%payload, "temperature")
+          core.call intrinsic.map.delete(%payload, "top_p")
+          core.call intrinsic.map.delete(%payload, "presence_penalty")
+          core.call intrinsic.map.delete(%payload, "frequency_penalty")
+        } else {
+          core.set %thinking["type"] = "disabled"
+          core.call intrinsic.map.delete(%payload, "reasoning_effort")
+        }
+        core.set %payload["thinking"] = %thinking
+      } else {
+      }
+      core.if %unsupported_tool_choice_left {
+        %tool_choice = core.get %payload["tool_choice"]
+        %choice_none = core.call intrinsic.eq(%tool_choice, "none")
+        core.if %choice_none {
+          core.call intrinsic.map.delete(%payload, "tools")
+        } else {
+        }
+        core.call intrinsic.map.delete(%payload, "tool_choice")
+      } else {
+      }
+      core.return %payload
+    }
+  }
+
+  op ax.provider.semantic @provider_apply_mistral_chat_quirks {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "mistral-openai-compatible-quirks"
+    type signature = "(payload:json) -> json"
+    body @entry(%payload: json) {
+      %max_completion = core.get %payload["max_completion_tokens"]
+      %has_max_completion = core.call intrinsic.is_not_none(%max_completion)
+      core.if %has_max_completion {
+        core.set %payload["max_tokens"] = %max_completion
+        core.call intrinsic.map.delete(%payload, "max_completion_tokens")
+      } else {
+      }
+      %empty_list = core.list
+      %messages = core.get %payload["messages"] default %empty_list
+      core.for %message in %messages {
+        %content = core.get %message["content"]
+        %content_is_list = core.type_is %content type "list"
+        core.if %content_is_list {
+          core.for %part in %content {
+            %part_type = core.get %part["type"] default ""
+            %is_image_url = core.call intrinsic.eq(%part_type, "image_url")
+            core.if %is_image_url {
+              %empty_image = core.map
+              %image = core.get %part["image_url"] default %empty_image
+              %url = core.get %image["url"]
+              %next_image = core.map
+              core.set %next_image["url"] = %url
+              core.set %part["image_url"] = %next_image
+            } else {
+            }
+          }
+        } else {
+        }
+      }
+      core.return %payload
+    }
+  }
+
+  op ax.provider.semantic @provider_apply_grok_chat_quirks {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "grok-openai-compatible-quirks"
+    type signature = "(payload:json, request:json, model_config:json) -> json"
+    body @entry(%payload: json, %request: json, %model_config: json) {
+      %model = core.get %payload["model"] default ""
+      %is_grok43 = core.call intrinsic.eq(%model, "grok-4.3")
+      %is_grok43_latest = core.call intrinsic.eq(%model, "grok-4.3-latest")
+      %is_grok43_any = core.call intrinsic.or(%is_grok43, %is_grok43_latest)
+      core.if %is_grok43_any {
+        %budget_snake = core.get %model_config["thinking_token_budget"]
+        %budget = core.get %model_config["thinkingTokenBudget"] default %budget_snake
+        %has_budget = core.call intrinsic.is_not_none(%budget)
+        core.if %has_budget {
+          %is_none = core.call intrinsic.eq(%budget, "none")
+          %is_minimal = core.call intrinsic.eq(%budget, "minimal")
+          %is_low = core.call intrinsic.eq(%budget, "low")
+          %is_medium = core.call intrinsic.eq(%budget, "medium")
+          %is_high = core.call intrinsic.eq(%budget, "high")
+          %is_highest = core.call intrinsic.eq(%budget, "highest")
+          %lowish = core.call intrinsic.or(%is_minimal, %is_low)
+          %highish = core.call intrinsic.or(%is_high, %is_highest)
+          core.if %is_none {
+            core.set %payload["reasoning_effort"] = "none"
+          } else {
+            core.if %lowish {
+              core.set %payload["reasoning_effort"] = "low"
+            } else {
+              core.if %is_medium {
+                core.set %payload["reasoning_effort"] = "medium"
+              } else {
+                core.if %highish {
+                  core.set %payload["reasoning_effort"] = "high"
+                } else {
+                }
+              }
+            }
+          }
+        } else {
+        }
+        core.call intrinsic.map.delete(%payload, "presence_penalty")
+        core.call intrinsic.map.delete(%payload, "frequency_penalty")
+        core.call intrinsic.map.delete(%payload, "stop")
+      } else {
+        core.call intrinsic.map.delete(%payload, "reasoning_effort")
+      }
+      %empty_map = core.map
+      %search_snake = core.get %request["search_parameters"]
+      %search_camel = core.get %request["searchParameters"] default %search_snake
+      %search_config_snake = core.get %model_config["search_parameters"] default %search_camel
+      %search = core.get %model_config["searchParameters"] default %search_config_snake
+      %has_search = core.call intrinsic.is_not_none(%search)
+      core.if %has_search {
+        %search_payload = core.map
+        %mode = core.get %search["mode"]
+        %return_citations = core.get %search["returnCitations"]
+        %return_citations_snake = core.get %search["return_citations"] default %return_citations
+        %from_date = core.get %search["fromDate"]
+        %from_date_snake = core.get %search["from_date"] default %from_date
+        %to_date = core.get %search["toDate"]
+        %to_date_snake = core.get %search["to_date"] default %to_date
+        %max_results = core.get %search["maxSearchResults"]
+        %max_results_snake = core.get %search["max_search_results"] default %max_results
+        %sources = core.get %search["sources"]
+        %has_mode = core.call intrinsic.is_not_none(%mode)
+        core.if %has_mode {
+          core.set %search_payload["mode"] = %mode
+        } else {
+        }
+        %has_return_citations = core.call intrinsic.is_not_none(%return_citations_snake)
+        core.if %has_return_citations {
+          core.set %search_payload["return_citations"] = %return_citations_snake
+        } else {
+        }
+        %has_from_date = core.call intrinsic.is_not_none(%from_date_snake)
+        core.if %has_from_date {
+          core.set %search_payload["from_date"] = %from_date_snake
+        } else {
+        }
+        %has_to_date = core.call intrinsic.is_not_none(%to_date_snake)
+        core.if %has_to_date {
+          core.set %search_payload["to_date"] = %to_date_snake
+        } else {
+        }
+        %has_max_results = core.call intrinsic.is_not_none(%max_results_snake)
+        core.if %has_max_results {
+          core.set %search_payload["max_search_results"] = %max_results_snake
+        } else {
+        }
+        core.if %sources {
+          %mapped_sources = core.list
+          core.for %source in %sources {
+            %mapped_source = core.map
+            %source_type = core.get %source["type"]
+            %source_country = core.get %source["country"]
+            %excluded_websites_camel = core.get %source["excludedWebsites"]
+            %excluded_websites = core.get %source["excluded_websites"] default %excluded_websites_camel
+            %allowed_websites_camel = core.get %source["allowedWebsites"]
+            %allowed_websites = core.get %source["allowed_websites"] default %allowed_websites_camel
+            %safe_search_camel = core.get %source["safeSearch"]
+            %safe_search = core.get %source["safe_search"] default %safe_search_camel
+            %x_handles_camel = core.get %source["xHandles"]
+            %x_handles = core.get %source["x_handles"] default %x_handles_camel
+            %links = core.get %source["links"]
+            %has_source_type = core.call intrinsic.is_not_none(%source_type)
+            core.if %has_source_type {
+              core.set %mapped_source["type"] = %source_type
+            } else {
+            }
+            %has_source_country = core.call intrinsic.is_not_none(%source_country)
+            core.if %has_source_country {
+              core.set %mapped_source["country"] = %source_country
+            } else {
+            }
+            %has_excluded_websites = core.call intrinsic.is_not_none(%excluded_websites)
+            core.if %has_excluded_websites {
+              core.set %mapped_source["excluded_websites"] = %excluded_websites
+            } else {
+            }
+            %has_allowed_websites = core.call intrinsic.is_not_none(%allowed_websites)
+            core.if %has_allowed_websites {
+              core.set %mapped_source["allowed_websites"] = %allowed_websites
+            } else {
+            }
+            %has_safe_search = core.call intrinsic.is_not_none(%safe_search)
+            core.if %has_safe_search {
+              core.set %mapped_source["safe_search"] = %safe_search
+            } else {
+            }
+            %has_x_handles = core.call intrinsic.is_not_none(%x_handles)
+            core.if %has_x_handles {
+              core.set %mapped_source["x_handles"] = %x_handles
+            } else {
+            }
+            %has_links = core.call intrinsic.is_not_none(%links)
+            core.if %has_links {
+              core.set %mapped_source["links"] = %links
+            } else {
+            }
+            core.append %mapped_sources, %mapped_source
+          }
+          core.set %search_payload["sources"] = %mapped_sources
+        } else {
+        }
+        core.set %payload["search_parameters"] = %search_payload
+      } else {
       }
       core.return %payload
     }

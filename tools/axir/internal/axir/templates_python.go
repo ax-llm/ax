@@ -18,11 +18,17 @@ from .ai import (
     AxBalancer,
     AxUnsupportedCapabilityError,
     AnthropicClient,
+    AzureOpenAIClient,
+    CohereClient,
+    DeepSeekClient,
+    GrokClient,
     GoogleGeminiClient,
+    MistralClient,
     MultiServiceRouter,
     OpenAICompatibleClient,
     OpenAIResponsesClient,
     ProviderRouter,
+    RekaClient,
     ai,
     get_supported_ai_models,
 )
@@ -64,13 +70,19 @@ __all__ = [
     "AxUnsupportedCapabilityError",
     "AxValidationError",
     "AnthropicClient",
+    "AzureOpenAIClient",
+    "CohereClient",
+    "DeepSeekClient",
     "Field",
     "FieldType",
+    "GrokClient",
     "GoogleGeminiClient",
+    "MistralClient",
     "MultiServiceRouter",
     "OpenAICompatibleClient",
     "OpenAIResponsesClient",
     "ProviderRouter",
+    "RekaClient",
     "RuntimeCapabilities",
     "RuntimeEnvelope",
     "SignatureBuilder",
@@ -1565,6 +1577,18 @@ def ai(provider: str = "openai", **options):
         return GoogleGeminiClient(**options)
     if canonical == "anthropic":
         return AnthropicClient(**options)
+    if canonical == "azure-openai":
+        return AzureOpenAIClient(**options)
+    if canonical == "deepseek":
+        return DeepSeekClient(**options)
+    if canonical == "mistral":
+        return MistralClient(**options)
+    if canonical == "reka":
+        return RekaClient(**options)
+    if canonical == "cohere":
+        return CohereClient(**options)
+    if canonical == "grok":
+        return GrokClient(**options)
     raise ValueError(f"unsupported AxAI provider: {provider}")
 
 
@@ -1787,6 +1811,7 @@ class ProviderOperationClient(AxBaseAI):
         base_url: str | None = None,
         api_key: str | None = None,
         timeout: float = 60.0,
+        api_version: str | None = None,
         options: dict[str, Any] | None = None,
         model_config: dict[str, Any] | None = None,
         transport: Callable[[dict[str, Any]], Any] | None = None,
@@ -1804,6 +1829,7 @@ class ProviderOperationClient(AxBaseAI):
         self.descriptor = descriptor
         self.base_url = (base_url or os.environ.get("OPENAI_BASE_URL") or descriptor.get("baseUrl") or "https://api.openai.com/v1").rstrip("/")
         self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
+        self.api_version = api_version or descriptor.get("apiVersion")
         self.timeout = timeout
         self.transport = transport
 
@@ -1875,6 +1901,9 @@ class ProviderOperationClient(AxBaseAI):
             key_name = self.descriptor.get("apiKeyQuery") or "key"
             separator = "&" if "?" in path else "?"
             path += separator + urllib.parse.quote(str(key_name), safe="") + "=" + urllib.parse.quote(self.api_key or "", safe="")
+        if self.api_version:
+            separator = "&" if "?" in path else "?"
+            path += separator + "api-version=" + urllib.parse.quote(str(self.api_version), safe="")
         return path
 
     def _request_json(self, endpoint: str, payload: dict[str, Any], *, stream: bool, body_key: str = "json"):
@@ -1926,6 +1955,9 @@ class ProviderOperationClient(AxBaseAI):
             headers["Authorization"] = "Bearer " + (self.api_key or "")
         if self.descriptor.get("auth") == "anthropic_key":
             headers["x-api-key"] = self.api_key or ""
+        if self.descriptor.get("auth") == "api_key_header":
+            key_name = self.descriptor.get("apiKeyHeader") or "api-key"
+            headers[str(key_name)] = self.api_key or ""
         for key, value in (self.descriptor.get("headers") or {}).items():
             headers[str(key)] = str(value)
         return headers
@@ -1985,6 +2017,113 @@ class AnthropicClient(ProviderOperationClient):
             "anthropic",
             "anthropic",
             model=options.pop("model", "claude-3-7-sonnet-latest"),
+            embed_model=options.pop("embed_model", options.pop("embedModel", "")),
+            api_key=api_key,
+            base_url=base_url,
+            **options,
+        )
+
+
+def _normalize_azure_api_version(version: Any) -> str:
+    text = str(version or "2024-02-15-preview").strip()
+    marker = "api-version="
+    if marker in text:
+        return text.split(marker, 1)[1].split("&", 1)[0]
+    return text
+
+
+class AzureOpenAIClient(ProviderOperationClient):
+    def __init__(self, **options):
+        api_key = options.pop("api_key", None) or options.pop("apiKey", None) or os.environ.get("AZURE_OPENAI_API_KEY")
+        resource = options.pop("resource_name", None) or options.pop("resourceName", None) or os.environ.get("AZURE_OPENAI_RESOURCE_NAME")
+        deployment = options.pop("deployment_name", None) or options.pop("deploymentName", None) or os.environ.get("AZURE_OPENAI_DEPLOYMENT_NAME")
+        api_version = _normalize_azure_api_version(options.pop("api_version", None) or options.pop("apiVersion", None) or options.pop("version", None) or "2024-02-15-preview")
+        base_url = options.pop("base_url", None) or options.pop("baseUrl", None) or os.environ.get("AZURE_OPENAI_BASE_URL")
+        if not base_url and resource and deployment:
+            host = str(resource)
+            if "://" not in host:
+                host = f"https://{host}.openai.azure.com"
+            base_url = host.rstrip("/") + "/openai/deployments/" + urllib.parse.quote(str(deployment), safe="")
+        super().__init__(
+            "azure-openai",
+            "Azure OpenAI",
+            model=options.pop("model", "gpt-5-mini"),
+            embed_model=options.pop("embed_model", options.pop("embedModel", "text-embedding-3-small")),
+            api_key=api_key,
+            base_url=base_url,
+            api_version=api_version,
+            **options,
+        )
+
+
+class DeepSeekClient(ProviderOperationClient):
+    def __init__(self, **options):
+        api_key = options.pop("api_key", None) or options.pop("apiKey", None) or os.environ.get("DEEPSEEK_API_KEY")
+        base_url = options.pop("base_url", None) or options.pop("baseUrl", None) or os.environ.get("DEEPSEEK_BASE_URL") or "https://api.deepseek.com"
+        super().__init__(
+            "deepseek",
+            "DeepSeek",
+            model=options.pop("model", "deepseek-v4-flash"),
+            embed_model=options.pop("embed_model", options.pop("embedModel", "")),
+            api_key=api_key,
+            base_url=base_url,
+            **options,
+        )
+
+
+class MistralClient(ProviderOperationClient):
+    def __init__(self, **options):
+        api_key = options.pop("api_key", None) or options.pop("apiKey", None) or os.environ.get("MISTRAL_API_KEY")
+        base_url = options.pop("base_url", None) or options.pop("baseUrl", None) or os.environ.get("MISTRAL_BASE_URL") or "https://api.mistral.ai/v1"
+        super().__init__(
+            "mistral",
+            "Mistral",
+            model=options.pop("model", "mistral-small-latest"),
+            embed_model=options.pop("embed_model", options.pop("embedModel", "mistral-embed")),
+            api_key=api_key,
+            base_url=base_url,
+            **options,
+        )
+
+
+class RekaClient(ProviderOperationClient):
+    def __init__(self, **options):
+        api_key = options.pop("api_key", None) or options.pop("apiKey", None) or os.environ.get("REKA_API_KEY")
+        base_url = options.pop("base_url", None) or options.pop("baseUrl", None) or os.environ.get("REKA_BASE_URL") or "https://api.reka.ai/v1"
+        super().__init__(
+            "reka",
+            "Reka",
+            model=options.pop("model", "reka-core"),
+            embed_model=options.pop("embed_model", options.pop("embedModel", "")),
+            api_key=api_key,
+            base_url=base_url,
+            **options,
+        )
+
+
+class CohereClient(ProviderOperationClient):
+    def __init__(self, **options):
+        api_key = options.pop("api_key", None) or options.pop("apiKey", None) or os.environ.get("COHERE_API_KEY")
+        base_url = options.pop("base_url", None) or options.pop("baseUrl", None) or os.environ.get("COHERE_BASE_URL") or "https://api.cohere.ai/compatibility/v1"
+        super().__init__(
+            "cohere",
+            "Cohere",
+            model=options.pop("model", "command-r-plus"),
+            embed_model=options.pop("embed_model", options.pop("embedModel", "embed-english-v3.0")),
+            api_key=api_key,
+            base_url=base_url,
+            **options,
+        )
+
+
+class GrokClient(ProviderOperationClient):
+    def __init__(self, **options):
+        api_key = options.pop("api_key", None) or options.pop("apiKey", None) or os.environ.get("XAI_API_KEY") or os.environ.get("GROK_API_KEY")
+        base_url = options.pop("base_url", None) or options.pop("baseUrl", None) or os.environ.get("XAI_BASE_URL") or os.environ.get("GROK_BASE_URL") or "https://api.x.ai/v1"
+        super().__init__(
+            "grok",
+            "Grok",
+            model=options.pop("model", "grok-4.3"),
             embed_model=options.pop("embed_model", options.pop("embedModel", "")),
             api_key=api_key,
             base_url=base_url,
@@ -2566,6 +2705,12 @@ def _core_map_merge(left, right):
     out = dict(left or {})
     out.update(right or {})
     return out
+
+
+def _core_map_delete(target, key):
+    if isinstance(target, dict):
+        target.pop(key, None)
+    return target
 
 
 def _core_map_contains(values, key):
@@ -5004,7 +5149,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .ai import AnthropicClient, AxAIServiceAuthenticationError, AxAIServiceError, AxAIServiceNetworkError, AxAIServiceResponseError, AxAIServiceStatusError, AxAIServiceStreamTerminatedError, AxAIServiceTimeoutError, AxBaseAI, AxBalancer, GoogleGeminiClient, MultiServiceRouter, OpenAICompatibleClient, OpenAIResponsesClient, ProviderRouter, get_supported_ai_models, provider_descriptor, provider_model_catalog_summary, provider_normalize_profile, provider_profile_registry
+from .ai import AnthropicClient, AzureOpenAIClient, AxAIServiceAuthenticationError, AxAIServiceError, AxAIServiceNetworkError, AxAIServiceResponseError, AxAIServiceStatusError, AxAIServiceStreamTerminatedError, AxAIServiceTimeoutError, AxBaseAI, AxBalancer, CohereClient, DeepSeekClient, GoogleGeminiClient, GrokClient, MistralClient, MultiServiceRouter, OpenAICompatibleClient, OpenAIResponsesClient, ProviderRouter, RekaClient, get_supported_ai_models, provider_descriptor, provider_model_catalog_summary, provider_normalize_profile, provider_profile_registry
 from .gen import ax, fold_stream
 from .flow import (
     _FlowCallable,
@@ -6821,16 +6966,45 @@ def _openai_fixture_client(fixture):
         client_cls = AnthropicClient
         default_model = "claude-3-7-sonnet-latest"
         default_embed_model = ""
+    elif provider == "azure-openai":
+        client_cls = AzureOpenAIClient
+        default_model = "gpt-5-mini"
+        default_embed_model = "text-embedding-3-small"
+    elif provider == "deepseek":
+        client_cls = DeepSeekClient
+        default_model = "deepseek-v4-flash"
+        default_embed_model = ""
+    elif provider == "mistral":
+        client_cls = MistralClient
+        default_model = "mistral-small-latest"
+        default_embed_model = "mistral-embed"
+    elif provider == "reka":
+        client_cls = RekaClient
+        default_model = "reka-core"
+        default_embed_model = ""
+    elif provider == "cohere":
+        client_cls = CohereClient
+        default_model = "command-r-plus"
+        default_embed_model = "embed-english-v3.0"
+    elif provider == "grok":
+        client_cls = GrokClient
+        default_model = "grok-4.3"
+        default_embed_model = ""
     else:
         client_cls = OpenAICompatibleClient
         default_model = "gpt-4.1-mini"
         default_embed_model = "text-embedding-3-small"
+    extra_options = {}
+    for key in ("base_url", "baseUrl", "resource_name", "resourceName", "deployment_name", "deploymentName", "api_version", "apiVersion", "version"):
+        if key in fixture:
+            extra_options[key] = fixture[key]
     client = client_cls(
         model=fixture.get("model", default_model),
         embed_model=fixture.get("embed_model", default_embed_model),
         api_key="test-key",
         transport=transport,
         model_config=fixture.get("model_config"),
+        **extra_options,
     )
     return client, transport
 
@@ -7002,12 +7176,12 @@ if __name__ == "__main__":
     main()
 `
 
-const pyProvidersInit = `from .openai import AnthropicClient, GoogleGeminiClient, OpenAICompatibleClient, OpenAIResponsesClient
+const pyProvidersInit = `from .openai import AnthropicClient, AzureOpenAIClient, CohereClient, DeepSeekClient, GoogleGeminiClient, GrokClient, MistralClient, OpenAICompatibleClient, OpenAIResponsesClient, RekaClient
 
-__all__ = ["AnthropicClient", "GoogleGeminiClient", "OpenAICompatibleClient", "OpenAIResponsesClient"]
+__all__ = ["AnthropicClient", "AzureOpenAIClient", "CohereClient", "DeepSeekClient", "GoogleGeminiClient", "GrokClient", "MistralClient", "OpenAICompatibleClient", "OpenAIResponsesClient", "RekaClient"]
 `
 
-const pyOpenAIProvider = `from ..ai import AnthropicClient, GoogleGeminiClient, OpenAICompatibleClient, OpenAIResponsesClient
+const pyOpenAIProvider = `from ..ai import AnthropicClient, AzureOpenAIClient, CohereClient, DeepSeekClient, GoogleGeminiClient, GrokClient, MistralClient, OpenAICompatibleClient, OpenAIResponsesClient, RekaClient
 
-__all__ = ["AnthropicClient", "GoogleGeminiClient", "OpenAICompatibleClient", "OpenAIResponsesClient"]
+__all__ = ["AnthropicClient", "AzureOpenAIClient", "CohereClient", "DeepSeekClient", "GoogleGeminiClient", "GrokClient", "MistralClient", "OpenAICompatibleClient", "OpenAIResponsesClient", "RekaClient"]
 `

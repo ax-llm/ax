@@ -1,23 +1,21 @@
 {
   "expected_output": {
     "catalogVersion": "provider-model-catalog-audit-v1",
-    "deferredProviderIds": [
-      "azure-openai",
-      "cohere",
-      "deepseek",
-      "mistral",
-      "huggingface",
-      "reka",
-      "grok"
-    ],
+    "deferredProviderIds": ["huggingface"],
     "descriptorCoveredProviderIds": [
       "openai-compatible",
       "openai-responses",
       "google-gemini",
-      "anthropic"
+      "anthropic",
+      "azure-openai",
+      "deepseek",
+      "mistral",
+      "reka",
+      "cohere",
+      "grok"
     ],
     "filterOptions": ["all", "text", "embeddings", "code", "audio"],
-    "nextMilestone": "AxIR GEPA Engine Port",
+    "nextMilestone": "Additional catalog provider clients complete except Hugging Face",
     "providerCount": 11,
     "providerNames": [
       "openai",

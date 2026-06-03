@@ -57,6 +57,24 @@ public final class Ax {
     if (canonical.equals("anthropic")) {
       return new AnthropicClient(options == null ? java.util.Map.of() : options);
     }
+    if (canonical.equals("azure-openai")) {
+      return new AzureOpenAIClient(options == null ? java.util.Map.of() : options);
+    }
+    if (canonical.equals("deepseek")) {
+      return new DeepSeekClient(options == null ? java.util.Map.of() : options);
+    }
+    if (canonical.equals("mistral")) {
+      return new MistralClient(options == null ? java.util.Map.of() : options);
+    }
+    if (canonical.equals("reka")) {
+      return new RekaClient(options == null ? java.util.Map.of() : options);
+    }
+    if (canonical.equals("cohere")) {
+      return new CohereClient(options == null ? java.util.Map.of() : options);
+    }
+    if (canonical.equals("grok")) {
+      return new GrokClient(options == null ? java.util.Map.of() : options);
+    }
     throw new IllegalArgumentException("unsupported AxAI provider: " + provider);
   }
 
@@ -1319,6 +1337,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
   private final Map<String, Object> descriptor;
   private final String baseUrl;
   private final String apiKey;
+  private final String apiVersion;
   private final double timeoutSeconds;
   private final Transport transport;
   private final HttpClient http = HttpClient.newHttpClient();
@@ -1344,6 +1363,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
     String descriptorBaseUrl = String.valueOf(this.descriptor.getOrDefault("baseUrl", "https://api.openai.com/v1"));
     this.baseUrl = String.valueOf(options.getOrDefault("base_url", options.getOrDefault("baseUrl", System.getenv().getOrDefault("OPENAI_BASE_URL", descriptorBaseUrl)))).replaceAll("/+$", "");
     this.apiKey = String.valueOf(options.getOrDefault("api_key", options.getOrDefault("apiKey", System.getenv("OPENAI_API_KEY"))));
+    this.apiVersion = String.valueOf(options.getOrDefault("api_version", options.getOrDefault("apiVersion", this.descriptor.getOrDefault("apiVersion", ""))));
     Object timeout = options.getOrDefault("timeout", 60.0);
     this.timeoutSeconds = timeout instanceof Number n ? n.doubleValue() : 60.0;
     this.transport = options.get("transport") instanceof Transport t ? t : null;
@@ -1425,21 +1445,11 @@ public class OpenAICompatibleClient extends AxBaseAI {
     call.put("stream", stream);
     if (transport != null) return transportResult(transport.call(call), call);
     if (apiKey == null || apiKey.isBlank() || "null".equals(apiKey)) throw new AxAIServiceAuthenticationError("OPENAI_API_KEY is required", null, null, null, call);
-    HttpRequest req = HttpRequest.newBuilder()
+    HttpRequest.Builder builder = HttpRequest.newBuilder()
       .uri(URI.create(baseUrl + endpoint))
-      .timeout(Duration.ofMillis((long) (timeoutSeconds * 1000)))
-      .header("Content-Type", "application/json")
-      .POST(HttpRequest.BodyPublishers.ofString(Json.stringify(payload)))
-      .build();
-    if ("bearer".equals(String.valueOf(descriptor.get("auth")))) {
-      req = HttpRequest.newBuilder()
-        .uri(URI.create(baseUrl + endpoint))
-        .timeout(Duration.ofMillis((long) (timeoutSeconds * 1000)))
-        .header("Authorization", "Bearer " + apiKey)
-        .header("Content-Type", "application/json")
-        .POST(HttpRequest.BodyPublishers.ofString(Json.stringify(payload)))
-        .build();
-    }
+      .timeout(Duration.ofMillis((long) (timeoutSeconds * 1000)));
+    for (Map.Entry<String, Object> header : headers().entrySet()) builder.header(header.getKey(), String.valueOf(header.getValue()));
+    HttpRequest req = builder.POST(HttpRequest.BodyPublishers.ofString(Json.stringify(payload))).build();
     HttpResponse<String> res = http.send(req, HttpResponse.BodyHandlers.ofString());
     Object body;
     try { body = Json.parse(res.body()); } catch (RuntimeException ex) { body = res.body(); }
@@ -1461,6 +1471,9 @@ public class OpenAICompatibleClient extends AxBaseAI {
       String keyName = String.valueOf(descriptor.getOrDefault("apiKeyQuery", "key"));
       path += (path.contains("?") ? "&" : "?") + URLEncoder.encode(keyName, StandardCharsets.UTF_8) + "=" + URLEncoder.encode(apiKey == null || "null".equals(apiKey) ? "" : apiKey, StandardCharsets.UTF_8);
     }
+    if (apiVersion != null && !apiVersion.isBlank() && !"null".equals(apiVersion)) {
+      path += (path.contains("?") ? "&" : "?") + "api-version=" + URLEncoder.encode(apiVersion, StandardCharsets.UTF_8);
+    }
     return path;
   }
 
@@ -1472,6 +1485,9 @@ public class OpenAICompatibleClient extends AxBaseAI {
     }
     if ("anthropic_key".equals(String.valueOf(descriptor.get("auth")))) {
       headers.put("x-api-key", apiKey == null ? "" : apiKey);
+    }
+    if ("api_key_header".equals(String.valueOf(descriptor.get("auth")))) {
+      headers.put(String.valueOf(descriptor.getOrDefault("apiKeyHeader", "api-key")), apiKey == null ? "" : apiKey);
     }
     Object extraHeaders = descriptor.get("headers");
     if (extraHeaders instanceof Map<?, ?> rawHeaders) {
@@ -1573,6 +1589,174 @@ public final class AnthropicClient extends OpenAICompatibleClient {
     Map<String, Object> out = new LinkedHashMap<>(options == null ? Map.of() : options);
     out.putIfAbsent("api_key", System.getenv("ANTHROPIC_API_KEY"));
     out.putIfAbsent("base_url", System.getenv().getOrDefault("ANTHROPIC_BASE_URL", "https://api.anthropic.com/v1"));
+    return out;
+  }
+}
+`
+
+const javaAzureOpenAI = `package dev.ax;
+
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+public final class AzureOpenAIClient extends OpenAICompatibleClient {
+  public AzureOpenAIClient(String model) {
+    this(Map.of("model", model));
+  }
+
+  public AzureOpenAIClient(Map<String, Object> options) {
+    super("azure-openai", "Azure OpenAI", normalize(options), "gpt-5-mini", "text-embedding-3-small");
+  }
+
+  private static Map<String, Object> normalize(Map<String, Object> options) {
+    Map<String, Object> out = new LinkedHashMap<>(options == null ? Map.of() : options);
+    out.putIfAbsent("api_key", System.getenv("AZURE_OPENAI_API_KEY"));
+    Object version = out.containsKey("version") ? out.remove("version") : out.getOrDefault("api_version", out.get("apiVersion"));
+    out.put("api_version", normalizeVersion(version));
+    if (!out.containsKey("base_url") && !out.containsKey("baseUrl")) {
+      Object resource = out.getOrDefault("resource_name", out.getOrDefault("resourceName", System.getenv("AZURE_OPENAI_RESOURCE_NAME")));
+      Object deployment = out.getOrDefault("deployment_name", out.getOrDefault("deploymentName", System.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")));
+      String envBase = System.getenv("AZURE_OPENAI_BASE_URL");
+      if (envBase != null && !envBase.isBlank()) {
+        out.put("base_url", envBase);
+      } else if (resource != null && deployment != null && !String.valueOf(resource).isBlank() && !String.valueOf(deployment).isBlank()) {
+        String host = String.valueOf(resource);
+        if (!host.contains("://")) host = "https://" + host + ".openai.azure.com";
+        out.put("base_url", host.replaceAll("/+$", "") + "/openai/deployments/" + URLEncoder.encode(String.valueOf(deployment), StandardCharsets.UTF_8));
+      }
+    }
+    return out;
+  }
+
+  private static String normalizeVersion(Object version) {
+    String text = String.valueOf(version == null ? "2024-02-15-preview" : version).trim();
+    int idx = text.indexOf("api-version=");
+    if (idx >= 0) {
+      String rest = text.substring(idx + "api-version=".length());
+      int amp = rest.indexOf('&');
+      return amp >= 0 ? rest.substring(0, amp) : rest;
+    }
+    return text;
+  }
+}
+`
+
+const javaDeepSeek = `package dev.ax;
+
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+public final class DeepSeekClient extends OpenAICompatibleClient {
+  public DeepSeekClient(String model) {
+    this(Map.of("model", model));
+  }
+
+  public DeepSeekClient(Map<String, Object> options) {
+    super("deepseek", "DeepSeek", normalize(options), "deepseek-v4-flash", "");
+  }
+
+  private static Map<String, Object> normalize(Map<String, Object> options) {
+    Map<String, Object> out = new LinkedHashMap<>(options == null ? Map.of() : options);
+    out.putIfAbsent("api_key", System.getenv("DEEPSEEK_API_KEY"));
+    out.putIfAbsent("base_url", System.getenv().getOrDefault("DEEPSEEK_BASE_URL", "https://api.deepseek.com"));
+    return out;
+  }
+}
+`
+
+const javaMistral = `package dev.ax;
+
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+public final class MistralClient extends OpenAICompatibleClient {
+  public MistralClient(String model) {
+    this(Map.of("model", model));
+  }
+
+  public MistralClient(Map<String, Object> options) {
+    super("mistral", "Mistral", normalize(options), "mistral-small-latest", "mistral-embed");
+  }
+
+  private static Map<String, Object> normalize(Map<String, Object> options) {
+    Map<String, Object> out = new LinkedHashMap<>(options == null ? Map.of() : options);
+    out.putIfAbsent("api_key", System.getenv("MISTRAL_API_KEY"));
+    out.putIfAbsent("base_url", System.getenv().getOrDefault("MISTRAL_BASE_URL", "https://api.mistral.ai/v1"));
+    return out;
+  }
+}
+`
+
+const javaReka = `package dev.ax;
+
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+public final class RekaClient extends OpenAICompatibleClient {
+  public RekaClient(String model) {
+    this(Map.of("model", model));
+  }
+
+  public RekaClient(Map<String, Object> options) {
+    super("reka", "Reka", normalize(options), "reka-core", "");
+  }
+
+  private static Map<String, Object> normalize(Map<String, Object> options) {
+    Map<String, Object> out = new LinkedHashMap<>(options == null ? Map.of() : options);
+    out.putIfAbsent("api_key", System.getenv("REKA_API_KEY"));
+    out.putIfAbsent("base_url", System.getenv().getOrDefault("REKA_BASE_URL", "https://api.reka.ai/v1"));
+    return out;
+  }
+}
+`
+
+const javaCohere = `package dev.ax;
+
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+public final class CohereClient extends OpenAICompatibleClient {
+  public CohereClient(String model) {
+    this(Map.of("model", model));
+  }
+
+  public CohereClient(Map<String, Object> options) {
+    super("cohere", "Cohere", normalize(options), "command-r-plus", "embed-english-v3.0");
+  }
+
+  private static Map<String, Object> normalize(Map<String, Object> options) {
+    Map<String, Object> out = new LinkedHashMap<>(options == null ? Map.of() : options);
+    out.putIfAbsent("api_key", System.getenv("COHERE_API_KEY"));
+    out.putIfAbsent("base_url", System.getenv().getOrDefault("COHERE_BASE_URL", "https://api.cohere.ai/compatibility/v1"));
+    return out;
+  }
+}
+`
+
+const javaGrok = `package dev.ax;
+
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+public final class GrokClient extends OpenAICompatibleClient {
+  public GrokClient(String model) {
+    this(Map.of("model", model));
+  }
+
+  public GrokClient(Map<String, Object> options) {
+    super("grok", "Grok", normalize(options), "grok-4.3", "");
+  }
+
+  private static Map<String, Object> normalize(Map<String, Object> options) {
+    Map<String, Object> out = new LinkedHashMap<>(options == null ? Map.of() : options);
+    String key = System.getenv("XAI_API_KEY");
+    if (key == null || key.isBlank()) key = System.getenv("GROK_API_KEY");
+    out.putIfAbsent("api_key", key);
+    String base = System.getenv("XAI_BASE_URL");
+    if (base == null || base.isBlank()) base = System.getenv().getOrDefault("GROK_BASE_URL", "https://api.x.ai/v1");
+    out.putIfAbsent("base_url", base);
     return out;
   }
 }
@@ -5929,18 +6113,32 @@ public final class Conformance {
     boolean responsesProvider = provider.equals("openai-responses");
     boolean geminiProvider = provider.equals("google-gemini");
     boolean anthropicProvider = provider.equals("anthropic");
+    boolean azureProvider = provider.equals("azure-openai");
+    boolean deepseekProvider = provider.equals("deepseek");
+    boolean mistralProvider = provider.equals("mistral");
+    boolean rekaProvider = provider.equals("reka");
+    boolean cohereProvider = provider.equals("cohere");
+    boolean grokProvider = provider.equals("grok");
     Map<String, Object> options = new LinkedHashMap<>();
-    options.put("model", fixture.getOrDefault("model", anthropicProvider ? "claude-3-7-sonnet-latest" : geminiProvider ? "gemini-2.5-flash" : responsesProvider ? "gpt-4o" : "gpt-4.1-mini"));
-    options.put("embed_model", fixture.getOrDefault("embed_model", anthropicProvider ? "" : geminiProvider ? "gemini-embedding-2" : responsesProvider ? "text-embedding-ada-002" : "text-embedding-3-small"));
+    String defaultModel = anthropicProvider ? "claude-3-7-sonnet-latest" : geminiProvider ? "gemini-2.5-flash" : responsesProvider ? "gpt-4o" : azureProvider ? "gpt-5-mini" : deepseekProvider ? "deepseek-v4-flash" : mistralProvider ? "mistral-small-latest" : rekaProvider ? "reka-core" : cohereProvider ? "command-r-plus" : grokProvider ? "grok-4.3" : "gpt-4.1-mini";
+    String defaultEmbedModel = anthropicProvider || deepseekProvider || rekaProvider || grokProvider ? "" : geminiProvider ? "gemini-embedding-2" : responsesProvider ? "text-embedding-ada-002" : mistralProvider ? "mistral-embed" : cohereProvider ? "embed-english-v3.0" : "text-embedding-3-small";
+    options.put("model", fixture.getOrDefault("model", defaultModel));
+    options.put("embed_model", fixture.getOrDefault("embed_model", defaultEmbedModel));
     options.put("api_key", "test-key");
     options.put("transport", transport);
     options.put("model_config", fixture.get("model_config"));
-    OpenAICompatibleClient client = geminiProvider
-      ? new GoogleGeminiClient(options)
-      : anthropicProvider
-      ? new AnthropicClient(options)
-      : responsesProvider
-      ? new OpenAIResponsesClient(options)
+    for (String key : List.of("base_url", "baseUrl", "resource_name", "resourceName", "deployment_name", "deploymentName", "api_version", "apiVersion", "version")) {
+      if (fixture.containsKey(key)) options.put(key, fixture.get(key));
+    }
+    OpenAICompatibleClient client = geminiProvider ? new GoogleGeminiClient(options)
+      : anthropicProvider ? new AnthropicClient(options)
+      : responsesProvider ? new OpenAIResponsesClient(options)
+      : azureProvider ? new AzureOpenAIClient(options)
+      : deepseekProvider ? new DeepSeekClient(options)
+      : mistralProvider ? new MistralClient(options)
+      : rekaProvider ? new RekaClient(options)
+      : cohereProvider ? new CohereClient(options)
+      : grokProvider ? new GrokClient(options)
       : new OpenAICompatibleClient(options);
     return new ClientFixture(client, transport);
   }

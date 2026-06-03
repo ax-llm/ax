@@ -1,0 +1,77 @@
+{
+  "expected_output": {
+    "model_usage": {
+      "ai": "Cohere",
+      "model": "command-r-plus",
+      "tokens": {
+        "completion_tokens": 2,
+        "prompt_tokens": 1,
+        "total_tokens": 3
+      }
+    },
+    "remote_id": "chatcmpl_cohere",
+    "results": [
+      {
+        "content": "ok",
+        "finish_reason": "stop",
+        "function_calls": [],
+        "id": "0",
+        "index": 0
+      }
+    ]
+  },
+  "expected_transport_request": {
+    "json": {
+      "messages": [
+        {
+          "content": "hello cohere",
+          "role": "user"
+        }
+      ],
+      "model": "command-r-plus"
+    },
+    "method": "POST",
+    "url": "https://api.cohere.ai/compatibility/v1/chat/completions"
+  },
+  "kind": "ai_chat",
+  "model": "command-r-plus",
+  "name": "cohere-openai-compatible-chat",
+  "provider": "cohere",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "hello cohere",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "ok",
+              "refusal": null,
+              "role": "assistant"
+            }
+          }
+        ],
+        "id": "chatcmpl_cohere",
+        "model": "command-r-plus",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 2,
+          "prompt_tokens": 1,
+          "total_tokens": 3
+        }
+      },
+      "status": 200
+    }
+  ]
+}

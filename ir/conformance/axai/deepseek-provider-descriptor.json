@@ -1,0 +1,34 @@
+{
+  "expected_output": {
+    "auth": "bearer",
+    "baseUrl": "https://api.deepseek.com",
+    "defaultModel": "deepseek-v4-flash",
+    "features": {
+      "media": {
+        "images": {
+          "supported": false
+        }
+      },
+      "thinking": true
+    },
+    "id": "deepseek",
+    "name": "DeepSeek",
+    "operations": {
+      "chat": {
+        "body": "json",
+        "method": "POST",
+        "path": "/chat/completions",
+        "stream": false
+      },
+      "stream_chat": {
+        "body": "json",
+        "method": "POST",
+        "path": "/chat/completions",
+        "stream": true
+      }
+    }
+  },
+  "kind": "ai_provider_descriptor",
+  "name": "deepseek-provider-descriptor",
+  "provider": "deepseek"
+}

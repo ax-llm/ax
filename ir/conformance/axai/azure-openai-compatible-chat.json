@@ -1,0 +1,85 @@
+{
+  "api_version": "api-version=2024-02-15-preview",
+  "deployment_name": "deployment",
+  "expected_output": {
+    "model_usage": {
+      "ai": "Azure OpenAI",
+      "model": "gpt-5-mini",
+      "tokens": {
+        "completion_tokens": 2,
+        "prompt_tokens": 1,
+        "total_tokens": 3
+      }
+    },
+    "remote_id": "chatcmpl_azure",
+    "results": [
+      {
+        "content": "ok",
+        "finish_reason": "stop",
+        "function_calls": [],
+        "id": "0",
+        "index": 0
+      }
+    ]
+  },
+  "expected_transport_request": {
+    "headers": {
+      "api-key": "test-key"
+    },
+    "json": {
+      "max_completion_tokens": 32,
+      "messages": [
+        {
+          "content": "hello azure",
+          "role": "user"
+        }
+      ],
+      "model": "gpt-5-mini"
+    },
+    "method": "POST",
+    "url": "https://example.openai.azure.com/openai/deployments/deployment/chat/completions?api-version=2024-02-15-preview"
+  },
+  "kind": "ai_chat",
+  "model": "gpt-5-mini",
+  "name": "azure-openai-compatible-chat",
+  "provider": "azure-openai",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "hello azure",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "maxTokens": 32,
+      "stream": false
+    }
+  },
+  "resource_name": "example",
+  "transport_responses": [
+    {
+      "json": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "ok",
+              "refusal": null,
+              "role": "assistant"
+            }
+          }
+        ],
+        "id": "chatcmpl_azure",
+        "model": "gpt-5-mini",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 2,
+          "prompt_tokens": 1,
+          "total_tokens": 3
+        }
+      },
+      "status": 200
+    }
+  ]
+}

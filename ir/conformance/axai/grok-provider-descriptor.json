@@ -1,0 +1,36 @@
+{
+  "expected_output": {
+    "baseUrl": "https://api.x.ai/v1",
+    "defaultModel": "grok-4.3",
+    "features": {
+      "media": {
+        "images": {
+          "supported": true
+        },
+        "urls": {
+          "web_search": true
+        }
+      },
+      "thinking": true
+    },
+    "id": "grok",
+    "name": "Grok",
+    "operations": {
+      "chat": {
+        "body": "json",
+        "method": "POST",
+        "path": "/chat/completions",
+        "stream": false
+      },
+      "stream_chat": {
+        "body": "json",
+        "method": "POST",
+        "path": "/chat/completions",
+        "stream": true
+      }
+    }
+  },
+  "kind": "ai_provider_descriptor",
+  "name": "grok-provider-descriptor",
+  "provider": "grok"
+}
