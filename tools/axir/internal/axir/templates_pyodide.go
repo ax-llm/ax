@@ -346,7 +346,7 @@ if [ ! -d "$WORK_DIR/node_modules/pyodide" ]; then
   npm install --prefix "$WORK_DIR" --no-audit --no-fund >/dev/null
 fi
 
-printf 'env AXIR_PYODIDE_MODULE_ROOT=%s node --env-file=.env --import=tsx %s/tools/axir/adapters/pyodide-runtime-server.ts\n' "$WORK_DIR" "$REPO_ROOT"
+printf 'env AXIR_PYODIDE_MODULE_ROOT=%s node --import=tsx %s/tools/axir/adapters/pyodide-runtime-server.ts\n' "$WORK_DIR" "$REPO_ROOT"
 `
 
 const pyodideProfileReadme = `# Python Pyodide Runtime Profile

@@ -227,7 +227,7 @@ from axllm import ProcessCodeRuntime, agent
 repo_root = Path(os.environ["AXIR_REPO_ROOT"])
 server = os.environ["AXIR_AXJS_RUNTIME_SERVER"]
 runtime = ProcessCodeRuntime(
-    ["node", "--env-file=.env", "--import=tsx", server],
+    ["node", "--import=tsx", server],
     cwd=str(repo_root),
 )
 try:
@@ -535,7 +535,7 @@ public final class RuntimeProtocolExample {
     if (repoRoot == null || server == null) throw new RuntimeException("AXIR runtime protocol env vars are required");
 
     try (AxProcessCodeRuntime runtime = new AxProcessCodeRuntime(
-      List.of("node", "--env-file=.env", "--import=tsx", server),
+      List.of("node", "--import=tsx", server),
       new File(repoRoot),
       Map.of()
     )) {
