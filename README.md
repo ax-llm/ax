@@ -440,10 +440,20 @@ npm install @ax-llm/ax-tools              # MCP stdio transport, JS runtime extr
 
 ```bash
 OPENAI_APIKEY=your-key npm run tsx ./src/examples/<name>.ts
+npm run example -- list
+npm run example -- python agent_pipeline.py
+npm run example -- java FlowProgramGraphExample.java
+npm run example -- cpp realtime_audio_events.cpp
 npm run example -- python axgen_live_openai.py
 npm run example -- java AxGenLiveOpenAIExample.java
 npm run example -- cpp axgen_live_openai.cpp
 ```
+
+`npm run example -- list` shows no-key and live examples for TypeScript,
+Python, Java, and C++. No-key examples cover signatures, AxAgent, AxFlow,
+audio/realtime mapping, runtime adapters, optimizer artifacts, and GEPA with
+deterministic local clients. Live examples use real provider HTTP and read
+`OPENAI_API_KEY` or `OPENAI_APIKEY` from `.env`.
 
 Highlights: `extract.ts`, `react.ts`, `agent.ts`, `streaming1.ts`, `multi-modal.ts`, `audio-chat.ts`, `audio-batch-and-agent.ts`, `standard-schema.ts`, `rlm-memories-and-skills.ts`, `rlm-discovery.ts`, `gepa-flow.ts`, `openai-compatible.ts`, `ax-flow-enhanced-demo.ts`. [Browse all examples →](src/examples/)
 

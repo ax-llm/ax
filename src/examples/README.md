@@ -14,20 +14,49 @@ npm run example -- ts src/examples/summarize.ts
 Generated Python, Java, and C++ examples live in language-specific directories
 and run through the shared `.env`-aware example runner. The runner generates the
 local Ax package into `src/examples/.generated/`, builds the language package
-when needed, then runs the example.
+when needed, then runs the example. Use `list` to see the current no-key and
+live examples:
 
 ```bash
+npm run example -- list
 npm run example -- python signature_schema.py
 npm run example -- java SignatureSchemaExample.java
 npm run example -- cpp signature_schema.cpp
 ```
 
-Live examples use `OPENAI_API_KEY` or `OPENAI_APIKEY` from `.env`:
+No-key examples are deterministic local examples. They use fake clients,
+fake transports, custom runtime adapters, or local evaluators and print the
+actual normalized output shape. Live examples use real provider HTTP and require
+`OPENAI_API_KEY` or `OPENAI_APIKEY` from `.env`:
 
 ```bash
 npm run example -- python axgen_live_openai.py
 npm run example -- java AxGenLiveOpenAIExample.java
 npm run example -- cpp axgen_live_openai.cpp
+```
+
+## Multi-Language Example Matrix
+
+| Area | Python | Java | C++ | Kind |
+| --- | --- | --- | --- | --- |
+| Signature/schema | `signature_schema.py` | `SignatureSchemaExample.java` | `signature_schema.cpp` | no-key |
+| AxGen live OpenAI | `axgen_live_openai.py` | `AxGenLiveOpenAIExample.java` | `axgen_live_openai.cpp` | live |
+| AxAgent deterministic pipeline | `agent_pipeline.py` | `AgentPipelineExample.java` | `agent_pipeline.cpp` | no-key |
+| AxAgent live OpenAI | `agent_live_openai.py` | `AgentLiveOpenAIExample.java` | `agent_live_openai.cpp` | live |
+| AxFlow deterministic graph | `flow_program_graph.py` | `FlowProgramGraphExample.java` | `flow_program_graph.cpp` | no-key |
+| AxFlow live OpenAI | `flow_live_openai.py` | `FlowLiveOpenAIExample.java` | `flow_live_openai.cpp` | live |
+| OpenAI Responses audio mapping | `audio_responses_mapping.py` | `AudioResponsesMappingExample.java` | `audio_responses_mapping.cpp` | no-key |
+| Grok/Gemini realtime event folding | `realtime_audio_events.py` | `RealtimeAudioEventsExample.java` | `realtime_audio_events.cpp` | no-key |
+| Runtime adapter | `runtime_adapter.py` | `RuntimeAdapterExample.java` | `runtime_adapter.cpp` | no-key |
+| Optimizer artifact round trip | `optimizer_artifact.py` | `OptimizerArtifactExample.java` | `optimizer_artifact.cpp` | no-key |
+| GEPA local optimizer | `gepa_local_optimizer.py` | `GEPALocalOptimizerExample.java` | `gepa_local_optimizer.cpp` | no-key |
+
+Example commands:
+
+```bash
+npm run example -- python agent_pipeline.py
+npm run example -- java FlowProgramGraphExample.java
+npm run example -- cpp realtime_audio_events.cpp
 ```
 
 Go examples are reserved for the future generated Go backend. The compiler is

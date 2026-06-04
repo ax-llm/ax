@@ -2,7 +2,7 @@
 
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { cp, mkdir, readdir, rm } from 'node:fs/promises';
+import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -42,23 +42,95 @@ const languageDir = {
   go: 'go',
 };
 
-const generatedCmakeExamples = new Set([
-  'signature_schema',
-  'axgen_fake_client_tool',
-  'axgen_live_openai',
-  'axai_fake_transport',
-  'axagent_pipeline',
-  'runtime_adapter',
-  'runtime_protocol',
-  'axflow_program_graph',
-  'optimizer_artifact',
-]);
+const exampleCatalog = {
+  ts: [
+    ['no-key', 'src/examples/rlm-context-map.ts', 'AxAgent context-map smoke'],
+    [
+      'no-key',
+      'src/examples/rlm-context-management.ts',
+      'AxAgent context pressure',
+    ],
+    ['live', 'src/examples/summarize.ts', 'AxGen live OpenAI-compatible run'],
+    ['live', 'src/examples/audio-chat.ts voice', 'Realtime audio voice stream'],
+  ],
+  python: [
+    ['no-key', 'signature_schema.py', 'Signature and schema smoke'],
+    ['no-key', 'agent_pipeline.py', 'Deterministic AxAgent forward and logs'],
+    ['no-key', 'flow_program_graph.py', 'Deterministic AxFlow graph'],
+    ['no-key', 'audio_responses_mapping.py', 'OpenAI Responses audio mapping'],
+    [
+      'no-key',
+      'realtime_audio_events.py',
+      'Grok and Gemini realtime event folding',
+    ],
+    ['no-key', 'runtime_adapter.py', 'Custom AxCodeRuntime session'],
+    ['no-key', 'optimizer_artifact.py', 'Optimizer artifact apply round trip'],
+    ['no-key', 'gepa_local_optimizer.py', 'Local GEPA engine run'],
+    ['live', 'axgen_live_openai.py', 'AxGen live OpenAI-compatible run'],
+    ['live', 'agent_live_openai.py', 'AxAgent live OpenAI-compatible run'],
+    ['live', 'flow_live_openai.py', 'AxFlow live OpenAI-compatible run'],
+  ],
+  java: [
+    ['no-key', 'SignatureSchemaExample.java', 'Signature and schema smoke'],
+    [
+      'no-key',
+      'AgentPipelineExample.java',
+      'Deterministic AxAgent forward and logs',
+    ],
+    ['no-key', 'FlowProgramGraphExample.java', 'Deterministic AxFlow graph'],
+    [
+      'no-key',
+      'AudioResponsesMappingExample.java',
+      'OpenAI Responses audio mapping',
+    ],
+    [
+      'no-key',
+      'RealtimeAudioEventsExample.java',
+      'Grok and Gemini realtime event folding',
+    ],
+    ['no-key', 'RuntimeAdapterExample.java', 'Custom AxCodeRuntime session'],
+    [
+      'no-key',
+      'OptimizerArtifactExample.java',
+      'Optimizer artifact apply round trip',
+    ],
+    ['no-key', 'GEPALocalOptimizerExample.java', 'Local GEPA engine run'],
+    ['live', 'AxGenLiveOpenAIExample.java', 'AxGen live OpenAI-compatible run'],
+    [
+      'live',
+      'AgentLiveOpenAIExample.java',
+      'AxAgent live OpenAI-compatible run',
+    ],
+    ['live', 'FlowLiveOpenAIExample.java', 'AxFlow live OpenAI-compatible run'],
+  ],
+  cpp: [
+    ['no-key', 'signature_schema.cpp', 'Signature and schema smoke'],
+    ['no-key', 'agent_pipeline.cpp', 'Deterministic AxAgent forward and logs'],
+    ['no-key', 'flow_program_graph.cpp', 'Deterministic AxFlow graph'],
+    ['no-key', 'audio_responses_mapping.cpp', 'OpenAI Responses audio mapping'],
+    [
+      'no-key',
+      'realtime_audio_events.cpp',
+      'Grok and Gemini realtime event folding',
+    ],
+    ['no-key', 'runtime_adapter.cpp', 'Custom AxCodeRuntime session'],
+    ['no-key', 'optimizer_artifact.cpp', 'Optimizer artifact apply round trip'],
+    ['no-key', 'gepa_local_optimizer.cpp', 'Local GEPA engine run'],
+    ['live', 'axgen_live_openai.cpp', 'AxGen live OpenAI-compatible run'],
+    ['live', 'agent_live_openai.cpp', 'AxAgent live OpenAI-compatible run'],
+    ['live', 'flow_live_openai.cpp', 'AxFlow live OpenAI-compatible run'],
+  ],
+  go: [
+    ['future', 'src/examples/go/README.md', 'Generated Go backend is planned'],
+  ],
+};
 
 const env = loadDotEnv();
 if (!env.GOCACHE) env.GOCACHE = path.join(generatedRoot, 'go-build');
 const args = process.argv.slice(2);
 
 if (args.length === 0) usage(1);
+if (args[0] === 'list') listExamples();
 
 let language = normalizeLanguage(args[0]);
 let exampleArg;
@@ -103,9 +175,23 @@ function usage(code) {
   npm run example -- python axgen_live_openai.py
   npm run example -- java AxGenLiveOpenAIExample.java
   npm run example -- cpp axgen_live_openai.cpp
+  npm run example -- list
 
 You can also pass a full example path and let the runner infer the language.`);
   process.exit(code);
+}
+
+function listExamples() {
+  for (const [language, rows] of Object.entries(exampleCatalog)) {
+    console.log(`${language}:`);
+    for (const [kind, file, description] of rows) {
+      const command =
+        language === 'go' ? file : `npm run example -- ${language} ${file}`;
+      console.log(`  ${kind.padEnd(6)} ${command.padEnd(64)} ${description}`);
+    }
+    console.log('');
+  }
+  process.exit(0);
 }
 
 function loadDotEnv() {
@@ -210,12 +296,16 @@ async function runCpp(examplePath, rest) {
   const stem = path.basename(examplePath, path.extname(examplePath));
   const cmake = findOptionalCommand(['cmake'], ['--version']);
 
-  if (cmake && generatedCmakeExamples.has(stem)) {
-    await cp(
-      examplePath,
-      path.join(outDir, 'examples', path.basename(examplePath))
-    );
+  if (cmake) {
     const buildDir = path.join(generatedRoot, 'cpp-cmake-build');
+    const installDir = path.join(generatedRoot, 'cpp-install');
+    const scratchDir = path.join(generatedRoot, 'cpp-run', stem);
+    const scratchBuildDir = path.join(generatedRoot, 'cpp-run-build', stem);
+    await rm(installDir, { recursive: true, force: true });
+    await rm(scratchDir, { recursive: true, force: true });
+    await rm(scratchBuildDir, { recursive: true, force: true });
+    await mkdir(scratchDir, { recursive: true });
+
     run(
       cmake,
       [
@@ -223,16 +313,45 @@ async function runCpp(examplePath, rest) {
         outDir,
         '-B',
         buildDir,
-        '-DAX_BUILD_EXAMPLES=ON',
+        '-DAX_BUILD_EXAMPLES=OFF',
         '-DAX_BUILD_CONFORMANCE=OFF',
       ],
       { cwd: repoRoot, env }
     );
-    run(cmake, ['--build', buildDir, '--target', stem], {
+    run(cmake, ['--build', buildDir, '--target', 'axllm'], {
       cwd: repoRoot,
       env,
     });
-    run(path.join(buildDir, stem), rest, { cwd: repoRoot, env });
+    run(cmake, ['--install', buildDir, '--prefix', installDir], {
+      cwd: repoRoot,
+      env,
+    });
+
+    await writeFile(
+      path.join(scratchDir, 'CMakeLists.txt'),
+      `cmake_minimum_required(VERSION 3.16)
+project(axllm_user_example LANGUAGES CXX)
+find_package(axllm CONFIG REQUIRED)
+add_executable(${stem} "${escapeCmakePath(examplePath)}")
+target_link_libraries(${stem} PRIVATE axllm::axllm)
+`
+    );
+    run(
+      cmake,
+      [
+        '-S',
+        scratchDir,
+        '-B',
+        scratchBuildDir,
+        `-DCMAKE_PREFIX_PATH=${installDir}`,
+      ],
+      { cwd: repoRoot, env }
+    );
+    run(cmake, ['--build', scratchBuildDir, '--target', stem], {
+      cwd: repoRoot,
+      env,
+    });
+    run(path.join(scratchBuildDir, stem), rest, { cwd: repoRoot, env });
     return;
   }
 
@@ -255,6 +374,10 @@ async function runCpp(examplePath, rest) {
     { cwd: repoRoot, env }
   );
   run(bin, rest, { cwd: repoRoot, env });
+}
+
+function escapeCmakePath(value) {
+  return value.replace(/\\/g, '/').replace(/"/g, '\\"');
 }
 
 function runGo() {

@@ -114,9 +114,14 @@ Every generated package includes `axir-capabilities.json`, a README, runnable
 examples, and a conformance runner when the target is executable.
 
 The checked-in examples under `src/examples/python`, `src/examples/java`, and
-`src/examples/cpp` are run through `npm run example -- <language> <file>`. The
-runner compiles the generated package into an ignored local cache before running
-the example, so users do not need to call the compiler manually.
+`src/examples/cpp` are run through `npm run example -- <language> <file>`.
+`npm run example -- list` groups the examples by language and marks no-key
+deterministic examples separately from live provider examples. The runner
+compiles the generated package into an ignored local cache before running the
+example, so users do not need to call the compiler manually. The examples cover
+signatures, AxGen, AxAgent, AxFlow, OpenAI Responses audio mapping,
+Grok/Gemini realtime event folding, runtime adapters, optimizer artifacts, and
+GEPA.
 
 See [`docs/RELEASE.md`](./RELEASE.md) for the publishable package names,
 versioning rule, and local release smoke workflow.

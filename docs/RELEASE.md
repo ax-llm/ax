@@ -49,6 +49,10 @@ package dependencies.
 For local examples, use the shared runner from the repo root:
 
 ```bash
+npm run example -- list
+npm run example -- python agent_pipeline.py
+npm run example -- java FlowProgramGraphExample.java
+npm run example -- cpp realtime_audio_events.cpp
 npm run example -- python axgen_live_openai.py
 npm run example -- java AxGenLiveOpenAIExample.java
 npm run example -- cpp axgen_live_openai.cpp
@@ -56,7 +60,10 @@ npm run example -- cpp axgen_live_openai.cpp
 
 The runner loads `.env`, generates the requested language package into
 `src/examples/.generated/`, builds it when needed, and runs the checked-in
-example source.
+example source. No-key examples use deterministic local clients/transports and
+cover AxAgent, AxFlow, provider audio/realtime mapping, runtime adapters,
+optimizer artifacts, and GEPA. Live examples use real provider HTTP and require
+provider keys such as `OPENAI_API_KEY` or `OPENAI_APIKEY`.
 
 ## Publishing Shape
 
