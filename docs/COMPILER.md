@@ -113,6 +113,11 @@ AxIR emits libraries, not one-off programs:
 Every generated package includes `axir-capabilities.json`, a README, runnable
 examples, and a conformance runner when the target is executable.
 
+The checked-in examples under `src/examples/python`, `src/examples/java`, and
+`src/examples/cpp` are run through `npm run example -- <language> <file>`. The
+runner compiles the generated package into an ignored local cache before running
+the example, so users do not need to call the compiler manually.
+
 See [`docs/RELEASE.md`](./RELEASE.md) for the publishable package names,
 versioning rule, and local release smoke workflow.
 

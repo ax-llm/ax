@@ -2,6 +2,38 @@
 
 This directory contains examples demonstrating the capabilities of the Ax framework.
 
+## Run Examples
+
+TypeScript examples keep their existing paths:
+
+```bash
+npm run tsx src/examples/summarize.ts
+npm run example -- ts src/examples/summarize.ts
+```
+
+Generated Python, Java, and C++ examples live in language-specific directories
+and run through the shared `.env`-aware example runner. The runner generates the
+local Ax package into `src/examples/.generated/`, builds the language package
+when needed, then runs the example.
+
+```bash
+npm run example -- python signature_schema.py
+npm run example -- java SignatureSchemaExample.java
+npm run example -- cpp signature_schema.cpp
+```
+
+Live examples use `OPENAI_API_KEY` or `OPENAI_APIKEY` from `.env`:
+
+```bash
+npm run example -- python axgen_live_openai.py
+npm run example -- java AxGenLiveOpenAIExample.java
+npm run example -- cpp axgen_live_openai.cpp
+```
+
+Go examples are reserved for the future generated Go backend. The compiler is
+written in Go today, but generated Ax libraries currently target Python, Java,
+and C++.
+
 ## Multi-Objective Optimization Example (GEPA)
 
 A compelling demonstration of GEPA's unique multi-objective optimization capabilities, showing how it finds optimal trade-offs between conflicting objectives like quality vs speed in code review tasks.

@@ -46,6 +46,18 @@ That gate emits the generated libraries and smoke-tests package consumption:
 Optional QuickJS and Pyodide runtime profile checks stay opt-in and are not base
 package dependencies.
 
+For local examples, use the shared runner from the repo root:
+
+```bash
+npm run example -- python axgen_live_openai.py
+npm run example -- java AxGenLiveOpenAIExample.java
+npm run example -- cpp axgen_live_openai.cpp
+```
+
+The runner loads `.env`, generates the requested language package into
+`src/examples/.generated/`, builds it when needed, and runs the checked-in
+example source.
+
 ## Publishing Shape
 
 Publishing is secret-gated per ecosystem:

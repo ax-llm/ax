@@ -30,3 +30,4 @@ __pycache__
 *.jsonl
 gepa/
 src/data
+src/examples/.generated/
