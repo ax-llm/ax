@@ -25,8 +25,8 @@
     "example:cpp": "node ../../scripts/run-example.mjs cpp"
   },
   "dependencies": {
-    "@ax-llm/ax": "21.0.14",
-    "@ax-llm/ax-tools": "21.0.14",
+    "@ax-llm/ax": "22.0.0",
+    "@ax-llm/ax-tools": "22.0.0",
     "@opentelemetry/exporter-metrics-otlp-http": "^0.208.0",
     "@opentelemetry/exporter-prometheus": "^0.218.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.203.0",

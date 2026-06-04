@@ -1,5 +1,13 @@
 # Changelog
 
+## [22.0.0](https://github.com/ax-llm/ax/compare/21.0.13...21.0.14) (2026-06-04)
+
+### Bug Fixes
+
+* type fix ([a5a0cc6](https://github.com/ax-llm/ax/commit/a5a0cc65dfe36ee385bc08b658d796846cd496c4))
+
+## [21.0.14](https://github.com/ax-llm/ax/compare/21.0.13...21.0.14) (2026-05-25)
+
 ## [21.0.14](https://github.com/ax-llm/ax/compare/21.0.12...21.0.13) (2026-05-25)
 
 ## [21.0.13](https://github.com/ax-llm/ax/compare/21.0.12...21.0.13) (2026-05-24)
