@@ -268,6 +268,8 @@ Reason: this mixes observation and follow-up work in one turn. `discover(...)` r
 
 Default `new AxJSRuntime()` is hardened: no network, no filesystem, no child process, dynamic `import()` blocked, intrinsics frozen, `ShadowRealm` locked to `undefined`, worker IPC locked in browser/Deno/Bun, Bun workers use `smol: true`, and on Node 20+ the OS Permission Model auto-engages where available.
 
+Threat model: this is defense-in-depth for LLM-authored code, not a container or VM boundary. Host callbacks and granted runtime permissions remain the authority boundary; keep durable secrets and privileged effects in host-side functions.
+
 Permission enum (`AxJSRuntimePermission`):
 `NETWORK`, `STORAGE`, `CODE_LOADING`, `COMMUNICATION`, `TIMING`, `WORKERS`, `FILESYSTEM`, `CHILD_PROCESS`.
 
@@ -275,7 +277,7 @@ Options quick reference:
 
 - `permissions?: readonly AxJSRuntimePermission[]`: default `[]`; opt in capabilities.
 - `blockDynamicImport?: boolean`: default `true`.
-- `allowedModules?: readonly string[]`: default `[]`.
+- `allowedModules?: readonly string[]`: default `[]`; narrow dynamic-import allowlist gate. Allowlisted specifiers are attempted, but full Node module namespace passthrough depends on Node vm semantics.
 - `freezeIntrinsics?: boolean`: default `true`.
 - `blockShadowRealm?: boolean`: default `true`.
 - `lockWorkerIPC?: boolean`: default `true`.
@@ -308,7 +310,7 @@ Rules for the LLM author:
 
 - Default to `new AxJSRuntime()` with no options unless the user asked for a specific capability.
 - When the user asks for `fetch`, add `permissions: [AxJSRuntimePermission.NETWORK]`.
-- When the user asks for filesystem access, add both `permissions: [AxJSRuntimePermission.FILESYSTEM]` and `allowedModules: ['node:fs', 'node:fs/promises', 'node:path']`. Scope with `nodePermissionAllowlist` when the user names a directory.
+- When the user asks for filesystem access, prefer host-side tool functions. If direct runtime filesystem access is required, add `permissions: [AxJSRuntimePermission.FILESYSTEM]`, scope with `nodePermissionAllowlist` when the user names a directory, and treat `allowedModules` as an import allowlist gate rather than a portability guarantee.
 - Do not disable `freezeIntrinsics`, `blockShadowRealm`, or `lockWorkerIPC` unless the user explicitly asks.
 - Treat `allowUnsafeNodeHostAccess: true` as a red flag; only use it when the user is authoring trusted code in their own process.
 - `preventGlobalThisExtensions: true` breaks top-level `var`/`let`/`const` persistence across turns; never set it for stdout-mode RLM where persistence is load-bearing.

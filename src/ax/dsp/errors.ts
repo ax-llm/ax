@@ -1,12 +1,7 @@
 import type { Span } from '@opentelemetry/api';
-import {
-  logAssertionError,
-  logRefusalError,
-  logValidationError,
-} from '../ai/debug.js';
+import { logRefusalError, logValidationError } from '../ai/debug.js';
 import type { AxLoggerFunction } from '../ai/types.js';
 import type { AxAIRefusalError } from '../util/apicall.js';
-import type { AxAssertionError } from './asserts.js';
 import type { AxGenMetricsInstruments } from './metrics.js';
 import {
   recordRefusalErrorMetric,
@@ -272,49 +267,6 @@ export const handleValidationErrorForGenerate = ({
   // Add telemetry event for validation error
   if (span) {
     span.addEvent('validation.error', {
-      message: error.toString(),
-      fixing_instructions: errorFields?.map((f) => f.title).join(', ') ?? '',
-    });
-  }
-
-  return errorFields;
-};
-
-/**
- * Handles assertion errors with logging, metrics, and telemetry
- */
-export const handleAssertionErrorForGenerate = ({
-  error,
-  errCount,
-  debug,
-  logger,
-  metricsInstruments,
-  signatureName,
-  span,
-  customLabels,
-}: HandleErrorForGenerateArgs<AxAssertionError>) => {
-  const errorFields = error.getFixingInstructions();
-
-  // Log assertion error with proper structured logging
-  if (debug && logger) {
-    const fixingInstructions =
-      errorFields?.map((f) => f.title).join(', ') ?? '';
-    logAssertionError(error, errCount, fixingInstructions, logger);
-  }
-
-  // Record assertion error metric
-  if (metricsInstruments) {
-    recordValidationErrorMetric(
-      metricsInstruments,
-      'assertion',
-      signatureName,
-      customLabels
-    );
-  }
-
-  // Add telemetry event for assertion error
-  if (span) {
-    span.addEvent('assertion.error', {
       message: error.toString(),
       fixing_instructions: errorFields?.map((f) => f.title).join(', ') ?? '',
     });

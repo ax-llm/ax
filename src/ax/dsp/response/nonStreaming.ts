@@ -1,4 +1,3 @@
-import { assertAssertions } from '../asserts.js';
 import { ValidationError } from '../errors.js';
 import { extractValues } from '../extract.js';
 import { processFieldProcessors } from '../fieldProcessor.js';
@@ -22,7 +21,6 @@ export async function* processResponse<OUT extends AxGenOut>({
   states,
   usage,
   excludeContentFromTrace,
-  asserts,
   fieldProcessors,
   thoughtFieldName,
   signature,
@@ -171,8 +169,6 @@ export async function* processResponse<OUT extends AxGenOut>({
         });
       }
     }
-
-    await assertAssertions(asserts, state.values);
 
     if (!disableMemoryCleanup) {
       mem.removeByTag('correction', sessionId);

@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { AxMockAIService } from '../ai/mock/api.js';
+import type { AxChatResponse } from '../ai/types.js';
 import { AxGen } from './generate.js';
 import {
   axOptimizableValidators,
@@ -29,6 +31,29 @@ describe('AxOptimizable round-trip on AxGen', () => {
 
     expect(gen.getInstruction()).toBe('Updated instruction.');
     expect(gen.getSignature().getDescription()).toBe('Updated module role.');
+  });
+
+  it('renders and preserves instruction components through forward', async () => {
+    let renderedPrompt = '';
+    const ai = new AxMockAIService({
+      features: { functions: false, streaming: false },
+    });
+    ai.chat = async (req) => {
+      renderedPrompt = JSON.stringify(req.chatPrompt);
+      return {
+        results: [{ index: 0, content: 'Answer: ok', finishReason: 'stop' }],
+      } as AxChatResponse;
+    };
+
+    const gen = new AxGen<{ question: string }, { answer: string }>(
+      'question:string -> answer:string'
+    );
+    gen.setInstruction('Prefer direct answers.');
+
+    await gen.forward(ai, { question: 'test' });
+
+    expect(renderedPrompt).toContain('Prefer direct answers.');
+    expect(gen.getInstruction()).toBe('Prefer direct answers.');
   });
 
   it('emits fn-desc and fn-name components for each registered function', () => {

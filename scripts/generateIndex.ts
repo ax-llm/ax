@@ -62,7 +62,9 @@ function hasValidPrefix(name: string): boolean {
       name === 's' ||
       name === 'ai' ||
       name === 'agent' ||
-      name === 'flow')
+      name === 'flow' ||
+      name === 'bestOfN' ||
+      name === 'refine')
   );
 }
 

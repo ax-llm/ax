@@ -5,17 +5,19 @@ flows, and optimizers. The same runtime semantics are also compiled through
 AxIR into language-agnostic Python, Java, and C++ libraries.
 
 For compiler and IR details, see [`docs/COMPILER.md`](./COMPILER.md). For
-audio and realtime usage, see [`docs/AUDIO.md`](./AUDIO.md).
+audio and realtime usage, see [`docs/AUDIO.md`](./AUDIO.md). For reward-scored
+candidate selection and feedback rounds, see [`docs/REFINE.md`](./REFINE.md).
 
 ## System Shape
 
-Ax has five main runtime surfaces:
+Ax has six main runtime surfaces:
 
 1. **AxAI**: provider clients, model catalog metadata, chat, streaming,
    embeddings, transcribe/speak, audio/realtime operations, routing, and
    balancing.
 2. **AxGen**: signature-driven structured generation, prompts, tools, retries,
-   assertions, examples/demos, memory, usage, traces, and streaming folds.
+   schema validation, `bestOfN(...)`, `refine(...)`, streaming guards,
+   examples/demos, memory, usage, traces, and streaming folds.
 3. **AxAgent**: a staged agent pipeline with actor runtime sessions,
    discovery/recall/used protocols, child delegation, context budgets,
    checkpoint summaries, action logs, state export/restore, and runtime
@@ -25,6 +27,8 @@ Ax has five main runtime surfaces:
    caching, merge semantics, and `.returns()` output projection.
 5. **AxOptimize**: optimizable component inventory, evaluator rollouts,
    serialized artifacts, and optimizer engines including GEPA.
+6. **AxIR generated libraries**: Python, Java, and C++ packages emitted from
+   the shared portable semantics.
 
 These surfaces are connected by the shared Ax program contract: `forward`,
 inputs, outputs, examples, demos, traces, usage, chat logs, optimizer
@@ -36,17 +40,19 @@ The TypeScript package `@ax-llm/ax` is the reference implementation and the
 primary public API. New code should use the factory-style surface:
 
 ```ts
-import { agent, ai, ax, flow, fn, s } from '@ax-llm/ax';
+import { agent, ai, ax, bestOfN, flow, fn, refine, s } from '@ax-llm/ax';
 ```
 
 The core TypeScript modules are:
 
 - `src/ax/ai/`: provider implementations and model metadata
-- `src/ax/dsp/`: signatures, generation, validation, tools, prompts, and
-  optimizers such as GEPA
+- `src/ax/dsp/`: signatures, generation, validation, tools, prompts,
+  streaming guards, `bestOfN(...)`, `refine(...)`, and optimizers such as GEPA
 - `src/ax/agent/`: AxAgent pipeline, runtime/session policy, context budget,
   checkpointing, discovery, memory, delegation, and state
 - `src/ax/flow/`: AxFlow graph API, step model, executor, and planner
+- `src/ax/funcs/`: JavaScript runtime, security policy helpers, sessions, and
+  worker integration
 - `src/ax/trace/`: OpenTelemetry integration and portable trace data
 
 TypeScript is not transpiled to other languages. AxIR extracts conformance from
@@ -88,6 +94,16 @@ AxGen turns a signature into a typed program. It owns prompt assembly,
 examples/demos, tool calls, retries, output parsing, streaming fold semantics,
 field processors, validation, memory/chat-log ordering, usage, and traces.
 
+Validation, selection, and streaming safety are separate mechanisms:
+
+- Schema validation retries with parser/constraint feedback.
+- `bestOfN(...)` scores complete candidates and returns the highest-reward
+  prediction or first threshold hit.
+- `refine(...)` runs complete-output feedback rounds and can apply temporary
+  reward-derived advice to instruction components.
+- Streaming guards abort unsafe partial output with `AxStreamingGuardError`.
+  They do not retry, refine, or feed correction messages back to the model.
+
 ## AxAgent
 
 AxAgent builds higher-level programs on top of AxGen. It shapes task inputs,
@@ -110,15 +126,19 @@ Generated AxIR libraries also include optional runtime profiles:
 Those profiles are supportable adapters, not a replacement for the TypeScript
 runtime.
 
+`AxJSRuntime` is defense-in-depth for LLM-authored code, not a container or VM
+boundary. Host callbacks and granted runtime permissions remain the authority
+boundary; keep durable secrets and privileged effects in host-side functions.
+
 ## AxFlow
 
 AxFlow is an Ax program graph, not a generic workflow engine. Flow nodes call
 AxGen, AxAgent, or nested AxFlow programs through the shared program boundary.
 
-The current Flow runtime uses a compact step model, shared executor, and planner.
-Known non-conflicting execute/derive steps may be grouped; map, returns,
-control flow, explicit parallel/merge, unknown reads, and unsafe state effects
-are planning barriers. Branch, while, feedback, node extension helpers,
+The current Flow runtime uses a compact step model, shared executor, and
+planner. Known non-conflicting execute/derive steps may be grouped; map,
+returns, control flow, explicit parallel/merge, unknown reads, and unsafe state
+effects are planning barriers. Branch, while, feedback, node extension helpers,
 streaming cache short-circuit, stop/abort checkpoints, and merge errors are
 part of the portable graph semantics.
 
@@ -128,6 +148,13 @@ Programs expose optimizable components and can evaluate candidate component
 maps without leaking state between rollouts. Optimizer artifacts are serialized
 and validated before mutation, so optimized programs can be exported, loaded,
 and applied later.
+
+Multiple optimization strategies serve different needs:
+
+- `AxBootstrapFewShot`: few-shot demo selection
+- `bestOfN(...)`: reward-scored complete-candidate selection
+- `refine(...)`: reward-scored feedback rounds
+- `AxGEPA`: multi-objective Pareto optimization
 
 GEPA is one shipped optimizer engine. It runs through the existing
 `OptimizerEngine.optimize(request, evaluator)` boundary and owns reflection,
@@ -169,13 +196,13 @@ envelopes and state/log/trace semantics that host code must preserve.
 
 When changing Ax behavior:
 
-1. update TypeScript behavior and focused tests
-2. add TS-derived AxIR fixtures if the behavior is portable
-3. encode language-agnostic semantics in Core helpers or descriptors
-4. keep generated target templates limited to idiomatic wrappers and host
-   integration
-5. update the relevant docs in `docs/` and skills in `src/ax/skills/` when the
-   public behavior changes
+1. Update TypeScript behavior and focused tests.
+2. Add TS-derived AxIR fixtures if the behavior is portable.
+3. Encode language-agnostic semantics in Core helpers or descriptors.
+4. Keep generated target templates limited to idiomatic wrappers and host
+   integration.
+5. Update the relevant docs in `docs/` and skills in `src/ax/skills/` when the
+   public behavior changes.
 
 Do not edit generated docs under `src/docs/`, and do not hand-edit generated
 AxIR target output.

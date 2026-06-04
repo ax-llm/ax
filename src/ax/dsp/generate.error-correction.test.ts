@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 
 import { AxMockAIService } from '../ai/mock/api.js';
 import type { AxChatRequest, AxChatResponse } from '../ai/types.js';
@@ -52,7 +53,7 @@ describe('Error Correction with Structured Outputs', () => {
           } as AxChatResponse;
         }
 
-        // First attempt: returns 1 item (will fail assertion)
+        // First attempt: returns 1 item (will fail validation)
         return {
           results: [
             {
@@ -74,18 +75,14 @@ describe('Error Correction with Structured Outputs', () => {
 
     const signature = f()
       .input('query', f.string())
-      .output('items', f.object({ name: f.string() }).array())
+      .output(
+        'items',
+        z.array(z.object({ name: z.string() })).min(3, 'Need at least 3 items')
+      )
       .useStructured()
       .build();
 
     const gen = new AxGen(signature);
-
-    // Add assertion that requires at least 3 items (will fail on first attempt)
-    gen.addAssert((output) => {
-      if (!output.items || output.items.length < 3) {
-        return 'Need at least 3 items';
-      }
-    });
 
     const result = await gen.forward(ai, { query: 'test' });
 
@@ -137,19 +134,14 @@ describe('Error Correction with Structured Outputs', () => {
       .input('query', f.string())
       .output(
         'results',
-        f.object({ id: f.string(), value: f.string() }).array()
+        z
+          .array(z.object({ id: z.string(), value: z.string() }))
+          .min(4, 'Need at least 4 items')
       )
       .useStructured()
       .build();
 
     const gen = new AxGen(signature, { maxRetries: 5 });
-
-    // Require at least 4 items
-    gen.addAssert((output) => {
-      if (!output.results || output.results.length < 4) {
-        return `Need at least 4 items, got ${output.results?.length}`;
-      }
-    });
 
     const result = await gen.forward(ai, { query: 'test' });
 
@@ -217,7 +209,7 @@ describe('Error Correction with Structured Outputs', () => {
           } as AxChatResponse;
         }
 
-        // First attempt: 1 slot (fails assertion)
+        // First attempt: 1 slot (fails validation)
         return {
           results: [
             {
@@ -247,25 +239,20 @@ describe('Error Correction with Structured Outputs', () => {
       .input('query', f.string())
       .output(
         'selectedSlots',
-        f
-          .object({
-            startTimeISO: f.string(),
-            endTimeISO: f.string(),
-            participantIds: f.string().array(),
-          })
-          .array()
+        z
+          .array(
+            z.object({
+              startTimeISO: z.string(),
+              endTimeISO: z.string(),
+              participantIds: z.array(z.string()),
+            })
+          )
+          .min(3, 'Need at least 3 slots')
       )
       .useStructured()
       .build();
 
     const gen = new AxGen(signature);
-
-    // Assertion that requires at least 3 slots
-    gen.addAssert((output) => {
-      if (!output.selectedSlots || output.selectedSlots.length < 3) {
-        return `Need at least 3 slots, got ${output.selectedSlots?.length}`;
-      }
-    });
 
     const result = await gen.forward(ai, { query: 'test' });
 
@@ -339,16 +326,15 @@ describe('Error Correction with Structured Outputs', () => {
     // Plain text signature (not using .useStructured())
     const signature = f()
       .input('query', f.string())
-      .output('answer', f.string())
+      .output(
+        'answer',
+        z.string().refine((answer) => answer.includes('response2'), {
+          message: 'Answer must include response2',
+        })
+      )
       .build();
 
     const gen = new AxGen(signature);
-
-    gen.addAssert((output) => {
-      if (!output.answer || !output.answer.includes('response2')) {
-        return 'Answer must include response2';
-      }
-    });
 
     const result = await gen.forward(ai, { query: 'test' });
 

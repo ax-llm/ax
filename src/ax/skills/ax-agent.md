@@ -235,6 +235,26 @@ const parent = agent('query:string -> answer:string', {
 });
 ```
 
+MCP clients and other `toFunction()` providers can be placed directly inside a group after initialization:
+
+```typescript
+await mcpClient.init();
+
+const parent = agent('query:string -> answer:string', {
+  functions: [
+    {
+      namespace: 'memory',
+      title: 'Memory MCP',
+      description: 'Memory server tools',
+      selectionCriteria: 'Use for persistent memory lookup and updates.',
+      functions: [mcpClient],
+    },
+  ],
+  functionDiscovery: true,
+  contextFields: [],
+});
+```
+
 Rules:
 
 - A group is `{ namespace, title, description, functions: [...] }`.
@@ -242,8 +262,8 @@ Rules:
 - The group's `namespace`, `title`, `selectionCriteria`, and `description` show up in `discover(...)` module docs.
 - Add `alwaysInclude: true` to a group when discovery mode is on but the actor should always see that group's full callable definitions inline in the prompt.
 - Keep `functions: [...]` either flat or grouped. Runtime validation rejects mixed plain function entries and group objects.
-- In flat mode, pass `fn(...)` tools and child agents directly.
-- In grouped mode, put callable entries inside groups. To expose a child agent inside a group, use `childAgent.getFunction()`.
+- In flat mode, pass `fn(...)` tools, child agents, and `toFunction()` providers directly.
+- In grouped mode, put callable entries and `toFunction()` providers inside groups. To expose a child agent inside a group, use `childAgent.getFunction()`.
 
 ## Host-Side Completion From Functions
 

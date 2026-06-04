@@ -8,9 +8,9 @@ import type {
   AxLoggerFunction,
 } from '../../ai/types.js';
 import type { AxAIMemory } from '../../mem/types.js';
-import type { AxAssertion, AxStreamingAssertion } from '../asserts.js';
 import type { extractionState } from '../extract.js';
 import type { AxFieldProcessor } from '../fieldProcessor.js';
+import type { AxStreamingGuard } from '../guards.js';
 import type { SignatureToolCallingManager } from '../signatureToolCalling.js';
 import type { AxStepContextImpl } from '../stepContext.js';
 import type { StructuredStreamAccumulator } from './structuredDelta.js';
@@ -50,7 +50,6 @@ export type ProcessResponseBaseArgs = Readonly<
   states: InternalAxGenState[];
   usage: import('../../ai/types.js').AxModelUsage[];
   excludeContentFromTrace: boolean;
-  asserts: AxAssertion[];
   fieldProcessors: AxFieldProcessor[];
   thoughtFieldName: string;
   signature: import('../sig.js').AxSignature;
@@ -69,8 +68,7 @@ export type ProcessStreamingResponseArgs = Readonly<
 > & {
   states: InternalAxGenState[];
   usage: import('../../ai/types.js').AxModelUsage[];
-  asserts: AxAssertion[];
-  streamingAsserts: AxStreamingAssertion[];
+  streamingGuards: AxStreamingGuard[];
   fieldProcessors: AxFieldProcessor[];
   streamingFieldProcessors: AxFieldProcessor[];
   thoughtFieldName: string;

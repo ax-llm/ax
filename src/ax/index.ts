@@ -78,6 +78,7 @@ import {
   type AxContextFieldPromptConfig,
   type AxExecutorModelPolicy,
   type AxExecutorModelPolicyEntry,
+  type AxFunctionProvider,
 } from './agent/agentInternal/agentStateTypes.js';
 import {
   AxAgent,
@@ -578,11 +579,6 @@ import {
 } from './ai/x-grok/api.js';
 import { axModelInfoGrok } from './ai/x-grok/info.js';
 import { AxAIGrokEmbedModels, AxAIGrokModel } from './ai/x-grok/types.js';
-import {
-  type AxAssertion,
-  AxAssertionError,
-  type AxStreamingAssertion,
-} from './dsp/asserts.js';
 import type {
   AxCheckpointLoadFn,
   AxCheckpointSaveFn,
@@ -622,6 +618,7 @@ import {
   type AxStreamingEvent,
 } from './dsp/generate.js';
 import { type AxFunctionResultFormatter, axGlobals } from './dsp/globals.js';
+import { type AxStreamingGuard, AxStreamingGuardError } from './dsp/guards.js';
 import type {
   AxJudgeForwardOptions,
   AxJudgeOptions,
@@ -703,6 +700,19 @@ import {
   type AxPromptTemplateOptions,
   type AxRenderedPrompt,
 } from './dsp/prompt.js';
+import {
+  type AxAttempt,
+  AxBestOfN,
+  type AxBestOfNOptions,
+  AxRefine,
+  AxRefineError,
+  type AxRefineOptions,
+  type AxRefineStrategy,
+  type AxRewardFn,
+  type AxRewardFnArgs,
+  bestOfN,
+  refine,
+} from './dsp/refine.js';
 import type { AxSamplePickerOptions } from './dsp/samples.js';
 import {
   type AxDateRangeValue,
@@ -919,10 +929,10 @@ export { AxAgent };
 export { AxAgentClarificationError };
 export { AxAgentContextMap };
 export { AxAgentProtocolCompletionSignal };
-export { AxAssertionError };
 export { AxBalancer };
 export { AxBaseAI };
 export { AxBaseOptimizer };
+export { AxBestOfN };
 export { AxBootstrapFewShot };
 export { AxContentProcessingError };
 export { AxDefaultCostTracker };
@@ -951,9 +961,12 @@ export { AxProgram };
 export { AxPromptTemplate };
 export { AxProviderRouter };
 export { AxRateLimiterTokenUsage };
+export { AxRefine };
+export { AxRefineError };
 export { AxSignature };
 export { AxSignatureBuilder };
 export { AxStopFunctionCallException };
+export { AxStreamingGuardError };
 export { AxStringUtil };
 export { AxSynth };
 export { AxTestPrompt };
@@ -1080,9 +1093,11 @@ export { axValidateChatResponseResult };
 export { axValidateGeminiLiveAudioInput };
 export { axValidateProviderCapabilities };
 export { axWorkerRuntime };
+export { bestOfN };
 export { f };
 export { flow };
 export { fn };
+export { refine };
 export { s };
 
 // Type exports
@@ -1364,11 +1379,12 @@ export type { AxAgentUsedSkill };
 export type { AxAgentUsedSkillsCallback };
 export type { AxAgentic };
 export type { AxAnyAgentic };
-export type { AxAssertion };
+export type { AxAttempt };
 export type { AxAudioFormat };
 export type { AxAudioInput };
 export type { AxBalancerOptions };
 export type { AxBaseAIArgs };
+export type { AxBestOfNOptions };
 export type { AxBootstrapOptimizerOptions };
 export type { AxChatAudioConfig };
 export type { AxChatAudioOutput };
@@ -1448,6 +1464,7 @@ export type { AxFunctionCallRecord };
 export type { AxFunctionCallTrace };
 export type { AxFunctionHandler };
 export type { AxFunctionJSONSchema };
+export type { AxFunctionProvider };
 export type { AxFunctionResult };
 export type { AxFunctionResultFormatter };
 export type { AxGEPAAdapter };
@@ -1552,6 +1569,8 @@ export type { AxProviderMetadata };
 export type { AxRLMConfig };
 export type { AxRateLimiterFunction };
 export type { AxRateLimiterTokenUsageOptions };
+export type { AxRefineOptions };
+export type { AxRefineStrategy };
 export type { AxRenderedPrompt };
 export type { AxResolvedContextPolicy };
 export type { AxResolvedExecutorModelPolicy };
@@ -1559,6 +1578,8 @@ export type { AxResolvedExecutorModelPolicyEntry };
 export type { AxResultPickerFunction };
 export type { AxResultPickerFunctionFieldResults };
 export type { AxResultPickerFunctionFunctionResults };
+export type { AxRewardFn };
+export type { AxRewardFnArgs };
 export type { AxRolloutTrace };
 export type { AxRoutingResult };
 export type { AxRuntimeCallableFormatArgs };
@@ -1582,9 +1603,9 @@ export type { AxStageOptions };
 export type { AxStepContext };
 export type { AxStepHooks };
 export type { AxStepUsage };
-export type { AxStreamingAssertion };
 export type { AxStreamingEvent };
 export type { AxStreamingFieldProcessorProcess };
+export type { AxStreamingGuard };
 export type { AxSynthExample };
 export type { AxSynthOptions };
 export type { AxSynthResult };

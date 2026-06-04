@@ -196,7 +196,6 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
   let _lockWorkerIPC = true;
   let _preventGlobalThisExtensions = false;
   let _allowedModules: readonly string[] = [];
-  let _baselineGlobalNamesForReset = new Set<string>();
   // Import callback built once at init time, reused by every execute and by
   // the Function-constructor / eval shims.
   let _cachedImportCallback: unknown;
@@ -1428,37 +1427,6 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
     }
   };
 
-  class TaintedWorkerError extends Error {
-    constructor(message: string) {
-      super(message);
-      this.name = 'TaintedWorkerError';
-    }
-  }
-
-  const _resetSessionScope = (): void => {
-    const current = Reflect.ownKeys(_scope) as (string | symbol)[];
-    for (const name of current) {
-      if (typeof name === 'symbol') continue;
-      if (_baselineGlobalNamesForReset.has(name)) continue;
-
-      const desc = Object.getOwnPropertyDescriptor(_scope, name);
-      if (desc && desc.configurable === false) {
-        throw new TaintedWorkerError(
-          `session-boundary reset failed: non-configurable user global '${name}' ` +
-            `cannot be removed; worker is tainted and must be replaced`
-        );
-      }
-      try {
-        delete (_scope as Record<string, unknown>)[name];
-      } catch (e) {
-        throw new TaintedWorkerError(
-          `session-boundary reset failed: delete '${name}' threw (${String(e)}); ` +
-            `worker is tainted and must be replaced`
-        );
-      }
-    }
-  };
-
   const _MAX_ERROR_CAUSE_DEPTH = config.maxErrorCauseDepth;
 
   const _serializeError = (
@@ -2504,7 +2472,7 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
       //  5. blockShadowRealm
       //  6. blockDynamicImport (+ fail-hard flag if vm missing)
       //  7. freezeIntrinsics
-      //  8. baseline capture + _baselineGlobalNamesForReset
+      //  8. baseline capture for inspect/snapshot filtering
       //  9. lockWorkerIPC (browser/Deno only)
       // 10. preventGlobalThisExtensions
 
@@ -2542,9 +2510,6 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
       // Capture the baseline after lockdown so internally-hidden globals such as
       // SharedWorker/require never leak into snapshots as restorable state.
       _inspectBaselineGlobalNames = Object.getOwnPropertyNames(_scope).sort();
-      _baselineGlobalNamesForReset = new Set(
-        Object.getOwnPropertyNames(_scope)
-      );
 
       if (_lockWorkerIPC && !_nodeParentPort) {
         try {
@@ -2576,39 +2541,6 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
         }
       }
 
-      return;
-    }
-
-    if (msg.type === 'session-reset') {
-      const id = typeof msg.id === 'number' ? msg.id : undefined;
-      try {
-        _resetSessionScope();
-        if (id !== undefined) {
-          _send({ type: 'result', id, value: undefined });
-        }
-      } catch (err) {
-        if (err instanceof TaintedWorkerError) {
-          _send({ type: 'tainted', message: err.message });
-          try {
-            if (
-              typeof process !== 'undefined' &&
-              typeof (process as { exit?: unknown }).exit === 'function'
-            ) {
-              (process as { exit: (code: number) => void }).exit(1);
-            } else if (
-              typeof (_scope as { close?: unknown }).close === 'function'
-            ) {
-              (_scope as { close: () => void }).close();
-            }
-          } catch {
-            // Best-effort exit.
-          }
-          return;
-        }
-        if (id !== undefined) {
-          _send({ type: 'result', id, error: _serializeError(err) });
-        }
-      }
       return;
     }
 

@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 
 import { AxMockAIService } from '../ai/mock/api.js';
 import type { AxChatRequest, AxChatResponse } from '../ai/types.js';
@@ -499,18 +500,14 @@ describe('Infrastructure Error Retry', () => {
 
     const signature = f()
       .input('query', f.string())
-      .output('items', f.object({ name: f.string() }).array())
+      .output(
+        'items',
+        z.array(z.object({ name: z.string() })).min(3, 'Need at least 3 items')
+      )
       .useStructured()
       .build();
 
     const gen = new AxGen(signature);
-
-    // Add assertion that requires at least 3 items
-    gen.addAssert((output) => {
-      if (!output.items || output.items.length < 3) {
-        return 'Need at least 3 items';
-      }
-    });
 
     const result = await gen.forward(ai, { query: 'test' });
 

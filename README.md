@@ -379,6 +379,8 @@ const runtime = new AxJSRuntime({
 
 Defaults: `import()` blocked, intrinsics frozen, `ShadowRealm` locked, worker IPC locked, and on Node 20+ the OS Permission Model auto-engages as a second defense layer. Add `FILESYSTEM`, `STORAGE`, `CHILD_PROCESS`, etc. only as the task requires.
 
+Security model: the runtime is defense-in-depth for LLM-authored code, not a container or VM boundary. Host callbacks and the permissions you grant remain the authority boundary; keep durable secrets and privileged effects in host-side functions.
+
 Runnable: [`src/examples/rlm-memories-and-skills.ts`](src/examples/rlm-memories-and-skills.ts).
 
 ## AxFlow + optimization

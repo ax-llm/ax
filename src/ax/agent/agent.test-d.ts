@@ -11,6 +11,7 @@ import {
   type AxAgentTestResult,
   type AxCodeRuntime,
   type AxFunction,
+  type AxFunctionProvider,
   agent,
   f,
   s,
@@ -677,11 +678,31 @@ import {
     },
   ];
 
+  const functionProvider: AxFunctionProvider = {
+    toFunction: () => [
+      {
+        name: 'lookupMemory',
+        description: 'Lookup memory data',
+        async func() {
+          return [];
+        },
+      },
+      {
+        name: 'saveMemory',
+        description: 'Save memory data',
+        async func() {
+          return [];
+        },
+      },
+    ],
+  };
+
   const optionalGroupedFns: AxAgentFunctionGroup[] = [
     {
       namespace: 'kb',
       title: 'Knowledge Base',
       functions: [
+        functionProvider,
         {
           name: 'lookupDocs',
           parameters: {
@@ -708,6 +729,13 @@ import {
       agentFns[0]!,
       agentFns[1]!,
     ],
+    functionDiscovery: true,
+  });
+
+  agent('query:string -> answer:string', {
+    contextFields: [] as const,
+    runtime,
+    functions: [functionProvider],
     functionDiscovery: true,
   });
 }

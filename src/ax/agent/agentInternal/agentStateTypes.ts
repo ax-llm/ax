@@ -33,6 +33,10 @@ export interface AxAgentic<IN extends AxGenIn, OUT extends AxGenOut>
 
 export type AxAnyAgentic = AxAgentic<any, any>;
 
+export type AxFunctionProvider = {
+  toFunction(): AxFunction | readonly AxFunction[];
+};
+
 export type AxAgentIdentity = {
   name: string;
   description: string;
@@ -69,7 +73,10 @@ export type AxAgentFunction = Omit<AxFunction, 'description'> & {
 };
 
 export type AxAgentFunctionGroup = AxAgentFunctionModuleMeta & {
-  functions: readonly Omit<AxAgentFunction, 'namespace'>[];
+  functions: readonly (
+    | Omit<AxAgentFunction, 'namespace'>
+    | AxFunctionProvider
+  )[];
 };
 
 export type AxAgentTestCompletionPayload = {
@@ -216,7 +223,7 @@ export class AxAgentClarificationError extends Error {
 }
 
 export type AxAgentFunctionCollection =
-  | readonly (AxAgentFunction | AxAnyAgentic)[]
+  | readonly (AxAgentFunction | AxAnyAgentic | AxFunctionProvider)[]
   | readonly AxAgentFunctionGroup[];
 
 export type NormalizedAgentFunctionCollection = {

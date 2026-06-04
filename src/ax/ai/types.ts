@@ -658,12 +658,6 @@ export type AxLoggerData =
       error: unknown; // Using unknown since ValidationError is defined in dsp/errors.ts
     }
   | {
-      name: 'AssertionError';
-      index: number;
-      fixingInstructions: string;
-      error: unknown; // Using unknown since AxAssertionError is defined in dsp/asserts.ts
-    }
-  | {
       name: 'RefusalError';
       index: number;
       error: unknown; // Using unknown since AxAIRefusalError is defined in util/apicall.ts

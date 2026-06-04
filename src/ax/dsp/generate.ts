@@ -34,16 +34,9 @@ import {
   AxAIServiceTimeoutError,
 } from '../util/apicall.js';
 import { createHash } from '../util/crypto.js';
-import {
-  type AxAssertion,
-  AxAssertionError,
-  type AxStreamingAssertion,
-  assertAssertions,
-} from './asserts.js';
 import { renderAudioOutputArtifacts } from './audioArtifacts.js';
 import {
   type HandleErrorForGenerateArgs,
-  handleAssertionErrorForGenerate,
   handleRefusalErrorForGenerate,
   handleValidationErrorForGenerate,
   ValidationError,
@@ -60,6 +53,7 @@ import {
   parseFunctions,
 } from './functions.js';
 import { axGlobals } from './globals.js';
+import { type AxStreamingGuard, AxStreamingGuardError } from './guards.js';
 import { toJsonSchema } from './jsonSchema.js';
 import {
   type AxGenMetricsInstruments,
@@ -157,8 +151,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     );
   };
   private promptTemplate: AxPromptTemplate;
-  private asserts: AxAssertion<OUT>[];
-  private streamingAsserts: AxStreamingAssertion[];
+  private streamingGuards: AxStreamingGuard[];
   private options?: Omit<AxProgramForwardOptions<any>, 'functions'>;
   private functions: AxFunction[];
   private functionComponentIds = new WeakMap<AxFunction, string>();
@@ -197,8 +190,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       this.signature,
       promptTemplateOptions
     );
-    this.asserts = this.options?.asserts ?? [];
-    this.streamingAsserts = this.options?.streamingAsserts ?? [];
+    this.streamingGuards = [];
     this.excludeContentFromTrace = options?.excludeContentFromTrace ?? false;
     this.functions = options?.functions
       ? parseFunctions(options.functions)
@@ -451,10 +443,9 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       customTemplate: options?.customTemplate ?? this.options?.customTemplate,
     });
     const instruction = this.getInstruction();
-    if (instruction !== undefined) {
+    if (instruction !== undefined && instruction.trim().length > 0) {
       promptTemplate.setInstruction(instruction);
     }
-
     const renderedPrompt:
       | AxRenderedPrompt
       | { chatPrompt: AxChatRequest['chatPrompt'] } =
@@ -604,13 +595,9 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     }));
   }
 
-  public addAssert(fn: AxAssertion<OUT>['fn'], message?: string) {
-    this.asserts.push({ fn, message });
-  }
-
-  public addStreamingAssert(
+  public addStreamingGuard(
     fieldName: keyof OUT,
-    fn: AxStreamingAssertion['fn'],
+    fn: AxStreamingGuard['fn'],
     message?: string
   ) {
     // Validate that the field name exists in the output signature
@@ -620,21 +607,21 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
     if (!outputField) {
       throw new Error(
-        `addStreamingAssert: field ${String(fieldName)} not found in output signature`
+        `addStreamingGuard: field ${String(fieldName)} not found in output signature`
       );
     }
 
-    // Ensure the field is a string field for streaming assertions
+    // Ensure the field is a string field for streaming guards
     const ft = outputField.type?.name;
     const isStringField = !ft || ft === 'string' || ft === 'code';
 
     if (!isStringField) {
       throw new Error(
-        `addStreamingAssert: field ${String(fieldName)} must be a string field for streaming assertions`
+        `addStreamingGuard: field ${String(fieldName)} must be a string field for streaming guards`
       );
     }
 
-    this.streamingAsserts.push({ fieldName: String(fieldName), fn, message });
+    this.streamingGuards.push({ fieldName: String(fieldName), fn, message });
   }
 
   private addFieldProcessorInternal(
@@ -1250,8 +1237,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         span,
         states,
         usage,
-        asserts: this.asserts,
-        streamingAsserts: this.streamingAsserts,
+        streamingGuards: this.streamingGuards,
         fieldProcessors: this.fieldProcessors,
         streamingFieldProcessors: this.streamingFieldProcessors,
         thoughtFieldName: this.thoughtFieldName,
@@ -1311,7 +1297,6 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         strictMode,
         states,
         usage,
-        asserts: this.asserts,
         fieldProcessors: this.fieldProcessors,
         thoughtFieldName: this.thoughtFieldName,
         excludeContentFromTrace: this.excludeContentFromTrace,
@@ -1420,7 +1405,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         mutableFunctions
       );
 
-    let err: ValidationError | AxAssertionError | undefined;
+    let err: ValidationError | undefined;
     let lastError: Error | undefined;
 
     const promptTemplateClass =
@@ -1484,10 +1469,14 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       customTemplate: options.customTemplate ?? this.options?.customTemplate,
     };
 
+    const instruction = this.getInstruction();
     this.promptTemplate = new promptTemplateClass(
       this.signature,
       currentPromptTemplateOptions
     );
+    if (instruction !== undefined && instruction.trim().length > 0) {
+      this.promptTemplate.setInstruction(instruction);
+    }
 
     // Track prompt rendering performance
     const promptRenderStart = performance.now();
@@ -1649,7 +1638,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         infraRetryCount++
       ) {
         try {
-          // Validation/assertion error retry loop (inner loop).
+          // Validation error retry loop (inner loop).
           // `maxRetries` means extra attempts after the initial one.
           const validationAttemptCount = maxRetries + 1;
           for (
@@ -1826,14 +1815,6 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
                         };
                       }
 
-                      // Run assertions (same as native structured output path)
-                      for (const state of states) {
-                        await assertAssertions(
-                          this.asserts,
-                          state.values as OUT
-                        );
-                      }
-
                       // Run field processors (same as native structured output path)
                       if (this.fieldProcessors.length > 0) {
                         for (const state of states) {
@@ -1997,11 +1978,6 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
               if (e instanceof ValidationError) {
                 errorFields = handleValidationErrorForGenerate(
                   args as HandleErrorForGenerateArgs<ValidationError>
-                );
-                err = e;
-              } else if (e instanceof AxAssertionError) {
-                errorFields = handleAssertionErrorForGenerate(
-                  args as HandleErrorForGenerateArgs<AxAssertionError>
                 );
                 err = e;
               } else if (e instanceof AxAIRefusalError) {
@@ -2513,7 +2489,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
    * 2. **Render** - Build the prompt from signature, examples, and inputs
    * 3. **Call** - Send the request to the AI service
    * 4. **Parse** - Extract structured outputs from the response
-   * 5. **Assert** - Validate outputs and retry with error correction if needed
+   * 5. **Validate** - Validate parsed outputs and retry with error correction if needed
    *
    * @param ai - The AI service instance to use (created via `ai()` factory)
    * @param values - Input values matching the signature's input fields
@@ -2549,7 +2525,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
    * @returns Promise resolving to the output values matching the signature's output fields
    *
    * @throws {AxValidationError} When input values don't match the signature
-   * @throws {AxAssertionError} When output parsing/validation fails after all retries
+   * @throws {ValidationError} When output parsing/validation fails after all retries
    * @throws {AxAIServiceError} When the AI service request fails
    *
    * @example Basic usage
@@ -3017,9 +2993,13 @@ function enhanceError(
     return originalError;
   }
 
-  // Don't wrap validation errors or assertion errors - let them propagate directly
+  if (originalError instanceof AxStreamingGuardError) {
+    return originalError;
+  }
+
+  // Don't wrap validation errors - let them propagate directly
   const errorMsg = (originalError.message || '').toLowerCase();
-  const isValidationOrAssertionError =
+  const isValidationError =
     errorMsg.includes('at least') ||
     errorMsg.includes('at most') ||
     errorMsg.includes('must match pattern') ||
@@ -3028,13 +3008,9 @@ function enhanceError(
     errorMsg.includes('missing') ||
     errorMsg.includes('valid email') ||
     errorMsg.includes('number must be') ||
-    originalError.name === 'ValidationError' ||
-    originalError.name === 'AssertionError' ||
-    originalError.name === 'AxAssertionError' ||
-    // Check if error was thrown from an assertion (stack trace includes 'asserts.ts')
-    originalError.stack?.includes('asserts.ts');
+    originalError.name === 'ValidationError';
 
-  if (isValidationOrAssertionError) {
+  if (isValidationError) {
     return originalError;
   }
 

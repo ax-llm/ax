@@ -1078,7 +1078,7 @@ class AxAIGoogleGeminiImpl
       topK: req.modelConfig?.topK ?? this.config.topK,
       frequencyPenalty:
         req.modelConfig?.frequencyPenalty ?? this.config.frequencyPenalty,
-      candidateCount: 1,
+      candidateCount: req.modelConfig?.n ?? this.config.n ?? 1,
       stopSequences:
         req.modelConfig?.stopSequences ?? this.config.stopSequences,
       responseMimeType: 'text/plain',
@@ -1742,7 +1742,7 @@ class AxAIGoogleGeminiImpl
       topK: req.modelConfig?.topK ?? this.config.topK,
       frequencyPenalty:
         req.modelConfig?.frequencyPenalty ?? this.config.frequencyPenalty,
-      candidateCount: 1,
+      candidateCount: req.modelConfig?.n ?? this.config.n ?? 1,
       stopSequences:
         req.modelConfig?.stopSequences ?? this.config.stopSequences,
       responseMimeType: 'text/plain',

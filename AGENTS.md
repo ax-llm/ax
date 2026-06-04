@@ -97,3 +97,4 @@ Examples should usually follow these conventions:
 - minimal logging
 - no unnecessary wrappers
 - export reusable components when helpful
+- run changed runnable examples from the repo root with `npm run tsx src/examples/<example-file>.ts`; API keys are provided through the repo `.env`

@@ -7,7 +7,6 @@ import type {
   AxSpeechConfig,
 } from '../ai/types.js';
 import type { AxAIMemory } from '../mem/types.js';
-import type { AxAssertion, AxStreamingAssertion } from './asserts.js';
 import type { AxInputFunctionType } from './functions.js';
 import type { AxGen } from './generate.js';
 import type { AxOptimizableComponent } from './optimizable.js';
@@ -227,8 +226,6 @@ export type AxProgramForwardOptions<MODEL> = AxAIServiceOptions & {
   thoughtFieldName?: string;
   promptTemplate?: typeof AxPromptTemplate;
   includeOptionalInputFieldsInSystemPrompt?: boolean;
-  asserts?: AxAssertion<any>[];
-  streamingAsserts?: AxStreamingAssertion[];
   excludeContentFromTrace?: boolean;
 
   // Field prefix is required for single output field programs
