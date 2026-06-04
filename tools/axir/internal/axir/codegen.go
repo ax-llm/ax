@@ -100,6 +100,7 @@ func EmitPython(model AxRuntimeModel, outDir string) error {
 		"axir-capabilities.json":                                mustCapabilityManifest(model, "python"),
 		"examples/signature_schema.py":                          pySignatureSchemaExample,
 		"examples/axgen_fake_client_tool.py":                    pyAxGenFakeClientToolExample,
+		"examples/axgen_live_openai.py":                         pyAxGenLiveOpenAIExample,
 		"examples/axai_fake_transport.py":                       pyAxAIFakeTransportExample,
 		"examples/axagent_pipeline.py":                          pyAxAgentPipelineExample,
 		"examples/runtime_adapter.py":                           pyRuntimeAdapterExample,
@@ -175,6 +176,7 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 		"axir-capabilities.json":                                      mustCapabilityManifest(model, "java"),
 		"examples/SignatureSchemaExample.java":                        javaSignatureSchemaExample,
 		"examples/AxGenFakeClientToolExample.java":                    javaAxGenFakeClientToolExample,
+		"examples/AxGenLiveOpenAIExample.java":                        javaAxGenLiveOpenAIExample,
 		"examples/AxAIFakeTransportExample.java":                      javaAxAIFakeTransportExample,
 		"examples/AxAgentPipelineExample.java":                        javaAxAgentPipelineExample,
 		"examples/RuntimeAdapterExample.java":                         javaRuntimeAdapterExample,
@@ -211,6 +213,7 @@ func EmitCpp(model AxRuntimeModel, outDir string) error {
 		"axir-capabilities.json":                                mustCapabilityManifest(model, "cpp"),
 		"examples/signature_schema.cpp":                         cppSignatureSchemaExample,
 		"examples/axgen_fake_client_tool.cpp":                   cppAxGenFakeClientToolExample,
+		"examples/axgen_live_openai.cpp":                        cppAxGenLiveOpenAIExample,
 		"examples/axai_fake_transport.cpp":                      cppAxAIFakeTransportExample,
 		"examples/axagent_pipeline.cpp":                         cppAxAgentPipelineExample,
 		"examples/runtime_adapter.cpp":                          cppRuntimeAdapterExample,
@@ -316,10 +319,7 @@ func BuildCapabilityManifest(model AxRuntimeModel, target string) (CapabilityMan
 		"live realtime transport",
 		"real multipart audio upload transport",
 	}
-	realNetwork := target == "python" || target == "java"
-	if target == "cpp" {
-		unsupported = append(unsupported, "real OpenAI-compatible HTTP transport")
-	}
+	realNetwork := target == "python" || target == "java" || target == "cpp"
 	return CapabilityManifest{
 		AxIRVersion:             "0.1",
 		Target:                  target,
@@ -534,7 +534,9 @@ func packageREADME(model AxRuntimeModel, target string) string {
 		panic(err)
 	}
 	network := "available"
-	if !manifest.RealNetworkSupport {
+	if target == "cpp" {
+		network = "available through the built-in libcurl HttpTransport when the CMake package finds CURL; custom Transport remains supported"
+	} else if !manifest.RealNetworkSupport {
 		network = "not implemented; use the fake transport/Transport boundary"
 	}
 	return fmt.Sprintf(`# Generated Ax %s Library
@@ -561,9 +563,10 @@ limited to idiomatic wrappers, transport boundaries, and language primitives.
 - Java emits package `+"`dev.axllm.ax`"+`, base Maven/Gradle metadata for
   `+"`dev.axllm:ax`"+`, and keeps QuickJS4J metadata isolated under
   `+"`examples/runtime_profiles/`"+`.
-- C++ emits `+"`axllm/axllm.hpp`"+`, `+"`axllm/axllm.cpp`"+`, and `+"`CMakeLists.txt`"+` with target
-  `+"`axllm::axllm`"+`. Optional QuickJS sources are not part of the default CMake
-  build.
+	- C++ emits `+"`axllm/axllm.hpp`"+`, `+"`axllm/axllm.cpp`"+`, and `+"`CMakeLists.txt`"+` with target
+	  `+"`axllm::axllm`"+`. The generated CMake package enables a built-in libcurl
+	  HTTP transport when CURL is available. Optional QuickJS sources are not part of
+	  the default CMake build.
 
 ## Examples
 
@@ -571,6 +574,7 @@ See the files in `+"`examples/`"+` for:
 
 - signature parsing and JSON schema generation
 - AxGen forward with a fake client and tool
+- AxGen forward with a live OpenAI-compatible provider when `+"`OPENAI_API_KEY`"+` is set
 - AxAI/OpenAI-compatible mapping with a fake transport
 - AxAgent pipeline alpha with a fake service
 - Runtime adapter helpers and custom `+"`AxCodeRuntime`"+` implementation

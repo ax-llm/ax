@@ -44,6 +44,31 @@ assert qa.get_traces()[-1]["output"] == out
 print("python-axgen-ok")
 `
 
+const pyAxGenLiveOpenAIExample = `import json
+import os
+
+from axllm import OpenAICompatibleClient, ax
+
+
+api_key = os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_APIKEY")
+if not api_key:
+    raise SystemExit("Set OPENAI_API_KEY to run this live example.")
+
+client = OpenAICompatibleClient(
+    api_key=api_key,
+    model=os.getenv("AX_LIVE_MODEL", "gpt-4.1-mini"),
+    model_config={"temperature": 0},
+)
+program = ax("question:string -> answer:string")
+out = program.forward(
+    client,
+    {
+        "question": "In one sentence, explain Ax as a language-agnostic LLM programming library."
+    },
+)
+print(json.dumps(out, indent=2, sort_keys=True))
+`
+
 const pyAxAIFakeTransportExample = `from axllm import ai
 
 
@@ -304,6 +329,30 @@ public final class AxGenFakeClientToolExample {
     if (!"Found Ax docs".equals(out.get("answer"))) throw new RuntimeException("bad output: " + out);
     if (qa.getTraces().isEmpty()) throw new RuntimeException("missing trace");
     System.out.println("java-axgen-ok");
+  }
+}
+`
+
+const javaAxGenLiveOpenAIExample = `import dev.axllm.ax.*;
+import java.util.*;
+
+public final class AxGenLiveOpenAIExample {
+  public static void main(String[] args) throws Exception {
+    String apiKey = System.getenv("OPENAI_API_KEY");
+    if (apiKey == null || apiKey.isBlank()) apiKey = System.getenv("OPENAI_APIKEY");
+    if (apiKey == null || apiKey.isBlank()) {
+      throw new IllegalStateException("Set OPENAI_API_KEY to run this live example.");
+    }
+    OpenAICompatibleClient client = new OpenAICompatibleClient(Map.of(
+      "api_key", apiKey,
+      "model", System.getenv().getOrDefault("AX_LIVE_MODEL", "gpt-4.1-mini"),
+      "model_config", Map.of("temperature", 0.0)
+    ));
+    AxGen program = Ax.ax("question:string -> answer:string");
+    Map<String, Object> out = program.forward(client, Map.of(
+      "question", "In one sentence, explain Ax as a language-agnostic LLM programming library."
+    ));
+    System.out.println(out);
   }
 }
 `
@@ -598,6 +647,31 @@ int main() {
   if (!axllm::equal(axllm::Core::get(out, "answer"), "Found Ax docs")) return 1;
   if (axllm::Core::truthy(axllm::Core::is_none(axllm::Core::get(qa.get_traces(), 0)))) return 1;
   std::cout << "cpp-axgen-ok\n";
+}
+`
+
+const cppAxGenLiveOpenAIExample = `#include "axllm/axllm.hpp"
+#include <cstdlib>
+#include <iostream>
+
+int main() {
+  const char* key = std::getenv("OPENAI_API_KEY");
+  if (key == nullptr || std::string(key).empty()) key = std::getenv("OPENAI_APIKEY");
+  if (key == nullptr || std::string(key).empty()) {
+    std::cerr << "Set OPENAI_API_KEY to run this live example.\n";
+    return 2;
+  }
+
+  axllm::OpenAICompatibleClient client(axllm::object({
+    {"api_key", key},
+    {"model", std::getenv("AX_LIVE_MODEL") ? std::getenv("AX_LIVE_MODEL") : "gpt-4.1-mini"},
+    {"model_config", axllm::object({{"temperature", 0}})}
+  }));
+  auto program = axllm::ax("question:string -> answer:string");
+  axllm::Value out = program.forward(client, axllm::object({
+    {"question", "In one sentence, explain Ax as a language-agnostic LLM programming library."}
+  }));
+  std::cout << axllm::stringify(out) << "\n";
 }
 `
 

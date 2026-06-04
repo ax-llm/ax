@@ -468,6 +468,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"axllm/conformance.py",
 				"examples/signature_schema.py",
 				"examples/axgen_fake_client_tool.py",
+				"examples/axgen_live_openai.py",
 				"examples/axai_fake_transport.py",
 				"examples/axagent_pipeline.py",
 				"examples/runtime_adapter.py",
@@ -526,6 +527,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"dev/axllm/ax/Conformance.java",
 				"examples/SignatureSchemaExample.java",
 				"examples/AxGenFakeClientToolExample.java",
+				"examples/AxGenLiveOpenAIExample.java",
 				"examples/AxAIFakeTransportExample.java",
 				"examples/AxAgentPipelineExample.java",
 				"examples/RuntimeAdapterExample.java",
@@ -557,6 +559,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"conformance.cpp",
 				"examples/signature_schema.cpp",
 				"examples/axgen_fake_client_tool.cpp",
+				"examples/axgen_live_openai.cpp",
 				"examples/axai_fake_transport.cpp",
 				"examples/axagent_pipeline.cpp",
 				"examples/runtime_adapter.cpp",
@@ -612,8 +615,8 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 			if manifest.PackageName != wantPackage {
 				t.Fatalf("bad package name for %s: got %q want %q", tc.target, manifest.PackageName, wantPackage)
 			}
-			if tc.target == "cpp" && manifest.RealNetworkSupport {
-				t.Fatalf("C++ manifest should not claim real network support: %#v", manifest)
+			if tc.target == "cpp" && !manifest.RealNetworkSupport {
+				t.Fatalf("C++ manifest should claim built-in HTTP support: %#v", manifest)
 			}
 			for _, want := range []string{"signature", "schema", "validation", "prompt", "axgen", "axai", "axagent", "axoptimize", "axprogram", "axflow"} {
 				if !containsString(manifest.SupportedSuites, want) {
@@ -654,7 +657,9 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				checkGeneratedFileContains(t, dir, "pom.xml", "<groupId>dev.axllm</groupId>", "<artifactId>ax</artifactId>", "dev/axllm/ax/*.java")
 				checkGeneratedFileContains(t, dir, "build.gradle", "java-library", "dev/axllm/ax/*.java")
 			case "cpp":
-				checkGeneratedFileContains(t, dir, "CMakeLists.txt", "add_library(axllm axllm/axllm.cpp)", "add_library(axllm::axllm ALIAS axllm)", "AX_BUILD_QUICKJS_PROFILE")
+				checkGeneratedFileContains(t, dir, "CMakeLists.txt", "add_library(axllm axllm/axllm.cpp)", "add_library(axllm::axllm ALIAS axllm)", "AX_BUILD_QUICKJS_PROFILE", "find_package(CURL QUIET)", "AXLLM_ENABLE_CURL")
+				checkGeneratedFileContains(t, dir, "axllm/axllm.hpp", "class HttpTransport", "std::unique_ptr<Transport> owned_transport_")
+				checkGeneratedFileContains(t, dir, "axllm/axllm.cpp", "HttpTransport::call", "curl_easy_perform")
 				checkGeneratedFileContains(t, dir, "cmake/axllmConfig.cmake.in", "axllmTargets.cmake")
 			}
 			assertNoUserFacingInternalPackageNames(t, dir, tc.target)

@@ -214,6 +214,44 @@ module @ax.provider version "0.1" {
                 attr target = %response_format
               }
               op core.call {
+                attr args = [%response_format_type, "json_object"]
+                attr callee = "intrinsic.eq"
+                attr result = %is_json_object
+              }
+              op core.if {
+                attr condition = %is_json_object
+                region @then {
+                  block @then {
+                    op core.map {
+                      attr result = %json_mode_message
+                    }
+                    op core.set {
+                      attr key = "role"
+                      attr target = %json_mode_message
+                      attr value = "system"
+                    }
+                    op core.set {
+                      attr key = "content"
+                      attr target = %json_mode_message
+                      attr value = "JSON output is required. Return only the requested JSON object."
+                    }
+                    op core.append {
+                      attr target = %messages
+                      attr value = %json_mode_message
+                    }
+                    op core.set {
+                      attr key = "messages"
+                      attr target = %payload
+                      attr value = %messages
+                    }
+                  }
+                }
+                region @else {
+                  block @else {
+                  }
+                }
+              }
+              op core.call {
                 attr args = [%response_format_type, "json_schema"]
                 attr callee = "intrinsic.eq"
                 attr result = %is_json_schema

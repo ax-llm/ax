@@ -130,6 +130,7 @@ project(axllm VERSION {{AX_VERSION}} LANGUAGES CXX)
 option(AX_BUILD_EXAMPLES "Build generated Ax examples" ON)
 option(AX_BUILD_CONFORMANCE "Build generated Ax conformance runner" ON)
 option(AX_BUILD_QUICKJS_PROFILE "Build optional QuickJS runtime profile" OFF)
+option(AXLLM_ENABLE_CURL "Build the built-in libcurl HTTP transport" ON)
 
 add_library(axllm axllm/axllm.cpp)
 add_library(axllm::axllm ALIAS axllm)
@@ -139,10 +140,23 @@ target_include_directories(axllm PUBLIC
   $<INSTALL_INTERFACE:include>
 )
 
+set(AXLLM_CONFIG_USES_CURL OFF)
+if(AXLLM_ENABLE_CURL)
+  find_package(CURL QUIET)
+  if(CURL_FOUND)
+    target_link_libraries(axllm PUBLIC CURL::libcurl)
+    target_compile_definitions(axllm PUBLIC AXLLM_ENABLE_CURL=1)
+    set(AXLLM_CONFIG_USES_CURL ON)
+  else()
+    message(WARNING "libcurl was not found; axllm will build, but built-in provider HTTP will throw unless a custom Transport is supplied.")
+  endif()
+endif()
+
 if(AX_BUILD_EXAMPLES)
   foreach(example
     signature_schema
     axgen_fake_client_tool
+    axgen_live_openai
     axai_fake_transport
     axagent_pipeline
     runtime_adapter
@@ -198,5 +212,9 @@ install(FILES
 
 const cppCMakeConfig = `@PACKAGE_INIT@
 
+include(CMakeFindDependencyMacro)
+if(@AXLLM_CONFIG_USES_CURL@)
+  find_dependency(CURL)
+endif()
 include("${CMAKE_CURRENT_LIST_DIR}/axllmTargets.cmake")
 `

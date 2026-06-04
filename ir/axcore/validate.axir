@@ -236,14 +236,77 @@ module @ax.validate version "0.1" {
     attr private = true
     tag "validate-output-core-helper"
     type signature = "(list<Field>, json) -> json throws"
-    region @body {
-      block @entry(%fields: list<Field>, %values: json) {
+      region @body {
+        block @entry(%fields: list<Field>, %values: json) {
+        op core.let {
+          attr result = %normalized
+          attr value = %values
+        }
+        op core.for {
+          attr in = %fields
+          attr item = %field
+          region @body {
+            block @each {
+              op core.get {
+                attr key = "name"
+                attr result = %field_name
+                attr target = %field
+              }
+              op core.get {
+                attr key = "title"
+                attr result = %field_title
+                attr target = %field
+              }
+              op core.call {
+                attr args = [%normalized, %field_name]
+                attr callee = "intrinsic.map.contains"
+                attr result = %has_name
+              }
+              op core.call {
+                attr args = [%has_name]
+                attr callee = "intrinsic.not"
+                attr result = %missing_name
+              }
+              op core.call {
+                attr args = [%normalized, %field_title]
+                attr callee = "intrinsic.map.contains"
+                attr result = %has_title
+              }
+              op core.call {
+                attr args = [%missing_name, %has_title]
+                attr callee = "intrinsic.and"
+                attr result = %alias_title
+              }
+              op core.if {
+                attr condition = %alias_title
+                region @then {
+                  block @then {
+                    op core.get {
+                      attr key = %field_title
+                      attr result = %title_value
+                      attr target = %normalized
+                    }
+                    op core.set {
+                      attr key = %field_name
+                      attr target = %normalized
+                      attr value = %title_value
+                    }
+                  }
+                }
+                region @else {
+                  block @else {
+                  }
+                }
+              }
+            }
+          }
+        }
         op core.call {
-          attr args = [%fields, %values, "output"]
+          attr args = [%fields, %normalized, "output"]
           attr callee = @validate_fields_impl
         }
         op core.return {
-          attr value = %values
+          attr value = %normalized
         }
       }
     }

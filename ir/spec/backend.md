@@ -62,13 +62,16 @@ C++ target:
   executable source
 - emits `CMakeLists.txt` with base target `axllm::axllm`
 - C++17
-- standard library only
+- standard-library Core plus optional built-in libcurl HTTP transport enabled by
+  the generated CMake package when CURL is available
 - executable conformance target for signatures, schema, validation, prompt,
   AxGen, AxAI/OpenAI-compatible mapping, and the prompt optimizer contract
 - idiom contract: value types, `namespace axllm`, standard containers, and
   explicit exceptions rather than TypeScript-shaped dynamic objects
 - OpenAI-compatible request/response mapping is Core-owned and executable
-  through fake transport; real C++ HTTP transport is deferred
+  through deterministic fake transports or the built-in `HttpTransport`;
+  custom `Transport` remains available for hosts that need their own HTTP,
+  retry, proxy, or observability stack
 
 All executable targets expose the same optimizer-ready boundary: component
 inventory, optimized artifact validation/serialization, component-map apply,

@@ -737,6 +737,11 @@ class Transport {
   virtual Value call(Value request) = 0;
 };
 
+class HttpTransport : public Transport {
+ public:
+  Value call(Value request) override;
+};
+
 class OpenAICompatibleClient : public AxBaseAI {
  public:
   explicit OpenAICompatibleClient(Value options = Value::object(), Transport* transport = nullptr);
@@ -759,6 +764,7 @@ class OpenAICompatibleClient : public AxBaseAI {
   Value descriptor_;
   std::string api_version_;
   double timeout_seconds_;
+  std::unique_ptr<Transport> owned_transport_;
   Transport* transport_;
   Value request_json(const std::string& endpoint, Value payload, bool stream);
   Value request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key);
@@ -1128,6 +1134,10 @@ const cppRuntime = `#include "axllm.hpp"
 #include <iostream>
 #include <set>
 
+#if defined(AXLLM_ENABLE_CURL)
+#include <curl/curl.h>
+#endif
+
 namespace axllm {
 
 Value::Value() : data(nullptr) {}
@@ -1312,6 +1322,81 @@ static bool has_key(const Value& object, const std::string& key) {
       {"pattern_description", "patternDescription"}};
   auto alias = aliases.find(key);
   return alias != aliases.end() && obj.count(alias->second) > 0;
+}
+
+Value HttpTransport::call(Value request) {
+#if !defined(AXLLM_ENABLE_CURL)
+  (void)request;
+  throw Core::as_error(Core::ai_error_unsupported("C++ HTTP transport requires libcurl. Build with CMake and AXLLM_ENABLE_CURL=ON, or pass a custom Transport."));
+#else
+  static bool curl_global_initialized = []() {
+    curl_global_init(CURL_GLOBAL_DEFAULT);
+    return true;
+  }();
+  (void)curl_global_initialized;
+
+  CURL* curl = curl_easy_init();
+  if (curl == nullptr) {
+    throw AxError("network", "curl_easy_init failed");
+  }
+
+  std::string response;
+  char error_buffer[CURL_ERROR_SIZE] = {0};
+  struct curl_slist* headers = nullptr;
+  for (const auto& entry : object_ref(Core::get(request, "headers", Value::object()))) {
+    if (entry.first == "__order") continue;
+    std::string header = entry.first + ": " + str(entry.second);
+    headers = curl_slist_append(headers, header.c_str());
+  }
+
+  Value body = Core::get(request, "json", Core::get(request, "data", Value::object()));
+  std::string payload = stringify(body);
+  std::string method = str(Core::get(request, "method", "POST"));
+  std::string url = str(Core::get(request, "url"));
+  bool stream = Core::truthy(Core::get(request, "stream", false));
+  double timeout = num(Core::get(request, "timeout", 0));
+
+  curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+  curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, error_buffer);
+  curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+  curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, +[](char* ptr, size_t size, size_t nmemb, void* userdata) -> size_t {
+    auto* out = static_cast<std::string*>(userdata);
+    out->append(ptr, size * nmemb);
+    return size * nmemb;
+  });
+  curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+  if (timeout > 0) curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, static_cast<long>(timeout * 1000.0));
+  if (method == "POST") {
+    curl_easy_setopt(curl, CURLOPT_POST, 1L);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload.c_str());
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(payload.size()));
+  } else {
+    curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, method.c_str());
+  }
+
+  CURLcode rc = curl_easy_perform(curl);
+  long status = 0;
+  curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+  curl_slist_free_all(headers);
+  curl_easy_cleanup(curl);
+
+  if (rc != CURLE_OK) {
+    std::string message = error_buffer[0] ? error_buffer : curl_easy_strerror(rc);
+    if (rc == CURLE_OPERATION_TIMEDOUT) {
+      throw Core::as_error(Core::ai_error_timeout(message, Value(), Value(), Value(), request, false));
+    }
+    throw AxError("network", message);
+  }
+
+  Value out = Value::object();
+  Core::set(out, "status", static_cast<double>(status));
+  if (stream) {
+    Core::set(out, "body", response);
+  } else {
+    Core::set(out, "json", Core::json_parse(response));
+  }
+  return out;
+#endif
 }
 
 bool Core::truthy(const Value& value) {
@@ -2891,7 +2976,7 @@ Value AxBaseAI::chat(Value request, Value call_options) {
   Value req = Core::coerce_chat_request(std::move(request));
   Core::validate_chat_request(req);
   Value merged_options = Core::map_merge(options_, std::move(call_options));
-  Value selected_model = Core::get(req, "model", model_);
+  Value selected_model = Core::coalesce(Core::get(req, "model"), model_);
   Value merged_config = Core::merge_model_config(model_config_, Core::get(req, "model_config"), merged_options);
   Core::set(req, "model", selected_model);
   Core::set(req, "model_config", merged_config);
@@ -2973,7 +3058,12 @@ OpenAICompatibleClient::OpenAICompatibleClient(std::string profile, std::string 
       api_key_(option_string(options, "api_key", "apiKey", env_or_default("OPENAI_API_KEY", ""))),
       api_version_(option_string(options, "api_version", "apiVersion", str(Core::get(descriptor_, "apiVersion", "")))),
       timeout_seconds_(Core::get(options, "timeout", 60).is_number() ? num(Core::get(options, "timeout", 60)) : 60.0),
-      transport_(transport) {}
+      transport_(transport) {
+  if (transport_ == nullptr) {
+    owned_transport_ = std::make_unique<HttpTransport>();
+    transport_ = owned_transport_.get();
+  }
+}
 
 OpenAIResponsesClient::OpenAIResponsesClient(Value options, Transport* transport)
     : OpenAICompatibleClient("openai-responses", "openai-responses", std::move(options), transport, "gpt-4o", "text-embedding-ada-002") {}
@@ -3067,7 +3157,7 @@ Value OpenAICompatibleClient::do_chat(Value request, Value) {
   Value payload = Core::provider_build_chat_request(profile_, request);
   bool stream = Core::truthy(Core::get(payload, "stream"));
   if (stream) {
-    Value model = Core::get(request, "model", Core::get(payload, "model", model_));
+    Value model = Core::coalesce(Core::get(request, "model"), Core::coalesce(Core::get(payload, "model"), model_));
     Value raw = request_json(operation_path("stream_chat", model), payload, true);
     Value state = Value::object();
     Value results = Value::array();
@@ -3076,14 +3166,14 @@ Value OpenAICompatibleClient::do_chat(Value request, Value) {
     }
     return Value(Object{{"results", results}});
   }
-  Value model = Core::get(request, "model", Core::get(payload, "model", model_));
+  Value model = Core::coalesce(Core::get(request, "model"), Core::coalesce(Core::get(payload, "model"), model_));
   Value raw = request_json(operation_path("chat", model), payload, false);
   return Core::provider_normalize_chat_response(profile_, raw, name_, model);
 }
 
 Value OpenAICompatibleClient::do_embed(Value request, Value) {
   Value payload = Core::provider_build_embed_request(profile_, request);
-  Value model = Core::get(request, "embed_model", Core::get(request, "embedModel", Core::get(payload, "model", embed_model_)));
+  Value model = Core::coalesce(Core::get(request, "embed_model"), Core::coalesce(Core::get(request, "embedModel"), Core::coalesce(Core::get(payload, "model"), embed_model_)));
   Value raw = request_json(operation_path("embed", model), payload, false);
   return Core::provider_normalize_embed_response(profile_, raw, name_, model);
 }
@@ -3093,7 +3183,7 @@ std::vector<Value> OpenAICompatibleClient::stream(Value request) {
   Core::validate_chat_request(req);
   Value config = Core::merge_model_config(model_config_, Core::get(req, "model_config"), Value(Object{{"stream", true}}));
   Core::set(config, "stream", true);
-  Core::set(req, "model", Core::get(req, "model", model_));
+  Core::set(req, "model", Core::coalesce(Core::get(req, "model"), model_));
   Core::set(req, "model_config", config);
   Value payload = Core::provider_build_chat_request(profile_, req);
   Value model = Core::get(req, "model", Core::get(payload, "model", model_));
@@ -3154,9 +3244,10 @@ Value OpenAICompatibleClient::request_json(const std::string& endpoint, Value pa
   Core::set(call, "headers", headers());
   Core::set(call, body_key.empty() ? "json" : body_key, payload);
   Core::set(call, "stream", stream);
-  if (transport_ != nullptr) return transport_result(transport_->call(call), call);
+  Core::set(call, "timeout", timeout_seconds_);
   if (api_key_.empty() || api_key_ == "null") throw Core::as_error(Core::ai_error_auth("OPENAI_API_KEY is required", Value(), Value(), Value(), call));
-  throw Core::as_error(Core::ai_error_unsupported("C++ OpenAI network transport is not implemented in generated alpha"));
+  if (transport_ != nullptr) return transport_result(transport_->call(call), call);
+  throw Core::as_error(Core::ai_error_unsupported("C++ HTTP transport is not available; build with AXLLM_ENABLE_CURL=ON or pass a custom Transport"));
 }
 
 std::string OpenAICompatibleClient::operation_path(const std::string& operation) const {
