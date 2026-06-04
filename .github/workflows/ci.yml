@@ -14,9 +14,20 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: '20.x' # You can specify your desired Node.js version
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.22.x'
       - name: Install dependencies
         run: npm ci
-      - name: Build packages
-        run: npm run build
-      - name: Type check
-        run: npm run test:type-check --workspaces --if-present
+      - name: Build, lint, test, and verify generated libraries
+        run: npm run ci:verify

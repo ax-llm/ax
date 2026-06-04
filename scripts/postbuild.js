@@ -1,5 +1,11 @@
-import { copyFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import {
+  copyFile,
+  mkdir,
+  readdir,
+  readFile,
+  writeFile,
+} from 'node:fs/promises';
 import path from 'node:path';
 
 const packagePath = process.cwd();
@@ -89,13 +95,18 @@ if (existsSync(skillsSourcePath)) {
   const skillFiles = files.filter((f) => f.endsWith('.md'));
 
   for (const file of skillFiles) {
-    const skillContent = await readFile(path.join(skillsSourcePath, file), 'utf8');
+    const skillContent = await readFile(
+      path.join(skillsSourcePath, file),
+      'utf8'
+    );
     const updatedSkillContent = skillContent.replace(
       /^version:\s*["']?__VERSION__["']?/m,
       `version: "${packageJson.version}"`
     );
     await writeFile(path.join(skillsDestPath, file), updatedSkillContent);
-    console.log(`Skill file ${file} copied with version ${packageJson.version}`);
+    console.log(
+      `Skill file ${file} copied with version ${packageJson.version}`
+    );
   }
 }
 
@@ -118,7 +129,10 @@ if (existsSync(scriptsSourcePath)) {
   await mkdir(scriptsDestPath, { recursive: true });
   const postinstallPath = path.join(scriptsSourcePath, 'postinstall.mjs');
   if (existsSync(postinstallPath)) {
-    await copyFile(postinstallPath, path.join(scriptsDestPath, 'postinstall.mjs'));
+    await copyFile(
+      postinstallPath,
+      path.join(scriptsDestPath, 'postinstall.mjs')
+    );
     console.log('Postinstall script copied to dist/scripts/');
   }
 }

@@ -218,9 +218,7 @@ function generateTypeScript({ templates, sources }) {
   for (const [id, files] of sources) {
     if (files.length <= 1) {
       const only = files[0];
-      lines.push(
-        `  ${quote(id)}: [${only ? quote(only) : ''}],`
-      );
+      lines.push(`  ${quote(id)}: [${only ? quote(only) : ''}],`);
       continue;
     }
 

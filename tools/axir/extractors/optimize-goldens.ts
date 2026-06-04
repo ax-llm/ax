@@ -203,7 +203,7 @@ selector.recordResult('qa::instruction', true, 0);
 selector.recordProposal('qa::style');
 selector.recordResult('qa::style', false, 1);
 const selectorSnapshot = selector.snapshot();
-const gepaPareto = buildParetoFront(
+const _gepaPareto = buildParetoFront(
   [
     { idx: 0, scores: { faithfulness: 0.6, helpfulness: 0.7 } },
     { idx: 1, scores: { faithfulness: 0.8, helpfulness: 0.8 } },

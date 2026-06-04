@@ -39,11 +39,22 @@ describe('ax.forward with Cohere merges per-key options and config', () => {
     const capture: { lastBody?: any } = {};
     const fetch = createMockFetch(
       {
-        text: 'ok',
-        generation_id: 'gid',
-        response_id: 'rid',
-        finish_reason: 'COMPLETE',
-        meta: { billed_units: { input_tokens: 1, output_tokens: 1 } },
+        id: 'chatcmpl-cohere',
+        object: 'chat.completion',
+        created: 0,
+        model: AxAICohereModel.CommandR,
+        choices: [
+          {
+            index: 0,
+            message: { role: 'assistant', content: 'ok', refusal: null },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 1,
+          completion_tokens: 1,
+          total_tokens: 2,
+        },
       },
       capture
     );
@@ -62,7 +73,7 @@ describe('ax.forward with Cohere merges per-key options and config', () => {
 
     const reqBody = capture.lastBody;
     expect(reqBody).toBeDefined();
-    // max_tokens should reflect merged modelConfig from key
-    expect(reqBody.max_tokens).toBe(333);
+    // max_completion_tokens should reflect merged OpenAI-compatible modelConfig from key
+    expect(reqBody.max_completion_tokens).toBe(333);
   });
 });

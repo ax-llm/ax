@@ -1,6 +1,12 @@
-# Ax — DSPy for TypeScript
+# Ax — multi-language LLM programming
 
-Automatic prompt generation, RLM agents, and a single API across model-lab providers. Production-tested.
+One programming model for building with LLMs across TypeScript, Python, Java,
+and C++.
+
+Ax is TypeScript-first and ships today as `@ax-llm/ax`. The same signatures,
+provider mappings, agents, flows, runtime contracts, and optimizers are also
+compiled into verified generated Python, Java, and C++ libraries. Go and Rust
+are planned backend targets, not separate product forks.
 
 [![NPM](https://img.shields.io/npm/v/@ax-llm/ax?style=for-the-badge&color=222&label=npm)](https://www.npmjs.com/package/@ax-llm/ax)
 [![Discord](https://img.shields.io/discord/1078454354849304667?style=for-the-badge&color=5865F2&label=discord)](https://discord.gg/DSHg3dU7dW)
@@ -8,21 +14,47 @@ Automatic prompt generation, RLM agents, and a single API across model-lab provi
 
 ## What Ax is
 
-- A small, dependency-free TypeScript library that brings the **DSPy** programming model to JS/TS runtimes.
-- You declare a **signature** (string DSL, fluent `f()` builder, or any **Standard Schema v1** validator — Zod, Valibot, ArkType). Ax compiles it to a prompt at runtime, runs the call, parses the output, and gives you back a fully typed value.
-- The same signatures plug into agents, workflows, optimizers, and a sandboxed JS runtime — without rewriting prompts.
-- Works in NodeJS, Bun, Deno and in all browsers.
+- **Signatures** for typed structured generation: string DSL, fluent `f()`
+  builder, or any **Standard Schema v1** validator — Zod, Valibot, ArkType.
+- **Provider abstraction** across OpenAI-compatible endpoints, OpenAI
+  Responses, Anthropic, Gemini, Grok/xAI, Mistral, Cohere, Reka, DeepSeek,
+  Azure OpenAI, audio, and realtime event streams.
+- **Agents** with runtime execution, context budgets, checkpoints, action-log
+  replay, discovery, memory, skills, and delegation.
+- **Flows** as typed program graphs with branches, loops, feedback, cache
+  behavior, parallel execution, and `.returns(...)` projection.
+- **Optimizers** including GEPA, few-shot bootstrapping, portable optimizer
+  artifacts, and evaluation/apply flows.
+- **One semantic core** compiled into TypeScript, Python, Java, and C++ library
+  shapes, so the same Ax program model can move across runtime stacks.
+
+## Language Matrix
+
+| Ecosystem | Package / import | Status |
+|---|---|---|
+| TypeScript / JavaScript | `@ax-llm/ax`<br>`import { ai, ax, agent, flow } from "@ax-llm/ax"` | Published npm package |
+| Python | `axllm`<br>`from axllm import ai, ax, agent, flow` | Generated and verified in repo; prepared for PyPI |
+| Java | `dev.axllm:ax`<br>`import dev.axllm.ax.*` | Generated and verified in repo; prepared for Maven Central |
+| C++ | `axllm::axllm`<br>`#include <axllm/axllm.hpp>` | Generated and verified in repo; prepared for CMake/GitHub Release |
+| Go / Rust | Go module planned as `github.com/ax-llm/ax/go`; Rust TBD | Future generated backends |
 
 ```mermaid
 flowchart LR
-  S["Signature (string, f, zod)"] --> P["Prompt"]
-  P --> AI["AI"]
-  AI --> R["Streaming parser"]
-  R --> O["Typed output"]
-  X["GEPA / Bootstrap optimizer"] --> P
+  S["Signature (string, f, Standard Schema)"] --> G["AxGen typed generation"]
+  G --> P["Provider descriptors / AI clients"]
+  G --> A["AxAgent"]
+  G --> F["AxFlow"]
+  G --> O["GEPA / optimizer artifacts"]
+  C["Shared Ax semantics"] --> TS["TypeScript"]
+  C --> PY["Python"]
+  C --> JV["Java"]
+  C --> CP["C++"]
 ```
 
 ## 30 seconds
+
+The TypeScript package is the source implementation and the current published
+package:
 
 ```typescript
 import { ai, ax } from "@ax-llm/ax";
@@ -40,6 +72,23 @@ const { sentiment } = await classify.forward(llm, {
 ```
 
 No prompt engineering. Switch `name: "openai"` to `"anthropic"`, `"google-gemini"`, `"mistral"`, `"deepseek"`, `"grok"`, etc. — same signature, same code.
+
+## Same idea in every language
+
+The generated Python, Java, and C++ libraries expose the same top-level Ax
+ideas in native package shapes. The repo runner builds the generated packages
+locally and runs examples without asking you to remember compiler commands:
+
+```bash
+npm run example -- python signature_schema.py
+npm run example -- java SignatureSchemaExample.java
+npm run example -- cpp signature_schema.cpp
+```
+
+See [`src/examples/README.md`](src/examples/README.md) for runnable examples,
+[`docs/RELEASE.md`](docs/RELEASE.md) for package/release shape, and
+[`docs/COMPILER.md`](docs/COMPILER.md) for how the language-agnostic Ax
+compiler works.
 
 ## Provider-Native Speed
 
@@ -393,13 +442,13 @@ const result = await optimizer.compile(
 | Batch STT/TTS | `ai.transcribe`, `ai.speak` | OpenAI, xAI, Gemini, Mistral where provider endpoints exist |
 | Signature audio artifacts | `speech:audio` outputs + `speech` options | model emits script text, Ax synthesizes audio after parsing |
 | Conversational audio | `.chat()` + `result.audio` | OpenAI `gpt-audio*`, `gpt-realtime-2`, `gpt-realtime-whisper`; Gemini Live native audio; Grok Voice |
-| Workflows | `flow` | typed DAG, parallelism, branching, sub-contexts |
-| Optimization | `AxGEPA`, `AxBootstrapFewShot` | Pareto front, few-shot |
+| Workflows | `flow` | typed program graphs, branching, loops, parallelism, `.returns(...)` |
+| Optimization | `AxGEPA`, `AxBootstrapFewShot` | Pareto front, few-shot, portable optimizer artifacts |
 | Agent loop | `agent`, `AxAgent` | distiller → executor → responder |
 | Context map | `contextMap`, `AxAgentContextMap` | persistent orientation cache for recurring long context |
 | Memories | `onMemoriesSearch`, `recall(...)` | vector/BM25-backed context loader |
 | Skills | `onSkillsSearch`, `consult(...)` | on-demand prompt-section loader |
-| Sandboxed JS | `AxJSRuntime`, `AxJSRuntimePermission` | Node, Bun, Deno, browser |
+| Sandboxed JS runtime | `AxJSRuntime`, `AxJSRuntimePermission` | TypeScript runtime for Node, Bun, Deno, browser |
 | Recursive runtime (RLM) | `agent({ runtime, contextFields })` | long-context REPL with checkpointed replay |
 | Providers | `ai({ name: ... })` | OpenAI, OpenAI Responses, Azure OpenAI, Anthropic, Gemini, Mistral, Cohere, Reka, DeepSeek, Grok/xAI, HuggingFace, Bedrock (separate pkg) |
 | OpenAI-compatible endpoints | `ai({ name: "openai", apiURL, apiKey, models })` | one path for custom OpenAI-compatible gateways |
@@ -408,9 +457,16 @@ const result = await optimizer.compile(
 
 ## Install
 
+The current published package is TypeScript / JavaScript:
+
 ```bash
 npm install @ax-llm/ax
 ```
+
+Generated Python, Java, and C++ libraries are verified in this repo and prepared
+for ecosystem release as `axllm`, `dev.axllm:ax`, and `axllm::axllm`. Until
+those registry lanes are enabled, use the repo runner to build and smoke-test
+the generated packages locally.
 
 Optional packages:
 
@@ -424,7 +480,9 @@ npm install @ax-llm/ax-tools              # MCP stdio transport, JS runtime extr
 
 **Get started**
 - [Quick Start](https://github.com/ax-llm/ax/blob/main/src/ax/README.md)
-- [Examples](https://github.com/ax-llm/ax/blob/main/src/docs/src/content/docs/examples.md)
+- [Runnable examples](src/examples/README.md)
+- [Multi-language release shape](docs/RELEASE.md)
+- [Compiler architecture](docs/COMPILER.md)
 - [DSPy concepts](https://github.com/ax-llm/ax/blob/main/src/docs/src/content/docs/dspy.md)
 - [Signatures](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-signature.md)
 
