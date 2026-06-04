@@ -1,4 +1,4 @@
-# Ax — multi-language LLM programming
+# Ax — DSPy for TypeScript / Python / Java / C++ and more
 
 One programming model for building with LLMs across TypeScript, Python, Java,
 and C++.
