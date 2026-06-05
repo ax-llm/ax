@@ -1,5 +1,17 @@
 # Changelog
 
+## [22.0.1](https://github.com/ax-llm/ax/compare/21.0.14...22.0.0) (2026-06-05)
+
+### Bug Fixes
+
+* **openai:** correct stale per-model prices in OpenAI info table ([#525](https://github.com/ax-llm/ax/issues/525)) ([c85eceb](https://github.com/ax-llm/ax/commit/c85eceb058894e702d9b42ecec97cd994a60f03e))
+
+## [22.0.0](https://github.com/ax-llm/ax/compare/21.0.14...22.0.0) (2026-06-04)
+
+### Bug Fixes
+
+* type fix ([a5a0cc6](https://github.com/ax-llm/ax/commit/a5a0cc65dfe36ee385bc08b658d796846cd496c4))
+
 ## [22.0.0](https://github.com/ax-llm/ax/compare/21.0.13...21.0.14) (2026-06-04)
 
 ### Bug Fixes
