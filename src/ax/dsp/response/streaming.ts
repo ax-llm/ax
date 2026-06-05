@@ -1,9 +1,9 @@
 import type { AxChatResponse, AxModelUsage } from '../../ai/types.js';
 import { mergeFunctionCalls } from '../../ai/util.js';
+import { assertStreamingAssertions } from '../asserts.js';
 import { ValidationError } from '../errors.js';
 import { streamingExtractValues, streamValues } from '../extract.js';
 import { processStreamingFieldProcessors } from '../fieldProcessor.js';
-import { checkStreamingGuards } from '../guards.js';
 import type { AsyncGenDeltaOut, AxGenOut } from '../types.js';
 import { finalizeStreamingResponse } from './finalize.js';
 import {
@@ -139,7 +139,7 @@ async function* processStreamingResult<OUT extends AxGenOut>({
   signature,
   streamingFieldProcessors,
   thoughtFieldName,
-  streamingGuards,
+  streamingAsserts,
   parseJsonStringFields,
 }: ProcessStreamingResultArgs): AsyncGenDeltaOut<OUT> {
   if (result.thought && result.thought.length > 0) {
@@ -244,8 +244,12 @@ async function* processStreamingResult<OUT extends AxGenOut>({
       return;
     }
 
-    if (streamingGuards.length !== 0) {
-      await checkStreamingGuards(streamingGuards, state.xstate, state.content);
+    if (streamingAsserts.length !== 0) {
+      await assertStreamingAssertions(
+        streamingAsserts,
+        state.xstate,
+        state.content
+      );
     }
 
     if (streamingFieldProcessors.length !== 0) {

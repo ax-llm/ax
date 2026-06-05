@@ -579,6 +579,12 @@ import {
 } from './ai/x-grok/api.js';
 import { axModelInfoGrok } from './ai/x-grok/info.js';
 import { AxAIGrokEmbedModels, AxAIGrokModel } from './ai/x-grok/types.js';
+import {
+  type AxAssertion,
+  AxAssertionError,
+  type AxStreamingAssertion,
+  AxStreamingAssertionError,
+} from './dsp/asserts.js';
 import type {
   AxCheckpointLoadFn,
   AxCheckpointSaveFn,
@@ -618,7 +624,6 @@ import {
   type AxStreamingEvent,
 } from './dsp/generate.js';
 import { type AxFunctionResultFormatter, axGlobals } from './dsp/globals.js';
-import { type AxStreamingGuard, AxStreamingGuardError } from './dsp/guards.js';
 import type {
   AxJudgeForwardOptions,
   AxJudgeOptions,
@@ -929,6 +934,7 @@ export { AxAgent };
 export { AxAgentClarificationError };
 export { AxAgentContextMap };
 export { AxAgentProtocolCompletionSignal };
+export { AxAssertionError };
 export { AxBalancer };
 export { AxBaseAI };
 export { AxBaseOptimizer };
@@ -966,7 +972,7 @@ export { AxRefineError };
 export { AxSignature };
 export { AxSignatureBuilder };
 export { AxStopFunctionCallException };
-export { AxStreamingGuardError };
+export { AxStreamingAssertionError };
 export { AxStringUtil };
 export { AxSynth };
 export { AxTestPrompt };
@@ -1379,6 +1385,7 @@ export type { AxAgentUsedSkill };
 export type { AxAgentUsedSkillsCallback };
 export type { AxAgentic };
 export type { AxAnyAgentic };
+export type { AxAssertion };
 export type { AxAttempt };
 export type { AxAudioFormat };
 export type { AxAudioInput };
@@ -1603,9 +1610,9 @@ export type { AxStageOptions };
 export type { AxStepContext };
 export type { AxStepHooks };
 export type { AxStepUsage };
+export type { AxStreamingAssertion };
 export type { AxStreamingEvent };
 export type { AxStreamingFieldProcessorProcess };
-export type { AxStreamingGuard };
 export type { AxSynthExample };
 export type { AxSynthOptions };
 export type { AxSynthResult };

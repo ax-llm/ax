@@ -36,7 +36,7 @@ search = (
 )
 
 qa = ax("query:string -> answer:string", {"functions": [search]})
-qa.add_assertion({"field": "answer", "contains": "Ax", "message": "answer should mention Ax"})
+qa.add_assert({"field": "answer", "contains": "Ax", "message": "answer should mention Ax"})
 qa.add_field_processor("answer", "trim")
 out = qa.forward(FakeClient(), {"query": "ax docs"})
 assert out == {"answer": "Found Ax docs"}, out
@@ -323,7 +323,7 @@ public final class AxGenFakeClientToolExample {
       .build();
     AxGen qa = Ax.ax("query:string -> answer:string")
       .addTool(search)
-      .addAssertion(Map.of("field", "answer", "contains", "Ax", "message", "answer should mention Ax"))
+      .addAssert(Map.of("field", "answer", "contains", "Ax", "message", "answer should mention Ax"))
       .addFieldProcessor("answer", "trim");
     Map<String, Object> out = qa.forward(new FakeClient(), Map.of("query", "ax docs"));
     if (!"Found Ax docs".equals(out.get("answer"))) throw new RuntimeException("bad output: " + out);
@@ -640,7 +640,7 @@ int main() {
   });
   auto qa = axllm::ax("query:string -> answer:string")
       .add_tool(search)
-      .add_assertion(axllm::object({{"field", "answer"}, {"contains", "Ax"}, {"message", "answer should mention Ax"}}))
+      .add_assert(axllm::object({{"field", "answer"}, {"contains", "Ax"}, {"message", "answer should mention Ax"}}))
       .add_field_processor("answer", "trim");
   FakeClient client;
   axllm::Value out = qa.forward(client, axllm::object({{"query", "ax docs"}}));

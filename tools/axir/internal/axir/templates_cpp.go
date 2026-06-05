@@ -874,8 +874,10 @@ class AxGen : public AxProgram {
   AxGen& add_tool(const Tool& tool);
   AxGen& set_examples(Value examples);
   AxGen& set_demos(Value demos);
-  AxGen& add_assertion(Value assertion);
-  AxGen& add_assertion(std::function<Value(Value)> assertion);
+  AxGen& add_assert(Value assertion);
+  AxGen& add_assert(std::function<Value(Value)> assertion);
+  AxGen& add_streaming_assert(Value assertion);
+  AxGen& add_streaming_assert(std::string field, std::string not_contains, std::string message = "");
   AxGen& add_field_processor(std::string field, std::string op);
   AxGen& add_field_processor(std::string field, std::function<Value(Value)> processor);
   AxGen& on_function_call(std::function<void(Value)> hook);
@@ -3408,6 +3410,7 @@ AxGen::AxGen(Value signature, Value options) {
   Core::set(state_, "examples", Core::get(options, "examples", Value::array()));
   Core::set(state_, "demos", Core::get(options, "demos", Value::array()));
   Core::set(state_, "assertions", Core::get(options, "assertions", Value::array()));
+  Core::set(state_, "streaming_assertions", Core::get(options, "streaming_assertions", Core::get(options, "streamingAssertions", Value::array())));
   Core::set(state_, "field_processors", Core::get(options, "field_processors", Core::get(options, "fieldProcessors", Value::array())));
   Core::set(state_, "stop_functions", Core::get(options, "stop_functions", Core::get(options, "stopFunctions", Value::array())));
   Core::set(state_, "program_id", Core::get(options, "id", Core::get(options, "program_id", Core::get(options, "programId", Value("root")))));
@@ -3446,19 +3449,34 @@ AxGen& AxGen::set_demos(Value demos) {
   return *this;
 }
 
-AxGen& AxGen::add_assertion(Value assertion) {
+AxGen& AxGen::add_assert(Value assertion) {
   Value assertions = Core::get(state_, "assertions", Value::array());
   Core::append(assertions, assertion);
   Core::set(state_, "assertions", assertions);
   return *this;
 }
 
-AxGen& AxGen::add_assertion(std::function<Value(Value)> assertion) {
+AxGen& AxGen::add_assert(std::function<Value(Value)> assertion) {
   std::string id = pointer_id(this) + ":assert:" + std::to_string(assertion_registry().size());
   assertion_registry()[id] = std::move(assertion);
   Value spec = Value::object();
   Core::set(spec, "__assertion_id", id);
-  return add_assertion(spec);
+  return add_assert(spec);
+}
+
+AxGen& AxGen::add_streaming_assert(Value assertion) {
+  Value assertions = Core::get(state_, "streaming_assertions", Value::array());
+  Core::append(assertions, assertion);
+  Core::set(state_, "streaming_assertions", assertions);
+  return *this;
+}
+
+AxGen& AxGen::add_streaming_assert(std::string field, std::string not_contains, std::string message) {
+  Value spec = Value::object();
+  Core::set(spec, "field", std::move(field));
+  Core::set(spec, "not_contains", std::move(not_contains));
+  if (!message.empty()) Core::set(spec, "message", std::move(message));
+  return add_streaming_assert(spec);
 }
 
 AxGen& AxGen::add_field_processor(std::string field, std::string op) {
@@ -5818,7 +5836,7 @@ static void run_forward(Value fixture) {
   AxGen gen(sig, options);
   if (!Core::get(fixture, "examples").is_null()) gen.set_examples(Core::get(fixture, "examples"));
   if (!Core::get(fixture, "demos").is_null()) gen.set_demos(Core::get(fixture, "demos"));
-  for (const auto& assertion : Core::iter(Core::get(fixture, "assertions", Value::array()))) gen.add_assertion(assertion);
+  for (const auto& assertion : Core::iter(Core::get(fixture, "assertions", Value::array()))) gen.add_assert(assertion);
   for (const auto& processor : Core::iter(Core::get(fixture, "field_processors", Core::get(fixture, "fieldProcessors", Value::array())))) {
     gen.add_field_processor(display(Core::get(processor, "field")), display(Core::get(processor, "processor", Core::get(processor, "op"))));
   }
@@ -5873,6 +5891,28 @@ static void run_forward(Value fixture) {
       if (prompt_text.find(display(item)) == std::string::npos) throw AxError("fixture", "chat prompt missing " + display(item) + ": " + prompt_text);
     }
   }
+}
+
+static void run_stream(Value fixture) {
+  Value chunks = Value::array();
+  try {
+    for (const auto& event : Core::iter(Core::get(fixture, "stream_events", Value::array()))) {
+      Core::append(chunks, event);
+      for (const auto& raw : Core::iter(Core::get(fixture, "streaming_assertions", Value::array()))) {
+        Value needle = Core::get(raw, "not_contains", Core::get(raw, "notContains"));
+        if (needle.is_null()) continue;
+        if (display(Core::fold_stream(chunks)).find(display(needle)) != std::string::npos) {
+          throw AxError("runtime", display(Core::get(raw, "message", "streaming assertion failed")));
+        }
+      }
+    }
+  } catch (const std::exception& e) {
+    std::string expected = display(Core::get(fixture, "expected_error_contains", ""));
+    if (!expected.empty() && std::string(e.what()).find(expected) != std::string::npos) return;
+    throw;
+  }
+  if (!Core::get(fixture, "expected_error_contains").is_null()) throw AxError("fixture", "expected stream assertion to fail");
+  assert_equal(Core::fold_stream(chunks), Core::get(fixture, "expected_folded", ""), "stream");
 }
 
 static Value optimize_component_ids(Value components) {
@@ -7137,7 +7177,7 @@ static void run(Value fixture) {
     Value messages = Core::render_prompt(sig, Core::get(fixture, "input", Core::get(fixture, "values", Value::object())), Core::get(fixture, "tools", Value::array()), options);
     if (!Core::get(fixture, "expected_messages").is_null()) assert_equal(messages, Core::get(fixture, "expected_messages"), "messages");
   } else if (kind == "stream") {
-    assert_equal(Core::fold_stream(Core::get(fixture, "stream_events", Value::array())), Core::get(fixture, "expected_folded", ""), "stream");
+    run_stream(fixture);
   } else if (kind == "forward") {
     run_forward(fixture);
   } else if (kind == "agent_forward") {

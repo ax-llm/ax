@@ -1,3 +1,4 @@
+import { assertAssertions } from '../asserts.js';
 import { ValidationError } from '../errors.js';
 import { extractValues } from '../extract.js';
 import { processFieldProcessors } from '../fieldProcessor.js';
@@ -21,6 +22,7 @@ export async function* processResponse<OUT extends AxGenOut>({
   states,
   usage,
   excludeContentFromTrace,
+  asserts,
   fieldProcessors,
   thoughtFieldName,
   signature,
@@ -182,6 +184,10 @@ export async function* processResponse<OUT extends AxGenOut>({
         mem,
         sessionId
       );
+    }
+
+    if (asserts.length) {
+      await assertAssertions(asserts, state.values);
     }
 
     if (result.finishReason === 'length') {

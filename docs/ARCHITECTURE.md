@@ -16,7 +16,8 @@ Ax has six main runtime surfaces:
    embeddings, transcribe/speak, audio/realtime operations, routing, and
    balancing.
 2. **AxGen**: signature-driven structured generation, prompts, tools, retries,
-   schema validation, `bestOfN(...)`, `refine(...)`, streaming guards,
+   schema validation, assertions, `bestOfN(...)`, `refine(...)`,
+   streaming assertions,
    examples/demos, memory, usage, traces, and streaming folds.
 3. **AxAgent**: a staged agent pipeline with actor runtime sessions,
    discovery/recall/used protocols, child delegation, context budgets,
@@ -47,7 +48,7 @@ The core TypeScript modules are:
 
 - `src/ax/ai/`: provider implementations and model metadata
 - `src/ax/dsp/`: signatures, generation, validation, tools, prompts,
-  streaming guards, `bestOfN(...)`, `refine(...)`, and optimizers such as GEPA
+  assertions, streaming assertions, `bestOfN(...)`, `refine(...)`, and optimizers such as GEPA
 - `src/ax/agent/`: AxAgent pipeline, runtime/session policy, context budget,
   checkpointing, discovery, memory, delegation, and state
 - `src/ax/flow/`: AxFlow graph API, step model, executor, and planner
@@ -97,12 +98,15 @@ field processors, validation, memory/chat-log ordering, usage, and traces.
 Validation, selection, and streaming safety are separate mechanisms:
 
 - Schema validation retries with parser/constraint feedback.
+- `addAssert(...)` checks whole-output hard invariants after validation and
+  processors, then retries with correction feedback when it fails.
 - `bestOfN(...)` scores complete candidates and returns the highest-reward
   prediction or first threshold hit.
 - `refine(...)` runs complete-output feedback rounds and can apply temporary
   reward-derived advice to instruction components.
-- Streaming guards abort unsafe partial output with `AxStreamingGuardError`.
-  They do not retry, refine, or feed correction messages back to the model.
+- `addStreamingAssert(...)` aborts unsafe partial streaming output for the
+  current attempt with `AxStreamingAssertionError`, then uses the assertion
+  message as correction feedback when retries remain.
 
 ## AxAgent
 

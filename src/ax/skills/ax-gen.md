@@ -1,6 +1,6 @@
 ---
 name: ax-gen
-description: This skill helps an LLM generate correct AxGen code using @ax-llm/ax. Use when the user asks about ax(), AxGen, generators, forward(), streamingForward(), validation, streaming guards, field processors, step hooks, self-tuning, or structured outputs.
+description: This skill helps an LLM generate correct AxGen code using @ax-llm/ax. Use when the user asks about ax(), AxGen, generators, forward(), streamingForward(), validation, assertions, streaming assertions, field processors, step hooks, self-tuning, or structured outputs.
 version: "__VERSION__"
 ---
 
@@ -14,8 +14,9 @@ Use this skill to generate `AxGen` code. Prefer short, modern, copyable patterns
 - Always pass an AI instance from `ai(...)` as the first argument to `forward()`.
 - Streaming uses `streamingForward()`, not `forward()` with a stream option.
 - Use schema validation for field shape and constraints.
+- Use `addAssert(...)` for whole-output hard invariants with correction retries.
+- Use `addStreamingAssert(...)` for partial streaming hard invariants with fail-fast per-attempt correction retries.
 - Use `bestOfN(...)` / `refine(...)` for reward-scored complete outputs.
-- Streaming guards abort unsafe partial output; they do not retry or refine.
 - Step hook mutations are applied at the next step boundary (pending pattern).
 - `stopFunction` accepts a string or string[] for multiple stop functions.
 - Multi-step continues until: all outputs filled, stop function called, or `maxSteps` reached.
@@ -195,8 +196,13 @@ const selected = bestOfN(gen, {
   rewardFn: ({ prediction }) => prediction.summary.length,
 });
 
-// Streaming guards: fail fast on unsafe partial output.
-gen.addStreamingGuard(
+// Whole-output assertion: retries with correction feedback.
+gen.addAssert(
+  (output) => output.summary.includes(topic) || 'Summary must mention the topic.'
+);
+
+// Streaming assertion: fail fast on unsafe partial output.
+gen.addStreamingAssert(
   'summary',
   (text) => !text.includes('forbidden'),
   'Output contains forbidden text'
@@ -206,11 +212,11 @@ gen.addStreamingGuard(
 Rules:
 
 - Schema validation retries with parser/constraint feedback.
+- `addAssert(...)` checks the complete parsed output after validation/processors and retries with correction feedback on failure.
 - `bestOfN(...)` scores complete candidates and returns the highest reward or first threshold hit.
 - `refine(...)` runs rounds and can feed reward-derived advice into instruction components between rounds.
-- `addStreamingGuard(...)` targets a string/code output field and receives partial text so far.
-- Streaming guards only abort the stream by throwing `AxStreamingGuardError`.
-- Breaking migration: do not generate removed `addAssert(...)` or `addStreamingAssert(...)` APIs.
+- `addStreamingAssert(...)` targets a string/code output field and receives partial text so far.
+- Streaming assertions abort the current stream attempt by throwing `AxStreamingAssertionError`, then feed correction feedback into AxGen retries.
 
 ## Field Processors
 
@@ -471,7 +477,7 @@ Fetch these for full working code:
 - [Streaming](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/streaming.ts) — field-by-field streaming
 - [Best Of N](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/best-of-n.ts) — reward-scored sample selection
 - [Refine](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/refine.ts) — retry rounds with generated feedback
-- [Streaming Guard](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/streaming-guard.ts) — fail-fast partial-output safety
+- [Streaming Assert](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/streaming-asserts.ts) — fail-fast partial-output correction
 - [Structured Output](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/structured_output.ts) — fluent API with validation
 - [Debug Logging](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/debug-logging.ts) — debug mode and step hooks
 - [Stop Function](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/stop-function.ts) — stop functions
@@ -484,6 +490,6 @@ Fetch these for full working code:
 - Do not use `new AxGen(...)` for new code unless explicitly required.
 - Do not pass raw API keys or config objects where an `ai(...)` instance is expected.
 - Do not use `forward()` for streaming; use `streamingForward()`.
-- Do not use streaming guards as retry/refine mechanisms; they only abort unsafe partial output.
+- Do not use streaming assertions as reward/refine mechanisms; they enforce hard partial-output invariants and retry with correction.
 - Do not mutate step hook context expecting immediate effect; mutations are pending until the next step.
 - Do not assume multi-step stops after one LLM call; it continues until outputs are filled, a stop function fires, or `maxSteps` is reached.

@@ -179,6 +179,19 @@ writeFixture('structured-stream-rich', {
   expected_folded: '{"items":[{"name":"alpha"},{"name":"beta"}]}',
 });
 
+writeFixture('streaming-assertion-fail-fast', {
+  kind: 'stream',
+  stream_events: ['Answer: safe ', 'forbidden'],
+  streaming_assertions: [
+    {
+      field: 'answer',
+      not_contains: 'forbidden',
+      message: 'answer must not include forbidden',
+    },
+  ],
+  expected_error_contains: 'answer must not include forbidden',
+});
+
 writeFixture('examples-message-pairs-exact', {
   kind: 'forward',
   signature: 'question:string -> answer:string',

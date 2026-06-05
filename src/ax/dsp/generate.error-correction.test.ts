@@ -340,4 +340,240 @@ describe('Error Correction with Structured Outputs', () => {
 
     expect(result.answer).toContain('response2');
   });
+
+  it('should retry when addAssert fails and use the assertion message as correction feedback', async () => {
+    let calls = 0;
+    const ai = new AxMockAIService({
+      features: { functions: false, streaming: false, structuredOutputs: true },
+      chatResponse: async (req: Readonly<AxChatRequest>) => {
+        calls++;
+        const hasAssertionCorrection = req.chatPrompt.some((msg) => {
+          if (msg.role !== 'user') return false;
+          const content =
+            typeof msg.content === 'string'
+              ? msg.content
+              : msg.content
+                  .map((c) => (c.type === 'text' ? c.text : ''))
+                  .join('');
+          return content.includes('answer must contain good');
+        });
+
+        return {
+          results: [
+            {
+              index: 0,
+              content: `Answer: ${
+                hasAssertionCorrection ? 'good answer' : 'bad answer'
+              }`,
+              finishReason: 'stop',
+            },
+          ],
+          modelUsage: {
+            ai: 'test-ai',
+            model: 'test-model',
+            tokens: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
+          },
+        } as AxChatResponse;
+      },
+    });
+
+    const gen = new AxGen<{ query: string }, { answer: string }>(
+      f().input('query', f.string()).output('answer', f.string()).build()
+    );
+    gen.addAssert(
+      ({ answer }) => answer.includes('good'),
+      'answer must contain good'
+    );
+
+    const result = await gen.forward(ai, { query: 'test' });
+
+    expect(result.answer).toBe('good answer');
+    expect(calls).toBe(2);
+  });
+
+  it('should use string returns from addAssert as correction feedback', async () => {
+    const ai = new AxMockAIService({
+      features: { functions: false, streaming: false, structuredOutputs: true },
+      chatResponse: {
+        results: [
+          {
+            index: 0,
+            content: JSON.stringify({ answer: 'bad answer' }),
+            finishReason: 'stop',
+          },
+        ],
+        modelUsage: {
+          ai: 'test-ai',
+          model: 'test-model',
+          tokens: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
+        },
+      } as AxChatResponse,
+    });
+
+    const gen = new AxGen<{ query: string }, { answer: string }>(
+      f().input('query', f.string()).output('answer', f.string()).build()
+    );
+    gen.addAssert(() => 'custom assertion retry');
+
+    await expect(
+      gen.forward(ai, { query: 'test' }, { maxRetries: 0 })
+    ).rejects.toThrow(/custom assertion retry/);
+  });
+
+  it('should throw a clear setup error when addAssert returns false without a message', async () => {
+    const ai = new AxMockAIService({
+      features: { functions: false, streaming: false, structuredOutputs: true },
+      chatResponse: {
+        results: [
+          {
+            index: 0,
+            content: JSON.stringify({ answer: 'bad answer' }),
+            finishReason: 'stop',
+          },
+        ],
+        modelUsage: {
+          ai: 'test-ai',
+          model: 'test-model',
+          tokens: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
+        },
+      } as AxChatResponse,
+    });
+
+    const gen = new AxGen<{ query: string }, { answer: string }>(
+      f().input('query', f.string()).output('answer', f.string()).build()
+    );
+    gen.addAssert(() => false);
+
+    await expect(
+      gen.forward(ai, { query: 'test' }, { maxRetries: 0 })
+    ).rejects.toThrow(/Assertion failed without message/);
+  });
+
+  it('should run addAssert after schema transforms', async () => {
+    let assertedAnswer: string | undefined;
+    const ai = new AxMockAIService({
+      features: { functions: false, streaming: false, structuredOutputs: true },
+      chatResponse: {
+        results: [
+          {
+            index: 0,
+            content: 'Answer: ok',
+            finishReason: 'stop',
+          },
+        ],
+        modelUsage: {
+          ai: 'test-ai',
+          model: 'test-model',
+          tokens: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
+        },
+      } as AxChatResponse,
+    });
+
+    const gen = new AxGen<{ query: string }, { answer: string }>(
+      f()
+        .input('query', f.string())
+        .output(
+          'answer',
+          z.string().transform((value) => value.toUpperCase())
+        )
+        .build()
+    );
+    gen.addAssert(({ answer }) => {
+      assertedAnswer = answer;
+      return answer === 'OK';
+    }, 'answer must be transformed');
+
+    const result = await gen.forward(ai, { query: 'test' });
+
+    expect(result.answer).toBe('OK');
+    expect(assertedAnswer).toBe('OK');
+  });
+
+  it('should retry streaming output when final addAssert fails', async () => {
+    let calls = 0;
+    const ai = new AxMockAIService<string>({
+      features: { functions: false, streaming: true },
+      chatResponse: async () => {
+        calls++;
+        return new ReadableStream<AxChatResponse>({
+          start(controller) {
+            controller.enqueue({
+              results: [
+                {
+                  index: 0,
+                  content: calls === 1 ? 'Answer: bad' : 'Answer: good',
+                  finishReason: 'stop',
+                },
+              ],
+            });
+            controller.close();
+          },
+        });
+      },
+    });
+
+    const gen = new AxGen<{ query: string }, { answer: string }>(
+      'query:string -> answer:string'
+    );
+    gen.addAssert(
+      ({ answer }) => answer.includes('good'),
+      'answer must contain good'
+    );
+
+    const result = await gen.forward(ai, { query: 'test' }, { stream: true });
+
+    expect(result.answer).toContain('good');
+    expect(calls).toBe(2);
+  });
+
+  it('should retry streaming output when addStreamingAssert fails mid-stream', async () => {
+    let calls = 0;
+    const ai = new AxMockAIService<string>({
+      features: { functions: false, streaming: true },
+      chatResponse: async (req: Readonly<AxChatRequest>) => {
+        calls++;
+        const hasAssertionCorrection = req.chatPrompt.some((msg) => {
+          if (msg.role !== 'user') return false;
+          const content =
+            typeof msg.content === 'string'
+              ? msg.content
+              : msg.content
+                  .map((c) => (c.type === 'text' ? c.text : ''))
+                  .join('');
+          return content.includes('Do not include forbidden content');
+        });
+
+        return new ReadableStream<AxChatResponse>({
+          start(controller) {
+            controller.enqueue({
+              results: [
+                {
+                  index: 0,
+                  content: hasAssertionCorrection
+                    ? 'Answer: safe content'
+                    : 'Answer: forbidden content',
+                  finishReason: 'stop',
+                },
+              ],
+            });
+            controller.close();
+          },
+        });
+      },
+    });
+
+    const gen = new AxGen<{ query: string }, { answer: string }>(
+      'query:string -> answer:string'
+    );
+    gen.addStreamingAssert(
+      'answer',
+      (content) => !content.includes('forbidden'),
+      'Do not include forbidden content'
+    );
+
+    const result = await gen.forward(ai, { query: 'test' }, { stream: true });
+
+    expect(result.answer).toContain('safe');
+    expect(calls).toBe(2);
+  });
 });

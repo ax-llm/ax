@@ -8,7 +8,7 @@ const llm = createAI({
 
 const gen = ax('question:string -> answerInPoints:string');
 
-gen.addStreamingGuard(
+gen.addStreamingAssert(
   'answerInPoints',
   (value) =>
     value
