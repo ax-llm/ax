@@ -25,6 +25,8 @@ func Compile(bundle Bundle, target, outDir string) error {
 		return EmitJava(model, outDir)
 	case "cpp":
 		return EmitCpp(model, outDir)
+	case "go":
+		return EmitGo(model, outDir)
 	default:
 		return fmt.Errorf("unknown compile target %q", target)
 	}
@@ -100,7 +102,7 @@ func EmitPython(model AxRuntimeModel, outDir string) error {
 		"axir-capabilities.json":                                mustCapabilityManifest(model, "python"),
 		"examples/signature_schema.py":                          pySignatureSchemaExample,
 		"examples/axgen_fake_client_tool.py":                    pyAxGenFakeClientToolExample,
-		"examples/axgen_live_openai.py":                         pyAxGenLiveOpenAIExample,
+		"examples/axgen_openai_api.py":                          pyAxGenOpenAIExample,
 		"examples/axai_fake_transport.py":                       pyAxAIFakeTransportExample,
 		"examples/axagent_pipeline.py":                          pyAxAgentPipelineExample,
 		"examples/runtime_adapter.py":                           pyRuntimeAdapterExample,
@@ -176,7 +178,7 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 		"axir-capabilities.json":                                      mustCapabilityManifest(model, "java"),
 		"examples/SignatureSchemaExample.java":                        javaSignatureSchemaExample,
 		"examples/AxGenFakeClientToolExample.java":                    javaAxGenFakeClientToolExample,
-		"examples/AxGenLiveOpenAIExample.java":                        javaAxGenLiveOpenAIExample,
+		"examples/AxGenOpenAIExample.java":                            javaAxGenOpenAIExample,
 		"examples/AxAIFakeTransportExample.java":                      javaAxAIFakeTransportExample,
 		"examples/AxAgentPipelineExample.java":                        javaAxAgentPipelineExample,
 		"examples/RuntimeAdapterExample.java":                         javaRuntimeAdapterExample,
@@ -213,7 +215,7 @@ func EmitCpp(model AxRuntimeModel, outDir string) error {
 		"axir-capabilities.json":                                mustCapabilityManifest(model, "cpp"),
 		"examples/signature_schema.cpp":                         cppSignatureSchemaExample,
 		"examples/axgen_fake_client_tool.cpp":                   cppAxGenFakeClientToolExample,
-		"examples/axgen_live_openai.cpp":                        cppAxGenLiveOpenAIExample,
+		"examples/axgen_openai_api.cpp":                         cppAxGenOpenAIExample,
 		"examples/axai_fake_transport.cpp":                      cppAxAIFakeTransportExample,
 		"examples/axagent_pipeline.cpp":                         cppAxAgentPipelineExample,
 		"examples/runtime_adapter.cpp":                          cppRuntimeAdapterExample,
@@ -228,6 +230,33 @@ func EmitCpp(model AxRuntimeModel, outDir string) error {
 		"examples/axflow_program_graph.cpp":                     cppAxFlowProgramGraphExample,
 		"examples/optimizer_artifact.cpp":                       cppOptimizerArtifactExample,
 		"README.md":                                             packageREADME(model, "cpp"),
+	}
+	return writeFiles(outDir, files)
+}
+
+func EmitGo(model AxRuntimeModel, outDir string) error {
+	version := generatedPackageVersion()
+	core, err := BuildGoCore(model)
+	if err != nil {
+		return err
+	}
+	files := map[string]string{
+		"go.mod":                            renderPackageTemplate(goMod, version),
+		"go.sum":                            goSum,
+		"axllm.go":                          renderPackageTemplate(core, version),
+		"runtime/goja/goja.go":              goGojaRuntime,
+		"axir-capabilities.json":            mustCapabilityManifest(model, "go"),
+		"conformance/main.go":               goConformance,
+		"examples/signature_schema/main.go": goSignatureSchemaExample,
+		"examples/axgen_fake_client_tool/main.go":           goAxGenFakeClientToolExample,
+		"examples/axai_fake_transport/main.go":              goAxAIFakeTransportExample,
+		"examples/axagent_pipeline/main.go":                 goAxAgentPipelineExample,
+		"examples/runtime_adapter/main.go":                  goRuntimeAdapterExample,
+		"examples/runtime_protocol/main.go":                 goRuntimeProtocolExample,
+		"examples/runtime_profiles/javascript_goja/main.go": goJavaScriptGojaProfileExample,
+		"examples/axflow_program_graph/main.go":             goAxFlowProgramGraphExample,
+		"examples/optimizer_artifact/main.go":               goOptimizerArtifactExample,
+		"README.md":                                         packageREADME(model, "go"),
 	}
 	return writeFiles(outDir, files)
 }
@@ -316,10 +345,10 @@ func BuildCapabilityManifest(model AxRuntimeModel, target string) (CapabilityMan
 	}
 	unsupported := []string{
 		"OpenTelemetry",
-		"live realtime transport",
+		"built-in realtime transport",
 		"real multipart audio upload transport",
 	}
-	realNetwork := target == "python" || target == "java" || target == "cpp"
+	realNetwork := target == "python" || target == "java" || target == "cpp" || target == "go"
 	return CapabilityManifest{
 		AxIRVersion:             "0.1",
 		Target:                  target,
@@ -421,6 +450,11 @@ func BuildCapabilityManifest(model AxRuntimeModel, target string) (CapabilityMan
 			"axagent-runtime-profile-productization-alpha",
 			"axagent-runtime-profile-policy",
 			"axagent-runtime-profile-package-policy",
+			"axagent-runtime-profile-javascript-goja",
+			"axagent-runtime-goja-session-state",
+			"axagent-runtime-goja-host-calls",
+			"axagent-runtime-goja-policy",
+			"axagent-runtime-goja-diagnostics",
 			"axagent-actor-step-alpha",
 			"axagent-runtime-language",
 			"axagent-actor-prompt-cache",
@@ -523,6 +557,8 @@ func packageNameForTarget(target string) string {
 		return "dev.axllm:ax"
 	case "cpp":
 		return "axllm"
+	case "go":
+		return "github.com/ax-llm/ax/go"
 	default:
 		return target
 	}
@@ -563,10 +599,13 @@ limited to idiomatic wrappers, transport boundaries, and language primitives.
 - Java emits package `+"`dev.axllm.ax`"+`, base Maven/Gradle metadata for
   `+"`dev.axllm:ax`"+`, and keeps QuickJS4J metadata isolated under
   `+"`examples/runtime_profiles/`"+`.
-	- C++ emits `+"`axllm/axllm.hpp`"+`, `+"`axllm/axllm.cpp`"+`, and `+"`CMakeLists.txt`"+` with target
-	  `+"`axllm::axllm`"+`. The generated CMake package enables a built-in libcurl
-	  HTTP transport when CURL is available. Optional QuickJS sources are not part of
-	  the default CMake build.
+- C++ emits `+"`axllm/axllm.hpp`"+`, `+"`axllm/axllm.cpp`"+`, and `+"`CMakeLists.txt`"+` with target
+  `+"`axllm::axllm`"+`. The generated CMake package enables a built-in libcurl
+  HTTP transport when CURL is available. Optional QuickJS sources are not part of
+  the default CMake build.
+- Go emits module `+"`github.com/ax-llm/ax/go`"+` and package `+"`axllm`"+`, using
+  the standard library for HTTP/process boundaries and an optional generated
+  `+"`runtime/goja`"+` package for built-in JavaScript actor execution.
 
 ## Examples
 
@@ -574,7 +613,7 @@ See the files in `+"`examples/`"+` for:
 
 - signature parsing and JSON schema generation
 - AxGen forward with a fake client and tool
-- AxGen forward with a live OpenAI-compatible provider when `+"`OPENAI_API_KEY`"+` is set
+- AxGen forward with a real OpenAI-compatible provider API when `+"`OPENAI_API_KEY`"+` is set
 - AxAI/OpenAI-compatible mapping with a fake transport
 - AxAgent pipeline alpha with a fake service
 - Runtime adapter helpers and custom `+"`AxCodeRuntime`"+` implementation
@@ -607,6 +646,10 @@ Bun profiles because those are the existing TypeScript implementation surface.
   embedded in the generated packages. Verification accepts
   `+"`AXIR_PYODIDE_RUNTIME_SERVER`"+` directly, or `+"`AXIR_PYODIDE_RESOLVE=1`"+`
   to install/resolve Pyodide with the generated npm helper.
+- `+"`javascript-goja`"+`: Go-native JavaScript actor code through the generated
+  `+"`runtime/goja`"+` package. It is pure Go, dependency-bearing, opt-in by
+  import, and verified with `+"`axir verify --targets go --runtime-profiles javascript-goja`"+`.
+  The root `+"`axllm`"+` package stays free of vendor-specific constructors.
 
 Both optional profiles expose a JSON-compatible runtime policy surface. The
 generated `+"`quickjs-runtime-policy.json`"+` and `+"`pyodide-runtime-policy.json`"+`

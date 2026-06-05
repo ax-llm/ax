@@ -22,7 +22,8 @@
     "example": "node ../../scripts/run-example.mjs",
     "example:python": "node ../../scripts/run-example.mjs python",
     "example:java": "node ../../scripts/run-example.mjs java",
-    "example:cpp": "node ../../scripts/run-example.mjs cpp"
+    "example:cpp": "node ../../scripts/run-example.mjs cpp",
+    "example:go": "node ../../scripts/run-example.mjs go"
   },
   "dependencies": {
     "@ax-llm/ax": "22.0.0",

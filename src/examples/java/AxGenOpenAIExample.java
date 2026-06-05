@@ -1,7 +1,7 @@
 import dev.axllm.ax.*;
 import java.util.*;
 
-public final class AxGenLiveOpenAIExample {
+public final class AxGenOpenAIExample {
   public static void main(String[] args) {
     String apiKey = System.getenv("OPENAI_API_KEY");
     if (apiKey == null || apiKey.isBlank()) {
@@ -13,7 +13,7 @@ public final class AxGenLiveOpenAIExample {
 
     OpenAICompatibleClient client = new OpenAICompatibleClient(Map.of(
       "api_key", apiKey,
-      "model", System.getenv().getOrDefault("AX_LIVE_MODEL", "gpt-4.1-mini"),
+      "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-4.1-mini"),
       "model_config", Map.of("temperature", 0.0)
     ));
 

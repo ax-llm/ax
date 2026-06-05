@@ -195,13 +195,13 @@ func runExplain(args []string) error {
 func runCompile(args []string) error {
 	fs := flag.NewFlagSet("compile", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	target := fs.String("target", "", "compile target: python, java, or cpp")
+	target := fs.String("target", "", "compile target: python, java, cpp, or go")
 	outDir := fs.String("out", "", "output directory")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *target == "" {
-		return fmt.Errorf("compile requires --target python|java|cpp")
+		return fmt.Errorf("compile requires --target python|java|cpp|go")
 	}
 	if *outDir == "" {
 		return fmt.Errorf("compile requires --out <dir>")
@@ -223,9 +223,9 @@ func runCompile(args []string) error {
 func runVerify(args []string) error {
 	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	targetsText := fs.String("targets", "python,java,cpp", "comma-separated targets: python,java,cpp")
+	targetsText := fs.String("targets", "python,java,cpp,go", "comma-separated targets: python,java,cpp,go")
 	workDir := fs.String("workdir", "", "optional verification output directory")
-	runtimeProfilesText := fs.String("runtime-profiles", "", "comma-separated optional runtime profiles, e.g. javascript-quickjs")
+	runtimeProfilesText := fs.String("runtime-profiles", "", "comma-separated optional runtime profiles, e.g. javascript-quickjs,javascript-goja")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -276,7 +276,7 @@ commands:
   lower --to core <root>                 lower Ax dialects to Core IR
   lint [--profile llm-core] <roots...>   lint for the LLM authoring profile
   explain --symbol NAME <root>           explain a lowered symbol
-  compile --target python|java|cpp --out DIR <file>
-  verify [--targets python,java,cpp] [--workdir DIR] [--runtime-profiles javascript-quickjs] <root>
+  compile --target python|java|cpp|go --out DIR <file>
+  verify [--targets python,java,cpp,go] [--workdir DIR] [--runtime-profiles javascript-quickjs,javascript-goja] <root>
 `
 }

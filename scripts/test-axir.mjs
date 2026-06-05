@@ -26,7 +26,7 @@ run(
     '.',
     'verify',
     '--targets',
-    'python,java,cpp',
+    'python,java,cpp,go',
     '--workdir',
     verifyDir,
     rootAxir,

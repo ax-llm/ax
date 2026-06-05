@@ -1,12 +1,12 @@
-# Ax — DSPy for TypeScript / Python / Java / C++ and more
+# Ax — DSPy for TypeScript / Python / Java / C++ / Go and more
 
 One programming model for building with LLMs across TypeScript, Python, Java,
-and C++.
+C++, and Go.
 
 Ax is TypeScript-first and ships today as `@ax-llm/ax`. The same signatures,
 provider mappings, agents, flows, runtime contracts, and optimizers are also
-compiled into verified generated Python, Java, and C++ libraries. Go and Rust
-are planned backend targets, not separate product forks.
+compiled into verified generated Python, Java, C++, and Go libraries. Rust is a
+planned backend target, not a separate product fork.
 
 [![NPM](https://img.shields.io/npm/v/@ax-llm/ax?style=for-the-badge&color=222&label=npm)](https://www.npmjs.com/package/@ax-llm/ax)
 [![Discord](https://img.shields.io/discord/1078454354849304667?style=for-the-badge&color=5865F2&label=discord)](https://discord.gg/DSHg3dU7dW)
@@ -25,7 +25,7 @@ are planned backend targets, not separate product forks.
   behavior, parallel execution, and `.returns(...)` projection.
 - **Optimizers** including GEPA, few-shot bootstrapping, portable optimizer
   artifacts, and evaluation/apply flows.
-- **One semantic core** compiled into TypeScript, Python, Java, and C++ library
+- **One semantic core** compiled into TypeScript, Python, Java, C++, and Go library
   shapes, so the same Ax program model can move across runtime stacks.
 
 ## Language Matrix
@@ -36,7 +36,8 @@ are planned backend targets, not separate product forks.
 | Python | `axllm`<br>`from axllm import ai, ax, agent, flow` | Generated and verified in repo; prepared for PyPI |
 | Java | `dev.axllm:ax`<br>`import dev.axllm.ax.*` | Generated and verified in repo; prepared for Maven Central |
 | C++ | `axllm::axllm`<br>`#include <axllm/axllm.hpp>` | Generated and verified in repo; prepared for CMake/GitHub Release |
-| Go / Rust | Go module planned as `github.com/ax-llm/ax/go`; Rust TBD | Future generated backends |
+| Go | `github.com/ax-llm/ax/go`<br>`import ax "github.com/ax-llm/ax/go"` | Generated in repo with conformance checks and opt-in `runtime/goja` JavaScript actor runtime |
+| Rust | TBD | Future generated backend |
 
 ```mermaid
 flowchart LR
@@ -49,6 +50,7 @@ flowchart LR
   C --> PY["Python"]
   C --> JV["Java"]
   C --> CP["C++"]
+  C --> GO["Go"]
 ```
 
 ## 30 seconds
@@ -75,7 +77,7 @@ No prompt engineering. Switch `name: "openai"` to `"anthropic"`, `"google-gemini
 
 ## Same idea in every language
 
-The generated Python, Java, and C++ libraries expose the same top-level Ax
+The generated Python, Java, C++, and Go libraries expose the same top-level Ax
 ideas in native package shapes. The repo runner builds the generated packages
 locally and runs examples without asking you to remember compiler commands:
 
@@ -83,6 +85,7 @@ locally and runs examples without asking you to remember compiler commands:
 npm run example -- python signature_schema.py
 npm run example -- java SignatureSchemaExample.java
 npm run example -- cpp signature_schema.cpp
+npm run example -- go signature_schema.go
 ```
 
 See [`src/examples/README.md`](src/examples/README.md) for runnable examples,
@@ -94,9 +97,9 @@ compiler works.
 
 Ax is designed to stay in the same latency class as direct provider calls while adding typed outputs, validation, retries, tools, tracing, and memory. The hot path is intentionally thin: render the signature, call the provider, parse the result, and return a typed value.
 
-Streaming is the default because it lets Ax do useful work before the model finishes: parse fields as they arrive, run streaming assertions, fail early, cancel the in-flight stream, and start correction without spending tokens on an output that is already known to be invalid. When you only want a final object, `forward()` still gives you one; when you want live output, `streamingForward()` exposes the stream directly.
+Streaming is the default because it lets Ax do useful work before the model finishes: parse fields as they arrive, run streaming assertions, fail early, cancel the in-flight stream, and start correction without spending tokens on an output that is already known to be invalid. When you only want a final object, `forward()` still gives you one; when you want incremental output, `streamingForward()` exposes the stream directly.
 
-The repo includes a live benchmark for checking overhead on your own providers and models:
+The repo includes a streaming benchmark for checking overhead on your own providers and models:
 
 ```bash
 AX_STREAM_BENCH_PROVIDER=anthropic AX_STREAM_BENCH_MODEL=claude-sonnet-4-5-20250929 AX_STREAM_BENCH_RUNS=2 AX_STREAM_BENCH_WARMUP_RUNS=0 npm run tsx src/examples/streaming-latency.ts
@@ -222,7 +225,7 @@ const analyze = ax(`
 
 ### Audio
 
-Batch speech APIs live on AI services: `ai.transcribe({ audio })` turns audio into text, and `ai.speak({ text })` turns text into an audio artifact. Signature audio outputs are scripted artifacts: the model writes the text for `speech:audio`, then Ax synthesizes it after parsing.
+Batch speech APIs are exposed by AI services: `ai.transcribe({ audio })` turns audio into text, and `ai.speak({ text })` turns text into an audio artifact. Signature audio outputs are scripted artifacts: the model writes the text for `speech:audio`, then Ax synthesizes it after parsing.
 
 ```typescript
 const say = ax("question:string -> speech:audio, summary:string");
@@ -504,16 +507,18 @@ npm run example -- list
 npm run example -- python agent_pipeline.py
 npm run example -- java FlowProgramGraphExample.java
 npm run example -- cpp realtime_audio_events.cpp
-npm run example -- python axgen_live_openai.py
-npm run example -- java AxGenLiveOpenAIExample.java
-npm run example -- cpp axgen_live_openai.cpp
+npm run example -- go signature_schema.go
+npm run example -- python axgen_openai_api.py
+npm run example -- java AxGenOpenAIExample.java
+npm run example -- cpp axgen_openai_api.cpp
+npm run example -- go axgen_openai_api.go
 ```
 
-`npm run example -- list` shows no-key and live examples for TypeScript,
-Python, Java, and C++. No-key examples cover signatures, AxAgent, AxFlow,
-audio/realtime mapping, runtime adapters, optimizer artifacts, and GEPA with
-deterministic local clients. Live examples use real provider HTTP and read
-`OPENAI_API_KEY` or `OPENAI_APIKEY` from `.env`.
+`npm run example -- list` shows `no-key` and `provider-api` examples for
+TypeScript, Python, Java, C++, and Go. No-key examples cover signatures,
+AxAgent, AxFlow, audio/realtime mapping, runtime adapters, optimizer artifacts,
+and GEPA with deterministic local clients. Provider API examples call real
+provider HTTP and read `OPENAI_API_KEY` or `OPENAI_APIKEY` from `.env`.
 
 Highlights: `extract.ts`, `react.ts`, `agent.ts`, `streaming1.ts`, `multi-modal.ts`, `audio-chat.ts`, `audio-batch-and-agent.ts`, `standard-schema.ts`, `rlm-memories-and-skills.ts`, `rlm-discovery.ts`, `gepa-flow.ts`, `openai-compatible.ts`, `ax-flow-enhanced-demo.ts`. [Browse all examples →](src/examples/)
 

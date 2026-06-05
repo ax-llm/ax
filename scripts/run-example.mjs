@@ -2,7 +2,7 @@
 
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -32,6 +32,7 @@ const defaultExt = {
   python: '.py',
   java: '.java',
   cpp: '.cpp',
+  go: '.go',
 };
 
 const languageDir = {
@@ -50,8 +51,16 @@ const exampleCatalog = {
       'src/examples/rlm-context-management.ts',
       'AxAgent context pressure',
     ],
-    ['live', 'src/examples/summarize.ts', 'AxGen live OpenAI-compatible run'],
-    ['live', 'src/examples/audio-chat.ts voice', 'Realtime audio voice stream'],
+    [
+      'provider-api',
+      'src/examples/summarize.ts',
+      'AxGen OpenAI-compatible API run',
+    ],
+    [
+      'provider-api',
+      'src/examples/audio-chat.ts voice',
+      'Realtime audio voice stream',
+    ],
   ],
   python: [
     ['no-key', 'signature_schema.py', 'Signature and schema smoke'],
@@ -66,9 +75,9 @@ const exampleCatalog = {
     ['no-key', 'runtime_adapter.py', 'Custom AxCodeRuntime session'],
     ['no-key', 'optimizer_artifact.py', 'Optimizer artifact apply round trip'],
     ['no-key', 'gepa_local_optimizer.py', 'Local GEPA engine run'],
-    ['live', 'axgen_live_openai.py', 'AxGen live OpenAI-compatible run'],
-    ['live', 'agent_live_openai.py', 'AxAgent live OpenAI-compatible run'],
-    ['live', 'flow_live_openai.py', 'AxFlow live OpenAI-compatible run'],
+    ['provider-api', 'axgen_openai_api.py', 'AxGen OpenAI API run'],
+    ['provider-api', 'agent_openai_api.py', 'AxAgent OpenAI API run'],
+    ['provider-api', 'flow_openai_api.py', 'AxFlow OpenAI API run'],
   ],
   java: [
     ['no-key', 'SignatureSchemaExample.java', 'Signature and schema smoke'],
@@ -95,13 +104,9 @@ const exampleCatalog = {
       'Optimizer artifact apply round trip',
     ],
     ['no-key', 'GEPALocalOptimizerExample.java', 'Local GEPA engine run'],
-    ['live', 'AxGenLiveOpenAIExample.java', 'AxGen live OpenAI-compatible run'],
-    [
-      'live',
-      'AgentLiveOpenAIExample.java',
-      'AxAgent live OpenAI-compatible run',
-    ],
-    ['live', 'FlowLiveOpenAIExample.java', 'AxFlow live OpenAI-compatible run'],
+    ['provider-api', 'AxGenOpenAIExample.java', 'AxGen OpenAI API run'],
+    ['provider-api', 'AgentOpenAIExample.java', 'AxAgent OpenAI API run'],
+    ['provider-api', 'FlowOpenAIExample.java', 'AxFlow OpenAI API run'],
   ],
   cpp: [
     ['no-key', 'signature_schema.cpp', 'Signature and schema smoke'],
@@ -116,12 +121,14 @@ const exampleCatalog = {
     ['no-key', 'runtime_adapter.cpp', 'Custom AxCodeRuntime session'],
     ['no-key', 'optimizer_artifact.cpp', 'Optimizer artifact apply round trip'],
     ['no-key', 'gepa_local_optimizer.cpp', 'Local GEPA engine run'],
-    ['live', 'axgen_live_openai.cpp', 'AxGen live OpenAI-compatible run'],
-    ['live', 'agent_live_openai.cpp', 'AxAgent live OpenAI-compatible run'],
-    ['live', 'flow_live_openai.cpp', 'AxFlow live OpenAI-compatible run'],
+    ['provider-api', 'axgen_openai_api.cpp', 'AxGen OpenAI API run'],
+    ['provider-api', 'agent_openai_api.cpp', 'AxAgent OpenAI API run'],
+    ['provider-api', 'flow_openai_api.cpp', 'AxFlow OpenAI API run'],
   ],
   go: [
-    ['future', 'src/examples/go/README.md', 'Generated Go backend is planned'],
+    ['no-key', 'signature_schema.go', 'Signature and schema smoke'],
+    ['no-key', 'provider_mapping_no_key.go', 'OpenAI-compatible mapping smoke'],
+    ['provider-api', 'axgen_openai_api.go', 'AxGen OpenAI API run'],
   ],
 };
 
@@ -163,7 +170,7 @@ switch (language) {
     await runCpp(example, exampleArgs);
     break;
   case 'go':
-    runGo();
+    await runGo(example, exampleArgs);
     break;
   default:
     usage(1);
@@ -172,9 +179,11 @@ switch (language) {
 function usage(code) {
   console.error(`Usage:
   npm run example -- ts src/examples/summarize.ts
-  npm run example -- python axgen_live_openai.py
-  npm run example -- java AxGenLiveOpenAIExample.java
-  npm run example -- cpp axgen_live_openai.cpp
+  npm run example -- python axgen_openai_api.py
+  npm run example -- java AxGenOpenAIExample.java
+  npm run example -- cpp axgen_openai_api.cpp
+  npm run example -- go axgen_openai_api.go
+  npm run example -- go signature_schema.go
   npm run example -- list
 
 You can also pass a full example path and let the runner infer the language.`);
@@ -185,9 +194,8 @@ function listExamples() {
   for (const [language, rows] of Object.entries(exampleCatalog)) {
     console.log(`${language}:`);
     for (const [kind, file, description] of rows) {
-      const command =
-        language === 'go' ? file : `npm run example -- ${language} ${file}`;
-      console.log(`  ${kind.padEnd(6)} ${command.padEnd(64)} ${description}`);
+      const command = `npm run example -- ${language} ${file}`;
+      console.log(`  ${kind.padEnd(12)} ${command.padEnd(64)} ${description}`);
     }
     console.log('');
   }
@@ -380,10 +388,32 @@ function escapeCmakePath(value) {
   return value.replace(/\\/g, '/').replace(/"/g, '\\"');
 }
 
-function runGo() {
-  console.log(
-    'Go Ax examples are reserved for the future generated Go backend. Current generated Ax libraries are Python, Java, and C++.'
+async function runGo(examplePath, rest) {
+  const outDir = await ensureGeneratedPackage('go');
+  const stem = path.basename(examplePath, path.extname(examplePath));
+  const scratchDir = path.join(generatedRoot, 'go-run', stem);
+  await rm(scratchDir, { recursive: true, force: true });
+  await mkdir(scratchDir, { recursive: true });
+  await writeFile(
+    path.join(scratchDir, 'go.mod'),
+    `module axllm_example_${stem}
+
+go 1.22
+
+require github.com/ax-llm/ax/go v0.0.0
+
+replace github.com/ax-llm/ax/go => ${escapeGoModPath(outDir)}
+`
   );
+  await writeFile(
+    path.join(scratchDir, 'main.go'),
+    await readFile(examplePath)
+  );
+  run('go', ['run', '.', ...rest], { cwd: scratchDir, env });
+}
+
+function escapeGoModPath(value) {
+  return value.replace(/\\/g, '/');
 }
 
 async function ensureGeneratedPackage(target) {

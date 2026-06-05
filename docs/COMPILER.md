@@ -1,7 +1,7 @@
 # AxIR Compiler
 
 AxIR is the compiler-owned portability layer for Ax. It turns the shared Ax
-runtime contract into native Python, Java, and C++ libraries without adding a
+runtime contract into native Python, Java, C++, and Go libraries without adding a
 public TypeScript AxIR API.
 
 TypeScript remains the behavioral reference implementation. Extractors read the
@@ -20,10 +20,12 @@ flowchart LR
   Model --> Python["generated Python package"]
   Model --> Java["generated Java package"]
   Model --> Cpp["generated C++ package"]
+  Model --> Go["generated Go module"]
   Fixtures --> Verify["axir verify"]
   Python --> Verify
   Java --> Verify
   Cpp --> Verify
+  Go --> Verify
 ```
 
 The lowering stages are:
@@ -37,7 +39,7 @@ The lowering stages are:
 
 `axir verify` is the product gate. It compiles generated targets, runs examples,
 executes fixture conformance, validates capability manifests, and smoke-tests
-package metadata for Python, Java, and C++.
+package metadata for Python, Java, C++, and Go.
 
 ## Layers
 
@@ -85,7 +87,7 @@ Core-owned behavior is deterministic and language-agnostic:
 
 Target-owned behavior is host integration:
 
-- Python, Java, and C++ naming, constructors, exceptions, builders, callbacks,
+- Python, Java, C++, and Go naming, constructors, exceptions/errors, builders, callbacks,
   packaging, and examples
 - HTTP, SSE, WebSocket, auth, retries, binary upload, media conversion, clocks,
   timers, filesystem/process access, and live network execution
@@ -109,14 +111,19 @@ AxIR emits libraries, not one-off programs:
 - C++: namespace `axllm`, C++17, `axllm/axllm.hpp` plus
   `axllm/axllm.cpp`, CMake target `axllm::axllm`, and optional QuickJS
   sources outside the default build.
+- Go: module `github.com/ax-llm/ax/go`, package `axllm`, Go 1.22+,
+  `context.Context` on execution/client boundaries, standard `net/http`
+  transport, and an opt-in generated `runtime/goja` package for built-in
+  JavaScript actor execution.
 
 Every generated package includes `axir-capabilities.json`, a README, runnable
 examples, and a conformance runner when the target is executable.
 
-The checked-in examples under `src/examples/python`, `src/examples/java`, and
-`src/examples/cpp` are run through `npm run example -- <language> <file>`.
+The checked-in examples under `src/examples/python`, `src/examples/java`,
+`src/examples/cpp`, and `src/examples/go` are run through
+`npm run example -- <language> <file>`.
 `npm run example -- list` groups the examples by language and marks no-key
-deterministic examples separately from live provider examples. The runner
+deterministic examples separately from provider API examples. The runner
 compiles the generated package into an ignored local cache before running the
 example, so users do not need to call the compiler manually. The examples cover
 signatures, AxGen, AxAgent, AxFlow, OpenAI Responses audio mapping,
@@ -137,6 +144,9 @@ AxAgent. Generated runtime profiles are portability proofs behind the same
 - `python-pyodide`: Python actor code runs in a Node-hosted Pyodide JSONL
   protocol server; generated Python, Java, and C++ clients all use the same
   process/protocol boundary.
+- `javascript-goja`: Go-native JavaScript actor code runs through the generated
+  `runtime/goja` package. The root Go package stays vendor-neutral; users opt
+  in by importing `github.com/ax-llm/ax/go/runtime/goja`.
 
 Runtime profiles are optional and dependency-bearing. Default package builds and
 default `axir verify` stay dependency-light.
@@ -175,5 +185,5 @@ New portable behavior should follow this loop:
 4. run `go test`, `check`, `lower`, and `axir verify`
 
 Do not add a public TypeScript AxIR API, do not hand-edit generated target
-output, and do not add provider/runtime logic directly to Python, Java, or C++
+output, and do not add provider/runtime logic directly to Python, Java, C++, or Go
 templates when it belongs in Core descriptors or Core helpers.

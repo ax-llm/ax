@@ -6,16 +6,16 @@ from axllm import OpenAICompatibleClient, agent
 
 api_key = os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_APIKEY")
 if not api_key:
-    raise SystemExit("Set OPENAI_API_KEY or OPENAI_APIKEY to run this live example.")
+    raise SystemExit("Set OPENAI_API_KEY or OPENAI_APIKEY to run this provider API example.")
 
 client = OpenAICompatibleClient(
     api_key=api_key,
-    model=os.getenv("AX_LIVE_MODEL", "gpt-4.1-mini"),
+    model=os.getenv("AX_OPENAI_MODEL", "gpt-4.1-mini"),
     model_config={"temperature": 0},
 )
 
 
-class LiveAgentClient:
+class ProviderAgentClient:
     def __init__(self, inner):
         self.inner = inner
         self.raw_model_answer = None
@@ -24,7 +24,7 @@ class LiveAgentClient:
     def complete(self, _request):
         self.calls += 1
         if self.raw_model_answer is None:
-            live = self.inner.complete(
+            response = self.inner.complete(
                 {
                     "chat_prompt": [
                         {
@@ -34,7 +34,7 @@ class LiveAgentClient:
                     ]
                 }
             )
-            self.raw_model_answer = live["content"]
+            self.raw_model_answer = response["content"]
         if self.calls == 1:
             payload = {"completion": {"type": "final", "args": ["Answer", {}]}}
         elif self.calls == 2:
@@ -50,7 +50,7 @@ class LiveAgentClient:
 
 
 assistant = agent("question:string -> answer:string", {"contextFields": []})
-stage_client = LiveAgentClient(client)
+stage_client = ProviderAgentClient(client)
 output = assistant.forward(
     stage_client,
     {"question": "In one sentence, explain what Ax helps developers build."},

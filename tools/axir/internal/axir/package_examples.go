@@ -44,7 +44,7 @@ assert qa.get_traces()[-1]["output"] == out
 print("python-axgen-ok")
 `
 
-const pyAxGenLiveOpenAIExample = `import json
+const pyAxGenOpenAIExample = `import json
 import os
 
 from axllm import OpenAICompatibleClient, ax
@@ -52,11 +52,11 @@ from axllm import OpenAICompatibleClient, ax
 
 api_key = os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_APIKEY")
 if not api_key:
-    raise SystemExit("Set OPENAI_API_KEY to run this live example.")
+    raise SystemExit("Set OPENAI_API_KEY to run this provider API example.")
 
 client = OpenAICompatibleClient(
     api_key=api_key,
-    model=os.getenv("AX_LIVE_MODEL", "gpt-4.1-mini"),
+    model=os.getenv("AX_OPENAI_MODEL", "gpt-4.1-mini"),
     model_config={"temperature": 0},
 )
 program = ax("question:string -> answer:string")
@@ -333,19 +333,19 @@ public final class AxGenFakeClientToolExample {
 }
 `
 
-const javaAxGenLiveOpenAIExample = `import dev.axllm.ax.*;
+const javaAxGenOpenAIExample = `import dev.axllm.ax.*;
 import java.util.*;
 
-public final class AxGenLiveOpenAIExample {
+public final class AxGenOpenAIExample {
   public static void main(String[] args) throws Exception {
     String apiKey = System.getenv("OPENAI_API_KEY");
     if (apiKey == null || apiKey.isBlank()) apiKey = System.getenv("OPENAI_APIKEY");
     if (apiKey == null || apiKey.isBlank()) {
-      throw new IllegalStateException("Set OPENAI_API_KEY to run this live example.");
+      throw new IllegalStateException("Set OPENAI_API_KEY to run this provider API example.");
     }
     OpenAICompatibleClient client = new OpenAICompatibleClient(Map.of(
       "api_key", apiKey,
-      "model", System.getenv().getOrDefault("AX_LIVE_MODEL", "gpt-4.1-mini"),
+      "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-4.1-mini"),
       "model_config", Map.of("temperature", 0.0)
     ));
     AxGen program = Ax.ax("question:string -> answer:string");
@@ -650,7 +650,7 @@ int main() {
 }
 `
 
-const cppAxGenLiveOpenAIExample = `#include "axllm/axllm.hpp"
+const cppAxGenOpenAIExample = `#include "axllm/axllm.hpp"
 #include <cstdlib>
 #include <iostream>
 
@@ -658,13 +658,13 @@ int main() {
   const char* key = std::getenv("OPENAI_API_KEY");
   if (key == nullptr || std::string(key).empty()) key = std::getenv("OPENAI_APIKEY");
   if (key == nullptr || std::string(key).empty()) {
-    std::cerr << "Set OPENAI_API_KEY to run this live example.\n";
+    std::cerr << "Set OPENAI_API_KEY to run this provider API example.\n";
     return 2;
   }
 
   axllm::OpenAICompatibleClient client(axllm::object({
     {"api_key", key},
-    {"model", std::getenv("AX_LIVE_MODEL") ? std::getenv("AX_LIVE_MODEL") : "gpt-4.1-mini"},
+    {"model", std::getenv("AX_OPENAI_MODEL") ? std::getenv("AX_OPENAI_MODEL") : "gpt-4.1-mini"},
     {"model_config", axllm::object({{"temperature", 0}})}
   }));
   auto program = axllm::ax("question:string -> answer:string");

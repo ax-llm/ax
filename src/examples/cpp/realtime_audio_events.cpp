@@ -46,7 +46,7 @@ int main() {
                {"role", "user"},
                {"content",
                 axllm::array({
-                    axllm::object({{"type", "text"}, {"text", "Live question"}}),
+                    axllm::object({{"type", "text"}, {"text", "Realtime question"}}),
                     axllm::object({{"type", "audio"}, {"data", "AAAA"}, {"format", "pcm16"}, {"sampleRate", 16000}}),
                 })},
            }),

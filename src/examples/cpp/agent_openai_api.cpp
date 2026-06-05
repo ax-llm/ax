@@ -3,17 +3,17 @@
 #include <cstdlib>
 #include <iostream>
 
-struct LiveAgentClient : axllm::AIClient {
+struct ProviderAgentClient : axllm::AIClient {
   axllm::OpenAICompatibleClient& inner;
   axllm::Value raw_model_answer;
   int calls = 0;
 
-  explicit LiveAgentClient(axllm::OpenAICompatibleClient& inner_) : inner(inner_) {}
+  explicit ProviderAgentClient(axllm::OpenAICompatibleClient& inner_) : inner(inner_) {}
 
   axllm::Value complete(axllm::Value) override {
     calls += 1;
     if (raw_model_answer.is_null()) {
-      axllm::Value live = inner.complete(axllm::object({
+      axllm::Value response = inner.complete(axllm::object({
           {"chat_prompt",
            axllm::array({
                axllm::object({
@@ -22,7 +22,7 @@ struct LiveAgentClient : axllm::AIClient {
                }),
            })},
       }));
-      raw_model_answer = axllm::Core::get(live, "content");
+      raw_model_answer = axllm::Core::get(response, "content");
     }
     axllm::Value payload;
     if (calls == 1) {
@@ -48,11 +48,11 @@ int main() {
   const char* key = std::getenv("OPENAI_API_KEY");
   if (key == nullptr || std::string(key).empty()) key = std::getenv("OPENAI_APIKEY");
   if (key == nullptr || std::string(key).empty()) {
-    std::cerr << "Set OPENAI_API_KEY or OPENAI_APIKEY to run this live example.\n";
+    std::cerr << "Set OPENAI_API_KEY or OPENAI_APIKEY to run this provider API example.\n";
     return 2;
   }
 
-  const char* model = std::getenv("AX_LIVE_MODEL");
+  const char* model = std::getenv("AX_OPENAI_MODEL");
   axllm::OpenAICompatibleClient client(axllm::object({
       {"api_key", key},
       {"model", model == nullptr || std::string(model).empty() ? "gpt-4.1-mini" : model},
@@ -61,7 +61,7 @@ int main() {
   auto assistant = axllm::agent(
       "question:string -> answer:string",
       axllm::object({{"contextFields", axllm::array({})}}));
-  LiveAgentClient stage_client(client);
+  ProviderAgentClient stage_client(client);
   axllm::Value output = assistant.forward(
       stage_client,
       axllm::object({{"question", "In one sentence, explain what Ax helps developers build."}}));

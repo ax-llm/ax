@@ -1,8 +1,8 @@
 # Ax Multi-Language Releases
 
 Ax ships first as the TypeScript/JavaScript package `@ax-llm/ax`. The same
-portable Ax semantics can also be emitted as generated Python, Java, and C++
-libraries. AxIR is the compiler implementation detail behind those libraries;
+portable Ax semantics can also be emitted as generated Python, Java, C++, and
+Go libraries. AxIR is the compiler implementation detail behind those libraries;
 it is not a package name.
 
 ## Package Names
@@ -11,7 +11,7 @@ it is not a package name.
 - Python: PyPI distribution and import package `axllm`
 - Java: Maven coordinate `dev.axllm:ax`, Java package `dev.axllm.ax`
 - C++: CMake package `axllm`, target `axllm::axllm`, namespace `axllm`
-- Go, future: module `github.com/ax-llm/ax/go`, package `axllm`
+- Go: module `github.com/ax-llm/ax/go`, package `axllm`
 
 Do not publish generated packages as `axir`, `ax-go`, or other compiler/backend
 names. User-facing libraries should read as Ax libraries in each ecosystem.
@@ -30,7 +30,7 @@ The default verification path remains dependency-light:
 ```bash
 cd tools/axir
 GOCACHE=/private/tmp/go-build go run . verify \
-  --targets python,java,cpp \
+  --targets python,java,cpp,go \
   --workdir /private/tmp/axir-verify-release \
   ../../ir/axcore/root.axir
 ```
@@ -43,8 +43,19 @@ That gate emits the generated libraries and smoke-tests package consumption:
 - C++ static library build, CMake configure/build/install, and a downstream
   `find_package(axllm CONFIG REQUIRED)` consumer linked to `axllm::axllm`
 
-Optional QuickJS and Pyodide runtime profile checks stay opt-in and are not base
-package dependencies.
+Optional QuickJS, Pyodide, and Go goja runtime profile checks stay opt-in and
+are not base Python/Java/C++ package dependencies. Go's built-in JavaScript
+actor runtime is dependency-bearing in the generated `runtime/goja` package and
+is verified explicitly with:
+
+```bash
+cd tools/axir
+GOCACHE=/private/tmp/go-build go run . verify \
+  --targets go \
+  --runtime-profiles javascript-goja \
+  --workdir /private/tmp/axir-verify-goja \
+  ../../ir/axcore/root.axir
+```
 
 For local examples, use the shared runner from the repo root:
 
@@ -53,17 +64,19 @@ npm run example -- list
 npm run example -- python agent_pipeline.py
 npm run example -- java FlowProgramGraphExample.java
 npm run example -- cpp realtime_audio_events.cpp
-npm run example -- python axgen_live_openai.py
-npm run example -- java AxGenLiveOpenAIExample.java
-npm run example -- cpp axgen_live_openai.cpp
+npm run example -- go signature_schema.go
+npm run example -- python axgen_openai_api.py
+npm run example -- java AxGenOpenAIExample.java
+npm run example -- cpp axgen_openai_api.cpp
+npm run example -- go axgen_openai_api.go
 ```
 
 The runner loads `.env`, generates the requested language package into
 `src/examples/.generated/`, builds it when needed, and runs the checked-in
 example source. No-key examples use deterministic local clients/transports and
 cover AxAgent, AxFlow, provider audio/realtime mapping, runtime adapters,
-optimizer artifacts, and GEPA. Live examples use real provider HTTP and require
-provider keys such as `OPENAI_API_KEY` or `OPENAI_APIKEY`.
+optimizer artifacts, and GEPA. Provider API examples call real provider HTTP
+and require provider keys such as `OPENAI_API_KEY` or `OPENAI_APIKEY`.
 
 ## Publishing Shape
 
@@ -79,3 +92,5 @@ Publishing is secret-gated per ecosystem:
 
 The release gate should run `axir verify` before upload and keep generated
 runtime-profile dependencies out of the base Python, Java, and C++ packages.
+For Go, keep vendor-specific runtime constructors in opt-in subpackages such as
+`runtime/goja` rather than in the root `axllm` package.

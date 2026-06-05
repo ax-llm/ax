@@ -1,21 +1,21 @@
 import dev.axllm.ax.*;
 import java.util.*;
 
-public final class FlowLiveOpenAIExample {
+public final class FlowOpenAIExample {
   public static void main(String[] args) throws Exception {
     String apiKey = System.getenv("OPENAI_API_KEY");
     if (apiKey == null || apiKey.isBlank()) apiKey = System.getenv("OPENAI_APIKEY");
     if (apiKey == null || apiKey.isBlank()) {
-      throw new IllegalStateException("Set OPENAI_API_KEY or OPENAI_APIKEY to run this live example.");
+      throw new IllegalStateException("Set OPENAI_API_KEY or OPENAI_APIKEY to run this provider API example.");
     }
-    String model = System.getenv().getOrDefault("AX_LIVE_MODEL", "gpt-4.1-mini");
+    String model = System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-4.1-mini");
     OpenAICompatibleClient client =
         new OpenAICompatibleClient(
             Map.of("api_key", apiKey, "model", model, "model_config", Map.of("temperature", 0.0)));
 
     AxGen outline = Ax.ax("topic:string -> outline:string");
     AxFlow program =
-        Ax.flow(Map.of("id", "examples.liveFlow"))
+        Ax.flow(Map.of("id", "examples.openaiApiFlow"))
             .execute("outline", outline)
             .map(
                 "summary",

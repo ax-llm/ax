@@ -1,20 +1,20 @@
 import dev.axllm.ax.*;
 import java.util.*;
 
-public final class AgentLiveOpenAIExample {
-  static final class LiveAgentClient implements AiClient {
+public final class AgentOpenAIExample {
+  static final class ProviderAgentClient implements AiClient {
     final OpenAICompatibleClient inner;
     String rawModelAnswer;
     int calls = 0;
 
-    LiveAgentClient(OpenAICompatibleClient inner) {
+    ProviderAgentClient(OpenAICompatibleClient inner) {
       this.inner = inner;
     }
 
     public Map<String, Object> complete(Map<String, Object> request) throws Exception {
       calls += 1;
       if (rawModelAnswer == null) {
-        Map<String, Object> live =
+        Map<String, Object> response =
             inner.complete(
                 Map.of(
                     "chat_prompt",
@@ -24,7 +24,7 @@ public final class AgentLiveOpenAIExample {
                             "user",
                             "content",
                             "In one sentence, explain what Ax helps developers build."))));
-        rawModelAnswer = String.valueOf(live.get("content"));
+        rawModelAnswer = String.valueOf(response.get("content"));
       }
       Map<String, Object> payload;
       if (calls == 1) {
@@ -45,15 +45,15 @@ public final class AgentLiveOpenAIExample {
     String apiKey = System.getenv("OPENAI_API_KEY");
     if (apiKey == null || apiKey.isBlank()) apiKey = System.getenv("OPENAI_APIKEY");
     if (apiKey == null || apiKey.isBlank()) {
-      throw new IllegalStateException("Set OPENAI_API_KEY or OPENAI_APIKEY to run this live example.");
+      throw new IllegalStateException("Set OPENAI_API_KEY or OPENAI_APIKEY to run this provider API example.");
     }
-    String model = System.getenv().getOrDefault("AX_LIVE_MODEL", "gpt-4.1-mini");
+    String model = System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-4.1-mini");
     OpenAICompatibleClient client =
         new OpenAICompatibleClient(
             Map.of("api_key", apiKey, "model", model, "model_config", Map.of("temperature", 0.0)));
 
     AxAgent assistant = Ax.agent("question:string -> answer:string", Map.of("contextFields", List.of()));
-    LiveAgentClient stageClient = new LiveAgentClient(client);
+    ProviderAgentClient stageClient = new ProviderAgentClient(client);
     Map<String, Object> output =
         assistant.forward(
             stageClient,

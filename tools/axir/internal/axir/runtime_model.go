@@ -322,6 +322,13 @@ func BuildRuntimeModel(core Module) (AxRuntimeModel, error) {
 				CollectionPolicy: "value-types-standard-containers",
 				ErrorPolicy:      "explicit-errors-and-raii",
 			},
+			"go": {
+				ModuleNaming:     "modules-and-packages",
+				MethodNaming:     "exported-camel-case",
+				AsyncPolicy:      "context-first-sync",
+				CollectionPolicy: "map-slice-at-dynamic-boundaries",
+				ErrorPolicy:      "error-return-public-boundary",
+			},
 		},
 	}, nil
 }

@@ -11,45 +11,48 @@ npm run tsx src/examples/summarize.ts
 npm run example -- ts src/examples/summarize.ts
 ```
 
-Generated Python, Java, and C++ examples live in language-specific directories
+Generated Python, Java, C++, and Go examples are stored in language-specific directories
 and run through the shared `.env`-aware example runner. The runner generates the
 local Ax package into `src/examples/.generated/`, builds the language package
 when needed, then runs the example. Use `list` to see the current no-key and
-live examples:
+provider API examples:
 
 ```bash
 npm run example -- list
 npm run example -- python signature_schema.py
 npm run example -- java SignatureSchemaExample.java
 npm run example -- cpp signature_schema.cpp
+npm run example -- go signature_schema.go
 ```
 
 No-key examples are deterministic local examples. They use fake clients,
 fake transports, custom runtime adapters, or local evaluators and print the
-actual normalized output shape. Live examples use real provider HTTP and require
-`OPENAI_API_KEY` or `OPENAI_APIKEY` from `.env`:
+actual normalized output shape. Provider API examples call real provider HTTP
+and require `OPENAI_API_KEY` or `OPENAI_APIKEY` from `.env`:
 
 ```bash
-npm run example -- python axgen_live_openai.py
-npm run example -- java AxGenLiveOpenAIExample.java
-npm run example -- cpp axgen_live_openai.cpp
+npm run example -- python axgen_openai_api.py
+npm run example -- java AxGenOpenAIExample.java
+npm run example -- cpp axgen_openai_api.cpp
+npm run example -- go axgen_openai_api.go
 ```
 
 ## Multi-Language Example Matrix
 
-| Area | Python | Java | C++ | Kind |
-| --- | --- | --- | --- | --- |
-| Signature/schema | `signature_schema.py` | `SignatureSchemaExample.java` | `signature_schema.cpp` | no-key |
-| AxGen live OpenAI | `axgen_live_openai.py` | `AxGenLiveOpenAIExample.java` | `axgen_live_openai.cpp` | live |
-| AxAgent deterministic pipeline | `agent_pipeline.py` | `AgentPipelineExample.java` | `agent_pipeline.cpp` | no-key |
-| AxAgent live OpenAI | `agent_live_openai.py` | `AgentLiveOpenAIExample.java` | `agent_live_openai.cpp` | live |
-| AxFlow deterministic graph | `flow_program_graph.py` | `FlowProgramGraphExample.java` | `flow_program_graph.cpp` | no-key |
-| AxFlow live OpenAI | `flow_live_openai.py` | `FlowLiveOpenAIExample.java` | `flow_live_openai.cpp` | live |
-| OpenAI Responses audio mapping | `audio_responses_mapping.py` | `AudioResponsesMappingExample.java` | `audio_responses_mapping.cpp` | no-key |
-| Grok/Gemini realtime event folding | `realtime_audio_events.py` | `RealtimeAudioEventsExample.java` | `realtime_audio_events.cpp` | no-key |
-| Runtime adapter | `runtime_adapter.py` | `RuntimeAdapterExample.java` | `runtime_adapter.cpp` | no-key |
-| Optimizer artifact round trip | `optimizer_artifact.py` | `OptimizerArtifactExample.java` | `optimizer_artifact.cpp` | no-key |
-| GEPA local optimizer | `gepa_local_optimizer.py` | `GEPALocalOptimizerExample.java` | `gepa_local_optimizer.cpp` | no-key |
+| Area | Python | Java | C++ | Go | Kind |
+| --- | --- | --- | --- | --- | --- |
+| Signature/schema | `signature_schema.py` | `SignatureSchemaExample.java` | `signature_schema.cpp` | `signature_schema.go` | no-key |
+| OpenAI-compatible provider mapping | `axai_fake_transport.py` | `AxAIFakeTransportExample.java` | `axai_fake_transport.cpp` | `provider_mapping_no_key.go` | no-key |
+| AxGen OpenAI API | `axgen_openai_api.py` | `AxGenOpenAIExample.java` | `axgen_openai_api.cpp` | `axgen_openai_api.go` | provider-api |
+| AxAgent deterministic pipeline | `agent_pipeline.py` | `AgentPipelineExample.java` | `agent_pipeline.cpp` | - | no-key |
+| AxAgent OpenAI API | `agent_openai_api.py` | `AgentOpenAIExample.java` | `agent_openai_api.cpp` | - | provider-api |
+| AxFlow deterministic graph | `flow_program_graph.py` | `FlowProgramGraphExample.java` | `flow_program_graph.cpp` | - | no-key |
+| AxFlow OpenAI API | `flow_openai_api.py` | `FlowOpenAIExample.java` | `flow_openai_api.cpp` | - | provider-api |
+| OpenAI Responses audio mapping | `audio_responses_mapping.py` | `AudioResponsesMappingExample.java` | `audio_responses_mapping.cpp` | - | no-key |
+| Grok/Gemini realtime event folding | `realtime_audio_events.py` | `RealtimeAudioEventsExample.java` | `realtime_audio_events.cpp` | - | no-key |
+| Runtime adapter | `runtime_adapter.py` | `RuntimeAdapterExample.java` | `runtime_adapter.cpp` | - | no-key |
+| Optimizer artifact round trip | `optimizer_artifact.py` | `OptimizerArtifactExample.java` | `optimizer_artifact.cpp` | - | no-key |
+| GEPA local optimizer | `gepa_local_optimizer.py` | `GEPALocalOptimizerExample.java` | `gepa_local_optimizer.cpp` | - | no-key |
 
 Example commands:
 
@@ -57,11 +60,15 @@ Example commands:
 npm run example -- python agent_pipeline.py
 npm run example -- java FlowProgramGraphExample.java
 npm run example -- cpp realtime_audio_events.cpp
+npm run example -- go signature_schema.go
+npm run example -- go provider_mapping_no_key.go
+npm run example -- go axgen_openai_api.go
 ```
 
-Go examples are reserved for the future generated Go backend. The compiler is
-written in Go today, but generated Ax libraries currently target Python, Java,
-and C++.
+Go examples use the generated module `github.com/ax-llm/ax/go` through a local
+scratch module. The generated Go package also includes an opt-in
+`github.com/ax-llm/ax/go/runtime/goja` runtime profile for built-in JavaScript
+actor execution; QuickJS/Pyodide remain process-adapter or non-Go profiles.
 
 ## Multi-Objective Optimization Example (GEPA)
 
@@ -102,8 +109,8 @@ cd src/ax
 npm run tsx src/examples/audio-batch-and-agent.ts
 ```
 
-The mock path runs without keys. Set `OPENAI_APIKEY` to run the live agent call.
-Live runs write the MP3 files and play them immediately.
+The mock path runs without keys. Set `OPENAI_APIKEY` to run the provider API
+agent call. Provider API runs write the MP3 files and play them immediately.
 
 ## Realtime Audio Chat Example
 
@@ -196,7 +203,7 @@ What to look for:
 - Checkpoint summaries preserve resumability-focused sections such as objective, exact formats, evidence, failures to avoid, and next step.
 - The scorecard ends with `Scorecard: PASS` when the deterministic baseline holds.
 
-**Optional live eval:**
+**Optional provider API eval:**
 ```bash
 cd src/ax
 npm run tsx src/examples/rlm-context-management-live.ts
@@ -207,7 +214,7 @@ npm run tsx src/examples/rlm-context-management-live.ts
 What to look for:
 - The real model uses the compact `ops.fetchIncidentFacts(...)` callable under pressure.
 - Checkpoint lifecycle events fire while the actor avoids logging the full raw incident notes.
-- The live scorecard ends with `Live scorecard: PASS` when the run satisfies the tolerant rubric.
+- The provider API scorecard ends with `Live scorecard: PASS` when the run satisfies the tolerant rubric.
 
 ## Host-Controlled RLM Example
 

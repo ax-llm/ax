@@ -83,6 +83,8 @@ func Verify(rootFile string, opts VerifyOptions) (VerifyReport, error) {
 			targetReport, targetErr = verifyJavaTarget(targetReport, conformanceRoot)
 		case "cpp":
 			targetReport, targetErr = verifyCppTarget(targetReport, conformanceRoot)
+		case "go":
+			targetReport, targetErr = verifyGoTarget(targetReport, conformanceRoot)
 		default:
 			targetErr = fmt.Errorf("unknown verify target %q", target)
 		}
@@ -116,11 +118,23 @@ func verifyRuntimeProfilesTarget(report VerifyTargetReport, target string, profi
 				report, err = verifyJavaQuickJSProfile(report)
 			case "cpp":
 				report, err = verifyCppQuickJSProfile(report)
+			case "go":
+				report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile javascript-quickjs", Status: "skip", Message: "Go uses javascript-goja for built-in JavaScript actor execution; use ProcessCodeRuntime for external QuickJS protocol servers"})
 			default:
 				err = fmt.Errorf("unknown target %q", target)
 			}
 			if err != nil {
 				return report, err
+			}
+		case "javascript-goja":
+			if target == "go" {
+				var err error
+				report, err = verifyGoGojaProfile(report)
+				if err != nil {
+					return report, err
+				}
+			} else {
+				report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile javascript-goja", Status: "skip", Message: "javascript-goja is a Go-native runtime profile"})
 			}
 		case "python-pyodide":
 			var err error
@@ -131,6 +145,8 @@ func verifyRuntimeProfilesTarget(report VerifyTargetReport, target string, profi
 				report, err = verifyJavaPyodideProfile(report, conformanceRoot)
 			case "cpp":
 				report, err = verifyCppPyodideProfile(report)
+			case "go":
+				report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile python-pyodide", Status: "skip", Message: "Go uses the process runtime boundary; optional Pyodide profile verification is deferred"})
 			default:
 				err = fmt.Errorf("unknown target %q", target)
 			}
@@ -144,9 +160,21 @@ func verifyRuntimeProfilesTarget(report VerifyTargetReport, target string, profi
 	return report, nil
 }
 
+func verifyGoGojaProfile(report VerifyTargetReport) (VerifyTargetReport, error) {
+	goTool, err := exec.LookPath("go")
+	if err != nil {
+		report.Steps = append(report.Steps, VerifyStep{Name: "runtime profile javascript-goja", Status: "skip", Message: "go not found"})
+		return report, nil
+	}
+	if err := runVerifyCommand(&report, "runtime profile javascript-goja", report.OutDir, os.Environ(), goTool, "run", "./examples/runtime_profiles/javascript_goja"); err != nil {
+		return report, err
+	}
+	return report, nil
+}
+
 func normalizeVerifyTargets(targets []string) []string {
 	if len(targets) == 0 {
-		return []string{"python", "java", "cpp"}
+		return []string{"python", "java", "cpp", "go"}
 	}
 	out := make([]string, 0, len(targets))
 	seen := map[string]bool{}
@@ -159,6 +187,79 @@ func normalizeVerifyTargets(targets []string) []string {
 		out = append(out, target)
 	}
 	return out
+}
+
+func verifyGoTarget(report VerifyTargetReport, conformanceRoot string) (VerifyTargetReport, error) {
+	goTool, err := exec.LookPath("go")
+	if err != nil {
+		report.Steps = append(report.Steps, VerifyStep{Name: "go", Status: "skip", Message: "go not found"})
+		return report, nil
+	}
+	env := runtimeProtocolEnv(conformanceRoot, os.Environ())
+	if err := runVerifyCommand(&report, "go test", report.OutDir, env, goTool, "test", "./..."); err != nil {
+		return report, err
+	}
+	for _, example := range []string{
+		"signature_schema",
+		"axgen_fake_client_tool",
+		"axai_fake_transport",
+		"axagent_pipeline",
+		"runtime_adapter",
+		"runtime_protocol",
+		"axflow_program_graph",
+		"optimizer_artifact",
+	} {
+		if err := runVerifyCommand(&report, "example "+example, report.OutDir, env, goTool, "run", "./examples/"+example); err != nil {
+			return report, err
+		}
+	}
+	args := append([]string{"run", "./conformance"}, conformanceSuitePaths(conformanceRoot)...)
+	if err := runVerifyCommand(&report, "conformance", report.OutDir, env, goTool, args...); err != nil {
+		return report, err
+	}
+	if err := verifyGoPackageSmoke(&report, goTool); err != nil {
+		return report, err
+	}
+	return report, nil
+}
+
+func verifyGoPackageSmoke(report *VerifyTargetReport, goTool string) error {
+	consumerDir := filepath.Join(report.OutDir, "_package_go_consumer")
+	if err := os.RemoveAll(consumerDir); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(consumerDir, 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(consumerDir, "go.mod"), []byte(`module axllm_consumer
+
+go 1.22
+
+require github.com/ax-llm/ax/go v0.0.0
+
+replace github.com/ax-llm/ax/go => ..
+`), 0o644); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(consumerDir, "main.go"), []byte(`package main
+
+import (
+	"fmt"
+
+	ax "github.com/ax-llm/ax/go"
+)
+
+func main() {
+	sig := ax.NewSignature("question:string -> answer:string")
+	if len(sig.GetOutputFields()) != 1 {
+		panic("missing output field")
+	}
+	fmt.Println("go-package-consumer-ok", sig.GetOutputFields()[0].Name)
+}
+`), 0o644); err != nil {
+		return err
+	}
+	return runVerifyCommand(report, "package go consumer", consumerDir, os.Environ(), goTool, "run", ".")
 }
 
 func conformanceRootFor(rootFile string) string {

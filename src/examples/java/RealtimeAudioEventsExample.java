@@ -48,7 +48,7 @@ public final class RealtimeAudioEventsExample {
                     "user",
                     "content",
                     List.of(
-                        Map.of("type", "text", "text", "Live question"),
+                        Map.of("type", "text", "text", "Realtime question"),
                         Map.of("type", "audio", "data", "AAAA", "format", "pcm16", "sampleRate", 16000)))),
             "audio",
             Map.of("output", Map.of("transcript", true, "voice", "Kore")));

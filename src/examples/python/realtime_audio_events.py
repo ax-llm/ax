@@ -35,7 +35,7 @@ gemini_request = {
         {
             "role": "user",
             "content": [
-                {"type": "text", "text": "Live question"},
+                {"type": "text", "text": "Realtime question"},
                 {"type": "audio", "data": "AAAA", "format": "pcm16", "sampleRate": 16000},
             ],
         },

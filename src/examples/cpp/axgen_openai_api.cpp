@@ -15,7 +15,7 @@ int main() {
 
   axllm::OpenAICompatibleClient client(axllm::object({
       {"api_key", api_key},
-      {"model", std::getenv("AX_LIVE_MODEL") ? std::getenv("AX_LIVE_MODEL") : "gpt-4.1-mini"},
+      {"model", std::getenv("AX_OPENAI_MODEL") ? std::getenv("AX_OPENAI_MODEL") : "gpt-4.1-mini"},
       {"model_config", axllm::object({{"temperature", 0}})},
   }));
 

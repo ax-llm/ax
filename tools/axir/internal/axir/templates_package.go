@@ -156,7 +156,7 @@ if(AX_BUILD_EXAMPLES)
   foreach(example
     signature_schema
     axgen_fake_client_tool
-    axgen_live_openai
+    axgen_openai_api
     axai_fake_transport
     axagent_pipeline
     runtime_adapter

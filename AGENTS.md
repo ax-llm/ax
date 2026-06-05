@@ -55,6 +55,10 @@ Use the skill files in `src/ax/skills/` as the primary subsystem documentation:
 
 When adding or changing a subsystem, update the relevant skill instead of expanding this file.
 
+Repo-maintainer skills that should not ship in Ax packages live under `tools/axir/skills/`.
+Use `tools/axir/skills/axir-language-backend/SKILL.md` when adding generated
+language backends.
+
 ## Package Management
 
 Install dependencies from the repo root with workspace flags:

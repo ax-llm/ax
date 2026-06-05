@@ -6,16 +6,16 @@ from axllm import OpenAICompatibleClient, ax, flow
 
 api_key = os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_APIKEY")
 if not api_key:
-    raise SystemExit("Set OPENAI_API_KEY or OPENAI_APIKEY to run this live example.")
+    raise SystemExit("Set OPENAI_API_KEY or OPENAI_APIKEY to run this provider API example.")
 
 client = OpenAICompatibleClient(
     api_key=api_key,
-    model=os.getenv("AX_LIVE_MODEL", "gpt-4.1-mini"),
+    model=os.getenv("AX_OPENAI_MODEL", "gpt-4.1-mini"),
     model_config={"temperature": 0},
 )
 outline = ax("topic:string -> outline:string")
 program = (
-    flow({"id": "examples.liveFlow"})
+    flow({"id": "examples.openaiApiFlow"})
     .execute("outline", outline)
     .map("summary", lambda state: {"summary": "Generated outline with typed Ax program steps."})
     .returns({"outline": "outline", "summary": "summary"})

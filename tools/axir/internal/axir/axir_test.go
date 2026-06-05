@@ -468,7 +468,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"axllm/conformance.py",
 				"examples/signature_schema.py",
 				"examples/axgen_fake_client_tool.py",
-				"examples/axgen_live_openai.py",
+				"examples/axgen_openai_api.py",
 				"examples/axai_fake_transport.py",
 				"examples/axagent_pipeline.py",
 				"examples/runtime_adapter.py",
@@ -527,7 +527,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"dev/axllm/ax/Conformance.java",
 				"examples/SignatureSchemaExample.java",
 				"examples/AxGenFakeClientToolExample.java",
-				"examples/AxGenLiveOpenAIExample.java",
+				"examples/AxGenOpenAIExample.java",
 				"examples/AxAIFakeTransportExample.java",
 				"examples/AxAgentPipelineExample.java",
 				"examples/RuntimeAdapterExample.java",
@@ -559,7 +559,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"conformance.cpp",
 				"examples/signature_schema.cpp",
 				"examples/axgen_fake_client_tool.cpp",
-				"examples/axgen_live_openai.cpp",
+				"examples/axgen_openai_api.cpp",
 				"examples/axai_fake_transport.cpp",
 				"examples/axagent_pipeline.cpp",
 				"examples/runtime_adapter.cpp",
@@ -575,6 +575,28 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/optimizer_artifact.cpp",
 			},
 			wantReadme: "Generated Ax CPP Library",
+		},
+		{
+			target: "go",
+			wantFiles: []string{
+				"README.md",
+				"go.mod",
+				"go.sum",
+				"axllm.go",
+				"runtime/goja/goja.go",
+				"axir-capabilities.json",
+				"conformance/main.go",
+				"examples/signature_schema/main.go",
+				"examples/axgen_fake_client_tool/main.go",
+				"examples/axai_fake_transport/main.go",
+				"examples/axagent_pipeline/main.go",
+				"examples/runtime_adapter/main.go",
+				"examples/runtime_protocol/main.go",
+				"examples/runtime_profiles/javascript_goja/main.go",
+				"examples/axflow_program_graph/main.go",
+				"examples/optimizer_artifact/main.go",
+			},
+			wantReadme: "Generated Ax GO Library",
 		},
 	} {
 		t.Run(tc.target, func(t *testing.T) {
@@ -594,7 +616,11 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 					t.Fatal(err)
 				}
 				text := string(data)
-				for _, want := range []string{"forward(", "max_actor_steps", "runtime-behavior-parity-ok"} {
+				wants := []string{"forward(", "max_actor_steps", "runtime-behavior-parity-ok"}
+				if tc.target == "go" {
+					wants = []string{"NewAgent(", "agent.Test(runtime", "go-javascript-goja-profile-ok", "runtime-behavior-parity-ok"}
+				}
+				for _, want := range wants {
 					if !strings.Contains(text, want) {
 						t.Fatalf("generated %s runtime profile example %s missing actor-loop marker %q", tc.target, profileExample, want)
 					}
@@ -611,7 +637,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 			if manifest.Target != tc.target || manifest.ProviderMode != "provider-descriptor-registry-openai-compatible-openai-responses-google-gemini-anthropic" || !manifest.FakeTransportSupport {
 				t.Fatalf("bad manifest for %s: %#v", tc.target, manifest)
 			}
-			wantPackage := map[string]string{"python": "axllm", "java": "dev.axllm:ax", "cpp": "axllm"}[tc.target]
+			wantPackage := map[string]string{"python": "axllm", "java": "dev.axllm:ax", "cpp": "axllm", "go": "github.com/ax-llm/ax/go"}[tc.target]
 			if manifest.PackageName != wantPackage {
 				t.Fatalf("bad package name for %s: got %q want %q", tc.target, manifest.PackageName, wantPackage)
 			}
@@ -623,7 +649,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 					t.Fatalf("manifest missing suite %s: %#v", want, manifest.SupportedSuites)
 				}
 			}
-			for _, want := range []string{"axagent-runtime-profile-javascript-quickjs", "axagent-runtime-quickjs-session-state", "axagent-runtime-quickjs-host-calls", "axagent-runtime-quickjs-native-host-calls", "axagent-runtime-quickjs-callback-errors", "axagent-runtime-quickjs-limits", "axagent-runtime-quickjs-diagnostics", "axagent-runtime-profile-python-pyodide", "axagent-runtime-pyodide-session-state", "axagent-runtime-pyodide-host-calls", "axagent-runtime-pyodide-diagnostics", "axagent-runtime-profile-parity", "axagent-runtime-axjs-reference", "axagent-runtime-profile-state-parity", "axagent-runtime-profile-diagnostics", "axagent-runtime-profile-agent-forward", "axagent-runtime-profile-actor-loop", "axagent-runtime-profile-productization-alpha", "axagent-runtime-profile-policy", "axagent-runtime-profile-package-policy"} {
+			for _, want := range []string{"axagent-runtime-profile-javascript-quickjs", "axagent-runtime-quickjs-session-state", "axagent-runtime-quickjs-host-calls", "axagent-runtime-quickjs-native-host-calls", "axagent-runtime-quickjs-callback-errors", "axagent-runtime-quickjs-limits", "axagent-runtime-quickjs-diagnostics", "axagent-runtime-profile-python-pyodide", "axagent-runtime-pyodide-session-state", "axagent-runtime-pyodide-host-calls", "axagent-runtime-pyodide-diagnostics", "axagent-runtime-profile-parity", "axagent-runtime-axjs-reference", "axagent-runtime-profile-state-parity", "axagent-runtime-profile-diagnostics", "axagent-runtime-profile-agent-forward", "axagent-runtime-profile-actor-loop", "axagent-runtime-profile-productization-alpha", "axagent-runtime-profile-policy", "axagent-runtime-profile-package-policy", "axagent-runtime-profile-javascript-goja", "axagent-runtime-goja-session-state", "axagent-runtime-goja-host-calls", "axagent-runtime-goja-policy", "axagent-runtime-goja-diagnostics"} {
 				if !containsString(manifest.CoreOwnedFeatureGroups, want) {
 					t.Fatalf("manifest missing runtime profile feature %s: %#v", want, manifest.CoreOwnedFeatureGroups)
 				}
@@ -647,7 +673,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !strings.Contains(string(readme), tc.wantReadme) || !strings.Contains(string(readme), "Core-owned") || !strings.Contains(string(readme), "AxJSRuntime") || !strings.Contains(string(readme), "javascript-quickjs") || !strings.Contains(string(readme), "python-pyodide") {
+			if !strings.Contains(string(readme), tc.wantReadme) || !strings.Contains(string(readme), "Core-owned") || !strings.Contains(string(readme), "AxJSRuntime") || !strings.Contains(string(readme), "javascript-quickjs") || !strings.Contains(string(readme), "python-pyodide") || !strings.Contains(string(readme), "javascript-goja") {
 				t.Fatalf("generated README missing contract text:\n%s", readme)
 			}
 			switch tc.target {
@@ -661,6 +687,11 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				checkGeneratedFileContains(t, dir, "axllm/axllm.hpp", "class HttpTransport", "std::unique_ptr<Transport> owned_transport_")
 				checkGeneratedFileContains(t, dir, "axllm/axllm.cpp", "HttpTransport::call", "curl_easy_perform")
 				checkGeneratedFileContains(t, dir, "cmake/axllmConfig.cmake.in", "axllmTargets.cmake")
+			case "go":
+				checkGeneratedFileContains(t, dir, "go.mod", "module github.com/ax-llm/ax/go", "go 1.22", "github.com/dop251/goja")
+				checkGeneratedFileContains(t, dir, "axllm.go", "package axllm", "type Value = any", "func NewSignature", "type HTTPTransport struct")
+				checkGeneratedFileContains(t, dir, "runtime/goja/goja.go", "package goja", "func NewRuntime(options ...Option) *Runtime", "func (r *Runtime) RegisterCallable", "gojavm.New")
+				checkGeneratedFileContains(t, dir, "examples/runtime_profiles/javascript_goja/main.go", "go-javascript-goja-profile-ok", "ax.NewAgent", "agent.Test(runtime", "while (true) {}")
 			}
 			assertNoUserFacingInternalPackageNames(t, dir, tc.target)
 		})
@@ -673,6 +704,7 @@ func assertNoUserFacingInternalPackageNames(t *testing.T, root, target string) {
 		"python": {"pyproject.toml", "MANIFEST.in"},
 		"java":   {"pom.xml", "build.gradle", "settings.gradle"},
 		"cpp":    {"CMakeLists.txt", "cmake/axllmConfig.cmake.in"},
+		"go":     {"go.mod"},
 	}[target]
 	for _, rel := range metadata {
 		text := strings.ToLower(readRepoFile(t, root, filepath.FromSlash(rel)))
@@ -696,6 +728,7 @@ func TestDocsCoverCompilerAndArchitecture(t *testing.T) {
 		"Python",
 		"Java",
 		"C++",
+		"Go",
 		"AxAgent",
 		"AxFlow",
 		"GEPA",
@@ -731,7 +764,7 @@ func TestDocsCoverCompilerAndArchitecture(t *testing.T) {
 		t.Fatal(err)
 	}
 	release := readRepoFile(t, root, "docs", "RELEASE.md")
-	for _, want := range []string{"@ax-llm/ax", "axllm", "dev.axllm:ax", "axllm::axllm", "github.com/ax-llm/ax/go"} {
+	for _, want := range []string{"@ax-llm/ax", "axllm", "dev.axllm:ax", "axllm::axllm", "github.com/ax-llm/ax/go", "javascript-goja", "runtime/goja"} {
 		if !strings.Contains(release, want) {
 			t.Fatalf("docs/RELEASE.md missing %q", want)
 		}
@@ -774,6 +807,10 @@ func runtimeProfileExampleGuards(target string) []string {
 		return []string{
 			"examples/runtime_profiles/javascript_quickjs.cpp",
 			"examples/runtime_profiles/python_pyodide.cpp",
+		}
+	case "go":
+		return []string{
+			"examples/runtime_profiles/javascript_goja/main.go",
 		}
 	default:
 		return nil
@@ -2792,6 +2829,24 @@ func TestVerifyQuickJSProfileCanAutoDrivePythonThroughJavaServer(t *testing.T) {
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("verify.go missing QuickJS Python-through-Java marker %q", want)
+		}
+	}
+}
+
+func TestVerifyGojaProfileIsGoNative(t *testing.T) {
+	data, err := os.ReadFile("verify.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, want := range []string{
+		"javascript-goja",
+		"verifyGoGojaProfile",
+		"./examples/runtime_profiles/javascript_goja",
+		"Go uses javascript-goja for built-in JavaScript actor execution",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("verify.go missing Go goja runtime profile marker %q", want)
 		}
 	}
 }
