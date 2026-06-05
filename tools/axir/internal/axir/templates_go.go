@@ -1793,14 +1793,16 @@ func (r *ProviderRouter) Chat(ctx context.Context, request map[string]Value, opt
 // AxGen, Agent, Flow, optimizer, and runtime boundaries.
 type AxProgram interface { GetOptimizableComponents() Value; ApplyOptimizedComponents(map[string]Value) }
 
-type AxGen struct { Signature AxSignature; Options map[string]Value; Functions []Tool; Examples Value; Demos Value; Assertions Value; FieldProcessors Value; StopFunctions Value; Memory Value; ChatLog Value; FunctionCallTraces Value; Traces Value; PromptTemplate Value; ProgramID string; Instruction string }
+type AxGen struct { Signature AxSignature; Options map[string]Value; Functions []Tool; Examples Value; Demos Value; Assertions Value; StreamingAssertions Value; FieldProcessors Value; StopFunctions Value; Memory Value; ChatLog Value; FunctionCallTraces Value; Traces Value; PromptTemplate Value; ProgramID string; Instruction string }
 func NewAx(signature string, options map[string]Value) *AxGen {
 	if options == nil { options = Object() }
-	return &AxGen{Signature:NewSignature(signature), Options:options, Examples:Array(), Demos:Array(), Assertions:Array(), FieldProcessors:Object(), StopFunctions:Array(), Memory:Array(), ChatLog:Array(), FunctionCallTraces:Array(), Traces:Array(), ProgramID:display(coreGet(options,"id",coreGet(options,"program_id",coreGet(options,"programId","root")))), Instruction:display(coreGet(options,"instruction",""))}
+	return &AxGen{Signature:NewSignature(signature), Options:options, Examples:Array(), Demos:Array(), Assertions:coreGet(options,"assertions",Array()), StreamingAssertions:coreGet(options,"streaming_assertions",coreGet(options,"streamingAssertions",Array())), FieldProcessors:Object(), StopFunctions:Array(), Memory:Array(), ChatLog:Array(), FunctionCallTraces:Array(), Traces:Array(), ProgramID:display(coreGet(options,"id",coreGet(options,"program_id",coreGet(options,"programId","root")))), Instruction:display(coreGet(options,"instruction",""))}
 }
 func NewGen(signature string, options map[string]Value) *AxGen { return NewAx(signature, options) }
 func (g *AxGen) Forward(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value) (Value,error) { return safeValue(func() Value { return _forward_impl(g, bindAIClientContext(ctx, client), values, options) }) }
-func (g *AxGen) get(k string, fallback Value) Value { switch k { case "signature": return g.Signature; case "options": return g.Options; case "functions": out:=Array(); for _, f:=range g.Functions { out=append(out,f) }; return out; case "examples": return g.Examples; case "demos": return g.Demos; case "assertions": return g.Assertions; case "field_processors","fieldProcessors": return g.FieldProcessors; case "stop_functions","stopFunctions": return g.StopFunctions; case "memory": return g.Memory; case "chat_log","chatLog": return g.ChatLog; case "function_call_traces","functionCallTraces": return g.FunctionCallTraces; case "traces": return g.Traces; case "instruction": return g.Instruction; case "prompt_template": funcs:=Array(); for _, f:=range g.Functions { funcs=append(funcs,f) }; return Object("signature", g.Signature, "functions", funcs, "options", g.Options); default: return fallback } }
+func (g *AxGen) AddAssert(assertion Value) *AxGen { g.Assertions = coreAppend(g.Assertions, assertion); return g }
+func (g *AxGen) AddStreamingAssert(field string, notContains Value, message ...string) *AxGen { spec:=Object("field",field,"not_contains",notContains); if len(message)>0 { coreSet(spec,"message",message[0]) }; g.StreamingAssertions=coreAppend(g.StreamingAssertions,spec); return g }
+func (g *AxGen) get(k string, fallback Value) Value { switch k { case "signature": return g.Signature; case "options": return g.Options; case "functions": out:=Array(); for _, f:=range g.Functions { out=append(out,f) }; return out; case "examples": return g.Examples; case "demos": return g.Demos; case "assertions": return g.Assertions; case "streaming_assertions","streamingAssertions": return g.StreamingAssertions; case "field_processors","fieldProcessors": return g.FieldProcessors; case "stop_functions","stopFunctions": return g.StopFunctions; case "memory": return g.Memory; case "chat_log","chatLog": return g.ChatLog; case "function_call_traces","functionCallTraces": return g.FunctionCallTraces; case "traces": return g.Traces; case "instruction": return g.Instruction; case "prompt_template": funcs:=Array(); for _, f:=range g.Functions { funcs=append(funcs,f) }; return Object("signature", g.Signature, "functions", funcs, "options", g.Options); default: return fallback } }
 func (g *AxGen) GetOptimizableComponents() Value {
 	components := Array()
 	owner := g.ProgramID
@@ -2685,7 +2687,7 @@ func runConformanceFixture(fixture map[string]Value) {
 	case "template_validate":
 		assertEqual(validate_prompt_template_syntax(coreGet(fixture, "template", ""), coreGet(fixture, "context", "fixture-template"), coreGet(fixture, "required_variables", Array())), coreGet(fixture, "expected_result", true), "template validation")
 	case "stream":
-		assertEqual(fold_stream(coreGet(fixture, "stream_events", Array())), coreGet(fixture, "expected_folded", ""), "stream fold")
+		runConformanceStream(fixture)
 	case "forward":
 		runConformanceForward(fixture)
 	case "ai_chat":
@@ -3133,7 +3135,7 @@ func runConformanceForward(fixture map[string]Value) {
 	gen.Functions = tools
 	if ex := coreGet(fixture, "examples", nil); ex != nil { gen.Examples = ex }
 	if demos := coreGet(fixture, "demos", nil); demos != nil { gen.Demos = demos }
-	if assertions := coreGet(fixture, "assertions", nil); assertions != nil { gen.Assertions = assertions }
+	if assertions := coreGet(fixture, "assertions", nil); assertions != nil { for _, assertion := range asSlice(assertions) { gen.AddAssert(assertion) } }
 	if processors := coreGet(fixture, "field_processors", coreGet(fixture, "fieldProcessors", nil)); processors != nil { gen.FieldProcessors = processors }
 	if stops := coreGet(fixture, "stop_functions", coreGet(fixture, "stopFunctions", nil)); stops != nil { gen.StopFunctions = stops }
 	client := &conformanceFakeAI{Responses:asSlice(coreGet(fixture, "responses", Array())), StreamEvents:asSlice(coreGet(fixture, "stream_events", Array()))}
@@ -3148,6 +3150,36 @@ func runConformanceForward(fixture map[string]Value) {
 		if coreTruthy(coreGet(fixture, "expect_chat_path", true)) && client.ChatCalls == 0 { panic(AxError{Category:"fixture", Message:"expected AxGen to use chat"}) }
 		if expected := coreGet(fixture, "expected_request", nil); expected != nil && len(client.Requests) > 0 { assertSubset(client.Requests[0], expected, "request") }
 		if expected := coreGet(fixture, "expected_tool_calls", nil); expected != nil { assertEqual(calls, expected, "tool calls") }
+	}
+}
+
+func runConformanceStream(fixture map[string]Value) {
+	chunks := Array()
+	if _, err := safeValue(func() Value {
+		for _, event := range asSlice(coreGet(fixture, "stream_events", Array())) {
+			chunks = append(chunks, event)
+			runConformanceStreamingAssertions(fixture, fold_stream(chunks))
+		}
+		return nil
+	}); err != nil {
+		expected := display(coreGet(fixture, "expected_error_contains", ""))
+		if expected != "" && strings.Contains(err.Error(), expected) { return }
+		panic(err)
+	}
+	if coreGet(fixture, "expected_error_contains", nil) != nil {
+		panic(FixtureError{Message:"expected stream assertion to fail"})
+	}
+	assertEqual(fold_stream(chunks), coreGet(fixture, "expected_folded", ""), "stream fold")
+}
+
+func runConformanceStreamingAssertions(fixture map[string]Value, content Value) {
+	for _, raw := range asSlice(coreGet(fixture, "streaming_assertions", Array())) {
+		assertion := asMap(raw)
+		needle := coreGet(assertion, "not_contains", coreGet(assertion, "notContains", nil))
+		if needle == nil { continue }
+		if strings.Contains(display(content), display(needle)) {
+			panic(AxError{Category:"runtime", Message:display(coreGet(assertion, "message", "streaming assertion failed"))})
+		}
 	}
 }
 

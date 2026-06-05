@@ -8,15 +8,15 @@ version: "__VERSION__"
 
 Use `bestOfN(...)` when you can score complete outputs independently. Use `refine(...)` when failed rounds should produce feedback that changes the next attempt.
 
-## Breaking Migration
+## Validation And Assertions
 
-Treat this as a breaking API change:
+Keep reward scoring, whole-output assertions, and streaming assertions separate:
 
-- Do not generate `addAssert(...)` or `addStreamingAssert(...)`; they are removed.
-- Use schema validation for shape and field validity.
+- Use schema validation for shape, types, and field-level constraints.
+- Use `addAssert(...)` for whole-output hard invariants. Failed assertions feed correction text into the normal retry loop.
+- Use `addStreamingAssert(...)` for partial streaming hard invariants. It aborts the current stream attempt as soon as the partial field fails, then feeds correction text into the normal retry loop.
 - Use `bestOfN(...)` for complete-candidate selection.
-- Use `refine(...)` for retry rounds with generated feedback.
-- Use `addStreamingGuard(...)` only for fail-fast streaming safety.
+- Use `refine(...)` for reward-scored retry rounds with generated feedback.
 
 ## APIs
 
@@ -78,4 +78,4 @@ Rules:
 
 ## Streaming
 
-Do not use `refine(...)` for streaming. For partial-output safety, use `addStreamingGuard(fieldName, fn, message?)` on `AxGen`. Guards fail fast with `AxStreamingGuardError`; they do not retry, refine, or feed correction text back to the model.
+Do not use `refine(...)` for streaming. For partial-output safety, use `addStreamingAssert(fieldName, fn, message?)` on `AxGen`. Streaming assertions fail fast within the current attempt with `AxStreamingAssertionError`, then retry with correction feedback when retries remain.

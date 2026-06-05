@@ -232,6 +232,12 @@ export type HandleErrorForGenerateArgs<TError extends Error> = {
   customLabels?: Record<string, string>;
 };
 
+type ErrorWithFixingInstructions = Error & {
+  getFixingInstructions: () => ReturnType<
+    ValidationError['getFixingInstructions']
+  >;
+};
+
 /**
  * Handles validation errors with logging, metrics, and telemetry
  */
@@ -244,7 +250,7 @@ export const handleValidationErrorForGenerate = ({
   signatureName,
   span,
   customLabels,
-}: HandleErrorForGenerateArgs<ValidationError>) => {
+}: HandleErrorForGenerateArgs<ErrorWithFixingInstructions>) => {
   const errorFields = error.getFixingInstructions();
 
   // Log validation error with proper structured logging

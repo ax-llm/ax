@@ -2,17 +2,15 @@
 
 `bestOfN(...)` and `refine(...)` provide explicit reward-scored candidate selection.
 
-## Breaking Migration
+## Validation And Assertions
 
-This is a breaking API change. The assertion APIs were removed rather than soft-deprecated:
+Keep validation, assertions, and reward scoring separate:
 
-- Removed `addAssert(...)`, `addStreamingAssert(...)`, `AxAssertion`, `AxStreamingAssertion`, and `AxAssertionError`.
-- Use schema validation for output shape and field constraints.
+- Use schema validation for output shape, types, and field constraints.
+- Use `addAssert(...)` for whole-output hard invariants. Failed assertions feed correction text into AxGen's normal retry loop.
+- Use `addStreamingAssert(...)` for partial streaming hard invariants. It aborts the current stream attempt as soon as partial field content fails, then feeds correction text into AxGen's normal retry loop.
 - Use `bestOfN(...)` to choose the best complete candidate.
-- Use `refine(...)` to run feedback rounds before selecting a complete candidate.
-- Use `addStreamingGuard(...)` only to abort unsafe partial streaming output.
-
-Streaming guards do not retry, refine, or feed correction messages back to the model.
+- Use `refine(...)` to run reward-scored feedback rounds before selecting a complete candidate.
 
 ## Best Of N
 
@@ -64,8 +62,8 @@ After a failed round, Ax generates advice from the input, attempt summaries, bes
 - `getTraces()` and `getChatLog()` return diagnostics for the selected attempt.
 - `getAttempts()` exposes attempt metadata for reward, errors, strategy, and advice application.
 
-## Streaming Guards
+## Streaming Assertions
 
-For streaming safety, use `addStreamingGuard(fieldName, fn, message?)` on `AxGen`.
+For streaming safety, use `addStreamingAssert(fieldName, fn, message?)` on `AxGen`.
 
-Streaming guards only abort unsafe partial output by throwing `AxStreamingGuardError`. They do not retry, refine, or feed correction messages back to the model.
+Streaming assertions abort unsafe partial output by throwing `AxStreamingAssertionError` for the current attempt. When retries remain, AxGen adds the assertion message as correction feedback and starts a new attempt.

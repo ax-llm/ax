@@ -1,0 +1,13 @@
+{
+  "name": "streaming-assertion-fail-fast",
+  "kind": "stream",
+  "stream_events": ["Answer: safe ", "forbidden"],
+  "streaming_assertions": [
+    {
+      "field": "answer",
+      "not_contains": "forbidden",
+      "message": "answer must not include forbidden"
+    }
+  ],
+  "expected_error_contains": "answer must not include forbidden"
+}

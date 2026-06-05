@@ -2978,6 +2978,7 @@ class AxGen:
         self.examples = list(self.options.get("examples") or [])
         self.demos = list(self.options.get("demos") or [])
         self.assertions = list(self.options.get("assertions") or [])
+        self.streaming_assertions = list(self.options.get("streaming_assertions") or self.options.get("streamingAssertions") or [])
         self.field_processors = list(self.options.get("field_processors") or self.options.get("fieldProcessors") or [])
         self.stop_functions = list(self.options.get("stop_functions") or self.options.get("stopFunctions") or [])
         self.memory = self.options.get("memory") or self.options.get("mem") or AxMemory()
@@ -3003,8 +3004,15 @@ class AxGen:
         self.options["has_example_demonstrations"] = bool(self.examples or self.demos)
         return self
 
-    def add_assertion(self, assertion):
+    def add_assert(self, assertion):
         self.assertions.append(assertion)
+        return self
+
+    def add_streaming_assert(self, field, not_contains=None, message=None):
+        spec = dict(field) if isinstance(field, dict) else {"field": field, "not_contains": not_contains}
+        if message is not None:
+            spec["message"] = message
+        self.streaming_assertions.append(spec)
         return self
 
     def add_field_processor(self, field, processor):
@@ -3203,8 +3211,10 @@ class AxGen:
         chunks = []
         for event in client.stream(req):
             chunks.append(event)
+            _core_axgen_run_streaming_assertions(self, fold_stream(chunks))
             yield event
         content = fold_stream(chunks)
+        _core_axgen_run_streaming_assertions(self, content)
         if content:
             output = _parse_output_impl(content)
             validate_output(self.signature.get_output_fields(), output)
@@ -3542,6 +3552,27 @@ def _core_axgen_run_assertions(gen, output):
         if "contains" in assertion and str(assertion["contains"]) not in str(value):
             raise RuntimeError(str(message))
         if "equals" in assertion and value != assertion["equals"]:
+            raise RuntimeError(str(message))
+    return None
+
+
+def _core_axgen_run_streaming_assertions(gen, content):
+    for assertion in _core_get(gen, "streaming_assertions", []) or []:
+        message = "streaming assertion failed"
+        if callable(assertion):
+            result = assertion(content)
+            if isinstance(result, str):
+                raise RuntimeError(result)
+            if result is False:
+                raise RuntimeError(message)
+            continue
+        if not isinstance(assertion, dict):
+            continue
+        needle = assertion.get("not_contains", assertion.get("notContains"))
+        if needle is None:
+            continue
+        message = assertion.get("message") or f"streaming assertion failed for field '{assertion.get('field')}'"
+        if str(needle) in str(content):
             raise RuntimeError(str(message))
     return None
 
@@ -5734,8 +5765,23 @@ def _run_template_validate(fixture):
 
 
 def _run_stream(fixture):
-    folded = fold_stream(fixture.get("stream_events") or [])
-    _assert_equal(folded, fixture.get("expected_folded", ""), "stream fold")
+    chunks = []
+    try:
+        for event in fixture.get("stream_events") or []:
+            chunks.append(event)
+            content = fold_stream(chunks)
+            for assertion in fixture.get("streaming_assertions") or []:
+                needle = assertion.get("not_contains", assertion.get("notContains"))
+                if needle is not None and str(needle) in str(content):
+                    raise RuntimeError(assertion.get("message") or "streaming assertion failed")
+    except Exception as exc:
+        if "expected_error_contains" not in fixture:
+            raise
+        _assert_expected_error(exc, fixture)
+        return
+    if "expected_error_contains" in fixture:
+        raise FixtureError("expected stream assertion to fail")
+    _assert_equal(fold_stream(chunks), fixture.get("expected_folded", ""), "stream fold")
 
 
 def _run_validate_value(fixture):
@@ -5782,7 +5828,7 @@ def _run_forward(fixture):
     if "demos" in fixture:
         gen.set_demos(fixture.get("demos") or [])
     for assertion in fixture.get("assertions") or []:
-        gen.add_assertion(assertion)
+        gen.add_assert(assertion)
     for processor in fixture.get("field_processors") or fixture.get("fieldProcessors") or []:
         gen.add_field_processor(processor.get("field"), processor.get("processor", processor.get("op")))
     if "stop_functions" in fixture or "stopFunctions" in fixture:

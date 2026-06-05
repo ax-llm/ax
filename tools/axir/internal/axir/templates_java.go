@@ -1789,6 +1789,7 @@ public final class AxGen implements AxProgram {
   final List<Map<String, Object>> examples;
   final List<Map<String, Object>> demos;
   final List<Object> assertions;
+  final List<Object> streamingAssertions;
   final List<Map<String, Object>> fieldProcessors;
   final List<String> stopFunctions;
   final AxMemory memory;
@@ -1813,6 +1814,7 @@ public final class AxGen implements AxProgram {
     this.demos = new ArrayList<>();
     for (Object item : Core.asList(this.options.getOrDefault("demos", List.of()))) this.demos.add(Core.asMap(item));
     this.assertions = new ArrayList<>(Core.asList(this.options.getOrDefault("assertions", List.of())));
+    this.streamingAssertions = new ArrayList<>(Core.asList(this.options.getOrDefault("streaming_assertions", this.options.getOrDefault("streamingAssertions", List.of()))));
     this.fieldProcessors = new ArrayList<>();
     for (Object item : Core.asList(this.options.getOrDefault("field_processors", this.options.getOrDefault("fieldProcessors", List.of())))) this.fieldProcessors.add(Core.asMap(item));
     this.stopFunctions = new ArrayList<>();
@@ -1848,14 +1850,31 @@ public final class AxGen implements AxProgram {
     return this;
   }
 
-  public AxGen addAssertion(Map<String, Object> assertion) {
+  public AxGen addAssert(Map<String, Object> assertion) {
     this.assertions.add(assertion);
     return this;
   }
 
-  public AxGen addAssertion(AssertionCallback assertion) {
+  public AxGen addAssert(AssertionCallback assertion) {
     this.assertions.add(assertion);
     return this;
+  }
+
+  public AxGen addStreamingAssert(Map<String, Object> assertion) {
+    this.streamingAssertions.add(assertion);
+    return this;
+  }
+
+  public AxGen addStreamingAssert(String field, Object notContains) {
+    return addStreamingAssert(field, notContains, null);
+  }
+
+  public AxGen addStreamingAssert(String field, Object notContains, String message) {
+    Map<String, Object> spec = new LinkedHashMap<>();
+    spec.put("field", field);
+    spec.put("not_contains", notContains);
+    if (message != null) spec.put("message", message);
+    return addStreamingAssert(spec);
   }
 
   public AxGen addFieldProcessor(String field, String op) {
@@ -3417,12 +3436,13 @@ final class Core {
         case "examples" -> g.examples;
         case "demos" -> g.demos;
         case "assertions" -> g.assertions;
-	        case "field_processors", "fieldProcessors" -> g.fieldProcessors;
-	        case "stop_functions", "stopFunctions" -> g.stopFunctions;
-	        case "memory" -> g.memory;
-	        case "chat_log", "chatLog" -> g.chatLog;
-	        case "function_call_traces", "functionCallTraces" -> g.functionCallTraces;
-	        case "traces" -> g.traces;
+        case "streaming_assertions", "streamingAssertions" -> g.streamingAssertions;
+        case "field_processors", "fieldProcessors" -> g.fieldProcessors;
+        case "stop_functions", "stopFunctions" -> g.stopFunctions;
+        case "memory" -> g.memory;
+        case "chat_log", "chatLog" -> g.chatLog;
+        case "function_call_traces", "functionCallTraces" -> g.functionCallTraces;
+        case "traces" -> g.traces;
         default -> defaultValue;
       };
     }
@@ -4928,7 +4948,7 @@ public final class Conformance {
       case "template" -> assertEqual(Core.render_template_content(fixture.get("template"), fixture.getOrDefault("vars", Map.of()), fixture.getOrDefault("context", "fixture-template")), fixture.getOrDefault("expected_output", ""), "template output");
       case "template_error" -> runTemplateError(fixture);
       case "template_validate" -> assertEqual(Core.validate_prompt_template_syntax(fixture.get("template"), fixture.getOrDefault("context", "fixture-template"), fixture.getOrDefault("required_variables", List.of())), fixture.getOrDefault("expected_result", true), "template validation");
-      case "stream" -> assertEqual(Core.fold_stream(fixture.getOrDefault("stream_events", List.of())), fixture.getOrDefault("expected_folded", ""), "stream fold");
+      case "stream" -> runStream(fixture);
       case "forward" -> runForward(fixture);
       case "ai_chat" -> runAIChat(fixture);
       case "ai_embed" -> runAIEmbed(fixture);
@@ -5033,7 +5053,7 @@ public final class Conformance {
     AxGen gen = new AxGen(sig, options);
     if (fixture.containsKey("examples")) gen.setExamples(Core.asMapList(fixture.get("examples")));
     if (fixture.containsKey("demos")) gen.setDemos(Core.asMapList(fixture.get("demos")));
-    for (Object item : Core.asList(fixture.getOrDefault("assertions", List.of()))) gen.addAssertion(Core.asMap(item));
+    for (Object item : Core.asList(fixture.getOrDefault("assertions", List.of()))) gen.addAssert(Core.asMap(item));
     for (Object item : Core.asList(fixture.getOrDefault("field_processors", fixture.getOrDefault("fieldProcessors", List.of())))) {
       Map<String, Object> processor = Core.asMap(item);
       gen.addFieldProcessor(String.valueOf(processor.get("field")), String.valueOf(processor.getOrDefault("processor", processor.get("op"))));
@@ -5076,6 +5096,33 @@ public final class Conformance {
       else return fallback;
     }
     return cur;
+  }
+
+  static void runStream(Map<String, Object> fixture) {
+    List<Object> chunks = new ArrayList<>();
+    try {
+      for (Object event : Core.asList(fixture.getOrDefault("stream_events", List.of()))) {
+        chunks.add(event);
+        runStreamingAssertions(fixture, Core.fold_stream(chunks));
+      }
+    } catch (Exception exc) {
+      String expected = (String) fixture.get("expected_error_contains");
+      if (expected != null && exc.getMessage() != null && exc.getMessage().contains(expected)) return;
+      throw exc;
+    }
+    if (fixture.containsKey("expected_error_contains")) throw new FixtureError("expected stream assertion to fail");
+    assertEqual(Core.fold_stream(chunks), fixture.getOrDefault("expected_folded", ""), "stream fold");
+  }
+
+  static void runStreamingAssertions(Map<String, Object> fixture, Object content) {
+    for (Object raw : Core.asList(fixture.getOrDefault("streaming_assertions", List.of()))) {
+      Map<String, Object> assertion = Core.asMap(raw);
+      Object needle = assertion.getOrDefault("not_contains", assertion.get("notContains"));
+      if (needle == null) continue;
+      if (String.valueOf(content).contains(String.valueOf(needle))) {
+        throw new RuntimeException(String.valueOf(assertion.getOrDefault("message", "streaming assertion failed")));
+      }
+    }
   }
 
   static AxFlow.Mapper flowConditionFromSpec(Object rawSpec) {
