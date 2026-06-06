@@ -14,16 +14,24 @@ const okResponse = {
       finish_reason: 'stop',
     },
   ],
+  usage: {
+    prompt_tokens: 10,
+    completion_tokens: 1,
+    total_tokens: 11,
+  },
 };
 
-function createMockFetch(capture: { lastBody?: Record<string, unknown> }) {
+function createMockFetch(
+  capture: { lastBody?: Record<string, unknown> },
+  responseBody: unknown = okResponse
+) {
   return vi
     .fn()
     .mockImplementation(async (_url: RequestInfo | URL, init?: RequestInit) => {
       if (typeof init?.body === 'string') {
         capture.lastBody = JSON.parse(init.body) as Record<string, unknown>;
       }
-      return new Response(JSON.stringify(okResponse), {
+      return new Response(JSON.stringify(responseBody), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       });
@@ -60,7 +68,7 @@ describe('AxAILiteLLM', () => {
     expect(ai.getName()).toBe('LiteLLM');
   });
 
-  it('sends chat request to proxy URL', async () => {
+  it('sends chat request and parses response correctly', async () => {
     const capture: { lastBody?: Record<string, unknown> } = {};
     const mockFetch = createMockFetch(capture);
 
@@ -71,7 +79,7 @@ describe('AxAILiteLLM', () => {
     });
     ai.setOptions({ fetch: mockFetch });
 
-    await ai.chat({
+    const res = await ai.chat({
       chatPrompt: [{ role: 'user', content: 'hello' }],
     });
 
@@ -79,6 +87,13 @@ describe('AxAILiteLLM', () => {
     const url = mockFetch.mock.calls[0]?.[0];
     expect(String(url)).toContain('localhost:4000');
     expect(capture.lastBody?.model).toBe('anthropic/claude-sonnet-4-20250514');
+
+    // Verify response is parsed, not just that fetch was called
+    if (res instanceof ReadableStream) {
+      throw new Error('Expected non-streaming response');
+    }
+    expect(res.results[0]?.content).toBe('ok');
+    expect(res.results[0]?.finishReason).toBe('stop');
   });
 
   it('returns default config', () => {
@@ -109,6 +124,20 @@ describe('AxAILiteLLM', () => {
     expect(models).toHaveLength(2);
     expect(models[0]?.name).toBe('gpt-4o-mini');
     expect(models[1]?.name).toBe('anthropic/claude-sonnet-4-20250514');
+  });
+
+  it('fetchModelList returns empty array on error', async () => {
+    const mockFetch = vi
+      .fn()
+      .mockResolvedValue(new Response('Unauthorized', { status: 401 }));
+
+    const ai = new AxAILiteLLM({
+      apiKey: 'sk-bad-key',
+      apiURL: 'http://localhost:4000/v1',
+    });
+
+    const models = await ai.fetchModelList({ fetch: mockFetch });
+    expect(models).toEqual([]);
   });
 
   it('accepts custom modelInfo for cost tracking', () => {
